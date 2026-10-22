@@ -44,6 +44,7 @@ import Prelude
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.Nat
 import Data.SortedMap
 import Data.String
 import System.Directory
@@ -153,7 +154,7 @@ tests = do
   f <- fixedTys
   let twos = mapMaybe (\b => (\r => (testName f b, [twoSegment f r b])) <$> twoOf f b) builtins
       castBuiltins = mapMaybe (\b => (\u => (b, u)) <$> castOf f b) builtins
-      casts = case castBuiltins of
+      casts = the (List (String, List Segment)) $ case castBuiltins of
         [] => []
         ((b, _) :: _) => [(testName f b, map (\(c, u) => castSegment f u c) castBuiltins)]
   filter (\(_, ss) => any (\s => rowCount s + length (stopsOf s) > 0) ss) (twos ++ casts)

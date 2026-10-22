@@ -76,6 +76,10 @@ import Sem
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Runtime.Endings
 
+-- The numeric ops' module is imported for the signedness a width carries;
+-- its Part, a division's quotient or remainder, is not a program's part.
+%hide IdrisMLIR.Spec.Ops.Numeric.Part
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -854,7 +858,9 @@ checkOf how request run = do
     OfEnding => unlines report.ending
     OfAgreement => unlines report.agree
     OfModel => unlines report.model
-    OfFirst => maybe "" (\(n, f) => show n ++ " " ++ failureWord f ++ "\n") report.first
+    OfFirst => case report.first of
+      Nothing => ""
+      Just (n, f) => show n ++ " " ++ failureWord f ++ "\n"
     OfModelled =>
       let numbered = zip [the Nat 1 .. length cs] (map fst cs)
           shownCases = map fst (expectedRun part numbered).printed
@@ -885,8 +891,11 @@ checkerChecks =
       ending = observedEnding run.ending
       ok = checked "1" Runtime cs (MkObserved agreeing (fst ending) (snd ending))
       firstShown = head' run.printed
-      bad = checked "1" Runtime cs
-              (MkObserved (agreeing ++ maybe "" (\(n, m) => label m n ++ " x\n") firstShown) (fst ending) (snd ending))
+      firstAgain : String
+      firstAgain = case firstShown of
+        Nothing => ""
+        Just (n, m) => label m n ++ " x\n"
+      bad = checked "1" Runtime cs (MkObserved (agreeing ++ firstAgain) (fst ending) (snd ending))
       dropped = lines agreeing
       short = checked "1" Runtime cs (MkObserved (unlines (drop 1 dropped)) (fst ending) (snd ending))
       silent = checked "1" Runtime cs (MkObserved "" (fst ending) (snd ending))

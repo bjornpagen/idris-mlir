@@ -252,8 +252,8 @@ bigShifted dir a s =
   let places = case dir of
         Leftward => s
         Rightward => negate s
-  in if places >= 0 then a * pow2 (cast places)
-                    else floorDiv a (pow2 (cast (negate places)))
+  in if places >= 0 then a * pow2 (integerToNat places)
+                    else floorDiv a (pow2 (integerToNat (negate places)))
 
 ||| A shift of a value of a width: the Integer shift, wrapped to the width.
 ||| Moved as many places as the width has, either way, a value of it has
@@ -507,10 +507,13 @@ data Source : Ty -> Type where
   AnyOf : Source t
   Pooled : (first : Literal t) -> (rest : List (Literal t)) -> Source t
 
-public export
-data Sources : List Ty -> Type where
-  Nil : Sources []
-  (::) : Source t -> Sources ts -> Sources (t :: ts)
+-- Its own namespace, since Args below spells its arguments with the same
+-- Nil and (::), and one namespace holds one of each.
+namespace Sources
+  public export
+  data Sources : List Ty -> Type where
+    Nil : Sources []
+    (::) : Source t -> Sources ts -> Sources (t :: ts)
 
 ||| What the oracle computes of a builtin: of integers to an integer (a
 ||| comparison's truth as 0 or 1); or nothing, for a value of a Double, a

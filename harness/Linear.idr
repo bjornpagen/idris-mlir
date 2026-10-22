@@ -54,6 +54,7 @@ import Facts
 import Files
 import Reject
 
+import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Core.Verdict
 
 %default total
@@ -64,7 +65,7 @@ import IdrisMLIR.Spec.Core.Verdict
 
 ||| A function of the program that takes its list apart and builds a list
 ||| from its cells: the in-place promise binds each of its calls.
-data Rebuilder = Bump | Double | Reverse
+data Rebuilder = Bump | Doubled | Reverse
 
 ||| A read of the program: an unrestricted function that walks the list it
 ||| is lent and keeps nothing of it.
@@ -128,7 +129,7 @@ choose w = map (\picked => picked.fst) (weighted w)
 
 rebuilderOf : Fin 3 -> Rebuilder
 rebuilderOf FZ = Bump
-rebuilderOf (FS FZ) = Double
+rebuilderOf (FS FZ) = Doubled
 rebuilderOf (FS (FS _)) = Reverse
 
 readerOf : Fin 2 -> Reader
@@ -259,7 +260,7 @@ nameText n i = "v" ++ show (minus n (S (finToNat i)))
 
 rebuilderText : Form -> Rebuilder -> String
 rebuilderText _ Bump = "bump"
-rebuilderText _ Double = "doubled"
+rebuilderText _ Doubled = "doubled"
 rebuilderText OverLinear Reverse = "Linear.List.reverse"
 rebuilderText OverPlain Reverse = "reverseOnto []"
 
@@ -495,12 +496,12 @@ checks =
   , ("a list read, unused, before it is rebuilt is accepted",
      isAccepted (verdictOf (Unused Length (Name FZ) (Print Sum (Rebuild Bump (Name FZ)) Done))))
   , ("a list rebuilt once is accepted",
-     isAccepted (verdictOf (Print Sum (Rebuild Double (Name FZ)) Done)))
+     isAccepted (verdictOf (Print Sum (Rebuild Doubled (Name FZ)) Done)))
   , ("a list read twice and rebuilt nowhere is accepted",
      isAccepted (verdictOf (Print Sum (Name FZ) (Print Length (Name FZ) Done))))
   , ("a list rebuilt twice is refused at both rebuilds",
      refusedAt [statementLine 2, statementLine 3]
-       (verdictOf (Print Sum (Rebuild Bump (Name FZ)) (Print Sum (Rebuild Double (Name FZ)) Done))))
+       (verdictOf (Print Sum (Rebuild Bump (Name FZ)) (Print Sum (Rebuild Doubled (Name FZ)) Done))))
   , ("a name for a list, rebuilt once, is accepted",
      isAccepted (verdictOf (Bind (Name FZ) (Print Sum (Rebuild Bump (Name FZ)) Done))))
   , ("a name for a list, rebuilt after the list is read, is accepted",
@@ -512,7 +513,7 @@ checks =
      refusedAt [statementLine 2, statementLine 4]
        (verdictOf (Bind (Rebuild Bump (Name FZ)) (Print Sum (Name (FS FZ)) (Print Sum (Rebuild Bump (Name FZ)) Done)))))
   , ("a rebuild of a rebuild of a list used once is accepted",
-     isAccepted (verdictOf (Bind (Rebuild Bump (Name FZ)) (Print Sum (Rebuild Double (Name FZ)) Done))))
+     isAccepted (verdictOf (Bind (Rebuild Bump (Name FZ)) (Print Sum (Rebuild Doubled (Name FZ)) Done))))
   , ("seed 1's first 64 programs hold both verdicts",
      let verdicts = map (\i => isAccepted (predict (programAt 1 i))) [1 .. 64]
      in any id verdicts && any not verdicts)
@@ -560,7 +561,7 @@ programOf request@[seed, n, part] = do
   what <- parsePart part
   pure (partText (unwords request) what (programAt s i))
 programOf ["checks"] =
-  Just (unlines (map (\(name, holds) => "linear: " ++ name ++ ": " ++ (if holds then "ok" else "failed")) checks))
+  Just (unlines (map (\(name, holds) => "linear: " ++ name ++ ": " ++ (if holds then "ok" else "failed")) Linear.checks))
 programOf _ = Nothing
 
 ||| `runtests --linear-check <seed> <case> <exit-status> <report>`: what

@@ -8,13 +8,12 @@
 |||
 |||     op <symbol> <op> <operands> <said>...
 |||
-||| `operands` is how many of the function's parameters are the op's
-||| operands (any after them are the results it gives through pointers).
-||| Each word of `said` names a sort of effect the declaration has: `crash`
-||| (it may end the run by a crash), `exit` (it may end it normally),
-||| `memory` (it changes a state the runtime keeps in memory), `operands`
-||| (it changes the memory an operand reaches, or gives results through
-||| pointers its caller passes); `nothing` when it has none of them. Then
+||| `operands` is how many parameters the function takes, one per operand
+||| group of the op. Each word of `said` names a sort of effect the
+||| declaration has: `crash` (it may end the run by a crash), `exit` (it may
+||| end it normally), `memory` (it changes a state the runtime keeps in
+||| memory), `operands` (it changes the memory an operand reaches);
+||| `nothing` when it has none of them. Then
 ||| one line per kind of ending a function may end the process through,
 ||| named as the runtime names its ending's type:
 |||
@@ -105,12 +104,23 @@ givenChanged values (GivenOn kinds state landing) = case (anyChanges (forget kin
     _ => OtherMemory
   _ => NoChange
 
-||| What a typed rule may give, either way its condition goes; a call's
-||| row may change anything.
-ruleChanged : TypedRule i o -> List Changed
-ruleChanged (ByType rule values) =
+||| What one rule applied to a group may give, either way its condition
+||| goes.
+oneRuleChanged : Values i o -> RuleName -> List Changed
+oneRuleChanged values rule =
   let outcome = consequence rule
   in [givenChanged values outcome.holds, givenChanged values outcome.fails]
+
+||| What a typed rule may give: a rule of one group, as it goes; a pair
+||| rule, the rules it applies to its operand and to its result where its
+||| relation holds, each landing on the value it reads, and nothing where
+||| the relation fails; a call's row, anything.
+ruleChanged : TypedRule i o -> List Changed
+ruleChanged (ByType rule values) = oneRuleChanged values rule
+ruleChanged (ByPair rule operandGroup resultGroup) =
+  let pair = pairConsequence rule
+  in concatMap (oneRuleChanged (Operands operandGroup)) (operandRules pair)
+     ++ concatMap (oneRuleChanged (Results resultGroup)) (resultRules pair)
 ruleChanged Summarized = [OperandMemory, OtherMemory]
 
 ||| Memory the runtime's function holds that no value names changes when
@@ -118,12 +128,6 @@ ruleChanged Summarized = [OperandMemory, OtherMemory]
 memoryChanged : RuntimeMemory -> List Changed
 memoryChanged Untouched = []
 memoryChanged Touched = [OtherMemory]
-
-||| Results given through pointers the caller passes are written through
-||| parameters after the operands'.
-pointersChanged : Gives o -> List Changed
-pointersChanged (ThroughPointers _) = [OperandMemory]
-pointersChanged _ = []
 
 ------------------------------------------------------------------------------
 -- What a declaration says, as words
@@ -151,20 +155,19 @@ record Declared where
   memory : Occurs
   operands : Occurs
 
-||| What the declaration of an op says, whose runtime function gives its
-||| results as `gives` says. A definition is never a runtime call; read as
-||| MLIR reads it, it may do anything.
-declaredBy : Declaration i o -> Gives o -> Declared
-declaredBy Definition _ = MkDeclared Somewhere Somewhere Somewhere Somewhere
-declaredBy (Executes effects rules _ memory) gives =
+||| What the declaration of an op says. A definition is never a runtime
+||| call; read as MLIR reads it, it may do anything.
+declaredBy : Declaration i o -> Declared
+declaredBy Definition = MkDeclared Somewhere Somewhere Somewhere Somewhere
+declaredBy (Executes effects rules _ memory) =
   let changes = map effectChanged effects ++ concatMap ruleChanged rules
-                  ++ memoryChanged memory ++ pointersChanged gives
+                  ++ memoryChanged memory
   in MkDeclared (anyOf crashes effects) (anyOf endsNormally effects)
                 (anyIn touchesMemory changes) (anyIn touchesOperands changes)
 
 declaredWords : Declared -> List String
 declaredWords d =
-  case concat [wordIf "crash" d.crash, wordIf "exit" d.exit, wordIf "memory" d.memory, wordIf "operands" d.operands] of
+  case wordIf "crash" d.crash ++ wordIf "exit" d.exit ++ wordIf "memory" d.memory ++ wordIf "operands" d.operands of
     [] => ["nothing"]
     ws => ws
   where
@@ -179,7 +182,7 @@ declaredWords d =
 callLine : Op i o a r -> String -> RuntimeCall i o -> String
 callLine op function call =
   unwords (["op", function, opName op, show (length (toList call.takes))]
-           ++ declaredWords (declaredBy op.effects call.gives))
+           ++ declaredWords (declaredBy op.effects))
 
 ||| The lines of one op: one per runtime function it calls, none for an op
 ||| whose meaning is no runtime function.
@@ -202,7 +205,7 @@ crashNames = ["Failed", "Said", "Unreportable"]
 
 ||| Every crash's kind is listed, so a kind the specification adds is a
 ||| hole here, which the totality check refuses.
-0 listed : (c : Endings.Crash) -> Elem (crashName c) crashNames
+0 listed : (c : Endings.Crash) -> Elem (crashName c) RuntimeEffects.crashNames
 listed (Failed _) = Here
 listed Said = There Here
 listed Unreportable = There (There Here)

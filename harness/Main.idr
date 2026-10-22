@@ -285,7 +285,7 @@ optionsOf = go defaults
       if isJust (lookup s suites) then go ({ suite := Just s } o) rest else Left ("unknown suite " ++ s)
     go o ("--list" :: rest) = go ({ listing := True } o) rest
     go o ("--threads" :: n :: rest) =
-      maybe (Left ("--threads takes a positive number, not " ++ n)) (\k => go ({ threads := k } o) rest) (parsePositive n)
+      maybe (Left ("--threads takes a positive number, not " ++ n)) (\k => go ({ threads := k } o) rest) (parsePositive {a = Nat} n)
     go o ("--only" :: ws :: rest) = go ({ only $= (words ws ++) } o) rest
     go o ("--except" :: ws :: rest) = go ({ except $= (words ws ++) } o) rest
     go o ("--only-file" :: p :: rest) = go ({ onlyFile := Just p } o) rest
@@ -355,7 +355,8 @@ plan results args = do
   let only = extra ++ opts.only
   let chosen = maybe (map fst suites) pure opts.suite
   let found = map (pools tests) chosen
-  let keep = \pool => { runs $= filter (\(run, _) => selects only opts.except run) } pool
+  let keep : Pool -> Pool
+      keep pool = { runs $= filter (selects only opts.except . fst) } pool
   let selected = map keep (concatMap fst found)
   let notHere = filter (selects only opts.except) (concatMap snd found)
   if opts.listing

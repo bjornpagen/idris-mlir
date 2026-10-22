@@ -27,6 +27,7 @@ import System
 import Facts
 import Files
 
+import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Core.Verdict
 
 %default covering

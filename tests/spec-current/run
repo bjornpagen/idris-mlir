@@ -8,9 +8,9 @@
 # file sits in the generated directory that no output is. On copies it
 # finds what breaks that:
 #   - a generated file edited by hand: that file alone;
-#   - a comment in the specification: the manifest alone, since the
-#     manifest fingerprints the specification's source text, comments
-#     included, while no output can change by a comment;
+#   - a comment in the specification, specgen built again from it:
+#     nothing, since the manifest fingerprints the specification's printed
+#     value, which no comment changes, and no output can change by one;
 #   - the generator's source changed, its outputs the same: the manifest
 #     alone, which fingerprints the generator too, so a changed generator
 #     cannot stand beside outputs it never wrote;
@@ -75,10 +75,20 @@ say '// a line no generator wrote' >> "$tree/$edited"
 spec_check "$specgen" "$tree"
 spec_named "a generated file edited by hand" "$edited"
 
+# The comment is checked by a specgen built from the commented
+# specification, since the first one never reads the sources. The build
+# goes on from the first one's, so only what the comment reaches is built
+# again.
 planted_tree spec-comment
+rm -rf "$tree/compiler/spec" && cp -R "$spec_build" "$tree/compiler/spec" || exit 1
 say '-- a comment no output holds' >> "$tree/compiler/spec/IdrisMLIR/Spec.idr"
-spec_check "$specgen" "$tree"
-spec_named "a comment in the specification" "$spec_manifest"
+if ! (cd "$tree/compiler/spec" && pinned_idris --build spec.ipkg) > "$work/comment.out" 2>&1; then
+  say "a comment in the specification: specgen not built again"
+  show "$work/comment.out"
+else
+  spec_check "$tree/compiler/spec/build/exec/specgen" "$tree"
+  spec_named "a comment in the specification"
+fi
 
 # The generator's first module the package lists gains a definition no
 # output reads, so it writes what it wrote.

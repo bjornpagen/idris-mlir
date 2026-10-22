@@ -19,6 +19,8 @@ import System
 import Facts
 import Files
 
+import IdrisMLIR.Spec.Runtime.Endings
+
 %default covering
 
 endingOrDie : (dir : String) -> IO Ending

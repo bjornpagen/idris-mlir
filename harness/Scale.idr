@@ -333,7 +333,7 @@ labels n =
           , "}"
           , ret ["%r"] ["i64"] ]
      ++ func "entry" [("%x", "i64")] ["i64"]
-          [ "%b = " ++ opName (captureOp AClosure) ++ " @base() : () -> " ++ closure
+          [ "%b = " ++ opName closureOp ++ " @base() : () -> " ++ closure
           , call "%r" "loop" [("%b", closure), ("%x", "i64")] ["i64"]
           , "%one = arith.constant 1 : i64"
           , "%s = arith.addi %r, %one : i64"
@@ -346,7 +346,7 @@ labels n =
     arm : Nat -> Text
     arm k =
       [ "case " ++ show k ++ " {"
-      , "  %c = " ++ opName (captureOp AClosure) ++ " @" ++ labelName k ++ "(%k) : (" ++ closure ++ ") -> " ++ closure
+      , "  %c = " ++ opName closureOp ++ " @" ++ labelName k ++ "(%k) : (" ++ closure ++ ") -> " ++ closure
       , "  scf.yield %c : " ++ closure, "}" ]
 
 ||| A function that adds one to what a call gives back, so the call is no
@@ -623,7 +623,9 @@ reportOf text = foldl line (MkReport Nothing empty) (lines text)
       ["verdict:", v] => { verdict := readVerdict v } r
       ["statistic:", kv] =>
         case break (== '=') (unpack kv) of
-          (k, '=' :: v) => maybe r (\n => { statistics $= insert (pack k) n } r) (parseInteger (pack v))
+          (k, '=' :: v) => case parseInteger (pack v) of
+            Nothing => r
+            Just n => { statistics $= insert (pack k) n } r
           _ => r
       _ => r
 
