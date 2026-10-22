@@ -26,7 +26,7 @@ handoff lists its own wiring.
 - **Per D111:** build the Idris half here on stock Idris, route its
   errors, and stop at the LLVM build. The owner runs the bootstrap and
   the C++ build on the four targets.
-- **Qualification, added by L11 (b0 below):** re-measure code generation
+- **Qualification, added by L11:** re-measure code generation
   time on the large-function program that set `inlineCallerInstructions`
   (recorded 2.8 s against 95 s), since always-inline runtime entries now
   inline into large functions too (C186). L11's guess is a small cost,
