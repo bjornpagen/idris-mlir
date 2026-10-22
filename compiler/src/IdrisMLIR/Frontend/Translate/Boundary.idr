@@ -320,9 +320,9 @@ headed ty = case getFn ty of
     -- Any other probe stands for a runtime value or a binder of a
     -- constructor's type, which no instance puts in.
     probed : Probe -> Headed
-    probed (ProbeVar _ _) = Undecided
+    probed (ProbePart _ _) = Undecided
     probed (ProbePattern _) = Undecided
-    probed (ProbeFieldPath _ _ _) = Undecided
+    probed (ProbeFieldPath _ _) = Undecided
     probed (ProbeFormal _ _) = Undecided
     probed _ = Neither
 

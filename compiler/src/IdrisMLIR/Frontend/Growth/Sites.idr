@@ -227,13 +227,15 @@ record ClosedOver where
 valueTypes : ClosedOver -> List1 ClosedTerm
 valueTypes co = map closingType co.closings
 
-||| A dictionary a variable holds: the writer's dictionary parameter `i` at
-||| match depth `d`, and the fields matched out of it, the first first; or
-||| one known as a term, the dictionary a constructor holds, matched out of
-||| a value, or one written where a lambda's dictionary binder takes it,
-||| closed as every term is (`close`), with what it closes over where it
-||| closes over values whose types the walk knows (`knownAt`).
-data Dict = Own Nat Nat (List Nat) | Known ClosedTerm (Maybe ClosedOver)
+||| A dictionary a variable holds: the writer's dictionary parameter `i`,
+||| and the fields matched out of it, the first first, which a match on it
+||| takes apart without making it a part of anything, so it keeps its
+||| marker; or one known as a term, the dictionary a constructor holds,
+||| matched out of a value, or one written where a lambda's dictionary
+||| binder takes it, closed as every term is (`close`), with what it closes
+||| over where it closes over values whose types the walk knows
+||| (`knownAt`).
+data Dict = Own Nat (List Nat) | Known ClosedTerm (Maybe ClosedOver)
 
 ||| What a variable of the walk stands for: a compile-time value that is
 ||| never code (a parameter's type, family or form at the node, a type a
@@ -244,7 +246,7 @@ data Dict = Own Nat Nat (List Nat) | Known ClosedTerm (Maybe ClosedOver)
 ||| is bound at holds, its values packed into one, which the dictionary is
 ||| settled over (`settledAt`); or any other runtime value. A shape not
 ||| matched yet carries its stand-in, so that a match knows what it rebinds
-||| and how deep without looking it up.
+||| and the path to each part it binds without looking it up.
 data Stand = Fixed ClosedTerm
            | Holds Dict
            | Pattern StandIn
@@ -258,7 +260,7 @@ data Stand = Fixed ClosedTerm
 ||| the field its path reads, which with no field matched out is its marker.
 termOf : Stand -> ClosedTerm
 termOf (Fixed t) = t
-termOf (Holds (Own i d path)) = fieldAt i d path
+termOf (Holds (Own i path)) = fieldAt i path
 termOf (Holds (Known t _)) = t
 termOf (Pattern p) = standInAt p
 termOf (Shape t) = t
@@ -312,9 +314,10 @@ record Pats where
 inPart : Nat -> Pats -> Pats
 inPart k ps = { place $= (k ::) } ps
 
-||| A fresh stand-in at parameter `i`, depth `d`.
-fresh : (i, d : Nat) -> Pats -> (Stand, Pats)
-fresh i d ps = let p = MkStandIn ps.next i d in (Pattern p, { next := S ps.next, made $= (p ::) } ps)
+||| A fresh stand-in for the part of parameter `i` that matches reached
+||| along `path`, the parameter's field first.
+fresh : (i : Nat) -> (path : List Nat) -> Pats -> (Stand, Pats)
+fresh i path ps = let p = MkStandIn ps.next i path in (Pattern p, { next := S ps.next, made $= (p ::) } ps)
 
 ||| A term with each of the names given replaced by its term, all at once.
 replacing : List (Name, ClosedTerm) -> ClosedTerm -> ClosedTerm
@@ -778,8 +781,8 @@ dictionaryParameter statics n = probeOf n >>= parameter
       Nothing => Just i
 
     parameter : Probe -> Maybe Nat
-    parameter (ProbeVar i _) = holding i
-    parameter (ProbeFieldPath i _ _) = holding i
+    parameter (ProbePart i _) = holding i
+    parameter (ProbeFieldPath i _) = holding i
     parameter _ = Nothing
 
 ||| What an argument of a spine mentions that a dictionary holds: a runtime
@@ -1028,7 +1031,7 @@ heldBy at stands fc (Known _ (Just co)) = do
   (lists, sites) <- held at stands fc (forget (heldValues co))
   pure (map (\l => siteAt at fc (Keeps co.binding l) []) lists ++ sites)
 heldBy at stands fc (Known _ Nothing) = pure []
-heldBy at stands fc (Own _ _ _) = pure []
+heldBy at stands fc (Own _ _) = pure []
 
 ||| The type a suspension holds, of a suspension's type; any other as it is:
 ||| a lambda given delayed where a delayed one is held is the member of the
@@ -1184,7 +1187,7 @@ useArguments at ty member = do
     arguments : Nat -> (position : Nat) -> Maybe ClosedTerm -> Front (List (Arg vs))
     arguments Z _ _ = pure []
     arguments (S n) j t = do
-      let x = markerAt (at.arity + j) 0
+      let x = markerAt (at.arity + j) []
       rest <- the (Front (Maybe ClosedTerm)) $ case t of
         Just t' => do
           Bind _ _ (Pi {}) sc <- showingBinder t'
@@ -2181,11 +2184,11 @@ conStands ps v r cd con args = do
       facts <- tyConFacts tc
       pure (paramLayout cd.def facts.params facts.roles ty)
 
-    -- A runtime field: of a shape not matched yet, a shape one match
-    -- deeper; of anything else, a runtime value.
-    field : Pats -> (Stand, Pats)
-    field ps = case v of
-      Pattern p => fresh p.param (S p.depth) ps
+    -- Runtime field b: of a shape not matched yet, the part at that
+    -- field, one match deeper; of anything else, a runtime value.
+    field : Nat -> Pats -> (Stand, Pats)
+    field b ps = case v of
+      Pattern p => fresh p.param (p.path ++ [b]) ps
       _ => (Runtime, ps)
 
     -- The scrutinee's type need not show the parameter when it is no type
@@ -2194,10 +2197,10 @@ conStands ps v r cd con args = do
     stand : Pats -> Maybe Nat -> Nat -> RigCount -> ClosedTerm -> Front (Stand, Pats)
     stand ps (Just p) b _ _ = pure (maybe Erased Fixed (getAt p r), ps)
     stand ps Nothing b rig a = case v of
-      Holds (Own i d path) => pure (Holds (Own i d (path ++ [b])), ps)
+      Holds (Own i path) => pure (Holds (Own i (path ++ [b])), ps)
       _ => case argumentAt cd.def b rig of
         RuntimeValue _ =>
-          if !(compileTimeBinder rig !(normaliseClosed a)) then pure (Runtime, ps) else pure (field ps)
+          if !(compileTimeBinder rig !(normaliseClosed a)) then pure (Runtime, ps) else pure (field b ps)
         _ => pure (Erased, ps)
 
     -- The layout has one entry per binder of the type it was read off,
@@ -2230,7 +2233,7 @@ conName _ = Nothing
 ||| Every other dictionary parameter is passed on with the values it was
 ||| given, each as itself (`Cases.passedOn`).
 repacked : {auto c : Ref Ctxt Defs} -> At -> Stand -> Front (List Site)
-repacked at (Holds (Own i _ (k :: ks))) = do
+repacked at (Holds (Own i (k :: ks))) = do
   dictionary <- own (i, ADictionary)
   others <- traverse own (mapMaybe static (zip [0 .. length at.statics] at.statics))
   paired <- pairReached at at.loc
@@ -2243,7 +2246,7 @@ repacked at (Holds (Own i _ (k :: ks))) = do
 
     own : (Nat, Static) -> Front Argument
     own (j, kind) = do
-      x <- readArgument [] j kind Nothing (markerAt j 0) (ParameterText at.writerDef j)
+      x <- readArgument [] j kind Nothing (markerAt j []) (ParameterText at.writerDef j)
       pure (case kind of
               ADictionary => { holds := [EachOf j ::: []] } x
               _ => x)
@@ -2404,14 +2407,14 @@ writerAt writer within = do
 ||| What a parameter of the definition stands for, by its kind and its value
 ||| at the node: a type, a family or a form is that value, its marker
 ||| unless the node has a head for it; a dictionary the dictionary at its
-||| marker; a shape a fresh stand-in at depth 0; and anything else erased
-||| or a runtime value, by its quantity.
+||| marker; a shape a fresh stand-in for the whole parameter, at the empty
+||| path; and anything else erased or a runtime value, by its quantity.
 standFor : Maybe Static -> RigCount -> Nat -> ClosedTerm -> Pats -> (Stand, Pats)
 standFor (Just AType) _ i v ps = (Fixed v, ps)
 standFor (Just AFamily) _ i v ps = (Fixed v, ps)
 standFor (Just AForm) _ i v ps = (Fixed v, ps)
-standFor (Just ADictionary) _ i v ps = (Holds (Own i 0 []), ps)
-standFor (Just AShape) _ i v ps = fresh i 0 ps
+standFor (Just ADictionary) _ i v ps = (Holds (Own i []), ps)
+standFor (Just AShape) _ i v ps = fresh i [] ps
 standFor Nothing rig _ v ps = (byQuantity (use rig), ps)
 
 ||| The definition's parameters, off its type, each standing as its kind
@@ -2464,7 +2467,7 @@ dictionaryProjection kinds t = do
 ||| the one value it holds (`Terms.holed`).
 projectionSite : {auto c : Ref Ctxt Defs} -> At -> Pats -> List (Maybe Static, Standing) -> Projected -> Front Site
 projectionSite at ps params p = do
-  (tm, root) <- rooted [] ADictionary (markerAt p.matched 0)
+  (tm, root) <- rooted [] ADictionary (markerAt p.matched [])
   args <- traverse own (mapMaybe static (zip [0 .. length p.params] p.params))
   pure (siteAt at at.loc (Dispatches tm root p.field) args)
   where
@@ -2495,7 +2498,7 @@ nodeValues Z heads i ty ps = pure ([], ps)
 nodeValues (S n) heads i ty ps = do
   Bind _ _ (Pi _ _ _ kind) sc <- showingBinder ty
     | _ => pure ([], ps)
-  (v, ps') <- maybe (pure (markerAt i 0, ps)) (headed kind) (lookup i heads)
+  (v, ps') <- maybe (pure (markerAt i [], ps)) (headed kind) (lookup i heads)
   (vs, ps'') <- nodeValues n heads (S i) (subst v sc) ps'
   pure (v :: vs, ps'')
   where
@@ -2503,12 +2506,13 @@ nodeValues (S n) heads i ty ps = do
     arrows (Bind _ _ (Pi {}) sc) = S (arrows sc)
     arrows _ = Z
 
-    -- One stand-in for each part, a level down.
-    parts : Nat -> Pats -> (List ClosedTerm, Pats)
-    parts Z qs = ([], qs)
-    parts (S m) qs = let (st, qs') = fresh i 1 qs
-                         (rest, qs'') = parts m qs' in
-                     (termOf st :: rest, qs'')
+    -- One stand-in for each part, a level down: the type constructor's
+    -- arguments from k on, each at its own field.
+    parts : (k : Nat) -> Nat -> Pats -> (List ClosedTerm, Pats)
+    parts k Z qs = ([], qs)
+    parts k (S m) qs = let (st, qs') = fresh i [k] qs
+                           (rest, qs'') = parts (S k) m qs' in
+                       (termOf st :: rest, qs'')
 
     headed : ClosedTerm -> Address -> Front (ClosedTerm, Pats)
     headed kind tc = do
@@ -2517,7 +2521,7 @@ nodeValues (S n) heads i ty ps = do
       let TCon arity _ _ _ _ _ _ = definition tcd.def
         | _ => internal EmptyFC ("a family's head that is no type constructor: " ++ show (fullname tcd.def))
       k <- arrows <$> normaliseClosed kind
-      let (ts, ps') = parts (minus arity k) ps
+      let (ts, ps') = parts 0 (minus arity k) ps
       pure (foldl (App EmptyFC) (Ref EmptyFC (TyCon arity) (fullname tcd.def)) ts, ps')
 
 ||| Every site a definition writes at a node, with each parameter standing

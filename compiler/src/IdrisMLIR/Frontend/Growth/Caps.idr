@@ -175,7 +175,7 @@ capOf addr j = do
     | Nothing => internal EmptyFC "an address with no definition"
   let owner = show (fullname d.def)
   let ty = d.type
-  (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i 0, AValue) | i <- [0 .. j]]
+  (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i [], AValue) | i <- [0 .. j]]
   case staticOf (Vect.last kinds) of
     Just AShape => do
       -- A parameter whose binder the placeholders leave unshown has no
@@ -193,7 +193,7 @@ capOf addr j = do
         (Ref _ (TyCon _) tn, _) => (.natness) <$> tyConFacts !(lookupDef EmptyFC owner tn)
         _ => pure NotNat
       case natness of
-        Chain => capFrom j <$> capTemplate (rest (markerAt j 0))
+        Chain => capFrom j <$> capTemplate (rest (markerAt j []))
         -- A tree, a `Numeral`'s shape included, whose whole shape, which
         -- `neededShape` keeps where the type is stuck on a hole, no depth of
         -- the type bounds.

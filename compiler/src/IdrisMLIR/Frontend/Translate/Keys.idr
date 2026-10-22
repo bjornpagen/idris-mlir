@@ -342,7 +342,10 @@ export
 spell : String -> List (Token Form)
 spell s = spellChars (unpack s)
 
-export
+||| An integer constant's one token: its type, sign and magnitude. Its body
+||| is public, as `writeConstant`'s is, so that what a proof states of a
+||| constant's key reduces through it to the magnitude.
+public export
 integer : PrimType -> Integer -> List (Token Form)
 integer t v = [Number (IntegerLit (primitive t) (v < 0)) (integerToNat (abs v))]
 

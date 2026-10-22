@@ -46,46 +46,47 @@ returned g k t = close g t
 
 mutual
   -- What the argument at represented position `j` of the return type
-  -- binds, at depth `d`: a binder found there is a part of that
-  -- position's value, under as many constructors as it is nested in, so
-  -- that a field reading it says how much smaller than the position it
-  -- is: the binder, the position and the depth.
-  pattern : Nat -> Nat -> ClosedTerm -> List (Nat, Nat, Nat)
-  pattern j d t = case standInOf t of
-    Just k => [(k, j, d)]
-    Nothing => fromMaybe [] (parts j (S d) t)
+  -- binds, at the part `path` reaches: a binder found there is that part
+  -- of the position's value, the field of each constructor it is nested
+  -- in on its path, so that a field reading it says which part of the
+  -- position it is, one value: the binder, the position and the path.
+  pattern : Nat -> List Nat -> ClosedTerm -> List (Nat, Nat, List Nat)
+  pattern j path t = case standInOf t of
+    Just k => [(k, j, path)]
+    Nothing => maybe [] fst (parts j path t)
 
-  -- What the arguments of an application bind, left to right, at depth
-  -- `d`, when its head is a type or data constructor: only a constructor's
-  -- arguments are parts of the value it makes. A function need not be
-  -- injective, so what its arguments hold says nothing of its result, and
-  -- any other head binds nothing. The head decides once, where the walk
-  -- meets it.
-  parts : Nat -> Nat -> ClosedTerm -> Maybe (List (Nat, Nat, Nat))
-  parts j d (App _ f a) = (\bs => bs ++ pattern j d a) <$> parts j d f
-  parts j d (Ref _ (DataCon _ _) _) = Just []
-  parts j d (Ref _ (TyCon _) _) = Just []
-  parts j d _ = Nothing
+  -- What the arguments of an application bind, left to right, each at its
+  -- own field below `path`, when its head is a type or data constructor,
+  -- with how many arguments it has: only a constructor's arguments are
+  -- parts of the value it makes. A function need not be injective, so
+  -- what its arguments hold says nothing of its result, and any other
+  -- head binds nothing. The head decides once, where the walk meets it.
+  parts : Nat -> List Nat -> ClosedTerm -> Maybe (List (Nat, Nat, List Nat), Nat)
+  parts j path (App _ f a) = (\(bs, k) => (bs ++ pattern j (path ++ [k]) a, S k)) <$> parts j path f
+  parts j path (Ref _ (DataCon _ _) _) = Just ([], 0)
+  parts j path (Ref _ (TyCon _) _) = Just ([], 0)
+  parts j path _ = Nothing
 
 -- What a constructor's return type binds at the represented positions
--- `rs`: each of its arguments, left to right, at depth 0, each binder a
--- stand-in of its own, numbered from 0, so that two binders of one
--- position at one depth are two markers. Walking the arguments that are
--- there, a position is never looked for past the last of them. An
--- argument at a position not represented is none the check watches, so
--- it binds nothing: the problem's case. A binder bound twice keeps its
--- first binding: both bindings hold the same value, so either is sound.
+-- `rs`: each of its arguments, left to right, at the whole position, each
+-- binder a stand-in of its own, numbered from 0, at the path to the part
+-- it is, so that two binders of one position are two markers, each for
+-- one value. Walking the arguments that are there, a position is never
+-- looked for past the last of them. An argument at a position not
+-- represented is none the check watches, so it binds nothing: the
+-- problem's case. A binder bound twice keeps its first binding: both
+-- bindings hold the same value, so either is sound.
 bindings : List Nat -> ClosedTerm -> List (Nat, StandIn)
 bindings rs ret = numbered 0 (argumentsFrom 0 (snd (getFnArgs ret)))
   where
-    argumentsFrom : Nat -> List ClosedTerm -> List (Nat, Nat, Nat)
+    argumentsFrom : Nat -> List ClosedTerm -> List (Nat, Nat, List Nat)
     argumentsFrom j [] = []
     argumentsFrom j (a :: as) =
-      (if elem j rs then pattern j 0 a else []) ++ argumentsFrom (S j) as
+      (if elem j rs then pattern j [] a else []) ++ argumentsFrom (S j) as
 
-    numbered : Nat -> List (Nat, Nat, Nat) -> List (Nat, StandIn)
+    numbered : Nat -> List (Nat, Nat, List Nat) -> List (Nat, StandIn)
     numbered n [] = []
-    numbered n ((k, j, d) :: bs) = (k, MkStandIn n j d) :: numbered (S n) bs
+    numbered n ((k, j, path) :: bs) = (k, MkStandIn n j path) :: numbered (S n) bs
 
 -- The types of a constructor's runtime fields, in binder order, read with
 -- each binder given what the return type binds it to. A binder no

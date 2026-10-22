@@ -1249,11 +1249,11 @@ nameOf a = do
     Nothing => pure (show a)
 
 -- A term with the writer's family markers given values: each `markerAt i
--- 0` whose parameter the list names is that value.
+-- []` whose parameter the list names is that value.
 mutual
   givenFamilies : List (Nat, ClosedTerm) -> TT vs -> TT vs
   givenFamilies ms tm@(Ref _ _ n) = case Template.markerOf n of
-    Just (i, Z) => maybe tm embedClosed (lookup i ms)
+    Just (i, []) => maybe tm embedClosed (lookup i ms)
     _ => tm
   givenFamilies ms (App fc f a) = App fc (givenFamilies ms f) (givenFamilies ms a)
   givenFamilies ms (Bind fc x b sc) = Bind fc x (givenIn ms b) (givenFamilies ms sc)

@@ -215,11 +215,15 @@ fewerThen q p = transitive q p
 ||| - `ProbeAxis i j`, with `ProbeAxisAt j`, the reference it is applied
 |||   to: axis `i` of the array parameter `j` (`Shapes`);
 ||| - `ProbeSize i`: the size variable `i` (`Shapes`);
-||| - `ProbeVar i d`: the growth walk's writer's parameter `i`, matched `d`
-|||   constructors deep (`Template`);
+||| - `ProbePart i path`: the part of the growth walk's writer's parameter
+|||   `i` that matches reached along `path`, the field of the parameter
+|||   first, which reads as the writer's `Var i (length path)`; field j of a
+|||   match on it is `ProbePart i (path ++ [j])`, so that each marker stands
+|||   for one value an instance gives (`Template`);
 ||| - `ProbeFormal j a`: argument `j` of a family's value of arity `a`;
-||| - `ProbeFieldPath i d path`: the fields of `ProbeVar i d`'s dictionary
-|||   along a path, the first field first.
+||| - `ProbeFieldPath i path`: the fields of the writer's dictionary
+|||   parameter `i` along a path, the first field first. A dictionary keeps
+|||   its marker through every match, so it is never a part of a parameter.
 public export
 data Probe = ProbeBinder Nat
            | ProbeHole Nat
@@ -233,9 +237,15 @@ data Probe = ProbeBinder Nat
            | ProbeAxis Nat Nat
            | ProbeAxisAt Nat
            | ProbeSize Nat
-           | ProbeVar Nat Nat
+           | ProbePart Nat (List Nat)
            | ProbeFormal Nat Nat
-           | ProbeFieldPath Nat Nat (List1 Nat)
+           | ProbeFieldPath Nat (List1 Nat)
+
+-- A path's steps nested around a name, the first step outermost, as a
+-- part's and a dictionary field's names hold their paths.
+along : List Nat -> Name -> Name
+along [] n = n
+along (k :: ks) n = Nested (cast k, 0) (along ks n)
 
 ||| A probe's name: the one place a probe is spelled, each family by its
 ||| own identifier, a constant of the compiler's known vocabulary that the
@@ -262,13 +272,9 @@ probeName ProbeForm = MN (known KProbeForm) 0
 probeName (ProbeAxis i _) = MN (known KProbeAxis) (cast i)
 probeName (ProbeAxisAt j) = MN (known KProbeAxisAt) (cast j)
 probeName (ProbeSize i) = MN (known KProbeSize) (cast i)
-probeName (ProbeVar i d) = Nested (cast i, cast d) (knownUN KProbeVar)
+probeName (ProbePart i path) = Nested (cast i, 0) (along path (knownUN KProbeVar))
 probeName (ProbeFormal j a) = Nested (cast j, cast a) (knownUN KProbeFormal)
-probeName (ProbeFieldPath i d (k ::: ks)) = Nested (cast i, cast d) (steps (k :: ks))
-  where
-    steps : List Nat -> Name
-    steps [] = knownUN KProbeField
-    steps (f :: fs) = Nested (cast f, 0) (steps fs)
+probeName (ProbeFieldPath i (k ::: ks)) = Nested (cast i, 0) (along (k :: ks) (knownUN KProbeField))
 
 -- The pairs a nested name nests around, the outermost first, and the
 -- name inside them.
@@ -293,9 +299,9 @@ probeOf n@(Nested _ _) = List.find (\p => probeName p == n) (candidates (nesting
     candidates : (List (Int, Int), Name) -> List Probe
     candidates ([(i, d)], _) =
       [ProbeHole (cast i), ProbeHoleFound (cast i), ProbePattern (cast i),
-       ProbeVar (cast i) (cast d), ProbeFormal (cast i) (cast d)]
-    candidates ((i, d) :: f :: fs, _) =
-      [ProbeFieldPath (cast i) (cast d) (map (cast . fst) (f ::: fs))]
+       ProbePart (cast i) [], ProbeFormal (cast i) (cast d)]
+    candidates ((i, _) :: f :: fs, _) =
+      [ProbePart (cast i) (map (cast . fst) (f :: fs)), ProbeFieldPath (cast i) (map (cast . fst) (f ::: fs))]
     candidates _ = []
 probeOf _ = Nothing
 
@@ -317,9 +323,9 @@ probeTerm p@(ProbeAxis _ j) =
   App EmptyFC (Ref EmptyFC Func (probeName p)) (Ref EmptyFC Func (probeName (ProbeAxisAt j)))
 probeTerm p@(ProbeAxisAt _) = Ref EmptyFC Func (probeName p)
 probeTerm p@(ProbeSize _) = Ref EmptyFC Func (probeName p)
-probeTerm p@(ProbeVar _ _) = Ref EmptyFC Bound (probeName p)
+probeTerm p@(ProbePart _ _) = Ref EmptyFC Bound (probeName p)
 probeTerm p@(ProbeFormal _ _) = Ref EmptyFC Bound (probeName p)
-probeTerm p@(ProbeFieldPath _ _ _) = Ref EmptyFC Bound (probeName p)
+probeTerm p@(ProbeFieldPath _ _) = Ref EmptyFC Bound (probeName p)
 
 ||| The probe a term is (`probeTerm`'s inverse): a reference to a probe's
 ||| name, or an axis's two references; nothing for any other term.

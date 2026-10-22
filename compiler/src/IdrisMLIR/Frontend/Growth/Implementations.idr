@@ -103,12 +103,12 @@ bindingOf rig a = case use rig of
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         (owner : String) -> Defined -> (args : Scope) -> Front (ByVar args ClosedTerm)
 marks owner d args = do
-  (kinds, _) <- staticsOver owner (length args) d.type (map (\i => Just (markerAt i 0, AValue)) (iterateN (length args) S 0))
+  (kinds, _) <- staticsOver owner (length args) d.type (map (\i => Just (markerAt i [], AValue)) (iterateN (length args) S 0))
   pure (standing 0 args kinds)
   where
     standing : Nat -> (vs : Scope) -> Vect (length vs) ParamReading -> ByVar vs ClosedTerm
     standing i [] [] = []
-    standing i (_ :: vs) (OffBinder (Just _) _ :: ks) = markerAt i 0 :: standing (S i) vs ks
+    standing i (_ :: vs) (OffBinder (Just _) _ :: ks) = markerAt i [] :: standing (S i) vs ks
     standing i (_ :: vs) (OffBinder Nothing rig :: ks) =
       Erased EmptyFC (case use rig of Erased => Placeholder; Used _ => Impossible) :: standing (S i) vs ks
     standing i (_ :: vs) (PastBinders :: ks) = Erased EmptyFC Impossible :: standing (S i) vs ks
@@ -163,7 +163,7 @@ leadingOf passed = mapMaybe at (zip (iterateN (length passed) S 0) passed)
   where
     at : (Nat, Passed) -> Maybe (Nat, Nat)
     at (j, Fixed (Ref _ Bound n)) = case Template.markerOf n of
-      Just (p, Z) => Just (p, j)
+      Just (p, []) => Just (p, j)
       _ => Nothing
     at _ = Nothing
 
@@ -202,7 +202,7 @@ typeOverArguments ty =
     -- Each variable its own marker, numbered from the outermost, 0.
     markersOf : (ws : Scope) -> ByVar ws ClosedTerm
     markersOf [] = []
-    markersOf (_ :: ws) = markerAt (length ws) 0 :: markersOf ws
+    markersOf (_ :: ws) = markerAt (length ws) [] :: markersOf ws
 
 ||| One field, by the binding of the binder that holds it, of type `ty`: a
 ||| static argument as its key holds it, with the root of the dictionary it
