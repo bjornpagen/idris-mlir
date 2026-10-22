@@ -15,6 +15,12 @@ import Data.List
 
 %default total
 
+||| `idr.refusal`: a refusal of the program, which the driver reports in place of compiling it
+export
+refusalOp : MlirAttr -> MlirAttr -> Op
+refusalOp rule' message' =
+  MkOp (MkOpName Dialect.Idr "refusal") ([]) ([("rule", rule')] ++ [("message", message')]) ([]) [] ([])
+
 ||| `idr.program`: a closed program: its functions, its root and its stage
 export
 programOp : MlirAttr -> MlirAttr -> MlirAttr -> Region -> Op
@@ -205,9 +211,15 @@ arrayUpdateYieldOp element' outs' =
 
 ||| `idr.array.read`: the element of a value array at an index, and the array given back
 export
-arrayReadOp : Value -> List Value -> MlirType -> MlirType -> Op
-arrayReadOp array' indices' value' after' =
-  MkOp (MkOpName Dialect.Idr "array.read") ([array'] ++ indices') ([]) ([]) [] ([value'] ++ [after'])
+arrayReadOp : Value -> List Value -> Op
+arrayReadOp array' indices' =
+  MkOp (MkOpName Dialect.Idr "array.read") ([array'] ++ indices') ([]) ([]) [] ([elementTypeOrSelf array'.type] ++ [array'.type])
+
+||| `idr.array.extent`: the extent of a value array along an axis, and the array given back
+export
+arrayExtentOp : MlirAttr -> Value -> MlirType -> MlirType -> Op
+arrayExtentOp axis' array' extent' after' =
+  MkOp (MkOpName Dialect.Idr "array.extent") ([array']) ([("axis", axis')]) ([]) [] ([extent'] ++ [after'])
 
 ||| `idr.nat.to_extent`: a natural as the extent of an array to be made
 export

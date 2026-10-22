@@ -75,6 +75,198 @@ void writeTermNode(::mlir::DialectBytecodeWriter &writer, const ::idr::families:
   }
 }
 
+// a view: nothing allocates into it
+::mlir::LogicalResult readLifetimeKindView(::mlir::DialectBytecodeReader &, ::idr::LifetimeKindView &) {
+  return ::mlir::success();
+}
+
+void writeLifetimeKindView(::mlir::DialectBytecodeWriter &, const ::idr::LifetimeKindView &) {
+}
+
+// a room: a block of static size
+::mlir::LogicalResult readLifetimeKindRoom(::mlir::DialectBytecodeReader &, ::idr::LifetimeKindRoom &) {
+  return ::mlir::success();
+}
+
+void writeLifetimeKindRoom(::mlir::DialectBytecodeWriter &, const ::idr::LifetimeKindRoom &) {
+}
+
+// a cursor: an unbounded bump
+::mlir::LogicalResult readLifetimeKindCursor(::mlir::DialectBytecodeReader &, ::idr::LifetimeKindCursor &) {
+  return ::mlir::success();
+}
+
+void writeLifetimeKindCursor(::mlir::DialectBytecodeWriter &, const ::idr::LifetimeKindCursor &) {
+}
+
+// the per-shard home of a site
+::mlir::LogicalResult readLifetimeKindHome(::mlir::DialectBytecodeReader &reader, ::idr::LifetimeKindHome &value) {
+  if (::mlir::failed(readWord32(reader, value.site)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeLifetimeKindHome(::mlir::DialectBytecodeWriter &writer, const ::idr::LifetimeKindHome &value) {
+  writer.writeVarInt(value.site);
+}
+
+// a lifetime's kind, its alternative its case
+::mlir::LogicalResult readLifetimeKindOf(::mlir::DialectBytecodeReader &reader, ::idr::LifetimeKind &value) {
+  ::idr::LifetimeKindCase kind{};
+  if (::mlir::failed(readCase(reader, kind)))
+    return ::mlir::failure();
+  switch (kind) {
+  case ::idr::LifetimeKindCase::View: {
+    ::idr::LifetimeKindView alternative;
+    if (::mlir::failed(readLifetimeKindView(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  case ::idr::LifetimeKindCase::Room: {
+    ::idr::LifetimeKindRoom alternative;
+    if (::mlir::failed(readLifetimeKindRoom(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  case ::idr::LifetimeKindCase::Cursor: {
+    ::idr::LifetimeKindCursor alternative;
+    if (::mlir::failed(readLifetimeKindCursor(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  case ::idr::LifetimeKindCase::Home: {
+    ::idr::LifetimeKindHome alternative;
+    if (::mlir::failed(readLifetimeKindHome(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  }
+  return ::mlir::success();
+}
+
+void writeLifetimeKindOf(::mlir::DialectBytecodeWriter &writer, const ::idr::LifetimeKind &value) {
+  ::idr::match(
+      value,
+      [&](const ::idr::LifetimeKindView &alternative) {
+        writeCase(writer, ::idr::LifetimeKindCase::View);
+        writeLifetimeKindView(writer, alternative);
+      },
+      [&](const ::idr::LifetimeKindRoom &alternative) {
+        writeCase(writer, ::idr::LifetimeKindCase::Room);
+        writeLifetimeKindRoom(writer, alternative);
+      },
+      [&](const ::idr::LifetimeKindCursor &alternative) {
+        writeCase(writer, ::idr::LifetimeKindCase::Cursor);
+        writeLifetimeKindCursor(writer, alternative);
+      },
+      [&](const ::idr::LifetimeKindHome &alternative) {
+        writeCase(writer, ::idr::LifetimeKindCase::Home);
+        writeLifetimeKindHome(writer, alternative);
+      });
+}
+
+// Idris proved the loops end in this component of its call graph
+::mlir::LogicalResult readComponentProof(::mlir::DialectBytecodeReader &reader, ::idr::InComponent &value) {
+  if (::mlir::failed(readWord32(reader, value.component)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeComponentProof(::mlir::DialectBytecodeWriter &writer, const ::idr::InComponent &value) {
+  writer.writeVarInt(value.component);
+}
+
+// a pass made the function with no loop of its own
+::mlir::LogicalResult readAcyclicProof(::mlir::DialectBytecodeReader &, ::idr::Acyclic &) {
+  return ::mlir::success();
+}
+
+void writeAcyclicProof(::mlir::DialectBytecodeWriter &, const ::idr::Acyclic &) {
+}
+
+// a termination proof: its kind, then what the kind holds
+::mlir::LogicalResult readTerminationProof(::mlir::DialectBytecodeReader &reader, ::idr::TerminationProof &value) {
+  ::idr::ProofKind kind{};
+  if (::mlir::failed(readCase(reader, kind)))
+    return ::mlir::failure();
+  switch (kind) {
+  case ::idr::ProofKind::Component: {
+    ::idr::InComponent alternative;
+    if (::mlir::failed(readComponentProof(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  case ::idr::ProofKind::Acyclic: {
+    ::idr::Acyclic alternative;
+    if (::mlir::failed(readAcyclicProof(reader, alternative)))
+      return ::mlir::failure();
+    value = alternative;
+    break;
+  }
+  }
+  return ::mlir::success();
+}
+
+void writeTerminationProof(::mlir::DialectBytecodeWriter &writer, const ::idr::TerminationProof &value) {
+  ::idr::match(
+      value,
+      [&](const ::idr::InComponent &alternative) {
+        writeCase(writer, ::idr::ProofKind::Component);
+        writeComponentProof(writer, alternative);
+      },
+      [&](const ::idr::Acyclic &alternative) {
+        writeCase(writer, ::idr::ProofKind::Acyclic);
+        writeAcyclicProof(writer, alternative);
+      });
+}
+
+// a put parameter's position among them and its bound in bytes
+::mlir::LogicalResult readPutBound(::mlir::DialectBytecodeReader &reader, ::idr::PutBound &value) {
+  if (::mlir::failed(readWord32(reader, value.parameter)))
+    return ::mlir::failure();
+  if (::mlir::failed(reader.readVarInt(value.bytes)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writePutBound(::mlir::DialectBytecodeWriter &writer, const ::idr::PutBound &value) {
+  writer.writeVarInt(value.parameter);
+  writer.writeVarInt(value.bytes);
+}
+
+// a scoped parameter or result and the lifetime parameter it lives in
+::mlir::LogicalResult readLivesIn(::mlir::DialectBytecodeReader &reader, ::idr::LivesIn &value) {
+  if (::mlir::failed(readWord32(reader, value.value)))
+    return ::mlir::failure();
+  if (::mlir::failed(readWord32(reader, value.lifetime)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeLivesIn(::mlir::DialectBytecodeWriter &writer, const ::idr::LivesIn &value) {
+  writer.writeVarInt(value.value);
+  writer.writeVarInt(value.lifetime);
+}
+
+// a lifetime parameter that lives at least as long as another
+::mlir::LogicalResult readOutlives(::mlir::DialectBytecodeReader &reader, ::idr::Outlives &value) {
+  if (::mlir::failed(readWord32(reader, value.longer)))
+    return ::mlir::failure();
+  if (::mlir::failed(readWord32(reader, value.shorter)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeOutlives(::mlir::DialectBytecodeWriter &writer, const ::idr::Outlives &value) {
+  writer.writeVarInt(value.longer);
+  writer.writeVarInt(value.shorter);
+}
+
 // the sort of an index position or a binder
 ::mlir::LogicalResult readSortOf(::mlir::DialectBytecodeReader &reader, ::idr::families::Sort &value) {
   value = ::idr::families::Sort{};
@@ -505,6 +697,118 @@ void writeIndexTerms(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::i
 
 void writeRefinement(::mlir::DialectBytecodeWriter &writer, ::mlir::DenseI32ArrayAttr value) {
   writer.writeOptionalAttribute(value);
+}
+
+// a lifetime's kind, a home with its site
+::mlir::LogicalResult readLifetimeKind(::mlir::DialectBytecodeReader &reader, ::idr::LifetimeKind &value) {
+  return readLifetimeKindOf(reader, value);
+}
+
+void writeLifetimeKind(::mlir::DialectBytecodeWriter &writer, ::idr::LifetimeKind value) {
+  writeLifetimeKindOf(writer, value);
+}
+
+// a termination proof: `component <n>` or `acyclic`
+::mlir::LogicalResult readProof(::mlir::DialectBytecodeReader &reader, ::idr::TerminationProof &value) {
+  return readTerminationProof(reader, value);
+}
+
+void writeProof(::mlir::DialectBytecodeWriter &writer, ::idr::TerminationProof value) {
+  writeTerminationProof(writer, value);
+}
+
+// the bounded put parameters: `[0: 64, 2: 128]`
+::mlir::LogicalResult readPutBounds(::mlir::DialectBytecodeReader &reader, Kept<::idr::PutBound> &value) {
+  auto each = [&](::idr::PutBound &element) -> ::mlir::LogicalResult {
+    if (::mlir::failed(readPutBound(reader, element)))
+      return ::mlir::failure();
+    return ::mlir::success();
+  };
+  if (::mlir::failed(reader.readList(value.items, each)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writePutBounds(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::PutBound> value) {
+  writer.writeList(value, [&](const ::idr::PutBound &element) {
+    writePutBound(writer, element);
+  });
+}
+
+// scoped values and the lifetime parameters they live in: `(2 in 0, 3 in 0)`
+::mlir::LogicalResult readLivesInEntries(::mlir::DialectBytecodeReader &reader, Kept<::idr::LivesIn> &value) {
+  auto each = [&](::idr::LivesIn &element) -> ::mlir::LogicalResult {
+    if (::mlir::failed(readLivesIn(reader, element)))
+      return ::mlir::failure();
+    return ::mlir::success();
+  };
+  if (::mlir::failed(reader.readList(value.items, each)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeLivesInEntries(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::LivesIn> value) {
+  writer.writeList(value, [&](const ::idr::LivesIn &element) {
+    writeLivesIn(writer, element);
+  });
+}
+
+// lifetime parameters that outlive others: `(0 >= 1)`
+::mlir::LogicalResult readOutlivesBounds(::mlir::DialectBytecodeReader &reader, Kept<::idr::Outlives> &value) {
+  auto each = [&](::idr::Outlives &element) -> ::mlir::LogicalResult {
+    if (::mlir::failed(readOutlives(reader, element)))
+      return ::mlir::failure();
+    return ::mlir::success();
+  };
+  if (::mlir::failed(reader.readList(value.items, each)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeOutlivesBounds(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::Outlives> value) {
+  writer.writeList(value, [&](const ::idr::Outlives &element) {
+    writeOutlives(writer, element);
+  });
+}
+
+// a position in a signature: `1`
+::mlir::LogicalResult readPosition(::mlir::DialectBytecodeReader &reader, uint32_t &value) {
+  if (::mlir::failed(readWord32(reader, value)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writePosition(::mlir::DialectBytecodeWriter &writer, uint32_t value) {
+  writer.writeVarInt(value);
+}
+
+// the fields down to a component: `[0, 2]`, or nothing for the whole value
+::mlir::LogicalResult readFieldPath(::mlir::DialectBytecodeReader &reader, Kept<uint32_t> &value) {
+  auto each = [&](uint32_t &element) -> ::mlir::LogicalResult {
+    if (::mlir::failed(readWord32(reader, element)))
+      return ::mlir::failure();
+    return ::mlir::success();
+  };
+  if (::mlir::failed(reader.readList(value.items, each)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeFieldPath(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<uint32_t> value) {
+  writer.writeList(value, [&](const uint32_t &element) {
+    writer.writeVarInt(element);
+  });
+}
+
+// result components and the argument components they are: `[0 <- 2, 1[0] <- 0[1]]`
+::mlir::LogicalResult readGivenBackEntries(::mlir::DialectBytecodeReader &reader, Kept<::idr::GivenBackEntryAttr> &value) {
+  if (::mlir::failed(reader.readAttributes(value.items)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeGivenBackEntries(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::GivenBackEntryAttr> value) {
+  writer.writeAttributes(value);
 }
 
 // a family's members and their constructors
