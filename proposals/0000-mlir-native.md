@@ -4337,6 +4337,16 @@ C137.
   unchanged has gain 0 and reaches its fixed key, while wrapping it
   deeper is still refused. With one position per holder, passing on was
   an arc of gain count−1, refused at a count of two.
+- **C225** (2026-10-22; L17's assertion sweep). The fork's parser
+  terminates by its types. The shallow-embedded grammar (a grammar is
+  the parser, a function of its input) lost what upstream's deep
+  embedding gave the totality checker, and five combinators (`some`,
+  `count1`, `someTill`, `afterSome`, `blockEntries`) assert totality. A
+  consuming grammar's type carries erased evidence that it advances its
+  position, so a repetition recurses on the tokens left, accessible by
+  their count, and every assertion goes. `covering` would meet the rule
+  too, but it spreads to every caller and proves nothing; the evidence
+  costs nothing at run time.
 
 ## 4. Open: the owner's decisions, in order
 
