@@ -27,6 +27,7 @@ import IdrisMLIR.Proof.Template
 
 import Data.List
 import Data.SortedMap
+import Data.Vect
 
 %default total
 
@@ -91,24 +92,24 @@ bindingOf rig a = case use rig of
   Erased => pure (Reads AType)
   Used _ => (\dict => if dict then Reads ADictionary else Wrapped) <$> implementationType a
 
-||| What stands for each parameter of an implementation in its body, the
-||| first first, as the translation binds it: its marker where the
-||| parameter is static (`staticsOver`, every parameter given as its
-||| marker), so that a field holds it as the parameter it is; otherwise,
-||| by its binder's quantity, an erased placeholder at 0 and an unknown
-||| runtime value elsewhere, as `closeWritten` writes a runtime variable. A
-||| type `implementationType` accepts shows a binder for each parameter.
+||| What stands for each variable of an implementation's body, one per
+||| parameter, the first first, as the translation binds it: its marker
+||| where the parameter is static (`staticsOver`, every parameter given as
+||| its marker), so that a field holds it as the parameter it is;
+||| otherwise, by its binder's quantity, an erased placeholder at 0 and an
+||| unknown runtime value elsewhere, as `closeWritten` writes a runtime
+||| variable.
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-        (owner : String) -> Defined -> (arity : Nat) -> Front (List (VarInfo ()))
-marks owner d arity = do
-  (kinds, _) <- staticsOver owner arity d.type (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
-  pure (standing 0 (toList kinds) d.type)
+        (owner : String) -> Defined -> (args : Scope) -> Front (ByVar args ClosedTerm)
+marks owner d args = do
+  (kinds, _) <- staticsOver owner (length args) d.type (map (\i => Just (markerAt i 0, AValue)) (iterateN (length args) S 0))
+  pure (standing 0 args kinds)
   where
-    standing : Nat -> List (Maybe Static) -> TT vs -> List (VarInfo ())
-    standing i (Just _ :: ks) (Bind _ _ (Pi {}) sc) = TypeValue (markerAt i 0) :: standing (S i) ks sc
-    standing i (Nothing :: ks) (Bind _ _ (Pi _ rig _ _) sc) =
-      TypeValue (Erased EmptyFC (case use rig of Erased => Placeholder; Used _ => Impossible)) :: standing (S i) ks sc
-    standing _ _ _ = []
+    standing : Nat -> (vs : Scope) -> Vect (length vs) ParamReading -> ByVar vs ClosedTerm
+    standing i [] [] = []
+    standing i (_ :: vs) (MkParamReading (Just _) _ :: ks) = markerAt i 0 :: standing (S i) vs ks
+    standing i (_ :: vs) (MkParamReading Nothing rig :: ks) =
+      Erased EmptyFC (case use rig of Erased => Placeholder; Used _ => Impossible) :: standing (S i) vs ks
 
 ||| What a method's field passes the function it applies, at one argument:
 ||| one of the field's own arguments (a variable of its lambda, by its
@@ -181,7 +182,7 @@ methodField owner field = do
   let am = addressOf md.placement
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
-  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
+  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map (.static) kinds)) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
@@ -194,8 +195,12 @@ methodField owner field = do
 ||| builds reads each (`Heads.overPart`).
 typeOverArguments : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front Template
 typeOverArguments ty =
-  templateOf [] AType (closeWritten EmptyFC (map (\i => the (VarInfo ()) (TypeValue (markerAt i 0)))
-                                                  (reverse (iterateN (length vs) S 0))) ty)
+  templateOf [] AType (closeOver EmptyFC (markersOf vs) ty)
+  where
+    -- Each variable its own marker, numbered from the outermost, 0.
+    markersOf : (ws : Scope) -> ByVar ws ClosedTerm
+    markersOf [] = []
+    markersOf (_ :: ws) = markerAt (length ws) 0 :: markersOf ws
 
 ||| One field, by the binding of the binder that holds it, of type `ty`: a
 ||| static argument as its key holds it, with the root of the dictionary it
@@ -234,8 +239,8 @@ implementationFields : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                        Defined -> (args : Scope) -> TT args -> Front (Maybe Fields)
 implementationFields d args body = do
   let owner = show (fullname d.def)
-  stands <- marks owner d (length args)
-  Built con cargs <- whnf (closeWritten EmptyFC stands body)
+  stands <- marks owner d args
+  Built con cargs <- whnf (closeOver EmptyFC stands body)
     | Stuck _ => pure Nothing
   Just cd <- defined con
     | Nothing => pure Nothing

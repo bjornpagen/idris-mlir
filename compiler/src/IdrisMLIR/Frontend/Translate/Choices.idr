@@ -271,7 +271,7 @@ mutual
     let inst = InstanceOf found.link
     Nothing <- pure (requestedBefore inst !getState)
       | Just sig => pure sig
-    sig <- instanceSig fc owner what kinds inst found.symbol
+    (sig ** _) <- instanceSig fc owner what kinds inst found.symbol
     st <- getState
     let d = MkDispatch inst found.key sig what before (Given rest b ty) after choice.family fc owner empty
     updateState (derive { instances $= insert inst sig, fnOrder $= (:< inst)

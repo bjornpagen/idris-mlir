@@ -89,7 +89,7 @@ import Decidable.Equality
 -- address and index 2), or position j of the application at a use (kind
 -- 3, which no definition is, at no address). The index is written as an
 -- address too, so that a slot is a triple of finite types and every pair
--- of the solution lies in one finite type, whose listing the fork
+-- of the solution lies in one finite type, whose listing the checker
 -- supplies. There is no numbering pass, so no lookup of a slot can miss.
 -- An index is a parameter or field count's, far below 2^63, so distinct
 -- indices are distinct addresses.

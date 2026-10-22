@@ -174,9 +174,9 @@ compileTimeArg _ = Erased EmptyFC Placeholder
 
 ||| Is an argument a type or a compile-time value, which exists only where
 ||| what takes it erases it?
-compileTime : List (VarInfo a) -> TT vars -> Bool
-compileTime env (Local _ _ idx _) = case getAt idx env of
-  Just (TypeValue _) => True
+compileTime : StandsFor vars a -> TT vars -> Bool
+compileTime env (Local _ _ idx p) = case lookupVar idx p env of
+  TypeValue _ => True
   _ => False
 compileTime env (TType _ _) = True
 compileTime env (Erased _ _) = True
@@ -189,10 +189,10 @@ compileTime env tm = case getFnArgs tm of
 
 ||| The Idris type of a variable at the head of an application, through a
 ||| `Force` of a lazy one.
-headType : List (VarInfo a) -> TT vars -> Maybe ClosedTerm
-headType env (Local _ _ idx _) = case getAt idx env of
-  Just (Runtime _ t) => idrisOf t
-  Just (Shaped _ _ t _) => Just t
+headType : StandsFor vars a -> TT vars -> Maybe ClosedTerm
+headType env (Local _ _ idx p) = case lookupVar idx p env of
+  Runtime _ t => idrisOf t
+  Shaped _ _ t _ => Just t
   _ => Nothing
 headType env (TForce _ _ e) = case headType env e of
   Just (TDelayed _ _ t) => Just t
@@ -200,7 +200,7 @@ headType env (TForce _ _ e) = case headType env e of
 headType _ _ = Nothing
 
 ||| A head as a message names it: a variable by its name.
-headName : {vars : Scope} -> FC -> List (VarInfo a) -> TT vars -> Front String
+headName : {vars : Scope} -> FC -> StandsFor vars a -> TT vars -> Front String
 headName fc env (Local _ _ idx p) = pure (show (nameAt {idx} p))
 headName fc env tm = showTT (closeWritten fc env tm)
 
@@ -208,7 +208,7 @@ headName fc env tm = showTT (closeWritten fc env tm)
 ||| quantity check admits one only where the type of what takes it erases
 ||| it, which is where the translation leaves it out; here nothing does.
 inRuntime : {auto s : Ref TState TS} -> {vars : Scope} ->
-            String -> FC -> List (VarInfo a) -> TT vars -> Front b
+            String -> FC -> StandsFor vars a -> TT vars -> Front b
 inRuntime owner fc env tm = do
   what <- showTT (closeWritten fc env tm)
   reject fc owner ValueType (what ++ " in a runtime position")
@@ -217,7 +217,7 @@ inRuntime owner fc env tm = do
 ||| closed normal form where the scope mentions it, nothing where it does
 ||| not.
 instantiate : {vars : Scope} ->
-              FC -> List (VarInfo a) -> TT [x] -> TT vars -> Front ClosedTerm
+              FC -> StandsFor vars a -> TT [x] -> TT vars -> Front ClosedTerm
 instantiate fc env sc arg = case shrink sc (Drop Refl) of
   Just sc' => pure sc'
   Nothing => do
@@ -348,7 +348,7 @@ formType held t = lambdas 0 [] [] !(lambdasApplied t)
     -- Down the lambdas, each variable standing for its probe (`env`, the
     -- innermost first), then the body, closed with its `let`s put in.
     lambdas : {vs : Scope} -> Nat -> List (Name, RigCount, PiInfo ClosedTerm, ClosedTerm) ->
-              List (VarInfo Nat) -> TT vs -> Front (Maybe ClosedTerm)
+              StandsFor vs Nat -> TT vs -> Front (Maybe ClosedTerm)
     lambdas k ls env (Bind _ x (Lam _ rig p ty) sc) =
       lambdas (S k) (ls ++ [(x, rig, map (closeWritten EmptyFC env) p, closeWritten EmptyFC env ty)])
               (TypeValue (formal k) :: env) sc
@@ -373,7 +373,7 @@ valuesOf ((t, v) ::: rest) = (:::) <$> ((t,) <$> v) <*> later rest
 ||| in its scope: what keys an instance names no level of the scope
 ||| (`unmarked`); what an index parameter is given keeps them (`scoped`).
 argValueIn : {vars : Scope} ->
-             List (VarInfo (Fin nv)) -> FC -> Arg vars nv -> Maybe ArgValue
+             StandsFor vars (Fin nv) -> FC -> Arg vars nv -> Maybe ArgValue
 argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.written)
                                        (unmarked <$> solved (closeWritten fc env x.written))
                                        (offered x.written)
@@ -381,8 +381,8 @@ argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.wri
                                        (closeNormalise fc env x.written))
   where
     offered : TT vars -> Offer
-    offered (Local _ _ idx _) = case getAt idx env of
-      Just (Static _ _) => AnImplementation
+    offered (Local _ _ idx p) = case lookupVar idx p env of
+      Static _ _ => AnImplementation
       _ => AValue
     offered _ = AValue
 
@@ -408,7 +408,7 @@ givenTo (k :: ks) (a :: as) = consAt (boundAtRuntime k) (a k) (givenTo ks as)
 ||| which the call dispatches on, each arm the member at the use's types
 ||| (`Choices.calleeAt`), or the values a fixed form closes over.
 applyAtUse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-             Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> (t : ClosedTerm) -> (form : ArgValue) ->
+             Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> (t : ClosedTerm) -> (form : ArgValue) ->
              (value : Maybe (Term nv)) -> List (Arg vars nv) -> Front (Term nv)
 applyAtUse ctx env fc loc t form value args = do
   ty <- applicationType
@@ -462,7 +462,7 @@ applyAtUse ctx env fc loc t form value args = do
 ||| runtime value, and a type or an erased value there is refused, naming
 ||| the head (`what`).
 applyOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> Front String ->
+            Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> Front String ->
             Term nv -> Maybe ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
 applyOver ctx env fc loc what f _ [] = pure f
 applyOver ctx env fc loc what f fty (x :: xs) = do
@@ -503,7 +503,7 @@ mutual
   export
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         Ctx -> List (VarInfo (Fin nv)) -> TT vars -> Front (Term nv)
+         Ctx -> StandsFor vars (Fin nv) -> TT vars -> Front (Term nv)
   term ph w acc ctx env (Local fc r idx p) = applyVariable ph w acc ctx env fc fc r idx p []
   term ph w acc ctx env tm@(PrimVal fc c) = do
     loc <- toLoc (bestFC ctx fc)
@@ -562,7 +562,7 @@ mutual
   ||| every part translated is a part of the chain.
   delayed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> List (VarInfo (Fin nv)) -> TT vars -> Front (List Loc, Term nv)
+            Ctx -> StandsFor vars (Fin nv) -> TT vars -> Front (List Loc, Term nv)
   delayed ph w acc ctx env (TDelay dfc _ _ arg) = do
     loc <- toLoc (bestFC ctx dfc)
     (suspensions, inner) <- delayed ph w acc ctx env arg
@@ -581,8 +581,8 @@ mutual
   ||| bound once, here, where eager evaluation computes them.
   letIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> List (VarInfo (Fin nv)) -> FC -> Name -> RigCount -> TT vars -> TT vars ->
-          ({0 m : Nat} -> List (VarInfo (Fin m)) -> Front (r, Term m)) -> Front (r, Term nv)
+          Ctx -> StandsFor vars (Fin nv) -> FC -> (x : Name) -> RigCount -> TT vars -> TT vars ->
+          ({0 m : Nat} -> StandsFor (x :: vars) (Fin m) -> Front (r, Term m)) -> Front (r, Term nv)
   letIn ph w acc ctx env fc x rig val ty body =
     case use rig of
       Erased => body (TypeValue (Erased fc Placeholder) :: env)
@@ -625,7 +625,7 @@ mutual
   export
   atType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Ctx -> List (VarInfo (Fin nv)) -> (ty : ClosedTerm) -> TT vars -> Front (Term nv)
+           Ctx -> StandsFor vars (Fin nv) -> (ty : ClosedTerm) -> TT vars -> Front (Term nv)
   atType ph w acc ctx env ty tm@(Bind fc _ (Lam {}) _) = do
     True <- holds ctx.resultHolding ty
       | False => term ph w acc ctx env tm
@@ -640,7 +640,7 @@ mutual
 
   suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> Front (Term nv)
+            Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> Front (Term nv)
   suspend ph w acc ctx env fc arg = do
     loc <- toLoc (bestFC ctx fc)
     body <- term ph w acc ctx env arg
@@ -649,14 +649,14 @@ mutual
   ||| An argument where it is a subterm of the application.
   argOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> Arg vars nv
+          Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> Arg vars nv
   argOf ph w acc ctx env afc a = MkArg a (term ph w acc ctx env a) (holed ph w acc ctx env afc a)
 
   ||| An application's spine, its arguments collected where each is a
   ||| subterm, down to its head.
   spine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
+          Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
   spine ph w acc ctx env afc (App _ f a) args = spine ph w acc ctx env afc f (argOf ph w acc ctx env afc a :: args)
   spine ph w acc ctx env afc (Ref rfc nt n) args = applyRef ph w acc ctx env afc rfc nt n args
   spine ph w acc ctx env afc tm args = applyHead ph w acc ctx env afc tm args
@@ -668,7 +668,7 @@ mutual
   ||| value applied.
   applyHead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
               (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-              Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
+              Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
   applyHead ph w acc ctx env afc (Local fc r idx p) args = applyVariable ph w acc ctx env afc fc r idx p args
   -- The argument is bound as what it is: a compile-time value at an erased
   -- binder; another name for a variable; at a binder of an implementation
@@ -702,7 +702,7 @@ mutual
         pure (Let loc (binderName x) (Checked b) v body)
 
       aliased : TT vars -> Maybe (VarInfo (Fin nv))
-      aliased (Local _ _ idx _) = getAt idx env
+      aliased (Local _ _ idx p) = Just (lookupVar idx p env)
       aliased _ = Nothing
 
       -- One the program fixes now (`fixing`) is its form; one the running
@@ -741,22 +741,19 @@ mutual
   ||| implementation, as `implementationAt` uses one.
   applyVariable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  Ctx -> List (VarInfo (Fin nv)) -> (afc : FC) -> (fc : FC) -> Maybe Bool ->
+                  Ctx -> StandsFor vars (Fin nv) -> (afc : FC) -> (fc : FC) -> Maybe Bool ->
                   (idx : Nat) -> (0 p : IsVar n idx vars) -> List (Arg vars nv) -> Front (Term nv)
-  applyVariable ph w acc ctx env afc fc r idx p args = case getAt idx env of
-    Just (Runtime x _) => applied x
-    Just (Shaped x _ _ _) => applied x
+  applyVariable ph w acc ctx env afc fc r idx p args = case lookupVar idx p env of
+    Runtime x _ => applied x
+    Shaped x _ _ _ => applied x
     -- Idris's quantity check of a clause keeps a binder of quantity 0 out
     -- of every position that exists at runtime, a leaf reads each binder
     -- where its clause holds it at runtime (`Cases.heldAt`), and the
     -- translation leaves out every erased position. The check is Idris's,
     -- of the program the compiler reads when it runs, and the variable's
     -- binder does not carry it.
-    Just (TypeValue _) => internal (bestFC ctx fc) "a compile-time variable in a runtime position"
-    Just (Static t held) => implementationAt ph w acc ctx env fc t held args
-    -- The environment is a list beside the term's scope, not indexed by
-    -- it, so a variable the scope holds can still miss it.
-    Nothing => internal (bestFC ctx fc) "a variable out of scope"
+    TypeValue _ => internal (bestFC ctx fc) "a compile-time variable in a runtime position"
+    Static t held => implementationAt ph w acc ctx env fc t held args
     where
       applied : Fin nv -> Front (Term nv)
       applied x = do
@@ -783,7 +780,7 @@ mutual
   ||| type's choice is, dispatched on.
   implementationAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                      Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                     Ctx -> List (VarInfo (Fin nv)) -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) ->
+                     Ctx -> StandsFor vars (Fin nv) -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) ->
                      List (Arg vars nv) -> Front (Term nv)
   implementationAt ph@Settled w acc@(Access rec) ctx env fc t held args = do
     place <- formHead t
@@ -820,7 +817,7 @@ mutual
   ||| entered once on the path.
   entered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> List (VarInfo (Fin nv)) -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
+            Ctx -> StandsFor vars (Fin nv) -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
             List (Arg vars nv) -> Front (Term nv)
   entered ph w acc@(Access rec) ctx env afc fc n i margs args = do
     -- The metavariable's entry is Idris's bare `Int`, which a resolved
@@ -847,7 +844,7 @@ mutual
   ||| refers to a definition Idris does not prove ends is settled as any
   ||| other.
   settle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> List (VarInfo (Fin nv)) -> FC ->
+           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> StandsFor vars (Fin nv) -> FC ->
            (value : ClosedTerm) -> (pre : List (Stand nv)) -> List (Arg vars nv) -> Front (Term nv)
   settle ph w acc ctx env fc value pre args = do
     (terms, stands) <- given (length pre) args
@@ -859,9 +856,9 @@ mutual
       -- by its translation.
       stand : Arg vars nv -> Stand nv
       stand a = case a.written of
-        Local _ _ idx _ => case getAt idx env of
-          Just e@(Runtime {}) => AsVariable e
-          Just e@(Shaped {}) => AsVariable e
+        Local _ _ idx p => case lookupVar idx p env of
+          e@(Runtime {}) => AsVariable e
+          e@(Shaped {}) => AsVariable e
           _ => AsValue a.translated
         _ => AsValue a.translated
 
@@ -869,8 +866,8 @@ mutual
       -- definition whose type gives one, applied?
       anImplementation : TT vars -> Front Bool
       anImplementation tm = case getFnArgs tm of
-        (Local _ _ idx _, _) => pure (case getAt idx env of
-                                        Just (Static {}) => True
+        (Local _ _ idx p, _) => pure (case lookupVar idx p env of
+                                        Static {} => True
                                         _ => False)
         (Ref rfc _ n, _) => implementationType (!(lookupDef rfc ctx.owner n)).type
         _ => pure False
@@ -912,7 +909,7 @@ mutual
   ||| is bound.
   bindStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-               Ctx -> List (VarInfo (Fin nv)) -> Loc -> Nat -> (Fin m -> Fin nv) ->
+               Ctx -> StandsFor vars (Fin nv) -> Loc -> Nat -> (Fin m -> Fin nv) ->
                List (Stand m) -> TT vars -> Front (Term nv)
   bindStands ph w acc ctx env loc i ren [] body = term ph w acc ctx env body
   bindStands ph w acc ctx env loc i ren (AsVariable e :: stands) body =
@@ -931,7 +928,7 @@ mutual
   ||| without end, and is the one case refused.
   settledPiece : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Ctx -> List (VarInfo (Fin nv)) -> FC -> (giver : Placement) -> (impl : ClosedTerm) ->
+                 Ctx -> StandsFor vars (Fin nv) -> FC -> (giver : Placement) -> (impl : ClosedTerm) ->
                  (stands : List (VarInfo (Fin nv))) -> TT vars -> Front (Term nv)
   settledPiece ph w acc@(Access rec) ctx env afc giver impl stands p = do
     let Just (Element w' less) = enter giver w
@@ -959,7 +956,7 @@ mutual
   ||| marker in the written form, which Closed's reduction takes to the
   ||| implementation it stands for (`implementationOf`), and that is walked.
   holed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-          Phase -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars ->
+          Phase -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars ->
           Front (Maybe (ClosedTerm, List1 (ClosedTerm, Front (Term nv))))
   holed ph w acc ctx env afc x = do
     r <- implementationOf !(solved (closeWritten afc (fst marked) x))
@@ -976,14 +973,14 @@ mutual
       -- The environment with each runtime variable, and each that holds an
       -- implementation closing over values, replaced by its marker, and
       -- those variables, the stands, by marker.
-      marking : Nat -> List (VarInfo (Fin nv)) -> (List (VarInfo (Fin nv)), List (VarInfo (Fin nv)))
+      marking : Nat -> StandsFor vs (Fin nv) -> (StandsFor vs (Fin nv), List (VarInfo (Fin nv)))
       marking k [] = ([], [])
       marking k (e@(Runtime {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e@(Shaped {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e@(Static _ (Just _)) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e :: es) = let (es', ss) = marking k es in (e :: es', ss)
 
-      marked : (List (VarInfo (Fin nv)), List (VarInfo (Fin nv)))
+      marked : (StandsFor vars (Fin nv), List (VarInfo (Fin nv)))
       marked = marking 0 env
 
       stands : List (VarInfo (Fin nv))
@@ -1065,12 +1062,11 @@ mutual
       -- that are functions are the closures it closes over values
       -- with)?
       gives : Defined -> Front Bool
-      gives d = case definition d.def of
-        PMDef {} => pure (case d.matched of
-                            Just m => isJust (leafOf m)
-                            Nothing => False)
-        DCon {} => resultIsImpl d.type
-        _ => pure False
+      gives d = case d.matched of
+        Just m => pure (isJust (leafOf m))
+        Nothing => case definition d.def of
+          DCon {} => resultIsImpl d.type
+          _ => pure False
         where
           -- The constructor's result, under its binders: an
           -- interface's own type, or a pair (whose components the
@@ -1247,7 +1243,7 @@ mutual
   ||| its own body fixes.
   member : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Ctx -> List (VarInfo (Fin nv)) -> FC -> Loc -> (type : ClosedTerm) -> TT vars -> Front (Maybe (Term nv))
+           Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> (type : ClosedTerm) -> TT vars -> Front (Maybe (Term nv))
   member ph w acc ctx env fc loc ty written = do
     impl <- solved (closeWritten fc env written)
     if not !(runtimeDependent impl)
@@ -1270,7 +1266,7 @@ mutual
   ||| A definition applied to its arguments.
   applyRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
              (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             Ctx -> List (VarInfo (Fin nv)) -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
+             Ctx -> StandsFor vars (Fin nv) -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
              List (Arg vars nv) -> Front (Term nv)
   applyRef ph w acc ctx env afc rfc nt name args = do
     d <- lookupDef (bestFC ctx rfc) ctx.owner name
@@ -1279,7 +1275,7 @@ mutual
   ||| A definition, as it was read (`d`), applied to its arguments.
   applyDefined : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Ctx -> List (VarInfo (Fin nv)) -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
+                 Ctx -> StandsFor vars (Fin nv) -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
                  Defined -> List (Arg vars nv) -> Front (Term nv)
   applyDefined ph w acc ctx env afc rfc nt name d args = do
     let fc = bestFC ctx rfc
@@ -1301,25 +1297,29 @@ mutual
       Left miss => do
         site <- siteAt fc
         rejectWith (foreignRefusal site ctx.owner "" full miss)
-      Right hs => case definition def of
-        DCon tag arity _ => constructor fc loc d ty arity args
-        TCon {} => inRuntime ctx.owner fc env (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
-        Builtin {arity} op => primitive fc loc full arity op ty args
-        PMDef _ params _ => hooked fc loc full lowered (length params) d ty hs $ do
+      -- A definition that matches is called at the arity of its case
+      -- tree's parameters, as the boundary read its body, which its own
+      -- translation reads too.
+      Right hs => case d.matched of
+        Just m => hooked fc loc full lowered (length m.args) d ty hs $ do
           exiting <- exitCast d
           if exiting
-             then exitAction fc loc (length params) ty args
-             else call fc loc d Nothing (length params) args
-        ForeignDef arity _ => hooked fc loc full lowered arity d ty hs
-                                (reject fc ctx.owner EscapeHatch ("foreign function " ++ show full))
-        ExternDef arity => hooked fc loc full lowered arity d ty hs
-                             (reject fc ctx.owner EscapeHatch ("extern function " ++ show full))
-        Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
-        -- A definition Idris left unfinished (no body, a guess, a pending
-        -- search or default): its checker finishes every definition a
-        -- checked program reaches, in the context the compiler reads when
-        -- it runs, and the context's type of a definition does not say so.
-        _ => internal fc ("a reference to " ++ show full)
+             then exitAction fc loc (length m.args) ty args
+             else call fc loc d Nothing m args
+        Nothing => case definition def of
+          DCon tag arity _ => constructor fc loc d ty arity args
+          TCon {} => inRuntime ctx.owner fc env (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
+          Builtin {arity} op => primitive fc loc full arity op ty args
+          ForeignDef arity _ => hooked fc loc full lowered arity d ty hs
+                                  (reject fc ctx.owner EscapeHatch ("foreign function " ++ show full))
+          ExternDef arity => hooked fc loc full lowered arity d ty hs
+                               (reject fc ctx.owner EscapeHatch ("extern function " ++ show full))
+          Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
+          -- A definition Idris left unfinished (no body, a guess, a pending
+          -- search or default): its checker finishes every definition a
+          -- checked program reaches, in the context the compiler reads when
+          -- it runs, and the context's type of a definition does not say so.
+          _ => internal fc ("a reference to " ++ show full)
     where
       -- The member of its type's choice an implementation or a
       -- polymorphic function fixed here is (`member`), where the
@@ -1503,15 +1503,16 @@ mutual
       -- reads in this scope (`atCall`), its index parameters given the
       -- terms of the arguments at their positions, so the call gives as
       -- many arguments as the instance takes, by type.
-      call : FC -> Loc -> Defined -> Maybe Shown -> Nat -> List (Arg vars nv) -> Front (Term nv)
-      call fc loc callee lowered arity xs = do
+      call : FC -> Loc -> Defined -> Maybe Shown -> Matched -> List (Arg vars nv) -> Front (Term nv)
+      call fc loc callee lowered m xs = do
         let n = fullname callee.def
         let ty = callee.type
+        let arity = length m.args
         let vals = argValues (take arity xs)
         kinds <- classifyKeys fc ctx.owner arity ty vals
         Nothing <- resolveMethod ph fc n kinds xs
           | Just resolved => pure resolved
-        sig <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n arity) kinds
+        sig <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n m) kinds
         called <- atCall fc ctx.owner vals sig
         given <- arguments loc (memberPlaces callee) called.kinds (take arity xs)
         is <- callIndices called.kinds vals
@@ -1614,14 +1615,14 @@ mutual
       libraryCall fc loc lib = do
         target <- lookupDef fc ctx.owner lib.name
         let def = target.def
-        let PMDef _ params _ = definition def
-          | _ => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
-        let arity = length params
+        let Just m = target.matched
+          | Nothing => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
+        let arity = length m.args
         let vals = the ArgValues (replicate arity Nothing)
         kinds <- classifyKeys fc ctx.owner arity target.type vals
         let True = all valueOnly kinds
           | False => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
-        sig <- request fc ctx.owner (OfDefinition (fullname def) arity) kinds
+        sig <- request fc ctx.owner (OfDefinition (fullname def) m) kinds
         called <- atCall fc ctx.owner vals sig
         -- Its runtime arguments are all a call gives it, so no index
         -- parameter of it is given a term it is linked to.
@@ -1809,9 +1810,9 @@ mutual
       aliasCall : FC -> Loc -> Maybe Shown -> LibraryFunction -> List (Arg vars nv) -> Front (Term nv)
       aliasCall fc loc lowered lib xs = do
         target <- lookupDef fc ctx.owner lib.name
-        let PMDef _ params _ = definition target.def
-          | _ => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
-        call fc loc target lowered (length params) xs
+        let Just m = target.matched
+          | Nothing => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
+        call fc loc target lowered m xs
 
       -- What an IO primitive gives besides the next world, as many values
       -- as its action gives: for none, the unit its `IORes` holds, the one
@@ -2247,5 +2248,5 @@ mutual
 ||| does not prove ends runs there, eagerly, its divergence its call's.
 export
 computedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Ctx -> List (VarInfo (Fin nv)) -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (Term nv)
-computedAt ctx env fc t held = implementationAt {vars = Scope.empty} asWritten start (sizeAccessible start) ctx env fc t held []
+             Ctx -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (Term nv)
+computedAt ctx fc t held = implementationAt {vars = Scope.empty} asWritten start (sizeAccessible start) ctx [] fc t held []

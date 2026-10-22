@@ -47,36 +47,45 @@ parameterName (x :: xs) = (binderName x, xs)
 
 ||| An instance's runtime parameters' names, as the type it is classified
 ||| over names them, and what each variable of its body's scope stands for,
-||| one per parameter: a type, an implementation or a parameter of
-||| quantity 0 a compile-time value, an index parameter its level (the next
-||| one `level`), which its body's types read, and a runtime parameter the
-||| next Core parameter.
-runtimeParams : (level : Nat) -> List Name -> (kinds : List PKind) ->
-                (Vect (Runtimes kinds) Shown, List (VarInfo (Fin (Runtimes kinds))))
-runtimeParams level xs [] = ([], [])
-runtimeParams level xs (TypeParam t :: ks) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue t :: env)
-runtimeParams level xs (DictParam t Nothing :: ks) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, Static t Nothing :: env)
-runtimeParams level xs (ErasedParam :: ks) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
-runtimeParams level xs (IndexParam _ :: ks) =
-  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) ks in (ps, TypeValue (marker level) :: env)
-runtimeParams level xs (FormParam f :: ks) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue f :: env)
-runtimeParams level xs (DictParam t (Just h) :: ks) =
+||| one per parameter, the scope having one variable per kind: a type, an
+||| implementation or a parameter of quantity 0 a compile-time value, an
+||| index parameter its level (the next one `level`), which its body's
+||| types read, and a runtime parameter the next Core parameter.
+runtimeParams : (level : Nat) -> List Name -> (vars : Scope) -> (kinds : List PKind) ->
+                (0 _ : length kinds = length vars) ->
+                (Vect (Runtimes kinds) Shown, StandsFor vars (Fin (Runtimes kinds)))
+runtimeParams level xs [] [] _ = ([], [])
+runtimeParams level xs (_ :: vs) (TypeParam t :: ks) same =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, TypeValue t :: env)
+runtimeParams level xs (_ :: vs) (DictParam t Nothing :: ks) same =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, Static t Nothing :: env)
+runtimeParams level xs (_ :: vs) (ErasedParam :: ks) same =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in
+  (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
+runtimeParams level xs (_ :: vs) (IndexParam _ :: ks) same =
+  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) vs ks (predecessors same) in
+  (ps, TypeValue (marker level) :: env)
+runtimeParams level xs (_ :: vs) (FormParam f :: ks) same =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, TypeValue f :: env)
+runtimeParams level xs (_ :: vs) (DictParam t (Just h) :: ks) same =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' ks in
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
   (x :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
-runtimeParams level xs (ChoiceParam b known :: ks) =
+runtimeParams level xs (_ :: vs) (ChoiceParam b known :: ks) same =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' ks in
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
   (x :: ps, Runtime FZ (BothTypes b.type known) :: map (map FS) env)
-runtimeParams level xs (ValueParam b shape known :: ks) =
+runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' ks in
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
   (x :: ps, maybe (Runtime FZ (BothTypes b.type known)) (shaped FZ b.type known) shape
               :: map (map FS) env)
+runtimeParams level xs [] (_ :: _) Refl impossible
+runtimeParams level xs (_ :: _) [] Refl impossible
+
+||| Equal successors have equal predecessors.
+predecessors : {0 m, n : Nat} -> S m = S n -> m = n
+predecessors Refl = Refl
 
 ||| The names a type gives its parameters.
 parameterNames : TT vs -> List Name
@@ -93,10 +102,13 @@ variablesOf (v :: vs) = Local EmptyFC Nothing 0 First :: map weaken (variablesOf
 ||| request read once (`InstanceSig`) and every call of it holds. Its
 ||| runtime parameters are its Core parameters, numbered in order; a type,
 ||| an implementation and a parameter of quantity 0 are compile-time
-||| values of the case tree's scope, which has one variable per parameter
-||| of the definition's type.
-translateDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Name -> Front ()
-translateDefinition p n = do
+||| values of the case tree's scope, which has one variable per kind of
+||| the signature, as the request classified as many parameters as the
+||| body it holds has.
+translateDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                      (p : Request) -> (sig : InstanceSig) -> Name -> (m : Matched) ->
+                      (0 _ : length sig.kinds = length m.args) -> Front ()
+translateDefinition p sig n m counted = do
   d <- lookupDef EmptyFC (show n) n
   let def = d.def
   let owner = show (fullname def)
@@ -106,18 +118,15 @@ translateDefinition p n = do
   before <- getState
   False <- pure (contains address before.refused)
     | True => pure ()
-  let sig = p.signature
   Nothing <- heldChoice sig.kinds
     | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
   let fc = location def
-  Just m <- pure d.matched
-    | Nothing => reject fc owner DefinitionShape "not a pattern-matching definition"
   let ty = d.type
   -- A missing case crashes.
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  let (names, env) = runtimeParams 0 (parameterNames ty) sig.kinds
+  let (names, env) = runtimeParams 0 (parameterNames ty) m.args sig.kinds counted
   tree' <- tree (MkCtx owner fc complete sig.result (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
@@ -160,13 +169,15 @@ appliedScope app uses = app.formType :: app.form :: replicate uses (UN (Basic (k
 ||| `Instances.applicationType` classified, the form's type keying it
 ||| first, in the scope `appliedScope` names. It has no loop of its own:
 ||| what its form calls is the callee's.
-translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Nat -> Front ()
-translateApplication p uses = do
+translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                       (p : Request) -> (sig : InstanceSig) -> (uses : Nat) -> (0 _ : length sig.kinds = 2 + uses) ->
+                       Front ()
+translateApplication p sig uses counted = do
   let owner = show p.owner
   let fc = p.site
-  let sig = p.signature
   app <- (.application) <$> reading
-  let (names, env) = runtimeParams 0 (appliedScope app uses) sig.kinds
+  let (names, env) = runtimeParams 0 (appliedScope app uses) (appliedScope app uses) sig.kinds
+                                   (trans counted (sym (cong (\k => S (S k)) (lengthReplicate uses))))
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
@@ -182,12 +193,14 @@ translateApplication p uses = do
 ||| (`Choices.heldDispatch`), each of its arms the instance with the choice
 ||| fixed, so no tree takes apart a field the program does not fix.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Front ()
-translateInstance p = case p.instantiates of
-  OfDefinition n _ => translateDefinition p n
-  AtUse uses => do
-    Nothing <- heldChoice p.signature.kinds
-      | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
-    translateApplication p uses
+translateInstance p = translated p.instantiates p.classifiesAll
+  where
+    translated : (what : Instantiates) -> (0 _ : length p.signature.kinds = appliedArity what) -> Front ()
+    translated (OfDefinition n m) counted = translateDefinition p p.signature n m counted
+    translated (AtUse uses) counted = do
+      Nothing <- heldChoice p.signature.kinds
+        | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
+      translateApplication p p.signature uses counted
 
 ||| One step of the translation's worklist: the instance of a request, the
 ||| item's own, translated as a function of what it reads (the program as
@@ -210,9 +223,9 @@ step found r = do
 mainInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Front InstanceSig
 mainInstance fc main = do
   d <- lookupDef fc (show main) main
-  let PMDef _ params _ = definition d.def
-    | _ => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
-  request fc (show main) (OfDefinition main (length params)) []
+  let Just m = d.matched
+    | Nothing => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
+  request fc (show main) (OfDefinition main m) []
 
 ||| The root's request, as a step derives it (`step`): the instance of
 ||| `main` the root calls, requested, and what requesting it derived.

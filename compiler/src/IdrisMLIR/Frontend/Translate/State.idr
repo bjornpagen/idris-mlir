@@ -369,9 +369,34 @@ record StaticReading where
   height : Nat
   head : Maybe Address
 
+%prefix_record_projections off
+||| What a pattern-matching definition's body is to the translation, read
+||| once through the context's accessors (`Boundary`): its case tree, each
+||| clause's patterns as the case builder read them, and the right-hand
+||| side of its clause, in that clause's scope, when it has exactly one,
+||| which is all of its clauses the translation reads.
+public export
+record Matched where
+  constructor MkMatched
+  args : Scope
+  tree : CaseTree args
+  pats : List (List Pat)
+  onlyClause : Maybe (vs : Scope ** Core.TT.Term.Term vs)
+
+||| The right-hand side of a body whose case tree is one leaf; nothing for
+||| one that matches.
+export
+leafOf : (m : Matched) -> Maybe (Core.TT.Term.Term m.args)
+leafOf m = case m.tree of
+  STerm _ rhs => Just rhs
+  _ => Nothing
+
+%prefix_record_projections on
+
 ||| What a function instance is an instance of: a definition of the
-||| program, a function of the arity its call read it at, the length of
-||| its case tree's parameters, read where the call met it as one; or a
+||| program, with its body as the boundary read it, whose case tree's
+||| parameters are the arity every call of it and its own translation
+||| read, one reading; or a
 ||| member of a choice at a use's types (`AtUse uses`), which
 ||| no definition of the program is. A member at a use is a compile-time
 ||| form (a polymorphic function, an implementation) applied to the `uses`
@@ -384,7 +409,14 @@ record StaticReading where
 ||| and the type, as Idris checked the use, takes, so no instance takes
 ||| more than its type does.
 public export
-data Instantiates = OfDefinition Name Nat | AtUse Nat
+data Instantiates = OfDefinition Name Matched | AtUse Nat
+
+||| How many parameters an instance applies: a definition's case tree's,
+||| or the type, the form and the use's arguments of a member at a use.
+public export
+appliedArity : Instantiates -> Nat
+appliedArity (OfDefinition _ m) = length m.args
+appliedArity (AtUse uses) = 2 + uses
 
 ||| A function instance requested: what it is an instance of, its
 ||| signature, read once where it was first requested (`InstanceSig`), so
@@ -399,12 +431,14 @@ data Instantiates = OfDefinition Name Nat | AtUse Nat
 ||| so no node of the graph is it, and the growth check bounds its link
 ||| alone (`Proof.Requests.Bounds`). The node's heads and the heights are
 ||| the arguments' readings, found when the instance is requested
-||| (`Instances.request`).
+||| (`Instances.request`). Its signature classifies as many parameters as
+||| it applies, so its translation binds one per variable of its scope.
 public export
 record Request where
   constructor MkRequest
   instantiates : Instantiates
   signature : InstanceSig
+  0 classifiesAll : length signature.kinds = appliedArity instantiates
   key : InstanceKey
   site : FC
   owner : Shown
@@ -650,27 +684,6 @@ Modules = SortedMap ModuleIdent LoadedModule
 -- (`Cases.tree`) or as one of Idris's (`GlobalDef`'s type) is no prefix
 -- function beside it.
 %prefix_record_projections off
-
-||| What a pattern-matching definition's body is to the translation, read
-||| once through the context's accessors (`Boundary`): its case tree, each
-||| clause's patterns as the case builder read them, and the right-hand
-||| side of its clause, in that clause's scope, when it has exactly one,
-||| which is all of its clauses the translation reads.
-public export
-record Matched where
-  constructor MkMatched
-  args : Scope
-  tree : CaseTree args
-  pats : List (List Pat)
-  onlyClause : Maybe (vs : Scope ** Core.TT.Term.Term vs)
-
-||| The right-hand side of a body whose case tree is one leaf; nothing for
-||| one that matches.
-export
-leafOf : (m : Matched) -> Maybe (Core.TT.Term.Term m.args)
-leafOf m = case m.tree of
-  STerm _ rhs => Just rhs
-  _ => Nothing
 
 ||| Whether Idris proved that every call of a definition ends: its
 ||| termination check's verdict, which follows everything the definition

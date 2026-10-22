@@ -273,35 +273,19 @@ Standing = (Stand, Name, Maybe ClosedTerm)
 
 ||| What each variable of a scope stands for, the innermost first, so that a
 ||| variable out of scope has nothing to stand for.
-data Env : Scope -> Type where
-  Nil : Env []
-  (::) : Standing -> Env vs -> Env (v :: vs)
-
-standings : Env vs -> List Standing
-standings [] = []
-standings (e :: es) = e :: standings es
-
-append : Env as -> Env vs -> Env (as ++ vs)
-append [] env = env
-append (e :: es) env = e :: append es env
-
-||| The entry of a variable, which its scope says is there.
-entryAt : Env vs -> (idx : Nat) -> (0 _ : IsVar n idx vs) -> Standing
-entryAt (e :: _) Z _ = e
-entryAt (_ :: es) (S i) p = entryAt es i (dropLater p)
-entryAt [] _ First impossible
-entryAt [] _ (Later _) impossible
+Env : Scope -> Type
+Env vs = ByVar vs Standing
 
 ||| A term in scope, closed with what each variable stands for.
 close : {vs : Scope} -> Env vs -> TT vs -> ClosedTerm
-close env t = closeWritten EmptyFC (map (\(s, _, _) => the (VarInfo ()) (TypeValue (termOf s))) (standings env)) t
+close env t = closeOver EmptyFC (map (\(s, _, _) => termOf s) env) t
 
 ||| What a call knows of a term it gives: a variable that holds a dictionary
 ||| is an implementation. The translation passes a caller's dictionaries to
 ||| its blocks as explicit arguments, so the callee's binder alone does not
 ||| say.
 offerOf : Env vs -> TT vs -> Offer
-offerOf env (Local _ _ idx p) = case entryAt env idx p of
+offerOf env (Local _ _ idx p) = case lookupVar idx p env of
   (Holds _, _, _) => AnImplementation
   _ => AValue
 offerOf _ _ = AValue
@@ -398,9 +382,9 @@ record Holed where
 ||| the translation marks what an implementation closes over (`Holed`).
 holedAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front Holed
 holedAt env t = do
-  let valued = zipWith value [0 .. length (standings env)] (standings env)
-      c = closeWritten EmptyFC (map (\(v, _) => the (VarInfo ()) (TypeValue v)) valued) t
-      order = fst (occurring (SortedSet.fromList (mapMaybe snd valued)) c ([<], empty)) <>> []
+  let valued = positioned 0 env
+      c = closeOver EmptyFC (map fst valued) t
+      order = fst (occurring (SortedSet.fromList (mapMaybe snd (innermostFirst valued))) c ([<], empty)) <>> []
       numbered = zip [0 .. length order] order
   marks <- traverse (markedAt . snd) numbered
   -- A holder's form is put in first, over its own name, so that its
@@ -423,6 +407,11 @@ holedAt env t = do
     value p (Holds (Known _ (Just _)), _, _) = runtimeAt p
     value p (s, _, _) = (termOf s, Nothing)
 
+    -- Each variable's value, by its place in the scope, the innermost 0.
+    positioned : Nat -> ByVar ws Standing -> ByVar ws (ClosedTerm, Maybe Name)
+    positioned p [] = []
+    positioned p (x :: xs) = value p x :: positioned (S p) xs
+
     -- What stands at the place a name was made for: a runtime value as
     -- itself, of its type where the walk knows it; a dictionary known as
     -- a term as its form, its values the projections of the one value at
@@ -430,7 +419,7 @@ holedAt env t = do
     -- is settled over, as itself, the one value its place holds.
     markedAt : Name -> Front (Marked, Maybe (Name, ClosedTerm))
     markedAt n = case probeOf n of
-      Just pr@(ProbeRuntimeAt p) => case getAt p (standings env) of
+      Just pr@(ProbeRuntimeAt p) => case getAt p (innermostFirst env) of
         Just (Holds (Known _ (Just co)), _, _) => do
           values <- unpacked (valueTypes co) (probeTerm pr)
           packed <- packedType (valueTypes co)
@@ -499,13 +488,13 @@ named names stands t = replacing (mapMaybe nameFor (keys (getRefs (UN Underscore
 ||| which is no machine name, so that the solving's quotation keeps it.
 display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (names : List Name) -> Pats -> Env vs -> TT vs -> Front String
 display names ps env t = do
-  shown <- traverse shownAs (standings env)
-  showTT (named names ps.made !(solved (closeWritten EmptyFC shown t)))
+  shown <- traverseByVar shownAs env
+  showTT (named names ps.made !(solved (closeOver EmptyFC shown t)))
   where
     -- The text a name prints as becomes an identifier here, where the
     -- message is made.
-    shownAs : Standing -> Front (VarInfo ())
-    shownAs (_, x, _) = (\i => TypeValue (Ref EmptyFC Bound (UN (Basic i)))) <$> core (intern (show x))
+    shownAs : Standing -> Front ClosedTerm
+    shownAs (_, x, _) = (\i => Ref EmptyFC Bound (UN (Basic i))) <$> core (intern (show x))
 
 ||| A site of the writer's, at its own location when it has none.
 siteAt : At -> FC -> Reach -> List Argument -> Site
@@ -729,7 +718,7 @@ taken at ps env ty positions args = do
   os <- traverse (offered ps env) args
   (kinds, rest) <- staticsOver at.owner (length args) ty (map (\o => Just (o.value, o.offer)) os)
   binders <- bindersAlong ty (map (.value) os)
-  pure (decided 0 os (toList kinds) positions binders, rest)
+  pure (decided 0 os (toList (map (.static) kinds)) positions binders, rest)
   where
     taking : Maybe Static -> ArgumentAt -> Taking
     taking (Just k) _ = AsStatic k
@@ -1021,7 +1010,7 @@ knownHeld co = [PackedBy (OwnBinding co.binding) ::: []]
 ||| A dictionary given as a variable that holds one known as a term that
 ||| closes over values, with what it closes over.
 knownGiven : Env vs -> TT vs -> Maybe ClosedOver
-knownGiven env (Local _ _ idx p) = case entryAt env idx p of
+knownGiven env (Local _ _ idx p) = case lookupVar idx p env of
   (Holds (Known _ (Just co)), _, _) => Just co
   _ => Nothing
 knownGiven _ _ = Nothing
@@ -1346,7 +1335,7 @@ useAt at ps env fc t form args = do
   ty <- applicationType
   n <- takes t os
   (kinds, _) <- staticsOver at.owner (2 + n) ty (Just (t, AValue) :: Nothing :: map (\o => Just (o.value, o.offer)) (take n os))
-  let (k :: _ :: ks) = toList kinds
+  let (k :: _ :: ks) = toList (map (.static) kinds)
     | _ => pure []
   -- The form's type is the application's first argument, a type, whose
   -- binder is a universe.
@@ -1442,17 +1431,19 @@ piNames : TT vs -> List Name
 piNames (Bind _ x (Pi {}) sc) = x :: piNames sc
 piNames _ = []
 
-||| How many parameters a definition takes: its case tree's scope, or the
-||| arity Idris records, or the binders its type shows.
+||| How many parameters a definition takes: its case tree's scope, as the
+||| boundary read its body and the translation calls it, or the arity
+||| Idris records, or the binders its type shows.
 arityOf : Defined -> Nat
-arityOf d = case definition d.def of
-  PMDef _ args _ => length args
-  DCon _ arity _ => arity
-  TCon arity _ _ _ _ _ _ => arity
-  Builtin {arity} _ => arity
-  ForeignDef arity _ => arity
-  ExternDef arity => arity
-  _ => length (piNames d.type)
+arityOf d = case d.matched of
+  Just m => length m.args
+  Nothing => case definition d.def of
+    DCon _ arity _ => arity
+    TCon arity _ _ _ _ _ _ => arity
+    Builtin {arity} _ => arity
+    ForeignDef arity _ => arity
+    ExternDef arity => arity
+    _ => length (piNames d.type)
 
 ||| A data constructor applied, as the walk reads it: `Calls` of it at
 ||| every static argument, where it holds a dictionary or builds one, so
@@ -1687,14 +1678,14 @@ staticRef at ps env fc n args = do
 ||| Whether a term mentions a runtime value of the walk's scope: a value,
 ||| or a shape matched or not, which no compile-time reduction sees through.
 runtimeIn : {vs : Scope} -> Env vs -> TT vs -> Mention
-runtimeIn env t = mentioning runtime (closeWritten EmptyFC (map marking (standings env)) t)
+runtimeIn env t = mentioning runtime (closeOver EmptyFC (map marking env) t)
   where
-    marking : Standing -> VarInfo ()
-    marking (Runtime, _, _) = TypeValue (probeTerm ProbeRuntime)
-    marking (Pattern _, _, _) = TypeValue (probeTerm ProbeRuntime)
-    marking (Shape _, _, _) = TypeValue (probeTerm ProbeRuntime)
-    marking (Packs _, _, _) = TypeValue (probeTerm ProbeRuntime)
-    marking (s, _, _) = TypeValue (termOf s)
+    marking : Standing -> ClosedTerm
+    marking (Runtime, _, _) = probeTerm ProbeRuntime
+    marking (Pattern _, _, _) = probeTerm ProbeRuntime
+    marking (Shape _, _, _) = probeTerm ProbeRuntime
+    marking (Packs _, _, _) = probeTerm ProbeRuntime
+    marking (s, _, _) = termOf s
 
     runtime : {0 ws : Scope} -> TT ws -> Mention
     runtime (Ref _ _ n) = asMention (n == probeName ProbeRuntime)
@@ -1710,7 +1701,7 @@ runtimeIn env t = mentioning runtime (closeWritten EmptyFC (map marking (standin
 data SettledArgument = GivenInPlace ClosedTerm | StandsAs Standing | ComputedHere
 
 settledArgument : {vs : Scope} -> Env vs -> TT vs -> SettledArgument
-settledArgument env t@(Local _ _ idx p) = case entryAt env idx p of
+settledArgument env t@(Local _ _ idx p) = case lookupVar idx p env of
   e@(Runtime, _, _) => StandsAs e
   e@(Pattern _, _, _) => StandsAs e
   e@(Shape _, _, _) => StandsAs e
@@ -2003,7 +1994,7 @@ mutual
       case use rig of
         Erased => pure ((Fixed (close env a.written), x, Nothing), [])
         Used _ => case a.written of
-          Local _ _ idx p => pure (let (s, _, t) = entryAt env idx p in ((s, x, t), []))
+          Local _ _ idx p => pure (let (s, _, t) = lookupVar idx p env in ((s, x, t), []))
           _ => do
             bty <- normaliseClosed (close env ty)
             if !(compileTimeBinder rig bty)
@@ -2029,7 +2020,7 @@ mutual
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                   At -> Pats -> Env vs -> FC -> (idx : Nat) -> (0 p : IsVar n idx vs) -> List (Arg vs) ->
                   Front (List Site)
-  applyVariable ph w acc at ps env fc idx p args = case entryAt env idx p of
+  applyVariable ph w acc at ps env fc idx p args = case lookupVar idx p env of
     (Runtime, _, ty) => overType at ps env fc ty args
     (Pattern _, _, ty) => overType at ps env fc ty args
     (Shape _, _, ty) => overType at ps env fc ty args
@@ -2173,7 +2164,7 @@ conStands ps v r cd con args = do
   ty <- normaliseClosed cd.type
   layout <- layoutOf ty
   (env, ps') <- bind ps layout 0 ty args
-  pure (env, foldl (App EmptyFC) con (map (\(s, _, _) => termOf s) (standings env)), ps')
+  pure (env, foldl (App EmptyFC) con (map (\(s, _, _) => termOf s) (innermostFirst env)), ps')
   where
     built : TT ws -> Maybe Name
     built (Bind _ _ (Pi {}) sc) = built sc
@@ -2270,7 +2261,7 @@ mutual
   -- The scrutinee's type is its variable's: a case tree loaded from a TTC
   -- holds none of its own.
   tree at ps env (Case idx p _ alts) = do
-    let v = entryAt env idx p
+    let v = lookupVar idx p env
     r <- the (Front (List ClosedTerm)) $ case v of
       (_, _, Just ty) => typeArgs <$> normaliseClosed ty
       (_, _, Nothing) => pure []
@@ -2295,7 +2286,7 @@ mutual
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (_, cd) => do
         (bound, con, ps') <- conStands (inPart 0 ps) (fst v) r cd (Ref EmptyFC (DataCon tag (length args)) cn) args
-        tree at ps' (append bound (matchedAs (fst v) con env)) rhs
+        tree at ps' (prepend bound (matchedAs (fst v) con env)) rhs
       -- Idris's tree names only constructors the context holds.
       Nothing => pure []
     (here ++) <$> alternatives at (inPart 1 ps) env v r every alts rest
@@ -2552,7 +2543,7 @@ nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             (writer, within : Address) -> Defined -> (List ClosedTerm, Pats) -> Front (List (Maybe Static), List Site)
 nodeSites writer within d (values, made) = do
   (kinds', result) <- staticsOver (show (fullname d.def)) (arityOf d) d.type (map (\v => Just (v, AValue)) values)
-  let kinds = toList kinds'
+  let kinds = toList (map (.static) kinds')
   at <- atDefinition writer within d kinds <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
   (sig, ps, params) <- signature at (zip kinds values) 0 d.type made
   body <- the (Front (List Site)) $ case d.matched of

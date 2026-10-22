@@ -115,11 +115,76 @@ natRole def = case mapMaybe role (flags def) of
     role (ConType SUCC) = Just Succ
     role _ = Nothing
 
+||| One entry per variable of a scope, the innermost first, so that every
+||| variable the scope holds has its entry and no other has one.
+public export
+data ByVar : Scope -> Type -> Type where
+  Nil : ByVar [] a
+  (::) : a -> ByVar vs a -> ByVar (v :: vs) a
+
+export
+Functor (ByVar vs) where
+  map f [] = []
+  map f (x :: xs) = f x :: map f xs
+
+||| The entries, the innermost first.
+export
+innermostFirst : ByVar vs a -> List a
+innermostFirst [] = []
+innermostFirst (x :: xs) = x :: innermostFirst xs
+
+||| The entry of a variable, which its scope says is there.
+export
+lookupVar : (idx : Nat) -> (0 _ : IsVar n idx vs) -> ByVar vs a -> a
+lookupVar Z _ (x :: _) = x
+lookupVar (S i) p (_ :: xs) = lookupVar i (dropLater p) xs
+lookupVar _ First [] impossible
+lookupVar _ (Later _) [] impossible
+
+||| Each entry made by an effect, in scope order.
+export
+traverseByVar : Applicative f => (a -> f b) -> ByVar vs a -> f (ByVar vs b)
+traverseByVar g [] = pure []
+traverseByVar g (x :: xs) = (::) <$> g x <*> traverseByVar g xs
+
+||| Two entries of each variable, made one.
+export
+zipByVar : (a -> b -> c) -> ByVar vs a -> ByVar vs b -> ByVar vs c
+zipByVar f [] [] = []
+zipByVar f (x :: xs) (y :: ys) = f x y :: zipByVar f xs ys
+
+||| The entries of inner variables put in front of a scope's.
+export
+prepend : ByVar as a -> ByVar vs a -> ByVar (as ++ vs) a
+prepend [] xs = xs
+prepend (y :: ys) xs = y :: prepend ys xs
+
+||| One entry per name, each made from the element of a list as long.
+export
+byVarFrom : (vs : Scope) -> (f : a -> b) -> (xs : List a) -> (0 _ : length xs = length vs) -> ByVar vs b
+byVarFrom [] f [] _ = []
+byVarFrom (_ :: vs) f (x :: xs) same = f x :: byVarFrom vs f xs (predecessors same)
+  where
+    predecessors : {0 m, n : Nat} -> S m = S n -> m = n
+    predecessors Refl = Refl
+byVarFrom [] f (_ :: _) Refl impossible
+byVarFrom (_ :: _) f [] Refl impossible
+
+||| The same entry for every name.
+export
+everyVar : (vs : Scope) -> a -> ByVar vs a
+everyVar [] x = []
+everyVar (_ :: vs) x = x :: everyVar vs x
+
+||| What each variable of a scope stands for.
+public export
+StandsFor : Scope -> Type -> Type
+StandsFor vs a = ByVar vs (VarInfo a)
+
 ||| An environment under a binder of `k` variables, which come first.
 export
-under : {k : Nat} -> List (VarInfo (Fin (Under k n))) -> List (VarInfo (Fin n)) ->
-        List (VarInfo (Fin (Under k n)))
-under bound env = bound ++ map (map (Free {k})) env
+under : {k : Nat} -> StandsFor new (Fin (Under k n)) -> StandsFor vs (Fin n) -> StandsFor (new ++ vs) (Fin (Under k n))
+under bound env = prepend bound (map (map (Free {k})) env)
 
 ||| Whether a term holds a part a test picks: one somewhere in it, or none.
 ||| The view a caller that chooses by it matches on.
@@ -258,13 +323,19 @@ runtimePart n = case probeOf n of
   Just ProbeRuntime => True
   _ => False
 
+||| A term in scope as a closed term, each variable the closed term its
+||| entry gives, substituted and not normalised.
+export
+closeOver : {vars : Scope} -> FC -> ByVar vars ClosedTerm -> TT vars -> ClosedTerm
+closeOver fc values tm = zeta (betaAll (wrapLams fc tm) (reverse (innermostFirst values)))
+
 ||| A term in scope as a closed term, with compile-time values substituted
 ||| and not normalised, so that an implementation keeps its written form. A
 ||| runtime variable becomes the stand-in for a runtime value
 ||| (`runtimePart`), which `runtimeDependent` detects.
 export
-closeWritten : {vars : Scope} -> FC -> List (VarInfo a) -> TT vars -> ClosedTerm
-closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)))
+closeWritten : {vars : Scope} -> FC -> StandsFor vars a -> TT vars -> ClosedTerm
+closeWritten fc env tm = closeOver fc (map value env) tm
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
@@ -1026,9 +1097,9 @@ fixing type form = do
       (Ref _ Func n, args) => do
         Just d <- defined n
           | Nothing => pure False
-        pure (case definition d.def of
-                PMDef _ params _ => length args < length params
-                _ => False)
+        pure (case d.matched of
+                Just m => length args < length m.args
+                Nothing => False)
       _ => pure False
 
 ||| A projection applied to arguments, when it applies to all of them: the
@@ -1759,9 +1830,9 @@ cutRuntime tm = cut start (sizeAccessible start) Same tm
 ||| closures, normalised, would unfold without end).
 export
 closeNormalise : {vars : Scope} ->
-                 FC -> List (VarInfo a) -> TT vars -> Front ClosedTerm
+                 FC -> StandsFor vars a -> TT vars -> Front ClosedTerm
 closeNormalise fc env tm = do
-  closed <- solved (betaAll (wrapLams fc tm) (reverse (map value env)))
+  closed <- solved (betaAll (wrapLams fc tm) (reverse (innermostFirst (map value env))))
   normaliseClosed !(cutRuntime closed)
   where
     value : VarInfo a -> ClosedTerm

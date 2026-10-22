@@ -35,6 +35,7 @@ import Data.List
 import Data.List1
 import Data.SortedMap
 import Data.SortedSet
+import Data.Vect
 
 %default total
 
@@ -71,14 +72,13 @@ export
 applicationType : Front ClosedTerm
 applicationType = (\r => r.application.type) <$> reading
 
-||| What an instance applies, as its parameters are classified over: a
-||| definition's arity, as the call that met it as a function read it, and
-||| its type; a member at a use's, as `applicationType` applies it to the
-||| use's arguments.
+||| The type an instance applies, as its parameters (`appliedArity`) are
+||| classified over: a definition's; a member at a use's, as
+||| `applicationType` applies it to the use's arguments.
 appliedType : {auto s : Ref TState TS} ->
-              FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
-appliedType fc owner (OfDefinition n arity) = (\d => (arity, d.type)) <$> lookupDef fc owner n
-appliedType fc owner (AtUse uses) = (2 + uses,) <$> applicationType
+              FC -> String -> Instantiates -> Front ClosedTerm
+appliedType fc owner (OfDefinition n _) = (.type) <$> lookupDef fc owner n
+appliedType fc owner (AtUse uses) = applicationType
 
 ||| The instance of what is instantiated at the static arguments a call's
 ||| kinds give it (`Keys`), each written as its reading's form.
@@ -230,16 +230,25 @@ keyingOf rig a' sc offer = case use rig of
          then pure (Implemented q)
          else pure (Runtime q (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
+||| What `staticsOver` reads of a parameter: the kind that keys it
+||| statically, if any, and its binder's quantity.
+public export
+record ParamReading where
+  constructor MkParamReading
+  static : Maybe Static
+  quantity : RigCount
+
 ||| `classify`'s decisions over arguments given as closed terms (over the
 ||| growth check's markers, `Growth.Sites`), each with what the call knows
 ||| of it (`Offer`), or `Nothing` for a runtime value: each parameter's
-||| kind, and the rest of the type. It decides by `keyingOf` and
-||| `needsShape`, as `classify` does, but computes no value, reads no Core
-||| type, registers nothing and refuses nothing, so it runs over markers.
+||| kind with its binder's quantity, and the rest of the type. It decides
+||| by `keyingOf` and `needsShape`, as `classify` does, but computes no
+||| value, reads no Core type, registers nothing and refuses nothing, so it
+||| runs over markers.
 export
 staticsOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> (arity : Nat) -> (callee : ClosedTerm) ->
-              List (Maybe (ClosedTerm, Offer)) -> Front (Vect arity (Maybe Static), ClosedTerm)
+              List (Maybe (ClosedTerm, Offer)) -> Front (Vect arity ParamReading, ClosedTerm)
 staticsOver owner Z ty _ = pure ([], ty)
 staticsOver owner (S k) ty vals = do
   -- Over markers, which stand for every value, a type whose binders come
@@ -259,7 +268,7 @@ staticsOver owner (S k) ty vals = do
     Runtime _ Runs => pure Nothing
     Runtime _ Reduces => pure (if !(needsShape owner (\x => subst x sc)) then Just AShape else Nothing)
   (kinds, res) <- staticsOver owner k !(normaliseClosed (subst (maybe (Erased EmptyFC Placeholder) fst given) sc)) vals'
-  pure (kind :: kinds, res)
+  pure (MkParamReading kind rig :: kinds, res)
 
 ||| A callee's parameters, one kind per argument it is classified at
 ||| (`classifyCall`), and the type after them.
@@ -556,14 +565,20 @@ atCall fc owner vals sig = inCaller fc owner vals sig.kinds sig.result
 ||| it, its identity and symbol as given.
 export
 instanceSig : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> Instantiates -> List PKind -> FnId -> String -> Front InstanceSig
+              FC -> String -> (what : Instantiates) -> List PKind -> FnId -> String ->
+              Front (sig : InstanceSig ** length sig.kinds = appliedArity what)
 instanceSig fc owner what kinds inst symbol = do
-  (arity, ty) <- appliedType fc owner what
-  (found, resTy) <- classifyAt fc owner 0 arity ty (givenArgs kinds)
+  ty <- appliedType fc owner what
+  (found, resTy) <- classifyAt fc owner 0 (appliedArity what) ty (givenArgs kinds)
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
-  let own = toList found
-  pure (MkInstanceSig own resTy' (MkCallee inst symbol (runtimeBinders own) result))
+  let (own ** counted) = listed found
+  pure (MkInstanceSig own resTy' (MkCallee inst symbol (runtimeBinders own) result) ** counted)
+  where
+    -- The kinds in order, as many as the vector holds.
+    listed : Vect n PKind -> (ks : List PKind ** length ks = n)
+    listed [] = ([] ** Refl)
+    listed (k :: ks) = let (ks' ** same) = listed ks in (k :: ks' ** cong S same)
 
 ||| Requests a function instance, for parameters classified as the call
 ||| gives them, and returns its signature (`InstanceSig`), which holds its
@@ -589,11 +604,11 @@ request fc owner what kinds = do
   let inst = InstanceOf found.link
   Nothing <- pure (requestedBefore inst !(getState))
     | Just sig => pure sig
-  sig <- instanceSig fc owner what kinds inst found.symbol
+  (sig ** counted) <- instanceSig fc owner what kinds inst found.symbol
   updateState (derive { instances $= insert inst sig })
   positions <- positionsOf
   updateState (derive { fnOrder $= (:< inst) })
-  updateState { derived->requested $= (:< MkRequest what sig found.key fc (shown owner) found.link positions) }
+  updateState { derived->requested $= (:< MkRequest what sig counted found.key fc (shown owner) found.link positions) }
   pure sig
   where
     -- The instance, and, for a new one, where the growth check bounds its

@@ -174,7 +174,7 @@ capOf addr j = do
   let owner = show (fullname d.def)
   let ty = d.type
   (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i 0, AValue) | i <- [0 .. j]]
-  case Vect.last kinds of
+  case (Vect.last kinds).static of
     Just AShape => do
       (a, rest) <- parameterAt j ty
       -- `tyConFacts`' `natness` is the one reading of whether a shape is a

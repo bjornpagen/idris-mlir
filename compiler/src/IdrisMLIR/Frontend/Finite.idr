@@ -89,7 +89,7 @@ lessLeft (S n) Z _ = rewrite minusZeroRight n in reflexive {rel = LTE}
 lessLeft (S n) (S k) (LTESucc lt) = lessLeft n k lt
 
 ||| A new member leaves less room: a list without duplicates whose values
-||| are all in `u` is no longer than `u` (the fork's `pigeonhole`), so one
+||| are all in `u` is no longer than `u` (the checker's `pigeonhole`), so one
 ||| more value, not yet in it, leaves fewer of `u`'s places.
 export 0 room : {u : List a} -> NoDup (x :: taken) -> All (\y => Elem y u) (x :: taken) ->
                 LT (minus (length u) (length (x :: taken))) (minus (length u) (length taken))

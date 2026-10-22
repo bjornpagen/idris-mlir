@@ -196,8 +196,9 @@ constructorArity n = do
 -- other definition writes its signature and case tree.
 kindOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          Address -> Defined -> Front (List Nat, Front (Reading, List Nat))
-kindOf a d = case definition d.def of
-  TCon n _ _ _ _ cons _ => do
+kindOf a d = case (d.matched, definition d.def) of
+  (Just m, _) => pure ([length m.args], plain)
+  (Nothing, TCon n _ _ _ _ cons _) => do
     let cs = fromMaybe [] cons
     arities <- traverse constructorArity cs
     pure (n :: length cs :: (arities >>= id), do
@@ -205,7 +206,6 @@ kindOf a d = case definition d.def of
             fs <- fieldSites a d.def cs js
             rd <- readingOf a d
             pure ({ sites $= (fs ++) } rd, js))
-  PMDef _ params _ => pure ([length params], plain)
   _ => pure ([], plain)
   where
     plain : Front (Reading, List Nat)
