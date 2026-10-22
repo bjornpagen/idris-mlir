@@ -3977,6 +3977,23 @@ C137.
   buffer behind a tensor it stores may be a slice, a parameter's or one
   read back out of a cell, and adopting it there would count one memory
   twice.
+- **C193** (2026-10-22; L16's finding; carries out D71 as ruled). `LArray`
+  reaches the dialect as its family, a cell holding its buffer, as
+  `Linear.Vec` does, not as a bare tensor: the Faster hook that maps it to
+  a value array is what kept D71's `InPlaceType` row from ever being
+  read, and a bare tensor carries no grade for bufferization to read
+  (D71: "bufferization reads the grade"; C105: a field's buffer is
+  writable only when its cell is exclusive). Its operations read the
+  buffer out of the cell, run on it, and rebuild the cell in place by
+  D24's rule. The claim its buffer needs is the open question in §4.
+- **C194** (2026-10-22; L10's finding; completes C189). Every op whose
+  region can hold a call on its function's own cycle is one frames can
+  split: `io.unsafe_run`, at whose end nothing runs, propagates
+  control-flow breaks; `memo.run` gets a split form whose store into the
+  cell is a continuation step; and a generating op (`array.tabulate`,
+  `array.update`) whose body holds such a call is lowered to a join-point
+  loop (`idr.loop`) before frames, which splits join regions already.
+  No valid program then reaches frames' internal error.
 
 ## 4. Open: the owner's decisions, in order
 
