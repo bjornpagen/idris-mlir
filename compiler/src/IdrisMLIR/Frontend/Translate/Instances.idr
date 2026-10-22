@@ -230,33 +230,42 @@ keyingOf rig a' sc offer = case use rig of
          then pure (Implemented q)
          else pure (Runtime q (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
-||| What `staticsOver` reads of a parameter: the kind that keys it
-||| statically, if any, and its binder's quantity.
+||| What `staticsOver` reads of a parameter: off a binder the type shows
+||| over the arguments given, the kind that keys it statically, if any, and
+||| the binder's quantity; or, past every binder it shows, nothing a
+||| reading over markers can say. Over markers, which stand for every
+||| value, a type whose binders an argument's value decides shows none
+||| past that argument, and which kind such a parameter has only an
+||| instance decides, where its type is admitted with the arguments put in
+||| (`admitted`). The walk reads it as it reads every binder a type does
+||| not show: a runtime value.
 public export
-record ParamReading where
-  constructor MkParamReading
-  static : Maybe Static
-  quantity : RigCount
+data ParamReading = OffBinder (Maybe Static) RigCount | PastBinders
+
+||| The kind that keys a parameter statically, as `staticsOver` read it.
+public export
+staticOf : ParamReading -> Maybe Static
+staticOf (OffBinder kind _) = kind
+staticOf PastBinders = Nothing
 
 ||| `classify`'s decisions over arguments given as closed terms (over the
 ||| growth check's markers, `Growth.Sites`), each with what the call knows
 ||| of it (`Offer`), or `Nothing` for a runtime value: each parameter's
-||| kind with its binder's quantity, and the rest of the type. It decides
-||| by `keyingOf` and `needsShape`, as `classify` does, but computes no
-||| value, reads no Core type, registers nothing and refuses nothing, so it
-||| runs over markers.
+||| reading (`ParamReading`), and the rest of the type, or the type at the
+||| first binder it does not show. It decides by `keyingOf` and
+||| `needsShape`, as `classify` does, but computes no value, reads no Core
+||| type, registers nothing and refuses nothing, so it runs over markers.
 export
 staticsOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> (arity : Nat) -> (callee : ClosedTerm) ->
               List (Maybe (ClosedTerm, Offer)) -> Front (Vect arity ParamReading, ClosedTerm)
 staticsOver owner Z ty _ = pure ([], ty)
 staticsOver owner (S k) ty vals = do
-  -- Over markers, which stand for every value, a type whose binders come
-  -- from an argument's value shows none past it. This reading refuses
-  -- nothing, since the classification over a call's own values may still
-  -- see the binder, and it has no kind to give a binder it cannot see.
+  -- Essential: the growth walk runs before any instance is requested, so
+  -- over markers a binder only an instance's arguments show is shown by
+  -- none of them.
   Bind _ _ (Pi _ rig _ a) sc <- showingBinder ty
-    | _ => internal EmptyFC "more arguments than the type has binders"
+    | shown => pure (replicate (S k) PastBinders, shown)
   a' <- normaliseClosed a
   let (given, vals') = nextStatic vals
   kind <- case !(keyingOf rig a' sc (maybe AValue snd given)) of
@@ -268,7 +277,7 @@ staticsOver owner (S k) ty vals = do
     Runtime _ Runs => pure Nothing
     Runtime _ Reduces => pure (if !(needsShape owner (\x => subst x sc)) then Just AShape else Nothing)
   (kinds, res) <- staticsOver owner k !(normaliseClosed (subst (maybe (Erased EmptyFC Placeholder) fst given) sc)) vals'
-  pure (MkParamReading kind rig :: kinds, res)
+  pure (OffBinder kind rig :: kinds, res)
 
 ||| A callee's parameters, one kind per argument it is classified at
 ||| (`classifyCall`), and the type after them.
@@ -276,29 +285,63 @@ public export
 Classified : Nat -> Type
 Classified arity = (Vect arity PKind, ClosedTerm)
 
-||| Walks a callee's type over its arguments: which are type parameters or
-||| implementations, which are erased, which are index parameters, which
-||| are runtime (and their types). Each index parameter stands in the rest
-||| of the type as its own level (`marker`), the next one `level`, so the
-||| types read in the callee's scope.
-classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> (level : Nat) -> (arity : Nat) -> ClosedTerm -> ArgValues ->
-             Front (Classified arity)
-classifyAt fc owner level Z ty _ = pure ([], ty)
-classifyAt fc owner level (S k) ty vals = do
-  -- Idris checked the definition's clauses at its arity, over the
-  -- arguments' values; the type here is over what the call fixes of them,
-  -- and a type whose binders come from a value the call leaves to run
-  -- time (`(b : Bool) -> if b then .. else ..` at a runtime `b`) is stuck
-  -- before the binder: a function whose arity no compile-time reduction
-  -- fixes, which the program has.
+||| A callee's type as an instance admits it, `arity` parameters ahead: the
+||| binder of its next parameter, which the type shows with every argument
+||| before it put in, or, past them all, the type after them. Each step of
+||| the walk that classifies an instance's parameters takes the binder its
+||| type admits, and admits the rest once it has put in what stands for
+||| the parameter (`admitted`).
+public export
+data Admitted : (arity : Nat) -> Type where
+  AllAdmitted : (rest : ClosedTerm) -> Admitted Z
+  Admits : (bfc : FC) -> (rig : RigCount) -> (binderType : ClosedTerm) -> (sc : TT [x]) -> Admitted (S k)
+
+||| The request's name in a refusal: the definition an instance is of, or
+||| the application of a form a member at a use is.
+export
+requestName : Instantiates -> String
+requestName (OfDefinition n _) = show n
+requestName (AtUse uses) = "a form applied to " ++ show uses ++ " arguments"
+
+||| A callee's type admitted `arity` parameters ahead, with the arguments
+||| before them put in, where its instance is first requested. Idris
+||| checked the definition's clauses at its arity, over the arguments'
+||| values; the type here is over what the request fixes of them, and a
+||| type whose binders come from a value the request leaves to run time
+||| (`(b : Bool) -> if b then .. else ..` at a runtime `b`) is stuck
+||| before the binder: a function whose arity no compile-time reduction
+||| fixes, which the program has. It is refused here, the one place an
+||| instance's binder is read, naming the request.
+admitted : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+           FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> Front (Admitted arity)
+admitted fc owner request Z ty = pure (AllAdmitted ty)
+admitted fc owner request (S k) ty = do
   Bind bfc _ (Pi _ rig _ a) sc <- showingBinder ty
-    | _ => reject fc owner ValueType ("a type whose binders depend on a value the call does not fix: " ++ !(showTT ty))
-  parameter bfc rig a sc
+    | _ => reject fc owner ValueType (request ++ " at a type whose binders depend on a value the call does not fix: " ++
+                                      !(showTT ty))
+  pure (Admits bfc rig a sc)
+
+||| Walks a callee's type, as the instance admits it, over its arguments:
+||| which are type parameters or implementations, which are erased, which
+||| are index parameters, which are runtime (and their types). Each index
+||| parameter stands in the rest of the type as its own level (`marker`),
+||| the next one `level`, so the types read in the callee's scope.
+classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity -> ArgValues ->
+             Front (Classified arity)
+classifyAt fc owner request level Z (AllAdmitted ty) _ = pure ([], ty)
+classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
   where
-    -- The parameter a binder binds, and the rest of the type after it.
-    parameter : FC -> RigCount -> ClosedTerm -> TT [x] -> Front (Classified (S k))
-    parameter bfc rig a sc = do
+    -- The rest of the type, after what stands for the parameter, admitted
+    -- and classified, the next index parameter's level `next`.
+    classifiedAfter : (next : Nat) -> ClosedTerm -> ArgValues -> Front (Classified k)
+    classifiedAfter next ty vals' = do
+      rest <- admitted fc owner request k ty
+      classifyAt fc owner request next k rest vals'
+
+    -- The parameter the binder binds, and the rest of the type after it.
+    parameter : Front (Classified (S k))
+    parameter = do
       a' <- normaliseClosed a
       let (given, vals') = nextStatic vals
       case !(keyingOf rig a' sc (maybe AValue (.offer) given)) of
@@ -310,7 +353,7 @@ classifyAt fc owner level (S k) ty vals = do
           let Just v = given
             | Nothing => leftOut "shape"
           form <- formOf <$> spineOf fc owner !(v.normalised)
-          mapFst (FormParam form ::) <$> classifyAt fc owner level k !(normaliseClosed (subst form sc)) vals'
+          mapFst (FormParam form ::) <$> classifiedAfter level !(normaliseClosed (subst form sc)) vals'
         -- An erased binder an index of a runtime parameter's type or of
         -- the result reads, and nothing a value is made of, is an index
         -- parameter, its level standing for it in the rest of the type;
@@ -320,8 +363,8 @@ classifyAt fc owner level (S k) ty vals = do
           case !(occurrenceOf owner level rest) of
             IndexOnly => do
               sort <- sortOfType a'
-              mapFst (IndexParam sort ::) <$> classifyAt fc owner (S level) k rest vals'
-            _ => mapFst (ErasedParam ::) <$> classifyAt fc owner level k (subst (Erased bfc Placeholder) sc) vals'
+              mapFst (IndexParam sort ::) <$> classifiedAfter (S level) rest vals'
+            _ => mapFst (ErasedParam ::) <$> classifiedAfter level (subst (Erased bfc Placeholder) sc) vals'
         -- An implementation the call leaves out is given when the call's
         -- value, a closure, is applied: a run-time choice.
         Implemented q => do
@@ -362,7 +405,7 @@ classifyAt fc owner level (S k) ty vals = do
               neededShape owner (\x => subst x sc) found
             _ => pure Nothing
           let value = fromMaybe (Erased bfc Placeholder) shape
-          mapFst (ValueParam b shape a' ::) <$> classifyAt fc owner level k !(normaliseClosed (subst value sc)) vals'
+          mapFst (ValueParam b shape a' ::) <$> classifiedAfter level !(normaliseClosed (subst value sc)) vals'
       where
         -- A type, normalised, keys the instance.
         typed : Maybe ArgValue -> ArgValues -> Front (Classified (S k))
@@ -370,7 +413,7 @@ classifyAt fc owner level (S k) ty vals = do
           let Just v = given
             | Nothing => leftOut "type"
           val <- v.normalised
-          mapFst (TypeParam val ::) <$> classifyAt fc owner level k !(normaliseClosed (subst val sc)) after
+          mapFst (TypeParam val ::) <$> classifiedAfter level !(normaliseClosed (subst val sc)) after
 
         -- An implementation given as written, at a parameter of an
         -- interface's type, or a polymorphic function, at a parameter of
@@ -427,7 +470,7 @@ classifyAt fc owner level (S k) ty vals = do
         -- An implementation known now keys the instance.
         static : ClosedTerm -> Maybe Holes -> ArgValues -> Front (Classified (S k))
         static key holes vals' =
-          mapFst (DictParam key holes ::) <$> classifyAt fc owner level k !(normaliseClosed (subst key sc)) vals'
+          mapFst (DictParam key holes ::) <$> classifiedAfter level !(normaliseClosed (subst key sc)) vals'
 
         -- A choice of an implementation or a polymorphic function of the
         -- parameter's type (`choiceType`), a value at run time, which the
@@ -442,10 +485,10 @@ classifyAt fc owner level (S k) ty vals = do
             | False => do
                 b <- coreBinder fc owner ValueType q a'
                 mapFst (ValueParam b Nothing a' ::)
-                  <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
+                  <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
           choice <- choiceFamily fc owner a'
           mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) a' ::)
-            <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
+            <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
 
         -- A type or a form the call leaves out: the call's value is a
         -- function that takes a type, held at run time. Where the program
@@ -457,7 +500,8 @@ classifyAt fc owner level (S k) ty vals = do
         -- the next binder chooses where it is applied.
         leftOut : String -> Front (Classified (S k))
         leftOut what =
-          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time: " ++ !(showTT ty))
+          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
+                                     !(showTT a))
 
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
@@ -538,17 +582,18 @@ inCaller fc owner vals kinds res = case telescopeOf kinds of
       (ks' ** same) <- retyped forms ks
       pure (k :: ks' ** cong (counted (boundAtRuntime k)) same)
 
-||| A callee's parameters classified at a call (`classifyAt`), read in the
-||| caller's scope as `inCaller` reads them, one kind per parameter of the
-||| arity it is classified at: what every use of a primitive's, a lowered
-||| definition's or a library function's signature reads, which no
-||| instance is requested at.
+||| A callee's parameters classified at a call (`classifyAt`), its type
+||| admitted with the call's arguments put in, named `request` where it is
+||| refused (`admitted`), read in the caller's scope as `inCaller` reads
+||| them, one kind per parameter of the arity it is classified at: what
+||| every use of a primitive's, a lowered definition's or a library
+||| function's signature reads, which no instance is requested at.
 export
 classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
+               FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues ->
                Front (Classified arity)
-classifyCall fc owner arity ty vals = do
-  (found, res) <- classifyAt fc owner 0 arity ty vals
+classifyCall fc owner request arity ty vals = do
+  (found, res) <- classifyAt fc owner request 0 arity !(admitted fc owner request arity ty) vals
   case telescopeOf (toList found) of
     [] => pure (found, res)
     _ => do
@@ -564,12 +609,16 @@ classifyCall fc owner arity ty vals = do
     inScope forms k = pure k
 
 ||| A callee's parameters classified at a call's arguments, in the
-||| callee's scope: what keys the instance the call requests, whose
+||| callee's scope, its type admitted where the call first instantiates it
+||| with the call's arguments put in, named `request` where it is refused
+||| (`admitted`): what keys the instance the call requests, whose
 ||| signature the call then reads (`atCall`).
 export
 classifyKeys : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (List PKind)
-classifyKeys fc owner arity ty vals = (toList . fst) <$> classifyAt fc owner 0 arity ty vals
+               FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (List PKind)
+classifyKeys fc owner request arity ty vals = do
+  admittedType <- admitted fc owner request arity ty
+  (toList . fst) <$> classifyAt fc owner request 0 arity admittedType vals
 
 ||| A requested instance's signature as a call reads it, in the call's
 ||| scope (`inCaller`).
@@ -590,7 +639,9 @@ instanceSig : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               Front (sig : InstanceSig ** length sig.kinds = appliedArity what)
 instanceSig fc owner what kinds inst symbol = do
   ty <- appliedType fc owner what
-  (found, resTy) <- classifyAt fc owner 0 (appliedArity what) ty (givenArgs kinds)
+  let request = requestName what
+  (found, resTy) <- classifyAt fc owner request 0 (appliedArity what) !(admitted fc owner request (appliedArity what) ty)
+                               (givenArgs kinds)
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
   let (own ** counted) = listed found

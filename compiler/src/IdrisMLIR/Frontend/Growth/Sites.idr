@@ -718,7 +718,7 @@ taken at ps env ty positions args = do
   os <- traverse (offered ps env) args
   (kinds, rest) <- staticsOver at.owner (length args) ty (map (\o => Just (o.value, o.offer)) os)
   binders <- bindersAlong ty (map (.value) os)
-  pure (decided 0 os (toList (map (.static) kinds)) positions binders, rest)
+  pure (decided 0 os (toList (map staticOf kinds)) positions binders, rest)
   where
     taking : Maybe Static -> ArgumentAt -> Taking
     taking (Just k) _ = AsStatic k
@@ -1335,7 +1335,7 @@ useAt at ps env fc t form args = do
   ty <- applicationType
   n <- takes t os
   (kinds, _) <- staticsOver at.owner (2 + n) ty (Just (t, AValue) :: Nothing :: map (\o => Just (o.value, o.offer)) (take n os))
-  let (k :: _ :: ks) = toList (map (.static) kinds)
+  let (k :: _ :: ks) = toList (map staticOf kinds)
     | _ => pure []
   -- The form's type is the application's first argument, a type, whose
   -- binder is a universe.
@@ -2543,7 +2543,7 @@ nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             (writer, within : Address) -> Defined -> (List ClosedTerm, Pats) -> Front (List (Maybe Static), List Site)
 nodeSites writer within d (values, made) = do
   (kinds', result) <- staticsOver (show (fullname d.def)) (arityOf d) d.type (map (\v => Just (v, AValue)) values)
-  let kinds = toList (map (.static) kinds')
+  let kinds = toList (map staticOf kinds')
   at <- atDefinition writer within d kinds <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
   (sig, ps, params) <- signature at (zip kinds values) 0 d.type made
   body <- the (Front (List Site)) $ case d.matched of

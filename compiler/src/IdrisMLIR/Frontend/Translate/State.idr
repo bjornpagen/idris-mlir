@@ -496,21 +496,31 @@ data ArgKind = Param ClosedTerm
              | ErasedArg
              | Field Nat Binder ClosedTerm
 
-||| The binder of a runtime field.
-export
-fieldBinder : ArgKind -> Maybe Binder
-fieldBinder (Field _ b _) = Just b
-fieldBinder _ = Nothing
+||| How many of a constructor's arguments are runtime fields.
+public export
+fieldCount : List ArgKind -> Nat
+fieldCount [] = 0
+fieldCount (Param _ :: as) = fieldCount as
+fieldCount (ErasedArg :: as) = fieldCount as
+fieldCount (Field _ _ _ :: as) = S (fieldCount as)
+
+||| The binders of a constructor's runtime fields, in order, one per field.
+public export
+fieldsOf : (as : List ArgKind) -> Vect (fieldCount as) Binder
+fieldsOf [] = []
+fieldsOf (Param _ :: as) = fieldsOf as
+fieldsOf (ErasedArg :: as) = fieldsOf as
+fieldsOf (Field _ b _ :: as) = b :: fieldsOf as
 
 ||| What a constructor instance needs for case trees: its arguments, its
 ||| full name, and the constructor as Core has it, indexed by its runtime
-||| fields.
+||| fields, as many as its arguments say.
 public export
 record ConLayout where
   constructor MkConLayout
   args : List ArgKind
   name : Name
-  con : (k ** Con k)
+  con : Con (fieldCount args)
 
 ||| The constructor of a member of a choice: one with no field, for an
 ||| implementation that closes over no runtime value, or one whose one

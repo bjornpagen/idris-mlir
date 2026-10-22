@@ -609,6 +609,21 @@ mutual
   relevelTy f (MemRefT o a) = MemRefT o (relevelTy f a)
   relevelTy f t = t
 
+||| A constructor's argument as its layout holds it: a field's type with the
+||| constructor's levels outside the language, since a field read in a body
+||| is at the scope's levels, which the match gives it.
+unlinked : ArgKind -> ArgKind
+unlinked (Param v) = Param v
+unlinked ErasedArg = ErasedArg
+unlinked (Field i b t) = Field i ({ type $= relevelTy (const Nothing) } b) t
+
+-- The layout's arguments have as many fields as the walk's.
+0 unlinkedCount : (as : List ArgKind) -> fieldCount (map unlinked as) = fieldCount as
+unlinkedCount [] = Refl
+unlinkedCount (Param _ :: as) = unlinkedCount as
+unlinkedCount (ErasedArg :: as) = unlinkedCount as
+unlinkedCount (Field _ _ _ :: as) = cong S (unlinkedCount as)
+
 ||| What the walk of a constructor's type finds: its arguments' kinds, the
 ||| position and type of each of its quantity-0 arguments in order (its
 ||| candidate binders, each given its stand-in where it is bound), and the
@@ -838,22 +853,21 @@ mutual
     let resultArgs = snd (getFnArgs walked.returns)
     equation0 <- traverse indexTerm
                    (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip [0 .. length resultArgs] resultArgs)))
-    let fields0 = mapMaybe fieldBinder walked.kinds
+    let fields0 = fieldsOf walked.kinds
     -- A binder no index and no field names is an erased proof: it does
     -- not exist.
-    let used = nub (levelsOfTerms equation0 ++ concatMap (levelsOfTy . (.type)) fields0)
+    let used = nub (levelsOfTerms equation0 ++ concatMap (levelsOfTy . (.type)) (toList fields0))
         kept = filter (\k => elem k used) (take (length walked.erasedTypes) [0 .. length walked.erasedTypes])
         renumber = \k => findIndex' k kept
     binders <- traverse (\(at, t) => (\sort => MkConBinder sort at) <$> sortOfType !(normaliseClosed t))
                         (map snd (filter (\(k, _) => elem k kept) (zip [0 .. length walked.erasedTypes] walked.erasedTypes)))
     let fields = map (\b => { type $= relevelTy renumber } b) fields0
         equation = relevelTerms renumber equation0
-        con = (length fields ** MkCon cid (shortName (fullname def)) binders equation (fromList fields) loc)
-        unlinkedKinds = map (\k => case k of
-                                     Field i b t => Field i ({ type $= relevelTy (const Nothing) } b) t
-                                     other => other) walked.kinds
+        unlinkedKinds = map unlinked walked.kinds
+        con = MkCon cid (shortName (fullname def)) binders equation
+                    (replace {p = \n => Vect n Binder} (sym (unlinkedCount walked.kinds)) fields) loc
     updateState (derive { cons $= insert cid (MkConLayout unlinkedKinds (fullname def) con) })
-    pure (con, unlinkedKinds)
+    pure ((fieldCount unlinkedKinds ** con), unlinkedKinds)
     where
       findIndex' : Nat -> List Nat -> Maybe Nat
       findIndex' k ks = finToNat <$> findIndex (== k) ks

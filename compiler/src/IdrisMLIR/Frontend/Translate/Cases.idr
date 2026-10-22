@@ -179,6 +179,10 @@ heldAt clause cls env = case getAt clause cls.patterns of
       if not (erased v) then v
         else maybe v fst (find (\(w, ms) => not (erased w) && any (\b => elem b ms) ns) outermostFirst)
 
+-- Lists of equal successor lengths have tails of equal lengths.
+0 tailsAgree : {0 m, n : Nat} -> S m = S n -> m = n
+tailsAgree Refl = Refl
+
 ||| What each argument of a constructor alternative binds, in argument
 ||| order, read with the shape of the matched value's argument there when
 ||| its shape is known: a parameter is the instance's value, an argument of
@@ -190,11 +194,8 @@ argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo 
 argsBound field [] [] _ _ = []
 argsBound field (_ :: vs) (a :: as) same ss =
   let (s, ss') = next ss in
-  bound a s :: argsBound field vs as (predecessors same) ss'
+  bound a s :: argsBound field vs as (tailsAgree same) ss'
   where
-    predecessors : {0 m, n : Nat} -> S m = S n -> m = n
-    predecessors Refl = Refl
-
     -- The shape of an argument and those of the arguments after it; none
     -- once the shape gives no more.
     next : List ClosedTerm -> (Maybe ClosedTerm, List ClosedTerm)
@@ -207,6 +208,16 @@ argsBound field (_ :: vs) (a :: as) same ss =
     bound (Field i b ity) s = field i b ity s
 argsBound field [] (_ :: _) Refl _ impossible
 argsBound field (_ :: _) [] Refl _ impossible
+
+||| The names a match gives a constructor's runtime fields, one per field
+||| of its layout's arguments, each its argument's name in the tree.
+fieldNames : (vs : Scope) -> (as : List ArgKind) -> (0 _ : length as = length vs) -> Vect (fieldCount as) Shown
+fieldNames [] [] _ = []
+fieldNames (_ :: vs) (Param _ :: as) same = fieldNames vs as (tailsAgree same)
+fieldNames (_ :: vs) (ErasedArg :: as) same = fieldNames vs as (tailsAgree same)
+fieldNames (v :: vs) (Field _ _ _ :: as) same = binderName v :: fieldNames vs as (tailsAgree same)
+fieldNames [] (_ :: _) Refl impossible
+fieldNames (_ :: _) [] Refl impossible
 
 ||| What a runtime variable's binder says of it: its Core type, its Idris
 ||| type, the shape of its value, and the variable.
@@ -867,26 +878,17 @@ mutual
     let Yes bound = decEq (length info.args) (length args)
       | No _ => reject ctx.fc ctx.owner CompiledModule
                        ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
-    let named = mapMaybe fieldNamed (zip args info.args)
-    -- The alternative binds the constructor's fields, as many as its tree
-    -- names: the layout's fields, counted from its arguments by its
-    -- registration, which the layout's type does not tie to its count.
-    let (k ** con) = info.con
-    let Yes counted = decEq (length named) k
-      | No _ => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " of " ++ show k ++
-                                 " fields, which its alternative binds " ++ show (length named) ++ " of")
+    -- The alternative binds the constructor's fields, as many as the
+    -- layout's arguments hold, each named as the tree names its argument.
+    let k = fieldCount info.args
     dead <- excludedBy shape (fullname def)
     let infos = argsBound (fieldAt k) args info.args bound (shapeArgs shape)
     alt <- if dead then pure Nothing else do
       body <- tree ctx (under {k} infos env) (afterCon args scrutinee cls) rhs
-      pure (Just (MkAlt con (replace {p = \c => Vect c Shown} counted (fromList named)) body))
+      pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
     (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest
     pure (insert cid others, maybe alts (:: alts) alt, fallback)
     where
-      fieldNamed : (Name, ArgKind) -> Maybe Shown
-      fieldNamed (n, Field _ _ _) = Just (binderName n)
-      fieldNamed _ = Nothing
-
       -- Runtime field `i` is the alternative's `Bound i`, with what the
       -- value's shape says of it.
       fieldAt : (k : Nat) -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin (Under k nv))

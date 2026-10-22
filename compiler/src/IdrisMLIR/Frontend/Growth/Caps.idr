@@ -138,22 +138,24 @@ capFrom : (j : Nat) -> Template -> Maybe Nat
 capFrom j t = S <$> deepest j t
 
 -- A type's first binder: the parameter's type, and the rest of the type as
--- a function of the parameter's value.
-binder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (ClosedTerm, ClosedTerm -> ClosedTerm)
+-- a function of the parameter's value; none where the type shows none,
+-- its binder decided by a value only an instance puts in.
+binder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe (ClosedTerm, ClosedTerm -> ClosedTerm))
 binder ty = do
   Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
-    | _ => internal EmptyFC "more parameters than the type has binders"
-  pure (a, \v => subst v sc)
+    | _ => pure Nothing
+  pure (Just (a, \v => subst v sc))
 
 -- Parameter j's type, and the rest of the type after it as a function of
 -- its value, every earlier parameter the placeholder `classify` gives a
 -- parameter whose value it does not know, as the template walk already
--- reads every later one.
+-- reads every later one; none past the binders the type shows so.
 parameterAt : {auto c : Ref Ctxt Defs} -> (j : Nat) -> ClosedTerm ->
-              Front (ClosedTerm, ClosedTerm -> ClosedTerm)
+              Front (Maybe (ClosedTerm, ClosedTerm -> ClosedTerm))
 parameterAt Z ty = binder ty
 parameterAt (S j) ty = do
-  (_, rest) <- binder ty
+  Just (_, rest) <- binder ty
+    | Nothing => pure Nothing
   parameterAt j (rest (Erased EmptyFC Placeholder))
 
 ||| The cap of a definition's parameter j (the j-th binder of its type,
@@ -174,9 +176,12 @@ capOf addr j = do
   let owner = show (fullname d.def)
   let ty = d.type
   (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i 0, AValue) | i <- [0 .. j]]
-  case (Vect.last kinds).static of
+  case staticOf (Vect.last kinds) of
     Just AShape => do
-      (a, rest) <- parameterAt j ty
+      -- A parameter whose binder the placeholders leave unshown has no
+      -- type to read a cap from here; only an instance shows it.
+      Just (a, rest) <- parameterAt j ty
+        | Nothing => pure Nothing
       -- `tyConFacts`' `natness` is the one reading of whether a shape is a
       -- run of successors, read as a data instance reads its type; a type
       -- that is no type constructor applied is no `Nat`-like one. A chain is

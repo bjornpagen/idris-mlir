@@ -117,6 +117,32 @@ data Wrote = FromArgument Sites.Site Argument
            | InField Address Nat Template
            | PacksHeld Packing
 
+||| What made an arc, with the template the arc is drawn from: a leading
+||| arc passes its parameter on unchanged, so it draws a marker, and a held
+||| packing draws the chain its packing names. An argument's and a field's
+||| template is any. So each leading arc and each packing is measured
+||| wherever it is drawn (`Proof.Describes.measuredDrawn`).
+public export
+data DrawnBy : Wrote -> Template -> Type where
+  ArgumentDraws : DrawnBy (FromArgument s a) t
+  FieldDraws : DrawnBy (InField j k f) t
+  MarkerDraws : (p : Nat) -> DrawnBy ThroughMethod (Template.Var p 0)
+  ChainDraws : (k : Packing) -> DrawnBy (PacksHeld k) (packingTemplate k)
+
+-- The template a packing writes draws measured arcs only: a marker, or one
+-- of the chains a list of several values packs to.
+0 packingMeasured : (k : Packing) -> DrawsMeasured (packingTemplate k)
+packingMeasured AsTheyAre = markerMeasured 0 0
+packingMeasured (Chained a m chain listed) = listedMeasured a m listed
+
+-- A leading arc's template draws measured arcs only.
+0 methodMeasured : DrawnBy ThroughMethod t -> DrawsMeasured t
+methodMeasured (MarkerDraws p) = markerMeasured p 0
+
+-- A held packing's template draws measured arcs only.
+0 packedMeasured : DrawnBy (PacksHeld k) t -> DrawsMeasured t
+packedMeasured (ChainDraws k) = packingMeasured k
+
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
 ||| and the sizes the worklist's universe needs beside the bounds.
@@ -148,6 +174,12 @@ record Built where
   0 model : Model graph
   ||| The graph describes its model under any feasible potential.
   0 described : (pot : Vect graph.size Nat) -> Feasible graph pot -> Describes model
+  ||| A leading arc is measured: its template is a marker.
+  0 methodsMeasured : (a : Fin (length graph.arcs)) -> Vect.index a wrote = ThroughMethod -> IsFinite (arc graph a).label
+  ||| A held packing's arc is measured: its template is a chain of pairs or
+  ||| a marker.
+  0 packingsMeasured : (a : Fin (length graph.arcs)) -> (p : Packing) -> Vect.index a wrote = PacksHeld p ->
+                       IsFinite (arc graph a).label
 
 ------------------------------------------------------------------------------
 -- The definitions
@@ -760,7 +792,8 @@ closedAt ls w ps i = fromMaybe Open (lookup (spotAt w ps i) ls)
 -- parameters; for values a dictionary holds written on, the held position
 -- they come from), the template, read where a node's families hold what lands
 -- at them (`withClosedFamilies`), the roots the flow gives its
--- dictionaries there, the position it lands at, and what wrote it.
+-- dictionaries there, the position it lands at, and what wrote it, with
+-- the template it draws.
 record Writing where
   constructor MkWriting
   reads : Nat -> Spot
@@ -768,6 +801,7 @@ record Writing where
   roots : Template -> List Address
   target : Spot
   wrote : Wrote
+  0 draws : DrawnBy wrote template
 
 -- A node's families, by index, as its definition's walk found them: what
 -- `roots` reads no implementation off where it is applied.
@@ -782,7 +816,7 @@ writings fl families ls =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWriting (spotAt w s.params) (withClosedFamilies (closedAt ls w s.params) pl.argument.template)
                           (roots fl (familiesOf families w) w s.params)
-                          (landsAt callee pl.parameter) (FromArgument s pl.argument) :: acc) []
+                          (landsAt callee pl.parameter) (FromArgument s pl.argument) ArgumentDraws :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
 -- writes at M's leading parameters. The parameters of M its `leading`
@@ -795,7 +829,7 @@ leadingWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Address (Lis
 leadingWritings fl families nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
     [ MkWriting (spotAt jn OwnOnly) (Template.Var p 0) (roots fl (familiesOf families jn) jn OwnOnly) (OfParameter (OfNode m) q)
-                ThroughMethod
+                ThroughMethod (MarkerDraws p)
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -818,7 +852,7 @@ fieldWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Address (List 
 fieldWritings fl families nodes ls fs =
   SortedMap.toList fs >>= \(j, fields) =>
     [ MkWriting (spotAt jn OwnOnly) (withClosedFamilies (closedAt ls jn OwnOnly) t) (roots fl (familiesOf families jn) jn OwnOnly)
-                (OfField j k) (InField j k t)
+                (OfField j k) (InField j k t) FieldDraws
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
     numbered : Nat -> List Template -> List (Nat, Template)
@@ -903,7 +937,7 @@ heldPackings count (Just pg) places = case pred count of
     written : Nat -> HeldBy -> List Writing
     written n place =
       [ MkWriting (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) (const [])
-                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k)
+                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k)
       | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
       , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
 
@@ -921,7 +955,7 @@ itemKind (MembersOf _) = AnyNumber
 -- One way a value of a list is written at a held position: where its
 -- template reads its variables, the template, the roots it gives its
 -- dictionaries, how many values it brings (`Proof.Held.Brings`), and what
--- wrote it.
+-- wrote it, with the template it draws.
 record Contribution where
   constructor MkContribution
   reads : Nat -> Spot
@@ -929,6 +963,7 @@ record Contribution where
   roots : Template -> List Address
   brings : Brings
   wrote : Wrote
+  0 draws : DrawnBy wrote template
 
 -- The held positions a way of writing a value lands at, where `firm`
 -- other values of its list are always there and `others` are there in
@@ -985,7 +1020,8 @@ heldWritings fl families ls count pg choices walked =
     ++ (walked >>= \(w, edges) => edges >>= \(s, e) => kept w s e)
   where
     fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
-    fromHeld place p k b = MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) (const []) b (PacksHeld k)
+    fromHeld place p k b =
+      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) (const []) b (PacksHeld k) (ChainDraws k)
 
     -- The place a dictionary of the writer's that holds values as one is
     -- at, at the writer's node.
@@ -996,7 +1032,7 @@ heldWritings fl families ls count pg choices walked =
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
       [ MkContribution (spotAt w s.params) (withClosedFamilies (closedAt ls w s.params) x.template)
-                       (roots fl (familiesOf families w) w s.params) OneValue (FromArgument s x)
+                       (roots fl (familiesOf families w) w s.params) OneValue (FromArgument s x) ArgumentDraws
       | x <- forget xs ]
     contributions w s (PackedBy h) =
       fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
@@ -1020,7 +1056,7 @@ heldWritings fl families ls count pg choices walked =
     listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Writing
     listAt w s place es =
       es >>= \e => contributions w s e >>= \c =>
-        map (\p => MkWriting c.reads c.template c.roots (OfHeld (MkHeldValues place p)) c.wrote)
+        map (\p => MkWriting c.reads c.template c.roots (OfHeld (MkHeldValues place p)) c.wrote c.draws)
             (landing (besides e (alwaysIn (map itemKind es))) (pred (length es)) c.brings)
 
     -- The list a dictionary the writer binds closes over, written at its
@@ -1086,23 +1122,49 @@ meetAll (x :: xs) m = let (f, m') = meet x m
                           (fs, m'') = meetAll xs m' in
                       (f :: fs, m'')
 
+||| A site of the model with what made it, whose maker's evidence holds of
+||| the site's template (`DrawnBy`).
+public export
+SiteDrawn : (Bound.Site n, Wrote) -> Type
+SiteDrawn x = DrawnBy (snd x) (fst x).template
+
 -- A writing as a site of the model, its positions met at its places: where
--- it lands, then where its writer reads each parameter it draws from.
+-- it lands, then where its writer reads each parameter it draws from; the
+-- site's template is the writing's, so its maker's evidence holds of it.
 siteMet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Writing) ->
-          Meeting n (slotsOf x ++ rest) -> ((Bound.Site n, Wrote), Meeting n rest)
+          Meeting n (slotsOf x ++ rest) -> (Subset (Bound.Site n, Wrote) SiteDrawn, Meeting n rest)
 siteMet x m =
   let (t, m') = meet x.target m
       (ws, m'') = meetAll (map (readsAt x) (sourcesOf x)) m' in
-  ((Bound.MkSite t x.template (zip (sourcesOf x) ws) x.roots, x.wrote), m'')
+  (Element (Bound.MkSite t x.template (zip (sourcesOf x) ws) x.roots, x.wrote) x.draws, m'')
 
 -- Writings as sites of the model, in order, each met at its places.
 sitesMet : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Writing) ->
-           Meeting n (allSlots xs ++ rest) -> (List (Bound.Site n, Wrote), Meeting n rest)
-sitesMet [] m = ([], m)
+           Meeting n (allSlots xs ++ rest) -> (Subset (List (Bound.Site n, Wrote)) (All SiteDrawn), Meeting n rest)
+sitesMet [] m = (Element [] [], m)
 sitesMet (x :: xs) m =
-  let (here, m') = siteMet x (replace {p = Meeting n} (sym (appendAssociative (slotsOf x) (allSlots xs) rest)) m)
-      (later, m'') = sitesMet xs m' in
-  (here :: later, m'')
+  let (Element here madeHere, m') = siteMet x (replace {p = Meeting n} (sym (appendAssociative (slotsOf x) (allSlots xs) rest)) m)
+      (Element later madeLater, m'') = sitesMet xs m' in
+  (Element (here :: later) (madeHere :: madeLater), m'')
+
+0 allFirst : All p (x :: xs) -> p x
+allFirst (px :: _) = px
+
+0 allRest : All p (x :: xs) -> All p xs
+allRest (_ :: pxs) = pxs
+
+-- The sites that land at uncapped positions, with the evidence of each and
+-- of what made each, and those that land at capped ones: a capped
+-- position's cap is its bound, so no site into it is drawn.
+uncappedDrawn : (caps : Vect n (Maybe Nat)) -> (ss : List (Bound.Site n, Wrote)) -> (0 _ : All SiteDrawn ss) ->
+                (Subset (List (Bound.Site n, Wrote))
+                        (\ks => (All (\x => Vect.index (fst x).target caps = Nothing) ks, All SiteDrawn ks)),
+                 List (Bound.Site n, Wrote))
+uncappedDrawn caps [] _ = (Element [] ([], []), [])
+uncappedDrawn caps (x :: xs) made with (Vect.index (fst x).target caps) proof here
+  _ | Nothing = let (Element kept evidence, capped) = uncappedDrawn caps xs (allRest made) in
+                (Element (x :: kept) (here :: fst evidence, allFirst made :: snd evidence), capped)
+  _ | Just _ = let (kept, capped) = uncappedDrawn caps xs (allRest made) in (kept, x :: capped)
 
 ------------------------------------------------------------------------------
 -- Positions, caps and the numbering
@@ -1132,9 +1194,16 @@ capsOf named = snd <$> foldlM ask (empty, empty) named
 
 -- What made each arc, in the arcs' order.
 wrotes : (arcs : List (Arc n, Wrote)) -> Vect (length (map Builtin.fst arcs)) Wrote
-wrotes arcs = rewrite lengthMap {f = Builtin.fst} arcs in
-              rewrite sym (lengthMap {f = Builtin.snd} arcs) in
-              Vect.fromList (map snd arcs)
+wrotes [] = []
+wrotes ((_, w) :: arcs) = w :: wrotes arcs
+
+-- The arc at an index, with what made it, is one of the arcs.
+0 taggedAt : (arcs : List (Arc n, Wrote)) -> (a : Fin (length (map Builtin.fst arcs))) ->
+             Elem (index' (map Builtin.fst arcs) a, Vect.index a (wrotes arcs)) arcs
+taggedAt [] FZ impossible
+taggedAt [] (FS _) impossible
+taggedAt ((x, w) :: arcs) FZ = Here
+taggedAt ((x, w) :: arcs) (FS a) = There (taggedAt arcs a)
 
 -- What a node is read at: its definition, and the heads of its families
 -- alone. Its dictionaries' heads change no reading: a dictionary stays its
@@ -1344,7 +1413,7 @@ build main = do
   let position = Vect.fromList slots
   let start : Meeting (length slots) (allSlots every ++ entered.datas)
       start = MkMeeting 0 Refl empty [<]
-  let (sites, met) = sitesMet {rest = entered.datas} every start
+  let (Element sites sitesDrawn, met) = sitesMet {rest = entered.datas} every start
   let (_, done) = meetAll {rest = []} entered.datas
                           (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral entered.datas)) met)
   let firsts = done.firsts <>> []
@@ -1384,7 +1453,7 @@ build main = do
                        OfField _ _ => Nothing
                        OfChoice _ => Nothing
                        OfHeld _ => Nothing
-  let (Element kept uncapped, cappedSites) = uncappedOnly caps sites
+  let (Element kept keptEvidence, cappedSites) = uncappedDrawn caps sites sitesDrawn
   -- K stands above every template, a capped position's among them, though
   -- no site into one is drawn.
   let beyond = topOf 0 (allOf siteNeeds cappedSites)
@@ -1395,4 +1464,15 @@ build main = do
                 (foldl (\m, x => max m (Template.arity x.template)) 0 every) found.reachers entered.breadth
                 (foldl (\m, x => max m (Template.heaviest x.template)) count every)
                 (modelOf positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept)
-                (\pot, fe => describes positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept uncapped fe))
+                (\pot, fe => describes positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept
+                                       (fst keptEvidence) fe)
+                (\a, through => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
+                                  (\x => x = ThroughMethod)
+                                  (\st, x, el, same => methodMeasured (replace {p = \w => DrawnBy w st.template} same
+                                                                                (indexAll el (snd keptEvidence))))
+                                  (taggedAt arcs a) through)
+                (\a, k, packs => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
+                                    (\x => x = PacksHeld k)
+                                    (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
+                                                                                  (indexAll el (snd keptEvidence))))
+                                    (taggedAt arcs a) packs))

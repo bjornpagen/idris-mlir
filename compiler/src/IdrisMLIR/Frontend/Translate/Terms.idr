@@ -408,7 +408,7 @@ applyAtUse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Sco
 applyAtUse ctx env fc loc t form value args = do
   ty <- applicationType
   let vals = Just (known t AValue) :: Just form :: map (argValueIn env fc) args
-  kinds <- classifyKeys fc ctx.owner (2 + length args) ty vals
+  kinds <- classifyKeys fc ctx.owner (requestName (AtUse (length args))) (2 + length args) ty vals
   sig <- calleeAt (choicesIn kinds) fc ctx.owner (AtUse (length args)) kinds
   called <- atCall fc ctx.owner vals sig
   let sources = typeGiven :: formGiven :: map useGiven args
@@ -1508,7 +1508,7 @@ mutual
         let ty = callee.type
         let arity = length m.args
         let vals = argValues (take arity xs)
-        kinds <- classifyKeys fc ctx.owner arity ty vals
+        kinds <- classifyKeys fc ctx.owner (show n) arity ty vals
         Nothing <- resolveMethod ph fc n kinds xs
           | Just resolved => pure resolved
         sig <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n m) kinds
@@ -1594,7 +1594,7 @@ mutual
           v <- (Data.Vect.index (lastOperand ops) now).translated
           applyOver ctx env fc loc (pure (show name)) v !(typeAfter ty (toList now)) rest
         Short => do
-          (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues xs)
+          (kinds, resTy) <- classifyCall fc ctx.owner (show name) arity ty (argValues xs)
           given <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
           completed loc arity xs given (MkMaker (\ys => Data.Vect.last ys)) resTy
 
@@ -1636,7 +1636,7 @@ mutual
       -- world, after which nothing runs.
       exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       exitAction fc loc arity ty xs = do
-        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner (show name) arity ty (argValues (take arity xs))
         let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
         mk <- exits (runtimeBinders kinds)
@@ -1662,7 +1662,7 @@ mutual
           | Nothing => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
         let arity = length m.args
         let vals = the ArgValues (replicate arity Nothing)
-        kinds <- classifyKeys fc ctx.owner arity target.type vals
+        kinds <- classifyKeys fc ctx.owner (show lib.named) arity target.type vals
         let True = all valueOnly kinds
           | False => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
         sig <- request fc ctx.owner (OfDefinition (fullname def) m) kinds
@@ -1710,7 +1710,7 @@ mutual
       constructor : FC -> Loc -> Defined -> ClosedTerm -> Nat -> List (Arg vars nv) -> Front (Term nv)
       constructor fc loc d ty arity xs = do
         let def = d.def
-        (found, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (found, resTy) <- classifyCall fc ctx.owner (show (fullname def)) arity ty (argValues (take arity xs))
         let kinds = toList found
         -- A constructor of Idris's `Nat` is a natural; one of any family,
         -- a numeral family (`Fin`) among them, is the family's.
@@ -1747,12 +1747,12 @@ mutual
             -- its choice the construction site gives.
             let fields = asFields info.args kinds
             given <- arguments loc (memberPlaces d) fields (take arity xs)
-            let (k ** con) = info.con
+            let con = info.con
             -- The layout's fields and the call's runtime arguments are two
             -- readings of the constructor's type, the registration's and
             -- the classification's, which nothing ties to one count.
-            let Yes counted = decEq (Runtimes fields) k
-              | No _ => internal fc ("the constructor " ++ show (fullname def) ++ " of " ++ show k ++
+            let Yes counted = decEq (Runtimes fields) (fieldCount info.args)
+              | No _ => internal fc ("the constructor " ++ show (fullname def) ++ " of " ++ show (fieldCount info.args) ++
                                      " fields, given " ++ show (Runtimes fields) ++ " runtime arguments")
             links <- binderTerms con.binders (argValues (take arity xs))
             finish loc fields arity xs given (recount counted (MkMaker (\ys => ConApp loc con links ys))) resTy
@@ -1789,7 +1789,7 @@ mutual
           -- of its translation.
           supported : Front (Term nv)
           supported = do
-            (found, resTy) <- classifyCall fc ctx.owner arity ty []
+            (found, resTy) <- classifyCall fc ctx.owner (show n) arity ty []
             let kinds = toList found
             result <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
             let Just mk = primTerm loc result op
@@ -2178,12 +2178,12 @@ mutual
                   Front (Term nv)
       lowerCall fc loc lowered (MkLowered {arity} ops IdentityOnLast) d ty xs = identity fc loc arity ops d ty xs
       lowerCall fc loc lowered (MkLowered {arity} ops (IOOperation lits a)) d ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (kinds, resTy) <- classifyCall fc ctx.owner (show (fullname d.def)) arity ty (argValues (take arity xs))
         mk <- maker fc loc lowered ops kinds resTy (IOOperation lits a)
         given <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
         completed loc arity xs given mk resTy
       lowerCall fc loc lowered (MkLowered {arity} ops low) d ty xs = do
-        (kinds, resTy) <- classifyCall fc ctx.owner arity ty (argValues (take arity xs))
+        (kinds, resTy) <- classifyCall fc ctx.owner (show (fullname d.def)) arity ty (argValues (take arity xs))
         given <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
         mk <- maker fc loc lowered ops kinds resTy low
         completed loc arity xs given mk resTy

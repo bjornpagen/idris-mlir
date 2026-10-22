@@ -98,7 +98,8 @@ bindingOf rig a = case use rig of
 ||| its marker), so that a field holds it as the parameter it is;
 ||| otherwise, by its binder's quantity, an erased placeholder at 0 and an
 ||| unknown runtime value elsewhere, as `closeWritten` writes a runtime
-||| variable.
+||| variable, and past the binders the type shows over markers, an unknown
+||| runtime value, as the walk reads every binder a type does not show.
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         (owner : String) -> Defined -> (args : Scope) -> Front (ByVar args ClosedTerm)
 marks owner d args = do
@@ -107,9 +108,10 @@ marks owner d args = do
   where
     standing : Nat -> (vs : Scope) -> Vect (length vs) ParamReading -> ByVar vs ClosedTerm
     standing i [] [] = []
-    standing i (_ :: vs) (MkParamReading (Just _) _ :: ks) = markerAt i 0 :: standing (S i) vs ks
-    standing i (_ :: vs) (MkParamReading Nothing rig :: ks) =
+    standing i (_ :: vs) (OffBinder (Just _) _ :: ks) = markerAt i 0 :: standing (S i) vs ks
+    standing i (_ :: vs) (OffBinder Nothing rig :: ks) =
       Erased EmptyFC (case use rig of Erased => Placeholder; Used _ => Impossible) :: standing (S i) vs ks
+    standing i (_ :: vs) (PastBinders :: ks) = Erased EmptyFC Impossible :: standing (S i) vs ks
 
 ||| What a method's field passes the function it applies, at one argument:
 ||| one of the field's own arguments (a variable of its lambda, by its
@@ -182,7 +184,7 @@ methodField owner field = do
   let am = addressOf md.placement
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
-  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map (.static) kinds)) xs))
+  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map staticOf kinds)) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
