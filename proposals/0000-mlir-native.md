@@ -1821,6 +1821,21 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   bufferization writes a held buffer in place where the cell claims
   `unique self`. The exclusivity check reads the promise and does not
   change.
+- **D123** (2026-10-22; the owner; §4's question on L14's evidence;
+  under D97, D98 and D106; settles D57's union). "A": the e-graph is a
+  true one. A fired rule adds its right side to its left side's class
+  and both forms stay; classes merge through a union-find, and
+  congruence is restored after each round of merges; a class keeps what
+  every member's facts say of its one value, met, so `mod x 8`'s [0, 7]
+  stays with `andi x 7`; extraction chooses each class's member by the
+  costs the specification gives, at run time only over what the graph
+  holds. The interim that carried a replaced node's facts to its
+  replacement goes, with the replacement. Rules run in a fixed order of
+  rounds and stop at the specification's budget (D108's `nodesPerOp`),
+  a spent budget leaving the program less optimized, never refused.
+  Costs: a union-find, merges with their rebuild, and an extraction that
+  works, in L14's engine, within D108's admission. Whether the e-graph
+  calls folds stays §4's question, apart.
 - **C237** (2026-10-22; L17y's finding, under D119 and D112). A grammar's
   type carries an erased bound on the tokens it may read, and recursion
   between grammars goes through a box: a grammar indexed by n may call a
@@ -4715,27 +4730,8 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, to be raised alone next (L14's evidence, 2026-10-21).
-The C++ e-graph is not one: when a rule fires the engine replaces the
-node and never unions (`EGraph/Nodes.cpp`
-193-208; no union-find, no merge), so every class holds one node,
-extraction's tie-break and `OperandFacts::cost` choose nothing, and every
-real choice is made before insertion, by order. One loss follows: a
-replaced node's facts are dropped (Euclidean `mod x 8` keeps [0, 7]; its
-rewrite `andi x 7` has none). The choice: (A) make it a true e-graph, a
-fired one-way rule adding its right side to the left side's class, both
-forms kept, extraction choosing by cost, both forms' facts kept, as D97's
-"shared representation, pushing QTT" asks, at the cost of a union-find,
-merges and an extraction that does work; (B) name it what it is, a
-hash-consed rewrite graph, delete the class table, extraction and cost,
-and keep the replaced node's facts on its replacement, same output, fewer
-tables, and "e-graph" leaves AGENTS.md, D98, D106 and C153; (C) upstream
-CSE and a rule walk, losing copies into arms, the per-walk facts and the
-per-resource read merge. Meanwhile the replaced node's facts are carried
-to its replacement, which holds under (A) and (B).
-
-**Next, after the one above** (L08's and L05's evidence, 2026-10-22; to be
-raised alone in turn). Nothing can lend an array to upstream's ops
+**Open**: one, to be raised alone next (L08's and L05's evidence,
+2026-10-22). Nothing can lend an array to upstream's ops
 without consuming it. An upstream op takes only a bare carrier
 (`tensor<...>`, `memref<...>`), and a bare carrier means "counted,
 claiming nothing" (`readBare`), so every parameter an upstream op reads,
@@ -4767,7 +4763,7 @@ borrows' rule counting any parameter an upstream op reads. L05 leans to
 B, with C's type if the hold may move (conjecture). Meanwhile such
 parameters stay counted, which costs time, never correctness.
 
-**Third, after those two** (L17's evidence, 2026-10-22; to be raised
+**Next, after the one above** (L17's evidence, 2026-10-22; to be raised
 alone in turn). 0011's O5 asks for name resolution as R1's interval join
 over the flat parse tree, but Idris resolves names during elaboration,
 against the typed environment (`TTImp/Elab/App.idr:54`); the only scope
@@ -4784,7 +4780,7 @@ syntax shows, carried into Desugar on new fields, which holds the set in
 two places. Meanwhile the parse tree and decoder land (C216), common to
 all three.
 
-**Fourth, after those three** (recheck 3's finding, 2026-10-22; to be
+**Third, after those two** (recheck 3's finding, 2026-10-22; to be
 raised alone in turn). D98 and AGENTS.md say an op's fold is its
 meaning, which the e-graph reads. C205 and C218 narrowed that without
 the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
