@@ -21,6 +21,8 @@
 
 #include "llvm/ADT/STLExtras.h"
 
+#include <cstdint>
+#include <optional>
 #include <algorithm>
 
 using namespace mlir;
@@ -91,57 +93,84 @@ LaneWidth laneWidth(Operation *op) {
 // op that stays. An op nothing reads is on no path to the yield. The ops
 // reached are found once each; every one starts kept, and one that does
 // not feed only the set leaves it, once, after which the kept ops that
-// feed it are asked again. The asking ends with the ops that leave.
-llvm::DenseSet<Operation *> accumulations(Operation *root) {
-  llvm::DenseSet<Operation *> carried;
+// feed it are asked again. The asking ends with the ops that leave. What
+// is reached and kept is a bit per op of `root`, by its number.
+Accumulations::Accumulations(Operation *root) {
+  root->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    number.try_emplace(op, static_cast<std::uint32_t>(ops.size()));
+    ops.push_back(op);
+  });
+  carried.resize(static_cast<unsigned>(ops.size()));
+  llvm::BitVector reachedAt(static_cast<unsigned>(ops.size()));
+  llvm::BitVector kept(static_cast<unsigned>(ops.size()));
+  // The number of `op`, an op of `root`: every op a value of `root` meets
+  // is one, but a use outside it, which no loop of it reaches.
+  auto numberOf = [&](Operation *op) -> std::optional<std::uint32_t> {
+    auto found = number.find(op);
+    if (found == number.end())
+      return std::nullopt;
+    return found->second;
+  };
   root->walk([&](scf::ForOp loop) {
     Operation *yield = loop.getBody()->getTerminator();
     for (auto [index, arg] : llvm::enumerate(loop.getRegionIterArgs())) {
       if (!isa<VectorType>(arg.getType()))
         continue;
       OpOperand &next = yield->getOpOperand(static_cast<unsigned>(index));
+      reachedAt.reset();
+      kept.reset();
       // Each op enters once, in the order reached, and is read from the
       // front: the ops of a loop are finitely many.
-      llvm::SetVector<Operation *> reached;
+      footprint::Vector<std::uint32_t> reached;
       auto reach = [&](Value value) {
-        for (Operation *user : value.getUsers())
-          if (user->hasTrait<OpTrait::Elementwise>())
-            reached.insert(user);
+        for (Operation *user : value.getUsers()) {
+          std::optional<std::uint32_t> at = numberOf(user);
+          if (at && user->hasTrait<OpTrait::Elementwise>() && !reachedAt.test(*at)) {
+            reachedAt.set(*at);
+            reached.push_back(*at);
+          }
+        }
       };
       reach(arg);
       for (size_t at = 0; at < reached.size(); ++at)
-        for (Value result : reached[at]->getResults())
+        for (Value result : ops[reached[at]]->getResults())
           reach(result);
-      llvm::DenseSet<Operation *> kept(reached.begin(), reached.end());
-      auto feeds = [&](Operation *op) {
+      kept = reachedAt;
+      auto feeds = [&](std::uint32_t at) {
+        Operation *op = ops[at];
         return !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
-          return &use == &next || kept.contains(use.getOwner());
+          std::optional<std::uint32_t> owner = numberOf(use.getOwner());
+          return &use == &next || (owner && kept.test(*owner));
         });
       };
-      // An op leaves once: it is erased from the kept set as it leaves.
-      SmallVector<Operation *> left;
-      auto ask = [&](Operation *op) {
-        if (kept.contains(op) && !feeds(op)) {
-          kept.erase(op);
-          left.push_back(op);
+      // An op leaves once: its bit is cleared as it leaves.
+      SmallVector<std::uint32_t> left;
+      auto ask = [&](std::uint32_t at) {
+        if (kept.test(at) && !feeds(at)) {
+          kept.reset(at);
+          left.push_back(at);
         }
       };
-      for (Operation *op : reached)
-        ask(op);
+      for (std::uint32_t at : reached)
+        ask(at);
       while (!left.empty())
-        for (Value operand : left.pop_back_val()->getOperands())
-          if (Operation *def = operand.getDefiningOp())
-            ask(def);
-      carried.insert(kept.begin(), kept.end());
+        for (Value operand : ops[left.pop_back_val()]->getOperands())
+          if (std::optional<std::uint32_t> def = numberOf(operand.getDefiningOp()))
+            ask(*def);
+      carried |= kept;
     }
   });
-  return carried;
+}
+
+bool Accumulations::contains(Operation *op) const {
+  auto found = number.find(op);
+  return found != number.end() && carried.test(found->second);
 }
 
 // Lanes of integers wider than 32 bits are what the narrowing is for, but
 // for an accumulation's.
 bool computesWideLanes(scf::ForOp loop) {
-  llvm::DenseSet<Operation *> carried = accumulations(loop);
+  Accumulations carried(loop);
   return loop
       .walk([&](Operation *op) {
         LaneWidth width = laneWidth(op);

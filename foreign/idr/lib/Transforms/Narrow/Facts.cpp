@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The facts of one function the word rewrite reads: its values numbered in
-// one walk, the steps of the rewrite recorded as the walk meets them, each
-// value's bounds read off the solve once, and the webs its joints carry;
-// and the words and bigs that stand for each other.
+// The facts of one function the word rewrite reads: its values numbered by
+// the body's one numbering, the steps of the rewrite recorded in its order,
+// each value's bounds read off the solve once, and the webs its joints
+// carry; and the words and bigs that stand for each other.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -78,16 +78,15 @@ Value word(OpBuilder &b, Location loc, Value value) {
   // path that never reads it. The big poison goes once nothing reads it.
   if (value.getDefiningOp<ub::PoisonOp>())
     return ub::PoisonOp::create(b, loc, i64);
-  // What made the big, through its casts into and out of linear positions.
-  Value made = throughLinear(value);
-  if (auto small = made.getDefiningOp<BigSmallOp>())
-    return small.getValue();
-  // A big made of a narrower integer is that integer, extended as the op
-  // that made it reads it.
-  if (auto from = made.getDefiningOp<BigFromSIntOp>())
-    return widened<arith::ExtSIOp>(b, loc, from.getValue());
-  if (auto from = made.getDefiningOp<BigFromUIntOp>())
-    return widened<arith::ExtUIOp>(b, loc, from.getValue());
+  // What made the big, through its casts into and out of linear positions:
+  // a big made of an integer is that integer, a word as it is, a narrower
+  // one extended as the op that made it reads it.
+  if (auto of = throughLinear(value).getDefiningOp<BigOfIntegerOpInterface>()) {
+    Value integer = of.getValue();
+    return of.getSignedness() == numeric::Signedness::Signed
+               ? widened<arith::ExtSIOp>(b, loc, integer)
+               : widened<arith::ExtUIOp>(b, loc, integer);
+  }
   // A big is read in place at any hold, so its conversion takes nothing of
   // it.
   return BigToIntOp::create(b, loc, i64, value);
@@ -98,7 +97,7 @@ Value big(OpBuilder &b, Location loc, Type type, Value word) {
 }
 
 Facts::Facts(FuncOp fn, const Ranges::Solved &analysis)
-    : values(walk(fn)), carriers(values.size(),
+    : numbering(fn), values(walk(fn)), carriers(values.size(),
                                  [&](ValueId v) {
                                    Value value = values[v];
                                    if (!isBig(value.getType()))
@@ -109,32 +108,16 @@ Facts::Facts(FuncOp fn, const Ranges::Solved &analysis)
       bounded(read(analysis)), webs(join()) {}
 
 IndexVector<ValueId, Value> Facts::walk(FuncOp fn) {
-  footprint::Vector<Value> raw;
-  auto number = [&](Value value) {
-    (void)ids.intern(value, [&] {
-      ValueId id(static_cast<std::uint32_t>(raw.size()));
-      raw.push_back(value);
-      return id;
-    });
-  };
   // The joints the walk is inside, each with the place of its Enter step,
   // which its classes complete as the walk leaves it.
   footprint::Vector<std::size_t> open;
   fn->walk([&](Operation *op, const WalkStage &stage) {
-    if (stage.isBeforeAllRegions()) {
-      for (Region &region : op->getRegions())
-        for (Block &block : region)
-          for (BlockArgument arg : block.getArguments())
-            number(arg);
-      if (isa<RegionBranchOpInterface>(op)) {
-        open.push_back(walked.size());
-        walked.push_back(Enter{op, 0, 0});
-      }
+    if (stage.isBeforeAllRegions() && isa<RegionBranchOpInterface>(op)) {
+      open.push_back(walked.size());
+      walked.push_back(Enter{op, 0, 0});
     }
     if (!stage.isAfterAllRegions())
       return;
-    for (OpResult result : op->getResults())
-      number(result);
     if (isa<RegionBranchOpInterface>(op)) {
       Classified joint = classify(op);
       walked[open.back()] = Enter{op, joint.arguments, joint.argumentsEnd};
@@ -146,13 +129,15 @@ IndexVector<ValueId, Value> Facts::walk(FuncOp fn) {
       return;
     auto first = static_cast<std::uint32_t>(numbered.size());
     for (Value operand : op->getOperands())
-      numbered.push_back(ids.at(operand));
+      numbered.push_back(numbering.at(operand));
     for (Value result : op->getResults())
-      numbered.push_back(ids.at(result));
+      numbered.push_back(numbering.at(result));
     walked.push_back(Word{op, first});
   });
-  Count<ValueId> count(static_cast<std::uint32_t>(raw.size()));
-  return IndexVector<ValueId, Value>(count, [&](ValueId v) { return raw[v.index()]; });
+  // The numbering's table of values, its map kept for the questions that
+  // arrive by value.
+  solver::Numbering<Analysed> copy = numbering;
+  return std::move(copy).finish().values;
 }
 
 // What flows is what `joint` and the terminators of its regions forward:
@@ -203,10 +188,10 @@ Facts::Classified Facts::classify(Operation *joint) {
       if (joined[static_cast<unsigned>(at)] != number)
         continue;
       auto [operand, input] = edge;
-      ValueId into = ids.at(input);
+      ValueId into = numbering.at(input);
       auto passes = llvm::ArrayRef<Pass>(passed).drop_front(carry.passes);
       if (llvm::none_of(passes, [&](const Pass &pass) { return pass.operand == operand; }))
-        passed.push_back(Pass{operand, ids.at(operand->get()), into});
+        passed.push_back(Pass{operand, numbering.at(operand->get()), into});
       if (llvm::is_contained(llvm::ArrayRef<ValueId>(carried).drop_front(carry.inputs), into))
         continue;
       carried.push_back(into);
@@ -231,7 +216,7 @@ Facts::Classified Facts::classify(Operation *joint) {
       for (BlockArgument arg : block.getArguments()) {
         if (!isBig(arg.getType()))
           continue;
-        ValueId v = ids.at(arg);
+        ValueId v = numbering.at(arg);
         if (!llvm::is_contained(
                 llvm::ArrayRef<ValueId>(owns).slice(out.arguments, classed - out.arguments), v))
           owns.push_back(v);
@@ -240,7 +225,7 @@ Facts::Classified Facts::classify(Operation *joint) {
   for (OpResult result : joint->getResults()) {
     if (!isBig(result.getType()))
       continue;
-    ValueId v = ids.at(result);
+    ValueId v = numbering.at(result);
     if (out.carries == out.carriesEnd || !held(v))
       owns.push_back(v);
   }
@@ -276,13 +261,9 @@ IndexVector<ValueId, ValueId> Facts::join() const {
     for (ValueId v : into.drop_front())
       joined.join(into.front().index(), v.index());
   }
+  auto ids = values.size().ids();
   return IndexVector<ValueId, ValueId>(
-      values.size(), [&](ValueId v) { return ValueId(joined.findLeader(v.index())); });
-}
-
-bool Facts::made(Value value, const BitSet<ValueId> &erased) const {
-  std::optional<ValueId> id = ids.find(value);
-  return !id || erased.test(*id);
+      values.size(), [&](ValueId v) { return ids[joined.findLeader(v.index())]; });
 }
 
 } // namespace idr::narrow

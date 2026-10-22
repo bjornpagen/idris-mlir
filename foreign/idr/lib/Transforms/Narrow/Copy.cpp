@@ -92,7 +92,7 @@ bool Copy::fits(DataFlowSolver &solver) {
     std::optional<ConstantIntRanges> range = Ranges::rangeOf(solver, value);
     return range && fits32(*range);
   };
-  llvm::DenseSet<Operation *> carried = accumulations(copy);
+  Accumulations carried(copy);
   return !copy
               ->walk([&](Operation *op) {
                 if (laneWidth(op).bits <= 32 || carried.contains(op) ||

@@ -128,21 +128,23 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
 
     // A word made a big and back is the word, and a conversion of a
     // constant is its constant: each conversion is folded by its own
-    // folder, then what no one reads is erased (the conversions made, a
-    // versioned loop's start once its copy took the word, and a big made of
-    // a word that every reader now takes as the word, with each cast of
-    // such a big into or out of a linear position, a big constant whose
+    // folder, then what no one reads is erased (a big made of an integer
+    // and an integer read out of a big, each pure, the rewrite's own among
+    // them: a versioned loop's start once its copy took the word, a big made
+    // of a word that every reader now takes as the word, with each cast of
+    // such a big into or out of a linear position; a big constant whose
     // readers now read its word, and the program's poison whose word was
-    // taken), these ops and no other.
+    // taken), these ops and no other. What made a big says, through its
+    // interface, never a list of ops.
     footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
       if (!op)
         return false;
       Value result = op->getResult(0);
-      if (isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op))
+      if (isa<BigOfIntegerOpInterface>(op))
         return true;
       if (isa<BigToIntOp>(op))
-        return facts.made(result, decided.computed);
+        return true;
       if (isa<ub::PoisonOp>(op))
         return isBig(result.getType()) && decided.asked.test(facts.at(result));
       return isa<ConstantOp>(op) && isBig(result.getType());

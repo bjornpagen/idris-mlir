@@ -15,7 +15,7 @@
 #define IDR_TRANSFORMS_NARROW_H
 
 #include "idr/Analysis/Ranges.h"
-#include "idr/Analysis/Solver/Index.h"
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 #include "idr/Support/Footprint.h"
@@ -31,7 +31,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Pass/Pass.h"
 
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 
@@ -85,10 +85,10 @@ void populateVersionPatterns(mlir::RewritePatternSet &patterns, const Ranges::So
 
 class Facts;
 
-// A value of the function as its solve saw it, numbered by the one walk
-// that makes the function's facts, before anything is rewritten.
+// A value of the function as its solve saw it, numbered by the body's one
+// numbering before anything is rewritten.
 struct Analysed {
-  using Minter = Facts;
+  using Minter = solver::Numbering<Analysed>;
 };
 using ValueId = Id<Analysed>;
 
@@ -141,9 +141,9 @@ using Step = std::variant<Enter, Leave, Word>;
 // its rewrite. Nothing it learns outlives the run.
 class Facts {
 public:
-  // One walk of `fn` numbers its values and records its steps; then the
-  // bounds of every value a step reads are read off `analysis` once, and
-  // the webs are joined.
+  // The body's one numbering numbers `fn`'s values; one walk records its
+  // steps; then the bounds of every value a step reads are read off
+  // `analysis` once, and the webs are joined.
   Facts(FuncOp fn, const Ranges::Solved &analysis);
 
   Count<ValueId> count() const { return values.size(); }
@@ -180,22 +180,17 @@ public:
         word.ids, word.op->getNumOperands() + word.op->getNumResults());
   }
 
-  // Whether `value`, met after the rewrite, is one it made: none the walk
-  // numbered, or one standing where a value the rewrite erased stood (the
-  // result of an op made its word op, in `erased`), whose key the index
-  // keeps. Asked only after the rewrite: a value the index answers
-  // otherwise is the function's own, as numbered.
-  bool made(mlir::Value value, const BitSet<ValueId> &erased) const;
-  // The id of `value`, a value the walk numbered that the rewrite kept.
-  ValueId at(mlir::Value value) const { return ids.at(value); }
+  // The id of `value`, a value of the function as numbered, which the
+  // rewrite kept.
+  ValueId at(mlir::Value value) const { return numbering.at(value); }
 
 private:
   llvm::ArrayRef<ValueId> own(std::uint32_t first, std::uint32_t end) const {
     return llvm::ArrayRef<ValueId>(owns).slice(first, end - first);
   }
-  // The walk: numbers every value of `fn`, a region's arguments as it
-  // enters the op that holds it and an op's results as it leaves the op,
-  // so every operand is numbered before its use; records each step.
+  // The walk: records each step, in the numbering's order, a joint as it
+  // enters and leaves it and any other op after the ops inside it; then
+  // each id's value.
   IndexVector<ValueId, mlir::Value> walk(FuncOp fn);
   // What `joint` adds to the facts: its classes, appended to the carries;
   // the big arguments of its regions, then its big results no class of its
@@ -209,9 +204,9 @@ private:
   // Each value's web, joined over every class of every joint.
   IndexVector<ValueId, ValueId> join() const;
 
-  // The one map keyed by an IR handle: each value's id, made by the walk
-  // and read where a question arrives by value.
-  solver::Index<mlir::Value, ValueId> ids;
+  // The body's one numbering, the one map keyed by an IR handle, read
+  // where a question arrives by value.
+  solver::Numbering<Analysed> numbering;
   footprint::Vector<Step> walked;
   footprint::Vector<Carry> classes;
   footprint::Vector<Pass> passed;
@@ -297,8 +292,20 @@ LaneWidth laneWidth(mlir::Operation *op);
 // reaches whose results go only to one another and to the yield that
 // carries that argument. Their width is the program's, as a sum is as wide
 // as the program made it, so no bound on the sizes makes them fit, and
-// they are no lane the narrowing is for.
-llvm::DenseSet<mlir::Operation *> accumulations(mlir::Operation *root);
+// they are no lane the narrowing is for. The ops of `root` are numbered
+// once, in the walk's order, the one map keyed by an IR handle, and every
+// fact the search keeps about an op is a bit by its number.
+class Accumulations {
+public:
+  explicit Accumulations(mlir::Operation *root);
+  // Whether `op`, an op of `root`, is one of them.
+  bool contains(mlir::Operation *op) const;
+
+private:
+  footprint::DenseMap<mlir::Operation *, std::uint32_t> number;
+  footprint::Vector<mlir::Operation *> ops;
+  llvm::BitVector carried;
+};
 // Whether `loop` computes on lanes of integers wider than 32 bits outside
 // its accumulations.
 bool computesWideLanes(mlir::scf::ForOp loop);

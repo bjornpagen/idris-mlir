@@ -74,18 +74,18 @@ bool calls(Operation *op) {
       .wasInterrupted();
 }
 
-// Whether each next accumulator of `fold` is one associative and
-// commutative integer op of its accumulator and a value that no other
-// accumulator reaches: the accumulator's one use, giving the yield's one
-// operand. An op marked nsw or nuw is no such combiner: reassociated, it
-// could overflow where the program did not.
+// Whether each next accumulator of `fold` is one op of its accumulator and
+// a value that no other accumulator reaches, the accumulator's one use,
+// giving the yield's one operand, whose operation may run in any order:
+// exactly associative, as the specification's laws say (laws::identityOf),
+// and commutative, as its trait says. An op marked nsw or nuw is no such
+// combiner: reassociated, it could overflow where the program did not.
 bool reassociates(ArrayFoldLastOp fold) {
   auto yield = cast<ArrayYieldOp>(fold.getBody()->getTerminator());
   for (auto [accumulator, next] : llvm::zip_equal(fold.getAccumulators(), yield.getValues())) {
     Operation *combine = next.getDefiningOp();
     if (!combine || combine->getBlock() != fold.getBody() ||
-        !isa<arith::AddIOp, arith::MulIOp, arith::AndIOp, arith::OrIOp, arith::XOrIOp,
-             arith::MinSIOp, arith::MinUIOp, arith::MaxSIOp, arith::MaxUIOp>(combine) ||
+        !combine->hasTrait<OpTrait::IsCommutative>() || !laws::identityOf(combine) ||
         !accumulator.hasOneUse() || !next.hasOneUse() ||
         (combine->getOperand(0) == accumulator) == (combine->getOperand(1) == accumulator))
       return false;

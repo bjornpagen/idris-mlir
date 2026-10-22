@@ -12,7 +12,11 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
+#include <optional>
 
 // What each stage of a program implies: whether its holds are decided.
 #include "idr/IR/Generated/StageFacts.h.inc"
@@ -100,50 +104,68 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
            buffer.getMemorySpace() == array.getMemorySpace();
   };
   // The read is the last op before the write that may touch memory of the
-  // array, so nothing between does; `between` holds the ops between, the
-  // nearest the write first.
+  // array, so nothing between does; `between` holds the ops between, in the
+  // block's order, each numbered by its place there.
   SmallVector<Operation *> between;
   Operation *last = write->getPrevNode();
   for (; last && effects::classify(last, touchesArray) != effects::Does::Touches;
        last = last->getPrevNode())
     between.push_back(last);
+  std::reverse(between.begin(), between.end());
   auto read = dyn_cast_or_null<typename Access::Read>(last);
   if (!read || arrayRoot(Access::array(read)) != arrayRoot(Access::array(write)) ||
       !llvm::equal(read.getIndices(), write.getIndices(), sameIndex))
     return std::nullopt;
+  Block *block = write->getBlock();
+  // The place among `between` of `op`, an op of the block strictly between
+  // the read and the write, found by the block's own order; none for any
+  // other op.
+  auto placeOf = [&](Operation *op) -> std::optional<size_t> {
+    if (!op || op->getBlock() != block || !read->isBeforeInBlock(op) ||
+        !op->isBeforeInBlock(write))
+      return std::nullopt;
+    auto at = llvm::lower_bound(between, op, [](Operation *a, Operation *b) {
+      return a->isBeforeInBlock(b);
+    });
+    return static_cast<size_t>(at - between.begin());
+  };
 
   // The rebuilding, in order: each op between that reads the element, or a
   // value of the rebuilding, anywhere in it. It moves into the update's
-  // region, where the element's place is empty.
+  // region, where the element's place is empty. Which ops rebuild is a bit
+  // per place.
   Fusion<Write> fusion{read, {}, {}};
   Value element = Access::element(read);
-  llvm::SmallPtrSet<Operation *, 8> rebuilds;
+  llvm::BitVector rebuilds(between.size());
+  auto rebuilt = [&](Operation *op) {
+    std::optional<size_t> at = placeOf(op);
+    return at && rebuilds.test(*at);
+  };
   auto readsRebuilt = [&](Operation *op) {
     return op
         ->walk([&](Operation *inner) {
           bool reads = llvm::any_of(inner->getOperands(), [&](Value operand) {
-            Operation *def = operand.getDefiningOp();
-            return operand == element || (def && rebuilds.contains(def));
+            return operand == element || rebuilt(operand.getDefiningOp());
           });
           return reads ? WalkResult::interrupt() : WalkResult::advance();
         })
         .wasInterrupted();
   };
-  for (Operation *op : llvm::reverse(between)) {
+  for (auto [at, op] : llvm::enumerate(between)) {
     if (!readsRebuilt(op))
       continue;
     if (touchesInPlace(op))
       return std::nullopt;
-    rebuilds.insert(op);
+    rebuilds.set(at);
     fusion.rebuilding.push_back(op);
   }
 
   // Each op of the rebuilding moves to the write past the ops between after
-  // it that stay, which neither may tell.
+  // it that stay, which neither may tell: read from the write back.
   effects::EffectSet staying;
-  for (Operation *op : between) {
-    effects::EffectSet does = effects::whole(op);
-    if (!rebuilds.contains(op))
+  for (size_t at = between.size(); at-- > 0;) {
+    effects::EffectSet does = effects::whole(between[at]);
+    if (!rebuilds.test(at))
       staying = staying | does;
     else if (does.conflicts(staying))
       return std::nullopt;
@@ -151,11 +173,10 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
 
   // What leaves the update: the element and the rebuilding's values that an
   // op after the write reads, the write itself aside.
-  Block *block = write->getBlock();
   auto readAfter = [&](Value value) {
     return llvm::any_of(value.getUses(), [&](OpOperand &use) {
       Operation *at = block->findAncestorOpInBlock(*use.getOwner());
-      return at != write.getOperation() && !rebuilds.contains(at);
+      return at != write.getOperation() && !rebuilt(at);
     });
   };
   if (readAfter(element))
