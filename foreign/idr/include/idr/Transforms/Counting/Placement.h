@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What the units of idr-rc-place share (lib/Transforms/Counting): one
 // function's placement, its values numbered once, each with the role its
-// type and its making give it (Placement.cpp, which holds the pass); the
+// type and its making give it, an element read out of memory with what may
+// overwrite it while it is in use (Placement.cpp, which holds the pass); the
 // reverse walk over the function's regions, its stack on the heap
 // (PlacementWalk.cpp); what each use and each death of a value places
 // (PlacementUses.cpp); and the rewrite that follows what the walk decided
@@ -14,6 +15,7 @@
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/Counting/Facts.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -40,15 +42,34 @@ using ValueId = Id<ValueTag>;
 
 // What placement does with a value, decided once from its type and how it
 // was made:
-//   - Owned: it holds one counted reference of its own;
-//   - Part: a part of a counted value (a field read, a view of a buffer),
-//     which holds no reference while its owner lives;
-//   - Element: read out of mutable memory, so it takes a reference of its
-//     own where it is read, the memory being writable while it lives;
+//   - Owned: it holds one counted reference of its own, an element read
+//     out of memory that something may overwrite while it is in use
+//     included, which takes it where it is read;
+//   - Part: a part of a counted value (a field read, a view of a buffer, an
+//     element of its memory nothing overwrites while it is in use), which
+//     holds no reference while its owner lives;
+//   - Lent: a part of a view (an element of a view's buffer nothing
+//     overwrites while it is in use, a field of one), which a lifetime
+//     keeps past this call: it holds no reference, a use that consumes it
+//     takes a dup, and nothing drops it;
 //   - Scoped: a view its lifetime frees;
 //   - Untouched: nothing to place (no reference, used once, static, or a
 //     reference handed over to upstream's memory).
-enum class Role : std::uint8_t { Untouched, Owned, Part, Element, Scoped };
+enum class Role : std::uint8_t { Untouched, Owned, Part, Lent, Scoped };
+
+// What may overwrite the memory an element was read out of while it, or a
+// part read from it, is in use, by the row of the code that runs then:
+// nothing, since no op of it writes memory in place; only other memory,
+// since every write it makes names memory other than the buffer's, which
+// the buffer's type claims no other value shares; or maybe that memory.
+enum class Overwrites : std::uint8_t { Nothing, OtherMemory, Maybe };
+
+// An element read out of memory and left there: its buffer, and what may
+// overwrite it while it is in use.
+struct ElementRead {
+  ValueId buffer;
+  Overwrites overwrites;
+};
 
 // How a value dies at a point: after a use that only reads it (or where it
 // is made, unused), or moved on by a use that consumes it.
@@ -122,7 +143,8 @@ public:
   explicit Placement(FuncOp fn)
       : fn(fn), numbering(fn), done(finishCopy(numbering)), count(done.count),
         roles(count, Role::Untouched), ownerOf(count, std::optional<ValueId>()),
-        readFromOf(count, std::optional<ValueId>()), fieldOf(count, std::optional<unsigned>()) {}
+        readFromOf(count, std::optional<ValueId>()), fieldOf(count, std::optional<unsigned>()),
+        elements(count, std::optional<ElementRead>()) {}
 
   void run();
 
@@ -146,12 +168,13 @@ private:
   mlir::Value valueOf(ValueId id) const { return done.values[id]; }
 
   // What each value is (Placement.cpp).
+  void findElements();
   void classify();
 
   // The walk (PlacementWalk.cpp).
-  void stepBlock();
-  void stepOp();
-  void finishBlock();
+  void stepBlock(BlockWalk &walk);
+  void stepOp(OpWalk &walk);
+  void finishBlock(BlockWalk &walk);
   State finishOp(OpWalk &walk);
   void enterTerminator(mlir::Operation *terminator, State &state);
   llvm::SmallBitVector consumedBy(mlir::Operation *op);
@@ -190,6 +213,12 @@ private:
   IndexVector<ValueId, std::optional<ValueId>> ownerOf;
   IndexVector<ValueId, std::optional<ValueId>> readFromOf;
   IndexVector<ValueId, std::optional<unsigned>> fieldOf;
+  // Each element read out of memory and left there, with its buffer and
+  // what may overwrite it while it is in use.
+  IndexVector<ValueId, std::optional<ElementRead>> elements;
+  // The elements that take their reference where they are read, those
+  // something needs given it by a dup there.
+  llvm::BitVector takesWhereRead;
   // The parts read straight from each value, a row per value, each with its
   // field (none for a view of a buffer).
   std::vector<std::pair<std::uint32_t, ValueId>> childRows;

@@ -12,11 +12,11 @@
 // Two more shapes counting reads are made here, once, so no later step
 // meets the old one: a select of values that hold references becomes
 // upstream's scf.if, whose regions each move the value they yield, so a
-// reference is never chosen by an op that forwards no region; and each
-// place a reference crosses into upstream's buffer ops is an op of its
-// own: a fresh buffer's reference is taken over by idr.own.adopt, and a
-// value stored into a buffer hands its reference over by idr.own.give.
-#include "idr/IR/Effects/Consumption.h"
+// reference is never chosen by an op that forwards no region; and a value
+// stored into a buffer by an op of upstream's hands its reference over by
+// idr.own.give, an op of its own. A buffer enters counting where
+// bufferization allocates it, the one place it is known to be an
+// allocation, so nothing here takes one over.
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -25,9 +25,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/STLExtras.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRRCCELLS
@@ -68,21 +66,6 @@ void branchSelect(RewriterBase &rewriter, arith::SelectOp select) {
   rewriter.replaceOp(select, branch);
 }
 
-// A buffer an op of upstream's makes is counting's from its making on: the
-// one result it allocates is taken over right after it, and every other
-// use reads the adopted value. That is the bare buffer, claiming nothing,
-// since those uses may be upstream's ops, which take only the bare carrier.
-void adopt(RewriterBase &rewriter, OpResult buffer) {
-  rewriter.setInsertionPointAfterValue(buffer);
-  auto adopted = OwnAdoptOp::create(rewriter, buffer.getLoc(), buffer.getType(), buffer);
-  rewriter.replaceAllUsesExcept(buffer, adopted.getResult(), adopted);
-}
-
-// Whether `buffer` is counting's already: the frontend takes over, where it
-// makes it, a buffer that fills a linear position, which bufferization then
-// allocates; taking it over twice would count one reference twice.
-bool adopted(Value buffer) { return llvm::any_of(buffer.getUsers(), llvm::IsaPred<OwnAdoptOp>); }
-
 // A value an op of upstream's stores hands its reference to the memory:
 // the store takes the plain carrier, so a store of a linear value is
 // refused rather than its quantity lost.
@@ -101,7 +84,6 @@ struct Cells : impl::IdrRcCellsBase<Cells> {
     // of op the rewrite of another never makes.
     SmallVector<DataConOp> cons;
     SmallVector<arith::SelectOp> selects;
-    SmallVector<OpResult> buffers;
     SmallVector<OpOperand *> stores;
     fn.walk([&](Operation *op) {
       if (auto con = dyn_cast<DataConOp>(op)) {
@@ -118,9 +100,6 @@ struct Cells : impl::IdrRcCellsBase<Cells> {
       // op of upstream's, which takes plain carriers, needs a crossing.
       if (op->getDialect() == getContext().getLoadedDialect<IdrDialect>())
         return;
-      for (OpResult result : op->getResults())
-        if (isa<BaseMemRefType>(result.getType()) && effects::allocates(op, result) && !adopted(result))
-          buffers.push_back(result);
       for (OpOperand &operand : op->getOpOperands())
         if (holdsReferences(operand.get().getType()) && ownership::storedBy(operand))
           stores.push_back(&operand);
@@ -130,8 +109,6 @@ struct Cells : impl::IdrRcCellsBase<Cells> {
       splitCell(rewriter, con);
     for (arith::SelectOp select : selects)
       branchSelect(rewriter, select);
-    for (OpResult buffer : buffers)
-      adopt(rewriter, buffer);
     for (OpOperand *stored : stores)
       give(rewriter, *stored);
     numBoxes += cons.size();

@@ -10,6 +10,7 @@
 #include "idr/Transforms/Counting/Reuse.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
@@ -53,39 +54,45 @@ void Reuse::demands() {
     llvm::SmallVector<Demand, 2> entries;
   };
   llvm::SmallVector<std::variant<BlockAt, OpAt>, 16> stack;
-  Block &body = fn.getBody().front();
-  stack.push_back(BlockAt{&body, &body.back(), none(), 0});
-  while (!stack.empty()) {
-    if (auto *at = std::get_if<OpAt>(&stack.back())) {
-      if (at->remaining > 0) {
-        Region &region = at->op->getRegion(--at->remaining);
-        if (!region.empty())
-          stack.push_back(BlockAt{&region.front(), &region.front().back(), none(), region.getRegionNumber()});
-        continue;
-      }
-      // Before an op that enters one region once: the most any region it
-      // enters asks. Before one that repeats: what is asked after it, since
-      // no token from outside enters it.
-      Demand before = at->after;
-      if (at->runs == Runs::Once) {
-        before = none();
-        llvm::SmallVector<RegionSuccessor> entries;
-        cast<RegionBranchOpInterface>(at->op).getSuccessorRegions(RegionBranchPoint::parent(), entries);
-        for (const RegionSuccessor &entry : entries)
-          raise(before, at->entries[entry.getSuccessor()->getRegionNumber()]);
-      }
-      stack.pop_back();
-      std::get<BlockAt>(stack.back()).demand = std::move(before);
-      continue;
+  // A region op's regions, walked last first; then what is asked before it:
+  // before an op that enters one region once, the most any region it enters
+  // asks; before one that repeats, what is asked after it, since no token
+  // from outside enters it.
+  auto stepOp = [&](OpAt &at) {
+    if (at.remaining > 0) {
+      Region &region = at.op->getRegion(--at.remaining);
+      if (!region.empty())
+        stack.push_back(BlockAt{&region.front(), &region.front().back(), none(), region.getRegionNumber()});
+      return;
     }
-    auto &walk = std::get<BlockAt>(stack.back());
+    Demand before = at.after;
+    if (at.runs == Runs::Once) {
+      before = none();
+      llvm::SmallVector<RegionSuccessor> entries;
+      cast<RegionBranchOpInterface>(at.op).getSuccessorRegions(RegionBranchPoint::parent(), entries);
+      for (const RegionSuccessor &entry : entries)
+        raise(before, at.entries[entry.getSuccessor()->getRegionNumber()]);
+    }
+    stack.pop_back();
+    std::get<BlockAt>(stack.back()).demand = std::move(before);
+  };
+  // The frame of the region op `op`, a terminator's parent, on the stack.
+  auto frameOf = [&](Operation *op) {
+    for (auto &frame : llvm::reverse(stack))
+      if (OpAt *around = match(
+              frame, [&](OpAt &at) { return at.op == op ? &at : nullptr; },
+              [](BlockAt &) -> OpAt * { return nullptr; }))
+        return around;
+    return static_cast<OpAt *>(nullptr);
+  };
+  auto stepBlock = [&](BlockAt &walk) {
     if (!walk.next) {
       BlockAt done = std::move(walk);
       stack.pop_back();
       trail.push_back(done.demand);
       if (!stack.empty())
         std::get<OpAt>(stack.back()).entries[done.region] = std::move(done.demand);
-      continue;
+      return;
     }
     Operation *op = walk.next;
     walk.next = op->getPrevNode();
@@ -100,15 +107,11 @@ void Reuse::demands() {
         for (const RegionSuccessor &successor : successors) {
           if (!successor.isOperation() || successor.getSuccessorOp() != op->getParentOp())
             continue;
-          for (auto &frame : llvm::reverse(stack))
-            if (auto *around = std::get_if<OpAt>(&frame); around && around->op == op->getParentOp()) {
-              if (around->runs == Runs::Once)
-                raise(walk.demand, around->after);
-              break;
-            }
+          if (OpAt *around = frameOf(op->getParentOp()); around && around->runs == Runs::Once)
+            raise(walk.demand, around->after);
         }
       }
-      continue;
+      return;
     }
     if (auto sink = dyn_cast<CellNewOp>(op))
       if (std::optional<unsigned> index = indexOf(cellBytes(sink.getCell().getType().getValue())))
@@ -123,7 +126,11 @@ void Reuse::demands() {
       at.entries.assign(op->getNumRegions(), none());
       stack.push_back(std::move(at));
     }
-  }
+  };
+  Block &body = fn.getBody().front();
+  stack.push_back(BlockAt{&body, &body.back(), none(), 0});
+  while (!stack.empty())
+    match(stack.back(), stepOp, stepBlock);
 }
 
 } // namespace idr::counting::reuse

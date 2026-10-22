@@ -13,6 +13,7 @@
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -25,7 +26,9 @@ namespace idr::counting::placement {
 // around it.
 OpWalk *Placement::frameOf(Operation *op) {
   for (Frame &frame : llvm::reverse(stack))
-    if (auto *walk = std::get_if<OpWalk>(&frame); walk && walk->op == op)
+    if (OpWalk *walk = match(
+            frame, [&](OpWalk &at) { return at.op == op ? &at : nullptr; },
+            [](BlockWalk &) -> OpWalk * { return nullptr; }))
       return walk;
   return nullptr;
 }
@@ -123,32 +126,37 @@ llvm::BitVector Placement::heldBy(Operation *op) const {
   return held;
 }
 
-void Placement::stepBlock() {
-  auto &walk = std::get<BlockWalk>(stack.back());
+void Placement::stepBlock(BlockWalk &walk) {
   if (!walk.next) {
-    finishBlock();
+    finishBlock(walk);
     return;
   }
   Operation *op = walk.next;
   walk.next = op->getPrevNode();
+  State &state = walk.state;
   if (op->hasTrait<OpTrait::IsTerminator>()) {
-    enterTerminator(op, walk.state);
+    enterTerminator(op, state);
     llvm::SmallBitVector consumed = consumedBy(op);
-    State &state = std::get<BlockWalk>(stack.back()).state;
     operandDeaths(op, consumed, state, nullptr, nullptr);
     useOperands(op, state, consumed, nullptr);
     return;
   }
-  // A result nothing needs dies where it is made; an element takes its
-  // reference where it is read.
+  // A result nothing needs dies where it is made; an element that takes its
+  // reference where it is read takes it there only if something needs it,
+  // and one nothing needs was never given one.
   for (Value result : op->getResults()) {
     ValueId id = idOf(result);
-    if (roles[id] == Role::Owned && !walk.state.live.test(id.index()))
-      death(id, Where::past(op), Death::Reading, walk.state);
-    if (roles[id] == Role::Element)
-      elementDups.push_back(id);
+    if (roles[id] != Role::Owned)
+      continue;
+    bool needed = state.live.test(id.index());
+    if (takesWhereRead.test(id.index())) {
+      if (needed)
+        elementDups.push_back(id);
+      continue;
+    }
+    if (!needed)
+      death(id, Where::past(op), Death::Reading, state);
   }
-  State &state = std::get<BlockWalk>(stack.back()).state;
   for (Value result : op->getResults())
     state.live.reset(idOf(result).index());
   if (op->getNumRegions() == 0) {
@@ -172,8 +180,7 @@ void Placement::stepBlock() {
   stack.push_back(std::move(regions));
 }
 
-void Placement::stepOp() {
-  auto &walk = std::get<OpWalk>(stack.back());
+void Placement::stepOp(OpWalk &walk) {
   if (walk.remaining > 0) {
     unsigned index = --walk.remaining;
     Region &region = walk.op->getRegion(index);
@@ -184,7 +191,7 @@ void Placement::stepOp() {
     return;
   }
   State before = finishOp(walk);
-  OpWalk finished = std::move(std::get<OpWalk>(stack.back()));
+  OpWalk finished = std::move(walk);
   pinned.reset(finished.pinnedHere);
   stack.pop_back();
   State &state = std::get<BlockWalk>(stack.back()).state;
@@ -197,8 +204,8 @@ void Placement::stepOp() {
   useOperands(finished.op, state, consumed, &inside);
 }
 
-void Placement::finishBlock() {
-  BlockWalk walk = std::move(std::get<BlockWalk>(stack.back()));
+void Placement::finishBlock(BlockWalk &walking) {
+  BlockWalk walk = std::move(walking);
   stack.pop_back();
   // The block's arguments are made at its start: one nothing needs dies
   // there.

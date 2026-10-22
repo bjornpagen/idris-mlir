@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-place's rewrite (Placement.h): what the walk decided, made: the
 // takes first, whose parts replace the reads at every later use, then the
-// dups that supply a part while its owner lives, the elements' dups, the
-// dups of consuming uses, and the drops, each after what the rewrite put
-// at its point before it; last, the reads every use of which took its
-// reference elsewhere go.
+// dups that supply a part while its owner lives, the dups of consuming
+// uses, and the drops, each after what the rewrite put at its point before
+// it; then the dup each element that takes its reference where it is read
+// takes there, whose result every use of the element, those just made
+// among them, reads from then on; last, the reads every use of which took
+// its reference elsewhere go.
 #include "idr/Transforms/Counting/Placement.h"
 
 #include "idr/IR/Effects/Whole.h"
@@ -130,14 +132,6 @@ void Placement::apply() {
     partValues.emplace_back(supply.part, dup.getResult());
     ++dupsPlaced;
   }
-  // An element takes its reference where it is read.
-  for (ValueId id : elementDups) {
-    Value element = valueOf(id);
-    rewriter.setInsertionPointAfterValue(element);
-    auto dup = CountDupOp::create(rewriter, element.getLoc(), atHold(element.getType(), Hold::counted()), element);
-    rewriter.replaceAllUsesExcept(element, dup.getResult(), dup);
-    ++dupsPlaced;
-  }
   // Dups for the consuming uses of a value still needed later, or of a part
   // while its owner lives.
   for (DupAt &at : dups) {
@@ -155,6 +149,15 @@ void Placement::apply() {
     Value value = roles[drop.value] == Role::Part ? supplied(drop.value, &*drop.where.next) : valueOf(drop.value);
     CountDropOp::create(rewriter, value.getLoc(), value);
     ++dropsPlaced;
+  }
+  // An element takes its reference where it is read: every use of it, the
+  // takes, dups and drops placed above included, reads the dup's result.
+  for (ValueId id : elementDups) {
+    Value element = valueOf(id);
+    rewriter.setInsertionPointAfterValue(element);
+    auto dup = CountDupOp::create(rewriter, element.getLoc(), atHold(element.getType(), Hold::counted()), element);
+    rewriter.replaceAllUsesExcept(element, dup.getResult(), dup);
+    ++dupsPlaced;
   }
   // A part read every use of which took its reference elsewhere goes, the
   // reads beneath it first.

@@ -32,6 +32,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
@@ -42,7 +43,6 @@
 #include <cstdint>
 #include <optional>
 #include <utility>
-#include <variant>
 
 using namespace mlir;
 
@@ -98,6 +98,33 @@ bool givenBack(Value value) {
   return false;
 }
 
+// Whether `edge` carries the reference `use` holds on, kept: a move of the
+// use itself into a part of a value, a callee's parameter or a caller's
+// result. A move into a value whole hands it to a value that holds it
+// again, so it keeps nothing of the use's.
+bool keepsReference(const FlowEdges::Edge &edge, OpOperand &use) {
+  if (!edge.carries(Carrier::Reference))
+    return false;
+  return match(
+      edge.move,
+      [&](const FlowEdges::Flow &flow) {
+        bool fromUse = match(
+            flow.from.at, [&](const FlowSource::Taken &taken) { return taken.use == &use; },
+            [](const OneOf<FlowSource::Whole, FlowSource::Part, FlowSource::Parameter,
+                           FlowSource::Result> auto &) { return false; });
+        bool kept = match(
+            flow.to.at, [](const FlowSource::Whole &) { return false; },
+            [](const OneOf<FlowPlace::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
+              return true;
+            });
+        return fromUse && kept;
+      },
+      [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh, FlowEdges::Release,
+                     FlowEdges::Overwrite, FlowEdges::Constant, FlowEdges::Dispatch> auto &) {
+        return false;
+      });
+}
+
 // Whether `use` gives its value up: the op takes its reference over, gives
 // nothing of it back, and carries it whole into no callee, no caller and no
 // field. It ends it there (a drop, a store into memory no edge follows) or
@@ -113,13 +140,8 @@ bool givesUp(OpOperand &use) {
     return false;
   FlowEdges edges;
   flowEdgesOf(op, edges);
-  return llvm::none_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
-    const auto *flow = std::get_if<FlowEdges::Flow>(&edge.move);
-    if (!flow || !edge.carries(Carrier::Reference))
-      return false;
-    const auto *taken = std::get_if<FlowPoint::Taken>(&flow->from.at);
-    return taken && taken->use == &use && !std::holds_alternative<FlowPoint::Whole>(flow->to.at);
-  });
+  return llvm::none_of(edges.edges(),
+                       [&](const FlowEdges::Edge &edge) { return keepsReference(edge, use); });
 }
 
 // The operands `op` moves on unchanged: what a region branch forwards, as

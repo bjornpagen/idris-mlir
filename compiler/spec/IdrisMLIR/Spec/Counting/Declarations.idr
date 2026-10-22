@@ -413,10 +413,11 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
 ||| nothing moves into it, so it is inferred counted and `unique deep`, at
 ||| many uses; it may be written at any grade that only forgets that claim,
 ||| the bare buffer among them where upstream's ops, which take the bare
-||| carrier, read it. The frontend writes it where a buffer fills a linear
-||| position, the one reference to it, so the cell holding it may claim it
-||| unshared from the first; counting's first step writes it after every
-||| other op of upstream's that allocates one.
+||| carrier, read it. Bufferization writes it at each allocation it makes of
+||| a buffer whose elements hold references, the one place a buffer is known
+||| to be an allocation, and nothing else writes it: a buffer met anywhere
+||| else (a slice, a parameter's, one read out of a cell) may be counted
+||| already, and taking it over there would count its memory twice.
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []

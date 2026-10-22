@@ -19,7 +19,7 @@ using namespace idr;
 
 // A dup is one more reference to what the value reaches.
 void CountDupOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValue()), FlowPoint::of(getResult()));
+  edges.flow(FlowSource::of(getValue()), FlowPlace::of(getResult()));
 }
 
 void CountDropOp::getFlowEdges(FlowEdges &edges) { edges.release(getValueMutable()); }
@@ -46,11 +46,11 @@ void CellInitOp::getFlowEdges(FlowEdges &edges) {
   Value value = getResult();
   DataType data = getDataType();
   Tag tag = getTag();
-  edges.flow(FlowPoint::of(getCellMutable()), FlowPoint::of(value));
+  edges.flow(FlowSource::of(getCellMutable()), FlowPlace::of(value));
   builtEdges(value, data, tag, getFieldsMutable(), getHoles(), edges);
   for (auto [hole, dest] : llvm::zip_equal(getHoles(), getDests()))
-    edges.unify(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
-                FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(hole))));
+    edges.unify(FlowPlace::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
+                FlowPlace::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(hole))));
 }
 
 // The value is taken over: its cell becomes the token, and each field
@@ -59,10 +59,10 @@ void CountTakeOp::getFlowEdges(FlowEdges &edges) {
   OpOperand &value = getValueMutable();
   DataType data = getDataType();
   Tag tag = getTag();
-  edges.flow(FlowPoint::of(value), FlowPoint::of(getToken()));
+  edges.flow(FlowSource::of(value), FlowPlace::of(getToken()));
   for (auto [index, field] : llvm::enumerate(getFields()))
-    edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(index))),
-               FlowPoint::of(Value(field)));
+    edges.flow(FlowSource::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(index))),
+               FlowPlace::of(Value(field)));
 }
 
 // The value, which has no cell of its own, is taken over: each field moves
@@ -76,8 +76,8 @@ void CountUnpackOp::getFlowEdges(FlowEdges &edges) {
   if (llvm::none_of(getFields(), [](Value field) { return holdsReferences(field.getType()); }))
     edges.release(value);
   for (auto [index, field] : llvm::enumerate(getFields()))
-    edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(index))),
-               FlowPoint::of(Value(field)));
+    edges.flow(FlowSource::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(index))),
+               FlowPlace::of(Value(field)));
 }
 
 // The token's cell is given up to the value rebuilt in it, which no other
@@ -97,5 +97,5 @@ void OwnAdoptOp::getFlowEdges(FlowEdges &edges) { edges.fresh(getResult()); }
 // follows; the result is the value, read.
 void OwnGiveOp::getFlowEdges(FlowEdges &edges) {
   edges.release(getValueMutable());
-  edges.flow(FlowPoint::of(getValue()), FlowPoint::of(getResult()));
+  edges.flow(FlowSource::of(getValue()), FlowPlace::of(getResult()));
 }

@@ -74,6 +74,10 @@ private:
   // The assignment (ReuseAssign.cpp).
   void assign();
   void freeAll(llvm::SmallVector<Held> &held, mlir::Operation *before);
+  llvm::SmallVector<Held>
+  carryAcross(mlir::Operation *&op,
+              llvm::MutableArrayRef<std::optional<llvm::SmallVector<Held>>> leftover,
+              const Demand &ahead);
   mlir::Operation *withTokenResults(mlir::Operation *op, llvm::ArrayRef<mlir::Type> tokens);
 
   // The rebuilds and the fusions (Reuse.cpp).

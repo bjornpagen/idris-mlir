@@ -61,8 +61,9 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
 // counted value still needed later takes a dup; a use of a part while its
 // owner lives reads it, and a consuming one takes a dup of it; a part used
 // after its owner died has taken a reference of its own, and is placed as a
-// counted value from then on. Last, a point before an op that may acquire
-// memory has an allocation ahead.
+// counted value from then on; a lent value's owner lives past the call, so
+// a consuming use of it takes a dup and nothing else is placed. Last, a
+// point before an op that may acquire memory has an allocation ahead.
 void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVector &consumed,
                             const llvm::BitVector *inside) {
   bool tail = false;
@@ -77,7 +78,10 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
                   (inside && inside->test(id.index()) && consumes);
     switch (roles[id]) {
     case Role::Untouched:
-    case Role::Element:
+      break;
+    case Role::Lent:
+      if (consumes)
+        dups.push_back({op, index});
       break;
     case Role::Scoped:
       if (consumes)
@@ -122,24 +126,43 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
     state.ahead = Ahead::Allocation;
 }
 
+namespace {
+
+// Whether the values from a dying owner down to a part of it can each be
+// taken apart in turn to give the part its reference: every one of them a
+// value whose type fixes its constructor and that is no memo cell. A
+// buffer on the way, or a memo cell, blocks it, and the part takes a dup.
+enum class Way : std::uint8_t { Open, Blocked };
+
+Way through(Way above, Type type) {
+  return above == Way::Open && knownConstructor(type) && !isMemo(type) ? Way::Open
+                                                                      : Way::Blocked;
+}
+
+} // namespace
+
 // `owner` dies at `where`: the parts of it still needed take their
 // references (taken apart from it, or each a dup while it lives), and it is
 // dropped, unless only the end lies ahead or its death moved it on.
 void Placement::death(ValueId owner, Where where, Death kind, State &state) {
+  Type type = valueOf(owner).getType();
+  Way way = kind == Death::Reading ? through(Way::Open, type) : Way::Blocked;
   llvm::SmallVector<ValueId, 4> needed;
-  llvm::SmallVector<ValueId, 8> pending{owner};
+  llvm::SmallVector<std::pair<ValueId, Way>, 8> pending{{owner, way}};
   while (!pending.empty()) {
-    ValueId at = pending.pop_back_val();
+    auto [at, above] = pending.pop_back_val();
     for (const auto &[index, part] : childrenOf(at)) {
       if (pinned.test(part.index()))
         continue;
-      if (state.live.test(part.index()))
+      if (state.live.test(part.index())) {
         needed.push_back(part);
-      else
-        pending.push_back(part);
+        if (above == Way::Blocked)
+          way = Way::Blocked;
+      } else {
+        pending.emplace_back(part, through(above, valueOf(part).getType()));
+      }
     }
   }
-  Type type = valueOf(owner).getType();
   if (needed.empty()) {
     if (kind == Death::Reading && state.ahead == Ahead::Allocation)
       drops.push_back({where, owner});
@@ -147,8 +170,7 @@ void Placement::death(ValueId owner, Where where, Death kind, State &state) {
   }
   for (ValueId part : needed)
     state.live.reset(part.index());
-  bool takeable = kind == Death::Reading && knownConstructor(type) && !isMemo(type);
-  if (!takeable) {
+  if (way == Way::Blocked) {
     // Each part takes a dup while its owner still lives; the owner is then
     // dropped after them.
     for (ValueId part : needed)

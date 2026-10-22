@@ -202,9 +202,10 @@ void Writer::spread() {
       if (number == 0 && user->hasTrait<ResultCarriesOperand>())
         reach(user->getResult(0));
       // An element read out of the view's buffer is read from it too, but
-      // takes a reference of its own where it is read, so it stays counted.
+      // stays counted: placement lends it while nothing may overwrite it,
+      // and gives it a reference of its own where it is read otherwise.
       for (Value result : user->getResults())
-        if (ownership::readFrom(result) == view && !readOutOfMemory(result))
+        if (ownership::readFrom(result) == view && !elementBufferOf(result))
           reach(result);
       if (auto branch = dyn_cast<RegionBranchOpInterface>(user)) {
         SmallVector<RegionSuccessor> entries;
