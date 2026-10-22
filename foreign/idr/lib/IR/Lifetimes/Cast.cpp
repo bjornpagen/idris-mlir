@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The grade's one op, idr.lin.cast: a value cast into or out of a linear
-// position. It passes its operand through, so a scoped result lives where
-// its operand does or in a lifetime that one encloses, which it states by
-// its entry of `outers`, as every op that makes a scoped value does.
+// position, its hold kept or its claim forgotten on the way. It passes its
+// operand through, so a scoped result lives where its operand does or in a
+// lifetime that one encloses, which it states by its entry of `outers`, as
+// every op that makes a scoped value does.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -13,8 +14,8 @@
 using namespace mlir;
 using namespace idr;
 
-// One cast between types equal up to their uses, whose direction its types
-// say.
+// One cast between types of one carrier at other uses, whose direction its
+// types say.
 Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
   if (value.getType() == type)
     return value;
@@ -28,15 +29,20 @@ void LinCastOp::build(OpBuilder &builder, OperationState &state, Type result, Va
   build(builder, state, result, value, lifetime ? ValueRange(lifetime) : ValueRange());
 }
 
-// The cast is between types equal but for their uses: the same carrier at
-// the same hold, the other uses; a scoped result states its lifetime.
+// The cast is between types of one carrier at other uses, its hold the
+// operand's or one it fits by the grade order: a claim may be forgotten, so
+// a value leaving a linear position reaches an upstream op at the bare type
+// it takes, but never raised, since no cast proves what Idris and
+// exclusivity did not; a scoped result states its lifetime.
 LogicalResult LinCastOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
-  if (unrestricted(from) != unrestricted(to) || holdOf(from) != holdOf(to) ||
-      usesOf(from) == usesOf(to))
+  if (unrestricted(from) != unrestricted(to) || usesOf(from) == usesOf(to))
     return emitOpError("casts ") << from << " to " << to
-                                 << ", which differ in more than their uses or not in them";
+                                 << ", which differ in more than their grades or not in their uses";
+  if (!holdFits(from, to))
+    return emitOpError("casts ") << from << " to " << to
+                                 << ", whose hold claims more or is freed otherwise";
   return lifetimes::verifyOuters(*this, 0);
 }
 

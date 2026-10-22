@@ -193,11 +193,14 @@ Type idr::shared(Type type) {
 }
 
 bool idr::forgets(Type from, Type to) {
-  Grade a = gradeOf(from);
-  Grade b = gradeOf(to);
-  if (unrestricted(from) != unrestricted(to) || a.uses != b.uses)
-    return false;
-  return a.hold == b.hold || (a.hold && b.hold && a.hold->fits(*b.hold));
+  return unrestricted(from) == unrestricted(to) && usesOf(from) == usesOf(to) &&
+         holdFits(from, to);
+}
+
+bool idr::holdFits(Type from, Type to) {
+  std::optional<Hold> held = holdOf(from);
+  std::optional<Hold> asked = holdOf(to);
+  return held == asked || (held && asked && held->fits(*asked));
 }
 
 std::optional<Exclusive> idr::asExclusive(Value value) {

@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The one linearity rule, after every pass. A value used once by its grade's
-// uses is used at most once on every path. A value used once by its type (a
-// cell, a destination, a package) is used exactly once on every path that
-// goes on: its one use is what takes it (an init fills the cell, a write
-// fills the destination, an unpack reopens the package), so a path without
-// it leaves memory nothing fills or gives back. Once the program is
-// counted, a value that holds a reference of its own is given up exactly
-// once on every path that goes on. All three are one count: the uses that
-// count, on the worst path, the most over a match's alternatives, the sum
-// over regions that run one after another, twice for a region that runs
-// again. A path that ends the run (a crash, an exit) gives nothing up,
-// since nothing after it runs. A value with one use that counts, in the
-// block that defines it, is settled with no walk; only past one is a
-// region looked into.
+// uses is used at most once on every path, field by field: a field read
+// takes that field alone, as a match binds each field of its scrutinee
+// once, and every other use takes the whole value, every field with it. A
+// value used once by its type (a cell, a destination, a package) is used
+// exactly once on every path that goes on: its one use is what takes it (an
+// init fills the cell, a write fills the destination, an unpack reopens the
+// package), so a path without it leaves memory nothing fills or gives
+// back. Once the program is counted, a value that holds a reference of its
+// own is given up exactly once on every path that goes on. All three are
+// one count: the uses that count, on the worst path, the most over a
+// match's alternatives, the sum over regions that run one after another,
+// twice for a region that runs again. A path that ends the run (a crash,
+// an exit) gives nothing up, since nothing after it runs. A value with one
+// use that counts, in the block that defines it, is settled with no walk;
+// only past one is a region looked into.
 //
 // Which regions of an op exclude each other is asked of
 // RegionBranchOpInterface once per op class in one verify.
@@ -28,6 +30,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -50,18 +53,23 @@ bool idr::verify::alternatives(RegionBranchOpInterface branch) {
 namespace {
 
 // What a value is held to: at most one use on every path (a value its grade
-// uses once); exactly one use on every path that goes on (a value its type
-// uses once); or exactly one giving up of its reference on every path that
-// goes on, the uses that do not consume it not counting (a counted value).
+// uses once, of each field); exactly one use on every path that goes on (a
+// value its type uses once); or exactly one giving up of its reference on
+// every path that goes on, the uses that do not consume it not counting (a
+// counted value).
 enum class Rule : std::uint8_t { UsedAtMostOnce, UsedExactlyOnce, ConsumedExactlyOnce };
 
-// Whether every use of a value counts under `rule`, or only those that
-// consume its reference.
+// Whether `rule` holds a value to its uses, or to the giving up of its
+// reference.
 constexpr bool everyUse(Rule rule) { return rule != Rule::ConsumedExactlyOnce; }
 
 // Whether `rule` asks for exactly one on every path that goes on, not at
 // most one.
 constexpr bool exactly(Rule rule) { return rule != Rule::UsedAtMostOnce; }
+
+// Which uses of a value one count counts.
+template <typename Counts>
+concept UseFilter = std::predicate<Counts &, OpOperand &>;
 
 // Whether a path through a region goes on to what follows it, or ends the
 // run first.
@@ -115,13 +123,14 @@ bool repeated(Operation *op, unsigned index) {
   return !branch || branch.isRepetitiveRegion(index);
 }
 
-// The count of one value under one rule.
+// The count of one value under one rule, of the uses `counts` takes.
 class Count {
 public:
-  Count(Value value, Rule rule, Exclusivity &exclusivity)
+  template <UseFilter Counts>
+  Count(Value value, Rule rule, Exclusivity &exclusivity, Counts &&counts)
       : value(value), rule(rule), exclusivity(exclusivity) {
     for (OpOperand &use : value.getUses())
-      if (everyUse(rule) || effects::consumes(use))
+      if (counts(use))
         users.push_back(use.getOwner());
   }
 
@@ -306,6 +315,37 @@ private:
   SmallVector<Operation *, 4> users;
 };
 
+// Every use counts.
+bool anyUse(OpOperand &) { return true; }
+
+// Whether `use` takes field `index` of the value it uses: a field read
+// takes the field it reads and no other; every other use takes the whole
+// value, and every field with it.
+bool takesField(OpOperand &use, std::uint64_t index) {
+  auto read = dyn_cast<DataFieldOp>(use.getOwner());
+  return !read || read.getIndex() == index;
+}
+
+// A value its grade uses once is used at most once on every path, field by
+// field: each field some use reads is counted with the uses that take the
+// whole value, so a field read twice, or read beside a use of the whole, is
+// a second use of it. A value no use reads a field of is counted whole.
+LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
+  SmallVector<std::uint64_t, 4> read;
+  for (Operation *user : value.getUsers())
+    if (auto field = dyn_cast<DataFieldOp>(user);
+        field && !llvm::is_contained(read, field.getIndex()))
+      read.push_back(field.getIndex());
+  if (read.empty())
+    return Count(value, Rule::UsedAtMostOnce, exclusivity, anyUse).check();
+  for (std::uint64_t index : read)
+    if (failed(Count(value, Rule::UsedAtMostOnce, exclusivity,
+                     [index](OpOperand &use) { return takesField(use, index); })
+                   .check()))
+      return failure();
+  return success();
+}
+
 } // namespace
 
 LogicalResult idr::verify::linearity(FuncOp fn) {
@@ -323,14 +363,15 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
     // Used once by its type: the type alone says so at every stage, and no
     // grade is written on it.
     if (isLinearByType(type))
-      return Count(value, Rule::UsedExactlyOnce, exclusivity).check();
-    if (usesOf(type) == Uses::Once &&
-        failed(Count(value, Rule::UsedAtMostOnce, exclusivity).check()))
+      return Count(value, Rule::UsedExactlyOnce, exclusivity, anyUse).check();
+    if (usesOf(type) == Uses::Once && failed(usedAtMostOnceEachField(value, exclusivity)))
       return failure();
     if (!counted)
       return success();
     if (freedBy(type, Release::Counted) &&
-        failed(Count(value, Rule::ConsumedExactlyOnce, exclusivity).check()))
+        failed(Count(value, Rule::ConsumedExactlyOnce, exclusivity,
+                     [](OpOperand &use) { return effects::consumes(use); })
+                   .check()))
       return failure();
     return success();
   };

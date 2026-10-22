@@ -177,10 +177,17 @@ bool claims(mlir::Type type, Unique unique);
 // What a value of `type` becomes given on with what its grade claims of its
 // sharing forgotten, its release and uses kept (`shared`); and whether a
 // value of `from` may stand where `to` is asked with no op between, the
-// same carrier at the same uses whose hold fits (`forgets`): its claim
-// forgotten, or static data standing for a value that claims nothing.
+// same carrier at the same uses whose hold fits (`forgets`).
 mlir::Type shared(mlir::Type type);
 bool forgets(mlir::Type from, mlir::Type to);
+
+// Whether the hold of `from` fits where that of `to` is asked, by the one
+// grade order (Hold::fits): the same hold, its claim forgotten, or static
+// data standing for a value that claims nothing; never a claim raised, nor
+// who frees the value changed. A carrier that holds no reference has no
+// hold, and fits. Asked at the same uses by `forgets`, and across uses by
+// the linear cast.
+bool holdFits(mlir::Type from, mlir::Type to);
 
 // How far a value's claim on its own cells reaches into a field whose
 // declared type is `declared`, read off the family's declaration once:
@@ -293,8 +300,9 @@ mlir::Value arrayRoot(mlir::Value array);
 // that index moves into its one read.
 bool fieldReadOnce(mlir::Value value, unsigned index);
 
-// `value` held as `type`, its own type at other uses: cast into a linear
-// position, or out of one; itself when the types agree.
+// `value` held as `type`, its own type at other uses, its hold kept or
+// forgotten (holdFits): cast into a linear position, or out of one; itself
+// when the types agree.
 mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 // An application compares a closure's declared types with the values it is

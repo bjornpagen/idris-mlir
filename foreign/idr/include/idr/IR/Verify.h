@@ -55,16 +55,18 @@ mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 mlir::LogicalResult function(FuncOp fn);
 
 // The one linearity rule of `fn`, after every pass. A value its grade uses
-// once is used at most once on every path: the IR's linearity is affine, as
-// Idris's quantity 1 lets a value go unused on a path that ends the run. A
-// value its type uses once (a cell, a destination, a package) is used
-// exactly once on every path that goes on, at every stage. Once its program
-// is counted, a value that holds a reference of its own (counted) is given
-// up exactly once on every path that goes on, and a reuse token is never
-// used many times. Uses are counted on the worst path: the most over a
-// match's alternatives, the sum over regions that run one after another,
-// twice for a region that runs again; a path that ends the run gives
-// nothing up.
+// once is used at most once on every path, field by field: a field read
+// takes that field alone and any other use the whole value, so reading two
+// fields is no second use, while reading one twice is. The IR's linearity
+// is affine, as Idris's quantity 1 lets a value go unused on a path that
+// ends the run. A value its type uses once (a cell, a destination, a
+// package) is used exactly once on every path that goes on, at every
+// stage. Once its program is counted, a value that holds a reference of its
+// own (counted) is given up exactly once on every path that goes on, and a
+// reuse token is never used many times. Uses are counted on the worst
+// path: the most over a match's alternatives, the sum over regions that run
+// one after another, twice for a region that runs again; a path that ends
+// the run gives nothing up.
 mlir::LogicalResult linearity(FuncOp fn);
 
 // The lifetimes' rules of one function, a rule of its one walk

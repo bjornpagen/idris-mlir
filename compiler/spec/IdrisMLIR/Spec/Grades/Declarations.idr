@@ -141,7 +141,7 @@ holdClosed = MkClosed
   , doc = brief (line "a hold: who frees a value, and what is known of its sharing")
   }
 
-||| Which way a cast between types equal but for their uses goes: into a
+||| Which way a cast between types of one carrier at other uses goes: into a
 ||| linear position, or out of one.
 public export
 data QuantityChange = Enter | Leave
@@ -252,15 +252,19 @@ graded = MkTypeDef
 --------------------------------------------------------------------------------
 
 ||| `idr.lin.cast %v in (%l : !idr.lifetime<view>) : T -> U`, C++
-||| `LinCastOp`: a value cast between types equal but for their uses, into
-||| a linear position (Idris lets any value fill a binder of quantity 1) or
-||| out of one (the one use of a linear value, where it becomes an ordinary
-||| one), its direction what its types say (`getDirection`). A fresh
-||| identity both ways: two casts of one value stay two linear values, and
-||| an unused one goes. A scoped result lives in the lifetime `outers`
-||| states, its operand's or one that lifetime encloses; the builder from a
-||| type states its operand's. Its fold is the one QTT rule: a cast back of
-||| a cast with no other use is the value itself.
+||| `LinCastOp`: a value cast between types of one carrier at other uses,
+||| into a linear position (Idris lets any value fill a binder of quantity
+||| 1) or out of one (the one use of a linear value, where it becomes an
+||| ordinary one), its direction what its types say (`getDirection`). Its
+||| hold is the operand's or one that hold fits (`Fits`): a claim may be
+||| forgotten on the way, so a value reaches an upstream op at the bare type
+||| it takes, and never raised. A fresh identity both ways: two casts of one
+||| value stay two linear values, and an unused one goes. A scoped result
+||| lives in the lifetime `outers` states, its operand's or one that
+||| lifetime encloses; the builder from a type states its operand's. Its
+||| fold is the one QTT rule: a cast back of a cast with no other use is the
+||| value itself, which only a cast that forgot nothing can have, since
+||| fitting is antisymmetric.
 linCast : Op 2 1 0 0
 linCast = MkOp
   { home = InIdr
