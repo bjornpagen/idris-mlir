@@ -4,19 +4,27 @@
 
 **Amended by P0 (2026-10-21, `0000-mlir-native.md`).** R1 and R2 are
 absorbed into the cutover in `libs/mlir-relational` (D44). R4's part in
-P0 is the union-find the elaborator's O7 consumes, kept in the fork
-(D107); the shared e-graph engine written once in Idris over a sparse
-tensor library (D85 to D87) was reversed by D107, and the optimizer's
-e-graph is a C++ pass over MLIR's ops (C153).
+P0 is the union-find the elaborator's O7 consumes, kept in the checker,
+`compiler/checker` (D107, C233); the shared e-graph engine written once
+in Idris over a sparse tensor library (D85 to D87) was reversed by D107,
+and the optimizer's e-graph is a C++ pass over MLIR's ops (C153).
 
 ## 0. Status
 
-**Parked, AFTER-SELF; nothing is built** (*read* at 77eaa5b1,
-2026-10-19: `libs/` holds `mlir-array` and `mlir-linear` only). Nothing
-on the path to `make self` needs it. **First step: R1**, taken when its
-first consumer, 0011's O3 (R3 here), is next in the queue, which is
-after 0010's A0 and 0011's O0; R2 follows, and both come before O3.
-0011's O5 and O8 need only R1 (0011 §8, D12). Every decision is taken.
+**In P0 in part; nothing is built** (*read* at e3b93a77, 2026-10-22:
+`libs/mlir-relational` holds the lanes' first modules, joins, intervals
+and the fixpoint, unbuilt, as no step of the cutover is built until the
+whole is, P0's D56). R1 and R2 are P0's (D44), written by its lanes in
+plain Idris for both hosts, before their consumers 0011's O3 (R3 here)
+and O8, which are P0's too (P0 §7's F9). Their bars, bumbledb's Rust
+engine and Soufflé, are ratios measured once `make self` holds, on
+engines outside the toolchain (C136). R4 comes into P0 only as far as
+0011's O7 consumes it, a union-find, which is the checker's own and not
+this library's (D69, D107). The rest (layer 3 here, R5's saturation
+offered to tactics, R6) is not P0's and stays **AFTER-SELF**. 0011's O5
+and O8 need only R1 (0011 §8, D12), and whether O5's resolution is
+layer 1's join is P0 §4's open question (C216). Every decision is
+taken.
 
 The library is Idris in `libs/` (D4), compiled by this compiler. It takes
 over §4.5 of bumbledb's port proposal
@@ -27,7 +35,7 @@ equivalence, and each grew an ad hoc copy of the other's machinery.
 bumbledb has hand-built plan witnesses, a vectorizer written out as NEON
 twins, and an interpreter that wants compiling. The frontend has
 Translate's worklist, `checkReachable`
-(`compiler/src/IdrisMLIR/Frontend/Profile.idr`) and the fork's
+(`compiler/src/IdrisMLIR/Frontend/Profile.idr`) and the checker's
 size-change closure. The test is §5's gates: if the shared library does
 not make every consumer smaller and faster, the analogy was only pretty.
 
@@ -54,14 +62,15 @@ last text at 484d6403) are named "the cutover's".
   a lattice of finite height for D9's merge, or a well-founded relation
   the consumer supplies. Translate's worklist today descends within the
   bounds the growth check gives (`Proof/Requests.idr`, `Universe` and
-  `Bounds`; `Frontend/Growth.idr`). The fork's size-change subsumption is
+  `Bounds`; `Frontend/Growth.idr`). The checker's size-change subsumption is
   already total over `Fin m`
-  (`compiler/idris/src/Core/Termination/SizeChange.idr`), and its
+  (`compiler/checker/src/Core/Termination/SizeChange.idr`), and its
   replacement keeps that proof. Layer 3's saturation does not end in
-  general. What it offers a tactic is bounded by the program, as
-  `%auto_implicit_depth` bounds search (0013 §2.3), never by a library
-  budget, because a spent budget would fail a proof by a count
-  (*decision*, from AGENTS.md).
+  general. What it offers a tactic is bounded by the program, never by a
+  library budget or a depth, as the elaborator's automatic search now
+  ends by the path rule with no count and `%auto_implicit_depth` is
+  refused by the parser (P0's D53), because a spent budget would fail a
+  proof by a count (*decision*, from AGENTS.md).
 - **Size policies:** D1's 4 plan variants is a named constant with its
   line in `tools/policies.txt`.
 - **Two hosts** (AGENTS.md). The frontend compiles
@@ -127,9 +136,10 @@ Every consumer is Idris (D6).
     instance table, reachability as its query, within the growth check's
     bounds (layer 2; 0011 §4.8).
   - O5: name resolution as an Allen "during" join with a max-depth fold
-    (layer 1; 0011 §4.4).
+    (layer 1; 0011 §4.4), whose form is P0 §4's open question (C216).
   - O7: the elaborator's constraint store and postponement (layer 2),
-    with meta-to-meta unification on layer 3's union-find.
+    with meta-to-meta unification on the checker's own union-find, not
+    layer 3's (P0's D107).
   - O8: the compiler's invariants as law queries on every compilation
     (layer 1; 0011 §5, D13).
   - The size-change closure as a fixpoint with subsumption (layer 2, D9).
@@ -148,8 +158,13 @@ Not consumers, by the proposals that own them:
   ambiguity rule (0013 §2.3, D6);
 - shape arithmetic (0009 D11);
 - every C++ fixpoint, and the C++ optimizer (D6; 0008 D13 rejects "0CFA
-  on 0015"). Saturation over `idr` IR would be a proposal against the
-  cutover's stage 6 that replaces its canonicalization whole.
+  on 0015"). Saturation over `idr` IR is P0's, not this library's: an
+  e-graph takes the place of greedy rewriting at every point of the
+  pipeline that holds our ops (P0's D98), built in C++ from MLIR's own
+  mechanisms, its rules and laws data of the dialect's specification
+  (D107, D109), and a true e-graph, whose fired rules keep both forms in
+  one class, classes merged by a union-find, congruence restored after
+  each round, each class's member chosen by cost (D123).
 
 ## 4. What MLIR provides, and the boundary
 
@@ -196,15 +211,18 @@ query's sink into its consumer, not from compiling the core alone
 ## 6. Staged plan
 
 Each stage lands as a cutover: the form it replaces in a consumer is
-deleted in the same change. Every stage is **AFTER-SELF**.
+deleted in the same change. R1, R2 and R3 are P0's (D44), with R5's half
+that is 0011's O7 (D69), on the checker's own union-find, which is all
+of R4 that P0 takes (D107). R4, R5's tactics and R6 stay
+**AFTER-SELF**.
 
 | Stage | Content | Needs | Proof |
 | --- | --- | --- | --- |
-| R1 | layer 1, its frontend paths in plain Idris (§1) | O3 next in the queue (§0) | bumbledb's 2,879 cases against committed expected files; its 32 read families at ≥ 80% of the Rust engine |
+| R1 | layer 1, its frontend paths in plain Idris (§1) | nothing; P0's, before O3 (D44; §0) | bumbledb's 2,879 cases against committed expected files; its 32 read families at ≥ 80% of the Rust engine |
 | R2 | layer 2, lattice-valued relations (D9), termination in the type (§1) | R1 | within 1.5× of Soufflé (compiled) |
 | R3 | 0011's O3 | R2; 0011's O0 (at `make self`); 0010's A0 | identical Core; translate ≥ 3× faster than O0 |
 | R4 | layer 3: e-graphs, relational e-matching, slotted binders | R2 | within 1.5× of egglog |
-| R5 | 0011's O7; saturation offered to tactics | R4; 0010's A2 | 0010 A2's targets; identical TTCs; a tactic's proof term checked by the kernel |
+| R5 | 0011's O7, P0's (D69): the constraint store and postponement on layer 2, meta-to-meta unification on the checker's own union-find (D107); saturation offered to tactics | O7: R2 and that union-find, no e-graph (D69, D107); the tactics: R4; 0010's A2 | 0010 A2's targets; identical TTCs; a tactic's proof term checked by the kernel |
 | R6 | prepared-query specialization and plan variants (D1, D7) | R1; 0010's A3 | bumbledb's 34 scenario queries, prepared, at ≥ 1.5× the Rust engine; byte-identical across thread counts |
 
 ## 7. Rejected alternatives
