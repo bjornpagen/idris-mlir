@@ -216,7 +216,7 @@ public export
 inPlace : Pass
 inPlace = MkPass ("in" ::: ["place"]) OnProgram (At First) Apply Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions [LoadsIdr] Registered
   (MkDoc "Decide every in-place promise on the program as the frontend wrote it"
-     "Before any optimization: a function that takes apart a quantity-1 parameter of an\nin-place family and builds one from it rebuilds it. Each obligation becomes the grade\n`unique self` on its parameter and each rebuild a linear token consumed by its rebuild;\na call the exclusivity analysis cannot prove exclusive is refused at the user's call.")
+     "Before any optimization: a function that takes apart a quantity-1 parameter of an\nin-place family and builds one from it rebuilds it. Each such parameter is given the\nboundary grade its family's promise gives, read off its type; the local rule then raises\nthe claims its matches would otherwise drop, and each rebuild becomes a linear token\nconsumed by its rebuild. A call the exclusivity analysis cannot prove exclusive is\nrefused at the user's call.")
 
 public export
 deduplicate : Pass
@@ -363,7 +363,7 @@ rcReuse = MkPass ("rc" ::: ["reuse"]) OnFunction (At Owned) Apply Keeps
   , stat "numTokensFreed" "tokens-freed" "Reuse tokens freed where no construction could take them"
   , stat "numFused" "fused" "Takes whose token one recycle in their block used, made one take into the cell"
   , stat "numRebuilds" "rebuilds" "In-place rebuilds lowered to a recycled cell"
-  , stat "largestTokenBytes" "largest-token-bytes" "The most bytes of tokens held at once along a path" ]
+  , stat "frameBoundBytes" "frame-bound-bytes" "The largest frame bound of a function: the most bytes of tokens and loans held at once along a path" ]
   [] [Count, Alloc, Free] NoOptions [LoadsIdr] Registered
   (MkDoc "Recycle each dead cell into a construction its size fits, guided by the drops placed" "")
 

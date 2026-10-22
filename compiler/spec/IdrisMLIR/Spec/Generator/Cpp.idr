@@ -711,7 +711,7 @@ public export
 data FlatNode = FVar Nat | FNode String Nat Nat | FLit Integer
 
 ||| A rule flattened: its root's class, its variables, its two sides in
-||| preorder, its conditions as printed rows, its direction.
+||| preorder, its conditions as printed rows.
 public export
 record FlatRule where
   constructor MkFlatRule
@@ -720,7 +720,6 @@ record FlatRule where
   lhs : List FlatNode
   rhs : List FlatNode
   conds : List String
-  direction : Direction
 
 mutual
   flatPat : Pat n -> List FlatNode
@@ -755,32 +754,32 @@ export
 fromRewrite : AnyRewrite -> FlatRule
 fromRewrite (SomeRewrite rw) =
   let (root, lhs) = flatRoot rw.lhs
-  in MkFlatRule root (length (toList rw.vars)) lhs (flatPat rw.rhs) (map condRow rw.conds) rw.direction
+  in MkFlatRule root (length (toList rw.vars)) lhs (flatPat rw.rhs) (map condRow rw.conds)
 
 ||| The rules a binary operation's associativity gives, on its class: a
 ||| chain's two constants combined, `(x . c0) . c1` to `x . (c0 . c1)` and
 ||| `c0 . (c1 . x)` to `(c0 . c1) . x`, which the op's fold then computes.
-||| Each is one-way and fires only on two constants. The rule both ways,
-||| which only connects equal forms, is never printed: on real code it found
-||| nothing extraction kept and made every budget stop.
+||| Each fires only on two constants. Reassociation alone, which only
+||| connects equal forms, is no rule: on real code it found nothing
+||| extraction kept and made every budget stop.
 associativeRules : String -> List FlatRule
 associativeRules c =
   let two = FNode c 0 2
       constants : Fin 3 -> Fin 3 -> List String
       constants a b = [condRow (IsConstant a), condRow (IsConstant b)]
-  in [ MkFlatRule c 3 [two, two, FVar 0, FVar 1, FVar 2] [two, FVar 0, two, FVar 1, FVar 2] (constants 1 2) Simplify
-     , MkFlatRule c 3 [two, FVar 0, two, FVar 1, FVar 2] [two, two, FVar 0, FVar 1, FVar 2] (constants 0 1) Simplify ]
+  in [ MkFlatRule c 3 [two, two, FVar 0, FVar 1, FVar 2] [two, FVar 0, two, FVar 1, FVar 2] (constants 1 2)
+     , MkFlatRule c 3 [two, FVar 0, two, FVar 1, FVar 2] [two, two, FVar 0, FVar 1, FVar 2] (constants 0 1) ]
 
 ||| The rule of a binary operation's identity on its right, on its class.
 identityRule : String -> Integer -> FlatRule
-identityRule c k = MkFlatRule c 1 [FNode c 0 2, FVar 0, FLit k] [FVar 0] [] Simplify
+identityRule c k = MkFlatRule c 1 [FNode c 0 2, FVar 0, FLit k] [FVar 0] []
 
 ||| The rules an op's laws give: the law is the one fact, so its rules are
-||| derived here and never written beside it, each one-way and triggered
-||| narrowly (a constant, a repeated operand, a nested op). Binary laws need
+||| derived here and never written beside it, each triggered narrowly (a
+||| constant, a repeated operand, a nested op). Binary laws need
 ||| two operands, an involution one; a law on an op of another arity gives
-||| none. Commutativity gives none: its one rule swaps operands both ways,
-||| which only connects equal forms, and its trait is upstream's.
+||| none. Commutativity gives none: its one rule swaps operands, which only
+||| connects equal forms, and its trait is upstream's.
 export
 lawRules : AnyOp -> List FlatRule
 lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
@@ -792,9 +791,9 @@ lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
     rulesOf : Nat -> Law -> List FlatRule
     rulesOf 2 Associative = associativeRules c
     rulesOf 2 (Identity k) = [identityRule c k]
-    rulesOf 2 (Annihilator k) = [MkFlatRule c 1 [two, FVar 0, FLit k] [FLit k] [] Simplify]
-    rulesOf 2 Idempotent = [MkFlatRule c 1 [two, FVar 0, FVar 0] [FVar 0] [] Simplify]
-    rulesOf 1 Involution = [MkFlatRule c 1 [FNode c 0 1, FNode c 0 1, FVar 0] [FVar 0] [] Simplify]
+    rulesOf 2 (Annihilator k) = [MkFlatRule c 1 [two, FVar 0, FLit k] [FLit k] []]
+    rulesOf 2 Idempotent = [MkFlatRule c 1 [two, FVar 0, FVar 0] [FVar 0] []]
+    rulesOf 1 Involution = [MkFlatRule c 1 [FNode c 0 1, FNode c 0 1, FVar 0] [FVar 0] []]
     rulesOf _ _ = []
 
 ||| The rules an admitted upstream op's laws give, on its class: every law
@@ -834,11 +833,6 @@ nodeRow kinds (FNode k res arity) =
   "{table::PatternKind::Node, " ++ decimal (kindNumber kinds k) ++ ", " ++ decimal res ++ ", " ++ decimal arity ++ ", 0, 0}"
 nodeRow _ (FLit l) = "{table::PatternKind::Literal, 0, 0, 0, 0, " ++ integer l ++ "}"
 
-export
-directionRow : Direction -> String
-directionRow Simplify = "table::Direction::Simplify"
-directionRow Equal = "table::Direction::Equal"
-
 ||| The rules grouped by their root's kind, in the kinds' order and, within
 ||| a kind, in declaration order: a grouping, never a sort.
 export
@@ -867,7 +861,7 @@ layRules kinds = go (MkLaid [] [] [])
           rhs = map (nodeRow kinds) r.rhs
           row = "{" ++ decimal r.vars ++ ", " ++ decimal p ++ ", " ++ decimal (length lhs) ++ ", "
                 ++ decimal (p + length lhs) ++ ", " ++ decimal (length rhs) ++ ", " ++ decimal q ++ ", "
-                ++ decimal (length r.conds) ++ ", " ++ directionRow r.direction ++ "}"
+                ++ decimal (length r.conds) ++ "}"
       in go (MkLaid (acc.patterns ++ lhs ++ rhs) (acc.conditions ++ r.conds) (acc.rules ++ [row])) rs
 
 ||| Offsets of each kind's first rule, and one past the last.

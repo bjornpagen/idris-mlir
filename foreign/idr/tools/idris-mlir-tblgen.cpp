@@ -44,14 +44,12 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/bit.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -225,19 +223,26 @@ std::string maker(const std::string &text) {
 // The records of the traits `op` lists that are of the TableGen class
 // `name`, in the order ODS lists them, through the trait lists that hold
 // them: a mark of the dialect's is a record of its class, whatever kind of
-// trait it is.
+// trait it is. The lists open at the walk's point are a stack of what each
+// has left, the innermost last: a trait list's own traits come before the
+// rest of the list that holds it, and however deep ODS nests its lists the
+// native stack stays flat.
 std::vector<const llvm::Record *> traitsOfClass(const Operator &op, StringRef name) {
   std::vector<const llvm::Record *> found;
-  std::function<void(const llvm::ListInit *)> walk = [&](const llvm::ListInit *traits) {
-    for (const llvm::Init *init : traits->getElements()) {
-      const llvm::Record *def = llvm::cast<llvm::DefInit>(init)->getDef();
-      if (def->isSubClassOf(name) && !llvm::is_contained(found, def))
-        found.push_back(def);
-      if (def->isSubClassOf("TraitList"))
-        walk(def->getValueAsListInit("traits"));
+  llvm::SmallVector<llvm::ArrayRef<const llvm::Init *>> open{
+      op.getDef().getValueAsListInit("traits")->getElements()};
+  while (!open.empty()) {
+    if (open.back().empty()) {
+      open.pop_back();
+      continue;
     }
-  };
-  walk(op.getDef().getValueAsListInit("traits"));
+    const llvm::Record *def = llvm::cast<llvm::DefInit>(open.back().front())->getDef();
+    open.back() = open.back().drop_front();
+    if (def->isSubClassOf(name) && !llvm::is_contained(found, def))
+      found.push_back(def);
+    if (def->isSubClassOf("TraitList"))
+      open.push_back(def->getValueAsListInit("traits")->getElements());
+  }
   return found;
 }
 
@@ -856,10 +861,9 @@ struct Field {
   Presence presence = Presence::Always;
 };
 
-// The Idris kind of a parameter's C++ value; nothing for one the Idris side
-// has no value of.
-std::optional<Kind> valueKind(StringRef cpp) {
-  cpp = cpp.trim();
+// The Idris kind of a C++ value that is no array; nothing for one the Idris
+// side has no value of.
+std::optional<Kind> plainKind(StringRef cpp) {
   if (cpp == "::mlir::Type")
     return Kind{"ty", "t {0}"};
   if (cpp == "::mlir::Attribute")
@@ -883,15 +887,27 @@ std::optional<Kind> valueKind(StringRef cpp) {
     return Kind{"Nat", "show {0}"};
   if (cpp == "int" || cpp == "int32_t" || cpp == "int64_t" || cpp == "::llvm::APInt")
     return Kind{"Integer", "show {0}"};
-  if (cpp.consume_front("::llvm::ArrayRef<") && cpp.consume_back(">"))
-    if (std::optional<Kind> element = valueKind(cpp))
-      return Kind{"List " + parenthesized(element->type),
-                  "commaSeparated (map " + maker(element->text) + " {0})"};
   // A type of a dialect's own class (a box's data type) is a type, which
   // its C++ parser reads as any and checks.
   if (cpp.starts_with("::") && cpp.ends_with("Type"))
     return Kind{"ty", "t {0}"};
   return std::nullopt;
+}
+
+// The Idris kind of a parameter's C++ value; nothing for one the Idris side
+// has no value of. An array is a list of its element's kind, however deep
+// arrays nest: their layers are counted off on the way in and wrapped round
+// the element's kind on the way out, so no nesting deepens the stack.
+std::optional<Kind> valueKind(StringRef cpp) {
+  unsigned layers = 0;
+  for (cpp = cpp.trim(); cpp.consume_front("::llvm::ArrayRef<") && cpp.consume_back(">");
+       cpp = cpp.trim())
+    ++layers;
+  std::optional<Kind> kind = plainKind(cpp);
+  for (; kind && layers > 0; --layers)
+    kind = Kind{"List " + parenthesized(kind->type),
+                "commaSeparated (map " + maker(kind->text) + " {0})"};
+  return kind;
 }
 
 // A parameter that is no enum's, whose kind is found otherwise.
@@ -968,19 +984,30 @@ std::string parameterName(StringRef &format) {
   return name.str();
 }
 
-// The elements of a type's or an attribute's declarative syntax up to its
-// end, or in a group up to its `)`; left out, with the reason, for a
-// directive the generator does not write (custom, struct, params) and for
-// an else branch. Such a syntax has only `qualified`, and the C++ printer
-// alone spaces it.
+// The elements of a type's or an attribute's declarative syntax, each
+// optional group's within it; left out, with the reason, for a directive
+// the generator does not write (custom, struct, params) and for an else
+// branch. Such a syntax has only `qualified`, and the C++ printer alone
+// spaces it.
 //
-// Each element read consumes text, or the reading ends, so the loop ends
-// with the text.
-Written<std::vector<Element>> elements(StringRef &format, bool inGroup) {
-  std::vector<Element> out;
+// The groups open at the reading point are a stack, the syntax itself at
+// the bottom and the innermost group last: a `(` opens one, and its `)` and
+// `?` close it into the one around it, so however deep groups nest the
+// native stack stays flat. Each element read consumes text, or the reading
+// ends, so the loop ends with the text.
+Written<std::vector<Element>> elements(StringRef format) {
+  llvm::SmallVector<std::vector<Element>, 2> open(1);
   for (format = format.ltrim(); !format.empty(); format = format.ltrim()) {
-    if (inGroup && format.consume_front(")"))
-      return out;
+    std::vector<Element> &out = open.back();
+    if (open.size() > 1 && format.consume_front(")")) {
+      std::vector<Element> group = std::move(out);
+      open.pop_back();
+      format = format.ltrim();
+      if (!format.consume_front("?"))
+        return Omitted{"an optional group with an else branch"};
+      open.back().push_back({Element::Group, "", false, std::move(group)});
+      continue;
+    }
     if (format.consume_front("`")) {
       size_t end = format.find('`');
       if (end == StringRef::npos)
@@ -1011,21 +1038,15 @@ Written<std::vector<Element>> elements(StringRef &format, bool inGroup) {
       continue;
     }
     if (format.consume_front("(")) {
-      Written<std::vector<Element>> group = elements(format, true);
-      if (const auto *omitted = std::get_if<Omitted>(&group))
-        return *omitted;
-      format = format.ltrim();
-      if (!format.consume_front("?"))
-        return Omitted{"an optional group with an else branch"};
-      out.push_back({Element::Group, "", false, std::get<std::vector<Element>>(std::move(group))});
+      open.emplace_back();
       continue;
     }
     StringRef word = format.take_while([](char c) { return llvm::isAlnum(c) || c == '-'; });
     return Omitted{word.empty() ? "an element the generator does not know"
                                 : ("the directive `" + word + "`").str()};
   }
-  if (!inGroup)
-    return out;
+  if (open.size() == 1)
+    return std::move(open.front());
   return Omitted{"an optional group that does not end"};
 }
 
@@ -1080,59 +1101,83 @@ struct Pieces {
   std::vector<std::string> written;
 };
 
+// A group of a syntax being written: its elements yet to write, the fields
+// as it sees them (its anchor always there inside it), the pieces it has so
+// far, and its anchor, a field of the group around it, whose presence there
+// decides how the group is written into it.
+struct Writing {
+  llvm::ArrayRef<Element> rest;
+  std::map<std::string, Field> fields;
+  Pieces out;
+  std::string anchor;
+};
+
 // The pieces that write `elements`, each parameter by its field; left out,
 // with the reason, for a parameter that is not one or a group without an
 // anchor. Inside its group the anchor is the value the group is written
 // for: the Just's, or the list that is not empty.
+//
+// The groups being written are a stack, the syntax itself at the bottom and
+// the innermost group last; a group whose elements run out is written into
+// the one around it, so however deep groups nest the native stack stays
+// flat.
 Written<Pieces> piecesOf(const std::vector<Element> &elements,
                          const std::map<std::string, Field> &fields) {
-  Pieces out;
-  for (const Element &e : elements) {
+  llvm::SmallVector<Writing, 2> open;
+  open.push_back({elements, fields, {}, {}});
+  while (true) {
+    Writing &top = open.back();
+    if (top.rest.empty()) {
+      if (open.size() == 1)
+        return std::move(top.out);
+      Writing done = std::move(top);
+      open.pop_back();
+      Pieces &out = open.back().out;
+      const Field &f = open.back().fields.at(done.anchor);
+      llvm::append_range(out.written, done.out.written);
+      switch (f.presence) {
+      case Presence::IfJust:
+        append(out.pieces, {false, llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name,
+                                                 expression(done.out.pieces))
+                                       .str()});
+        break;
+      case Presence::IfNonEmpty:
+        append(out.pieces, {false, llvm::formatv("(if null {0} then \"\" else {1})", f.name,
+                                                 expression(done.out.pieces))
+                                       .str()});
+        break;
+      case Presence::Always:
+        for (const Piece &piece : done.out.pieces)
+          append(out.pieces, piece);
+        break;
+      }
+      continue;
+    }
+    const Element &e = top.rest.front();
+    top.rest = top.rest.drop_front();
     if (e.form == Element::Literal) {
-      append(out.pieces, {true, spaced(e.text)});
+      append(top.out.pieces, {true, spaced(e.text)});
       continue;
     }
     if (e.form == Element::Parameter) {
-      auto field = fields.find(e.text);
-      if (field == fields.end())
+      auto field = top.fields.find(e.text);
+      if (field == top.fields.end())
         return Omitted{llvm::formatv("its syntax names `{0}`, which is no parameter", e.text).str()};
       const Field &f = field->second;
-      out.written.push_back(e.text);
+      top.out.written.push_back(e.text);
       std::string text = llvm::formatv(f.text.c_str(), f.name).str();
-      append(out.pieces, {false, f.presence == Presence::IfJust
-                                     ? llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name, text).str()
-                                     : "(" + text + ")"});
+      append(top.out.pieces, {false, f.presence == Presence::IfJust
+                                         ? llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name, text).str()
+                                         : "(" + text + ")"});
       continue;
     }
     const Element *anchor = anchorOf(e);
-    if (!anchor || !fields.count(anchor->text))
+    if (!anchor || !top.fields.count(anchor->text))
       return Omitted{"an optional group without the parameter that anchors it"};
-    std::map<std::string, Field> inside = fields;
-    const Field &f = fields.at(anchor->text);
+    std::map<std::string, Field> inside = top.fields;
     inside[anchor->text].presence = Presence::Always;
-    Written<Pieces> read = piecesOf(e.group, inside);
-    const Pieces *inner = std::get_if<Pieces>(&read);
-    if (!inner)
-      return std::get<Omitted>(read);
-    llvm::append_range(out.written, inner->written);
-    switch (f.presence) {
-    case Presence::IfJust:
-      append(out.pieces, {false, llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name,
-                                               expression(inner->pieces))
-                                     .str()});
-      break;
-    case Presence::IfNonEmpty:
-      append(out.pieces, {false, llvm::formatv("(if null {0} then \"\" else {1})", f.name,
-                                               expression(inner->pieces))
-                                     .str()});
-      break;
-    case Presence::Always:
-      for (const Piece &piece : inner->pieces)
-        append(out.pieces, piece);
-      break;
-    }
+    open.push_back({e.group, std::move(inside), {}, anchor->text});
   }
-  return out;
 }
 
 // Whether an Idris type names `word`.
@@ -1179,8 +1224,7 @@ Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRe
   }
   std::vector<Element> syntax;
   if (std::optional<StringRef> format = def.getAssemblyFormat()) {
-    StringRef rest = *format;
-    Written<std::vector<Element>> parsed = elements(rest, false);
+    Written<std::vector<Element>> parsed = elements(*format);
     if (const auto *omitted = std::get_if<Omitted>(&parsed))
       return Omitted{llvm::formatv("its syntax `{0}` has {1}", *format, omitted->why).str()};
     syntax = std::get<std::vector<Element>>(std::move(parsed));
@@ -1423,50 +1467,72 @@ std::optional<Atom> atomOf(StringRef parser) {
   return std::nullopt;
 }
 
-// A member of a record: an atom; an array of its one element, written as
-// its count and then each element; or a composite of its members, written
-// one after the other.
-struct Member {
+// A member of a record, its nodes in preorder: each an atom; an array of
+// its one element, the node after it, written as its count and then each
+// element; or a composite of the `arity` members after it, written one
+// after the other. Each node holds the name it is bound by: a record's
+// member and a composite's by their DSL names, an array's element by `x`;
+// a composite binds nothing of its own. Flat, every walk over a member is
+// a loop, however deep upstream nests its arrays and composites.
+struct MemberNode {
   enum Form { Atomic, Array, Composite } form;
   Atom atom = {};
-  std::vector<Member> members = {};
-  std::vector<std::string> names = {}; // a composite's members' DSL names
+  unsigned arity = 0;
+  std::string name = {};
 };
+using Member = std::vector<MemberNode>;
 
-// The member `def` declares, or why it cannot be read. An enum is a member
-// that names its enum (an `enumName` field): the syntax module's, whose
-// value of a case is what the reader reads.
+// The member `def` declares, bound by `name`, or why it cannot be read. An
+// enum is a member that names its enum (an `enumName` field): the syntax
+// module's, whose value of a case is what the reader reads. The records
+// left to read are a stack, the next last, each with the name its node is
+// bound by and the name a refusal gives it (an array's element is reported
+// by the array's); a composite's members are pushed last first, so they are
+// read, and the first refusal met, in their order.
 Written<Member> memberOf(const llvm::Record *def, StringRef name) {
-  if (def->getValue("enumName")) {
-    std::string e = def->getValueAsString("enumName").str();
-    return Member{Member::Atomic, {e, "VarInt (" + camel(e, false) + "Value {0})", true}};
-  }
-  if (def->isSubClassOf("ArrayWithKnownSize"))
-    return Omitted{
-        llvm::formatv("its member `{0}` is an array whose count another member gives", name).str()};
-  if (def->isSubClassOf("Array")) {
-    Written<Member> element = memberOf(def->getValueAsDef("elemT"), name);
-    if (const auto *omitted = std::get_if<Omitted>(&element))
-      return *omitted;
-    return Member{Member::Array, {}, {std::get<Member>(std::move(element))}};
-  }
-  if (def->isSubClassOf("CompositeBytecode")) {
-    const llvm::DagInit *dag = def->getValueAsDag("members");
-    Member composite{Member::Composite};
-    for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
-      StringRef inner = dag->getArgNameStr(i);
-      Written<Member> member = memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), inner);
-      if (const auto *omitted = std::get_if<Omitted>(&member))
-        return *omitted;
-      composite.members.push_back(std::get<Member>(std::move(member)));
-      composite.names.push_back(inner.str());
+  struct Pending {
+    const llvm::Record *def;
+    std::string bound;
+    StringRef reported;
+  };
+  Member member;
+  llvm::SmallVector<Pending> pending{{def, name.str(), name}};
+  while (!pending.empty()) {
+    Pending next = pending.pop_back_val();
+    if (next.def->getValue("enumName")) {
+      std::string e = next.def->getValueAsString("enumName").str();
+      member.push_back({MemberNode::Atomic,
+                        {e, "VarInt (" + camel(e, false) + "Value {0})", true},
+                        0,
+                        std::move(next.bound)});
+      continue;
     }
-    return composite;
+    if (next.def->isSubClassOf("ArrayWithKnownSize"))
+      return Omitted{llvm::formatv("its member `{0}` is an array whose count another member gives",
+                                   next.reported)
+                         .str()};
+    if (next.def->isSubClassOf("Array")) {
+      member.push_back({MemberNode::Array, {}, 1, std::move(next.bound)});
+      pending.push_back({next.def->getValueAsDef("elemT"), "x", next.reported});
+      continue;
+    }
+    if (next.def->isSubClassOf("CompositeBytecode")) {
+      const llvm::DagInit *dag = next.def->getValueAsDag("members");
+      member.push_back({MemberNode::Composite, {}, dag->getNumArgs(), std::move(next.bound)});
+      for (unsigned i = dag->getNumArgs(); i-- > 0;) {
+        StringRef inner = dag->getArgNameStr(i);
+        pending.push_back({llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), inner.str(), inner});
+      }
+      continue;
+    }
+    StringRef parser = next.def->getValueAsString("cParser");
+    std::optional<Atom> atom = atomOf(parser);
+    if (!atom)
+      return Omitted{
+          llvm::formatv("its member `{0}` is read by `{1}`", next.reported, parser).str()};
+    member.push_back({MemberNode::Atomic, *atom, 0, std::move(next.bound)});
   }
-  StringRef parser = def->getValueAsString("cParser");
-  if (std::optional<Atom> atom = atomOf(parser))
-    return Member{Member::Atomic, *atom};
-  return Omitted{llvm::formatv("its member `{0}` is read by `{1}`", name, parser).str()};
+  return member;
 }
 
 // The Idris type of a member: one word or a tuple, which an argument writes
@@ -1476,24 +1542,34 @@ struct IdrisType {
   bool closed;
 };
 
-IdrisType typeOf(const Member &m) {
-  switch (m.form) {
-  case Member::Atomic:
-    return {m.atom.type, !StringRef(m.atom.type).contains(' ')};
-  case Member::Array: {
-    IdrisType element = typeOf(m.members.front());
-    return {"List " + (element.closed ? element.text : "(" + element.text + ")"), false};
+// Each node's type is made from its members', which follow it: read
+// backwards, a node finds them on the stack, its first member's on top. A
+// composite of one member reads as that member.
+IdrisType typeOf(const Member &member) {
+  llvm::SmallVector<IdrisType> types;
+  for (const MemberNode &node : llvm::reverse(member)) {
+    switch (node.form) {
+    case MemberNode::Atomic:
+      types.push_back({node.atom.type, !StringRef(node.atom.type).contains(' ')});
+      break;
+    case MemberNode::Array: {
+      IdrisType element = types.pop_back_val();
+      types.push_back(
+          {"List " + (element.closed ? element.text : "(" + element.text + ")"), false});
+      break;
+    }
+    case MemberNode::Composite: {
+      if (node.arity == 1)
+        break;
+      std::vector<std::string> texts;
+      for (unsigned i = 0; i < node.arity; ++i)
+        texts.push_back(types.pop_back_val().text);
+      types.push_back({"(" + llvm::join(texts, ", ") + ")", true});
+      break;
+    }
+    }
   }
-  case Member::Composite: {
-    if (m.members.size() == 1)
-      return typeOf(m.members.front());
-    std::vector<std::string> types;
-    for (const Member &member : m.members)
-      types.push_back(typeOf(member).text);
-    return {"(" + llvm::join(types, ", ") + ")", true};
-  }
-  }
-  llvm_unreachable("a member is an atom, an array or a composite");
+  return types.back();
 }
 
 // The names an encoder's body uses unqualified, besides what it binds.
@@ -1539,63 +1615,118 @@ std::string partsExpression(const std::vector<PartsPiece> &pieces) {
   return lists.empty() ? "[]" : llvm::join(lists, " ++ ");
 }
 
+// The names a member's nodes bind, fresh in `scope` in preorder: an atom's
+// value and an array's are named where they are met; an array's element is
+// named in a copy of the scope, which the walk drops back to where the
+// element ends, so an element's names hide nothing after it; a composite
+// names nothing of its own. Where each node's subtree ends is read first,
+// backwards, each node finding its members' sizes on the stack.
+std::vector<std::string> namesOf(const Member &member, std::set<std::string> &scope) {
+  std::vector<std::size_t> end(member.size());
+  llvm::SmallVector<std::size_t> sizes;
+  for (std::size_t i = member.size(); i-- > 0;) {
+    std::size_t size = 1;
+    for (unsigned k = 0; k < member[i].arity; ++k)
+      size += sizes.pop_back_val();
+    sizes.push_back(size);
+    end[i] = i + size;
+  }
+  // The elements the walk is in, innermost last: where each ends, and the
+  // scope as it was before it.
+  struct InElement {
+    std::size_t end;
+    std::set<std::string> outer;
+  };
+  llvm::SmallVector<InElement> in;
+  auto leave = [&](std::size_t at) {
+    while (!in.empty() && in.back().end == at) {
+      scope = std::move(in.back().outer);
+      in.pop_back();
+    }
+  };
+  std::vector<std::string> names(member.size());
+  for (std::size_t i = 0; i < member.size(); ++i) {
+    leave(i);
+    const MemberNode &node = member[i];
+    if (node.form == MemberNode::Composite)
+      continue;
+    names[i] = fresh(node.name, scope);
+    if (node.form == MemberNode::Array)
+      in.push_back({end[i], scope});
+  }
+  leave(member.size());
+  return names;
+}
+
+// A node bound: the pattern that binds its value, and the pieces that write
+// it.
+struct Bound {
+  std::string pattern;
+  std::vector<PartsPiece> pieces;
+};
+
 // Binds a member's value, under names fresh in `scope`: appends the pattern
 // that binds it to `patterns`, and the pieces that write it to `pieces`. An
 // array's elements are written by a function of one element, as the map
-// of a constructor where one part writes an element.
-void bindMember(const Member &m, StringRef name, std::set<std::string> &scope,
+// of a constructor where one part writes an element. Each node is bound
+// from its members' bindings, which follow it: read backwards, a node finds
+// them on the stack, its first member's on top. A composite of one member
+// is bound as that member.
+void bindMember(const Member &member, std::set<std::string> &scope,
                 std::vector<std::string> &patterns, std::vector<PartsPiece> &pieces) {
-  switch (m.form) {
-  case Member::Atomic: {
-    std::string value = fresh(name, scope);
-    patterns.push_back(value);
-    pieces.push_back({m.atom.one, llvm::formatv(m.atom.parts.c_str(), value).str()});
-    return;
-  }
-  case Member::Array: {
-    std::string values = fresh(name, scope);
-    patterns.push_back(values);
-    pieces.push_back({true, "VarInt (length " + values + ")"});
-    std::set<std::string> inner = scope;
-    std::vector<std::string> elementPatterns;
-    std::vector<PartsPiece> element;
-    bindMember(m.members.front(), "x", inner, elementPatterns, element);
-    std::string pattern = elementPatterns.front();
-    if (element.size() == 1 && !element.front().one && element.front().text == pattern) {
-      pieces.push_back({false, "concat " + values});
-      return;
+  std::vector<std::string> names = namesOf(member, scope);
+  llvm::SmallVector<Bound> bound;
+  for (std::size_t i = member.size(); i-- > 0;) {
+    const MemberNode &node = member[i];
+    switch (node.form) {
+    case MemberNode::Atomic:
+      bound.push_back(
+          Bound{names[i], {{node.atom.one, llvm::formatv(node.atom.parts.c_str(), names[i]).str()}}});
+      break;
+    case MemberNode::Array: {
+      Bound element = bound.pop_back_val();
+      const std::string &values = names[i];
+      const std::string &pattern = element.pattern;
+      Bound array{values, {{true, "VarInt (length " + values + ")"}}};
+      if (element.pieces.size() == 1 && !element.pieces.front().one &&
+          element.pieces.front().text == pattern) {
+        array.pieces.push_back({false, "concat " + values});
+      } else if (element.pieces.size() == 1 && element.pieces.front().one) {
+        StringRef text = element.pieces.front().text;
+        bool eta = text.ends_with(" " + pattern) &&
+                   !text.drop_back(pattern.size() + 1).contains(' ');
+        array.pieces.push_back(
+            {false, eta ? ("map " + text.drop_back(pattern.size() + 1) + " " + values).str()
+                        : "map (\\" + pattern + " => " + text.str() + ") " + values});
+      } else {
+        array.pieces.push_back({false, "concatMap (\\" + pattern + " => " +
+                                           partsExpression(element.pieces) + ") " + values});
+      }
+      bound.push_back(std::move(array));
+      break;
     }
-    if (element.size() == 1 && element.front().one) {
-      StringRef text = element.front().text;
-      bool eta = text.ends_with(" " + pattern) &&
-                 !text.drop_back(pattern.size() + 1).contains(' ');
-      pieces.push_back({false, eta ? ("map " + text.drop_back(pattern.size() + 1) + " " + values).str()
-                                   : "map (\\" + pattern + " => " + text.str() + ") " + values});
-      return;
+    case MemberNode::Composite: {
+      if (node.arity == 1)
+        break;
+      std::vector<std::string> inner;
+      Bound composite;
+      for (unsigned k = 0; k < node.arity; ++k) {
+        Bound each = bound.pop_back_val();
+        inner.push_back(std::move(each.pattern));
+        llvm::append_range(composite.pieces, each.pieces);
+      }
+      composite.pattern = "(" + llvm::join(inner, ", ") + ")";
+      bound.push_back(std::move(composite));
+      break;
     }
-    pieces.push_back({false, "concatMap (\\" + pattern + " => " + partsExpression(element) +
-                                 ") " + values});
-    return;
-  }
-  case Member::Composite: {
-    if (m.members.size() == 1) {
-      bindMember(m.members.front(), m.names.front(), scope, patterns, pieces);
-      return;
     }
-    std::vector<std::string> inner;
-    for (auto [member, memberName] : llvm::zip(m.members, m.names))
-      bindMember(member, memberName, scope, inner, pieces);
-    patterns.push_back("(" + llvm::join(inner, ", ") + ")");
-    return;
   }
-  }
+  patterns.push_back(std::move(bound.back().pattern));
+  llvm::append_range(pieces, bound.back().pieces);
 }
 
-// A record's members, each as the reader reads it, and their DSL names.
-struct Members {
-  std::vector<Member> members;
-  std::vector<std::string> names;
-};
+// A record's members, each as the reader reads it, bound by its DSL name.
+using Members = std::vector<Member>;
 
 Written<Members> membersOf(const llvm::Record *def) {
   const llvm::DagInit *dag = def->getValueAsDag("members");
@@ -1605,8 +1736,7 @@ Written<Members> membersOf(const llvm::Record *def) {
         memberOf(llvm::cast<llvm::DefInit>(dag->getArg(i))->getDef(), dag->getArgNameStr(i));
     if (const auto *omitted = std::get_if<Omitted>(&member))
       return *omitted;
-    read.members.push_back(std::get<Member>(std::move(member)));
-    read.names.push_back(dag->getArgNameStr(i).str());
+    read.push_back(std::get<Member>(std::move(member)));
   }
   return read;
 }
@@ -1625,14 +1755,14 @@ void emitEncoder(const llvm::Record *def, const Members &read, std::vector<Parts
   std::string record = def->getName().str();
   std::set<std::string> scope;
   std::vector<std::string> patterns;
-  for (auto [member, name] : llvm::zip(read.members, read.names)) {
-    bindMember(member, name, scope, patterns, leading);
-    described.push_back("`" + name + "`");
+  for (const Member &member : read) {
+    bindMember(member, scope, patterns, leading);
+    described.push_back("`" + member.front().name + "`");
   }
   std::string encoder = "encode" + record;
   os << "||| The parts of `" << record << "`: " << llvm::join(described, ", ")
      << ".\nexport\n" << encoder << " : ";
-  for (const Member &member : read.members)
+  for (const Member &member : read)
     os << typeOf(member).text << " -> ";
   os << "List Part\n" << encoder;
   for (const std::string &pattern : patterns)

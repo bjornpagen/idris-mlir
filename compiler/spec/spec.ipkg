@@ -54,6 +54,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Functions.Termination
         , IdrisMLIR.Spec.Grades.Declarations
         , IdrisMLIR.Spec.Grades.Grade
+        , IdrisMLIR.Spec.Grades.Hold
         , IdrisMLIR.Spec.Lifetimes.Declarations
         , IdrisMLIR.Spec.Lifetimes.Kind
         , IdrisMLIR.Spec.Ops.Bigs

@@ -2,12 +2,13 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The e-graph's rules, as data of the specification: generated into the
 ||| C++ engine's tables and never run in Idris. A rule over pure values is a
-||| pattern rooted at an op, a replacement over the same variables, the side
-||| conditions an analysis or a type holds, and a direction; its types prove
+||| pattern rooted at an op, a replacement over the same variables, and the
+||| side conditions an analysis or a type holds. Every rule is one-way: it
+||| rewrites its left side to its right, never the reverse. Its types prove
 ||| what a rule must not do (bind a variable the left side lacks, use a
-||| quantity-1 variable twice, drop a value and still keep both forms). A
-||| rule that rewrites an effectful op or reads regions is a skeleton rule:
-||| one-way, hand C++ the specification names with the op it is rooted at.
+||| quantity-1 variable twice). A rule that rewrites an effectful op or
+||| reads regions is a skeleton rule: hand C++ the specification names with
+||| the op it is rooted at.
 module IdrisMLIR.Spec.Core.Rewrite
 
 import IdrisMLIR.Spec.Core.Text
@@ -54,11 +55,6 @@ data Cond : (n : Nat) -> Type where
   InRange : Fin n -> (lo, hi : Integer) -> Cond n
   Clean : Fin n -> Cond n
 
-||| Whether the right side replaces the left (the left is never kept), or
-||| both stay and extraction chooses.
-public export
-data Direction = Simplify | Equal
-
 mutual
   public export
   varsOf : Pat n -> List (Fin n)
@@ -97,14 +93,6 @@ linearIn uses rhs = all once (varsOf rhs)
       UsedMany => True
       UsedOnce => length (filter (== v) (varsOf rhs)) <= 1
 
-||| A rule that drops a variable of its left side replaces it: keeping both
-||| forms would let extraction pick a node using a value not available
-||| where its class is used.
-public export
-subsumes : Direction -> Root n -> Pat n -> Bool
-subsumes Simplify _ _ = True
-subsumes Equal lhs rhs = all (\v => elem v (varsOf rhs)) (varsOfRoot lhs)
-
 public export
 record Rewrite (n : Nat) where
   constructor MkRewrite
@@ -112,11 +100,9 @@ record Rewrite (n : Nat) where
   lhs : Root n
   rhs : Pat n
   conds : List (Cond n)
-  direction : Direction
   doc : Line
   {auto 0 bound : So (covers lhs rhs)}
   {auto 0 linear : So (linearIn vars rhs)}
-  {auto 0 safe : So (subsumes direction lhs rhs)}
 
 ||| A rule of any number of variables, as a list of the dialect's holds
 ||| them.
@@ -124,7 +110,7 @@ public export
 data AnyRewrite : Type where
   SomeRewrite : {0 n : Nat} -> Rewrite n -> AnyRewrite
 
-||| A one-way rule over an effectful op or a region, hand C++: the class
+||| A rule over an effectful op or a region, hand C++: the class
 ||| `::idr::egraph::<name>`, declared in the header at `declaredIn` (its
 ||| path under the include root, `idr/IR/Control/Control.h`), which the
 ||| engine runs where the op `root` is. The generator includes every rule's
