@@ -653,19 +653,30 @@ accessRank GetElement (S rank) = Just rank
 accessRank SetElement (S (S rank)) = Just rank
 accessRank _ _ = Nothing
 
+||| A machine word a buffer holds: a fixed-width integer of its type, or a
+||| double. Its registry row names it, so its width is the row's.
+public export
+data BufferWord = WordInt IntTy | WordDouble
+
+||| The bytes a word takes in a buffer.
+export
+wordBytes : BufferWord -> Nat
+wordBytes (WordInt t) = width t `div` 8
+wordBytes WordDouble = 8
+
 ||| A move of a buffer's bytes, within the buffer or between it and a
 ||| handle, each behind the check that its span lies in the buffer: a word
-||| loaded or stored at an offset, its width the call's type; bytes copied
-||| from one buffer into another; a string's bytes written, or a run read
-||| as a string; bytes written to a handle, or read from one.
+||| loaded or stored at an offset; bytes copied from one buffer into
+||| another; a string's bytes written, or a run read as a string; bytes
+||| written to a handle, or read from one.
 public export
-data BufferMove = LoadWord | StoreWord | CopyBytes | SetString | GetString | WriteBytes | ReadBytes
+data BufferMove = LoadWord BufferWord | StoreWord BufferWord | CopyBytes | SetString | GetString | WriteBytes | ReadBytes
 
 ||| How many values a move gives.
 public export
 moveResults : BufferMove -> Nat
-moveResults LoadWord = 1
-moveResults StoreWord = 0
+moveResults (LoadWord _) = 1
+moveResults (StoreWord _) = 0
 moveResults CopyBytes = 0
 moveResults SetString = 0
 moveResults GetString = 1
@@ -678,8 +689,8 @@ moveResults ReadBytes = 1
 ||| length; a handle, a buffer, an offset and a count.
 public export
 moveOperands : BufferMove -> Nat
-moveOperands LoadWord = 2
-moveOperands StoreWord = 3
+moveOperands (LoadWord _) = 2
+moveOperands (StoreWord _) = 3
 moveOperands CopyBytes = 5
 moveOperands SetString = 3
 moveOperands GetString = 3
@@ -731,8 +742,8 @@ actionGives (ReadsFileTime _) = GivesOne
 actionGives (Accesses NewArray _) = GivesOne
 actionGives (Accesses GetElement _) = GivesOne
 actionGives (Accesses SetElement _) = GivesNone
-actionGives (Moves LoadWord) = GivesOne
-actionGives (Moves StoreWord) = GivesNone
+actionGives (Moves (LoadWord _)) = GivesOne
+actionGives (Moves (StoreWord _)) = GivesNone
 actionGives (Moves CopyBytes) = GivesNone
 actionGives (Moves SetString) = GivesNone
 actionGives (Moves GetString) = GivesOne

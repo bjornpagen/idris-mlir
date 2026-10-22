@@ -268,13 +268,58 @@ orElse arm _ = arm
 missingArm : {0 nv : Nat} -> Ctx -> Loc -> Arm (IdrisMLIR.Term.Term nv)
 missingArm ctx loc = if ctx.complete then Dead else Present (Crash loc NoClauseMatched)
 
-||| A match's possible arms: its alternatives and its default when one runs,
-||| its alternatives when none does; with no possible arm, the match is
-||| unreachable.
-armsOf : Loc -> Fin n -> List (Alt n) -> Arm (IdrisMLIR.Term.Term n) -> IdrisMLIR.Term.Term n
-armsOf loc i alts (Present d) = Case loc i (Defaulted alts d)
-armsOf loc i (a :: as) _ = Case loc i (Exhaustive (a ::: as))
-armsOf loc i [] _ = Unreachable loc
+||| A match on a value of the family `inst`, by its possible arms: its
+||| alternatives and its default when one runs, its alternatives when none
+||| does; with no possible arm, the match is unreachable.
+armsOf : Loc -> FamilyId -> Fin n -> List (Alt n) -> Arm (IdrisMLIR.Term.Term n) -> IdrisMLIR.Term.Term n
+armsOf loc inst i alts (Present d) = Case loc inst i (Defaulted alts d)
+armsOf loc inst i (a :: as) _ = Case loc inst i (Exhaustive (a ::: as))
+armsOf loc inst i [] _ = Unreachable loc
+
+||| A literal as a match keys it: a fixed-width integer at its type, a
+||| character by its code point, a string, or a number held as a big
+||| integer (an `Integer` or a natural). A double is no key: no match on
+||| one is translated.
+data CaseKey = IntKey IntTy Integer | CharKey Integer | StrKey String | BigKey Integer
+
+||| A match's literal alternatives after the first, each keyed as `key`
+||| reads it, the first's kind: Idris's tree matches constants of one type
+||| at a place, in the module the compiler reads when it runs, and a
+||| constant does not carry the type of the place it is matched at.
+keysAs : FC -> (CaseKey -> Maybe k) -> List (CaseKey, t) -> Front (List (k, t))
+keysAs fc key [] = pure []
+keysAs fc key ((c, b) :: rest) = case key c of
+  Just kv => ((kv, b) ::) <$> keysAs fc key rest
+  Nothing => internal fc "a match on constants of two types"
+
+||| The arms of a match on literals of one kind: the first alternative, the
+||| others keyed as `key` reads them, and the default when one runs.
+keyedArms : FC -> (CaseKey -> Maybe k) -> (k, t) -> List (CaseKey, t) -> Maybe t -> Front (LitArmsOf k t)
+keyedArms fc key first rest (Just d) = (\ks => LitDefault (first ::: ks) d) <$> keysAs fc key rest
+keyedArms fc key first rest Nothing = (\ks => LitNoDefault (first ::: ks)) <$> keysAs fc key rest
+
+||| A match on literals keyed by the kind of its first alternative's.
+litMatch : FC -> (CaseKey, t) -> List (CaseKey, t) -> Maybe t -> Front (LitMatch t)
+litMatch fc (IntKey it n, b) rest d = OnInts it <$> keyedArms fc intKey (n, b) rest d
+  where
+    intKey : CaseKey -> Maybe Integer
+    intKey (IntKey it' m) = if it' == it then Just m else Nothing
+    intKey _ = Nothing
+litMatch fc (CharKey n, b) rest d = OnChars <$> keyedArms fc charKey (n, b) rest d
+  where
+    charKey : CaseKey -> Maybe Integer
+    charKey (CharKey m) = Just m
+    charKey _ = Nothing
+litMatch fc (StrKey str, b) rest d = OnStrings <$> keyedArms fc strKey (str, b) rest d
+  where
+    strKey : CaseKey -> Maybe String
+    strKey (StrKey s') = Just s'
+    strKey _ = Nothing
+litMatch fc (BigKey n, b) rest d = OnBigs <$> keyedArms fc bigKey (n, b) rest d
+  where
+    bigKey : CaseKey -> Maybe Integer
+    bigKey (BigKey m) = Just m
+    bigKey _ = Nothing
 
 ||| A match on a natural's possible arms; with no possible arm, the match is
 ||| unreachable.
@@ -395,11 +440,10 @@ mutual
       literals : Loc -> Fin nv -> Front (Term nv)
       literals loc i = do
         (litAlts, def) <- litAlternatives ctx env cls scrutinee alts
-        pure $ case def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc)) of
-          Just d => CaseLit loc i (LitDefault litAlts d)
-          Nothing => case litAlts of
-            a :: as => CaseLit loc i (LitNoDefault (a ::: as))
-            [] => Unreachable loc
+        let d = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
+        case litAlts of
+          a :: as => CaseLit loc i <$> litMatch ctx.fc a as d
+          [] => pure (maybe (Unreachable loc) (CaseLit loc i . OnlyDefault) d)
 
       -- The data instance a match's constructors are of, at the value's
       -- type. The Core type names it when it is a declaration the
@@ -469,7 +513,7 @@ mutual
                                                then Absent else Present (missingCase ctx loc)
                                    Nothing => Absent
                                  _ => fallback
-                pure (armsOf loc i conAlts crashing)
+                pure (armsOf loc inst i conAlts crashing)
 
       -- A match on a runtime value, by what its alternatives match: a
       -- suspension's form, a natural's constructors, one runtime field's
@@ -876,17 +920,21 @@ mutual
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> Var vars ->
                     List (CaseAlt vars) ->
-                    Front (List (Lit, Term nv), Maybe (Term nv))
+                    Front (List (CaseKey, Term nv), Maybe (Term nv))
   litAlternatives ctx env cls scrutinee [] = pure ([], Nothing)
   litAlternatives ctx env cls scrutinee (ConstCase c rhs :: rest) = do
     Just lit <- pure (constantLit c)
       | Nothing => reject ctx.fc ctx.owner StringPrimitive ("a match on " ++ show c)
-    case lit of
+    key <- the (Front CaseKey) $ case lit of
+      LInt t n => pure (IntKey t n)
+      LChar n => pure (CharKey n)
+      LStr str => pure (StrKey str)
+      LBig n => pure (BigKey n)
+      LNat n => pure (BigKey n)
       LDouble _ => reject ctx.fc ctx.owner Primitive "a match on a Double literal"
-      _ => pure ()
     body <- tree ctx env cls rhs
     (alts, def) <- litAlternatives ctx env cls scrutinee rest
-    pure ((lit, body) :: alts, def)
+    pure ((key, body) :: alts, def)
   litAlternatives ctx env cls scrutinee (DefaultCase rhs :: _) =
     pure ([], Just !(tree ctx env cls rhs))
   -- As a constructor match: one kind of alternative at a place.

@@ -130,7 +130,7 @@ takenApart fc owner loc t (u :: us) x k = do
   pair <- pairOf fc owner t (u ::: us)
   body <- takenApart fc owner loc u us (Bound {k = 2} (FS FZ))
             (\ren, vs => k (ren . Free {k = 2}) (ren (Bound {k = 2} FZ) :: vs))
-  pure (Case loc x (Exhaustive (MkAlt pair [shown "value", shown "rest"] body ::: [])))
+  pure (Case loc pair.id.family x (Exhaustive (MkAlt pair [shown "value", shown "rest"] body ::: [])))
 
 ||| A list without its element at a place.
 without : Nat -> List a -> List a
@@ -472,7 +472,7 @@ dispatcher d = do
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
     matching loc x [] = Unreachable loc
-    matching loc x (a :: as) = Case loc x (Exhaustive (a ::: as))
+    matching loc x (a :: as) = Case loc d.family x (Exhaustive (a ::: as))
 
     -- Each member is joined with the dispatch when the later of the two
     -- is made, its arm written by its place in a map the members do not

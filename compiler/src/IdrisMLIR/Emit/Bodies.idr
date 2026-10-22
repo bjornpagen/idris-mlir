@@ -210,44 +210,6 @@ match ix l w build cases fallback =
       statement l UB.unreachableOp
       pure Nothing
 
-||| The cases of a match on literals that can be taken, in order, each with
-||| its key read at its scrutinee's type `t` as `idr.lit.match` holds it:
-||| an integer at the scrutinee's width, a `Char` as its code point, a
-||| string, a big integer or a natural as itself. A double's case is taken
-||| where the scrutinee equals its key and no earlier one, as `oeq` decides,
-||| so the case of a NaN key, which nothing equals, never is, nor that of a
-||| key equal to an earlier one (`-0.0` after `0.0`); either zero is the key
-||| `0.0`. A key of another type than its scrutinee's is the frontend's
-||| bug.
-litCases : Ty -> List (Lit, a) -> E (List (MlirAttr, a))
-litCases t cs = case t of
-  DoubleT => map (\(d, c) => (litAttr (LDouble d), c)) . taken [] <$> traverse double cs
-  _ => traverse (\(k, c) => (\key => (key, c)) <$> keyAt k) cs
-  where
-    mismatched : E b
-    mismatched = internal ("a match on literals of type " ++ show t ++ " with a key of another type")
-
-    double : (Lit, a) -> E (Double, a)
-    double (LDouble d, c) = pure (d, c)
-    double _ = mismatched
-
-    taken : List Double -> List (Double, a) -> List (Double, a)
-    taken seen [] = []
-    taken seen ((d, c) :: rest) =
-      if d /= d || any (== d) seen then taken seen rest
-      else (if d == 0.0 then 0.0 else d, c) :: taken (d :: seen) rest
-
-    keyAt : Lit -> E MlirAttr
-    keyAt k = case (t, k) of
-      (IntT w, LInt _ n) => pure (litAttr (LInt w n))
-      (CharT, LChar _) => pure (litAttr k)
-      (IntT _, _) => mismatched
-      (CharT, _) => mismatched
-      (_, LStr _) => pure (litAttr k)
-      (_, LBig _) => pure (litAttr k)
-      (_, LNat _) => pure (litAttr k)
-      _ => mismatched
-
 mutual
   ||| Whether a term names one of the `k` variables from `from` of its
   ||| scope, the fields an alternative binds (from 0, and further out under
@@ -263,7 +225,7 @@ mutual
   names from k (Call _ _ _ _ as) = anyNames from k as
   names from k (ConApp _ _ _ as) = anyNames from k (toList as)
   names from k (Let _ _ _ v b) = names from k v || names (S from) k b
-  names from k (Case _ x arms) = namesVar from k x || armsName from k arms
+  names from k (Case _ _ x arms) = namesVar from k x || armsName from k arms
   names from k (CaseLit _ x arms) = namesVar from k x || litArmsName from k arms
   names from k (CaseNat _ x arms) = namesVar from k x || natArmsName from k arms
   names from k (Lam _ _ _ body) = names (S from) k body
@@ -302,9 +264,16 @@ mutual
   armsName from k (Defaulted alts d) = any (altNames from k) alts || names from k d
   armsName from k (Exhaustive alts) = any (altNames from k) (forget alts)
 
+  keyedName : (from, k : Nat) -> LitArmsOf kt (Term n) -> Bool
+  keyedName from k (LitDefault alts d) = any (names from k . snd) (forget alts) || names from k d
+  keyedName from k (LitNoDefault alts) = any (names from k . snd) (forget alts)
+
   litArmsName : (from, k : Nat) -> LitArms n -> Bool
-  litArmsName from k (LitDefault alts d) = any (names from k . snd) alts || names from k d
-  litArmsName from k (LitNoDefault alts) = any (names from k . snd) (forget alts)
+  litArmsName from k (OnlyDefault d) = names from k d
+  litArmsName from k (OnInts _ arms) = keyedName from k arms
+  litArmsName from k (OnChars arms) = keyedName from k arms
+  litArmsName from k (OnStrings arms) = keyedName from k arms
+  litArmsName from k (OnBigs arms) = keyedName from k arms
 
   natArmsName : (from, k : Nat) -> NatArms n -> Bool
   natArmsName from k (OnlyZero z) = names from k z
@@ -491,10 +460,8 @@ alg ix (LetF l name b v body) sc w = case b of
 -- default binds the scrutinee refined to the constructors no case takes.
 -- Inside every region the variable that named the scrutinee names the
 -- value the region binds.
-alg ix (CaseF l x arms) sc w = do
+alg ix (CaseF l f x arms) sc w = do
   let scrut = standing (sc.vars x)
-  DataT f _ <- pure scrut.type
-    | t => internal ("a match on a value of type " ++ show t)
   (cases, fallback) <- the (E (List Case, Maybe Arm)) $ case arms of
     Defaulted alts d => do
       cs <- traverse (alternative scrut) alts
@@ -540,29 +507,35 @@ alg ix (CaseF l x arms) sc w = do
       pure (MkArm [arg] res ops)
 -- A match on literals has no exhaustive form: when Idris proved the
 -- default impossible, the last possible alternative stands for it, and a
--- match of one is that alternative. In a case the scrutinee is its
--- literal; the default binds it refined to the complement of the keys, so
--- what a case proved of it (a divisor matched against `0`) stays known
--- where the default reads it.
+-- match of one is that alternative. Each key is as `idr.lit.match` holds
+-- it, by the match's one kind: an integer at its type's width, a `Char` as
+-- its code point, a string, a big integer or a natural as itself. In a
+-- case the scrutinee is its literal; the default binds it refined to the
+-- complement of the keys, so what a case proved of it (a divisor matched
+-- against `0`) stays known where the default reads it.
 alg ix (CaseLitF l x arms) sc w = case arms of
-  LitDefault alts d => literals alts d
-  LitNoDefault alts => literals (init alts) (snd (last alts))
+  OnlyDefault d => d.result sc w
+  OnInts t keyed => literalsOf (\n => litAttr (LInt t n)) keyed
+  OnChars keyed => literalsOf (\c => litAttr (LChar c)) keyed
+  OnStrings keyed => literalsOf (\s => litAttr (LStr s)) keyed
+  OnBigs keyed => literalsOf (\n => litAttr (LBig n)) keyed
   where
-    literals : List (Lit, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
-    literals alts d = do
-      let held = standing (sc.vars x)
-      case !(litCases held.type alts) of
-        [] => d.result sc w
-        cases => do
-          scrut <- coerce ix l Many held
-          let inner = refining x scrut sc
-          arms <- traverse (\(_, c) => do
-                              (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
-                              pure (MkCase 0 (MkArm [] res ops))) cases
-          (back, arg) <- freshVal ix scrut.type Many
-          (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
-          match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map fst cases)) (operand ix scrut) [] dr (caseRegions cs) ts)
-                arms (Just (MkArm [MkArgument arg (At l)] res ops))
+    literals : (kt -> MlirAttr) -> List (kt, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
+    literals key [] d = d.result sc w
+    literals key alts@(_ :: _) d = do
+      scrut <- coerce ix l Many (standing (sc.vars x))
+      let inner = refining x scrut sc
+      arms <- traverse (\(_, c) => do
+                          (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
+                          pure (MkCase 0 (MkArm [] res ops))) alts
+      (back, arg) <- freshVal ix scrut.type Many
+      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+      match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map (key . fst) alts)) (operand ix scrut) [] dr (caseRegions cs) ts)
+            arms (Just (MkArm [MkArgument arg (At l)] res ops))
+
+    literalsOf : (kt -> MlirAttr) -> LitArmsOf kt (Sub Em nv) -> E (Maybe Val)
+    literalsOf key (LitDefault alts d) = literals key (forget alts) d
+    literalsOf key (LitNoDefault alts) = literals key (init alts) (snd (last alts))
 -- The predecessor exists only where the value is not zero: the successor's
 -- arm computes it from the value it binds, and only it binds it.
 alg ix (CaseNatF l x arms) sc w = case arms of

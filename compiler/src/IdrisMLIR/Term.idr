@@ -154,10 +154,24 @@ data LetBinder = Checked Binder | OfValue Uses
 public export
 data CaseArmsOf alt t = Defaulted (List alt) t | Exhaustive (List1 alt)
 
-||| A match on a literal's possible alternatives and its default, or, when
-||| Idris proved the default impossible, at least one alternative.
+||| A match on literals' possible alternatives, each keyed by a `k`, at
+||| least one, and its default, or, when Idris proved the default
+||| impossible, none.
 public export
-data LitArmsOf t = LitDefault (List (Lit, t)) t | LitNoDefault (List1 (Lit, t))
+data LitArmsOf k t = LitDefault (List1 (k, t)) t | LitNoDefault (List1 (k, t))
+
+||| A match on literals, keyed by the one kind of literal Idris's tree
+||| matches at a place: a fixed-width integer of its type, a character by
+||| its code point, a string, or a number held as a big integer (an
+||| `Integer`, or a natural, which `idr.lit.match` keys alike). A match
+||| whose every literal is impossible has its default alone, and no kind.
+public export
+data LitMatch t
+  = OnlyDefault t
+  | OnInts IntTy (LitArmsOf Integer t)
+  | OnChars (LitArmsOf Integer t)
+  | OnStrings (LitArmsOf String t)
+  | OnBigs (LitArmsOf Integer t)
 
 ||| A match on a natural's possible arms: zero, a successor binding its
 ||| predecessor (named), or both.
@@ -194,8 +208,9 @@ mutual
     ConApp : {k : Nat} -> Loc -> Con k -> (binders : List ITerm) -> Vect k (Term n) -> Term n
     ||| `let`, with its variable's name and what it binds.
     Let : Loc -> (name : Shown) -> LetBinder -> Term n -> Term (Under 1 n) -> Term n
-    Case : Loc -> Fin n -> CaseArmsOf (Alt n) (Term n) -> Term n
-    CaseLit : Loc -> Fin n -> LitArmsOf (Term n) -> Term n
+    ||| A match on a value of the family named, by its constructors.
+    Case : Loc -> FamilyId -> Fin n -> CaseArmsOf (Alt n) (Term n) -> Term n
+    CaseLit : Loc -> Fin n -> LitMatch (Term n) -> Term n
     ||| A match on a `Nat`-like value: zero, or a successor, whose
     ||| predecessor the successor's arm binds. The predecessor exists only
     ||| there, where the value is not zero.
@@ -281,10 +296,10 @@ public export
 CaseArms : Nat -> Type
 CaseArms n = CaseArmsOf (Alt n) (Term n)
 
-||| A match on a literal's arms.
+||| A match on literals' arms.
 public export
 LitArms : Nat -> Type
-LitArms n = LitArmsOf (Term n)
+LitArms n = LitMatch (Term n)
 
 ||| A match on a natural's arms.
 public export
@@ -304,7 +319,7 @@ mutual
   rename f (Call l fn stands is as) = Call l fn stands is (renameAll f as)
   rename f (ConApp l c bs as) = ConApp l c bs (renameVect f as)
   rename f (Let l x b v body) = Let l x b (rename f v) (rename (liftRen {k = 1} f) body)
-  rename f (Case l x arms) = Case l (f x) (renameArms f arms)
+  rename f (Case l fam x arms) = Case l fam (f x) (renameArms f arms)
   rename f (CaseLit l x arms) = CaseLit l (f x) (renameLitArms f arms)
   rename f (CaseNat l x arms) = CaseNat l (f x) (renameNatArms f arms)
   rename f (Lam l x b body) = Lam l x b (rename (liftRen {k = 1} f) body)
@@ -348,13 +363,20 @@ mutual
   renameStated f ((a, SameAs t) :: ds) = (a, SameAs (rename f t)) :: renameStated f ds
   renameStated f ((a, Natural t) :: ds) = (a, Natural (rename f t)) :: renameStated f ds
 
-  renameLits : (Fin n -> Fin m) -> List (Lit, Term n) -> List (Lit, Term m)
+  renameLits : (Fin n -> Fin m) -> List (kt, Term n) -> List (kt, Term m)
   renameLits f [] = []
-  renameLits f ((k, t) :: rest) = (k, rename f t) :: renameLits f rest
+  renameLits f ((kv, t) :: rest) = (kv, rename f t) :: renameLits f rest
+
+  renameKeyed : (Fin n -> Fin m) -> LitArmsOf kt (Term n) -> LitArmsOf kt (Term m)
+  renameKeyed f (LitDefault ((kv, t) ::: alts) d) = LitDefault ((kv, rename f t) ::: renameLits f alts) (rename f d)
+  renameKeyed f (LitNoDefault ((kv, t) ::: alts)) = LitNoDefault ((kv, rename f t) ::: renameLits f alts)
 
   renameLitArms : (Fin n -> Fin m) -> LitArms n -> LitArms m
-  renameLitArms f (LitDefault alts d) = LitDefault (renameLits f alts) (rename f d)
-  renameLitArms f (LitNoDefault ((k, t) ::: alts)) = LitNoDefault ((k, rename f t) ::: renameLits f alts)
+  renameLitArms f (OnlyDefault d) = OnlyDefault (rename f d)
+  renameLitArms f (OnInts t arms) = OnInts t (renameKeyed f arms)
+  renameLitArms f (OnChars arms) = OnChars (renameKeyed f arms)
+  renameLitArms f (OnStrings arms) = OnStrings (renameKeyed f arms)
+  renameLitArms f (OnBigs arms) = OnBigs (renameKeyed f arms)
 
   renameNatArms : (Fin n -> Fin m) -> NatArms n -> NatArms m
   renameNatArms f (OnlyZero z) = OnlyZero (rename f z)
@@ -394,8 +416,8 @@ mutual
     CallF : Loc -> FnId -> Maybe Shown -> List ITerm -> List (f n) -> TermF f n
     ConAppF : {k : Nat} -> Loc -> Con k -> List ITerm -> Vect k (f n) -> TermF f n
     LetF : Loc -> Shown -> LetBinder -> f n -> f (Under 1 n) -> TermF f n
-    CaseF : Loc -> Fin n -> CaseArmsOf (AltF f n) (f n) -> TermF f n
-    CaseLitF : Loc -> Fin n -> LitArmsOf (f n) -> TermF f n
+    CaseF : Loc -> FamilyId -> Fin n -> CaseArmsOf (AltF f n) (f n) -> TermF f n
+    CaseLitF : Loc -> Fin n -> LitMatch (f n) -> TermF f n
     CaseNatF : Loc -> Fin n -> NatArmsOf (f n) (f (Under 1 n)) -> TermF f n
     LamF : Loc -> Shown -> Binder -> f (Under 1 n) -> TermF f n
     AppF : Loc -> f n -> f n -> TermF f n
@@ -435,18 +457,24 @@ hmap h (EffectF l p gives as w res) = EffectF l p gives (map h as) (h w) res
 hmap h (CallF l fn stands is as) = CallF l fn stands is (map h as)
 hmap h (ConAppF l c bs as) = ConAppF l c bs (map h as)
 hmap h (LetF l x b v body) = LetF l x b (h v) (h body)
-hmap h (CaseF l x arms) = CaseF l x (armsMap arms)
+hmap h (CaseF l fam x arms) = CaseF l fam x (armsMap arms)
   where
     alt : AltF f n -> AltF g n
     alt (MkAltF c fs b) = MkAltF c fs (h b)
     armsMap : CaseArmsOf (AltF f n) (f n) -> CaseArmsOf (AltF g n) (g n)
     armsMap (Defaulted alts d) = Defaulted (map alt alts) (h d)
     armsMap (Exhaustive alts) = Exhaustive (map alt alts)
-hmap h (CaseLitF l x arms) = CaseLitF l x (armsMap arms)
+hmap h (CaseLitF l x arms) = CaseLitF l x (matchMap arms)
   where
-    armsMap : LitArmsOf (f n) -> LitArmsOf (g n)
-    armsMap (LitDefault alts d) = LitDefault (map (\(k, e) => (k, h e)) alts) (h d)
-    armsMap (LitNoDefault alts) = LitNoDefault (map (\(k, e) => (k, h e)) alts)
+    keyed : LitArmsOf kt (f n) -> LitArmsOf kt (g n)
+    keyed (LitDefault alts d) = LitDefault (map (\(kv, e) => (kv, h e)) alts) (h d)
+    keyed (LitNoDefault alts) = LitNoDefault (map (\(kv, e) => (kv, h e)) alts)
+    matchMap : LitMatch (f n) -> LitMatch (g n)
+    matchMap (OnlyDefault d) = OnlyDefault (h d)
+    matchMap (OnInts t a) = OnInts t (keyed a)
+    matchMap (OnChars a) = OnChars (keyed a)
+    matchMap (OnStrings a) = OnStrings (keyed a)
+    matchMap (OnBigs a) = OnBigs (keyed a)
 hmap h (CaseNatF l x arms) = CaseNatF l x (armsMap arms)
   where
     armsMap : NatArmsOf (f n) (f (Under 1 n)) -> NatArmsOf (g n) (g (Under 1 n))
@@ -482,7 +510,7 @@ mutual
   para alg (Call l fn stands is as) = alg (CallF l fn stands is (paraAll alg as))
   para alg (ConApp l c bs as) = alg (ConAppF l c bs (paraVect alg as))
   para alg (Let l x b v body) = alg (LetF l x b (sub alg v) (sub alg body))
-  para alg (Case l x arms) = alg (CaseF l x (paraArms alg arms))
+  para alg (Case l fam x arms) = alg (CaseF l fam x (paraArms alg arms))
   para alg (CaseLit l x arms) = alg (CaseLitF l x (paraLitArms alg arms))
   para alg (CaseNat l x arms) = alg (CaseNatF l x (paraNatArms alg arms))
   para alg (Lam l x b body) = alg (LamF l x b (sub alg body))
@@ -534,14 +562,22 @@ mutual
   paraStated alg ((a, Natural t) :: ds) = (a, Natural (sub alg t)) :: paraStated alg ds
 
   paraLits : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
-             List (Lit, Term n) -> List (Lit, Sub f n)
+             List (kt, Term n) -> List (kt, Sub f n)
   paraLits alg [] = []
-  paraLits alg ((k, t) :: rest) = (k, sub alg t) :: paraLits alg rest
+  paraLits alg ((kv, t) :: rest) = (kv, sub alg t) :: paraLits alg rest
+
+  paraKeyed : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
+              LitArmsOf kt (Term n) -> LitArmsOf kt (Sub f n)
+  paraKeyed alg (LitDefault ((kv, t) ::: alts) d) = LitDefault ((kv, sub alg t) ::: paraLits alg alts) (sub alg d)
+  paraKeyed alg (LitNoDefault ((kv, t) ::: alts)) = LitNoDefault ((kv, sub alg t) ::: paraLits alg alts)
 
   paraLitArms : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
-                LitArms n -> LitArmsOf (Sub f n)
-  paraLitArms alg (LitDefault alts d) = LitDefault (paraLits alg alts) (sub alg d)
-  paraLitArms alg (LitNoDefault ((k, t) ::: alts)) = LitNoDefault ((k, sub alg t) ::: paraLits alg alts)
+                LitArms n -> LitMatch (Sub f n)
+  paraLitArms alg (OnlyDefault d) = OnlyDefault (sub alg d)
+  paraLitArms alg (OnInts t arms) = OnInts t (paraKeyed alg arms)
+  paraLitArms alg (OnChars arms) = OnChars (paraKeyed alg arms)
+  paraLitArms alg (OnStrings arms) = OnStrings (paraKeyed alg arms)
+  paraLitArms alg (OnBigs arms) = OnBigs (paraKeyed alg arms)
 
   paraNatArms : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
                 NatArms n -> NatArmsOf (Sub f n) (Sub f (Under 1 n))

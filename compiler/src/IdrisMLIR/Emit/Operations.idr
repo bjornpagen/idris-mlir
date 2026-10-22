@@ -538,11 +538,9 @@ effect binder ix l a gives vs res = do
       mlirValue l (IntegerType 64)
         (const (Idr.checkRangeOp ByteRangeOutsideBuffer !(siteOf l) offset count size))
 
-    -- The bytes of a machine word a buffer holds, by its type.
-    wordBytes : Ty -> E Value
-    wordBytes (IntT t) = int64 (natToInteger (width t `div` 8))
-    wordBytes DoubleT = int64 8
-    wordBytes t = internal ("a buffer word of type " ++ show t)
+    -- The bytes of the machine word a load or a store names.
+    wordSize : BufferWord -> E Value
+    wordSize w = int64 (natToInteger (wordBytes w))
 
     -- A size or an index of an array a world orders, an `Int`, as the
     -- `index` its op takes.
@@ -596,11 +594,11 @@ effect binder ix l a gives vs res = do
     acted (Accesses SetElement rank) (arr :: rest) = do
       is <- traverse (asIndex . arg) (init rest)
       written GivesNone (\_ => Idr.arraySetOp (arg arr) (toList is) (arg (last rest)))
-    acted (Moves LoadWord) [buf, off] = do
-      off' <- within (arg buf) (arg off) !(wordBytes given)
+    acted (Moves (LoadWord w)) [buf, off] = do
+      off' <- within (arg buf) (arg off) !(wordSize w)
       written GivesOne (specOp bufferLoad [arg buf, off'])
-    acted (Moves StoreWord) [buf, off, v] = do
-      off' <- within (arg buf) (arg off) !(wordBytes v.type)
+    acted (Moves (StoreWord w)) [buf, off, v] = do
+      off' <- within (arg buf) (arg off) !(wordSize w)
       written GivesNone (specOp bufferStore [arg buf, off', arg v])
     acted (Moves CopyBytes) [src, srcOff, len, dst, dstOff] = do
       srcOff' <- within (arg src) (arg srcOff) (arg len)

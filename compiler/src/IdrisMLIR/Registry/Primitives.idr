@@ -210,15 +210,21 @@ deprecatedDef : String -> String -> AnyEntry
 deprecatedDef name replacement =
   entry (Def (MkQName bufferModule name)) (Ruled Hole) (Deprecated replacement)
 
-||| A machine word written into a buffer, by its Chez spec. The word's type
-||| is the stored value's, which the call fixes.
-wordStore : String -> String -> Shape -> AnyEntry
-wordStore spec name shape = bufferPrimitive spec name shape (Moves StoreWord)
+||| A word as the row of a buffer's load or store of it writes its type.
+wordShape : BufferWord -> Shape
+wordShape (WordInt t) = intOf t
+wordShape WordDouble = dbl
 
-||| A machine word read from a buffer, by its Chez spec. The word's type is
-||| the result's, which the call fixes.
-wordLoad : String -> String -> Shape -> AnyEntry
-wordLoad spec name shape = bufferPrimitive spec name shape (Moves LoadWord)
+||| A machine word written into a buffer, by its Chez spec: the row names
+||| the word, which gives both the stored value's type and the bytes the
+||| store spans.
+wordStore : String -> String -> BufferWord -> AnyEntry
+wordStore spec name w = bufferPrimitive spec name (stored (wordShape w)) (Moves (StoreWord w))
+
+||| A machine word read from a buffer, by its Chez spec: the row names the
+||| word, which gives both the result's type and the bytes the load spans.
+wordLoad : String -> String -> BufferWord -> AnyEntry
+wordLoad spec name w = bufferPrimitive spec name (loaded (wordShape w)) (Moves (LoadWord w))
 
 ------------------------------------------------------------------------------
 -- Base's surface: files, directories, the process, the terminal, errors,
@@ -457,24 +463,24 @@ primitives =
   , entry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi Mw buffer int))
             (PrimCall (ArrayLength byte) [])
-  , wordStore "blodwen-buffer-setbits16" "prim__setBits16" (stored (intOf UInt16))
-  , wordLoad "blodwen-buffer-getbits16" "prim__getBits16" (loaded (intOf UInt16))
-  , wordStore "blodwen-buffer-setbits32" "prim__setBits32" (stored (intOf UInt32))
-  , wordLoad "blodwen-buffer-getbits32" "prim__getBits32" (loaded (intOf UInt32))
-  , wordStore "blodwen-buffer-setbits64" "prim__setBits64" (stored (intOf UInt64))
-  , wordLoad "blodwen-buffer-getbits64" "prim__getBits64" (loaded (intOf UInt64))
-  , wordStore "blodwen-buffer-setint8" "prim__setInt8" (stored (intOf SInt8))
-  , wordLoad "blodwen-buffer-getint8" "prim__getInt8" (loaded (intOf SInt8))
-  , wordStore "blodwen-buffer-setint16" "prim__setInt16" (stored (intOf SInt16))
-  , wordLoad "blodwen-buffer-getint16" "prim__getInt16" (loaded (intOf SInt16))
-  , wordStore "blodwen-buffer-setint32" "prim__setInt32" (stored (intOf SInt32))
-  , wordLoad "blodwen-buffer-getint32" "prim__getInt32" (loaded (intOf SInt32))
-  , wordStore "blodwen-buffer-setint64" "prim__setInt64" (stored (intOf SInt64))
-  , wordLoad "blodwen-buffer-getint64" "prim__getInt64" (loaded (intOf SInt64))
-  , wordStore "blodwen-buffer-setint" "prim__setInt" (stored int)
-  , wordLoad "blodwen-buffer-getint" "prim__getInt" (loaded int)
-  , wordStore "blodwen-buffer-setdouble" "prim__setDouble" (stored dbl)
-  , wordLoad "blodwen-buffer-getdouble" "prim__getDouble" (loaded dbl)
+  , wordStore "blodwen-buffer-setbits16" "prim__setBits16" (WordInt UInt16)
+  , wordLoad "blodwen-buffer-getbits16" "prim__getBits16" (WordInt UInt16)
+  , wordStore "blodwen-buffer-setbits32" "prim__setBits32" (WordInt UInt32)
+  , wordLoad "blodwen-buffer-getbits32" "prim__getBits32" (WordInt UInt32)
+  , wordStore "blodwen-buffer-setbits64" "prim__setBits64" (WordInt UInt64)
+  , wordLoad "blodwen-buffer-getbits64" "prim__getBits64" (WordInt UInt64)
+  , wordStore "blodwen-buffer-setint8" "prim__setInt8" (WordInt SInt8)
+  , wordLoad "blodwen-buffer-getint8" "prim__getInt8" (WordInt SInt8)
+  , wordStore "blodwen-buffer-setint16" "prim__setInt16" (WordInt SInt16)
+  , wordLoad "blodwen-buffer-getint16" "prim__getInt16" (WordInt SInt16)
+  , wordStore "blodwen-buffer-setint32" "prim__setInt32" (WordInt SInt32)
+  , wordLoad "blodwen-buffer-getint32" "prim__getInt32" (WordInt SInt32)
+  , wordStore "blodwen-buffer-setint64" "prim__setInt64" (WordInt SInt64)
+  , wordLoad "blodwen-buffer-getint64" "prim__getInt64" (WordInt SInt64)
+  , wordStore "blodwen-buffer-setint" "prim__setInt" (WordInt IdrisInt)
+  , wordLoad "blodwen-buffer-getint" "prim__getInt" (WordInt IdrisInt)
+  , wordStore "blodwen-buffer-setdouble" "prim__setDouble" WordDouble
+  , wordLoad "blodwen-buffer-getdouble" "prim__getDouble" WordDouble
   , entry (Foreign (MkSpec "scheme" "blodwen-stringbytelen"))
             (Declared (MkQName bufferModule "stringByteLength") (Pi Mw (Prim StringP) int))
             (PureCall strBytesLength [])

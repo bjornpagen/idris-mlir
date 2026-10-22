@@ -131,7 +131,7 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
          ({0 p : Nat} -> (Fin m' -> Fin p) -> SnocList (Fin p) -> Term p) -> Term m'
     go Z x k' = k' id [<]
     go (S r') x k' =
-      Case loc x (Exhaustive (MkAlt s.snoc [shown "rest", shown "n"]
+      Case loc s.snoc.id.family x (Exhaustive (MkAlt s.snoc [shown "rest", shown "n"]
                                 (go r' (Bound {k = 2} FZ)
                                     (\ren, ns => k' (ren . Free {k = 2}) (ns :< ren (Bound {k = 2} (FS FZ)))))
                               ::: []))
@@ -143,7 +143,7 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
 ||| the rule that rebuilds every cell of a type whose values are.
 opened : {0 m : Nat} -> Loc -> Con 1 -> Fin m -> ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
 opened loc writing x k =
-  Case loc x (Exhaustive (MkAlt writing [shown "elements"] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
+  Case loc writing.id.family x (Exhaustive (MkAlt writing [shown "elements"] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
 
 ||| The binder of a closure's parameter: one closure type serves every
 ||| extent its values are made at, so every tensor dimension in it is
