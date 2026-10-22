@@ -3,11 +3,11 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Every file of the tree names its licence at its head, in its kind's
 # comment syntax: its first line, or the line after a script's #!, with its
-# copyright holder on the next. Ours is 0BSD; the Idris fork's is
-# BSD-3-Clause, the holder upstream's for a file the pin's src/ has and
-# ours for any other; a port's is the expression of its upstream's
-# licences, Apache-2.0 WITH LLVM-exception among them, with its upstream
-# header kept. This script is the one place that knows the scope, which is
+# copyright holder on the next. Ours is 0BSD; the type checker's,
+# Idris's checker copied into compiler/checker, is BSD-3-Clause, the holder
+# Idris's for a file copied from the pin's src/ and ours for any other; a
+# port's is the expression of its upstream's licences, Apache-2.0 WITH
+# LLVM-exception among them, with its upstream header kept. This script is the one place that knows the scope, which is
 # every file git tracks or would track, less the exclusions below, each
 # with its reason: a file of a new kind is in scope at once, and named
 # until its kind's comment syntax is here.
@@ -15,8 +15,8 @@
 #   tools/licenses.sh           check: name every file in scope without its
 #                               line, or with a wrong one; exit 1 if any
 #   tools/licenses.sh --apply   write the missing lines, and correct a wrong
-#                               holder, of ours and of the fork's (a port is
-#                               never written here: it arrives with its
+#                               holder, of ours and of the checker's (a port
+#                               is never written here: it arrives with its
 #                               header)
 #
 # Besides: the text of every licence an identifier in use names is in
@@ -40,7 +40,7 @@ third_party/* -- the pinned submodules: their parties' trees, untouched
 sources/* -- the research library: each item is its party's, its provenance beside it
 .claude/* -- the agent harness's configuration, whose front matter must open each file
 .gitmodules -- git's record of the submodules, which git submodule writes
-LICENSE LICENSES/*.txt compiler/idris/LICENSE -- the licence texts themselves
+LICENSE LICENSES/*.txt compiler/checker/LICENSE -- the licence texts themselves
 NOTICE -- the attribution notices, which quote the parties' own
 *.json *.tsv *.svg -- a kind with no comment syntax
 *.patch *.diff -- a patch or a diff, every line of which is applied
@@ -52,7 +52,6 @@ tests/*/*.idr tests/*.mlir harness/templates/*.idr harness/templates/*.mlir -- a
 upstream/*/*.mlir upstream/*/*.ll upstream/*/*.sh upstream/*/*.idr upstream/*/*.c upstream/*/*.cpp -- a reproducer, which its report quotes and its upstream test copies
 tests/licenses/witness/* -- the files tests/licenses plants for this check to refuse, each without its line or with a wrong one
 bench/records/* -- a record of a measurement, kept as it was taken
-compiler/idris/MODULES -- the fork's list of kept modules, which tools/extract-idris.sh reads
 EOF
 }
 
@@ -70,7 +69,7 @@ EOF
 # The parts of the tree: `patterns -- identifier`, the first that matches.
 parts() {
   cat << 'EOF'
-compiler/idris/* -- BSD-3-Clause
+compiler/checker/* -- BSD-3-Clause
 * -- 0BSD
 EOF
 }
@@ -88,11 +87,11 @@ EOF
 }
 
 git -c core.quotePath=false ls-files -co --exclude-standard | LC_ALL=C sort -u > "$work/tree"
-# Whose a fork file is is read from the pin: a path the pin's src/ has is
-# upstream's.
+# Whose a checker file is is read from the Idris pin: a path the pin's
+# src/ has was copied from it, and is Idris's.
 pin=$(git ls-files -s third_party/Idris2 | awk '{ print $2 }')
 if [ -z "$pin" ] || ! git -C third_party/Idris2 ls-tree -r --name-only "$pin" -- src > "$work/pin" 2> /dev/null; then
-  echo "licenses: the pin third_party/Idris2 is not checked out, so whose a fork file is is unknown"
+  echo "licenses: the pin third_party/Idris2 is not checked out, so whose a checker file is is unknown"
   exit 1
 fi
 exclusions > "$work/exclusions"
@@ -137,7 +136,7 @@ awk -F'\t' -v ours="$ours" -v upstream="$upstream_idris" '
     for (j = 1; j <= npat; j++) { np++; part[np] = pat[j]; ident[np] = rest }
     next
   }
-  FILENAME == ARGV[4] { pinned["compiler/idris/" $0] = 1; next }
+  FILENAME == ARGV[4] { pinned["compiler/checker/" $0] = 1; next }
   {
     f = $0
     for (j = 1; j <= ne; j++) if (f ~ excluded[j]) next
@@ -189,7 +188,7 @@ report nokind "no comment syntax known for its kind: add it here, or exclude it 
 awk -F'\t' '$1 == "wrong" { print $2 ": names " $3 ", where its part is " $4 }' "$work/found" > "$work/report"
 [ -s "$work/report" ] && { cat "$work/report"; bad=1; }
 
-# The lines a file of ours or of the fork lacks, written or named. The
+# The lines a file of ours or of the checker lacks, written or named. The
 # fields are split at `|`, which no path or comment syntax holds, so that
 # an empty one (a syntax that needs no close) stays a field.
 awk -F'\t' '$1 == "missing" || $1 == "holder" { $1 = $1; print }' OFS='|' "$work/found" > "$work/fix"

@@ -107,9 +107,10 @@ left-hand side shows the difference, the `_` under the as-pattern, and
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the change as first made.
-upstream/52-relevant-implicit-split's `pull-request.diff`, which applies
-after it, replaced its case-builder half; the fork carries both:
+Our type checker (compiler/checker) has the change as its own code. As
+first made it was the two parts below; upstream/52-relevant-implicit-split's
+change, made after it, replaced its case-builder half, and the checker has
+both:
 
 - A checked clause carries the variables of its scope that name an
   argument it leaves to unification (`MkClause`'s new `VarSet`).
@@ -124,7 +125,7 @@ after it, replaced its case-builder half; the fork carries both:
   pattern the clause writes. That refused what the pin accepts: when a
   later argument's type computes on such an argument, the case builder
   cannot type that column without the split, and with this change alone
-  the fork refuses `0 liftedBad0 : {0 r : Rel a} -> Bad r xs -> New r xs y
+  the checker refuses `0 liftedBad0 : {0 r : Rel a} -> Bad r xs -> New r xs y
   -> Lifted r xs y z -> r y z` ("Patterns for liftedBad0 require matching
   on different types"). upstream/52 replaced `asVariables` with an order:
   the tree splits such an argument after the patterns the clause writes,
@@ -136,20 +137,21 @@ after it, replaced its case-builder half; the fork carries both:
   alternative on a variable), the clauses a definition saves are the
   checked ones, so its termination graphs are unchanged, and the trees of
   a definition above quantity 0 are unchanged. The REPL's clause
-  generation (`TTImp.Interactive.GenerateDef`, which the fork deleted)
-  takes the new field apart in the diff.
+  generation (`TTImp.Interactive.GenerateDef`, which the checker deleted)
+  would take the new field apart.
 
-Upstream test: `tests/idris2/coverage/coverage032` (in the diff),
-`ErasedNested.idr`: `fp`, `fp2` and `fp3`, `fp` computed in a type, `g`,
-whose `g 5` must take its second clause, and `Pick`, an `if` on a
-variable in a type, whose `Pick False` must take the `else`.
+The checks below name `coverage032`, a test laid out for upstream's suite
+beside the change as first made, `ErasedNested.idr`: `fp`, `fp2` and
+`fp3`, `fp` computed in a type, `g`, whose `g 5` must take its second
+clause, and `Pick`, an `if` on a variable in a type, whose `Pick False`
+must take the `else`.
 
 ## What the fix leaves
 
 The same split, of a pattern the clause does not match on, before the
 patterns that fix it, had three more cases besides `fp`'s, which this
 change did not reach. Each now has its own record and change, which the
-fork carries: upstream/52 (the first), 53 (the second) and 54 (the third).
+checker carries: upstream/52 (the first), 53 (the second) and 54 (the third).
 
 - A definition above quantity 0 with a relevant implicit the clauses leave
   out: `fp4 : {ws : List W} -> All IsF ws -> All Pr ws`, with `fp`'s
@@ -181,20 +183,18 @@ parts of the pattern unification found are split after the others
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code. The stock Idris only builds stage 0 (the fork, the frontend and the
-test runner) and the benchmarks' Chez baseline, and nothing it builds is
-refused by the bug: all of it checks at the pin.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds is refused by the bug: all of it checks at the pin.
 
-## Testing at the pin
+## Testing
 
-`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
---check`). No stock Idris has been built with it and upstream's suite has
-not run with it; at the pin, the stock Idris reports `coverage032`'s `fp`
-and `fp3` not covering, two missing cases each, and nothing else. The same
-edits applied to HEAD's fork give the fork's change byte for byte. The
-fork with the change was built by the pinned Idris into a private prefix,
+At the pin, the stock Idris reports `coverage032`'s `fp` and `fp3` not
+covering, two missing cases each, and nothing else. The checker with the
+change was built by the pinned Idris into a private prefix,
 with the frontend against it, and compared with HEAD's built the same way
 (arm64 macOS, 2026-10-16):
 
@@ -215,7 +215,7 @@ with the frontend against it, and compared with HEAD's built the same way
   frontend, which HEAD's refuses; its `expected` waits for a build of the
   whole toolchain.
 
-Those checks are of the change as first made. The fork now carries it with
+Those checks are of the change as first made. The checker now has it with
 upstream/52's order in place of `asVariables`, and with 53's and 54's
 changes; upstream/52's README has the checks of that whole change, among
 them `coverage032`, which prints exactly its `expected`, and this report's
@@ -230,20 +230,12 @@ is why the clause carries what the raw left-hand side says, and why
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report, the diff and the fork's
-change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, laid out as a stock checkout with the upstream test (`coverage032`)
-  it would carry. At a re-sync of compiler/idris
-  (compiler/idris/README.md) it says what to look for upstream: if
-  upstream has fixed the bug its own way, the fork takes upstream's code
-  and drops this change; if not, the change is carried forward onto the
-  new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-erased-coverage-nested-match` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it. The
+report goes when the Idris pin carries upstream's own fix; the checker
+keeps its own, which `tests/upstream-erased-coverage-nested-match`
+checks.

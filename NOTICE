@@ -7,10 +7,10 @@ tools), and any files ported from Modular's Mojo compiler, each
 carrying its upstream copyright and SPDX line in place. Every port
 is recorded in PINS.md with its source, revision and changes.
 
-compiler/idris/ is derived from Idris 2
+compiler/checker/ is derived from Idris 2
 (https://github.com/idris-lang/Idris2), Copyright (c) 2020
 Edwin Brady, under the BSD 3-Clause license in
-compiler/idris/LICENSE.
+compiler/checker/LICENSE.
 
 Third-party components in shipped binaries are inventoried in
 LICENSES/THIRD-PARTY.md.

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "Platform/Platform.h"
+#include "idr/IR/Generated/Handles.h.inc"
 #include "idris_rt.h"
 
 #include <errno.h>
@@ -38,9 +39,9 @@ void saveError();
 // The call failed for a reason of the runtime's, named as C names it.
 void fail(int code);
 
-// The handle table (Handles.cpp).
-
-inline constexpr int64_t nullHandle = -1;
+// The handle table (Handles.cpp). Its null handle and the standard
+// streams' handles are the specification's (idr::handles), which a
+// program's constants are written from too, so neither side restates them.
 
 // What a slot holds: a standard stream, which the table is made with and
 // never frees; an open file or an open directory; a file's times, read at
@@ -82,7 +83,8 @@ struct Slot {
 
 // The runtime's string slot for the environment, which the table is made
 // with after the standard streams.
-inline constexpr int64_t environmentHandle = 3;
+inline constexpr int64_t environmentHandle =
+    static_cast<int64_t>(idr::EnumTraits<idr::handles::StandardStream>::count);
 
 // The slot of a handle. A handle past the table, null among them, has a
 // free one, which nothing writes. Valid until the next newSlot, which may

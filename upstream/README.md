@@ -38,11 +38,12 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
 - `idris.patch`: the same for Idris 2, against third_party/Idris2's
   gitlink, which the bootstrap's `idris` step would apply to its copy of
   the checkout (the checkout itself stays unmodified). None is carried:
-  the stock Idris only builds stage 0 (the fork, the frontend and the test
-  runner) and the benchmarks' Chez baseline, and the Idris that elaborates
-  programs, prelude and base is the fork in compiler/idris, whose fixes are
-  its own code (its README). Nothing goes to Idris (**Idris** under
-  **Rules for sending**).
+  the stock Idris only builds stage 0 (the type checker, the frontend and
+  the test runner) and the benchmarks' Chez baseline, and what elaborates
+  programs, prelude and base is our type checker in compiler/checker,
+  Idris's checker copied into our tree, whose fixes are our own code (its
+  README). Nothing goes to Idris (**Idris** under **Rules for
+  sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
   repository does not carry as a patch (08, 17, since the pipeline
   cutover 02, 16 and 22, 25 and 58, and since the P0 cutover 06, 23, 28,
@@ -51,13 +52,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   with `git apply`, and take the commit message from `submission.md`,
   never from the file's header. For simdutf (48), the pull request to
   that project, which nothing reaches. For Idris: 96, a fix to the stock
-  Idris nothing it builds reaches, recorded and not carried; and (18, 20,
-  21, 50, 51, 52, 53, 59 and the eighteen fork-* directories) the change
-  the fork carries as its own code (for 21, the smaller change the fork
-  has since gone past), laid out against third_party/Idris2 at its
-  gitlink, each applying to the pin alone or, for a series (50, 52, 53;
-  18, 59), after the records before it, with the test upstream's suite
-  would hold: the record a re-sync of the fork reads, never sent.
+  Idris nothing it builds reaches, recorded and not carried.
 - `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -103,10 +98,10 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 10 | recursive-attribute-parser | an RFC on Discourse first, then a PR: nested builtin arrays and dictionaries parsed, printed and visited for aliases from a stack | carried (2026-10-21); not filed; not ready (RFC first) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | not carried since the pipeline cutover (nothing reaches it); ready to file; applies to main at b43c0361; submission.md; test checked at the pin only; check-mlir not run |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
-| 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change as main's rewritten `PassTiming.cpp` (#232948) spells it, and our test; still broken on main at 416f328b, where #169615 no longer applies |
-| 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris), gone past since 31013e5a: the fork closes no graphs and decides each component by its size-change search; the diff records the smaller change for re-syncs |
+| 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code |
+| 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code, by its size-change search |
 | 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not carried since the pipeline cutover (nothing reaches it); ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
 | 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | not carried since 2026-10-21 (no upstream cse, D98, D100); ready, not sent; pull-request.diff applies to main at 7a83be39 |
 | 24 | one-shot-module-function-interface | four PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); cycles of calls analyzed to a fixpoint over the call graph's strongly connected components; a value that definitely aliases an operand writable on its own, with a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; check-mlir passes on a private build (2026-10-19), after two fixes (README) |
@@ -117,16 +112,16 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 30 | aarch64-sibcall-callee-pop | issue + PR: AArch64 makes no sibling call from a function that pops its own stack arguments (tailcc), which returned with them still on the stack, in SelectionDAG and GlobalISel (tailcc-sibcall-callee-pop.ll) | carried; not filed; no submission.md yet; check-llvm not run |
 | 48 | simdutf-avx512vpopcntdq-bit | issue + PR to simdutf/simdutf: AVX512VPOPCNTDQ gets an instruction_set bit of its own (0x20000), not AVX512CD's | not carried (the runtime never runs simdutf's detection); not filed; simdutf's AI policy wants a human author who answers for it; pull-request.diff applies to the pin; distinct-bits.cpp fails at the pin and holds with the diff |
 | 49 | snmalloc-arm-yield-intrinsic | PR to microsoft/snmalloc: the Arm AAL's pause uses __builtin_arm_yield where the compiler has it, as prefetch uses __builtin_prefetch | carried since 2026-10-21 (snmalloc a patch project, C61); not filed; Microsoft CLA |
-| 50 | erased-coverage-nested-match | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 51 | totality-unimported-callee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 52 | relevant-implicit-split | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 50's |
-| 53 | constructor-implicit-mark | nothing (**Idris**) | carried as fork code (compiler/idris); series 50 → 52 → 53, the diff applied after 52's and recording 54 too |
-| 54 | erased-constant-pattern | nothing (**Idris**) | carried as fork code (compiler/idris), in 53's diff |
-| 55 | lazy-case-scrutinee | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 50 | erased-coverage-nested-match | nothing: Idris takes no tool-written contribution (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code |
+| 51 | totality-unimported-callee | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code |
+| 52 | relevant-implicit-split | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code, after 50's fix |
+| 53 | constructor-implicit-mark | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code, after 52's fix |
+| 54 | erased-constant-pattern | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code, with 53's fix |
+| 55 | lazy-case-scrutinee | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code |
 | 56 | cse-nested-linalg-index | a comment on #62644 and a PR that fixes it: the trait `DependsOnParent` on `linalg.index`, and CSE's key for such an op holds its parent (cse.mlir), perhaps after an RFC for the trait | carried; not filed; check-mlir passes on a private build |
 | 57 | linalg-index-int-range | PR: an `InferIntRangeInterface` model for `linalg.index`, [0, extent - 1] (Linalg int-range-interface.mlir) | carried; not filed; check-mlir passes on a private build |
 | 58 | delinearize-empty-basis | issue + PR: affine.delinearize_index declares that it has a result, which the generated verifier checks before it reads the first result's type (Affine invalid.mlir) | not carried (nothing in the tree reaches it); not filed; pull-request.diff; check-mlir passes on a private build |
-| 59 | literal-partial-fold | nothing (**Idris**) | carried as fork code (compiler/idris), after 18's change to `normalisePrims`; the diff records it for re-syncs |
+| 59 | literal-partial-fold | nothing (**Idris**) | not carried: nothing the stock Idris builds reaches it; our type checker (compiler/checker) fixes it as its own code, after 18's |
 | 61 | sqrt-negative-fold | PR: `math.sqrt` of a negative constant folds to a quiet NaN, of -0 to -0 | carried; not filed |
 | 62 | greedy-multi-region-ancestors | PR: an ancestor with several regions is revisited once the worklist is empty | carried (the greedy driver inside D99's upstream passes); not filed |
 | 63 | liveness-trivially-dead | NFC PR: liveness asks once per op whether it is trivially dead | not carried since 2026-10-21 (C35); not filed; applies at 416f328b |
@@ -170,24 +165,6 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 101 | thread-pool-thread-start | PR after 75's: ThreadPoolStrategy::OnThreadStart, a function each thread a pool starts runs before any task | carried (2026-10-22); not filed |
 | 102 | int-range-ne-either-view | PR: isStaticallyTrue proves `ne` when either the signed or the unsigned ranges are apart (int-range-opts.mlir) | carried (2026-10-22); not filed |
 | 103 | sparse-region-successors-protected | PR: the sparse forward analysis's visitRegionSuccessors protected, so an override may call the base | carried (2026-10-22); not filed |
-| fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-with-application-scope | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-build-main | nothing: no bug of Idris's; the frontend's entry point (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-total-frontend-paths | nothing: no bug of Idris's; total code on the frontend's paths (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-ttc-term-locations | nothing: no bug of Idris's; term locations kept in the TTC (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| fork | fork-search-depth | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-ambiguity-depth | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-posix-paths | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-no-runtime-tree | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-ttc-facts | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-block-parent | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-param-pos | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-erase-args | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-parser-bounds | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-dead-options | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
-| fork | fork-tuple-node | nothing (**Idris**) | carried as fork code (e5b39cb2); the diff records it for re-syncs |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -216,9 +193,9 @@ These are not optional.
   Not Accept", at the pin and on main as of 2026-10-13) wants all of
   them written and submitted by humans and will not consider anything
   that arises from generative AI or a coding agent. A bug of Idris's is
-  fixed in the fork as its own code (AGENTS.md); its `pull-request.diff`
-  is the record of that change against the pin, which a re-sync reads to
-  drop it once upstream has fixed the bug its own way. Whether Bjorn
+  fixed in our type checker (compiler/checker) as our own code where the
+  checker has it, and patched in the stock Idris (`idris.patch`) where
+  what the stock Idris builds meets it. Whether Bjorn
   reports such a bug is his call, in his own words; nothing is drafted
   for it, and no agent posts there.
 - **Author.** Bjorn, as an individual, outside any employer: his own

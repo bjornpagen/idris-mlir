@@ -64,7 +64,7 @@ planted() {
 # planted_frontend MODULE FILE: a frontend built from the repository's
 # sources, compiler/src and its package, with MODULE (a path under
 # compiler/src) planted from FILE, as the shipped one is built: by the
-# pinned Idris against the fork, after a copy of the build's TTCs, so only
+# pinned Idris against the checker, after a copy of the build's TTCs, so only
 # what MODULE reaches is built again. idris-mlir runs the frontend beside
 # its own executable, so the planted one runs beside a link of the same
 # idris-mlir: a hard link, whose path is its own, or a copy where the work
@@ -83,8 +83,8 @@ planted_frontend() {
     mkdir -p "$pf_dir/build" && cp -R "$root/compiler/build/ttc" "$pf_dir/build/ttc" || return 1
   fi
   cp "$2" "$pf_dir/src/$1" || return 1
-  pf_fork_packages=$(IDRIS2_PREFIX=$host_prefix && export IDRIS2_PREFIX && bounded "$idris2" --libdir)
-  if ! (cd "$pf_dir" && IDRIS2_PACKAGE_PATH=$pf_fork_packages && export IDRIS2_PACKAGE_PATH &&
+  pf_host_packages=$(IDRIS2_PREFIX=$host_prefix && export IDRIS2_PREFIX && bounded "$idris2" --libdir)
+  if ! (cd "$pf_dir" && IDRIS2_PACKAGE_PATH=$pf_host_packages && export IDRIS2_PACKAGE_PATH &&
         pinned_idris --build idris-mlir.ipkg) > "$work/frontend.out" 2>&1 ||
      [ ! -x "$pf_dir/build/exec/idris-mlir-front" ]; then
     say "the planted frontend: not built"

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The memory the host lets a tool use, which the optimizer's scheduler
-// admits functions against by the bytes of their arenas. The runtime's
+// The memory the host lets a tool use, against which each function's
+// e-graph is admitted by the bytes of its arena, whichever pass builds it,
+// so the e-graphs in flight at once fit beside one another. The runtime's
 // platform layer is the one reader of the host's limits: it reads a
 // program's (the cgroup's memory.max on Linux; macOS has none to read),
 // and the same reading, under the address-space limit `ulimit -v` sets and

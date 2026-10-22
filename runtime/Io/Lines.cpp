@@ -38,7 +38,7 @@ extern "C" int64_t idris_rt_io_file_read_line(int64_t file) {
         break;
     }
     if (read.got == Got::Failure && line.length == 0)
-      return rt::io::nullHandle;
+      return idr::handles::nullHandle;
     return programString(line);
   });
 }
@@ -60,7 +60,7 @@ extern "C" int64_t idris_rt_io_file_read_chars(int64_t max, int64_t file) {
       break;
   }
   if (chars.length == 0)
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   return programString(chars);
 }
 

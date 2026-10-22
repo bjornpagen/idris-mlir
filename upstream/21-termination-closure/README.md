@@ -20,10 +20,10 @@ and they multiply:
 
 ## Reproduce
 
-`tests/idris2/total/total032/Reach.idr` in `pull-request.diff`: a chain of
-160 `covering` functions with no loop, each matching its first argument and
-calling one of the next two with its arguments permuted, and 25 `total`
-functions that call the first. With the toolchain's (unpatched) Idris,
+`Reach.idr`, the shape of `tests/upstream-termination-closure/Main.idr`
+with a chain of 160: `covering` functions with no loop, each matching its
+first argument and calling one of the next two with its arguments
+permuted, and 25 `total` functions that call the first. With the toolchain's (unpatched) Idris,
 `idris2 --check Reach.idr` takes 33.8 s (arm64 macOS, 2026-10-10). The
 time is linear in the number of `total` callers (chain of 80: 7.5 s with
 25 callers, 25.7 s with 100) and grows with the cube of the chain (chain of
@@ -43,7 +43,7 @@ terminating is not searched again.
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the change:
+The smaller fix, which keeps upstream's closure:
 
 - `insideComponents` finds the strongly connected components of the calls
   the walk collected (Tarjan's algorithm) and keeps the calls inside one.
@@ -67,61 +67,49 @@ terminating is not searched again.
 - `addCases` moves out of `calcTerminating`'s `where` so `settle` can use
   it.
 
-Upstream test: `tests/idris2/total/total032` (in the diff), `Reach.idr`,
-which checks in about a second with the change.
+With it `Reach.idr` checks in about a second.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carried the change as its
-own code from 96bea9f1; the stock Idris only builds stage 0 and the
-benchmarks' Chez baseline.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug;
+it only builds stage 0 and the benchmarks' Chez baseline. The Idris that
+elaborates what this compiler consumes is our type checker in
+compiler/checker, Idris's checker copied into our tree, which carried the
+smaller fix as its own code from 96bea9f1 and has since gone further.
 
-Since 31013e5a the fork goes further and closes no graphs. Its check
-finds the components of the calls it reaches, as the diff does, and
-decides each with the size-change search its frontend's verdicts read
-too (`loopsTerminate`): from each function, walks are extended a call at
-a time, each function keeps only the weakest walks to it, and a walk back
+Since 31013e5a the checker closes no graphs. Its check finds the
+components of the calls it reaches, as the smaller fix does, and decides
+each with the size-change search its frontend's verdicts read too
+(`loopsTerminate`): from each function, walks are extended a call at a
+time, each function keeps only the weakest walks to it, and a walk back
 to the function is judged by its powers as it is found, the first that
-goes round for ever being the answer (PINS.md termination-closure and
-idris-fork; compiler/idris/README.md). Its verdicts are the size-change
-principle's, as the closure's are (*read*). A failed check names the
-function the closure names, the greatest by name of those with a loop
-that goes round for ever; the loop its message lists is the first such
-one the search meets, which need not be the one the closure listed.
-`settle` is the diff's, with 51's lookups. None of that is in the diff,
-which stays the smaller fix a re-sync looks for upstream.
+goes round for ever being the answer (compiler/checker/README.md). Its
+verdicts are the size-change principle's, as the closure's are (*read*).
+A failed check names the function the closure names, the greatest by
+name of those with a loop that goes round for ever; the loop its message
+lists is the first such one the search meets, which need not be the one
+the closure listed. `settle` is the smaller fix's, with 51's lookups.
 
-## Testing at the pin
+## Testing
 
-`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
---check`). No stock Idris has been built with it and upstream's suite has
-not run with it. The fork, whose `SizeChange.idr` was the pin's file before
-the change, checks `Reach.idr` in 0.8 s, a chain of 320 with 100 callers
-in 1.2 s, and the 702 programs of this repository's corpus give
+The checker, whose `SizeChange.idr` was the pin's file before the smaller
+fix, checked `Reach.idr` with it in 0.8 s, a chain of 320 with 100
+callers in 1.2 s, and the 702 programs of this repository's corpus gave
 byte-identical output with and without it (arm64 macOS, 2026-10-09).
-Those are measurements of the diff's form in the fork (96bea9f1); the
-search that replaced its closure (31013e5a) is not built or run yet
-(D56). `tests/upstream-termination-closure` checks a chain of 240 through
-the frontend, which the pinned checker does not finish within the step
+Those are measurements of the smaller fix (96bea9f1); the search that
+replaced its closure (31013e5a) is not built or run yet (D56).
+`tests/upstream-termination-closure` checks a chain of 240 through the
+frontend, which the pinned checker does not finish within the step
 limit.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report, the diff and the fork's
-change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, laid out as a stock checkout with the upstream test (`total032`)
-  it would carry. At a re-sync of compiler/idris
-  (compiler/idris/README.md) it says what to look for upstream: if
-  upstream has fixed the bug its own way, the fork takes upstream's code
-  and drops this change; if not, the change is carried forward onto the
-  new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-termination-closure` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it.
+The report goes when the Idris pin carries upstream's own fix; the
+checker keeps its search, which `tests/upstream-termination-closure`
+checks.

@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The fork of Idris's compiler (compiler/idris), which carries the change of
-# upstream/18-elaboration-primitive-folding/pull-request.diff, does not show
+# The type checker (compiler/checker), which fixes
+# upstream/18-elaboration-primitive-folding as its own code, does not show
 # the bug: a definition that applies a primitive to constants keeps the call
 # in its checked form, and so does a literal whose FromString applies one,
 # so the program computes each with the runtime's meaning of the primitive,
@@ -11,8 +11,7 @@
 # 12, its own evaluator's reading of "12.7", `infinity` to "+inf.0",
 # `eAcute` to the four characters \233 and `viaLiteral` to `MkN 12`, which
 # the program would print instead. A literal of a primitive type is still
-# the constant it denotes. When a re-sync brings upstream's fix, the
-# report, its PINS.md entry and this test go (upstream/README.md).
+# the constant it denotes.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 mkdir "$work/fold" && cp -R cases "$work/fold/" || exit 1
 {

@@ -4,7 +4,9 @@
 // grows on the heap: a constant nested off its spine, a type in a type, a
 // location in a location. Our C++ never recurses on the input's size, so a
 // nesting of any depth costs heap, never native stack, and no input can
-// reach the stack's guard.
+// reach the stack's guard. That heap is sized by the input, so the stack
+// takes it through the footprint's allocator and a deep nesting shows in
+// the footprint of the run that walks it.
 //
 // `enter` sees a node on the way down and says whether to go into it;
 // `leave` sees each node gone into, after all of its children, so a fact
@@ -13,8 +15,9 @@
 #ifndef IDR_SUPPORT_NEST_H
 #define IDR_SUPPORT_NEST_H
 
+#include "idr/Support/Footprint.h"
+
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
@@ -35,10 +38,11 @@ void depthFirst(Node root, Children children, Enter enter, Leave leave) {
   // A node is on the stack once on the way down and, if gone into, once
   // more on the way up, below its children.
   enum class Way : std::uint8_t { Down, Up };
-  llvm::SmallVector<std::pair<Node, Way>, 32> stack;
+  footprint::Vector<std::pair<Node, Way>> stack;
   stack.emplace_back(std::move(root), Way::Down);
   while (!stack.empty()) {
-    auto [node, way] = stack.pop_back_val();
+    auto [node, way] = std::move(stack.back());
+    stack.pop_back();
     if (way == Way::Up) {
       std::invoke(leave, std::as_const(node));
       continue;

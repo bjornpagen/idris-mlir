@@ -1,6 +1,0 @@
-the fork's module roots include Core
-compiler/src: only IdrisMLIR.Frontend imports the fork
-tests: one that imports the fork imports nothing of IdrisMLIR outside Frontend
-the fork imports nothing of IdrisMLIR
-witness: each planted file is found
-near miss: nothing found

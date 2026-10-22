@@ -13,6 +13,8 @@
 
 #include "idr/Transforms/EGraph.h"
 
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 
@@ -30,6 +32,15 @@ class IoPutStrOp;
 // appends none other shares. A guard that the string is not empty, and a
 // literal match's case of the empty string, read it.
 bool neverEmpty(mlir::Value str);
+
+// Erases what follows `op` in its block, the last first: control never gets
+// past `op` (a crash, or a match none of whose regions yields). Every rule
+// that ends a block calls this one. The dialect's library holds it because
+// every rule library links the dialect, never the reverse. A value made
+// after `op` is used only by ops after it in the same block, since a region
+// has one block until the lowering, so erasing the last first leaves each
+// op with no user; the rewriter checks that.
+void eraseAfter(mlir::RewriterBase &rewriter, mlir::Operation *op);
 
 } // namespace idr
 

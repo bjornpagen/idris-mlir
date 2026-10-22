@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The frontend reads none of the forms that have already erased facts or
-# were built for other backends: no import of the fork's modules that define
-# them, and in its code (comments and strings aside) no name of them, the
-# fields of a definition that hold them among them, anywhere in
+# were built for other backends: no import of the checker's modules that
+# define them, and in its code (comments and strings aside) no name of
+# them, the fields of a definition that hold them among them, anywhere in
 # compiler/src. A name the frontend defines itself is its own, not the
-# fork's: a proof's `Lifted` relation is no lambda-lifted term.
+# checker's: a proof's `Lifted` relation is no lambda-lifted term.
 #
 # The rule is `erased_inputs ROOT`, run on the repository and on the
 # planted trees (lib/planted.sh): witness/ names an erased form as a type,
 # as a field and as a call, and imports a module that defines one, publicly
 # too; near-miss/ holds what is allowed: the names in comments and strings
 # and as parts of longer names, a `Lifted` the tree defines itself, and
-# imports of the fork's modules that define none.
+# imports of the checker's modules that define none.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 erased='treeRT compexpr namedcompexpr schemeExpr CExp NamedCExp Lifted ANF VM getCompileData getIncCompileData'
 
@@ -45,7 +45,7 @@ erased_inputs() (
       }' "$work/code" | sed 's/^\([^:]*:[0-9]*\):.*/\1: names a form that has erased facts/'
   fi
   grep -E '^[^:]*:[0-9]*:import[[:space:]]+(public[[:space:]]+)?Compiler\.(CompileExpr|LambdaLift|ANF|VMCode|Inline|Scheme|RefC|ES|Interpreter)([.[:space:]]|$)' "$work/code" |
-    sed 's/^\([^:]*:[0-9]*\):.*/\1: imports a module of the fork that defines one/'
+    sed 's/^\([^:]*:[0-9]*\):.*/\1: imports a module of the checker that defines one/'
 )
 
 erased_inputs "$root" > "$work/found"

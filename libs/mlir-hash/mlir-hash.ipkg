@@ -3,7 +3,7 @@
 package mlir-hash
 version = 0.1.0
 
-brief = "XXH3's 128-bit hash in plain Idris over base's Bits64, the one copy the frontend and the fork import"
+brief = "XXH3's 128-bit hash in plain Idris over base's Bits64, the one copy the frontend and the type checker import"
 authors = "idris-mlir"
 
 depends = base

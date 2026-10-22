@@ -6,9 +6,10 @@
 // become its default. Two regions are compared body to body, after their
 // operations' shapes are hashed, so only regions of one shape are.
 
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Footprint.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins/Rules.h"
 
@@ -17,7 +18,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
 
-#include <algorithm>
+#include <optional>
 
 using namespace mlir;
 using namespace idr::control;
@@ -32,52 +33,53 @@ bool readsNothingBound(Region &region) {
   return llvm::all_of(region.getArguments(), [](BlockArgument arg) { return arg.use_empty(); });
 }
 
+// A value of one body compared with others, by its place in the solver's
+// walk of that body alone.
+struct BodyValueTag {
+  using Minter = solver::Numbering<BodyValueTag, solver::Scope::Nested>;
+};
+using BodyValue = Id<BodyValueTag>;
+
 // One region's body, ready to be compared with every region it may stand
-// for: the values it makes, its ops' results and its nested blocks'
-// arguments, are numbered once (a value carries no number MLIR gives it),
-// so a body compared with several others is numbered once, not once per
-// comparison; the value of the other body each matches, as a comparison
-// meets them, is a table by that number. Both are scratch counted in the
-// pass's footprint, sized by the body. A value made outside the body
-// matches itself alone. Upstream's own comparison of regions is not used,
-// since its block arguments must agree in type where a case's need not.
+// for: the values it makes (its entry arguments, which it reads none of, its
+// ops' results and its nested blocks' arguments) are numbered once, since a
+// value carries no number MLIR gives it, so a body compared with several
+// others is numbered once, not once per comparison. A value made around the
+// body has no number and matches itself alone. Each comparison holds the
+// value of the other body each of this body's values matches, as the
+// comparison meets them, in a table by that number which lives only while
+// the comparison runs, so no match of an earlier comparison can be read.
+// Both are scratch counted in the pass's footprint, sized by the body.
+// Upstream's own comparison of regions is not used, since its block
+// arguments must agree in type where a case's need not.
 class Body {
 public:
-  explicit Body(Region &region) : block(region.front()) {
-    block.walk([&](Operation *op) {
-      for (Value result : op->getResults())
-        number.try_emplace(result, static_cast<unsigned>(number.size()));
-      for (Region &nested : op->getRegions())
-        for (Block &inner : nested)
-          for (Value arg : inner.getArguments())
-            number.try_emplace(arg, static_cast<unsigned>(number.size()));
-    });
-    partner.resize(number.size());
-  }
+  explicit Body(Region &region) : block(region.front()), numbering(region) {}
 
   // Whether `other`, a region that reads none of its arguments, does what
   // this body does, which reads none of its own.
-  bool sameAs(Region &other) {
+  bool sameAs(Region &other) const {
     Block &y = other.front();
     if (block.getOperations().size() != y.getOperations().size())
       return false;
-    std::fill(partner.begin(), partner.end(), Value());
+    IndexVector<BodyValue, Value> partner(numbering.size());
     return llvm::all_of_zip(block, y, [&](Operation &l, Operation &r) {
       return OperationEquivalence::isEquivalentTo(
           &l, &r,
           [&](Value lv, Value rv) {
-            auto it = number.find(lv);
-            return success(lv == rv || (it != number.end() && partner[it->second] == rv));
+            std::optional<BodyValue> n = numbering.find(lv);
+            return success(n ? partner[*n] == rv : lv == rv);
           },
-          [&](Value lv, Value rv) { partner[number.find(lv)->second] = rv; },
+          // Upstream marks only a result of an op of the body, or an
+          // argument of a block nested in it, both of which are numbered.
+          [&](Value lv, Value rv) { partner[*numbering.find(lv)] = rv; },
           OperationEquivalence::IgnoreLocations);
     });
   }
 
 private:
   Block &block;
-  footprint::DenseMap<Value, unsigned> number;
-  footprint::Vector<Value> partner;
+  solver::Numbering<BodyValueTag, solver::Scope::Nested> numbering;
 };
 
 // The operations a region holds, hashed as Body compares them but for

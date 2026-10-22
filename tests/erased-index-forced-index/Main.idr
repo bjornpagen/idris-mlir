@@ -4,7 +4,7 @@ import Prelude
 
 -- Guards that a leaf reads an erased index as the runtime field its clause
 -- unified it with when a runtime index of the clause holds a term the
--- unifier computed (the shape of the fork's Show (Partitions ps), whose ps
+-- unifier computed (the shape of the checker's Show (Partitions ps), whose ps
 -- is cs ++ ps'). Idris's tree never matches such a term, so the clause
 -- still matches every input that reaches the leaf; read as a test, it hid
 -- the clause and the leaf read the erased index at run time.

@@ -4,8 +4,8 @@
 // names (Spec.idr's core declarations) and its printed ODS gives the ops as
 // bases, so IdrDialect.h includes this before them: an op whose result is
 // its operand at another grade, one that keeps its operand's identity too,
-// one whose result is used as often as the values it takes, and a partial
-// op's guards.
+// one that eliminates its first operand, one whose result is used as often
+// as the values it takes, and a partial op's guards.
 #ifndef IDR_IR_TRAITS_H
 #define IDR_IR_TRAITS_H
 
@@ -36,6 +36,13 @@ public:
 // exclusivity kept, which a value's source looks through.
 template <typename ConcreteType>
 class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
+
+// An op that eliminates its first operand and does nothing else with it (a
+// match on a closure sum, a read of its field, a string's output): where a
+// chain of single uses ends that raising moves into a clone of the callee
+// building the operand. Raising asks for the trait, so no op is named.
+template <typename ConcreteType>
+class EliminatesOperand : public mlir::OpTrait::TraitBase<ConcreteType, EliminatesOperand> {};
 
 // The grade's own rule over an op's groups: each value of its result group
 // `Result` is used once exactly when a value of one of its operand groups

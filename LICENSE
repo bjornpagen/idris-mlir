@@ -17,9 +17,9 @@ only one here. Every file names its own on its first line
 The parts:
 
 - Ours (0BSD): everything not named below.
-- compiler/idris/ is derived from Idris 2
+- compiler/checker/ is derived from Idris 2
   (https://github.com/idris-lang/Idris2) and is distributed under its
-  own BSD-3-Clause licence, in compiler/idris/LICENSE.
+  own BSD-3-Clause licence, in compiler/checker/LICENSE.
 - Files ported from Modular's Mojo compiler or derived from
   MLIR/LLVM carry Apache-2.0 WITH LLVM-exception, their upstream
   copyright kept in place (NOTICE). A port is recorded in PINS.md

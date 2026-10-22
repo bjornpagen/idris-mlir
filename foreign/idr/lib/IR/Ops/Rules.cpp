@@ -47,17 +47,15 @@ bool idr::neverEmpty(Value str) {
   return false;
 }
 
-namespace idr::egraph {
-
-namespace {
-
-// Erases every op after `op` in its block, the last first, so each op's
-// users are gone before it: what follows a crash never runs.
-void eraseAfter(RewriterBase &rewriter, Operation *op) {
+void idr::eraseAfter(RewriterBase &rewriter, Operation *op) {
   Block *block = op->getBlock();
   while (&block->back() != op)
     rewriter.eraseOp(&block->back());
 }
+
+namespace idr::egraph {
+
+namespace {
 
 // The interval an operand has where the e-graph knows none: every value of
 // its type, or the one value of width 0 a value that holds no integer has.

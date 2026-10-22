@@ -18,7 +18,7 @@ namespace {
 // none.
 int64_t environmentString(const char *text) {
   if (text == nullptr)
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   rt::io::keepString(rt::io::environmentHandle, idris_rt_str_from_bytes(text, strlen(text)));
   return rt::io::environmentHandle;
 }

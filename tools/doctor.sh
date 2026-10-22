@@ -85,12 +85,12 @@ for path in "${dev_prefix#"$root"/}/foreign/idr/idris-mlir" \
   if [ -f "$root/$path" ]; then echo "$path: built"; else echo "$path: not built (make build)"; fi
 done
 # The prefixes `make build` makes: what the pinned Idris installs for this
-# checkout (the fork, and libs/ for the benchmarks' Chez baseline), and
+# checkout (the checker, and libs/ for the benchmarks' Chez baseline), and
 # the frontend's own, every package of it built by the frontend.
-if [ -f "$host_prefix/$fork_stamp" ]; then
-  echo "${host_prefix#"$root"/}: the fork installed for the pinned Idris"
+if [ -f "$host_prefix/$checker_stamp" ]; then
+  echo "${host_prefix#"$root"/}: the checker installed for the pinned Idris"
 else
-  echo "${host_prefix#"$root"/}: the fork not installed (make build)"
+  echo "${host_prefix#"$root"/}: the checker not installed (make build)"
 fi
 if "$pins" prefix 2> /dev/null; then
   echo "${checkout_prefix#"$root"/}: the pinned Idris source's packages and libs/, built by the frontend"

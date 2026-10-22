@@ -74,7 +74,7 @@ what is true; the definition follows it; when they fight, refine the type.
 
 ### The subset we compile (two hosts)
 
-The frontend, the fork, `libs/` and the test machinery build under stock
+The frontend, the checker, `libs/` and the test machinery build under stock
 Idris and under idris-mlir itself, so what you write must stay inside what
 idris-mlir compiles (the refused programs of `tests/` list the rules):
 - **Dependent fields:** types may compute, but a field whose representation

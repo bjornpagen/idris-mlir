@@ -4,8 +4,9 @@
 // vocabulary stores it, held on the run's thread beyond what it held when
 // the run began. Every table the vocabulary sizes by the program (an
 // IndexVector, a BitSet, a Ragged, any vector a solver keeps its state in,
-// a footprint::Vector, a hashed map or set that must stay hashed, a
-// footprint::DenseMap or DenseSet, and an arena things are interned in, a
+// the stack of a walk down a nesting (Nest.h), a footprint::Vector, a
+// hashed map or set that must stay hashed, a footprint::DenseMap or
+// DenseSet, and an arena things are interned in, a
 // footprint::BumpPtrAllocator) takes its memory through this header's
 // allocators, which add what they take to the calling thread's ledger and
 // take off what they give back. A run nested inside another on one thread

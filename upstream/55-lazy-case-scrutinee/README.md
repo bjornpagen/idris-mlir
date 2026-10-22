@@ -30,7 +30,7 @@ main = printLn (pick (case boom 1 of { 5 => 1; _ => 2 }))
 
 It exits 1 with `Unhandled input for Main.boom`; `pick (boom 1)` prints
 1. `ifThenElse True 1 (if boom 1 == 5 then 2 else 3)` does the same, as
-`if` is a case block on Bool. The fork as the working tree had it gives
+`if` is a case block on Bool. The checker as the working tree had it gives
 the same from `idris-mlir`. Measured on arm64 macOS, 2026-10-19.
 
 ## Expected
@@ -65,42 +65,34 @@ expected type is checked as before. An alternative whose value is itself
 delayed is forced inside the delay by `checkExp`'s `AddForce`, which
 means the same.
 
-Upstream test: `tests/idris2/basic/lazycase001`, in the diff:
-`LazyCase.idr`, whose `pick (case boom 1 ...)` and `ifThenElse True 1 (if
+A test for upstream's suite was laid out beside the change,
+`lazycase001`'s `LazyCase.idr`, whose `pick (case boom 1 ...)` and `ifThenElse True 1 (if
 boom 1 == 5 ...)` must print 1 and whose forced blocks must compute their
 scrutinee.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its
-own code. The stock Idris only builds stage 0 (the fork, the frontend and
-the test runner) and the benchmarks' Chez baseline, and nothing it builds
-writes a case block at a delayed type whose scrutinee must not run.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds writes a case block at a delayed type whose scrutinee
+must not run.
 
-## Testing at the pin
+## Testing
 
 `tests/upstream-lazy-case-scrutinee` exits 1 with `unhandled input for
-Main.boom` through the unchanged fork, and prints its expected output
+Main.boom` through the unchanged checker, and prints its expected output
 through the changed one.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report and the change were
-written with one.
-
-- `pull-request.diff` records the change and its upstream test against
-  third_party/Idris2 at its gitlink (89ba32eb). Upstream's `checkCase` is
-  one function whose body `delayElab` wraps; the record makes that body
-  `checkCaseDelayed` and `checkCase` the delay of `checkCaseExpected`, as
-  the fork has it, without the fork's other changes to the file. At a re-sync of compiler/idris (compiler/idris/README.md), if
-  upstream has fixed this bug its own way, the fork takes upstream's code
-  and drops `checkCaseExpected`; `checkDelayAt` may stay as the one
-  elaborator of a delay.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-lazy-case-scrutinee` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it.
+The report goes when the Idris pin carries upstream's own fix; the
+checker keeps its own, which `tests/upstream-lazy-case-scrutinee` checks.

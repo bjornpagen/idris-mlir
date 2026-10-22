@@ -20,7 +20,7 @@ extern "C" int64_t idris_rt_io_dir_current(void) {
   while (!rt::platform::currentDirectory(path.bytes, path.capacity)) {
     if (rt::platform::lastError() != ERANGE) {
       rt::io::saveError();
-      return rt::io::nullHandle;
+      return idr::handles::nullHandle;
     }
     path.reserve(path.capacity + 1);
   }
@@ -62,7 +62,7 @@ extern "C" int64_t idris_rt_io_dir_open(const idris_rt_str *path) {
   rt::platform::Directory *stream = rt::platform::openDirectory(rt::io::cText(text, path));
   if (stream == nullptr) {
     rt::io::saveError();
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   }
   int64_t handle = rt::io::newSlot(rt::io::Kind::Directory);
   int64_t entry = rt::io::newSlot(rt::io::Kind::KeptString);
@@ -87,11 +87,11 @@ extern "C" void idris_rt_io_dir_close(int64_t dir) {
 extern "C" int64_t idris_rt_io_dir_entry(int64_t dir) {
   rt::io::Slot *slot = rt::io::openSlot(dir, rt::io::Kind::Directory);
   if (slot == nullptr)
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   const char *name = rt::platform::nextEntry(slot->directory.stream);
   rt::io::saveError();
   if (name == nullptr)
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   rt::io::keepString(slot->directory.entry, idris_rt_str_from_bytes(name, strlen(name)));
   return slot->directory.entry;
 }

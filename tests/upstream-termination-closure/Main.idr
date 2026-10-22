@@ -6,13 +6,13 @@ import Prelude
 -- argument and calling one of the next two with its arguments permuted,
 -- and 25 total functions that call the first: each total function's check
 -- reaches the whole chain. The pinned Idris closes the size-change graphs
--- over every path of the chain, for each of the 25 again; the fork closes
--- over the calls inside components, of which the chain has none, and
--- settles the chain at the first.
--- The fork carries upstream/21-termination-closure/pull-request.diff, with
--- which it checks these in about a second (arm64 macOS), where the pinned
--- checker takes minutes; when a re-sync brings upstream's fix, this test
--- goes with the report (upstream/README.md).
+-- over every path of the chain, for each of the 25 again; the type checker
+-- searches only the calls inside components, of which the chain has none,
+-- and settles the chain at the first.
+-- The stock Idris still has the bug (upstream/21-termination-closure); the
+-- type checker fixes it as its own code, with which it checked these in
+-- about a second (arm64 macOS), where the pinned checker takes minutes,
+-- and this test checks that fix.
 
 %default covering
 

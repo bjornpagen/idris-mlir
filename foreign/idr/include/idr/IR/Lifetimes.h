@@ -106,7 +106,6 @@ public:
   constexpr bool isView() const { return kindCase() == LifetimeKindCase::View; }
   constexpr bool isRoom() const { return kindCase() == LifetimeKindCase::Room; }
   constexpr bool isCursor() const { return kindCase() == LifetimeKindCase::Cursor; }
-  constexpr bool isHome() const { return kindCase() == LifetimeKindCase::Home; }
   // Whether something may allocate into a lifetime of this kind: every kind
   // but a view, which has no memory.
   constexpr bool admitsPuts() const { return kindAdmitsPuts[kindCase()] != 0; }

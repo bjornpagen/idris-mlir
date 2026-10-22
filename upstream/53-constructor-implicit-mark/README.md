@@ -2,13 +2,11 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A constructor's implicit a clause leaves out keeps no mark
 
-After: upstream/52-relevant-implicit-split
-
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's
 `idris2` 0.8.0-1c630e67c), a function that matches a constructor whose
 implicit argument the clause leaves out, and that the pattern of a later
 field fixes, is reported not covering. Upstream/50's change, which the
-fork carries, does not reach it.
+checker has, does not reach it.
 
 ## Reproduce
 
@@ -42,8 +40,8 @@ v3 (C2 (ItIsF :: [])) = ()
 
 It exits 1, reporting `v1 is not covering` and `v3 is not covering`,
 each with missing cases `v1 (C1 _)` and `v1 (C1 _)` (`v3 (C2 _)` twice).
-`v2` is accepted. The fork as the working tree has it (upstream/50 and 51
-applied), built into a private prefix, gives the same two errors from
+`v2` is accepted. The checker as the working tree had it (with 50's and
+51's changes), built into a private prefix, gives the same two errors from
 `idris-mlir-front --check C.idr`, exit 3. Measured on arm64 macOS,
 2026-10-16.
 
@@ -83,8 +81,8 @@ never looks at a relevant argument (`v1`).
 
 ## The fix
 
-`pull-request.diff` is the change, against the pin with upstream/50's and
-upstream/52's `pull-request.diff` applied, in that order. It also fixes
+Our type checker (compiler/checker) has the change as its own code,
+after upstream/50's and upstream/52's, in that order. It also fixes
 upstream/54-erased-constant-pattern, which needs the mark it adds; that
 report points here.
 
@@ -116,8 +114,8 @@ report points here.
   clause writes on an erased argument is split whatever its kind, and one
   unification fixed keeps the old rule.
 
-Upstream tests: `tests/idris2/coverage/coverage034` (in the diff),
-`ConImplicit.idr`: `v1`, `v3` (computed in a type), and `w3` and `w4`,
+The checks below name `coverage034`, a test laid out for upstream's suite
+beside the change, `ConImplicit.idr`: `v1`, `v3` (computed in a type), and `w3` and `w4`,
 whose implicits the clauses write and still match, `w3 (C3 {x = B})` and
 `w4 (C4 {x = B})` taking the second clause; and `coverage035`, for
 upstream/54.
@@ -137,29 +135,24 @@ upstream/54.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code. The stock Idris only builds stage 0 (the fork, the frontend and the
-test runner) and the benchmarks' Chez baseline, and nothing it builds is
-refused by the bug: all of it checks at the pin.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds is refused by the bug: all of it checks at the pin.
 
-## Testing at the pin
+## Testing
 
-The series 50, 52, 53 applies to the pin in that order and gives the
-fork's change line for line, but for two lines of the pin's own that this
-change moves (`elabTermSub`'s `DelayedElabs` argument, and `checkAs`'s
-log); the pinned Idris typechecks the compiler with all three (`idris2
---typecheck idris2api.ipkg`). No stock Idris has been built with it and
-upstream's suite has not run with it; at the pin, the stock Idris reports
-`coverage034`'s `v1` and `v3` not covering, two missing cases each, and
-nothing else. The fork carries 50, 52, 53 and 54 as one change, checked as
+At the pin, the stock Idris reports `coverage034`'s `v1` and `v3` not covering, two missing cases each, and
+nothing else. The checker has 50, 52, 53 and 54 as one change, checked as
 upstream/52's README says: among those checks, `coverage032` to
 `coverage035` print exactly their `expected`, the reproducer checks,
 `v1`'s and `v3`'s forms at the other quantity (`0 v1z`, and `v2` above
 quantity 0) check, `getW` is covering, and the 385 programs give the same
 status, output, Core and bytecode as before.
 `tests/upstream-constructor-implicit-mark` compiles through the frontend,
-which the unchanged fork's refuses. Its `expected` waits for a build of the
+which the unchanged checker's refuses. Its `expected` waits for a build of the
 whole toolchain.
 
 An earlier version of this change took a marked binding as a variable
@@ -174,21 +167,11 @@ the right-hand side could not use. That is why a mark gives way.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report, the diff and the fork's
-change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, after upstream/50's and upstream/52's, laid out as a stock checkout
-  with the upstream tests (`coverage034`, and `coverage035` for
-  upstream/54) it would carry.
-  At a re-sync of compiler/idris (compiler/idris/README.md) it says what to
-  look for upstream: if upstream has fixed the bug its own way, the fork
-  takes upstream's code and drops this change; if not, the change is
-  carried forward onto the new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-constructor-implicit-mark` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it. The
+report goes when the Idris pin carries upstream's own fix; the checker
+keeps its own, which `tests/upstream-constructor-implicit-mark` checks.

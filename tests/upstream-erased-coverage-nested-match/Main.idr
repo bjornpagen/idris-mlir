@@ -5,9 +5,9 @@ module Main
 -- Idris splits it first in their case trees, finds `A :: _` and `B :: _`
 -- unmatched, and cannot see that `All IsF (A :: _)` is empty, so it reports
 -- `fp` and `fp3` not covering and refuses the module.
--- The fork carries upstream/50-erased-coverage-nested-match/pull-request.diff,
--- with upstream/52-relevant-implicit-split's order; when a re-sync brings
--- upstream's fix, this test goes with the report (upstream/README.md).
+-- The stock Idris still has the bug (upstream/50-erased-coverage-nested-
+-- match); the type checker fixes it as its own code, with the order of
+-- upstream/52-relevant-implicit-split, and this test checks that fix.
 
 import Prelude
 

@@ -67,17 +67,17 @@ import reaches, and elaborating a module's own definitions can leave such a
 name in them too, by unfolding a visible definition whose body names it. So
 the termination check meets names the context has no definition of:
 `resolveCall` drops the call, `totRefs` (`References.idr`) skips the name,
-and the fork's `settle` counted it as settled. The check assumes every
+and the checker's `settle` counted it as settled. The check assumes every
 callee is loaded, which since then holds only on a full load.
 
-How often it happens: checking the fork's own sources with the pinned
+How often it happens: checking the checker's own sources with the pinned
 Idris, 52 checks of total functions, in nine modules, meet a callee the
 context does not hold (`Data.Buffer`, `Control.Monad.ST`, `Data.Nat`'s
-lemmas, the fork's `Libraries.Data.String.Extra`), every one dropped.
+lemmas, the checker's `Libraries.Data.String.Extra`), every one dropped.
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the change:
+Our type checker (compiler/checker) has the change as its own code:
 
 - The context holds, beside its definitions, the modules a module it
   imports imports and no import of this context reads (`Unimported`, a
@@ -92,7 +92,7 @@ lemmas, the fork's `Libraries.Data.String.Extra`), every one dropped.
   suggestions for an undefined name see only the context, so what a module
   means is unchanged, and a module whose check needs no such name reads
   nothing more.
-- `resolveCall`, `totRefs`, `addCases` and, in the fork, `settle` look
+- `resolveCall`, `totRefs`, `addCases` and, in the checker, `settle` look
   names up through it, and a verdict on a definition held there is recorded
   there (`setReachedTerminating`), so `setPrefixTerminating`, the loop a
   failed check reports and `settle` treat such a definition as they treat
@@ -120,76 +120,67 @@ Why not the two fixes the report first named:
 - Refusing a call whose callee the context does not hold is sound, but
   makes a verdict depend on what the module imports: each of the 52 checks
   above would be refused, while the same function in a module that imports
-  the callee's is accepted, and the fork's own sources still check total
+  the callee's is accepted, and the checker's own sources still check total
   with this fix, so no callee among them is on a loop.
 - Loading every module the imports reach into the context, as a full load
   does, puts their names in scope (ambiguity, shadowing warnings, the
   suggestions for an undefined name, the evaluator unfolding what the
   module does not import), which is what c88bf7af8 removed, and makes every
   build read about three times the TTCs: 16,877 module loads against 5,589
-  for the fork's and the frontend's sources, and 2,221 against 826 for
+  for the checker's and the frontend's sources, and 2,221 against 826 for
   base, at about 9 ms for a base TTC here.
 
-The fork carries the change in its own `Core.Termination.References`,
+The checker carries the change in its own `Core.Termination.References`,
 `Core.Termination.SizeChange`, `Core.Termination.Positivity`,
 `Core.Context`, `Core.Binary` and `Idris.ProcessIdr`; 21-termination-closure's
 `settle` is unchanged but for its lookups, and its closure over
-components is gone from the fork since 31013e5a, whose check searches
-each component (`loopsTerminate`; PINS.md termination-closure).
+components is gone from the checker since 31013e5a, whose check searches
+each component (`loopsTerminate`; upstream/21-termination-closure).
 
-Upstream test: `tests/idris2/total/total033` (in the diff). `Caller.idr`
-imports neither `Loop` nor `Count`: its `caller` reaches `Loop.loop`
+`tests/upstream-totality-unimported-callee` checks it through the
+frontend, on the files of `total033`, a test laid out for upstream's
+suite beside the change: its `Main.idr` imports neither `Loop` nor `Count`: its `caller` reaches `Loop.loop`
 through `ViaLoop.viaLoop` and is refused; its `counted` reaches the total
 `Count.count` through `ViaCount.viaCount` and is accepted, which a fix that
 refused unseen callees would not do.
 
-## Testing at the pin
+## Testing
 
-`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
---check`). No stock Idris has been built with it and upstream's suite has
-not run with it; `total033/expected` is the fork's output on the same
-files.
-
-The fork had the bug before the change: at b81f48dd its frontend's
+The checker had the bug before the change: at b81f48dd its frontend's
 `--check` accepts the reproducer's `LC` and refuses `LD`. With the change,
 built by the pinned Idris on Chez into private prefixes (arm64 macOS,
 2026-10-16):
 - `LC` is refused with `LD`'s message, and `total033` gives its
   `expected`;
 - prelude, base, linear, network, contrib, test, mlir-linear, mlir-array
-  and the fork's own package (`idris-compiler`, 204 modules, 130 s against
-  171 s before) build with the fork, so no definition among them that
+  and the checker's own package (204 modules, 130 s against 171 s before)
+  build with the checker, so no definition among them that
   claims to be total is newly shown not to be; and the frontend's own
   sources check as before;
 - the 385 programs then in tests/programs, tests/accept and tests/reject
   give the same exit status, stdout and stderr as before, and the 329
   accepted give byte-identical Core dumps and modules;
 - the case that found the bug, `program` in `Frontend/Program.idr` without
-  `covering`, is accepted by the fork before the change and refused after
+  `covering`, is accepted by the checker before the change and refused after
   it: `translateIOProgram` reaches a loop in `Finite.translateFrom`,
   through a module `Program` does not import.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code; the stock Idris only builds stage 0 (the fork, the frontend and the
-test runner) and the benchmarks' Chez baseline, and it still has the bug.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+it still has the bug.
 
 ## Upstreaming plan
 
-Status: carried as fork code; nothing goes to idris-lang/Idris2 from here.
-Idris accepts no contribution that arises from generative AI or a coding
-agent (upstream/README.md, **Idris**), and this report, the diff and the
-fork's change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, laid out as a stock checkout with the upstream test (`total033`) it
-  would carry. At a re-sync of compiler/idris (compiler/idris/README.md) it
-  says what to look for upstream: if upstream has fixed the bug its own
-  way, the fork takes upstream's code and drops this change; if not, the
-  change is carried forward onto the new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-totality-unimported-callee` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it. The
+report goes when the Idris pin carries upstream's own fix; the checker
+keeps its own, which `tests/upstream-totality-unimported-callee` checks.

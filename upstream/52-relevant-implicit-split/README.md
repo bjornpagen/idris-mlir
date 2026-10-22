@@ -2,8 +2,6 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A relevant implicit the clauses leave out is reported not covering
 
-After: upstream/50-erased-coverage-nested-match
-
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's
 `idris2` 0.8.0-1c630e67c), the coverage checker rejects a definition above
 quantity 0 whose clauses leave a relevant implicit to unification, when the
@@ -39,7 +37,7 @@ It reports `fp4 is not covering`, with missing cases `fp4 _` and `fp4 _`.
 With `cb xs = case xs of [] => 0; (ItIsF :: _) => 1` at the same type
 (result `Nat`) it reports `cb` as calling the non-covering `case block in
 cb`, and a `with (b)` block over the same arguments reports `with block in
-wb _ True (A :: _) _` and `... (B :: _) _` missing. The fork with 50's
+wb _ True (A :: _) _` and `... (B :: _) _` missing. The checker with 50's
 change reports the same. Measured on arm64 macOS, 2026-10-16.
 
 ## Expected
@@ -74,7 +72,7 @@ versions of this fix showed:
   third argument reduces only once `xs` is split, and without that split the
   case builder cannot type the column: "Patterns for liftedBad require
   matching on different types". The pin accepts it. With 50's change the
-  fork already refuses its copy at quantity 0, `0 liftedBad0`, and taken as
+  checker already refuses its copy at quantity 0, `0 liftedBad0`, and taken as
   a variable above quantity 0 it refused the frontend's own
   `IdrisMLIR.Proof.AlmostFull.liftedBad` (at efe0ad36; 3b1909e7 deletes
   the module).
@@ -92,10 +90,10 @@ does not write before the patterns that fix it.
 
 ## The fix
 
-`pull-request.diff` is the change, against the pin with 50's
-`pull-request.diff` applied, whose `VarSet` mark (the arguments a checked
-clause leaves to unification, `unifiedArgs`) it reads. upstream/53's
-`pull-request.diff` applies after it.
+Our type checker (compiler/checker) has the change as its own code,
+after 50's, whose `VarSet` mark (the arguments a checked clause leaves to
+unification, `unifiedArgs`) it reads; upstream/53's change comes after
+it.
 
 - Each row of the case builder's match carries the clause it comes from
   (`Origin`): its place, which its leaf names, and the names of the
@@ -132,8 +130,8 @@ upstream/53 adds marks for a constructor's implicits, which the same order
 splits after the field that fixes them, at whatever step their constructor
 is split; upstream/54 is a rule on the same `Source` at quantity 0.
 
-Upstream test: `tests/idris2/coverage/coverage033` (in the diff),
-`RelevantImplicit.idr`: `fp4`, `sumF` with a reduction in a type, the case
+The checks below name `coverage033`, a test laid out for upstream's suite
+beside the change, `RelevantImplicit.idr`: `fp4`, `sumF` with a reduction in a type, the case
 block `cb`, the with block `wb`, and `liftedBad` and `0 liftedBad0`.
 
 ## What the fix leaves
@@ -152,27 +150,21 @@ block `cb`, the with block `wb`, and `liftedBad` and `0 liftedBad0`.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code. The stock Idris only builds stage 0 (the fork, the frontend and the
-test runner) and the benchmarks' Chez baseline, and nothing it builds is
-refused by the bug: all of it checks at the pin.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds is refused by the bug: all of it checks at the pin.
 
-## Testing at the pin
+## Testing
 
-The series 50, 52, 53 applies to the pin in that order (`git apply`, each
-in turn, on an archive of the pin), and gives the fork's change line for
-line, but for two lines of the pin's own that 53 moves (`elabTermSub`'s
-`DelayedElabs` argument, and `checkAs`'s log). The pinned Idris typechecks
-the compiler with 50 and 52, and with all three (`idris2 --typecheck
-idris2api.ipkg`). No stock Idris has been built with them and upstream's
-suite has not run with them; at the pin, the stock Idris reports
-`coverage033`'s `fp4`, `sumF`, `cb` and `wb` not covering and accepts
+At the pin, the stock Idris reports `coverage033`'s `fp4`, `sumF`, `cb` and `wb` not covering and accepts
 `liftedBad` and `liftedBad0`.
 
-The fork carries 50, 52, 53 and 54 together, one change. It was built by
+The checker carries 50, 52, 53 and 54 together, one change. It was built by
 the pinned Idris into a private prefix, with the frontend against it, and
-compared with the working tree's fork (efe0ad36 with 50's and 51's changes;
+compared with the working tree's checker (efe0ad36 with 50's and 51's changes;
 3b1909e7 deletes `IdrisMLIR.Proof.AlmostFull`, which its frontend still
 imports, so efe0ad36's compiler and tests are the base) built the same way
 (arm64 macOS, 2026-10-16):
@@ -191,10 +183,10 @@ imports, so efe0ad36's compiler and tests are the base) built the same way
   and `wb` likewise. Its `expected` waits for a build of the whole
   toolchain;
 - prelude, base, linear, network, contrib, test, mlir-linear, mlir-array and
-  the fork's own package build with it. Of the 484 TTCs, 161 are
+  the checker's own package build with it. Of the 484 TTCs, 161 are
   byte-identical to the baseline's and 284 hold the same definitions, their
   headers' hashes and machine-generated names aside. The definitions of the
-  other 39 that differ: those of the 8 fork modules the change edits; 27 at
+  other 39 that differ: those of the 8 checker modules the change edits; 27 at
   quantity 0, whose kept tree splits an argument left to unification last;
   and 56 above quantity 0 whose clauses hold a new mark of 53's: 49 with
   the same splits and a `let` in a leaf binding the marked name to the term
@@ -216,39 +208,34 @@ Nat) -> (hs : List (Nat, Bool)) -> All (\e => LT (fst e) p) hs -> ...`
 was reported not covering, and so were six definitions of the frontend's
 own that call it, which the pin accepts. That form was committed as
 41612045; the source now travels with each column. Checked against
-41612045's fork, built the same way: `coverage035` with its new case
+41612045's checker, built the same way: `coverage035` with its new case
 `heads` prints exactly its `expected`, and the reproducer checks; of the
 484 TTCs, 482 are byte-identical, `TTImp.ProcessDef` differs only in
 machine-generated names and `Core.Case.CaseBuilder` is the change; the 385
 programs give the same status, output, Core and bytecode against both
 prefixes; the fixtures of 21, 50, 51, 52 and 53 give what they gave, 54's
-compiles with its new case; the pinned Idris typechecks the pin with 50
-and 52, and with all three; and every module of the frontend's sources,
+compiles with its new case; and every module of the frontend's sources,
 41612045's (67) and the working tree's (78), checks with it as with the
 pinned stock Idris, but for the working tree's `Driver`, whose `frontend`
-is declared total and reaches the fork's `Core.Value.NTCon`: upstream/51's
-check, the same with the fork of 50 and 51 alone and with 51 alone.
+is declared total and reaches the checker's `Core.Value.NTCon`: upstream/51's
+check, the same with the checker of 50 and 51 alone and with 51 alone.
 
-The fork and the series were then cleaned up together, neither changing
-what it does: `checkLHS` returns the arguments a clause leaves to
+The checker was then cleaned up, without changing what it does: `checkLHS` returns the arguments a clause leaves to
 unification in the clause's scope, where it returned the marks for
 `checkClause` to combine with the raw left-hand side (50, 53); `arrange`
 takes the columns apart into an `Arrangement` read off the columns, where
 it named the later ones in a list matched against the columns by position
 (52); a column's `Source` is read where the column is made and nowhere
 else (52); and 54's rule reads the pattern's `Source`, not a `Use` (53).
-Checked against the fork before it, both built the same way (arm64 macOS,
+Checked against the checker before it, both built the same way (arm64 macOS,
 2026-10-17): `coverage032` to `coverage035` print exactly their `expected`;
 the reproducers of 50 to 54 and `headsIn` print what they printed;
-prelude's and base's TTCs are byte-identical, and so are the fork's own
+prelude's and base's TTCs are byte-identical, and so are the checker's own
 but for the three modules edited and `TTImp.ProcessDecls`, whose import
 hashes record `checkLHS`'s new type; every module of the frontend's
 sources checks with the same output; 46 programs then in tests/accept
 and tests/reject and the fixtures of upstream/21, 50, 51, 52, 53 and 54 give
-the same status, output, Core and bytecode; the series applies in order
-to the pin (`git apply` too) and gives the fork's change, as above; and
-the pinned Idris typechecks the pin with 50, with 50 and 52, and with all
-three.
+the same status, output, Core and bytecode.
 
 52 alone was first checked the same way, against the same base; with it
 50's `asVariables` was taken out, and a version that took the argument as a
@@ -256,21 +243,11 @@ variable above quantity 0 refused `AlmostFull.liftedBad`.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent (upstream/README.md, **Idris**), and this report, the diff
-and the fork's change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, after 50's change and before 53's, laid out as a stock checkout with
-  the upstream test (`coverage033`) it would carry. At a re-sync of compiler/idris
-  (compiler/idris/README.md) it says what to look for upstream: if upstream
-  has fixed the bug its own way, the fork takes upstream's code and drops
-  this change, with 50's; if not, the change is carried forward onto the
-  new base. Whatever upstream does with the tree a definition above
-  quantity 0 keeps, the fork keeps that tree's order (`saved`): its frontend
-  translates it, and its erased arguments are taken as variables.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-relevant-implicit-split` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it. The
+report goes when the Idris pin carries upstream's own fix; the checker
+keeps its own, which `tests/upstream-relevant-implicit-split` checks.

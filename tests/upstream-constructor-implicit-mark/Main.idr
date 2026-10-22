@@ -6,9 +6,9 @@ module Main
 -- checked clause, splits it first in their case trees, finds `A` and `B`
 -- unmatched, and cannot see that `All IsF [A]` is empty, so it reports
 -- `v1` and `v3` not covering and refuses the module.
--- The fork carries upstream/53-constructor-implicit-mark/pull-request.diff,
--- with upstream/52-relevant-implicit-split's order; when a re-sync brings
--- upstream's fix, this test goes with the report (upstream/README.md).
+-- The stock Idris still has the bug (upstream/53-constructor-implicit-
+-- mark); the type checker fixes it as its own code, with the order of
+-- upstream/52-relevant-implicit-split, and this test checks that fix.
 
 import Prelude
 

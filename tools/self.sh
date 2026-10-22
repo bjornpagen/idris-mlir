@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The frontend compiled by itself: the stages of self-hosting, after the
-# optimized build (`make build PRESET=release`) and the fork installed into
+# optimized build (`make build PRESET=release`) and the checker installed into
 # the frontend's prefix (`make self` makes both first).
 #
 #     tools/self.sh [STAGE]
@@ -117,7 +117,7 @@ stage() {
     rm -rf "$self/src/build" &&
     cd "$self/src" || exit 1
   half frontend "$frontend_limit" "$front" --prefix "$checkout_prefix" \
-    -p idris-compiler -p idris-mlir-spec -p mlir-hash \
+    -p idris-mlir-checker -p idris-mlir-spec -p mlir-hash \
     --timing "$out/frontend-timing" --core "$out/idris-mlir-front.core" \
     -o "$out/idris-mlir-front.mlirbc" IdrisMLIR/Frontend/Driver.idr
   cp -R "$self/src/build" "$out/ttc" || exit 1

@@ -2,7 +2,7 @@ module Main
 
 -- An implementation can close over a runtime value: `Show (Term names)`
 -- shows a variable by the name its scope gives it, so it takes the scope
--- at runtime, as the fork of Idris's compiler shows and serialises its
+-- at runtime, as the type checker shows and serialises its
 -- terms (`{vars : _} -> Show (Term vars)`). Which implementation it is
 -- stays known at compile time, only the scope is passed, and the
 -- implementation for lists takes it on to the implementation it is given.

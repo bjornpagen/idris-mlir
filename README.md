@@ -160,8 +160,9 @@ machine, or a VM of it.
 
 ## Layout
 
-- `compiler/`: the Idris side, the frontend and `Emit`. `compiler/idris`
-  is our fork of Idris's compiler.
+- `compiler/`: the Idris side, the frontend and `Emit`.
+  `compiler/checker` is our type checker: Idris's checker, copied into
+  this tree with its attribution.
 - `foreign/idr/`: the `idr` dialect, its passes and the tools, in MLIR's
   `include/` and `lib/` layout.
 - `runtime/`: the runtime every program links, and the one meaning of

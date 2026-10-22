@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The handle table, which stands for every pointer base holds. A handle is
-// an int64_t: -1 is null, and any other is the slot of the table it numbers.
-// The table is made with four slots: the standard streams, 0, 1 and 2, which
-// it never frees, and the runtime's string slot for the environment, 3. A
+// an int64_t: null, every bit set, numbers no slot, and any other is the
+// slot of the table it numbers. The table is made with four slots: the
+// standard streams, at the handles the specification gives them, which it
+// never frees, and after them the runtime's string slot for the environment. A
 // slot the program opens holds a file, a directory, a file's times or a
 // string. No address reaches the program, and a freed slot is the next one
 // taken, so a program that opens and closes files without end keeps a table
@@ -41,6 +42,7 @@
 
 namespace {
 
+using idr::handles::StandardStream;
 using rt::io::Kind;
 using rt::io::Slot;
 
@@ -55,6 +57,13 @@ constexpr Seed seed{{
     {Kind::KeptString, {.string = &rt::strings::emptyString}},
 }};
 constexpr size_t seedSlots = sizeof seed.slots / sizeof seed.slots[0];
+// A program writes a standard stream's handle as the specification numbers
+// it, so the seed holds each stream at that slot.
+constexpr Kind seededAt(StandardStream stream) { return seed.slots[static_cast<size_t>(stream)].kind; }
+static_assert(seededAt(StandardStream::Input) == Kind::Input &&
+                  seededAt(StandardStream::Output) == Kind::Output &&
+                  seededAt(StandardStream::Error) == Kind::Error,
+              "each standard stream is seeded at the slot its handle numbers");
 static_assert(seed.slots[rt::io::environmentHandle].kind == Kind::KeptString,
               "the environment's handle is its slot in the seed");
 
@@ -65,7 +74,7 @@ constinit Seed seeded = seed;
 Slot *slots = seeded.slots;
 size_t slotsUsed = seedSlots;
 size_t slotsHeld = seedSlots;
-int64_t freeHandle = rt::io::nullHandle;
+int64_t freeHandle = idr::handles::nullHandle;
 
 // What slotOf gives for a handle past the table, null among them: a free
 // slot, which every lookup reads as no slot open as what it takes, and
@@ -139,7 +148,7 @@ Slot *openSlot(int64_t handle, Kind kind) {
 
 int64_t newSlot(Kind kind) {
   int64_t handle = freeHandle;
-  if (handle != nullHandle) {
+  if (handle != idr::handles::nullHandle) {
     freeHandle = slots[handle].nextFree;
   } else {
     if (slotsUsed == slotsHeld)
@@ -180,7 +189,7 @@ void releaseHandles() {
   seeded = seed;
   slots = seeded.slots;
   slotsUsed = slotsHeld = seedSlots;
-  freeHandle = nullHandle;
+  freeHandle = idr::handles::nullHandle;
 }
 
 } // namespace rt::io

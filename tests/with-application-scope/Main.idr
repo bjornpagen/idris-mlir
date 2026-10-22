@@ -2,7 +2,7 @@ module Main
 
 -- A with block called again, on a smaller value, from its own right-hand
 -- side, from a local definition, and in a record update's field. Each is
--- accepted, compiles and runs: before the fork's fix the last two were
+-- accepted, compiles and runs: before the checker's fix the last two were
 -- refused, the application left unrewritten. Each goes down to Z, from 5
 -- and from a number read at run time, and gives Z or the box unchanged.
 

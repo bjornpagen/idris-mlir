@@ -29,8 +29,8 @@ index; `rewriteIdentityFlag` then marks the function `Inline`, and the
 inliner drops the rest. The log shows the write gone after the first
 `inlineDef`, before the identity pass runs (`--log compiler:10`).
 
-The fork, compiler/idris, deleted `Compiler.Inline` and `Opts.*`, and
-the frontend reads TT, never CExp, so programs idris-mlir compiles are
+Our type checker, compiler/checker, has no `Compiler.Inline` or `Opts.*`,
+and the frontend reads TT, never CExp, so programs idris-mlir compiles are
 not affected; only what the stock host compiles is.
 
 ## The fix
@@ -55,7 +55,7 @@ unmeasured). Not built.
 ## Why there is no patch
 
 It is recorded, not carried: nothing the stock Idris builds reaches it.
-The stock host builds stage 0 (the fork, the frontend, the test runner)
+The stock host builds stage 0 (the checker, the frontend, the test runner)
 and the benchmarks' Chez baseline, and no `.idr` outside third_party
 writes `unsafePerformIO` under `let () =` (*measured*, grep); libs/'s
 `LArray` and the rest of `Array.Core` are bodiless `%extern`. The day a

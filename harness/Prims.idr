@@ -8,8 +8,8 @@
 ||| it names, from which everything it is in the dialect is read: its
 ||| family, whether the compiler computes it of constants, and the guard
 ||| where it crashes, with the cause its crash names. The specification
-||| keeps base's names out, and the harness imports neither the fork nor
-||| the frontend, so the spelling is held here and nowhere else. Then the
+||| keeps base's names out, and the harness imports neither the checker
+||| nor the frontend, so the spelling is held here and nowhere else. Then the
 ||| closed expressions over the table, as a program writes them, and what
 ||| the oracle predicts of one: its value, or the crash its evaluation
 ||| reaches. Fuzz and Sem are written on it.

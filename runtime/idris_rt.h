@@ -335,16 +335,19 @@ extern const idris_rt_built idris_rt_program_built;
  * (System.File, System.Directory, System, System.Term, System.Errno,
  * System.Clock) borrow their arguments, and a string they return is new. */
 
-/* A pointer of base is a handle, an int64_t: -1 is null; 0, 1 and 2 are
- * standard input, output and error, slots of the handle table made with it
- * and never freed; any other is a slot the program opened. A string handle
- * read from a file or naming the current directory is the program's, which
- * frees it; one of the environment or of a directory's entries is the
- * runtime's, as getenv's and readdir's bytes are the C library's: the next
- * call of its kind, or closing its directory, releases it, and freeing its
- * handle does nothing.
+/* A pointer of base is a handle, an int64_t: null, every bit set, which
+ * numbers no slot; standard input, output and error, the first slots of the
+ * handle table, made with it and never freed; or a slot the program opened.
+ * The specification gives null's handle and the streams' (idr::handles). A
+ * string handle read from a file or naming the current directory is the
+ * program's, which frees it; one of the environment or of a directory's
+ * entries is the runtime's, as getenv's and readdir's bytes are the C
+ * library's: the next call of its kind, or closing its directory, releases
+ * it, and freeing its handle does nothing.
  *
- * An OSClock is seconds << 30 | nanoseconds, or -1 when it is not valid.
+ * An OSClock is a reading, its seconds shifted past its nanoseconds, or the
+ * mark of a clock that could not be read, as the specification encodes them
+ * (idr::clocks).
  *
  * A failing call sets the runtime's saved errno, which base's errno and
  * file errors read. */

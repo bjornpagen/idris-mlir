@@ -3,7 +3,7 @@ module Main
 -- A linear handle's size, read through an unqualified `size` on the right
 -- of a linear pattern `let` and of a plain `let`. The name has two
 -- candidates, and only the linear one fits the linear handle, so Idris
--- settles on it. Before the fork's fix the elaborator retried the value at
+-- settles on it. Before the checker's fix the elaborator retried the value at
 -- quantity one only on a bare linearity error, and the ambiguity (every
 -- candidate failing at the context's quantity) refused the program.
 

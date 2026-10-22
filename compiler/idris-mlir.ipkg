@@ -4,7 +4,7 @@ package idris-mlir
 version = 0.1.0
 brief = "Compiler from checked Idris 2 TT to MLIR"
 
-depends = idris-compiler, idris-mlir-spec, mlir-hash
+depends = idris-mlir-checker, idris-mlir-spec, mlir-hash
 sourcedir = "src"
 modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Libraries

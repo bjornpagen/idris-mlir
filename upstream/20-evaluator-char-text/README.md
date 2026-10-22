@@ -35,13 +35,12 @@ conversion checking, as above.
 
 ## Reproduce
 
-`tests/idris2/evaluator/evaluator007/CharText.idr` in `pull-request.diff`,
-with the toolchain's (unpatched) Idris: `idris2 --check CharText.idr`
-refuses each of its four proofs with a mismatch between the Char and its
-escape. Observed on arm64 macOS (2026-10-09) through the fork of Idris's
-compiler before this change, whose `castString` is the pin's.
-`tests/upstream-evaluator-char-text` checks the same four proofs through
-the frontend.
+The proofs of `tests/upstream-evaluator-char-text/Main.idr`, with the
+toolchain's (unpatched) Idris: `idris2 --check` refuses each with a
+mismatch between the Char and its escape. Observed on arm64 macOS
+(2026-10-09) through our type checker before this change, whose
+`castString` was the pin's. `tests/upstream-evaluator-char-text` checks
+the same proofs through the frontend.
 
 ## Expected
 
@@ -58,48 +57,34 @@ and strips the quotes, but keeps the escape inside them.
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the change: `castString` of
-a Char is `prim__cast_CharString c`, the primitive itself, run by the
-Scheme that runs Idris, as `strCons` and `strSubstr` already are; the
-import of `Libraries.Utils.String`, used only for `stripQuotes`, goes.
-Upstream test: `tests/idris2/evaluator/evaluator007` (in the diff), the
-four proofs.
+The one-line fix: `castString` of a Char is `prim__cast_CharString c`,
+the primitive itself, run by the Scheme that runs Idris, as `strCons` and
+`strSubstr` already are. Our type checker (compiler/checker) goes further,
+as its own code: every operation the evaluator computes calls the
+primitive of its name (`Core.Primitives`; compiler/checker/README.md).
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the fix as its own
-code: there every operation the evaluator computes calls the primitive of
-its name (`Core.Primitives`; compiler/idris/README.md). The stock Idris
-only builds stage 0 and the benchmarks' Chez baseline, which do not depend
-on it, so it stays unpatched; the change is recorded as
-`pull-request.diff`, which the bootstrap does not apply.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+fix as its own code. The stock Idris only builds stage 0 and the
+benchmarks' Chez baseline, which do not depend on it, so it stays
+unpatched.
 
-## Testing at the pin
+## Testing
 
-`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
---check`), alone and after 18's. No stock Idris has been built with it and
-upstream's suite has not run with it. The fork, whose change computes the
-same Char case with the same primitive, checks `CharText.idr` with the
-output in the diff's `expected`, and refuses all four proofs without the
-change (arm64 macOS, 2026-10-09).
+The checker, whose change computes the same Char case with the same
+primitive, checked the four proofs of this report's first reproducer, and
+refused all four without the change (arm64 macOS, 2026-10-09).
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report, the diff and the fork's
-change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, laid out as a stock checkout with the upstream test
-  (`evaluator007`) it would carry. At a re-sync of compiler/idris
-  (compiler/idris/README.md) it says what to look for upstream: if
-  upstream has fixed the bug its own way, the fork takes upstream's code
-  and drops this change; if not, the change is carried forward onto the
-  new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-evaluator-char-text` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it.
+The report goes when the Idris pin carries upstream's own fix; the
+checker keeps its own, which `tests/upstream-evaluator-char-text` checks.

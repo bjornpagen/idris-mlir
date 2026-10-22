@@ -26,21 +26,21 @@ idris_prefix=$toolchain/idris2
 idris2=$idris_prefix/bin/idris2
 # The prefix the frontend runs with (`make prefix`, `make libs`): this
 # checkout's own, holding only what its frontend built, in the TTC format of
-# the fork of Idris's compiler it links (compiler/idris): the packages the
-# pinned Idris source ships (prelude, base and the others) and those of
-# libs/. No checkout (a worktree too) compiles against another's.
+# the type checker it links (compiler/checker): the packages the pinned
+# Idris source ships (prelude, base and the others) and those of libs/. No
+# checkout (a worktree too) compiles against another's.
 checkout_prefix=$root/build/idris2
 # Where the pinned Idris installs the packages this checkout builds for it
-# (`make fork`): the fork, which it builds the frontend against. Its format
-# is the pinned Idris's, so it is never part of checkout_prefix, and the
-# pinned prefix is shared by every checkout.
+# (`make checker`): the checker, which it builds the frontend against. Its
+# format is the pinned Idris's, so it is never part of checkout_prefix, and
+# the pinned prefix is shared by every checkout.
 host_prefix=$root/build/idris2-host
 # The file each step of `make build` leaves in its prefix once it is done,
 # which tools/verify-pins.sh and tools/doctor.sh read: in host_prefix, the
-# fork installed (`make fork`) and the packages of libs/ (`make host-libs`);
-# in checkout_prefix, the pinned Idris source's packages (`make prefix`)
-# and those of libs/ (`make libs`).
-fork_stamp=.fork-installed
+# checker installed (`make checker`) and the packages of libs/ (`make
+# host-libs`); in checkout_prefix, the pinned Idris source's packages
+# (`make prefix`) and those of libs/ (`make libs`).
+checker_stamp=.checker-installed
 host_libs_stamp=.libs-installed
 prefix_stamp=.built
 libs_stamp=.libs-installed

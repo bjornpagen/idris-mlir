@@ -199,22 +199,6 @@ Value idr::ownership::readFrom(Value value) {
       [&](Made) { return bufferOf(value).value_or(Value()); });
 }
 
-// The block arguments sourceOf calls the same value as another are a match
-// region's refined operands and a loan's view; an op that keeps its
-// operand's value (Idr_SameValue) is not followed here, as readFrom does
-// not.
-std::optional<Value> idr::ownership::readThrough(Value value) {
-  using Next = std::optional<Value>;
-  return match(
-      sourceOf(value), [](const Field &field) -> Next { return field.scrutinee; },
-      [&](const Same &same) -> Next {
-        if (isa<BlockArgument>(value))
-          return same.value;
-        return bufferOf(value);
-      },
-      [&](Made) { return bufferOf(value); });
-}
-
 // A view's chain goes up through what each step was read from and through
 // the values each step is, to the value as it was made: it stops at a
 // share, whose result holds a reference of its own.

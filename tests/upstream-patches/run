@@ -9,12 +9,8 @@
 # patches before it, as tools/bootstrap.sh applies them; and every carried
 # patch is present where the tree checks it: its tests/upstream-<bug>, the
 # bug's name without its number, which says whether the pinned tools have
-# the fix. And every change the fork of Idris's compiler carries as its own
-# code, recorded as upstream/<bug>/pull-request.diff against the pinned
-# Idris (a bug whose README is titled for Idris2), still applies to that
-# pin, so the record a re-sync reads has not gone stale. The pinned
-# sources are only read: the patches are applied in order to a copy of the
-# files they touch, and a record is only checked. The policy is `upstream_policy
+# the fix. The pinned sources are only read: the patches are applied in
+# order to a copy of the files they touch. The policy is `upstream_policy
 # ROOT`, run on the repository and on the planted trees (lib/planted.sh):
 # witness/ holds a bug for each way of breaking it (no README, no plan,
 # neither a patch nor its reason, both, a patch named for no project, a
@@ -125,68 +121,6 @@ if [ -n "$(patches llvm)" ] && [ "$(git -C "$llvm_source" rev-parse HEAD 2> /dev
 else
   check_project llvm "$llvm_source" "the pinned llvm-project"
 fi
-# fork_records SOURCE: each change the fork records against the pinned
-# Idris, checked against SOURCE, a checkout of that pin. A bug's README
-# names its project in its title, and a record of the fork's is titled for
-# Idris2; what the stock Idris lacks and nothing it builds reaches is
-# titled for Idris and laid out against Idris's main, not the pin. A record
-# laid out on another's change says so in its README, a line `After:
-# upstream/<bug>`, so it is checked as a re-sync would apply it: its chain
-# of records, the earliest first, applied in order to a copy of the files
-# they touch. A record whose chain fails before it is not checked again
-# here: the record that fails is, on its own chain.
-fork_records() {
-  : > "$work/fork.failed"
-  for readme in "$root"/upstream/*/README.md; do
-    dir=${readme%/README.md}
-    [ -f "$dir/pull-request.diff" ] || continue
-    case $(grep -m 1 '^# ' "$readme") in
-      '# [Idris2]'*) ;;
-      *) continue ;;
-    esac
-    # The chain, the earliest record first and this one last.
-    chain=$dir
-    at=$dir
-    while before=$(sed -n 's|^After: upstream/\([^ /]*\)$|\1|p' "$at/README.md" 2> /dev/null | head -n 1) &&
-          [ -n "$before" ]; do
-      at=$root/upstream/$before
-      case " $chain " in
-        *" $at "*) say "${dir#"$root"/}/README.md: its records are laid out after one another in a circle" >> "$work/fork.failed"
-                   continue 2 ;;
-      esac
-      if [ ! -f "$at/pull-request.diff" ]; then
-        say "${dir#"$root"/}/README.md: laid out after upstream/$before, which records no change" >> "$work/fork.failed"
-        continue 2
-      fi
-      chain="$at $chain"
-    done
-    copy=$work/fork-copy
-    rm -rf "$copy" && mkdir -p "$copy" && git -C "$copy" init -q
-    for link in $chain; do
-      git -C "$1" apply --numstat "$link/pull-request.diff" 2> /dev/null | cut -f3
-    done | sort -u | while IFS= read -r path; do
-      if git -C "$1" cat-file -e "HEAD:$path" 2> /dev/null; then
-        mkdir -p "$copy/$(dirname "$path")"
-        git -C "$1" show "HEAD:$path" > "$copy/$path"
-      fi
-    done
-    for link in $chain; do
-      if ! git -C "$copy" apply "$link/pull-request.diff" > "$work/fork.out" 2>&1; then
-        if [ "$link" = "$dir" ]; then
-          { say "${dir#"$root"/}/pull-request.diff does not apply to the pinned Idris after the records before it:"
-            show "$work/fork.out"; } >> "$work/fork.failed"
-        fi
-        break
-      fi
-    done
-  done
-  if [ -s "$work/fork.failed" ]; then
-    cat "$work/fork.failed"
-  else
-    say "idris: every change the fork records applies to the pinned source"
-  fi
-}
-
 # Idris: third_party/Idris2 at its gitlink, unmodified.
 idris_source=${IDRIS_MLIR_IDRIS_SOURCE:-$root/third_party/Idris2}
 if ! "$root/tools/verify-pins.sh" source > "$work/idris.pin" 2>&1; then
@@ -194,7 +128,6 @@ if ! "$root/tools/verify-pins.sh" source > "$work/idris.pin" 2>&1; then
   show "$work/idris.pin"
 else
   check_project idris "$idris_source" "third_party/Idris2"
-  fork_records "$idris_source"
 fi
 # snmalloc: third_party/snmalloc at the lock's revision, the source the
 # bootstrap exports with its patches for the runtime's build.

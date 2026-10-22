@@ -3,9 +3,9 @@ module Main
 -- The elaborator computes a primitive applied to constants with the
 -- primitive itself, so a Char's text is the Char, whatever it is: no
 -- escape, as `show` would write. Each proof is checked by computing it.
--- The fork carries upstream/20-evaluator-char-text/pull-request.diff; when a
--- re-sync brings upstream's fix, this test goes with the report
--- (upstream/README.md).
+-- The stock Idris still has the bug (upstream/20-evaluator-char-text); the
+-- type checker (compiler/checker) fixes it as its own code, and this test
+-- checks that fix.
 
 import Prelude
 

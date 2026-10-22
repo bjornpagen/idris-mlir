@@ -49,15 +49,6 @@ bool storedBy(mlir::OpOperand &operand);
 // refined, the value itself, and reads nothing from it.
 mlir::Value readFrom(mlir::Value value);
 
-// What `value` lives as long as, as counting and borrow inference read it:
-// what it was read from (readFrom), or, for a match region's refined
-// operand or a loan's view, the value it is. readFrom gives none for such
-// an argument: it is the value itself (sourceOf's Same), no field read
-// from it. But the region reads it while the op holds the value, as a
-// field is read, so it lives as long as the value. None for any other
-// value; a step of definitionChain.
-std::optional<mlir::Value> readThrough(mlir::Value value);
-
 // The counted value a view was read from: up through what each step was
 // read from (readFrom) and through the values each step is (sourceOf's
 // Same, a loan's view among them), never through idr.count.share.

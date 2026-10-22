@@ -316,13 +316,11 @@ extern "C" void idris_rt_unreportable_at(int64_t status, const idris_rt_text *fu
   rt::end::end(rt::end::Unreportable{status, siteOf(function, file, line, column)});
 }
 
-// Base's exit, with a status a parent reads: one from 0 to 255, since the
-// lowering ends an exit of any other at its site first
-// (idris_rt_unreportable_at). What the program wrote is written and its
+// Base's exit, with a status a parent reads: a byte, since the lowering ends
+// an exit of any other status at its site first (idris_rt_unreportable_at)
+// and passes the rest as one. What the program wrote is written and its
 // files closed, and the process ends with it.
-extern "C" void idris_rt_exit(int64_t status) {
-  rt::end::end(rt::end::Exited{static_cast<uint8_t>(status)});
-}
+extern "C" void idris_rt_exit(uint8_t status) { rt::end::end(rt::end::Exited{status}); }
 
 // Memory no allocation can meet, for a size the lowering found too large or
 // a tool's own allocator that ran out: the out-of-memory ending.

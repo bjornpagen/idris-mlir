@@ -31,8 +31,8 @@ processing right hand side of hFive. ... Mismatch between: 2 and 1.` With
 unreachable and `h 5` is 1. The same holds of a type (`0 tp : (0 t : Type)
 -> Integer; tp Integer = 1; tp _ = 2` reduces `tp String` to 1) and of a
 constant under a constructor (`pv (MkP 0) = 1; pv (MkP _) = 2` with
-`MkP : (0 n : Integer) -> P` reduces `pv (MkP 5)` to 1). The fork as the
-working tree has it (upstream/50 and 51 applied) gives the same from
+`MkP : (0 n : Integer) -> P` reduces `pv (MkP 5)` to 1). The checker as the
+working tree had it (with 50's and 51's changes) gave the same from
 `idris-mlir-front --check`, exit 3, and accepts `h 5 = 1`. Measured on arm64
 macOS, 2026-10-16.
 
@@ -69,9 +69,9 @@ lacks: upstream/53-constructor-implicit-mark.
 
 ## The fix
 
-The change is upstream/53-constructor-implicit-mark's `pull-request.diff`
-(after 50's and 52's), one diff for both: there is no fix of this bug
-without the mark that one adds. Its part here is `getClauseType`'s rule
+Our type checker (compiler/checker) has the change as its own code, in
+upstream/53-constructor-implicit-mark's (after 50's and 52's), one change
+for both: there is no fix of this bug without the mark that one adds. Its part here is `getClauseType`'s rule
 for a pattern on an erased argument at quantity 0, which reads where the
 pattern comes from (upstream/52's `Source`, `matchesErased`): a pattern the
 clause writes is split whatever its kind, as a constructor already was.
@@ -89,46 +89,39 @@ clause's `(i, a)`, was reported not covering, as were six definitions of
 the frontend that call its like). Above quantity 0, and in the run-time
 tree, nothing changes.
 
-Upstream test: `tests/idris2/coverage/coverage035`, in that diff,
-`ErasedConstant.idr`: `h`, whose `h 5` must be 2 and `h 0` 1, `tp`, `pv`,
+The checks below name `coverage035`, a test laid out for upstream's suite
+beside that change, `ErasedConstant.idr`: `h`, whose `h 5` must be 2 and `h 0` 1, `tp`, `pv`,
 `len` over `List Integer`, which must stay covering and reduce `len [1, 2]`
 to 2, and `heads`, which must stay covering and reduce in a type.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code. The stock Idris only builds stage 0 (the fork, the frontend and the
-test runner) and the benchmarks' Chez baseline, and nothing it builds
-writes such a pattern: all of it checks at the pin.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds writes such a pattern: all of it checks at the pin.
 
-## Testing at the pin
+## Testing
 
-As upstream/53's, with the series: at the pin, the stock Idris reports
+As upstream/53's: at the pin, the stock Idris reports
 `coverage035`'s `h _`, `tp _` and `pv (MkP _)` unreachable and refuses
-`hFive`, `tpString` and `pvFive`, and nothing else; the changed fork checks
+`hFive`, `tpString` and `pvFive`, and nothing else; the changed checker checks
 it, printing exactly its `expected`, and checks `h 5 = 2` with `h _`
-reachable (no warning). `heads` checks at the pin and with the series.
+reachable (no warning). `heads` checks at the pin and with the change.
 `tests/upstream-erased-constant-pattern` compiles through the changed
-frontend, which the unchanged fork's refuses at `hFive`; its core prints
+frontend, which the unchanged checker's refuses at `hFive`; its core prints
 `Two`'s string, and its `expected` waits for a build of the whole
 toolchain.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report and the change were
-written with one.
-
-- upstream/53-constructor-implicit-mark's `pull-request.diff` records this
-  change with that one, and with `coverage035`. At a re-sync of
-  compiler/idris (compiler/idris/README.md), if upstream has fixed this bug
-  its own way, the fork takes upstream's code and drops `getClauseType`'s
-  rule at quantity 0; the mark stays with upstream/53 until that one is
-  fixed too.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-erased-constant-pattern` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it. The
+report goes when the Idris pin carries upstream's own fix; the checker
+keeps its own, which `tests/upstream-erased-constant-pattern` checks.

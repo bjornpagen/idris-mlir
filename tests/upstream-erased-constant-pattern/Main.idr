@@ -5,9 +5,9 @@ module Main
 -- the definition's case tree, as in a definition that runs, where an erased
 -- argument cannot be matched: it reports `h _` unreachable, reduces `h 5`
 -- to 1, and refuses `hFive` and `five` below.
--- The fork carries upstream/53-constructor-implicit-mark/pull-request.diff,
--- which fixes upstream/54-erased-constant-pattern; when a re-sync brings
--- upstream's fix, this test goes with the reports (upstream/README.md).
+-- The stock Idris still has the bug (upstream/54-erased-constant-
+-- pattern); the type checker fixes it as its own code, with 53's fix, and
+-- this test checks that fix.
 
 import Prelude
 

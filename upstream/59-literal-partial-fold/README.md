@@ -2,8 +2,6 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A literal checked before its type is known is folded halfway, its conversion's body inlined into the caller
 
-After: upstream/18-elaboration-primitive-folding
-
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's `idris2`
 0.8.0-1c630e67c), elaboration folds a literal's conversion applied to a
 constant (`fromInteger 2`) by normalising it (`normalisePrims`,
@@ -53,7 +51,9 @@ leaves its body, with the bodies of what it calls, in the caller.
 
 ## The fix
 
-In an expression, the fold is kept only when it reaches a value: a term
+Our type checker (compiler/checker) has the change as its own code,
+after 18's change to the same function. In an expression, the fold is kept
+only when it reaches a value: a term
 that applies no function (`appliesFunction` finds no reference to a
 definition that is neither a constructor nor a type). Otherwise the call
 stays as written, and is folded, or run, once its type is known. A
@@ -69,30 +69,26 @@ refers to no `prim__believe_me`; none is drafted, since nothing is sent.
 
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its
-own code, after 18's change to the same function
-(`pull-request.diff`, laid out against the pin). The stock Idris only
-builds stage 0 and the benchmarks' Chez baseline, and nothing it builds
-needs a literal's call kept.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes is our type checker
+in compiler/checker, Idris's checker copied into our tree, which has the
+change as its own code. The stock Idris only builds stage 0 (the checker,
+the frontend and the test runner) and the benchmarks' Chez baseline, and
+nothing it builds needs a literal's call kept.
 
-## Testing at the pin
+## Testing
 
 `tests/upstream-literal-partial-fold` is refused (`unsupported (escape
-hatch)`) through the unchanged fork, and prints 30 through the changed
+hatch)`) through the unchanged checker, and prints 30 through the changed
 one.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent (upstream/README.md, **Idris**), and this report and
-the change were written with one.
-
-- `pull-request.diff` records the change against the fork. At a re-sync
-  of compiler/idris, if upstream has changed `normalisePrims` so that a
-  stuck fold is not kept, the fork takes upstream's code.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-literal-partial-fold` and the PINS.md entry go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it.
+The report goes when the Idris pin carries upstream's own fix; the
+checker keeps its own, which `tests/upstream-literal-partial-fold` checks.

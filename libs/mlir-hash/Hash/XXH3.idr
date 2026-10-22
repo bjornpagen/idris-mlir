@@ -2,8 +2,8 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| XXH3's 128-bit hash of a byte sequence, seed 0 and the default secret,
 ||| as LLVM's `xxh3_128bits` computes it. It is a library of its own because
-||| the frontend and the fork both hash, and the fork imports nothing of the
-||| frontend's: one copy, which both import.
+||| the frontend and the type checker both hash: one copy, which both
+||| import.
 module Hash.XXH3
 
 import Data.Bits

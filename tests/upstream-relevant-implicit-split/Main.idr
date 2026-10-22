@@ -4,14 +4,14 @@ module Main
 -- the elaborator: the patterns of the explicit argument fix it. The pinned
 -- Idris splits `ws` first in the coverage check's case tree, finds `A :: _`
 -- and `B :: _` unmatched, and cannot see that `All IsF (A :: _)` is empty,
--- so it reports each not covering and refuses the module. The fork's
+-- so it reports each not covering and refuses the module. The checker's
 -- coverage check splits `ws` after the patterns that fix it. The tree each
 -- definition keeps is the program that runs, and it splits `ws` as before:
 -- `sumF` reads at run time the `w` that only `ws` holds, and `fp4` passes on
 -- its tail.
--- The fork carries upstream/52-relevant-implicit-split/pull-request.diff;
--- when a re-sync brings upstream's fix, this test goes with the report
--- (upstream/README.md).
+-- The stock Idris still has the bug (upstream/52-relevant-implicit-split);
+-- the type checker fixes it as its own code, and this test checks that
+-- fix.
 
 import Prelude
 

@@ -6,7 +6,7 @@
 # by `probeOfTerm` are that axis, every probe's name read back in another
 # session (each identifier interned by its text) is that probe, and names
 # no probe has are none. Names.idr, run by the pinned Idris against
-# the installed fork, with Walk and the modules it imports copied from
+# the installed checker, with Walk and the modules it imports copied from
 # compiler/src. Its output is expected-stdout.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 src=$root/compiler/src/IdrisMLIR
@@ -16,7 +16,7 @@ mkdir -p "$work/src/IdrisMLIR/Proof" "$work/src/IdrisMLIR/Frontend" &&
   cp Names.idr "$work/src/Main.idr" || exit 1
 packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir)
 if (cd "$work" && IDRIS2_PACKAGE_PATH=$packages && export IDRIS2_PACKAGE_PATH &&
-    pinned_idris -p mlir-linear -p mlir-array -p idris-compiler --source-dir src --exec main src/Main.idr) > "$work/out" 2>&1 &&
+    pinned_idris -p mlir-linear -p mlir-array -p idris-mlir-checker --source-dir src --exec main src/Main.idr) > "$work/out" 2>&1 &&
    grep -v '^ *[0-9]*/[0-9]*: Building' "$work/out" | cmp -s - expected-stdout; then
   say "probe-names: every probe read back as itself"
 else

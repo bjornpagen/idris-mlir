@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Base's files (System.File): opening a file, its stream, what base asks of
 // any stream, and the files at a path. An open file is a slot of the handle
-// table holding the C library's stream; the standard streams are the slots
-// 0, 1 and 2, streams of their own (Input.cpp, Output.cpp), and stay open.
+// table holding the C library's stream; the standard streams are the
+// table's first slots, streams of their own (Input.cpp, Output.cpp), and
+// stay open.
 // PIN(runtime-quarantine) — see PINS.md
 #include "End/End.h"
 #include "Io/Io.h"
@@ -90,7 +91,7 @@ extern "C" int64_t idris_rt_io_file_open(const idris_rt_str *path, const idris_r
       rt::platform::openFile(rt::io::cText(pathText, path), rt::io::cText(modeText, mode));
   if (file == nullptr) {
     rt::io::saveError();
-    return rt::io::nullHandle;
+    return idr::handles::nullHandle;
   }
   int64_t handle = rt::io::newSlot(rt::io::Kind::File);
   rt::io::slotOf(handle).file = file;

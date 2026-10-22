@@ -23,4 +23,4 @@ runtime/idris_rt.h: #define IDRIS_RT_OBJS_LIMIT 0x100u -- the object count field
 #
 # The trust points, each with its theorem: what the frontend relies on and
 # Idris's totality checker cannot see.
-compiler/idris/src/Idris/Host.idr: host = assert_total -- every operation of Idris's compiler the frontend calls and the checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible
+compiler/checker/src/Idris/Host.idr: host = assert_total -- every operation of the type checker the frontend calls and the totality checker cannot follow returns, TT's normalization last among them: Idris's theory is not strongly normalizing, so this one is irreducible

@@ -3,7 +3,7 @@ module Main
 -- Only a value of an interface's type is an implementation, a compile-time
 -- value. An auto-implicit argument of any other type is an ordinary
 -- argument, which the program may choose at runtime: a context record, as
--- the fork of Idris's compiler passes `{auto c : Ref Ctxt Defs}` along,
+-- the type checker passes `{auto c : Ref Ctxt Defs}` along,
 -- and a type that asks for the unique search an interface's record has.
 
 import Prelude

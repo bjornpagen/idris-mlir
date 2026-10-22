@@ -91,7 +91,7 @@ A literal of a primitive type is still the constant it denotes (`small =
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the change:
+Our type checker (compiler/checker) has the change as its own code:
 
 - `evalDef` reduces a primitive under the condition the evaluator already
   applies to `let`: not in `holesOnly` or `argHolesOnly` mode, unless
@@ -133,46 +133,35 @@ A literal of a primitive type is still the constant it denotes (`small =
   or `Fin` is unchanged. An Integer literal pattern of type Double beyond
   2^53 is refused too, since its rounding is the backend's.
 
-Upstream test: `tests/idris2/evaluator/evaluator006` (in the diff),
-`:printdef` of a primitive applied to constants, a literal through a
-`FromString` with a primitive, and literals of `Int` and `Nat`.
-
 ## Why there is no patch
 
-There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes, programs, prelude, base and contrib alike, is the fork of
-Idris's compiler in compiler/idris, and the fork carries the change of
-`pull-request.diff` to its `src/` as its own code (its README lists it;
-PINS.md `idris-fork` and `elaboration-primitive-folding`). The stock Idris
-the bootstrap builds only builds stage 0, the fork, the frontend and the
-test runner, which do not depend on what elaboration folds, and the
-benchmarks' Chez baseline, which runs on the Chez whose meaning the fold
-computes, so it stays unpatched. The change is recorded as
-`pull-request.diff`, which the bootstrap does not apply.
+There is no `idris.patch`: nothing the stock Idris builds meets the bug.
+The Idris that elaborates what this compiler consumes, programs, prelude,
+base and contrib alike, is our type checker in compiler/checker, Idris's
+checker copied into our tree, which has the change as its own code
+(compiler/checker/README.md). The stock Idris the bootstrap builds only
+builds stage 0, the checker, the frontend and the test runner, which do
+not depend on what elaboration folds, and the benchmarks' Chez baseline,
+which runs on the Chez whose meaning the fold computes, so it stays
+unpatched.
 
-## Testing at the pin
+## Testing
 
-`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
---check`), and its `src/` part is the fork's change, byte for byte: applied
-to the pin's four files it gives compiler/idris's, but for
-`Core/Primitives.idr`, where the fork has since made every operation
-`getOp` and `sharedOp` compute call the primitive of its name (which also
-fixes 20) and keeps the structure the diff gives it. Upstream's own suite
-has not run with it, nor has a stock Idris been built with it.
-
-The fork, built with it by the stock Idris on arm64 macOS (2026-10-09),
-built prelude, base, contrib and `libs/mlir-linear` without an error, so
-no literal pattern in them needs a backend's primitive. Over this
-repository's 702 test programs (the frontend's Core and MLIR, compiled
-with the stub tools), against the same fork without the change: 525 are
-byte-identical; in the other 177 compilations (90 programs, each with and
-without compile-time evaluation where the suite does both) every
-difference is a constant that is now the primitive call written in the
-source (`12:Int` is `cast_StringInt("12.7")`, `"+inf.0"` is
-`cast_DoubleString(div_Double(1.0, 0.0))`, `3:Int` is `add_Int(1, 2)`),
-and no exit status or message changed. Without the `believe_me`
-exception, `tests/vect` was refused (`unsupported (escape
-hatch): believe_me`), its `index 1 v` keeping the forged proof.
+The checker, built with the change by the stock Idris on arm64 macOS
+(2026-10-09), built prelude, base, contrib and `libs/mlir-linear` without
+an error, so no literal pattern in them needs a backend's primitive. Over
+this repository's 702 test programs (the frontend's Core and MLIR,
+compiled with the stub tools), against the same checker without the
+change: 525 are byte-identical; in the other 177 compilations (90
+programs, each with and without compile-time evaluation where the suite
+does both) every difference is a constant that is now the primitive call
+written in the source (`12:Int` is `cast_StringInt("12.7")`, `"+inf.0"`
+is `cast_DoubleString(div_Double(1.0, 0.0))`, `3:Int` is `add_Int(1,
+2)`), and no exit status or message changed. Without the `believe_me`
+exception, `tests/vect` was refused (`unsupported (escape hatch):
+believe_me`), its `index 1 v` keeping the forged proof. Since then every
+operation `getOp` and `sharedOp` compute calls the primitive of its name
+(`Core.Primitives`), which also fixes 20.
 `tests/upstream-elaboration-primitive-folding` checks the reproducer
 through the frontend.
 
@@ -188,21 +177,12 @@ runtime's documented meaning.
 
 ## Upstreaming plan
 
-Status: carried as the fork's code; nothing goes to idris-lang/Idris2
-from here. Idris accepts no contribution that arises from generative AI
-or a coding agent, issues, pull requests, commits and comments alike
-(upstream/README.md, **Idris**), and this report, the diff and the fork's
-change were written with one.
-
-- `pull-request.diff` is the record of what the fork changed against the
-  pin, laid out as a stock checkout with the upstream test
-  (`evaluator006`) it would carry. At a re-sync of compiler/idris
-  (compiler/idris/README.md) it says what to look for upstream: if
-  upstream has fixed the bug its own way, the fork takes upstream's code
-  and drops this change; if not, the change is carried forward onto the
-  new base.
-- When upstream's fix arrives: this directory,
-  `tests/upstream-elaboration-primitive-folding` and the PINS.md entry
-  go.
-- Whether to report the bug upstream is Bjorn's call alone, in his own
-  words and from his own understanding; nothing here is drafted for it.
+Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
+here. Idris accepts no contribution that arises from generative AI or a
+coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report was written with one.
+Whether to report the bug upstream is Bjorn's call alone, in his own
+words and from his own understanding; nothing here is drafted for it.
+The report goes when the Idris pin carries upstream's own fix; the
+checker keeps its own, which `tests/upstream-elaboration-primitive-folding`
+checks.

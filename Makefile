@@ -8,13 +8,13 @@
 #   make check             the tests of the repository (their `suite` file names
 #                          check): the pins, the commands and the layout,
 #                          the specification's generated files among them;
-#                          and the fork's generated modules against
-#                          knowngen (compiler/idris/known); always, without
-#                          a build
+#                          and the checker's generated modules against
+#                          knowngen (compiler/checker/known); always,
+#                          without a build
 #   make build             the C++ dev preset (PRESET=release or lint
 #                          for another), the Idris side's modules of the
-#                          dialects (tools/dialects.sh), the fork of Idris's
-#                          compiler (compiler/idris), the frontend, and the
+#                          dialects (tools/dialects.sh), the type checker
+#                          (compiler/checker), the frontend, and the
 #                          frontend's prefix: the packages the pinned Idris
 #                          source ships and those in libs/; after any code
 #                          change
@@ -41,7 +41,7 @@
 #                          (tools/bootstrap.sh typecheck; nothing linked but
 #                          idris-mlir-tblgen), the Idris side's modules of the
 #                          dialects from it, and the Idris typecheck of
-#                          libs/, the fork and the frontend; each part's log
+#                          libs/, the checker and the frontend; each part's log
 #                          is in build/typecheck/logs, the C++ errors one per
 #                          line in build/typecheck/errors.log
 #
@@ -101,8 +101,8 @@ PINS := $(ROOT)/tools/verify-pins.sh
 # on its own prefix, IDRIS_PREFIX, which the bootstrap built and every
 # checkout shares, where it builds the tests' runner. It installs what this
 # checkout builds for it into HOST_PREFIX: the packages of libs/, which the
-# fork and the frontend import and the benchmarks' Chez baseline uses; the
-# fork of its compiler (compiler/idris), which it builds the frontend
+# checker and the frontend import and the benchmarks' Chez baseline uses;
+# the type checker (compiler/checker), which it builds the frontend
 # against; and the dialect's specification (compiler/spec), which the
 # frontend and the runner import; it finds them there beside its own
 # prelude and base. The frontend (FRONTEND) reads
@@ -148,10 +148,10 @@ TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = IDRIS_MLIR_NCPU=1 $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 sh $(ROOT)/harness/runs.sh $(RUNNER) $(COMPILER)
 
-.PHONY: help bootstrap doctor verify-pins env check build fork spec frontend prefix libs host-libs \
-        test test-idr test-mlir-tools test-unit runner knowngen compile bench self self-fork self-spec typecheck \
+.PHONY: help bootstrap doctor verify-pins env check build checker spec frontend prefix libs host-libs \
+        test test-idr test-mlir-tools test-unit runner knowngen compile bench self self-checker self-spec typecheck \
         typecheck-configure typecheck-tblgen typecheck-cxx typecheck-dialects typecheck-libs \
-        typecheck-fork typecheck-frontend
+        typecheck-checker typecheck-frontend
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -176,7 +176,7 @@ env:
 # whatever it is set to here. The frontend is linked beside idris-mlir,
 # where idris-mlir runs it, and its prefix comes after the frontend, which
 # builds it: one make after the other, so that no parallel make builds the
-# prefix with a frontend older than the fork.
+# prefix with a frontend older than the checker.
 build:
 	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset $(PRESET) $(CONFIGURE_FACTS)
@@ -196,7 +196,7 @@ libdir = $$(IDRIS2_PREFIX='$(1)' '$(IDRIS2)' --libdir)
 # environment), in order, as each may need the ones before. Each is built
 # from nothing in a copy beside the prefix, PREFIX-src: the sources it is
 # built from are only read, and a build directory beside them may hold
-# another compiler's TTCs, or the same compiler's from before the fork
+# another compiler's TTCs, or the same compiler's from before the checker
 # changed. A package's earlier installation is removed first, so that no
 # module it has dropped stays installed.
 install = packages=$$($(1) --libdir) && mkdir -p '$(2)-src' && \
@@ -207,21 +207,22 @@ install = packages=$$($(1) --libdir) && mkdir -p '$(2)-src' && \
 	  (cd "$$copy" && $(1) --install "$$name.ipkg") || exit 1; \
 	done
 
-# The fork of Idris's compiler, built by the pinned Idris and installed for
-# it into HOST_PREFIX, never into the pinned prefix, which every checkout
-# shares; its prelude and base are the pinned prefix's, and the packages of
-# libs/ it imports (mlir-linear, mlir-array) are HOST_PREFIX's, installed
-# first (host-libs). Again whenever a file of the fork changes, its package
-# removed first, so that no module the fork has dropped stays installed.
-FORK_SOURCES := $(ROOT)/compiler/idris/idris-compiler.ipkg $(shell find '$(ROOT)/compiler/idris/src' -name '*.idr' 2> /dev/null)
-FORK_STAMP := $(HOST_PREFIX)/$(call toolchain,fork_stamp)
+# The type checker (compiler/checker, the package idris-mlir-checker),
+# built by the pinned Idris and installed for it into HOST_PREFIX, never
+# into the pinned prefix, which every checkout shares; its prelude and base
+# are the pinned prefix's, and the packages of libs/ it imports
+# (mlir-linear, mlir-array) are HOST_PREFIX's, installed first
+# (host-libs). Again whenever a file of it changes, its package removed
+# first, so that no module it has dropped stays installed.
+CHECKER_SOURCES := $(ROOT)/compiler/checker/idris-mlir-checker.ipkg $(shell find '$(ROOT)/compiler/checker/src' -name '*.idr' 2> /dev/null)
+CHECKER_STAMP := $(HOST_PREFIX)/$(call toolchain,checker_stamp)
 HOST_LIBS_STAMP := $(HOST_PREFIX)/$(call toolchain,host_libs_stamp)
-fork: $(FORK_STAMP)
-$(FORK_STAMP): $(FORK_SOURCES) $(HOST_LIBS_STAMP) $(wildcard $(IDRIS_PREFIX)/provenance.json)
+checker: $(CHECKER_STAMP)
+$(CHECKER_STAMP): $(CHECKER_SOURCES) $(HOST_LIBS_STAMP) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@$(PINS) idris
-	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-compiler-*
-	cd $(ROOT)/compiler/idris && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
-	  $(IDRIS2) --install idris-compiler.ipkg
+	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-mlir-checker-*
+	cd $(ROOT)/compiler/checker && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
+	  $(IDRIS2) --install idris-mlir-checker.ipkg
 	@touch $@
 
 # The dialect's specification (compiler/spec, the package idris-mlir-spec),
@@ -239,12 +240,12 @@ $(SPEC_STAMP): $(SPEC_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	  $(IDRIS2) --install spec.ipkg
 	@touch $@
 
-# The frontend, by the pinned Idris, against the fork, the specification
+# The frontend, by the pinned Idris, against the checker, the specification
 # and the packages of libs/ (HOST_PREFIX) and the pinned prelude and base.
 # Beside it, syntax-samples (the specification and mlir-hash), which writes
 # one sample of every type and attribute of the generated syntax for
 # tests/dialect-syntax.
-frontend: fork spec
+frontend: checker spec
 	@$(PINS) idris
 	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
 	  $(IDRIS2) --build idris-mlir.ipkg && $(IDRIS2) --build syntax-samples.ipkg
@@ -252,17 +253,17 @@ frontend: fork spec
 # The frontend's prefix, CHECKOUT_PREFIX: the packages the pinned Idris
 # source ships (its Makefile's IDRIS2_LIBRARIES, in their order: prelude,
 # base, and the others, which a program that asks for one is refused by
-# name), each built and installed by the frontend. The fork decides what a
-# TTC holds, so the prefix is made again from nothing when the fork
-# changes, by a frontend built since.
+# name), each built and installed by the frontend. The checker decides
+# what a TTC holds, so the prefix is made again from nothing when the
+# checker changes, by a frontend built since.
 IDRIS_SOURCE := $(ROOT)/third_party/Idris2
 IDRIS_LIBS := $(shell sed -n 's/^IDRIS2_LIBRARIES[[:space:]]*=//p' '$(IDRIS_SOURCE)/Makefile' 2> /dev/null)
 PREFIX_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,prefix_stamp)
 prefix: $(PREFIX_STAMP)
-$(PREFIX_STAMP): $(FORK_STAMP)
+$(PREFIX_STAMP): $(CHECKER_STAMP)
 	@$(PINS) source
-	@[ '$(FRONTEND)' -nt '$(FORK_STAMP)' ] || \
-	  { echo 'error: $(FRONTEND) was not built since the fork was installed; run: make build' >&2; exit 1; }
+	@[ '$(FRONTEND)' -nt '$(CHECKER_STAMP)' ] || \
+	  { echo 'error: $(FRONTEND) was not built since the checker was installed; run: make build' >&2; exit 1; }
 	@rm -rf '$(CHECKOUT_PREFIX)' '$(CHECKOUT_PREFIX)-src' && mkdir -p '$(CHECKOUT_PREFIX)'
 	$(call install,'$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)',$(CHECKOUT_PREFIX),$(addprefix $(IDRIS_SOURCE)/libs/,$(IDRIS_LIBS)))
 	@touch $@
@@ -280,7 +281,7 @@ $(LIBS_STAMP): $(PREFIX_STAMP) $(SHIPPED_SOURCES)
 	@touch $@
 
 # The packages of libs/ for the pinned Idris too, installed into
-# HOST_PREFIX: the fork imports mlir-linear and mlir-array, the frontend
+# HOST_PREFIX: the checker imports mlir-linear and mlir-array, the frontend
 # mlir-hash, and the benchmarks' Chez baseline compiles the programs that
 # use them. Again whenever one of their sources changes.
 host-libs: $(HOST_LIBS_STAMP)
@@ -290,18 +291,18 @@ $(HOST_LIBS_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json) $(SHIPPED_SOURCE
 	$(call install,IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" '$(IDRIS2)',$(HOST_PREFIX),$(SHIPPED))
 	@touch $@
 
-# The fork of Idris's compiler as a package of the frontend's prefix,
-# installed by the frontend, so that the frontend can compile itself
-# (-p idris-compiler): from a copy of compiler/idris, its earlier
-# installation removed first, again whenever a file of the fork changes.
-SELF_FORK_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,fork_stamp)
-self-fork: $(SELF_FORK_STAMP)
-$(SELF_FORK_STAMP): $(FORK_SOURCES) $(LIBS_STAMP)
-	@packages=$$('$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --libdir) && rm -rf "$$packages"/idris-compiler-* \
-	  '$(CHECKOUT_PREFIX)-src/idris-compiler' && mkdir -p '$(CHECKOUT_PREFIX)-src' && \
-	  cp -R '$(ROOT)/compiler/idris' '$(CHECKOUT_PREFIX)-src/idris-compiler' && \
-	  rm -rf '$(CHECKOUT_PREFIX)-src/idris-compiler/build'
-	cd '$(CHECKOUT_PREFIX)-src/idris-compiler' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install idris-compiler.ipkg
+# The type checker as a package of the frontend's prefix, installed by
+# the frontend, so that the frontend can compile itself (-p
+# idris-mlir-checker): from a copy of compiler/checker, its earlier
+# installation removed first, again whenever a file of it changes.
+SELF_CHECKER_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,checker_stamp)
+self-checker: $(SELF_CHECKER_STAMP)
+$(SELF_CHECKER_STAMP): $(CHECKER_SOURCES) $(LIBS_STAMP)
+	@packages=$$('$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --libdir) && rm -rf "$$packages"/idris-mlir-checker-* \
+	  '$(CHECKOUT_PREFIX)-src/idris-mlir-checker' && mkdir -p '$(CHECKOUT_PREFIX)-src' && \
+	  cp -R '$(ROOT)/compiler/checker' '$(CHECKOUT_PREFIX)-src/idris-mlir-checker' && \
+	  rm -rf '$(CHECKOUT_PREFIX)-src/idris-mlir-checker/build'
+	cd '$(CHECKOUT_PREFIX)-src/idris-mlir-checker' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install idris-mlir-checker.ipkg
 	@touch $@
 
 # The dialect's specification as a package of the frontend's prefix too,
@@ -322,7 +323,7 @@ $(SELF_SPEC_STAMP): $(SPEC_SOURCES) $(LIBS_STAMP)
 # The self compile runs the optimized build's pipeline (tools/self.sh),
 # built here first.
 SELF_PRESET := $(call toolchain,self_preset)
-self: self-fork self-spec
+self: self-checker self-spec
 	@$(PINS) built llvm sysroot
 	@$(MAKE) --no-print-directory build PRESET=$(SELF_PRESET)
 	$(ROOT)/tools/self.sh
@@ -347,8 +348,8 @@ runner: spec
 	      mv -f ../../exec/$$file.new.$$$$ ../../exec/$$file || exit 1; \
 	  done'
 
-# knowngen (compiler/idris/known), which prints the fork's modules its
-# vocabularies define, built by the pinned Idris outside the checkout's
+# knowngen (compiler/checker/known), which prints the checker's modules
+# its vocabularies define, built by the pinned Idris outside the checkout's
 # sources. `make check` runs its check beside the suite, whose
 # spec-current holds the specification's generated files the same way:
 # both run, and a difference in either fails the command.
@@ -356,7 +357,7 @@ KNOWNGEN_BUILD := $(ROOT)/build/knowngen
 KNOWNGEN := $(KNOWNGEN_BUILD)/exec/knowngen
 knowngen:
 	@$(PINS) idris
-	cd $(ROOT)/compiler/idris/known && \
+	cd $(ROOT)/compiler/checker/known && \
 	  IDRIS2_PREFIX='$(IDRIS_PREFIX)' $(IDRIS2) --build-dir '$(KNOWNGEN_BUILD)' --build known.ipkg
 
 check: runner knowngen
@@ -373,8 +374,8 @@ test-idr: runner
 	@$(PINS) built llvm test-tools sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-idr $(GOLDEN)
 
-# Idris's bug is checked through the frontend, whose fork of Idris's
-# compiler carries the fix, so the suite needs it and its prefix.
+# Idris's bug is checked through the frontend, whose type checker carries
+# the fix, so the suite needs it and its prefix.
 test-mlir-tools: runner libs
 	@$(PINS) built llvm sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-mlir-tools $(GOLDEN)
@@ -412,8 +413,8 @@ bench: libs host-libs
 # going past a failed unit, and its errors (the compiler's, and TableGen's
 # at the location of the note that follows them) are listed one per line,
 # file:line: message, in TYPECHECK_ERRORS; and the pinned Idris checks
-# libs/ and the fork, installed into HOST_PREFIX as `host-libs` and `fork`
-# install them, since each is a package of the next, and the frontend
+# libs/ and the checker, installed into HOST_PREFIX as `host-libs` and
+# `checker` install them, since each is a package of the next, and the frontend
 # against them and the specification `spec` installs (--typecheck: no code
 # is generated). The summary names each
 # part that failed or did not run; any failure fails the command.
@@ -421,7 +422,7 @@ TYPECHECK_PRESET := $(call toolchain,typecheck_preset)
 TYPECHECK_DIR := $(call toolchain,typecheck_prefix)
 TYPECHECK_LOGS := $(TYPECHECK_DIR)/logs
 TYPECHECK_ERRORS := $(TYPECHECK_DIR)/errors.log
-TYPECHECK_PARTS := configure tblgen:configure cxx:configure dialects:tblgen libs fork:libs frontend:fork
+TYPECHECK_PARTS := configure tblgen:configure cxx:configure dialects:tblgen libs checker:libs frontend:checker
 
 typecheck:
 	$(ROOT)/tools/bootstrap.sh cmake ninja chez idris typecheck
@@ -467,9 +468,9 @@ typecheck-dialects:
 
 typecheck-libs: host-libs
 
-typecheck-fork: fork
+typecheck-checker: checker
 
-typecheck-frontend: fork spec
+typecheck-frontend: checker spec
 	@$(PINS) idris
 	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
 	  $(IDRIS2) --typecheck idris-mlir.ipkg && $(IDRIS2) --typecheck syntax-samples.ipkg
