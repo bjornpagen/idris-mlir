@@ -32,6 +32,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
@@ -41,6 +42,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -53,6 +55,7 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <variant>
@@ -131,9 +134,12 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
 // -mlir-pass-statistics) apply to it, which the command line's reading
 // has checked they can. The report's instrumentation reads each pass's
 // statistics around each of its runs, before MLIR merges the copies'
-// statistics to print them. The timer is added last: the instrumentations
-// unwind in reverse, so it stops before IR is printed, and a pass's row is
-// the pass's own time. A test's checks come first, as idris-mlir-opt
+// statistics to print them, and the report counts each run's footprint,
+// the bytes the shared containers held beyond what they held when it
+// began, under `<pass>.footprint`, summed over the runs of every copy as a
+// statistic is. The timer is added last: the instrumentations unwind in
+// reverse, so it stops before IR is printed, and a pass's row is the
+// pass's own time. A test's checks come first, as idris-mlir-opt
 // installs them, so the profile times each pass without them: under
 // --idr-contracts the contracts, and the properties --idr-expect-at states
 // of the stages. The pass manager instruments no end of its own pipeline,
@@ -159,6 +165,15 @@ mlir::LogicalResult runPipeline(mlir::ModuleOp module, const Compile &invocation
       pm.addInstrumentation(std::move(owned));
     }
     idr::profile::addInstrumentation(pm);
+    // A pass with no argument is no step of the pipeline but the manager's
+    // adaptor that runs a nest of them, whose name is a sentence the
+    // report's one-word key cannot hold; what its nest holds is each nested
+    // pass's own footprint.
+    pm.addInstrumentation(
+        idr::profile::footprints([&outcome](mlir::Pass &pass, std::uint64_t bytes) {
+          if (!pass.getArgument().empty())
+            outcome.count((llvm::Twine(pass.getArgument()) + ".footprint").str(), bytes);
+        }));
     pm.addInstrumentation(foldStatistics(outcome));
     pm.enableTiming(rootTiming);
     // The module's target, which every pass reads: idr-entry tells the

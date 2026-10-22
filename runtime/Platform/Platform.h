@@ -19,9 +19,10 @@
 #include "idris_rt.h"
 
 // The ending table: the signals an ending raises. The clock kinds a
-// program reads.
+// program reads, and the fields of a file's times.
 #include "idr/IR/Generated/Clocks.h.inc"
 #include "idr/IR/Generated/Endings.h.inc"
+#include "idr/IR/Generated/FileTimes.h.inc"
 
 #include <dirent.h>
 #include <stddef.h>
@@ -129,10 +130,14 @@ bool changeMode(const char *path, int64_t mode) noexcept;
 // The size in bytes of what the descriptor names, or -1.
 int64_t fileSize(int fd) noexcept;
 
-// The access, modification and status change times of what the descriptor
-// names, each as seconds and nanoseconds, in that order; false when they
-// cannot be read.
-bool fileTimes(int fd, int64_t (&times)[6]) noexcept;
+// A file's times, one per field of the specification's: the seconds and
+// the nanoseconds since the epoch of its last access, modification and
+// status change.
+using FileTimes = idr::EnumArray<idr::files::FileTimeField, int64_t>;
+
+// The times of what the descriptor names, as the one call of the system
+// gives them; false when they cannot be read.
+bool fileTimes(int fd, FileTimes &times) noexcept;
 
 // Whether the descriptor has input ready, waiting up to a second for it, as
 // base's fPoll does in C: 1 when it has, 0 when the second passed, -1 on a
@@ -207,16 +212,22 @@ Span heapSpan(size_t alignment) noexcept;
 
 // The directory the host's own files are read under: the filesystem's root,
 // for every program and tool. A test reads a tree it planted under another
-// (idris_rt_commit_limit), so the reader is tested on hosts it does not run
-// on, and on limits no host of the test's holds.
+// (idris_rt_commit_limit), so the reader is tested on every target, and on
+// limits no host of the test's holds.
 inline constexpr const char *hostRoot = "";
 
 // The bytes of memory the process may still commit before the host kills
-// it: where a limit holds the process (Linux's cgroups), the lowest one on
-// the way from its group to the root, with the swap that group may use,
-// less what the group holds already; SIZE_MAX where none does. The host's
-// files are read under `root`.
-size_t commitLimit(const char *root) noexcept;
+// it, the operating system's unit's: what its host's cgroup states on
+// Linux; SIZE_MAX on Darwin, which states none.
+size_t commitLimit() noexcept;
+
+// The bytes of memory a process may still commit before the kernel's killer
+// ends it, as a Linux host's cgroup files under `root` state it: the lowest
+// limit on the way from the process's group to its hierarchy's mount, with
+// the swap that group may use, less what the group holds already; SIZE_MAX
+// where none holds. It reads files alone (Posix/Cgroups.cpp), so it is the
+// same reader on every target.
+size_t cgroupLimit(const char *root) noexcept;
 
 // The bytes of physical memory the system has.
 size_t physicalMemory() noexcept;

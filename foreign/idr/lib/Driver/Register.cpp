@@ -16,7 +16,6 @@
 #include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -36,7 +35,6 @@
 #include "mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/TransformOps/DialectExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
@@ -44,7 +42,6 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
@@ -54,7 +51,6 @@
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
-#include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -63,7 +59,6 @@
 #include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
-#include "mlir/Transforms/Passes.h"
 
 void idr::driver::registerHandoff(mlir::DialectRegistry &registry) {
   idr::registerIdrDialects(registry);
@@ -134,15 +129,5 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
 
 void idr::driver::registerCompilerPasses() {
   idr::registerIdrPasses();
-  // Each upstream pass the pipeline runs, its UpstreamPass list
-  // (Spec.Pipeline.Pipeline), and no other.
-  mlir::registerSymbolDCEPass();
-  mlir::transform::registerInterpreterPass();
-  mlir::registerConvertLinalgToLoopsPass();
-  mlir::registerConvertVectorToSCF();
-  mlir::memref::registerExpandStridedMetadataPass();
-  mlir::registerLowerAffinePass();
-  mlir::registerConvertVectorToLLVMPass();
-  mlir::registerConvertToLLVMPass();
-  mlir::registerReconcileUnrealizedCastsPass();
+  idr::registerUpstreamPasses();
 }

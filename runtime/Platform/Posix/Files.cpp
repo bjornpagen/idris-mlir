@@ -67,20 +67,24 @@ int64_t fileSize(int fd) noexcept {
 
 // POSIX names the fields st_atim and its kin; Darwin, whose stat predates
 // them, st_atimespec.
-bool fileTimes(int fd, int64_t (&times)[6]) noexcept {
+bool fileTimes(int fd, FileTimes &times) noexcept {
   struct stat status {};
   if (fstat(fd, &status) != 0)
     return false;
 #if defined(__APPLE__)
-  const struct timespec *spans[] = {&status.st_atimespec, &status.st_mtimespec,
-                                    &status.st_ctimespec};
+  const struct timespec &access = status.st_atimespec, &modified = status.st_mtimespec,
+                        &changed = status.st_ctimespec;
 #else
-  const struct timespec *spans[] = {&status.st_atim, &status.st_mtim, &status.st_ctim};
+  const struct timespec &access = status.st_atim, &modified = status.st_mtim,
+                        &changed = status.st_ctim;
 #endif
-  for (size_t i = 0; i < 3; ++i) {
-    times[2 * i] = static_cast<int64_t>(spans[i]->tv_sec);
-    times[2 * i + 1] = static_cast<int64_t>(spans[i]->tv_nsec);
-  }
+  using enum idr::files::FileTimeField;
+  times[AccessSeconds] = static_cast<int64_t>(access.tv_sec);
+  times[AccessNanoseconds] = static_cast<int64_t>(access.tv_nsec);
+  times[ModifiedSeconds] = static_cast<int64_t>(modified.tv_sec);
+  times[ModifiedNanoseconds] = static_cast<int64_t>(modified.tv_nsec);
+  times[StatusSeconds] = static_cast<int64_t>(changed.tv_sec);
+  times[StatusNanoseconds] = static_cast<int64_t>(changed.tv_nsec);
   return true;
 }
 

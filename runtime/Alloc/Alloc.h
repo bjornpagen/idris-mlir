@@ -65,10 +65,9 @@ size_t classSize(size_t size);
 size_t bytesToEnd(const void *inside);
 void release(void *block);
 
-// A cell of `size` bytes with the header {1, info}; zeroed past the header
-// when its slots must read as NULL before anything is stored in them.
+// A cell of `size` bytes with the header {1, info}, the rest as the
+// allocator gave it: its maker writes every field before anything reads it.
 void *newCell(size_t size, uint32_t info);
-void *newZeroedCell(size_t size, uint32_t info);
 
 // Frees the memory of a counted heap cell.
 void freeCell(void *cell);

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Array cells, the memory behind every memref (idris_rt_array): a cell with
-// every object slot NULL, one its maker writes whole, and the counted copy
-// between two views of cells.
+// Array cells, the memory behind every memref (idris_rt_array): a cell its
+// maker writes whole, and the counted copy between two views of cells.
 // The compiler reads and writes elements itself, through a memref's
 // descriptor, with the layout it chose; the runtime allocates the cell,
 // copies where a copy must count or stride, and frees the cell (rt::rc).
@@ -136,25 +135,12 @@ idris_rt_array *made(void *cell, int64_t elements) {
 
 } // namespace
 
-// A new array cell of `count` elements with the header `info` (kind
-// IDRIS_RT_KIND_ARRAY). When its elements hold objects, every byte of them
-// is 0, so every object slot is NULL until a store: a store releases what
-// the slot held, and the cell's death releases every slot, written or not;
-// otherwise they are not written. The first element is aligned to
+// A new array cell of `elements` elements whose header's info is `word`
+// (kind IDRIS_RT_KIND_ARRAY), its elements left as the allocator gave them:
+// its maker writes every element whole, object slots included, before
+// anything reads, releases or frees the cell, so no slot is read before its
+// first write and none is set first. The first element is aligned to
 // IDRIS_RT_WORD_BYTES.
-extern "C" idris_rt_array *idris_rt_array_new(int64_t elements, int32_t word) {
-  auto info = static_cast<uint32_t>(word);
-  size_t bytes = arrayBytes(elements, info);
-  return made(idris_rt_info_objs(info) != 0 ? rt::alloc::newZeroedCell(bytes, info)
-                                            : rt::alloc::newCell(bytes, info),
-              elements);
-}
-
-// The same cell with its elements left as the allocator gave them, for a
-// maker that writes every element whole, object slots included, before
-// anything reads, releases or frees the cell (array.new, and a step's fresh
-// cell): no slot is ever read before its first write, so none needs to be
-// NULL first.
 extern "C" idris_rt_array *idris_rt_array_new_unwritten(int64_t elements, int32_t word) {
   auto info = static_cast<uint32_t>(word);
   return made(rt::alloc::newCell(arrayBytes(elements, info), info), elements);
@@ -165,9 +151,10 @@ extern "C" idris_rt_array *idris_rt_array_new_unwritten(int64_t elements, int32_
 // row-major order. Both have rank `rank` and from's sizes. The element is
 // the one to's cell describes, and from's cell holds the same: each object
 // slot copied gains one reference, then the slot it overwrites loses one,
-// then the element's bytes are moved. So a cell fresh from
-// idris_rt_array_new may be the target as it is, and a view copied onto
-// itself, the one overlap allowed, is left as it was.
+// then the element's bytes are moved. Every slot of the target was written
+// before, since a copy into a cell just made releases nothing and is never
+// this one; a view copied onto itself, the one overlap allowed, is left as
+// it was.
 extern "C" void idris_rt_memref_copy(int64_t rank, const idris_rt_memref *from,
                                      const idris_rt_memref *to) {
   uint32_t info = to->allocated->header.info;

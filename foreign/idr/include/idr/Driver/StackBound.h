@@ -13,6 +13,10 @@
 #ifndef IDR_DRIVER_STACKBOUND_H
 #define IDR_DRIVER_STACKBOUND_H
 
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
+#include "idr/Support/Id.h"
+
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 
@@ -22,7 +26,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 namespace llvm {
 class Function;
@@ -34,7 +37,10 @@ namespace idr::driver::stack {
 
 // Each function's frame as code generation laid it out, by name: the
 // stack-size diagnostic it reports of every function asked (`ask`). Each
-// context code is generated in gathers its own, and the driver joins them.
+// context code is generated in gathers its own, and the driver joins them:
+// a bin's functions are its own context's, so a name is the one identity
+// they share with the final module's. A hashed map, which takes no
+// allocator.
 class Frames {
 public:
   void add(llvm::StringRef function, std::uint64_t bytes) { bytes_[function] = bytes; }
@@ -71,24 +77,35 @@ enum class Call : std::uint8_t { Grows, MustTail };
 // stack, where the kernel calls the fault handler.
 enum class Runs : std::uint8_t { OnStack, OnSignalStack };
 
+class Graph;
+
+// A function the module compiles, numbered once, in the module's order, by
+// the graph that reads it.
+struct FunctionTag {
+  using Minter = Graph;
+};
+using FunctionId = Id<FunctionTag>;
+
 // The final module's calls, read once, before code generation, with what
 // the prepared runtime recorded of its native half's (a call into a body of
-// it the program did not inline stacks that body's frames). A sentinel root
-// calls every function, so every one is reached from it.
+// it the program did not inline stacks that body's frames): the solver
+// layer's graph over the functions' ids, each function's row its callees
+// in the module, those its calls grow the stack by first, then those it
+// tail-calls, and its components, callees first.
 class Graph {
 public:
   struct Node {
-    const llvm::Function *function = nullptr;
-    // A callee in the module, and how it is called.
-    std::vector<const Node *> callees;
-    std::vector<Call> calls;
+    const llvm::Function *function;
+    // Whether the kernel calls it on a fault, on the signal stack.
+    Runs runs;
     // The deepest path through a callee outside the module the runtime
     // recorded, by how it is called; 0 for the C library's and GMP's, which
     // the runtime's margin holds.
     std::uint64_t outsideGrows = 0;
     std::uint64_t outsideTail = 0;
-    // Whether the kernel calls it on a fault, on the signal stack.
-    Runs runs = Runs::OnStack;
+    // How many of its row's callees, the first, its calls grow the stack
+    // by; the rest it tail-calls.
+    std::uint32_t grows = 0;
   };
 
   // The graph of `module`, refused as the compiler's error in `context`
@@ -109,25 +126,25 @@ public:
   // frame; and the fault handler's deepest path, with its red zone.
   void record(llvm::Module &runtime, const Frames &frames, const llvm::TargetMachine &machine) const;
 
-  const Node *root() const { return nodes_.data(); }
-  std::size_t size() const { return nodes_.size(); }
-
-  // Moved, never copied: a node's callees point into this graph's nodes.
-  Graph(Graph &&) = default;
-  Graph &operator=(Graph &&) = default;
-  Graph(const Graph &) = delete;
-  Graph &operator=(const Graph &) = delete;
-
 private:
-  Graph() = default;
+  // Each function's frame and the deepest path from each component, weighed
+  // once for a need and a record.
+  struct Weighed;
 
-  // Every node, the root first; never moved once built, so a node's
-  // callees point at it.
-  std::vector<Node> nodes_;
+  Graph(IndexVector<FunctionId, Node> nodes, Csr<FunctionTag> calls,
+        Partition<FunctionTag> components, std::uint64_t outsideFrame,
+        std::uint64_t outsideSignal);
+
+  Weighed weigh(const Frames &frames, const llvm::TargetMachine &machine) const;
+  Need needOf(const Weighed &weighed) const;
+
+  IndexVector<FunctionId, Node> nodes;
+  Csr<FunctionTag> calls;
+  Partition<FunctionTag> components;
   // What the prepared runtime recorded: its largest frame and its fault
   // handler's deepest path.
-  std::uint64_t outsideFrame_ = 0;
-  std::uint64_t outsideSignal_ = 0;
+  std::uint64_t outsideFrame;
+  std::uint64_t outsideSignal;
 };
 
 } // namespace idr::driver::stack

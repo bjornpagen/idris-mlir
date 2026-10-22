@@ -115,7 +115,7 @@ extern "C" idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg,
 extern "C" uint64_t idris_rt_host_memory(void) {
   size_t bytes = rt::platform::physicalMemory();
   size_t space = rt::platform::addressSpaceLimit();
-  size_t commit = rt::platform::commitLimit(rt::platform::hostRoot);
+  size_t commit = rt::platform::commitLimit();
   if (space < bytes)
     bytes = space;
   if (commit < bytes)
@@ -123,11 +123,12 @@ extern "C" uint64_t idris_rt_host_memory(void) {
   return bytes;
 }
 
-// The bytes the process may still commit before its host kills it, read
-// from the host's files under `root`: "" for the host's own, a directory a
-// test planted a host's tree in (its proc/self/cgroup, proc/self/mountinfo
-// and the cgroup hierarchy they name) otherwise; UINT64_MAX where no limit
-// holds.
+// The bytes a process may still commit before its host kills it, as a
+// Linux host's cgroup files under `root` state it: "" for this host's own,
+// a directory a test planted a host's tree in (its proc/self/cgroup,
+// proc/self/mountinfo, proc/meminfo and the cgroup hierarchy they name)
+// otherwise; UINT64_MAX where no limit holds. The same reader on every
+// target, so a test plants the same trees on all of them.
 extern "C" uint64_t idris_rt_commit_limit(const char *root) {
-  return rt::platform::commitLimit(root);
+  return rt::platform::cgroupLimit(root);
 }

@@ -198,9 +198,11 @@ typedef struct idris_rt_bignum {
  * only by the runtime, to release each element's object slots when a counted
  * cell dies. The shape of a memref is its descriptor's (idris_rt_memref),
  * which may view part of a cell, and compiled code never reads the length.
- * Every object slot of every element holds NULL, an odd word or a counted
- * reference for as long as the cell lives: a store into an element releases
- * what the slot held, and so does the cell's death.
+ * The cell's maker writes every element whole before anything reads,
+ * releases or frees it; from then on every object slot of every element
+ * holds NULL, an odd word or a counted reference for as long as the cell
+ * lives: a store into an element releases what the slot held, and so does
+ * the cell's death.
  *
  * A constant array is one static cell laid out as every other: a persistent
  * header (count 0), its length the number of elements, then its data. Its
@@ -390,10 +392,11 @@ idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt
 /* The memory a tool may plan for: physical memory, capped by the process's
  * address-space limit and by what its cgroup lets it still commit. */
 uint64_t idris_rt_host_memory(void);
-/* What the process may still commit before its host kills it, read from the
- * host's files under root: "" for the host's own, or a directory where a
- * test planted a host's proc/self/cgroup, proc/self/mountinfo and the cgroup
- * hierarchy they name; UINT64_MAX where no limit holds. */
+/* What a process may still commit before its host kills it, as a Linux
+ * host's cgroup files under root state it: "" for this host's own, or a
+ * directory where a test planted a host's proc/self/cgroup,
+ * proc/self/mountinfo, proc/meminfo and the cgroup hierarchy they name;
+ * UINT64_MAX where no limit holds. The same reader on every target. */
 uint64_t idris_rt_commit_limit(const char *root);
 void idris_rt_flush(void);
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);

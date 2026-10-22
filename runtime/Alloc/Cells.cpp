@@ -238,15 +238,6 @@ struct Ends {
   [[noreturn]] static void *failure(size_t) noexcept { rt::end::end(rt::end::OutOfMemory{}); }
 };
 
-// The same, its block zeroed, which snmalloc takes from the system's zeroed
-// pages where it can.
-struct EndsZeroed {
-  static void *success(void *p, size_t size, bool secondary = false) {
-    return snmalloc::Zero::success(p, size, secondary);
-  }
-  [[noreturn]] static void *failure(size_t) noexcept { rt::end::end(rt::end::OutOfMemory{}); }
-};
-
 } // namespace rt::alloc
 
 namespace snmalloc {
@@ -301,16 +292,6 @@ void release(void *block) { snmalloc::dealloc(block); }
 
 [[gnu::always_inline]] void *newCell(size_t size, uint32_t info) {
   auto *cell = static_cast<idris_rt_header *>(allocate(size));
-  *cell = idris_rt_header{1, info};
-  if constexpr (checked) {
-    ++cellsHeld;
-    ++cellsMade;
-  }
-  return cell;
-}
-
-void *newZeroedCell(size_t size, uint32_t info) {
-  auto *cell = static_cast<idris_rt_header *>(snmalloc::alloc<EndsZeroed>(size));
   *cell = idris_rt_header{1, info};
   if constexpr (checked) {
     ++cellsHeld;

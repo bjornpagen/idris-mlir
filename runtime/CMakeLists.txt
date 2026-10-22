@@ -13,18 +13,22 @@
 
 set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
 foreach(file
-		simdutf/src/simdutf.cpp
 		fast_float/include/fast_float/fast_float.h
 		ryu/ryu/d2s.c)
 	if(NOT EXISTS "${IDRIS_MLIR_THIRD_PARTY}/${file}")
 		message(FATAL_ERROR "third_party/${file} is missing; run: git submodule update --init")
 	endif()
 endforeach()
-# snmalloc is the copy the bootstrap exports from third_party/snmalloc with
-# its patches applied (IDRIS_MLIR_SNMALLOC, the toolchain file's): the
-# runtime compiles the patched source, never the checkout.
+# snmalloc and simdutf are the copies the bootstrap exports from
+# third_party with their patches applied (IDRIS_MLIR_SNMALLOC and
+# IDRIS_MLIR_SIMDUTF, the toolchain file's): the runtime compiles the
+# patched sources, never the checkouts. PIN(runtime-library-export) — see
+# PINS.md
 if(NOT EXISTS "${IDRIS_MLIR_SNMALLOC}/src/snmalloc/snmalloc.h")
 	message(FATAL_ERROR "the runtime's snmalloc is missing at ${IDRIS_MLIR_SNMALLOC}; run: tools/bootstrap.sh snmalloc")
+endif()
+if(NOT EXISTS "${IDRIS_MLIR_SIMDUTF}/src/simdutf.cpp")
+	message(FATAL_ERROR "the runtime's simdutf is missing at ${IDRIS_MLIR_SIMDUTF}; run: tools/bootstrap.sh simdutf")
 endif()
 
 # snmalloc as its own build describes it, header-only: its interface target
@@ -103,6 +107,7 @@ set(IDRIS_RT_SOURCES
 	Start/Entry.cpp
 	Start/Runner.cpp
 	End/End.cpp
+	Platform/Posix/Cgroups.cpp
 	Platform/Posix/Clocks.cpp
 	Platform/Posix/Directories.cpp
 	Platform/Posix/Faults.cpp
@@ -194,8 +199,8 @@ foreach(implementation IN LISTS IDRIS_MLIR_SIMDUTF_IMPLEMENTATIONS)
 	endif()
 endforeach()
 set(IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES
-	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
-	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/src")
+	"${IDRIS_MLIR_SIMDUTF}/include"
+	"${IDRIS_MLIR_SIMDUTF}/src")
 
 # What every unit of the runtime is told beyond its headers' definitions,
 # and so is a unit of it a test compiles (c-flags, below), but the page and
@@ -268,9 +273,9 @@ if(IDRIS_MLIR_TYPECHECK)
 	return()
 endif()
 
-# Vendored code: compiled as upstream writes it, outside our warning set and
-# the lint graph.
-add_library(idris_rt_simdutf OBJECT "${IDRIS_MLIR_THIRD_PARTY}/simdutf/src/simdutf.cpp")
+# Vendored code: compiled outside our warning set and the lint graph,
+# simdutf from its export.
+add_library(idris_rt_simdutf OBJECT "${IDRIS_MLIR_SIMDUTF}/src/simdutf.cpp")
 target_include_directories(idris_rt_simdutf SYSTEM PRIVATE ${IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES})
 target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
 target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)

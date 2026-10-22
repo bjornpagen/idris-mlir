@@ -291,8 +291,8 @@ mlir::LogicalResult writeAsArchive(llvm::ArrayRef<std::string> names,
                                    llvm::ArrayRef<Object> objects, const llvm::Triple &triple,
                                    const Archive &archive, mlir::MLIRContext &context) {
   IDR_ZONE_IN("archive", LLVM);
-  std::vector<std::string> files;
-  std::vector<llvm::NewArchiveMember> members;
+  idr::footprint::Vector<std::string> files;
+  idr::footprint::Vector<llvm::NewArchiveMember> members;
   files.reserve(names.size());
   for (auto [name, object] : llvm::zip_equal(names, objects)) {
     files.push_back(name + ".o");
@@ -341,11 +341,13 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
     llvm::raw_string_ostream os(bitcode);
     llvm::WriteBitcodeToFile(optimized, os);
   }
+  // Each bin's slot in every table, sized by the program, so their memory
+  // is the footprint's.
   llvm::ArrayRef<idr::target::Bin> bins = partition->bins();
-  std::vector<Compiled> compiled(bins.size());
-  std::vector<stack::Frames> frames(bins.size());
+  idr::footprint::Vector<Compiled> compiled(bins.size());
+  idr::footprint::Vector<stack::Frames> frames(bins.size());
   // The largest bins first, so that the last task to finish is a small one.
-  std::vector<unsigned> order(bins.size());
+  idr::footprint::Vector<unsigned> order(bins.size());
   std::iota(order.begin(), order.end(), 0u);
   std::stable_sort(order.begin(), order.end(), [&](unsigned a, unsigned b) {
     return bins[a].instructions > bins[b].instructions;
@@ -368,14 +370,14 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
     return mlir::emitError(unknown) << llvm::toString(machine.takeError());
   compiled.push_back(builtObject(calls->need(laid, **machine),
                                  llvm::sys::path::filename(artifacts.base), **machine));
-  std::vector<std::string> names;
+  idr::footprint::Vector<std::string> names;
   names.reserve(compiled.size());
   for (const idr::target::Bin &bin : bins)
     names.push_back(bin.name);
   names.push_back(builtObjectName.str());
   // Every failure is an error, in order; the objects are written only when
   // there is one for every name.
-  std::vector<Object> objects;
+  idr::footprint::Vector<Object> objects;
   for (Compiled &one : compiled)
     std::visit(llvm::makeVisitor(
                    [&](Object &object) { objects.push_back(std::move(object)); },

@@ -77,10 +77,12 @@ cl::opt<std::string> emittedPath("emitted",
                                           "whatever the verdict"),
                                  cl::init(""));
 // Which actions -log-actions-to logs: otherwise every one, each pass
-// execution with the whole module.
+// execution with the whole module. The help names no tag: the passes'
+// tags are the specification's, which idris-mlir-opt prints.
 cl::list<std::string> logActionsTags(
     "log-actions-tags",
-    cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-specialize-clone"),
+    cl::desc("With -log-actions-to, log only the actions of these tags, as "
+             "idris-mlir-opt --idr-action-tags prints them"),
     cl::CommaSeparated);
 // The runtime a compilation reads and links, and the archive
 // --prepare-runtime reads: by default the object the build prepared from

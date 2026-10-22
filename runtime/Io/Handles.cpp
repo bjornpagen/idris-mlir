@@ -87,9 +87,10 @@ void grow() {
 }
 
 // What the slot holds, released: a file closed, which writes what it has
-// pending, and how that went; a directory closed; a string losing the
-// slot's reference. A directory's entry slot is a slot of its own, and a
-// standard stream's state is its row's, not the slot's.
+// pending, and how that went; a directory closed; a file's times given
+// back; a string losing the slot's reference. A directory's entry slot is
+// a slot of its own, and a standard stream's state is its row's, not the
+// slot's.
 rt::platform::Wrote releasePayload(Slot &slot) {
   switch (slot.kind) {
   case Kind::File:
@@ -97,6 +98,9 @@ rt::platform::Wrote releasePayload(Slot &slot) {
   case Kind::Directory:
     if (!rt::platform::closeDirectory(slot.directory.stream))
       rt::io::saveError();
+    return rt::platform::Wrote::Whole;
+  case Kind::FileTimes:
+    rt::alloc::release(slot.times);
     return rt::platform::Wrote::Whole;
   case Kind::String:
   case Kind::KeptString:
@@ -148,6 +152,7 @@ constexpr const StreamOps *rowOf(Kind kind) {
     return &rt::io::fileStream;
   case Kind::Free:
   case Kind::Directory:
+  case Kind::FileTimes:
   case Kind::String:
   case Kind::KeptString:
     return nullptr;
@@ -249,6 +254,7 @@ extern "C" void idris_rt_io_handle_free(int64_t handle) {
   switch (rt::io::slotOf(handle).kind) {
   case rt::io::Kind::File:
   case rt::io::Kind::Directory:
+  case rt::io::Kind::FileTimes:
   case rt::io::Kind::String:
     switch (rt::io::releaseSlot(handle)) {
     case rt::platform::Wrote::Whole:

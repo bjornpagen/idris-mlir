@@ -8,6 +8,8 @@
 #ifndef IDR_DRIVER_ARTIFACTS_H
 #define IDR_DRIVER_ARTIFACTS_H
 
+#include "idr/Support/Footprint.h"
+
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/Support/LLVM.h"
 
@@ -156,8 +158,9 @@ public:
   const std::string &addObject(llvm::StringRef bin);
 
   // For an executable, the bins' objects in the order of their names: what
-  // the link passes. writeObjects fills it.
-  std::vector<std::string> objects;
+  // the link passes. writeObjects fills it, one per bin, so its memory is
+  // the footprint's.
+  footprint::Vector<std::string> objects;
 
 private:
   std::vector<std::unique_ptr<llvm::FileRemover>> removers;

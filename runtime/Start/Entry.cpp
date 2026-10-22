@@ -53,7 +53,7 @@ idris_rt_start(const idris_rt_program *program, int32_t argc, char **argv) {
   // The runner hands its argument to runProgram untouched, which reads the
   // record as the constant it is.
   if (rt::start::run(runProgram, const_cast<idris_rt_program *>(program), plan,
-                     rt::platform::commitLimit(rt::platform::hostRoot)) != IDRIS_RT_RAN)
+                     rt::platform::commitLimit()) != IDRIS_RT_RAN)
     rt::end::end(rt::end::OutOfMemory{});
   // The checked runtime's count of the cells the program holds, once the
   // handle table has given back the strings the runtime holds for it: one
