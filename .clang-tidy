@@ -3,8 +3,22 @@
 # The checks of the lint preset, which runs clang-tidy on every translation
 # unit and fails on any finding: bugs the compiler's warnings miss, and
 # needless copies.
+#
+# A closed sum of ours is read by one fold, idr::match, which refuses a
+# missing case at compile time; the readers that ask for one alternative
+# and drop what they learned, std::visit's dispatch through function
+# pointers above eleven alternatives, and TypeSwitch's ladder of casts are
+# refused here, by qualified name, since visit is too common a word for a
+# poisoned identifier. A moved handle (a reuse token, an exclusive value)
+# used again is bugprone-use-after-move's.
 Checks: >-
   -*,
   bugprone-*,
   clang-analyzer-*,
   performance-*
+CheckOptions:
+  bugprone-unsafe-functions.CustomFunctions: >-
+    ^::std::(__[a-z0-9_]+::)?visit$,idr::match,dispatches through function pointers above eleven alternatives and checks no case;
+    ^::std::(__[a-z0-9_]+::)?get_if$,idr::match,asks for one alternative and drops what it learned;
+    ^::std::(__[a-z0-9_]+::)?holds_alternative$,idr::match,asks for one alternative and drops what it learned;
+    ^::llvm::.*TypeSwitch.*::Case$,an interface or idr::match,is a ladder of casts

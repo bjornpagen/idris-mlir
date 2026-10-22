@@ -7,7 +7,6 @@
 
 #include "idr/Testing/Box.h"
 
-#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 
@@ -285,17 +284,16 @@ TEST_F(Ranges, BoundsOf) {
   }
 }
 
-// The range a type proves, whatever its grade (ofType): at least 0 for a
-// natural, none for a big, its storage width's whole range for an integer
-// or an index, and for a type that holds no integer upstream's maximum
-// range of a value of it, the initialized width-0 one.
+// The range a type proves (ofType): at least 0 for a natural, none for a
+// big, its storage width's whole range for an integer or an index, and for
+// a type that holds no integer upstream's maximum range of a value of it,
+// the initialized width-0 one.
 TEST_F(Ranges, OfType) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect>();
   mlir::Type nat = idr::NatType::get(&context);
   mlir::IntegerValueRange natural(ranges::rangeOf(ranges::natural()));
   EXPECT_EQ(ranges::ofType(nat), natural);
-  EXPECT_EQ(ranges::ofType(idr::linear(nat)), natural);
   EXPECT_EQ(ranges::ofType(idr::BigType::get(&context)),
             mlir::IntegerValueRange(ranges::rangeOf({})));
   EXPECT_EQ(ranges::ofType(mlir::IntegerType::get(&context, 8)),

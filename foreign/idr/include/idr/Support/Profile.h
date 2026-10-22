@@ -14,6 +14,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TimeProfiler.h"
 
+#include <cstdint>
 #include <string>
 
 namespace llvm {
@@ -25,6 +26,10 @@ class PassManager;
 } // namespace mlir
 
 namespace idr::profile {
+
+// Whether a scope began its thread's profiler, and so finishes it, or found
+// one already begun by an outer scope.
+enum class Profiler : std::uint8_t { Inherited, Begun };
 
 // One tool's trace, from its command line to its exit: constructed after
 // the options are read, it starts the profiler when --time-trace named
@@ -52,7 +57,8 @@ struct ThreadTrace {
   ThreadTrace(const ThreadTrace &) = delete;
   ThreadTrace &operator=(const ThreadTrace &) = delete;
 
-  bool owns = false;
+private:
+  Profiler profiler = Profiler::Inherited;
 };
 
 // Zones for every pass and every analysis the manager runs, named by the

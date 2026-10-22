@@ -7,6 +7,11 @@
 // not happen: the IR stays as it was, and valid. Each action's IR unit is
 // the op it transforms: a call, a function, a loop, a constructor, the op
 // whose value becomes a constant.
+//
+// Only a transform is an action. A solve's unit is never one: a skipped
+// exclusivity unit would leave its component "exclusive", a miscompile,
+// and a skipped unit of a refusal's analysis would act as a budget of
+// zero; a solve's units are traced and always run.
 #ifndef IDR_SUPPORT_ACTIONS_H
 #define IDR_SUPPORT_ACTIONS_H
 
@@ -17,9 +22,11 @@
 #include "mlir/Support/TypeID.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <concepts>
+#include <functional>
 
 namespace idr::support {
 
@@ -47,15 +54,17 @@ struct TaggedAction : mlir::tracing::ActionImpl<Derived> {
 };
 
 // Runs `transform` as an action A on `op`, unless the context's action
-// handler skips it; whether it ran. `transform` may erase `op`. Each user
-// instantiates the template, so keep it thin.
-template <typename A>
-bool perform(mlir::Operation *op, llvm::function_ref<void()> transform) {
+// handler skips it; whether it ran. `transform` may erase `op`. The
+// transform is a template parameter, inlined here; the one erasure is
+// executeAction's own, which takes a function_ref. Each user instantiates
+// the template, so keep it thin.
+template <typename A, std::invocable<> Transform>
+bool perform(mlir::Operation *op, Transform &&transform) {
   bool ran = false;
   mlir::IRUnit unit(op);
   op->getContext()->executeAction<A>(
       [&] {
-        transform();
+        std::invoke(transform);
         ran = true;
       },
       unit);

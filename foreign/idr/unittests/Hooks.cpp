@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The box of the range hooks of the big ops of one operand: each op built
 // in a scratch block, its hook called on every interval over D64 as the
-// analysis holds one (rangeOf), and the range it states read as idr-narrow
-// reads it (boundsOf), against the runtime's value of every member; then
-// against a runtime with a fault planted in the op, which the check must
-// catch, so that a hook stating no bound would not pass.
+// analysis holds one (rangeOf), and the range it states read as the
+// narrowing reads it (boundsOf), against the runtime's value of every
+// member; then against a runtime with a fault planted in the op, which the
+// check must catch, so that a hook stating no bound would not pass.
 
 #include "idr/Testing/Box.h"
 

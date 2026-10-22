@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The box of the word each big op narrows to. The table generated from the
-// ODS (BigToWord) names a word op per big op; each is built once with arith
+// specification (BigToWord) names a word op per big op; each is built once with arith
 // on block arguments and folded by MLIR on every small value within 2 of 0
 // or of a power of two, against the runtime's C entry for the big op and
 // exact __int128 arithmetic. Then the mask a loop is versioned under, and
@@ -22,7 +22,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 
-#include "idr/IR/IdrBigToWord.inc"
+#include "idr/IR/Generated/BigToWord.h.inc"
 
 #include "gtest/gtest.h"
 
@@ -73,8 +73,8 @@ template <>
 constexpr int64_t leastOperand<idr::BigPredOp> = 1;
 
 // The meaning of each big op whose word op takes two words: the sum, the
-// difference and the product. An op the ODS marks later has none, and does
-// not compile here until it is given its own.
+// difference and the product. An op the specification marks later has
+// none, and does not compile here until it is given its own.
 template <typename OpT>
 struct Exact;
 template <>
@@ -169,8 +169,8 @@ void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
   }
 }
 
-// Every big op the ODS marks, in one fold over the generated list: an op
-// marked later is checked here or fails to compile.
+// Every big op the specification marks, in one fold over the generated
+// list: an op marked later is checked here or fails to compile.
 template <typename... Ops>
 void checkEachWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
   (checkWord<Ops>(box, builder, a, b), ...);
@@ -187,7 +187,7 @@ TEST_F(Words, EachBigOpIsItsWordOp) {
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   checkEachWord<
 #define GET_BIG_TO_WORD_LIST
-#include "idr/IR/IdrBigToWord.inc"
+#include "idr/IR/Generated/BigToWord.h.inc"
       >(*this, builder, a, b);
 }
 

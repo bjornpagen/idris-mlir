@@ -13,13 +13,15 @@
 // The runtime's C ABI: GMP's allocator and the reserved-stack runner.
 #include "idris_rt.h"
 
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <concepts>
 #include <cstddef>
+#include <functional>
 #include <string>
+#include <type_traits>
 
 // What the stack's exhaustion handler may call: write and _exit.
 #include <unistd.h>
@@ -40,16 +42,20 @@ inline std::string exhaustionMessage;
   _exit(1);
 }
 
+template <class Body>
 struct ToolRun {
-  llvm::function_ref<int()> body;
+  Body &body;
   int status = 1;
 };
 
-inline void enterTool(void *argument) {
+// The runner's C ABI takes a function pointer and an argument: the one
+// erasure, instantiated per body, so the body itself is called directly.
+template <class Body>
+void enterTool(void *argument) {
   // This thread's share of the trace, finished before it is joined.
   profile::ThreadTrace thread;
-  auto *run = static_cast<ToolRun *>(argument);
-  run->status = run->body();
+  auto *run = static_cast<ToolRun<Body> *>(argument);
+  run->status = std::invoke(run->body);
 }
 
 } // namespace detail
@@ -61,12 +67,14 @@ inline void enterTool(void *argument) {
 // the link are spawned from the body's thread, which posix_spawn allows.
 // The stack running out, or none being reserved, is the tool's internal
 // error, said in its name.
-inline int runTool(llvm::StringLiteral tool, llvm::function_ref<int()> body) {
+template <class Body>
+  requires std::same_as<std::invoke_result_t<Body &>, int>
+int runTool(llvm::StringLiteral tool, Body body) {
   idris_rt_gmp_init();
   detail::exhaustionMessage =
       (llvm::Twine(tool) + ": internal error: the stack is exhausted\n").str();
-  detail::ToolRun run{body};
-  if (idris_rt_run_on_stack(detail::enterTool, &run, detail::onExhaustion) != 0) {
+  detail::ToolRun<Body> run{body};
+  if (idris_rt_run_on_stack(detail::enterTool<Body>, &run, detail::onExhaustion) != 0) {
     llvm::errs() << tool << ": internal error: no stack could be reserved\n";
     return 1;
   }

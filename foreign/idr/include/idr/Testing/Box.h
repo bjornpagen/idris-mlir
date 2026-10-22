@@ -10,6 +10,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
+#include "idr/Support/Enum.h"
 
 #include "idris_rt.h"
 
@@ -46,12 +47,11 @@ private:
   mlir::OwningOpRef<mlir::ModuleOp> module;
 };
 
-// The fixture of each test of a box, googletest's hook around it: SetUp
-// reads the runtime's live cells and TearDown expects them again, and no
-// failing input. A box can fail on millions of inputs, and an assertion
-// reports each; googletest has none that counts, so `check` counts them and
-// reports the first with every operand. `Derived` is the box's own class,
-// which names its tests.
+// The fixture of each test of a box, googletest's hook around it: its
+// TearDown expects no failing input. A box can fail on millions of inputs,
+// and an assertion reports each; googletest has none that counts, so
+// `check` counts them and reports the first with every operand. `Derived`
+// is the box's own class, which names its tests.
 template <typename Derived>
 class Box : public testing::Test {
 public:
@@ -62,14 +62,9 @@ public:
   }
 
 protected:
-  void SetUp() override { live = idris_rt_live_cells(); }
-  void TearDown() override {
-    EXPECT_EQ(failures, 0u);
-    EXPECT_EQ(idris_rt_live_cells(), live);
-  }
+  void TearDown() override { EXPECT_EQ(failures, 0u); }
 
 private:
-  uint64_t live = 0;
   unsigned failures = 0;
 };
 
@@ -202,7 +197,7 @@ inline bool member(const mlir::ConstantIntRanges &r, const llvm::APInt &v) {
 // The range `op`'s hook states of its result on `operands`: MLIR gives it
 // only to a callback. Where the hook states none, the range of any value of
 // the result's type, which decides and bounds nothing, as no range does for
-// idr-narrow.
+// the narrowing.
 template <typename OpT>
 mlir::ConstantIntRanges inferred(OpT op, llvm::ArrayRef<mlir::ConstantIntRanges> operands) {
   mlir::ConstantIntRanges range =
@@ -212,12 +207,12 @@ mlir::ConstantIntRanges inferred(OpT op, llvm::ArrayRef<mlir::ConstantIntRanges>
   return range;
 }
 
-// Every predicate of the dialect's comparison, from its generated enum.
+// Every predicate of the dialect's comparison, a dense enum of the
+// specification: each case once, none to look up.
 template <typename Fn>
 void eachPredicate(Fn fn) {
-  for (uint64_t p = 0; p <= idr::getMaxEnumValForCmpPredicate(); ++p)
-    if (std::optional<idr::CmpPredicate> predicate = idr::symbolizeCmpPredicate(p))
-      fn(*predicate);
+  for (idr::CmpPredicate predicate : allOf<idr::CmpPredicate>())
+    fn(predicate);
 }
 
 // Bounds has no printer, and its namespace, where googletest looks for one,

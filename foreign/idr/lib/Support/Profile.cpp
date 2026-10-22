@@ -114,7 +114,7 @@ public:
     auto [at, outermost] = threads.try_emplace(thread);
     if (outermost && !llvm::getTimeTraceProfilerInstance()) {
       llvm::timeTraceProfilerInitialize(timeTraceGranularity, *tracedProc);
-      at->second.owns = true;
+      at->second.profiler = idr::profile::Profiler::Begun;
     }
     ++at->second.depth;
   }
@@ -149,7 +149,7 @@ private:
   // pipeline.
   struct Pipelines {
     unsigned depth = 0;
-    bool owns = false;
+    idr::profile::Profiler profiler = idr::profile::Profiler::Inherited;
   };
 
   // The calling thread leaves pipelines as `step` says.
@@ -165,7 +165,7 @@ private:
     step(found->second);
     if (found->second.depth != 0)
       return;
-    if (found->second.owns)
+    if (found->second.profiler == idr::profile::Profiler::Begun)
       llvm::timeTraceProfilerFinishThread();
     threads.erase(found);
   }
@@ -218,12 +218,12 @@ idr::profile::Trace::~Trace() {
 idr::profile::ThreadTrace::ThreadTrace() {
   if (tracedProc && !llvm::getTimeTraceProfilerInstance()) {
     llvm::timeTraceProfilerInitialize(timeTraceGranularity, *tracedProc);
-    owns = true;
+    profiler = Profiler::Begun;
   }
 }
 
 idr::profile::ThreadTrace::~ThreadTrace() {
-  if (owns)
+  if (profiler == Profiler::Begun)
     llvm::timeTraceProfilerFinishThread();
 }
 
