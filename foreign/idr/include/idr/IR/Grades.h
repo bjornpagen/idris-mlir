@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The grades: what Idris proved of a value, kept in its type where no pass
-// can drop it, and the questions every pass asks of a graded type or value.
-// They are declared over mlir::Type and mlir::Value, before the dialect's
-// generated types: the generated type builders and constraints name them.
+// The grade, `!idr.graded<uses, hold, T>`: what Idris proved of a value,
+// kept in its type where no pass can drop it, and what counting and the
+// lifetimes learn of it. Its uses are on every type; its hold only on a
+// type that holds references. A hold has two axes, never one enum: who
+// frees what the value holds (its count, the end of its lifetime, or
+// nothing for static data), and what is known of its sharing (nothing, its
+// own family's cells, everything it reaches). Every pair is a hold but a
+// claim on static data, which is shared by definition and has no
+// constructor. A lifetime is not part of the grade: it is an SSA value, which
+// the op that makes a value names (Lifetimes.h).
+//
+// The axes, their spellings and the tables of their algebra are generated
+// from the dialect's Idris specification (Spec.Grades.Grade), where the laws
+// are proved; the C++ reads the tables, never a second proof. Declared over
+// mlir::Type and mlir::Value, before the dialect's generated types: the
+// generated type builders and constraints name them.
 #ifndef IDR_IR_GRADES_H
 #define IDR_IR_GRADES_H
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/Hashing.h"
@@ -20,115 +33,166 @@
 #include <optional>
 #include <variant>
 
-// A grade is a pair of two of the enums (IdrBase.td). The generated file has
-// no guard of its own, so this header is where the dialect includes it.
+// The dialect's ODS enums, `Uses` among them, since the graded type's
+// parameter is one; the generated file has no guard of its own, so this
+// header is where the dialect includes it. Then the rest of the axes
+// (Release, Unique), a field's Recursion, a cast's QuantityChange, the
+// seven holds (HoldCase) with their facts, and the product of uses,
+// printed from Spec.Grades.
 #include "idr/IR/IdrEnums.h.inc"
+#include "idr/IR/Generated/Grades.h.inc"
 
 namespace idr {
 
-// A constructor's tag, defined with the dialect (IdrDialect.h): a value's
-// source below names one.
+// A constructor's tag, defined with the families (Families/Declaration.h): a
+// value's source below names one.
 enum class Tag : std::uint32_t;
 
-// A grade: the quantity is the number of uses Idris allows, one or many
-// (Quantity); the permission is what the value owns, plain (nothing to
-// say), a borrow, one reference of its own, or an exclusive cell graph,
-// which the owned stage decides; the lifetime is how long what the value
-// reaches lives, the heap or the frame (Lifetime), which idr-rc's stack
-// step decides. A plain type T is the grade (many, plain, heap).
-struct Grade {
-  Quantity quantity = Quantity::Many;
-  Permission permission = Permission::Plain;
-  Lifetime lifetime = Lifetime::Heap;
-  bool operator==(const Grade &) const = default;
-  bool plain() const {
-    return quantity == Quantity::Many && permission == Permission::Plain &&
-           lifetime == Lifetime::Heap;
-  }
-};
-
-inline llvm::hash_code hash_value(Grade grade) {
-  return llvm::hash_combine(static_cast<unsigned>(grade.quantity),
-                            static_cast<unsigned>(grade.permission),
-                            static_cast<unsigned>(grade.lifetime));
+// Idris's product of uses: a field of a value is used as often as the value
+// times the field's own uses.
+constexpr Uses times(Uses a, Uses b) {
+  return usesTimes[static_cast<unsigned>(a)][static_cast<unsigned>(b)];
 }
 
-// The grade of a type: its own for !idr.q, (many, plain) for a plain type.
+// What a value that holds references holds: one of the seven holds of the
+// specification (HoldCase), each fact of it a load from the specification's
+// table. Built only by its three constructors, so a claim on static data
+// cannot be written.
+class Hold {
+public:
+  // Freed by its count, with what is known of its sharing.
+  static constexpr Hold counted(Unique unique = Unique::None) {
+    return Hold(countedCases[static_cast<unsigned>(unique)]);
+  }
+  // Freed when the lifetime of the op that made it ends.
+  static constexpr Hold scoped(Unique unique = Unique::None) {
+    return Hold(scopedCases[static_cast<unsigned>(unique)]);
+  }
+  // Static data, never freed, shared by definition.
+  static constexpr Hold staticData() { return Hold(HoldCase::Static); }
+
+  constexpr HoldCase kase() const { return c; }
+  constexpr Release release() const { return holdRelease[index()]; }
+  // What the hold claims of its sharing: static data claims nothing.
+  constexpr Unique claim() const { return holdClaim[index()]; }
+  // Whether the hold claims at least `unique`.
+  constexpr bool claims(Unique unique) const {
+    return static_cast<unsigned>(claim()) >= static_cast<unsigned>(unique);
+  }
+  // Whether a value at this hold may stand where `slot` is asked, with no op
+  // between: its claim forgotten down to the slot's, or static data standing
+  // for a value of any release that claims nothing.
+  constexpr bool fits(Hold slot) const { return (holdFitsMask[index()] >> slot.index()) & 1u; }
+  // The hold of a field read from a value at this hold: freed as the value
+  // is, claiming what a field of its kind may (never more than the value).
+  constexpr Hold read(Recursion recursion) const {
+    return Hold(recursion == Recursion::OwnFamily ? holdReadOwnFamily[index()]
+                                                  : holdReadOther[index()]);
+  }
+  // What exclusivity writes once it proves the value's sharing: the claim
+  // set where something frees the value; static data has no sharing level
+  // and stays as it is.
+  constexpr Hold refined(Unique unique) const {
+    return release() == Release::Counted  ? counted(unique)
+           : release() == Release::Scoped ? scoped(unique)
+                                          : *this;
+  }
+  // The hold as the type prints it.
+  llvm::StringRef spelling() const { return holdSpelling[index()]; }
+
+  constexpr bool operator==(const Hold &) const = default;
+  friend llvm::hash_code hash_value(Hold hold) { return llvm::hash_value(hold.index()); }
+
+private:
+  static constexpr HoldCase countedCases[] = {HoldCase::Counted, HoldCase::CountedSelf,
+                                              HoldCase::CountedDeep};
+  static constexpr HoldCase scopedCases[] = {HoldCase::Scoped, HoldCase::ScopedSelf,
+                                             HoldCase::ScopedDeep};
+  constexpr explicit Hold(HoldCase c) : c(c) {}
+  constexpr unsigned index() const { return static_cast<unsigned>(c); }
+  HoldCase c;
+};
+
+// The `Hold` directive of the graded type's syntax: a hold read word by
+// word against the specification's spellings, or none when the next word
+// begins no hold (a carrier that holds no reference); and its printing.
+mlir::ParseResult parseHold(mlir::AsmParser &parser, mlir::FailureOr<std::optional<Hold>> &hold);
+void printHold(mlir::AsmPrinter &printer, std::optional<Hold> hold);
+
+// A value's grade, as its type says: its uses, and its hold exactly when its
+// carrier holds references. The absence is the carrier's fact, not the
+// grade's: no hold is ever undecided on a carrier that holds references.
+struct Grade {
+  Uses uses = Uses::Many;
+  std::optional<Hold> hold;
+  bool operator==(const Grade &) const = default;
+};
+
+// The grade of a type: a graded type's own; a bare type's is its carrier's
+// bare grade (many, and counted claiming nothing where it holds
+// references); a type used once by its type (a cell, a destination, a
+// package) is used once and takes no hold.
 Grade gradeOf(mlir::Type type);
 
-// The type `value` at `grade`, in canonical form: never a grade of a
-// graded type, and `value` itself at (many, plain) or when `value` is used
-// exactly once by its type (isLinearByType), which takes no grade.
-mlir::Type graded(Grade grade, mlir::Type value);
+// The bare grade of `carrier`, the one a bare type has.
+Grade bareGrade(mlir::Type carrier);
 
-// The spelling !idr.lin<T>, and the world's type, !idr.world.
-mlir::Type linear(mlir::Type value);
-mlir::Type world(mlir::MLIRContext *ctx);
+// `carrier` at `grade`, in canonical form: never a grade of a graded type;
+// the carrier itself at its bare grade, or when it is used once by its type
+// (isLinearByType), which takes no grade. The grade must fit its carrier: a
+// hold exactly when the carrier holds references (GradedType's verifier).
+mlir::Type graded(Grade grade, mlir::Type carrier);
 
-// Whether a type is a linear value (one that entered its grade and is used
-// out of it), which its grade says; and whether it is the world.
-bool isLinear(mlir::Type type);
-bool isWorld(mlir::Type type);
+// The type of the value itself, its carrier: T for !idr.graded<…, T>, the
+// type otherwise.
+mlir::Type unrestricted(mlir::Type type);
 
-// The owned stage's grades: a value that holds a reference of its own
-// (own, or excl), and the view of it, which holds none: a borrow for a type
-// of ours, plain for a builtin buffer, which upstream's ops take ungraded.
-// `owned` and `view` keep the quantity and change the permission;
-// `atQuantity` keeps the permission and changes the quantity.
-// `atPermission` keeps the quantity, which is Idris's, and sets the
-// permission: how a value is compared with a slot declared at another
-// permission (a plain field, element or yield, a dup's owned result, a
-// store's plain carrier), whatever counting made of it.
-bool isOwned(mlir::Type type);
-mlir::Type owned(mlir::Type type);
-mlir::Type view(mlir::Type type);
-mlir::Type atQuantity(mlir::Type type, Quantity quantity);
-mlir::Type atPermission(mlir::Type type, Permission permission);
+// How often a value of `type` may be used, and its hold, if its carrier
+// holds references.
+Uses usesOf(mlir::Type type);
+std::optional<Hold> holdOf(mlir::Type type);
 
-// Whether a value holds the only reference to every cell of its cell
-// graph (the excl permission), which idr-rc proves and writes into the
-// type: taking it apart needs no count test, and its cells no null test.
-// `exclusive` is the type with that permission, at its own quantity.
-bool isExclusive(mlir::Type type);
-mlir::Type exclusive(mlir::Type type);
+// `type` at other uses, its hold kept; and at another hold, its uses kept.
+// A carrier that holds no reference has no hold, and atHold leaves it as it
+// is.
+mlir::Type atUses(mlir::Type type, Uses uses);
+mlir::Type atHold(mlir::Type type, Hold hold);
 
-// What idr.share makes of a value of `type`: its exclusivity forgotten,
-// at its own lifetime (`shared`); and whether `to` is such a value of
-// `from` at its lifetime or one it fits in (`forgets`).
+// Whether a value of `type` is used at most once: by its type, or by its
+// grade's uses.
+inline bool isLinear(mlir::Type type) { return usesOf(type) == Uses::Once; }
+
+// Whether a value of `type` holds references `release` frees: its count
+// (counted), its lifetime (scoped), or nothing (static).
+bool freedBy(mlir::Type type, Release release);
+
+// Whether a value of `type` claims at least `unique` of its sharing: its
+// own family's cells unshared (Unique::Self, which a deep claim implies), or
+// everything it reaches (Unique::Deep). Counting reads a deep claim off the
+// type and tests nothing at run time.
+bool claims(mlir::Type type, Unique unique);
+
+// What a value of `type` becomes given on with what its grade claims of its
+// sharing forgotten, its release and uses kept (`shared`); and whether a
+// value of `from` may stand where `to` is asked with no op between, the
+// same carrier at the same uses whose hold fits (`forgets`): its claim
+// forgotten, or static data standing for a value that claims nothing.
 mlir::Type shared(mlir::Type type);
 bool forgets(mlir::Type from, mlir::Type to);
 
-// The lifetime of a type: its grade's, or a cell's own (CellType), which
-// takes no grade. Whether a value of `type` may be frame: a box, or a sum
-// whose fields hold references, one of which may be a box; nothing else
-// reaches a cell of the frame, and no reference moves out of a sum of
-// words, so no edge (Flow.h) could carry the frame to it. The type at
-// `lifetime`, where it may be frame, and itself otherwise.
-Lifetime lifetimeOf(mlir::Type type);
-bool mayBeFrame(mlir::Type type);
-mlir::Type atLifetime(mlir::Type type, Lifetime lifetime);
+// The type at which a match binds a field of its scrutinee, as Idris binds
+// a pattern variable: a declaration's field is its carrier and its own uses
+// (no hold: a field holds what the value it is read from holds); the field
+// is used as often as the scrutinee times its own uses, and, where its
+// carrier holds references, its hold is read from the scrutinee's
+// (Hold::read): a field of a record that is not unique deep is never unique
+// deep, whatever its quantity. `recursion` says whether the field is of the
+// scrutinee's own family (a recursive field), which a claim on the family's
+// own cells reaches. A field used once by its type takes no grade.
+mlir::Type fieldType(mlir::Type scrutinee, mlir::Type carrier, Uses uses, Recursion recursion);
 
-// The order of lifetimes, heap below frame: a value of `lifetime` may stand
-// in a slot of lifetime `slot` when it lives at least as long as the slot
-// asks, heap anywhere and frame only in a frame slot; and the join of two,
-// the least lifetime both may stand in.
-bool fitsIn(Lifetime lifetime, Lifetime slot);
-Lifetime joined(Lifetime a, Lifetime b);
-
-// Idris's product of quantities: one is the unit, and many times many is
-// many.
-Quantity times(Quantity a, Quantity b);
-
-// How often a value may be used, as its type says: exactly once (by the
-// type alone, as the world, a destination and a cell are, or by a grade of
-// quantity one, as !idr.lin<T> is), or any number of times.
-Quantity quantityOf(mlir::Type type);
-
-// The type of the value itself: T for !idr.lin<T>, the type otherwise.
-mlir::Type unrestricted(mlir::Type type);
-
-// Whether a slot of `type` holds a closure, or a suspension, at any
-// quantity: the value's carrier says, whatever linearity a rewrite keeps.
+// Whether a slot of `type` holds a closure, or a suspension, at any grade:
+// the value's carrier says, whatever linearity a rewrite keeps.
 bool isClosureType(mlir::Type type);
 bool isLazyType(mlir::Type type);
 
@@ -143,11 +207,11 @@ definitionChain(mlir::Value start, llvm::function_ref<std::optional<mlir::Value>
 
 // The linear positions `value` passed, `value` first and the value it was
 // made from last: each step is an op that keeps its operand's value
-// (Idr_SameValue) at another quantity, the entry into a linear type or the
-// use out of one, so `lin.use %c` reaches the constructor %c however it
-// came to be linear. What a value is (its constructor, a field) does not
-// change on the way; whether a read may take a linear part of it is the
-// reader's to decide.
+// (Idr_SameValue) at other uses, a cast into or out of a linear position,
+// so a cast's result reaches the constructor it came from however it came
+// to be linear. What a value is (its constructor, a field) does not change
+// on the way; whether a read may take a linear part of it is the reader's
+// to decide.
 llvm::SmallVector<mlir::Value, 4> linearPositions(mlir::Value value);
 
 // The last of linearPositions: the value `value` was made from.
@@ -155,12 +219,12 @@ mlir::Value throughLinear(mlir::Value value);
 
 // What a value is made of, structurally: the same value as another (the
 // result of an op that keeps its operand's value, its identity and its
-// exclusivity, Idr_SameValue; the scrutinee a match's default region binds
-// again), a field of a constructor value (an idr.field, a memo cell's
-// included; an argument of a match's case region), or made here (anything
-// else: an op's own result, a parameter, a region's argument). idr.share
-// keeps its operand's value but forgets its exclusivity, so its result is
-// made here: following it would prove a shared cell exclusive.
+// sharing, Idr_SameValue; an argument a match's region binds, its operand
+// refined; a loan's view and the owner it gives back), a field of a
+// constructor value (an idr.data.field, a memo cell's included), or made here
+// (anything else: an op's own result, a parameter, a region's argument).
+// idr.count.share keeps its operand's value but forgets its sharing, so its
+// result is made here: following it would prove a shared cell exclusive.
 struct Made {};
 struct Same {
   mlir::Value value;
@@ -173,16 +237,9 @@ struct Field {
 using Source = std::variant<Made, Same, Field>;
 Source sourceOf(mlir::Value value);
 
-// The array an access reads or writes: a view of an owned array is that
-// array, and so is the array a linear position was entered with, each the
-// same value (sourceOf).
+// The array an access reads or writes: the array a linear position was
+// entered with, and the array a loan views, each the same value (sourceOf).
 mlir::Value arrayRoot(mlir::Value array);
-
-// Whether two accesses name the same element: the same array, seen through
-// arrayRoot, at the same indices, each seen through the in-bounds guard
-// that checked it, or constants of the same value.
-bool sameElement(mlir::Value array, mlir::ValueRange indices, mlir::Value otherArray,
-                 mlir::ValueRange otherIndices);
 
 // Whether the field at `index` of a constructor value is read exactly once,
 // and the value is read no other way: through its grade changes every use
@@ -190,22 +247,13 @@ bool sameElement(mlir::Value array, mlir::ValueRange indices, mlir::Value otherA
 // that index moves into its one read.
 bool fieldReadOnce(mlir::Value value, unsigned index);
 
-// The type at which a region of a match binds a field of its scrutinee:
-// the field's value at the product of the scrutinee's quantity and the
-// field's, as Idris binds a pattern variable (a linear field of a value
-// used many times is used many times; a field of a linear value is used as
-// the field says). Once counting has graded the scrutinee, the field is a
-// view of it, as view() gives one. A field used once by its type takes no
-// grade (graded).
-mlir::Type fieldType(mlir::Type scrutinee, mlir::Type field);
-
-// `value` held as `type`, its own type at another quantity: entered into a
-// linear type, or used out of one; itself when the types agree.
+// `value` held as `type`, its own type at other uses: cast into a linear
+// position, or out of one; itself when the types agree.
 mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 // An application compares a closure's declared types with the values it is
-// given. Reference counting grades what a value owns after the closure type
-// is fixed; the quantity Idris proved stays, and the carrier is the value.
+// given. Counting grades what a value holds after the closure type is
+// fixed; the uses Idris proved stay, and the carrier is the value.
 template <typename Types>
 concept TypeSequence = requires(Types types) {
   { *std::begin(types) } -> std::convertible_to<mlir::Type>;
@@ -214,7 +262,7 @@ concept TypeSequence = requires(Types types) {
 template <TypeSequence Expected, TypeSequence Actual>
 bool sameCarriers(Expected &&expected, Actual &&actual) {
   return llvm::equal(expected, actual, [](mlir::Type a, mlir::Type b) {
-    return gradeOf(a).quantity == gradeOf(b).quantity && unrestricted(a) == unrestricted(b);
+    return usesOf(a) == usesOf(b) && unrestricted(a) == unrestricted(b);
   });
 }
 
@@ -224,22 +272,20 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
 // type a value may have answers it. A type of another dialect, which only
 // the lowering makes, is no value of the program and holds none of these.
 bool holdsReferences(mlir::Type type);
-bool holdsWorld(mlir::Type type);
 bool isLinearByType(mlir::Type type);
 bool isCounted(mlir::Type type);
 bool isCellPointer(mlir::Type type);
 
-// The types a field of a constructor may have: the world, a word, a
-// runtime type of ours, an array a world orders, and a value array, a
-// ranked tensor or, after bufferization, its buffer.
+// The types a field of a constructor may have: a word, a runtime type of
+// ours, an array of mutable memory, and a value array, a ranked tensor or,
+// after bufferization, its buffer.
 bool isFieldType(mlir::Type type);
 
-// An array a world orders: `memref<?xE, #idr.world>`, or `memref<E,
-// #idr.world>` (an IORef), of a field type E at no grade (Idr_ArrayType).
+// An array of mutable memory: `memref<?xE, #idr.mutable>`, or `memref<E,
+// #idr.mutable>` (an IORef), of a field type E at no grade.
 bool isArray(mlir::Type type);
 
-// An array a world orders of one dimension, `memref<?xE, #idr.world>`: one
-// that has a length.
+// An array of mutable memory of one dimension: one that has a length.
 bool isRank1Array(mlir::Type type);
 
 } // namespace idr

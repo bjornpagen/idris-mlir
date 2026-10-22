@@ -1,97 +1,228 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a value of the frame lifetime (Lifetime::Frame, the grade's third
-// part) makes of what it reaches at each use: the rules of the frame, said
-// once, which two readers hold. The function verifier holds every value of
-// the frame to them on types (verify::lifetimes); idr-rc's stack step
-// infers from them the least lifetimes that put each cell it can in its
-// frame (lib/Transforms/Stack), so it can never be wrong unnoticed: the
-// verifier runs after it.
+// A lifetime is an SSA value of type `!idr.lifetime<kind>`. What the value
+// is at run time is its type's kind, read in zero steps by every allocation
+// into it, every callee given it, every frame holding it and the lowering;
+// where its memory comes from is the op that opens it, one op per source
+// (`idr.lifetime`, `.home`, `.block`, `.stack`, `.chain`). The kind is no
+// identity: the identity is the value, whose scope MLIR keeps, so nothing
+// of a lifetime outlives its region.
 //
-// A cell of the frame dies with the frame, or with the loop iteration that
-// made it, when its slot is written again. So a value that may reach one
-// is frame itself, and so is what it reaches it through: a field read from
-// it, a constructor or a closure that holds it, a value it is forwarded
-// into. And it is never:
-//   - returned, which its function's result types, never frame, refuse;
-//   - given to a parameter of the heap, which the call's types refuse
-//     (a parameter of the frame takes a heap value through idr.share);
-//   - moved into memory that exists before the op that moves it (the
-//     forced state of a memo cell, an array's element, a hole, a cell that
-//     is not the frame's: an init of a heap cell);
-//   - forwarded by the terminator of a region that runs again, which
-//     carries it into the next iteration, whose cells take the same slots;
-//   - an operand of a self call in tail position, or in tail position but
-//     for a context, which idr-tail-loops and idr-trmc make the next
-//     iteration of a loop in the same frame;
-//   - an operand of an op that declares no flow, whose moves no reader
-//     knows.
+// A lifetime value is bound only by an opener's, a loan's or an unpack's
+// entry argument, by `idr.activation`, by a function parameter, and by the
+// two ops that derive one lifetime from another (`idr.lifetime.forget`,
+// `idr.lifetime.reserve`), each of the extent of its operand. A value that
+// lives in a lifetime is graded `scoped`, and the op that makes it states
+// which lifetime (StatesLifetimeOpInterface): one hop, never a walk.
 #ifndef IDR_IR_LIFETIMES_H
 #define IDR_IR_LIFETIMES_H
 
-#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLExtras.h"
 
+#include <concepts>
 #include <cstdint>
-#include <variant>
+#include <optional>
+
+// What a lowered lifetime is (Lowered), the kinds' cases and their facts
+// (LifetimeKindCase), and the openers and the case each binds (Opener),
+// printed from Spec.Lifetimes. `Packed`, an ODS enum since the package
+// type's parameter is one, comes with the dialect's enums, which Grades.h
+// includes once.
+#include "idr/IR/Generated/Lifetimes.h.inc"
+
+namespace idr {
+
+// What a lifetime value is at run time: nothing, for a lifetime nothing
+// allocates into (view); a pointer in, to a block of static size (room); a
+// pointer in and out, an unbounded bump (cursor); or nothing, for the
+// per-shard home of site k, which the decide step numbers densely (home).
+// The parameter of `!idr.lifetime`; each fact of a case a load from the
+// specification's table.
+class LifetimeKind {
+public:
+  static constexpr LifetimeKind view() { return LifetimeKind(LifetimeKindCase::View, 0); }
+  static constexpr LifetimeKind room() { return LifetimeKind(LifetimeKindCase::Room, 0); }
+  static constexpr LifetimeKind cursor() { return LifetimeKind(LifetimeKindCase::Cursor, 0); }
+  static constexpr LifetimeKind home(std::uint32_t site) {
+    return LifetimeKind(LifetimeKindCase::Home, site);
+  }
+  // The one fold over the kind's cases: a home gives its site.
+  template <std::invocable OnView, std::invocable OnRoom, std::invocable OnCursor,
+            std::invocable<std::uint32_t> OnHome>
+  constexpr decltype(auto) fold(OnView &&onView, OnRoom &&onRoom, OnCursor &&onCursor,
+                                OnHome &&onHome) const {
+    switch (kase) {
+    case LifetimeKindCase::View:
+      return onView();
+    case LifetimeKindCase::Room:
+      return onRoom();
+    case LifetimeKindCase::Cursor:
+      return onCursor();
+    case LifetimeKindCase::Home:
+      break;
+    }
+    return onHome(site);
+  }
+
+  constexpr LifetimeKindCase kindCase() const { return kase; }
+  constexpr bool isView() const { return kase == LifetimeKindCase::View; }
+  constexpr bool isRoom() const { return kase == LifetimeKindCase::Room; }
+  constexpr bool isCursor() const { return kase == LifetimeKindCase::Cursor; }
+  constexpr bool isHome() const { return kase == LifetimeKindCase::Home; }
+  // Whether something may allocate into a lifetime of this kind: every kind
+  // but a view, which has no memory.
+  constexpr bool admitsPuts() const { return kindAdmitsPuts[index()] != 0; }
+  // Whether a lifetime of this kind may be passed where a parameter of kind
+  // `param` is asked: any kind where a view is asked, since nothing happens
+  // to a view at run time; any other kind only to itself (a home to its own
+  // site), so the call's type check is the mode check.
+  constexpr bool passesAs(LifetimeKind param) const {
+    return param.fold([&] { return kindPassesAsView[index()] != 0; },
+                      [&] { return kindPassesAsRoom[index()] != 0; },
+                      [&] { return kindPassesAsCursor[index()] != 0; },
+                      [&](std::uint32_t paramSite) {
+                        return kindPassesAsHome[index()] != 0 && site == paramSite;
+                      });
+  }
+  // What a lifetime of this kind lowers to: no value for a view or a home,
+  // a pointer in for a room, a pointer in and out for a cursor.
+  constexpr Lowered lowered() const { return kindLowered[index()]; }
+  // The case's keyword.
+  llvm::StringRef spelling() const { return kindSpelling[index()]; }
+
+  constexpr bool operator==(const LifetimeKind &) const = default;
+  friend llvm::hash_code hash_value(LifetimeKind kind) {
+    return llvm::hash_combine(kind.index(), kind.site);
+  }
+
+private:
+  constexpr LifetimeKind(LifetimeKindCase kase, std::uint32_t site) : kase(kase), site(site) {}
+  constexpr unsigned index() const { return static_cast<unsigned>(kase); }
+  LifetimeKindCase kase;
+  // A home's site; zero for every other kind, which has none.
+  std::uint32_t site;
+};
+
+// The `LifetimeKind` directive of `!idr.lifetime`'s syntax: `view`, `room`,
+// `cursor`, or `home k`.
+mlir::ParseResult parseLifetimeKind(mlir::AsmParser &parser, mlir::FailureOr<LifetimeKind> &kind);
+void printLifetimeKind(mlir::AsmPrinter &printer, LifetimeKind kind);
+
+// Where an opener's memory comes from: a constant of its class, which the
+// generated code specializes for each opener (`static constexpr Opener
+// opener`), read by OpensLifetimeOpInterface's one method.
+template <typename Op>
+struct LifetimeOpener;
+
+template <typename Op>
+Opener openerOfOp(Op) {
+  return LifetimeOpener<Op>::opener;
+}
+
+// Whether `type` is a lifetime of a kind something may allocate into, a
+// cursor, a room, a view, or of the case `kase`: the predicates ODS asks of
+// a lifetime operand, and an opener of the lifetime it binds.
+bool admitsPuts(mlir::Type type);
+bool isCursorLifetime(mlir::Type type);
+bool isRoomLifetime(mlir::Type type);
+bool isViewLifetime(mlir::Type type);
+bool isLifetimeOfCase(mlir::Type type, LifetimeKindCase kase);
+
+} // namespace idr
 
 namespace idr::lifetimes {
 
-// `to`, a value the op makes (a result, an argument of a region of its),
-// holds what the frame value holds: it is frame too.
-struct Carries {
-  mlir::Value to;
-};
+// The kind of a lifetime value.
+LifetimeKind kindOf(mlir::Value lifetime);
 
-// The frame value moves into the cell `init` fills: the box it makes is of
-// its cell's lifetime, which its source decided, so the cell must be the
-// frame's.
-struct Fills {
-  CellInitOp init;
-};
+// Whether a lifetime of type `arg` may be passed where a parameter of type
+// `param` is asked (LifetimeKind::passesAs): the call's rule for its
+// lifetime operands, which idr.call's verifier reads.
+bool passesAs(mlir::Type arg, mlir::Type param);
 
-// The frame value is argument `index` of `call`: the callee's parameter is
-// frame too, which the call's types hold, its argument's being its
-// parameter's.
-struct Passes {
-  CallOp call;
-  unsigned index;
-};
+// The tail group's rule for a call in tail position, which idr.call's
+// verifier reads with both signatures in hand: a cursor comes back from
+// every call that puts into it, so a caller and its tail callee lower to
+// equal returns only when they take the same number of cursor parameters.
+bool sameCursors(mlir::FunctionType caller, mlir::FunctionType callee);
 
-// Why a frame value may not go where an op takes it.
-enum class Escape : std::uint8_t {
-  // Returned by its function.
-  Returned,
-  // Into memory that exists before the op.
-  Stored,
-  // Forwarded by the terminator of a region that runs again.
-  Repeated,
-  // An operand of a self call that becomes the next iteration of a loop.
-  TailCalled,
-  // An operand of an op whose moves no one declares.
-  Unknown,
-};
+// The lifetime a scoped value lives in: what the op that made it states
+// (StatesLifetimeOpInterface), for a result, or the op whose region binds
+// it, for a block argument, a function stating its parameters'. One hop:
+// no check follows a def-use chain. Null for a value that is not scoped.
+mlir::Value statedLifetime(mlir::Value scoped);
 
-// Whether `op` is a self call that becomes the next iteration of a loop in
-// the same frame (idr-tail-loops, idr-trmc): its operands are the next
-// iteration's parameters, so no parameter of its function is of the frame.
-bool loopsInFrame(mlir::Operation *op);
+// The lifetime whose extent a lifetime value has: the operand of a cast to
+// a view or of a reserved room, which live as long as it; the value itself
+// otherwise.
+mlir::Value extentOf(mlir::Value lifetime);
 
-// A short text of an escape, for a diagnostic.
-llvm::StringRef describe(Escape escape);
+// Where `lifetime`'s memory comes from, if an opener binds it.
+std::optional<Opener> openerOf(mlir::Value lifetime);
 
-using Edge = std::variant<Carries, Fills, Passes, Escape>;
-
-// Each edge a frame value at an operand of `op` would take, with the value
-// it starts from: the moves `op` declares (flowEdgesOf) of every value
-// that may be frame (mayBeFrame), the result of an op that carries its
-// operand, and the escapes above.
-void edgesOf(mlir::Operation *op,
-             llvm::function_ref<void(mlir::Value from, const Edge &edge)> each);
+// What a per-level lifetime's package holds, if its lifetime may be per
+// level: a stack lifetime's mark, or a chain, by its opener or by the
+// package an unpack reopened. A block in the opener's frame is never per
+// level, and a lifetime without memory has nothing to pack.
+std::optional<Packed> packedOf(mlir::Value lifetime);
 
 } // namespace idr::lifetimes
+
+namespace idr {
+
+// An op whose one region runs once and gives back what it yields, after
+// the `Own` results it gives of its own (a loan's owner): the openers, the
+// loan and the unpack. A scoped result lives in the lifetime its `outer`
+// operand states, present exactly when one is scoped: an operand that
+// changes nothing an op does is no flag, and a scoped result with no
+// lifetime stated would be a value no check can place. An opener's region
+// binds the kind the opener opens, and nothing else, which no region
+// constraint of ODS can say.
+template <typename ConcreteType, template <typename> class Trait, unsigned Own>
+class RunsOnceAfter : public mlir::OpTrait::TraitBase<ConcreteType, Trait> {
+public:
+  static mlir::LogicalResult verifyRegionTrait(mlir::Operation *op) {
+    auto self = llvm::cast<ConcreteType>(op);
+    bool scoped = llvm::any_of(op->getResults().drop_front(Own), [](mlir::Value result) {
+      return freedBy(result.getType(), Release::Scoped);
+    });
+    if (scoped != static_cast<bool>(self.getOuter()))
+      return op->emitOpError(scoped ? "gives a scoped value but states no lifetime for it"
+                                    : "states a lifetime for results none of which is scoped");
+    if constexpr (requires { LifetimeOpener<ConcreteType>::opener; }) {
+      mlir::Block &entry = self.getBody().front();
+      constexpr LifetimeKindCase opens =
+          openerBinds[static_cast<unsigned>(LifetimeOpener<ConcreteType>::opener)];
+      if (entry.getNumArguments() != 1 || !isLifetimeOfCase(entry.getArgument(0).getType(), opens))
+        return op->emitOpError("binds no lifetime of the kind it opens, and nothing else");
+    }
+    return mlir::success();
+  }
+};
+
+template <typename ConcreteType>
+class RunsOnce : public RunsOnceAfter<ConcreteType, RunsOnce, 0> {};
+
+template <typename ConcreteType>
+class RunsOnceGivingBack : public RunsOnceAfter<ConcreteType, RunsOnceGivingBack, 1> {};
+
+// An op whose result is a lifetime value: `idr.activation`, and the two ops
+// that derive one lifetime from another (`idr.lifetime.forget`,
+// `idr.lifetime.reserve`), each of its operand's extent. No other op gives
+// one, which the function verifier reads off this trait.
+template <typename ConcreteType>
+class GivesLifetime : public mlir::OpTrait::TraitBase<ConcreteType, GivesLifetime> {};
+
+} // namespace idr
 
 #endif // IDR_IR_LIFETIMES_H
