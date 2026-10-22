@@ -46,12 +46,13 @@ returned g k t = close g t
 
 mutual
   -- What the argument at represented position `j` of the return type
-  -- binds, at depth `d`: a binder found there is that position's marker,
-  -- under as many constructors as it is nested in, so that a field
-  -- reading it says how much smaller than the position it is.
-  pattern : Nat -> Nat -> ClosedTerm -> List (Nat, ClosedTerm)
+  -- binds, at depth `d`: a binder found there is a part of that
+  -- position's value, under as many constructors as it is nested in, so
+  -- that a field reading it says how much smaller than the position it
+  -- is: the binder, the position and the depth.
+  pattern : Nat -> Nat -> ClosedTerm -> List (Nat, Nat, Nat)
   pattern j d t = case standInOf t of
-    Just k => [(k, markerAt j d)]
+    Just k => [(k, j, d)]
     Nothing => fromMaybe [] (parts j (S d) t)
 
   -- What the arguments of an application bind, left to right, at depth
@@ -60,26 +61,31 @@ mutual
   -- injective, so what its arguments hold says nothing of its result, and
   -- any other head binds nothing. The head decides once, where the walk
   -- meets it.
-  parts : Nat -> Nat -> ClosedTerm -> Maybe (List (Nat, ClosedTerm))
+  parts : Nat -> Nat -> ClosedTerm -> Maybe (List (Nat, Nat, Nat))
   parts j d (App _ f a) = (\bs => bs ++ pattern j d a) <$> parts j d f
   parts j d (Ref _ (DataCon _ _) _) = Just []
   parts j d (Ref _ (TyCon _) _) = Just []
   parts j d _ = Nothing
 
 -- What a constructor's return type binds at the represented positions
--- `rs`: each of its arguments, left to right, at depth 0. Walking the
--- arguments that are there, a position is never looked for past the last
--- of them. An argument at a position not represented is none the check
--- watches, so it binds nothing: the problem's case. A binder bound twice
--- keeps its first binding: both bindings hold the same value, so either is
--- sound.
-bindings : List Nat -> ClosedTerm -> List (Nat, ClosedTerm)
-bindings rs ret = argumentsFrom 0 (snd (getFnArgs ret))
+-- `rs`: each of its arguments, left to right, at depth 0, each binder a
+-- stand-in of its own, numbered from 0, so that two binders of one
+-- position at one depth are two markers. Walking the arguments that are
+-- there, a position is never looked for past the last of them. An
+-- argument at a position not represented is none the check watches, so
+-- it binds nothing: the problem's case. A binder bound twice keeps its
+-- first binding: both bindings hold the same value, so either is sound.
+bindings : List Nat -> ClosedTerm -> List (Nat, StandIn)
+bindings rs ret = numbered 0 (argumentsFrom 0 (snd (getFnArgs ret)))
   where
-    argumentsFrom : Nat -> List ClosedTerm -> List (Nat, ClosedTerm)
+    argumentsFrom : Nat -> List ClosedTerm -> List (Nat, Nat, Nat)
     argumentsFrom j [] = []
     argumentsFrom j (a :: as) =
       (if elem j rs then pattern j 0 a else []) ++ argumentsFrom (S j) as
+
+    numbered : Nat -> List (Nat, Nat, Nat) -> List (Nat, StandIn)
+    numbered n [] = []
+    numbered n ((k, j, d) :: bs) = (k, MkStandIn n j d) :: numbered (S n) bs
 
 -- The types of a constructor's runtime fields, in binder order, read with
 -- each binder given what the return type binds it to. A binder no
@@ -125,5 +131,7 @@ fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
       ty <- normaliseClosed !(typeOfDefinition cdef)
-      fts <- fieldTypes none 0 (bindings rs (returned none 0 ty)) ty
-      (>>= id) <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf placement) ft) fts
+      let bound = bindings rs (returned none 0 ty)
+      fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) ty
+      (>>= id) <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf placement) (map snd bound) ft)
+                            fts

@@ -297,6 +297,9 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       Calls t => map (argument t s.writer) (splitters s)
       Builds _ => []
       Dispatches t r k => [Through s.writer r t k (splitters s)]
+      -- The application keys no definition's slot: what it applies is its
+      -- own.
+      Applies => []
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
@@ -451,6 +454,31 @@ combinations cs = go (Data.SortedMap.toList cs)
     go ((i, js) :: rest) = let tails = go rest in
                            [(i, j) :: hs | j <- Prelude.toList js, hs <- tails]
 
+||| What a position of the graph is a parameter of: a node, or the
+||| application of a compile-time form at a use (`Translate.State.AtUse`),
+||| which no definition is, whose positions every use shares: the form's
+||| type (0), the form (1), and the use's static arguments (2 on).
+public export
+data Holder = OfNode Node | OfApplication
+
+export
+Eq Holder where
+  OfNode x == OfNode y = x == y
+  OfApplication == OfApplication = True
+  _ == _ = False
+
+export
+Ord Holder where
+  compare (OfNode x) (OfNode y) = compare x y
+  compare OfApplication OfApplication = EQ
+  compare OfApplication (OfNode _) = LT
+  compare (OfNode _) OfApplication = GT
+
+||| A static position of the graph: a parameter of what holds it.
+public export
+Spot : Type
+Spot = (Holder, Nat)
+
 ||| How a site reached its callee: called or built, its target the callee;
 ||| or dispatched through implementation J's method field k, whose leading
 ||| placement puts J's parameters among the method function's.
@@ -459,13 +487,13 @@ data Via : Type where
   Called : Via
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
-||| What a site reaches from a node: a callee node, with each of the site's
-||| arguments placed at the callee parameter it lands at, and how it got
-||| there.
+||| What a site reaches from a node: a callee node, or the application at
+||| a use, with each of the site's arguments placed at the parameter it
+||| lands at, and how it got there.
 public export
 record Reached where
   constructor MkReached
-  callee : Node
+  callee : Holder
   placed : List Placed
   via : Via
 
@@ -499,10 +527,13 @@ reaches fl w s = from s.reach
       Just (m, own, leading) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (MkNode m hs) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (OfNode (MkNode m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
-                     map (\hs => MkReached (MkNode t hs) placed Called) (combinations (passed placed empty))
-    from (Builds t) = [MkReached (MkNode t []) (atOwnPositions s.arguments) Called]
+                     map (\hs => MkReached (OfNode (MkNode t hs)) placed Called) (combinations (passed placed empty))
+    from (Builds t) = [MkReached (OfNode (MkNode t [])) (atOwnPositions s.arguments) Called]
     from (Dispatches t r k) = Prelude.toList (rootsAt r t) >>= through k
+    -- Every use's application is one, split by nothing: what it applies is
+    -- bounded at its positions alone.
+    from Applies = [MkReached OfApplication (atOwnPositions s.arguments) Called]

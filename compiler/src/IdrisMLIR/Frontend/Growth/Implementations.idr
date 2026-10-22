@@ -170,7 +170,7 @@ methodField owner field = do
   let am = addressOf placement
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) !(typeOfDefinition mdef) (map (\x => Just (x, AValue)) xs)
-  ts <- traverse (\(k, x) => templateOf k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
+  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
@@ -183,7 +183,7 @@ methodField owner field = do
 fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           (owner : String) -> Binding -> ClosedTerm -> Front Field
 fieldOf owner (Reads k) a = do
-  t <- templateOf k a
+  t <- templateOf [] k a
   r <- dictionaryRoot a
   pure (Plain t r)
 fieldOf owner Wrapped a = methodField owner a

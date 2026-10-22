@@ -276,7 +276,7 @@ graphOf fs ps beyond caps ss = MkGraph n (map fst (drawn fs ps ss)) (topOf beyon
 ||| The model the graph is drawn from.
 public export
 modelOf : {n : Nat} -> (fs : Address -> Nat -> Maybe Template) -> (ps : Address -> List (Fin n)) ->
-          (Fin n -> (Address, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
+          (Fin n -> (Head, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
           Model (graphOf fs ps beyond caps ss)
 modelOf fs ps positionOf beyond caps ss = MkModel (map fst ss) fs positionOf ps
 
@@ -720,7 +720,7 @@ covering fe s own projected need =
 ||| arc being one no feasible potential satisfies.
 export
 0 describes : {n : Nat} -> (fs : Address -> Nat -> Maybe Template) -> (ps : Address -> List (Fin n)) ->
-              (positionOf : Fin n -> (Address, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) ->
+              (positionOf : Fin n -> (Head, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) ->
               (ss : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) ss ->
               {pot : Vect n Nat} -> Feasible (graphOf fs ps beyond caps ss) pot ->
               Describes (modelOf fs ps positionOf beyond caps ss)

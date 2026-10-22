@@ -20,9 +20,9 @@ import Data.List
 %default total
 
 ||| A function instance, by its content: the program's root, the one
-||| function of no definition; or an instance of a definition, its link
-||| (the definition's address and the static arguments the instance is
-||| translated at, written out). Requesting an instance derives its
+||| function of no definition; or an instance, its link (what it is an
+||| instance of, a definition by its address or a member at a use, and the
+||| static arguments the instance is translated at, written out). Requesting an instance derives its
 ||| identity, so asking twice gives the same one and no table mints it.
 ||| Its symbol is a column of the instance table, printed once from its key
 ||| (`Term.keyText`), for MLIR and for readers; nothing compares it.
@@ -161,7 +161,7 @@ Ord FnId where
 export
 Show FnId where
   show RootFn = "the root"
-  show (InstanceOf l) = "the instance of definition " ++ show (map finToNat l.definition)
+  show (InstanceOf l) = "the instance of " ++ show l.head
 
 export Eq FamilyId where a == b = a.index == b.index
 export Ord FamilyId where compare a b = compare a.index b.index

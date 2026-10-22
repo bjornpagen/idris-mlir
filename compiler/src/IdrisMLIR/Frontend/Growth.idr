@@ -18,6 +18,7 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Growth.Check
 import IdrisMLIR.Frontend.Growth.Graph
+import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Errors
@@ -43,11 +44,27 @@ import Data.Vect
 -- The bounds
 ------------------------------------------------------------------------------
 
+||| What the potential the check found bounds: each node's position, which
+||| the worklist checks an instance of a definition's static arguments
+||| against, and the application's, by parameter, which bound a member at
+||| a use's link (`Translate.State.AtUse`).
+record Limits where
+  constructor MkLimits
+  atNodes : SortedMap Position Nat
+  atApplication : SortedMap Nat Nat
+
 ||| Each position's bound under the potential the check found (`bound`), in
-||| one pass over the positions, their potentials and their caps.
-boundsOf : (b : Built) -> Vect b.graph.size Nat -> SortedMap Position Nat
-boundsOf b pot = fromList (toList (zipWith3 (\p, pi, cap => (p, capped b.graph.constant pi cap))
-                                            b.position pot b.graph.caps))
+||| one pass over the places positions were first met at, each position
+||| once.
+boundsOf : (b : Built) -> Vect b.graph.size Nat -> Limits
+boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
+  where
+    at : Limits -> Fin b.graph.size -> Limits
+    at acc f =
+      let h = capped b.graph.constant (index f pot) (index f b.graph.caps) in
+      case index f b.position of
+        (OfNode node, i) => { atNodes $= insert (node, i) h } acc
+        (OfApplication, i) => { atApplication $= insert i h } acc
 
 ||| Heights by parameter from `next` on, from the height of each parameter
 ||| that has one, ascending: a parameter with none is 0, which keys nothing.
@@ -64,15 +81,18 @@ heights bs =
                                [(a, the (List (Nat, Nat)) [(j, h)]) | ((a, j), h) <- SortedMap.toList largest])
 
 ||| The universe the worklist descends in, read from the bounds alone, the
-||| one reading of each: each definition's heights (`heights`), with the
-||| graph's arity, heaviest token and breadth. No size is computed: the
-||| worklist decides each link's sizes against these heights
+||| one reading of each: each definition's heights (`heights`), and the
+||| application's, its positions' bounds by parameter, with the graph's
+||| arity, heaviest token and breadth. No size is computed: the worklist
+||| decides each link's sizes against these heights
 ||| (`Proof.Requests.within`).
-sizesOf : Built -> SortedMap Position Nat -> Bounds
+sizesOf : Built -> Limits -> Bounds
 sizesOf b bs =
-  let table = heights bs
-      heightAt : Address -> List Nat
-      heightAt a = fromMaybe [] (lookup a table)
+  let table = heights bs.atNodes
+      application = byParameter 0 (SortedMap.toList bs.atApplication)
+      heightAt : Head -> List Nat
+      heightAt (ADefinition a) = fromMaybe [] (lookup a table)
+      heightAt AnApplication = application
   in MkBounds heightAt b.arity b.heaviest b.breadth
 
 ------------------------------------------------------------------------------
@@ -125,6 +145,20 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
     place : Loc -> (Maybe String, Maybe Int)
     place l = (locFile l, (.startLine) <$> locSpan l)
 
+||| What holds a position, as a message names it: a node's definition, by
+||| its name, or the application at a use, which no name is.
+holderText : {auto c : Ref Ctxt Defs} -> FC -> Holder -> Front String
+holderText fc (OfNode node) = snd <$> graphDefinition fc node.definition
+holderText fc OfApplication = pure "the application of a polymorphic function at its use"
+
+||| The definition of the program's own source that holds a position, with
+||| where it is: nothing for a library's or a generated one, or for the
+||| application at a use, which no definition is.
+userHolder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> Holder -> Front (Maybe (Loc, GlobalDef))
+userHolder fc (OfNode node) = userDefinition fc node.definition
+userHolder fc OfApplication = pure Nothing
+
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
 reacher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -135,21 +169,26 @@ reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
   Nothing => reacher fc ps
 
 ||| Where a refusal is reported, and which of its candidates is there. Each
-||| candidate is the definition of one of the cause's positions. Of the user
+||| candidate is what holds one of the cause's positions. Of the user
 ||| definitions among them, the one first in the source is the place, at the
 ||| first candidate it is on. With none, the cause is reported where the
 ||| program reaches it, at the first candidate: at the first user definition
 ||| among the reachers of the cause's first node, or at main.
 located : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> Name -> Built -> (first : Node) -> List1 (t, Address) -> Front (t, Place)
+          FC -> Name -> Built -> (first : Holder) -> List1 (t, Holder) -> Front (t, Place)
 located fc main b first candidates = do
-  users <- traverse (\(v, a) => map (\(loc, def) => (v, loc, def)) <$> userDefinition fc a)
+  users <- traverse (\(v, h) => map (\(loc, def) => (v, loc, def)) <$> userHolder fc h)
                     (forget candidates)
   case catMaybes users of
     u :: us => let (v, _, def) = earliest u us in pure (v, placeOf def)
     [] => do
-      above <- reacher fc (fromMaybe [] (lookup first b.reachers))
+      above <- reacher fc (reachersOf first)
       pure (fst (head candidates), maybe (MkPlace fc (show main)) placeOf above)
+  where
+    -- The application at a use is reached through no node of its own.
+    reachersOf : Holder -> List Node
+    reachersOf (OfNode node) = fromMaybe [] (lookup node b.reachers)
+    reachersOf OfApplication = []
 
 ------------------------------------------------------------------------------
 -- The causes
@@ -157,19 +196,36 @@ located fc main b first candidates = do
 
 ||| An arc's source position as its site reads it: a parameter of the site's
 ||| writer, which the writer's text binds (a field's value included, which
-||| its record's variables carry), or a position of the implementation that
-||| built a dictionary the site takes out of a value (the projection rule),
-||| which the writer's text does not bind.
+||| its record's variables carry), or a position of anything else, which
+||| the writer's text does not bind: of the implementation that built a
+||| dictionary the site takes out of a value (the projection rule).
 data Source = Binds | Projects
 
-sourceOf : Site -> Node -> Source
-sourceOf site node = if sameAddress node.definition site.writer then Binds else Projects
+sourceOf : Site -> Holder -> Source
+sourceOf site (OfNode node) = if sameAddress node.definition site.writer then Binds else Projects
+sourceOf site OfApplication = Projects
 
-||| The source parameter i of a definition, as a message names it: the
-||| writer's binder, or the implementation's binder and the implementation.
-subject : {auto c : Ref Ctxt Defs} -> GlobalDef -> String -> Nat -> Source -> Front String
-subject def _ i Binds = parameter i def
-subject def name i Projects = (++ " of " ++ name) <$> parameter i def
+||| Parameter i of what holds a position, as a message names it: the
+||| writer's binder; the implementation's binder and the implementation; or
+||| the application's argument.
+subjectAt : {auto c : Ref Ctxt Defs} -> FC -> Source -> Spot -> Front String
+subjectAt fc source (OfNode node, i) = do
+  (def, name) <- graphDefinition fc node.definition
+  case source of
+    Binds => parameter i def
+    Projects => (++ " of " ++ name) <$> parameter i def
+subjectAt fc _ (OfApplication, i) =
+  pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
+
+||| Does a position belong to a data type, which grows through its fields
+||| where a function grows through its calls?
+ofDataType : {auto c : Ref Ctxt Defs} -> FC -> Holder -> Front Bool
+ofDataType fc (OfNode node) = do
+  (def, _) <- graphDefinition fc node.definition
+  pure (case def.definition of
+          TCon {} => True
+          _ => False)
+ofDataType fc OfApplication = pure False
 
 ||| The parts of a template that carry an arc's source, parameter i, into
 ||| it: its variable when the writer binds it, a held dictionary when it is
@@ -237,39 +293,41 @@ refuseCycle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> Name -> (b : Built) -> List1 (Fin b.graph.size, Fin (length b.graph.arcs)) ->
               (growth : Nat) -> Front ()
 refuseCycle fc main b ring growth = do
-  (round, place) <- located fc main b (fst (index (fst (head ring)) b.position))
-                            (map (\r => (r, definitionOf (fst (head r)))) (rotations ring))
+  (round, place) <- located fc main b (holderOf (fst (head ring)))
+                            (map (\r => (r, holderOf (fst (head r)))) (rotations ring))
   let (source, a) = head round
-  let (node, i) = index source b.position
-  (sourceDef, sourceName) <- graphDefinition fc node.definition
-  (_, target) <- graphDefinition fc (definitionOf (arc b.graph a).to)
+  let spot = index source b.position
+  sourceName <- holderText fc (fst spot)
+  target <- holderText fc (holderOf (arc b.graph a).to)
   path <- case tail round of
     [] => pure ""
     rest => do
-      names <- traverse (\(p, _) => snd <$> graphDefinition fc (definitionOf p)) rest
+      names <- traverse (\(p, _) => holderText fc (holderOf p)) rest
       pure (" through " ++ joinBy " -> " (names ++ [sourceName]))
   let grows = ", growing it by " ++ show growth ++ " each round" ++ path ++
               ", and nothing bounds how far it grows"
   text <- case index a b.wrote of
     FromArgument site argument => do
       (_, within) <- graphDefinition fc site.within
-      x <- subject sourceDef sourceName i (sourceOf site node)
+      x <- subjectAt fc (sourceOf site (fst spot)) spot
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
-      pure (case sourceDef.definition of
-              TCon {} => sourceName ++ " holds " ++ target ++ " at " ++ shown ++ " in " ++
-                         within ++ ", growing " ++ x ++ " by " ++ show growth ++ " each level" ++ path ++
-                         ", and nothing bounds how deep its values nest"
-              _ => within ++ " passes " ++ x ++ " as " ++ shown ++ " to " ++ target ++ grows)
+      pure (if !(ofDataType fc (fst spot))
+              then sourceName ++ " holds " ++ target ++ " at " ++ shown ++ " in " ++
+                   within ++ ", growing " ++ x ++ " by " ++ show growth ++ " each level" ++ path ++
+                   ", and nothing bounds how deep its values nest"
+              else within ++ " passes " ++ x ++ " as " ++ shown ++ " to " ++ target ++ grows)
     -- A leading arc: the implementation whose parameter it is, the arc's
     -- source, places it in the method function its field holds, the arc's
     -- target.
-    FromField => pure (sourceName ++ " passes " ++ !(parameter i sourceDef) ++ " to its method " ++ target ++ grows)
+    FromField => do
+      x <- subjectAt fc Binds spot
+      pure (sourceName ++ " passes " ++ x ++ " to its method " ++ target ++ grows)
   reject place.at place.owner Polymorphism text
   where
-    definitionOf : Fin b.graph.size -> Address
-    definitionOf p = (fst (index p b.position)).definition
+    holderOf : Fin b.graph.size -> Holder
+    holderOf p = fst (index p b.position)
 
 ||| A type-level recursion stuck on a static argument, which nothing bounds,
 ||| reported at its place: what passes the argument, through which
@@ -281,21 +339,20 @@ refuseOpaque fc main b a = do
   -- arc is Measured, so only an argument's template is Unmeasured.
   let (MkArc src to _, FromArgument site argument) = (arc b.graph a, index a b.wrote)
     | _ => internal fc "an arc no argument wrote as a type-level recursion"
-  let (node, i) = index src b.position
-  let (target, _) = index to b.position
-  ((), place) <- located fc main b node (((), node.definition) ::: [((), target.definition)])
-  (sourceDef, sourceName) <- graphDefinition fc node.definition
-  let source = sourceOf site node
-  let Just computation = computationThrough (carries source i) argument.template
+  let spot = index src b.position
+  let target = fst (index to b.position)
+  ((), place) <- located fc main b (fst spot) (((), fst spot) ::: [((), target)])
+  let source = sourceOf site (fst spot)
+  let Just computation = computationThrough (carries source (snd spot)) argument.template
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
   through <- case computation of
     Recursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
     Family j => do
       (writer, _) <- graphDefinition fc site.writer
       ("its type family " ++) <$> parameter j writer
-  (_, targetName) <- graphDefinition fc target.definition
+  targetName <- holderText fc target
   (_, within) <- graphDefinition fc site.within
-  x <- subject sourceDef sourceName i source
+  x <- subjectAt fc source spot
   reject place.at place.owner Polymorphism
          (within ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
           ", and nothing bounds what it computes")
@@ -330,7 +387,7 @@ checkGrowth fc main = do
   case check b.graph of
     Bounded pot _ => do
       let bs = boundsOf b pot
-      updateState { bounds := bs, sizes := sizesOf b bs }
+      updateState { bounds := bs.atNodes, sizes := sizesOf b bs }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

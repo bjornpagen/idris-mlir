@@ -192,7 +192,8 @@ sizedWithin fc what b l = case within forms addresses b l of
   -- Its fields are erased, so the evidence costs nothing to hold.
   Yes inside => pure (MkIn inside.short inside.sized inside.member)
   No _ => unsound fc what ("has " ++ show (length l.arguments) ++ " arguments weighing " ++ show (sizes l) ++
-                              ", outside the heights " ++ show (b.heightAt l.definition) ++ " (arity " ++ show b.arity ++
+                              ", outside the heights " ++ show (b.heightAt l.head) ++ " of " ++ show l.head ++
+                              " (arity " ++ show b.arity ++
                               ", heaviest " ++ show b.heaviest ++ ") and the breadth " ++ show b.breadth ++ " of its bounds")
 
 ||| The requests made since the worklist last took them, judged against the
@@ -210,10 +211,12 @@ requestedUnder b bounds earlier = do
     judge [] = pure []
     judge (r :: rs) = do
       let what = keyText r.key ++ ", requested in " ++ show r.owner ++ ","
-      -- The node is split by the heads the request's values have, and the
-      -- graph decided which of a node's parameters are positions at those
-      -- heads (`Sites.sitesOf`), as `classify` decided the request's.
-      traverse_ (\(j, h) => heightWithin r.site what bounds (r.node, j) h) r.heights
+      -- An instance of a definition is checked at its node's positions,
+      -- the node split by the heads the request's values have, whose
+      -- parameters the graph decided are positions at those heads
+      -- (`Sites.sitesOf`), as `classify` decided the request's; a member at
+      -- a use is no node, has no positions, and is checked by its link.
+      traverse_ (\(p, h) => heightWithin r.site what bounds p h) r.positions
       inside <- sizedWithin r.site what b r.link
       case elemLink r.link (links earlier) of
         -- A broken invariant: a request is recorded only for an instance not

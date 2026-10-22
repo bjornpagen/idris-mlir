@@ -63,6 +63,7 @@
 module IdrisMLIR.Proof.Bound
 
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
 import Control.Relation
@@ -204,15 +205,15 @@ record Site (n : Nat) where
 
 ||| What the theorem reads of the program besides its graph: the sites;
 ||| each implementation's field templates, over its own parameters as
-||| markers at depth 0 (a constructor's field k is its argument k); the
-||| definition and parameter each position is; and the positions of each
-||| definition's nodes.
+||| markers at depth 0 (a constructor's field k is its argument k); what
+||| each position is a parameter of (a definition, or the application at a
+||| use) and which; and the positions of each definition's nodes.
 public export
 record Model (g : Graph) where
   constructor MkModel
   sites : List (Site g.size)
   fields : Address -> Nat -> Maybe Template
-  positionOf : Fin g.size -> (Address, Nat)
+  positionOf : Fin g.size -> (Head, Nat)
   positionsOf : Address -> List (Fin g.size)
 
 ||| Where a template's markers take their values: from what the site's
@@ -266,7 +267,7 @@ mutual
   public export
   data Arguments : {g : Graph} -> (m : Model g) -> Address -> Nat -> List Template -> Type where
     Ended : Arguments m j q []
-    Given : (p : Fin g.size) -> Elem p (m.positionsOf j) -> m.positionOf p = (j, q) -> InV m p a ->
+    Given : (p : Fin g.size) -> Elem p (m.positionsOf j) -> m.positionOf p = (ADefinition j, q) -> InV m p a ->
             Arguments m j (S q) as -> Arguments m j q (a :: as)
 
 ------------------------------------------------------------------------------

@@ -3,14 +3,15 @@
 ||| A request's identity, the listing of every request, and the universe
 ||| of requests within bounds, which the worklist recurses on.
 |||
-||| A request is an instance of a definition at static arguments: its link,
-||| the definition's address in the context and one written argument per
-||| parameter. An argument is written in prefix order, a symbol per node of
+||| A request is an instance at static arguments: its link, what it is an
+||| instance of (a definition, by its address in the context, or a
+||| compile-time form applied at a use, which no definition is) and one
+||| written argument per parameter. An argument is written in prefix order, a symbol per node of
 ||| the term: the node's form (finitely many), the context name it names
 ||| (finitely many), and a number below the argument's size (a variable's
 ||| index, a count of arguments); a literal's magnitude weighs as much as
 ||| itself. An argument's size is the weight of its symbols, so finitely
-||| many arguments share a size. The requests of a definition at sizes
+||| many arguments share a size. The requests of one head at sizes
 ||| pointwise at most a bound are finitely many, listed (`Universe`); the
 ||| growth check gives the bounds (`Bounds`); a request within them is a
 ||| member of the universe, which `within` decides by comparisons of
@@ -183,6 +184,29 @@ export
 addresses : Listed Address
 addresses = listedVect 8 (listedFin 256)
 
+||| What a request is an instance of: a definition of the context, by its
+||| address; or a compile-time form (a polymorphic function, an
+||| implementation) applied to the arguments a use gives it where no
+||| definition applies it, which no definition of the program is.
+public export
+data Head = ADefinition Address | AnApplication
+
+||| Every head over a listing of the addresses: the application, and the
+||| definition at each address.
+export
+headsOver : Listed Address -> Listed Head
+headsOver names = MkListed (AnApplication :: map ADefinition names.values) complete
+  where
+    complete : (h : Head) -> Elem h (AnApplication :: map ADefinition names.values)
+    complete AnApplication = Here
+    complete (ADefinition a) = There (elemMap ADefinition (names.complete a))
+
+||| A head as the compiler's own errors print it.
+export
+Show Head where
+  show (ADefinition a) = "definition " ++ show (map finToNat a)
+  show AnApplication = "a member at a use"
+
 ||| One symbol of an argument written in prefix order, a node of the
 ||| term: its form (the writer's, finitely many), the context name it
 ||| names if it names one, and a number (a variable's index, a count of
@@ -223,13 +247,13 @@ record Written (form : Type) where
   0 weighed : weighs symbols = size
   0 fitting : All (Fits size) symbols
 
-||| A request as its chain compares it: the definition, by its address in
-||| the context, and the static arguments, one per parameter, `Nothing`
-||| where a parameter keys nothing.
+||| A request as its chain compares it: what it is an instance of, and the
+||| static arguments, one per parameter, `Nothing` where a parameter keys
+||| nothing.
 public export
 record Link (form : Type) where
   constructor MkLink
-  definition : Address
+  head : Head
   arguments : List (Maybe (Written form))
 
 ||| The size of a static argument: 0 where a parameter keys nothing.
@@ -294,12 +318,25 @@ Ord form => Ord (Written form) where
   compare w v = compare (w.size, w.symbols) (v.size, v.symbols)
 
 export
+Eq Head where
+  ADefinition a == ADefinition b = a == b
+  AnApplication == AnApplication = True
+  _ == _ = False
+
+export
+Ord Head where
+  compare (ADefinition a) (ADefinition b) = compare a b
+  compare AnApplication AnApplication = EQ
+  compare AnApplication (ADefinition _) = LT
+  compare (ADefinition _) AnApplication = GT
+
+export
 Eq form => Eq (Link form) where
-  x == y = x.definition == y.definition && x.arguments == y.arguments
+  x == y = x.head == y.head && x.arguments == y.arguments
 
 export
 Ord form => Ord (Link form) where
-  compare x y = compare (x.definition, x.arguments) (y.definition, y.arguments)
+  compare x y = compare (x.head, x.arguments) (y.head, y.arguments)
 
 ------------------------------------------------------------------------------
 -- Writing within bounds
@@ -380,6 +417,17 @@ sameAddress a b = case decideAddress a b of
   Yes _ => True
   No _ => False
 
+||| Two heads are one exactly when both are the application, or both the
+||| definition at one address.
+export
+decideHead : (h, h' : Head) -> Decided (h = h')
+decideHead (ADefinition a) (ADefinition b) = case decideAddress a b of
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => Yes Refl
+decideHead AnApplication AnApplication = Yes Refl
+decideHead (ADefinition _) AnApplication = No (\case Refl impossible)
+decideHead AnApplication (ADefinition _) = No (\case Refl impossible)
+
 ||| Two optional parts are one when both are absent, or both present and one.
 export
 sameMaybe : ((x, y : a) -> Decided (x = y)) -> (m, m' : Maybe a) -> Decided (m = m')
@@ -427,9 +475,9 @@ sameWritten (MkWritten s ts p b) (MkWritten t us q c) = case sameNat s t of
     No ne => No (\eq => ne (cong (.symbols) eq))
     Yes alike => Yes (writtenEq same alike)
 
--- Two links are one exactly when their definitions and arguments are.
+-- Two links are one exactly when their heads and arguments are.
 sameLink : DecEq form => (x, y : Link form) -> Decided (x = y)
-sameLink (MkLink d as) (MkLink e bs) = case decideAddress d e of
+sameLink (MkLink d as) (MkLink e bs) = case decideHead d e of
   No ne => No (\Refl => ne Refl)
   Yes Refl => case sameList (sameMaybe sameWritten) as bs of
     No ne => No (\Refl => ne Refl)
@@ -605,21 +653,22 @@ argumentsComplete forms names (Just w :: as) =
   consesComplete (writtenAt forms names w.size) (argumentsAt forms names (map argumentSize as))
                  (writtenComplete forms names w) (argumentsComplete forms names as)
 
--- The requests of a definition at a vector of sizes, all of them.
-fibre : Listed form -> Listed Address -> (Address, List Nat) -> List (Link form)
+-- The requests of a head at a vector of sizes, all of them.
+fibre : Listed form -> Listed Address -> (Head, List Nat) -> List (Link form)
 fibre forms names (d, ss) = map (MkLink d) (argumentsAt forms names ss)
 
 fibreComplete : (forms : Listed form) -> (names : Listed Address) -> (l : Link form) ->
-                Elem l (fibre forms names (l.definition, sizes l))
+                Elem l (fibre forms names (l.head, sizes l))
 fibreComplete forms names (MkLink d as) = elemMap (MkLink d) (argumentsComplete forms names as)
 
 ------------------------------------------------------------------------------
 -- The requests within bounds
 ------------------------------------------------------------------------------
 
-||| How large a request may be: for each definition, by its address, the
-||| height each static argument of its requests stays within, one per
-||| parameter, a parameter past the list's end or at 0 keying nothing; the
+||| How large a request may be: for each head (a definition by its address,
+||| or the application), the height each static argument of its requests
+||| stays within, one per parameter, a parameter past the list's end or at
+||| 0 keying nothing; the
 ||| most children of any template's node (`arity`); the heaviest literal or
 ||| hole token any template holds (`heaviest`); and the breadth, above
 ||| every link's length, constructor index and argument index of the
@@ -628,7 +677,7 @@ fibreComplete forms names (MkLink d as) = elemMap (MkLink d) (argumentsComplete 
 public export
 record Bounds where
   constructor MkBounds
-  heightAt : Address -> List Nat
+  heightAt : Head -> List Nat
   arity : Nat
   heaviest : Nat
   breadth : Nat
@@ -707,9 +756,9 @@ fitsWithin size arity height heaviest =
           (plusZeroRightNeutral height)
           (climb size (2 * height + heaviest) (pred arity) height 0 0 Refl)
 
-||| The sizes each of a definition's `n` parameters stays within.
+||| The sizes each of a head's `n` parameters stays within.
 public export
-0 sizesAt : Bounds -> Nat -> Address -> List Nat
+0 sizesAt : Bounds -> Nat -> Head -> List Nat
 sizesAt b n d = map (\h => sizeWithin b.arity h b.heaviest) (padded n (b.heightAt d))
 
 -- Every size vector pointwise at most a bound.
@@ -723,32 +772,33 @@ vectorsBelowComplete (s :: ss) (b :: bs) (le :: pw) =
   consesComplete (below (S b)) (vectorsBelow bs) (belowComplete (S b) s (LTESucc le))
                  (vectorsBelowComplete ss bs pw)
 
-||| Every link within the bounds: of every definition, with at most the
-||| breadth of arguments, at every list of them each of whose sizes is at
-||| most `sizeWithin` of its parameter's height. Stated over any listing of
-||| the addresses (callers pass `addresses`), so that none is spelt out
-||| where two are compared. It is finite, and never computed: it is the
-||| room a worklist that keeps each link once recurses on.
+||| Every link within the bounds: of every head, with at most the breadth
+||| of arguments, at every list of them each of whose sizes is at most
+||| `sizeWithin` of its parameter's height. Stated over any listing of the
+||| addresses (callers pass `addresses`), so that none is spelt out where
+||| two are compared; the heads are listed over it (`headsOver`). It is
+||| finite, and never computed: it is the room a worklist that keeps each
+||| link once recurses on.
 public export
 0 Universe : Listed form -> Listed Address -> Bounds -> List (Link form)
 Universe forms names b =
   joinMap (\d => joinMap (\n => joinMap (\ss => fibre forms names (d, ss)) (vectorsBelow (sizesAt b n d)))
                          (below (S b.breadth)))
-          names.values
+          (headsOver names).values
 
 0 inUniverse : (forms : Listed form) -> (names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
                LTE (length l.arguments) b.breadth ->
-               Pointwise (sizes l) (sizesAt b (length l.arguments) l.definition) ->
+               Pointwise (sizes l) (sizesAt b (length l.arguments) l.head) ->
                Elem l (Universe forms names b)
 inUniverse forms names b l short sized =
   joinMapComplete (\d => joinMap (\n => joinMap (\ss => fibre forms names (d, ss)) (vectorsBelow (sizesAt b n d)))
                                  (below (S b.breadth)))
-                  names.values (names.complete l.definition)
-    (joinMapComplete (\n => joinMap (\ss => fibre forms names (l.definition, ss)) (vectorsBelow (sizesAt b n l.definition)))
+                  (headsOver names).values ((headsOver names).complete l.head)
+    (joinMapComplete (\n => joinMap (\ss => fibre forms names (l.head, ss)) (vectorsBelow (sizesAt b n l.head)))
                      (below (S b.breadth)) (belowComplete (S b.breadth) (length l.arguments) (LTESucc short))
-       (joinMapComplete (\ss => fibre forms names (l.definition, ss))
-                        (vectorsBelow (sizesAt b (length l.arguments) l.definition))
-                        (vectorsBelowComplete (sizes l) (sizesAt b (length l.arguments) l.definition) sized)
+       (joinMapComplete (\ss => fibre forms names (l.head, ss))
+                        (vectorsBelow (sizesAt b (length l.arguments) l.head))
+                        (vectorsBelowComplete (sizes l) (sizesAt b (length l.arguments) l.head) sized)
           (fibreComplete forms names l)))
 
 ||| A link within the bounds: the comparisons `within` made, and the
@@ -759,7 +809,7 @@ public export
 record InUniverse (0 forms : Listed form) (0 names : Listed Address) (b : Bounds) (l : Link form) where
   constructor MkIn
   0 short : LTE (length l.arguments) b.breadth
-  0 sized : Pointwise (sizes l) (sizesAt b (length l.arguments) l.definition)
+  0 sized : Pointwise (sizes l) (sizesAt b (length l.arguments) l.head)
   0 member : Elem l (Universe forms names b)
 
 ||| Whether a link is within the bounds, by the machine's comparisons: its
@@ -771,7 +821,7 @@ within : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -
          Decided (InUniverse forms names b l)
 within forms names b l = case choose (length l.arguments <= b.breadth) of
   Right long => No (\inside => notLteSo long inside.short)
-  Left fits => case allFit l.arguments (b.heightAt l.definition) of
+  Left fits => case allFit l.arguments (b.heightAt l.head) of
     No large => No (\inside => large inside.sized)
     Yes sized => Yes (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
   where

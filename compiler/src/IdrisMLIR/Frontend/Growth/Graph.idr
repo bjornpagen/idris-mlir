@@ -2,17 +2,19 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The graph the growth check decides, built from the program.
 |||
-||| A position is a static parameter of a node: a definition split by the
-||| implementations its dictionary parameters are. The walk over definitions
-||| reads what each reachable one writes (its sites), and the walk over nodes
-||| follows those sites from main to the nodes they reach. Every argument a
-||| site writes lands at a position of its callee: it is a site of the
-||| growth theorem's model (`Proof.Bound.Site`), and the graph is drawn from
-||| the model (`Proof.Describes`), which proves that it describes it. A
-||| position whose type inspects only so much of its value is capped
-||| instead: its cap is its bound, and no site into it is drawn. The
-||| positions are numbered once, here, which is where a position becomes a
-||| `Fin`.
+||| A position is a static parameter of a node, a definition split by the
+||| implementations its dictionary parameters are, or of the application of
+||| a compile-time form at a use, which no definition is. The walk over
+||| definitions reads what each reachable one writes (its sites), and the
+||| walk over nodes follows those sites from main to the nodes they reach.
+||| Every argument a site writes lands at a position of its callee: it is a
+||| site of the growth theorem's model (`Proof.Bound.Site`), and the graph
+||| is drawn from the model (`Proof.Describes`), which proves that it
+||| describes it. A position whose type inspects only so much of its value
+||| is capped instead: its cap is its bound, and no site into it is drawn.
+||| Each position is numbered where the graph first meets it, at the place
+||| of that meeting among every place it meets one, so no position is
+||| looked up once numbered; that is where a position becomes a `Fin`.
 module IdrisMLIR.Frontend.Growth.Graph
 
 import Core.Context
@@ -61,15 +63,20 @@ public export
 data Wrote = FromArgument Sites.Site Argument
            | FromField
 
-||| The graph, and what its numbers stand for: the position each `Fin` is,
-||| what made each arc, and the sizes the worklist's universe needs beside
-||| the bounds.
+||| The graph, and what its numbers stand for: the position met at each
+||| place, the places where a position was first met, what made each arc,
+||| and the sizes the worklist's universe needs beside the bounds.
 public export
 record Built where
   constructor MkBuilt
   graph : Graph
-  ||| What each `Fin` is.
-  position : Vect graph.size Position
+  ||| The position met at each place: a position is numbered at the place
+  ||| it is first met (`firsts`), and a later meeting of it is a place no
+  ||| arc or site names.
+  position : Vect graph.size Spot
+  ||| The places where a position was first met: the positions the arcs
+  ||| join, each once.
+  firsts : List (Fin graph.size)
   ||| What made each arc.
   wrote : Vect (length graph.arcs) Wrote
   ||| The most children of any template's node.
@@ -101,7 +108,7 @@ record Entered where
   constructor MkEntered
   sites : SortedMap Address (List Sites.Site)
   families : SortedMap Address (List Nat)
-  datas : List Position
+  datas : List Spot
   fields : SortedMap Address Fields
   breadth : Nat
 
@@ -151,11 +158,13 @@ kindOf a def = case definition def of
 -- The definition a site enters, when it names one: a call or a build. A
 -- dispatch reaches the method functions of the implementations its
 -- dictionary can be, which the walk enters where each implementation is
--- written, since its body applies them.
+-- written, since its body applies them; an application at a use is no
+-- definition.
 callee : Reach -> Maybe Address
 callee (Calls b) = Just b
 callee (Builds b) = Just b
 callee (Dispatches _ _ _) = Nothing
+callee Applies = Nothing
 
 -- A definition entered: its sites by its address, its families, its
 -- represented arguments as positions of its node with no heads, and its
@@ -170,7 +179,7 @@ keep a def reading r = do
   let ss = rd.sites
   pure ( { sites $= insert a ss
          , families $= insert a rd.families
-         , datas $= (map (\j => (MkNode a [], j)) js ++)
+         , datas $= (map (\j => (OfNode (MkNode a []), j)) js ++)
          , fields $= maybe id (insert a) fs } r
        , mapMaybe (nameAt (gamma defs)) (mapMaybe (callee . (.reach)) ss) )
 
@@ -372,7 +381,13 @@ mutual
   visit names b out x path nd inU acc found = case out x of
     Nothing => Left (Unheaded x)
     Just edges =>
-      under names b out x path nd inU acc (map (\(_, e) => e.callee) edges) ({ done $= (:< (x, edges)) } found)
+      under names b out x path nd inU acc (mapMaybe (\(_, e) => calleeNode e.callee) edges) ({ done $= (:< (x, edges)) } found)
+    where
+      -- The application at a use is no node, and the walk enters nothing
+      -- there: what it applies, the sites of the use bound.
+      calleeNode : Holder -> Maybe Node
+      calleeNode (OfNode c) = Just c
+      calleeNode OfApplication = Nothing
 
   under : (0 names : Listed Address) -> (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) ->
           (x : Node) -> (path : List Node) ->
@@ -463,8 +478,8 @@ landingOf x = case x.root of
 
 -- The walked edges' one traversal, which every reading of what they place
 -- shares: each argument placed, in the walk's order, with the node whose
--- site wrote it, the site, and the callee node it lands at.
-eachPlaced : (r -> Node -> Sites.Site -> Node -> Placed -> r) -> r -> List (Node, List (Sites.Site, Reached)) -> r
+-- site wrote it, the site, and what holds the position it lands at.
+eachPlaced : (r -> Node -> Sites.Site -> Holder -> Placed -> r) -> r -> List (Node, List (Sites.Site, Reached)) -> r
 eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => foldl (\acc'', pl => f acc'' w s e.callee pl) acc' e.placed)
                                                 acc edges)
 
@@ -478,29 +493,31 @@ leadsOf : List (Node, List (Sites.Site, Reached)) -> Leads
 leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
   where
     lead : Leads -> (Sites.Site, Reached) -> Leads
-    lead m (_, e) = case e.via of
-      Dispatched j k leading => insert (e.callee, j, k) leading m
-      -- Essential: a call or a build places no implementation's parameters.
-      Called => m
+    lead m (_, e) = case (e.callee, e.via) of
+      (OfNode callee, Dispatched j k leading) => insert (callee, j, k) leading m
+      -- Essential: a call, a build and an application place no
+      -- implementation's parameters, and a dispatch reaches a method
+      -- function's node.
+      _ => m
 
 -- The positions of the method functions' nodes that leading placements
 -- fill.
-leadingPositions : Leads -> List Position
-leadingPositions leads = SortedMap.toList leads >>= \((m, _, _), pqs) => map (\(_, q) => (m, q)) pqs
+leadingPositions : Leads -> List Spot
+leadingPositions leads = SortedMap.toList leads >>= \((m, _, _), pqs) => map (\(_, q) => (OfNode m, q)) pqs
 
 -- A value landing at a position, with what landed there before.
-put : Position -> Landing -> SortedMap Position Landing -> SortedMap Position Landing
+put : Spot -> Landing -> SortedMap Spot Landing -> SortedMap Spot Landing
 put p l m = insert p (maybe l (joinLanding l) (lookup p m)) m
 
 -- What lands at each position an argument is placed at, as written there:
 -- its keys are the positions the arguments name.
-written : List (Node, List (Sites.Site, Reached)) -> SortedMap Position Landing
+written : List (Node, List (Sites.Site, Reached)) -> SortedMap Spot Landing
 written = eachPlaced (\m, _, _, callee, pl => put (callee, pl.parameter) (landingOf pl.argument) m) empty
 
 -- Where a writer no template states lands as well, so nothing there is
 -- closed: at a leading arc's position, what J's own writers gave J; at a
 -- capped position, every value of the cap's height.
-opened : List Position -> SortedMap Position Landing -> SortedMap Position Landing
+opened : List Spot -> SortedMap Spot Landing -> SortedMap Spot Landing
 opened ps m = foldl (\acc, p => put p Open acc) m ps
 
 -- Where each numbered position carries a family's value on, keyed by the
@@ -515,29 +532,30 @@ record Carrying (n : Nat) where
   onward : SortedMap Nat (List (Fin n))
   back : SortedMap Nat (List (Fin n))
 
-carried : {0 n : Nat} -> SortedMap Position (Fin n) -> SortedMap Address (List Node) -> Leads ->
+carried : {0 n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
           List (Node, List (Sites.Site, Reached)) -> Carrying n
 carried number nodes leads walked =
   let cs = eachPlaced (\acc, w, _, callee, pl =>
-                         foldl (\acc', i => carry (w, i) (callee, pl.parameter) acc') acc (familiesIn pl.argument.template))
+                         foldl (\acc', i => carry (OfNode w, i) (callee, pl.parameter) acc') acc (familiesIn pl.argument.template))
                       (MkCarrying empty empty) walked in
   foldl (\acc, ((callee, j, _), pqs) =>
-           foldl (\acc', (p, q) => foldl (\acc'', x => carry (x, p) (callee, q) acc'') acc' (fromMaybe [] (lookup j nodes)))
+           foldl (\acc', (p, q) => foldl (\acc'', x => carry (OfNode x, p) (OfNode callee, q) acc'') acc'
+                                          (fromMaybe [] (lookup j nodes)))
                  acc pqs)
         cs (SortedMap.toList leads)
   where
     add : Fin n -> Fin n -> SortedMap Nat (List (Fin n)) -> SortedMap Nat (List (Fin n))
     add a b m = insert (finToNat a) (b :: fromMaybe [] (lookup (finToNat a) m)) m
 
-    carry : Position -> Position -> Carrying n -> Carrying n
+    carry : Spot -> Spot -> Carrying n -> Carrying n
     carry p q cs = case (lookup p number, lookup q number) of
       (Just a, Just b) => MkCarrying (add a b cs.onward) (add b a cs.back)
       _ => cs
 
 -- The numbered positions an applied family's reading reads the landing
 -- of (`applyingIn`), at the nodes whose sites apply it.
-applying : {0 n : Nat} -> SortedMap Position (Fin n) -> List (Node, List (Sites.Site, Reached)) -> List (Fin n)
-applying number = eachPlaced (\acc, w, _, _, pl => mapMaybe (\i => lookup (w, i) number) (applyingIn pl.argument.template) ++ acc) []
+applying : {0 n : Nat} -> SortedMap Spot (Fin n) -> List (Node, List (Sites.Site, Reached)) -> List (Fin n)
+applying number = eachPlaced (\acc, w, _, _, pl => mapMaybe (\i => lookup (OfNode w, i) number) (applyingIn pl.argument.template) ++ acc) []
 
 -- How many positions a walk has not visited.
 unvisited : Vect n Bool -> Nat
@@ -582,7 +600,7 @@ spread next vis (Access rec) found (x :: xs) = case flag (Vect.index x vis) of
 -- nothing applies it. With no computing value written there is nothing to
 -- carry.
 landings : SortedMap Address (List Node) -> Leads -> List (Node, List (Sites.Site, Reached)) ->
-           SortedMap Position Landing -> SortedMap Position Landing
+           SortedMap Spot Landing -> SortedMap Spot Landing
 landings nodes leads walked at =
   let ps = keys at
       number = SortedMap.fromList (zip ps (indices ps))
@@ -607,8 +625,8 @@ landings nodes leads walked at =
 
 -- At node w, what lands at each parameter (`Landing`); nothing landed is
 -- no closed value.
-closedAt : SortedMap Position Landing -> Node -> Nat -> Landing
-closedAt ls w i = fromMaybe Open (lookup (w, i) ls)
+closedAt : SortedMap Spot Landing -> Node -> Nat -> Landing
+closedAt ls w i = fromMaybe Open (lookup (OfNode w, i) ls)
 
 -- An argument a walked site writes, as the graph draws it: the node that
 -- wrote it, its template read where that node's families hold what lands
@@ -619,12 +637,12 @@ record Writing where
   writer : Node
   template : Template
   roots : Template -> List Address
-  target : Position
+  target : Spot
   wrote : Wrote
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
-writings : Flow -> SortedMap Position Landing -> List (Node, List (Sites.Site, Reached)) -> List Writing
+writings : Flow -> SortedMap Spot Landing -> List (Node, List (Sites.Site, Reached)) -> List Writing
 writings fl ls =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWriting w (withClosedFamilies (closedAt ls w) pl.argument.template) (roots fl w)
@@ -640,7 +658,7 @@ writings fl ls =
 leadingWritings : Flow -> SortedMap Address (List Node) -> Leads -> List Writing
 leadingWritings fl nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
-    [ MkWriting jn (Template.Var p 0) (roots fl jn) (m, q) FromField
+    [ MkWriting jn (Template.Var p 0) (roots fl jn) (OfNode m, q) FromField
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -664,20 +682,67 @@ sourcesOf fs x =
   nub ([i | (i, w) <- weights x.template, isJust (labelOf w)] ++
        [i | (i, w) <- (carriedAt (fieldTemplatesOf fs) x.roots atTop x.template).arcs, isJust (labelOf w)])
 
--- The positions a writing names: where it lands, and where its writer
--- reads each parameter it draws from.
-named : SortedMap Address Fields -> Writing -> List Position
-named fs x = x.target :: map (\i => (x.writer, i)) (sourcesOf fs x)
+-- Where a writing's writer reads parameter i: its node's position there.
+readsAt : Writing -> Nat -> Spot
+readsAt x i = (OfNode x.writer, i)
 
--- A writing as a site of the model, over the numbered positions. Every
--- position it names was numbered (`named`), so a miss is a broken
--- invariant of the graph's own construction; it stays because a map's
--- lookup gives no evidence of membership.
-siteOf : {0 n : Nat} -> SortedMap Position (Fin n) -> SortedMap Address Fields -> Writing -> Maybe (Bound.Site n, Wrote)
-siteOf index fs x = do
-  t <- lookup x.target index
-  ws <- traverse (\i => (i,) <$> lookup (x.writer, i) index) (sourcesOf fs x)
-  pure (Bound.MkSite t x.template ws x.roots, x.wrote)
+-- The places a writing meets positions at: where it lands, then where its
+-- writer reads each parameter it draws from.
+slotsOf : SortedMap Address Fields -> Writing -> List Spot
+slotsOf fs x = x.target :: map (readsAt x) (sourcesOf fs x)
+
+-- The places some writings meet positions at, in order.
+allSlots : SortedMap Address Fields -> List Writing -> List Spot
+allSlots fs [] = []
+allSlots fs (x :: xs) = slotsOf fs x ++ allSlots fs xs
+
+-- The numbering at place `place` of `n`, with `rest` still to meet: where
+-- each position met so far was first met, and those first meetings in
+-- order. A position is numbered by the place it is first met at, so
+-- meeting it again finds that number, and no number is looked for that
+-- was not given.
+record Meeting (n : Nat) (rest : List Spot) where
+  constructor MkMeeting
+  place : Nat
+  0 left : place + length rest = n
+  seen : SortedMap Spot (Fin n)
+  firsts : SnocList (Fin n)
+
+-- Position x, met at the next place: the number it was first met at, or,
+-- met for the first time, this place's.
+meet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Spot) -> Meeting n (x :: rest) -> (Fin n, Meeting n rest)
+meet x (MkMeeting j left seen firsts) =
+  let 0 next = trans (plusSuccRightSucc j (length rest)) left in
+  case lookup x seen of
+    Just f => (f, MkMeeting (S j) next seen firsts)
+    -- Essential: a position's first meeting is the one that numbers it.
+    Nothing => let f = natToFinLT j {prf = runBelow j left} in
+               (f, MkMeeting (S j) next (insert x f seen) (firsts :< f))
+
+-- Positions met at the next places, in order.
+meetAll : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Spot) -> Meeting n (xs ++ rest) -> (List (Fin n), Meeting n rest)
+meetAll [] m = ([], m)
+meetAll (x :: xs) m = let (f, m') = meet x m
+                          (fs, m'') = meetAll xs m' in
+                      (f :: fs, m'')
+
+-- A writing as a site of the model, its positions met at its places: where
+-- it lands, then where its writer reads each parameter it draws from.
+siteMet : {0 n : Nat} -> {0 rest : List Spot} -> (fs : SortedMap Address Fields) -> (x : Writing) ->
+          Meeting n (slotsOf fs x ++ rest) -> ((Bound.Site n, Wrote), Meeting n rest)
+siteMet fs x m =
+  let (t, m') = meet x.target m
+      (ws, m'') = meetAll (map (readsAt x) (sourcesOf fs x)) m' in
+  ((Bound.MkSite t x.template (zip (sourcesOf fs x) ws) x.roots, x.wrote), m'')
+
+-- Writings as sites of the model, in order, each met at its places.
+sitesMet : {0 n : Nat} -> {0 rest : List Spot} -> (fs : SortedMap Address Fields) -> (xs : List Writing) ->
+           Meeting n (allSlots fs xs ++ rest) -> (List (Bound.Site n, Wrote), Meeting n rest)
+sitesMet fs [] m = ([], m)
+sitesMet fs (x :: xs) m =
+  let (here, m') = siteMet fs x (replace {p = Meeting n} (sym (appendAssociative (slotsOf fs x) (allSlots fs xs) rest)) m)
+      (later, m'') = sitesMet fs xs m' in
+  (here :: later, m'')
 
 ------------------------------------------------------------------------------
 -- Positions, caps and the numbering
@@ -688,14 +753,16 @@ byDefinition : (a -> Address) -> List a -> SortedMap Address (List a)
 byDefinition key = foldr (\x => insertWith (++) (key x) [x]) empty
 
 -- Each of the positions that is capped, with its cap. A cap is asked once
--- per definition and parameter, since a definition's nodes share its type.
+-- per definition and parameter, since a definition's nodes share its type;
+-- the application's positions are no definition's, and none is capped.
 capsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         List Position -> Front (SortedMap Position Nat)
+         List Spot -> Front (SortedMap Spot Nat)
 capsOf named = snd <$> foldlM ask (empty, empty) named
   where
-    ask : (SortedMap (Address, Nat) (Maybe Nat), SortedMap Position Nat) -> Position ->
-          Front (SortedMap (Address, Nat) (Maybe Nat), SortedMap Position Nat)
-    ask (memo, capped) p@(n, j) = do
+    ask : (SortedMap (Address, Nat) (Maybe Nat), SortedMap Spot Nat) -> Spot ->
+          Front (SortedMap (Address, Nat) (Maybe Nat), SortedMap Spot Nat)
+    ask acc (OfApplication, _) = pure acc
+    ask (memo, capped) p@(OfNode n, j) = do
       cap <- maybe (capOf n.definition j) pure (lookup (n.definition, j) memo)
       pure (insert (n.definition, j) cap memo, maybe capped (\k => insert p k capped) cap)
 
@@ -791,7 +858,7 @@ evaluable _ = Nothing
 ||| closed values is unmeasured. An argument that applies a family given
 ||| any other value, or whose evaluation is no closed template, stays as
 ||| written: the arc it draws is the one the check refuses.
-evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Position Landing ->
+evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Spot Landing ->
             List (Node, List (Sites.Site, Reached)) -> Front (List (Node, List (Sites.Site, Reached)))
 evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w e) edges)
   where
@@ -799,7 +866,7 @@ evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$>
     -- when the reading still holds a marker or applies a family.
     readingAt : Argument -> ClosedTerm -> List (Nat, ClosedTerm) -> Front (Maybe Argument)
     readingAt x tm given = do
-      read <- readArgument x.position x.kind !(normaliseClosed (givenFamilies given tm)) x.shown
+      read <- readArgument x.stands x.position x.kind !(normaliseClosed (givenFamilies given tm)) x.shown
       pure (if selfBounded read.template then Just read else Nothing)
 
     evaluate : Node -> Argument -> Front (List Argument)
@@ -867,31 +934,40 @@ build main = do
   -- order the check reads the arcs in.
   let args = writings fl lands walked
   let every = leadingWritings fl nodes leads ++ args
-  -- The positions: every place an argument lands, every position a
-  -- writing draws an arc from, and every represented argument of a
-  -- reachable data type.
-  let positions = SortedSet.fromList (keys placed ++ (every >>= named entered.fields) ++ entered.datas)
-  -- The one numbering: the positions in order, each once.
-  let ps = Prelude.toList positions
-  let position = Vect.fromList ps
-  let index = SortedMap.fromList (zip ps (indices ps))
+  -- The places positions are met at: where each writing lands and where
+  -- its writer reads each parameter it draws from, then every represented
+  -- argument of a reachable data type. Every place an argument lands is a
+  -- writing's. A position is numbered at the place it is first met, and
+  -- each site is built as its places are met, so no site looks a position
+  -- up.
+  let slots = allSlots entered.fields every ++ entered.datas
+  let position = Vect.fromList slots
+  let start : Meeting (length slots) (allSlots entered.fields every ++ entered.datas)
+      start = MkMeeting 0 Refl empty [<]
+  let (sites, met) = sitesMet {rest = entered.datas} entered.fields every start
+  let (_, done) = meetAll {rest = []} entered.datas
+                          (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral entered.datas)) met)
+  let firsts = done.firsts <>> []
   let caps = map (\p => lookup p capped) position
-  -- Each definition's positions, ascending, read off the numbering itself.
-  let byDefinitionAt = the (SortedMap Address (List (Fin (length ps))))
-                           (foldr (\(p, f) => insertWith (++) (fst p).definition [f]) empty (zip ps (indices ps)))
-  let positionsOf : Address -> List (Fin (length ps))
+  -- Each definition's positions, read off the first meetings themselves.
+  let byDefinitionAt = the (SortedMap Address (List (Fin (length slots))))
+                           (foldr (\f => case Vect.index f position of
+                                           (OfNode node, _) => insertWith (++) node.definition [f]
+                                           (OfApplication, _) => id)
+                                  empty firsts)
+  let positionsOf : Address -> List (Fin (length slots))
       positionsOf a = fromMaybe [] (lookup a byDefinitionAt)
-  let positionOf : Fin (length ps) -> (Address, Nat)
-      positionOf f = let (node, i) = Vect.index f position in (node.definition, i)
-  let Just sites = traverse (siteOf index entered.fields) every
-    | Nothing => internal fc "the growth graph lost a position it numbered"
+  let positionOf : Fin (length slots) -> (Head, Nat)
+      positionOf f = case Vect.index f position of
+                       (OfNode node, i) => (ADefinition node.definition, i)
+                       (OfApplication, i) => (AnApplication, i)
   let (Element kept uncapped, cappedSites) = uncappedOnly caps sites
   let fieldsAt = fieldTemplatesOf entered.fields
   -- K stands above what every template needs, a capped position's among
   -- them, though no site into one is drawn.
   let beyond = topOf 0 (allOf (siteNeeds fieldsAt) cappedSites)
   let arcs = drawn fieldsAt positionsOf kept
-  pure (MkBuilt (graphOf fieldsAt positionsOf beyond caps kept) position (wrotes arcs)
+  pure (MkBuilt (graphOf fieldsAt positionsOf beyond caps kept) position firsts (wrotes arcs)
                 (foldl (\m, x => max m (Template.arity x.template)) 0 args) found.reachers entered.breadth
                 (foldl (\m, x => max m (Template.heaviest x.template)) 0 args)
                 (modelOf fieldsAt positionsOf positionOf beyond caps kept)
