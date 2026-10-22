@@ -27,7 +27,6 @@ import Decidable.Equality
 
 import IdrisMLIR.Spec.Core.Admitted
 import IdrisMLIR.Spec.Core.Op
-import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Numeric
@@ -409,68 +408,40 @@ both WhereItRuns _ = WhereItRuns
 -- The guards
 ------------------------------------------------------------------------------
 
-||| What a guard op of the specification lets through, as the oracle reads
-||| it, for each guard op a builtin's op can name: a value that is not 0, a
-||| string that is not empty, an index within a string, a Double that is
-||| neither infinite nor NaN.
-public export
-data Condition = Nonzero | Nonempty | InBounds | Finite
-
-||| The guard ops the oracle reads, each by the op it is in the
-||| specification.
-conditions : List (Mnemonic, Condition)
-conditions =
-  [ (nonzeroOp.mnemonic, Nonzero), (nonemptyOp.mnemonic, Nonempty)
-  , (inBoundsOp.mnemonic, InBounds), (finiteOp.mnemonic, Finite) ]
-
-||| A guard of a builtin, read off its op once: what it lets through, the
-||| builtin's arguments it is given, one per operand of the guard op (the
-||| one it guards first; a guarded builtin takes its arguments in its op's
-||| order), and the cause its crash names, as the specification holds them.
-public export
-record Guarding where
-  constructor MkGuarding
-  {0 others : Nat}
-  condition : Condition
-  given : Vect (S others) Nat
-  cause : Cause
-
-||| The guards an op states, each argument by its position.
-guardsOf : DialectOp -> List (Guard Nat)
-guardsOf (OurOp (SomeOp op)) = map (\g => MkGuard g.check (map finToNat g.given) g.cause) op.guards
-guardsOf (AdmittedOp a) = a.guards
-guardsOf Retyped = []
-
-||| An op's guards, read into what the oracle knows of each: the guard op's
-||| condition, by the op the specification holds; its arguments and its
-||| cause as the guard holds them. A guard op the oracle has no reading of
-||| is why not, which the table's checks report.
+||| An op's guards as the specification states them, each argument by its
+||| position among the builtin's: the kind of check it makes, the
+||| arguments it is given, one per operand of the kind's op (the one it
+||| guards first; a guarded builtin takes its arguments in its op's order),
+||| and the cause its crash names. A guard's kind is its reading, so every
+||| guard has one.
 export
-guardings : DialectOp -> Either String (List Guarding)
-guardings op = traverse reading (guardsOf op)
-  where
-    reading : Guard Nat -> Either String Guarding
-    reading g = case lookup g.check.mnemonic conditions of
-      Just c => Right (MkGuarding c g.given g.cause)
-      Nothing => Left ("its guard " ++ mnemonicText g.check.mnemonic ++ " has no reading in the oracle")
-
-||| A guard's arguments as one list, the one it checks first.
-guardArguments : Vect (S n) a -> List1 a
-guardArguments (x :: xs) = x ::: toList xs
+guardings : DialectOp -> List (Guard Nat)
+guardings (OurOp (SomeOp op)) = map (\g => MkGuard g.check (map finToNat g.given) g.cause) op.guards
+guardings (AdmittedOp a) = a.guards
+guardings Retyped = []
 
 ||| What a guard says of the arguments it is given: it lets them through,
 ||| it fails (the program crashes there), or it cannot be read, for an
 ||| argument that is no literal of the type its condition reads.
 data Verdict = Holds | Fails | Unreadable
 
-||| A condition, the oracle's own, on the literals a guard is given.
-judge : Condition -> List1 (Maybe AnyLit) -> Verdict
-judge Nonzero (Just (MkAnyLit (IntLit _ v)) ::: _) = if v == 0 then Fails else Holds
-judge Nonempty (Just (MkAnyLit (StringLit s)) ::: _) = if s == "" then Fails else Holds
-judge InBounds (Just (MkAnyLit (IntLit _ k)) ::: [Just (MkAnyLit (StringLit s))]) =
+||| Each kind of guard's condition, the oracle's own, on the literals it is
+||| given, as many as the kind's op takes: a value that is not 0; a string
+||| that is not empty; an index within a string; a Double that is neither
+||| infinite nor NaN; a range of bytes, its offset and count at least 0,
+||| ending within the size. Whether a handle holds a string is the run's
+||| handle table's to say, and a closed expression has no literal of a
+||| handle, so the oracle reads none.
+judge : (kind : GuardKind) -> Vect (S (guardOthers kind)) (Maybe AnyLit) -> Verdict
+judge NonZero [Just (MkAnyLit (IntLit _ v))] = if v == 0 then Fails else Holds
+judge NonEmpty [Just (MkAnyLit (StringLit s))] = if s == "" then Fails else Holds
+judge InBounds [Just (MkAnyLit (IntLit _ k)), Just (MkAnyLit (StringLit s))] =
   if 0 <= k && k < natToInteger (length (unpack s)) then Holds else Fails
-judge Finite (Just (MkAnyLit (DoubleLit _ (Written _))) ::: _) = Holds
-judge Finite (Just (MkAnyLit (DoubleLit _ PastLargest)) ::: _) = Fails
+judge Finite [Just (MkAnyLit (DoubleLit _ (Written _)))] = Holds
+judge Finite [Just (MkAnyLit (DoubleLit _ PastLargest))] = Fails
+judge Range [Just (MkAnyLit (IntLit _ offset)), Just (MkAnyLit (IntLit _ count)), Just (MkAnyLit (IntLit _ size))] =
+  if 0 <= offset && 0 <= count && offset + count <= size then Holds else Fails
+judge HoldsString _ = Unreadable
 judge _ _ = Unreadable
 
 ------------------------------------------------------------------------------
@@ -891,12 +862,10 @@ argAt _ [] = Nothing
 
 ||| What a builtin's own guards do on its arguments, once these ran.
 guarded : DialectOp -> Args ts -> Outcome
-guarded op as = case guardings op of
-  Left _ => Undecided
-  Right gs => foldr (\g, o => together (verdict g) o) Runs gs
+guarded op as = foldr (\g, o => together (verdict g) o) Runs (guardings op)
   where
-    verdict : Guarding -> Outcome
-    verdict g = case judge g.condition (guardArguments (map (\k => argAt k as) g.given)) of
+    verdict : Guard Nat -> Outcome
+    verdict g = case judge g.check (map (\k => argAt k as) g.given) of
       Holds => Runs
       Fails => Crashes (g.cause ::: [])
       Unreadable => Undecided
@@ -964,32 +933,30 @@ answer b vs = do
 -- The table's own checks
 ------------------------------------------------------------------------------
 
-||| Whether a guard's condition reads the types of the arguments it is
-||| given: an integer for a divisor, a string, an index and the string it
-||| indexes, a Double.
-reads : Condition -> List (Maybe Ty) -> Bool
-reads Nonzero [Just (TIntegral _)] = True
-reads Nonempty [Just TString] = True
+||| Whether a kind of guard's condition reads the types of the arguments it
+||| is given: an integer for a divisor, a string, an index and the string it
+||| indexes, a Double, the three integers of a range. No type of a closed
+||| expression is a handle, so a guard of one reads none.
+reads : (kind : GuardKind) -> Vect (S (guardOthers kind)) (Maybe Ty) -> Bool
+reads NonZero [Just (TIntegral _)] = True
+reads NonEmpty [Just TString] = True
 reads InBounds [Just (TIntegral _), Just TString] = True
 reads Finite [Just TDouble] = True
+reads Range [Just (TIntegral _), Just (TIntegral _), Just (TIntegral _)] = True
+reads HoldsString _ = False
 reads _ _ = False
 
-||| The table held to the specification: every builtin's guards are read
-||| by the oracle, each on arguments of the types its condition reads, at
-||| positions the builtin has; and no two builtins are spelled alike.
+||| The table held to the specification: every builtin's guard is given
+||| arguments of the types its condition reads, at positions the builtin
+||| has; and no two builtins are spelled alike.
 export
 checks : List (String, Bool)
 checks =
-  [ ("every builtin's guards are read by the oracle", all resolved builtins)
-  , ("every guard is given arguments of the types its condition reads", all typed builtins)
+  [ ("every guard is given arguments of the types its condition reads", all typed builtins)
   , ("no two builtins are spelled alike", unique (map (spellingText . (.spelling)) builtins)) ]
   where
-    resolved : Builtin -> Bool
-    resolved b = either (const False) (const True) (guardings b.op)
     typed : Builtin -> Bool
-    typed b = case guardings b.op of
-      Left _ => False
-      Right gs => all (\g => reads g.condition (map (\k => getAt k b.takes) (toList g.given))) gs
+    typed b = all (\g => reads g.check (map (\k => getAt k b.takes) g.given)) (guardings b.op)
     unique : List String -> Bool
     unique [] = True
     unique (x :: xs) = not (elem x xs) && unique xs

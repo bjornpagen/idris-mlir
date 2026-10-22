@@ -15,8 +15,6 @@
 ||| crashes with its cause at its site where its condition fails, and gives
 ||| its operand otherwise, which the total op takes, so the op stays below
 ||| its check by data dependence and a proof is the absence of the guard.
-||| The upstream ops one of these guards guards (arith's unsigned division) are
-||| admitted here, since each names its guard op by value.
 module IdrisMLIR.Spec.Ops.Checks
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -26,6 +24,7 @@ import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 
+import Data.List.Elem
 import Data.List1
 -- `guardOp`'s automatic proof is searched where it is written.
 import public Data.So
@@ -311,42 +310,40 @@ holdsStringOp = guardOp "check.holds_string" [single "handle" i64] OwnCode reads
   [] []
   (says "the handle, which must hold a string, else the program crashes")
 
+||| The op of each kind of guard. A guard names its check by its kind, so
+||| an op states its guards without depending on the guard ops, and the
+||| harness reads each kind's condition by a match; this is the one place a
+||| kind meets its op, and it is total, so a kind with no op does not build.
+public export
+guardOpOf : (k : GuardKind) -> Op (S (guardOthers k)) 1 2 0
+guardOpOf NonZero = nonzeroOp
+guardOpOf InBounds = inBoundsOp
+guardOpOf NonEmpty = nonemptyOp
+guardOpOf Finite = finiteOp
+guardOpOf Range = rangeOp
+guardOpOf HoldsString = holdsStringOp
+
+||| Every kind of guard, once.
+public export
+everyGuardKind : List GuardKind
+everyGuardKind = [NonZero, InBounds, NonEmpty, Finite, Range, HoldsString]
+
+-- The list holds every kind, so a kind added to the sum fails here until it
+-- is listed, and no guard op is left out of the dialect or the e-graph.
+0 everyGuardKindListed : (k : GuardKind) -> Elem k Checks.everyGuardKind
+everyGuardKindListed NonZero = Here
+everyGuardKindListed InBounds = There Here
+everyGuardKindListed NonEmpty = There (There Here)
+everyGuardKindListed Finite = There (There (There Here))
+everyGuardKindListed Range = There (There (There (There Here)))
+everyGuardKindListed HoldsString = There (There (There (There (There Here))))
+
 ||| Every guard: the ops the e-graph's guard rules are rooted at, each rule
 ||| reading what it needs of a guard off the guard's own declaration.
 public export
 guardOps : List AnyOp
-guardOps =
-  [ SomeOp nonzeroOp, SomeOp inBoundsOp, SomeOp nonemptyOp, SomeOp finiteOp, SomeOp rangeOp
-  , SomeOp holdsStringOp ]
+guardOps = map (\k => SomeOp (guardOpOf k)) everyGuardKind
 
 public export
 checkOps : List AnyOp
 checkOps = SomeOp crashOp :: SomeOp crashMessageOp :: guardOps
-
-------------------------------------------------------------------------------
--- The upstream ops these guards guard
-------------------------------------------------------------------------------
-
--- An unsigned quotient and remainder, upstream's meaning: their divisor is
--- the result of idr.check.nonzero, which the frontend builds before each
--- from the guard stated here, so each stands below its guard by data
--- dependence, as every total op does, and upstream speculates neither
--- unless its divisor is a constant other than zero. Each names its guard
--- op by value, so it is declared here, beside the guard.
-
-||| The divisor, upstream's second operand group, is not zero.
-divisorNonzero : Guard Nat
-divisorNonzero = MkGuard nonzeroOp [1] DivisionByZero
-
-public export
-divUI : Admitted
-divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [] (rangedBy "inferDivU"))
-
-public export
-remUI : Admitted
-remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "inferRemU"))
-
-||| Every upstream op the dialect admits with a guard, once.
-public export
-checkedAdmitted : List Admitted
-checkedAdmitted = [divUI, remUI]

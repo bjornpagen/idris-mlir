@@ -73,9 +73,13 @@ import Gen
 import Prims
 import Sem
 
+import IdrisMLIR.Spec.Core.Op
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Runtime.Endings
 
+-- The op vocabulary is imported for a guard and its kind; its Sized, a
+-- region's count of blocks, is not an integer type of a width.
+%hide IdrisMLIR.Spec.Core.Op.Sized
 -- The numeric ops' module is imported for the signedness a width carries;
 -- its Part, a division's quotient or remainder, is not a program's part.
 %hide IdrisMLIR.Spec.Ops.Numeric.Part
@@ -95,9 +99,9 @@ FamilyCount : Nat
 FamilyCount = S (length families.tail)
 
 ||| What an expression of a type is, past a leaf: a builtin applied, of the
-||| family the swarm weighs it by, with its guards as the oracle reads
-||| them; or the sum type's helper.
-data Production = Apply (Fin FamilyCount) Builtin (List Guarding) | SDataOf
+||| family the swarm weighs it by, with its guards; or the sum type's
+||| helper.
+data Production = Apply (Fin FamilyCount) Builtin (List (Guard Nat)) | SDataOf
 
 resultOf : Production -> Ty
 resultOf (Apply _ b _) = b.gives
@@ -114,13 +118,11 @@ indexed : (xs : List a) -> List (Fin (length xs), a)
 indexed [] = []
 indexed (x :: xs) = (FZ, x) :: map (\(i, y) => (FS i, y)) (indexed xs)
 
-||| Every builtin whose guards the oracle reads, as a production of its
-||| family: a builtin whose guard it cannot read is left out, and the
-||| table's checks name it.
+||| Every builtin, as a production of its family, with its guards.
 applications : List Production
 applications =
-  [ Apply i b gs | (i, family) <- (FZ, families.head) :: map (\(i, f) => (FS i, f)) (indexed families.tail)
-                 , b <- family, gs <- either (const []) pure (guardings b.op) ]
+  [ Apply i b (guardings b.op) | (i, family) <- (FZ, families.head) :: map (\(i, f) => (FS i, f)) (indexed families.tail)
+                               , b <- family ]
 
 ||| The productions of a type in a part, each with the proof of its type.
 productions : Part -> (t : Ty) -> List (pr : Production ** resultOf pr = t)
@@ -248,18 +250,21 @@ indexOn Inside (S k) = (\i => natToInteger (finToNat i)) <$> draw (S k)
 indexOn _ room = oneOf (-1) [natToInteger room, natToInteger room + 7, -100]
 
 ||| A literal for the argument a guard guards, on a side of it: what its
-||| condition lets through, or what it stops, given the literals drawn for
-||| the guard's other arguments; nothing where the condition reads no value
-||| of the argument's type, which the table's checks name.
-guardedLiteral : Condition -> Side -> (t : Ty) -> List (Maybe AnyLit) -> Maybe (Gen (Literal t))
-guardedLiteral Nonzero Inside (TIntegral i) _ = Just (IntLit i <$> integerLiteral i WithoutZero)
-guardedLiteral Nonzero Outside (TIntegral i) _ = Just (pure (IntLit i 0))
-guardedLiteral Nonempty Inside TString _ = Just (StringLit <$> nonEmptyString)
-guardedLiteral Nonempty Outside TString _ = Just (pure (StringLit ""))
+||| kind's condition lets through, or what it stops, given the literals
+||| drawn for the guard's other arguments, one per other operand of the
+||| kind's op; nothing where no draw of the argument's type is written for
+||| the kind (a range's offset, a handle, which no literal is), and the
+||| argument comes from its pool.
+guardedLiteral : (kind : GuardKind) -> Side -> (t : Ty) -> Vect (guardOthers kind) (Maybe AnyLit)
+              -> Maybe (Gen (Literal t))
+guardedLiteral NonZero Inside (TIntegral i) [] = Just (IntLit i <$> integerLiteral i WithoutZero)
+guardedLiteral NonZero Outside (TIntegral i) [] = Just (pure (IntLit i 0))
+guardedLiteral NonEmpty Inside TString [] = Just (StringLit <$> nonEmptyString)
+guardedLiteral NonEmpty Outside TString [] = Just (pure (StringLit ""))
 guardedLiteral InBounds s (TIntegral i) [Just (MkAnyLit (StringLit str))] =
   Just (IntLit i <$> indexOn s (length (unpack str)))
-guardedLiteral Finite Inside TDouble _ = Just (uncurry DoubleLit <$> smallDouble)
-guardedLiteral Finite Outside TDouble _ = Just ((\sg => DoubleLit sg PastLargest) <$> oneOf NonNegative [Negative])
+guardedLiteral Finite Inside TDouble [] = Just (uncurry DoubleLit <$> smallDouble)
+guardedLiteral Finite Outside TDouble [] = Just ((\sg => DoubleLit sg PastLargest) <$> oneOf NonNegative [Negative])
 guardedLiteral _ _ _ _ = Nothing
 
 ------------------------------------------------------------------------------
@@ -272,9 +277,9 @@ leaf t = Lit <$> literalOf t
 
 ||| What a guard does with the argument at a position: guards it, is given
 ||| it besides, or does neither.
-data Role = Guarded Guarding | GivenTo | Free
+data Role = Guarded (Guard Nat) | GivenTo | Free
 
-roleAt : Nat -> List Guarding -> Role
+roleAt : Nat -> List (Guard Nat) -> Role
 roleAt k gs = case find (\g => head g.given == k) gs of
   Just g => Guarded g
   Nothing => if any (\g => elem k (tail g.given)) gs then GivenTo else Free
@@ -317,7 +322,7 @@ mutual
   ||| literals drawn before in `drawn`: an argument a guard guards is a
   ||| literal on a side of it, one a guard is given besides a literal of
   ||| its pool, and any other comes from its source.
-  arguments : Part -> Vect FamilyCount Nat -> List Guarding -> Nat -> (at : Nat)
+  arguments : Part -> Vect FamilyCount Nat -> List (Guard Nat) -> Nat -> (at : Nat)
            -> SnocList (Maybe AnyLit) -> (ts : List Ty) -> Sources ts -> Gen (Args ts)
   arguments _ _ _ _ _ _ [] [] = pure []
   arguments part kept gs d at drawn (t :: ts) (src :: srcs) = do
@@ -329,8 +334,8 @@ mutual
           -> Gen (Expr t)
   argument _ _ _ (Guarded g) drawn t src = do
     s <- side
-    let others = toList (map (\k => join (getAt k drawn)) (tail g.given))
-    case guardedLiteral g.condition s t others of
+    let others = map (\k => join (getAt k drawn)) (tail g.given)
+    case guardedLiteral g.check s t others of
       Just pool => Lit <$> pool
       Nothing => pooled t src
   argument _ _ _ GivenTo _ t src = pooled t src

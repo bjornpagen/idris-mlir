@@ -18,7 +18,6 @@ module IdrisMLIR.Spec.Ops.Scalars
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
-import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 
@@ -64,7 +63,7 @@ division part = MkOp
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
-  , guards = [MkGuard nonzeroOp [1] DivisionByZero]
+  , guards = [MkGuard NonZero [1] DivisionByZero]
   , specializations = []
   , laws = []
   , doc = divisionDoc part
@@ -272,7 +271,7 @@ f64ToInt = MkOp
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
-  , guards = [MkGuard finiteOp [0] NonFiniteCast]
+  , guards = [MkGuard Finite [0] NonFiniteCast]
   , specializations = []
   , laws = []
   , doc = says "a finite Double as an integer, truncated and wrapped"

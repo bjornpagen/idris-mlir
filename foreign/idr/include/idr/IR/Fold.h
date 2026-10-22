@@ -49,7 +49,6 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
-#include <span>
 #include <tuple>
 #include <utility>
 
@@ -122,44 +121,79 @@ concept GuardedFold = requires(typename Op::FoldAdaptor adaptor) {
   { Op::guardHolds(adaptor) } -> std::convertible_to<bool>;
 };
 
-// Whether every kind of a row has a constant form: no buffer and no
-// pointer, which no constant is, no truth, which no op of the runtime
-// takes, and a result that gives a value.
-constexpr bool constantKinds(std::span<const runtime::OperandKind> operands,
-                             runtime::ResultKind result) {
-  for (runtime::OperandKind kind : operands)
-    if (kind == runtime::OperandKind::Buffer || kind == runtime::OperandKind::Pointer ||
-        kind == runtime::OperandKind::Bool)
-      return false;
-  return result != runtime::ResultKind::Void && result != runtime::ResultKind::NoReturn &&
-         result != runtime::ResultKind::Pointer;
+// The constant operand as the C value of the kind its function takes it
+// in: one overload per kind that has a constant form, so these overloads
+// are the one statement of which kinds do, and a kind with none is never
+// read as another's. No overload: a buffer and a pointer, which no
+// constant is; a truth, which no op of the runtime takes; a byte, which
+// only io.exit takes, an exit status its lowering narrows the op's i64 to
+// past the test that ends a status outside 0 to 255 as a crash, so no
+// constant of the op's operand is the runtime's byte.
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Str)
+std::optional<const idris_rt_str *> operandOf(Scope &scope, mlir::Attribute constant) {
+  return strOf(scope, constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Big)
+std::optional<idris_rt_big> operandOf(Scope &scope, mlir::Attribute constant) {
+  return bigOf(scope, constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Int32)
+std::optional<int32_t> operandOf(Scope &, mlir::Attribute constant) {
+  return int32Of(constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Int64)
+std::optional<int64_t> operandOf(Scope &, mlir::Attribute constant) {
+  return int64Of(constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Signed)
+std::optional<int64_t> operandOf(Scope &, mlir::Attribute constant) {
+  return signedOf(constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Unsigned)
+std::optional<uint64_t> operandOf(Scope &, mlir::Attribute constant) {
+  return unsignedOf(constant);
+}
+
+template <runtime::OperandKind Kind>
+  requires(Kind == runtime::OperandKind::Double)
+std::optional<double> operandOf(Scope &, mlir::Attribute constant) {
+  return doubleOf(constant);
+}
+
+// A kind a constant operand can be read as: one `operandOf` reads.
+template <runtime::OperandKind Kind>
+concept ConstantOperand = requires(Scope &scope, mlir::Attribute constant) {
+  operandOf<Kind>(scope, constant);
+};
+
+// Whether a row has a constant form: every operand's kind one a constant
+// is read as, and a result that gives a value, which nothing (a function
+// that returns none, or never returns) and a pointer do not.
+template <class Row, std::size_t... I>
+constexpr bool constantRow(std::index_sequence<I...>) {
+  using enum runtime::ResultKind;
+  constexpr runtime::ResultKind result = Row::entry.result;
+  return (ConstantOperand<Row::operands[I]> && ...) && result != Void && result != NoReturn &&
+         result != Pointer;
 }
 
 template <class Op>
 concept FoldsByRuntime = requires {
   runtime::Abi<Op>::function;
   runtime::Abi<Op>::operands;
-} && constantKinds(runtime::Abi<Op>::operands, runtime::Abi<Op>::entry.result);
-
-// The constant operand as the C value of `Kind`.
-template <runtime::OperandKind Kind>
-auto operandOf(Scope &scope, mlir::Attribute constant) {
-  using enum runtime::OperandKind;
-  if constexpr (Kind == Str)
-    return strOf(scope, constant);
-  else if constexpr (Kind == Big)
-    return bigOf(scope, constant);
-  else if constexpr (Kind == Int32)
-    return int32Of(constant);
-  else if constexpr (Kind == Int64)
-    return int64Of(constant);
-  else if constexpr (Kind == Signed)
-    return signedOf(constant);
-  else if constexpr (Kind == Unsigned)
-    return unsignedOf(constant);
-  else
-    return doubleOf(constant);
-}
+  runtime::Abi<Op>::entry;
+} && constantRow<runtime::Abi<Op>>(std::make_index_sequence<std::size(runtime::Abi<Op>::operands)>());
 
 template <class ConcreteOp>
 class RuntimeFolds : public mlir::OpTrait::TraitBase<ConcreteOp, RuntimeFolds> {

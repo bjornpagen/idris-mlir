@@ -8,6 +8,7 @@ module IdrisMLIR.Spec.Ops.Shapes
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
 import Data.List
@@ -226,6 +227,24 @@ public export
 xorI : Admitted
 xorI = arithOp "Arith_XOrIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferXor")
 
+-- An unsigned quotient and remainder, upstream's meaning: their divisor is
+-- the result of idr.check.nonzero, which the frontend builds before each
+-- from the guard stated here, so each stands below its guard by data
+-- dependence, as every total op does, and upstream speculates neither
+-- unless its divisor is a constant other than zero.
+
+||| The divisor, upstream's second operand group, is not zero.
+divisorNonzero : Guard Nat
+divisorNonzero = MkGuard NonZero [1] DivisionByZero
+
+public export
+divUI : Admitted
+divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [] (rangedBy "inferDivU"))
+
+public export
+remUI : Admitted
+remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "inferRemU"))
+
 ||| A clock reading's seconds, by the constant bits of its nanoseconds: an
 ||| amount below the width, the only shift of arith's the frontend writes.
 ||| Idris's own shifts are the dialect's total ones.
@@ -414,12 +433,12 @@ ubUnreachable = MkAdmitted
   { dialect = UB, upstreamRecord = "UnreachableOp", alias = "UB_UnreachableOp", legal = Always
   , writer = FrontendWrites, guards = [], laws = [], range = Nothing, folding = UpstreamFold }
 
-||| Every upstream op the dialect admits that takes no guard, once; the
-||| guarded ones are beside their guard (`Spec.Ops.Checks`).
+||| Every upstream op the dialect admits, once.
 public export
 opAdmitted : List Admitted
 opAdmitted =
-  [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, minSI, maxUI, minUI
+  [ arithConstant, addI, subI, mulI, andI, orI, xorI, divUI, remUI, shrUI, cmpI, maxSI, minSI
+  , maxUI, minUI
   , arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
   , expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF

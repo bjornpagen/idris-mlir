@@ -13,7 +13,6 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Control.Flow
-import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
@@ -220,7 +219,7 @@ bigShr = binary "big.shr" "big_shr" [foldable] (says "a big shifted right, Integ
 public export
 division : Mnemonic -> Symbol -> Doc -> Op 2 1 0 0
 division m s d =
-  { guards := [MkGuard nonzeroOp [1] DivisionByZero]
+  { guards := [MkGuard NonZero [1] DivisionByZero]
   , speculation := Conditionally }
   (binary m s [] d)
 
@@ -509,7 +508,7 @@ bigFromDouble = MkOp
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
-  , guards = [MkGuard finiteOp [0] NonFiniteCast]
+  , guards = [MkGuard Finite [0] NonFiniteCast]
   , specializations = []
   , laws = []
   , doc = says "a finite Double truncated to a big"

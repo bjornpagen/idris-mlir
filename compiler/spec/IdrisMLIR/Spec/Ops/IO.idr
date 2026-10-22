@@ -63,12 +63,15 @@ ioOp m ins outs eff call d = MkOp
   }
 
 ||| A string's UTF-8 to standard output, through the output buffer, in
-||| order with every other write to it.
+||| order with every other write to it. Writing the string is all it does
+||| with it, so a chain of single uses ends at it, as at a match.
 public export
 putStrOp : Op 1 0 0 0
-putStrOp = ioOp "io.put_str" [single "str" strRead] [] (outside Untouched)
-  (MkRuntimeCall "io_put_str" [TakesStr] NoResult)
-  (says "writes a string to standard output")
+putStrOp =
+  { traits := [OurTrait eliminatesOperand] }
+  (ioOp "io.put_str" [single "str" strRead] [] (outside Untouched)
+    (MkRuntimeCall "io_put_str" [TakesStr] NoResult)
+    (says "writes a string to standard output"))
 
 ||| The UTF-8 encoding of a character, a Unicode scalar value: the Prelude's
 ||| putCharOp, and what writing a one-character string writes.
