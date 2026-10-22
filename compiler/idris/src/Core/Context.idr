@@ -136,7 +136,9 @@ newAlias alias full ctxt
     = do (idx, ctxt) <- getPosition full ctxt
          pure $ { possibles $= addAlias alias full idx } ctxt
 
-export
+-- Public, so that a proof over the context reads off this definition that
+-- a resolved name is its own entry.
+public export
 getNameID : Name -> Context -> Maybe Int
 getNameID (Resolved idx) ctxt = Just idx
 getNameID n ctxt = lookup n (resolvedAs ctxt)
@@ -1204,11 +1206,11 @@ record Unimported where
   ||| import, by full name.
   unimportedDefs : NameMap ContextEntry
 
+%prefix_record_projections off
+
 ||| A TTC the session read: its file and where the search found it, the
 ||| module it holds, whether it was read re-exported, and the namespace it
 ||| was read as.
-%prefix_record_projections off
-
 public export
 record Loaded where
   constructor MkLoaded

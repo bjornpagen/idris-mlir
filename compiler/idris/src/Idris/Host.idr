@@ -31,13 +31,19 @@
 ||| definition's type and case tree, read through the context's
 ||| accessors, are the ones the evaluator reads, one of each (`typeOnce`,
 ||| `treeOnce`); every term a term reduces to reduces on to the term's
-||| normal form (`reachesNormalForm`); and the steps that reduce a term
-||| reduce it with values put in for its bound names (`substitutes`).
-||| That is the trust
+||| normal form (`reachesNormalForm`); the steps that reduce a term reduce
+||| it with values put in for its bound names (`substitutes`); and values
+||| put in for names that stand for a scope's variables are put in for the
+||| variables (`substitutesMarkers`). That is the trust
 ||| Idris's own type checker rests on, which decides conversion by
 ||| comparing normal forms, and a program that proves its readings of terms
 ||| sound against `Reduces` needs no check, when it runs, that the
-||| evaluator agreed with it.
+||| evaluator agreed with it. Beside it stand a fact of the context, that it
+||| makes one entry for each full name and records no resolved name as one,
+||| so that two resolved names name one entry exactly when their full names
+||| agree (`fullNameSameEntry`); and a fact of the hosts that run this
+||| compiler, that what the evaluator's table of primitives computes stays
+||| within a bound that grows with its arguments' sizes (`computedWithin`).
 module Idris.Host
 
 import Core.Case.CaseTree
@@ -59,6 +65,7 @@ import Idris.SetOptions
 import Idris.Syntax
 
 import Data.DPair
+import Data.Nat
 import Data.Vect
 import Decidable.Equality
 
@@ -74,12 +81,16 @@ import Libraries.Data.WithDefault
 ------------------------------------------------------------------------------
 
 -- The trust, at quantity 0, so it costs nothing when a program runs. It is
--- applied only where a statement is a fact of the evaluator, or of the
--- accessors it reads definitions through, which runs in `Core` where no
--- proof follows it: to what the normalisers give (`reduct`), to the terms
--- the accessors read (`typeOnce`, `treeOnce`), to a term's reducts and its
--- normal form (`reachesNormalForm`), and to reduction with values put in
--- (`substitutes`).
+-- applied only where a statement is a fact of Idris's compiler that no
+-- proof follows: of the evaluator, which runs in `Core`, to what the
+-- normalisers give (`reduct`), to a term's reducts and its normal form
+-- (`reachesNormalForm`) and to reduction with values put in
+-- (`substitutes`); of the accessors it reads definitions through, to the
+-- terms they read (`typeOnce`, `treeOnce`); of the substitution no proof
+-- reaches, to putting values in for names (`substitutesMarkers`); of the
+-- context, to the full names its entries hold (`oneEntryPerName`,
+-- `fullNameUnresolved`); and of the hosts' primitives, to what the table
+-- of primitives computes (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -135,6 +146,11 @@ data Resolves : Frozen -> Name -> Int -> Type where
 export
 0 resolvesOnce : Resolves ctx n i -> Resolves ctx n j -> i = j
 resolvesOnce (ResolvedAs found) (ResolvedAs found') = justSame (trans (sym found) found')
+
+||| A resolved name resolves to its own entry.
+export
+0 resolvedItself : Resolves ctx (Resolved i) i
+resolvedItself = ResolvedAs Refl
 
 ||| The entry a name resolves to, or the evidence that it resolves to none.
 public export
@@ -872,6 +888,91 @@ export
                               (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
 normalisesThrough bs vs r s = reachesNormalForm s (substitutes bs vs r.steps)
 
+||| Whether a set of bounds puts a local in for a name: whether the name is
+||| equal to one it replaces, by Idris's equality of names, as
+||| `refsToLocals` compares them.
+public export
+replaces : Bounds ns -> Name -> Bool
+replaces None n = False
+replaces (Add _ old bs) n = n == old || replaces bs n
+
+||| Whether the names a set of bounds replaces are apart: each equal to none
+||| after it, so that `refsToLocals` puts in for each name the local of its
+||| own place.
+public export
+namesApart : Bounds ns -> Bool
+namesApart None = True
+namesApart (Add _ old bs) = not (replaces bs old) && namesApart bs
+
+mutual
+  ||| Whether a term names one of the names a set of bounds replaces where
+  ||| `refsToLocals` would put a local in for it: in a bound reference or an
+  ||| unknown.
+  public export
+  namesAny : Bounds ns -> Term vars -> Bool
+  namesAny bs (Local fc l idx p) = False
+  namesAny bs (Ref fc Bound n) = replaces bs n
+  namesAny bs (Ref fc nt n) = False
+  namesAny bs (Meta fc m i args) = replaces bs m || namesAnyIn bs args
+  namesAny bs (Bind fc x b sc) = namesAnyInBinder bs b || namesAny bs sc
+  namesAny bs (App fc f a) = namesAny bs f || namesAny bs a
+  namesAny bs (As fc s n t) = namesAny bs n || namesAny bs t
+  namesAny bs (TDelayed fc r t) = namesAny bs t
+  namesAny bs (TDelay fc d ty a) = namesAny bs ty || namesAny bs a
+  namesAny bs (TForce fc r t) = namesAny bs t
+  namesAny bs (PrimVal fc c) = False
+  namesAny bs (Erased fc (Dotted t)) = namesAny bs t
+  namesAny bs (Erased fc _) = False
+  namesAny bs (TType fc u) = False
+
+  public export
+  namesAnyIn : Bounds ns -> List (Term vars) -> Bool
+  namesAnyIn bs [] = False
+  namesAnyIn bs (t :: ts) = namesAny bs t || namesAnyIn bs ts
+
+  public export
+  namesAnyInBinder : Bounds ns -> Binder (Term vars) -> Bool
+  namesAnyInBinder bs (Lam fc c p ty) = namesAnyInPi bs p || namesAny bs ty
+  namesAnyInBinder bs (Let fc c val ty) = namesAny bs val || namesAny bs ty
+  namesAnyInBinder bs (Pi fc c p ty) = namesAnyInPi bs p || namesAny bs ty
+  namesAnyInBinder bs (PVar fc c p ty) = namesAnyInPi bs p || namesAny bs ty
+  namesAnyInBinder bs (PLet fc c val ty) = namesAny bs val || namesAny bs ty
+  namesAnyInBinder bs (PVTy fc c ty) = namesAny bs ty
+
+  public export
+  namesAnyInPi : Bounds ns -> PiInfo (Term vars) -> Bool
+  namesAnyInPi bs (DefImplicit t) = namesAny bs t
+  namesAnyInPi bs _ = False
+
+||| A bound reference to each name a set of bounds replaces, the first
+||| first: what stands for each variable of a scope, by the name of its
+||| place, while a term over the scope is closed.
+public export
+markersOf : FC -> Bounds ns -> SubstEnv ns vars
+markersOf fc None = []
+markersOf fc (Add _ old bs) = Ref fc Bound old :: markersOf fc bs
+
+||| Putting values in for names that stand for a scope's variables is
+||| putting them in for the variables. A term over the scope, closed with a
+||| reference to each name in for its variables (`markersOf`), those
+||| references turned back into the variables (`refsToLocals`) and the
+||| values put in for them, is the term with the values put in for its
+||| variables, where the names are apart (`namesApart`) and the term names
+||| none of them (`namesAny`): each reference finds its own name first,
+||| since Idris's equality of names is reflexive and symmetric, and every
+||| reference and unknown the term held stays as it was. That is the
+||| substitution lemma of Idris's terms, which its type checker rests on
+||| whenever it checks a definition used at its arguments, stated over this
+||| compiler's `substs` and `refsToLocals`, whose definitions no proof of a
+||| program over this compiler reaches.
+export
+0 substitutesMarkers : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> (t : Term ns) ->
+                       namesApart bs = True -> namesAny bs t = False ->
+                       substs (mkSizeOf ns) vs
+                              (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed t)))
+                         = substs (mkSizeOf ns) vs (embed t)
+substitutesMarkers _ _ _ _ _ = trusted
+
 -- A normaliser's normal form of a closed term, on the frozen context
 -- alone: its definitions record, and its own reference as the context the
 -- evaluator reads its options through. With the steps that reach it and
@@ -882,6 +983,203 @@ reduct : ({auto c : Ref Ctxt Defs} -> Defs -> Env Term [] -> ClosedTerm -> Core 
 reduct normaliser ctx t
     = do v <- normaliser {c = ctx.reference} (defsOf ctx) Env.empty t
          pure (MkReduct v trusted trusted)
+
+------------------------------------------------------------------------------
+-- How large a primitive's result is
+------------------------------------------------------------------------------
+
+||| An integer's magnitude.
+public export
+magnitudeOf : Integer -> Nat
+magnitudeOf v = integerToNat (abs v)
+
+||| How much a constant holds, by the measure that can grow: an integer's
+||| magnitude, whatever its width; a string's characters; a double's text,
+||| which is what tells doubles apart. A character, a primitive type and
+||| the world hold nothing that grows.
+public export
+constantSize : Constant -> Nat
+constantSize (I x) = magnitudeOf (cast x)
+constantSize (I8 x) = magnitudeOf (cast x)
+constantSize (I16 x) = magnitudeOf (cast x)
+constantSize (I32 x) = magnitudeOf (cast x)
+constantSize (I64 x) = magnitudeOf (cast x)
+constantSize (BI x) = magnitudeOf x
+constantSize (B8 x) = magnitudeOf (cast x)
+constantSize (B16 x) = magnitudeOf (cast x)
+constantSize (B32 x) = magnitudeOf (cast x)
+constantSize (B64 x) = magnitudeOf (cast x)
+constantSize (Str x) = length (unpack x)
+constantSize (Ch _) = 0
+constantSize (Db x) = length (unpack (show x))
+constantSize (PrT _) = 0
+constantSize WorldVal = 0
+
+||| A bound on the size of a primitive's result over the sizes of its
+||| arguments: a number, an argument's size, a sum, a product, or two to a
+||| power. Each grows with the sizes (`resultBoundMonotone`), so what bounds
+||| the arguments bounds the result.
+public export
+data SizeBound : Nat -> Type where
+  AtMost : Nat -> SizeBound arity
+  ArgumentSize : Fin arity -> SizeBound arity
+  Summed : SizeBound arity -> SizeBound arity -> SizeBound arity
+  Multiplied : SizeBound arity -> SizeBound arity -> SizeBound arity
+  TwoToThe : SizeBound arity -> SizeBound arity
+
+||| What a bound comes to at its arguments' sizes. Two to a size is past
+||| what any machine holds, so a bound is read in proofs and never computed.
+public export
+0 atSizes : SizeBound arity -> Vect arity Nat -> Nat
+atSizes (AtMost k) ss = k
+atSizes (ArgumentSize i) ss = Vect.index i ss
+atSizes (Summed a b) ss = atSizes a ss + atSizes b ss
+atSizes (Multiplied a b) ss = atSizes a ss * atSizes b ss
+atSizes (TwoToThe a) ss = power 2 (atSizes a ss)
+
+||| 2^64: no fixed-width integer, whose widest width is 64 bits, wraps to
+||| a value past it, and no double's text is that long.
+public export
+fixedWidth : SizeBound arity
+fixedWidth = TwoToThe (AtMost 64)
+
+||| The longest text of a double on the hosts that run this compiler: a
+||| sign, 17 digits, a point and an exponent such as `e-308`, 24 characters
+||| on each; and on the stock host, whose cast from String can read a
+||| complex number into a Double, a real and an imaginary part that long
+||| and an `i`.
+public export
+doubleText : Nat
+doubleText = 49
+
+||| A bound on each primitive's result as the evaluator's table (`tableOf`)
+||| computes it. The table chooses by the constants it is given, not by the
+||| type the primitive names, so each bound holds whatever constants the
+||| operation meets:
+||| - a sum, difference, product, quotient, remainder or negation of
+|||   integers, or their bitwise and, or or xor, is no larger in magnitude
+|||   than the sum or the product of theirs, a remainder than its divisor;
+|||   a fixed-width result wrapped to its width is below 2^64, and so is a
+|||   double's text;
+||| - a shift moves a value by its amount, and by a negative amount the
+|||   other way, as the stock host does at every width (`ash`), so it gives
+|||   at most 2^amount times the value, or a wrapped value below 2^64;
+||| - a comparison gives 0 or 1;
+||| - a string operation gives a string of at most the characters it was
+|||   given (one more for `strCons`), their count, or a character;
+||| - a double's operation gives a double;
+||| - a cast to Integer gives an integer's own value; a character's code or
+|||   a finite double's integer part, each below 2^1024; or what a string
+|||   reads: a literal in a base of at most 16, below 16^length, or on the
+|||   stock host a decimal with a point or an exponent, a finite double;
+||| - a cast to String gives an integer's sign and digits, at most its
+|||   magnitude and one more, a character, or a double's own text;
+||| - a cast to a fixed-width type gives the value, or wraps it below 2^64;
+||| - `believe_me` gives its value unchanged;
+||| - `crash` and a cast to the world compute nothing.
+public export
+boundOf : PrimFn arity -> SizeBound arity
+boundOf (Add _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (Sub _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (Mul _) = Summed (Multiplied (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (Div _) = Summed (ArgumentSize FZ) fixedWidth
+boundOf (Mod _) = Summed (ArgumentSize (FS FZ)) fixedWidth
+boundOf (Neg _) = Summed (ArgumentSize FZ) fixedWidth
+boundOf (ShiftL _) = Summed (Multiplied (ArgumentSize FZ) (TwoToThe (ArgumentSize (FS FZ)))) fixedWidth
+boundOf (ShiftR _) = Summed (Multiplied (ArgumentSize FZ) (TwoToThe (ArgumentSize (FS FZ)))) fixedWidth
+boundOf (BAnd _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (BOr _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (BXOr _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
+boundOf (Primitive.LT _) = AtMost 1
+boundOf (Primitive.LTE _) = AtMost 1
+boundOf (Primitive.EQ _) = AtMost 1
+boundOf (Primitive.GTE _) = AtMost 1
+boundOf (Primitive.GT _) = AtMost 1
+boundOf StrLength = ArgumentSize FZ
+boundOf StrHead = AtMost 0
+boundOf StrTail = ArgumentSize FZ
+boundOf StrIndex = AtMost 0
+boundOf StrCons = Summed (AtMost 1) (ArgumentSize (FS FZ))
+boundOf StrAppend = Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))
+boundOf StrReverse = ArgumentSize FZ
+boundOf StrSubstr = ArgumentSize (FS (FS FZ))
+boundOf DoubleExp = AtMost doubleText
+boundOf DoubleLog = AtMost doubleText
+boundOf DoublePow = AtMost doubleText
+boundOf DoubleSin = AtMost doubleText
+boundOf DoubleCos = AtMost doubleText
+boundOf DoubleTan = AtMost doubleText
+boundOf DoubleASin = AtMost doubleText
+boundOf DoubleACos = AtMost doubleText
+boundOf DoubleATan = AtMost doubleText
+boundOf DoubleSqrt = AtMost doubleText
+boundOf DoubleFloor = AtMost doubleText
+boundOf DoubleCeiling = AtMost doubleText
+boundOf (Cast _ IntegerType) =
+  Summed (TwoToThe (Multiplied (AtMost 4) (ArgumentSize FZ))) (TwoToThe (AtMost 1024))
+boundOf (Cast _ StringType) = Summed (ArgumentSize FZ) (AtMost 1)
+boundOf (Cast _ CharType) = AtMost 0
+boundOf (Cast _ DoubleType) = AtMost doubleText
+boundOf (Cast _ WorldType) = AtMost 0
+boundOf (Cast _ _) = Summed (ArgumentSize FZ) fixedWidth
+boundOf BelieveMe = ArgumentSize (FS (FS FZ))
+boundOf Crash = AtMost 0
+
+||| The bound on a primitive's result at its arguments' sizes.
+public export
+0 resultBound : PrimFn arity -> Vect arity Nat -> Nat
+resultBound op ss = atSizes (boundOf op) ss
+
+||| Each size of one list is at most the one at its place in the other.
+public export
+data SizesWithin : Vect n Nat -> Vect n Nat -> Type where
+  NoSizes : SizesWithin [] []
+  SizeWithin : Nat.LTE s t -> SizesWithin ss ts -> SizesWithin (s :: ss) (t :: ts)
+
+0 withinAt : (i : Fin n) -> SizesWithin ss ts -> Nat.LTE (Vect.index i ss) (Vect.index i ts)
+withinAt FZ (SizeWithin le _) = le
+withinAt (FS i) (SizeWithin _ rest) = withinAt i rest
+
+0 timesMonotone : Nat.LTE a b -> Nat.LTE c d -> Nat.LTE (a * c) (b * d)
+timesMonotone LTEZero _ = LTEZero
+timesMonotone (LTESucc ab) cd = plusLteMonotone cd (timesMonotone ab cd)
+
+0 twoToPositive : (n : Nat) -> Nat.LTE 1 (power 2 n)
+twoToPositive Z = reflexive
+twoToPositive (S k) = transitive (twoToPositive k) (lteAddRight {m = power 2 k + 0} (power 2 k))
+
+0 twoToMonotone : Nat.LTE m n -> Nat.LTE (power 2 m) (power 2 n)
+twoToMonotone {n} LTEZero = twoToPositive n
+twoToMonotone (LTESucc le) = timesMonotone (reflexive {x = 2}) (twoToMonotone le)
+
+0 atSizesMonotone : (b : SizeBound n) -> SizesWithin ss ts -> Nat.LTE (atSizes b ss) (atSizes b ts)
+atSizesMonotone (AtMost k) _ = reflexive
+atSizesMonotone (ArgumentSize i) within = withinAt i within
+atSizesMonotone (Summed a b) within = plusLteMonotone (atSizesMonotone a within) (atSizesMonotone b within)
+atSizesMonotone (Multiplied a b) within = timesMonotone (atSizesMonotone a within) (atSizesMonotone b within)
+atSizesMonotone (TwoToThe a) within = twoToMonotone (atSizesMonotone a within)
+
+||| A primitive's bound grows with its arguments' sizes, so a bound on what
+||| its arguments can be bounds what it computes.
+export
+0 resultBoundMonotone : (op : PrimFn arity) -> SizesWithin ss ts ->
+                        Nat.LTE (resultBound op ss) (resultBound op ts)
+resultBoundMonotone op within = atSizesMonotone (boundOf op) within
+
+||| What the evaluator's table computes from constants stays within the
+||| primitive's bound at their sizes (`boundOf`). The table applies the
+||| primitive of the host that runs this compiler, so this is a fact of
+||| each host: of idris-mlir's runtime, whose fixed-width results are of
+||| their width and whose shift of an integer by a negative amount moves it
+||| the other way; and of Chez Scheme, under the stock host, whose integers
+||| are exact, whose fixed-width arithmetic wraps, whose shift right of any
+||| width does not, and whose cast from String reads what Scheme reads. No
+||| operation of the table reads anything but its arguments (none reads the
+||| clock or the world), so none is left out.
+export
+0 computedWithin : {arity : Nat} -> (op : PrimFn arity) -> (cs : Vect arity Constant) ->
+                   tableOf op cs = Just c -> Nat.LTE (constantSize c) (resultBound op (map constantSize cs))
+computedWithin _ _ _ = trusted
 
 ------------------------------------------------------------------------------
 -- Full names
@@ -943,6 +1241,55 @@ mutual
   fullNamesPiIn ctx Explicit = Explicit
   fullNamesPiIn ctx AutoImplicit = AutoImplicit
   fullNamesPiIn ctx (DefImplicit t) = DefImplicit (fullNamesIn ctx t)
+
+------------------------------------------------------------------------------
+-- Full names tell entries apart
+------------------------------------------------------------------------------
+
+-- Idris makes each definition under the full name it records (`newDef`,
+-- `addBuiltin`) and gives a name one entry, the one made for it first
+-- (`getPosition`), and a definition decoded from a TTC keeps the full name
+-- it was saved under: so two entries hold definitions of two full names,
+-- and no definition records a resolved name as its full name.
+0 oneEntryPerName : {0 ctx : Frozen} -> {0 i, j : Int} ->
+                    IntMap.lookup i (entriesOf ctx) = Just d -> IntMap.lookup j (entriesOf ctx) = Just d' ->
+                    fullname d = fullname d' -> i = j
+oneEntryPerName _ _ _ = trusted
+
+0 fullNameUnresolved : {0 ctx : Frozen} -> {0 i : Int} ->
+                       IntMap.lookup i (entriesOf ctx) = Just d -> Not (fullname d = Resolved k)
+fullNameUnresolved _ _ = trusted
+
+0 resolvedInjective : Resolved i = Resolved j -> i = j
+resolvedInjective Refl = Refl
+
+-- Two resolved names whose full names agree, read through what their
+-- entries hold: two definitions, one, or none.
+0 sameByFullName : {0 ctx : Frozen} -> {0 i, j : Int} -> (m, m' : Maybe GlobalDef) ->
+                   IntMap.lookup i (entriesOf ctx) = m -> IntMap.lookup j (entriesOf ctx) = m' ->
+                   maybe (Resolved i) fullname m = maybe (Resolved j) fullname m' -> i = j
+sameByFullName (Just d) (Just d') found found' same = oneEntryPerName {ctx} {i} {j} found found' same
+sameByFullName (Just d) Nothing found _ same = void (fullNameUnresolved {ctx} {i} found same)
+sameByFullName Nothing (Just d') _ found' same = void (fullNameUnresolved {ctx} {i = j} found' (sym same))
+sameByFullName Nothing Nothing _ _ same = resolvedInjective same
+
+||| Two resolved names that name one entry have one full name: a resolved
+||| name resolves to its own entry, so two that share an entry are one.
+export
+0 sameEntryFullName : SameEntry ctx (Resolved i) (Resolved j) ->
+                      fullNameIn ctx (Resolved i) = fullNameIn ctx (Resolved j)
+sameEntryFullName (OneEntry r r') =
+  cong (\k => fullNameIn ctx (Resolved k))
+       (trans (resolvesOnce resolvedItself r) (sym (resolvesOnce resolvedItself r')))
+
+||| Two resolved names whose full names agree name one entry, since the
+||| context makes one entry for each full name and records no resolved name
+||| as one.
+export
+0 fullNameSameEntry : fullNameIn ctx (Resolved i) = fullNameIn ctx (Resolved j) ->
+                      SameEntry ctx (Resolved i) (Resolved j)
+fullNameSameEntry same =
+  rewrite sameByFullName {ctx} {i} {j} _ _ Refl Refl same in OneEntry resolvedItself resolvedItself
 
 ------------------------------------------------------------------------------
 -- The operations
