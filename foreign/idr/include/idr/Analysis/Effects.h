@@ -57,17 +57,12 @@ namespace idr::rows {
 // Questions of a row
 //===----------------------------------------------------------------------===//
 
-// Whether a row licenses deleting an unused call of it, or moving one
-// where eager evaluation would not have run it: a crash and a divergence
-// happen where evaluation reaches the call, so neither may be deleted or
-// moved off its path. Totality removes a divergence and never a crash. The
-// licence alone: the row's ordering atoms still order the call.
-constexpr bool licensesDropOrMove(effects::Row row) {
-  return !row.contains(effects::Atom::crash) && !row.contains(effects::Atom::divergence);
-}
-
 // Whether a call with this row may run where it would not have: it returns
-// to its caller wherever it runs, and the outside cannot hold it.
+// to its caller wherever it runs, and the outside cannot hold it. Whether
+// an unused call may be deleted needs no question of its own: a crash or a
+// divergence in its row is a write the call declares on that state, so it
+// is never dead to whatever reads its effects, and eager evaluation's
+// crash or endless loop still happens where the call stood.
 constexpr bool speculatable(effects::Row row) { return (row & effects::mayNotReturn).empty(); }
 
 // What LLVM is told of `fn`: its row's facts from the effect system's one

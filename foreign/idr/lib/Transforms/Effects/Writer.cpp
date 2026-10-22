@@ -14,6 +14,7 @@
 #include "idr/Analysis/Solver/SummarizeImpl.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -22,7 +23,6 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <vector>
 
 using namespace mlir;
 using namespace idr;
@@ -59,9 +59,9 @@ struct Calls {
 void rows::detail::addCycles(const solver::ProgramGraph &graph,
                              IndexVector<FunctionId, effects::Row> &own) {
   for (solver::SccId component : graph.sccCount().ids()) {
-    IdRange<FunctionId> members = graph.members(component);
-    if (members.size() == 1 && !graph.callsItself(members.front()))
+    if (!graph.onCycle(component))
       continue;
+    IdRange<FunctionId> members = graph.members(component);
     if (provedTogether(llvm::map_range(members, [&](FunctionId f) { return graph.op(f); })))
       continue;
     for (FunctionId f : members)
@@ -84,8 +84,9 @@ void rows::write(ProgramOp program, const solver::ProgramGraph &graph, solver::W
   // Writes through parameters, marked from callee to caller; then the
   // write each makes elsewhere joins its caller's own atoms. A function's
   // number is its id's: a gap has no parameter.
-  std::vector<std::uint32_t> writable(graph.size().value(), 0);
-  std::vector<Owner> owners;
+  footprint::Vector<std::uint32_t> writable(graph.size().value(), 0);
+  footprint::Vector<Owner> owners;
+  owners.reserve(functions.size());
   for (FunctionId f : functions) {
     writable[f.index()] = static_cast<std::uint32_t>(own[f].derived.written.size());
     owners.push_back({f.index(), &own[f]});

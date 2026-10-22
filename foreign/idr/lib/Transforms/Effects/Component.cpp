@@ -13,6 +13,7 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -23,7 +24,6 @@
 #include <optional>
 #include <span>
 #include <utility>
-#include <vector>
 
 using namespace mlir;
 using namespace idr;
@@ -78,14 +78,15 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
   // function is read and written through a copy.
   FuncOp first = members.front().fn;
   MLIRContext *context = first.getContext();
-  llvm::SmallVector<std::pair<FunctionId, unsigned>> byId;
+  footprint::Vector<std::pair<FunctionId, unsigned>> byId;
+  byId.reserve(members.size());
   for (auto [index, member] : llvm::enumerate(members))
     byId.push_back({member.id, static_cast<unsigned>(index)});
   llvm::sort(byId, [](const auto &a, const auto &b) { return a.first < b.first; });
 
   // Each member by itself, each site numbered by its callee's place among
   // the members.
-  llvm::SmallVector<Own> own(members.size());
+  footprint::Vector<Own> own(members.size());
   for (auto [index, member] : llvm::enumerate(members)) {
     ComponentCalls<N> reader{names, byId, members, own[index].sites};
     own[index].derived = derive(member.fn, reader);
@@ -93,8 +94,10 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
 
   // Writes through parameters, within the component: a final callee's are
   // on its calls, read by the fold already.
-  std::vector<std::uint32_t> writable;
-  std::vector<Owner> owners;
+  footprint::Vector<std::uint32_t> writable;
+  footprint::Vector<Owner> owners;
+  writable.reserve(own.size());
+  owners.reserve(own.size());
   for (auto [index, mine] : llvm::enumerate(own)) {
     writable.push_back(static_cast<std::uint32_t>(mine.derived.written.size()));
     owners.push_back({static_cast<std::uint32_t>(index), &mine});
@@ -103,21 +106,22 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
   BitSet<WriteNode> written = markWrites(nodes, owners);
 
   // One row for every member: what each does and what each writes
-  // elsewhere through another, and the cycle's divergence.
+  // elsewhere through another, and the cycle's divergence. The optimizer's
+  // components grow and merge apart from the frozen graph's, so no SccId
+  // names this one; its cycle is read off its sites instead. A site is a
+  // call of a member, so a lone member with any site calls itself.
   effects::Row row;
   for (const Own &mine : own)
     row = row | mine.derived.atoms | writesElsewhere(mine.sites, nodes, written);
-  auto callsItself = [&](auto entry) {
-    auto [index, member] = entry;
-    return llvm::any_of(own[index].sites, [&](const Site &site) { return site.callee == member.id; });
-  };
-  if ((members.size() > 1 || llvm::any_of(llvm::enumerate(members), callsItself)) &&
+  if ((members.size() > 1 || !own.front().sites.empty()) &&
       !provedTogether(llvm::map_range(members, [](const solver::Member &m) { return m.fn; })))
     row = row | effects::Row{effects::Atom::divergence};
 
   // The members' amounts: a put passed on to a member lies on the cycle.
-  llvm::SmallVector<DenseI32ArrayAttr> untouched;
-  llvm::SmallVector<PutBoundsAttr> bounded;
+  footprint::Vector<DenseI32ArrayAttr> untouched;
+  footprint::Vector<PutBoundsAttr> bounded;
+  untouched.reserve(own.size());
+  bounded.reserve(own.size());
   for (auto [index, mine] : llvm::enumerate(own)) {
     llvm::SmallVector<Amount, 2> puts = mine.derived.puts;
     for (const Site &site : mine.sites)

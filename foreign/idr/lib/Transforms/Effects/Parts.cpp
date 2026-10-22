@@ -15,6 +15,7 @@
 #include "idr/Analysis/Solver/Mark.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
 
@@ -25,7 +26,6 @@
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <vector>
 
 using namespace mlir;
 using namespace idr;
@@ -49,7 +49,7 @@ Site idr::rows::writer::siteOf(CallOp call, FunctionId callee, std::uint32_t ord
 BitSet<WriteNode> idr::rows::writer::markWrites(const WriteNodes &nodes,
                                                 llvm::ArrayRef<Owner> owners) {
   CsrBuilder<WriteTag> edges(nodes.count());
-  std::vector<WriteNode> seeds;
+  footprint::Vector<WriteNode> seeds;
   for (const Owner &owner : owners) {
     for (unsigned position : owner.own->derived.written.set_bits())
       seeds.push_back(nodes.at(owner.ordinal, position));

@@ -36,6 +36,7 @@
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
 
@@ -51,7 +52,6 @@
 #include <iterator>
 #include <memory>
 #include <span>
-#include <vector>
 
 namespace idr::rows {
 
@@ -202,7 +202,7 @@ public:
   }
 
 private:
-  std::vector<std::uint32_t> first;
+  footprint::Vector<std::uint32_t> first;
   std::uint32_t total = 0;
 };
 
