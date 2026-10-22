@@ -3,18 +3,27 @@
 // The one substitution of index terms: levels mapped to terms or to other
 // levels in every type upstream's replacer reaches, data types remade in
 // normal form; a function instantiated at a call's terms, its impossible
-// regions made unreachable in the same rewrite; and the context-free
+// regions made unreachable in the same rewrite, each bare tensor
+// argument's axis whose extent becomes a size made static, and every type
+// derived from the parameters inferred again; and the context-free
 // matching of one type against another that a region's entry and a jump
 // ask of MLIR's verifier.
 
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Families/Unify.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
+#include <limits>
+#include <optional>
 
 using namespace mlir;
 
@@ -148,6 +157,98 @@ LevelMap mapOfArgs(IndexArgsAttr args, uint32_t &kept) {
   return map;
 }
 
+// The size an extent's mapped term makes its axis: a natural a dimension
+// holds. A dimension is a signed word whose least value is MLIR's `?`, so a
+// natural past it is no size, as a natural past a word is opaque; no
+// machine holds an array that long, so its axis stays `?` and no program is
+// refused for it.
+std::optional<int64_t> sizeOf(Term term) {
+  if (term.kind() != TermKind::Natural ||
+      term.head().value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+    return std::nullopt;
+  return static_cast<int64_t>(term.head().value);
+}
+
+// What an axis becomes where its term is a size, by the side it is on:
+// static on an input; kept on a result, which keeps the callee's type,
+// since a cast after a call would take a tail call out of tail position and
+// a caller learns no more from a result than its own types say.
+enum class AtSize { Static, Kept };
+
+// The array whose axis `at` becomes static once its term is a size: a bare
+// tensor argument's, which tensor.cast reaches. A graded array keeps its
+// axis `?`, since no cast keeps a grade; that leaves the program less
+// optimized and refuses nothing.
+RankedTensorType staticArray(ArrayRef<Type> inputs, ExtentAt at) {
+  if (onSide(at.side, AtSize::Static, AtSize::Kept) == AtSize::Kept)
+    return {};
+  return dyn_cast<RankedTensorType>(inputs[at.position]);
+}
+
+// A signature and its extents under one level map, read once: what
+// substitute gives a call's view and substituteFunction gives the copy, so
+// the two cannot disagree on an axis.
+struct Signature {
+  SmallVector<Type> inputs;
+  SmallVector<Type> results;
+  // The inputs a size made static, each once and in order.
+  SmallVector<uint32_t> fixed;
+  // Null where no entry stays, as a function that names none has it.
+  ExtentsAttr extents;
+
+  FunctionType type(MLIRContext *context) const {
+    return FunctionType::get(context, inputs, results);
+  }
+};
+
+// `type` and its `extents` under `map`: every family type mapped, and each
+// entry's term written through the same map. A term that still names a
+// level stays an entry. One that names none is a size or opaque, and an
+// entry's term names a binder, so its entry goes: a bare tensor argument's
+// axis is static at a size, and every other axis stays `?`.
+Signature mapSignature(FunctionType type, ExtentsAttr extents, const LevelMap &map) {
+  auto mapped = cast<FunctionType>(mapLevels(type, map));
+  Signature at{SmallVector<Type>(mapped.getInputs()), SmallVector<Type>(mapped.getResults()), {},
+               ExtentsAttr()};
+  if (!extents)
+    return at;
+  // The terms that stay, one after another, written whole before any view
+  // of them is taken, so no view outlives a reallocation.
+  SmallVector<TermNode> nodes;
+  SmallVector<std::pair<ExtentAt, size_t>> named;
+  TermWriter write(nodes);
+  for (ExtentAttr attr : extents.getEntries()) {
+    Extent entry = attr.extent();
+    size_t begin = nodes.size();
+    map.write(write, entry.term);
+    Term term(ArrayRef<TermNode>(nodes).drop_front(begin));
+    if (term.freeLevels() != 0) {
+      named.push_back({entry.at, begin});
+      continue;
+    }
+    std::optional<int64_t> size = sizeOf(term);
+    nodes.resize(begin);
+    RankedTensorType array = staticArray(at.inputs, entry.at);
+    if (!array || !size)
+      continue;
+    assert(array.isDynamicDim(entry.at.axis) && "an extent names an axis whose size is no constant");
+    SmallVector<int64_t> shape(array.getShape());
+    shape[entry.at.axis] = *size;
+    at.inputs[entry.at.position] = array.clone(shape);
+    // Entries come in (side, position, axis) order, so an input's axes are
+    // one run, and the input is recorded at the first of them.
+    if (at.fixed.empty() || at.fixed.back() != entry.at.position)
+      at.fixed.push_back(entry.at.position);
+  }
+  if (named.empty())
+    return at;
+  SmallVector<Extent> entries = llvm::map_to_vector(named, [&](const auto &stays) {
+    return Extent{stays.first, Term(ArrayRef<TermNode>(nodes).drop_front(stays.second))};
+  });
+  at.extents = ExtentsAttr::get(type.getContext(), entries);
+  return at;
+}
+
 } // namespace
 
 Type mapLevels(Type type, const LevelMap &map, FamilyAttr own) {
@@ -167,13 +268,9 @@ SmallVector<Type> instantiateFields(FamilyAttr group, ArrayRef<Type> fields, Arr
   return llvm::map_to_vector(fields, [&](Type field) { return replacer.replace(field); });
 }
 
-Type substitute(Type type, IndexArgsAttr args) {
+FunctionType substitute(FunctionType type, ExtentsAttr extents, IndexArgsAttr args) {
   uint32_t kept;
-  return mapLevels(type, mapOfArgs(args, kept));
-}
-
-FunctionType substitute(FunctionType type, IndexArgsAttr args) {
-  return cast<FunctionType>(substitute(Type(type), args));
+  return mapSignature(type, extents, mapOfArgs(args, kept)).type(type.getContext());
 }
 
 //===----------------------------------------------------------------------===//
@@ -230,25 +327,110 @@ void foldEqualCasts(Operation *root) {
   });
 }
 
+// A value the walk made more static where a tensor.cast reaches the type it
+// had, and that type.
+struct Refined {
+  Value value;
+  Type had;
+};
+
+// The uses of `refined` whose type is fixed elsewhere, through one
+// tensor.cast back to the type it had, placed where the value is defined: a
+// use by an op whose results do not follow from its operands (a block
+// argument's, a yield to its parent's result, a return, an op that states
+// its results), or by one whose inference refused the new operand. Every
+// other use took the new type with the op's inferred results.
+void castBack(const Refined &refined, ArrayRef<Operation *> refused) {
+  SmallVector<OpOperand *> fixed;
+  for (OpOperand &use : refined.value.getUses())
+    if (!isa<InferTypeOpInterface>(use.getOwner()) || llvm::is_contained(refused, use.getOwner()))
+      fixed.push_back(&use);
+  if (fixed.empty())
+    return;
+  OpBuilder builder(refined.value.getContext());
+  if (Operation *def = refined.value.getDefiningOp())
+    builder.setInsertionPointAfter(def);
+  else
+    builder.setInsertionPointToStart(refined.value.getParentBlock());
+  auto back = tensor::CastOp::create(builder, refined.value.getLoc(), refined.had, refined.value);
+  for (OpOperand *use : fixed)
+    use->set(back.getResult());
+}
+
+// The body under the copy's signature. Each argument a size made static
+// takes its static type, and every type derived from the parameters follows
+// in one walk in program order: each op whose results follow from its
+// operands (upstream's InferTypeOpInterface) has them inferred again from
+// its operands as they now are, a hold the caller set on a parameter as
+// much as an axis made static. Where its results no longer agree with that
+// inference by the op's own compatibility, an operand's type differs from
+// the one the op was built with, and the op takes the inferred types; where
+// they still agree it keeps its own, which may be more precise. The caller
+// sets the holds before this runs, so the op's own agreement is the test,
+// not a remembered type. Each op is met after every op whose results it
+// reads, so one walk needs no fixpoint. A value made more static is cast
+// back only for its uses whose type is fixed elsewhere; a cast left where
+// nothing refines past it is the less optimized form, never wrong. A change
+// of grade has no cast, and its uses read the new grade. Upstream's
+// tensor.cast says what the Idris type proves, that the extent is the size.
+void followOperands(FuncOp function, const Signature &at) {
+  Block &entry = function.getBody().front();
+  SmallVector<Refined> refined;
+  for (uint32_t position : at.fixed) {
+    BlockArgument arg = entry.getArgument(position);
+    refined.push_back({arg, arg.getType()});
+    arg.setType(at.inputs[position]);
+  }
+  // Inference is asked with no location, so a refusal reports nothing: the
+  // op keeps the types it had through the casts back.
+  SmallVector<Operation *> refused;
+  function.walk([&](InferTypeOpInterface infer) {
+    Operation *op = infer.getOperation();
+    SmallVector<Type> inferred;
+    if (failed(infer.inferReturnTypes(op->getContext(), std::nullopt, op->getOperands(),
+                                      op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
+                                      op->getRegions(), inferred))) {
+      refused.push_back(op);
+      return;
+    }
+    if (infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
+      return;
+    for (auto [result, type] : llvm::zip_equal(op->getResults(), inferred)) {
+      Type had = result.getType();
+      result.setType(type);
+      if (had != type &&
+          tensor::CastOp::areCastCompatible(ArrayRef<Type>(type), ArrayRef<Type>(had)))
+        refined.push_back({result, had});
+    }
+  });
+  for (const Refined &value : refined)
+    castBack(value, refused);
+}
+
 } // namespace
 
-FailureOr<SmallVector<Sort>> substituteFunction(Operation *function, IndexArgsAttr args) {
-  auto binderOp = dyn_cast<ErasedBinderOpInterface>(function);
-  if (!binderOp || function->getNumRegions() != 1)
-    return function->emitOpError("binds no index variables to instantiate");
-  ArrayRef<Sort> binders = binderOp.getBoundSorts(function->getRegion(0));
+FailureOr<SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args) {
+  ArrayRef<Sort> binders = function.getBinders().getSorts();
   if (args.getCount() != binders.size())
-    return function->emitOpError("is instantiated at ")
+    return function.emitOpError("is instantiated at ")
            << args.getCount() << " terms for its " << binders.size() << " index variables";
   uint32_t kept;
   LevelMap map = mapOfArgs(args, kept);
+  // The signature from the function's own, through the map the body takes:
+  // the replacer reaches its family types but not what its extents make of
+  // its axes, so the signature and the extents are set from this one
+  // reading, the one substitute gives a call's view.
+  Signature at = mapSignature(function.getFunctionType(), function.getExtentsAttr(), map);
   AttrTypeReplacer replacer;
   addLevelReplacements(replacer, map, FamilyAttr());
   replacer.replaceElementsIn(function, /*replaceAttrs=*/true, /*replaceLocs=*/false,
                              /*replaceTypes=*/true);
-  replaceIn(replacer, function->getRegion(0));
+  replaceIn(replacer, function.getBody());
   pruneUninhabited(function);
   foldEqualCasts(function);
+  function.setFunctionType(at.type(function.getContext()));
+  function.setExtentsAttr(at.extents);
+  followOperands(function, at);
   SmallVector<Sort> stay;
   for (auto [sort, term] : llvm::zip_equal(binders, termsOf(args.getTerms(), args.getCount())))
     if (term.kind() == TermKind::Opaque)
@@ -284,8 +466,12 @@ IndexArgsAttr opaqueArgs(MLIRContext *context, uint32_t count) {
 
 // A binder's term is kept where it makes a data type of the signature
 // whose class is unknown one whose class is closed: there its layout
-// changes, so the call reaches a copy at that class.
-std::optional<IndexArgsAttr> classesUnder(FunctionType signature, IndexArgsAttr args) {
+// changes, so the call reaches a copy at that class. It is kept too where
+// it makes an axis of a bare tensor argument a size, by the same test the
+// signature's mapping makes, so the copy has that axis static as the
+// call's view of it does.
+std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ExtentsAttr extents,
+                                          IndexArgsAttr args) {
   auto count = static_cast<uint32_t>(args.getCount());
   SmallVector<Term> terms = termsOf(args.getTerms(), count);
   LevelMap closed;
@@ -306,6 +492,22 @@ std::optional<IndexArgsAttr> classesUnder(FunctionType signature, IndexArgsAttr 
     return WalkResult::advance();
   });
   walker.walk(signature);
+  if (extents)
+    for (ExtentAttr attr : extents.getEntries()) {
+      Extent entry = attr.extent();
+      if (!staticArray(signature.getInputs(), entry.at))
+        continue;
+      SmallVector<TermNode> nodes;
+      TermWriter write(nodes);
+      closed.write(write, entry.term);
+      if (!sizeOf(Term(nodes)))
+        continue;
+      for (const TermNode &node : entry.term.nodes())
+        if (node.kind == TermKind::Level) {
+          assert(node.value < count && "an extent's term names a binder of its function");
+          keep[node.value] = true;
+        }
+    }
   if (llvm::none_of(keep, [](bool k) { return k; }))
     return std::nullopt;
   SmallVector<TermNode> nodes;

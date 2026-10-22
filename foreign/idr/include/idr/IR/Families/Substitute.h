@@ -4,9 +4,12 @@
 // a fold that inlines a case, the inliner and contification share: a type
 // with levels replaced by terms, a constructor's fields at an application,
 // a function's binders replaced by a call's terms (each case the new
-// indices make impossible pruned in the same rewrite), and a region's
-// levels renumbered where it moves to another depth. Every type is mapped
-// by upstream's AttrTypeReplacer; index terms are written in normal form.
+// indices make impossible pruned in the same rewrite, each bare tensor
+// argument's axis its extents name made static where its term becomes a
+// size, and every type derived from the parameters inferred again), and a
+// region's levels renumbered where it moves to another depth. Every type is
+// mapped by upstream's AttrTypeReplacer; index terms are written in normal
+// form.
 #ifndef IDR_IR_FAMILIES_SUBSTITUTE_H
 #define IDR_IR_FAMILIES_SUBSTITUTE_H
 
@@ -17,6 +20,8 @@
 
 namespace idr {
 
+class ExtentsAttr;
+class FuncOp;
 class IndexArgsAttr;
 
 namespace families {
@@ -56,20 +61,29 @@ mlir::Type mapLevels(mlir::Type type, const LevelMap &map, FamilyAttr own = Fami
 llvm::SmallVector<mlir::Type> instantiateFields(FamilyAttr group, llvm::ArrayRef<mlir::Type> fields,
                                                 llvm::ArrayRef<Term> binders);
 
-// `type`, a callee's signature or one of its types, at a call's terms
-// `args`: each binder whose term is opaque stays a binder, renumbered among
-// those that stay; every other is replaced by its term.
-mlir::Type substitute(mlir::Type type, IndexArgsAttr args);
-mlir::FunctionType substitute(mlir::FunctionType type, IndexArgsAttr args);
+// `type`, a callee's signature whose extents are `extents` (null for none),
+// at a call's terms `args`: each binder whose term is opaque stays a
+// binder, renumbered among those that stay; every other is replaced by its
+// term; and each axis of a bare tensor argument an extent names whose term
+// becomes a size is static at it. A result keeps the callee's type, and a
+// graded array its `?`. It is the signature substituteFunction gives the
+// callee's copy at `args`, both read off one mapping, so a call's view of a
+// copy is the copy's type.
+mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, IndexArgsAttr args);
 
-// The function `function` (its signature and its body) instantiated at
-// `args`, as `substitute` maps a type, every case region the new indices
-// make impossible pruned and every refinement cast between two types that
-// became equal folded. The sorts of the binders that stay, which the caller
-// sets on its op.
-mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(mlir::Operation *function,
-                                                            llvm::ArrayRef<Sort> binders,
-                                                            IndexArgsAttr args);
+// The function `function` (its signature, its extents and its body)
+// instantiated at `args`, as `substitute` maps its signature, every case
+// region the new indices make impossible pruned and every refinement cast
+// between two types that became equal folded. Each entry's term is mapped;
+// an entry whose term names no binder goes, its axis static where
+// `substitute` makes it so. The body follows its parameters' types in one
+// walk in program order: each op whose results follow from its operands
+// has them inferred again wherever they no longer agree with its operands,
+// whether an axis was made static here or the caller set a parameter's
+// hold before the call; a value made more static is cast back by
+// tensor.cast only where a use's type is fixed elsewhere. The sorts of the
+// binders that stay, which the caller sets on its op.
+mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args);
 
 // Moves the levels [from, from + count) of every type under `region` to
 // [to, to + count), and every level past them by as much: what a function
@@ -83,12 +97,13 @@ IndexArgsAttr levelArgs(mlir::MLIRContext *context, uint32_t first, uint32_t cou
 // `count` opaque terms: every binder stays.
 IndexArgsAttr opaqueArgs(mlir::MLIRContext *context, uint32_t count);
 
-// The layout class a call's terms give its callee: each term that turns a
-// type of the signature into an application whose class is closed kept,
-// each other opaque; none when no type of the signature changes its layout,
-// so the call needs no copy. The class set is finite under the shape
-// budget, so the copies are, and specialization ends by construction.
-std::optional<IndexArgsAttr> classesUnder(mlir::FunctionType signature, IndexArgsAttr args);
+// The layout class a call's terms give its callee, whose extents are
+// `extents` (null for none): each term that turns a type of the signature
+// into an application whose class is closed kept, and each that makes an
+// axis of a bare tensor argument a size, each other opaque; none when no
+// type of the signature changes its layout, so the call needs no copy.
+std::optional<IndexArgsAttr> classesUnder(mlir::FunctionType signature, ExtentsAttr extents,
+                                          IndexArgsAttr args);
 
 } // namespace families
 } // namespace idr
