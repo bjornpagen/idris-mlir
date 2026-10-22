@@ -8,6 +8,7 @@
 #include "idr/Driver/Compile.h"
 
 #include "idr/Driver/Artifacts.h"
+#include "idr/Driver/Fold.h"
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Tool.h"
@@ -28,7 +29,6 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Threading.h"
-#include "llvm/Support/ToolOutputFile.h"
 
 #include <iterator>
 #include <optional>
@@ -124,26 +124,6 @@ static void chain(llvm::StringRef frontendPath, const Compile &invocation, Artif
       [](const Archive &) {});
 }
 
-// The report at `path`, kept only once it is written whole; the compiler's
-// error when it cannot be.
-static void writeReport(llvm::StringRef path, const Outcome &outcome,
-                        mlir::MLIRContext &context) {
-  std::error_code error;
-  llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_Text);
-  if (error) {
-    cannotWrite(context, path, error);
-    return;
-  }
-  outcome.write(file.os());
-  file.os().flush();
-  if (std::error_code written = file.os().error()) {
-    file.os().clear_error();
-    cannotWrite(context, path, written);
-    return;
-  }
-  file.keep();
-}
-
 std::string idr::driver::frontendBeside(const char *argv0) {
   std::string self =
       llvm::sys::fs::getMainExecutable(argv0, reinterpret_cast<void *>(&frontendBeside));
@@ -185,9 +165,11 @@ int idr::driver::compile(llvm::StringRef frontendPath, Compile invocation) {
   Artifacts artifacts(std::move(invocation.plan));
   chain(frontendPath, invocation, artifacts, context, diagnostics, pool, rootTiming, outcome);
   // Whatever the verdict: the report says why a compilation failed. One that
-  // cannot be written fails the compilation, which then keeps nothing.
+  // cannot be written is the compiler's error, which fails the compilation,
+  // so it keeps nothing.
   if (artifacts.report)
-    writeReport(*artifacts.report, outcome, context);
+    if (std::error_code error = writeReport(*artifacts.report, outcome))
+      cannotWrite(context, *artifacts.report, error);
   if (outcome.verdict() == Verdict::Accepted)
     artifacts.keep();
   return exitStatus[outcome.verdict()];

@@ -19,13 +19,11 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/SourceMgr.h"
 
-#include <memory>
 #include <string>
 
 namespace mlir {
 class DialectRegistry;
 class MLIRContext;
-class PassInstrumentation;
 class TimingScope;
 } // namespace mlir
 
@@ -102,14 +100,9 @@ mlir::LogicalResult run(int made, const Compile &invocation, Artifacts &artifact
                         llvm::ThreadPoolInterface &pool, mlir::TimingScope &rootTiming,
                         Outcome &outcome);
 
-// Every diagnostic of `context`, from whichever thread delivers it, into
-// `outcome`: the verdict it makes and its fields in the report. The handler
-// then passes it on, to the ones registered before it that print it.
-void foldDiagnostics(mlir::MLIRContext &context, Outcome &outcome);
-
 // A compilation's diagnostics, folded and printed, from its context's
 // making until just before the context goes: every diagnostic folds into
-// `outcome` (foldDiagnostics), then one located in a file goes to MLIR's
+// `outcome` (foldDiagnostics, Fold.h), then one located in a file goes to MLIR's
 // SourceMgrDiagnosticHandler, which shows its line, and any other error is
 // printed in the driver's own form (Report.h's), `<tool>: <message>`,
 // with `internal error: ` before a message that names no rule. The class
@@ -128,10 +121,6 @@ private:
   mlir::SourceMgrDiagnosticHandler located;
   mlir::ScopedDiagnosticHandler unlocated;
 };
-
-// The instrumentation that adds each statistic's increase over every run
-// of every pass into `outcome`.
-std::unique_ptr<mlir::PassInstrumentation> foldStatistics(Outcome &outcome);
 
 // LLVM's target for the triple, with its code generator and assembly
 // parser (the runtime carries inline assembly) initialized; an error in

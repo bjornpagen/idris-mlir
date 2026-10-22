@@ -9,6 +9,7 @@
 #include "idr/Conversion/Runtime.h"
 #include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Compile.h"
+#include "idr/Driver/Fold.h"
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Verdict.h"
@@ -34,7 +35,6 @@
 #include "mlir/IR/Visitors.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/Timing.h"
@@ -42,7 +42,6 @@
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -56,7 +55,6 @@
 #include "llvm/Transforms/IPO/Internalize.h"
 
 #include <concepts>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <variant>
@@ -135,14 +133,12 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
 // statistics too; MLIR's own pass-manager options (IR printing, the module
 // after each pass with -mlir-print-ir-tree-dir, crash reproducers,
 // -mlir-pass-statistics) apply to it, which the command line's reading
-// has checked they can. The report's instrumentation reads each pass's
-// statistics around each of its runs, before MLIR merges the copies'
-// statistics to print them, and the report counts each run's footprint,
-// the bytes the shared containers held beyond what they held when it
-// began, under `<pass>.footprint`, summed over the runs of every copy as a
-// statistic is. The timer is added last: the instrumentations unwind in
-// reverse, so it stops before IR is printed, and a pass's row is the
-// pass's own time. A test's checks come first, as idris-mlir-opt
+// has checked they can. The report's instrumentation (foldPasses, as
+// idris-mlir-opt's report has it) reads each pass's statistics and
+// footprint around each of its runs, before MLIR merges the copies'
+// statistics to print them. The timer is added last: the
+// instrumentations unwind in reverse, so it stops before IR is printed,
+// and a pass's row is the pass's own time. A test's checks come first, as idris-mlir-opt
 // installs them, so the profile times each pass without them: under
 // --idr-contracts the contracts, and the properties --idr-expect-at states
 // of the stages. The pass manager instruments no end of its own pipeline,
@@ -168,16 +164,7 @@ mlir::LogicalResult runPipeline(mlir::ModuleOp module, const Compile &invocation
       pm.addInstrumentation(std::move(owned));
     }
     idr::profile::addInstrumentation(pm);
-    // A pass with no argument is no step of the pipeline but the manager's
-    // adaptor that runs a nest of them, whose name is a sentence the
-    // report's one-word key cannot hold; what its nest holds is each nested
-    // pass's own footprint.
-    pm.addInstrumentation(
-        idr::profile::footprints([&outcome](mlir::Pass &pass, std::uint64_t bytes) {
-          if (!pass.getArgument().empty())
-            outcome.count((llvm::Twine(pass.getArgument()) + ".footprint").str(), bytes);
-        }));
-    pm.addInstrumentation(foldStatistics(outcome));
+    foldPasses(pm, outcome);
     pm.enableTiming(rootTiming);
     // The module's target, which every pass reads: idr-entry tells the
     // runtime's entry which of its features to test; the object code is
@@ -259,17 +246,6 @@ mlir::LogicalResult toObjects(mlir::ModuleOp module, llvm::StringRef runtime,
   return writeObjects(*llvmModule, target, triple, pool, artifacts, context);
 }
 
-// The refusals the frontend left in the module in place of a program: one
-// idr.refusal op each, at the module's top level, in the order found, its
-// site the op's location and its rule a property. Each is emitted as the
-// driver's diagnostic, its rule as data: the driver is their one printer,
-// and foldDiagnostics their one fold into the verdict. A module the
-// frontend could compile holds a program and no refusal.
-void reemitRefusals(mlir::ModuleOp module) {
-  for (idr::RefusalOp refusal : module.getOps<idr::RefusalOp>())
-    idr::refuse(refusal.getLoc(), refusal.getRule()) << refusal.getMessage();
-}
-
 } // namespace
 
 mlir::FailureOr<const llvm::Target *> idr::driver::nativeTarget(const llvm::Triple &triple,
@@ -305,8 +281,9 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   // that can reach itself through an array), have said why.
   if (!module)
     return mlir::failure();
-  reemitRefusals(*module);
-  if (outcome.verdict() != Verdict::Accepted)
+  // A module the frontend refused is refused here, before anything runs on
+  // it, as idris-mlir-opt refuses it before its first pass.
+  if (mlir::failed(reemitRefusals(*module)))
     return mlir::failure();
   // A frontend that failed and found nothing of the program's to refuse is
   // the compiler's.

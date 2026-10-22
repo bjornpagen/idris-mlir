@@ -7,9 +7,14 @@
 // contracts (--idr-contracts) and the properties of the stages
 // (--idr-expect-at), each with its last word on the module the pipeline
 // left; --idr-action-tags names every action the passes take, which a
-// debug counter skips.
+// debug counter skips. A module the frontend refused is refused before its
+// first pass, as idris-mlir refuses it, and --report writes idris-mlir's
+// report of the run (idr/Driver/Fold.h, the one both write).
 
+#include "idr/Driver/Fold.h"
 #include "idr/Driver/Tool.h"
+#include "idr/Driver/Verdict.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/InitIdr.h"
 #include "idr/Support/Profile.h"
 #include "idr/Transforms/Contracts.h"
@@ -20,10 +25,12 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/TypeID.h"
@@ -39,8 +46,11 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace {
 
@@ -64,6 +74,63 @@ llvm::cl::opt<bool> actionTags(
     "idr-action-tags",
     llvm::cl::desc("Print the tag of every action the passes take, one per line, and exit"),
     llvm::cl::init(false));
+
+// idris-mlir's report of the run, an output: the verdict, each diagnostic
+// with the rule it refuses the program by, and each pass's statistics and
+// footprint, written whatever the verdict.
+llvm::cl::opt<std::string> reportPath(
+    "report",
+    llvm::cl::desc("Write the run's verdict, diagnostics and pass statistics to this file, "
+                   "whatever the verdict, as idris-mlir does"),
+    llvm::cl::init(""));
+
+// The refusals the frontend left in a module in place of a program,
+// re-emitted (reemitRefusals, idris-mlir's own) as a precondition of the
+// first pass of the pipeline: a module that holds one is refused, and
+// MLIR's pass manager runs neither that pass nor any after it, as
+// idris-mlir runs none on it. A module read and printed with no pass is
+// not compiled, so nothing refuses it. The first pass the manager
+// instruments is the pipeline's first, on the module this tool read, so the
+// refusals are read there, once: no pass adds one.
+class Refusals final : public mlir::PassInstrumentation {
+public:
+  void runBeforePass(mlir::Pass *pass, mlir::Operation *op) override {
+    std::call_once(read, [&] {
+      // A refusal's parent is a module, which MlirOptMain reads the input as
+      // unless told it is another op (--no-implicit-module): such an op holds
+      // no refusal at its top.
+      if (auto module = mlir::dyn_cast<mlir::ModuleOp>(op))
+        if (mlir::failed(idr::driver::reemitRefusals(module)))
+          signalPassFailure(pass);
+    });
+  }
+
+private:
+  std::once_flag read;
+};
+
+// The report's fold of each diagnostic (foldDiagnostics, idris-mlir's own)
+// on each context MlirOptMain makes for the input, from the moment the
+// context loads the idr dialect: MlirOptMain hands a tool a context only
+// with its pass manager, after the parse and the verifier have spoken.
+// The dialect's loading is soon enough, since a refusal's rule is the
+// dialect's attribute, so no refusal is made before it; and late enough,
+// since MlirOptMain registers its printers on a context before the input's
+// parse loads the dialect, so the fold, the newest handler, sees each
+// diagnostic before a printer takes it, as idris-mlir's does.
+class FoldInto final : public mlir::DialectExtension<FoldInto, idr::IdrDialect> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FoldInto)
+
+  explicit FoldInto(idr::driver::Outcome &outcome) : outcome(&outcome) {}
+
+  void apply(mlir::MLIRContext *context, idr::IdrDialect *) const override {
+    idr::driver::foldDiagnostics(*context, *outcome);
+  }
+
+private:
+  idr::driver::Outcome *outcome;
+};
 
 // The checks with a last word on the module the pipeline left, which the
 // pass manager instruments no end of: asked by the last pass of the
@@ -124,12 +191,23 @@ int optMain(int argc, char **argv) {
   }
   // --time-trace, when it named a file: written as this returns.
   idr::profile::Trace trace(idr::driver::toolName);
-  // Every manager this tool runs carries the profile's zones, ahead of the
-  // pipeline the command line gives, as idris-mlir's manager does; a test's
-  // checks ahead of the zones, which so time each pass without them, and
-  // their last word after the pipeline.
+  // The run's outcome, which the report is written from, when one is asked
+  // for; declared before MlirOptMain makes the contexts whose diagnostics
+  // fold into it, so it outlives them.
+  std::optional<idr::driver::Outcome> outcome;
+  if (!reportPath.empty()) {
+    outcome.emplace();
+    registry.addExtension(mlir::TypeID::get<FoldInto>(), std::make_unique<FoldInto>(*outcome));
+  }
+  // Every manager this tool runs refuses, before its first pass, a module
+  // the frontend refused, and carries the profile's zones and, under
+  // --report, the report's sums, ahead of the pipeline the command line
+  // gives, as idris-mlir's manager does; a test's checks come ahead of the
+  // zones, which so time each pass without them, and have their last word
+  // after the pipeline.
   mlir::MlirOptMainConfig config = mlir::MlirOptMainConfig::createFromCLOptions();
-  config.setPassPipelineSetupFn([parsed = config, &stages](mlir::PassManager &pm) {
+  config.setPassPipelineSetupFn([parsed = config, &stages, &outcome](mlir::PassManager &pm) {
+    pm.addInstrumentation(std::make_unique<Refusals>());
     idr::ContractInstrumentation *checking = nullptr;
     idr::expect::StageInstrumentation *staging = nullptr;
     if (contracts) {
@@ -143,6 +221,8 @@ int optMain(int argc, char **argv) {
       pm.addInstrumentation(std::move(owned));
     }
     idr::profile::addInstrumentation(pm);
+    if (outcome)
+      idr::driver::foldPasses(pm, *outcome);
     if (mlir::failed(parsed.setupPassPipeline(pm)))
       return mlir::failure();
     if (checking != nullptr || staging != nullptr)
@@ -169,7 +249,22 @@ int optMain(int argc, char **argv) {
     llvm::errs() << error << "\n";
     return 1;
   }
-  if (mlir::failed(mlir::MlirOptMain(output->os(), std::move(input), registry, config)))
+  mlir::LogicalResult ran = mlir::MlirOptMain(output->os(), std::move(input), registry, config);
+  if (outcome) {
+    // A run that failed with no error folded said why before the idr
+    // dialect was loaded, or not at all: either way the failure is the
+    // compiler's, as idris-mlir holds a pipeline that fails with no error.
+    if (mlir::failed(ran) && outcome->verdict() == idr::driver::Verdict::Accepted)
+      outcome->see(idr::driver::Verdict::Internal);
+    // Whatever the verdict: the report says why the run failed. One that
+    // cannot be written fails the run, which then keeps no output.
+    if (std::error_code written = idr::driver::writeReport(reportPath, *outcome)) {
+      idr::driver::Report() << "cannot write " << reportPath.getValue() << ": "
+                            << written.message();
+      return 1;
+    }
+  }
+  if (mlir::failed(ran))
     return 1;
   output->keep();
   return 0;
