@@ -34,6 +34,12 @@ record PackageDir where
 public export
 data Found = InBuild | InPackage PackageDir | InExtraDir String
 
+||| A package the build added as a reader is told it: the package, at the
+||| version its directory names, and the directory.
+export
+Show PackageDir where
+  show p = p.name ++ maybe "" (\v => "-" ++ show v) p.version ++ " at " ++ show p.dir
+
 %prefix_record_projections on
 
 public export
