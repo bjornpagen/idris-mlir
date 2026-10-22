@@ -16,6 +16,8 @@ automatic search, `Core/TTC.idr`, `Core/Context.idr`,
 
 **Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
 
+**Also yours (absorbed work placed by L16 §2.9):** 0010's A0 on the fork's side (P0 §7 F6: the term arena as columns, interned names), 0011's O1 and O5, and `addPkgDir` (F0), as `L16-frontend.md` §2.9 places them on L17.
+
 **Contract:** the fork is ours and Idris's compiler; it never imports
 `IdrisMLIR.*`; a trust the frontend takes in it is stated in it (D68);
 every count classified and none deciding acceptance (D53 to D55, C66,

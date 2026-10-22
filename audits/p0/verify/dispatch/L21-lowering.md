@@ -16,6 +16,8 @@ count operations), `L13-ops-canon.md` (conversion);
 
 **Also yours** (rulings and decisions no brief named before): C42, C62; and C8: every suspected bug of P0 §8 whose code lies in your paths.
 
+**Also yours (absorbed work placed by L16 §2.9):** line tables: the locations the frontend keeps reach the emitted debug info (0003's "no line tables", `L16-frontend.md` §2.9).
+
 **Contract:** blocks only at the lowering (D19); a lifetime's kind lowers
 by one context-free, cached `TypeConverter` rule per kind, `view` and
 `home` to no value (D93); the grade lowers to its word or pointer; what

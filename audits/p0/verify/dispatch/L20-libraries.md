@@ -16,6 +16,8 @@ Code: `libs/mlir-array/`, `libs/mlir-linear/`
 
 **Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
 
+**Also yours (absorbed work placed by L16 §2.9):** a `libs/` package holding XXH3, moved from `compiler/src/IdrisMLIR/Ids.idr`, which the frontend and the fork both import (F6).
+
 **Contract:** the libraries are reshaped by hard cutover wherever the use
 case calls for it (D101); a primitive of `libs/` means what `runtime/`
 says, or for the array library's generating set the dialect op the
