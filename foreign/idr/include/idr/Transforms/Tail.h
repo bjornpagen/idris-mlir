@@ -85,14 +85,30 @@ std::optional<Accumulator> accumulatorOf(FuncOp fn);
 // Frames
 //===----------------------------------------------------------------------===//
 
-// What a component's frames are, before the family is made: its rows (the
-// distinct result types of its functions, each a type a frame may await),
-// and each kind of frame: the row it awaits (its callee's), the row its
-// rest gives (its owner's, the frame below's), and the values it holds.
+// Every function a component runs on its stack takes the component's
+// lifetimes alike, the same kinds in the same order, and passes them on at
+// each of its tails: so a lifetime never goes into a frame, where it could
+// be read back stale or name no place, and each scoped value a frame holds,
+// or a row gives, lives in one of them, named by its place among them.
+//
+// A row: the types of the values a frame awaits (the results of a function
+// of the component), and for each scoped one, in order, the place of the
+// lifetime it lives in among the component's lifetimes.
+struct Row {
+  llvm::SmallVector<mlir::Type, 1> types;
+  llvm::SmallVector<unsigned, 1> livesIn;
+  bool operator==(const Row &) const = default;
+};
+
+// What a component's frames are, before the family is made: its rows, and
+// each kind of frame: the row it awaits (its callee's), the row its rest
+// gives (its owner's, the frame below's), the values it holds, and for
+// each scoped one, in order, the place of the lifetime it lives in.
 struct FrameKind {
   unsigned awaits;
   unsigned continues;
   llvm::SmallVector<mlir::Type> held;
+  llvm::SmallVector<unsigned> heldIn;
 };
 
 // One family per component, indexed by the row a frame awaits, so a frame
@@ -113,18 +129,7 @@ struct FramesFamily {
 };
 
 FramesFamily declareFrames(mlir::MLIRContext *ctx, mlir::StringAttr label, mlir::Location loc,
-                           llvm::ArrayRef<llvm::SmallVector<mlir::Type, 1>> rows,
-                           llvm::ArrayRef<FrameKind> kinds);
-
-//===----------------------------------------------------------------------===//
-// Functions the passes make
-//===----------------------------------------------------------------------===//
-
-// `fn` made to return nothing: every result erased, and what its signature
-// stated of them with it (what it gave back, where they lived), its
-// lifetimes kept only while a parameter is scoped. A run, a resume and a
-// destination-passing clone each return nothing.
-void returnNothing(FuncOp fn);
+                           llvm::ArrayRef<Row> rows, llvm::ArrayRef<FrameKind> kinds);
 
 } // namespace idr::tail
 

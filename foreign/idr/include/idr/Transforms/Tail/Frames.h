@@ -20,7 +20,37 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace idr::tail::frames {
+
+//===----------------------------------------------------------------------===//
+// The component's lifetimes
+//===----------------------------------------------------------------------===//
+
+// The lifetimes `fn` takes, in order: for every function of a component,
+// the component's lifetimes, which it passes on at each of its tails.
+llvm::SmallVector<mlir::BlockArgument> lifetimesOf(FuncOp fn);
+
+// The place among `fn`'s lifetimes of the one `lifetime` has the extent
+// of: one of them, or a view of one; none for any other lifetime, which
+// ends with `fn`'s call.
+std::optional<unsigned> placeOf(mlir::Value lifetime, FuncOp fn);
+
+// The row `fn` gives: its result types, and where each scoped one lives.
+Row givenRow(FuncOp fn);
+
+// The lifetime that operand `index` of `terminator` lives in where it goes:
+// a return's, where its function's signature says that result lives; a
+// yield's, the lifetime its op states for the result it becomes. Null for
+// a value that is not scoped.
+mlir::Value givenIn(mlir::Operation *terminator, unsigned index);
+
+// `op` made again giving `results`: its scoped results live in
+// `resultOuters`, one each in order, and what its regions bind where `op`
+// stated it. The caller replaces `op` by it.
+mlir::Operation *remakeGiving(mlir::RewriterBase &rewriter, mlir::Operation *op,
+                              mlir::TypeRange results, mlir::ValueRange resultOuters);
 
 //===----------------------------------------------------------------------===//
 // Moving code into a function
@@ -38,6 +68,18 @@ llvm::SmallVector<families::Sort> scopeSorts(mlir::Region *region);
 // What the ops of `first`'s block from `first` on read that they do not
 // make, in the order first read: what a function made of them takes.
 llvm::SetVector<mlir::Value> liveIns(mlir::Operation *first);
+
+// `values` without the lifetimes among them, which a function made of code
+// reading them takes as the component's own.
+llvm::SmallVector<mlir::Value> withoutLifetimes(llvm::ArrayRef<mlir::Value> values);
+
+// A function the pass made, and what a call of it from the function its
+// code came from passes: the values it takes, then that function's
+// lifetimes.
+struct Made {
+  FuncOp fn;
+  llvm::SmallVector<mlir::Value> args;
+};
 
 // A call to frame and the tail call of its rest that follows it.
 struct Framed {
@@ -82,11 +124,19 @@ public:
   // How many of `functions`, the first, are the program's.
   unsigned members = 0;
 
+  // The lifetimes every function of the component takes, in order, and the
+  // bounds between them, each by the places of the two.
+  llvm::SmallVector<mlir::Type> lifetimes;
+  llvm::SmallVector<Outlives> bounds;
+
 private:
-  FuncOp makeFunction(FuncOp owner, llvm::StringRef kind, mlir::FunctionType type,
-                      llvm::ArrayRef<families::Sort> binders);
-  CallOp outline(FuncOp owner, unsigned row, mlir::Operation *first, mlir::ValueRange params,
-                 llvm::StringRef kind);
+  mlir::FailureOr<Made> makeFunction(FuncOp owner, llvm::StringRef kind,
+                                     llvm::ArrayRef<mlir::Value> takes, mlir::TypeRange results,
+                                     llvm::ArrayRef<mlir::Value> resultsIn,
+                                     llvm::ArrayRef<families::Sort> binders);
+  mlir::LogicalResult adoptLifetimes(FuncOp owner, FuncOp fn, llvm::ArrayRef<mlir::Value> reads);
+  mlir::FailureOr<CallOp> outline(FuncOp owner, unsigned row, mlir::Operation *first,
+                                  mlir::ValueRange params, llvm::StringRef kind);
   void sinkInto(mlir::Operation *rejoin, CallOp call);
   void normalize(mlir::Block *root);
   mlir::LogicalResult dissolve(FuncOp owner, unsigned row, mlir::Operation *join);
@@ -102,10 +152,9 @@ private:
 // Calls into jumps
 //===----------------------------------------------------------------------===//
 
-// The rows of a component: its functions' distinct result types, each
-// found or added.
-using Rows = footprint::Vector<llvm::SmallVector<mlir::Type, 1>>;
-unsigned rowIndex(Rows &rows, mlir::TypeRange results);
+// The rows of a component, each found or added.
+using Rows = footprint::Vector<Row>;
+unsigned rowIndex(Rows &rows, const Row &row);
 
 // What a kind's case runs: the continuation the frame's rest was, at the
 // terms its call passed.
@@ -115,8 +164,9 @@ struct Rest {
 };
 
 // Every function of the component on the stack: it takes the stack
-// awaiting its row and returns nothing; each tail gives its value to its
-// row's resume, or passes the stack on to the function it runs.
+// awaiting its row and returns nothing; each tail gives its value and the
+// component's lifetimes to its row's resume, or passes the stack on to the
+// function it runs.
 class Jumps {
 public:
   Jumps(mlir::RewriterBase &rewriter, Component &component, const FramesFamily &family,
@@ -151,8 +201,9 @@ private:
   const solver::ProgramGraph &graph;
 };
 
-// The resume of row `row`: the row's values and the stack awaiting them.
-void fillResume(mlir::RewriterBase &rewriter, FuncOp resume, unsigned row,
+// The resume of row `row`, `given`: the row's values, the component's
+// lifetimes and the stack awaiting the values.
+void fillResume(mlir::RewriterBase &rewriter, FuncOp resume, unsigned row, const Row &given,
                 const FramesFamily &family, llvm::ArrayRef<FrameKind> kinds,
                 llvm::ArrayRef<Rest> rests);
 
@@ -162,9 +213,10 @@ void fillWrapper(mlir::RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsig
                  const FramesFamily &family);
 
 // A function beside `like` with its facts, named `name`, of type `type`,
-// binding no index variable; an empty entry block taking its parameters.
+// binding no index variable, its scoped parameters living where `lives`
+// says; an empty entry block taking its parameters.
 FuncOp beside(mlir::SymbolTable &symbols, FuncOp like, mlir::StringAttr name,
-              mlir::FunctionType type);
+              mlir::FunctionType type, LivesInAttr lives);
 
 } // namespace idr::tail::frames
 

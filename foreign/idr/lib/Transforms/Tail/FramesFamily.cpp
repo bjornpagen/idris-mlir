@@ -17,8 +17,7 @@ using namespace mlir;
 namespace idr::tail {
 
 FramesFamily declareFrames(MLIRContext *ctx, StringAttr label, Location loc,
-                           llvm::ArrayRef<llvm::SmallVector<Type, 1>> rows,
-                           llvm::ArrayRef<FrameKind> kinds) {
+                           llvm::ArrayRef<Row> rows, llvm::ArrayRef<FrameKind> kinds) {
   using families::CtorDecl;
   using families::TermNode;
   using families::TermWriter;
@@ -39,7 +38,7 @@ FramesFamily declareFrames(MLIRContext *ctx, StringAttr label, Location loc,
   // field below it the stack awaiting the row it continues.
   footprint::Vector<llvm::SmallVector<Type, 1>> baseFields(count);
   for (unsigned row = 0; row < count; ++row)
-    for (Type result : rows[row])
+    for (Type result : rows[row].types)
       baseFields[row].push_back(DestType::get(ctx, result));
   footprint::Vector<llvm::SmallVector<Type>> kindFields(kinds.size());
   for (auto [at, kind] : llvm::enumerate(kinds)) {

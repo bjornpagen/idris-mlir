@@ -104,13 +104,15 @@ TailKind decide(CallOp call) {
 
 namespace {
 
-// Whether an operand of a call that becomes a jump lives in a lifetime
-// that ends with the call: its lifetime, through the views and rooms it is
-// the extent of, is any but a parameter of the function, so its region
-// encloses the call or it is this call's activation, and its memory would
-// be gone when the callee reads it.
+// Whether an operand of a call that becomes a jump is, or lives in, a
+// lifetime that ends with the call: that lifetime, through the views and
+// rooms it is the extent of, is any but a parameter of the function, so its
+// region encloses the call or it is this call's activation, and its memory
+// would be gone when the callee reads it. So no lifetime is handed over at
+// a tail call: every lifetime ends in the function that opened it.
 bool endsWithCall(Value operand, FuncOp fn) {
-  Value lifetime = lifetimes::statedLifetime(operand);
+  Value lifetime =
+      isa<LifetimeType>(operand.getType()) ? operand : lifetimes::statedLifetime(operand);
   if (!lifetime)
     return false;
   auto root = dyn_cast<BlockArgument>(lifetimes::extentOf(lifetime));
@@ -123,7 +125,7 @@ LogicalResult verifyOperands(CallOp call, FuncOp fn) {
     if (endsWithCall(operand.get(), fn))
       return call.emitOpError("internal error: operand #")
              << operand.getOperandNumber()
-             << " lives in a lifetime that ends with this call, which goes in its place";
+             << " is or lives in a lifetime that ends with this call, which goes in its place";
   return success();
 }
 

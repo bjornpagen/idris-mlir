@@ -20,17 +20,26 @@
 // The pass reads its own function and nothing else, and changes nothing
 // outside it.
 //
+// A lifetime never crosses a merge, so no jump passes one: the loop reads
+// the function's own lifetimes, which every self call it makes a jump
+// passes unchanged. A self call that passes other lifetimes stays a tail
+// call inside the loop, still in tail position through it, and is
+// `musttail` at the lowering.
+//
 //===----------------------------------------------------------------------===//
 
 #include "idr/Transforms/Tail.h"
 
 #include "idr/IR/Generated/Actions.h.inc"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Joins.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTAILLOOPS
@@ -49,22 +58,84 @@ struct TailLoopAction : support::TaggedAction<TailLoopAction> {
   static constexpr std::string_view tag = ::idr::actions::tailLoopsLoop;
 };
 
+// The positions of `fn`'s lifetime parameters, in order.
+llvm::SmallVector<unsigned> lifetimePositions(FuncOp fn) {
+  llvm::SmallVector<unsigned> positions;
+  for (BlockArgument param : fn.getBody().front().getArguments())
+    if (isa<LifetimeType>(param.getType()))
+      positions.push_back(param.getArgNumber());
+  return positions;
+}
+
+// The loop the function's body became holds, as its join region's
+// parameters, every parameter of the function: those at `lifetimes` read
+// the function's own instead, and no jump passes them. Then the loop states
+// where each scoped value it makes lives: its results where the function's
+// do, and each scoped parameter of its join region where the function's
+// parameter at its position does, both read off the function's signature.
+void readLifetimesFromFunction(RewriterBase &rewriter, FuncOp fn, LoopOp loop,
+                               llvm::ArrayRef<unsigned> lifetimes) {
+  Block &entry = fn.getBody().front();
+  Region &joined = loop.getJoinRegions().front();
+  unsigned tokens = static_cast<unsigned>(loop.getTokens(joined).size());
+  llvm::SmallVector<JumpOp> jumps;
+  for (Region &region : loop->getRegions())
+    for (Operation *user : loop.getTokens(region).front().getUsers())
+      jumps.push_back(cast<JumpOp>(user));
+  for (unsigned position : llvm::reverse(lifetimes)) {
+    BlockArgument param = joined.front().getArgument(tokens + position);
+    rewriter.replaceAllUsesWith(param, entry.getArgument(position));
+    for (JumpOp jump : jumps)
+      rewriter.modifyOpInPlace(jump, [&] { jump.getArgsMutable().erase(position); });
+    joined.front().eraseArgument(tokens + position);
+  }
+
+  LivesInAttr lives = fn.getLivesInAttr();
+  llvm::SmallVector<Value> outers;
+  if (lives) {
+    for (const LivesIn &result : lives.getResults())
+      outers.push_back(entry.getArgument(result.lifetime));
+    for (BlockArgument param : loop.getParameters(joined)) {
+      if (!freedBy(param.getType(), Release::Scoped))
+        continue;
+      // The function's parameter at this one's position, counting back the
+      // lifetime parameters taken out before it.
+      unsigned position = param.getArgNumber() - tokens;
+      for (unsigned lifetime : lifetimes)
+        position += lifetime <= position ? 1 : 0;
+      outers.push_back(entry.getArgument(*lives.lifetimeOfParameter(position)));
+    }
+  }
+  rewriter.modifyOpInPlace(loop, [&] {
+    lifetimes::restateOuters(cast<StatesOutersOpInterface>(loop.getOperation()), outers);
+  });
+}
+
 struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
   // The staged base finds the program and checks its stage; the pass reads
   // only its own function.
   void runOnProgram(ProgramOp) {
     FuncOp fn = getOperation();
+    llvm::SmallVector<unsigned> lifetimes = lifetimePositions(fn);
+    Block &entry = fn.getBody().front();
+    // The self tail calls that pass the function's own lifetimes, each at
+    // its own position: only those jump back.
     llvm::SmallVector<joins::Site> calls;
     fn.walk([&](CallOp call) {
-      if (call.getTailKind() == TailKind::tail &&
-          call.getCalleeAttr().getAttr() == fn.getSymNameAttr())
+      if (call.getTailKind() != TailKind::tail ||
+          call.getCalleeAttr().getAttr() != fn.getSymNameAttr())
+        return;
+      if (llvm::all_of(lifetimes, [&](unsigned position) {
+            return call.getArgs()[position] == entry.getArgument(position);
+          }))
         calls.push_back(joins::Site{call, 0, call.getArgs(), call.getIndexArgsAttr()});
     });
     if (calls.empty())
       return markAllAnalysesPreserved();
     IRRewriter rewriter(fn.getContext());
     if (!support::perform<TailLoopAction>(fn, [&] {
-          joins::loopSelf(rewriter, fn, calls);
+          LoopOp loop = joins::loopSelf(rewriter, fn, calls);
+          readLifetimesFromFunction(rewriter, fn, loop, lifetimes);
           ++numLoops;
         }))
       return markAllAnalysesPreserved();

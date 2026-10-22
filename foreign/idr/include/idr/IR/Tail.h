@@ -124,8 +124,9 @@ TailKind decide(CallOp call);
 // The parts of `call`'s fact the call alone can show: a `tail` call's
 // results go unchanged to its block's terminator, which forwards them to
 // its function's return or to the results of a region op a break crosses;
-// no operand of a `tail` or `modulo_context` call lives in a lifetime that
-// ends with the call (this call's activation, or one opened around it);
+// no operand of a `tail` or `modulo_context` call is, or lives in, a
+// lifetime that ends with the call (this call's activation, or one opened
+// around it), so no lifetime is handed over at a tail call;
 // a `modulo_context` call is a self call contextOf admits. Called by
 // idr.call's verifier.
 mlir::LogicalResult verify(CallOp call);

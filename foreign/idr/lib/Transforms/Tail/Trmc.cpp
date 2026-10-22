@@ -50,6 +50,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/BitVector.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRTRMC
@@ -135,7 +136,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       auto clone = cast<FuncOp>(fn->clone(mapping));
       clone.setSymNameAttr(StringAttr::get(ctx, fn.getSymName() + ".trmc"));
       symbols.insert(clone, std::next(fn->getIterator()));
-      returnNothing(clone);
+      (void)clone.eraseResults(llvm::BitVector(clone.getNumResults(), true));
       unsigned arity = clone.getNumArguments();
       (void)clone.insertArgument(arity, plan.hole, DictionaryAttr(), fn.getLoc());
       llvm::SmallVector<Context> inClone;

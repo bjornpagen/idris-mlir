@@ -8,6 +8,7 @@
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Remake.h"
@@ -27,7 +28,10 @@ namespace idr::tail::frames {
 // lies on) and runs the rest of the region, then what followed the opener.
 // No lifetime of the region leaves it: the call, which runs after the
 // region, is given that cursor wherever it took the lifetime, and the rest
-// reads the reopened lifetime in its place.
+// reads the reopened lifetime in its place. Every other lifetime is the
+// component's, which the rest takes as every function of the component
+// does: the cursor below the stack, and the lifetimes the opener's results
+// live in, which the unpack states for its own, among them.
 LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operation *opener) {
   MLIRContext *ctx = owner.getContext();
   Block *inside = site->getBlock();
@@ -57,10 +61,11 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   }
   // What the rest of the region reads that the region made before the
   // call: what lives in the lifetime goes into the package, the rest out
-  // of the region beside it; the call's operands go out too.
+  // of the region beside it; the call's operands go out too. A lifetime
+  // from outside the region is the component's, which the rest takes.
   Operation *afterSite = site->getNextNode();
   llvm::SetVector<Value> restReads = liveIns(afterSite);
-  llvm::SmallVector<Value> scoped, plain, outside, reopenedAs;
+  llvm::SmallVector<Value> scoped, plain, outside, reopenedAs, lifetimesRead;
   for (Value value : restReads) {
     // The call's results are the rest's first parameters.
     if (llvm::is_contained(site->getResults(), value))
@@ -73,6 +78,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
                                 "call on its function's cycle reads ")
                << value.getType() << " carved from its lifetime before the call";
       reopenedAs.push_back(value);
+      continue;
+    }
+    if (isa<LifetimeType>(value.getType())) {
+      lifetimesRead.push_back(value);
       continue;
     }
     bool fromRegion = value.getParentRegion() == inside->getParent();
@@ -120,37 +129,51 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   Location loc = site.getLoc();
 
   // The rest's function: (call results, package, carried, outside, what
-  // the opener's continuation reads) -> what the outer block gives.
+  // the opener's continuation reads, the component's lifetimes) -> what
+  // the outer block gives, each scoped value where it goes.
   llvm::SmallVector<Value> passedOuter;
-  for (Value value : liveIns(opener->getNextNode()))
-    if (!llvm::is_contained(opener->getResults(), value))
+  for (Value value : liveIns(opener->getNextNode())) {
+    if (llvm::is_contained(opener->getResults(), value))
+      continue;
+    if (isa<LifetimeType>(value.getType()))
+      lifetimesRead.push_back(value);
+    else
       passedOuter.push_back(value);
+  }
   // The lifetime each scoped result of the opener lives in, in result
-  // order, which the unpack states for its own results in turn.
+  // order, which the unpack states for its own results in turn: each the
+  // component's, as the base cursor is.
   llvm::SmallVector<Value> outers;
   for (Value result : opener->getResults())
     if (Value stated = lifetimes::statedLifetime(result))
       outers.push_back(stated);
-  // They and the cursor a stack's package goes back to, which the unpack
-  // names, reach the rest's function as what it reads from outside.
-  llvm::SmallVector<Value> named(outers);
-  if (base)
-    named.push_back(base);
-  for (Value value : named)
-    if (!llvm::is_contained(outside, value) && !llvm::is_contained(passedOuter, value))
-      outside.push_back(value);
-  llvm::SmallVector<Type> inputs(site.getResultTypes());
-  inputs.push_back(package);
-  for (Value value : carried)
-    inputs.push_back(value.getType());
-  for (Value value : outside)
-    inputs.push_back(value.getType());
-  for (Value value : passedOuter)
-    inputs.push_back(value.getType());
+  llvm::SmallVector<Value> takes(site.getResults());
+  takes.push_back(pack.getResult());
+  llvm::append_range(takes, carried);
+  llvm::append_range(takes, outside);
+  llvm::append_range(takes, passedOuter);
+  llvm::SmallVector<Value> resultsIn;
+  for (unsigned at = 0, given = outerEnd->getNumOperands(); at < given; ++at)
+    resultsIn.push_back(givenIn(outerEnd, at));
   llvm::SmallVector<families::Sort> binders = scopeSorts(outer->getParent());
-  FuncOp fn = makeFunction(owner, "resumed",
-                           FunctionType::get(ctx, inputs, outerEnd->getOperandTypes()), binders);
+  FailureOr<Made> moved =
+      makeFunction(owner, "resumed", takes, outerEnd->getOperandTypes(), resultsIn, binders);
+  if (failed(moved))
+    return failure();
+  FuncOp fn = moved->fn;
   Block *entry = &fn.getBody().front();
+  llvm::SmallVector<BlockArgument> own = lifetimesOf(fn);
+  // A lifetime of owner's as fn's own: the component's at its place.
+  auto ownOf = [&](Value theirs) -> Value {
+    std::optional<unsigned> place = placeOf(theirs, owner);
+    return place ? Value(own[*place]) : Value();
+  };
+  Value restBase = base ? ownOf(base) : Value();
+  llvm::SmallVector<Value> restOuters = llvm::map_to_vector(outers, ownOf);
+  if ((base && !restBase) || llvm::is_contained(restOuters, Value()))
+    return site.emitOpError("internal error: idr-frames: a region split around a call on its "
+                            "function's cycle lies on, or gives into, a lifetime that ends "
+                            "with its function's call");
   unsigned at = 0;
   auto argsOf = [&](size_t n) {
     auto range = entry->getArguments().slice(at, n);
@@ -163,11 +186,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   auto outsideArgs = argsOf(outside.size());
   auto outerArgs = argsOf(passedOuter.size());
 
-  // The unpack, the region's rest inside it. The values from outside it
-  // names become the function's own below, with every other.
+  // The unpack, the region's rest inside it, on the rest's own lifetimes.
   rewriter.setInsertionPointToEnd(entry);
-  auto unpack = LifetimeUnpackOp::create(rewriter, loc, opener->getResultTypes(), pkgArg, base,
-                                         outers);
+  auto unpack = LifetimeUnpackOp::create(rewriter, loc, opener->getResultTypes(), pkgArg,
+                                         restBase, restOuters);
   Block *reopened = rewriter.createBlock(&unpack.getBody());
   BlockArgument fresh = reopened->addArgument(lifetime.getType(), loc);
   llvm::SmallVector<BlockArgument> restated;
@@ -206,6 +228,8 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
     rewriter.replaceUsesWithIf(value, arg, within);
   for (auto [value, arg] : llvm::zip_equal(opener->getResults(), unpack.getResults()))
     rewriter.replaceUsesWithIf(value, arg, within);
+  if (failed(adoptLifetimes(owner, fn, lifetimesRead)))
+    return failure();
 
   // In the function the call stays in: the region ends at the pack, the
   // opener gives what it yields, then the call and the tail call of its
@@ -234,6 +258,7 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   llvm::append_range(passed, remade->getResults().drop_front());
   llvm::append_range(passed, outside);
   llvm::append_range(passed, passedOuter);
+  llvm::append_range(passed, lifetimesOf(owner));
   rewriter.setInsertionPoint(outerEnd);
   auto call = CallOp::create(rewriter, loc, fn,
                              families::levelArgs(ctx, 0, static_cast<uint32_t>(binders.size())),

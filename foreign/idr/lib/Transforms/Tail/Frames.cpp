@@ -25,6 +25,14 @@
 // The construction, per component, in two steps: continuations become
 // functions (Continuations.cpp), then calls become jumps (Jumps.cpp).
 //
+// Every function the component runs on its stack takes the component's
+// lifetimes, the same kinds in the same order, and passes them on at each
+// tail, the resume's among them: so no frame holds a lifetime, a cursor
+// comes back to the code after a call as current as the callee left it,
+// and every function a tail joins takes as many cursors as the next. The
+// construction reads them off its members, which take them alike and pass
+// them to one another unchanged.
+//
 // Every call made is in tail position, so the native stack never grows on
 // the cycle, which the native stack's bound checks on the final module. A
 // promise: no step is an action a debug counter may skip, and a call this
@@ -41,7 +49,10 @@
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
+#include "idr/IR/Func.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Effects.h"
@@ -65,6 +76,63 @@ using namespace frames;
 using solver::FunctionId;
 using solver::ProgramGraph;
 using solver::SccId;
+
+// The bounds `fn` states between its lifetimes, each by the places of the
+// two among them.
+llvm::SmallVector<Outlives> boundsOf(FuncOp fn) {
+  llvm::SmallVector<Outlives> bounds;
+  Block &entry = fn.getBody().front();
+  if (LivesInAttr lives = fn.getLivesInAttr())
+    for (const Outlives &bound : lives.getBounds())
+      bounds.push_back({*placeOf(entry.getArgument(bound.longer), fn),
+                        *placeOf(entry.getArgument(bound.shorter), fn)});
+  return bounds;
+}
+
+// The component's lifetimes, its first member's, and the bounds between
+// them: every member takes the same kinds in the same order, states the
+// same bounds, and passes its own to each member it calls, each at its
+// place (a stack's lifetime split around a call standing for the cursor
+// below it, which the call is given instead). A component whose members
+// share no lifetimes would need each member made again per arrangement of
+// lifetimes its calls pass, which the construction does not make: an
+// internal error, since no frame may hold a lifetime.
+LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, SccId scc) {
+  auto kinds = [](FuncOp fn) {
+    return llvm::map_to_vector(lifetimesOf(fn), [](BlockArgument arg) { return arg.getType(); });
+  };
+  FuncOp first = graph.op(*graph.members(scc).begin());
+  component.lifetimes = kinds(first);
+  component.bounds = boundsOf(first);
+  for (FunctionId f : graph.members(scc)) {
+    FuncOp fn = graph.op(f);
+    if (kinds(fn) != component.lifetimes || boundsOf(fn) != component.bounds)
+      return fn.emitOpError("internal error: idr-frames: takes other lifetimes, or bounds them "
+                            "otherwise, than ")
+             << first.getSymNameAttr() << " on its cycle, so their frames share none";
+    WalkResult walked = fn.walk([&](CallOp call) {
+      FunctionId callee = graph.id(call.getCalleeAttr());
+      if (graph.sccOf(callee) != scc)
+        return WalkResult::advance();
+      for (auto [place, param] : llvm::enumerate(lifetimesOf(graph.op(callee)))) {
+        Value given = lifetimes::extentOf(call.getArgs()[param.getArgNumber()]);
+        std::optional<unsigned> at = placeOf(given, fn);
+        if (Value base = lifetimes::baseOf(given); !at && base)
+          at = placeOf(base, fn);
+        if (at != place) {
+          call.emitOpError("internal error: idr-frames: a call on its function's cycle passes "
+                           "other lifetimes than its caller's own, in their order, so their "
+                           "frames share none");
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+    if (walked.wasInterrupted())
+      return failure();
+  }
+  return success();
+}
 
 struct Frames : impl::IdrFramesBase<Frames> {
   void runOnProgram(ProgramOp program) {
@@ -93,11 +161,13 @@ struct Frames : impl::IdrFramesBase<Frames> {
     IndexVector<FunctionId, unsigned> memberOf = graph.table<unsigned>(0);
     for (SccId scc : framing) {
       Component component(rewriter, symbols, graph, scc);
+      if (failed(shareLifetimes(component, graph, scc)))
+        return signalPassFailure();
       Rows rows;
       for (FunctionId f : graph.members(scc)) {
         FuncOp fn = graph.op(f);
         memberOf[f] = static_cast<unsigned>(component.functions.size());
-        component.functions.push_back({fn, rowIndex(rows, fn.getResultTypes())});
+        component.functions.push_back({fn, rowIndex(rows, givenRow(fn))});
       }
       component.members = static_cast<unsigned>(component.functions.size());
       numFunctions += component.members;
@@ -109,7 +179,10 @@ struct Frames : impl::IdrFramesBase<Frames> {
       for (CallOp call : component.made)
         call.setTailKind(decide(call));
 
-      // The kinds of frame, and the family.
+      // The kinds of frame, and the family. A frame holds what its rest
+      // takes after the call's results, but the component's lifetimes, each
+      // scoped value at the place of the one it lives in, which every
+      // function the rest was made of states among them.
       footprint::Vector<FrameKind> kinds;
       footprint::Vector<Rest> rests;
       for (const Framed &f : component.framed) {
@@ -119,9 +192,14 @@ struct Frames : impl::IdrFramesBase<Frames> {
           if (g.fn == owner)
             continues = g.row;
         FuncOp callee = symbols.lookup<FuncOp>(f.call.getCalleeAttr().getAttr());
-        FrameKind kind{rowIndex(rows, callee.getResultTypes()), continues, {}};
-        for (Value held : f.rest.getArgs().drop_front(f.call->getNumResults()))
+        FrameKind kind{rowIndex(rows, givenRow(callee)), continues, {}, {}};
+        for (Value held : f.rest.getArgs()
+                              .drop_front(f.call->getNumResults())
+                              .drop_back(component.lifetimes.size())) {
           kind.held.push_back(held.getType());
+          if (freedBy(held.getType(), Release::Scoped))
+            kind.heldIn.push_back(*placeOf(lifetimes::statedLifetime(held), owner));
+        }
         kinds.push_back(std::move(kind));
         rests.push_back({symbols.lookup<FuncOp>(f.rest.getCalleeAttr().getAttr()),
                          f.rest.getIndexArgsAttr()});
@@ -138,23 +216,40 @@ struct Frames : impl::IdrFramesBase<Frames> {
       for (unsigned m = 0; m < component.members; ++m) {
         FuncOp wrapper = component.functions[m].fn;
         FuncOp run = beside(symbols, wrapper, StringAttr::get(ctx, wrapper.getSymName() + ".run"),
-                            wrapper.getFunctionType());
+                            wrapper.getFunctionType(), wrapper.getLivesInAttr());
         run.setBindersAttr(wrapper.getBindersAttr());
         run.setArgAttrsAttr(wrapper.getArgAttrsAttr());
         run.setResAttrsAttr(wrapper.getResAttrsAttr());
-        run.setLivesInAttr(wrapper.getLivesInAttr());
         run.getBody().takeBody(wrapper.getBody());
         component.functions[m].fn = run;
         wrappers.push_back(wrapper);
       }
       for (const Component::Function &f : component.functions)
         runs.push_back(f.fn);
+      // Each resume takes its row's values, the component's lifetimes, each
+      // scoped value living in the one its row names, and the stack.
       footprint::Vector<FuncOp> resumes;
       for (unsigned row = 0; row < family.rows; ++row) {
-        llvm::SmallVector<Type> inputs(rows[row]);
+        const Row &given = rows[row];
+        llvm::SmallVector<Type> inputs(given.types);
+        llvm::append_range(inputs, component.lifetimes);
         inputs.push_back(family.stacks[row]);
+        auto lifetimesAt = static_cast<std::uint32_t>(given.types.size());
+        llvm::SmallVector<LivesIn> scoped;
+        for (auto [index, type] : llvm::enumerate(given.types))
+          if (freedBy(type, Release::Scoped))
+            scoped.push_back({static_cast<std::uint32_t>(index),
+                              lifetimesAt + given.livesIn[scoped.size()]});
+        llvm::SmallVector<Outlives> bounds =
+            llvm::map_to_vector(component.bounds, [&](const Outlives &bound) {
+              return Outlives{lifetimesAt + bound.longer, lifetimesAt + bound.shorter};
+            });
+        LivesInAttr lives = scoped.empty() && bounds.empty()
+                                ? LivesInAttr()
+                                : LivesInAttr::get(ctx, scoped, ArrayRef<LivesIn>(), bounds);
         StringAttr name = StringAttr::get(ctx, first.getSymName() + ".resume");
-        resumes.push_back(beside(symbols, first, name, FunctionType::get(ctx, inputs, {})));
+        resumes.push_back(
+            beside(symbols, first, name, FunctionType::get(ctx, inputs, {}), lives));
       }
 
       Jumps jumps(rewriter, component, family, resumes, runs, memberOf, graph);
@@ -165,7 +260,7 @@ struct Frames : impl::IdrFramesBase<Frames> {
       if (failed(jumps.frameCalls(kinds)))
         return signalPassFailure();
       for (unsigned row = 0; row < family.rows; ++row)
-        fillResume(rewriter, resumes[row], row, family, kinds, rests);
+        fillResume(rewriter, resumes[row], row, rows[row], family, kinds, rests);
       for (unsigned m = 0; m < component.members; ++m)
         fillWrapper(rewriter, wrappers[m], runs[m], component.functions[m].row, family);
 

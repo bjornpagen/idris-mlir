@@ -2,12 +2,15 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-frames: a join point op around a call to frame becomes functions,
 // one per join region, each jump to one a tail call of it, so the call's
-// block can end a tail of its function.
+// block can end a tail of its function. A join region takes no lifetime: the
+// function made of it takes the component's, as every function of the
+// component does, and its scoped parameters live where the op stated.
 
 #include "idr/Transforms/Tail/Frames.h"
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -64,23 +67,34 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   }
 
   // The functions, one per join region, before any jump changes, so a
-  // jump may name any of them.
+  // jump may name any of them: each takes its parameters, then what it
+  // reads from above, then the component's lifetimes, and gives the op's
+  // results where the op states they live.
   struct Lifted {
     Region *region;
     FuncOp fn;
     llvm::SmallVector<Value> reads;
+    llvm::SmallVector<Value> lifetimes;
   };
+  llvm::SmallVector<Value> resultsIn = llvm::map_to_vector(
+      join->getResults(), [](Value result) { return lifetimes::statedLifetime(result); });
+  llvm::SmallVector<Value> ownLifetimes;
+  llvm::append_range(ownLifetimes, lifetimesOf(owner));
   llvm::SmallVector<Lifted> lifted;
   for (unsigned i = 0; i < count; ++i) {
     Region &region = join->getRegion(i + 1);
-    llvm::SmallVector<Type> inputs(points.getParameters(region).getTypes());
-    for (Value value : reads[i])
-      inputs.push_back(value.getType());
+    llvm::SmallVector<Value> read = withoutLifetimes(reads[i].getArrayRef());
+    llvm::SmallVector<Value> takes(points.getParameters(region));
+    llvm::append_range(takes, read);
     llvm::SmallVector<families::Sort> binders = scopeSorts(&region);
-    FuncOp fn = makeFunction(owner, "join", FunctionType::get(ctx, inputs, join->getResultTypes()),
-                             binders);
-    lifted.push_back({&region, fn, llvm::to_vector(reads[i])});
-    functions.push_back({fn, row});
+    FailureOr<Made> moved =
+        makeFunction(owner, "join", takes, join->getResultTypes(), resultsIn, binders);
+    if (failed(moved))
+      return failure();
+    llvm::SmallVector<Value> lifetimes = llvm::to_vector(llvm::make_filter_range(
+        reads[i], [](Value value) { return isa<LifetimeType>(value.getType()); }));
+    lifted.push_back({&region, moved->fn, std::move(read), std::move(lifetimes)});
+    functions.push_back({moved->fn, row});
   }
 
   // Each jump to one of them a tail call, its terms the region's binders
@@ -90,6 +104,7 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     const Lifted &to = lifted[target->getRegionNumber() - 1];
     llvm::SmallVector<Value> args(jump.getArgs());
     llvm::append_range(args, to.reads);
+    llvm::append_range(args, ownLifetimes);
     IndexArgsAttr terms = concatArgs(ctx, families::levelArgs(ctx, 0, depth), jump.getTermsAttr());
     rewriter.setInsertionPoint(jump);
     auto call = CallOp::create(rewriter, jump.getLoc(), to.fn, terms, args, TailKind::tail);
@@ -112,10 +127,12 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     for (auto [param, arg] : llvm::zip(params, entry->getArguments()))
       rewriter.replaceAllUsesWith(param, arg);
     for (auto [value, arg] :
-         llvm::zip_equal(to.reads, entry->getArguments().drop_front(params.size())))
+         llvm::zip(to.reads, entry->getArguments().drop_front(params.size())))
       rewriter.replaceUsesWithIf(value, arg, [&](OpOperand &use) {
         return to.fn->isProperAncestor(use.getOwner());
       });
+    if (failed(adoptLifetimes(owner, to.fn, to.lifetimes)))
+      return failure();
   }
   Block &body = join->getRegion(0).front();
   Operation *bodyEnd = body.getTerminator();

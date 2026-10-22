@@ -4,14 +4,19 @@
 // component takes the stack awaiting its row and returns nothing; each
 // call to frame pushes a frame holding what its rest reads and tail-calls
 // its callee's run; a tail call of a function of the component passes the
-// stack on; a tail that gives a value gives it to its row's resume, which
-// pops a frame and runs its rest, or, at the base, writes each value
-// through its own destination into the slots of the call that started on
-// the empty stack. Each function of the program keeps its name and
-// signature as the wrapper that starts it: its slots (`dest.answer`),
-// whose destinations the base frame holds, the run called inside them,
-// and the results they give back, each at the whole type it was written
-// at.
+// stack on; a tail that gives a value gives it, with the component's
+// lifetimes, to its row's resume, which pops a frame and runs its rest, or,
+// at the base, writes each value through its own destination into the
+// slots of the call that started on the empty stack. Each function of the
+// program keeps its name and signature as the wrapper that starts it: its
+// slots (`dest.answer`), whose destinations the base frame holds, the run
+// called inside them, and the results they give back, each at the whole
+// type it was written at.
+//
+// No frame holds a lifetime: the lifetimes come back to the resume from
+// the tail that gives the value, as current as that tail has them, and a
+// scoped value a frame holds is read back in the resume's own, where its
+// pusher's lived at the same place.
 
 #include "idr/Transforms/Tail/Frames.h"
 
@@ -21,7 +26,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/IR/Traits.h"
-#include "idr/Support/Remake.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -66,11 +70,11 @@ void eraseDeadRegrades(RewriterBase &rewriter, Block *block) {
 
 } // namespace
 
-unsigned rowIndex(Rows &rows, TypeRange results) {
-  for (auto [at, row] : llvm::enumerate(rows))
-    if (llvm::equal(row, results))
+unsigned rowIndex(Rows &rows, const Row &row) {
+  for (auto [at, known] : llvm::enumerate(rows))
+    if (known == row)
       return static_cast<unsigned>(at);
-  rows.emplace_back(results.begin(), results.end());
+  rows.push_back(row);
   return static_cast<unsigned>(rows.size() - 1);
 }
 
@@ -96,7 +100,7 @@ void Jumps::passStack(CallOp call, Value stack) {
 
 void Jumps::retype(FuncOp fn, unsigned row) {
   (void)fn.insertArgument(fn.getNumArguments(), family.stacks[row], DictionaryAttr(), fn.getLoc());
-  returnNothing(fn);
+  (void)fn.eraseResults(llvm::BitVector(fn.getNumResults(), true));
 }
 
 void Jumps::onStack(FuncOp fn, unsigned row) {
@@ -109,9 +113,11 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
   llvm::SmallVector<Operation *> sources =
       llvm::map_to_vector(ends, [](Block *end) { return tailSource(*end); });
   Value stack = fn.getArguments().back();
+  llvm::SmallVector<BlockArgument> lifetimes = lifetimesOf(fn);
 
   // Each tail: a tail call within the component passes the stack on; a
-  // value, a tail call out of it first returning here, goes to the resume.
+  // value, a tail call out of it first returning here, goes to the resume
+  // with the lifetimes it lives in among the component's.
   llvm::SmallVector<CallOp> passing;
   for (auto [end, source] : llvm::zip_equal(ends, sources)) {
     Operation *terminator = end->getTerminator();
@@ -126,6 +132,7 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
     if (call && call.getTailKind() == TailKind::tail)
       call.setTailKind(TailKind::nontail);
     llvm::SmallVector<Value> given(terminator->getOperands());
+    llvm::append_range(given, lifetimes);
     given.push_back(stack);
     rewriter.setInsertionPoint(terminator);
     CallOp::create(rewriter, terminator->getLoc(), resumes[row], IndexArgsAttr::get(ctx, {}, 0),
@@ -133,14 +140,15 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
   }
 
   // Nothing is given at any tail now: every block of the spine forwards
-  // nothing, and every region op on it, innermost first, gives nothing.
+  // nothing, and every region op on it, innermost first, gives nothing,
+  // stating lifetimes only for what its regions bind.
   for (Block *block : blocks) {
     Operation *terminator = block->getTerminator();
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(ValueRange()); });
     eraseDeadRegrades(rewriter, block);
   }
   for (Operation *op : llvm::reverse(spine)) {
-    (void)remakeOp(rewriter, op, op->getOperands(), TypeRange());
+    (void)remakeGiving(rewriter, op, TypeRange(), ValueRange());
     rewriter.eraseOp(op);
   }
 
@@ -156,8 +164,11 @@ LogicalResult Jumps::frameCalls(llvm::ArrayRef<FrameKind> kinds) {
     DataType frame =
         family.stacks[kind.awaits].refined({family.kind(static_cast<unsigned>(index))});
     // The rest's arguments after the call's results: what the frame holds,
-    // then the stack, which is below it.
-    llvm::SmallVector<Value> fields(f.rest.getArgs().drop_front(f.call->getNumResults()));
+    // then the stack, which is below it; the component's lifetimes between
+    // them come back to the resume instead.
+    ValueRange restArgs = f.rest.getArgs();
+    llvm::SmallVector<Value> fields(restArgs.slice(f.call->getNumResults(), kind.held.size()));
+    fields.push_back(restArgs.back());
     rewriter.setInsertionPoint(f.rest);
     Value pushed = DataConOp::create(rewriter, f.call.getLoc(), frame, fields).getResult();
     llvm::SmallVector<Value> args(f.call.getArgs());
@@ -176,12 +187,16 @@ LogicalResult Jumps::frameCalls(llvm::ArrayRef<FrameKind> kinds) {
 // The resume's match has a case for the base frame, which writes each of
 // the row's values through its own destination, the slots of the wrapper
 // that started the run, and one for each kind of frame awaiting the row,
-// which runs its rest on the values, what it holds and the stack below.
-void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const FramesFamily &family,
-                llvm::ArrayRef<FrameKind> kinds, llvm::ArrayRef<Rest> rests) {
+// which runs its rest on the values, what it holds, the component's
+// lifetimes and the stack below. A frame's scoped values are read back in
+// the resume's lifetimes, each at the place its pusher's lived in.
+void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const Row &given,
+                const FramesFamily &family, llvm::ArrayRef<FrameKind> kinds,
+                llvm::ArrayRef<Rest> rests) {
   Block *entry = &resume.getBody().front();
   Location loc = resume.getLoc();
-  ValueRange values = entry->getArguments().drop_back();
+  ValueRange values = entry->getArguments().take_front(given.types.size());
+  llvm::SmallVector<BlockArgument> lifetimes = lifetimesOf(resume);
   Value stack = entry->getArguments().back();
   llvm::SmallVector<Tag> tags{family.base(row)};
   for (auto [index, kind] : llvm::enumerate(kinds))
@@ -193,14 +208,20 @@ void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const Frame
     Region &region = match.getCaseRegion(static_cast<unsigned>(at));
     DataType refined = family.stacks[row].refined({tag});
     Block *block = rewriter.createBlock(&region, region.end(), {refined}, {loc});
-    auto parts = CountUnpackOp::create(rewriter, loc, block->getArgument(0)).getFields();
     if (tag == family.base(row)) {
+      auto parts = CountUnpackOp::create(rewriter, loc, block->getArgument(0)).getFields();
       for (auto [dest, value] : llvm::zip_equal(parts, values))
         DestWriteOp::create(rewriter, loc, dest, value);
     } else {
-      const Rest &rest = rests[static_cast<unsigned>(tag) - family.rows];
+      unsigned index = static_cast<unsigned>(tag) - family.rows;
+      llvm::SmallVector<Value> outers = llvm::map_to_vector(
+          kinds[index].heldIn, [&](unsigned place) -> Value { return lifetimes[place]; });
+      auto parts = CountUnpackOp::create(rewriter, loc, block->getArgument(0), outers).getFields();
+      const Rest &rest = rests[index];
       llvm::SmallVector<Value> args(values);
-      llvm::append_range(args, parts);
+      llvm::append_range(args, parts.drop_back());
+      llvm::append_range(args, lifetimes);
+      args.push_back(parts.back());
       CallOp::create(rewriter, loc, rest.fn, rest.terms, args, TailKind::tail);
     }
     YieldOp::create(rewriter, loc, ValueRange());
@@ -244,9 +265,11 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
   ReturnOp::create(rewriter, loc, slots.getResults());
 }
 
-// Its signature is its own, so it states no lifetime and gives nothing
-// back until the code it is given says so.
-FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType type) {
+// Its signature is its own, so it states where its scoped parameters live
+// as it is made, before any call of it is built, and gives nothing back
+// until the code it is given says so.
+FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType type,
+              LivesInAttr lives) {
   auto fn = cast<FuncOp>(like->cloneWithoutRegions());
   fn.setSymNameAttr(name);
   fn.setFunctionTypeAttr(TypeAttr::get(type));
@@ -255,7 +278,7 @@ FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType t
   fn.setUntouchedAttr(nullptr);
   fn.setBoundedAttr(nullptr);
   fn.setBindersAttr(IndexBindersAttr());
-  fn.setLivesInAttr(nullptr);
+  fn.setLivesInAttr(lives);
   fn.setGivenBackAttr(nullptr);
   Block *entry = new Block();
   fn.getBody().push_back(entry);
@@ -266,20 +289,3 @@ FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType t
 }
 
 } // namespace idr::tail::frames
-
-namespace idr::tail {
-
-void returnNothing(FuncOp fn) {
-  llvm::BitVector all(fn.getNumResults(), true);
-  (void)fn.eraseResults(all);
-  fn.setGivenBackAttr(nullptr);
-  LivesInAttr lives = fn.getLivesInAttr();
-  if (!lives)
-    return;
-  fn.setLivesInAttr(lives.getParameters().empty()
-                        ? LivesInAttr()
-                        : LivesInAttr::get(fn.getContext(), lives.getParameters(),
-                                           ArrayRef<LivesIn>(), lives.getBounds()));
-}
-
-} // namespace idr::tail
