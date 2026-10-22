@@ -2929,7 +2929,8 @@ C137.
   lifetime (`design/lifetimes/`, under D63) ends by construction, as
   AGENTS.md requires of a fixpoint. Deletes the byte budgets as the
   only bound (`Stack.cpp:78-80`), which stay a performance policy.
-- **C85** (L05 §1 D39, I7). D39's element view reads the borrow scope's
+- **C85** (L05 §1 D39, I7) (amended by C208: "exclusive" alone, never
+  "linear"). D39's element view reads the borrow scope's
   row: an element read inside a scope whose row has no `write`, or from an
   exclusive or linear array, is a view; otherwise it takes a reference.
   MLIR's effects name values, and distinct values may alias (`readIORef
@@ -4121,6 +4122,20 @@ C137.
   placed back. One mechanism covers it, whether the call was written in
   the region or moved there by fusion, so fusion needs no call graph and
   no second guard.
+- **C208** (2026-10-22; L07's eighth pass; amends C85). An element read
+  from an exclusive array is a view; one from a linear array is not, for
+  that reason alone: a linear binder does not imply unique heap
+  ownership (`f arr arr` passes one array to two linear parameters, and a
+  write through one is seen by a read through the other). The row of
+  each op in the element's stretch decides otherwise, as C85 says; the
+  function's own row does not, since it leaves out writes to memory the
+  function allocated.
+- **C209** (2026-10-22; L07's eighth pass). A part read from an owner
+  with no reference of its own (a field read, an element view, a lent
+  element) is given up with its owner. At the owned stage the
+  linearity rule reads the flow edge that makes it a part and counts its
+  owner's consumption for it, so it needs no type of its own and no
+  consumption of its own.
 
 ## 4. Open: the owner's decisions, in order
 
