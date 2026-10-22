@@ -73,8 +73,9 @@ mlir::OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consu
 FuncOp buildRaise(FuncOp callee, const RaiseKey &key, mlir::StringAttr name, const Forms &forms);
 
 // What a call wants, by kind: its signature copy where its index arguments
-// fix a layout class the callee's layout changes under or it passes static
-// data where the callee would count; else its raise; else its pattern key.
+// fix a layout class the callee's layout changes under or a bare tensor
+// argument's extent the callee names, or it passes static data where the
+// callee would count; else its raise; else its pattern key.
 mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                             const Node *requester, FuncOp callee,
                                             FunctionId calleeId, const Node *calleeNode,

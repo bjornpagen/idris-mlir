@@ -46,9 +46,10 @@ SmallVector<BindingTime> seenBy(const optimize::Schedule &schedule, FunctionId r
 
 // The type of the copy a grant names, known from the key before the copy
 // is built: a pattern copy takes its key's holes and returns its owner's
-// results; a signature copy has its key's signature; a raise copy takes
-// the call's operands and the consumer's free values and returns what the
-// consumer does.
+// results; a signature copy has its key's signature, static at each bare
+// tensor argument's axis the call's index arguments make a constant; a
+// raise copy takes the call's operands and the consumer's free values and
+// returns what the consumer does.
 FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want) {
   return idr::match(
       want,

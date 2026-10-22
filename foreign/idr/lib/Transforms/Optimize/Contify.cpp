@@ -3,6 +3,14 @@
 // idr-contify: a function that always returns to one place becomes a join
 // point there, where its body is moved and its calls jumps.
 //
+// It is an optimization and promises nothing. A continuation the program
+// as written makes is an idr.join, or an idr.loop where it recurses, from
+// the frontend on, and no pass makes one a function again. Contify finds
+// the rest: a function that happens to return to one place, as a
+// definition called from one continuation does, or as inlining and
+// specialization leave one. A function it leaves a function is no error,
+// only a call that stays a call.
+//
 // Where a function returns is read off one dominator tree over the
 // functions, the continuations of the non-tail calls, and a root: a
 // non-tail call of f leaves for f from its own continuation, a tail call of

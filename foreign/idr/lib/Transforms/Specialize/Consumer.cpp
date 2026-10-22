@@ -149,13 +149,18 @@ bool isStatic(Type type) { return freedBy(type, Release::Static); }
 bool counts(Type type) { return freedBy(type, Release::Counted); }
 
 // The signature copy `call` asks of `callee`: its index arguments' layout
-// class where the callee's layout changes under them, and each parameter
+// class where the callee's layout changes under them or a bare tensor
+// argument's extent the callee names becomes a constant, and each parameter
 // that counts made static where the call passes static data, which that
-// copy then counts nothing of. None where neither changes the callee.
+// copy then counts nothing of. None where neither changes the callee. The
+// copy's signature is the callee's at those index arguments, read through
+// the callee's extents by the one substitution its copy is made by, so
+// each such extent is static in it, and the call casts its operand there.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId) {
+  ExtentsAttr extents = callee.getExtentsAttr();
   std::optional<IndexArgsAttr> classes =
-      families::classesUnder(callee.getFunctionType(), call.getIndexArgsAttr());
+      families::classesUnder(callee.getFunctionType(), extents, call.getIndexArgsAttr());
   FunctionType type = callee.getFunctionType();
   SmallVector<Type> inputs(type.getInputs());
   for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs()))
@@ -166,7 +171,7 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   unsigned binders = callee.getBindersAttr() ? callee.getBindersAttr().getSorts().size() : 0;
   IndexArgsAttr indices = classes ? *classes : families::levelArgs(call.getContext(), 0, binders);
   FunctionType signature = families::substitute(
-      FunctionType::get(call.getContext(), inputs, type.getResults()), indices);
+      FunctionType::get(call.getContext(), inputs, type.getResults()), extents, indices);
   return SignatureWant{arena.key(calleeId, signature, indices)};
 }
 

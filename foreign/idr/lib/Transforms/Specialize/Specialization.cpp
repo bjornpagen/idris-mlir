@@ -10,8 +10,11 @@
 //
 // A signature copy is its owner's body under the key's index arguments,
 // substituted, with each parameter at the type the key gives it: a layout
-// class fixed makes a known index's shape inline, and a static hold makes
-// counting count nothing of what the parameter holds.
+// class fixed makes a known index's shape inline, an axis of a bare tensor
+// argument whose index term becomes a constant is static in the copy's
+// signature, which its caller casts its operand to and the substitution
+// carries into its body, and a static hold makes counting count nothing of
+// what the parameter holds.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -100,7 +103,9 @@ void Signatures::write(Key key, Bytes &bytes) {
 LogicalResult Signatures::edit(Key key, FuncOp clone) {
   // The index arguments first, through the one substitution every pass
   // that instantiates a function shares: each case a known index makes
-  // impossible goes with it.
+  // impossible goes with it, and each bare tensor argument's axis whose
+  // term becomes a constant is made static, as the key's signature already
+  // has it.
   FailureOr<SmallVector<families::Sort>> kept = families::substituteFunction(clone, key->indices);
   if (failed(kept))
     return failure();

@@ -4,6 +4,17 @@
 // kind. It needs only the node's name and the copy's type, both known from
 // the key before the copy is built.
 //
+// A signature copy's type is its owner's with each axis of a bare tensor
+// argument static whose index term the call fixes as a constant. The
+// caller's value keeps the type its own code reads, `?` there, so the call
+// passes it through upstream's tensor.cast to the copy's type. Idris's type
+// proves the extent is that constant, so the cast states an agreement and
+// tests nothing at run time; inside a function, ties between extents stay
+// idr.array.tie_shape. A copy's results keep the owner's types: a cast
+// after the call would take a tail call out of tail position, and the
+// caller learns no more from a result than its own types say. A graded
+// array keeps its axis `?`, since no cast changes a type under a grade.
+//
 // A copy called where the call was keeps the call's tail fact: the call is
 // at the same place. A raise's call stands where the dispatch it replaces
 // stood, so its tail fact is the one definition's answer there. Its row
@@ -15,6 +26,7 @@
 #include "idr/IR/Tail.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -38,6 +50,20 @@ CallOp callOf(RewriterBase &rewriter, Location loc, FlatSymbolRefAttr target, Ty
   return call;
 }
 
+// `operand` passed where a copy asks `input`. At every position but a bare
+// tensor's the copy's type is its owner's, which the operand has, or one
+// the call's rule lets stand for it (a lifetime of any kind where a view is
+// asked), so it goes as it is. A bare tensor the copy asks at another type
+// has an axis made static, and upstream's cast states it. Which axes became
+// static is not carried out of the substitution that made them, so it is
+// read here off the two uniqued types.
+Value passedAs(OpBuilder &b, Location loc, Value operand, Type input) {
+  auto tensor = dyn_cast<RankedTensorType>(input);
+  if (!tensor || operand.getType() == input)
+    return operand;
+  return tensor::CastOp::create(b, loc, tensor, operand).getResult();
+}
+
 } // namespace
 
 SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const PatternWant &want,
@@ -58,11 +84,17 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
   return operands;
 }
 
-// A copy replaces the call, and returns what the call does.
+// A copy replaces the call, and returns what the call does: each operand
+// passed at the copy's type for it, and the copy's results, at the owner's
+// types, given to the call's uses as they are.
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
                 IndexArgsAttr indices, ArrayRef<Value> operands) {
+  Location loc = call.getLoc();
   rewriter.setInsertionPoint(call);
-  CallOp fresh = callOf(rewriter, call.getLoc(), target, type.getResults(), indices, operands,
+  SmallVector<Value> passed;
+  for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs()))
+    passed.push_back(passedAs(rewriter, loc, operand, input));
+  CallOp fresh = callOf(rewriter, loc, target, type.getResults(), indices, passed,
                         call.getTailKind(), call.getRow());
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(call, fresh.getResults());

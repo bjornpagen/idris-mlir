@@ -177,11 +177,12 @@ struct RaiseKey {
 
 // A copy whose signature is the owner's with some types changed: an index
 // argument's layout class fixed (a closed index term where the owner's
-// layout changes under it), a parameter's hold made static where the
-// caller passes static data, a lifetime parameter's kind fixed, a grade
-// copy's grades. The target signature and the index terms substituted are
-// the key; the alphabet is finite (the class set, the holds, the kinds,
-// the grades are), so no order and no lift is needed.
+// layout changes under it), a bare tensor argument's axis made static
+// where the index term naming it becomes a constant, a parameter's hold
+// made static where the caller passes static data, a lifetime parameter's
+// kind fixed, a grade copy's grades. The target signature and the index
+// terms substituted are the key; the alphabet is finite (the class set,
+// the holds, the kinds, the grades are), so no order and no lift is needed.
 struct SignatureKey {
   FunctionId owner;
   mlir::FunctionType signature;
