@@ -129,14 +129,15 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
       passing.push_back(call);
       continue;
     }
-    if (call && call.getTailKind() == TailKind::tail)
-      call.setTailKind(TailKind::nontail);
     llvm::SmallVector<Value> given(terminator->getOperands());
     llvm::append_range(given, lifetimes);
     given.push_back(stack);
     rewriter.setInsertionPoint(terminator);
     CallOp::create(rewriter, terminator->getLoc(), resumes[row], IndexArgsAttr::get(ctx, {}, 0),
                    given, TailKind::tail);
+    // A call whose value goes to the resume returns here first.
+    if (call)
+      call.setTailKind(decide(call));
   }
 
   // Nothing is given at any tail now: every block of the spine forwards
@@ -177,8 +178,9 @@ LogicalResult Jumps::frameCalls(llvm::ArrayRef<FrameKind> kinds) {
                    TailKind::tail);
     rewriter.eraseOp(f.rest);
     if (!f.call->use_empty())
-      return f.call.emitOpError("internal error: idr-frames: a framed call's results are read "
-                                "elsewhere than by its rest");
+      return f.call.emitOpError(
+          "internal error: an invariant of idr-frames' first step is broken: everything after a "
+          "call to frame moves into its rest, but this call's results are read elsewhere");
     rewriter.eraseOp(f.call);
   }
   return success();

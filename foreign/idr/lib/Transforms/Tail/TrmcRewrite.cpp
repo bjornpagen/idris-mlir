@@ -130,20 +130,34 @@ void Rewrite::dropForwarded(Operation *terminator, unsigned position) {
   }
 }
 
-LogicalResult Rewrite::fillByRegions(Operation *rejoin, unsigned position, Value dest) {
+namespace {
+
+// The ends of `rejoin`'s regions that give its results, `position` among
+// them: a region that never ends, or that jumps on, gives nothing here.
+llvm::SmallVector<Operation *> endsGiving(Operation *rejoin, unsigned position) {
   llvm::SmallVector<Operation *> ends;
   for (Region &region : rejoin->getRegions()) {
     if (region.empty())
       continue;
     Operation *end = region.front().getTerminator();
-    // A region that never ends, or that jumps on, gives nothing here.
     if (isa<RegionBranchTerminatorOpInterface>(end) && end->getNumOperands() > position &&
         end->getNumOperands() == rejoin->getNumResults())
       ends.push_back(end);
   }
-  for (Operation *end : ends)
-    if (failed(give(end->getOperand(position), end, position, Written{dest})))
-      return failure();
+  return ends;
+}
+
+} // namespace
+
+void Rewrite::fillByRegions(Operation *rejoin, unsigned position, Value dest,
+                            llvm::SmallVectorImpl<Pending> &work) {
+  work.push_back(RemakeWithout{rejoin, position});
+  llvm::SmallVector<Operation *> ends = endsGiving(rejoin, position);
+  for (Operation *end : llvm::reverse(ends))
+    work.push_back(GiveAt{end, position, Written{dest}});
+}
+
+void Rewrite::remakeWithout(Operation *rejoin, unsigned position) {
   llvm::SmallVector<Type> results(rejoin->getResultTypes());
   results.erase(results.begin() + position);
   Operation *made = remakeOp(rewriter, rejoin, rejoin->getOperands(), results);
@@ -153,7 +167,6 @@ LogicalResult Rewrite::fillByRegions(Operation *rejoin, unsigned position, Value
       kept.push_back(result);
   rewriter.replaceAllUsesWith(kept, made->getResults());
   rewriter.eraseOp(rejoin);
-  return success();
 }
 
 namespace {
@@ -166,11 +179,29 @@ Value destOf(const Target &target) {
 
 } // namespace
 
-LogicalResult Rewrite::give(Value value, Operation *terminator, unsigned position,
-                            Target target) {
+LogicalResult Rewrite::give(Operation *terminator, unsigned position, Target target) {
+  llvm::SmallVector<Pending> work{GiveAt{terminator, position, target}};
+  while (!work.empty()) {
+    Pending next = work.pop_back_val();
+    LogicalResult taken = idr::match(
+        next, [&](const GiveAt &step) { return take(step, work); },
+        [&](const RemakeWithout &remake) {
+          remakeWithout(remake.rejoin, remake.position);
+          return success();
+        });
+    if (failed(taken))
+      return failure();
+  }
+  return success();
+}
+
+LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &work) {
+  Operation *terminator = step.terminator;
+  unsigned position = step.position;
+  Value value = terminator->getOperand(position);
   Value source = throughRegrades(value);
   Operation *def = source.getDefiningOp();
-  Value dest = destOf(target);
+  Value dest = destOf(step.target);
 
   // A self call whose result is given unchanged: a tail call, or the call a
   // rejoin's region gives into a hole. The clone's passes the destination on.
@@ -189,19 +220,14 @@ LogicalResult Rewrite::give(Value value, Operation *terminator, unsigned positio
       def->getBlock() == terminator->getBlock()) {
     unsigned at = cast<OpResult>(source).getResultNumber();
     if (!dest) {
-      for (Region &region : def->getRegions()) {
-        if (region.empty())
-          continue;
-        Operation *end = region.front().getTerminator();
-        if (isa<RegionBranchTerminatorOpInterface>(end) && end->getNumOperands() > at &&
-            end->getNumOperands() == def->getNumResults())
-          if (failed(give(end->getOperand(at), end, at, Given{})))
-            return failure();
-      }
+      llvm::SmallVector<Operation *> ends = endsGiving(def, at);
+      for (Operation *end : llvm::reverse(ends))
+        work.push_back(GiveAt{end, at, Given{}});
       return success();
     }
     dropForwarded(terminator, position);
-    return fillByRegions(def, at, dest);
+    fillByRegions(def, at, dest, work);
+    return success();
   }
 
   // A value a context builds: built before what fills its hole. Down the
@@ -248,7 +274,8 @@ LogicalResult Rewrite::give(Value value, Operation *terminator, unsigned positio
       fillByCall(call, holeDest);
       return success();
     }
-    return fillByRegions(producer, cast<OpResult>(filler).getResultNumber(), holeDest);
+    fillByRegions(producer, cast<OpResult>(filler).getResultNumber(), holeDest, work);
+    return success();
   }
 
   // Any other value: the clone writes it.

@@ -13,6 +13,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <variant>
 
@@ -42,6 +43,21 @@ struct Part {
 };
 using Making = std::variant<std::monostate, Hole, Outer, Part>;
 
+// A step of the rewrite still to take: the value operand `position` of
+// `terminator` gives at a tail, read off it when the step is taken, since
+// an earlier step may have made it again; or `rejoin` made again without
+// result `position`, once each of its regions has filled it.
+struct GiveAt {
+  mlir::Operation *terminator;
+  unsigned position;
+  Target target;
+};
+struct RemakeWithout {
+  mlir::Operation *rejoin;
+  unsigned position;
+};
+using Pending = std::variant<GiveAt, RemakeWithout>;
+
 // The rewrite of one function's tails, the function's first level or its
 // clone: `contexts` are that function's, `fn` the recursion whose self
 // calls fill holes, `clone` the function they call instead.
@@ -50,12 +66,17 @@ public:
   Rewrite(mlir::RewriterBase &rewriter, FuncOp fn, FuncOp clone, llvm::ArrayRef<Context> contexts)
       : rewriter(rewriter), fn(fn), clone(clone), contexts(contexts) {}
 
-  // `value`, given at operand `position` of `terminator` at a tail, goes
-  // to `target`. Fails, reported, on a context it cannot build.
-  mlir::LogicalResult give(mlir::Value value, mlir::Operation *terminator, unsigned position,
-                           Target target);
+  // What operand `position` of `terminator` gives at a tail goes to
+  // `target`, and so on down every rejoin it comes out of: each step taken
+  // off a stack in the order a walk down the rejoins meets it, each rejoin
+  // made again after its regions. Fails, reported, on a context it cannot
+  // build.
+  mlir::LogicalResult give(mlir::Operation *terminator, unsigned position, Target target);
 
 private:
+  // One step of give: what it gives goes where it goes, the steps it
+  // leads to pushed on `work`.
+  mlir::LogicalResult take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &work);
   Making makerOf(mlir::Value value) const;
   // Rebuilds the hole's cell with its field a hole: its destination.
   mlir::Value makeHole(const Into &hole);
@@ -68,8 +89,12 @@ private:
   // once the function is whole (decide), where its place is final.
   void fillByCall(CallOp call, mlir::Value dest);
   // The region op `rejoin`'s result `position` filled in each region, and
-  // the op made again without that result.
-  mlir::LogicalResult fillByRegions(mlir::Operation *rejoin, unsigned position, mlir::Value dest);
+  // the op made again without that result once they have: their steps
+  // pushed on `work` above the remake, so taken before it.
+  void fillByRegions(mlir::Operation *rejoin, unsigned position, mlir::Value dest,
+                     llvm::SmallVectorImpl<Pending> &work);
+  // `rejoin` made again without result `position`.
+  void remakeWithout(mlir::Operation *rejoin, unsigned position);
   // `terminator` forwards nothing at `position`; the changes of grade only
   // that operand read go. The op whose region it ends drops that result
   // once every region has (fillByRegions), and the clone its own at last.

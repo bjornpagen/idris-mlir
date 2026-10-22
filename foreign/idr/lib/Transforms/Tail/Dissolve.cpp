@@ -13,12 +13,30 @@
 #include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 
 namespace idr::tail::frames {
+
+namespace {
+
+// The join region of `join` that `op` lies in, by its number among the
+// join regions; none for an op of the body or outside the op.
+std::optional<unsigned> joinRegionOf(Operation *join, Operation *op) {
+  for (Region *region = op->getParentRegion(); region;) {
+    Operation *parent = region->getParentOp();
+    if (parent == join) {
+      unsigned number = region->getRegionNumber();
+      return number == 0 ? std::nullopt : std::optional<unsigned>(number - 1);
+    }
+    region = parent->getParentRegion();
+  }
+  return std::nullopt;
+}
+
+} // namespace
 
 // A join point op around a call to frame, its continuation already lifted
 // so it is in tail position: each join region becomes a function of its
@@ -33,36 +51,47 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
 
   // What each join region reads from above the op, closed over the jumps:
   // a region that jumps to another passes it what it reads, so reads it
-  // too. A union over finitely many values that only grows, so it ends.
+  // too. Each value in scope at the op is met once, and those some join
+  // region reads are numbered, in scope order; each region's reads are a
+  // set of those numbers, a union over finitely many that only grows, so
+  // it ends.
   llvm::SmallVector<JumpOp> jumps;
   join->walk([&](JumpOp jump) {
     if (points.getTarget(cast<BlockArgument>(jump.getTarget())))
       jumps.push_back(jump);
   });
   unsigned count = join->getNumRegions() - 1;
-  llvm::SmallVector<llvm::SetVector<Value>> reads(count);
-  for (unsigned i = 0; i < count; ++i) {
-    Region &region = join->getRegion(i + 1);
-    region.walk([&](Operation *op) {
-      for (Value operand : op->getOperands())
-        if (!region.isAncestor(operand.getParentRegion()) && !isa<TokenType>(operand.getType()))
-          reads[i].insert(operand);
-    });
-  }
+  llvm::SmallVector<Value> above;
+  llvm::SmallVector<llvm::BitVector> readers;
+  forEachInScope(join, [&](Value value) {
+    if (isa<TokenType>(value.getType()))
+      return;
+    llvm::BitVector by(count);
+    for (Operation *user : value.getUsers())
+      if (std::optional<unsigned> region = joinRegionOf(join, user))
+        by.set(*region);
+    if (by.none())
+      return;
+    above.push_back(value);
+    readers.push_back(std::move(by));
+  });
+  llvm::SmallVector<llvm::BitVector> reads(count, llvm::BitVector(above.size()));
+  for (auto [at, by] : llvm::enumerate(readers))
+    for (unsigned region : by.set_bits())
+      reads[region].set(static_cast<unsigned>(at));
   for (bool grew = true; grew;) {
     grew = false;
     for (JumpOp jump : jumps) {
-      // The region of the op the jump lies in; the body passes nothing,
-      // its code staying where everything above the op is in scope.
-      Region *home = jump->getParentRegion();
-      while (home->getParentOp() != join)
-        home = home->getParentOp()->getParentRegion();
-      unsigned from = home->getRegionNumber();
-      if (from == 0)
+      // The body passes nothing, its code staying where everything above
+      // the op is in scope.
+      std::optional<unsigned> from = joinRegionOf(join, jump.getOperation());
+      if (!from)
         continue;
       unsigned to = points.getTarget(cast<BlockArgument>(jump.getTarget()))->getRegionNumber() - 1;
-      for (Value value : reads[to])
-        grew |= reads[from - 1].insert(value);
+      if (reads[to].subsetOf(reads[*from]))
+        continue;
+      reads[*from] |= reads[to];
+      grew = true;
     }
   }
 
@@ -83,7 +112,9 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   llvm::SmallVector<Lifted> lifted;
   for (unsigned i = 0; i < count; ++i) {
     Region &region = join->getRegion(i + 1);
-    llvm::SmallVector<Value> read = withoutLifetimes(reads[i].getArrayRef());
+    llvm::SmallVector<Value> readHere =
+        llvm::map_to_vector(reads[i].set_bits(), [&](unsigned at) { return above[at]; });
+    llvm::SmallVector<Value> read = withoutLifetimes(readHere);
     llvm::SmallVector<Value> takes(points.getParameters(region));
     llvm::append_range(takes, read);
     llvm::SmallVector<families::Sort> binders = scopeSorts(&region);
@@ -92,7 +123,7 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     if (failed(moved))
       return failure();
     llvm::SmallVector<Value> lifetimes = llvm::to_vector(llvm::make_filter_range(
-        reads[i], [](Value value) { return isa<LifetimeType>(value.getType()); }));
+        readHere, [](Value value) { return isa<LifetimeType>(value.getType()); }));
     lifted.push_back({&region, moved->fn, std::move(read), std::move(lifetimes)});
     functions.push_back({moved->fn, row});
   }

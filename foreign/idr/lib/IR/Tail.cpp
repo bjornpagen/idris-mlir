@@ -13,6 +13,10 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+// What each stage of a program implies: whether every call's tail fact is
+// the decider's.
+#include "idr/IR/Generated/StageFacts.h.inc"
+
 using namespace mlir;
 
 namespace idr::tail {
@@ -104,6 +108,12 @@ TailKind decide(CallOp call) {
 
 namespace {
 
+// Whether every call's fact in `fn`'s program is decide's answer, as it is
+// from the pass that makes the program first order on, which writes it on
+// every call; before it, `tail` and `modulo_context` are promises a call
+// keeps and a call left `nontail` makes none.
+bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTails::Decided; }
+
 // Whether an operand of a call that becomes a jump is, or lives in, a
 // lifetime that ends with the call: that lifetime, through the views and
 // rooms it is the extent of, is any but a parameter of the function, so its
@@ -135,6 +145,12 @@ LogicalResult verify(CallOp call) {
   auto fn = call->getParentOfType<FuncOp>();
   switch (call.getTailKind()) {
   case TailKind::nontail:
+    // A self call the rule admits, left an ordinary call, is a loop with a
+    // destination the compiler fails to make. One in tail position is its
+    // function's to show.
+    if (decided(fn) && contextOf(call))
+      return call.emitOpError("internal error: a call modulo a context left nontail, a loop with "
+                              "a destination the compiler fails to make");
     return success();
   case TailKind::tail: {
     llvm::SmallVector<Value, 4> values;
@@ -154,21 +170,28 @@ LogicalResult verify(CallOp call) {
 }
 
 LogicalResult verify(FuncOp fn) {
-  // The tail calls of the function, and those its spine reaches: each
+  // The tail calls of the function, and the calls its spine reaches: each
   // block that ends a tail, from the body down through every region op a
-  // break crosses whose results the block gives on, read once.
+  // break crosses whose results the block gives on, read once. Each call
+  // there is in tail position, so, once every fact is decided, one that is
+  // no tail call is a jump the compiler fails to make.
   unsigned tails = 0;
   fn.walk([&](CallOp call) {
     if (call.getTailKind() == TailKind::tail)
       ++tails;
   });
-  if (tails == 0)
-    return success();
+  bool exact = decided(fn);
   unsigned reached = 0;
-  for (Block *end : tailEnds(fn))
-    if (auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
-        call && call.getTailKind() == TailKind::tail)
+  for (Block *end : tailEnds(fn)) {
+    auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
+    if (!call)
+      continue;
+    if (call.getTailKind() == TailKind::tail)
       ++reached;
+    else if (exact)
+      return call.emitOpError("internal error: a call in tail position that is no tail call, a "
+                              "jump the compiler fails to make");
+  }
   if (reached == tails)
     return success();
   // Some tail call is off the spine: name it, reading up from each.

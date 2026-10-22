@@ -52,9 +52,11 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Tail.h"
 
@@ -93,10 +95,11 @@ llvm::SmallVector<Outlives> boundsOf(FuncOp fn) {
 // them: every member takes the same kinds in the same order, states the
 // same bounds, and passes its own to each member it calls, each at its
 // place (a stack's lifetime split around a call standing for the cursor
-// below it, which the call is given instead). A component whose members
-// share no lifetimes would need each member made again per arrangement of
-// lifetimes its calls pass, which the construction does not make: an
-// internal error, since no frame may hold a lifetime.
+// below it, which the call is given instead). No frame may hold a
+// lifetime, so a component whose members share none would need each member
+// made again per arrangement of lifetimes its calls pass: the decide step
+// makes those copies or leaves the values counted, so meeting a second
+// arrangement is its invariant broken.
 LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, SccId scc) {
   auto kinds = [](FuncOp fn) {
     return llvm::map_to_vector(lifetimesOf(fn), [](BlockArgument arg) { return arg.getType(); });
@@ -107,9 +110,12 @@ LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, Sc
   for (FunctionId f : graph.members(scc)) {
     FuncOp fn = graph.op(f);
     if (kinds(fn) != component.lifetimes || boundsOf(fn) != component.bounds)
-      return fn.emitOpError("internal error: idr-frames: takes other lifetimes, or bounds them "
-                            "otherwise, than ")
-             << first.getSymNameAttr() << " on its cycle, so their frames share none";
+      return fn.emitOpError(
+                 "internal error: an invariant of idr-lifetimes is broken (idr-frames): every "
+                 "function on the stack of a component that runs calls on frames takes its "
+                 "lifetimes in one arrangement, but this one takes other lifetimes, or bounds "
+                 "them otherwise, than ")
+             << first.getSymNameAttr();
     WalkResult walked = fn.walk([&](CallOp call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       if (graph.sccOf(callee) != scc)
@@ -120,9 +126,11 @@ LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, Sc
         if (Value base = lifetimes::baseOf(given); !at && base)
           at = placeOf(base, fn);
         if (at != place) {
-          call.emitOpError("internal error: idr-frames: a call on its function's cycle passes "
-                           "other lifetimes than its caller's own, in their order, so their "
-                           "frames share none");
+          call.emitOpError(
+              "internal error: an invariant of idr-lifetimes is broken (idr-frames): on a "
+              "component that runs calls on frames, a member calls a member only as a copy's "
+              "put, given its own lifetimes in their order (a stack opened on one standing for "
+              "it), but this call passes others");
           return WalkResult::interrupt();
         }
       }
@@ -285,6 +293,16 @@ struct Frames : impl::IdrFramesBase<Frames> {
     solver::Work work;
     rows::write(program, graph, work);
     numWork += work.steps();
+
+    // What each function made or changed holds that it no longer needs, on
+    // the rows just made exact, which say where memory may be acquired: a
+    // run or a continuation holds the reuse tokens its code held, a resume
+    // each one a frame gives back until its rest takes it, and a wrapper
+    // none of the body it gave up; each kept or copied the bound of the
+    // code it came from, so each is measured as it now stands.
+    const Layouts &layouts = getAnalysis<Layouts>();
+    for (FuncOp fn : touched)
+      fn.setFrameBound(counting::frameBound(fn, layouts));
     markAnalysesPreserved<SymbolTable, ProgramGraph>();
   }
 };

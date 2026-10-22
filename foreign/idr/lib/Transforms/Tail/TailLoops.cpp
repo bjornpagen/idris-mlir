@@ -33,8 +33,10 @@
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Actions.h"
+#include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Joins.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -133,9 +135,14 @@ struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
     if (calls.empty())
       return markAllAnalysesPreserved();
     IRRewriter rewriter(fn.getContext());
+    const Layouts &layouts = getAnalysis<Layouts>();
+    // A token the loop carries from one run of its region to the next is
+    // held where the call's frame held none, so the bound is measured on
+    // the loop.
     if (!support::perform<TailLoopAction>(fn, [&] {
           LoopOp loop = joins::loopSelf(rewriter, fn, calls);
           readLifetimesFromFunction(rewriter, fn, loop, lifetimes);
+          fn.setFrameBound(counting::frameBound(fn, layouts));
           ++numLoops;
         }))
       return markAllAnalysesPreserved();

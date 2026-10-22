@@ -116,17 +116,21 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
           rewriter.eraseOp(call);
         });
 
-  // Every other tail of the clone combines the value it gives.
+  // Every other tail of the clone combines the value it gives; a call that
+  // gave it is no longer in tail position, and takes the fact its place
+  // now gives it.
   for (Block *end : tailEnds(clone)) {
     Operation *terminator = end->getTerminator();
     if (terminator->getNumOperands() != 1)
       continue;
-    if (auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
-        call && call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
+    auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
+    if (call && call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
       continue;
     rewriter.setInsertionPoint(terminator);
     Value given = withCarried(rewriter, mapped, terminator->getOperand(0), carried);
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, given); });
+    if (call)
+      call.setTailKind(decide(call));
   }
 
   // The function the program calls starts the clone at the identity.

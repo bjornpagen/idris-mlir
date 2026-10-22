@@ -41,8 +41,10 @@
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Tail.h"
 
@@ -147,20 +149,20 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       Rewrite again(rewriter, fn, clone, inClone);
       Operation *returned = fn.getBody().front().getTerminator();
       Operation *cloneReturned = clone.getBody().front().getTerminator();
-      if (failed(again.give(cloneReturned->getOperand(0), cloneReturned, 0,
-                            Written{clone.getArgument(arity)})) ||
-          failed(first.give(returned->getOperand(0), returned, 0, Given{})))
+      if (failed(again.give(cloneReturned, 0, Written{clone.getArgument(arity)})) ||
+          failed(first.give(returned, 0, Given{})))
         return signalPassFailure();
-      // Each call the rewrite made or moved takes the kind its final place
-      // gives it: the clone's calls in its tails are tail calls, the
-      // function's first level calls the clone and then returns the value
-      // it built. No call modulo a context is left.
+      // Each call takes the kind its final place gives it: the clone's
+      // calls in its tails are tail calls, the function's first level calls
+      // the clone and then returns the value it built, and a call whose
+      // value a tail of the clone now writes returns to it. No call modulo
+      // a context is left.
       LogicalResult kinds = success();
       auto settle = [&](CallOp call) {
-        if (call.getTailKind() == TailKind::modulo_context)
+        TailKind kind = decide(call);
+        if (kind == TailKind::modulo_context)
           kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
-        else if (call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
-          call.setTailKind(decide(call));
+        call.setTailKind(kind);
       };
       fn.walk(settle);
       clone.walk(settle);
@@ -187,6 +189,16 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
     solver::Work work;
     rows::write(program, graph, work);
     numWork += work.steps();
+
+    // What each function rewritten and each clone holds that it no longer
+    // needs, on the rows just made exact: what the call held across it is
+    // held while the cells are built before it, and a clone copied its
+    // function's bound; each is measured as it now stands.
+    const Layouts &layouts = getAnalysis<Layouts>();
+    for (auto [fn, clone] : made) {
+      fn.setFrameBound(counting::frameBound(fn, layouts));
+      clone.setFrameBound(counting::frameBound(clone, layouts));
+    }
     markAnalysesPreserved<SymbolTable, solver::ProgramGraph>();
   }
 };

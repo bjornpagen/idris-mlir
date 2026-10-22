@@ -15,7 +15,6 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 
@@ -32,39 +31,36 @@ namespace idr::tail::frames {
 // component's, which the rest takes as every function of the component
 // does: the cursor below the stack, and the lifetimes the opener's results
 // live in, which the unpack states for its own, among them.
-LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operation *opener) {
+//
+// Every other shape is one the decide step keeps out, so meeting one is
+// its invariant broken: the call given a value living in the lifetime, the
+// rest reading a room carved from it, the region lying on or giving into a
+// lifetime that ends with its function's call.
+LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operation *opener,
+                               Packed packed) {
   MLIRContext *ctx = owner.getContext();
   Block *inside = site->getBlock();
   Value lifetime = inside->getArgument(0);
-  std::optional<Packed> packed = lifetimes::packedOf(lifetime);
-  if (!packed)
-    return site.emitOpError("internal error: idr-frames: a call on its function's cycle in "
-                            "the region of a lifetime that cannot be per level");
   // A value of the region's lifetime: the lifetime itself, or a view or a
   // room of it made in the region.
   auto ofLifetime = [&](Value value) {
     return isa<LifetimeType>(value.getType()) && lifetimes::extentOf(value) == lifetime;
   };
   // The cursor a stack's region lies on, which the call takes in the
-  // lifetime's place, as its own level opens on it in turn; a chain lies on
-  // none, so a call given a chain's lifetime has nothing outside the region
-  // to take, and nor has one given a room carved from either.
+  // lifetime's place, as its own level opens on it in turn. The cycle's one
+  // arrangement of lifetimes, read before any function was made, lets a
+  // call on it take of the region's lifetime only a stack's own, at the
+  // place of the cursor it lies on, which so stands for it.
   Value base = lifetimes::baseOf(lifetime);
-  for (OpOperand &operand : site->getOpOperands()) {
-    if (!ofLifetime(operand.get()))
-      continue;
-    if (!base || !lifetimes::passesAs(base.getType(), operand.get().getType()))
-      return site.emitOpError("internal error: idr-frames: a call on its function's cycle takes ")
-             << operand.get().getType()
-             << " of the lifetime split around it, which nothing outside the region stands for";
-    rewriter.modifyOpInPlace(site, [&] { operand.set(base); });
-  }
+  for (OpOperand &operand : site->getOpOperands())
+    if (ofLifetime(operand.get()))
+      rewriter.modifyOpInPlace(site, [&] { operand.set(base); });
   // What the rest of the region reads that the region made before the
   // call: what lives in the lifetime goes into the package, the rest out
   // of the region beside it; the call's operands go out too. A lifetime
   // from outside the region is the component's, which the rest takes.
   Operation *afterSite = site->getNextNode();
-  llvm::SetVector<Value> restReads = liveIns(afterSite);
+  llvm::SmallVector<Value> restReads = liveIns(afterSite);
   llvm::SmallVector<Value> scoped, plain, outside, reopenedAs, lifetimesRead;
   for (Value value : restReads) {
     // The call's results are the rest's first parameters.
@@ -74,9 +70,11 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
     // a room carved before the call is memory the rest cannot name.
     if (ofLifetime(value)) {
       if (!lifetimes::passesAs(lifetime.getType(), value.getType()))
-        return site.emitOpError("internal error: idr-frames: the rest of a region split around a "
-                                "call on its function's cycle reads ")
-               << value.getType() << " carved from its lifetime before the call";
+        return site.emitOpError(
+                   "internal error: an invariant of idr-lifetimes is broken (idr-frames): "
+                   "nothing after a call on frames reads a room carved before it from the "
+                   "per-level lifetime around it, but the rest of this call's region reads ")
+               << value.getType();
       reopenedAs.push_back(value);
       continue;
     }
@@ -95,8 +93,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   for (Value arg : site.getArgs())
     if (arg.getParentRegion() == inside->getParent() &&
         lifetimes::statedLifetime(arg) == lifetime)
-      return site.emitOpError("internal error: idr-frames: an operand of a call on its "
-                              "function's cycle lives in the lifetime split around it");
+      return site.emitOpError(
+          "internal error: an invariant of idr-lifetimes is broken (idr-frames): a call on "
+          "frames is given no value living in the per-level lifetime around it, which ends "
+          "before the call runs, but this call is given one");
 
   // The rest of the region and what followed the opener, into the rest's
   // function: an unpack reopening the lifetime, the region's code in it,
@@ -104,7 +104,7 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   Block *outer = opener->getBlock();
   Operation *outerEnd = outer->getTerminator();
   llvm::SmallVector<Type> held = llvm::map_to_vector(scoped, [](Value v) { return v.getType(); });
-  auto package = LifetimePackageType::get(ctx, *packed, held);
+  auto package = LifetimePackageType::get(ctx, packed, held);
 
   llvm::SmallVector<Value> regionArgs;
   for (Value arg : site.getArgs())
@@ -171,9 +171,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   Value restBase = base ? ownOf(base) : Value();
   llvm::SmallVector<Value> restOuters = llvm::map_to_vector(outers, ownOf);
   if ((base && !restBase) || llvm::is_contained(restOuters, Value()))
-    return site.emitOpError("internal error: idr-frames: a region split around a call on its "
-                            "function's cycle lies on, or gives into, a lifetime that ends "
-                            "with its function's call");
+    return site.emitOpError(
+        "internal error: an invariant of idr-lifetimes is broken (idr-frames): a per-level "
+        "lifetime around a call on frames lies on, and gives into, its function's own "
+        "lifetimes, but this call's lies on or gives into another");
   unsigned at = 0;
   auto argsOf = [&](size_t n) {
     auto range = entry->getArguments().slice(at, n);
@@ -186,15 +187,28 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   auto outsideArgs = argsOf(outside.size());
   auto outerArgs = argsOf(passedOuter.size());
 
+  // What the call puts into the cursor below the stack while the level is
+  // packed lies above the level's mark, so the reopened level's end frees
+  // it: each of the call's results living there enters the level, restated
+  // in it. A chain lies on no cursor, so nothing enters its level.
+  llvm::SmallVector<Value> landed;
+  if (base)
+    for (auto [result, arg] : llvm::zip_equal(site.getResults(), results))
+      if (lifetimes::statedLifetime(result) == base)
+        landed.push_back(arg);
+
   // The unpack, the region's rest inside it, on the rest's own lifetimes.
   rewriter.setInsertionPointToEnd(entry);
   auto unpack = LifetimeUnpackOp::create(rewriter, loc, opener->getResultTypes(), pkgArg,
-                                         restBase, restOuters);
+                                         restBase, landed, restOuters);
   Block *reopened = rewriter.createBlock(&unpack.getBody());
   BlockArgument fresh = reopened->addArgument(lifetime.getType(), loc);
   llvm::SmallVector<BlockArgument> restated;
   for (Value value : scoped)
     restated.push_back(reopened->addArgument(value.getType(), loc));
+  llvm::SmallVector<BlockArgument> entered;
+  for (Value value : landed)
+    entered.push_back(reopened->addArgument(value.getType(), loc));
   for (Operation *op : rest)
     if (op != regionEnd)
       op->moveBefore(reopened, reopened->end());
@@ -216,6 +230,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   auto within = [&](OpOperand &use) { return fn->isProperAncestor(use.getOwner()); };
   for (auto [value, arg] : llvm::zip_equal(site.getResults(), results))
     rewriter.replaceUsesWithIf(value, arg, within);
+  for (auto [value, arg] : llvm::zip_equal(landed, entered))
+    rewriter.replaceUsesWithIf(value, arg, [&](OpOperand &use) {
+      return unpack->isProperAncestor(use.getOwner());
+    });
   for (Value value : reopenedAs)
     rewriter.replaceUsesWithIf(value, fresh, within);
   for (auto [value, arg] : llvm::zip_equal(scoped, restated))

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the units of idr-frames share (lib/Transforms/Tail): one component's
-// state while its code moves into functions of their own (Continuations,
-// with a join point's regions in Dissolve and a lifetime's region in
-// Split), the calls made jumps on the stack, the resumes and the wrappers
-// (Jumps), and the pass that runs both steps per component (Frames).
+// What the units of idr-frames share (lib/Transforms/Tail): the
+// component's lifetimes (ComponentLifetimes); one component's state while
+// its code moves into functions of their own (Continuations, the step;
+// Outline, a function made of moved code; Dissolve, a join point's
+// regions; Split, a lifetime's region), the calls made jumps on the stack,
+// the resumes and the wrappers (Jumps), and the pass that runs both steps
+// per component (Frames).
 #ifndef IDR_TRANSFORMS_TAIL_FRAMES_H
 #define IDR_TRANSFORMS_TAIL_FRAMES_H
 
@@ -17,9 +19,9 @@
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <concepts>
 #include <optional>
 
 namespace idr::tail::frames {
@@ -65,9 +67,24 @@ IndexArgsAttr concatArgs(mlir::MLIRContext *ctx, IndexArgsAttr a, IndexArgsAttr 
 // them all, in order, so every type of the code names its own levels.
 llvm::SmallVector<families::Sort> scopeSorts(mlir::Region *region);
 
+// Each value in scope at `op`, once: the arguments of its block and the
+// results of the ops before it there, then the same at each op around it,
+// out to its function's body. One walk up, keeping no set of values.
+template <std::invocable<mlir::Value> Visit>
+void forEachInScope(mlir::Operation *op, Visit &&visit) {
+  for (mlir::Operation *at = op; !llvm::isa<FuncOp>(at); at = at->getParentOp()) {
+    mlir::Block *block = at->getBlock();
+    for (mlir::BlockArgument arg : block->getArguments())
+      visit(arg);
+    for (mlir::Operation &before : llvm::make_range(block->begin(), at->getIterator()))
+      for (mlir::Value result : before.getResults())
+        visit(result);
+  }
+}
+
 // What the ops of `first`'s block from `first` on read that they do not
-// make, in the order first read: what a function made of them takes.
-llvm::SetVector<mlir::Value> liveIns(mlir::Operation *first);
+// make, each once, in scope order: what a function made of them takes.
+llvm::SmallVector<mlir::Value> liveIns(mlir::Operation *first);
 
 // `values` without the lifetimes among them, which a function made of code
 // reading them takes as the component's own.
@@ -140,7 +157,10 @@ private:
   void sinkInto(mlir::Operation *rejoin, CallOp call);
   void normalize(mlir::Block *root);
   mlir::LogicalResult dissolve(FuncOp owner, unsigned row, mlir::Operation *join);
-  mlir::LogicalResult split(FuncOp owner, unsigned row, CallOp site, mlir::Operation *opener);
+  // `opener` binds the per-level lifetime directly around `site`, whose
+  // package holds `packed`.
+  mlir::LogicalResult split(FuncOp owner, unsigned row, CallOp site, mlir::Operation *opener,
+                            Packed packed);
 
   mlir::RewriterBase &rewriter;
   mlir::SymbolTable &symbols;

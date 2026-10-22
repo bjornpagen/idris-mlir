@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Tail position, the one fact `idr.call` holds as its TailKind: defined
-// once, here, for the frontend's rule and for every pass that makes or
-// moves a call, and verified after every pass.
+// once, here, written on every call by the pass that makes the program
+// first order and by every pass that makes or moves a call, or changes
+// what follows one, and verified after every pass.
 //
 // A call in tail position never grows the stack: it becomes a loop, a
 // jump to a join point, or LLVM's `musttail` under `tailcc`. So the fact
-// is a promise the call keeps, not a reading of its surroundings: `tail`
-// demands the shape below, and a pass that puts anything after such a call
-// breaks the program, which the verifier reports as an internal error. A
-// shape that happens to allow a tail call on a `nontail` call breaks no
-// promise: only an optimization made that place, and decide() lets the
-// pass that made it say so.
+// is a promise the call keeps: `tail` demands the shape below, and a pass
+// that puts anything after such a call breaks the program. And from the
+// first-order program on, the fact is exactly decide's answer: a call in
+// tail position left an ordinary call, or a self call the rule below
+// admits left one, is a jump the compiler fails to make. The verifier
+// reports either as an internal error. The frontend decides none: its
+// program writes every call `nontail`, which promises nothing.
 //
 // A self call modulo a context (`modulo_context`) is the second promise:
 // its one result goes only into cells built for it whose value a tail
@@ -116,9 +118,10 @@ std::optional<Context> contextOf(CallOp call);
 
 // What `call`'s place in its function makes it: `tail` in tail position;
 // `modulo_context` for a self call contextOf admits; `nontail` otherwise.
-// The frontend writes the same, and a pass that makes a call, or moves one
-// (contification, inlining, specialization), writes what this gives at
-// the call's new place.
+// The pass that makes the program first order writes it on every call, and
+// a pass that makes a call, moves one (contification, inlining,
+// specialization) or changes what follows one writes what this gives at
+// the call's place.
 TailKind decide(CallOp call);
 
 // The parts of `call`'s fact the call alone can show: a `tail` call's
@@ -127,14 +130,16 @@ TailKind decide(CallOp call);
 // no operand of a `tail` or `modulo_context` call is, or lives in, a
 // lifetime that ends with the call (this call's activation, or one opened
 // around it), so no lifetime is handed over at a tail call;
-// a `modulo_context` call is a self call contextOf admits. Called by
+// a `modulo_context` call is a self call contextOf admits, and once every
+// fact is decided, a self call it admits is `modulo_context`. Called by
 // idr.call's verifier.
 mlir::LogicalResult verify(CallOp call);
 
 // The part of every call's fact only its function can show: each `tail`
-// call's block ends a tail of the function. One walk down the regions in
-// tail position, each region read once, called by idr.func's region
-// verifier.
+// call's block ends a tail of the function, and once every fact is
+// decided, each call whose block ends one is `tail`. One walk down the
+// regions in tail position, each region read once, called by idr.func's
+// region verifier.
 mlir::LogicalResult verify(FuncOp fn);
 
 } // namespace idr::tail
