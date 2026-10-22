@@ -57,7 +57,7 @@ DataMatchOp matchOf(OpBuilder &b, Location loc, TypeRange results, Value value, 
   DataMatchOp::Properties &properties = state.getOrAddProperties<DataMatchOp::Properties>();
   properties.cases = over.tags;
   properties.operandSegmentSizes = {1, 0, 0};
-  addRegions(state, over.cases.size());
+  control::addRegions(state, over.cases.size());
   return cast<DataMatchOp>(b.create(state));
 }
 

@@ -123,7 +123,7 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
       if (!arg || arg.getOwner() != &body || arg.getArgNumber() >= dims ||
           !seen.insert(arg.getArgNumber()).second ||
           !same({read.getTensor(), static_cast<int64_t>(at)},
-                arrays::extentOf(dps, arg.getArgNumber())))
+                arrays::extentOf(dps, arg.getArgNumber()).variable()))
         break;
       exprs.push_back(getAffineDimExpr(arg.getArgNumber(), ctx));
     }

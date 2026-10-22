@@ -54,7 +54,13 @@ BitSet<Id<Tag>> mark(const Csr<Tag> &g, std::span<const Id<Tag>> seeds) {
 // rises fires its plain edges, its guarded edges whose guard has risen,
 // and, as a guard, the edges it guards whose source has risen: every
 // clause is met by whichever of its two premises rises last.
-template <class Tag>
+//
+// Its tag is only ever deduced from the graph. The pack before it takes no
+// type, so the plain marking's `mark<Forward>(csr, ...)` drops this
+// overload at its explicit argument instead of naming `Forward` a tag,
+// which would build a gated graph of a direction, and an id no minter
+// numbers, before overload resolution could turn it away.
+template <int &...NoExplicitArgument, class Tag>
 BitSet<Id<Tag>> mark(const GatedCsr<Tag> &g, std::span<const Id<Tag>> seeds) {
   using Node = Id<Tag>;
   BitSet<Node> marked(g.size());

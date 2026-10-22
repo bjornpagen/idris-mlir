@@ -7,6 +7,7 @@
 ||| target names (`idr.platform.os`).
 module IdrisMLIR.Spec.Ops.Values
 
+import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
@@ -151,7 +152,10 @@ comparisonEnum = imported comparisonClosed
 ||| (an integer's and a Double's are arith.constant's, which every fold of
 ||| arith reads). Static data, used any number of times, held static where
 ||| its type holds references. Its verifier checks the value against its
-||| type through its fields and captures, once per module verify.
+||| type through its fields and captures, once per module verify. It holds
+||| the flow interface because its edges are the one place a constant's
+||| labels and references enter what the readers follow: a closure's label,
+||| a constructor's fields at their anchors.
 public export
 constantOp : Op 0 1 1 0
 constantOp = MkOp
@@ -163,7 +167,8 @@ constantOp = MkOp
   , regions = []
   , traits = [ConstantLike]
   , interfaces =
-      [ Declares SymbolUser ["verifySymbolUses"]
+      [ Implements flowInterface ["getFlowEdges"]
+      , Declares SymbolUser ["verifySymbolUses"]
       , Declares InferIntRange ["inferResultRanges"] ]
   , effects = computes
   , speculation = AlwaysSpeculatable

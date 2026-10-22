@@ -97,6 +97,9 @@ void keepAccount(FuncOp fn, const FrozenRewritePatternSet &tells, const Layouts 
   for (const counting::HoldPoint &point : counting::holdPoints(fn, layouts)) {
     OpBuilder b(point.where.block, point.where.next);
     Location loc = point.where.next->getLoc();
+    // A point's bytes are counted in the bound's own width, a signed word:
+    // a count of bytes of a 64-bit address space fits it, and so does its
+    // negation, the fall.
     auto bytes = static_cast<int64_t>(point.bytes);
     int64_t change = point.direction == counting::Direction::Rises ? bytes : -bytes;
     runtime.call(b, loc, idr::runtime::helper::peakHeld, i64Constant(b, loc, change));
