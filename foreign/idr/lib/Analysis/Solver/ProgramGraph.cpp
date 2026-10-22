@@ -11,6 +11,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <optional>
 #include <tuple>
 #include <utility>
 
@@ -39,15 +40,25 @@ void normalize(llvm::SmallVector<Call, 4> &row) {
   row = std::move(merged);
 }
 
+// `fn`'s calls as a row, each callee resolved by `resolve`, which gives none
+// for a callee that is no function yet: the one reading of a body's calls
+// into a row.
+template <class Resolve>
+llvm::SmallVector<Call, 4> rowFrom(FuncOp fn, const Resolve &resolve) {
+  llvm::SmallVector<Call, 4> row;
+  fn.getBody().walk([&](CallOp call) {
+    if (std::optional<FunctionId> callee = resolve(call.getCalleeAttr()))
+      row.push_back({*callee, call.getTailKind(), 1});
+  });
+  normalize(row);
+  return row;
+}
+
 } // namespace
 
 ProgramGraph::ProgramGraph(Operation *program, AnalysisManager &am) {
   const CallGraph &graph = am.getAnalysis<CallGraph>();
-  std::uint32_t ids = std::max(graph.getExternalCallerNode()->getIndex(),
-                               graph.getUnknownCalleeNode()->getIndex()) +
-                      1;
-  for (CallGraphNode *node : graph)
-    ids = std::max(ids, node->getIndex() + 1);
+  std::uint32_t ids = graph.getNumIndices();
   count = detail::GraphIds::functions(ids);
   ops = IndexVector<FunctionId, FuncOp>(count, FuncOp());
   // Every callable of a first-order program is an idr.func, nested in the
@@ -69,9 +80,10 @@ ProgramGraph::ProgramGraph(Operation *program, AnalysisManager &am) {
   std::vector<llvm::SmallVector<Call, 4>> perFunction(ids);
   parallelFor(program->getContext(), 0, live.size(), [&](std::size_t at) {
     std::uint32_t raw = live[at];
-    FuncOp fn = ops[detail::GraphIds::function(raw)];
-    llvm::SmallVector<Call, 4> &row = perFunction[raw];
-    fn.getBody().walk([&](CallOp call) { row.push_back({id(call.getCalleeAttr()), call.getTailKind(), 1}); });
+    perFunction[raw] = rowFrom(ops[detail::GraphIds::function(raw)],
+                               [&](FlatSymbolRefAttr callee) -> std::optional<FunctionId> {
+                                 return id(callee);
+                               });
   });
   lay(std::move(perFunction));
 
@@ -196,6 +208,17 @@ void Editor::moveInto(FunctionId f, FunctionId caller) {
 
 FunctionId Editor::id(FlatSymbolRefAttr callee) const {
   return byName.find(callee.getAttr())->second;
+}
+
+std::optional<FunctionId> Editor::find(FlatSymbolRefAttr callee) const {
+  auto it = byName.find(callee.getAttr());
+  if (it == byName.end())
+    return std::nullopt;
+  return it->second;
+}
+
+llvm::SmallVector<Call, 4> rowOf(FuncOp fn, const Editor &editor) {
+  return rowFrom(fn, [&](FlatSymbolRefAttr callee) { return editor.find(callee); });
 }
 
 void Editor::freeze() && {

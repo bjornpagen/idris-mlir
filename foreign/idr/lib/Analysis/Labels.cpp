@@ -64,10 +64,6 @@ unsigned at(Node node) { return llvm::to_underlying(node); }
 unsigned at(Label label) { return llvm::to_underlying(label); }
 unsigned at(Dispatch dispatch) { return llvm::to_underlying(dispatch); }
 
-bool byName(Attribute a, Attribute b) {
-  return cast<FlatSymbolRefAttr>(a).getValue() < cast<FlatSymbolRefAttr>(b).getValue();
-}
-
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -179,19 +175,11 @@ Node Graph::merge(Node x, Node y) {
 // The solve
 //===----------------------------------------------------------------------===//
 
-// The labels by name, each a rank; each class holds the labels that start
-// at its points.
-void Graph::rank() {
-  for (const auto &source : sources)
-    labelNames.push_back(source.second);
-  llvm::sort(labelNames, byName);
-  labelNames.erase(std::unique(labelNames.begin(), labelNames.end()), labelNames.end());
-  llvm::DenseMap<StringAttr, Label> ranks;
-  for (auto [position, label] : llvm::enumerate(labelNames))
-    ranks.try_emplace(label.getAttr(), Label(static_cast<std::uint32_t>(position)));
+// Each class holds the labels that start at its points.
+void Graph::seed() {
   std::vector<std::pair<Node, Label>> starts;
   for (const auto &[node, label] : sources)
-    starts.emplace_back(find(node), ranks.at(label.getAttr()));
+    starts.emplace_back(find(node), label);
   sources = {};
   llvm::sort(starts);
   starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
@@ -321,14 +309,14 @@ SmallVector<Firing> Graph::wave() {
 void Graph::fire(Firing firing) {
   auto [run, label] = firing;
   Statements owed;
-  readFiring(out.table, runs[at(run)].call, labelNames[at(label)], owed);
+  readFiring(out.table, runs[at(run)].call, runs[at(run)].standing, out.symbols[at(label)], owed);
   take(owed);
 }
 
 // Every node's labels are its root's, one attribute per set: its labels
-// in rank order, which is name order.
+// in the labels' order, their functions' order in the program.
 Solution Graph::solve() && {
-  rank();
+  seed();
   for (SmallVector<Firing> firings = wave(); !firings.empty(); firings = wave())
     for (Firing firing : firings)
       fire(firing);
@@ -341,10 +329,10 @@ Solution Graph::solve() && {
       continue;
     auto [it, made] = attrs.try_emplace(set);
     if (made) {
-      SmallVector<Attribute> names;
+      SmallVector<Attribute> members;
       for (Label label : sets.members(set))
-        names.push_back(labelNames[at(label)]);
-      it->second = ArrayAttr::get(out.empty.getContext(), names);
+        members.push_back(out.symbols[at(label)]);
+      it->second = ArrayAttr::get(out.empty.getContext(), members);
     }
     out.labels[node] = it->second;
   }
@@ -369,15 +357,28 @@ std::optional<FlowPoint> Solution::sinkOf(OpOperand &operand) const {
   return std::nullopt;
 }
 
+// Both sets hold their labels in one order, so `a`'s labels are met along
+// `b` in their own order, each after the one before.
 bool within(ArrayAttr a, ArrayAttr b) {
-  return a == b || llvm::all_of(a, [&](Attribute label) {
-           return std::binary_search(b.begin(), b.end(), label, byName);
-         });
+  if (a == b)
+    return true;
+  ArrayRef<Attribute> along = b.getValue();
+  const Attribute *at = along.begin();
+  for (Attribute label : a) {
+    at = std::find(at, along.end(), label);
+    if (at == along.end())
+      return false;
+    ++at;
+  }
+  return true;
 }
 
-std::optional<unsigned> positionIn(ArrayAttr set, FlatSymbolRefAttr label) {
+std::optional<unsigned> Solution::positionIn(ArrayAttr set, FlatSymbolRefAttr label) const {
+  Label wanted = labelOf(label);
   ArrayRef<Attribute> labels = set.getValue();
-  const Attribute *it = llvm::lower_bound(labels, Attribute(label), byName);
+  const Attribute *it = llvm::partition_point(labels, [&](Attribute member) {
+    return labelOf(cast<FlatSymbolRefAttr>(member)) < wanted;
+  });
   if (it == labels.end() || *it != label)
     return std::nullopt;
   return static_cast<unsigned>(it - labels.begin());

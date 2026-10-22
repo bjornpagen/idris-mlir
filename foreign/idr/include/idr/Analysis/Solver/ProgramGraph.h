@@ -42,6 +42,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -195,7 +196,11 @@ public:
   // and the calls of `f` from `caller` go.
   void moveInto(FunctionId f, FunctionId caller);
   std::span<const Call> callees(FunctionId f) const { return rows[f.index()]; }
+  // The function `callee` names, which the verifier proved one.
   FunctionId id(mlir::FlatSymbolRefAttr callee) const;
+  // The function `callee` names, or none: a copy the pass has made and not
+  // yet inserted is no function of the graph until it is.
+  std::optional<FunctionId> find(mlir::FlatSymbolRefAttr callee) const;
   // The id space so far: the graph's, and every function inserted since.
   Count<FunctionId> size() const {
     return detail::GraphIds::functions(static_cast<std::uint32_t>(rows.size()));
@@ -212,6 +217,14 @@ private:
   std::vector<idr::FuncOp> ops;
   llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
 };
+
+// `fn`'s row as its calls now are, what a restructuring pass gives
+// Editor::setCallees for each function it makes or changes: each distinct
+// (callee, tail kind) once with how many of its calls have it, in the one
+// order every row has, whoever writes it. A call of a copy the editor does
+// not hold yet is in no row until the copy is inserted and its caller's row
+// written again.
+llvm::SmallVector<Call, 4> rowOf(idr::FuncOp fn, const Editor &editor);
 
 // What resolves a callee to its function: the frozen graph, or the editor
 // of the restructuring pass that holds it thawed.

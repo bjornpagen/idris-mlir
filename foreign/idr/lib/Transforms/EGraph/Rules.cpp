@@ -5,14 +5,24 @@
 // right side over them, and the dispatch of the hand skeleton rules. A
 // pattern is a constant of the specification, so the matcher's descent
 // through one is bounded by the specification, never by the input.
+//
+// The skeleton rules are each area's hand classes, declared where the
+// specification names them: the control flow's, the guards' and output's,
+// the arrays', the closures'.
 #include "Engine.h"
 
+#include "idr/IR/Arrays.h"
 #include "idr/IR/Control/Control.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Ops/Rules.h"
+#include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
 #include <span>
@@ -80,6 +90,34 @@ void rewriteOne(table::RuleList<Rs...>, std::uint32_t rule, Operation *op, const
   (run.template operator()<Rs>(), ...);
 }
 
+// The integer a constant is: an integer's bits at its width, read signed,
+// or a big's value. Any other constant is no integer.
+std::optional<APInt> integerOf(Attribute constant) {
+  if (auto integer = dyn_cast_if_present<IntegerAttr>(constant))
+    return integer.getValue();
+  if (auto big = dyn_cast_if_present<BigAttr>(constant))
+    return big.getValue();
+  return std::nullopt;
+}
+
+// The literal `value` as a constant of `type`, the type of the place it
+// fills: a big, a natural where it is not negative, or an integer of the
+// type's width where it fits; none at any other type, so the rule does not
+// apply there.
+Attribute literalOf(Type type, std::int64_t value) {
+  Type plain = unrestricted(type);
+  if (isa<BigType>(plain) || (isa<NatType>(plain) && value >= 0))
+    return BigAttr::get(type.getContext(),
+                        APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true));
+  if (!plain.isIntOrIndex())
+    return Attribute();
+  unsigned width =
+      plain.isIndex() ? IndexType::kInternalStorageBitWidth : plain.getIntOrFloatBitWidth();
+  if (!llvm::isIntN(width, value))
+    return Attribute();
+  return IntegerAttr::get(plain, value);
+}
+
 } // namespace
 
 Kinds makeKinds(MLIRContext *context) {
@@ -120,9 +158,8 @@ std::optional<std::uint32_t> Function::matchClass(std::uint32_t at, ClassId cls,
     return at + 1;
   }
   case table::PatternKind::Literal: {
-    auto integer = dyn_cast_if_present<IntegerAttr>(this->at(cls).constant);
-    if (!integer || integer.getValue().getSignificantBits() > 64 ||
-        integer.getValue().getSExtValue() != pattern.literal)
+    std::optional<APInt> value = integerOf(this->at(cls).constant);
+    if (!value || value->getSignificantBits() > 64 || value->getSExtValue() != pattern.literal)
       return std::nullopt;
     return at + 1;
   }
@@ -166,8 +203,8 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   case table::ConditionKind::IsConstant:
     return static_cast<bool>(cls.constant);
   case table::ConditionKind::PowerOfTwo: {
-    auto integer = dyn_cast_if_present<IntegerAttr>(cls.constant);
-    return integer && integer.getValue().isStrictlyPositive() && integer.getValue().isPowerOf2();
+    std::optional<APInt> value = integerOf(cls.constant);
+    return value && value->isStrictlyPositive() && value->isPowerOf2();
   }
   case table::ConditionKind::InRange:
     return cls.range && cls.range->smin().getSignificantBits() <= 64 &&
@@ -181,19 +218,23 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
 }
 
 // The right side's subtree at `at`, built bottom-up: a variable is its
-// class; a literal a constant of the type its place takes, materialized by
-// the dialect of the op the rule is rooted at; a node made over
-// its operands' classes, of `type` at the top and of its first operand's
-// type below (the arithmetic a rule builds keeps its operands' type). Its
-// insertion runs no rules.
+// class; a literal a constant of the type its place takes, an integer or a
+// big as that type holds one, materialized by the dialect of the op the
+// rule is rooted at; a node made over its operands' classes, of `type` at
+// the top and of its first operand's type below (the arithmetic a rule
+// builds keeps its operands' type). Its insertion runs no rules.
 std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindings &bindings,
                                            std::uint32_t &at, Type type, Dialect *dialect) {
   const table::PatternNode &pattern = generated::patterns[at++];
   switch (pattern.kind) {
   case table::PatternKind::Var:
     return bindings.vars[pattern.var];
-  case table::PatternKind::Literal:
-    return constant(IntegerAttr::get(type, pattern.literal), type, dialect);
+  case table::PatternKind::Literal: {
+    Attribute value = literalOf(type, pattern.literal);
+    if (!value)
+      return std::nullopt;
+    return constant(value, type, dialect);
+  }
   case table::PatternKind::Node: {
     SmallVector<ClassId, 4> operands;
     for (std::uint8_t i = 0; i < pattern.arity; ++i) {

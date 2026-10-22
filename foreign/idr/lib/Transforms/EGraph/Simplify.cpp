@@ -48,11 +48,13 @@ void CalleeFacts::publish(solver::FunctionId f, identities::Facts given) {
   facts[f] = std::move(given);
 }
 
+// A callee the editor does not hold yet (a copy its wave made) has no facts
+// yet, and neither has one inserted since the table last grew.
 std::span<const identities::GivesBack> CalleeFacts::of(FlatSymbolRefAttr callee) const {
-  solver::FunctionId f = names->id(callee);
-  if (f.index() >= facts.size().value())
+  std::optional<solver::FunctionId> f = names->find(callee);
+  if (!f || f->index() >= facts.size().value())
     return {};
-  return facts[f];
+  return facts[*f];
 }
 
 // What one node costs the arena, every table it enters counted: the node,

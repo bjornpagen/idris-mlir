@@ -38,14 +38,20 @@ std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
 
 namespace {
 
-// How an op enters the e-graph, read off its declared effects alone, the
+// How an op enters the e-graph, read off its declared effects, the
 // declaration every reader of effects reads: none, or an acquisition of
 // memory for the op itself, which only reports, floats; an op whose every
 // effect gives its result a fresh identity is a node of its own; an op
 // that only reads may merge with an equal read no write separates from
 // it; every other op is ordered. An op that declares nothing it does is
 // ordered: what it does is not known.
-enum class Entry : std::uint8_t { Floats, OwnIdentity, Reads, Ordered };
+//
+// An op whose value depends on its parent (DependsOnParent: the iteration
+// index of the structured op around it) computes something else under
+// another parent, so it is never one node with an equal op elsewhere: it
+// stays where it is, under its parent, and is one value only with an equal
+// op of the same region, which nothing between can change.
+enum class Entry : std::uint8_t { Floats, OwnIdentity, Reads, OfParent, Ordered };
 
 Entry entryOf(Operation *op) {
   auto effects = dyn_cast<MemoryEffectOpInterface>(op);
@@ -67,6 +73,8 @@ Entry entryOf(Operation *op) {
   }
   if (reads)
     return Entry::Reads;
+  if (op->hasTrait<OpTrait::DependsOnParent>())
+    return owns ? Entry::Ordered : Entry::OfParent;
   return owns ? Entry::OwnIdentity : Entry::Floats;
 }
 
@@ -339,14 +347,15 @@ void Function::build() {
   // Each region's skeleton is a run of `skeleton`, gathered in a list per
   // region as the walk meets its ops and laid out once the walk is done.
   std::vector<std::vector<Skeletal>> perRegion(1);
-  // A read each region may still merge a later equal read into, with where
-  // in the region's list the ops after it start, none of which may change
-  // what it reads.
-  struct OpenRead {
+  // An op each region may still merge a later equal op into, a read or an
+  // op of the region's parent, with where in the region's list the ops
+  // after it start: none of them may change what a read reads, and nothing
+  // changes what an op of the parent computes there.
+  struct Mergeable {
     Operation *op;
     std::uint32_t since;
   };
-  std::vector<std::vector<OpenRead>> openReads(1);
+  std::vector<std::vector<Mergeable>> mergeable(1);
   // The regions the walk is in, innermost last, and the first region of
   // each region op it is inside.
   std::vector<RegionId> open{body};
@@ -371,7 +380,7 @@ void Function::build() {
           firstRegions.push_back(id);
         open.push_back(id);
         perRegion.emplace_back();
-        openReads.emplace_back();
+        mergeable.emplace_back();
         for (Block &block : region)
           for (BlockArgument arg : block.getArguments())
             classOf[numbering.at(arg)] = leaf(arg);
@@ -399,25 +408,31 @@ void Function::build() {
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing
-      // between that may change it is the first read.
+      // between that may change it is the first read; a repeated op of the
+      // region's parent is the first.
       std::vector<Skeletal> &list = perRegion[region.index()];
-      std::vector<OpenRead> &reads = openReads[region.index()];
+      std::vector<Mergeable> &earlier = mergeable[region.index()];
       Fate fate = Kept{};
-      if (entry == Entry::Reads && !staysPut(op)) {
-        for (const OpenRead &read : reads)
-          if (read.op->getName() == op->getName() &&
-              read.op->getResultTypes() == op->getResultTypes() &&
-              classesOf(read.op) == classesOf(op) &&
-              read.op->getRawDictionaryAttrs() == op->getRawDictionaryAttrs() &&
-              op->getName().compareOpProperties(read.op->getPropertiesStorage(),
+      if ((entry == Entry::Reads || entry == Entry::OfParent) && !staysPut(op)) {
+        auto unchanged = [&](const Mergeable &first) {
+          if (entry == Entry::OfParent)
+            return true;
+          return llvm::none_of(llvm::ArrayRef(list).drop_front(first.since),
+                               [&](const Skeletal &between) { return mayChange(between.op, op); });
+        };
+        for (const Mergeable &first : earlier)
+          if (first.op->getName() == op->getName() &&
+              first.op->getResultTypes() == op->getResultTypes() &&
+              classesOf(first.op) == classesOf(op) &&
+              first.op->getRawDictionaryAttrs() == op->getRawDictionaryAttrs() &&
+              op->getName().compareOpProperties(first.op->getPropertiesStorage(),
                                                 op->getPropertiesStorage()) &&
-              llvm::none_of(llvm::ArrayRef(list).drop_front(read.since),
-                            [&](const Skeletal &between) { return mayChange(between.op, op); })) {
-            fate = Merged{read.op};
+              unchanged(first)) {
+            fate = Merged{first.op};
             break;
           }
         if (std::holds_alternative<Kept>(fate))
-          reads.push_back({op, static_cast<std::uint32_t>(list.size() + 1)});
+          earlier.push_back({op, static_cast<std::uint32_t>(list.size() + 1)});
       }
       if (const auto *merged = std::get_if<Merged>(&fate)) {
         for (auto [mine, theirs] : llvm::zip_equal(op->getResults(), merged->into->getResults()))
@@ -440,14 +455,16 @@ void Function::build() {
 // demanded, or is demanded nowhere; and a value the write-back made for an
 // op an edit then erased is demanded nowhere either. Every op that floats
 // and is unused goes, users before what they use: one that floats has no
-// effect to lose, and one with an identity is deletable when unused. The
+// effect to lose, and one with an identity is deletable when unused; so
+// does an op of its parent no op uses, which has no effect either. The
 // walk meets only ops still in the function, never one an edit erased with
 // its region.
 void Function::sweep(RewriterBase &rewriter) {
   std::vector<Operation *> ops;
   fn.getBody().walk([&](Operation *op) {
     Entry entry = entryOf(op);
-    if (!staysPut(op) && (entry == Entry::Floats || entry == Entry::OwnIdentity))
+    if (!staysPut(op) &&
+        (entry == Entry::Floats || entry == Entry::OwnIdentity || entry == Entry::OfParent))
       ops.push_back(op);
   });
   for (Operation *op : llvm::reverse(ops))

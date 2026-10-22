@@ -8,14 +8,16 @@
 // identity of its result is a node of its own, never merged, placed at
 // most once per path; every other op, a region op, a call in tail
 // position and a terminator stays in the skeleton of its region, in
-// order. A node is made with its classes' analyses (a constant, by the
-// op's fold with constant operands only; an interval, by upstream's
-// transfer functions) and the specification's rules rooted at its kind
-// run at once, each right side built the same way: Simplify replaces the
-// node's class, Equal makes a new class of both. A class never changes
-// once made, so no id goes stale and nothing is rebuilt. A repeated read
-// in a region with no write of what it reads between merges into the
-// first; the skeleton rules decide their edits.
+// order, and so does an op whose value depends on its parent
+// (DependsOnParent), which two parents would make two values. A node is
+// made with its classes' analyses (a constant, by the op's fold with
+// constant operands only; an interval, by upstream's transfer functions)
+// and the specification's rules rooted at its kind run at once, each right
+// side built the same way: Simplify replaces the node's class, Equal makes
+// a new class of both. A class never changes once made, so no id goes
+// stale and nothing is rebuilt. A repeated read in a region with no write
+// of what it reads between merges into the first, and a repeated op of the
+// region's parent into the first; the skeleton rules decide their edits.
 //
 // Extract: each class's cheapest member, bottom-up in creation order,
 // ties to the larger id.

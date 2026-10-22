@@ -2,11 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Summaries over the program graph's components: the solve shape of every
 // per-function fact a caller reads (an effect row, a lifetime signature, a
-// binding time, a return range) or a callee reads (an argument range, a
-// dead result). One static schedule: a component starts when the last
-// component it reads finishes, callees first or callers first, as
-// dependency-count tasks on the context's pool with no barrier; inside a
-// component its members are solved together to their least fixpoint.
+// binding time) or a callee reads (a dead result). Each component runs on
+// the one static schedule (Schedule.h), after the components it reads,
+// callees first or callers first; inside a component its members are
+// solved together to their least fixpoint.
 //
 // A problem's local facts (a function's own ops, projected) are extracted
 // per function before the solve and held by the problem, so the solve

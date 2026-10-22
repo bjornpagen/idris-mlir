@@ -27,6 +27,15 @@
 // program whose points share a few large sets is solved in time and space
 // near the size of those sets, not of the points times their labels.
 //
+// A label is its function's position among the program's functions,
+// minted once when the program is read: the one order of labels, in which
+// every set is held, answered and made a sum's tags. A name is text for a
+// human, and never orders anything here.
+//
+// A call in tail position gives its caller's results, so the labels its
+// callee returns are its caller's: the two functions' result points are one
+// set, and a closure a tail call returns needs no conversion after it.
+//
 // The graph is spent by its solve, which leaves a Solution: every point's
 // node, each node's labels and each operand's sink, read and never written
 // from then on.
@@ -78,9 +87,9 @@ namespace labels {
 
 // A node of the graph: one per point, numbered as met.
 enum class Node : unsigned {};
-// A label, by its rank among the program's labels in name order: a set's
-// members in rank order are its labels in the order of its ArrayAttr and
-// of its sum's tags.
+// A label, by its function's position among the program's functions: a
+// set's members in that order are its labels in the order of its ArrayAttr
+// and of its sum's tags.
 enum class Label : std::uint32_t {};
 // A set of labels, interned: equal sets are one SetId, and SetId{0} is the
 // empty set.
@@ -115,6 +124,9 @@ using PointKey = std::variant<mlir::Value, FlowAnchor, ResultKey>;
 // read.
 PointKey keyOf(const mlir::SymbolTable &table, const FlowPoint &point);
 
+// Where a call stands: in tail position its results are its caller's.
+enum class Standing : std::uint8_t { Within, Tail };
+
 // What the program states of its labels, point by point, as the reading
 // meets it: a label starts at a point; one point's labels are at another
 // (Include), or two points hold one set (Unify); a call runs each label a
@@ -130,9 +142,12 @@ struct Statements {
     PointKey from, to;
     Link how;
   };
+  // A dispatch, with where it stands, read once: the edges of every label
+  // it runs follow from both.
   struct Dispatched {
     PointKey callee;
     mlir::CallOpInterface call;
+    Standing standing;
   };
   std::vector<Source> sources;
   std::vector<Linked> links;
@@ -142,23 +157,22 @@ struct Statements {
 // States every edge of `program` that carries a label, and the constants'
 // parts where they are held, into `to`; and gives each operand that moves
 // a label its one sink in `sinks`. A use that moves into two points states
-// them one set.
+// them one set, and so does a direct call in tail position its callee's
+// result points and its caller's.
 void readProgram(mlir::Operation *program, const mlir::SymbolTable &table, Statements &to,
                  llvm::DenseMap<mlir::OpOperand *, FlowPoint> &sinks);
 
-// States the edges `label` owes at `call`, a dispatch that runs it: the
-// call's arguments at the label's parameters after its captures, and its
-// results at the call's.
-void readFiring(const mlir::SymbolTable &table, mlir::CallOpInterface call,
+// States the edges `label` owes at `call`, a dispatch that runs it and
+// stands where `standing` says: the call's arguments at the label's
+// parameters after its captures, its results at the call's, and, in tail
+// position, the label's result points one set with its caller's.
+void readFiring(const mlir::SymbolTable &table, mlir::CallOpInterface call, Standing standing,
                 mlir::FlatSymbolRefAttr label, Statements &to);
 
-// Whether every label of `a` is one of `b`'s, both sets of labelsOf (name
-// order): a binary search in `b` for each label of `a`.
+// Whether every label of `a` is one of `b`'s, both sets of labelsOf, held
+// in the solve's one order of labels: one walk along `b`, each label of `a`
+// met after the one before, by identity.
 bool within(mlir::ArrayAttr a, mlir::ArrayAttr b);
-
-// The position of `label` in `set`, a set of labelsOf (name order); none
-// when the set does not hold it.
-std::optional<unsigned> positionIn(mlir::ArrayAttr set, mlir::FlatSymbolRefAttr label);
 
 // What the solve leaves: the node of every point an edge named, the labels
 // of each node, and the one sink of each operand. It is never written once
@@ -171,18 +185,29 @@ public:
   PointKey keyOf(const FlowPoint &point) const { return labels::keyOf(table, point); }
   std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const;
   FuncOp function(mlir::StringAttr label) const { return table.lookup<FuncOp>(label); }
+  // The position of `label` in `set`, a set of labelsOf: a binary search by
+  // the labels' one order; none when the set does not hold it.
+  std::optional<unsigned> positionIn(mlir::ArrayAttr set, mlir::FlatSymbolRefAttr label) const;
 
 private:
   friend class Graph;
   explicit Solution(const mlir::SymbolTable &table);
 
+  // The label `symbol` names: the verifier proved it a function of the
+  // program.
+  Label labelOf(mlir::FlatSymbolRefAttr symbol) const { return ranks.find(symbol.getAttr())->second; }
+
   const mlir::SymbolTable &table;
   mlir::ArrayAttr empty;
+  // The labels: each function's symbol by its label, and each function's
+  // label by its name, the one place a symbol becomes a label.
+  std::vector<mlir::FlatSymbolRefAttr> symbols;
+  llvm::DenseMap<mlir::StringAttr, Label> ranks;
   // The points that have nodes.
   llvm::DenseMap<PointKey, Node> nodes;
   // Each operand's one sink.
   llvm::DenseMap<mlir::OpOperand *, FlowPoint> sinks;
-  // Each node's labels in name order, one uniqued attribute per set.
+  // Each node's labels in the labels' order, one uniqued attribute per set.
   std::vector<mlir::ArrayAttr> labels;
 };
 
@@ -223,6 +248,8 @@ class Graph {
 public:
   explicit Graph(const mlir::SymbolTable &table);
 
+  // Mints a label for each function of `program`, an idr.program, in
+  // program order, then reads its statements.
   void walk(mlir::Operation *program);
   // The least solution of the statements; the graph is spent.
   Solution solve() &&;
@@ -234,16 +261,18 @@ private:
     SetId labels{};
     llvm::SmallVector<Node, 2> successors;
   };
-  // A dispatch: its call, the node of its callee, and the labels it has run,
-  // a subset of its callee's set that grows to it at each wave's end.
+  // A dispatch: its call, where it stands, the node of its callee, and the
+  // labels it has run, a subset of its callee's set that grows to it at
+  // each wave's end.
   struct Run {
     mlir::CallOpInterface call;
+    Standing standing;
     Node callee;
     SetId ran{};
   };
 
   // The solve's reading of statements: a point is its node, a source waits
-  // for the labels' ranks, an edge links the nodes, and a dispatch runs
+  // for the first wave, an edge links the nodes, and a dispatch runs
   // nothing until the first wave ends.
   void take(const Statements &statements);
 
@@ -251,7 +280,7 @@ private:
   Node nodeOf(const PointKey &key);
   Node fresh();
   Node find(Node node);
-  void rank();
+  void seed();
 
   // Edges.
   void link(Node from, Node to, Link how);
@@ -270,10 +299,8 @@ private:
   std::vector<Class> classes;
   SetTable sets;
 
-  // Where each label starts, by name until the labels are ranked.
-  std::vector<std::pair<Node, mlir::FlatSymbolRefAttr>> sources;
-  // Labels by rank: name order.
-  std::vector<mlir::FlatSymbolRefAttr> labelNames;
+  // Where each label starts, until the first wave.
+  std::vector<std::pair<Node, Label>> sources;
   std::vector<Run> runs;
 
   // What the next wave owes: the targets of the edges added since the
@@ -302,10 +329,11 @@ public:
   Labels(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // The labels a closure or suspension at a point may be: a uniqued
-  // ArrayAttr of FlatSymbolRefAttr in name order, the empty ArrayAttr where
-  // no label reaches. A point whose carrier carries no label holds the
-  // empty set. Two equal sets are one attribute. A part of a value is its
-  // anchor, the same for every value of its kind.
+  // ArrayAttr of FlatSymbolRefAttr in the labels' one order (their
+  // functions' order in the program), the empty ArrayAttr where no label
+  // reaches. A point whose carrier carries no label holds the empty set.
+  // Two equal sets are one attribute. A part of a value is its anchor, the
+  // same for every value of its kind.
   mlir::ArrayAttr labelsOf(mlir::Value value) const { return solution.labelsOf(value); }
   mlir::ArrayAttr labelsOf(const FlowPoint &point) const {
     return solution.labelsOf(solution.keyOf(point));
@@ -328,6 +356,12 @@ public:
 
   // The function of `label`, from the program's table.
   FuncOp function(mlir::StringAttr label) const { return solution.function(label); }
+
+  // The position of `label` in `set`, a set of labelsOf, which is its tag
+  // in the sum of that set; none when the set does not hold it.
+  std::optional<unsigned> positionIn(mlir::ArrayAttr set, mlir::FlatSymbolRefAttr label) const {
+    return solution.positionIn(set, label);
+  }
 
 private:
   labels::Solution solution;

@@ -6,8 +6,11 @@
 // argument; the same value as another or a field of a refined value
 // (idr::sourceOf); a call's result; a constructor; a natural's successor or
 // predecessor; a match's result; a constant; or opaque. A call is resolved
-// to its callee's id once, here. The read writes nothing outside the
-// record and reads the body once.
+// to its callee's id once, here. Each use that can rebuild a part carries
+// what the case regions around it say of their scrutinees: a data match's
+// region binds its scrutinee refined, to one constructor in a case and to
+// the ones left in its default; a literal match's case is its literal. The
+// read writes nothing outside the record and reads the body once.
 #include "Solver/IdentityRecords.h"
 
 #include "idr/IR/Families/Families.h"
@@ -37,6 +40,15 @@ Represents representation(Type a, Type b) {
   return Represents::Differently;
 }
 
+// A big is an APInt of whatever width it was written at, so two bigs are
+// one literal when their values are one.
+bool operator==(const KnownLiteral &a, const KnownLiteral &b) {
+  if (a.literal == b.literal)
+    return true;
+  auto x = dyn_cast<BigAttr>(a.literal), y = dyn_cast<BigAttr>(b.literal);
+  return x && y && APInt::isSameValue(x.getValue(), y.getValue());
+}
+
 namespace {
 
 // A big or natural constant one: what a successor adds.
@@ -45,13 +57,33 @@ bool isOne(Value value) {
   return matchPattern(value, m_Constant(&big)) && big.getValue().isOne();
 }
 
-// The tag of a constant constructor with no fields: the one value it has.
-std::optional<Tag> fieldlessTag(Attribute constant, Type type) {
+// What a constant of `type` is to a case: a constructor with no fields has
+// one value, its tag; any other constant is its literal.
+Known knownOf(Attribute constant, Type type) {
   auto con = dyn_cast<ConAttr>(constant);
   auto data = dyn_cast<DataType>(unrestricted(type));
-  if (!con || !data || !data.ctor(con.getTag()).fields.empty())
+  if (con && data && data.ctor(con.getTag()).fields.empty())
+    return KnownTag{con.getTag()};
+  return KnownLiteral{constant};
+}
+
+// What `region` of `match` says of the scrutinee where it runs, where it
+// says one thing: a case of a literal match its literal; a region of a data
+// match the constructor its binding is refined to, where one is left.
+std::optional<Known> knownIn(MatchOpInterface match, Region &region) {
+  if (auto literal = dyn_cast<LitMatchOp>(match.getOperation())) {
+    if (&region == &match.getDefaultRegion())
+      return std::nullopt;
+    return KnownLiteral{literal.getCases()[match.caseOf(region)]};
+  }
+  if (region.front().getNumArguments() == 0)
     return std::nullopt;
-  return con.getTag();
+  auto refined = dyn_cast<DataType>(unrestricted(region.front().getArgument(0).getType()));
+  if (!refined)
+    return std::nullopt;
+  if (std::optional<Tag> tag = refined.singleTag())
+    return KnownTag{*tag};
+  return std::nullopt;
 }
 
 template <solver::FunctionNames N>
@@ -85,21 +117,18 @@ private:
   std::uint32_t lastSide = 0;
 };
 
-// The case regions around `at`, inner first, each with the constructor it
-// is entered at: the one constructor the scrutinee it binds is refined to.
+// The case regions around `at`, inner first, each with what it says of its
+// scrutinee.
 template <solver::FunctionNames N>
 Range Reader<N>::framesAt(Operation *at) {
   Range range{static_cast<std::uint32_t>(out.frames.size()), 0};
   for (Region *region = at->getParentRegion(); region && region->getParentOp() != fn.getOperation();
        region = region->getParentRegion()) {
     auto match = dyn_cast<MatchOpInterface>(region->getParentOp());
-    if (!match || region->empty() || region->front().getNumArguments() == 0)
+    if (!match || region->empty())
       continue;
-    auto refined = dyn_cast<DataType>(unrestricted(region->front().getArgument(0).getType()));
-    if (!refined)
-      continue;
-    if (std::optional<Tag> tag = refined.singleTag())
-      out.frames.push_back({numbering.at(match.getScrutinee()), *tag});
+    if (std::optional<Known> known = knownIn(match, *region))
+      out.frames.push_back({numbering.at(match.getScrutinee()), *known});
   }
   range.count = static_cast<std::uint32_t>(out.frames.size()) - range.first;
   return range;
@@ -157,7 +186,7 @@ Build Reader<N>::ofResult(OpResult result) {
   }
   Attribute constant;
   if (matchPattern(result, m_Constant(&constant)))
-    return build::Constant{constant, result.getType(), fieldlessTag(constant, result.getType())};
+    return build::Constant{knownOf(constant, result.getType()), result.getType()};
   return build::Opaque{};
 }
 

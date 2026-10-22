@@ -7,6 +7,7 @@
 // program's poison as any value.
 #include "idr/Analysis/Ranges.h"
 
+#include "idr/Analysis/Solver/Schedule.h"
 #include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
@@ -100,6 +101,14 @@ void joinInto(IntegerValueRange &into, const IntegerValueRange &range) {
   into = IntegerValueRange::join(into, range);
 }
 
+// What one function passes one callee of another component: the join over
+// its calls of that callee of each argument's range, uninitialized where
+// no call was reached.
+struct Passed {
+  idr::solver::FunctionId callee;
+  idr::RangeSummary arguments;
+};
+
 } // namespace
 
 namespace idr {
@@ -124,7 +133,7 @@ FailureOr<std::unique_ptr<const Ranges::Solved>> Ranges::solve(FuncOp fn) const 
   return std::unique_ptr<const Solved>(std::move(solved));
 }
 
-Ranges::Ranges(Operation *, AnalysisManager &am)
+Ranges::Ranges(Operation *program, AnalysisManager &am)
     : graph(std::get<0>(reads(am))),
       returns(graph.size(),
               [&](solver::FunctionId f) {
@@ -135,6 +144,7 @@ Ranges::Ranges(Operation *, AnalysisManager &am)
         FuncOp fn = graph.op(f);
         return fn ? RangeSummary(fn.getNumArguments()) : RangeSummary();
       }) {
+  MLIRContext &context = *program->getContext();
   auto cyclic = [&](solver::SccId c) {
     IdRange<solver::FunctionId> members = graph.members(c);
     return members.size() > 1 || graph.callsItself(members.front());
@@ -143,7 +153,7 @@ Ranges::Ranges(Operation *, AnalysisManager &am)
   // What each function returns, callees first: the join over its returns
   // of what reaches them. A callee of the same component not yet solved
   // gives its type's range.
-  for (solver::SccId c : graph.sccCount().ids())
+  solver::inSchedule<CalleesFirst>(graph, context, [&](solver::SccId c) {
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow returns", fn.getSymName());
@@ -159,37 +169,61 @@ Ranges::Ranges(Operation *, AnalysisManager &am)
             joinInto(into, IntegerValueRange(*range));
       });
     }
+  });
 
   // What each function is passed, callers first: the join over its callers
-  // of what reaches each call. A component that feeds itself starts every
-  // member at its type's range.
-  std::vector<solver::SccId> callersFirst;
-  for (solver::SccId c : graph.sccCount().ids())
-    callersFirst.push_back(c);
-  for (solver::SccId c : llvm::reverse(callersFirst)) {
+  // of what each passes it, read from the callers' finished components in
+  // id order. A component that feeds itself starts every member at its
+  // type's range. Each member then keeps what it passes each callee of
+  // another component, in callee order, for that callee's component.
+  IndexVector<solver::FunctionId, std::vector<Passed>> passed(graph.size());
+  solver::inSchedule<CallersFirst>(graph, context, [&](solver::SccId c) {
     bool feedsItself = cyclic(c);
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
-      if (feedsItself)
+      if (feedsItself) {
         for (auto [summary, arg] : llvm::zip_equal(arguments[f], fn.getArguments()))
           summary = IntegerValueRange::getMaxRange(arg);
+        continue;
+      }
+      for (solver::FunctionId caller : graph.callers(f)) {
+        const std::vector<Passed> &theirs = passed[caller];
+        auto it = llvm::partition_point(
+            theirs, [&](const Passed &entry) { return entry.callee < f; });
+        if (it == theirs.end() || it->callee != f)
+          continue;
+        for (auto [into, range] : llvm::zip_equal(arguments[f], it->arguments))
+          joinInto(into, range);
+      }
     }
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow arguments", fn.getSymName());
       FailureOr<std::unique_ptr<const Solved>> solved = solve(fn);
-      if (failed(solved))
-        continue;
+      // What a call passes: what its solve found, nothing where the solve
+      // never reached it; a caller whose solve failed knows nothing of what
+      // it passes, so it passes every value the operand's type allows.
+      auto passing = [&](Value operand) -> IntegerValueRange {
+        if (failed(solved))
+          return IntegerValueRange::getMaxRange(operand);
+        if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
+          return IntegerValueRange(*range);
+        return IntegerValueRange();
+      };
+      std::vector<Passed> &mine = passed[f];
       fn.getBody().walk([&](CallOp call) {
         solver::FunctionId callee = graph.id(call.getCalleeAttr());
         if (graph.sccOf(callee) == c)
           return;
-        for (auto [into, operand] : llvm::zip_equal(arguments[callee], call.getArgs()))
-          if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
-            joinInto(into, IntegerValueRange(*range));
+        auto it = llvm::partition_point(
+            mine, [&](const Passed &entry) { return entry.callee < callee; });
+        if (it == mine.end() || it->callee != callee)
+          it = mine.insert(it, Passed{callee, RangeSummary(call.getArgs().size())});
+        for (auto [into, operand] : llvm::zip_equal(it->arguments, call.getArgs()))
+          joinInto(into, passing(operand));
       });
     }
-  }
+  });
 }
 
 } // namespace idr

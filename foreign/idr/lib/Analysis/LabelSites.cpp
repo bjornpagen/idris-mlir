@@ -6,12 +6,15 @@
 // expands the constants' parts where they are held. Every point is
 // normalized to its key (keyOf) before it is stated: a function's parameter
 // is its entry block's argument, one key; a part of a value is its
-// anchor's key.
+// anchor's key. A call in tail position, direct by its own fact or a
+// dispatch by the one definition of tail position, states its callee's
+// result points one set with its caller's.
 
 #include "idr/Analysis/Labels.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/IR/SymbolTable.h"
 
@@ -28,6 +31,19 @@ namespace {
 // label is a function of the program, which the verifier proved.
 Value parameterValue(const SymbolTable &table, FlatSymbolRefAttr function, unsigned index) {
   return table.lookup<FuncOp>(function.getAttr()).getArgument(index);
+}
+
+// `call` gives its caller's results, being in tail position: each result
+// point of `callee` that carries a label is one set with its caller's.
+void tailResults(const SymbolTable &table, FlatSymbolRefAttr callee, Operation *call,
+                 Statements &to) {
+  auto caller = FlatSymbolRefAttr::get(call->getParentOfType<FuncOp>().getSymNameAttr());
+  for (auto [j, result] : llvm::enumerate(call->getResults()))
+    if (carriesLabels(result.getType())) {
+      auto index = static_cast<unsigned>(j);
+      to.links.push_back({keyOf(table, FlowPoint::result(callee, index)),
+                          keyOf(table, FlowPoint::result(caller, index)), Link::Unify});
+    }
 }
 
 // One reading of a program: the sinks it gives, and the constants it has
@@ -79,7 +95,9 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
           },
           [&](FlowEdges::Dispatch move) {
             CallOpInterface call = move.call;
-            to.dispatches.push_back({cast<Value>(call.getCallableForCallee()), call});
+            Standing standing =
+                tail::inTailPosition(call.getOperation()) ? Standing::Tail : Standing::Within;
+            to.dispatches.push_back({cast<Value>(call.getCallableForCallee()), call, standing});
           }),
       edge.move);
 }
@@ -139,7 +157,7 @@ void Reading::expand(Attribute part, const PointKey &at, Type carrier) {
     return;
   DataType data = con.getData();
   Tag tag = con.getTag();
-  ArrayRef<Type> fields = data.getCtor(tag).fields;
+  ArrayRef<Type> fields = data.ctor(tag).fields;
   con.walkFields([&](Attribute field, unsigned i) {
     expand(field, FlowAnchor::fieldOf(data, tag, i), unrestricted(fields[i]));
   });
@@ -171,14 +189,17 @@ void readProgram(Operation *program, const SymbolTable &table, Statements &to,
     for (const FlowEdges::Edge &edge : edges.edges())
       reading.add(op, edge);
     edges.clear();
+    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail)
+      tailResults(table, call.getCalleeAttr(), op, to);
   });
 }
 
 // The label takes the call's arguments after its captures and gives its
-// results to the call's. A label fits the carrier of the callee that holds
-// it, which the flow rule proved: it has every argument as a parameter.
-void readFiring(const SymbolTable &table, CallOpInterface call, FlatSymbolRefAttr label,
-                Statements &to) {
+// results to the call's, and its caller's where the call is in tail
+// position. A label fits the carrier of the callee that holds it, which
+// the flow rule proved: it has every argument as a parameter.
+void readFiring(const SymbolTable &table, CallOpInterface call, Standing standing,
+                FlatSymbolRefAttr label, Statements &to) {
   auto fn = table.lookup<FuncOp>(label.getAttr());
   Operation::operand_range args = call.getArgOperands();
   unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
@@ -191,6 +212,8 @@ void readFiring(const SymbolTable &table, CallOpInterface call, FlatSymbolRefAtt
     if (carriesLabels(result.getType()))
       to.links.push_back({keyOf(table, FlowPoint::result(label, static_cast<unsigned>(j))),
                           Value(result), linkOf(Carriers::of(result.getType()))});
+  if (standing == Standing::Tail)
+    tailResults(table, label, call.getOperation(), to);
 }
 
 //===----------------------------------------------------------------------===//
@@ -213,14 +236,20 @@ Node Graph::nodeOf(const PointKey &key) {
 
 void Graph::take(const Statements &statements) {
   for (const Statements::Source &source : statements.sources)
-    sources.emplace_back(nodeOf(source.at), source.label);
+    sources.emplace_back(nodeOf(source.at), out.labelOf(source.label));
   for (const Statements::Linked &linked : statements.links)
     link(nodeOf(linked.from), nodeOf(linked.to), linked.how);
   for (const Statements::Dispatched &dispatched : statements.dispatches)
-    runs.push_back(Run{dispatched.call, nodeOf(dispatched.callee), SetId{}});
+    runs.push_back(Run{dispatched.call, dispatched.standing, nodeOf(dispatched.callee), SetId{}});
 }
 
+// Every function of the program is a label, by its position: the labels'
+// one order, minted before any statement names one.
 void Graph::walk(Operation *program) {
+  for (FuncOp fn : cast<ProgramOp>(program).getOps<FuncOp>()) {
+    out.ranks.try_emplace(fn.getSymNameAttr(), Label(static_cast<std::uint32_t>(out.symbols.size())));
+    out.symbols.push_back(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
+  }
   Statements statements;
   readProgram(program, out.table, statements, out.sinks);
   take(statements);

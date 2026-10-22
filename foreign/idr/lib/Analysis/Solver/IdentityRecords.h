@@ -49,6 +49,22 @@ struct Range {
   std::uint32_t first = 0, count = 0;
 };
 
+// What a value is known to be where it is used, read off the case regions
+// around the use: built by the constructor of a tag (a data match's case,
+// or its default where one constructor is left), or a literal (a literal
+// match's case). A constant says the same of itself: a constructor with no
+// fields is its tag, any other constant its literal. Two literals are one
+// when they are one value, whatever width a big was written at.
+struct KnownTag {
+  Tag tag;
+  friend bool operator==(const KnownTag &, const KnownTag &) = default;
+};
+struct KnownLiteral {
+  mlir::Attribute literal;
+  friend bool operator==(const KnownLiteral &a, const KnownLiteral &b);
+};
+using Known = std::variant<KnownTag, KnownLiteral>;
+
 // How a value is built, as far as giving back reads it. A value this
 // question does not look into is opaque: an op's own result it cannot see
 // through, a memo cell's part (a memo cell is written when it is forced,
@@ -98,11 +114,11 @@ struct Join {
   std::uint32_t side;
   std::uint32_t result;
 };
-// A constant; a constructor with no fields has one value, its tag.
+// A constant of type `type`: what a case around its use must say of a
+// part for the constant to be that part.
 struct Constant {
-  mlir::Attribute value;
+  Known known;
   mlir::Type type;
-  std::optional<Tag> fieldless;
 };
 } // namespace build
 using Build = std::variant<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
@@ -116,11 +132,10 @@ struct CallSite {
   Range args;
 };
 
-// What a case region around a use says its scrutinee is: built by the
-// constructor of `tag`.
+// What a case region around a use says its scrutinee is.
 struct Frame {
   ValueId scrutinee;
-  Tag tag;
+  Known known;
 };
 
 // One region of a match: one that never returns (it ends in a crash), or

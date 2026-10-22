@@ -4,18 +4,23 @@
 // range analysis on one function at a time, a value it cannot see computed
 // starting at the range its type proves, joined across calls by summaries
 // over the program graph's components: what each function returns, callees
-// first, and what each is passed, callers first. idr-narrow decides the
-// summaries; each function idr-narrow-words narrows solves itself, alone,
-// its arguments starting at their summary and each call's results at its
-// callee's.
+// first, and what each is passed, callers first, each on the solver
+// layer's static schedule, so independent components are solved at once.
+// idr-narrow decides the summaries; each function idr-narrow-words narrows
+// solves itself, alone, its arguments starting at their summary and each
+// call's results at its callee's.
 //
 // The state of a solve is one function's values; the summaries are a range
-// per parameter and per result. Inside a component of two functions or
-// more, or of one that calls itself, a summary that would feed itself is
-// its type's whole range, as upstream's analysis widens a value a loop
-// keeps changing: a wider range is still a range of the value, and every
-// reader takes a range as a bound to narrow or version under. Nothing
-// refuses or errors on a range.
+// per parameter and per result, and what each function passes each callee
+// of another component, which the callee's component joins when it starts.
+// Inside a component of two functions or more, or of one that calls
+// itself, a summary that would feed itself is its type's whole range, as
+// upstream's analysis widens a value a loop keeps changing: a wider range
+// is still a range of the value, and every reader takes a range as a bound
+// to narrow or version under. Nothing refuses or errors on a range. Each
+// component writes its own members' summaries alone, in its members'
+// order, and joins only finished components', so the summaries are the
+// same bytes at any thread count.
 #ifndef IDR_ANALYSIS_RANGES_H
 #define IDR_ANALYSIS_RANGES_H
 

@@ -18,7 +18,9 @@
 //   constructor on that part;
 // - the successor of a part's predecessor;
 // - a match whose every region that yields rebuilds one part;
-// - a fieldless constant inside a case of its constructor, at its use.
+// - a constant inside a case that says the part is it, at its use: a
+//   fieldless constructor in a case or default of that constructor, a
+//   literal in a literal match's case of that literal.
 // The record is never written; a reading holds what it learns while it
 // answers.
 #include "Solver/IdentityRecords.h"
@@ -143,9 +145,9 @@ public:
     if (equal[value])
       return equal[value];
     const auto *constant = std::get_if<build::Constant>(&record.builds[value]);
-    if (!constant || !constant->fieldless)
+    if (!constant)
       return std::nullopt;
-    return inCase(*constant->fieldless, constant->type, frames);
+    return inCase(constant->known, constant->type, frames);
   }
 
   const Record &record;
@@ -153,11 +155,11 @@ public:
   Parts parts;
 
 private:
-  // The part a case of constructor `tag` around a use enters at, where a
-  // value of `type` with that constructor is it.
-  std::optional<PartId> inCase(Tag tag, Type type, std::span<const Frame> frames) const {
+  // The part a case around a use says is `known`, where a value of `type`
+  // that is `known` is it: the scrutinee of the innermost such case.
+  std::optional<PartId> inCase(const Known &known, Type type, std::span<const Frame> frames) const {
     for (const Frame &frame : frames)
-      if (frame.tag == tag)
+      if (frame.known == known)
         if (std::optional<PartId> part = equal[frame.scrutinee]; part && parts.fits(*part, type))
           return part;
     return std::nullopt;
@@ -230,7 +232,7 @@ std::optional<PartId> Reading::ofCon(const build::Con &con) {
   std::span<const Frame> frames = record.framesOf(con.frames);
   std::span<const ValueId> fields = record.run(con.fields);
   if (fields.empty())
-    return inCase(con.tag, con.type, frames);
+    return inCase(KnownTag{con.tag}, con.type, frames);
   std::optional<PartId> first = at(fields.front(), frames);
   if (!first)
     return std::nullopt;
