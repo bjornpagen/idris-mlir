@@ -1836,6 +1836,24 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   Costs: a union-find, merges with their rebuild, and an extraction that
   works, in L14's engine, within D108's admission. Whether the e-graph
   calls folds stays §4's question, apart.
+- **D124** (2026-10-22; the owner; §4's question on lending an array to
+  upstream's ops, L08's and L05's evidence). "B": a loan is a projection
+  under a lifetime token, `idr.carrier %v in %l`, with no region of its
+  own. Its result is the bare carrier an upstream op takes; `%v` stays
+  its holder's, no count changes, and `%v` outlives `%l`. A scoped
+  parameter is projected under its own lifetime; a counted value is lent
+  under a lifetime opened around the uses, as D63 puts the lifetime on
+  the op that makes the value. A bare alias names no lifetime, so the
+  three escapes are refused by one check over upstream's own alias
+  interfaces (`ViewLikeOpInterface` for memrefs, bufferization's
+  `getAliasingValues` for tensors), run as a verifier after every pass:
+  an alias of a loan never leaves the region that defines its lifetime
+  or returns from the function, is never the value a write stores, and
+  is never adopted by an op of ours. `shareIntoCarriers`, the `readBare`
+  exclusion and borrows' rule counting every parameter an upstream op
+  reads go. The grade keeps its shape (D88, D90); C's scoped memory
+  space is not built, and is open to a later ruling on evidence that the
+  check is where escapes are missed.
 - **C237** (2026-10-22; L17y's finding, under D119 and D112). A grammar's
   type carries an erased bound on the tokens it may read, and recursion
   between grammars goes through a box: a grammar indexed by n may call a
@@ -2004,6 +2022,23 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   sees them goes, since a join is local to its function and no pass
   makes it a function again. Not a promise flag on `idr.func`: a
   function marked as secretly a join point holds the join point twice.
+- **C241** (2026-10-22; L04x's handoff, under C239, D58 and AGENTS.md's
+  termination by construction). Four settlements. A size keys a copy
+  only from a call outside the callee's call cycle, or from one inside it
+  whose term for that axis is its caller's own: a recursive call that
+  changes the term (`go (S n)` called at 0) reaches the copy with that
+  axis dynamic, so the keys come from the finite set of calls into each
+  cycle and specialization ends by construction, with no budget and no
+  number. An entry may hold a constant where the type keeps the axis
+  dynamic on purpose (a result, a graded input), so a known size is
+  never dropped; only a bare input's constant makes its axis static.
+  A call's operands meet its view of the callee by MLIR's shape
+  compatibility (`?` meets any size), not equality, so a call at a
+  constant size to the general function needs no cast, and the
+  specializer casts only where it retargets to a copy. And a refined
+  hold reaching a return or a yield takes no cast, the use accepting a
+  value whose hold fits its own (`holdFits`). The callers of the
+  two-argument `substitute` (L02, L13, L18) pass the callee's extents.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
@@ -4755,41 +4790,7 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, to be raised alone next (L08's and L05's evidence,
-2026-10-22). Nothing can lend an array to upstream's ops
-without consuming it. An upstream op takes only a bare carrier
-(`tensor<...>`, `memref<...>`), and a bare carrier means "counted,
-claiming nothing" (`readBare`), so every parameter an upstream op reads,
-such as an array a function reads with `tensor.extract`, is counted:
-each caller pays a dup and a drop per call, and a buffer `idr-rc-cells`
-adopts can never be proved `unique deep`. The hard case is an upstream
-op that returns an alias of its operand (`memref.subview`,
-`tensor.extract_slice`, the casts), which can escape through a region's
-results, a `memref.store` into an array of arrays, or an op of ours that
-adopts a bare buffer. The choice: (A) a region that opens the loan and
-yields the bare carrier as its block argument, so MLIR's scoping bounds
-it; the owner comes back as its result, keeping its claim; "this bare
-value is a loan" is a fact of position, and the three escapes need local
-rules following an alias back to the loan; (B) a projection under a
-lifetime token, `idr.carrier %v in %l`, with no region, which fixes a
-scoped parameter directly (projected under its own lifetime) and puts
-the lifetime on the op that makes the value, as D63 asks; the same three
-escapes need the same rules, since a bare alias names no lifetime; (C)
-B, with its result typed in a scoped memory space
-(`memref<..., #idr.scoped>`, the way D93 models address spaces):
-upstream's `subview`, reshapes and `reinterpret_cast` keep the space,
-`memref.cast` refuses to change it and `memref.store`'s type check
-refuses the store escape, leaving `tensor.cast` and
-`memory_space_cast` to local rules; but for carriers the hold then
-lives in the carrier's type, so the grade's hold on a carrier would be
-a second spelling of it and would go, which changes D88 and D90's
-shape. Each deletes `shareIntoCarriers`, the `readBare` exclusion and
-borrows' rule counting any parameter an upstream op reads. L05 leans to
-B, with C's type if the hold may move (conjecture). Meanwhile such
-parameters stay counted, which costs time, never correctness.
-
-**Next, after the one above** (L17's evidence, 2026-10-22; to be raised
-alone in turn). 0011's O5 asks for name resolution as R1's interval join
+**Open**: one, to be raised alone next (L17's evidence, 2026-10-22). 0011's O5 asks for name resolution as R1's interval join
 over the flat parse tree, but Idris resolves names during elaboration,
 against the typed environment (`TTImp/Elab/App.idr:54`); the only scope
 over syntax is Desugar's set of bound names, read once, in
@@ -4805,7 +4806,7 @@ syntax shows, carried into Desugar on new fields, which holds the set in
 two places. Meanwhile the parse tree and decoder land (C216), common to
 all three.
 
-**Third, after those two** (recheck 3's finding, 2026-10-22; to be
+**Next, after the one above** (recheck 3's finding, 2026-10-22; to be
 raised alone in turn). D98 and AGENTS.md say an op's fold is its
 meaning, which the e-graph reads. C205 and C218 narrowed that without
 the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
