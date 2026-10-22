@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/86-darwin-stack-clash: clang's driver passes
+# -fstack-clash-protection on for a Darwin target, as for Linux, so the
+# runtime, GMP and the tools' LLVM probe every frame larger than a page on
+# arm64 macOS too, and none steps over a stack's guard. The reproducer's
+# 64 KiB frame, compiled for arm64 macOS with the flag under -Werror (the
+# pinned driver called it unused): it compiles, and its prologue probes the
+# frame a page at a time, as AArch64 probes on every other target. It
+# compiles to assembly on any host, with no SDK.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+darwin=arm64-apple-macosx14.0
+if ! bounded "$llvm_bin/clang" --target="$darwin" -fstack-clash-protection -Werror -O2 -S \
+     "$root/upstream/86-darwin-stack-clash/large-frame.c" -o "$work/large-frame.s" 2> "$work/err"; then
+  say "$darwin: the driver refuses -fstack-clash-protection"
+  show "$work/err"
+elif grep -q 'ldr[[:space:]]*xzr, \[sp\]' "$work/large-frame.s"; then
+  say "$darwin: a 64 KiB frame is probed a page at a time"
+else
+  say "$darwin: a 64 KiB frame is allocated with no probe"
+fi

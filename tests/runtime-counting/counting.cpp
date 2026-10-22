@@ -253,7 +253,7 @@ private:
     uint32_t tag = p.ConsumeIntegralInRange<uint32_t>(0, 3);
     bool wide = n >= IDRIS_RT_OBJS_WIDE;
     size_t head = wide ? 2 * IDRIS_RT_WORD_BYTES : IDRIS_RT_WORD_BYTES;
-    auto *cell = static_cast<char *>(idris_rt_cell(head + IDRIS_RT_WORD_BYTES * n + IDRIS_RT_WORD_BYTES,
+    auto *cell = reinterpret_cast<char *>(idris_rt_cell(head + IDRIS_RT_WORD_BYTES * n + IDRIS_RT_WORD_BYTES,
                                                    idris_rt_info(tag, wide ? IDRIS_RT_OBJS_WIDE : n, kind)));
     uint64_t count = n, plain = made_;
     if (wide)
@@ -279,13 +279,16 @@ private:
     note("%s #%u of %u slots, tag %u", kind == IDRIS_RT_KIND_THUNK ? "thunk" : "box", i, n, tag);
   }
 
-  // An array of m elements of k slots each, every slot NULL from birth.
+  // An array of m elements of k slots each, every element written as the
+  // array is made, each slot NULL, as a maker writes every element before
+  // anything reads, releases or frees the array.
   void makeArray(FuzzedDataProvider &p) {
     unsigned m = p.ConsumeIntegralInRange(0u, elementLimit);
     unsigned k = p.ConsumeIntegralInRange(0u, elementSlotLimit);
     size_t stride = IDRIS_RT_WORD_BYTES * k + IDRIS_RT_WORD_BYTES;
-    auto *array = static_cast<idris_rt_array *>(
-        idris_rt_array_new(m, idris_rt_info(static_cast<uint32_t>(stride), k, IDRIS_RT_KIND_ARRAY)));
+    idris_rt_array *array = idris_rt_array_new_unwritten(
+        m, idris_rt_info(static_cast<uint32_t>(stride), k, IDRIS_RT_KIND_ARRAY));
+    memset(array + 1, 0, stride * m);
     unsigned i = made_;
     Object &o = objects_[i];
     o.first = reinterpret_cast<char *>(array + 1);

@@ -6,20 +6,23 @@
 # upstream/<bug>/ has a README with an upstreaming plan, and either a patch
 # or the reason it has none; every patch is named for a project of
 # tools/patches.sh, and applies to that project's pinned source after the
-# patches before it, as tools/bootstrap.sh applies them. The pinned sources
-# are only read: the patches are applied in order to a copy of the files
-# they touch. The policy is `upstream_policy ROOT`, run on the
-# repository and on the planted trees (lib/planted.sh): witness/ holds a
-# bug for each way of breaking it (no README, no plan, neither a patch nor
-# its reason, both, a patch named for no project); near-miss/ holds a bug
-# with a patch for each project and one with the reason it has none.
+# patches before it, as tools/bootstrap.sh applies them; and every carried
+# patch is present where the tree checks it: its tests/upstream-<bug>, the
+# bug's name without its number, which says whether the pinned tools have
+# the fix. The pinned sources are only read: the patches are applied in
+# order to a copy of the files they touch. The policy is `upstream_policy
+# ROOT`, run on the repository and on the planted trees (lib/planted.sh):
+# witness/ holds a bug for each way of breaking it (no README, no plan,
+# neither a patch nor its reason, both, a patch named for no project, a
+# carried patch with no check); near-miss/ holds a bug with a patch for
+# each project and its check, and one with the reason it has none.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 . "$root/tools/patches.sh"
 
 # upstream_policy ROOT: each bug of ROOT/upstream that does not keep the
 # policy, `path: what`, at the file the fault is in: every file of a bug
 # with no README, the README that lacks a section, the patch that
-# contradicts it or names no project.
+# contradicts it, names no project or has no check.
 upstream_policy() (
   cd "$1" || exit 1
   for dir in upstream/*/; do
@@ -40,11 +43,19 @@ upstream_policy() (
     if [ -n "$patch_files" ] && ! grep -qx '## Patch' "$readme"; then
       say "$readme: a patch, and no '## Patch' saying what it does"
     fi
+    # A carried patch's check is tests/upstream-<bug>, the bug's name
+    # without its number.
+    bug=${dir#upstream/}
+    check=tests/upstream-${bug#[0-9][0-9]-}
     for file in $patch_files; do
       [ "$reason" = yes ] && say "$file: a patch, beside '## Why there is no patch'"
       name=${file##*/}
       case " $patch_projects " in
-        *" ${name%.patch} "*) ;;
+        *" ${name%.patch} "*)
+          if [ ! -f "$check/run" ]; then
+            say "$file: carried, and no $check/run checks it"
+            say "$readme: its bug carries $name, and has no check"
+          fi ;;
         *) say "$file: names no project (tools/patches.sh: $patch_projects)"
            say "$readme: its bug carries $name, a patch for no project" ;;
       esac
@@ -126,6 +137,15 @@ if [ -n "$(patches snmalloc)" ] && [ "$(git -C "$snmalloc_source" rev-parse HEAD
   say "snmalloc: third_party/snmalloc is not a checkout at the lock's revision"
 else
   check_project snmalloc "$snmalloc_source" "third_party/snmalloc"
+fi
+# simdutf: third_party/simdutf at the lock's revision, the source the
+# bootstrap exports with its patches for the runtime's build.
+simdutf_source=$root/third_party/simdutf
+simdutf_pin=$("$root/tools/verify-pins.sh" lock simdutf revision)
+if [ -n "$(patches simdutf)" ] && [ "$(git -C "$simdutf_source" rev-parse HEAD 2> /dev/null)" != "$simdutf_pin" ]; then
+  say "simdutf: third_party/simdutf is not a checkout at the lock's revision"
+else
+  check_project simdutf "$simdutf_source" "third_party/simdutf"
 fi
 # Chez Scheme: the bootstrap clones it for its build and keeps no checkout.
 check_project chez "" "the pinned Chez Scheme (the bootstrap keeps none)"

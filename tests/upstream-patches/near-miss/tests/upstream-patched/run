@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The check of the planted bug `patched`, which carries a patch for each
+# project.
+printf '%s\n' "patched: fixed"

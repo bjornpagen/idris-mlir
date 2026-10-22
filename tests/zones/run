@@ -3,30 +3,36 @@
 # Copyright (c) 2026 Bjorn Pagen
 # All C++ (.cpp, .h, .hpp, .cc, .cppm, .td, .inc) is in a zone of the
 # list below, each a path pattern with the extensions it keeps: foreign/idr
-# in MLIR's layout (.cpp under lib and tools, headers under include, ODS
-# under both) and its googletest programs, one level under unittests; the
-# runtime's .cpp and .h; and the runtime tests' one shared header and their
-# C++ property programs with their own headers, one directory each. So a
-# C++20 module interface (.cppm) is in no zone, and no unit declares or
-# imports a module (below). A hidden directory is a
-# tool's (the editor's, the agent's worktrees), never a source zone, so none
-# is searched; nor is upstream/, whose C++ is a reproducer of a bug in
+# in MLIR's layout (.cpp under lib and tools, headers under include) and its
+# googletest programs, one level under unittests; every .td and generated
+# table of ours in the one directory the dialect's specification writes
+# (spec-current holds each to it, so ODS no one generated has no zone); the
+# runtime's .cpp and .h; the runtime tests' one shared header and their C++
+# property programs with their own headers, one directory each; and the
+# C++ programs the upstream checks build against the pinned MLIR, one
+# directory each. So a C++20 module interface (.cppm) is in no zone, and no
+# unit declares or imports a module (below). A hidden directory is a tool's
+# (the editor's, the agent's worktrees), never a source zone, so none is
+# searched; nor is upstream/, whose C++ is a reproducer of a bug in
 # upstream tools, built by its check and never by the build.
 #
 # The rule is `zones ROOT`, run on the repository and on the planted trees
 # (lib/planted.sh): witness/ holds C++ in no zone (each extension the list
 # does not keep, a .cpp under include, a googletest program two levels
-# down, a source of tools/) and units that declare and import a module;
-# near-miss/ holds a file of every zone, MLIR text in a string, a call
-# whose name starts with `import`, and a reproducer under upstream/.
+# down, a source of tools/, ODS and a table outside the generated
+# directory) and units that declare and import a module; near-miss/ holds
+# a file of every zone, MLIR text in a string, a call whose name starts
+# with `import`, and a reproducer under upstream/.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-zones='^foreign/idr/lib/.*\.(cpp|td)$
-^foreign/idr/include/.*\.(h|td)$
+zones='^foreign/idr/lib/.*\.cpp$
+^foreign/idr/include/.*\.h$
+^foreign/idr/include/idr/IR/Generated/[^/]*\.(td|inc)$
 ^foreign/idr/tools/[^/]*\.cpp$
 ^foreign/idr/unittests/[^/]*\.cpp$
 ^runtime/.*\.(cpp|h)$
 ^harness/prop/[^/]*\.h$
-^tests/runtime-[^/]*/[^/]*\.(cpp|h)$'
+^tests/runtime-[^/]*/[^/]*\.(cpp|h)$
+^tests/upstream-[^/]*/[^/]*\.cpp$'
 printf '%s\n' "$zones" > "$work/zones"
 
 # zones ROOT: the findings in the tree at ROOT, `path: what` or

@@ -1,0 +1,1 @@
+region DCE: 10,000 nested operations on a 256 KiB stack, each dead cast erased

@@ -1,0 +1,6 @@
+frame-bound within: exit 0
+frame-bound idle: exit 0
+frame-bound over: exit 134
+  stderr | frame-bound: fatal: internal error: a call held more bytes it no longer needs than its bound: caller held 32, its bound 16
+frame-bound callee: exit 134
+  stderr | frame-bound: fatal: internal error: a call held more bytes it no longer needs than its bound: caller held 32, its bound 16

@@ -25,12 +25,12 @@ static void echo(void) {
     /* An empty line is the end only once the input has ended: a line of
      * no bytes before that is a '\n' alone. */
     if (line->bytes == 0 && idris_rt_io_eof(0) == 1) {
-      idris_rt_dec_cell((void *)line);
+      idris_rt_dec_cell((idris_rt_header *)&line->header);
       return;
     }
     idris_rt_io_put_str(line);
     idris_rt_io_put_char('\n');
-    idris_rt_dec_cell((void *)line);
+    idris_rt_dec_cell((idris_rt_header *)&line->header);
   }
 }
 
@@ -42,7 +42,7 @@ enum { characterCount = sizeof characters / sizeof characters[0] };
 /* A string the program made, written and released. */
 static void putMade(const idris_rt_str *s) {
   idris_rt_io_put_str(s);
-  idris_rt_dec_cell((void *)s);
+  idris_rt_dec_cell((idris_rt_header *)&s->header);
 }
 
 static void putString(const char *bytes, size_t n) { putMade(idris_rt_str_from_utf8(bytes, n)); }

@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/81-attr-type-walker-iterative: the attribute and type walker
+# and both replacers keep their place on an explicit stack, so their native
+# depth does not grow with an attribute's or a type's nesting. Over a
+# symbol reference nested in builtin arrays 10,000 deep, on a thread whose
+# stack is 256 KiB, both walks meet every array and the reference, an
+# interrupt at the reference ends the walk, and both replacers rebuild the
+# arrays around the reference they replace (walker.cpp): what the
+# compiler's substitution of a family's index terms and upstream's symbol
+# uses do on every compilation.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "walker and replacers: 10,000 nested arrays on a 256 KiB stack" "$here/walker.cpp" 10000

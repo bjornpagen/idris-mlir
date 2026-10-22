@@ -31,7 +31,7 @@ using bigmodel::Z;
 class Text {
 public:
   explicit Text(const idris_rt_str *s) : s_(s) {}
-  ~Text() { idris_rt_dec_cell(const_cast<idris_rt_str *>(s_)); }
+  ~Text() { idris_rt_dec_cell(const_cast<idris_rt_header *>(&s_->header)); }
   Text(const Text &) = delete;
   Text &operator=(const Text &) = delete;
   const idris_rt_str *get() const { return s_; }

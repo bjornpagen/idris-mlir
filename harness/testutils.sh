@@ -33,7 +33,8 @@
 #                      the packages a fixture names
 #     timing.sh        the record of every compilation's wall time
 #     rules.sh         the rules a refusal names, from the specification
-#     compile.sh       compiling a program, and the artifacts it leaves
+#     compile.sh       compiling a program, and the artifacts it leaves; a
+#                      C++ program over the pinned MLIR
 #     run.sh           running a compiled program
 #     heap.sh          the C library calls an e2e program's objects may make
 #     expect.sh        properties of a module by name (idr-expect), and of a

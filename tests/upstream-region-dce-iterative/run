@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/84-region-dce-iterative: region dead code elimination keeps its
+# place on explicit stacks, so its native depth does not grow with the IR's
+# nesting, and the greedy driver inside the upstream passes the pipeline
+# runs on each lowered function keeps a small stack. Operations nested
+# 10,000 deep, each level holding a dead cast, on a thread whose stack is
+# 256 KiB: every dead cast is erased and every live operation stays where
+# it was (dce.cpp). The nesting is built in memory: mlir-opt's parser
+# recurses on the same depth through each operation's parse hook, so
+# through mlir-opt region DCE is never seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "region DCE: 10,000 nested operations on a 256 KiB stack, each dead cast erased" "$here/dce.cpp" 10000

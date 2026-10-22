@@ -1,0 +1,1 @@
+canonicalize: erases the region that only reaches ub.unreachable

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Compiling a program with the compiler under test, and the artifacts a
-# compilation leaves or must not leave.
+# compilation leaves or must not leave; and building a C++ program over the
+# pinned MLIR, for an upstream check.
 
 # compile_program [OPTION]... SOURCE OUTPUT: SOURCE, an IO program,
 # compiled with idris-mlir's OPTION... (-p PACKAGE, --num-threads=N, the
@@ -57,6 +58,47 @@ link_program() {
 $link_program_flags
 EOF
   bounded "$pinned_cc" "$@"
+}
+
+# mlir_program SOURCE OUTPUT: SOURCE, a C++ program that calls the pinned
+# LLVM and MLIR as libraries (an upstream check that reaches code no tool
+# reaches alone: a walk mlir-opt's own parser would overflow first), built
+# for the toolchain's target, as its toolchain file names it, with the
+# flags those libraries were built with, and linked statically with every
+# MLIR and LLVM archive of the toolchain, of which the linker takes what
+# the program uses. The compiler's output is in $work/cc.log; status 0
+# when built.
+mlir_program() {
+  mlir_program_triple=$(sed -n 's/^set(CMAKE_CXX_COMPILER_TARGET "\(.*\)")$/\1/p' "$llvm_prefix/toolchain.cmake" 2> /dev/null)
+  mlir_program_config=$llvm_bin/llvm-config
+  # shellcheck disable=SC2046 # llvm-config prints words
+  bounded "$llvm_bin/clang++" --target="$mlir_program_triple" -O1 -DNDEBUG $("$mlir_program_config" --cxxflags) \
+    "$1" -o "$2" "$llvm_prefix"/lib/libMLIR*.a \
+    $("$mlir_program_config" --ldflags --link-static --libs --system-libs) > "$work/cc.log" 2>&1
+}
+
+# mlir_check WHAT SOURCE ARG...: SOURCE built by mlir_program and run with
+# ARG...; one line, WHAT, when it exits 0 having printed `ok` alone, which
+# is how such a program says each of its checks held; otherwise its build
+# log, or its status and what it printed.
+mlir_check() {
+  mlir_check_what=$1
+  mlir_check_program=$work/${2##*/}
+  mlir_check_program=${mlir_check_program%.cpp}
+  if ! mlir_program "$2" "$mlir_check_program"; then
+    say "${mlir_check_program##*/}: does not build"
+    show "$work/cc.log"
+    return
+  fi
+  shift 2
+  bounded "$mlir_check_program" "$@" > "$work/mlir-check.out" 2> "$work/mlir-check.err"
+  mlir_check_status=$?
+  if [ "$mlir_check_status" -eq 0 ] && [ "$(cat "$work/mlir-check.out")" = ok ]; then
+    say "$mlir_check_what"
+  else
+    say "${mlir_check_program##*/}: exit $mlir_check_status, so not: $mlir_check_what"
+    show "$work/mlir-check.out" "$work/mlir-check.err"
+  fi
 }
 
 # The artifacts a build leaves in build/exec, by kind, held here once:

@@ -18,10 +18,19 @@ import Libraries.Data.SparseMatrix
 u : SizeChange
 u = Unknown
 
+||| The three functions' names, their texts interned in one table seeded as
+||| a session's is, so no two share an identifier.
+names : (Name, Name, Name)
+names =
+  let (fi, t1) = internIn "f" seeded
+      (gi, t2) = internIn "g" t1
+      (hi, _) = internIn "h" t2
+  in (UN (Basic fi), UN (Basic gi), UN (Basic hi))
+
 f, g, h : Name
-f = UN (Basic "f")
-g = UN (Basic "g")
-h = UN (Basic "h")
+f = fst names
+g = fst (snd names)
+h = snd (snd names)
 
 -- f a b = g b 5; g x (S y) = h x y; h c d = f d c
 -- diverges: f 4 b -> g b 5 -> h b 4 -> f 4 b

@@ -1,10 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=in-place=@fills -o /dev/null
 // RUN: idris-mlir-opt %s --idr-expect=holds=in-place=@copies,in-place=@scalar,moves-out=@fills,structured-loops=@fills -verify-diagnostics -o /dev/null
 // What the arrays leave once they are buffers. @fills writes its buffer in
-// place; @copies copies one into a buffer made for the copy, which a write
-// that could not be in place does; @scalar has no buffer, so nothing can
-// be said of one. No element of an array is rebuilt in its place in
-// @fills, and no structured op is there.
+// place; @copies places a copy of one in a buffer allocated for it, the
+// copy bufferization makes before a write it cannot make in place; @scalar
+// has no buffer, so nothing can be said of one. No element of an array is
+// rebuilt in its place in @fills, and no structured op is there.
 module {
   // expected-error @below {{expected moves-out: }}
   // expected-error @below {{expected structured-loops: }}
@@ -16,7 +16,7 @@ module {
   func.func @copies(%b: memref<4xi64>) -> memref<4xi64> {
     %c = memref.alloc() : memref<4xi64>
     // expected-error @below {{expected in-place: }}
-    memref.copy %b, %c : memref<4xi64> to memref<4xi64>
+    idr.array.place_copy %b, %c : memref<4xi64> to memref<4xi64>
     return %c : memref<4xi64>
   }
   // expected-error @below {{expected in-place: }}

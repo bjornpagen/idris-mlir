@@ -157,7 +157,7 @@ struct Operand {
   const idris_rt_str *string;
   Operand(const Model &m, const Form &f) : model(m), form(&f) { make(); }
   Operand(FuzzedDataProvider &p, uint64_t mask);
-  ~Operand() { idris_rt_dec_cell(const_cast<idris_rt_str *>(string)); }
+  ~Operand() { idris_rt_dec_cell(const_cast<idris_rt_header *>(&string->header)); }
   Operand(const Operand &) = delete;
   Operand &operator=(const Operand &) = delete;
 
@@ -319,7 +319,7 @@ struct Models {
   template <typename Call> bool operator()(const Expected &e, Call call) const {
     const idris_rt_str *r = call();
     bool holds = isTheModel(e.name, r, e.model);
-    idris_rt_dec_cell(const_cast<idris_rt_str *>(r));
+    idris_rt_dec_cell(const_cast<idris_rt_header *>(&r->header));
     return holds;
   }
 };
@@ -340,13 +340,13 @@ struct Owns {
     if (!owned)
       prop::explain("%s: a result of count %u%s, where idris_rt.h makes the persistent empty string or a new one",
                     e.name, seen->header.count, fresh ? "" : " that is an operand");
-    idris_rt_dec_cell(const_cast<idris_rt_str *>(r));
+    idris_rt_dec_cell(const_cast<idris_rt_header *>(&r->header));
     return holds;
   }
 };
 struct Borrows {
   template <typename Call> bool operator()(const Expected &e, Call call) const {
-    return borrowed(e.name, e.operands, e.operandCount, [&] { idris_rt_dec_cell(const_cast<idris_rt_str *>(call())); });
+    return borrowed(e.name, e.operands, e.operandCount, [&] { idris_rt_dec_cell(const_cast<idris_rt_header *>(&call()->header)); });
   }
 };
 struct Every {
@@ -494,7 +494,7 @@ bool emptiesAreOne(const Operand &s) {
   auto bytes = static_cast<int64_t>(s.string->bytes);
   auto length = static_cast<int64_t>(s.model.length);
   auto *buffer = static_cast<idris_rt_array *>(
-      idris_rt_array_new(static_cast<uint64_t>(bytes), idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY)));
+      idris_rt_array_new_unwritten(static_cast<uint64_t>(bytes), idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY)));
   memcpy(idris_rt_array_bytes(buffer), idris_rt_str_bytes(s.string), s.string->bytes);
   uint64_t live = prop::held();
   struct Made {
@@ -534,9 +534,9 @@ bool emptiesAreOne(const Operand &s) {
                     static_cast<unsigned long long>(m.string->bytes), m.string->header.count);
       holds = false;
     }
-    idris_rt_dec_cell(const_cast<idris_rt_str *>(m.string));
+    idris_rt_dec_cell(const_cast<idris_rt_header *>(&m.string->header));
   }
-  idris_rt_dec_cell(buffer);
+  idris_rt_dec_cell(&buffer->header);
   return holds;
 }
 

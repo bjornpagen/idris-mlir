@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/82-clone-iterative: cloning a region keeps its place on an
+# explicit stack, so its native depth does not grow with the IR's nesting,
+# and the inliner and the compiler's copies keep a small stack. Operations
+# nested 10,000 deep, each taking its block's argument, cloned on a thread
+# whose stack is 256 KiB: every level is copied, and every operand of the
+# copy is the copy's own argument (clone.cpp). The nesting is built in
+# memory: mlir-opt's parser recurses on the same depth through each
+# operation's parse hook, so through mlir-opt the clone is never seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "clone: 10,000 nested operations on a 256 KiB stack, each operand mapped" "$here/clone.cpp" 10000

@@ -28,7 +28,7 @@ static void check(int ok, const char *what, const char *text) {
 static idris_rt_big parse(const char *s) {
   const idris_rt_str *text = idris_rt_str_from_utf8(s, strlen(s));
   idris_rt_big big = idris_rt_big_from_str(text);
-  idris_rt_dec_cell((void *)text);
+  idris_rt_dec_cell((idris_rt_header *)&text->header);
   return big;
 }
 
@@ -75,7 +75,7 @@ struct constant {
 static int shows(idris_rt_big big, const char *text) {
   const idris_rt_str *shown = idris_rt_big_show(big);
   int same = shown->bytes == strlen(text) && memcmp(idris_rt_str_bytes(shown), text, shown->bytes) == 0;
-  idris_rt_dec_cell((void *)shown);
+  idris_rt_dec_cell((idris_rt_header *)&shown->header);
   return same;
 }
 

@@ -4,28 +4,41 @@
 # The pinned mlir-opt, with upstream/03-bytecode-deferred-quadratic/llvm.patch,
 # no longer shows the bug: it reads an array attribute nested 4 times as
 # deep from bytecode in about 4 times as long, where an unpatched mlir-opt
-# (llvmorg-23.1.2, and main at 7208ba24) takes
-# about 16 times. Each depth's time is the best of three reads, so that the
-# load of other tests does not decide the ratio. When the pin's reader
-# resolves deferred entries in linear time, the patch goes, and with it the
-# report and this test (upstream/README.md). The text parser recurses per
-# level, so the stack is as large as the system allows (stack_max).
+# (llvmorg-23.1.2, and main at 7208ba24) takes about 16 times. Each depth's
+# time is the best of three reads, so that the load of other tests does not
+# decide the ratio; a read prints the module as text, which the printer
+# writes from an explicit stack. When the pin's reader resolves deferred
+# entries in linear time, the patch goes, and with it the report and this
+# test (upstream/README.md).
+# Every run is on one thread under 256 KiB of stack, as the tools keep:
+# the text parser reads the nested array from an explicit stack
+# (upstream/10-recursive-attribute-parser), the writer numbers it from one
+# (upstream/97-bytecode-numbering-iterative), and the reader resolves
+# deferred entries along a path, so no step recurses on the depth.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-stack_max
+# on_small_stack ARG...: mlir-opt with ARG..., on one thread under the
+# tools' small stack; its stderr in $work/err.
+on_small_stack() {
+  ( ulimit -s 256 && bounded "$llvm_bin/mlir-opt" -mlir-disable-threading "$@" ) 2> "$work/err"
+}
 milliseconds() {
   sh "$root/upstream/03-bytecode-deferred-quadratic/nested.sh" "$1" > "$work/n$1.mlir"
-  bounded "$llvm_bin/mlir-opt" "$work/n$1.mlir" --emit-bytecode -o "$work/n$1.mlirbc" || return 1
+  on_small_stack "$work/n$1.mlir" --emit-bytecode -o "$work/n$1.mlirbc" || return 1
   best=
   for run in 1 2 3; do
     start=$(now_ns) || return 1
-    bounded "$llvm_bin/mlir-opt" "$work/n$1.mlirbc" --emit-bytecode -o /dev/null || return 1
+    on_small_stack "$work/n$1.mlirbc" -o /dev/null || return 1
     end=$(now_ns) || return 1
     took=$(( (end - start) / 1000000 ))
     if [ -z "$best" ] || [ "$took" -lt "$best" ]; then best=$took; fi
   done
   echo "$best"
 }
-small=$(milliseconds 8000) && large=$(milliseconds 32000) || { say "mlir-opt failed"; exit 0; }
+small=$(milliseconds 8000) && large=$(milliseconds 32000) || {
+  say "deep: mlir-opt fails on a 256 KiB stack"
+  show "$work/err"
+  exit 0
+}
 # Linear reading takes about 4 times as long for 4 times the depth;
 # quadratic, 16 times.
 if [ "$large" -le $((small * 8)) ]; then

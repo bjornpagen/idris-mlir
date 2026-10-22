@@ -1,1 +1,1 @@
-nested: still reproduces (the parser overflows the stack)
+nested: 100,000 levels read and printed back on a 256 KiB stack

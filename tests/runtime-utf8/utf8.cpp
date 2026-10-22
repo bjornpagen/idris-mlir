@@ -154,8 +154,8 @@ bool fromBytesIsTheModel(const unsigned char *p, size_t n) {
                   static_cast<unsigned long long>(again->scalars),
                   static_cast<unsigned long long>(again->bytes), stable ? "" : ", not the same");
   }
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(again));
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(got));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&again->header));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&got->header));
   return same && counted && stable;
 }
 
@@ -360,7 +360,7 @@ template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
   uint64_t made = prop::held() - before;
   bool owned = s->bytes == 0 ? count == 0 && made == 0 : count == 1 && made == 1;
   bool empty = s->bytes == 0;
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&s->header));
   bool released = prop::held() == before && !(!empty && prop::planted(leaksString));
   if (!(owned && released))
     prop::explain("%s: a result of %s with count %u, %llu cells made, %s after its release", operation,
@@ -437,7 +437,7 @@ static int properties(int argc, char **argv) {
                                  static_cast<unsigned long long>(s->scalars),
                                  Hex(idris_rt_str_bytes(s), s->bytes).text, idris_rt_utf8_count(bytes, n));
                  }
-                 idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+                 idris_rt_dec_cell(const_cast<idris_rt_header *>(&s->header));
                  return holds;
                });
 

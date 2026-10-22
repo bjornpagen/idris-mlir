@@ -46,7 +46,7 @@ static void body(void) {
   for (int a = 0; a < UNDER; ++a) {
     for (size_t c = 0; c < SIZES * EACH / UNDER + 1 && made < SIZES * EACH; ++c, ++made)
       cells[made] = idris_rt_cell(sizes[made % SIZES], box);
-    arrays[a] = idris_rt_array_new(arrayBytes, bytes);
+    arrays[a] = idris_rt_array_new_unwritten(arrayBytes, bytes);
     unusable += !usable(arrays[a]);
   }
   uint64_t region = regionOf(cells[0]);
@@ -63,7 +63,7 @@ static void body(void) {
    * shows the count above can see an address that is. */
   size_t past = 0;
   for (int a = UNDER; a < UNDER + PAST; ++a) {
-    arrays[a] = idris_rt_array_new(arrayBytes, bytes);
+    arrays[a] = idris_rt_array_new_unwritten(arrayBytes, bytes);
     unusable += !usable(arrays[a]);
     past += regionOf(arrays[a]) != region;
   }
@@ -74,7 +74,7 @@ static void body(void) {
   for (size_t c = 0; c < made; ++c)
     idris_rt_dec_cell(cells[c]);
   for (int a = 0; a < UNDER + PAST; ++a)
-    idris_rt_dec_cell(arrays[a]);
+    idris_rt_dec_cell(&arrays[a]->header);
 }
 
 /* The body's frames and the C library's printf, well within it. */

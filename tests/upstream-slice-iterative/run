@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/85-slice-iterative: backward and forward slices keep their path
+# on an explicit stack, so their native depth does not grow with the length
+# of a use-def chain, and linalg's vectorizer keeps a small stack. The
+# reproducer's reduction adds to its accumulator a value 10,000 chained
+# additions compute; vectorizing it takes that value's backward slice. On
+# one thread under a 256 KiB stack, mlir-opt vectorizes the reduction and
+# gives back a module that verifies. The chain is straight-line code in
+# one block, which the parser and printer read and write without
+# recursion, so the slice is seen alone.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+sh "$root/upstream/85-slice-iterative/reduce-chain.sh" 10000 > "$work/chain.mlir"
+if (ulimit -s 256 && bounded "$llvm_bin/mlir-opt" "$work/chain.mlir" -mlir-disable-threading \
+      -transform-interpreter -o "$work/out.mlir") 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/out.mlir" -o /dev/null 2>> "$work/err"; then
+  if grep -q 'vector.multi_reduction' "$work/out.mlir"; then
+    say "vectorize: a reduction over 10,000 chained values on a 256 KiB stack"
+  else
+    say "vectorize: runs on 10,000 chained values, and leaves the reduction as it was"
+  fi
+else
+  say "vectorize: fails on 10,000 chained values on a 256 KiB stack"
+  show "$work/err"
+fi

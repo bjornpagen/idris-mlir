@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/87-ub-unreachable-effects: ub.unreachable declares no memory
+# effects, since nothing it does can be observed, so no reader of effects
+# takes it for every effect and the compiler models none of its own for
+# it. The reproducer's region op, whose body only reaches ub.unreachable,
+# is trivially dead: canonicalization erases it, and the function is a bare
+# return.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+if ! bounded "$llvm_bin/mlir-opt" "$root/upstream/87-ub-unreachable-effects/unreachable-effects.mlir" \
+     -canonicalize -o "$work/out.mlir" 2> "$work/err"; then
+  say "canonicalize: fails"
+  show "$work/err"
+elif grep -q 'scf.execute_region\|ub.unreachable' "$work/out.mlir"; then
+  say "canonicalize: keeps the region that only reaches ub.unreachable"
+else
+  say "canonicalize: erases the region that only reaches ub.unreachable"
+fi

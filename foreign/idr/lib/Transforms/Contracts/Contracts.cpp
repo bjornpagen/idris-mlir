@@ -23,6 +23,7 @@
 #include "idr/Transforms/Contracts.h"
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
@@ -200,7 +201,8 @@ void unrestrictResults(ProgramOp program) {
 // crash-sites-not-added, broken: every function whose row could not crash
 // crashes instead of returning, at its own location, and the one writer of
 // rows writes every row again, so each covers its body and every call its
-// callee's.
+// callee's. The rows' work counts toward no statistic: the test pass runs
+// in no pipeline.
 void addCrashSites(ProgramOp program, const solver::ProgramGraph &graph) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     if (fn.getRow().contains(effects::Atom::crash))
@@ -211,11 +213,36 @@ void addCrashSites(ProgramOp program, const solver::ProgramGraph &graph) {
       ret.erase();
     });
   }
-  rows::write(program, graph);
+  solver::Work written;
+  rows::write(program, graph, written);
+}
+
+// quantities-kept, broken: in each function, the first parameter Idris
+// proved used once and the first it proved used many, each known by its
+// identity, trade locations, and with them identities. Every type and
+// every signature stays as it was, so the module verifies and no relation
+// over signatures sees a change; each binder Idris proved is now at the
+// other's uses.
+void tradeIdentities(ProgramOp program) {
+  for (FuncOp fn : program.getOps<FuncOp>()) {
+    BlockArgument once, many;
+    for (BlockArgument arg : fn.getArguments()) {
+      if (!expect::identityOf(arg.getLoc()))
+        continue;
+      BlockArgument &first = usesOf(fn.getArgumentTypes()[arg.getArgNumber()]) == Uses::Once ? once : many;
+      if (!first)
+        first = arg;
+    }
+    if (!once || !many)
+      continue;
+    Location onceAt = once.getLoc();
+    once.setLoc(many.getLoc());
+    many.setLoc(onceAt);
+  }
 }
 
 // The relations the test pass breaks.
-enum class Breakable : std::uint8_t { LinearKept, CrashSitesNotAdded };
+enum class Breakable : std::uint8_t { QuantitiesKept, LinearKept, CrashSitesNotAdded };
 
 // The pass the contracts' own test runs, registered in idris-mlir-opt
 // alone: it breaks one relation on purpose and leaves a module that
@@ -236,7 +263,9 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
   Option<Breakable> relation{
       *this, "relation", llvm::cl::desc("The contract to break"),
       llvm::cl::init(Breakable::LinearKept),
-      llvm::cl::values(clEnumValN(Breakable::LinearKept, nameOf(Relation::LinearKept),
+      llvm::cl::values(clEnumValN(Breakable::QuantitiesKept, nameOf(Relation::QuantitiesKept),
+                                  "trade the identities of two binders of other uses"),
+                       clEnumValN(Breakable::LinearKept, nameOf(Relation::LinearKept),
                                   "give a linear result back unrestricted"),
                        clEnumValN(Breakable::CrashSitesNotAdded,
                                   nameOf(Relation::CrashSitesNotAdded),
@@ -245,6 +274,8 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
   void runOnOperation() override {
     ProgramOp program = getOperation();
     switch (relation.getValue()) {
+    case Breakable::QuantitiesKept:
+      return tradeIdentities(program);
     case Breakable::LinearKept:
       return unrestrictResults(program);
     case Breakable::CrashSitesNotAdded:

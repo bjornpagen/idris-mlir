@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/83-destruction-iterative: destroying an operation, and dropping
+# its references, keep their place on an explicit stack (or follow the IR's
+# parent links), so their native depth does not grow with the IR's
+# nesting, and every erase and every freed module keeps a small stack.
+# Operations nested 10,000 deep, each using its block's argument, on a
+# thread whose stack is 256 KiB: one chain has its references dropped and
+# is destroyed, another is deleted with the block that holds it, and the
+# module is left empty (destroy.cpp). The nesting is built in memory:
+# mlir-opt's parser recurses on the same depth through each operation's
+# parse hook, so through mlir-opt destruction is never seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "destruction: 10,000 nested operations on a 256 KiB stack" "$here/destroy.cpp" 10000

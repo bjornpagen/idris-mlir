@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/98-simdutf-constexpr-implementation: simdutf's implementation
+# constructors are constexpr, so the runtime holds the one implementation
+# its target fixes as a constant of that implementation's own class and
+# calls it directly, with no initializer at startup and no dispatch at run
+# time. The reproducer's constant of the fallback implementation, compiled
+# against the runtime's simdutf as the toolchain exports it with its
+# patches, for the toolchain's target: it compiles, nothing runs at
+# startup for it (the module has no global constructor), and its call is a
+# direct one, naming the function it calls.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+triple=$(sed -n 's/^set(CMAKE_CXX_COMPILER_TARGET "\(.*\)")$/\1/p' "$llvm_prefix/toolchain.cmake" 2> /dev/null)
+if ! bounded "$llvm_bin/clang++" --target="$triple" -std=c++20 -O2 -S -emit-llvm \
+     -DSIMDUTF_IMPLEMENTATION_FALLBACK=1 -I "$simdutf_prefix/src/include" -I "$simdutf_prefix/src/src" \
+     "$root/upstream/98-simdutf-constexpr-implementation/constant.cpp" -o "$work/constant.ll" 2> "$work/err"; then
+  say "constant: an implementation held as a constant does not compile"
+  show "$work/err"
+elif grep -q 'llvm.global_ctors' "$work/constant.ll"; then
+  say "constant: compiles, and is made at startup"
+elif grep -q 'call .*@[^ (]*count_utf8' "$work/constant.ll"; then
+  say "constant: compiles, made at no startup, and called directly"
+else
+  say "constant: compiles, made at no startup, and its call is not a direct one"
+fi

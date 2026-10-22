@@ -1,1 +1,1 @@
-sccp: 2,000 nested regions on a 256 KiB stack
+dead-code analysis: 10,000 nested operations on a 256 KiB stack, the innermost block executable

@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every compiled program is frame-limited: an active call holds at most the
+# bytes it no longer needs that the compiler computed for its function. The
+# checked runtime, which every program a test runs links, holds each call
+# to that bound at every allocation, and a run that breaks it ends with its
+# own ending, the internal error FrameBoundExceeded (SIGABRT after its
+# message, 134 to the shell), which the transcript compares as every ending
+# is compared. frame-bound.c makes the calls the lowering would make, a
+# cell made while its caller holds up to its bound, past it with no cell
+# made, past it, and past it while a call it made makes the cell; it can
+# reach no other internal error, so its ending is the bound's.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/frame-bound.c" "$checked_runtime" \
+    -o "$work/frame-bound" > "$work/cc.log" 2>&1; then
+  say "frame-bound: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+for mode in within idle over callee; do
+  bounded "$work/frame-bound" "$mode" > "$work/mode.out" 2> "$work/mode.err"
+  say "frame-bound $mode: exit $?"
+  sed 's/^/  stdout | /' "$work/mode.out"
+  sed 's/^/  stderr | /' "$work/mode.err"
+done

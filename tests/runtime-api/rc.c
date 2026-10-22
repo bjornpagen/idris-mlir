@@ -239,7 +239,7 @@ static void thunks(void) {
  * word after it, so 16 bytes: the array's tag is that size and its objs the
  * one slot. Element i holds cons(i), but element 2 holds `shared`. */
 static idris_rt_array *boxes(void *shared) {
-  idris_rt_array *a = idris_rt_array_new(5, idris_rt_info(16, 1, IDRIS_RT_KIND_ARRAY));
+  idris_rt_array *a = idris_rt_array_new_unwritten(5, idris_rt_info(16, 1, IDRIS_RT_KIND_ARRAY));
   for (int64_t i = 0; i < 5; ++i) {
     char *element = (char *)a + sizeof(idris_rt_array) + 16 * (size_t)i;
     *(void **)element = i == 2 ? shared : cons(i, NULL);
@@ -275,21 +275,6 @@ static void arrays(void) {
   check(live() == before, "nothing of the box or its array is left");
 }
 
-/* A new array's object slots hold NULL from birth, before any store, so the
- * runtime may release every slot of any cell it frees: one never written
- * releases nothing. */
-static void zeroedSlots(void) {
-  uint64_t before = live();
-  idris_rt_array *a = idris_rt_array_new(5, idris_rt_info(16, 1, IDRIS_RT_KIND_ARRAY));
-  int null = 1;
-  for (size_t i = 0; i < 5; ++i)
-    null = null && *(void **)((char *)a + sizeof(idris_rt_array) + 16 * i) == NULL;
-  check(null, "a new array's object slots hold NULL before any store");
-  check(a->length == 5 && count(a) == 1, "a new array holds its count of elements and one reference");
-  idris_rt_dec_any(a);
-  check(live() == before, "an array never stored into is freed with nothing to release");
-}
-
 /* Descriptors as LLVM lays one out: idris_rt_memref's three words, then the
  * sizes, then the strides, in elements. */
 typedef struct {
@@ -310,14 +295,20 @@ static memref2 rows(idris_rt_array *a, int64_t rowsOf, int64_t cols) {
   return d;
 }
 
-/* An array of `n` elements that are each one object slot, a box. */
+/* An array of `n` elements that are each one object slot, a box, each slot
+ * written NULL as it is made, as a maker writes every element before
+ * anything reads, releases or frees the array. */
 static idris_rt_array *boxCells(size_t n) {
-  return idris_rt_array_new(n, idris_rt_info(8, 1, IDRIS_RT_KIND_ARRAY));
+  idris_rt_array *a = idris_rt_array_new_unwritten((int64_t)n, idris_rt_info(8, 1, IDRIS_RT_KIND_ARRAY));
+  for (size_t i = 0; i < n; ++i)
+    *(void **)((char *)a + sizeof(idris_rt_array) + 8 * i) = NULL;
+  return a;
 }
 
-/* idris_rt_memref_copy, the copy bufferization makes: each element of one
- * view assigned to the same place of another, each object slot copied
- * gaining a reference before the slot it overwrites loses one. */
+/* idris_rt_memref_copy, memref.copy over a buffer whose slots hold
+ * elements (NULL among them): each element of one view assigned to the same
+ * place of another, each object slot copied gaining a reference before the
+ * slot it overwrites loses one. */
 static void memrefCopies(void) {
   uint64_t before = live();
   idris_rt_array *from = boxCells(6);
@@ -367,8 +358,8 @@ static void memrefCopies(void) {
   check(*boxAt(one, 0) == *boxAt(from, 4) && count(*boxAt(from, 4)) == 4,
         "a rank-0 copy assigns one element");
 
-  idris_rt_array *grid = idris_rt_array_new(9, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
-  idris_rt_array *column = idris_rt_array_new(3, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
+  idris_rt_array *grid = idris_rt_array_new_unwritten(9, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
+  idris_rt_array *column = idris_rt_array_new_unwritten(3, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
   for (size_t i = 0; i < 9; ++i)
     *doubleAt(grid, i) = (double)i;
   memref1 middle = {{grid, elements(grid), 1}, {3}, {3}};
@@ -426,12 +417,12 @@ static void stringsAndBignums(void) {
         "dropping some bytes returns a new string with the flag of its source");
   const idris_rt_str *strings[] = {ae, ea, ab, a, b, ascii, empty, r, whole, none, rest};
   for (size_t i = 0; i < sizeof strings / sizeof strings[0]; ++i)
-    idris_rt_dec_cell((void *)strings[i]);
+    idris_rt_dec_cell((idris_rt_header *)&strings[i]->header);
   check(live() == before, "strings are freed by dec");
 
   const idris_rt_str *digits = text("123456789012345678901234567890");
   idris_rt_big x = idris_rt_big_from_str(digits);
-  idris_rt_dec_cell((void *)digits);
+  idris_rt_dec_cell((idris_rt_header *)&digits->header);
   check((x & 1) == 0 && count((void *)(uintptr_t)x) == 1 &&
             header((void *)(uintptr_t)x)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM),
         "a big outside the small range is a cell of kind bignum");
@@ -440,7 +431,7 @@ static void stringsAndBignums(void) {
   check(zero == 1, "a result in the small range is a small word, not a cell");
   const idris_rt_str *shown = idris_rt_big_show(y);
   check(count(shown) == 1, "show returns a new string");
-  idris_rt_dec_cell((void *)shown);
+  idris_rt_dec_cell((idris_rt_header *)&shown->header);
   idris_rt_dec_big(zero);
   idris_rt_dec_big(y);
   check(live() == before + 1, "bignums are freed by dec");
@@ -554,7 +545,7 @@ static void report(void) {
                         : snprintf(line, sizeof line, "rc: %d checks fail\n", failures);
   const idris_rt_str *s = idris_rt_str_from_utf8(line, (size_t)n);
   idris_rt_io_put_str(s);
-  idris_rt_dec_cell((void *)s);
+  idris_rt_dec_cell((idris_rt_header *)&s->header);
 }
 
 /* A site's texts, laid out as idris_rt_text: the static texts of the
@@ -583,7 +574,6 @@ static void body(void) {
   trees();
   thunks();
   arrays();
-  zeroedSlots();
   memrefCopies();
   stringsAndBignums();
   tokens();

@@ -1,0 +1,66 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A program keeps to its host's memory limit with no setting, and the limit
+# is what the runtime reads of the host's files: the lowest memory.max from
+# the process's cgroup up to its hierarchy's mount, less what the group
+# holds (version 2), or the hierarchical limit memory.stat states, less
+# what the group uses (version 1). commit-limit.c reads it under hosts'
+# trees this test plants, each a proc/self/cgroup, a proc/self/mountinfo
+# and the hierarchy they name, so the reader meets every case on any host
+# that runs it: a limit above the group, a group past its limit, no limit
+# on the way up, a mount whose root is a group's (a container's), version
+# 1, and no hierarchy that limits memory. macOS has no such files, and its
+# reader reads none (expected); Linux's reads each tree (expected.linux).
+# tests/memory-limit holds a program to the limit of a host that has one.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/commit-limit.c" "$checked_runtime" \
+    -o "$work/commit-limit" > "$work/cc.log" 2>&1; then
+  say "commit-limit: does not build"
+  show "$work/cc.log"
+  exit 0
+fi
+
+# plant HOST PATH TEXT: the file PATH of the planted host HOST, holding
+# TEXT and a newline, as the kernel's files end.
+plant() {
+  mkdir -p "$work/hosts/$1/$(dirname "$2")" && printf '%s\n' "$3" > "$work/hosts/$1/$2"
+}
+v2_mount='30 23 0:26 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:4 - cgroup2 cgroup2 rw,nsdelegate'
+
+plant above proc/self/cgroup '0::/user.slice/app.scope'
+plant above proc/self/mountinfo "$v2_mount"
+plant above sys/fs/cgroup/user.slice/memory.max 268435456
+plant above sys/fs/cgroup/user.slice/app.scope/memory.max max
+plant above sys/fs/cgroup/user.slice/app.scope/memory.current 16777216
+
+plant past proc/self/cgroup '0::/app.scope'
+plant past proc/self/mountinfo "$v2_mount"
+plant past sys/fs/cgroup/app.scope/memory.max 1048576
+plant past sys/fs/cgroup/app.scope/memory.current 2097152
+
+plant unlimited proc/self/cgroup '0::/user.slice/app.scope'
+plant unlimited proc/self/mountinfo "$v2_mount"
+plant unlimited sys/fs/cgroup/user.slice/memory.max max
+plant unlimited sys/fs/cgroup/user.slice/app.scope/memory.max max
+plant unlimited sys/fs/cgroup/user.slice/app.scope/memory.current 16777216
+
+plant container proc/self/cgroup '0::/docker/abc'
+plant container proc/self/mountinfo '41 30 0:26 /docker/abc /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 cgroup2 rw'
+plant container sys/fs/cgroup/memory.max 134217728
+plant container sys/fs/cgroup/memory.current 33554432
+
+plant v1 proc/self/cgroup '12:memory:/app'
+plant v1 proc/self/mountinfo '40 30 0:35 / /sys/fs/cgroup/memory rw,nosuid,nodev,noexec,relatime shared:20 - cgroup cgroup rw,memory'
+plant v1 sys/fs/cgroup/memory/app/memory.stat "$(printf '%s\n' 'cache 0' \
+  'hierarchical_memory_limit 134217728' 'hierarchical_memsw_limit 9223372036854771712')"
+plant v1 sys/fs/cgroup/memory/app/memory.usage_in_bytes 33554432
+
+plant none proc/self/cgroup '1:name=systemd:/'
+
+bounded "$work/commit-limit" "$work/hosts/above" "$work/hosts/past" "$work/hosts/unlimited" \
+  "$work/hosts/container" "$work/hosts/v1" "$work/hosts/none" > "$work/out" 2> "$work/err"
+status=$?
+cat "$work/out"
+sed 's/^/  stderr | /' "$work/err"
+say "commit-limit: exit $status"

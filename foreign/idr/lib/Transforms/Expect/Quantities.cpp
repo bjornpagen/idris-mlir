@@ -23,10 +23,7 @@ using namespace mlir;
 
 namespace idr::expect {
 
-namespace {
-
-// The identity a location carries: the metadata of a fused location among
-// its parts, however the passes nested it in names, call sites and fusions.
+// The metadata of a fused location among the location's parts.
 std::optional<BinderAttr> identityOf(Location loc) {
   std::optional<BinderAttr> found;
   loc->walk([&](Location part) {
@@ -39,6 +36,8 @@ std::optional<BinderAttr> identityOf(Location loc) {
   });
   return found;
 }
+
+namespace {
 
 // The uses of `arg`, a binder: a function parameter's from its function's
 // signature, a bound field's from its type.

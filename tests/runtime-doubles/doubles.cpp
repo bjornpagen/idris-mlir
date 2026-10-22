@@ -359,7 +359,7 @@ const idris_rt_str *showOf(double x) {
     changed = prop::planted(otherNeighbour) && otherOfAsMany(fabs(x), d);
   if (!changed)
     return shown;
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(shown));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&shown->header));
   char text[64];
   size_t n = layout(d, text, top);
   return idris_rt_str_from_utf8(text, n);
@@ -369,7 +369,7 @@ const idris_rt_str *showOf(double x) {
 struct Shown {
   const idris_rt_str *string;
   explicit Shown(double x) : string(showOf(x)) {}
-  ~Shown() { idris_rt_dec_cell(const_cast<idris_rt_str *>(string)); }
+  ~Shown() { idris_rt_dec_cell(const_cast<idris_rt_header *>(&string->header)); }
   Shown(const Shown &) = delete;
   Shown &operator=(const Shown &) = delete;
   const char *bytes() const { return idris_rt_str_bytes(string); }
@@ -565,7 +565,7 @@ bool headsItsText(const double *xs, size_t count) {
 double readByRuntime(const char *text, size_t n) {
   const idris_rt_str *s = idris_rt_str_from_utf8(text, n);
   double x = idris_rt_str_to_double(s);
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&s->header));
   return x;
 }
 
@@ -1036,7 +1036,7 @@ bool showOwned(double x) {
   const idris_rt_str *s = idris_rt_str_show_f64(x);
   uint32_t count = s->header.count + (prop::planted(extraReference) ? 1 : 0);
   bool owned = count == 1 && prop::held() == before + 1;
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&s->header));
   bool released = prop::held() == before;
   if (!(owned && released))
     prop::explain("%s: show_f64's result has count %u, and %s after its release", Named(x).text, count,
@@ -1053,7 +1053,7 @@ bool readBorrows(const char *text, size_t n) {
     prop::explain("str_to_double of \"%.*s\": count %u became %u, live cells %llu became %llu",
                   static_cast<int>(n < 64 ? n : 64), text, count, s->header.count,
                   static_cast<unsigned long long>(before), static_cast<unsigned long long>(prop::held()));
-  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  idris_rt_dec_cell(const_cast<idris_rt_header *>(&s->header));
   return holds;
 }
 

@@ -54,14 +54,14 @@ static void say(const char *format, ...) {
   va_end(arguments);
   const idris_rt_str *s = idris_rt_str_from_utf8(line, (size_t)n);
   idris_rt_io_put_str(s);
-  idris_rt_dec_cell((void *)s);
+  idris_rt_dec_cell((idris_rt_header *)&s->header);
 }
 
 /* The saved errno set to ENOENT, by removing what does not exist. */
 static void resetErrno(void) {
   const idris_rt_str *none = text(in("none"));
   idris_rt_io_file_remove(none);
-  idris_rt_dec_cell((void *)none);
+  idris_rt_dec_cell((idris_rt_header *)&none->header);
 }
 
 /* What a call left in the saved errno, after resetErrno. */
@@ -97,7 +97,7 @@ static void stringResult(int64_t handle, char *out, size_t size) {
     at += (size_t)(bytes[i] == '\n' ? snprintf(out + at, size - at, "\\n")
                                     : snprintf(out + at, size - at, "%c", bytes[i]));
   snprintf(out + at, size - at, "\"");
-  idris_rt_dec_cell((void *)s);
+  idris_rt_dec_cell((idris_rt_header *)&s->header);
   idris_rt_io_handle_free(handle);
 }
 
@@ -157,26 +157,20 @@ static void fileSize(int64_t h, char *o, size_t n) {
   else
     snprintf(o, n, "%lld", (long long)bytes);
 }
-/* A file time's six fields: valid (a positive time and nanoseconds below
- * 10^9) or -1, as a field each; the file-time handle is then freed. */
-static void fields(int64_t time, char *o, size_t n) {
-  int64_t (*const field[6])(int64_t) = {idris_rt_io_file_atime_sec, idris_rt_io_file_atime_nsec,
-                                        idris_rt_io_file_mtime_sec, idris_rt_io_file_mtime_nsec,
-                                        idris_rt_io_file_ctime_sec, idris_rt_io_file_ctime_nsec};
-  size_t at = 0;
+/* A file's times, read at once into seven places: the status, then the
+ * six times, each valid (a positive time and nanoseconds below 10^9) or
+ * -1. */
+static void fileTime(int64_t h, char *o, size_t n) {
+  int64_t status;
+  int64_t times[6];
+  idris_rt_io_file_time(h, &status, &times[0], &times[1], &times[2], &times[3], &times[4], &times[5]);
+  size_t at = (size_t)snprintf(o, n, "%lld ", (long long)status);
   for (int i = 0; i < 6; ++i) {
-    int64_t v = field[i](time);
+    int64_t v = times[i];
     int valid = i % 2 == 0 ? v > 0 : v >= 0 && v < 1000000000;
     at += (size_t)snprintf(o + at, n - at, "%s%s", i == 0 ? "" : "/", valid ? "t" : v == -1 ? "-1" : "?");
   }
 }
-static void fileTime(int64_t h, char *o, size_t n) {
-  int64_t time = idris_rt_io_file_time(h);
-  fields(time, o, n);
-  idris_rt_io_handle_free(time);
-}
-/* Each field entry point on the handle itself, which is no file time. */
-static void timeFields(int64_t h, char *o, size_t n) { fields(h, o, n); }
 static void dirEntry(int64_t h, char *o, size_t n) {
   int64_t entry = idris_rt_io_dir_entry(h);
   snprintf(o, n, "%s", isNullHandle(entry) ? "null" : "a name");
@@ -184,12 +178,12 @@ static void dirEntry(int64_t h, char *o, size_t n) {
 static void writeLine(int64_t h, char *o, size_t n) {
   const idris_rt_str *line = text("written by write_line\n");
   snprintf(o, n, "%lld", (long long)idris_rt_io_file_write_line(h, line));
-  idris_rt_dec_cell((void *)line);
+  idris_rt_dec_cell((idris_rt_header *)&line->header);
 }
 static void writeEmptyLine(int64_t h, char *o, size_t n) {
   const idris_rt_str *line = text("");
   snprintf(o, n, "%lld", (long long)idris_rt_io_file_write_line(h, line));
-  idris_rt_dec_cell((void *)line);
+  idris_rt_dec_cell((idris_rt_header *)&line->header);
 }
 static void writeBytes4(int64_t h, char *o, size_t n) {
   memcpy(idris_rt_array_bytes(buffer), "..wb\n..", 7);
@@ -232,8 +226,8 @@ static int64_t openWith(const char *name, const char *mode) {
   const idris_rt_str *p = text(in(name));
   const idris_rt_str *m = text(mode);
   int64_t handle = idris_rt_io_file_open(p, m);
-  idris_rt_dec_cell((void *)p);
-  idris_rt_dec_cell((void *)m);
+  idris_rt_dec_cell((idris_rt_header *)&p->header);
+  idris_rt_dec_cell((idris_rt_header *)&m->header);
   return handle;
 }
 
@@ -244,7 +238,7 @@ static Handles fresh(void) {
   Handles h = {{-1, 0, 1, 2, openWith("file", "r+"), openWith("closed", "r"), -1}};
   const idris_rt_str *d = text(in("directory"));
   h.at[6] = idris_rt_io_dir_open(d);
-  idris_rt_dec_cell((void *)d);
+  idris_rt_dec_cell((idris_rt_header *)&d->header);
   idris_rt_io_dir_entry(h.at[6]);
   idris_rt_io_file_close(h.at[5]);
   return h;
@@ -257,7 +251,7 @@ static void done(const Handles *h) {
 }
 
 static void body(void) {
-  buffer = idris_rt_array_new(16, idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY));
+  buffer = idris_rt_array_new_unwritten(16, idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY));
 
   Handles h = fresh();
   say("handles: -1, standard input, output and error, a file, a closed file, a directory\n");
@@ -274,7 +268,6 @@ static void body(void) {
   row("file_is_tty", &h, isTty);
   row("file_size", &h, fileSize);
   row("file_time", &h, fileTime);
-  row("file time fields", &h, timeFields);
   row("dir_entry", &h, dirEntry);
   row("dir_entry again", &h, dirEntry);
   /* Writing: the file is at its end. */
@@ -294,7 +287,7 @@ static void body(void) {
   row("handle_free, then", &h, handleFree);
   done(&h);
 
-  idris_rt_dec_cell(buffer);
+  idris_rt_dec_cell(&buffer->header);
   const char *files[] = {"file", "closed", "input"};
   for (size_t i = 0; i < sizeof files / sizeof files[0]; ++i)
     unlink(in(files[i]));

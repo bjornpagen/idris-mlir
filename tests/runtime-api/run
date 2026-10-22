@@ -4,15 +4,14 @@
 # Reference counting frees what it counts: a structure of any depth on a
 # small stack, a wide cell's slots after the word that counts them, and
 # never an odd word an object slot holds; each kind of counted word's
-# entry leaves alone the words its kind admits besides a cell; a new
-# array's object slots are NULL from birth; a copy of a memref's view
-# counts each object it copies before it releases what it overwrites; a
-# string operation's result is never its operand (rc.c). Each runs as a
-# program on the checked runtime: one that returns with a cell still held
-# ends as its internal error, and a crash counts no cell. Every entry point
-# that takes a handle gives, on each kind of handle (null, the standard
-# streams, a file open and closed, a directory), its result and the errno
-# it leaves (handles.c).
+# entry leaves alone the words its kind admits besides a cell; a copy of a
+# memref's view counts each object it copies before it releases what it
+# overwrites; a string operation's result is never its operand (rc.c).
+# Each runs as a program on the checked runtime: one that returns with a
+# cell still held ends as its internal error, and a crash counts no cell.
+# Every entry point that takes a handle gives, on each kind of handle
+# (null, the standard streams, a file open and closed, a directory), its
+# result and the errno it leaves (handles.c).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 # build_test SOURCE OUTPUT: SOURCE linked as a program with the checked
 # runtime and the count of the cells it holds (harness/prop/held.cpp).

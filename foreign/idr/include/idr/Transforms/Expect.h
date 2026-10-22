@@ -265,11 +265,15 @@ bool callsNamed(mlir::CallOpInterface call, const Symbol &g, mlir::SymbolTable &
 // so, or its callee in `symbols`).
 unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
 
+// The identity a binder's location carries, the `#idr.binder<definition,
+// index>` Emit fuses into it, however passes nested it in names, call sites
+// and fusions; none for a binder a pass made.
+std::optional<BinderAttr> identityOf(mlir::Location loc);
+
 // The uses Idris proved of each binder of the emitted module, by the
-// binder's identity: the `#idr.binder<definition, index>` Emit fuses into
-// its location, which passes copy with the value as MLIR copies locations.
-// A typed identity, never a printed key: no two binders share one, so none
-// is dropped.
+// binder's identity, which passes copy with the value as MLIR copies
+// locations. A typed identity, never a printed key: no two binders share
+// one, so none is dropped.
 using ProvedUses = llvm::DenseMap<BinderAttr, Uses>;
 
 // The uses of every binder of `emitted` that carries an identity: a

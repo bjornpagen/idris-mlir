@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // in-place: what bufferization guarantees of a linear thread, stated as
-// the absence of a copy. Which op is a copy the pass that makes it says: a
-// copy into a cell made for it, never the write of a slice into a live
-// buffer, which is the meaning of the op it came from.
+// the absence of a copy. A copy bufferization makes is its own op, a copy
+// into a buffer allocated for it (idr.array.place_copy), never the write of
+// a slice into a live buffer, which is the meaning of the op it came from.
 
 #include "Checks.h"
 
 #include "idr/IR/Grades.h"
-#include "idr/Transforms/Bufferize.h"
+#include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -28,7 +28,7 @@ LogicalResult inPlace(const Request<Roots> &request) {
     root->walk([&](Operation *op) {
       buffer = buffer || llvm::any_of(op->getResultTypes(), isBuffer) ||
                llvm::any_of(op->getOperandTypes(), isBuffer);
-      if (!bufferize::copies(op))
+      if (!isa<ArrayPlaceCopyOp>(op))
         return;
       fail(op->getLoc(), request.property) << op->getName() << " copies a buffer in " << where(op);
       held = false;

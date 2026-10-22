@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/80-walk-iterative: every walk keeps its place on an explicit
+# stack, so its native depth does not grow with the IR's nesting, and the
+# tools keep a small stack. Each kind of walk (both orders, every
+# iterator, regions, blocks, by stage, interrupted and skipped) over
+# operations nested 10,000 deep, on a thread whose stack is 256 KiB, visits
+# what the recursion visited (walk.cpp). The nesting is built in memory:
+# mlir-opt's parser recurses on the same depth through each operation's
+# parse hook, so through mlir-opt the walk is never seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "walk: every kind over 10,000 nested operations on a 256 KiB stack" "$here/walk.cpp" 10000
