@@ -9,10 +9,9 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
-
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -30,9 +29,13 @@ bool idr::verify::usedAfterEveryAllocation(Value root, Operation *last) {
   // itself (a match's refined argument, a cast), met in program order.
   SmallVector<Value, 4> same{root};
   auto join = [&](Value value) {
-    Source source = sourceOf(value);
-    if (const auto *of = std::get_if<Same>(&source); of && llvm::is_contained(same, of->value))
-      same.push_back(value);
+    match(
+        sourceOf(value),
+        [&](const Same &of) {
+          if (llvm::is_contained(same, of.value))
+            same.push_back(value);
+        },
+        [](Made) {}, [](const Field &) {});
   };
   for (Operation *op = maker->getNextNode(); op; op = op == last ? nullptr : op->getNextNode())
     op->walk<WalkOrder::PreOrder>([&](Operation *nested) {

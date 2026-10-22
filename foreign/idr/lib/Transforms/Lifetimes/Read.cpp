@@ -13,11 +13,10 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Grades.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -273,42 +272,53 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
   bool repeatedEnd = endsRepeatedRun(op);
   FlowEdges edges;
   flowEdgesOf(op, edges);
-  for (const FlowEdges::Edge &each : edges.edges()) {
-    const auto *move = std::get_if<FlowEdges::Flow>(&each.move);
-    if (!move)
-      continue;
-    std::optional<Value> from = move->from.value();
+  // A move into a value: memory that exists before the op is stored where
+  // no lifetime follows it; a value the op makes holds what moves in.
+  auto into = [&](Value from, Value to) {
+    if (!makes(op, to))
+      mustCount(from);
+    else if (holdsLiving(to.getType()))
+      edge(from, to);
+  };
+  auto readMove = [&](const FlowEdges::Flow &move) {
+    std::optional<Value> from = move.from.value();
     if (!from || !holdsLiving(from->getType()))
-      continue;
+      return;
     // A word read out of a value reaches no cell of it.
-    if (std::optional<Type> moved = move->from.type(); moved && !holdsReferences(*moved))
-      continue;
-    if (std::holds_alternative<FlowPoint::Parameter>(move->to.at) || repeatedEnd) {
+    if (std::optional<Type> moved = move.from.type(); moved && !holdsReferences(*moved))
+      return;
+    // What the end of a repeated run forwards outlives the run.
+    if (repeatedEnd) {
       mustCount(*from);
-      continue;
+      return;
     }
-    if (const auto *result = std::get_if<FlowPoint::Result>(&move->to.at)) {
-      // A copy puts what it returns at a position its copies may put.
-      if (reading == Reading::Put && llvm::is_contained(copies[self]->results, result->index))
-        returned.push_back(node(*from));
-      else
-        mustCount(*from);
-      continue;
-    }
-    std::optional<Value> to = move->to.value();
-    if (!to) {
-      mustCount(*from);
-      continue;
-    }
-    // Memory that exists before the op, or a part of what the op makes
-    // that no reference is (an array's elements): stored where no
-    // lifetime follows it.
-    bool intoPart = std::holds_alternative<FlowPoint::Part>(move->to.at);
-    if (!makes(op, *to) || (intoPart && !holdsReferences(to->getType()))) {
-      mustCount(*from);
-      continue;
-    }
-    if (holdsLiving(to->getType()))
-      edge(*from, *to);
-  }
+    match(
+        move.to.at, [&](const FlowPoint::Parameter &) { mustCount(*from); },
+        // A copy puts what it returns at a position its copies may put.
+        [&](const FlowPoint::Result &result) {
+          if (reading == Reading::Put && llvm::is_contained(copies[self]->results, result.index))
+            returned.push_back(node(*from));
+          else
+            mustCount(*from);
+        },
+        [&](const FlowPoint::Taken &taken) { into(*from, taken.use->get()); },
+        [&](const FlowPoint::Whole &whole) { into(*from, whole.value); },
+        // A part of what the op makes that no reference is (an array's
+        // elements) is stored where no lifetime follows it.
+        [&](const FlowPoint::Part &part) {
+          Value to = part.value();
+          if (!holdsReferences(to.getType()))
+            mustCount(*from);
+          else
+            into(*from, to);
+        });
+  };
+  // Only a move takes what one value holds into another, and that is all
+  // the decide step reads of an op's edges.
+  for (const FlowEdges::Edge &each : edges.edges())
+    match(
+        each.move, readMove, [](const FlowEdges::Unify &) {}, [](const FlowEdges::Source &) {},
+        [](const FlowEdges::Fresh &) {}, [](const FlowEdges::Release &) {},
+        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Constant &) {},
+        [](const FlowEdges::Dispatch &) {});
 }

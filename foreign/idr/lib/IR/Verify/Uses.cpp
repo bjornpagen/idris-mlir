@@ -12,6 +12,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
@@ -82,11 +83,12 @@ Source idr::sourceOf(Value value) {
 // What counting and linearity make of an array changes which value names
 // it, not which cell it is.
 Value idr::arrayRoot(Value array) {
-  return definitionChain(array, [](Value value) -> std::optional<Value> {
-           Source source = sourceOf(value);
-           if (auto *same = std::get_if<Same>(&source))
-             return same->value;
-           return std::nullopt;
+  using Next = std::optional<Value>;
+  return definitionChain(array, [](Value value) {
+           return match(
+               sourceOf(value), [](const Same &same) -> Next { return same.value; },
+               [](Made) -> Next { return std::nullopt; },
+               [](const Field &) -> Next { return std::nullopt; });
          }).back();
 }
 
@@ -130,18 +132,32 @@ ownership::Use idr::ownership::useOf(OpOperand &operand) {
 
 namespace {
 
+// A view of a buffer lives while the buffer it views does. A counted
+// element is read from its buffer, which holds its reference. Each is read
+// off the operand itself, not the op's typed accessor: counting grades a
+// buffer a step before it gives each read of it the bare view upstream's op
+// takes, and the steps between ask what was read from what. Every
+// view-like op, upstream's and ours, takes its source first.
+std::optional<Value> bufferOf(Value value) {
+  if (auto view = value.getDefiningOp<ViewLikeOpInterface>(); view && view.getViewDest() == value)
+    return view->getOperand(0);
+  if (auto load = value.getDefiningOp<memref::LoadOp>();
+      load && holdsReferences(load.getType()))
+    return load.getMemrefMutable().get();
+  return std::nullopt;
+}
+
 // One step up a view's chain: what `value` was read from, or the value it
 // is (sourceOf's Same): the operand of an op that keeps its operand's
 // value (a linear position), a loan's view, or a match region's refined
 // operand. idr.count.share is not such an op: its result holds the
 // reference its operand gave up, so a view of it is a view of the result.
 std::optional<Value> viewedFrom(Value value) {
-  if (Value from = ownership::readFrom(value))
-    return from;
-  Source source = sourceOf(value);
-  if (const auto *same = std::get_if<Same>(&source))
-    return same->value;
-  return std::nullopt;
+  using Next = std::optional<Value>;
+  return match(
+      sourceOf(value), [](const Field &field) -> Next { return field.scrutinee; },
+      [&](const Same &same) -> Next { return bufferOf(value).value_or(same.value); },
+      [&](Made) { return bufferOf(value); });
 }
 
 } // namespace
@@ -175,21 +191,10 @@ bool idr::ownership::storedBy(OpOperand &operand) {
 // make each a view of its cell, and carry nothing for a field that is a
 // word.
 Value idr::ownership::readFrom(Value value) {
-  Source source = sourceOf(value);
-  if (const auto *field = std::get_if<Field>(&source))
-    return field->scrutinee;
-  // A view of a buffer lives while the buffer it views does. A counted
-  // element is read from its buffer, which holds its reference. Each is
-  // read off the operand itself, not the op's typed accessor: counting
-  // grades a buffer a step before it gives each read of it the bare view
-  // upstream's op takes, and the steps between ask what was read from what.
-  // Every view-like op, upstream's and ours, takes its source first.
-  if (auto view = value.getDefiningOp<ViewLikeOpInterface>(); view && view.getViewDest() == value)
-    return view->getOperand(0);
-  if (auto load = value.getDefiningOp<memref::LoadOp>();
-      load && holdsReferences(load.getType()))
-    return load.getMemrefMutable().get();
-  return nullptr;
+  return match(
+      sourceOf(value), [](const Field &field) { return field.scrutinee; },
+      [&](const Same &) { return bufferOf(value).value_or(Value()); },
+      [&](Made) { return bufferOf(value).value_or(Value()); });
 }
 
 // The block arguments sourceOf calls the same value as another are a match
@@ -197,12 +202,15 @@ Value idr::ownership::readFrom(Value value) {
 // operand's value (Idr_SameValue) is not followed here, as readFrom does
 // not.
 std::optional<Value> idr::ownership::readThrough(Value value) {
-  if (Value from = readFrom(value))
-    return from;
-  Source source = sourceOf(value);
-  if (const auto *same = std::get_if<Same>(&source); same && isa<BlockArgument>(value))
-    return same->value;
-  return std::nullopt;
+  using Next = std::optional<Value>;
+  return match(
+      sourceOf(value), [](const Field &field) -> Next { return field.scrutinee; },
+      [&](const Same &same) -> Next {
+        if (isa<BlockArgument>(value))
+          return same.value;
+        return bufferOf(value);
+      },
+      [&](Made) { return bufferOf(value); });
 }
 
 // A view's chain goes up through what each step was read from and through

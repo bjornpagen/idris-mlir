@@ -24,6 +24,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -174,7 +175,8 @@ private:
   // The account of `home`'s ops, each op whose regions hold a use looked
   // into: the blocks and the region ops still being counted wait on a list,
   // never on the C++ stack, so a deep nest of regions costs memory, not
-  // native frames. Each step returns its account to the one below it.
+  // native frames. Each step that ends hands its account to the one below
+  // it, and the last to end, home's block, hands it back.
   FailureOr<Account> accountOf(Block &home) {
     // A block whose ops are being counted, and the op whose regions it
     // waits on.
@@ -199,81 +201,79 @@ private:
     SmallVector<std::variant<InBlock, InRegions>, 8> steps;
     steps.push_back(InBlock{&home, home.begin(), 0, nullptr});
     std::optional<Account> returned;
-    for (;;) {
-      if (auto *in = std::get_if<InBlock>(&steps.back())) {
-        if (returned) {
-          Operation &op = *in->waiting;
-          Account inner = *std::exchange(returned, std::nullopt);
-          in->uses += inner.uses;
-          if (in->uses > 1)
-            return tooMany(op);
-          if (inner.reach == Reach::EndsRun) {
-            Account done{Reach::EndsRun, in->uses};
-            steps.pop_back();
-            if (steps.empty())
-              return done;
-            returned = done;
-            continue;
-          }
-        }
-        if (in->next == in->block->end()) {
-          Account done{endsRun(*in->block) ? Reach::EndsRun : Reach::GoesOn, in->uses};
-          steps.pop_back();
-          if (steps.empty())
-            return done;
-          returned = done;
-          continue;
-        }
-        Operation &op = *in->next++;
-        in->uses += own(&op);
-        if (op.getNumRegions() != 0 && holds(&op)) {
-          in->waiting = &op;
-          steps.push_back(InRegions{&op, exclusivity.alternatives(&op), 0, {}, false,
-                                    Account{Reach::GoesOn, 0}, {}});
-          continue;
-        }
-        if (in->uses > 1)
-          return tooMany(op);
-        continue;
-      }
-
-      auto &at = std::get<InRegions>(steps.back());
-      if (returned) {
-        Account inner = *std::exchange(returned, std::nullopt);
-        at.account.uses += inner.uses;
-        if (at.op->getRegion(at.region).hasOneBlock())
-          at.account.reach = inner.reach;
-        ++at.block;
-      }
-      if (at.region < at.op->getNumRegions()) {
-        Region &region = at.op->getRegion(at.region);
-        if (!at.lookedInto && !region.empty() && holds(region)) {
-          at.lookedInto = true;
-          at.block = region.begin();
-        } else if (!at.lookedInto && region.hasOneBlock() && endsRun(region.front())) {
-          at.account.reach = Reach::EndsRun;
-        }
-        if (at.lookedInto && at.block != region.end()) {
-          Block &block = *at.block;
-          steps.push_back(InBlock{&block, block.begin(), 0, nullptr});
-          continue;
-        }
-        // The region is counted: twice if it runs again, beside regions
-        // that run one after another.
-        if (!at.exclusive && at.account.uses != 0 && repeated(at.op, at.region))
-          at.account.uses *= 2;
-        at.each.push_back(at.account);
-        ++at.region;
-        at.lookedInto = false;
-        at.account = Account{Reach::GoesOn, 0};
-        continue;
-      }
-      FailureOr<Account> done = combined(*at.op, at.exclusive, at.each);
-      if (failed(done))
-        return failure();
+    // The step on top ends with `done`. A case that ends its step, or puts
+    // another above it, reads its step no more: the list moves under it.
+    auto finish = [&](Account done) -> LogicalResult {
       steps.pop_back();
-      returned = *done;
-    }
+      returned = done;
+      return success();
+    };
+    while (!steps.empty())
+      if (failed(match(
+              steps.back(),
+              [&](InBlock &in) -> LogicalResult {
+                if (returned) {
+                  Operation &op = *in.waiting;
+                  Account inner = *std::exchange(returned, std::nullopt);
+                  in.uses += inner.uses;
+                  if (in.uses > 1)
+                    return tooMany(op);
+                  if (inner.reach == Reach::EndsRun)
+                    return finish(Account{Reach::EndsRun, in.uses});
+                }
+                if (in.next == in.block->end())
+                  return finish(
+                      Account{endsRun(*in.block) ? Reach::EndsRun : Reach::GoesOn, in.uses});
+                Operation &op = *in.next++;
+                in.uses += own(&op);
+                if (op.getNumRegions() != 0 && holds(&op)) {
+                  in.waiting = &op;
+                  steps.push_back(InRegions{&op, exclusivity.alternatives(&op), 0, {}, false,
+                                            Account{Reach::GoesOn, 0}, {}});
+                  return success();
+                }
+                if (in.uses > 1)
+                  return tooMany(op);
+                return success();
+              },
+              [&](InRegions &at) -> LogicalResult {
+                if (returned) {
+                  Account inner = *std::exchange(returned, std::nullopt);
+                  at.account.uses += inner.uses;
+                  if (at.op->getRegion(at.region).hasOneBlock())
+                    at.account.reach = inner.reach;
+                  ++at.block;
+                }
+                if (at.region < at.op->getNumRegions()) {
+                  Region &region = at.op->getRegion(at.region);
+                  if (!at.lookedInto && !region.empty() && holds(region)) {
+                    at.lookedInto = true;
+                    at.block = region.begin();
+                  } else if (!at.lookedInto && region.hasOneBlock() && endsRun(region.front())) {
+                    at.account.reach = Reach::EndsRun;
+                  }
+                  if (at.lookedInto && at.block != region.end()) {
+                    Block &block = *at.block;
+                    steps.push_back(InBlock{&block, block.begin(), 0, nullptr});
+                    return success();
+                  }
+                  // The region is counted: twice if it runs again, beside
+                  // regions that run one after another.
+                  if (!at.exclusive && at.account.uses != 0 && repeated(at.op, at.region))
+                    at.account.uses *= 2;
+                  at.each.push_back(at.account);
+                  ++at.region;
+                  at.lookedInto = false;
+                  at.account = Account{Reach::GoesOn, 0};
+                  return success();
+                }
+                FailureOr<Account> done = combined(*at.op, at.exclusive, at.each);
+                if (failed(done))
+                  return failure();
+                return finish(*done);
+              })))
+        return failure();
+    return *returned;
   }
 
   // The account of an op from its regions' accounts, `each`: the sum over
