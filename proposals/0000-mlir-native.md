@@ -3760,6 +3760,26 @@ C137.
   pass; the marking after bufferization adds claims only where it proves
   more. No ruling changes: D71 already says "by construction", and C92
   says how.
+- **C174** (2026-10-21; L16's blocker on D83). D83's closed sum is a
+  sum of which implementation, not a record of method values: a
+  dictionary chosen at run time is a value of a closed sum whose
+  constructors are the instances the program fixes, each carrying the
+  choices its own constraints made (an instance `Show a => Show (List
+  a)` holds its element's choice as a field); each use of a method
+  matches on it and calls that instance's method monomorphized at the
+  use's own types. A polymorphic method then needs no polymorphic value,
+  since every use site fixes its types, and defunctionalization treats the
+  sum as any other. A choice whose set no analysis bounds (an instance
+  built deeper at each recursive call) stays megamorphic and refused.
+- **C175** (2026-10-21; L16's blocker on 0011's O3). The translation
+  runs as semi-naive evaluation (R2's fixpoint) over the instance table
+  with no effect in the step: the definitions it reads are read once at
+  the boundary into typed tables (AGENTS.md), and an instance's identity
+  is its content (definition and index terms), so minting an instance
+  is deriving a tuple whose key is that content. The universe grows with
+  each round's new keys, which semi-naive evaluation handles as its
+  delta; the growth check, which decides the megamorphic refusal as a
+  property of the program, bounds it, and no count refuses.
 
 ## 4. Open: the owner's decisions, in order
 
