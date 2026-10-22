@@ -4160,6 +4160,18 @@ C137.
   rewrite graph does. A vector math op with constant operands reaching
   `VectorToLLVM`'s greedy pre-lowering is the one reader left; it is
   patched only if the qualification finds a program that reaches it.
+- **C216** (2026-10-22; L17's sixth pass; under D44). 0011's O5 lands in
+  two halves. The flat parse tree lands first, whole: the parser emits
+  columns (each node's location in its payload, a size column, children
+  before parents, ids shared where the grammar shares a subtree), and a
+  decoder gives `PTerm` to Desugar, Resugar and the printer, so the
+  parser is converted entirely and nothing reads it half and half.
+  Resolution as R1's interval join waits on §4's fourth question: Idris
+  resolves names during elaboration, against the typed environment, and
+  the only scope over syntax is Desugar's bound-name set, which needs
+  each clause's pattern variables after operators are regrouped by the
+  fixities in force, so a join over the parse tree has no reader unless
+  Desugar reads the columns.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
@@ -4291,6 +4303,23 @@ shape. Each deletes `shareIntoCarriers`, the `readBare` exclusion and
 borrows' rule counting any parameter an upstream op reads. L05 leans to
 B, with C's type if the hold may move (conjecture). Meanwhile such
 parameters stay counted, which costs time, never correctness.
+
+**Fourth, after those three** (L17's evidence, 2026-10-22; to be raised
+alone in turn). 0011's O5 asks for name resolution as R1's interval join
+over the flat parse tree, but Idris resolves names during elaboration,
+against the typed environment (`TTImp/Elab/App.idr:54`); the only scope
+over syntax is Desugar's set of bound names, read once, in
+`bindTypeNames`, and it needs each clause's pattern variables, found on
+the desugared left side after operators are regrouped by the fixities in
+force there. The choice: (A) Desugar reads the columns, and its bound
+set becomes the join plus a row per clause for its pattern variables,
+rewriting Desugar's 1,500 lines, so the join has a real reader; (B) O5
+is the flat parse tree and its decoder only, resolution waiting for the
+stage that moves Desugar onto tables, and O5's speed bar becomes parse
+alone (recommended by L17); (C) the join covers only the binders the
+syntax shows, carried into Desugar on new fields, which holds the set in
+two places. Meanwhile the parse tree and decoder land (C216), common to
+all three.
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
