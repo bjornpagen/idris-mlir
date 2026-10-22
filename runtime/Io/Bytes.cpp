@@ -12,10 +12,12 @@
 namespace rt::io {
 
 size_t writeBytes(int64_t handle, const char *p, size_t n) {
-  return streamOf(handle).write(p, n).count;
+  return withStream(handle, [&](const Stream auto &stream) { return stream.write(p, n).count; });
 }
 
-size_t readBytes(int64_t handle, char *p, size_t n) { return streamOf(handle).read(p, n); }
+size_t readBytes(int64_t handle, char *p, size_t n) {
+  return withStream(handle, [&](const Stream auto &stream) { return stream.read(p, n); });
+}
 
 } // namespace rt::io
 

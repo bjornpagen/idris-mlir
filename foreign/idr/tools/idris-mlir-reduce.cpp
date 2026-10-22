@@ -29,17 +29,18 @@ namespace {
 // The values an op of a function's body computes, made ub.poison, which
 // takes no operand: erasing the op would leave its uses without a value,
 // which no candidate verifies with, while this keeps every use and drops
-// the op's own. An op with regions stays, for the reducer to work inside,
-// and a poison is already the simplest value. Rooted at each registered
-// op but poison itself, as the other rooted patterns are.
+// the op's own. The reduction is the same for every op that computes
+// values, of any dialect, so it is one pattern on any op, not one per
+// registered op. An op with regions stays, for the reducer to work inside;
+// a poison is already the simplest value, and remaking it would never end.
 struct PoisonResults : mlir::RewritePattern {
-  PoisonResults(mlir::StringRef root, mlir::MLIRContext *ctx)
-      : RewritePattern(root, /*benefit=*/1, ctx) {}
+  explicit PoisonResults(mlir::MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
 
   mlir::LogicalResult matchAndRewrite(mlir::Operation *op,
                                       mlir::PatternRewriter &rewriter) const override {
-    if (op->getNumResults() == 0 || op->getNumRegions() != 0 ||
-        !op->getParentOfType<idr::FuncOp>())
+    if (mlir::isa<mlir::ub::PoisonOp>(op) || op->getNumResults() == 0 ||
+        op->getNumRegions() != 0 || !op->getParentOfType<idr::FuncOp>())
       return mlir::failure();
     auto poison = [&](mlir::Type type) -> mlir::Value {
       return mlir::ub::PoisonOp::create(rewriter, op->getLoc(), type);
@@ -56,10 +57,7 @@ struct IdrReductionPatterns : mlir::DialectReductionPatternInterface {
       : DialectReductionPatternInterface(dialect) {}
 
   void populateReductionPatterns(mlir::RewritePatternSet &patterns) const override {
-    mlir::MLIRContext *ctx = patterns.getContext();
-    for (mlir::RegisteredOperationName op : ctx->getRegisteredOperations())
-      if (op.getStringRef() != mlir::ub::PoisonOp::getOperationName())
-        patterns.add<PoisonResults>(op.getStringRef(), ctx);
+    patterns.add<PoisonResults>(patterns.getContext());
   }
 };
 

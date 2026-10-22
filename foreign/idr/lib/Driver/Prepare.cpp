@@ -10,6 +10,7 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/StackBound.h"
 #include "idr/Driver/Verdict.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
@@ -17,6 +18,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/GlobalValue.h"
@@ -69,10 +71,18 @@ static mlir::LogicalResult prepareArchive(Archived &archived, llvm::TargetMachin
   mlir::Location at = mlir::UnknownLoc::get(&context);
   llvm::Module &runtime = *archived.module;
   llvm::LLVMContext &llvmContext = runtime.getContext();
-  // Programs reach the C ABI and nothing else.
-  llvm::internalizeModule(runtime, [](const llvm::GlobalValue &value) {
-    return value.getName().starts_with("idris_rt_");
-  });
+  // Programs reach the runtime through the functions lowered code calls, the
+  // table's, and nothing else: every other definition is the runtime's own,
+  // for the optimizer to inline and drop. A module knows its functions by
+  // their symbols, the one identity LLVM gives them, so each of the table's
+  // is looked up there once.
+  llvm::SmallPtrSet<const llvm::GlobalValue *, 32> reached;
+  reached.reserve(idr::runtime::functions.size());
+  for (const idr::runtime::Function *function : idr::runtime::functions)
+    if (const llvm::Function *defined = runtime.getFunction(function->symbol))
+      reached.insert(defined);
+  llvm::internalizeModule(runtime,
+                          [&](const llvm::GlobalValue &value) { return reached.contains(&value); });
   idr::target::optimize(runtime, machine);
   if (mlir::failed(externalize(runtime, at)))
     return mlir::failure();

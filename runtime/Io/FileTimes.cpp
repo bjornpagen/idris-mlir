@@ -36,7 +36,7 @@ int64_t field(int64_t handle) {
 extern "C" int64_t idris_rt_io_file_time(int64_t file) {
   auto *times = static_cast<rt::platform::FileTimes *>(
       rt::alloc::allocate(sizeof(rt::platform::FileTimes)));
-  if (!rt::platform::fileTimes(rt::io::streamOf(file).descriptor(), *times)) {
+  if (!rt::platform::fileTimes(rt::io::descriptorOf(file), *times)) {
     rt::io::saveError();
     times->items.fill(-1);
   }

@@ -20,10 +20,11 @@
 //
 // An operation given a handle that is not open as what it takes (a closed
 // file, a directory where a file goes) fails as the C library fails a stream
-// that is not open, with EBADF: streamOf decides it once for every operation
-// on a stream, openSlot for the others. Reading a handle as a string is
-// asked only of one that holds a string: the guard at its call site asks
-// first, and crashes there, at the program's place, when it holds none.
+// that is not open, with EBADF: withStream decides it once for every
+// operation on a stream, openSlot for the others. Reading a handle as a
+// string is asked only of one that holds a string: the guard at its call
+// site asks first, and crashes there, at the program's place, when it holds
+// none.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
@@ -40,12 +41,8 @@
 
 namespace {
 
-using rt::io::ByteRead;
 using rt::io::Kind;
 using rt::io::Slot;
-using rt::io::Stream;
-using rt::io::StreamOps;
-using rt::io::Written;
 
 // The slots the table is made with, in the order of their handles.
 struct Seed {
@@ -89,7 +86,7 @@ void grow() {
 // What the slot holds, released: a file closed, which writes what it has
 // pending, and how that went; a directory closed; a file's times given
 // back; a string losing the slot's reference. A directory's entry slot is
-// a slot of its own, and a standard stream's state is its row's, not the
+// a slot of its own, and a standard stream's state is its own, not the
 // slot's.
 rt::platform::Wrote releasePayload(Slot &slot) {
   switch (slot.kind) {
@@ -124,41 +121,6 @@ rt::platform::Wrote freeSlot(int64_t handle) {
   return released;
 }
 
-// A stream that is not open. streamOf saves EBADF when it finds one, and
-// each operation then fails as the C library fails such a stream: nothing
-// written or read, a failure, no end, no descriptor.
-constexpr StreamOps notOpen{
-    .write = [](const Stream &, const char *, size_t) { return Written{0, true}; },
-    .read = [](const Stream &, char *, size_t) -> size_t { return 0; },
-    .readByte = [](const Stream &) { return ByteRead{ByteRead::Got::Failure, 0}; },
-    .flush = [](const Stream &) { return false; },
-    .close = [](const Stream &) {},
-    .failed = [](const Stream &) { return true; },
-    .ended = [](const Stream &) { return false; },
-    .descriptor = [](const Stream &) { return -1; },
-    .poll = [](const Stream &) -> int64_t { return -1; },
-};
-
-// The row of a slot that is a stream, or null for one that is not.
-constexpr const StreamOps *rowOf(Kind kind) {
-  switch (kind) {
-  case Kind::Input:
-    return &rt::io::inputStream;
-  case Kind::Output:
-    return &rt::io::outputStream;
-  case Kind::Error:
-    return &rt::io::errorStream;
-  case Kind::File:
-    return &rt::io::fileStream;
-  case Kind::Free:
-  case Kind::Directory:
-  case Kind::FileTimes:
-  case Kind::String:
-  case Kind::KeptString:
-    return nullptr;
-  }
-}
-
 } // namespace
 
 namespace rt::io {
@@ -173,14 +135,6 @@ Slot *openSlot(int64_t handle, Kind kind) {
     return &slot;
   fail(EBADF);
   return nullptr;
-}
-
-Stream streamOf(int64_t handle) {
-  Slot &slot = slotOf(handle);
-  if (const StreamOps *row = rowOf(slot.kind))
-    return {row, handle, &slot};
-  fail(EBADF);
-  return {&notOpen, handle, &slot};
 }
 
 int64_t newSlot(Kind kind) {

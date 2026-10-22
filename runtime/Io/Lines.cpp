@@ -29,17 +29,18 @@ int64_t programString(const rt::io::Scratch &bytes) {
 // stream it is the empty string; it is null when a read failed before any
 // byte of the line, or the handle is no stream to read from.
 extern "C" int64_t idris_rt_io_file_read_line(int64_t file) {
-  rt::io::Stream stream = rt::io::streamOf(file);
-  rt::io::Scratch line;
-  rt::io::ByteRead read = stream.readByte();
-  for (; read.got == Got::Byte; read = stream.readByte()) {
-    line.push(static_cast<char>(read.byte));
-    if (read.byte == '\n')
-      break;
-  }
-  if (read.got == Got::Failure && line.length == 0)
-    return rt::io::nullHandle;
-  return programString(line);
+  return rt::io::withStream(file, [](const rt::io::Stream auto &stream) -> int64_t {
+    rt::io::Scratch line;
+    rt::io::ByteRead read = stream.readByte();
+    for (; read.got == Got::Byte; read = stream.readByte()) {
+      line.push(static_cast<char>(read.byte));
+      if (read.byte == '\n')
+        break;
+    }
+    if (read.got == Got::Failure && line.length == 0)
+      return rt::io::nullHandle;
+    return programString(line);
+  });
 }
 
 // Up to `max` bytes of a stream, fewer only at its end, as a string handle
@@ -66,23 +67,28 @@ extern "C" int64_t idris_rt_io_file_read_chars(int64_t max, int64_t file) {
 // fgetc's: the next byte of a stream, 0 to 255, or -1 at its end, on a
 // failure, or when the handle is no stream to read from.
 extern "C" int64_t idris_rt_io_file_read_char(int64_t file) {
-  rt::io::ByteRead read = rt::io::streamOf(file).readByte();
+  rt::io::ByteRead read =
+      rt::io::withStream(file, [](const rt::io::Stream auto &stream) { return stream.readByte(); });
   return read.got == Got::Byte ? read.byte : -1;
 }
 
 // Skips a stream through its next '\n': 0, also at its end; -1 when a read
 // failed or the handle is no stream to read from.
 extern "C" int64_t idris_rt_io_file_seek_line(int64_t file) {
-  rt::io::Stream stream = rt::io::streamOf(file);
-  rt::io::ByteRead read = stream.readByte();
-  while (read.got == Got::Byte && read.byte != '\n')
-    read = stream.readByte();
-  return read.got == Got::Failure ? -1 : 0;
+  return rt::io::withStream(file, [](const rt::io::Stream auto &stream) -> int64_t {
+    rt::io::ByteRead read = stream.readByte();
+    while (read.got == Got::Byte && read.byte != '\n')
+      read = stream.readByte();
+    return read.got == Got::Failure ? -1 : 0;
+  });
 }
 
 // Writes all of a string's bytes to a stream, as fPutStr asks: 1 when they
 // were written, 0 when the write failed or the handle is no stream to write
 // to, even for the empty string.
 extern "C" int64_t idris_rt_io_file_write_line(int64_t file, const idris_rt_str *line) {
-  return rt::io::streamOf(file).write(idris_rt_str_bytes(line), line->bytes).failed ? 0 : 1;
+  rt::io::Written written = rt::io::withStream(file, [&](const rt::io::Stream auto &stream) {
+    return stream.write(idris_rt_str_bytes(line), line->bytes);
+  });
+  return written.failed ? 0 : 1;
 }

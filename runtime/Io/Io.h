@@ -10,8 +10,11 @@
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <concepts>
 
 namespace rt::io {
 
@@ -123,8 +126,13 @@ void putOutput(const char *p, size_t n);
 char *outputRoom(size_t n);
 void outputWritten(size_t n);
 
-// Streams: what a handle that names one reads and writes, through the row
-// of its kind.
+// Streams: what a handle that names one reads and writes. The kinds of
+// stream are a closed set, each a type of its own with the operations every
+// stream has (Stream): standard input, output and error, an open file, and
+// the stream of a handle that names none open. Which one a handle names is
+// read once, from its slot, by withStream, which hands it to the caller's
+// code, compiled for each kind. An operation the stream cannot do fails as
+// the C library fails it on a stream not open for it, with EBADF.
 
 // What a write did: the bytes it wrote, and whether it failed before it
 // wrote them all (errno saved). A write to a stream that is not open for
@@ -142,71 +150,154 @@ struct ByteRead {
   unsigned char byte;
 };
 
-struct Stream;
-
-// A kind of stream's operations, one row of them per kind: every entry point
-// that takes a stream calls its row, so what a stream does is decided where
-// the stream is, once. An operation the stream cannot do fails as the C
-// library fails it on a stream not open for it, with EBADF.
-struct StreamOps {
-  // The n bytes at p, in order with every other write to the stream.
-  Written (*write)(const Stream &stream, const char *p, size_t n);
-  // Up to n bytes into p, waiting until n bytes or the end: fewer only at the
-  // end or on a failure (errno saved).
-  size_t (*read)(const Stream &stream, char *p, size_t n);
-  // The next byte, consumed.
-  ByteRead (*readByte)(const Stream &stream);
-  // Writes what the stream has pending; false when that failed (errno
-  // saved).
-  bool (*flush)(const Stream &stream);
-  // Closes the stream: a file's handle is freed, and a standard stream stays
-  // open, since the runtime writes and reads it.
-  void (*close)(const Stream &stream);
-  // C's ferror: a read or a write on the stream failed.
-  bool (*failed)(const Stream &stream);
-  // C's feof: a read met the end of the stream's input.
-  bool (*ended)(const Stream &stream);
-  // The stream's descriptor, or -1 when it has none.
-  int (*descriptor)(const Stream &stream);
-  // Whether the stream has input ready, waiting up to a second for it, as
-  // select says: 1 when it has, 0 when it has not, -1 on a failure.
-  int64_t (*poll)(const Stream &stream);
+// What every kind of stream does:
+// - write: the n bytes at p, in order with every other write to the stream;
+// - read: up to n bytes into p, waiting until n bytes or the end: fewer only
+//   at the end or on a failure (errno saved);
+// - readByte: the next byte, consumed;
+// - flush: writes what the stream has pending; false when that failed
+//   (errno saved);
+// - close: a file's handle is freed, and a standard stream stays open,
+//   since the runtime writes and reads it;
+// - failed: C's ferror, a read or a write on the stream failed;
+// - ended: C's feof, a read met the end of the stream's input;
+// - descriptor: the stream's descriptor, or -1 when it has none;
+// - poll: whether the stream has input ready, waiting up to a second for
+//   it, as select says: 1 when it has, 0 when it has not, -1 on a failure.
+template <class S>
+concept Stream = requires(const S &stream, const char *from, char *into, size_t n) {
+  { stream.write(from, n) } -> std::same_as<Written>;
+  { stream.read(into, n) } -> std::same_as<size_t>;
+  { stream.readByte() } -> std::same_as<ByteRead>;
+  { stream.flush() } -> std::same_as<bool>;
+  { stream.close() } -> std::same_as<void>;
+  { stream.failed() } -> std::same_as<bool>;
+  { stream.ended() } -> std::same_as<bool>;
+  { stream.descriptor() } -> std::same_as<int>;
+  { stream.poll() } -> std::same_as<int64_t>;
 };
 
-// The rows of the standard streams (Input.cpp, Output.cpp) and of a file
-// (Files.cpp).
-extern const StreamOps inputStream;
-extern const StreamOps outputStream;
-extern const StreamOps errorStream;
-extern const StreamOps fileStream;
+// Standard input, the handle 0 (Input.cpp).
+struct InputStream {
+  Written write(const char *p, size_t n) const;
+  size_t read(char *p, size_t n) const;
+  ByteRead readByte() const;
+  bool flush() const;
+  void close() const;
+  bool failed() const;
+  bool ended() const;
+  int descriptor() const;
+  int64_t poll() const;
+};
 
-// A handle as a stream: its row, its handle and its slot, whose file the
-// file row reads.
-struct Stream {
-  const StreamOps *ops;
+// Standard output, the handle 1 (Output.cpp).
+struct OutputStream {
+  Written write(const char *p, size_t n) const;
+  size_t read(char *p, size_t n) const;
+  ByteRead readByte() const;
+  bool flush() const;
+  void close() const;
+  bool failed() const;
+  bool ended() const;
+  int descriptor() const;
+  int64_t poll() const;
+};
+
+// Standard error, the handle 2 (Output.cpp).
+struct ErrorStream {
+  Written write(const char *p, size_t n) const;
+  size_t read(char *p, size_t n) const;
+  ByteRead readByte() const;
+  bool flush() const;
+  void close() const;
+  bool failed() const;
+  bool ended() const;
+  int descriptor() const;
+  int64_t poll() const;
+};
+
+// An open file: its handle, which closing it frees, and the C library's
+// stream its slot holds (Files.cpp).
+struct FileStream {
   int64_t handle;
-  Slot *slot;
+  rt::platform::File *file;
 
-  Written write(const char *p, size_t n) const { return ops->write(*this, p, n); }
-  size_t read(char *p, size_t n) const { return ops->read(*this, p, n); }
-  ByteRead readByte() const { return ops->readByte(*this); }
-  bool flush() const { return ops->flush(*this); }
-  void close() const { ops->close(*this); }
-  bool failed() const { return ops->failed(*this); }
-  bool ended() const { return ops->ended(*this); }
-  int descriptor() const { return ops->descriptor(*this); }
-  int64_t poll() const { return ops->poll(*this); }
+  Written write(const char *p, size_t n) const;
+  size_t read(char *p, size_t n) const;
+  ByteRead readByte() const;
+  bool flush() const;
+  void close() const;
+  bool failed() const;
+  bool ended() const;
+  int descriptor() const;
+  int64_t poll() const;
 };
 
-// The stream a handle names: a standard stream or an open file. Any other
-// handle, null, closed, or of a directory, a file time or a string, is a
-// stream that is not open: EBADF is saved here, and its every operation
-// then fails as the C library fails a stream that is not open, without
-// another test.
-Stream streamOf(int64_t handle);
+// The stream of a handle that names none open. withStream saved EBADF when
+// it found one, and each operation then fails as the C library fails such a
+// stream: nothing written or read, a failure, no end, no descriptor.
+struct NotOpenStream {
+  Written write(const char *, size_t) const { return {0, true}; }
+  size_t read(char *, size_t) const { return 0; }
+  ByteRead readByte() const { return {ByteRead::Got::Failure, 0}; }
+  bool flush() const { return false; }
+  void close() const {}
+  bool failed() const { return true; }
+  bool ended() const { return false; }
+  int descriptor() const { return -1; }
+  int64_t poll() const { return -1; }
+};
 
-// Whether a stream has input ready, as its descriptor says (StreamOps::poll).
-int64_t pollDescriptor(const Stream &stream);
+// The kinds of stream, each a Stream: what withStream hands its caller's
+// code, which is compiled for each.
+template <Stream... Kinds>
+struct StreamKinds {
+  template <class Use>
+  static constexpr bool usedBy = (std::invocable<Use &, const Kinds &> && ...);
+};
+using EveryStream =
+    StreamKinds<InputStream, OutputStream, ErrorStream, FileStream, NotOpenStream>;
+
+template <class Use>
+concept UsesStream = EveryStream::usedBy<Use>;
+
+// Whether a descriptor has input ready, as select says (Stream's poll).
+int64_t pollDescriptor(int descriptor);
+
+// The stream a handle names, given to `use`: a standard stream or an open
+// file. Any other handle, null, closed, or of a directory, a file time or a
+// string, names the stream that is not open: EBADF is saved here, and its
+// every operation then fails as the C library fails a stream that is not
+// open, without another test.
+template <UsesStream Use>
+decltype(auto) withStream(int64_t handle, Use &&use) {
+  Slot &slot = slotOf(handle);
+  switch (slot.kind) {
+  case Kind::Input:
+    return use(InputStream{});
+  case Kind::Output:
+    return use(OutputStream{});
+  case Kind::Error:
+    return use(ErrorStream{});
+  case Kind::File:
+    return use(FileStream{handle, slot.file});
+  case Kind::Free:
+  case Kind::Directory:
+  case Kind::FileTimes:
+  case Kind::String:
+  case Kind::KeptString:
+    break;
+  }
+  fail(EBADF);
+  return use(NotOpenStream{});
+}
+
+// The descriptor of the stream a handle names, what fstat and isatty take:
+// -1, with EBADF saved, for a handle that names none open, which they then
+// refuse as such.
+inline int descriptorOf(int64_t handle) {
+  return withStream(handle, [](const Stream auto &stream) { return stream.descriptor(); });
+}
 
 // Scratch (Scratch.cpp): bytes being gathered before they become a string
 // or go to the C library: a line being read, a path.

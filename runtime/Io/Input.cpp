@@ -15,9 +15,6 @@
 
 namespace {
 
-using rt::io::ByteRead;
-using rt::io::Stream;
-using rt::io::Written;
 using rt::io::bufferSize;
 
 char input[bufferSize];
@@ -72,30 +69,34 @@ namespace rt::io {
 // flush; its end and its failure are the buffer's reads'; its descriptor is
 // 0, which has input ready too while the buffer holds unread bytes; closing
 // it leaves it open.
-constexpr StreamOps inputStream{
-    .write =
-        [](const Stream &, const char *, size_t) {
-          fail(EBADF);
-          return Written{0, true};
-        },
-    .read = [](const Stream &, char *p, size_t n) { return readInput(p, n); },
-    .readByte =
-        [](const Stream &) {
-          int32_t b = peek();
-          if (b < 0)
-            return ByteRead{inputFailed ? ByteRead::Got::Failure : ByteRead::Got::End, 0};
-          ++inputPosition;
-          return ByteRead{ByteRead::Got::Byte, static_cast<unsigned char>(b)};
-        },
-    .flush = [](const Stream &) { return true; },
-    .close = [](const Stream &) {},
-    .failed = [](const Stream &) { return inputFailed; },
-    .ended = [](const Stream &) { return inputEnded; },
-    .descriptor = [](const Stream &) { return 0; },
-    .poll = [](const Stream &stream) -> int64_t {
-      return inputPosition < inputLength ? 1 : pollDescriptor(stream);
-    },
-};
+Written InputStream::write(const char *, size_t) const {
+  fail(EBADF);
+  return {0, true};
+}
+
+size_t InputStream::read(char *p, size_t n) const { return readInput(p, n); }
+
+ByteRead InputStream::readByte() const {
+  int32_t b = peek();
+  if (b < 0)
+    return {inputFailed ? ByteRead::Got::Failure : ByteRead::Got::End, 0};
+  ++inputPosition;
+  return {ByteRead::Got::Byte, static_cast<unsigned char>(b)};
+}
+
+bool InputStream::flush() const { return true; }
+
+void InputStream::close() const {}
+
+bool InputStream::failed() const { return inputFailed; }
+
+bool InputStream::ended() const { return inputEnded; }
+
+int InputStream::descriptor() const { return 0; }
+
+int64_t InputStream::poll() const {
+  return inputPosition < inputLength ? 1 : pollDescriptor(descriptor());
+}
 
 } // namespace rt::io
 

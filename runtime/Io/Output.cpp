@@ -23,8 +23,6 @@
 namespace {
 
 using rt::io::ByteRead;
-using rt::io::Stream;
-using rt::io::Written;
 using rt::io::bufferSize;
 
 // The pending output and its length. An internal error met in the fault
@@ -60,18 +58,15 @@ void written(rt::platform::Wrote how) {
 
 // Standard output and error are never read: a read fails as on a stream not
 // open for reading.
-size_t readNothing(const Stream &, char *, size_t) {
+size_t readNothing() {
   rt::io::fail(EBADF);
   return 0;
 }
 
-ByteRead readNoByte(const Stream &) {
+ByteRead readNoByte() {
   rt::io::fail(EBADF);
   return {ByteRead::Got::Failure, 0};
 }
-
-// Their writes never fail and they have no input to end.
-bool never(const Stream &) { return false; }
 
 } // namespace
 
@@ -93,46 +88,57 @@ void outputWritten(size_t n) { publish(outputLength.load(std::memory_order_relax
 
 // Standard output, the handle 1: written through the buffer, in order with
 // every other write to it; flushing it, and closing it, write what it has
-// pending, and it stays open.
-constexpr StreamOps outputStream{
-    .write =
-        [](const Stream &, const char *p, size_t n) {
-          putOutput(p, n);
-          return Written{n, false};
-        },
-    .read = readNothing,
-    .readByte = readNoByte,
-    .flush =
-        [](const Stream &) {
-          idris_rt_flush();
-          return true;
-        },
-    .close = [](const Stream &) { idris_rt_flush(); },
-    .failed = never,
-    .ended = never,
-    .descriptor = [](const Stream &) { return 1; },
-    .poll = pollDescriptor,
-};
+// pending, and it stays open. Its writes never fail (a reader gone ends the
+// program), and it has no input to end.
+Written OutputStream::write(const char *p, size_t n) const {
+  putOutput(p, n);
+  return {n, false};
+}
+
+size_t OutputStream::read(char *, size_t) const { return readNothing(); }
+
+ByteRead OutputStream::readByte() const { return readNoByte(); }
+
+bool OutputStream::flush() const {
+  idris_rt_flush();
+  return true;
+}
+
+void OutputStream::close() const { idris_rt_flush(); }
+
+bool OutputStream::failed() const { return false; }
+
+bool OutputStream::ended() const { return false; }
+
+int OutputStream::descriptor() const { return 1; }
+
+int64_t OutputStream::poll() const { return pollDescriptor(descriptor()); }
 
 // Standard error, the handle 2: written at once, after what standard output
 // has pending, so the two keep the order the program wrote them in; nothing
-// is pending to flush, and closing it leaves it open.
-constexpr StreamOps errorStream{
-    .write =
-        [](const Stream &, const char *p, size_t n) {
-          idris_rt_flush();
-          written(rt::platform::writeAll(2, p, n));
-          return Written{n, false};
-        },
-    .read = readNothing,
-    .readByte = readNoByte,
-    .flush = [](const Stream &) { return true; },
-    .close = [](const Stream &) {},
-    .failed = never,
-    .ended = never,
-    .descriptor = [](const Stream &) { return 2; },
-    .poll = pollDescriptor,
-};
+// is pending to flush, and closing it leaves it open. As standard output's,
+// its writes never fail, and it has no input to end.
+Written ErrorStream::write(const char *p, size_t n) const {
+  idris_rt_flush();
+  written(rt::platform::writeAll(2, p, n));
+  return {n, false};
+}
+
+size_t ErrorStream::read(char *, size_t) const { return readNothing(); }
+
+ByteRead ErrorStream::readByte() const { return readNoByte(); }
+
+bool ErrorStream::flush() const { return true; }
+
+void ErrorStream::close() const {}
+
+bool ErrorStream::failed() const { return false; }
+
+bool ErrorStream::ended() const { return false; }
+
+int ErrorStream::descriptor() const { return 2; }
+
+int64_t ErrorStream::poll() const { return pollDescriptor(descriptor()); }
 
 // The length is taken and 0 published before the write, so a flush an
 // internal error makes in the middle of this one, from the fault handler,
