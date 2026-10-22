@@ -148,10 +148,25 @@ at v s = fromMaybe empty (lookup s v)
 viewOf : List Entry -> View
 viewOf = foldl (\v, (s, a) => insert s (insert a (at v s)) v) empty
 
--- How the writer's own dictionary parameter i reads: the one place the flow
--- and the split differ.
-Own : Type
-Own = Nat -> SortedSet Address
+-- How the writer's own parameters read, the one place the flow and the
+-- split differ: parameter i's marker, and the marker applied. A dictionary
+-- parameter applied is a function that gives an implementation at each use
+-- (a rank-2 dictionary), so it gives what the parameter can be; a family
+-- applied is beta of its value, which no implementation is, so reading the
+-- type constructors that head it would draw arcs from positions no value
+-- of it comes from. The flow and the split read Core's root first, which
+-- roots an applied marker as its parameter (`Template.rootOf`), and their
+-- readings give an applied marker nothing of its own (`markersOnly`); the
+-- growth theorem's model reads a template alone (`roots`), so it reads it.
+record Own where
+  constructor MkOwn
+  ofMarker : Nat -> SortedSet Address
+  ofApplied : Nat -> SortedSet Address
+
+-- A reading whose applied markers give nothing: where Core's root answers
+-- for every applied marker.
+markersOnly : (Nat -> SortedSet Address) -> Own
+markersOnly reading = MkOwn reading (const empty)
 
 mutual
   -- The roots a template's structure gives, where Core named none. A head
@@ -165,7 +180,7 @@ mutual
   -- through the writer's head, never through every implementation that
   -- reaches the projection's target.
   byTemplate : View -> Own -> Template -> SortedSet Address
-  byTemplate v own (Var i Z) = own i
+  byTemplate v own (Var i Z) = own.ofMarker i
   byTemplate v own (Var _ (S _)) = empty
   byTemplate v own (Field k s) =
     foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (Prelude.toList (byTemplate v own s))
@@ -176,7 +191,10 @@ mutual
   byTemplate v own (Token _) = empty
   byTemplate v own (Formal _ _) = empty
   byTemplate v own (Opaque _ _) = empty
-  byTemplate v own (Applied _ _ _) = empty
+  byTemplate v own (Applied i Z _) = own.ofApplied i
+  -- A part matched out of a value is a runtime part, which a pattern binds
+  -- and nothing applies as a dictionary.
+  byTemplate v own (Applied _ (S _) _) = empty
   -- Met in the graph's field values, whose records are parts of a
   -- template read at a node (`withClosedFamilies`).
   byTemplate v own (Computing _ _ _) = empty
@@ -192,7 +210,7 @@ byRoot : View -> Own -> Root -> Template -> SortedSet Address
 byRoot v own (Rooted j) _ = singleton j
 byRoot v own (Members js) _ = fromList (forget js)
 byRoot v own (Gives js) _ = fromList (forget js)
-byRoot v own (Parameter i Z) _ = own i
+byRoot v own (Parameter i Z) _ = own.ofMarker i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own t
 byRoot v own Unrooted t = byTemplate v own t
 
@@ -202,7 +220,7 @@ byFamily : Own -> Root -> SortedSet Address
 byFamily own (Rooted j) = singleton j
 byFamily own (Members _) = empty
 byFamily own (Gives _) = empty
-byFamily own (Parameter i Z) = own i
+byFamily own (Parameter i Z) = own.ofMarker i
 byFamily own (Parameter _ (S _)) = empty
 byFamily own Unrooted = empty
 
@@ -316,7 +334,7 @@ candidates : SortedMap Address Fields -> View -> List Equation -> SortedSet Entr
 candidates fs v eqs = fromList (eqs >>= yield)
   where
     own : Address -> Own
-    own w i = at v (parameterSlot w i)
+    own w = markersOnly (\i => at v (parameterSlot w i))
 
     into : Slot -> SortedSet Address -> List Entry
     into s js = map (s,) (Prelude.toList js)
@@ -415,7 +433,7 @@ reaching fl a j = Prelude.toList (at fl.solution (parameterSlot a j))
 -- request of the node, and is passed on as it was given, so it keys
 -- nothing: the flow's set would invent heads no request has.
 headAt : Node -> Own
-headAt w i = maybe empty singleton (lookup i w.heads)
+headAt w = markersOnly (\i => maybe empty singleton (lookup i w.heads))
 
 -- What a use of the writer's own dictionary parameter i can be: its node's
 -- head there. One with no head holds a function that gives an
@@ -423,14 +441,20 @@ headAt w i = maybe empty singleton (lookup i w.heads)
 -- implementations the flow found reach the parameter: every use of it
 -- matches on it and runs the member's method, so a dispatch through it
 -- reaches each of them.
-dictionaryAt : Flow -> Node -> Own
+dictionaryAt : Flow -> Node -> Nat -> SortedSet Address
 dictionaryAt fl w i = maybe (at fl.solution (parameterSlot w.definition i)) singleton (lookup i w.heads)
 
 ||| The implementations a template alone can be, written in the writer's
-||| node, where Core gave no root. Sorted and without duplicates.
+||| node, where Core gave no root, the writer's families by index: a
+||| dictionary parameter, and one applied, by what it can be
+||| (`dictionaryAt`); a family applied, nothing. Sorted and without
+||| duplicates.
 export
-roots : Flow -> (writer : Node) -> Template -> List Address
-roots fl w t = Prelude.toList (byTemplate fl.solution (dictionaryAt fl w) t)
+roots : Flow -> (families : List Nat) -> (writer : Node) -> Template -> List Address
+roots fl families w t = Prelude.toList (byTemplate fl.solution (MkOwn (dictionaryAt fl w) dictionaryApplied) t)
+  where
+    dictionaryApplied : Nat -> SortedSet Address
+    dictionaryApplied i = if elem i families then empty else dictionaryAt fl w i
 
 -- A callee's dictionary parameters with roots, by index, so ascending.
 Choices : Type
@@ -505,7 +529,7 @@ reaches : Flow -> (writer : Node) -> Site -> List Reached
 reaches fl w s = from s.reach
   where
     rootsAt : Root -> Template -> SortedSet Address
-    rootsAt = byRoot fl.solution (dictionaryAt fl w)
+    rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w))
 
     -- The dictionaries and families among the placed arguments, at their
     -- parameters.

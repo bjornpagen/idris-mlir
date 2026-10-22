@@ -640,12 +640,18 @@ record Writing where
   target : Spot
   wrote : Wrote
 
+-- A node's families, by index, as its definition's walk found them: what
+-- `roots` reads no implementation off where it is applied.
+familiesOf : SortedMap Address (List Nat) -> Node -> List Nat
+familiesOf families w = fromMaybe [] (lookup w.definition families)
+
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
-writings : Flow -> SortedMap Spot Landing -> List (Node, List (Sites.Site, Reached)) -> List Writing
-writings fl ls =
+writings : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> List (Node, List (Sites.Site, Reached)) ->
+           List Writing
+writings fl families ls =
   eachPlaced (\acc, w, s, callee, pl =>
-                MkWriting w (withClosedFamilies (closedAt ls w) pl.argument.template) (roots fl w)
+                MkWriting w (withClosedFamilies (closedAt ls w) pl.argument.template) (roots fl (familiesOf families w) w)
                           (callee, pl.parameter) (FromArgument s pl.argument) :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
@@ -655,10 +661,10 @@ writings fl ls =
 -- parameter p, unchanged, at M's q. J's own call of M passes its method
 -- dictionaries as run-time values, with no roots, and reaches another node
 -- of M, so without these M's leading positions would have no writer.
-leadingWritings : Flow -> SortedMap Address (List Node) -> Leads -> List Writing
-leadingWritings fl nodes leads =
+leadingWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Address (List Node) -> Leads -> List Writing
+leadingWritings fl families nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
-    [ MkWriting jn (Template.Var p 0) (roots fl jn) (OfNode m, q) FromField
+    [ MkWriting jn (Template.Var p 0) (roots fl (familiesOf families jn) jn) (OfNode m, q) FromField
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -932,8 +938,8 @@ build main = do
   -- What the walked sites write, the latest first, after what the
   -- dispatches write at the method functions' leading parameters: the
   -- order the check reads the arcs in.
-  let args = writings fl lands walked
-  let every = leadingWritings fl nodes leads ++ args
+  let args = writings fl entered.families lands walked
+  let every = leadingWritings fl entered.families nodes leads ++ args
   -- The places positions are met at: where each writing lands and where
   -- its writer reads each parameter it draws from, then every represented
   -- argument of a reachable data type. Every place an argument lands is a
