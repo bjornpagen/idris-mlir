@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The box of the reuse token's handle (idr/IR/Quantities.h), by which
-// counting's walk holds each dead cell once. Each case is an op that runs
-// exactly one of its regions, built from a seed: up to three tokens held
-// before it, each branched into every region; each region keeps some of
-// them and frees the rest at its head, holds tokens born in it, and either
-// rejoins the op at its results or leaves it another way, freeing what it
-// holds; then the regions that rejoin meet, the code after the op wanting
-// a few of each size. Every handle given out is consumed exactly once, to
-// its own token: a branch gives one handle per region, each the token
+// counting's walk holds each dead cell once, run on the cases of
+// idr/Testing/TokenCases.h: tokens held before an op that runs exactly one
+// of its regions, branched into each, and the regions that rejoin meeting
+// at its results. Every handle given out is consumed exactly once, to its
+// own token: a branch gives one handle per region, each the token
 // branched. Of each size, as many join as the fewest any rejoining region
 // holds and the code after wants, the k-th taking each region's k-th token
 // of it, in region order; every other token is dropped by its own region;
@@ -19,7 +16,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Quantities.h"
 #include "idr/Support/Enum.h"
-#include "idr/Testing/Draws.h"
+#include "idr/Testing/TokenCases.h"
 
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Block.h"
@@ -41,136 +38,19 @@
 
 namespace {
 
-// The sizes a case's tokens are of: the layouts the rejoin is over.
-enum class Size : std::uint8_t { Small, Middle, Large };
-// What a region does with a token held before the op: keeps it, or frees
-// it at its head.
-enum class Keep : std::uint8_t { Kept, Freed };
-// How a region ends: rejoining the op at its results, or leaving it another
-// way (a return, a jump), which frees what it holds.
-enum class End : std::uint8_t { Rejoins, Leaves };
-
-} // namespace
-
-template <>
-struct idr::EnumTraits<Size> {
-  static constexpr std::size_t count = 3;
-};
-template <>
-struct idr::EnumTraits<Keep> {
-  static constexpr std::size_t count = 2;
-};
-template <>
-struct idr::EnumTraits<End> {
-  static constexpr std::size_t count = 2;
-};
-
-namespace {
-
 using idr::EnumArray;
-using idr::box::Draws;
+using idr::box::tokens::Case;
+using idr::box::tokens::caseOf;
+using idr::box::tokens::describe;
+using idr::box::tokens::End;
+using idr::box::tokens::mostTokens;
+using idr::box::tokens::Named;
+using idr::box::tokens::Region;
+using idr::box::tokens::Size;
+using idr::box::tokens::sizeNames;
 
-constexpr EnumArray<Size, const char *> sizeNames{{"small", "middle", "large"}};
-
-// The number of seeds the box builds a case from; the most tokens held
-// before the op, regions, tokens born in one region, and of one size the
-// code after the op wants.
+// The number of seeds the box builds a case from.
 constexpr std::uint64_t seeds = 4000;
-constexpr unsigned mostBefore = 3;
-constexpr unsigned mostRegions = 4;
-constexpr unsigned mostBorn = 3;
-constexpr unsigned mostWanted = 3;
-// Every token a case can name.
-constexpr unsigned mostTokens = mostBefore + mostRegions * mostBorn;
-
-// A token of a case: the value it is, by its number, and its size.
-struct Named {
-  unsigned token;
-  Size size;
-};
-
-// A region of a case: the tokens it holds at its end, in the order it
-// holds them, those kept from before the op among those born in it; the
-// tokens from before the op it frees at its head; and how it ends.
-struct Region {
-  std::vector<Named> holds;
-  std::vector<unsigned> freed;
-  End end;
-};
-
-// A case: the tokens held before the op, numbered from 0; its regions,
-// born tokens numbered after; how many of each size the code after wants.
-struct Case {
-  std::vector<Named> before;
-  std::vector<Region> regions;
-  EnumArray<Size, std::uint32_t> wanted;
-};
-
-// How often each choice comes in one case, drawn first from its seed, the
-// first case of each choice at least once in four.
-struct Swarm {
-  EnumArray<Size, unsigned> size;
-  EnumArray<Keep, unsigned> keep;
-  EnumArray<End, unsigned> end;
-
-  explicit Swarm(Draws &draws)
-      : size{{1 + draws.below(4), draws.below(5), draws.below(5)}},
-        keep{{1 + draws.below(4), draws.below(5)}}, end{{1 + draws.below(4), draws.below(4)}} {}
-};
-
-Case caseOf(std::uint64_t seed) {
-  Draws draws(seed);
-  Swarm swarm(draws);
-  Case c{{}, {}, {}};
-  unsigned next = 0;
-  for (unsigned n = draws.below(mostBefore + 1); n > 0; --n)
-    c.before.push_back({next++, draws.weighted(swarm.size)});
-  for (unsigned r = draws.below(mostRegions + 1); r > 0; --r) {
-    Region region{{}, {}, draws.weighted(swarm.end)};
-    for (const Named &held : c.before) {
-      if (draws.weighted(swarm.keep) == Keep::Kept)
-        region.holds.push_back(held);
-      else
-        region.freed.push_back(held.token);
-    }
-    // Each token born in the region anywhere among what it holds, so the
-    // first of a size is one from before the op in one region and one
-    // born there in another.
-    for (unsigned n = draws.below(mostBorn + 1); n > 0; --n) {
-      auto at = region.holds.begin() +
-                static_cast<std::ptrdiff_t>(draws.below(region.holds.size() + 1));
-      region.holds.insert(at, Named{next++, draws.weighted(swarm.size)});
-    }
-    c.regions.push_back(std::move(region));
-  }
-  for (Size s : idr::allOf<Size>())
-    c.wanted[s] = draws.below(mostWanted + 1);
-  return c;
-}
-
-std::string describe(const Case &c) {
-  auto named = [](const Named &n) {
-    return " t" + std::to_string(n.token) + ":" + sizeNames[n.size];
-  };
-  std::string text = "\n  before:";
-  for (const Named &n : c.before)
-    text += named(n);
-  for (unsigned r = 0; r < c.regions.size(); ++r) {
-    const Region &region = c.regions[r];
-    text += "\n  region " + std::to_string(r) +
-            (region.end == End::Rejoins ? " rejoins, holding" : " leaves, holding");
-    for (const Named &n : region.holds)
-      text += named(n);
-    if (!region.freed.empty())
-      text += ", freeing";
-    for (unsigned token : region.freed)
-      text += " t" + std::to_string(token);
-  }
-  text += "\n  wanted:";
-  for (Size s : idr::allOf<Size>())
-    text += " " + std::string(sizeNames[s]) + " " + std::to_string(c.wanted[s]);
-  return text;
-}
 
 // A join: its size, and its tokens, one per rejoining region in region
 // order.
