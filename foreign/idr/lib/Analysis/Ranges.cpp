@@ -1,35 +1,50 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The seeded range analysis: MLIR's integer range analysis, starting a
-// value it cannot see computed at the range its type proves and seeing the
-// program's poison as any value, solved once over the program across calls.
-
+// The seeded range analysis, one function at a time: MLIR's integer range
+// analysis with no interprocedural mode, starting a value it cannot see
+// computed at the range its type proves, an entry argument at what its
+// callers pass, a call's results at what its callee returns, and the
+// program's poison as any value.
 #include "idr/Analysis/Ranges.h"
 
+#include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Interfaces/CallInterfaces.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/TypeID.h"
+#include "llvm/ADT/STLExtras.h"
+
+MLIR_DEFINE_EXPLICIT_TYPE_ID(idr::Ranges)
 
 using namespace mlir;
 using namespace mlir::dataflow;
 
 namespace {
 
-// MLIR's analysis starts a value it cannot see computed at every value of
-// its type's width; the type proves the range idr::ranges::ofType gives,
-// which for a natural is at least 0, whatever its grade.
-class NaturalRanges : public IntegerRangeAnalysis {
+class SummarizedRanges : public IntegerRangeAnalysis {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NaturalRanges)
-  using IntegerRangeAnalysis::IntegerRangeAnalysis;
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SummarizedRanges)
 
+  SummarizedRanges(DataFlowSolver &solver, idr::FuncOp fn, const idr::RangeSummary &arguments,
+                   const idr::Ranges &summaries)
+      : IntegerRangeAnalysis(solver), fn(fn), arguments(arguments), summaries(summaries) {}
+
+  // A value starts at the range its type proves, which for a natural is at
+  // least 0, whatever its grade; an entry argument at what its callers
+  // pass, where any caller was seen.
   void setToEntryState(IntegerValueRangeLattice *lattice) override {
-    propagateIfChanged(lattice,
-                       lattice->join(idr::ranges::ofType(lattice->getAnchor().getType())));
+    Value anchor = lattice->getAnchor();
+    IntegerValueRange start = idr::ranges::ofType(anchor.getType());
+    if (auto arg = dyn_cast<BlockArgument>(anchor);
+        arg && arg.getOwner() == &fn.getBody().front() &&
+        !arguments[arg.getArgNumber()].isUninitialized())
+      start = arguments[arg.getArgNumber()];
+    propagateIfChanged(lattice, lattice->join(start));
   }
 
   // A ub.poison is a value of the program, given where nothing reads it (as
@@ -43,52 +58,138 @@ public:
     return IntegerRangeAnalysis::visitOperation(op, operands, results);
   }
 
-  // A literal match's default binds the scrutinee itself, at its view: its
-  // argument has the scrutinee's range, which the match forwards to no
-  // region as an operand (the region binds it in place), so MLIR's
-  // analysis would start it at its type's range and lose a natural's bound
-  // in every arm that takes a successor apart.
+  // A literal match's default binds the scrutinee itself: its argument has
+  // the scrutinee's range, which the match forwards to no region as an
+  // operand, so MLIR's analysis would start it at its type's range and lose
+  // a natural's bound in every arm that takes a successor apart.
   void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
                                     ValueRange inputs,
                                     ArrayRef<IntegerValueRangeLattice *> lattices) override {
-    auto match = dyn_cast<idr::MatchLitOp>(op);
+    auto match = dyn_cast<idr::LitMatchOp>(op);
     if (!match || successor.getSuccessor() != &match.getDefaultRegion() || inputs.size() != 1)
       return IntegerRangeAnalysis::visitNonControlFlowArguments(op, successor, inputs, lattices);
     const IntegerValueRangeLattice *scrutinee = getLatticeElementFor(
         getProgramPointBefore(&match.getDefaultRegion().front()), match.getScrutinee());
     propagateIfChanged(lattices.front(), lattices.front()->join(scrutinee->getValue()));
   }
+
+  // A call's results are what its callee returns, as summarized; a result
+  // no return of the callee reached yet (a callee of the same component)
+  // starts at its type's range.
+  void visitExternalCall(CallOpInterface call, ArrayRef<const IntegerValueRangeLattice *>,
+                         ArrayRef<IntegerValueRangeLattice *> results) override {
+    auto direct = cast<idr::CallOp>(call.getOperation());
+    const idr::RangeSummary &returned = summaries.returnsOf(direct.getCalleeAttr());
+    for (auto [lattice, value] : llvm::zip_equal(results, returned)) {
+      if (value.isUninitialized()) {
+        setToEntryState(lattice);
+        continue;
+      }
+      propagateIfChanged(lattice, lattice->join(value));
+    }
+  }
+
+private:
+  idr::FuncOp fn;
+  const idr::RangeSummary &arguments;
+  const idr::Ranges &summaries;
 };
+
+// Joins `range` into `into`.
+void joinInto(IntegerValueRange &into, const IntegerValueRange &range) {
+  into = IntegerValueRange::join(into, range);
+}
 
 } // namespace
 
 namespace idr {
 
-Ranges::Solved::Solved() : dataflow(DataFlowConfig().setInterprocedural(true)) {}
-
-Ranges::Ranges(Operation *program, AnalysisManager &)
-    : solution([program]() -> FailureOr<std::unique_ptr<const Solved>> {
-        std::unique_ptr<Solved> solve(new Solved());
-        // The integer range analysis is silent without dead code analysis,
-        // and reads constants through constant propagation.
-        loadBaselineAnalyses(solve->dataflow);
-        solve->dataflow.load<NaturalRanges>();
-        if (failed(solve->dataflow.initializeAndRun(program)))
-          return failure();
-        return std::unique_ptr<const Solved>(std::move(solve));
-      }()) {}
-
-FailureOr<std::reference_wrapper<const Ranges::Solved>> Ranges::solved() const {
-  if (failed(solution))
-    return failure();
-  return std::cref(**solution);
-}
+Ranges::Solved::Solved() : dataflow(DataFlowConfig().setInterprocedural(false)) {}
 
 std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, Value value) {
   const auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
   if (!state || state->getValue().isUninitialized())
     return std::nullopt;
   return state->getValue().getValue();
+}
+
+FailureOr<std::unique_ptr<const Ranges::Solved>> Ranges::solve(FuncOp fn) const {
+  std::unique_ptr<Solved> solved(new Solved());
+  // The integer range analysis is silent without dead code analysis, and
+  // reads constants through constant propagation.
+  loadBaselineAnalyses(solved->dataflow);
+  solved->dataflow.load<SummarizedRanges>(fn, arguments[graph.id(fn)], *this);
+  if (failed(solved->dataflow.initializeAndRun(fn)))
+    return failure();
+  return std::unique_ptr<const Solved>(std::move(solved));
+}
+
+Ranges::Ranges(Operation *, AnalysisManager &am)
+    : graph(std::get<0>(reads(am))),
+      returns(graph.size(),
+              [&](solver::FunctionId f) {
+                FuncOp fn = graph.op(f);
+                return fn ? RangeSummary(fn.getNumResults()) : RangeSummary();
+              }),
+      arguments(graph.size(), [&](solver::FunctionId f) {
+        FuncOp fn = graph.op(f);
+        return fn ? RangeSummary(fn.getNumArguments()) : RangeSummary();
+      }) {
+  auto cyclic = [&](solver::SccId c) {
+    IdRange<solver::FunctionId> members = graph.members(c);
+    return members.size() > 1 || graph.callsItself(members.front());
+  };
+
+  // What each function returns, callees first: the join over its returns
+  // of what reaches them. A callee of the same component not yet solved
+  // gives its type's range.
+  for (solver::SccId c : graph.sccCount().ids())
+    for (solver::FunctionId f : graph.members(c)) {
+      FuncOp fn = graph.op(f);
+      solver::SolveUnit unit("idr-narrow returns", fn.getSymName());
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn);
+      if (failed(solved))
+        continue;
+      RangeSummary &out = returns[f];
+      fn.getBody().walk([&](Operation *op) {
+        if (!op->hasTrait<OpTrait::ReturnLike>() || isa<RegionBranchTerminatorOpInterface>(op))
+          return;
+        for (auto [into, operand] : llvm::zip_equal(out, op->getOperands()))
+          if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
+            joinInto(into, IntegerValueRange(*range));
+      });
+    }
+
+  // What each function is passed, callers first: the join over its callers
+  // of what reaches each call. A component that feeds itself starts every
+  // member at its type's range.
+  std::vector<solver::SccId> callersFirst;
+  for (solver::SccId c : graph.sccCount().ids())
+    callersFirst.push_back(c);
+  for (solver::SccId c : llvm::reverse(callersFirst)) {
+    bool feedsItself = cyclic(c);
+    for (solver::FunctionId f : graph.members(c)) {
+      FuncOp fn = graph.op(f);
+      if (feedsItself)
+        for (auto [summary, arg] : llvm::zip_equal(arguments[f], fn.getArguments()))
+          summary = IntegerValueRange::getMaxRange(arg);
+    }
+    for (solver::FunctionId f : graph.members(c)) {
+      FuncOp fn = graph.op(f);
+      solver::SolveUnit unit("idr-narrow arguments", fn.getSymName());
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn);
+      if (failed(solved))
+        continue;
+      fn.getBody().walk([&](CallOp call) {
+        solver::FunctionId callee = graph.id(call.getCalleeAttr());
+        if (graph.sccOf(callee) == c)
+          return;
+        for (auto [into, operand] : llvm::zip_equal(arguments[callee], call.getArgs()))
+          if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
+            joinInto(into, IntegerValueRange(*range));
+      });
+    }
+  }
 }
 
 } // namespace idr

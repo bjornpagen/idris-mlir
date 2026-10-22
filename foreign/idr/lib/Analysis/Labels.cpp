@@ -22,8 +22,9 @@
 
 #include "idr/Analysis/Labels.h"
 
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Scc.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/SymbolTable.h"
@@ -32,7 +33,6 @@
 #include "llvm/ADT/STLForwardCompat.h"
 
 #include <algorithm>
-#include <cassert>
 #include <iterator>
 #include <utility>
 
@@ -212,14 +212,21 @@ void Graph::rank() {
 // the firings the dispatches owe.
 SmallVector<Firing> Graph::wave() {
   // The classes the wave takes, as roots, each once: those owed, and every
-  // class that includes one taken.
-  llvm::DenseMap<Node, unsigned> vertexOf;
+  // class that includes one taken. A class is taken in this wave when its
+  // stamp is this wave's.
+  ++waves;
+  takenIn.resize(parents.size(), 0);
+  vertexIn.resize(parents.size(), 0);
   SmallVector<Node> order;
   auto take = [&](Node node) {
     Node root = find(node);
-    if (vertexOf.try_emplace(root, static_cast<unsigned>(order.size())).second)
-      order.push_back(root);
+    if (takenIn[at(root)] == waves)
+      return;
+    takenIn[at(root)] = waves;
+    vertexIn[at(root)] = static_cast<unsigned>(order.size());
+    order.push_back(root);
   };
+  auto vertexOf = [&](Node node) { return vertexIn[at(find(node))]; };
   for (Node node : dirty)
     take(node);
   dirty.clear();
@@ -227,18 +234,23 @@ SmallVector<Firing> Graph::wave() {
     for (Node next : classes[at(order[v])].successors)
       take(next);
 
-  // Each class's successors as the wave's roots, each once, itself never.
+  // Each class's successors as the wave's roots, each once, itself never:
+  // the wave's graph of inclusions over its vertices.
   auto n = static_cast<unsigned>(order.size());
+  Count<WaveVertex> vertices(n);
+  auto vertex = [](unsigned v) { return WaveVertex(v); };
   SmallVector<SmallVector<unsigned>> edges(n);
+  CsrBuilder<WaveVertexTag> inclusions(vertices);
   std::vector<unsigned> seen(n, n);
   for (unsigned v = 0; v < n; ++v) {
     SmallVector<Node, 2> kept;
     for (Node next : classes[at(order[v])].successors) {
-      unsigned w = vertexOf.at(find(next));
+      unsigned w = vertexOf(next);
       if (w == v || seen[w] == v)
         continue;
       seen[w] = v;
       edges[v].push_back(w);
+      inclusions.edge(vertex(v), vertex(w));
       kept.push_back(order[w]);
     }
     classes[at(order[v])].successors = std::move(kept);
@@ -249,36 +261,42 @@ SmallVector<Firing> Graph::wave() {
   // sets grow in this one.
   std::vector<SmallVector<SetId, 1>> owed(n);
   for (auto [from, to] : added)
-    owed[vertexOf.at(find(to))].push_back(classes[at(find(from))].labels);
+    owed[vertexOf(to)].push_back(classes[at(find(from))].labels);
   added.clear();
   std::vector<SetId> before(n);
   for (unsigned v = 0; v < n; ++v)
     before[v] = classes[at(order[v])].labels;
 
-  // The components come callees first, so the last includes no other
-  // class of the wave; each is one class once its members merge. A member
+  // The components come bottom-up, so the last includes no other class of
+  // the wave; each is one class once its members merge, its set computed
+  // after the sets of the components whose classes it includes. A member
   // whose set did not grow owes its successors nothing new.
-  SmallVector<SmallVector<unsigned>> parts = components(edges);
+  Csr<WaveVertexTag> graph = std::move(inclusions).finish();
+  Partition<WaveVertexTag> parts = components(graph);
   std::vector<unsigned> partOf(n);
-  for (auto [i, part] : llvm::enumerate(parts))
-    for (unsigned v : part)
-      partOf[v] = static_cast<unsigned>(i);
-  for (auto i = static_cast<unsigned>(parts.size()); i-- > 0;) {
-    ArrayRef<unsigned> part = parts[i];
+  for (unsigned v = 0; v < n; ++v)
+    partOf[v] = parts.componentOf(vertex(v)).index();
+  std::vector<Partition<WaveVertexTag>::Component> topDown;
+  for (auto c : parts.size().ids())
+    topDown.push_back(c);
+  for (auto c : llvm::reverse(topDown)) {
+    SmallVector<unsigned> part;
+    for (WaveVertex member : parts.members(c))
+      part.push_back(member.index());
     SmallVector<SetId, 4> inputs;
     for (unsigned v : part) {
       inputs.push_back(before[v]);
       llvm::append_range(inputs, owed[v]);
     }
     Node root = order[part.front()];
-    for (unsigned v : part.drop_front())
+    for (unsigned v : llvm::ArrayRef(part).drop_front())
       root = merge(root, order[v]);
     SetId set = sets.unite(inputs);
     classes[at(root)].labels = set;
     for (unsigned v : part)
       if (set != before[v])
         for (unsigned w : edges[v])
-          if (partOf[w] != i)
+          if (partOf[w] != c.index())
             owed[w].push_back(set);
   }
 
@@ -302,8 +320,9 @@ SmallVector<Firing> Graph::wave() {
 // The label's edges at the dispatch's call, which the next wave owes.
 void Graph::fire(Firing firing) {
   auto [run, label] = firing;
-  Builder builder(*this);
-  readFiring(out.table, runs[at(run)].call, labelNames[at(label)], builder);
+  Statements owed;
+  readFiring(out.table, runs[at(run)].call, labelNames[at(label)], owed);
+  take(owed);
 }
 
 // Every node's labels are its root's, one attribute per set: its labels
@@ -369,7 +388,7 @@ std::optional<unsigned> positionIn(ArrayAttr set, FlatSymbolRefAttr label) {
 namespace idr {
 
 Labels::Labels(Operation *program, AnalysisManager &am) : solution([&] {
-  labels::Graph graph(am.getAnalysis<SymbolTable>());
+  labels::Graph graph(std::get<0>(reads(am)));
   graph.walk(program);
   return std::move(graph).solve();
 }()) {}

@@ -36,6 +36,9 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "idr/Analysis/Solver/Decision.h"
+#include "idr/Support/Id.h"
+
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/AnalysisManager.h"
@@ -115,15 +118,25 @@ PointKey keyOf(const mlir::SymbolTable &table, const FlowPoint &point);
 // What the program states of its labels, point by point, as the reading
 // meets it: a label starts at a point; one point's labels are at another
 // (Include), or two points hold one set (Unify); a call runs each label a
-// point holds, which owes the edges `readFiring` states. The solve builds
-// its graph from them, and the check of its answer derives the least sets
-// from them.
-class Statements {
-public:
-  virtual ~Statements() = default;
-  virtual void source(const PointKey &at, mlir::FlatSymbolRefAttr label) = 0;
-  virtual void link(const PointKey &from, const PointKey &to, Link how) = 0;
-  virtual void dispatch(const PointKey &callee, mlir::CallOpInterface call) = 0;
+// point holds, which owes the edges `readFiring` states. The statements
+// are data, the rules of the solve: the solve builds its graph from them,
+// and the check of its answer derives the least sets from the same data.
+struct Statements {
+  struct Source {
+    PointKey at;
+    mlir::FlatSymbolRefAttr label;
+  };
+  struct Linked {
+    PointKey from, to;
+    Link how;
+  };
+  struct Dispatched {
+    PointKey callee;
+    mlir::CallOpInterface call;
+  };
+  std::vector<Source> sources;
+  std::vector<Linked> links;
+  std::vector<Dispatched> dispatches;
 };
 
 // States every edge of `program` that carries a label, and the constants'
@@ -229,19 +242,10 @@ private:
     SetId ran{};
   };
 
-  // The solve's reading of the statements: a point is its node, a source
-  // waits for the labels' ranks, an edge links the nodes, and a dispatch
-  // runs nothing until the first wave ends.
-  class Builder final : public Statements {
-  public:
-    explicit Builder(Graph &graph) : graph(graph) {}
-    void source(const PointKey &at, mlir::FlatSymbolRefAttr label) override;
-    void link(const PointKey &from, const PointKey &to, Link how) override;
-    void dispatch(const PointKey &callee, mlir::CallOpInterface call) override;
-
-  private:
-    Graph &graph;
-  };
+  // The solve's reading of statements: a point is its node, a source waits
+  // for the labels' ranks, an edge links the nodes, and a dispatch runs
+  // nothing until the first wave ends.
+  void take(const Statements &statements);
 
   // Building.
   Node nodeOf(const PointKey &key);
@@ -276,17 +280,26 @@ private:
   // last, and those edges, each owed its source's set.
   std::vector<Node> dirty;
   std::vector<std::pair<Node, Node>> added;
+
+  // The wave each node's class was last taken in, and its vertex there:
+  // a wave reads only the classes it takes.
+  std::vector<std::uint32_t> takenIn;
+  std::vector<std::uint32_t> vertexIn;
+  std::uint32_t waves = 0;
 };
+
+// A class a wave takes, numbered by its wave: the vertices of the wave's
+// graph of inclusions, whose components the solver layer finds.
+struct WaveVertexTag {
+  using Minter = Graph;
+};
+using WaveVertex = Id<WaveVertexTag>;
 
 } // namespace labels
 
-class Labels {
+class Labels : public solver::ReadsAnalyses<Labels, mlir::SymbolTable> {
 public:
   Labels(mlir::Operation *program, mlir::AnalysisManager &am);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<Labels>() || !pa.isPreserved<mlir::SymbolTable>();
-  }
 
   // The labels a closure or suspension at a point may be: a uniqued
   // ArrayAttr of FlatSymbolRefAttr in name order, the empty ArrayAttr where
@@ -301,7 +314,7 @@ public:
   mlir::ArrayAttr labelsAt(const labels::PointKey &key) const { return solution.labelsOf(key); }
 
   // The labels `runner` runs: those of the closure or suspension it
-  // carries (an idr.apply's callee, an idr.force's cell).
+  // carries (an idr.fn.apply's callee, an idr.lazy.force's cell).
   mlir::ArrayAttr runs(RunsLabelsOpInterface runner) const {
     return labelsOf(runner.getLabelCarrier());
   }

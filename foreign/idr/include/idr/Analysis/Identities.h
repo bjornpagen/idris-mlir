@@ -1,194 +1,116 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The functions of one component of the direct calls that give back one of
-// their arguments, found together: what idr-identity makes every call of
-// them.
+// What a function gives back: which component of which argument each
+// component of a result is, whenever it returns. Once Idris's indices are erased, a
+// function that only rebuilds its argument (Fin's weaken, a term's
+// weakening to a larger scope) computes nothing, and a threaded state
+// returned inline gives back the fields it was passed. The fact is held
+// once, on idr.func, per result field path; the lowering reads it to give
+// back a register it was passed, and idr-simplify replaces a call by the
+// argument part it gives back where the call's row allows its deletion
+// (carries neither crash nor divergence). The fact itself says nothing
+// about returning: a function that never returns gives back anything, and
+// deleting its call is the row's to allow, never this fact's.
 //
-// Every function of the component starts out assumed to give back each
-// argument that could be its result: of the result's type at any quantity.
-// A function that does not, under what is assumed of the rest, loses the
-// assumption, and the functions that call it are checked again. Each check
-// can only drop an assumption, each drop is queued once, and there are
-// finitely many, so the work ends; what is left is the greatest fixpoint,
-// so the functions of a mutual recursion are found together, and whatever
-// order the functions are checked in finds the same ones. A callee outside
-// the component is final, and what it gives back is read frozen. Each
-// function is walked once before that fixpoint, into a record of how its
-// body is built; what remains of the assumptions is read off that record,
-// so the arguments share one walk and a requeued caller is not walked
-// again.
-//
-// A function of a program in the owned stage gives back nothing, since a
-// counted value there cannot stand for a fresh one; nor does one that takes
-// a world, whose call is where its effects are ordered.
+// The functions of one component are found together, as a greatest
+// fixpoint: every member starts assumed to give back each argument of its
+// result's type, as a whole; a member whose returns do not rebuild one,
+// under what is assumed of the rest, loses that assumption, and the
+// members that call it are checked again. Each check can only drop an
+// assumption, each is dropped once, and there are finitely many, so the
+// work ends, and whatever order the members are checked in finds the same
+// facts. A callee outside the component is final: its facts are read
+// frozen, every field path of them. Each member is read once, into a
+// record of how its body builds each value, numbered in walk order so one
+// loop over the values ascending reads every value after what it is made
+// of; the checks read the record and never walk the body again.
 #ifndef IDR_ANALYSIS_IDENTITIES_H
 #define IDR_ANALYSIS_IDENTITIES_H
 
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <optional>
+#include <concepts>
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <utility>
 #include <variant>
 #include <vector>
 
 namespace idr::identities {
 
-// What the solve reads of a callee that is not in the component it solves:
-// the argument it gives back, frozen, if it gives one back. Whether a call
-// returns, and what else it does, is the call's own property (its
-// effects), whoever its callee is.
-using Outside = llvm::function_ref<std::optional<unsigned>(mlir::StringAttr callee)>;
+// A component of a result or of an argument: the value at `index`, then
+// down through `fields`, each a field position of a type whose constructor
+// its type fixes, so the path is a place in the value's inline layout. The
+// shape idr.func's given_back holds (GivenBackAttr), which the optimizer
+// writes from these facts.
+struct Path {
+  std::uint32_t index;
+  llvm::SmallVector<std::uint32_t, 2> fields;
+  friend bool operator==(const Path &, const Path &) = default;
+};
 
-// The argument each function of `component` gives back, if it gives one
-// back, in the order of `component`. `outside` answers for a callee that is
-// not in `component`; a call that only computes, as its effects say, needs
-// no assumption.
-llvm::SmallVector<std::optional<unsigned>> givesBackOf(llvm::ArrayRef<FuncOp> component,
-                                                       Outside outside);
+// On every path that returns, the component `result` of the result is the
+// component `argument` of the arguments: the same value.
+struct GivesBack {
+  Path result;
+  Path argument;
+  friend bool operator==(const GivesBack &, const GivesBack &) = default;
+};
+using Facts = llvm::SmallVector<GivesBack, 1>;
 
-// The functions of the component, by name.
-using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
+// The frozen facts of a callee outside the component being solved.
+template <class O>
+concept Outside = requires(const O &outside, solver::FunctionId callee) {
+  { outside(callee) } -> std::same_as<std::span<const GivesBack>>;
+};
 
-// The parameters of each function, by name, assumed to be given back.
-using Assumed = llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<unsigned, 1>>;
-
-// The arguments `fn` could give back.
-llvm::SmallVector<unsigned, 1> candidates(FuncOp fn);
-
-// One walk of a function, for every argument it might give back
-// (IdentitiesRecord.cpp), and what it gives back under a set of
-// assumptions, read off the walk (IdentitiesRebuilds.cpp). A record is
-// never written once walked.
-class Record {
+// The bodies of one component, each read once into its record
+// (IdentitiesRecord.cpp), and the fixpoint over them (Identities.cpp,
+// reading each record's checks from IdentitiesRebuilds.cpp).
+class Component {
 public:
-  // The walk of `fn` for `candidates`. Nothing when no argument can be
-  // given back under any assumption: a terminator this question cannot
-  // keep, or an op that does not only compute.
-  static std::optional<Record> walk(FuncOp fn, llvm::ArrayRef<unsigned> candidates);
+  template <solver::FunctionNames N>
+  static Component read(const N &names, llvm::ArrayRef<solver::Member> component);
 
-  // The subset of `asked`, in that order, that the walk gives back under
-  // `assumed`; each of `asked` is one of the walk's candidates.
-  llvm::SmallVector<unsigned, 1> givesBack(llvm::ArrayRef<unsigned> asked,
-                                           const Assumed &assumed) const;
+  Component(Component &&) noexcept;
+  ~Component();
+
+  // The callees outside the component its bodies call, each once, in the
+  // order the solve reads their facts.
+  std::span<const solver::FunctionId> outsideCallees() const;
+
+  // The facts of every member, in the component's order, given the frozen
+  // facts of each outside callee in outsideCallees' order.
+  std::vector<Facts> solve(std::span<const std::span<const GivesBack>> outside) &&;
+
+  struct Records;
 
 private:
-  class Walker;
-  class Reading;
-
-  // A value of the walk, by its number.
-  enum class Id : unsigned {};
-
-  // How a value is built, as far as giving back reads it. A value this
-  // question does not look into, a memo cell's part among them, is opaque:
-  // a memo cell is written when it is forced, so no part of it is a part
-  // of anything.
-  struct Opaque {};
-  // The function's argument.
-  struct Entry {
-    unsigned arg;
-  };
-  // Another value itself: the result of an op that keeps its operand's
-  // value, or the argument of a match's default region, which is the
-  // scrutinee (idr::sourceOf).
-  struct Same {
-    Id of;
-  };
-  // A field of a value: read by idr.field, or bound by a case.
-  struct Field {
-    Id of;
-    Tag tag;
-    unsigned index;
-    mlir::Type type;
-  };
-  // The predecessor of a natural.
-  struct Pred {
-    Id of;
-  };
-  // A call: the one place an assumption is read.
-  struct Call {
-    mlir::StringAttr callee;
-    // It returns: its effects, which contain its callee's, hold no
-    // divergence, so it reaches nothing Idris did not prove total.
-    bool returns;
-    llvm::SmallVector<Id, 4> args;
-  };
-  struct Con {
-    Tag tag;
-    mlir::Type type;
-    llvm::SmallVector<Id, 4> fields;
-    llvm::SmallVector<mlir::Type, 4> types;
-  };
-  // `of` plus one.
-  struct Successor {
-    Id of;
-  };
-  // A result of a match.
-  struct Join {
-    unsigned side;
-    unsigned result;
-  };
-  struct Constant {
-    mlir::Attribute value;
-    mlir::Type type;
-    // The tag of a constructor with no fields: the one value it has.
-    std::optional<Tag> fieldless;
-  };
-  using Build =
-      std::variant<Opaque, Entry, Same, Field, Pred, Call, Con, Successor, Join, Constant>;
-
-  // What a match says its scrutinee is in one of its regions: built by the
-  // constructor of a tag, or a literal.
-  struct KnownTag {
-    Tag tag;
-  };
-  struct KnownLiteral {
-    mlir::Attribute literal;
-  };
-  using Fact = std::variant<KnownTag, KnownLiteral>;
-  // A match a use sits in, inner first, where its region says something.
-  struct Frame {
-    Id scrutinee;
-    Fact fact;
-  };
-  using Frames = llvm::SmallVector<Frame, 2>;
-
-  // One region of a match that runs, which ends in ub.unreachable (never
-  // taken) or in a yield, which must rebuild: the match's verifier admits
-  // no other end. An empty default region, of an exhaustive match, never
-  // runs and is no arm.
-  struct Unreachable {};
-  struct Yields {
-    llvm::SmallVector<Id, 1> values;
-    Frames frames;
-  };
-  using Arm = std::variant<Unreachable, Yields>;
-
-  struct Ret {
-    Id value;
-    Frames frames;
-  };
-
-  Record() = default;
-
-  const Build &build(Id id) const { return nodes[static_cast<unsigned>(id)]; }
-
-  // The candidates, by slot, the slot of each, and each one's type at no
-  // grade.
-  llvm::SmallVector<unsigned, 1> arguments;
-  llvm::DenseMap<unsigned, unsigned> slots;
-  llvm::SmallVector<mlir::Type, 1> types;
-  std::vector<Build> nodes;
-  llvm::SmallVector<llvm::SmallVector<Arm, 2>, 1> joins;
-  // The calls that do not only compute: each must be a call assumed to
-  // give back what it is passed, that it may rely on.
-  llvm::SmallVector<Id, 2> reliant;
-  llvm::SmallVector<Ret, 1> rets;
+  explicit Component(std::unique_ptr<Records> records);
+  std::unique_ptr<Records> records;
 };
+
+extern template Component Component::read<solver::ProgramGraph>(const solver::ProgramGraph &,
+                                                                llvm::ArrayRef<solver::Member>);
+extern template Component Component::read<solver::Editor>(const solver::Editor &,
+                                                          llvm::ArrayRef<solver::Member>);
+
+// The facts of every member of `component`, in its order: the frozen facts
+// each outside callee has are read once, before the solve.
+template <solver::FunctionNames N, Outside O>
+std::vector<Facts> givesBackOf(const N &names, llvm::ArrayRef<solver::Member> component,
+                               const O &outside) {
+  Component bodies = Component::read(names, component);
+  std::vector<std::span<const GivesBack>> frozen;
+  for (solver::FunctionId callee : bodies.outsideCallees())
+    frozen.push_back(outside(callee));
+  return std::move(bodies).solve(frozen);
+}
 
 } // namespace idr::identities
 

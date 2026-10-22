@@ -4,31 +4,33 @@
 // the size its callers copy, and the count of its calls was taken before
 // any caller ran: a count read later would depend on which callers a
 // worker had already finished.
-
 #include "idr/Analysis/Inline.h"
 
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/Interfaces/CallInterfaces.h"
+
 using namespace mlir;
 
-int64_t idr::inlineSize(FuncOp fn) {
-  int64_t ops = 0;
-  fn.getBody().walk([&](Operation *) { ++ops; });
-  return ops;
+std::int64_t idr::inlining::sizeOf(FuncOp fn) {
+  std::int64_t size = 0;
+  fn.getBody().walk([&](Operation *) { ++size; });
+  return size;
 }
 
-idr::inlining::Facts idr::inlining::factsOf(FuncOp fn, unsigned calls, bool shared) {
-  Facts facts{inlineSize(fn), false};
-  StringAttr name = fn.getSymNameAttr();
-  bool leaf = true;
-  bool callsItself = false;
-  fn.getBody().walk([&](CallOp call) {
-    leaf = false;
-    callsItself = callsItself || call.getCalleeAttr().getAttr() == name;
+idr::inlining::Verdict idr::inlining::verdictOf(FuncOp fn, std::uint32_t calls, Cycle cycle) {
+  std::int64_t size = 0;
+  std::uint32_t callOps = 0;
+  fn.getBody().walk([&](Operation *op) {
+    ++size;
+    if (isa<CallOpInterface>(op))
+      ++callOps;
   });
-  if (shared || callsItself || fn.getNoInline())
-    return facts;
-  facts.inlines = (leaf && facts.size <= kLeafSize) ||
-                  (static_cast<int64_t>(calls) - 1) * (facts.size - kSmall) <= kProduct;
-  return facts;
+  if (cycle == Cycle::On)
+    return Keep{};
+  bool leaf = callOps == 0 && size <= kLeafSize;
+  bool cheap = (static_cast<std::int64_t>(calls) - 1) * (size - kSmall) <= kProduct;
+  if (leaf || cheap)
+    return Inline{size};
+  return Keep{};
 }

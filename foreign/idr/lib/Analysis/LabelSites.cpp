@@ -24,11 +24,10 @@ namespace idr::labels {
 
 namespace {
 
-// The value a parameter of a function is: its entry block's argument.
+// The value a parameter of a function is: its entry block's argument. A
+// label is a function of the program, which the verifier proved.
 Value parameterValue(const SymbolTable &table, FlatSymbolRefAttr function, unsigned index) {
-  auto fn = table.lookup<FuncOp>(function.getAttr());
-  assert(fn && "a label is a function of the program");
-  return fn.getArgument(index);
+  return table.lookup<FuncOp>(function.getAttr()).getArgument(index);
 }
 
 // One reading of a program: the sinks it gives, and the constants it has
@@ -69,9 +68,9 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
             flow(op, move.from, move.to, linkOf(edge.carriers));
           },
           [&](const FlowEdges::Unify &move) {
-            to.link(keyOf(table, move.a), keyOf(table, move.b), Link::Unify);
+            to.links.push_back({keyOf(table, move.a), keyOf(table, move.b), Link::Unify});
           },
-          [&](const FlowEdges::Source &move) { to.source(move.to, move.label); },
+          [&](const FlowEdges::Source &move) { to.sources.push_back({move.to, move.label}); },
           [](const FlowEdges::Fresh &) {},
           [](const FlowEdges::Release &) {},
           [](const FlowEdges::Overwrite &) {},
@@ -80,7 +79,7 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
           },
           [&](FlowEdges::Dispatch move) {
             CallOpInterface call = move.call;
-            to.dispatch(cast<Value>(call.getCallableForCallee()), call);
+            to.dispatches.push_back({cast<Value>(call.getCallableForCallee()), call});
           }),
       edge.move);
 }
@@ -98,7 +97,7 @@ void Reading::flow(Operation *op, const FlowPoint &from, const FlowPoint &target
                                [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {},
                                [](FlowPoint::Result) {}),
              from.at);
-  to.link(keyOf(table, from), keyOf(table, target), how);
+  to.links.push_back({keyOf(table, from), keyOf(table, target), how});
 }
 
 // A use moves its value into one point: a second edge from it joins its
@@ -106,7 +105,7 @@ void Reading::flow(Operation *op, const FlowPoint &from, const FlowPoint &target
 void Reading::sink(OpOperand &use, const FlowPoint &target) {
   auto [it, first] = sinks.try_emplace(&use, target);
   if (!first)
-    to.link(keyOf(table, it->second), keyOf(table, target), Link::Unify);
+    to.links.push_back({keyOf(table, it->second), keyOf(table, target), Link::Unify});
 }
 
 // A constant part held at the point `at`, of carrier `carrier`: a closure
@@ -123,7 +122,7 @@ void Reading::expand(Attribute part, const PointKey &at, Type carrier) {
     if (!expanded.insert({part, at}).second)
       return;
     FlatSymbolRefAttr label = closure.getCallee();
-    to.source(at, label);
+    to.sources.push_back({at, label});
     auto fn = table.lookup<FuncOp>(label.getAttr());
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures())) {
       auto index = static_cast<unsigned>(i);
@@ -131,7 +130,8 @@ void Reading::expand(Attribute part, const PointKey &at, Type carrier) {
              unrestricted(fn.getArgumentTypes()[index]));
     }
     if (auto lazy = dyn_cast<LazyType>(carrier))
-      to.link(keyOf(table, FlowPoint::result(label, 0)), FlowAnchor::forcedOf(lazy), Link::Unify);
+      to.links.push_back(
+          {keyOf(table, FlowPoint::result(label, 0)), FlowAnchor::forcedOf(lazy), Link::Unify});
     return;
   }
   auto con = cast<ConAttr>(part);
@@ -175,22 +175,22 @@ void readProgram(Operation *program, const SymbolTable &table, Statements &to,
 }
 
 // The label takes the call's arguments after its captures and gives its
-// results to the call's.
+// results to the call's. A label fits the carrier of the callee that holds
+// it, which the flow rule proved: it has every argument as a parameter.
 void readFiring(const SymbolTable &table, CallOpInterface call, FlatSymbolRefAttr label,
                 Statements &to) {
   auto fn = table.lookup<FuncOp>(label.getAttr());
   Operation::operand_range args = call.getArgOperands();
-  assert(fn && fn.getNumArguments() >= args.size() &&
-         "a label fits the carrier of the callee that holds it");
   unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
   for (auto [i, arg] : llvm::enumerate(args))
     if (carriesLabels(arg.getType()))
-      to.link(arg, keyOf(table, FlowPoint::parameter(label, captures + static_cast<unsigned>(i))),
-              linkOf(Carriers::of(arg.getType())));
+      to.links.push_back(
+          {arg, keyOf(table, FlowPoint::parameter(label, captures + static_cast<unsigned>(i))),
+           linkOf(Carriers::of(arg.getType()))});
   for (auto [j, result] : llvm::enumerate(call->getResults()))
     if (carriesLabels(result.getType()))
-      to.link(keyOf(table, FlowPoint::result(label, static_cast<unsigned>(j))), Value(result),
-              linkOf(Carriers::of(result.getType())));
+      to.links.push_back({keyOf(table, FlowPoint::result(label, static_cast<unsigned>(j))),
+                          Value(result), linkOf(Carriers::of(result.getType()))});
 }
 
 //===----------------------------------------------------------------------===//
@@ -211,21 +211,19 @@ Node Graph::nodeOf(const PointKey &key) {
   return it->second;
 }
 
-void Graph::Builder::source(const PointKey &at, FlatSymbolRefAttr label) {
-  graph.sources.emplace_back(graph.nodeOf(at), label);
-}
-
-void Graph::Builder::link(const PointKey &from, const PointKey &to, Link how) {
-  graph.link(graph.nodeOf(from), graph.nodeOf(to), how);
-}
-
-void Graph::Builder::dispatch(const PointKey &callee, CallOpInterface call) {
-  graph.runs.push_back(Run{call, graph.nodeOf(callee), SetId{}});
+void Graph::take(const Statements &statements) {
+  for (const Statements::Source &source : statements.sources)
+    sources.emplace_back(nodeOf(source.at), source.label);
+  for (const Statements::Linked &linked : statements.links)
+    link(nodeOf(linked.from), nodeOf(linked.to), linked.how);
+  for (const Statements::Dispatched &dispatched : statements.dispatches)
+    runs.push_back(Run{dispatched.call, nodeOf(dispatched.callee), SetId{}});
 }
 
 void Graph::walk(Operation *program) {
-  Builder builder(*this);
-  readProgram(program, out.table, builder, out.sinks);
+  Statements statements;
+  readProgram(program, out.table, statements, out.sinks);
+  take(statements);
 }
 
 } // namespace idr::labels

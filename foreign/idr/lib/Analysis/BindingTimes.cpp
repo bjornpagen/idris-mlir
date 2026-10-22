@@ -1,29 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The binding times of the parameters of one function of a component.
-//
-// They are found by abstract interpretation: the function is interpreted
-// over abstract values (one of its parameters, unchanged, or anything), and
-// so is every function of the component that it reaches, once for each
-// assignment of abstract values to its parameters: an insert-once worklist
-// over finitely many assignments. The calls between the component's
-// functions are the only edges: after defunctionalization a closure's
-// recursion is a direct call in a dispatch, and a force is a call of its
-// memo sum's dispatch function, which calls the label.
+// The binding times of the members of one component: every body read once
+// into its call edges, then one flat solve per root. The calls between the
+// component's functions are the only edges: after defunctionalization a
+// closure's recursion is a direct call in a dispatch, and a force is a
+// call of its memo sum's dispatch function, which calls the label.
 #include "idr/Analysis/BindingTimes.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Worklist.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/STLForwardCompat.h"
-#include "llvm/ADT/SmallVectorExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 
 #include <algorithm>
-#include <map>
+#include <optional>
 #include <utility>
 #include <variant>
 
@@ -31,149 +22,175 @@ using namespace mlir;
 
 namespace idr {
 
-llvm::StringRef nameOf(BindingTime time) {
-  switch (time) {
-  case BindingTime::Fixed:
-    return "fixed";
-  case BindingTime::Varies:
-    return "varies";
-  }
-  llvm_unreachable("unknown binding time");
-}
-
 namespace {
 
-// The functions of a component, by name.
-using Members = llvm::DenseMap<StringAttr, idr::FuncOp>;
-
-// What a value is, in terms of the parameters of the function analyzed:
-// one of them, unchanged, or anything.
-namespace abstract {
-struct Anything {};
-struct Same {
-  unsigned param;
+// Where an argument comes from in its caller: one of the caller's
+// parameters, unchanged, or anything else.
+struct FromParameter {
+  std::uint32_t param;
 };
-} // namespace abstract
-using Abstract = std::variant<abstract::Anything, abstract::Same>;
+struct FromAnything {};
+using Source = std::variant<FromParameter, FromAnything>;
 
-// One number per abstract value, two equal values one number.
-unsigned code(Abstract value) {
-  return std::visit(llvm::makeVisitor([](abstract::Anything) { return 0u; },
-                                      [](abstract::Same same) { return same.param + 1; }),
-                    value);
-}
-
-// What `value` is in `fn`, whose parameters are `args`: an argument of its
-// body is its parameter's; what idr::sourceOf finds the same value is what
-// that value is; anything else is anything.
-Abstract eval(Value value, idr::FuncOp fn, ArrayRef<Abstract> args) {
-  // `args` came from a call of `fn` between the component's functions, one
-  // per operand, and the component's bodies are ones the verifier checked,
-  // whose calls pass one argument per parameter: a pass's input, which
-  // idr-optimize reads before a member's turns begin.
-  if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getParentRegion() == &fn.getBody())
-    return args[arg.getArgNumber()];
-  return std::visit(
-      llvm::makeVisitor([&](idr::Same same) { return eval(same.value, fn, args); },
-                        [](idr::Made) -> Abstract { return abstract::Anything{}; },
-                        [](const idr::Field &) -> Abstract { return abstract::Anything{}; }),
-      sourceOf(value));
-}
-
-// A tuple of abstract arguments, by its number among the tuples met.
-enum class Tuple : unsigned {};
-// A function of the component reached with a tuple of abstract arguments.
-using Reach = std::pair<Operation *, Tuple>;
-
-// The binding times of the parameters of `main`, a function of the
-// component `members`.
-class Interpreter {
-public:
-  Interpreter(idr::FuncOp main, const Members &members)
-      : main(main), members(members), seen(main.getNumArguments(), BindingTime::Fixed) {}
-
-  SmallVector<BindingTime> run();
-
-private:
-  // A function of the component with abstract arguments, the first time it
-  // is reached with them.
-  void push(idr::FuncOp fn, ArrayRef<Abstract> args);
-  void visit(idr::FuncOp fn, ArrayRef<Abstract> args);
-  void refer(idr::FuncOp target, ArrayRef<Abstract> args);
-
-  idr::FuncOp main;
-  const Members &members;
-  // The join of what the calls of `main` read so far pass at each of its
-  // parameters.
-  SmallVector<BindingTime> seen;
-  // The tuples met, numbered as met, found by their codes.
-  std::map<SmallVector<unsigned>, Tuple> numbers;
-  SmallVector<SmallVector<Abstract>> tuples;
-  // Each function of the component with each tuple it is reached with,
-  // once: finitely many, as a tuple holds one of finitely many abstract
-  // values per parameter.
-  OnceWorklist<Reach> work;
-};
-
-SmallVector<BindingTime> Interpreter::run() {
-  SmallVector<Abstract> identity;
-  for (unsigned i = 0; i < main.getNumArguments(); ++i)
-    identity.push_back(abstract::Same{i});
-  push(main, identity);
-  while (auto reach = work.pop()) {
-    // Once every parameter varies, nothing read later changes the answer.
-    if (llvm::all_of(seen, [](BindingTime time) { return time == BindingTime::Varies; }))
-      break;
-    // A copy: a push while the body is read may grow the tuples.
-    SmallVector<Abstract> args = tuples[llvm::to_underlying(reach->second)];
-    visit(cast<idr::FuncOp>(reach->first), args);
+// What `value` is in `fn`: an entry argument is its parameter; what
+// idr::sourceOf finds the same value is what that value is; anything else
+// is anything. The chain is followed by a loop, never by recursion.
+Source sourceIn(Value value, FuncOp fn) {
+  for (;;) {
+    if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getParentRegion() == &fn.getBody())
+      return FromParameter{arg.getArgNumber()};
+    idr::Source source = sourceOf(value);
+    auto *same = std::get_if<idr::Same>(&source);
+    if (!same)
+      return FromAnything{};
+    value = same->value;
   }
-  return seen;
 }
 
-void Interpreter::push(idr::FuncOp fn, ArrayRef<Abstract> args) {
-  SmallVector<unsigned> codes = llvm::map_to_vector(args, code);
-  auto [it, made] =
-      numbers.try_emplace(std::move(codes), Tuple(static_cast<unsigned>(tuples.size())));
-  if (made)
-    tuples.emplace_back(args);
-  work.push({fn.getOperation(), it->second});
+// A call between members: the members' positions, and where its arguments'
+// sources start in the component's one array of sources.
+struct Edge {
+  std::uint32_t caller, callee, firstSource, sources;
+};
+
+// The flat lattice of one (member, parameter) node for one root: not
+// reached, the root's parameter `param` unchanged, or anything.
+enum class Kind : std::uint8_t { Unreached, Same, Anything };
+struct Abstract {
+  Kind kind = Kind::Unreached;
+  std::uint32_t param = 0;
+  friend bool operator==(Abstract, Abstract) = default;
+};
+
+Abstract join(Abstract a, Abstract b) {
+  if (a.kind == Kind::Unreached)
+    return b;
+  if (b.kind == Kind::Unreached || a == b)
+    return a;
+  return {Kind::Anything, 0};
 }
 
-void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
-  fn.walk([&](idr::CallOp call) {
-    idr::FuncOp target = members.lookup(call.getCalleeAttr().getAttr());
-    if (!target)
-      return;
-    refer(target, llvm::map_to_vector(call.getArgs(),
-                                      [&](Value operand) { return eval(operand, fn, args); }));
-  });
+// What the component's bodies say, read once: each member's edges out, and
+// each member's parameters' slots in the node array.
+struct Calls {
+  std::vector<Edge> edges;
+  std::vector<std::uint32_t> edgeStart;
+  std::vector<Source> sources;
+  std::vector<std::uint32_t> slot;
+};
+
+template <solver::FunctionNames N>
+Calls readCalls(const N &names, ArrayRef<solver::Member> component) {
+  // The members by id, to place a callee: a sorted list, searched, never a
+  // map of the program's functions by name.
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> byId;
+  for (auto [at, member] : llvm::enumerate(component))
+    byId.emplace_back(member.id.index(), static_cast<std::uint32_t>(at));
+  llvm::sort(byId);
+  // A callee outside the component is no edge: the one miss the search
+  // has, and an essential one.
+  auto positionOf = [&](solver::FunctionId f) -> std::optional<std::uint32_t> {
+    auto it = llvm::lower_bound(byId, std::pair(f.index(), 0u));
+    if (it == byId.end() || it->first != f.index())
+      return std::nullopt;
+    return it->second;
+  };
+
+  Calls out;
+  std::uint32_t slots = 0;
+  for (auto [at, member] : llvm::enumerate(component)) {
+    out.slot.push_back(slots);
+    slots += member.fn.getNumArguments();
+    out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
+    FuncOp fn = member.fn;
+    fn.getBody().walk([&](CallOp call) {
+      std::optional<std::uint32_t> callee = positionOf(names.id(call.getCalleeAttr()));
+      if (!callee)
+        return;
+      auto first = static_cast<std::uint32_t>(out.sources.size());
+      for (Value operand : call.getArgs())
+        out.sources.push_back(sourceIn(operand, fn));
+      out.edges.push_back({static_cast<std::uint32_t>(at), *callee, first,
+                           static_cast<std::uint32_t>(out.sources.size()) - first});
+    });
+  }
+  out.slot.push_back(slots);
+  out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
+  return out;
 }
 
-// A call of `main` passes each parameter on unchanged in its own position,
-// or makes it vary.
-void Interpreter::refer(idr::FuncOp target, ArrayRef<Abstract> args) {
-  if (target == main)
-    for (auto [i, arg] : llvm::enumerate(args)) {
-      auto at = static_cast<unsigned>(i);
-      BindingTime passed = std::visit(
-          llvm::makeVisitor([](abstract::Anything) { return BindingTime::Varies; },
-                            [&](abstract::Same same) {
-                              return same.param == at ? BindingTime::Fixed : BindingTime::Varies;
-                            }),
-          arg);
-      seen[i] = std::max(seen[i], passed);
+// The binding times of the root's parameters: the flat solve from the root,
+// each member pushed when it is first reached or one of its nodes rises,
+// then each call of the root read against its own position.
+SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> component,
+                                   std::uint32_t root) {
+  std::vector<Abstract> value(calls.slot.back());
+  auto members = static_cast<unsigned>(component.size());
+  llvm::BitVector reached(members), queued(members);
+  std::vector<std::uint32_t> work;
+  auto at = [&](std::uint32_t member, std::uint32_t param) -> Abstract & {
+    return value[calls.slot[member] + param];
+  };
+  auto passed = [&](const Edge &edge, std::uint32_t arg) {
+    return std::visit(llvm::makeVisitor([&](FromParameter from) { return at(edge.caller, from.param); },
+                                        [](FromAnything) { return Abstract{Kind::Anything, 0}; }),
+                      calls.sources[edge.firstSource + arg]);
+  };
+  for (std::uint32_t p = 0; p < component[root].fn.getNumArguments(); ++p)
+    at(root, p) = {Kind::Same, p};
+  reached.set(root);
+  queued.set(root);
+  work.push_back(root);
+  while (!work.empty()) {
+    std::uint32_t caller = work.back();
+    work.pop_back();
+    queued.reset(caller);
+    for (std::uint32_t e = calls.edgeStart[caller]; e < calls.edgeStart[caller + 1]; ++e) {
+      const Edge &edge = calls.edges[e];
+      bool rose = !reached.test(edge.callee);
+      reached.set(edge.callee);
+      for (std::uint32_t arg = 0; arg < edge.sources; ++arg) {
+        Abstract &into = at(edge.callee, arg);
+        Abstract joined = join(into, passed(edge, arg));
+        if (joined != into) {
+          into = joined;
+          rose = true;
+        }
+      }
+      if (rose && !queued.test(edge.callee)) {
+        queued.set(edge.callee);
+        work.push_back(edge.callee);
+      }
     }
-  push(target, args);
+  }
+
+  SmallVector<BindingTime> times(component[root].fn.getNumArguments(), BindingTime::Fixed);
+  for (const Edge &edge : calls.edges) {
+    if (edge.callee != root || !reached.test(edge.caller))
+      continue;
+    for (std::uint32_t arg = 0; arg < edge.sources; ++arg)
+      if (passed(edge, arg) != Abstract{Kind::Same, arg})
+        times[arg] = BindingTime::Varies;
+  }
+  return times;
 }
 
 } // namespace
 
-SmallVector<BindingTime> bindingTimesOf(idr::FuncOp fn, ArrayRef<idr::FuncOp> component) {
-  Members members;
-  for (idr::FuncOp member : component)
-    members[member.getSymNameAttr()] = member;
-  return Interpreter(fn, members).run();
+template <solver::FunctionNames N>
+std::vector<SmallVector<BindingTime>> bindingTimesOf(const N &names,
+                                                     ArrayRef<solver::Member> component) {
+  Calls calls = readCalls(names, component);
+  std::vector<SmallVector<BindingTime>> out;
+  out.reserve(component.size());
+  for (std::uint32_t root = 0; root < component.size(); ++root)
+    out.push_back(solveRoot(calls, component, root));
+  return out;
 }
+
+template std::vector<SmallVector<BindingTime>>
+bindingTimesOf<solver::ProgramGraph>(const solver::ProgramGraph &, ArrayRef<solver::Member>);
+template std::vector<SmallVector<BindingTime>>
+bindingTimesOf<solver::Editor>(const solver::Editor &, ArrayRef<solver::Member>);
 
 } // namespace idr
