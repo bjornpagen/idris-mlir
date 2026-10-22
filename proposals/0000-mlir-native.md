@@ -2134,6 +2134,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   k t` beside the key, and `ArgumentFrom` is whole. A request's kinds
   are a `Vect` of its callee's applied arity, so a request keying an
   instance by more arguments than it has parameters is unrepresentable.
+  *Amended* (L16cb's handoff, the same day): the readings cannot sit
+  below `State` while `Closed` and `Keys`, which they read (`markerOf`,
+  `EtaNormal`, `MaximalReading`, `writeConstant`), import `State`. So
+  `State` splits: what `Closed` and `Keys` read of it moves into a module
+  below them, the readings module sits above `Closed` and `Keys` and
+  below what is left of `State` (the cache and `Request`), which imports
+  it, and `Template` imports the readings. One layering, no cycle, and
+  `State` holds nothing the modules below it need.
 - **C250** (2026-10-22; recheck 3's sweep and the §6 check, under C39
   and C107). A boxed element's take is counting's, as every take is:
   where an array's element is boxed (`layout::element(type).boxed`, the
