@@ -8,8 +8,9 @@
 // A cell's field holds its buffer from the frontend on: idr.data.con takes
 // one through upstream's to_buffer, a release One-Shot already models, and
 // idr.data.field gives one that upstream's to_tensor puts back in the
-// tensor world, writable only where the cell is exclusive. So no idr op that
-// stores or reads a cell needs a model of its own here. A value a
+// tensor world, writable only where the cell's grade claims its own cells
+// unshared, which covers the buffer's storage. So no idr op that stores or
+// reads a cell needs a model of its own here. A value a
 // terminator gives that goes to no result of its parent (a memo cell's
 // forced value) moves into memory the parent holds: a release.
 #include "idr/Transforms/BufferizeModels.h"

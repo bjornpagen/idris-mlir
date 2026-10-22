@@ -79,7 +79,7 @@ timesDistributes Many b c = Refl
 -- What is known of sharing, ordered by how much it claims
 --------------------------------------------------------------------------------
 
-||| `Claims a b`: `a` claims no less than `b`. Nothing, then a family's own
+||| `Claims a b`: `a` claims no less than `b`. Nothing, then the value's own
 ||| cells, then everything reached.
 public export
 data Claims : Unique -> Unique -> Type where
@@ -190,12 +190,17 @@ fits (Scoped u) Static = No (\case ScopedForgets _ impossible)
 
 ||| How far a value's claim on its own cells reaches into one of its fields,
 ||| read off the field's declaration: through a field of the value's own
-||| family (a `self[...]` field), and through a field of an `in_place`
-||| family, whose own cells are among the value's own cells, so a linear
-||| record's claim covers the spine of the linear list it holds; not through
-||| any other field.
+||| family (a `self[...]` field); through a field of an `in_place` family,
+||| whose own cells are among the value's own cells, so a linear record's
+||| claim covers the spine of the linear list it holds; and through a buffer
+||| an own cell holds, whose storage is among the value's own cells and whose
+||| elements never are, so a linear array's claim covers the buffer it
+||| writes in place and none of the values in its slots; not through any
+||| other field. The three that reach read alike; they differ in which cells
+||| they reach, a member of the value's group, another group's own cells, or
+||| a buffer's storage, which no family member is.
 public export
-data FieldReach = OwnFamily | InPlaceFamily | Other
+data FieldReach = OwnFamily | InPlaceFamily | HeldBuffer | Other
 
 ||| What is known of a field's sharing, read from a value at `uses`, the
 ||| uses the read gives the field: at many uses nothing, since a value used
@@ -209,6 +214,7 @@ readUnique _ Many _ = None
 readUnique _ Once None = None
 readUnique OwnFamily Once Self = Self
 readUnique InPlaceFamily Once Self = Self
+readUnique HeldBuffer Once Self = Self
 readUnique Other Once Self = None
 readUnique _ Once Deep = Deep
 
@@ -234,6 +240,9 @@ readClaimsNoMore OwnFamily Many Deep = ClaimsNothing
 readClaimsNoMore InPlaceFamily Many None = ClaimsNothing
 readClaimsNoMore InPlaceFamily Many Self = ClaimsNothing
 readClaimsNoMore InPlaceFamily Many Deep = ClaimsNothing
+readClaimsNoMore HeldBuffer Many None = ClaimsNothing
+readClaimsNoMore HeldBuffer Many Self = ClaimsNothing
+readClaimsNoMore HeldBuffer Many Deep = ClaimsNothing
 readClaimsNoMore Other Many None = ClaimsNothing
 readClaimsNoMore Other Many Self = ClaimsNothing
 readClaimsNoMore Other Many Deep = ClaimsNothing
@@ -243,6 +252,9 @@ readClaimsNoMore OwnFamily Once Deep = ClaimsDeep
 readClaimsNoMore InPlaceFamily Once None = ClaimsNothing
 readClaimsNoMore InPlaceFamily Once Self = ClaimsSelf
 readClaimsNoMore InPlaceFamily Once Deep = ClaimsDeep
+readClaimsNoMore HeldBuffer Once None = ClaimsNothing
+readClaimsNoMore HeldBuffer Once Self = ClaimsSelf
+readClaimsNoMore HeldBuffer Once Deep = ClaimsDeep
 readClaimsNoMore Other Once None = ClaimsNothing
 readClaimsNoMore Other Once Self = ClaimsNothing
 readClaimsNoMore Other Once Deep = ClaimsDeep

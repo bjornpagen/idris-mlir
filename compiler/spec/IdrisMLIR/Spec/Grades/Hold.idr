@@ -23,9 +23,13 @@ namespace Release
   public export
   data Release = Counted | Scoped | Static
 
-||| What is known of a value's sharing: nothing; that its own family's cells
-||| are reached through it alone (through every recursive field of its
-||| family); or that nothing it reaches is shared.
+||| What is known of a value's sharing: nothing; that its own cells are
+||| reached through it alone; or that nothing it reaches is shared. Its own
+||| cells are its family's cells (through every recursive field of its
+||| family), the own cells of every `in_place` family it holds, and the
+||| storage of every buffer those cells hold, never the buffer's elements:
+||| a linear array or vector whose slots hold shared values still claims
+||| its own cells, and is written in place.
 public export
 data Unique = None | Self | Deep
 

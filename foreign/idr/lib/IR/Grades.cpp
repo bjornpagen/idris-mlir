@@ -210,13 +210,19 @@ bool idr::holdFits(Type from, Type to) {
 }
 
 // The declaration says it: a field of a member of the family's own group,
-// or an application of a family whose data member promises in place.
+// an application of a family whose data member promises in place, or a
+// buffer, whose storage the claim on the cell holding it covers and whose
+// elements it does not. A buffer is a memref field, of mutable memory or a
+// value array's after bufferization, and this is the one test of whether a
+// field holds one: every reader asks the reach.
 FieldReach idr::fieldReach(Type declared) {
   Type field = unrestricted(declared);
   if (isa<SelfType>(field))
     return FieldReach::OwnFamily;
   if (auto data = dyn_cast<DataType>(field); data && data.promise() == Promise::InPlace)
     return FieldReach::InPlaceFamily;
+  if (isa<MemRefType>(field))
+    return FieldReach::HeldBuffer;
   return FieldReach::Other;
 }
 

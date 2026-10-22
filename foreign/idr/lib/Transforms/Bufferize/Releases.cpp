@@ -50,12 +50,13 @@ using namespace mlir::bufferization;
 namespace {
 
 // What a cell must claim of its sharing for the buffer one of its fields
-// holds to be the cell's alone, which may then be written in place:
-// everything the cell reaches unshared, since a claim of its own cells
-// alone does not reach the storage of a buffer it holds. Should that claim
-// come to cover a held buffer's storage, never its elements, only this
-// constant changes.
-constexpr idr::Unique bufferClaim = idr::Unique::Deep;
+// holds to be the cell's alone, which may then be written in place: its
+// own cells unshared. That claim covers the storage of a buffer an own
+// cell holds, so no other reference reaches its slots; it says nothing of
+// the elements in them, and nothing need be said, since a write in place
+// replaces what a slot holds (the element moving out with the buffer's
+// reference) and never writes inside an element another holder may share.
+constexpr idr::Unique bufferClaim = idr::Unique::Self;
 
 // Whether `region` runs again after each run of it, by its op's model.
 bool isRepetitive(Region *region, const BufferizationOptions &options) {
@@ -204,11 +205,12 @@ bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {
 void idr::bufferize::prepare(Operation *program, const BufferizationOptions &options) {
   IRRewriter rewriter(program->getContext());
 
-  // A buffer read out of a cell whose grade makes bufferClaim is the
-  // cell's alone, so the tensor upstream's to_tensor makes of it, the only
-  // one of that buffer (`restrict`), is writable: One-Shot copies it only
-  // where the program reads it again. Every operation of a linear array
-  // has this form: it opens the cell, runs on the array the field holds
+  // The storage of a buffer read out of a cell whose grade makes
+  // bufferClaim is the cell's alone, so the tensor upstream's to_tensor
+  // makes of it, the only one of that buffer (`restrict`), is writable:
+  // One-Shot copies it only where the program reads it again, and writes
+  // its slots, never the elements they hold. Every operation of a linear
+  // array has this form: it opens the cell, runs on the array the field holds
   // and rebuilds the cell through to_buffer and data.con, so an array whose
   // cell makes the claim is written in place. The field is read with no
   // claim of its own (the array is unrestricted to the program), so the

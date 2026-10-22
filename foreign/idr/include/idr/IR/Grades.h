@@ -6,7 +6,7 @@
 // type that holds references. A hold has two axes, never one enum: who
 // frees what the value holds (its count, the end of its lifetime, or
 // nothing for static data), and what is known of its sharing (nothing, its
-// own family's cells, everything it reaches). Every pair is a hold but a
+// own cells, everything it reaches). Every pair is a hold but a
 // claim on static data, which is shared by definition and has no
 // constructor. A lifetime is not part of the grade: it is an SSA value, which
 // the op that makes a value names (Lifetimes.h).
@@ -169,7 +169,7 @@ inline bool isLinear(mlir::Type type) { return usesOf(type) == Uses::Once; }
 bool freedBy(mlir::Type type, Release release);
 
 // Whether a value of `type` claims at least `unique` of its sharing: its
-// own family's cells unshared (Unique::Self, which a deep claim implies), or
+// own cells unshared (Unique::Self, which a deep claim implies), or
 // everything it reaches (Unique::Deep). Counting reads a deep claim off the
 // type and tests nothing at run time.
 bool claims(mlir::Type type, Unique unique);
@@ -191,9 +191,10 @@ bool holdFits(mlir::Type from, mlir::Type to);
 
 // How far a value's claim on its own cells reaches into a field whose
 // declared type is `declared`, read off the family's declaration once:
-// through a field of the value's own family (a `self[...]` field), and
-// through a field of an `in_place` family, whose own cells are among the
-// value's; not through any other field.
+// through a field of the value's own family (a `self[...]` field); through
+// a field of an `in_place` family, whose own cells are among the value's;
+// and into a buffer the cell holds, its storage alone, never its elements;
+// not through any other field.
 FieldReach fieldReach(mlir::Type declared);
 
 // The type at which a match binds a field of its scrutinee, as Idris binds

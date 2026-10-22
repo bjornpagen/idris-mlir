@@ -158,9 +158,10 @@ auto keepErrors(SmallVectorImpl<Kept> &kept) {
   };
 }
 
-// No program reaches a failure of One-Shot: a write of an exclusive
-// array's thread is in place by its grade, a release whose buffer a later
-// write would overwrite was given a buffer of its own, and every op that
+// No program reaches a failure of One-Shot: a write of the array a cell
+// holds is in place where the cell's grade claims the buffer's storage
+// unshared and copied where it does not; a release whose buffer a later
+// write would overwrite was given a buffer of its own; and every op that
 // holds a tensor has a model. So a step of One-Shot that fails is the
 // compiler's broken invariant, reported with One-Shot's own words, which
 // the step's handler keeps.

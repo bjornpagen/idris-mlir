@@ -13,12 +13,13 @@
 // idr.lin.cast changes a value's uses and nothing of its contents: it is
 // its operand, an equivalent alias that reads and writes nothing. A linear
 // binder does not imply unique ownership, so the grade's uses decide
-// nothing here. What a grade claims of its sharing does: the local rule and
-// the derivation of results unique deep run before bufferization, so a
-// cell's grade may already claim the buffer it holds unshared, which makes
-// the tensor of that buffer writable (prepare). Every other write One-Shot
-// decides by its own analysis, a thawed array's among them, and copies
-// only where the array it came from is read again.
+// nothing here. What a grade claims of its sharing does: the in-place
+// promise and the local rule write their claims before bufferization, so a
+// cell's grade may already claim its own cells unshared (`unique self`),
+// which covers the storage of a buffer it holds, never the elements in it,
+// and makes the tensor of that buffer writable (prepare). Every other
+// write One-Shot decides by its own analysis, a thawed array's among them,
+// and copies only where the array it came from is read again.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "idr/IR/Grades.h"
