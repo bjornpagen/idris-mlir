@@ -58,8 +58,11 @@ export
 generatorModule : String -> Bool
 generatorModule = isPrefixOf "IdrisMLIR.Spec.Generator."
 
+-- Covering, not total: a read runs to the file's end, which a file that
+-- never ends never reaches; every reader below inherits it.
 ||| The text of a file, or nothing where there is none.
 export
+covering
 readText : String -> IO (Maybe String)
 readText path = do
   got <- readFile path
@@ -69,6 +72,7 @@ readText path = do
 
 ||| The sources of `ms` as one text, each module's name before its text.
 export
+covering
 sourcesText : String -> List String -> IO String
 sourcesText root [] = pure ""
 sourcesText root (m :: ms) = do
@@ -78,6 +82,7 @@ sourcesText root (m :: ms) = do
 
 ||| The manifest's text for the outputs, fingerprinting the sources.
 export
+covering
 manifestText : String -> List (Path, String) -> IO (Either String String)
 manifestText root outs = do
   Just ipkg <- readText (root ++ "/compiler/spec/spec.ipkg")
@@ -89,6 +94,7 @@ manifestText root outs = do
 
 ||| Writes `text` at `path` unless the file already holds exactly it.
 export
+covering
 writeChanged : String -> String -> IO (Either String ())
 writeChanged path text = do
   old <- readText path
@@ -101,6 +107,7 @@ writeChanged path text = do
         Left _ => pure (Left ("cannot write " ++ path))
 
 export
+covering
 writeAll : List (String, String) -> IO (List String)
 writeAll [] = pure []
 writeAll ((path, text) :: rest) = do
@@ -112,6 +119,7 @@ writeAll ((path, text) :: rest) = do
 
 ||| The paths whose committed text differs from what would be written.
 export
+covering
 differing : List (String, String) -> IO (List String)
 differing [] = pure []
 differing ((path, text) :: rest) = do
@@ -140,6 +148,7 @@ refuse rs = do
   exitWith (ExitFailure 1)
 
 export
+covering
 main : IO ()
 main = do
   args <- getArgs
