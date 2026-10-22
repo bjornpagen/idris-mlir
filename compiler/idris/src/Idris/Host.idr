@@ -30,8 +30,10 @@
 ||| declares for that normaliser, and normal for them (`Reduct`); a
 ||| definition's type and case tree, read through the context's
 ||| accessors, are the ones the evaluator reads, one of each (`typeOnce`,
-||| `treeOnce`); and two normal forms of one term for one normaliser are
-||| one term, but for their locations (`oneNormalForm`). That is the trust
+||| `treeOnce`); two normal forms of one term for one normaliser are one
+||| term, but for their locations (`oneNormalForm`); and the steps that
+||| reduce a term reduce it with values put in for its bound names
+||| (`substitutes`). That is the trust
 ||| Idris's own type checker rests on, which decides conversion by
 ||| comparing normal forms, and a program that proves its readings of terms
 ||| sound against `Reduces` needs no check, when it runs, that the
@@ -876,6 +878,36 @@ record Reduct (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
 export
 0 oneNormalForm : (r, s : Reduct form ctx t) -> Relocated r.value s.value
 oneNormalForm _ _ = trusted
+
+||| Reduction is closed under putting values in for bound names. No step
+||| reads a reference to a bound name: each reads a function, a constructor
+||| or a family through its kind and the entry it resolves to, or a form.
+||| So the steps that take `t` to `u` take `t`, with the values put in for
+||| those names, to `u` with them put in. That is the substitution lemma
+||| of Idris's evaluation, which its type checker rests on whenever it
+||| checks a definition used at its arguments. It is stated over this
+||| compiler's `refsToLocals` and `substs`, whose definitions no proof of a
+||| program over this compiler reaches.
+export
+0 substitutes : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                Reduces ev ctx t u ->
+                Reduces ev ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))
+                               (substs (mkSizeOf ns) vs (refsToLocals bs u))
+substitutes _ _ _ = trusted
+
+||| Normalising commutes with putting closed values in for bound names:
+||| the normal form of a term with the values put in is the normal form of
+||| its normal form with them put in, but for locations. The steps to the
+||| term's normal form, with the values put in, lead from the term with
+||| them put in to the same place, so both are its normal forms.
+export
+0 normalisesThrough : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
+                      (r : Reduct form ctx t) ->
+                      (s : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))) ->
+                      (q : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs r.value))) ->
+                      Relocated s.value q.value
+normalisesThrough bs vs r s q
+    = oneNormalForm s (MkReduct q.value (Then (substitutes bs vs r.steps) q.steps) q.normal)
 
 -- A normaliser's normal form of a closed term, on the frozen context's
 -- definitions record, with the steps that reach it and the evidence that

@@ -261,13 +261,21 @@ Finite SizeChange where
   complete Same = There Here
   complete Unknown = There (There Here)
 
+||| The arguments of a graph over `n`, each by its place, in order, listed
+||| once for every graph of a component's search: base's `allFins` makes
+||| the list anew at each call, at a cost quadratic in `n`, and every key
+||| and every comparison of a graph reads it.
+record Places (n : Nat) where
+  constructor MkPlaces
+  each : Vect n (Fin n)
+
 ||| The walk's graph, row by row: the finite form a search keeps.
-rows : {n : Nat} -> Walk n from to -> Vect n (Vect n SizeChange)
-rows (MkWalk g _) = map (\i => map (\j => g !! [<i, j]) (Vect.allFins n)) (Vect.allFins n)
+rows : Places n -> Walk n from to -> Vect n (Vect n SizeChange)
+rows ps (MkWalk g _) = map (\i => map (\j => g !! [<i, j]) ps.each) ps.each
 
 ||| Does `p` hold at every place of a graph over `n` arguments?
-everywhere : {n : Nat} -> (Index [<n, n] -> Bool) -> Bool
-everywhere p = all (\i => all (\j => p [<i, j]) (Vect.allFins n)) (Vect.allFins n)
+everywhere : Places n -> (Index [<n, n] -> Bool) -> Bool
+everywhere ps p = all (\i => all (\j => p [<i, j]) ps.each) ps.each
 
 ||| A walk from `a` to `b`, then one from `b` to `c`: the walk from `a` to
 ||| `c`. How an argument of `c` relates to one of `a` is the strongest way
@@ -280,22 +288,22 @@ andThen (MkWalk ab p) (MkWalk bc q) = MkWalk (contract (|+|) plusNeutral (|*|) b
 ||| `weaker x y`: `y` says at least what `x` says of every argument: each
 ||| arc of `x` is one of `y`'s, as strong or stronger (`Unknown`, no arc, is
 ||| the weakest).
-weaker : {n : Nat} -> Walk n a b -> Walk n a b -> Bool
-weaker (MkWalk x _) (MkWalk y _) = everywhere (\ix => x !! ix <= y !! ix)
+weaker : Places n -> Walk n a b -> Walk n a b -> Bool
+weaker ps (MkWalk x _) (MkWalk y _) = everywhere ps (\ix => x !! ix <= y !! ix)
 
 ||| Do two walks between the same functions have one graph?
-sameGraph : {n : Nat} -> Walk n a b -> Walk n a b -> Bool
-sameGraph (MkWalk x _) (MkWalk y _) = everywhere (\ix => x !! ix == y !! ix)
+sameGraph : Places n -> Walk n a b -> Walk n a b -> Bool
+sameGraph ps (MkWalk x _) (MkWalk y _) = everywhere ps (\ix => x !! ix == y !! ix)
 
 ||| Does a loop's walk take some argument to a strictly smaller one of
 ||| itself?
-decreases : {n : Nat} -> Walk n f f -> Bool
-decreases (MkWalk g _) = any (\i => g !! [<i, i] == Smaller) (Vect.allFins n)
+decreases : Places n -> Walk n f f -> Bool
+decreases ps (MkWalk g _) = any (\i => g !! [<i, i] == Smaller) ps.each
 
 ||| Does going round a loop with this walk twice go round as once does,
 ||| without decreasing any argument? Then it goes round for ever.
-endless : {n : Nat} -> Walk n f f -> Bool
-endless e = sameGraph (andThen e e) e && not (decreases e)
+endless : Places n -> Walk n f f -> Bool
+endless ps e = sameGraph ps (andThen e e) e && not (decreases ps e)
 
 ||| What going round a loop with the walk `g` does, judged by its powers
 ||| from `p` on, each as it is met. Going round any number of times is a
@@ -308,35 +316,35 @@ endless e = sameGraph (andThen e e) e && not (decreases e)
 ||| over the same arguments, met once, so the room for more goes down at
 ||| each.
 total
-powers : {n : Nat} -> (g : Walk n f f) ->
+powers : {n : Nat} -> Places n -> (g : Walk n f f) ->
          (seen : List (Vect n (Vect n SizeChange))) -> (0 nd : NoDup seen) ->
          (0 room : Nat) ->
          (0 fits : length seen + room = length (values {a = Vect n (Vect n SizeChange)})) ->
          (0 acc : Accessible LT room) -> (p : Walk n f f) -> Loops
-powers g seen nd room fits (Access rec) p
-    = let key = rows p in
+powers ps g seen nd room fits (Access rec) p
+    = let key = rows ps p in
       case isElem key seen of
            Yes _ => Decreasing
            No notIn =>
-             if endless p then Endless (pathOf p)
+             if endless ps p then Endless (pathOf p)
              else let 0 next = roomAfter nd notIn room fits in
-                  powers g (key :: seen) (notIn :: nd) (fst next) (snd (snd next))
+                  powers ps g (key :: seen) (notIn :: nd) (fst next) (snd (snd next))
                          (rec (fst next) (rewrite fst (snd next) in reflexive))
                          (andThen p g)
 
 ||| What going round a loop with this walk, from a function to itself,
 ||| does.
 total
-roundTrip : {n : Nat} -> Walk n f f -> Loops
-roundTrip g = powers g [] [] (length (values {a = Vect n (Vect n SizeChange)})) Refl (wellFounded _) g
+roundTrip : {n : Nat} -> Places n -> Walk n f f -> Loops
+roundTrip ps g = powers ps g [] [] (length (values {a = Vect n (Vect n SizeChange)})) Refl (wellFounded _) g
 
 ||| What the loop a walk from `f` to `h` closes does: a walk closes one when
 ||| it comes back to `f`, and one that ends elsewhere closes none, so none
 ||| of its loops fails.
 total
-closes : {m, n : Nat} -> (f, h : Fin m) -> Walk n f h -> Loops
-closes f h x = case decEq h f of
-                    Yes back => roundTrip (replace {p = Walk n f} back x)
+closes : {m, n : Nat} -> Places n -> (f, h : Fin m) -> Walk n f h -> Loops
+closes ps f h x = case decEq h f of
+                    Yes back => roundTrip ps (replace {p = Walk n f} back x)
                     No _ => Decreasing
 
 ||| The calls of a component, each from the function it is listed under, to
@@ -359,9 +367,9 @@ keptAt : (h : Fin m) -> Kept m n f -> List (Walk n f h)
 keptAt h k = map (\(g, p) => MkWalk g p) (index h (table k))
 
 ||| `x` kept at `h`, and the walks there it is weaker than dropped.
-keep : {n : Nat} -> (h : Fin m) -> Walk n f h -> Kept m n f -> Kept m n f
-keep h x k = MkKept (replaceAt h (parts x :: map parts (filter (not . weaker x) (keptAt h k)))
-                               (table k))
+keep : Places n -> (h : Fin m) -> Walk n f h -> Kept m n f -> Kept m n f
+keep ps h x k = MkKept (replaceAt h (parts x :: map parts (filter (not . weaker ps x) (keptAt h k)))
+                                  (table k))
 
 ||| What the loops through `f` do, given the calls of its component. The
 ||| walks from `f` are extended one call at a time, and each function they
@@ -386,26 +394,26 @@ keep h x k = MkKept (replaceAt h (parts x :: map parts (filter (not . weaker x) 
 ||| from `todo` is either dropped, leaving `todo` shorter, or kept, leaving
 ||| less room.
 total
-search : {m, n : Nat} -> (f : Fin m) -> (out : Calls m n) ->
+search : {m, n : Nat} -> Places n -> (f : Fin m) -> (out : Calls m n) ->
          (seen : List (Fin m, Vect n (Vect n SizeChange))) -> (0 nd : NoDup seen) ->
          (kept : Kept m n f) ->
          (0 room : Nat) ->
          (0 fits : length seen + room = length (values {a = (Fin m, Vect n (Vect n SizeChange))})) ->
          (0 acc : Accessible LT room) ->
          (todo : List (h : Fin m ** Walk n f h)) -> Loops
-search f out seen nd kept room fits acc [] = Decreasing
-search f out seen nd kept room fits (Access rec) ((h ** x) :: todo)
-    = if any (\y => weaker y x) (keptAt h kept)
-         then search f out seen nd kept room fits (Access rec) todo
-      else case closes f h x of
+search ps f out seen nd kept room fits acc [] = Decreasing
+search ps f out seen nd kept room fits (Access rec) ((h ** x) :: todo)
+    = if any (\y => weaker ps y x) (keptAt h kept)
+         then search ps f out seen nd kept room fits (Access rec) todo
+      else case closes ps f h x of
              Endless loop => Endless loop
              Decreasing =>
-               let key = (h, rows x) in
+               let key = (h, rows ps x) in
                case isElem key seen of
-                 Yes _ => search f out seen nd kept room fits (Access rec) todo
+                 Yes _ => search ps f out seen nd kept room fits (Access rec) todo
                  No notIn =>
                    let 0 next = roomAfter nd notIn room fits in
-                   search f out (key :: seen) (notIn :: nd) (keep h x kept)
+                   search ps f out (key :: seen) (notIn :: nd) (keep ps h x kept)
                           (fst next) (snd (snd next))
                           (rec (fst next) (rewrite fst (snd next) in reflexive))
                           (map (\(k ** z) => (k ** andThen x z)) (callsFrom h out) ++ todo)
@@ -436,9 +444,10 @@ export total
 loopsTerminate : List (Name, SCCall) -> List Name -> List (Name, Loops)
 loopsTerminate calls members
     = let n = argCount calls
+          ps = MkPlaces (Vect.allFins n)
           out = MkCalls (foldr (add {n}) (replicate (length members) []) calls) in
-      zip members (map (\f => search f out [] [] (MkKept (replicate (length members) [])) _ Refl
-                                      (wellFounded _) (callsFrom f out))
+      zip members (map (\f => search ps f out [] [] (MkKept (replicate (length members) [])) _ Refl
+                                         (wellFounded _) (callsFrom f out))
                        (toList (Vect.allFins (length members))))
   where
     add : {n : Nat} -> (Name, SCCall) ->

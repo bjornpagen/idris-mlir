@@ -164,6 +164,7 @@ modules =
     Libraries.Utils.String,
     Parser.Lexer.Common,
     Parser.Lexer.Package,
+    Parser.Lexer.Pragma,
     Parser.Lexer.Reserved,
     Parser.Lexer.Source,
     Parser.Package,

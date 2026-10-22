@@ -3,6 +3,7 @@
 module Parser.Lexer.Source
 
 import public Parser.Lexer.Common
+import public Parser.Lexer.Pragma
 import public Parser.Lexer.Reserved
 
 import Data.Either
@@ -43,9 +44,9 @@ Eq DebugInfo where
 ||| A token of source, over how it spells an identifier: the lexer spells one
 ||| as text (`RawToken`), and the parser reads it interned (`Token`). An
 ||| operator's symbol is an identifier too, since it names the operator. A
-||| keyword or a reserved symbol is a word of the language, never a name,
-||| and the lexer gives it as its kind, so the parser compares kinds, never
-||| text.
+||| keyword, a reserved symbol or a pragma is a word of the language, never
+||| a name, and the lexer gives it as its kind, so the parser compares
+||| kinds, never text.
 public export
 data SourceToken identifier
   -- Literals
@@ -74,7 +75,7 @@ data SourceToken identifier
   | EndInput
   | Keyword Keyword
   | Reserved Reserved
-  | Pragma String
+  | Pragma KwPragma
   | MagicDebugInfo DebugInfo
   | Unrecognised String
 
@@ -112,7 +113,7 @@ traverseIdents f (CGDirective x) = pure (CGDirective x)
 traverseIdents f EndInput = pure EndInput
 traverseIdents f (Keyword k) = pure (Keyword k)
 traverseIdents f (Reserved r) = pure (Reserved r)
-traverseIdents f (Pragma x) = pure (Pragma x)
+traverseIdents f (Pragma k) = pure (Pragma k)
 traverseIdents f (MagicDebugInfo di) = pure (MagicDebugInfo di)
 traverseIdents f (Unrecognised x) = pure (Unrecognised x)
 
@@ -152,7 +153,7 @@ Show identifier => Show (SourceToken identifier) where
   show EndInput = "end of input"
   show (Keyword k) = keywordText k
   show (Reserved r) = "symbol " ++ reservedText r
-  show (Pragma x) = "pragma " ++ x
+  show (Pragma k) = "pragma " ++ spelling k
   show (MagicDebugInfo di) = show di
   show (Unrecognised x) = "Unrecognised " ++ x
 
@@ -185,7 +186,7 @@ Pretty Void identifier => Pretty Void (SourceToken identifier) where
   pretty EndInput = reflow "end of input"
   pretty (Keyword k) = pretty (keywordText k)
   pretty (Reserved r) = pretty "symbol" <++> pretty (reservedText r)
-  pretty (Pragma x) = pretty "pragma" <++> pretty x
+  pretty (Pragma k) = pretty "pragma" <++> pretty (spelling k)
   pretty (MagicDebugInfo di) = pretty (show di)
   pretty (Unrecognised x) = pretty "Unrecognised" <++> pretty x
 
@@ -237,10 +238,6 @@ public export
 debugInfo : List (String, DebugInfo)
 debugInfo = map (\ di => (show di, di))
           [ DebugLoc, DebugFile, DebugLine, DebugCol ]
-
--- Reserved words for internal syntax
-special : List String
-special = ["%lam", "%pi", "%imppi", "%let"]
 
 -- The punctuation, read before any other symbol.
 punctuation : List Reserved
@@ -358,13 +355,19 @@ mutual
       <|> match dotIdent (\x => DotIdent (assert_total $ strTail x))
       <|> match namespacedIdent parseNamespace
       <|> match identNormal parseIdent
-      <|> match pragma (\x => Pragma (assert_total $ strTail x))
+      <|> match pragma pragmaToken
       <|> match space (const Space)
       <|> match validSymbol symbolToken
       <|> match symbol Unrecognised
     where
       parseIdent : String -> RawToken
       parseIdent x = maybe (Ident x) Keyword (keywordOf x)
+
+      -- A `%` and a word: the pragma the word spells, or else no token of
+      -- the language, which every rule refuses as it refuses any token it
+      -- does not take.
+      pragmaToken : String -> RawToken
+      pragmaToken x = maybe (Unrecognised x) Pragma (pragmaOf (assert_total $ strTail x))
 
       -- A single part is an identifier or a keyword; a namespaced one is
       -- never a keyword.

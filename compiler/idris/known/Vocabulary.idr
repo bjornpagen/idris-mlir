@@ -941,3 +941,53 @@ reservedSymbols =
   , ("SymTilde", "~")
   , ("SymAt", "@")
   ]
+
+||| The pragmas the language has (`Parser.Lexer.Pragma`'s `KwPragma`): the
+||| word after a `%`, in the order of their tags in a TTC, which keeps each
+||| use of one a module writes.
+public export
+pragmas : List Entry
+pragmas =
+  [ ("KwAllowOverloads", "allow_overloads")
+  , ("KwAutoLazy", "auto_lazy")
+  , ("KwBuiltin", "builtin")
+  , ("KwCharLit", "charLit")
+  , ("KwDeclsLit", "declsLit")
+  , ("KwDefault", "default")
+  , ("KwDefaultHint", "defaulthint")
+  , ("KwDeprecate", "deprecate")
+  , ("KwDoubleLit", "doubleLit")
+  , ("KwExport", "export")
+  , ("KwExtern", "extern")
+  , ("KwForeign", "foreign")
+  , ("KwGlobalHint", "globalhint")
+  , ("KwHide", "hide")
+  , ("KwHint", "hint")
+  , ("KwInline", "inline")
+  , ("KwIntegerLit", "integerLit")
+  , ("KwLanguage", "language")
+  , ("KwLogging", "logging")
+  , ("KwMacro", "macro")
+  , ("KwMkWorld", "MkWorld")
+  , ("KwName", "name")
+  , ("KwNameLit", "nameLit")
+  , ("KwNfMetavarThreshold", "nf_metavar_threshold")
+  , ("KwNoInline", "noinline")
+  , ("KwNoMangle", "nomangle")
+  , ("KwPair", "pair")
+  , ("KwPrefixRecordProjections", "prefix_record_projections")
+  , ("KwRewrite", "rewrite")
+  , ("KwRunElab", "runElab")
+  , ("KwSearch", "search")
+  , ("KwSpec", "spec")
+  , ("KwStart", "start")
+  , ("KwStringLit", "stringLit")
+  , ("KwSyntactic", "syntactic")
+  , ("KwTCInline", "tcinline")
+  , ("KwTransform", "transform")
+  , ("KwTTImpLit", "TTImpLit")
+  , ("KwUnboundImplicits", "unbound_implicits")
+  , ("KwUnhide", "unhide")
+  , ("KwUnsafe", "unsafe")
+  , ("KwWorld", "World")
+  ]

@@ -9,6 +9,7 @@ import Core.Context
 import Core.Env
 import Core.Options
 import Idris.Syntax.Pragmas
+import Parser.Lexer.Pragma
 
 import Control.WellFounded
 
@@ -372,94 +373,12 @@ TTC Import where
 
 export
 TTC KwPragma where
-  toBuf KwAllowOverloads = tag 0
-  toBuf KwAutoLazy = tag 1
-  toBuf KwBuiltin = tag 2
-  toBuf KwCharLit = tag 3
-  toBuf KwDeclsLit = tag 4
-  toBuf KwDefault = tag 5
-  toBuf KwDefaultHint = tag 6
-  toBuf KwDeprecate = tag 7
-  toBuf KwDoubleLit = tag 8
-  toBuf KwExport = tag 9
-  toBuf KwExtern = tag 10
-  toBuf KwForeign = tag 11
-  toBuf KwGlobalHint = tag 12
-  toBuf KwHide = tag 13
-  toBuf KwHint = tag 14
-  toBuf KwInline = tag 15
-  toBuf KwIntegerLit = tag 16
-  toBuf KwLanguage = tag 17
-  toBuf KwLogging = tag 18
-  toBuf KwMacro = tag 19
-  toBuf KwMkWorld = tag 20
-  toBuf KwName = tag 21
-  toBuf KwNameLit = tag 22
-  toBuf KwNfMetavarThreshold = tag 23
-  toBuf KwNoInline = tag 24
-  toBuf KwNoMangle = tag 25
-  toBuf KwPair = tag 26
-  toBuf KwPrefixRecordProjections = tag 27
-  toBuf KwRewrite = tag 28
-  toBuf KwRunElab = tag 29
-  toBuf KwSearch = tag 30
-  toBuf KwSpec = tag 31
-  toBuf KwStart = tag 32
-  toBuf KwStringLit = tag 33
-  toBuf KwSyntactic = tag 34
-  toBuf KwTCInline = tag 35
-  toBuf KwTransform = tag 36
-  toBuf KwTTImpLit = tag 37
-  toBuf KwUnboundImplicits = tag 38
-  toBuf KwUnhide = tag 39
-  toBuf KwUnsafe = tag 40
-  toBuf KwWorld = tag 41
+  toBuf k = tag (pragmaTag k)
 
   fromBuf
-      = case !getTag of
-             0 => pure KwAllowOverloads
-             1 => pure KwAutoLazy
-             2 => pure KwBuiltin
-             3 => pure KwCharLit
-             4 => pure KwDeclsLit
-             5 => pure KwDefault
-             6 => pure KwDefaultHint
-             7 => pure KwDeprecate
-             8 => pure KwDoubleLit
-             9 => pure KwExport
-             10 => pure KwExtern
-             11 => pure KwForeign
-             12 => pure KwGlobalHint
-             13 => pure KwHide
-             14 => pure KwHint
-             15 => pure KwInline
-             16 => pure KwIntegerLit
-             17 => pure KwLanguage
-             18 => pure KwLogging
-             19 => pure KwMacro
-             20 => pure KwMkWorld
-             21 => pure KwName
-             22 => pure KwNameLit
-             23 => pure KwNfMetavarThreshold
-             24 => pure KwNoInline
-             25 => pure KwNoMangle
-             26 => pure KwPair
-             27 => pure KwPrefixRecordProjections
-             28 => pure KwRewrite
-             29 => pure KwRunElab
-             30 => pure KwSearch
-             31 => pure KwSpec
-             32 => pure KwStart
-             33 => pure KwStringLit
-             34 => pure KwSyntactic
-             35 => pure KwTCInline
-             36 => pure KwTransform
-             37 => pure KwTTImpLit
-             38 => pure KwUnboundImplicits
-             39 => pure KwUnhide
-             40 => pure KwUnsafe
-             41 => pure KwWorld
-             _ => corrupt "KwPragma"
+      = case pragmaAt !getTag of
+             Just k => pure k
+             Nothing => corrupt "KwPragma"
 
 export
 TTC PragmaUse where

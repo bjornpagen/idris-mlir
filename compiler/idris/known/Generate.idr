@@ -63,6 +63,15 @@ byConstructor name type doc rhs es
     = ["", "||| " ++ doc, "public export", name ++ " : " ++ type]
       ++ map (\(i, e) => name ++ " " ++ fst e ++ " = " ++ rhs i e) (numbered es)
 
+-- Each entry's position as a number, and its inverse: the entry a number
+-- stands for, and nothing for a number none has.
+numbering : (to, from, type, toDoc, fromDoc : String) -> List Entry -> List String
+numbering to from type toDoc fromDoc es
+    = byConstructor to (type ++ " -> Int") toDoc (\i, _ => show i) es ++
+      [ "", "||| " ++ fromDoc, "public export", from ++ " : Int -> Maybe " ++ type ] ++
+      map (\(i, e) => from ++ " " ++ show i ++ " = Just " ++ fst e) (numbered es) ++
+      [ from ++ " _ = Nothing" ]
+
 -- `Core.Name.Known`: the identifiers, how each is spelled, the id each has
 -- in every session's table, the identifier at an id, and the first id no
 -- identifier has.
@@ -85,16 +94,10 @@ knownModule es
         enumeration "Known" es ++
         byConstructor "spelling" "Known -> String" "How the identifier is spelled."
                       (\_, e => literal (snd e)) es ++
-        byConstructor "ordinal" "Known -> Int" "The identifier's id in every session's table."
-                      (\i, _ => show i) es ++
+        numbering "ordinal" "fromOrdinal" "Known"
+                  "The identifier's id in every session's table."
+                  "The known identifier at an id, if the id is one." es ++
         [ ""
-        , "||| The known identifier at an id, if the id is one."
-        , "public export"
-        , "fromOrdinal : Int -> Maybe Known"
-        ] ++
-        map (\(i, e) => "fromOrdinal " ++ show i ++ " = Just " ++ fst e) (numbered es) ++
-        [ "fromOrdinal _ = Nothing"
-        , ""
         , "||| The first id a text the vocabulary does not spell gets."
         , "public export"
         , "knownCount : Int"
@@ -139,6 +142,27 @@ reservedModule ws ss
         lexed "Keyword" "word" "keywordText" "keywordOf" ws ++
         lexed "Reserved" "symbol" "reservedText" "reservedOf" ss
 
+-- `Parser.Lexer.Pragma`: the pragmas, how the source writes each, the one
+-- a text spells, their equality, and each one's tag in a TTC with its
+-- inverse. A module of its own, since a pragma and a keyword share
+-- spellings (`default`, `export`, `rewrite`) and so constructor names.
+pragmaModule : List Entry -> String
+pragmaModule ps
+    = unlines $
+        banner ++
+        [ "||| The pragmas the language has: a `%` and a word. The lexer gives each"
+        , "||| as its kind, so a rule names the pragma it takes by a value it cannot"
+        , "||| misspell and compares kinds, never text, and a module's uses of"
+        , "||| pragmas are facts a reader matches on, which its TTC keeps by tag."
+        , "module Parser.Lexer.Pragma"
+        , ""
+        , "%default total"
+        ] ++
+        lexed "KwPragma" "pragma" "spelling" "pragmaOf" ps ++
+        numbering "pragmaTag" "pragmaAt" "KwPragma"
+                  "The pragma's tag in a TTC."
+                  "The pragma at a tag, if the tag is one." ps
+
 ||| Each module the vocabularies define: its path under the checkout's
 ||| root, and its text.
 export
@@ -146,6 +170,7 @@ outputs : List (String, String)
 outputs =
   [ ("compiler/idris/src/Core/Name/Known.idr", knownModule known)
   , ("compiler/idris/src/Parser/Lexer/Reserved.idr", reservedModule keywords reservedSymbols)
+  , ("compiler/idris/src/Parser/Lexer/Pragma.idr", pragmaModule pragmas)
   ]
 
 -- A text two entries of a vocabulary share, if there is one. The table of
@@ -217,7 +242,7 @@ main = do
       case modeOf m of
         Nothing => usage
         Just mode =>
-          case mapMaybe repeated [known, keywords, reservedSymbols] of
+          case mapMaybe repeated [known, keywords, reservedSymbols, pragmas] of
             (t :: _) => do
               putStrLn ("knowngen: a vocabulary spells " ++ literal t ++ " twice")
               exitWith (ExitFailure 1)

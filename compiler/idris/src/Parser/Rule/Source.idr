@@ -278,7 +278,7 @@ pragma : OriginDesc -> KwPragma -> Rule ()
 pragma fname kw
     = do (_, b) <- terminalAt ("Expected pragma " ++ spelling kw) $
                      \case
-                       Pragma s => guard (s == spelling kw)
+                       Pragma k => guard (k == kw)
                        _ => Nothing
          act (MkState [<] [] [<MkPragmaUse kw (MkFC fname (startBounds b) (endBounds b))])
 

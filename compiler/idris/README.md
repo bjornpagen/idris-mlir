@@ -468,10 +468,11 @@ merge; each says what changed in its interface.
   identifier only where it enters: between lexing and parsing, where the
   lexer's tokens (`RawToken`) become the parser's (`Token`); in a TTC's
   reader (`TTC Ident`, through the `TTC` interface's table); and where the
-  elaborator makes a name from text (`Core.Context.intern`). A keyword and
-  a reserved symbol are no identifiers: the lexer gives each as its kind
-  (`Parser.Lexer.Reserved`'s `Keyword` and `Reserved`, printed by the same
-  generator from their lists), so the parser compares kinds, and an
+  elaborator makes a name from text (`Core.Context.intern`). A keyword, a
+  reserved symbol and a pragma are no identifiers: the lexer gives each as
+  its kind (`Parser.Lexer.Reserved`'s `Keyword` and `Reserved`, and
+  `Parser.Lexer.Pragma`'s `KwPragma` with its tag in a TTC, printed by the
+  same generator from their lists), so the parser compares kinds, and an
   identifier the grammar reads as a word (`as`, `on`, a fixity) by its id;
   upstream compared their text in every rule that read one. The
   identifiers the compiler's own code spells form a closed vocabulary
@@ -766,8 +767,8 @@ Kept so far:
   evaluation must tell from a written one (PINS.md ttc-delays).
 - A module's imports, each with its location (`Import`, moved from
   `Idris.Syntax` to `Core.Context`), and the pragmas it writes, each with
-  its location (`PragmaUse` of a `KwPragma`, one constructor per spelling
-  the parser accepts; the parser's rules take the kind, not text, and
+  its location (`PragmaUse` of a `KwPragma`, one constructor per pragma
+  the lexer gives as its kind; the parser's rules take the kind, not text, and
   record each use in the parse's state, which a failing branch drops).
   `readDefinitions` gives both with the definitions (`ModuleFile`), so a
   reader takes them from the TTC instead of scanning the source (PINS.md
