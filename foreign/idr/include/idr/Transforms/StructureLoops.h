@@ -4,9 +4,9 @@
 //
 // Two passes on the generating set (idr.array.tabulate, idr.array.fold_last,
 // idr.array.scan_last). idr-structure-loops, once every call has its final
-// effects and before bufferization, turns each op whose region does no
-// more than compute and crash, over arrays of words, into linalg, keeping
-// its parallel dimensions parallel; every other op stays as it is, through
+// effects and before bufferization, turns each op whose region only
+// computes, over arrays of words, into linalg, keeping its parallel
+// dimensions parallel; every other op stays as it is, through
 // bufferization and counting, as an op on buffers. idr-ordered-loops,
 // right before the lowering, makes each op left its loops through
 // upstream's lowerToLoopsUsingSCFForOp, from the op's own tiling methods,

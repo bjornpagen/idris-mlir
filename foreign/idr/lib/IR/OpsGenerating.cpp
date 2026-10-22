@@ -118,34 +118,11 @@ SmallVector<Range> domainOf(OpBuilder &b, DestinationStyleOpInterface op, unsign
   });
 }
 
-namespace {
-
-// Whether an effect ends the run, as a crash or a divergence writes it. The
-// resources are compared exactly, never by kind.
-bool endsTheRun(const MemoryEffects::EffectInstance &effect) {
-  return isa<MemoryEffects::Write>(effect.getEffect()) &&
-         (effect.getResource() == effects::Crash::get() ||
-          effect.getResource() == effects::Divergence::get());
-}
-
-} // namespace
-
-bool computesOnly(Operation *op) {
-  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
-  if (!effects)
-    return false;
-  return llvm::all_of(*effects, [&](const MemoryEffects::EffectInstance &effect) {
-    if (isa<MemoryEffects::Allocate>(effect.getEffect())) {
-      auto made = dyn_cast_or_null<OpResult>(effect.getValue());
-      return made && op->isAncestor(made.getOwner());
-    }
-    return endsTheRun(effect);
-  });
-}
-
 bool computes(Operation *op) {
-  return llvm::all_of(op->getRegion(0).front().without_terminator(),
-                      [](Operation &inner) { return computesOnly(&inner); });
+  Block &body = op->getRegion(0).front();
+  return isa<ArrayYieldOp>(body.getTerminator()) &&
+         llvm::all_of(body.without_terminator(),
+                      [](Operation &inner) { return effects::whole(&inner).onlyComputes(); });
 }
 
 SmallVector<utils::IteratorType> iteratorsOf(Operation *op, unsigned rank, unsigned frame) {

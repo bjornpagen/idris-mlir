@@ -102,21 +102,20 @@ llvm::SmallVector<mlir::Range> domainOf(mlir::OpBuilder &b, mlir::DestinationSty
 
 // How a generating op visits the `rank` dimensions of its domain, as
 // upstream's iterator types say it: its first `frame` in parallel when its
-// region does no more than compute and crash, and every other in order,
-// carried, which `reduction` is on an op that implements no partial
-// reduction, so that no upstream transform reorders it. Whether a
-// dimension is ordered is what the region does, not which op holds it.
+// region only computes, and every other in order, carried, which
+// `reduction` is on an op that implements no partial reduction, so that no
+// upstream transform reorders it. Whether a dimension is ordered is what
+// the region does, not which op holds it.
 llvm::SmallVector<mlir::utils::IteratorType> iteratorsOf(mlir::Operation *op, unsigned rank,
                                                          unsigned frame);
 
-// Whether `op` does no more than compute and crash: every effect of its,
-// its own and its regions', is a crash's or a divergence's, or acquires a
-// result of the op that has it. An op whose effects MLIR does not know may
-// do anything.
-bool computesOnly(mlir::Operation *op);
-
-// Whether the region of `op` does no more than compute and crash, each op
-// in it asked on its own. Asked once per op.
+// Whether the region of `op` only computes, each op in it asked on its own:
+// it ends in the yield, and every op before the yield, with everything in
+// it, at most makes fresh values. A region that may crash or run on forever
+// at an index keeps its indices in order: out of order, another index could
+// end the run first, with its own crash, or with a crash where the program
+// would have run on forever, and crashes keep their order among themselves.
+// A region that ends in another terminator ends the run at every index.
 bool computes(mlir::Operation *op);
 
 // What one step of a generating op on buffers moves, each a movement the

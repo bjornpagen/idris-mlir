@@ -33,7 +33,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -140,7 +139,7 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
         kept.push_back(op);
       }
       for (Operation *op : llvm::reverse(kept))
-        if (isOpTriviallyDead(op)) {
+        if (op->use_empty() && effects::whole(op).onlyComputes()) {
           op->erase();
           changed = true;
         }

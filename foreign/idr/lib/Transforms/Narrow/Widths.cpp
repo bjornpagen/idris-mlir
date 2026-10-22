@@ -15,7 +15,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CastInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Transforms/RegionUtils.h"
 
@@ -29,8 +28,8 @@ namespace idr::narrow {
 
 // A loop is vectorized when it computes on vectors, has no results (a loop
 // over buffers), and holds nothing but vector ops (a mask and the
-// transfers it holds included), the loops of its tiles and ops with
-// neither effects nor regions. A tile the vectorization schedule could not
+// transfers it holds included), the loops of its tiles and ops that only
+// compute and hold no region. A tile the vectorization schedule could not
 // vectorize keeps its linalg.generic, and a branch or a call keeps its
 // scalar code, so a loop holding one is not vectorized, nor is a loop
 // around a vectorized one that stores: the tile loops are the outermost
@@ -46,7 +45,7 @@ bool isVectorized(scf::ForOp loop) {
     }
     if (isa<scf::ForOp, scf::YieldOp>(op))
       return WalkResult::advance();
-    if (op->getNumRegions() != 0 || !isMemoryEffectFree(op))
+    if (op->getNumRegions() != 0 || !effects::own(op).onlyComputes())
       return WalkResult::interrupt();
     return WalkResult::advance();
   });

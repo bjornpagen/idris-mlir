@@ -2,12 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What an op of the generating set becomes. Its iterator types say which
 // dimensions its region leaves free; the arrays it writes and reads say
-// whether a linalg op may hold them. A region that does no more than
-// compute and crash, over arrays of words, keeps a parallel dimension
-// parallel; a fold's ordered dimension becomes a reduction only where each
-// combiner is one integer op whose law lets it run in any order. A float
-// sum keeps its order on every target. Every other op stays as it is, for
-// its loops.
+// whether a linalg op may hold them. A region that only computes, over
+// arrays of words, keeps a parallel dimension parallel; a fold's ordered
+// dimension becomes a reduction only where each combiner is one integer op
+// whose law lets it run in any order. A float sum keeps its order on every
+// target. Every other op stays as it is, for its loops.
 //
 // The facts each form rests on are the IR's: effects through the region's
 // own (the iterator types), the laws through the combining op, and the

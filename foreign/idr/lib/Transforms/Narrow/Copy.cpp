@@ -16,7 +16,6 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
@@ -132,7 +131,7 @@ void Copy::narrow(DataFlowSolver &solver) {
   walkAndApplyPatterns(function, frozen, &listener);
   walkAndApplyPatterns(function, frozen, &listener);
   function.walk<WalkOrder::PostOrder, ReverseIterator>([&](Operation *op) {
-    if (isOpTriviallyDead(op)) {
+    if (op->getNumResults() != 0 && op->use_empty() && effects::whole(op).onlyComputes()) {
       listener.notifyOperationErased(op);
       op->erase();
     }

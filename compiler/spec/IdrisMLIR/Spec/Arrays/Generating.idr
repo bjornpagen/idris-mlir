@@ -15,10 +15,11 @@
 ||| tiling methods it implements, in row-major order, the last axis fastest.
 ||| Every other tiling method keeps its failing default, so nothing retiles
 ||| an order the program can observe. Its iterator types are its region's:
-||| `parallel` on its frame where the region only computes and crashes,
-||| `reduction` everywhere else, which on an op with no partial reduction
-||| means in order, carried. So the effects of IO, which the world once
-||| ordered, are an order the region states and the op keeps, with no world.
+||| `parallel` on its frame where the region only computes, `reduction`
+||| everywhere else, which on an op with no partial reduction means in
+||| order, carried. So the effects of IO, which the world once ordered, and
+||| crashes, which keep their order among themselves, are an order the
+||| region states and the op keeps, with no world.
 module IdrisMLIR.Spec.Arrays.Generating
 
 import IdrisMLIR.Spec.Core.Vocabulary
