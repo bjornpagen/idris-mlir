@@ -214,10 +214,11 @@ data Dependence = Runs | Reduces
 ||| How a parameter keys an instance, decided from its binder (its quantity,
 ||| its normalised type and the rest of the type) and what the call knows
 ||| of its argument (`Offer`): a type, a type family (a type parameter whose
-||| kind is a function into a universe), a form, an implementation, at the
-||| quantity its binder has, an erased value that keys nothing, or a
-||| runtime value, by how the rest of the type depends on it. The one place
-||| `classify` and `staticsOver` decide it.
+||| kind is a function into a universe), a form, an implementation or a
+||| polymorphic function (`compileTimeBinder`), at the quantity its binder
+||| has, an erased value that keys nothing, or a runtime value, by how the
+||| rest of the type depends on it. The one place `classify` and
+||| `staticsOver` decide it.
 data Keying = Typed | Family | Formed | Implemented Uses | Unkeyed | Runtime Dependence
 
 keyingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -236,7 +237,7 @@ keyingOf rig a' sc offer = case use rig of
     AnImplementation => pure (Implemented q)
     AChoice => pure (Implemented q)
     AValue =>
-      if !(implementationType a')
+      if !(compileTimeBinder rig a')
          then pure (Implemented q)
          else pure (Runtime (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
@@ -299,7 +300,7 @@ classifyAt fc owner level (S k) ty vals = do
         Family => typed given vals'
         Formed => do
           let Just v = given
-            | Nothing => reject fc owner StaticArgument "a shape that is not known statically"
+            | Nothing => leftOut "shape"
           form <- formOf <$> spineOf fc owner !(v.normalised)
           mapFst (FormParam form ::) <$> classifyAt fc owner level k !(normaliseClosed (subst form sc)) vals'
         -- An erased binder an index of a runtime parameter's type or of
@@ -313,9 +314,11 @@ classifyAt fc owner level (S k) ty vals = do
               sort <- sortOfType a'
               mapFst (IndexParam sort ::) <$> classifyAt fc owner (S level) k rest vals'
             _ => mapFst (ErasedParam ::) <$> classifyAt fc owner level k (subst (Erased bfc Placeholder) sc) vals'
+        -- An implementation the call leaves out is given when the call's
+        -- value, a closure, is applied: a run-time choice.
         Implemented q => do
           let Just v = given
-            | Nothing => reject fc owner StaticArgument "an implementation that is not known statically"
+            | Nothing => chosen q a' vals'
           case v.offer of
             AChoice => chosen q a' vals'
             _ => do
@@ -357,12 +360,13 @@ classifyAt fc owner level (S k) ty vals = do
         typed : Maybe ArgValue -> ArgValues -> Front Classified
         typed given after = do
           let Just v = given
-            | Nothing => reject fc owner StaticArgument "a type argument that is not known statically"
+            | Nothing => leftOut "type"
           val <- v.normalised
           mapFst (TypeParam val ::) <$> classifyAt fc owner level k !(normaliseClosed (subst val sc)) after
 
         -- An implementation given as written, at a parameter of an
-        -- interface's type.
+        -- interface's type, or a polymorphic function, at a parameter of
+        -- its type.
         implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> ArgValues -> Front Classified
         implemented q a' v written vals' = do
           -- An implementation can be a function of a runtime value
@@ -389,24 +393,28 @@ classifyAt fc owner level (S k) ty vals = do
                          else if hasRuntimePart written
                                 then maybe (pure True) runtimeDependent !(expandClosed written)
                                 else pure False
-          if not dependent then staticOrChosen q a' val vals' else do
-            -- One that still needs a runtime value to say which it is is
-            -- chosen at run time, among those the program fixes.
-            Just (shape, tys) <- v.holed
-              | Nothing => chosen q a' vals'
-            key <- implementationOf shape
-            held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-            static key (Just (MkHoles tys (MkBinder Many held))) vals'
-
-        -- An implementation that needs no runtime value keys the
-        -- instance, unless a definition Idris does not prove ends computes
-        -- it: no compile-time reduction runs that, so it is computed at run
-        -- time, a choice like any other.
-        staticOrChosen : Uses -> ClosedTerm -> ClosedTerm -> ArgValues -> Front Classified
-        staticOrChosen q a' val vals' = do
-          Stuck (OnPartial _) <- whnf val
-            | _ => static val Nothing vals'
-          chosen q a' vals'
+          -- An implementation that needs no runtime value keys the
+          -- instance when the program fixes it now (`fixing`): one a
+          -- definition Idris does not prove ends computes, or one stuck on
+          -- a value no compile-time reduction passes, is computed at run
+          -- time, a choice like any other.
+          if not dependent
+            then do
+              FixedNow <- fixing a' val
+                | ChosenAtRunTime _ => chosen q a' vals'
+              static val Nothing vals'
+            else do
+              -- One that still needs a runtime value to say which it is is
+              -- chosen at run time, among those the program fixes, unless
+              -- its form says which it is whatever the values (`fixing`):
+              -- then only the values are passed.
+              Just (shape, tys) <- v.holed
+                | Nothing => chosen q a' vals'
+              key <- implementationOf shape
+              FixedNow <- fixing a' key
+                | ChosenAtRunTime _ => chosen q a' vals'
+              held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
+              static key (Just (MkHoles tys (MkBinder Many held))) vals'
 
         -- An implementation known now keys the instance.
         static : ClosedTerm -> Maybe Holes -> ArgValues -> Front Classified
@@ -415,11 +423,32 @@ classifyAt fc owner level (S k) ty vals = do
 
         -- A choice of an implementation of the parameter's type, a value at
         -- run time. Which implementation it is no type after it can read.
+        -- Essential: a function the running program chooses is a value of
+        -- a function type, not of an interface's: a closure, a runtime
+        -- value like any other, whose uses apply it. One that takes an
+        -- implementation takes a choice; its type says whether it can be
+        -- held at run time at all (`coreBinder`).
         chosen : Uses -> ClosedTerm -> ArgValues -> Front Classified
+        chosen q a'@(Bind {}) vals' = do
+          b <- coreBinder fc owner ValueType rig a'
+          mapFst (ValueParam b Nothing a' ::)
+            <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
         chosen q a' vals' = do
           choice <- choiceFamily fc owner a'
           mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) a' ::)
             <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
+
+        -- A type or a form the call leaves out: the call's value is a
+        -- function that takes a type, held at run time, as a closure whose
+        -- type the next binder chooses where it is applied. Where the
+        -- program fixes such a function (an argument, a `let`, an applied
+        -- lambda), its form is taken and never translated, so no call of
+        -- it is classified there; what reaches here keeps it where runtime
+        -- values are kept (a field, a result), as the type of a closure
+        -- held there is refused (`coreType`).
+        leftOut : String -> Front Classified
+        leftOut what =
+          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time: " ++ !(showTT ty))
 
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the

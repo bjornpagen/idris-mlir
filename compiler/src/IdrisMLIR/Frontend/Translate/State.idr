@@ -42,7 +42,8 @@ record Holes where
 
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
-||| such as an interface constraint) are compile-time values: they key the
+||| such as an interface constraint, or a polymorphic function passed as a
+||| value, `Types.polymorphicType`) are compile-time values: they key the
 ||| instance and are not parameters at runtime. An implementation may close
 ||| over runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
 ||| has): which implementation it is stays a compile-time value, the values

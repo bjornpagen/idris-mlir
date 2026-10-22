@@ -819,17 +819,43 @@ implementationType ty = case getFn ty of
         _ => pure False
   _ => pure False
 
-||| Does a binder of this quantity and (normalised) type bind an
-||| implementation (`implementationType`)? The same answer classifies a
-||| function's parameters (`classify`) and a constructor's fields
-||| (`dataInstance`), so that what a construction site passes as a
-||| compile-time value, the constructor holds as one.
+||| Is a type the type of a polymorphic function: one that takes a type, or
+||| an implementation, before what it gives (`{0 a : Type} -> a -> List a`,
+||| `Show a => a -> String` under a binder of `a`)? Such a value passed as
+||| an argument is a compile-time value, as an implementation is: which
+||| function it is keys the instance of what it is given to, each use
+||| applies it at the use's own types, and the runtime values it closes
+||| over are what its parameter holds. No polymorphic value exists at run
+||| time. A function on values whose result is an implementation
+||| (`{y : Nat} -> Show (Tag y)`) takes neither: its type is an
+||| implementation's already (`implementationType`).
 export
-dictionaryBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   RigCount -> TT vars -> Front Bool
-dictionaryBinder rig ty = case use rig of
+polymorphicType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                  TT vars -> Front Bool
+polymorphicType (Bind _ _ (Pi _ rig _ a) sc) =
+  if isTypeLike a then pure True else case use rig of
+    Erased => polymorphicType sc
+    Used _ => do
+      False <- implementationType a
+        | True => pure True
+      polymorphicType sc
+polymorphicType _ = pure False
+
+||| Does a binder of this quantity and (normalised) type bind a value the
+||| program fixes at compile time wherever it fixes one: an implementation
+||| (`implementationType`), or a polymorphic function (`polymorphicType`)?
+||| The same answer classifies a function's parameters (`classify`) and
+||| what an applied lambda binds (`Terms.applyHead`), so that what a call
+||| passes as a compile-time value, a lambda binds as one.
+export
+compileTimeBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                    RigCount -> TT vars -> Front Bool
+compileTimeBinder rig ty = case use rig of
   Erased => pure False
-  Used _ => implementationType ty
+  Used _ => do
+    False <- implementationType ty
+      | True => pure True
+    polymorphicType ty
 
 ||| The choice of an implementation type: the closed sum of the
 ||| implementations of it that the program fixes as runtime values

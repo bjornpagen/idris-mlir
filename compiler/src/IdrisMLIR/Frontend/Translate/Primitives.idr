@@ -69,8 +69,8 @@ comparison op t = case primTy t of
 ||| from a scalar, and a scalar's to another (`Conversion`, which has no
 ||| cast between a `Char` and a `Double`).
 conversion : (result : Ty) -> PrimTy -> PrimTy -> Maybe (Prim 1)
-conversion result IntegerP StringP = Just (Op bigShow result)
-conversion result StringP IntegerP = Just (Op bigFromStr result)
+conversion result IntegerP StringP = Just (Op bigShow result made)
+conversion result StringP IntegerP = Just (Op bigFromStr result made)
 conversion result IntegerP to = FromBig <$> scalar to
 conversion result from IntegerP = ToBig <$> scalar from
 conversion result StringP to = FromStr <$> numeric to
@@ -83,18 +83,18 @@ conversion result from to = (\a, b => Cast (IntToInt a b)) <$> integral from <*>
 ||| result type given. A fixed width has no negation of one operand:
 ||| `primTerm` subtracts it from 0.
 primOp : (result : Ty) -> PrimFn k -> Maybe (Prim k)
-primOp result (Add t) = arith Add (Just FAdd) (Op bigAdd result) t
-primOp result (Sub t) = arith Sub (Just FSub) (Op bigSub result) t
-primOp result (Mul t) = arith Mul (Just FMul) (Op bigMul result) t
-primOp result (Div t) = arith Div (Just FDiv) (Op bigDiv result) t
-primOp result (Mod t) = arith Mod Nothing (Op bigMod result) t
-primOp result (BAnd t) = arith And Nothing (Op bigAnd result) t
-primOp result (BOr t) = arith Or Nothing (Op bigOr result) t
-primOp result (BXOr t) = arith Xor Nothing (Op bigXor result) t
-primOp result (ShiftL t) = shift ShiftLeft (Op bigShl result) t
-primOp result (ShiftR t) = shift ShiftRight (Op bigShr result) t
+primOp result (Add t) = arith Add (Just FAdd) (Op bigAdd result made) t
+primOp result (Sub t) = arith Sub (Just FSub) (Op bigSub result made) t
+primOp result (Mul t) = arith Mul (Just FMul) (Op bigMul result made) t
+primOp result (Div t) = arith Div (Just FDiv) (Op bigDiv result made) t
+primOp result (Mod t) = arith Mod Nothing (Op bigMod result made) t
+primOp result (BAnd t) = arith And Nothing (Op bigAnd result made) t
+primOp result (BOr t) = arith Or Nothing (Op bigOr result made) t
+primOp result (BXOr t) = arith Xor Nothing (Op bigXor result made) t
+primOp result (ShiftL t) = shift ShiftLeft (Op bigShl result made) t
+primOp result (ShiftR t) = shift ShiftRight (Op bigShr result made) t
 primOp result (Neg t) = case primTy t of
-  IntegerP => Just (Op bigNeg result)
+  IntegerP => Just (Op bigNeg result made)
   DoubleP => Just Negate
   _ => Nothing
 primOp result (LT t) = comparison Values.Lt t
@@ -102,14 +102,14 @@ primOp result (LTE t) = comparison Values.Lte t
 primOp result (EQ t) = comparison Values.Eq t
 primOp result (GTE t) = comparison Values.Gte t
 primOp result (GT t) = comparison Values.Gt t
-primOp result StrLength = Just (Op strLength result)
-primOp result StrHead = Just (Op strHead result)
-primOp result StrTail = Just (Op strTail result)
-primOp result StrIndex = Just (Op strIndex result)
-primOp result StrCons = Just (Op strCons result)
-primOp result StrAppend = Just (Op strAppend result)
-primOp result StrReverse = Just (Op strReverse result)
-primOp result StrSubstr = Just (Op strSubstr result)
+primOp result StrLength = Just (Op strLength result made)
+primOp result StrHead = Just (Op strHead result made)
+primOp result StrTail = Just (Op strTail result made)
+primOp result StrIndex = Just (Op strIndex result made)
+primOp result StrCons = Just (Op strCons result made)
+primOp result StrAppend = Just (Op strAppend result made)
+primOp result StrReverse = Just (Op strReverse result made)
+primOp result StrSubstr = Just (Op strSubstr result made)
 primOp result DoubleExp = Just (Math1 Exp)
 primOp result DoubleLog = Just (Math1 Log)
 primOp result DoublePow = Just Pow
@@ -144,5 +144,5 @@ primTerm : {k : Nat} -> Loc -> (result : Ty) -> PrimFn k -> Maybe ({0 m : Nat} -
 primTerm loc result (Neg t) with (primTy t)
   primTerm loc result (Neg t) | IntP it = Just (\[x] => PrimApp loc (IntOp Sub it) Nothing [Literal loc (LInt it 0), x])
   primTerm loc result (Neg t) | _ = applied loc (primOp result (Neg t))
-primTerm loc result StrSubstr = Just (\[start, len, s] => PrimApp loc (Op strSubstr result) Nothing [s, start, len])
+primTerm loc result StrSubstr = Just (\[start, len, s] => PrimApp loc (Op strSubstr result made) Nothing [s, start, len])
 primTerm loc result op = applied loc (primOp result op)

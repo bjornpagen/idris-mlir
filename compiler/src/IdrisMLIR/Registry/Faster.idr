@@ -43,12 +43,12 @@ natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOper
 ||| The functions on naturals.
 naturals : List (Entry Faster)
 naturals =
-  [ natural types "natToInteger" (Pi Mw nat (Prim IntegerP)) (Primitive (Op natToBig BigT))
-  , natural types "integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op natFromBig (NatT IOpaque)))
-  , natural types "prim__integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op natFromBig (NatT IOpaque)))
-  , natural types "plus" (binary nat) (Primitive (Op bigAdd (NatT IOpaque)))
-  , natural types "mult" (binary nat) (Primitive (Op bigMul (NatT IOpaque)))
-  , natural types "minus" (binary nat) (Clamped (Op bigSub BigT))
+  [ natural types "natToInteger" (Pi Mw nat (Prim IntegerP)) (Primitive (Op natToBig BigT made))
+  , natural types "integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op natFromBig (NatT IOpaque) made))
+  , natural types "prim__integerToNat" (Pi Mw (Prim IntegerP) nat) (Primitive (Op natFromBig (NatT IOpaque) made))
+  , natural types "plus" (binary nat) (Primitive (Op bigAdd (NatT IOpaque) made))
+  , natural types "mult" (binary nat) (Primitive (Op bigMul (NatT IOpaque) made))
+  , natural types "minus" (binary nat) (Clamped (Op bigSub BigT made))
   , natural types "equalNat" (binary bool) (Tested Values.Eq intToBool)
   , natural types "compareNat" (binary (Head (Def (MkQName ["Prelude", "EqOrd"] "Ordering")) []))
             (OnIntegers (MkQName ["Prelude", "EqOrd"] "compareInteger"))

@@ -495,8 +495,16 @@ data Prim : Nat -> Type where
   ||| type: the dimension of its memref.
   ArrayLength : Ty -> Prim 1
   ||| The op of a pure primitive of the dialect, on its operands in the op's
-  ||| order, each at its own type, giving a value of `result`.
-  Op : {i : Nat} -> (op : Spec.Op i 1 0 0) -> (result : Ty) -> Prim i
+  ||| order, each at its own type, giving a value of `result` at the hold its
+  ||| declaration gives it, where that type holds references (`made`, or
+  ||| static for text the target names).
+  Op : {i : Nat} -> (op : Spec.Op i 1 0 0) -> (result : Ty) -> (hold : Hold) -> Prim i
+
+||| The hold of a value an op makes: counted, claiming nothing of its
+||| sharing.
+public export
+made : Hold
+made = Hold.Counted None
 
 export
 Show ArithOp where
@@ -570,7 +578,7 @@ Show (Prim k) where
   show (FromBig s) = "cast_Integer" ++ show s
   show (NatCompare op) = show op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
-  show (Op op _) = opName op
+  show (Op op _ _) = opName op
 
 ||| The Core type of an integral scalar.
 public export
@@ -606,7 +614,7 @@ slots (ToBig s) = [Just (scalarTy s)]
 slots (FromBig _) = [Just BigT]
 slots (NatCompare _) = [Just (NatT IOpaque), Just (NatT IOpaque)]
 slots (ArrayLength e) = [Just (MemRefT Elements e)]
-slots (Op {i} _ _) = replicate i Nothing
+slots (Op {i} _ _ _) = replicate i Nothing
 
 ------------------------------------------------------------------------------
 -- IO primitives

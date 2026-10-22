@@ -67,6 +67,7 @@ write path text = do
 ||| module there: its message is the compiler's failure. There is no write beside the path and rename onto
 ||| it: base has no rename, and `%foreign` is outside the language this
 ||| compiler compiles, which the frontend is written in.
+covering
 writeModule : FC -> String -> Source -> Core ()
 writeModule fc path src = do
   makeParent path
@@ -83,7 +84,7 @@ writeModule fc path src = do
 ||| A program refused, written where its module would be: a module that
 ||| holds each refusal (`Emit.refused`) and no program, which the driver
 ||| reads and reports. Not being able to write it is the compiler's failure.
-export
+export covering
 writeRefused : String -> List1 ModuleRefusal -> Core ()
 writeRefused path refusals = do
   makeParent path
@@ -159,7 +160,7 @@ entryPoint = do
 ||| checks did not refuse. A refusal that stops the compilation (no main, a
 ||| broken registry entry) is one of them; only the compiler's own error is
 ||| thrown.
-export
+export covering
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (loaded : Modules) -> (mainFile : ModuleIdent) -> (timing : Maybe String) ->
           (mlirPath : String) -> Core (List Rejection)
@@ -189,6 +190,7 @@ program loaded mainFile timing mlirPath = do
          Just l => if isUser l.origin then (m, checked, l.source) :: after else after
          Nothing => after
 
+   covering
    compiled : {auto s : Ref TState TS} -> Integer -> NonEmptyFC -> Front ()
    compiled t0 fileSite = do
     mainDef <- entryPoint

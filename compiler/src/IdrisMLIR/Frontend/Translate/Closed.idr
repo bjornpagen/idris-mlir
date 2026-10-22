@@ -972,6 +972,48 @@ export
 whnf : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Head ClosedTerm)
 whnf tm = map (\a => Force a.written) <$> reduce asWritten start (sizeAccessible start) [] tm []
 
+||| Whether an implementation the program writes is one implementation now
+||| (`FixedNow`), or one the running program chooses, with what its
+||| reduction is stuck on (`ChosenAtRunTime`).
+public export
+data Fixing = FixedNow | ChosenAtRunTime StuckOn
+
+||| Whether an implementation of a type (normalised) is one the program
+||| fixes now. Of an interface's own type, it is when its head reduces to
+||| the interface's constructor, so a tree that matches on it takes the
+||| constructor apart. Of a function type (a constraint over a value, a
+||| polymorphic function), it is when it reduces to a value, a lambda or a
+||| definition applied to fewer arguments than it takes, which evaluating
+||| does nothing to, so each use may apply it in place. One stuck on a
+||| runtime value, even deep inside, where the reduction reports the
+||| definition it could not unfold (`ifThenElse` on a comparison of one),
+||| on a value no compile-time reduction passes, or on a definition Idris
+||| does not prove ends, is computed when the program runs, its value
+||| chosen among the members its computation fixes.
+export
+fixing : {auto c : Ref Ctxt Defs} -> (type, form : ClosedTerm) -> Front Fixing
+fixing type form = do
+  reduced <- whnf form
+  case (type, reduced) of
+    (_, Built _ _) => pure FixedNow
+    (Bind _ _ (Pi {}) _, Stuck (OnValue v)) => do
+      True <- aValue v
+        | False => pure (ChosenAtRunTime (OnValue v))
+      pure FixedNow
+    (_, Stuck on) => pure (ChosenAtRunTime on)
+  where
+    aValue : ClosedTerm -> Front Bool
+    aValue (Bind _ _ (Lam {}) _) = pure True
+    aValue v = case getFnArgs v of
+      (Ref _ Func n, args) => do
+        defs <- getDefs
+        Just def <- lookupExact n (gamma defs)
+          | Nothing => pure False
+        pure (case definition def of
+                PMDef _ params _ => length args < length params
+                _ => False)
+      _ => pure False
+
 ||| A projection applied to arguments, when it applies to all of them: the
 ||| field it takes from the constructor its record reduces to, applied to
 ||| the arguments past the projection's own.

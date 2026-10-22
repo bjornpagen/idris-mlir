@@ -601,20 +601,20 @@ mutual
   staticCase ctx env cls scrutinee t hole alts = do
     Built cn cargs <- whnf t
       | Stuck on => do
-          -- No parameter is such a form: an implementation a runtime value
-          -- chooses, or one a definition Idris does not prove ends
-          -- computes, is passed as a choice (`Instances.classify`) and
-          -- translated as the computation it is (`Terms.memberHere`), so
-          -- each member a dispatch fixes reduces. What reaches here is a
-          -- field of a reduced implementation matched again in the same
+          -- No parameter is such a form: an implementation is a parameter's
+          -- form only where the program fixes it now, its head the
+          -- constructor (`Closed.fixing`); one the running program chooses
+          -- is passed as a choice (`Instances.classify`) and translated as
+          -- the computation it is (`Terms.memberHere`), so each member a
+          -- dispatch fixes reduces. What reaches here is a field of a fixed
+          -- implementation, computed when the program runs whatever it is
+          -- stuck on (a runtime value deep inside reads as the definition
+          -- the reduction could not unfold), matched again in the same
           -- tree, whose match would dispatch the rest of the tree over the
           -- members of its choice.
-          let rule = case on of
-                       OnRuntime _ => RuntimeClosure
-                       _ => StaticArgument
-          reject ctx.fc ctx.owner rule
-                 ("an implementation that does not reduce to its constructor: " ++ !(showTT t) ++
-                  ", stuck on " ++ !(stuckText on))
+          reject ctx.fc ctx.owner RuntimeClosure
+                 ("an implementation's field chosen when the program runs, matched where the implementation " ++
+                  "was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
     cn <- fullNames cn
     taken <- argumentsOf !(lookupDef ctx.fc ctx.owner cn)
     pick cn (zipWith info taken cargs) alts
