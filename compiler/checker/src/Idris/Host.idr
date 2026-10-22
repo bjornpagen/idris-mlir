@@ -448,8 +448,9 @@ data Misses : Frozen -> Term vars -> CaseAlt args -> Type where
                 (0 _ : Not (SameEntry ctx h cn)) ->
                 Misses ctx s (ConCase cn tag cargs sc)
   ||| A constant, which a primitive type's name of another type does not
-  ||| match, nor an alternative that binds fields.
-  OtherPrimitiveType : (0 _ : Not (map PrT (isConstantType (dropNS cn)) = Just c)) ->
+  ||| match, by the evaluator's comparison of constants, nor an alternative
+  ||| that binds fields.
+  OtherPrimitiveType : (0 _ : (map PrT (isConstantType (dropNS cn)) == Just c) = False) ->
                        Misses ctx (PrimVal fc c) (ConCase cn tag [] sc)
   PrimitiveFields : Misses ctx (PrimVal fc c) (ConCase cn tag (f :: fs) sc)
   ||| The type of types, which an alternative of another name does not
@@ -463,8 +464,10 @@ data Misses : Frozen -> Term vars -> CaseAlt args -> Type where
                 Misses ctx (Bind fc x (Pi pfc r e dom) cod) (ConCase cn tag [dn, cn'] sc)
   ArrowFields : (0 _ : Not (length cargs = 2)) ->
                 Misses ctx (Bind fc x (Pi pfc r e dom) cod) (ConCase cn tag cargs sc)
-  ||| Another constant.
-  OtherConstant : (0 _ : Not (c = c')) -> Misses ctx (PrimVal fc c') (ConstCase c sc)
+  ||| A constant the alternative's is not equal to, by the evaluator's
+  ||| comparison of constants: each type's own equality, a double's the
+  ||| runtime's, by which no NaN is equal to itself and 0.0 is -0.0.
+  OtherConstant : (0 _ : (c == c') = False) -> Misses ctx (PrimVal fc c') (ConstCase c sc)
 
 ||| A value `believe_me` gives another type unchanged: a constructor
 ||| applied, a type constructor applied, a constant, or a universe.
@@ -604,8 +607,9 @@ mutual
                (0 same : length fields = length cargs) ->
                Chooses ev ctx (bindFields fields cargs same env) sc v ->
                Matches ev ctx env s (ConCase cn tag cargs sc) v
-    ||| A primitive type, matched by its name.
-    ByPrimitiveType : (0 _ : map PrT (isConstantType (dropNS cn)) = Just c) ->
+    ||| A primitive type, matched by its name, by the evaluator's comparison
+    ||| of constants.
+    ByPrimitiveType : (0 _ : (map PrT (isConstantType (dropNS cn)) == Just c) = True) ->
                       Chooses ev ctx env sc v ->
                       Matches ev ctx env (PrimVal fc c) (ConCase cn tag [] sc) v
     ||| The type of types, matched by its name.
@@ -619,8 +623,11 @@ mutual
               Matches ev ctx env (Bind fc x (Pi pfc r e dom) cod) (ConCase cn tag [dn, cn'] sc) v
     ByDelay : Chooses ev ctx (dty :: arg :: env) sc v ->
               Matches ev ctx env (TDelay fc d dty arg) (DelayCase tyn argn sc) v
-    ByConstant : Chooses ev ctx env sc v ->
-                 Matches ev ctx env (PrimVal fc c) (ConstCase c sc) v
+    ||| A constant equal to the alternative's, by the evaluator's comparison
+    ||| of constants (`OtherConstant`): not its syntax, since two doubles
+    ||| can be equal and differ, and a NaN differs from itself.
+    ByConstant : (0 _ : (c == c') = True) -> Chooses ev ctx env sc v ->
+                 Matches ev ctx env (PrimVal fc c') (ConstCase c sc) v
     ||| A default, of a concrete value: every alternative before it missed
     ||| (`Skips`).
     ByDefaultCase : Concrete s -> Chooses ev ctx env sc v ->
@@ -2626,8 +2633,8 @@ mutual
   mappedMatches fresh sub envm (MDelay mty marg) (ByDelay chooses) =
     case mappedChooses fresh sub (EnvEach mty (EnvEach marg envm)) chooses of
       (v' ** (mv', chooses')) => (v' ** (mv', ByDelay chooses'))
-  mappedMatches fresh sub envm MPrim (ByConstant chooses) = case mappedChooses fresh sub envm chooses of
-    (v' ** (mv', chooses')) => (v' ** (mv', ByConstant chooses'))
+  mappedMatches fresh sub envm MPrim (ByConstant equal chooses) = case mappedChooses fresh sub envm chooses of
+    (v' ** (mv', chooses')) => (v' ** (mv', ByConstant equal chooses'))
   mappedMatches fresh sub envm ms (ByDefaultCase concrete chooses) = case mappedChooses fresh sub envm chooses of
     (v' ** (mv', chooses')) => (v' ** (mv', ByDefaultCase (mappedConcrete ms concrete) chooses'))
 

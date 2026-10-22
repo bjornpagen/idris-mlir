@@ -162,7 +162,8 @@ Pretty IdrisSyntax Constant where
   pretty v = annotate (DCon Nothing) $ pretty0 $ show v
 
 
-export
+-- Public, as `Eq Constant` is.
+public export
 Eq PrimType where
   IntType == IntType = True
   Int8Type == Int8Type = True
@@ -180,7 +181,9 @@ Eq PrimType where
   WorldType == WorldType = True
   _ == _ = False
 
-export
+-- Public, so that a proof reads off the evaluator's comparison of
+-- constants: each type's own equality, a double's the runtime's.
+public export
 Eq Constant where
   (I x) == (I y) = x == y
   (I8 x) == (I8 y) = x == y
