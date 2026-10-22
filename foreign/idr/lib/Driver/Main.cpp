@@ -89,6 +89,11 @@ int idr::driver::main(int argc, char **argv) {
   std::vector<const char *> args(argv, argv + argc);
   args.insert(args.begin() + 1, {"--align-all-functions=6", "--align-all-nofallthru-blocks=6",
                                  "--mlir-print-op-on-diagnostic=false"});
+  // Last, so no argument unsets it: LLVM's constant folder never calls the
+  // compiling machine's libm, which would fold a math call the program is
+  // to run. An argument that names it too is a usage error, a second
+  // occurrence.
+  args.push_back("--disable-fp-call-folding");
   if (!llvm::cl::ParseCommandLineOptions(static_cast<int>(args.size()), args.data(),
                                          "Idris source or an idr module to an executable\n",
                                          &llvm::errs()))
