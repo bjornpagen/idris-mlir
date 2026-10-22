@@ -3736,6 +3736,14 @@ C137.
   wrapper's `cell.stack` cell with a counted init, which refused an
   answers member laid out in place, returned views of its own
   activation, and had no way to move an owned value out of the slot.
+- **C172** (2026-10-21; L06's finding on patch 86). Stage 1 of the
+  toolchain builds from the patched tree on every target, not the pinned
+  tree as checked out: it is the compiler that builds stage 2's LLVM and
+  every program's runtime, so it must carry clang's stack-clash fix for
+  Darwin (patch 86) to emit the probes AGENTS.md requires on a small
+  stack. One recipe on all four targets, nothing per target. Its cost:
+  any change to a carried LLVM patch rebuilds stage 1 as well as stage 2,
+  on each weekly bump that touches a patch.
 
 ## 4. Open: the owner's decisions, in order
 
