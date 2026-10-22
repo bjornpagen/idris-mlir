@@ -69,7 +69,8 @@ enum class Report : std::uint8_t { Each, None };
 // The cases whose components disagree with `oracle`, over every graph on
 // one to four nodes, up to `limit`; each reported as a failure when
 // `report` says so.
-unsigned judge(Oracle oracle, unsigned limit, Report report) {
+template <Oracle oracle>
+unsigned judge(unsigned limit, Report report) {
   unsigned failures = 0;
   for (unsigned n = 1; n <= most; ++n) {
     idr::Count<Node> count = Nodes::Minter::count(n);
@@ -121,7 +122,7 @@ unsigned judge(Oracle oracle, unsigned limit, Report report) {
 }
 
 TEST(Components, EveryGraphAgainstReachability) {
-  EXPECT_EQ(judge(reaches, 10, Report::Each), 0u);
+  EXPECT_EQ(judge<reaches>(10, Report::Each), 0u);
 }
 
 // One edge, not a path of them: a cycle through three nodes is then no
@@ -140,8 +141,8 @@ Matrix noSelfEdges(unsigned n, const Matrix &edges) {
 // The judgement can fail: each oracle with a planted fault disagrees with
 // the components on some graph of the box.
 TEST(Components, EachMutantOracleIsCaught) {
-  EXPECT_GT(judge(oneEdge, 1, Report::None), 0u);
-  EXPECT_GT(judge(noSelfEdges, 1, Report::None), 0u);
+  EXPECT_GT(judge<oneEdge>(1, Report::None), 0u);
+  EXPECT_GT(judge<noSelfEdges>(1, Report::None), 0u);
 }
 
 } // namespace

@@ -252,8 +252,8 @@ const char *spelled(Verdict verdict) { return verdict == Verdict::Passes ? "pass
 // of `shape` under `rows`, where the pipeline disagrees with `oracle`, or
 // where the pass after the rewrite ran though the pipeline stopped or did
 // not though it went on: a line each.
-std::string disagreements(mlir::ModuleOp module, const Shape &shape, const std::vector<Row> &rows,
-                          Oracle oracle) {
+template <Oracle oracle>
+std::string disagreements(mlir::ModuleOp module, const Shape &shape, const std::vector<Row> &rows) {
   std::string lines;
   for (unsigned f = 0; f < rows.size(); ++f)
     for (Atom atom : idr::allOf<Atom>())
@@ -282,7 +282,8 @@ enum class Report : std::uint8_t { Each, None };
 // disagrees with `oracle` on the program as built or after a change of one
 // atom of one row. Each is reported, when `report` says so, with its seed
 // and what it disagrees on.
-unsigned judge(Oracle oracle, unsigned limit, Report report) {
+template <Oracle oracle>
+unsigned judge(unsigned limit, Report report) {
   mlir::MLIRContext context;
   context.disableMultithreading();
   context.loadDialect<idr::IdrDialect>();
@@ -296,7 +297,7 @@ unsigned judge(Oracle oracle, unsigned limit, Report report) {
     Verdict built = mlir::succeeded(mlir::verify(*module)) ? Verdict::Passes : Verdict::Stops;
     std::string why = built != oracle(shape, rows)
                           ? "\n  the program as built " + std::string(spelled(built))
-                          : disagreements(*module, shape, rows, oracle);
+                          : disagreements<oracle>(*module, shape, rows);
     if (why.empty())
       continue;
     ++failures;
@@ -307,7 +308,7 @@ unsigned judge(Oracle oracle, unsigned limit, Report report) {
 }
 
 TEST(Rows, ThePipelineStopsExactlyWhereARowLacksWhatItsBodyNeeds) {
-  EXPECT_EQ(judge(covers, 10, Report::Each), 0u);
+  EXPECT_EQ(judge<covers>(10, Report::Each), 0u);
 }
 
 // Idris's proof forgotten: a function it did not prove may drop
@@ -342,9 +343,9 @@ Verdict wantsExact(const Shape &shape, const std::vector<Row> &rows) {
 // The judgement can fail: each oracle with a planted fault disagrees with
 // the pipeline on some case.
 TEST(Rows, EachMutantOracleIsCaught) {
-  EXPECT_GT(judge(forgetsLoops, 1, Report::None), 0u);
-  EXPECT_GT(judge(forgetsCalls, 1, Report::None), 0u);
-  EXPECT_GT(judge(wantsExact, 1, Report::None), 0u);
+  EXPECT_GT(judge<forgetsLoops>(1, Report::None), 0u);
+  EXPECT_GT(judge<forgetsCalls>(1, Report::None), 0u);
+  EXPECT_GT(judge<wantsExact>(1, Report::None), 0u);
 }
 
 } // namespace

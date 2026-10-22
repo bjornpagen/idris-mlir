@@ -4,8 +4,8 @@
 // vocabulary stores it, held on the run's thread beyond what it held when
 // the run began. Every table the vocabulary sizes by the program (an
 // IndexVector, a BitSet, a Ragged, any vector a solver keeps its state in,
-// a footprint::Vector, a hashed map that must stay hashed, a
-// footprint::DenseMap, and an arena things are interned in, a
+// a footprint::Vector, a hashed map or set that must stay hashed, a
+// footprint::DenseMap or DenseSet, and an arena things are interned in, a
 // footprint::BumpPtrAllocator) takes its memory through this header's
 // allocators, which add what they take to the calling thread's ledger and
 // take off what they give back. A run nested inside another on one thread
@@ -26,6 +26,7 @@
 #define IDR_SUPPORT_FOOTPRINT_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/MemAlloc.h"
 
@@ -137,6 +138,12 @@ private:
 template <class K, class V, class Info = llvm::DenseMapInfo<K>,
           class Bucket = llvm::detail::DenseMapPair<K, V>>
 using DenseMap = llvm::DenseMapBase<Buckets<Bucket>, K, V, Info, Bucket>;
+
+// A hashed set whose memory counts in the footprint: the set llvm::DenseSet
+// is, a map to nothing over buckets of keys alone, here the counted map.
+template <class K, class Info = llvm::DenseMapInfo<K>>
+using DenseSet = llvm::detail::DenseSetImpl<
+    K, DenseMap<K, llvm::detail::DenseSetEmpty, Info, llvm::detail::DenseSetPair<K>>>;
 
 // What an arena of LLVM's takes its slabs from, in place of
 // llvm::MallocAllocator: the same buffers, each counted on the calling

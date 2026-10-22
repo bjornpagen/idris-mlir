@@ -3,14 +3,14 @@
 // The box of the footprint (idr/Support/Footprint.h): each run's measured
 // footprint against the trace of what was held, on cases drawn from seeds.
 // A case is a list of steps over things of each counted kind (a vector of
-// the vocabulary, a hashed map, an arena) and runs nested inside one
-// another. The model reads each thing's bytes off the thing itself, a
-// vector's capacity, a map's memory size, an arena's total memory, which is
-// LLVM's and the library's own account of what they hold; all it knows
-// besides is how each kind grows: a vector and a map move into storage that
-// replaces theirs, holding both while they move, and an arena adds a slab.
-// The judgement is shown failing on each model planted with one fault,
-// among them a kind of storage the footprint does not count.
+// the vocabulary, a hashed map, a hashed set, an arena) and runs nested
+// inside one another. The model reads each thing's bytes off the thing
+// itself, a vector's capacity, a map's or a set's memory size, an arena's
+// total memory, which is LLVM's and the library's own account of what they
+// hold; all it knows besides is how each kind grows: a vector, a map and a
+// set move into storage that replaces theirs, holding both while they move,
+// and an arena adds a slab. The judgement is shown failing on each model
+// planted with one fault, among them each kind of storage counting nothing.
 
 #include "idr/Support/Enum.h"
 #include "idr/Support/Footprint.h"
@@ -35,7 +35,7 @@ namespace {
 // dropped, a run begun, the innermost run ended.
 enum class Step : std::uint8_t { Make, Grow, Copy, Drop, Begin, End };
 // The kinds of counted storage.
-enum class Kind : std::uint8_t { Vector, Map, Arena };
+enum class Kind : std::uint8_t { Vector, Map, Set, Arena };
 
 } // namespace
 
@@ -45,7 +45,7 @@ struct idr::EnumTraits<Step> {
 };
 template <>
 struct idr::EnumTraits<Kind> {
-  static constexpr std::size_t count = 3;
+  static constexpr std::size_t count = 4;
 };
 
 namespace {
@@ -55,8 +55,9 @@ using idr::box::Draws;
 
 using Elements = idr::footprint::Vector<std::uint32_t>;
 using Map = idr::footprint::DenseMap<std::uint32_t, std::uint32_t>;
+using Set = idr::footprint::DenseSet<std::uint32_t>;
 using Arena = idr::footprint::BumpPtrAllocator;
-using Thing = std::variant<Elements, Map, Arena>;
+using Thing = std::variant<Elements, Map, Set, Arena>;
 
 // The number of seeds a case is drawn from, the most steps one draws, the
 // most growths a step makes, and the most bytes one allocation in an arena
@@ -69,12 +70,13 @@ constexpr unsigned mostBytes = 6000;
 // How a kind grows: into storage that replaces its storage, the two held at
 // once while it moves, or by storage added beside what it holds.
 enum class Growth : std::uint8_t { Replaces, Adds };
-constexpr EnumArray<Kind, Growth> growthOf{{Growth::Replaces, Growth::Replaces, Growth::Adds}};
+constexpr EnumArray<Kind, Growth> growthOf{
+    {Growth::Replaces, Growth::Replaces, Growth::Replaces, Growth::Adds}};
 
 Kind kindOf(const Thing &thing) {
   return idr::match(
       thing, [](const Elements &) { return Kind::Vector; }, [](const Map &) { return Kind::Map; },
-      [](const Arena &) { return Kind::Arena; });
+      [](const Set &) { return Kind::Set; }, [](const Arena &) { return Kind::Arena; });
 }
 
 // The bytes a thing holds, by its own account.
@@ -82,6 +84,7 @@ std::int64_t bytesOf(const Thing &thing) {
   auto bytes = idr::match(
       thing, [](const Elements &v) { return v.capacity() * sizeof(std::uint32_t); },
       [](const Map &m) { return m.getMemorySize(); },
+      [](const Set &s) { return s.getMemorySize(); },
       [](const Arena &a) { return a.getTotalMemory(); });
   return static_cast<std::int64_t>(bytes);
 }
@@ -90,6 +93,7 @@ std::int64_t bytesOf(const Thing &thing) {
 using Make = Thing (*)();
 constexpr EnumArray<Kind, Make> makers{{[] { return Thing(std::in_place_type<Elements>); },
                                         [] { return Thing(std::in_place_type<Map>); },
+                                        [] { return Thing(std::in_place_type<Set>); },
                                         [] { return Thing(std::in_place_type<Arena>); }}};
 
 // How often each choice comes in one case, drawn first from its seed, the
@@ -101,27 +105,21 @@ struct Swarm {
   explicit Swarm(Draws &draws)
       : step{{1 + draws.below(4), draws.below(6), draws.below(4), draws.below(4), draws.below(4),
               draws.below(4)}},
-        kind{{1 + draws.below(4), draws.below(5), draws.below(5)}} {}
+        kind{{1 + draws.below(4), draws.below(5), draws.below(5), draws.below(5)}} {}
 };
 
-// The fault a model of the footprint is planted with, if any.
-enum class Plant : std::uint8_t {
-  None,
-  EndsOnly,
-  InnerForgotten,
-  CopiesFree,
-  ReplacedInPlace,
-  MapsMissed,
-  ArenasMissed
-};
+// The fault a model of the footprint is planted with, if any, in how it
+// follows runs and the storage it counts.
+enum class Plant : std::uint8_t { None, EndsOnly, InnerForgotten, CopiesFree, ReplacedInPlace };
 
 // What a judge takes for each run's footprint, read off the trace of what
 // is held: the most bytes held while the run was open beyond what was held
 // when it began. A mutant's is wrong in one way, and the judge must say so:
 // what the run ended holding, an outer run blind to its inner runs, a copy
 // that takes nothing, storage replaced by freeing the old before taking the
-// new, a map or an arena that counts nothing.
-template <Plant P>
+// new; or, apart from its plant, a kind of storage, one of `Uncounted`,
+// that counts nothing.
+template <Plant P, Kind... Uncounted>
 class Model {
 public:
   void made(Kind kind, std::int64_t bytes) {
@@ -166,12 +164,7 @@ private:
   };
 
   std::int64_t counted(Kind kind, std::int64_t bytes) const {
-    if constexpr (P == Plant::MapsMissed)
-      return kind == Kind::Map ? 0 : bytes;
-    else if constexpr (P == Plant::ArenasMissed)
-      return kind == Kind::Arena ? 0 : bytes;
-    else
-      return bytes;
+    return ((kind == Uncounted) || ...) ? 0 : bytes;
   }
   std::int64_t held() const {
     std::int64_t sum = 0;
@@ -201,7 +194,7 @@ enum class Report : std::uint8_t { Each, None };
 // The cases, over every seed up to `limit` of them, where a run's measured
 // footprint differs from the model's. The runs still open at a case's end
 // are ended in turn, and its things are dropped after them.
-template <Plant P>
+template <Plant P, Kind... Uncounted>
 unsigned judge(unsigned limit, Report report) {
   unsigned failures = 0;
   for (std::uint64_t seed = 1; seed <= seeds && failures < limit; ++seed) {
@@ -212,7 +205,7 @@ unsigned judge(unsigned limit, Report report) {
     std::vector<Thing> held;
     held.reserve(mostSteps);
     std::vector<idr::footprint::Run> runs;
-    Model<P> model;
+    Model<P, Uncounted...> model;
     std::string why;
     auto end = [&] {
       auto measured = static_cast<std::int64_t>(runs.back().end());
@@ -241,6 +234,7 @@ unsigned judge(unsigned limit, Report report) {
           idr::match(
               held[at], [&](Elements &v) { v.push_back(draws.below(1000)); },
               [](Map &m) { m.try_emplace(static_cast<std::uint32_t>(m.size()), 0u); },
+              [](Set &s) { s.insert(static_cast<std::uint32_t>(s.size())); },
               [&](Arena &a) { (void)a.Allocate(1 + draws.below(mostBytes), llvm::Align(8)); });
           model.grew(at, bytesOf(held[at]));
         }
@@ -255,7 +249,8 @@ unsigned judge(unsigned limit, Report report) {
         idr::match(
             held[draws.below(held.size())],
             [&](const Elements &v) { keep(Thing(std::in_place_type<Elements>, v)); },
-            [&](const Map &m) { keep(Thing(std::in_place_type<Map>, m)); }, [](const Arena &) {});
+            [&](const Map &m) { keep(Thing(std::in_place_type<Map>, m)); },
+            [&](const Set &s) { keep(Thing(std::in_place_type<Set>, s)); }, [](const Arena &) {});
         break;
       }
       case Step::Drop: {
@@ -295,8 +290,9 @@ TEST(Footprint, EachMutantModelIsCaught) {
   EXPECT_GT(judge<Plant::InnerForgotten>(1, Report::None), 0u);
   EXPECT_GT(judge<Plant::CopiesFree>(1, Report::None), 0u);
   EXPECT_GT(judge<Plant::ReplacedInPlace>(1, Report::None), 0u);
-  EXPECT_GT(judge<Plant::MapsMissed>(1, Report::None), 0u);
-  EXPECT_GT(judge<Plant::ArenasMissed>(1, Report::None), 0u);
+  EXPECT_GT((judge<Plant::None, Kind::Map>(1, Report::None)), 0u);
+  EXPECT_GT((judge<Plant::None, Kind::Set>(1, Report::None)), 0u);
+  EXPECT_GT((judge<Plant::None, Kind::Arena>(1, Report::None)), 0u);
 }
 
 } // namespace

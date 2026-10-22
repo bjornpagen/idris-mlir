@@ -165,7 +165,8 @@ enum class Report : std::uint8_t { Each, None };
 
 // The cases, over every seed up to `limit` of them, whose graph disagrees
 // with `oracle`, or that do not verify.
-unsigned judge(Oracle oracle, unsigned limit, Report report) {
+template <Oracle oracle>
+unsigned judge(unsigned limit, Report report) {
   mlir::MLIRContext context;
   context.disableMultithreading();
   context.loadDialect<idr::IdrDialect>();
@@ -258,7 +259,7 @@ unsigned judge(Oracle oracle, unsigned limit, Report report) {
 }
 
 TEST(ProgramGraph, EveryProgramAgainstItsCalls) {
-  EXPECT_EQ(judge(truth, 10, Report::Each), 0u);
+  EXPECT_EQ(judge<truth>(10, Report::Each), 0u);
 }
 
 // A row keyed by its callee alone: a call in tail position and one that
@@ -293,9 +294,9 @@ Model selfCallsAcyclic(const Program &program) {
 // The judgement can fail: each model with a planted fault disagrees with
 // the graph on some program.
 TEST(ProgramGraph, EachMutantModelIsCaught) {
-  EXPECT_GT(judge(kindsMerged, 1, Report::None), 0u);
-  EXPECT_GT(judge(sitesOnce, 1, Report::None), 0u);
-  EXPECT_GT(judge(selfCallsAcyclic, 1, Report::None), 0u);
+  EXPECT_GT(judge<kindsMerged>(1, Report::None), 0u);
+  EXPECT_GT(judge<sitesOnce>(1, Report::None), 0u);
+  EXPECT_GT(judge<selfCallsAcyclic>(1, Report::None), 0u);
 }
 
 } // namespace

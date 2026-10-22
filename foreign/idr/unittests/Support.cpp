@@ -7,7 +7,7 @@
 // gave them, the fold over a sum against the sum's index, and the walk down
 // a nesting against recursion, on every rooted tree of up to six nodes.
 // What the vocabulary holds is counted in Footprint.cpp; what a type
-// refuses to compile is unittests/refusals'.
+// refuses to compile is Refusals.cpp's.
 
 #include "idr/Support/Enum.h"
 #include "idr/Support/Id.h"

@@ -6,10 +6,10 @@
 // same meaning over words of every member, the words' instance being the
 // folder, whose edge cases are checked when the compiler is built. The
 // meanings are every one the dialect's ops have, as the specification
-// lists them, and the guards' conditions; each is asked of every tuple of
-// members of a case's operands (IntervalCases.cpp): its value over words is
-// a member of its value over intervals, and a truth the intervals decide is
-// the truth of every tuple. A tuple an op's guard refuses is asked of
+// lists them, a guard's condition among them; each is asked of every tuple
+// of members of a case's operands (IntervalCases.cpp): its value over words
+// is a member of its value over intervals, and a truth the intervals decide
+// is the truth of every tuple. A tuple an op's guard refuses is asked of
 // nothing. The judgement is shown failing on each instance planted with a
 // fault.
 
@@ -54,11 +54,6 @@ using numeric::Words;
 // The number of seeds a case is drawn from.
 constexpr std::uint64_t seeds = 400;
 
-// The guards' conditions, which no op names as its meaning: a guard op
-// folds by hand, so the specification lists them nowhere, and the box asks
-// them beside the ops' meanings.
-using Conditions = std::tuple<numeric::Nonzero, numeric::InBounds, numeric::InRange>;
-
 // The most operands a meaning of `Each` takes.
 template <class Each>
 constexpr unsigned widest = 0;
@@ -66,7 +61,7 @@ template <class... F>
 constexpr unsigned widest<std::tuple<F...>> = std::max({0u, F::arity...});
 
 // The operands a case draws: as many as the meaning that takes the most.
-constexpr unsigned operands = std::max(widest<numeric::Meanings>, widest<Conditions>);
+constexpr unsigned operands = widest<numeric::Meanings>;
 
 //===----------------------------------------------------------------------===//
 // The judgement
@@ -225,9 +220,7 @@ unsigned judge(const D &intervals, unsigned limit, Report report) {
   unsigned failures = 0;
   for (std::uint64_t seed = 1; seed <= seeds && failures < limit; ++seed) {
     Case drawn = idr::box::intervals::caseOf(seed, operands);
-    std::string why =
-        disagreements(intervals, drawn, std::type_identity<numeric::Meanings>()) +
-        disagreements(intervals, drawn, std::type_identity<Conditions>());
+    std::string why = disagreements(intervals, drawn, std::type_identity<numeric::Meanings>());
     if (why.empty())
       continue;
     ++failures;
