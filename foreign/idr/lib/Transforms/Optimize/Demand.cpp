@@ -28,7 +28,6 @@
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -49,9 +48,18 @@ struct Param {
 void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
   StringAttr root = schedule.program.getRootAttr().getAttr();
   SmallVector<FuncOp> fns = llvm::map_to_vector(ids, [&](FunctionId id) { return schedule.function(id); });
-  llvm::DenseMap<StringAttr, unsigned> position;
-  for (auto [at, fn] : llvm::enumerate(fns))
-    position.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
+  // A callee's place among the members, by the program's one numbering of
+  // its functions: the members are in id order; none for a function of
+  // another component.
+  auto memberAt = [&](CallOp call) -> std::optional<unsigned> {
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    if (!callee)
+      return std::nullopt;
+    const FunctionId *at = llvm::lower_bound(ids, *callee);
+    if (at == ids.end() || *at != *callee)
+      return std::nullopt;
+    return static_cast<unsigned>(at - ids.begin());
+  };
   // Whether each member may lose a parameter at all.
   auto narrowable = [&](unsigned at) {
     return fns[at].getSymNameAttr() != root && !schedule.isLabel(ids[at]);
@@ -76,14 +84,14 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       bool seed = !narrowable(m) || isLinear(param.getType());
       for (OpOperand &use : param.getUses()) {
         auto call = dyn_cast<CallOp>(use.getOwner());
-        auto callee = call ? position.find(call.getCalleeAttr().getAttr()) : position.end();
-        if (callee == position.end()) {
+        std::optional<unsigned> callee = call ? memberAt(call) : std::nullopt;
+        if (!callee) {
           seed = true;
           continue;
         }
         unsigned q = use.getOperandNumber() - call.getArgs().getBeginOperandIndex();
         // Parameter q of the callee being read makes this one read.
-        feeds[callee->second][q].push_back(Param{m, p});
+        feeds[*callee][q].push_back(Param{m, p});
       }
       if (seed) {
         read[m].set(p);

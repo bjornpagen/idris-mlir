@@ -24,6 +24,7 @@
 // result; where the value still stands, it reaches no return and nothing
 // reads it, and it is poison.
 
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -37,10 +38,9 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 #include <optional>
+#include <utility>
 #include <vector>
 
 using namespace mlir;
@@ -49,17 +49,39 @@ namespace idr::optimize {
 
 namespace {
 
+// A function's values by its one numbering, in walk order.
+struct BodyValue {
+  using Minter = solver::Numbering<BodyValue>;
+};
+using ValueId = BodyValue::Minter::Node;
+
+// Which values one question about a function has followed: each value
+// holds the number of the last question that followed it, so every
+// question starts with none followed and nothing is cleared between them.
+class Followed {
+public:
+  explicit Followed(FuncOp fn) : numbering(fn), last(numbering.size(), 0) {}
+  void ask() { ++question; }
+  // Whether this question follows `value` for the first time.
+  bool first(Value value) { return std::exchange(last[numbering.at(value)], question) != question; }
+
+private:
+  solver::Numbering<BodyValue> numbering;
+  IndexVector<ValueId, unsigned> last;
+  unsigned question = 0;
+};
+
 // The positions of its function's return `value` reaches through what
 // forwards it unchanged; none when anything else takes it, which reads it.
-std::optional<SmallVector<unsigned, 1>> returnsOf(Value value) {
+// A loop's join regions forward a value around again: each is followed
+// once in the question.
+std::optional<SmallVector<unsigned, 1>> returnsOf(Value value, Followed &followed) {
   SmallVector<unsigned, 1> positions;
   SmallVector<Value> work{value};
-  // A loop's join regions forward a value around again: each is followed
-  // once.
-  llvm::SmallPtrSet<void *, 8> followed;
+  followed.ask();
   while (!work.empty()) {
     Value at = work.pop_back_val();
-    if (!followed.insert(at.getAsOpaquePointer()).second)
+    if (!followed.first(at))
       continue;
     for (OpOperand &use : at.getUses()) {
       if (isa<ReturnOp>(use.getOwner())) {
@@ -80,14 +102,16 @@ std::optional<SmallVector<unsigned, 1>> returnsOf(Value value) {
   return positions;
 }
 
-// The operands `op`'s regions yield for its results that `dropped` holds.
-SmallVector<Value> yieldedFor(Operation *op, const llvm::SmallPtrSetImpl<void *> &dropped) {
+// The operands `op`'s regions yield for its results that `dropped` holds,
+// by result number; what a region yields to another region is no result.
+SmallVector<Value> yieldedFor(Operation *op, const llvm::BitVector &dropped) {
   SmallVector<Value> out;
   for (Region &region : op->getRegions())
     for (Block &block : region)
       if (Operation *end = block.empty() ? nullptr : &block.back())
         forwardedValues(end, [&](OpOperand &operand, Value input) {
-          if (dropped.contains(input.getAsOpaquePointer()))
+          auto result = dyn_cast<OpResult>(input);
+          if (result && result.getOwner() == op && dropped.test(result.getResultNumber()))
             out.push_back(operand.get());
         });
   return out;
@@ -95,22 +119,29 @@ SmallVector<Value> yieldedFor(Operation *op, const llvm::SmallPtrSetImpl<void *>
 
 // Each match and join group whose results `released` lost their last use
 // loses them, down through what its regions yield, by the e-graph's rules
-// for an unused result.
-void releaseRejoins(RewriterBase &rewriter, ArrayRef<Value> released) {
-  llvm::SetVector<Operation *> rejoins;
+// for an unused result. An op is noted by its first result's number in
+// `fn`'s numbering, made before any is rewritten: an op is noted only by
+// the return or by its parent's rewrite, which comes first, so every op
+// noted is one the numbering holds, and each is rewritten once.
+void releaseRejoins(RewriterBase &rewriter, FuncOp fn, ArrayRef<Value> released) {
+  solver::Numbering<BodyValue> numbering(fn);
+  BitSet<ValueId> noted(numbering.size());
+  SmallVector<Operation *> rejoins;
   auto note = [&](Value value) {
     Operation *def = value.getDefiningOp();
-    if (def && value.use_empty() && (isa<MatchOpInterface>(def) || isa<JoinPointsOpInterface>(def)))
-      rejoins.insert(def);
+    if (def && value.use_empty() &&
+        (isa<MatchOpInterface>(def) || isa<JoinPointsOpInterface>(def)) &&
+        noted.raise(numbering.at(def->getResult(0))) == Changed::Yes)
+      rejoins.push_back(def);
   };
   for (Value value : released)
     note(value);
   while (!rejoins.empty()) {
     Operation *op = rejoins.pop_back_val();
-    llvm::SmallPtrSet<void *, 4> unused;
+    llvm::BitVector unused(op->getNumResults());
     for (OpResult result : op->getResults())
       if (result.use_empty())
-        unused.insert(Value(result).getAsOpaquePointer());
+        unused.set(result.getResultNumber());
     SmallVector<Value> yielded = yieldedFor(op, unused);
     if (auto match = dyn_cast<MatchOpInterface>(op))
       egraph::DeadResults::rewrite(match, egraph::Rewrite{}, rewriter);
@@ -170,11 +201,12 @@ void dropDeadResults(Schedule &schedule) {
     for (auto [r, type] : llvm::enumerate(fn.getResultTypes()))
       if (fn.isRoot() || isLinear(type))
         mark(classOf(self, static_cast<unsigned>(r)));
+    Followed followed(fn);
     fn.getBody().walk([&](CallOp call) {
       FunctionId callee = calleeOf(call);
       for (OpResult result : call->getResults()) {
         unsigned given = classOf(callee, result.getResultNumber());
-        std::optional<SmallVector<unsigned, 1>> returns = returnsOf(result);
+        std::optional<SmallVector<unsigned, 1>> returns = returnsOf(result, followed);
         if (!returns) {
           mark(given);
           continue;
@@ -221,7 +253,7 @@ void dropDeadResults(Schedule &schedule) {
     for (unsigned r : dead[self.index()].set_bits())
       released.push_back(ret->getOperand(r));
     ret->eraseOperands(dead[self.index()]);
-    releaseRejoins(rewriter, released);
+    releaseRejoins(rewriter, fn, released);
   }
   // Then every call of a function that lost a result, made again without
   // it.

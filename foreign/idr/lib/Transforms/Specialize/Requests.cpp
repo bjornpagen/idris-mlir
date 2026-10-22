@@ -16,7 +16,7 @@
 #include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 namespace idr {
@@ -31,12 +31,6 @@ namespace idr::specialize {
 using namespace detail;
 
 namespace {
-
-// The ops a redirect erased, so the walk skips them.
-struct Erased : RewriterBase::Listener {
-  void notifyOperationErased(Operation *op) override { ops.insert(op); }
-  llvm::DenseSet<Operation *> ops;
-};
 
 // The binding times of a callee's parameters as a call in `requester`
 // sees them: within the recursion of the component both stand for, the
@@ -93,18 +87,26 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
 // Each call of `fn` in walk order: its want decided, its key requested,
 // and the call made a call of the granted copy. How many calls it
 // redirected; a failure is an internal error, emitted.
+//
+// The calls are numbered by their place in the one walk. A raise erases
+// the dispatch it moves into the copy, later in the call's block, and
+// every call inside it, which the walk has not met yet; no other redirect
+// erases a call but its own. So before a raise, each call still to come
+// that the dispatch holds is marked by its number, and the walk passes it.
 FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes) {
   FunctionId self = schedule.graph.id(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
   Requester &asking = schedule.requesterOf(self);
   const Node *requester = nodes.find(self);
   SmallVector<CallOp> calls;
   fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
-  Erased erased;
-  IRRewriter rewriter(fn.getContext(), &erased);
+  auto count = static_cast<unsigned>(calls.size());
+  llvm::BitVector erased(count);
+  IRRewriter rewriter(fn.getContext());
   unsigned redirected = 0;
-  for (CallOp call : calls) {
-    if (erased.ops.contains(call.getOperation()))
+  for (unsigned at = 0; at < count; ++at) {
+    if (erased.test(at))
       continue;
+    CallOp call = calls[at];
     // A call of a copy made in this wave names no function of the schedule
     // until the wave ends: it is pending, and nothing is read of it.
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
@@ -169,8 +171,13 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
           });
         },
         [&](const RaiseWant &raise) {
-          return support::perform<RaiseAction>(call,
-                                               [&] { redirect(rewriter, call, target, type, raise); });
+          return support::perform<RaiseAction>(call, [&] {
+            Operation *dispatch = raise.consumer.dispatch;
+            for (unsigned later = at + 1; later < count; ++later)
+              if (!erased.test(later) && dispatch->isAncestor(calls[later]))
+                erased.set(later);
+            redirect(rewriter, call, target, type, raise);
+          });
         });
   }
   return redirected;

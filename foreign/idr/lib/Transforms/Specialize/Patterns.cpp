@@ -18,7 +18,6 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
@@ -139,26 +138,29 @@ bool usedOnce(Value value) {
   return true;
 }
 
-// An op is erased once it has no use left, which happens once, since
-// erasing only takes uses away: a value passed twice names one op, met
-// twice, erased the first time.
+// An op is erased once it has no use left. Each op that builds a shape
+// has one result, which loses its last use only when its last reader is
+// erased, after which no reader is left to name it again: so a value is
+// met twice before its op is erased only within one batch that names it
+// twice (the values given, or one erased op's operands), and each batch
+// reads each of its values once.
 void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
   SmallVector<Operation *> dead;
-  llvm::SmallPtrSet<Operation *, 8> gone;
-  auto consider = [&](Value value) {
-    Operation *def = value.getDefiningOp();
-    if (def && !gone.contains(def) && (isa<DataConOp>(def) || throughLinear(value) != value) &&
-        def->use_empty()) {
-      gone.insert(def);
-      dead.push_back(def);
+  auto consider = [&](ArrayRef<Value> batch) {
+    for (auto [at, value] : llvm::enumerate(batch)) {
+      if (llvm::is_contained(batch.take_front(at), value))
+        continue;
+      Operation *def = value.getDefiningOp();
+      if (def && (isa<DataConOp>(def) || throughLinear(value) != value) && def->use_empty())
+        dead.push_back(def);
     }
   };
-  llvm::for_each(values, consider);
+  consider(values);
   while (!dead.empty()) {
     Operation *op = dead.pop_back_val();
     SmallVector<Value> operands(op->getOperands());
     rewriter.eraseOp(op);
-    llvm::for_each(operands, consider);
+    consider(operands);
   }
 }
 

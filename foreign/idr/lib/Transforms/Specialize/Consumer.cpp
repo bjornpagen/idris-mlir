@@ -23,9 +23,9 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
@@ -101,21 +101,16 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
   SmallVector<Operation *> steps = consumer.steps();
   Operation *dispatch = consumer.dispatch;
 
-  // The values the dispatch and its regions read from outside it, in the
-  // order a pre-order walk first reads them, but the call's result and
-  // what the steps make, which the copy makes itself.
-  llvm::SmallPtrSet<Operation *, 4> made(steps.begin(), steps.end());
-  made.insert(call);
+  // The values the dispatch and its regions read from outside it, its own
+  // operands first, but the one the steps hand it, which the copy makes
+  // itself: the call's result and each step's are the one use of what
+  // made them, so no other op of the dispatch reads one.
+  Value handed = steps.empty() ? call.getResult(0) : steps.back()->getResult(0);
   llvm::SetVector<Value> outside;
-  dispatch->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    for (Value operand : op->getOperands()) {
-      if (Operation *def = operand.getDefiningOp(); def && made.contains(def))
-        continue;
-      Region *region = operand.getParentRegion();
-      if (!region || !dispatch->isAncestor(region->getParentOp()))
-        outside.insert(operand);
-    }
-  });
+  for (Value operand : dispatch->getOperands())
+    if (operand != handed)
+      outside.insert(operand);
+  getUsedValuesDefinedAbove(dispatch->getRegions(), outside);
   llvm::append_range(free, outside);
 
   SmallVector<Type> inputs{call.getResult(0).getType()};

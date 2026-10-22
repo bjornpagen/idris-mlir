@@ -34,6 +34,8 @@
 
 #include "idr/Transforms/Deduplicate.h"
 
+#include "idr/Analysis/Solver/Extraction.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -46,6 +48,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <concepts>
 #include <map>
 #include <utility>
 #include <vector>
@@ -112,30 +115,40 @@ llvm::hash_code hashOf(FuncOp fn, MapRef map) {
   return hash;
 }
 
+// A function's values by its one numbering, in walk order.
+struct BodyValue {
+  using Minter = solver::Numbering<BodyValue>;
+};
+
 // Whether two functions are one when every symbol reference is read
 // through `map`: equal facts, and bodies equivalent op for op, as upstream
-// compares two regions.
+// compares two regions. Each value of `lhs` holds the value of `rhs` it
+// stands for, by its number; a function is isolated, so every value
+// compared is one of its own.
 bool sameBody(FuncOp lhs, FuncOp rhs, MapRef map) {
   AttrTypeReplacer read = readingThrough(map);
   if (read.replace(factsOf(lhs)) != read.replace(factsOf(rhs)))
     return false;
-  llvm::DenseMap<Value, Value> equivalent;
+  solver::Numbering<BodyValue> numbering(lhs);
+  IndexVector<BodyValue::Minter::Node, Value> equivalent(numbering.size(), Value());
   auto checkEquivalent = [&](Value l, Value r) -> LogicalResult {
-    return success(equivalent.lookup(l) == r || l == r);
+    return success(equivalent[numbering.at(l)] == r);
   };
-  auto markEquivalent = [&](Value l, Value r) { equivalent[l] = r; };
+  auto markEquivalent = [&](Value l, Value r) { equivalent[numbering.at(l)] = r; };
   return OperationEquivalence::isRegionEquivalentTo(
       &lhs.getBody(), &rhs.getBody(), checkEquivalent, markEquivalent,
       OperationEquivalence::IgnoreLocations, nullptr, map);
 }
 
-// Every reference a function makes to a function of the program, in the
-// order one walk meets them: its facts, then each op in pre-order, its
-// attributes, its properties, its results' types and its regions'
-// arguments' types. Each distinct attribute or type is walked once and its
-// references listed again wherever it stands again, so two functions
-// alike but for their references list them at the same places.
-SmallVector<unsigned> referencesOf(FuncOp fn, const llvm::DenseMap<StringAttr, unsigned> &index) {
+// Every reference a function makes to a function of the program, by the
+// position `positionOf` gives the function named, in the order one walk
+// meets them: its facts, then each op in pre-order, its attributes, its
+// properties, its results' types and its regions' arguments' types. Each
+// distinct attribute or type is walked once and its references listed
+// again wherever it stands again, so two functions alike but for their
+// references list them at the same places.
+template <std::invocable<SymbolRefAttr> PositionOf>
+SmallVector<unsigned> referencesOf(FuncOp fn, PositionOf &&positionOf) {
   SmallVector<unsigned> out;
   llvm::DenseMap<Attribute, SmallVector<unsigned, 2>> inAttributes;
   llvm::DenseMap<Type, SmallVector<unsigned, 2>> inTypes;
@@ -144,10 +157,7 @@ SmallVector<unsigned> referencesOf(FuncOp fn, const llvm::DenseMap<StringAttr, u
       return;
     auto [at, fresh] = held.try_emplace(element);
     if (fresh)
-      element.walk([&, &refs = at->second](SymbolRefAttr ref) {
-        if (auto found = index.find(ref.getRootReference()); found != index.end())
-          refs.push_back(found->second);
-      });
+      element.walk([&, &refs = at->second](SymbolRefAttr ref) { refs.push_back(positionOf(ref)); });
     llvm::append_range(out, at->second);
   };
   list(factsOf(fn), inAttributes);
@@ -167,11 +177,11 @@ SmallVector<unsigned> referencesOf(FuncOp fn, const llvm::DenseMap<StringAttr, u
 } // namespace
 
 // The digest names a raise copy, so it reads only content the same in
-// every process: each op's name, its operands by the number their values
-// were met at, its results' types and its attributes and properties by the
-// content digest each attribute and type keeps, a symbol reference by the
-// name it holds. Two consumers that call different functions are two
-// forms, and their copies two names.
+// every process: each op's name, its operands by their values' numbers in
+// the function's one numbering, its results' types and its attributes and
+// properties by the content digest each attribute and type keeps, a symbol
+// reference by the name it holds. Two consumers that call different
+// functions are two forms, and their copies two names.
 llvm::XXH128_hash_t structuralDigest(FuncOp fn) {
   SmallVector<std::uint8_t, 256> bytes;
   auto word = [&](std::uint64_t value) {
@@ -187,14 +197,9 @@ llvm::XXH128_hash_t structuralDigest(FuncOp fn) {
     if (attr)
       digest(stableDigest(attr));
   };
-  llvm::DenseMap<Value, unsigned> number;
-  auto numbered = [&](Value value) {
-    return number.try_emplace(value, static_cast<unsigned>(number.size())).first->second;
-  };
-  for (Value arg : fn.getArguments()) {
-    (void)numbered(arg);
+  solver::Numbering<BodyValue> numbering(fn);
+  for (Value arg : fn.getArguments())
     digest(stableDigest(arg.getType()));
-  }
   attribute(factsOf(fn));
   fn.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) {
     StringRef name = op->getName().getStringRef();
@@ -202,21 +207,17 @@ llvm::XXH128_hash_t structuralDigest(FuncOp fn) {
     bytes.append(name.bytes_begin(), name.bytes_end());
     word(op->getNumOperands());
     for (Value operand : op->getOperands())
-      word(numbered(operand));
-    for (Value result : op->getResults()) {
-      (void)numbered(result);
+      word(numbering.at(operand).index());
+    for (Value result : op->getResults())
       digest(stableDigest(result.getType()));
-    }
     attribute(op->getRawDictionaryAttrs());
     attribute(op->getPropertiesAsAttribute());
     word(op->getNumRegions());
     for (Region &region : op->getRegions())
       for (Block &block : region) {
         word(block.getNumArguments());
-        for (Value arg : block.getArguments()) {
-          (void)numbered(arg);
+        for (Value arg : block.getArguments())
           digest(stableDigest(arg.getType()));
-        }
       }
   });
   return llvm::xxh3_128bits(bytes);
@@ -247,9 +248,16 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     auto held = program.getOps<idr::FuncOp>();
     idr::footprint::Vector<idr::FuncOp> fns(held.begin(), held.end());
     auto n = static_cast<unsigned>(fns.size());
-    llvm::DenseMap<StringAttr, unsigned> index;
+    // Each function's position in program order, by the program's one
+    // numbering of its functions; every symbol a function names is one of
+    // them, the dialect's only symbol.
+    const idr::solver::ProgramGraph &graph = getAnalysis<idr::solver::ProgramGraph>();
+    idr::IndexVector<idr::solver::FunctionId, unsigned> position = graph.table<unsigned>(0);
     for (auto [at, fn] : llvm::enumerate(fns))
-      index.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
+      position[graph.id(fn)] = static_cast<unsigned>(at);
+    auto positionOf = [&](SymbolRefAttr ref) {
+      return position[graph.id(cast<FlatSymbolRefAttr>(ref))];
+    };
 
     // Each function hashed once, every reference one placeholder of a
     // reference's own kind; its references listed in order.
@@ -259,7 +267,7 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     auto anyReference = [&](SymbolRefAttr) -> Attribute { return placeholder; };
     for (idr::FuncOp fn : fns) {
       hashes.push_back(hashOf(fn, anyReference));
-      refs.push_back(referencesOf(fn, index));
+      refs.push_back(referencesOf(fn, positionOf));
     }
 
     // The partition: classes numbered by their first member in program
@@ -298,10 +306,8 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     // whose members differ splits into its parts and the rounds run again.
     idr::footprint::Vector<SmallVector<unsigned>> members;
     auto representative = [&](SymbolRefAttr ref) -> Attribute {
-      auto found = index.find(ref.getRootReference());
-      if (found == index.end())
-        return ref;
-      return FlatSymbolRefAttr::get(fns[members[classOf[found->second]].front()].getSymNameAttr());
+      idr::FuncOp first = fns[members[classOf[positionOf(ref)]].front()];
+      return FlatSymbolRefAttr::get(first.getSymNameAttr());
     };
     while (true) {
       refine();
@@ -330,8 +336,10 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       renumber([&](unsigned at) { return std::pair(classOf[at], part[at]); });
     }
 
-    // Of each class of two or more, the first in symbol order stays.
-    llvm::DenseMap<StringAttr, StringAttr> renames;
+    // Of each class of two or more, the first in symbol order stays: each
+    // other member, by its id, holds the name of the one kept.
+    idr::IndexVector<idr::solver::FunctionId, StringAttr> keptAs = graph.table<StringAttr>();
+    auto renamed = [&](FlatSymbolRefAttr ref) { return keptAs[graph.id(ref)]; };
     unsigned groups = 0;
     for (ArrayRef<unsigned> list : members) {
       if (list.size() < 2)
@@ -340,14 +348,14 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       (void)idr::support::perform<DeduplicateMergeAction>(kept, [&] {
         SmallVector<Location> places{kept.getLoc()};
         for (unsigned at : list.drop_front()) {
-          renames[fns[at].getSymNameAttr()] = kept.getSymNameAttr();
+          keptAs[graph.id(fns[at])] = kept.getSymNameAttr();
           places.push_back(fns[at].getLoc());
         }
         kept->setLoc(FusedLoc::get(context, places));
         ++groups;
       });
     }
-    if (renames.empty())
+    if (groups == 0)
       return markAllAnalysesPreserved();
 
     // A call of a merged function, in a function that stays, calls the one
@@ -355,27 +363,27 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     // place gives it once it names the one kept.
     SmallVector<idr::CallOp> redirected;
     for (idr::FuncOp fn : fns)
-      if (!renames.contains(fn.getSymNameAttr()))
+      if (!keptAs[graph.id(fn)])
         fn.walk([&](idr::CallOp call) {
-          if (renames.contains(call.getCalleeAttr().getAttr()))
+          if (renamed(call.getCalleeAttr()))
             redirected.push_back(call);
         });
     // Every reference to a merged function names the one kept: in bodies,
     // in the types and attributes that hold labels, and as the root.
     AttrTypeReplacer replacer;
     replacer.addReplacement([&](FlatSymbolRefAttr ref) -> std::optional<Attribute> {
-      if (StringAttr into = renames.lookup(ref.getAttr()))
+      if (StringAttr into = renamed(ref))
         return FlatSymbolRefAttr::get(into);
       return std::nullopt;
     });
     replacer.recursivelyReplaceElementsIn(program, /*replaceAttrs=*/true, /*replaceLocs=*/false,
                                           /*replaceTypes=*/true);
-    if (StringAttr root = renames.lookup(program.getRootAttr().getAttr()))
+    if (StringAttr root = renamed(program.getRootAttr()))
       program.setRootAttr(FlatSymbolRefAttr::get(root));
     for (idr::CallOp call : redirected)
       call.setTailKind(idr::tail::decide(call));
     for (idr::FuncOp fn : fns)
-      if (renames.contains(fn.getSymNameAttr())) {
+      if (keptAs[graph.id(fn)]) {
         fn->erase();
         ++numMerged;
       }

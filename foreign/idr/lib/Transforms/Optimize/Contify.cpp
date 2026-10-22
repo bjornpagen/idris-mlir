@@ -23,6 +23,7 @@
 // so no stack grows that the program as written did not grow.
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
@@ -51,15 +52,17 @@ struct ContifyAction : idr::support::TaggedAction<ContifyAction> {
   static constexpr std::string_view tag = ::idr::actions::contifyGroup;
 };
 
+using idr::solver::FunctionId;
+
 // A node of the return graph: the root, a function, or the continuation of
 // one non-tail call.
 struct Root {};
 struct Function {
-  unsigned fn;
+  FunctionId fn;
 };
 struct Continuation {
   idr::CallOp call;
-  unsigned in;
+  FunctionId in;
 };
 using Node = std::variant<Root, Function, Continuation>;
 
@@ -124,29 +127,26 @@ idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) 
   return idom;
 }
 
-// How many groups a run placed.
-unsigned contify(idr::ProgramOp program) {
-  auto held = program.getOps<idr::FuncOp>();
-  idr::footprint::Vector<idr::FuncOp> fns(held.begin(), held.end());
-  llvm::DenseMap<StringAttr, unsigned> position;
-  for (auto [at, fn] : llvm::enumerate(fns))
-    position.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
-  // The return graph: node 0 the root, 1..F the functions, then one node
-  // per non-tail call.
+// How many groups a run placed. A function is read by the program's one
+// numbering of its functions, `graph`, never by its name.
+unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph) {
+  // The return graph: node 0 the root, then a node per function id (one
+  // with no function a node no edge reaches), then one per non-tail call.
+  auto nodeOf = [](FunctionId f) { return 1 + f.index(); };
   idr::footprint::Vector<Node> nodes{Root{}};
-  for (unsigned at = 0; at < fns.size(); ++at)
-    nodes.push_back(Function{at});
+  for (FunctionId f : graph.size().ids())
+    nodes.push_back(Function{f});
   idr::footprint::Vector<SmallVector<unsigned, 2>> succ(nodes.size());
-  succ[0].push_back(1 + position.find(program.getRootAttr().getAttr())->second);
-  for (auto [at, fn] : llvm::enumerate(fns))
-    fn.walk([&](idr::CallOp call) {
-      unsigned callee = 1 + position.find(call.getCalleeAttr().getAttr())->second;
+  succ[0].push_back(nodeOf(graph.id(program.getRootAttr())));
+  for (FunctionId self : graph.functions())
+    graph.op(self).walk([&](idr::CallOp call) {
+      unsigned callee = nodeOf(graph.id(call.getCalleeAttr()));
       if (call.getTailKind() == idr::TailKind::tail) {
-        succ[1 + at].push_back(callee);
+        succ[nodeOf(self)].push_back(callee);
         return;
       }
       auto k = static_cast<unsigned>(nodes.size());
-      nodes.push_back(Continuation{call, static_cast<unsigned>(at)});
+      nodes.push_back(Continuation{call, self});
       succ.emplace_back();
       succ[0].push_back(k);
       succ[k].push_back(callee);
@@ -172,19 +172,19 @@ unsigned contify(idr::ProgramOp program) {
       at = static_cast<unsigned>(up);
     }
   };
-  // The groups, by place, each in program order; deepest first, so a group
-  // placed inside a function moves before that function moves.
-  llvm::DenseMap<unsigned, SmallVector<unsigned>> groups;
+  // The groups, by place, each in the numbering's order; deepest first, so
+  // a group placed inside a function moves before that function moves.
+  llvm::DenseMap<unsigned, SmallVector<FunctionId>> groups;
   SmallVector<unsigned> places;
-  for (unsigned at = 0; at < fns.size(); ++at) {
-    unsigned node = 1 + at;
+  for (FunctionId f : graph.functions()) {
+    unsigned node = nodeOf(f);
     if (idom[node] <= 0)
       continue;
     unsigned place = placeOf(node);
     auto [found, fresh] = groups.try_emplace(place);
     if (fresh)
       places.push_back(place);
-    found->second.push_back(at);
+    found->second.push_back(f);
   }
   auto depth = [&](unsigned node) {
     unsigned d = 0;
@@ -202,14 +202,17 @@ unsigned contify(idr::ProgramOp program) {
     moved.walk([](idr::CallOp call) { call.setTailKind(idr::tail::decide(call)); });
   };
   unsigned placed = 0;
+  // Each function's place among the members of the group being placed, by
+  // its id; none for any other.
+  idr::IndexVector<FunctionId, std::optional<unsigned>> memberOf =
+      graph.table<std::optional<unsigned>>(std::nullopt);
   for (unsigned place : places) {
-    ArrayRef<unsigned> members = groups.find(place)->second;
-    llvm::DenseMap<StringAttr, unsigned> memberOf;
+    ArrayRef<FunctionId> members = groups.find(place)->second;
     for (auto [i, fn] : llvm::enumerate(members))
-      memberOf.try_emplace(fns[fn].getSymNameAttr(), static_cast<unsigned>(i));
+      memberOf[fn] = static_cast<unsigned>(i);
     SmallVector<idr::joins::Member> regions;
-    for (unsigned fn : members) {
-      idr::FuncOp f = fns[fn];
+    for (FunctionId fn : members) {
+      idr::FuncOp f = graph.op(fn);
       regions.push_back(idr::joins::Member{&f.getBody(), f.getBindersAttr(), 0});
     }
     // Each tail call of a member, from a member or from the place's own
@@ -219,18 +222,18 @@ unsigned contify(idr::ProgramOp program) {
     SmallVector<idr::joins::Edge> edges;
     auto sitesIn = [&](Region &region, std::optional<unsigned> from, unsigned shift) {
       region.walk([&](idr::CallOp call) {
-        auto target = memberOf.find(call.getCalleeAttr().getAttr());
-        if (target == memberOf.end() || call.getTailKind() != idr::TailKind::tail)
+        std::optional<unsigned> target = memberOf[graph.id(call.getCalleeAttr())];
+        if (!target || call.getTailKind() != idr::TailKind::tail)
           return;
-        sites.push_back(idr::joins::Site{call, target->second + shift, call.getArgs(),
+        sites.push_back(idr::joins::Site{call, *target + shift, call.getArgs(),
                                          call.getIndexArgsAttr()});
         if (from)
-          edges.push_back(idr::joins::Edge{*from, target->second + shift});
+          edges.push_back(idr::joins::Edge{*from, *target + shift});
       });
     };
     Operation *unit = idr::match(
         nodes[place], [&](Root) -> Operation * { return program; },
-        [&](Function host) -> Operation * { return fns[host.fn]; },
+        [&](Function host) -> Operation * { return graph.op(host.fn); },
         [&](const Continuation &k) -> Operation * { return k.call; });
     (void)idr::support::perform<ContifyAction>(unit, [&] {
       idr::match(
@@ -239,10 +242,10 @@ unsigned contify(idr::ProgramOp program) {
             // The host's body becomes the group's first join region, which
             // a fresh entry jumps to with the host's arguments and its own
             // index variables; its tail calls of members are sites too.
-            idr::FuncOp h = fns[host.fn];
+            idr::FuncOp h = graph.op(host.fn);
             sitesIn(h.getBody(), 0u, 1);
             for (auto [i, fn] : llvm::enumerate(members))
-              sitesIn(fns[fn].getBody(), static_cast<unsigned>(i) + 1, 1);
+              sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i) + 1, 1);
             Region moved;
             moved.takeBody(h.getBody());
             SmallVector<idr::joins::Member> all{idr::joins::Member{&moved, h.getBindersAttr(), 0}};
@@ -254,9 +257,10 @@ unsigned contify(idr::ProgramOp program) {
                 idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges);
             rewriter.setInsertionPointToEnd(group.body);
             unsigned own = h.getBindersAttr() ? h.getBindersAttr().getSorts().size() : 0;
+            idr::IndexArgsAttr levels =
+                own ? idr::families::levelArgs(h.getContext(), 0, own) : idr::IndexArgsAttr();
             idr::JumpOp::create(rewriter, h.getLoc(), group.targets.tokenFor(0, group.body->getParent()),
-                                entry->getArguments(),
-                                own ? idr::families::levelArgs(h.getContext(), 0, own) : IndexArgsAttr());
+                                entry->getArguments(), levels);
             rewriter.setInsertionPointAfter(group.outermost);
             idr::ReturnOp::create(rewriter, h.getLoc(), group.outermost->getResults());
             for (const idr::joins::Site &site : sites)
@@ -268,24 +272,26 @@ unsigned contify(idr::ProgramOp program) {
             // The call that leaves for the group's entry is a site of the
             // body, which runs it and gives on what it gives.
             for (auto [i, fn] : llvm::enumerate(members))
-              sitesIn(fns[fn].getBody(), static_cast<unsigned>(i), 0);
-            sites.push_back(idr::joins::Site{k.call, memberOf.find(k.call.getCalleeAttr().getAttr())->second,
+              sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i), 0);
+            sites.push_back(idr::joins::Site{k.call, *memberOf[graph.id(k.call.getCalleeAttr())],
                                              k.call.getArgs(), k.call.getIndexArgsAttr()});
             Operation *outer = idr::joins::wrap(rewriter, k.call, regions, sites);
             for (Region &region : outer->getRegions())
               decideMoved(region);
           });
-      for (unsigned fn : members)
-        rewriter.eraseOp(fns[fn]);
+      for (FunctionId fn : members)
+        rewriter.eraseOp(graph.op(fn));
       ++placed;
     });
+    for (FunctionId fn : members)
+      memberOf[fn] = std::nullopt;
   }
   return placed;
 }
 
 struct Contify : idr::impl::IdrContifyBase<Contify> {
   void runOnProgram(idr::ProgramOp program) {
-    unsigned placed = contify(program);
+    unsigned placed = contify(program, getAnalysis<idr::solver::ProgramGraph>());
     numContified += placed;
     if (placed == 0)
       return markAllAnalysesPreserved();
