@@ -70,7 +70,7 @@ Attribute foldedOn(Operation *op, llvm::ArrayRef<Attribute> operands) {
 template <typename OpT>
 constexpr int64_t leastOperand = INT64_MIN;
 template <>
-constexpr int64_t leastOperand<idr::BigPredOp> = 1;
+constexpr int64_t leastOperand<idr::NatPredOp> = 1;
 
 // The meaning of each big op whose word op takes two words: the sum, the
 // difference and the product. An op the specification marks later has
@@ -114,8 +114,8 @@ void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
       for (int64_t x : values)
         for (int64_t y : values)
           box.check(foldedOn(op, {word(x), word(y)}) ==
-                        idr::fold::compared(builder.getContext(), predicate,
-                                            Abi<OpT>::function(big(x).get(), big(y).get())),
+                        idr::fold::ordered(builder.getContext(), static_cast<unsigned>(predicate),
+                                           Abi<OpT>::function(big(x).get(), big(y).get())),
                     [&] {
                       return pair(x, y)() << ", " << idr::stringifyCmpPredicate(predicate);
                     });

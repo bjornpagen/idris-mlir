@@ -82,7 +82,7 @@ void checkCmp(Judge &box, Order order) {
   for (auto [type, least] : operands) {
     mlir::Value lhs = block.addArgument(type, loc), rhs = block.addArgument(type, loc);
     eachPredicate([&](idr::CmpPredicate predicate) {
-      auto op = idr::BigCmpOp::create(builder, loc, predicate, lhs, rhs);
+      auto op = idr::BigCmpOp::create(builder, loc, lhs, rhs, predicate);
       eachInterval(d64, [&](Bounds a) {
         eachInterval(d64, [&](Bounds b) {
           std::optional<APInt> decided =
@@ -93,7 +93,9 @@ void checkCmp(Judge &box, Order order) {
           mlir::Attribute verdict = mlir::BoolAttr::get(&context, decided->getBoolValue());
           eachMember(d64, a, least, [&](int64_t x) {
             eachMember(d64, b, least, [&](int64_t y) {
-              box.check(idr::fold::compared(&context, predicate, order(x, y)) == verdict, [&] {
+              mlir::Attribute folded = idr::fold::ordered(
+                  &context, static_cast<unsigned>(predicate), order(x, y));
+              box.check(folded == verdict, [&] {
                 return testing::Message() << mlir::debugString(type) << ", "
                                           << idr::stringifyCmpPredicate(predicate) << ", a " << a
                                           << ", b " << b << ", x " << x << ", y " << y;

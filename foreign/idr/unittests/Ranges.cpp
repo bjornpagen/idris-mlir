@@ -28,6 +28,7 @@
 #include <optional>
 #include <vector>
 
+using idr::numeric::Signedness;
 using llvm::APInt;
 using mlir::ConstantIntRanges;
 
@@ -149,20 +150,22 @@ TEST_F(Ranges, Mul) {
                   });
 }
 
-// A reading of a word, signed or unsigned: the flag ofInteger takes, the
-// range it makes of two ends, its order of words and a word's value.
+// A reading of a word, signed or unsigned: the signedness ofInteger takes
+// and its name in a report, the range it makes of two ends, its order of
+// words and a word's value.
 struct Reading {
-  bool isSigned;
+  Signedness signedness;
+  const char *name;
   ConstantIntRanges (*make)(const APInt &, const APInt &);
   bool (*ordered)(const APInt &, const APInt &);
   i128 (*value)(const APInt &);
 };
 
 constexpr Reading readings[] = {
-    {true, &ConstantIntRanges::fromSigned,
+    {Signedness::Signed, "signed", &ConstantIntRanges::fromSigned,
      [](const APInt &a, const APInt &b) { return a.sle(b); },
      [](const APInt &v) -> i128 { return v.getSExtValue(); }},
-    {false, &ConstantIntRanges::fromUnsigned,
+    {Signedness::Unsigned, "unsigned", &ConstantIntRanges::fromUnsigned,
      [](const APInt &a, const APInt &b) { return a.ule(b); },
      [](const APInt &v) -> i128 { return v.getZExtValue(); }},
 };
@@ -222,9 +225,9 @@ TEST_F(Ranges, OfInteger) {
   // Under either reading of any range: every member within, each bound small.
   auto sound = [&](const std::vector<APInt> &values, const ConstantIntRanges &r) {
     for (const Reading &reading : readings) {
-      Bounds b = ranges::ofInteger(r, reading.isSigned);
+      Bounds b = ranges::ofInteger(r, reading.signedness);
       auto operands = [&] {
-        return testing::Message() << r << ", signed " << reading.isSigned << ": " << b;
+        return testing::Message() << r << ", " << reading.name << ": " << b;
       };
       check(boundsSmall(b), operands);
       for (const APInt &v : values)
@@ -249,9 +252,9 @@ TEST_F(Ranges, OfInteger) {
             least = std::min(least, made.value(v));
             greatest = std::max(greatest, made.value(v));
           }
-        Bounds b = ranges::ofInteger(r, made.isSigned);
+        Bounds b = ranges::ofInteger(r, made.signedness);
         check(sameBounds(b, Bounds{asBound(least), asBound(greatest)}), [&] {
-          return testing::Message() << r << ", signed " << made.isSigned << ": " << b;
+          return testing::Message() << r << ", " << made.name << ": " << b;
         });
       });
   }

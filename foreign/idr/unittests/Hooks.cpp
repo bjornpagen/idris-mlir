@@ -67,10 +67,10 @@ TEST_F(Hooks, Pred) {
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   mlir::Type nat = idr::NatType::get(&context);
-  auto op = idr::BigPredOp::create(builder, loc, nat, block.addArgument(nat, loc));
+  auto op = idr::NatPredOp::create(builder, loc, nat, block.addArgument(nat, loc));
   // The operand is a natural that is not zero.
   checkUnary(*this, op, 1,
-             [](int64_t x) { return Owned(Abi<idr::BigPredOp>::function(big(x).get())); });
+             [](int64_t x) { return Owned(Abi<idr::NatPredOp>::function(big(x).get())); });
   // A predecessor that gives its operand back.
   Mutant mutant;
   checkUnary(mutant, op, 1, [](int64_t x) { return big(x); });

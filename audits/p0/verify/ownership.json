@@ -310,7 +310,9 @@
   "foreign/idr/include/idr/Testing/",
   ".clang-tidy",
   "foreign/idr/unittests/refusals/",
-  "foreign/idr/unittests/Support.cpp"
+  "foreign/idr/unittests/Support.cpp",
+  "foreign/idr/unittests/Rows.cpp",
+  "foreign/idr/unittests/Calls.cpp"
  ],
  "L16": [
   "compiler/src/",
