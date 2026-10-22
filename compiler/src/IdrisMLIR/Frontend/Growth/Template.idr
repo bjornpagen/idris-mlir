@@ -80,8 +80,11 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Proof.Bound
+import IdrisMLIR.Proof.Derivation
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Inversion
 import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Sizes
@@ -98,18 +101,25 @@ import Data.List1
 import Data.Nat
 import Data.SortedMap
 import Data.Vect
+import Decidable.Equality
 
 %default total
 
 -- The evaluator's relation names its forms and steps as this module names
--- a template's nodes and a static argument's kind; here each name is
--- always the frontend's.
+-- a template's nodes and a static argument's kind, and the growth
+-- theorem's rules and the host's inert heads name theirs as this module
+-- names a root, a family's beta and a run; here each name is always the
+-- frontend's.
 %hide Idris.Host.Head
 %hide Idris.Host.Applied
 %hide Idris.Host.Beta
 %hide Idris.Host.Computes
 %hide Idris.Host.AType
 %hide Idris.Host.delayed
+%hide IdrisMLIR.Proof.Bound.Chosen
+%hide IdrisMLIR.Proof.Bound.Beta
+%hide IdrisMLIR.Proof.Bound.RunZero
+%hide IdrisMLIR.Proof.Inversion.Inert
 
 ------------------------------------------------------------------------------
 -- The frozen context
@@ -543,12 +553,40 @@ appliedConstant (Str x) ts = Head Nothing (spelt (unpack x) ++ ts)
 appliedConstant (Db x) ts = Head Nothing (spelt (unpack (show x)) ++ ts)
 appliedConstant c ts = partOf EveryNode (constant c) ts
 
+||| The head of a constructor a match meets, as the host's step reads it: a
+||| data constructor by its tag, which an alternative of another tag misses
+||| (`Idris.Host.OtherTag`), or a type constructor, which an alternative at
+||| another entry misses (`Idris.Host.OtherFamily`).
+public export
+data ConstructorHead = DataHead Int | FamilyHead
+
+||| An alternative at another entry than the constructor a match meets,
+||| missed as the host misses it: by its tag, for a data constructor; by
+||| its entry, for a type constructor.
+public export
+data Missed : ConstructorHead -> Int -> Type where
+  TagDiffers : (0 _ : Not (t = tag)) -> Missed (DataHead t) tag
+  EntryDiffers : Missed FamilyHead tag
+
+||| How an alternative at another entry meets a constructor: missed, or,
+||| for a data constructor of the alternative's tag, neither taken nor
+||| missed, where the host's walk is stuck.
+data AnotherEntry : ConstructorHead -> Int -> Type where
+  Passed : (0 _ : Missed h tag) -> AnotherEntry h tag
+  Blocked : (0 _ : t = tag) -> AnotherEntry (DataHead t) tag
+
+anotherEntry : (h : ConstructorHead) -> (tag : Int) -> AnotherEntry h tag
+anotherEntry FamilyHead tag = Passed EntryDiffers
+anotherEntry (DataHead t) tag = case decEq t tag of
+  Yes same => Blocked same
+  No other => Passed (TagDiffers other)
+
 ||| What a match meets, parsed once: a data or type constructor applied, a
 ||| literal, a delay, one of the walk's markers, an argument of a family's
 ||| value, a runtime value (a part every reading takes as one node, or a
 ||| hole marker), or anything else: an application stuck in turn, a
 ||| projection of what is no constructor, an applied marker.
-data Scrutinee = Constructed Name (List ClosedTerm)
+data Scrutinee = Constructed ConstructorHead Name (List ClosedTerm)
                | Literal Constant
                | Suspended ClosedTerm ClosedTerm
                | Matched Nat Nat
@@ -562,9 +600,9 @@ undotted t = t
 
 scrutineeOf : Context -> List StandIn -> ClosedTerm -> Scrutinee
 scrutineeOf ctx stands s = case getFnArgs (undotted s) of
+  (Ref _ (DataCon tag _) n, args) => Constructed (DataHead tag) n args
+  (Ref _ (TyCon _) n, args) => Constructed FamilyHead n args
   (Ref _ nt n, args) => case (referenceOf ctx stands nt n, args) of
-    (DataConstructor _, _) => Constructed n args
-    (TypeConstructor _, _) => Constructed n args
     (WalkMarker (Var i d), []) => Matched i d
     (FormalMarker j a, []) => OnFormal j a
     (RuntimePart, _) => AtRuntime
@@ -927,9 +965,11 @@ mutual
     ByGiven : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
               (0 _ : bindParams pargs terms = Nothing) -> GivenUnfolds m a written terms pargs tree t ->
               Reducing m a n terms written t
-    ||| A builtin applied to the writer's markers: the constant it
-    ||| computes, no higher than a leaf two high.
-    ByBuiltin : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = Builtin op) -> Reducing m a n terms written (Leaf 2)
+    ||| A builtin given as many arguments as it takes, the writer's markers
+    ||| among them: the constant it computes where they are constants
+    ||| (`Idris.Host.Primitive`), no higher than a leaf two high.
+    ByBuiltin : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = Builtin {arity} op) ->
+                (0 _ : length terms = arity) -> Reducing m a n terms written (Leaf 2)
 
   ||| A family's value walked over an argument of the value for each
   ||| parameter it lacks; or, met again on its own unfolding, a recursion
@@ -969,8 +1009,8 @@ mutual
             ReadAs (unfolding m) [] r.readForm t -> Unfolds m self written env (STerm i rhs) extras (Just t)
     UUnmatched : Unfolds m self written env (Unmatched msg) extras (Just written)
     UImpossible : Unfolds m self written env Impossible extras Nothing
-    UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed c sargs) ->
-                   TakenBy m self written env (fullNameIn m.inContext c) sargs alts extras r ->
+    UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed h c sargs) ->
+                   TakenBy m self written env h c sargs alts extras r ->
                    Unfolds m self written env (Case idx p ty alts) extras r
     ULiteral : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Literal k) ->
                TakesLiteral m self written env k alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
@@ -989,31 +1029,38 @@ mutual
              Alternatives m self written env (valueAt env idx p) alts extras ls ->
              Unfolds m self written env (Case idx p ty alts) extras (Just (Choice t ls))
 
-  ||| The alternative a constructor takes, by its full name, as the
-  ||| translation's own static match takes it: the first of its name, or a
-  ||| default, its arguments bound to the constructor's; the definition as
-  ||| written where none is.
+  ||| The alternative a constructor takes, by the entry its name resolves
+  ||| to, as the host's step takes it (`Idris.Host.Picks`): the first at
+  ||| its entry, or a default, its arguments bound to the constructor's,
+  ||| past every alternative the host misses; the definition as written
+  ||| where none is, or where the host's walk of the tree is stuck.
   export
-  data TakenBy : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> Name -> List ClosedTerm ->
-               List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
-    TakesThis : (0 _ : (fullNameIn m.inContext con /= c) = False) -> (0 _ : bindEach cargs sargs = Just bound) ->
+  data TakenBy : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> ConstructorHead -> Name ->
+                 List ClosedTerm -> List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
+    TakesThis : (0 _ : SameEntry m.inContext c con) -> (0 _ : bindEach cargs sargs = Just bound) ->
                 Unfolds m self written (extend bound env) t extras r ->
-                TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
-    PassesThis : (0 _ : (fullNameIn m.inContext con /= c) = True) -> TakenBy m self written env c sargs alts extras r ->
-                 TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
-    ||| The constructor of the alternative's name applied to other than as
+                TakenBy m self written env h c sargs (ConCase con tag cargs t :: alts) extras r
+    PassesThis : (0 _ : Not (SameEntry m.inContext c con)) -> (0 _ : Missed h tag) ->
+                 TakenBy m self written env h c sargs alts extras r ->
+                 TakenBy m self written env h c sargs (ConCase con tag cargs t :: alts) extras r
+    ||| The constructor at the alternative's entry applied to other than as
     ||| many arguments as the alternative binds: the evaluator neither
     ||| matches the alternative nor misses it (`Idris.Host.Picks`), so its
     ||| walk of the tree is stuck there and every instance leaves the
     ||| definition as written.
-    ArityDiffers : (0 _ : (fullNameIn m.inContext con /= c) = False) -> (0 _ : bindEach cargs sargs = Nothing) ->
-                   TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras (Just written)
-    TakesDefault : Unfolds m self written env t extras r -> TakenBy m self written env c sargs (DefaultCase t :: alts) extras r
-    PassesDelay : TakenBy m self written env c sargs alts extras r ->
-                  TakenBy m self written env c sargs (DelayCase tyn argn t :: alts) extras r
-    PassesConstant : TakenBy m self written env c sargs alts extras r ->
-                     TakenBy m self written env c sargs (ConstCase k t :: alts) extras r
-    NoneTaken : TakenBy m self written env c sargs [] extras (Just written)
+    ArityDiffers : (0 _ : SameEntry m.inContext c con) -> (0 _ : bindEach cargs sargs = Nothing) ->
+                   TakenBy m self written env h c sargs (ConCase con tag cargs t :: alts) extras (Just written)
+    ||| A data constructor at another entry than the alternative's, of its
+    ||| tag: the evaluator neither matches nor misses it, and every instance
+    ||| leaves the definition as written.
+    TagShared : (0 _ : Not (SameEntry m.inContext c con)) -> (0 _ : t = tag) ->
+                TakenBy m self written env (DataHead t) c sargs (ConCase con tag cargs u :: alts) extras (Just written)
+    TakesDefault : Unfolds m self written env t extras r -> TakenBy m self written env h c sargs (DefaultCase t :: alts) extras r
+    ||| An alternative of a delay or of a constant, which a constructor
+    ||| neither matches nor misses: the host's walk is stuck there.
+    MeetsDelay : TakenBy m self written env h c sargs (DelayCase tyn argn t :: alts) extras (Just written)
+    MeetsConstant : TakenBy m self written env h c sargs (ConstCase k t :: alts) extras (Just written)
+    NoneTaken : TakenBy m self written env h c sargs [] extras (Just written)
 
   ||| The alternative a literal takes: the first of that constant, or a
   ||| default; the definition as written where none is.
@@ -1583,10 +1630,11 @@ mutual
   ||| first unfolding found it structural. Any other is unfolded, its case
   ||| tree walked over its arguments, beside the call as written: an
   ||| instance whose values leave its match stuck writes the call. A builtin
-  ||| applied to the writer's markers computes, at an instance whose values
-  ||| are constants, a constant (`Idris.Host.Primitive`), which is no
-  ||| higher than a leaf two high (`Proof.Bound.AtComputed`). An instance's
-  ||| term is never unfolded: it is its key.
+  ||| given as many arguments as it takes, the writer's markers among them,
+  ||| computes, at an instance whose values are constants, a constant
+  ||| (`Idris.Host.Primitive`), which is no higher than a leaf two high
+  ||| (`Proof.Bound.AtComputed`). An instance's term is never unfolded: it
+  ||| is its key.
   applied : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
             (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
@@ -1617,8 +1665,9 @@ mutual
   ||| which the normaliser would have unfolded had it matched nothing and
   ||| so stays as written, one met again on this path, one structural on a
   ||| Nat-like argument (`structural`), any other walked (`walk`); and a
-  ||| builtin that computes a constant applied to the writer's markers,
-  ||| where every node is read and calls are unfolded beside. `believe_me`
+  ||| builtin that computes a constant, given as many arguments as it takes
+  ||| with the writer's markers among them, where every node is read and
+  ||| calls are unfolded beside. `believe_me`
   ||| computes no constant: it gives back the value it is given, which
   ||| `applied` reads beside it where it is given its three arguments
   ||| (`believed`), and given any other count it is as written.
@@ -1644,8 +1693,14 @@ mutual
                 | Element Nothing _ => pure AsWritten
               pure (Unfolded t (ByWalk defines isDef inTree bound walked))
     Element (Builtin BelieveMe) _ => pure AsWritten
-    Element (Builtin _) isBuiltin => case (m, mentionedAmong terms) of
-      (MkMode _ EveryNode UnfoldsBeside _, Mentioned) => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin))
+    Element (Builtin {arity} op) isBuiltin => case (m, mentionedAmong terms) of
+      (MkMode _ EveryNode UnfoldsBeside _, Mentioned) => case decEq (length terms) arity of
+        Yes saturated => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin saturated))
+        -- Essential: the host computes a primitive applied to as many
+        -- arguments as it takes, and no other (`Idris.Host.Primitive`); a
+        -- builtin applied to more is `believe_me` or `crash`, neither of
+        -- which computes a constant.
+        No _ => pure AsWritten
       _ => pure AsWritten
     _ => pure AsWritten
 
@@ -1733,8 +1788,8 @@ mutual
   walk m w acc self written env Impossible extras = pure (Element Nothing UImpossible)
   walk m w acc self written env (Case idx p ty alts) extras =
     case Element (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) Refl of
-      Element (Constructed c sargs) found =>
-        (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env (fullNameIn m.inContext c) sargs alts extras
+      Element (Constructed h c sargs) found =>
+        (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env h c sargs alts extras
       Element (Literal k) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
       Element (Suspended dty da) found =>
         (\r => Element r.fst (USuspended found r.snd)) <$> delayed m w acc self written env dty da alts extras
@@ -1756,30 +1811,36 @@ mutual
         r <- everyAlt m w acc self written env (valueAt env idx p) alts extras
         pure (Element (Just (Choice t.fst r.fst)) (UStuck found t.snd r.snd))
 
-  ||| The alternative a constructor takes, by its full name, as the
-  ||| translation's own static match takes it (`Cases.staticCase`).
+  ||| The alternative a constructor takes, by the entry its name resolves
+  ||| to, as the host's step takes it: the context's comparison of entries
+  ||| (`Idris.Host.compareEntries`) gives the step's own evidence, and an
+  ||| alternative at another entry is passed only where the host misses it.
   chosen : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (name : Name) -> (sargs : List ClosedTerm) ->
-           (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-           Front (Subset (Maybe Template) (TakenBy m self written env name sargs alts extras))
-  chosen m w acc self written env c sargs (ConCase con _ cargs t :: alts) extras =
-    case Element (fullNameIn m.inContext con /= c) Refl of
-      Element True other =>
-        (\r => Element r.fst (PassesThis other r.snd)) <$> chosen m w acc self written env c sargs alts extras
-      Element False same => case Element (bindEach cargs sargs) Refl of
+           (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (h : ConstructorHead) ->
+           (name : Name) -> (sargs : List ClosedTerm) -> (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
+           Front (Subset (Maybe Template) (TakenBy m self written env h name sargs alts extras))
+  chosen m w acc self written env h c sargs (ConCase con tag cargs sc :: alts) extras =
+    case compareEntries m.inContext c con of
+      BothAt same => case Element (bindEach cargs sargs) Refl of
         Element (Just bound) binds =>
-          (\r => Element r.fst (TakesThis same binds r.snd)) <$> walk m w acc self written (extend bound env) t extras
+          (\r => Element r.fst (TakesThis same binds r.snd)) <$> walk m w acc self written (extend bound env) sc extras
         -- Essential: the evaluator's walk of the tree is stuck where a
-        -- constructor meets an alternative of its name binding other than
+        -- constructor meets an alternative at its entry binding other than
         -- its arguments, so every instance leaves the definition there.
         Element Nothing differs => pure (Element (Just written) (ArityDiffers same differs))
-  chosen m w acc self written env c sargs (DefaultCase t :: _) extras =
-    (\r => Element r.fst (TakesDefault r.snd)) <$> walk m w acc self written env t extras
-  chosen m w acc self written env c sargs (DelayCase _ _ _ :: alts) extras =
-    (\r => Element r.fst (PassesDelay r.snd)) <$> chosen m w acc self written env c sargs alts extras
-  chosen m w acc self written env c sargs (ConstCase _ _ :: alts) extras =
-    (\r => Element r.fst (PassesConstant r.snd)) <$> chosen m w acc self written env c sargs alts extras
-  chosen m w acc self written env c sargs [] extras = pure (Element (Just written) NoneTaken)
+      Apart apart => case anotherEntry h tag of
+        Passed missed =>
+          (\r => Element r.fst (PassesThis apart missed r.snd)) <$> chosen m w acc self written env h c sargs alts extras
+        -- Essential: the host's walk is stuck where a data constructor
+        -- meets an alternative of its tag at another entry.
+        Blocked shared => pure (Element (Just written) (TagShared apart shared))
+  chosen m w acc self written env h c sargs (DefaultCase sc :: _) extras =
+    (\r => Element r.fst (TakesDefault r.snd)) <$> walk m w acc self written env sc extras
+  -- Essential: a constructor neither matches nor misses an alternative of
+  -- a delay or a constant, and the host's walk is stuck there.
+  chosen m w acc self written env h c sargs (DelayCase _ _ _ :: _) extras = pure (Element (Just written) MeetsDelay)
+  chosen m w acc self written env h c sargs (ConstCase _ _ :: _) extras = pure (Element (Just written) MeetsConstant)
+  chosen m w acc self written env h c sargs [] extras = pure (Element (Just written) NoneTaken)
 
   literal : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (k : Constant) ->
@@ -1877,15 +1938,15 @@ formedTemplate t = (.fst) <$> formedReading t
 ||| it, contracted (a type, a family, a form, a shape no constructor
 ||| heads); or the term as written, its unknowns' solutions put in, then
 ||| contracted (a dictionary, a shape a constructor heads), each what a
-||| reader reads off the term (`Proof.Reading.ReadOff`). A dictionary that
-||| closes over runtime values is the implementation the frontend's own
-||| reduction finds it to be (`Closed.implementationOf`), contracted, which
-||| no relation of the host's yet states.
+||| reader reads off the term (`Proof.Reading.ReadOff`). A dictionary, and
+||| no other kind, that closes over runtime values is the implementation
+||| the frontend's own reduction finds it to be (`Closed.implementationOf`),
+||| contracted, which no relation of the host's yet states.
 public export
-data FormFrom : Frozen -> ClosedTerm -> ClosedTerm -> Type where
-  FromNormalForm : ReadOff OfNormaliseTypes ctx t u -> FormFrom ctx t u
-  FromWritten : ReadOff OfNormaliseHoles ctx t u -> FormFrom ctx t u
-  FromImplementation : EtaContracts v u -> FormFrom ctx t u
+data FormFrom : State.Static -> Frozen -> ClosedTerm -> ClosedTerm -> Type where
+  FromNormalForm : ReadOff OfNormaliseTypes ctx t u -> FormFrom k ctx t u
+  FromWritten : ReadOff OfNormaliseHoles ctx t u -> FormFrom k ctx t u
+  FromImplementation : EtaContracts v u -> FormFrom ADictionary ctx t u
 
 ||| A term with its unknowns' solutions put in, as `Closed.solved` gives it,
 ||| with the host's steps that reach it: none where it has no unknown.
@@ -1897,7 +1958,7 @@ solvedIn ctx t =
 
 ||| A dictionary's form, as `classify` keys it: as written, or the
 ||| implementation it stands for where it depends on a runtime value.
-dictionaryForm : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (FormFrom ctx t))
+dictionaryForm : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (FormFrom ADictionary ctx t))
 dictionaryForm ctx t = do
   s <- solvedIn ctx t
   if !(runtimeDependent s.fst)
@@ -1916,18 +1977,18 @@ dictionaryForm ctx t = do
 ||| form, and what the site writes there, the template with a form's
 ||| extents as its key holds them.
 public export
-record SiteReading (t : ClosedTerm) where
+record SiteReading (k : State.Static) (t : ClosedTerm) where
   constructor MkSiteReading
   0 mode : Mode
   form : ClosedTerm
-  0 formFrom : FormFrom mode.inContext t form
+  0 formFrom : FormFrom k mode.inContext t form
   read : Template
   0 describes : ReadAs mode [] form read
   template : Template
   0 formed : KeyForm read template
 
 ||| A term of a site's read off its normal form, in the mode's context.
-normalSite : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading t)
+normalSite : {auto c : Ref Ctxt Defs} -> {0 k : State.Static} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading k t)
 normalSite m t = do
   n <- readNormal (contractingFor m) m.inContext t
   r <- readFromStart m n.readForm
@@ -1947,7 +2008,8 @@ normalSite m t = do
 ||| (`Instances.argumentShape`). The frozen context is read once, here,
 ||| and the whole reading is over it.
 export
-siteReading : {auto c : Ref Ctxt Defs} -> (stands : List StandIn) -> State.Static -> (t : ClosedTerm) -> Front (SiteReading t)
+siteReading : {auto c : Ref Ctxt Defs} -> (stands : List StandIn) -> (k : State.Static) -> (t : ClosedTerm) ->
+              Front (SiteReading k t)
 siteReading stands AType t = do
   ctx <- frozenContext
   normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) t
@@ -1991,7 +2053,7 @@ export
 capTemplate : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Template
 capTemplate t = do
   ctx <- frozenContext
-  (.template) <$> normalSite (MkMode (OfSite []) EveryNode WalksAlone ctx) t
+  (.template) <$> normalSite {k = AType} (MkMode (OfSite []) EveryNode WalksAlone ctx) t
 
 ------------------------------------------------------------------------------
 -- The measures
@@ -2516,34 +2578,32 @@ asGiven _ (t, _) = t
 -- An instance's static argument
 ------------------------------------------------------------------------------
 
-||| An instance's static argument read once, as its link writes it: the
-||| frozen context it was read in, the form its key writes, how that form
-||| was read off the term there, the template it reads as there with what
-||| that says of the form, and its root.
+||| An instance's static argument of a kind read once in a frozen context,
+||| as its link writes it: the form its key writes, how that form was read
+||| off the term there, the template it reads as there with what that says
+||| of the form, and its root. The context is an index, so a reading's
+||| evidence is over the context its reader holds.
 public export
-record InstanceReading (t : ClosedTerm) where
+record InstanceReading (ctx : Frozen) (k : State.Static) (t : ClosedTerm) where
   constructor MkInstanceReading
-  0 context : Frozen
   form : ClosedTerm
-  0 formFrom : FormFrom context t form
+  0 formFrom : FormFrom k ctx t form
   template : Template
-  0 describes : ReadAs (InstanceMode context) [] form template
+  0 describes : ReadAs (InstanceMode ctx) [] form template
   root : Root
 
 -- What a type is at its root, off its form (`formRoot`).
-typeRoot : ClosedTerm -> Front Root
-typeRoot form = do
-  ctx <- frozenContext
-  pure (formRoot (gamma (defsOf ctx)) form)
+typeRoot : Frozen -> ClosedTerm -> Front Root
+typeRoot ctx form = pure (formRoot (gamma (defsOf ctx)) form)
 
 -- An instance's term read off its normal form, its root read off the form.
-normalInstance : {auto c : Ref Ctxt Defs} -> (ClosedTerm -> Front Root) -> (t : ClosedTerm) -> Front (InstanceReading t)
-normalInstance rootOfForm t = do
-  ctx <- frozenContext
+normalInstance : {auto c : Ref Ctxt Defs} -> {0 k : State.Static} -> (ctx : Frozen) -> (ClosedTerm -> Front Root) ->
+                 (t : ClosedTerm) -> Front (InstanceReading ctx k t)
+normalInstance ctx rootOfForm t = do
   n <- readNormal EveryRedex ctx t
   r <- readFromStart (InstanceMode ctx) n.readForm
   root <- rootOfForm n.readForm
-  pure (MkInstanceReading ctx n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
+  pure (MkInstanceReading n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
 
 -- A form and a shape split nothing.
 noRoot : ClosedTerm -> Front Root
@@ -2556,25 +2616,24 @@ noRoot _ = pure Unrooted
 ||| node and every call as written, which is its key; and its root, the
 ||| definition that splits the node it is given to (`rooted`).
 export
-readInstance : {auto c : Ref Ctxt Defs} -> State.Static -> (t : ClosedTerm) -> Front (InstanceReading t)
-readInstance AType t = normalInstance typeRoot t
-readInstance AFamily t = normalInstance typeRoot t
-readInstance AForm t = normalInstance noRoot t
-readInstance ADictionary t = do
-  ctx <- frozenContext
+readInstance : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (k : State.Static) -> (t : ClosedTerm) ->
+               Front (InstanceReading ctx k t)
+readInstance ctx AType t = normalInstance ctx (typeRoot ctx) t
+readInstance ctx AFamily t = normalInstance ctx (typeRoot ctx) t
+readInstance ctx AForm t = normalInstance ctx noRoot t
+readInstance ctx ADictionary t = do
   d <- dictionaryForm ctx t
   r <- readFromStart (InstanceMode ctx) d.fst
   root <- dictionaryRoot t
-  pure (MkInstanceReading ctx d.fst d.snd r.fst r.snd root)
-readInstance AShape t = do
-  ctx <- frozenContext
+  pure (MkInstanceReading d.fst d.snd r.fst r.snd root)
+readInstance ctx AShape t = do
   s <- solvedIn ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (InstanceMode ctx) c.etaForm
-      pure (MkInstanceReading ctx c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd Unrooted)
-    _ => normalInstance noRoot t
+      pure (MkInstanceReading c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd Unrooted)
+    _ => normalInstance ctx noRoot t
 
 ||| The definition a root names that splits the node of a request it is
 ||| given to: an implementation's, or the type constructor a family's value
@@ -2604,7 +2663,8 @@ staticReading kind t = do
   case lookupFact (.readings) (kind, written) !(getState) of
     Just r => pure r
     Nothing => do
-      r <- readInstance kind t
+      ctx <- frozenContext
+      r <- readInstance ctx kind t
       let here = MkStaticReading r.form (height r.template) (splitting r.root)
       updateState (derive { readings $= insert (kind, written) here })
       pure here
@@ -2936,7 +2996,7 @@ sizeWithinOne a h e = cong (\q => (2 * h + e) * nodesWithin (S q) h) (maxOnePred
 ||| (`Proof.Derivation.ArgumentDerivation`'s `keyed`) is this, at the
 ||| universe's arity and heaviest token and the argument's reading.
 export
-0 keyedWithin : (w : Writer) -> (r : InstanceReading t) -> {a, h, e : Nat} ->
+0 keyedWithin : (w : Writer) -> (r : InstanceReading ctx k t) -> {a, h, e : Nat} ->
                 LTE (arity r.template) a -> LTE (height r.template) h -> LTE (heaviest r.template) e ->
                 LTE (writtenOf w r.form).size (sizeWithin a h e)
 keyedWithin w r wide high heavy =
@@ -2950,26 +3010,29 @@ keyedWithin w r wide high heavy =
 -- A capped argument's reading
 ------------------------------------------------------------------------------
 
-||| A chain's shape as a capped parameter's key holds it, h high: a
-||| constructor applied to nothing, or to the shape of its predecessor, or a
-||| part the shape does not say (a cut, an erased part, a runtime part),
-||| which is never a value an implementation closes over. A chain's
-||| constructors take no erased argument (`Natness.Chain`), so a key cut
-||| from a chain's skeleton (`Closed.skeleton`, `Closed.cutShape`) is one.
+||| A chain's shape as a capped parameter's key holds it in a frozen
+||| context, h high: a constructor applied to nothing, or to the shape of
+||| its predecessor, or a part the shape does not say (a cut, an erased
+||| part, a runtime part, or what is not known of a runtime value, a name
+||| the context defines as nothing), which is never a value an
+||| implementation closes over. A chain's constructors take no erased
+||| argument (`Natness.Chain`), so a key cut from a chain's skeleton
+||| (`Closed.skeleton`, `Closed.cutShape`) is one.
 public export
-data ChainShape : TT vs -> Nat -> Type where
-  ChainEnd : ChainShape (Ref fc (DataCon tag arity) n) 1
-  ChainStep : ChainShape a h -> ChainShape (App fc (Ref rfc (DataCon tag arity) n) a) (S h)
-  ChainCut : ChainShape (Erased fc Impossible) 1
-  ChainErased : ChainShape (Erased fc Placeholder) 1
-  ChainUnsaid : (0 _ : Closed.markerOf n = Nothing) -> ChainShape (Ref fc Bound n) 1
+data ChainShape : Frozen -> TT vs -> Nat -> Type where
+  ChainEnd : ChainShape ctx (Ref fc (DataCon tag arity) n) 1
+  ChainStep : ChainShape ctx a h -> ChainShape ctx (App fc (Ref rfc (DataCon tag arity) n) a) (S h)
+  ChainCut : ChainShape ctx (Erased fc Impossible) 1
+  ChainErased : ChainShape ctx (Erased fc Placeholder) 1
+  ChainUnsaid : (0 _ : Closed.markerOf n = Nothing) -> ChainShape ctx (Ref fc Bound n) 1
+  ChainUnknown : (0 _ : (d : GlobalDef) -> Not (Defines ctx n d)) -> ChainShape ctx (Ref fc Func n) 1
 
 ||| What a capped position holds of a value (`Proof.Bound.Capped`), at a
 ||| shape h high: no node with more than one child, no token, and no higher
 ||| than the shape.
 public export
-record ChainRead (t : Template) (h : Nat) where
-  constructor MkChainRead
+record CapRead (t : Template) (h : Nat) where
+  constructor MkCapRead
   0 high : LTE (height t) h
   0 narrow : LTE (arity t) 1
   0 light : LTE (heaviest t) 0
@@ -2978,7 +3041,7 @@ record ChainRead (t : Template) (h : Nat) where
 nothingNotJust Refl impossible
 
 -- A closed run is a chain one longer than its successors.
-0 runShaped : Run u n -> ChainShape u h -> h = S n
+0 runShaped : Run u n -> ChainShape ctx u h -> h = S n
 runShaped RunZero ChainEnd = Refl
 runShaped (RunSucc r) (ChainStep c) = cong S (runShaped r c)
 
@@ -2988,19 +3051,79 @@ mutual
   ||| reading meets every premise of `Capped` but its height against the
   ||| cap, which is the cap's argument (`Caps.capFrom`).
   export
-  0 chainReads : ChainShape u h -> ReadAs (InstanceMode ctx) env u t -> ChainRead t h
-  chainReads c (ARun {n} r) = replace {p = ChainRead (Leaf (S n))} (sym (runShaped r c)) (MkChainRead lteRefl LTEZero LTEZero)
+  0 chainReads : ChainShape cx u h -> ReadAs (InstanceMode ctx) env u t -> CapRead t h
+  chainReads c (ARun {n} r) = replace {p = CapRead (Leaf (S n))} (sym (runShaped r c)) (MkCapRead lteRefl LTEZero LTEZero)
   chainReads c (ASpine s) = chainSpine c s
 
-  0 chainSpine : ChainShape u h -> SpineAs (InstanceMode ctx) env u [] t -> ChainRead t h
-  chainSpine ChainEnd (SData _ []) = MkChainRead lteRefl LTEZero LTEZero
+  0 chainSpine : ChainShape cx u h -> SpineAs (InstanceMode ctx) env u [] t -> CapRead t h
+  chainSpine ChainEnd (SData _ []) = MkCapRead lteRefl LTEZero LTEZero
   chainSpine (ChainStep c) (SApp (SData _ (r :: []))) =
     let inner = chainReads c r in
-    MkChainRead (LTESucc (maxLub inner.high LTEZero))
-                (maxLub lteRefl (maxLub inner.narrow LTEZero))
-                (maxLub inner.light LTEZero)
-  chainSpine ChainCut (SImpossible []) = MkChainRead lteRefl LTEZero LTEZero
-  chainSpine ChainErased (SPlaceholder []) = MkChainRead lteRefl LTEZero LTEZero
+    MkCapRead (LTESucc (maxLub inner.high LTEZero))
+              (maxLub lteRefl (maxLub inner.narrow LTEZero))
+              (maxLub inner.light LTEZero)
+  chainSpine ChainCut (SImpossible []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine ChainErased (SPlaceholder []) = MkCapRead lteRefl LTEZero LTEZero
   chainSpine (ChainUnsaid none) (SHole found _) = void (nothingNotJust (trans (sym none) found))
-  chainSpine (ChainUnsaid none) (SFormal _ _ []) = MkChainRead lteRefl LTEZero LTEZero
-  chainSpine (ChainUnsaid none) (SPart _ []) = MkChainRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnsaid none) (SFormal _ _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnsaid none) (SPart _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnknown _) (SNoDefinition _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnknown _) (SKept _ []) = MkCapRead lteRefl LTEZero LTEZero
+
+||| A chain's shape reduces only to a chain's shape as high: a constructor
+||| and a bound name are inert (`Proof.Inversion.inertAlone`,
+||| `Proof.Inversion.inertOne`), an erased part no dot holds and a name the
+||| context defines as nothing take no step (`Proof.Inversion`), so each
+||| reduces to itself over what its predecessor reduces to.
+export
+0 chainReduces : {0 ev : Evaluation} -> ChainShape ctx u h -> Reduces ev ctx u v -> ChainShape ctx v h
+chainReduces ChainEnd r = case inertAlone InertData r of
+  (_ ** same) => rewrite same in ChainEnd
+chainReduces (ChainStep c) r = case inertOne InertData r of
+  (_ ** _ ** _ ** (same, ra)) => rewrite same in ChainStep (chainReduces c ra)
+chainReduces ChainCut r = case erasedReduces IsImpossible r of
+  (_ ** same) => rewrite same in ChainCut
+chainReduces ChainErased r = case erasedReduces IsPlaceholder r of
+  (_ ** same) => rewrite same in ChainErased
+chainReduces (ChainUnsaid none) r = case inertAlone InertBound r of
+  (_ ** same) => rewrite same in ChainUnsaid none
+chainReduces (ChainUnknown nowhere) r = case undefinedReduces nowhere r of
+  (_ ** same) => rewrite same in ChainUnknown nowhere
+
+-- Contraction rewrites no reference.
+0 referenceKept : EtaContracts (Ref fc nt n) v -> v = Ref fc nt n
+referenceKept EtaSame = Refl
+
+||| Contraction keeps a chain's shape: it holds no lambda.
+export
+0 chainContracted : ChainShape ctx u h -> EtaContracts u v -> v = u
+chainContracted _ EtaSame = Refl
+chainContracted (ChainStep c) (EtaApp cf ca) = rewrite referenceKept cf in rewrite chainContracted c ca in Refl
+
+||| What a reader reads off a chain's shape is a chain's shape as high:
+||| the host's steps reach only one (`chainReduces`), contraction keeps it
+||| (`chainContracted`), and a shape is never read off an implementation.
+export
+0 shapeForm : ChainShape ctx t h -> FormFrom AShape ctx t u -> ChainShape ctx u h
+shapeForm c (FromNormalForm (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
+shapeForm c (FromWritten (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
+
+||| A capped request's argument, a chain's shape no taller than its
+||| position's cap, derived: its instance's reading reads a chain's shape
+||| (`shapeForm`, `chainReads`), so it is a value the capped position holds
+||| (`Proof.Bound.Capped`), and its key, whose nodes have one child at
+||| most and which holds no token, weighs what the universe lets a key of
+||| its reading's height weigh at any arity (`keyedWithin`,
+||| `Proof.Sizes.sizeWithinOneChild`). That the key is such a shape, and no
+||| taller than the cap, is what the translation's cut gives
+||| (`Caps.capFrom`).
+export
+0 cappedDerivation : {g : Graph} -> {m : Model g} -> (b : Bounds) -> (w : Writer) -> (p : Fin g.size) ->
+                     index p g.caps = Just c -> ChainShape ctx t h -> LTE h c -> (r : InstanceReading ctx AShape t) ->
+                     ArgumentDerivation m b (writtenOf w r.form).size
+cappedDerivation b w p cap shape short r =
+  let held = chainReads (shapeForm shape r.formFrom) r.describes in
+  MkArgumentDerivation p r.template (Capped cap (transitive held.high short) held.narrow held.light)
+    (transitive (keyedWithin w r {a = 1} {h = height r.template} {e = b.heaviest} held.narrow lteRefl
+                             (transitive held.light LTEZero))
+                (sizeWithinOneChild {a = b.arity} {h = height r.template} {e = b.heaviest}))

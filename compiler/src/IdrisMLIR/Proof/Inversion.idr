@@ -16,10 +16,16 @@
 ||| lambda, keeps the head and contracts each argument (`refContracts`).
 ||| So the instance's form at such a node is the same head over the forms
 ||| of its arguments, which the reading lemma's induction descends into.
+||| Alone, or applied to one argument, such a head reduces to itself over
+||| what the argument reduces to (`inertAlone`, `inertOne`); and two heads
+||| no step rewrites either, an erased part no dot holds and a name the
+||| context defines as nothing, reduce only to themselves
+||| (`erasedReduces`, `undefinedReduces`).
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Inversion
 
+import Core.Context
 import Core.TT
 import Idris.Host
 
@@ -68,6 +74,7 @@ notDelay (Applied _) impossible
 notForce Head impossible
 notForce (Applied _) impossible
 
+export
 0 notErased : Spine (Erased fc why) (Ref rfc nt n) args -> Void
 notErased Head impossible
 notErased (Applied _) impossible
@@ -88,7 +95,8 @@ notLocal (Applied _) impossible
 notMeta Head impossible
 notMeta (Applied _) impossible
 
--- A term headed by a reference is headed by no unknown.
+||| A term headed by a reference is headed by no unknown.
+export
 0 refNotMeta : Spine t (Ref fc nt n) args -> Spine t (Meta mfc m i scope) more -> Void
 refNotMeta Head Head impossible
 refNotMeta Head (Applied _) impossible
@@ -222,6 +230,108 @@ inertReduces inert s (AForce _) = void (notForce s)
 inertReduces inert s APrimVal = void (notConstant s)
 inertReduces inert s (AnErased _) = void (notErased s)
 inertReduces inert s AType = void (notUniverse s)
+
+------------------------------------------------------------------------------
+-- Spines of no argument and of one
+------------------------------------------------------------------------------
+
+-- A list one element longer at its end is never empty.
+0 snocNotNil : (xs : List a) -> xs ++ [x] = [] -> Void
+snocNotNil [] Refl impossible
+snocNotNil (_ :: _) Refl impossible
+
+0 nilNotCons : the (List a) [] = x :: xs -> Void
+nilNotCons Refl impossible
+
+-- A list one element longer at its end is one element only where it was
+-- empty, and that element is the one added.
+0 snocOne : (xs : List a) -> xs ++ [x] = [y] -> (xs = [], x = y)
+snocOne [] Refl = (Refl, Refl)
+snocOne (_ :: zs) eq = void (snocNotNil zs (snd (consInjective eq)))
+
+||| A spine of no argument is its head.
+export
+0 headOnly : Spine t h args -> args = [] -> t = h
+headOnly Head _ = Refl
+headOnly (Applied {args = xs} _) eq = void (snocNotNil xs eq)
+
+||| A spine of one argument is its head applied to it.
+export
+0 oneApplied : Spine t h args -> args = [x] -> (fc : FC ** t = App fc h x)
+oneApplied Head eq = void (nilNotCons eq)
+oneApplied (Applied {fc} {a} {args = xs} s) eq = case snocOne xs eq of
+  (Refl, Refl) => (fc ** cong (\g => App fc g a) (headOnly s Refl))
+
+||| What an inert head alone reduces to: itself, at some location.
+export
+0 inertAlone : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert nt ->
+               Reduces ev ctx (Ref fc nt n) v -> (fc' : FC ** v = Ref fc' nt n)
+inertAlone inert r = case inertReduces inert Head r of
+  ReducedUnder s NoneLeft => (_ ** headOnly s Refl)
+
+||| What an inert head applied to one argument reduces to: the head, at
+||| some location, applied to what the argument reduces to.
+export
+0 inertOne : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert nt ->
+             Reduces ev ctx (App fc (Ref rfc nt n) a) v ->
+             (fc' : FC ** rfc' : FC ** a' : Term vs ** (v = App fc' (Ref rfc' nt n) a', Reduces ev ctx a a'))
+inertOne inert r = case inertReduces inert (Applied Head) r of
+  ReducedUnder s (Each ra NoneLeft) => case oneApplied s Refl of
+    (fc' ** same) => (fc' ** _ ** _ ** (same, ra))
+
+------------------------------------------------------------------------------
+-- Heads that reduce only to themselves
+------------------------------------------------------------------------------
+
+||| An erased part no dot holds: a placeholder, or what is impossible.
+public export
+data Undotted : WhyErased (Term vs) -> Type where
+  IsPlaceholder : Undotted Placeholder
+  IsImpossible : Undotted Impossible
+
+-- A term an erased part heads is headed by no unknown.
+0 erasedNotMeta : Spine (Erased fc why) (Meta mfc m i scope) more -> Void
+erasedNotMeta Head impossible
+erasedNotMeta (Applied _) impossible
+
+-- No step of the evaluator applies at the root of an erased part: each
+-- step's left side is a node of another form, or a function, an unknown
+-- or a type constructor at the head of its spine.
+0 erasedNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (Erased fc why) u -> Void
+erasedNoStep (Unfold s _ _ _ _ _ _ _) = notErased s
+erasedNoStep (Solve s _ _ _ _ _ _ _ _) = erasedNotMeta s
+erasedNoStep (Primitive s _ _ _ _ _) = notErased s
+
+||| What an erased part no dot holds reduces to: itself, at some location.
+export
+0 erasedReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Undotted why ->
+                  Reduces ev ctx (Erased fc why) v -> (fc' : FC ** v = Erased fc' why)
+erasedReduces u (Then r r') = case erasedReduces u r of
+  (_ ** Refl) => erasedReduces u r'
+erasedReduces u (Contract c) = void (erasedNoStep c)
+erasedReduces IsPlaceholder (AnErased APlaceholder) = (_ ** Refl)
+erasedReduces IsImpossible (AnErased AnImpossible) = (_ ** Refl)
+
+-- No step of the evaluator applies at a name the context defines as
+-- nothing: a step that unfolds a name or computes a primitive unfolds the
+-- definition the context gives it, and a function is no unknown.
+0 undefinedNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> ((d : GlobalDef) -> Not (Defines ctx n d)) ->
+                    Contracts ev ctx (Ref fc Func n) u -> Void
+undefinedNoStep none (Unfold s defines _ _ _ _ _ _) = case refSpines Head s of
+  (Refl, _) => none _ defines
+undefinedNoStep none (Solve s _ _ _ _ _ _ _ _) = refNotMeta Head s
+undefinedNoStep none (Primitive s defines _ _ _ _) = case refSpines Head s of
+  (Refl, _) => none _ defines
+
+||| What a name the context defines as nothing reduces to: itself, at
+||| some location.
+export
+0 undefinedReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> ((d : GlobalDef) -> Not (Defines ctx n d)) ->
+                     Reduces ev ctx (Ref fc Func n) v -> (fc' : FC ** v = Ref fc' Func n)
+undefinedReduces none (Then r r') = case undefinedReduces none r of
+  (_ ** Refl) => undefinedReduces none r'
+undefinedReduces none (Contract c) = void (undefinedNoStep none c)
+undefinedReduces none ARef = (_ ** Refl)
 
 ------------------------------------------------------------------------------
 -- A normal form's arguments

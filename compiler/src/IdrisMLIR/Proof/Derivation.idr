@@ -19,7 +19,10 @@
 ||| worklist's test of each request gives it.
 |||
 ||| Every way the translation requests an instance gives its arguments
-||| through sites of the model (`sitePlaced`). A held dispatch's arm is one
+||| through sites of the model (`sitePlaced`), each read where the
+||| translation requests from the model's one table of sites, with the
+||| evidence that it is the model's (`SiteOf`, `siteArgument`), so that no
+||| request names a site of its own making. A held dispatch's arm is one
 ||| (`HeldArmWritten`): the implementation given at the dispatched
 ||| parameter, its field the running program chose fixed to a member, is
 ||| written by a site whose template reads that field as a member of the
@@ -55,6 +58,25 @@ SiteWrites {g} m p w = (s : Site g.size ** (Elem s m.sites, s.target = p, Writes
 export
 0 siteGives : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> SiteWrites m p w -> InV m p w
 siteGives (s ** (el, at, wr)) = replace {p = \q => InV m q w} at (Reduced s el wr)
+
+||| The site of the model that writes a request's argument, as the place
+||| that requests the instance reads it from the model's table: the site,
+||| the evidence that it is one of the model's, and the position it lands
+||| at, none of which is paid for. A request takes its argument's site
+||| from here, so a request with no site is unrepresentable.
+public export
+record SiteOf {g : Graph} (m : Model g) (p : Fin g.size) where
+  constructor MkSiteOf
+  0 site : Site g.size
+  0 member : Elem site m.sites
+  0 lands : site.target = p
+
+||| What an instance writes where the template of the site it read reads:
+||| what that site writes at the position.
+export
+0 siteWritten : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> (s : SiteOf m p) ->
+                Writes m s.site s.site.template w -> SiteWrites m p w
+siteWritten s wr = (s.site ** (s.member, s.lands, wr))
 
 ------------------------------------------------------------------------------
 -- What a request carries
@@ -177,6 +199,15 @@ export
                LTE w.size (sizeWithin b.arity (height v) b.heaviest) -> LTE (bound g pot p) h ->
                ArgumentWithin m pot b (Just w) h
 sitePlaced p v written keyed under = Keyed (MkArgumentDerivation p v (siteGives written) keyed) under
+
+||| A keyed argument at the site its request read, where the instance
+||| writes its reading under the site's template: placed.
+export
+0 siteArgument : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} -> {0 w : Written form} ->
+                 (p : Fin g.size) -> (s : SiteOf m p) -> Writes m s.site s.site.template v ->
+                 LTE w.size (sizeWithin b.arity (height v) b.heaviest) -> LTE (bound g pot p) h ->
+                 ArgumentWithin m pot b (Just w) h
+siteArgument p s wr keyed under = sitePlaced p _ (siteWritten s wr) keyed under
 
 ------------------------------------------------------------------------------
 -- A held dispatch

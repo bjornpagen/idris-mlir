@@ -70,6 +70,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Sizes
         , IdrisMLIR.Proof.Derivation
         , IdrisMLIR.Proof.Held
+        , IdrisMLIR.Proof.Markers
         , IdrisMLIR.Proof.Dictionaries
         , IdrisMLIR.Proof.Inversion
         , IdrisMLIR.Frontend.Growth.Potential

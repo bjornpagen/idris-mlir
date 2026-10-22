@@ -568,25 +568,42 @@ refuseCycle fc main b ring growth = do
     spotOf : Fin b.graph.size -> Spot
     spotOf p = index p b.position
 
+||| What wrote an arc nothing bounds: an argument's template, or an
+||| implementation's field's.
+data UnmeasuredBy = ArgumentWrote Sites.Site Argument | FieldWrote Address Template
+
+0 unmeasuredInfinite : IsFinite Unmeasured -> Void
+unmeasuredInfinite ItIsFinite impossible
+
+0 stuckLabel : StuckArc g a -> (arc g a).label = Unmeasured
+stuckLabel (ItIsStuck stuck) = stuck
+
+||| What wrote an arc nothing bounds. A leading arc's template and a held
+||| packing's are measured wherever they are drawn
+||| (`Proof.Describes.measuredDrawn`), which the graph carries for each of
+||| its arcs, so neither wrote one.
+unmeasuredBy : (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : (arc b.graph a).label = Unmeasured) -> UnmeasuredBy
+unmeasuredBy b a stuck with (index a b.wrote) proof wrote
+  _ | FromArgument site argument = ArgumentWrote site argument
+  _ | InField j _ t = FieldWrote j t
+  _ | ThroughMethod = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.methodsMeasured a wrote)))
+  _ | PacksHeld held = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.packingsMeasured a held wrote)))
+
 ||| A type-level recursion stuck on a static argument, which nothing bounds,
 ||| reported at its place: what passes the argument, through which
 ||| recursion, to whom.
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> Name -> (b : Built) -> Fin (length b.graph.arcs) -> Front ()
-refuseOpaque fc main b a = do
+               FC -> Name -> (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : StuckArc b.graph a) -> Front ()
+refuseOpaque fc main b a stuck = do
   let MkArc src to _ = arc b.graph a
   let spot = index src b.position
   let target = index to b.position
-  -- Essential while an arc's label is not tied to what made it: a leading
-  -- arc and a held packing are Measured, so only an argument's or a
-  -- field's template is Unmeasured; a field's writer is the
-  -- implementation, which writes it in its own text.
-  (writer, home, written, source) <- the (Front (Address, Address, Template, Source)) $
-    case index a b.wrote of
-      FromArgument site argument => pure (site.writer, site.within, argument.template, sourceOf site spot)
-      InField j _ t => pure (j, j, t, sourceFor j spot)
-      ThroughMethod => internal fc "an arc no argument wrote as a type-level recursion"
-      PacksHeld _ => internal fc "a held packing as a type-level recursion"
+  -- A field's writer is the implementation, which writes it in its own
+  -- text.
+  let (writer, home, written, source) = the (Address, Address, Template, Source) $
+        case unmeasuredBy b a (stuckLabel stuck) of
+          ArgumentWrote site argument => (site.writer, site.within, argument.template, sourceOf site spot)
+          FieldWrote j t => (j, j, t, sourceFor j spot)
   ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
   let Just computation = computationThrough (carries source) written
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
@@ -610,7 +627,7 @@ refuse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 refuse fc main b (Cycle as (Sums ring _ _)) =
   refuseCycle fc main b (around b.graph as ring)
               (minus (gains (labels b.graph as)) (losses (labels b.graph as)))
-refuse fc main b (Unbounded a _) = refuseOpaque fc main b a
+refuse fc main b (Unbounded a stuck) = refuseOpaque fc main b a stuck
 
 ------------------------------------------------------------------------------
 -- The phase
