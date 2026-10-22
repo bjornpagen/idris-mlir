@@ -21,25 +21,43 @@ import Data.Vect
 
 %default total
 
-||| A position: a result's or an argument's, or a field's within its
-||| constructor. Read and written in bytecode by hand, as an unsigned word.
+||| A result's or an argument's position, `1`, in 32 bits; its text is
+||| printed in its path.
 export
 positionDirective : Directive
 positionDirective = MkDirective
   { name = "Position"
   , args = []
-  , doc = brief "a position in a signature or a constructor"
+  , doc = brief "a position in a signature: `1`"
   }
 
-||| One entry of `#idr.given_back`, read and written in bytecode as the
+||| The fields down to a component, `[0, 2]`, or nothing for the whole
+||| value, each a field's position within its constructor in 32 bits.
+export
+fieldPathDirective : Directive
+fieldPathDirective = MkDirective
+  { name = "FieldPath"
+  , args = []
+  , doc = brief "the fields down to a component: `[0, 2]`, or nothing for the whole value"
+  }
+
+||| The entries of `#idr.given_back`, `[0 <- 2, 1[0] <- 0[1]]`, each the
 ||| attribute it is.
 export
-entryDirective : Directive
-entryDirective = MkDirective
-  { name = "GivenBackEntry"
+givenBackEntriesDirective : Directive
+givenBackEntriesDirective = MkDirective
+  { name = "GivenBackEntries"
   , args = []
-  , doc = brief "one result component and the argument component it is"
+  , doc = brief "result components and the argument components they are: `[0 <- 2, 1[0] <- 0[1]]`"
   }
+
+||| A position in a signature.
+positionKind : ParamKind
+positionKind = WiredValue (WiredOne LeafWord32) positionDirective
+
+||| The fields down to a component.
+fieldPathKind : ParamKind
+fieldPathKind = WiredValue (WiredArray (WireLeaf LeafWord32)) fieldPathDirective
 
 ||| `#idr.given_back.entry<1[0] <- 0[1]>`, C++ `GivenBackEntryAttr`: result
 ||| component `1[0]` is argument component `0[1]`. Printed inside
@@ -49,13 +67,11 @@ givenBackEntryAttr : AttrDef 4
 givenBackEntryAttr = MkAttrDef
   { mnemonic = "given_back.entry"
   , params =
-      [ MkParameter "result" (HandValue "uint32_t" positionDirective) AlwaysWritten
-          "the result the component is of"
-      , MkParameter "result_fields" (ListOf (HandValue "uint32_t" positionDirective)) AlwaysWritten
+      [ MkParameter "result" positionKind AlwaysWritten "the result the component is of"
+      , MkParameter "result_fields" fieldPathKind AlwaysWritten
           "the fields down to the component, through constructors laid out inline"
-      , MkParameter "argument" (HandValue "uint32_t" positionDirective) AlwaysWritten
-          "the argument the component is of"
-      , MkParameter "argument_fields" (ListOf (HandValue "uint32_t" positionDirective)) AlwaysWritten
+      , MkParameter "argument" positionKind AlwaysWritten "the argument the component is of"
+      , MkParameter "argument_fields" fieldPathKind AlwaysWritten
           "the fields down to the argument's component" ]
   , syntax = HandSyntax
   , typed = Untyped
@@ -75,9 +91,11 @@ givenBackAttr : AttrDef 1
 givenBackAttr = MkAttrDef
   { mnemonic = "given_back"
   , params =
-      [ MkParameter "entries" (ListOf (HandValue "::idr::GivenBackEntryAttr" entryDirective))
+      [ MkParameter "entries"
+          (WiredValue (WiredArray (WireLeaf (LeafAttr "::idr::GivenBackEntryAttr")))
+                      givenBackEntriesDirective)
           AlwaysWritten "each result component given back, in order of its path" ]
-  , syntax = HandSyntax
+  , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
   , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters

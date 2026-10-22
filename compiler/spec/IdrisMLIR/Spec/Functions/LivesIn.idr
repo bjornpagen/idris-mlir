@@ -25,24 +25,45 @@ import Data.Vect
 %default total
 
 ||| One entry: `2 in 0`, the parameter or result at 2 lives in the
-||| lifetime parameter at 0.
+||| lifetime parameter at 0, each position in 32 bits.
 export
-livesInDirective : Directive
-livesInDirective = MkDirective
-  { name = "LivesIn"
-  , args = []
-  , doc = brief "a scoped parameter or result and the lifetime parameter it lives in"
-  }
+livesInWire : Composite
+livesInWire = MkComposite "LivesIn" "::idr::LivesIn"
+  (Fields [ MkWireField "value" (WireLeaf LeafWord32)
+          , MkWireField "lifetime" (WireLeaf LeafWord32) ])
+  (brief "a scoped parameter or result and the lifetime parameter it lives in")
 
 ||| One bound: `0 >= 1`, the lifetime parameter at 0 lives at least as long
-||| as the one at 1.
+||| as the one at 1, each position in 32 bits.
+export
+outlivesWire : Composite
+outlivesWire = MkComposite "Outlives" "::idr::Outlives"
+  (Fields [ MkWireField "longer" (WireLeaf LeafWord32)
+          , MkWireField "shorter" (WireLeaf LeafWord32) ])
+  (brief "a lifetime parameter that lives at least as long as another")
+
+||| The entries' text, `(2 in 0, 3 in 0)`; their bytecode is the wire's.
+export
+livesInEntriesDirective : Directive
+livesInEntriesDirective = MkDirective
+  { name = "LivesInEntries"
+  , args = []
+  , doc = brief "scoped values and the lifetime parameters they live in: `(2 in 0, 3 in 0)`"
+  }
+
+||| The bounds' text, `(0 >= 1)`; their bytecode is the wire's.
 export
 outlivesDirective : Directive
 outlivesDirective = MkDirective
-  { name = "Outlives"
+  { name = "OutlivesBounds"
   , args = []
-  , doc = brief "a lifetime parameter that lives at least as long as another"
+  , doc = brief "lifetime parameters that outlive others: `(0 >= 1)`"
   }
+
+||| The scoped parameters, or the scoped results, each with the lifetime
+||| parameter it lives in.
+livesInEntries : ParamKind
+livesInEntries = WiredValue (WiredArray (WireOf livesInWire)) livesInEntriesDirective
 
 ||| `#idr.lives_in<(2 in 0) -> (0 in 0) where (0 >= 1)>`, C++ `LivesInAttr`:
 ||| the scoped parameters, then the scoped results, each with the lifetime
@@ -52,12 +73,12 @@ livesInAttr : AttrDef 3
 livesInAttr = MkAttrDef
   { mnemonic = "lives_in"
   , params =
-      [ MkParameter "parameters" (ListOf (HandValue "::idr::LivesIn" livesInDirective)) AlwaysWritten
+      [ MkParameter "parameters" livesInEntries AlwaysWritten
           "each scoped parameter, in order, and the lifetime parameter it lives in"
-      , MkParameter "results" (ListOf (HandValue "::idr::LivesIn" livesInDirective)) AlwaysWritten
+      , MkParameter "results" livesInEntries AlwaysWritten
           "each scoped result, in order, and the lifetime parameter it lives in"
-      , MkParameter "bounds" (ListOf (HandValue "::idr::Outlives" outlivesDirective)) AlwaysWritten
-          "the lifetime parameters that outlive others" ]
+      , MkParameter "bounds" (WiredValue (WiredArray (WireOf outlivesWire)) outlivesDirective)
+          AlwaysWritten "the lifetime parameters that outlive others" ]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []

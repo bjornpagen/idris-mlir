@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The hand values a function's attributes hold beside its row: Idris's
-// termination proof and a put bound, each in text and in bytecode by the
-// hooks the specification declares; and the view of a signature's
-// parameters by the part of the record each admits, which every position
-// of the record is read through.
+// The values a function's attributes hold beside its row: Idris's
+// termination proof, in text and in bytecode, and the put bounds' text, by
+// the hooks the specification declares (the bounds' bytecode is printed
+// from their wire); and the view of a signature's parameters by the part
+// of the record each admits, which every position of the record is read
+// through.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
@@ -85,23 +86,8 @@ llvm::hash_code idr::hash_value(const PutBound &bound) {
   return llvm::hash_combine(bound.parameter, bound.bytes);
 }
 
-LogicalResult idr::readPutBound(DialectBytecodeReader &reader, PutBound &bound) {
-  std::uint64_t parameter = 0;
-  if (failed(reader.readVarInt(parameter)) || failed(reader.readVarInt(bound.bytes)))
-    return failure();
-  if (parameter > std::numeric_limits<std::uint32_t>::max())
-    return reader.emitError() << "put parameter " << parameter << " out of range";
-  bound.parameter = static_cast<std::uint32_t>(parameter);
-  return success();
-}
-
-void idr::writePutBound(DialectBytecodeWriter &writer, PutBound bound) {
-  writer.writeVarInt(bound.parameter);
-  writer.writeVarInt(bound.bytes);
-}
-
-// `<[0: 64, 2: 128]>`.
-Attribute PutBoundsAttr::parse(AsmParser &parser, Type) {
+// The bounds' text, `[0: 64, 2: 128]`; their bytecode is their wire's.
+FailureOr<SmallVector<PutBound>> idr::parsePutBounds(AsmParser &parser) {
   SmallVector<PutBound> bounds;
   auto one = [&]() -> ParseResult {
     PutBound bound{};
@@ -111,19 +97,17 @@ Attribute PutBoundsAttr::parse(AsmParser &parser, Type) {
     bounds.push_back(bound);
     return success();
   };
-  if (parser.parseLess() ||
-      parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one) || parser.parseGreater())
-    return {};
-  return PutBoundsAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
-                                   parser.getContext(), bounds);
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one))
+    return failure();
+  return bounds;
 }
 
-void PutBoundsAttr::print(AsmPrinter &printer) const {
-  printer << "<[";
-  llvm::interleaveComma(getBounds(), printer, [&](const PutBound &bound) {
+void idr::printPutBounds(AsmPrinter &printer, ArrayRef<PutBound> bounds) {
+  printer << '[';
+  llvm::interleaveComma(bounds, printer, [&](const PutBound &bound) {
     printer << bound.parameter << ": " << bound.bytes;
   });
-  printer << "]>";
+  printer << ']';
 }
 
 // Positions increase, each once: a parameter has at most one bound, and the

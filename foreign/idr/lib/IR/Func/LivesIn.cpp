@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Where a signature's scoped parameters and results live, and the bounds
-// between its lifetimes (`#idr.lives_in`): their syntax, their bytecode
-// values, their order, the lookups a function and a call answer the
-// lifetime of a scoped value by, restating one value's lifetime, and how
-// an edit of the signature moves them.
+// between its lifetimes (`#idr.lives_in`): their syntax (their bytecode is
+// printed from their wires), their order, the lookups a function and a call
+// answer the lifetime of a scoped value by, restating one value's lifetime,
+// and how an edit of the signature moves them.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <optional>
 #include <type_traits>
+#include <utility>
 
 using namespace mlir;
 using namespace idr;
@@ -32,37 +33,49 @@ llvm::hash_code idr::hash_value(const Outlives &bound) {
   return llvm::hash_combine(bound.longer, bound.shorter);
 }
 
-LogicalResult idr::readLivesIn(DialectBytecodeReader &reader, LivesIn &entry) {
-  return failure(failed(readPosition(reader, entry.value)) ||
-                 failed(readPosition(reader, entry.lifetime)));
-}
-
-void idr::writeLivesIn(DialectBytecodeWriter &writer, LivesIn entry) {
-  writePosition(writer, entry.value);
-  writePosition(writer, entry.lifetime);
-}
-
-LogicalResult idr::readOutlives(DialectBytecodeReader &reader, Outlives &bound) {
-  return failure(failed(readPosition(reader, bound.longer)) ||
-                 failed(readPosition(reader, bound.shorter)));
-}
-
-void idr::writeOutlives(DialectBytecodeWriter &writer, Outlives bound) {
-  writePosition(writer, bound.longer);
-  writePosition(writer, bound.shorter);
-}
-
-// `2 in 0`.
-FailureOr<LivesIn> idr::parseLivesIn(AsmParser &parser) {
-  LivesIn entry{};
-  if (parser.parseInteger(entry.value) || parser.parseKeyword("in") ||
-      parser.parseInteger(entry.lifetime))
+// The entries' text, `(2 in 0, 3 in 0)`; their bytecode is their wire's.
+FailureOr<SmallVector<LivesIn>> idr::parseLivesInEntries(AsmParser &parser) {
+  SmallVector<LivesIn> entries;
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
+        LivesIn entry{};
+        if (parser.parseInteger(entry.value) || parser.parseKeyword("in") ||
+            parser.parseInteger(entry.lifetime))
+          return failure();
+        entries.push_back(entry);
+        return success();
+      }))
     return failure();
-  return entry;
+  return entries;
 }
 
-void idr::printLivesIn(AsmPrinter &printer, LivesIn entry) {
-  printer << entry.value << " in " << entry.lifetime;
+void idr::printLivesInEntries(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
+  printer << '(';
+  llvm::interleaveComma(entries, printer,
+                        [&](LivesIn entry) { printer << entry.value << " in " << entry.lifetime; });
+  printer << ')';
+}
+
+// The bounds' text, `(0 >= 1)`; their bytecode is their wire's.
+FailureOr<SmallVector<Outlives>> idr::parseOutlivesBounds(AsmParser &parser) {
+  SmallVector<Outlives> bounds;
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
+        Outlives bound{};
+        if (parser.parseInteger(bound.longer) || parser.parseGreater() || parser.parseEqual() ||
+            parser.parseInteger(bound.shorter))
+          return failure();
+        bounds.push_back(bound);
+        return success();
+      }))
+    return failure();
+  return bounds;
+}
+
+void idr::printOutlivesBounds(AsmPrinter &printer, ArrayRef<Outlives> bounds) {
+  printer << '(';
+  llvm::interleaveComma(bounds, printer, [&](const Outlives &bound) {
+    printer << bound.longer << " >= " << bound.shorter;
+  });
+  printer << ')';
 }
 
 //===----------------------------------------------------------------------===//
@@ -70,23 +83,6 @@ void idr::printLivesIn(AsmPrinter &printer, LivesIn entry) {
 //===----------------------------------------------------------------------===//
 
 namespace {
-
-// `(2 in 0, 3 in 0)`.
-ParseResult parseLivesInList(AsmParser &parser, SmallVectorImpl<LivesIn> &entries) {
-  return parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
-    FailureOr<LivesIn> entry = parseLivesIn(parser);
-    if (failed(entry))
-      return failure();
-    entries.push_back(*entry);
-    return success();
-  });
-}
-
-void printLivesInList(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
-  printer << '(';
-  llvm::interleaveComma(entries, printer, [&](LivesIn entry) { printLivesIn(printer, entry); });
-  printer << ')';
-}
 
 // The lifetime an entry of `entries`, sorted by the position each states a
 // lifetime for, gives `position`.
@@ -144,39 +140,35 @@ LogicalResult increasing(EmitError &&emitError, ArrayRef<LivesIn> entries, Strin
 // `<(2 in 0, 3 in 0) -> (0 in 0)>`, then ` where (0 >= 1)` when a bound is
 // declared.
 Attribute LivesInAttr::parse(AsmParser &parser, Type) {
-  SmallVector<LivesIn> parameters, results;
+  if (parser.parseLess())
+    return {};
+  FailureOr<SmallVector<LivesIn>> parameters = parseLivesInEntries(parser);
+  if (failed(parameters) || parser.parseArrow())
+    return {};
+  FailureOr<SmallVector<LivesIn>> results = parseLivesInEntries(parser);
+  if (failed(results))
+    return {};
   SmallVector<Outlives> bounds;
-  auto bound = [&]() -> ParseResult {
-    Outlives each{};
-    if (parser.parseInteger(each.longer) || parser.parseGreater() || parser.parseEqual() ||
-        parser.parseInteger(each.shorter))
-      return failure();
-    bounds.push_back(each);
-    return success();
-  };
-  if (parser.parseLess() || parseLivesInList(parser, parameters) || parser.parseArrow() ||
-      parseLivesInList(parser, results))
-    return {};
-  if (succeeded(parser.parseOptionalKeyword("where")) &&
-      parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, bound))
-    return {};
+  if (succeeded(parser.parseOptionalKeyword("where"))) {
+    FailureOr<SmallVector<Outlives>> declared = parseOutlivesBounds(parser);
+    if (failed(declared))
+      return {};
+    bounds = std::move(*declared);
+  }
   if (parser.parseGreater())
     return {};
   return LivesInAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
-                                 parser.getContext(), parameters, results, bounds);
+                                 parser.getContext(), *parameters, *results, bounds);
 }
 
 void LivesInAttr::print(AsmPrinter &printer) const {
   printer << '<';
-  printLivesInList(printer, getParameters());
+  printLivesInEntries(printer, getParameters());
   printer << " -> ";
-  printLivesInList(printer, getResults());
+  printLivesInEntries(printer, getResults());
   if (!getBounds().empty()) {
-    printer << " where (";
-    llvm::interleaveComma(getBounds(), printer, [&](const Outlives &bound) {
-      printer << bound.longer << " >= " << bound.shorter;
-    });
-    printer << ')';
+    printer << " where ";
+    printOutlivesBounds(printer, getBounds());
   }
   printer << '>';
 }

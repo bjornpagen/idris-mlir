@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What a function gives back of its arguments (`#idr.given_back`, each
 // entry its own `#idr.given_back.entry`, whose storage owns its field
-// positions): their syntax, their bytecode values, their order, and how an
-// edit of the signature moves them. A position in a signature or a
-// constructor, which every positional value of a signature is written
-// with in bytecode, is this attribute's own value.
+// positions): their syntax, their order, and how an edit of the signature
+// moves them. Their bytecode is printed from their wires; their text is
+// the hooks the specification declares, which an entry's path and the
+// entries' list are written with.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -14,38 +14,48 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstdint>
-#include <limits>
 #include <optional>
 
 using namespace mlir;
 using namespace idr;
 
 //===----------------------------------------------------------------------===//
-// Positions and entries in bytecode
+// Paths
 //===----------------------------------------------------------------------===//
 
-// A position in a signature or a constructor, as an unsigned word.
-LogicalResult idr::readPosition(DialectBytecodeReader &reader, std::uint32_t &position) {
-  std::uint64_t word = 0;
-  if (failed(reader.readVarInt(word)))
+// A position in a signature, `1`.
+FailureOr<std::uint32_t> idr::parsePosition(AsmParser &parser) {
+  std::uint32_t position = 0;
+  if (parser.parseInteger(position))
     return failure();
-  if (word > std::numeric_limits<std::uint32_t>::max())
-    return reader.emitError() << "position " << word << " out of range";
-  position = static_cast<std::uint32_t>(word);
-  return success();
+  return position;
 }
 
-void idr::writePosition(DialectBytecodeWriter &writer, std::uint32_t position) {
-  writer.writeVarInt(position);
+void idr::printPosition(AsmPrinter &printer, std::uint32_t position) { printer << position; }
+
+// The fields down to a component, `[0, 2]`, or nothing for the whole value.
+FailureOr<SmallVector<std::uint32_t>> idr::parseFieldPath(AsmParser &parser) {
+  SmallVector<std::uint32_t> fields;
+  if (failed(parser.parseOptionalLSquare()))
+    return fields;
+  if (parser.parseCommaSeparatedList([&]() -> ParseResult {
+        std::uint32_t field = 0;
+        if (parser.parseInteger(field))
+          return failure();
+        fields.push_back(field);
+        return success();
+      }) ||
+      parser.parseRSquare())
+    return failure();
+  return fields;
 }
 
-// An entry of `#idr.given_back`, as the attribute it is.
-LogicalResult idr::readGivenBackEntry(DialectBytecodeReader &reader, GivenBackEntryAttr &entry) {
-  return reader.readAttribute(entry);
-}
-
-void idr::writeGivenBackEntry(DialectBytecodeWriter &writer, GivenBackEntryAttr entry) {
-  writer.writeAttribute(entry);
+void idr::printFieldPath(AsmPrinter &printer, ArrayRef<std::uint32_t> fields) {
+  if (fields.empty())
+    return;
+  printer << '[';
+  llvm::interleaveComma(fields, printer);
+  printer << ']';
 }
 
 //===----------------------------------------------------------------------===//
@@ -54,48 +64,30 @@ void idr::writeGivenBackEntry(DialectBytecodeWriter &writer, GivenBackEntryAttr 
 
 namespace {
 
-// `1[0, 2]`, or `1` for the whole value.
-ParseResult parsePath(AsmParser &parser, std::uint32_t &index, SmallVectorImpl<std::uint32_t> &fields) {
-  if (parser.parseInteger(index))
-    return failure();
-  if (failed(parser.parseOptionalLSquare()))
-    return success();
-  if (parser.parseCommaSeparatedList([&]() -> ParseResult {
-        std::uint32_t field = 0;
-        if (parser.parseInteger(field))
-          return failure();
-        fields.push_back(field);
-        return success();
-      }))
-    return failure();
-  return parser.parseRSquare();
-}
-
-void printPath(AsmPrinter &printer, const GivenBackPath &path) {
-  printer << path.index;
-  if (path.fields.empty())
-    return;
-  printer << '[';
-  llvm::interleaveComma(path.fields, printer);
-  printer << ']';
-}
-
 // `1[0] <- 0[1]`.
 GivenBackEntryAttr parseEntry(AsmParser &parser) {
-  std::uint32_t result = 0, argument = 0;
-  SmallVector<std::uint32_t> resultFields, argumentFields;
-  if (parsePath(parser, result, resultFields) || parser.parseLess() || parser.parseMinus() ||
-      parsePath(parser, argument, argumentFields))
+  FailureOr<std::uint32_t> result = parsePosition(parser);
+  if (failed(result))
     return {};
-  return GivenBackEntryAttr::get(parser.getContext(), result, resultFields, argument,
-                                 argumentFields);
+  FailureOr<SmallVector<std::uint32_t>> resultFields = parseFieldPath(parser);
+  if (failed(resultFields) || parser.parseLess() || parser.parseMinus())
+    return {};
+  FailureOr<std::uint32_t> argument = parsePosition(parser);
+  if (failed(argument))
+    return {};
+  FailureOr<SmallVector<std::uint32_t>> argumentFields = parseFieldPath(parser);
+  if (failed(argumentFields))
+    return {};
+  return GivenBackEntryAttr::get(parser.getContext(), *result, *resultFields, *argument,
+                                 *argumentFields);
 }
 
 void printEntry(AsmPrinter &printer, GivenBackEntryAttr entry) {
-  GivenBackEntry each = entry.entry();
-  printPath(printer, each.result);
+  printPosition(printer, entry.getResult());
+  printFieldPath(printer, entry.getResultFields());
   printer << " <- ";
-  printPath(printer, each.argument);
+  printPosition(printer, entry.getArgument());
+  printFieldPath(printer, entry.getArgumentFields());
 }
 
 } // namespace
@@ -152,8 +144,8 @@ GivenBackAttr GivenBackAttr::renumber(ArrayRef<std::optional<std::uint32_t>> par
   return get(getContext(), kept);
 }
 
-// `<[0 <- 2, 1[0] <- 0[1]]>`.
-Attribute GivenBackAttr::parse(AsmParser &parser, Type) {
+// The entries' text, `[0 <- 2, 1[0] <- 0[1]]`, each without its own name.
+FailureOr<SmallVector<GivenBackEntryAttr>> idr::parseGivenBackEntries(AsmParser &parser) {
   SmallVector<GivenBackEntryAttr> entries;
   auto one = [&]() -> ParseResult {
     GivenBackEntryAttr entry = parseEntry(parser);
@@ -162,18 +154,15 @@ Attribute GivenBackAttr::parse(AsmParser &parser, Type) {
     entries.push_back(entry);
     return success();
   };
-  if (parser.parseLess() || parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one) ||
-      parser.parseGreater())
-    return {};
-  return GivenBackAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
-                                   parser.getContext(), entries);
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one))
+    return failure();
+  return entries;
 }
 
-void GivenBackAttr::print(AsmPrinter &printer) const {
-  printer << "<[";
-  llvm::interleaveComma(getEntries(), printer,
-                        [&](GivenBackEntryAttr entry) { printEntry(printer, entry); });
-  printer << "]>";
+void idr::printGivenBackEntries(AsmPrinter &printer, ArrayRef<GivenBackEntryAttr> entries) {
+  printer << '[';
+  llvm::interleaveComma(entries, printer, [&](GivenBackEntryAttr entry) { printEntry(printer, entry); });
+  printer << ']';
 }
 
 // Sorted by result path, each once: a result component is one argument

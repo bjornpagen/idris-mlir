@@ -82,27 +82,35 @@ Record = All Part
 ------------------------------------------------------------------------------
 
 ||| One bound of `#idr.put_bounds`, `2: 64`, the third put parameter's bound
-||| of 64 bytes: printed by the attribute's own syntax, read and written in
-||| bytecode by hand.
+||| of 64 bytes: its position among the put parameters, in 32 bits, then its
+||| bound in bytes.
 export
-boundDirective : Directive
-boundDirective = MkDirective
-  { name = "PutBound"
+putBoundWire : Composite
+putBoundWire = MkComposite "PutBound" "::idr::PutBound"
+  (Fields [ MkWireField "parameter" (WireLeaf LeafWord32)
+          , MkWireField "bytes" (WireLeaf LeafCount) ])
+  (brief "a put parameter's position among them and its bound in bytes")
+
+||| The bounds' text, `[0: 64, 2: 128]`; their bytecode is the wire's.
+export
+putBoundsDirective : Directive
+putBoundsDirective = MkDirective
+  { name = "PutBounds"
   , args = []
-  , doc = brief "a put parameter's position among them and its bound in bytes"
+  , doc = brief "the bounded put parameters: `[0: 64, 2: 128]`"
   }
 
 ||| `#idr.put_bounds<[0: 64, 2: 128]>`, C++ `PutBoundsAttr`: the put
-||| parameters with a bound, in increasing position, each a hand
+||| parameters with a bound, in increasing position, each a
 ||| `::idr::PutBound`; its verifier holds the order.
 export
 putBoundsAttr : AttrDef 1
 putBoundsAttr = MkAttrDef
   { mnemonic = "put_bounds"
   , params =
-      [ MkParameter "bounds" (ListOf (HandValue "::idr::PutBound" boundDirective))
+      [ MkParameter "bounds" (WiredValue (WiredArray (WireOf putBoundWire)) putBoundsDirective)
           AlwaysWritten "each bounded put parameter's position among them and its bound" ]
-  , syntax = HandSyntax
+  , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
   , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
