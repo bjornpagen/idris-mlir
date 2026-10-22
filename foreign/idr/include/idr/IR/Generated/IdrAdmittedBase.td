@@ -11,12 +11,16 @@ include "mlir/IR/OpBase.td"
 // A guard an admitted op takes, which its Idris builder gives with it:
 // the guard op's dialect, as the specification names it, and its name
 // there; the positions among upstream's operand groups of those it is
-// given (the one it guards first); and the number of the cause its
-// crash names.
-class IdrAdmittedGuard<string dialect, string check, list<int> given, int cause> {
+// given (the one it guards first); and the cause its crash names, by
+// its position in the closed set of causes, which the module and name
+// give, so the builder writes the cause typed.
+class IdrAdmittedGuard<string dialect, string check, list<int> given,
+                       string causeHome, string causeSet, int cause> {
   string guardDialect = dialect;
   string guardName = check;
   list<int> operandGroups = given;
+  string causeModule = causeHome;
+  string causeSetName = causeSet;
   int causeNumber = cause;
 }
 
