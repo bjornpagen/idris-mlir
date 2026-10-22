@@ -1,5 +1,5 @@
-Builtin.replace broken: exit 3
-Builtin.replace broken: the error shows the entry, what it expects and what was found
+PrimIO.prim__castPtr broken: exit 3
+PrimIO.prim__castPtr broken: the error shows the entry, what it expects and what was found
 artifacts: none
 C:idris2_putStr broken: exit 3
 C:idris2_putStr broken: the error shows the entry, what it expects and what was found

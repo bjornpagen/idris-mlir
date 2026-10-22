@@ -1,25 +1,25 @@
 the checker's own checks: each holds on the runner
-seed 1: runtime: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 1: runtime: every build compiles, runs and ends as its cases say: ok
 seed 1: runtime: each case prints one value, whoever computes it: ok
 seed 1: runtime: every d line is folded: ok
 seed 1: runtime: each case over integers prints its documented value: ok
-seed 1: static: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 1: static: every build compiles, runs and ends as its cases say: ok
 seed 1: static: each case prints one value, whoever computes it: ok
 seed 1: static: every d line is folded: ok
 seed 1: static: each case over integers prints its documented value: ok
-seed 2: runtime: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 2: runtime: every build compiles, runs and ends as its cases say: ok
 seed 2: runtime: each case prints one value, whoever computes it: ok
 seed 2: runtime: every d line is folded: ok
 seed 2: runtime: each case over integers prints its documented value: ok
-seed 2: static: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+seed 2: static: every build compiles, runs and ends as its cases say: ok
 seed 2: static: each case prints one value, whoever computes it: ok
 seed 2: static: every d line is folded: ok
 seed 2: static: each case over integers prints its documented value: ok
-drawn seed: runtime: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+drawn seed: runtime: every build compiles, runs and ends as its cases say: ok
 drawn seed: runtime: each case prints one value, whoever computes it: ok
 drawn seed: runtime: every d line is folded: ok
 drawn seed: runtime: each case over integers prints its documented value: ok
-drawn seed: static: every build compiles, runs, exits 0 and writes nothing on stderr: ok
+drawn seed: static: every build compiles, runs and ends as its cases say: ok
 drawn seed: static: each case prints one value, whoever computes it: ok
 drawn seed: static: every d line is folded: ok
 drawn seed: static: each case over integers prints its documented value: ok

@@ -18,6 +18,12 @@ fuzz-check: an agreeing output names no case: ok
 fuzz-check: an output with one disagreeing line names that case: ok
 fuzz-check: an output missing one line of a case names that case: ok
 fuzz-check: an empty output names every case: ok
+fuzz-check: seed 1's run prints a line: ok
+fuzz-check: a crash the oracle predicts, met by its cause, names no case: ok
+fuzz-check: a run that returns where the oracle predicts a crash names the case by its ending: ok
+fuzz-check: every builtin's guards are read by the oracle: ok
+fuzz-check: every guard is given arguments of the types its condition reads: ok
+fuzz-check: no two builtins are spelled alike: ok
 lazy-check: the model's output names no case: ok
 lazy-check: an output with a case's line changed names that case: ok
 lazy-check: an output without a case's lines names that case: ok

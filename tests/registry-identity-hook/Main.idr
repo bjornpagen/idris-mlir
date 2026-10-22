@@ -1,8 +1,9 @@
 module Main
 
--- The registry's IdentityOnLastArgument hook (entries Builtin.replace and
--- Builtin.rewrite__impl): a value moved along an equality is the value
--- itself.
+-- A value moved along an equality is the value itself: `replace` and
+-- `rewrite__impl`, which `rewrite` elaborates to, are compiled from their
+-- bodies, each a match on the erased proof that the two sides are equal,
+-- whose one alternative gives back the value.
 
 import Prelude
 import Data.Nat

@@ -10,13 +10,14 @@
 # %foreign spec are broken in turn.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
-registry_shadowed Builtin.replace definition third_party/Idris2/libs/prelude/Builtin.idr \
-  Builtin.idr replace shape 'module Main
+registry_shadowed PrimIO.prim__castPtr definition third_party/Idris2/libs/prelude/PrimIO.idr \
+  PrimIO.idr prim__castPtr shape 'module Main
 
 import Builtin
+import PrimIO
 
-main : Unit
-main = MkUnit'
+main : IO ()
+main = pure ()'
 registry_shadowed C:idris2_putStr spec third_party/Idris2/libs/prelude/Prelude/IO.idr \
   Prelude/IO.idr prim__putStr shape 'module Main
 

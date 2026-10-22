@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 -- The checks the generators state of themselves, compiled by idris-mlir
--- with the five modules beside it (Sem among them, which Fuzz imports):
+-- with the six modules beside it (Sem and Facts among them, which Fuzz
+-- and Prims import):
 -- each a line `<owner>: <name>: ok`, or `failed` where the compiled
 -- program computes otherwise.
 module Main
