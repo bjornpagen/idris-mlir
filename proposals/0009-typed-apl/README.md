@@ -71,7 +71,7 @@ directly.
 (`foreign/idr/include/idr/IR/IdrArrayOps.td`, emitted by
 `compiler/src/IdrisMLIR/Emit/Tensors.idr`); `idr-structure-loops`,
 `idr-columns`, `idr-bufferize` through patch 24, immortal constants,
-world-ordered memrefs, the vectorization schedule and `idr-narrow-lanes`
+memrefs of mutable memory (§13), the vectorization schedule and `idr-narrow-lanes`
 (`foreign/idr/lib/Transforms/` and `lib/Conversion/Arrays.cpp`); the
 fork's `Table` on base's `Data.IOArray` (D38); the properties
 `structured-loops`, `typed-reads`, `in-place` and `fused`
@@ -111,7 +111,7 @@ section works out one or more rows.
 | a relation | an `i8` sparse tensor with `explicitVal = 1` | co-iteration (§10) |
 | a semiring element | `i8` (or wider), the zero at 0 | `sparse_tensor` regions (§9) |
 | a literal array, a normalized result | `arith.constant dense`, an immortal `memref.global` | constant folding; copy on write (§12) |
-| an array a world orders (`IOArray`, `IORef`, `Buffer`) | a `memref` in `#idr.world`, threaded by the world | effects on that memref (§13) |
+| mutable memory (`IOArray`, `IORef`, `Buffer`) | a `memref` in `#idr.mutable`, at `index` coordinates | its ops' effects on its contents, which order it (§13) |
 
 Erased does not mean constant. An extent at quantity 0 is dynamic unless
 the program fixes it. Indexed vectors do not imply contiguous storage:
@@ -399,8 +399,8 @@ tensor and one tensor per field slot, or boxes; its F2).
 ## 5. Effects, order and the structuring (record)
 
 `idr-structure-loops` runs once per function, in parallel, after the
-optimizer, on final bodies (D26). A call holds no effects, so the
-structuring reads the callee's summary.
+optimizer, on final bodies (D26). A call carries its callee's derived
+row (`idr.call`), which the structuring reads.
 
 - An op whose region does no more than compute and crash, over word
   elements, keeps its parallel dimensions parallel as `linalg`.
@@ -450,16 +450,21 @@ reductions get lanes and the iterator is the one place the fact lives.
 
 ## 7. The pipeline
 
-The arrays stage is built (`foreign/idr/lib/Transforms/Pipeline.cpp`):
+The arrays stage, in the specification's one list of steps
+(`compiler/spec/IdrisMLIR/Spec/Pipeline/Pipeline.idr`, read at
+8f420776), written under P0 and not yet built. No greedy rewriting and
+no `canonicalize` runs where our ops are: `idr-simplify`, the e-graph
+over a function's ops, replaces them (P0's D106, D107).
 
-1. after `idr-columns`, then canonicalize and cse, then
-   `remove-dead-values` and `symbol-dce`: `idr-structure-loops` per
-   function;
-2. `idr-bufferize` on the whole program, which eliminates empty tensors
+1. after `symbol-dce`, `idr-columns` and `idr-simplify`:
+   `idr-structure-loops` per function;
+2. `idr-unique-results`: a result held `unique deep` says so in its
+   signature, so bufferization reads in-place writes off the grade;
+3. `idr-bufferize` on the whole program, which eliminates empty tensors
    itself;
-3. canonicalize and cse;
-4. then the memory passes;
-5. right before `idr-lower`, `idr-ordered-loops` per function: each
+4. `idr-simplify` on what bufferization leaves;
+5. then the memory passes;
+6. right before `idr-lower`, `idr-ordered-loops` per function: each
    generating op left becomes its loops (P0's D43).
 
 The vectorization schedule and `idr-narrow-lanes` run after `idr-entry`,
@@ -469,8 +474,6 @@ The stage sits where D26 puts it, for these reasons:
 
 - tiling must follow every inlining;
 - structuring reads final effects;
-- `remove-dead-values` must see `scf` loops before structuring hides
-  them;
 - the inner per-function pipeline stays its fixed list.
 
 What remains:
@@ -487,7 +490,7 @@ What remains:
   wall on the self-host module is recorded at `make self` and held to D35's compile-time
   threshold from then on (conjecture: a function without a tensor costs
   one walk). The frontend imports no `mlir-array`, so the stage runs
-  there on world-ordered memrefs alone.
+  there on mutable memory alone (§13).
 
 ### 7.1 Schedules are IR
 
@@ -675,12 +678,16 @@ element is built at startup.
 results. It runs as this lowering compiles them, never as a second
 implementation.
 
-## 13. Arrays a world orders (record)
+## 13. Mutable memory
 
-Built (D24): `IOArray`, `IORef` and `Buffer` are memrefs in `#idr.world`,
-threaded by the world. Each op declares its effects on its array, not on
-the IO resource (`IdrArrayOps.td`, `Idr_ArrayOp`). Their accesses keep
-the primitive's guard.
+D24, as P0 reshapes it (its C109; `Spec/Arrays/Memory.idr`, read at
+8f420776; not yet built): `IOArray`, `IORef` and `Buffer` are memrefs in
+`#idr.mutable`, the memory space of memory written while shared, which
+no value array's buffer is in, and every access takes one `index` per
+dimension. Their order is their effects' on their contents, with no
+world: the world value ends at Emit, and IO after it is ordered by
+declared effects alone (AGENTS.md). Their accesses keep the primitive's
+guard, `idr.check.in_bounds`.
 
 With `idr-in-bounds` gone, base's `IOArray` checks an index and the
 primitive checks it again. Two measurements remain:
