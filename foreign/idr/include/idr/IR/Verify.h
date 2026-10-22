@@ -26,6 +26,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
+#include <memory>
 
 namespace idr {
 
@@ -49,7 +50,8 @@ mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 
 // The rules of one function at its program's stage: what the stage lets its
 // values hold; closures' flow while they exist; the one linearity rule; and
-// the lifetimes' rules.
+// the lifetimes' rules (LifetimeRules), each a rule of its one walk but the
+// linearity rule, which counts each value's uses.
 mlir::LogicalResult function(FuncOp fn);
 
 // The one linearity rule of `fn`, after every pass. A value its grade uses
@@ -65,18 +67,43 @@ mlir::LogicalResult function(FuncOp fn);
 // nothing up.
 mlir::LogicalResult linearity(FuncOp fn);
 
-// The lifetimes' rules of `fn`, each local, none following a def-use
-// chain: no lifetime is a terminator's operand or a result of an op that
-// gives none; a value that flows from one lifetime into another lives in
-// one that outlives it (by dominance: the open binders of one walk, and
+// The lifetimes' rules of one function, a rule of its one walk
+// (families::walkFunction), each local, none following a def-use chain: no
+// lifetime is a terminator's operand or a result of an op that gives none;
+// every value an op makes that is scoped has its lifetime stated, open
+// where the op stands, and outlived by each scoped value the op holds (a
+// value an op passes through lives where its operand does or in a lifetime
+// that one encloses; a constructor's scoped fields all outlive it); a
+// value that flows from one lifetime into another lives in one that
+// outlives it (by dominance: the binders open where the walk stands, and
 // between parameters the bounds the signature states), at a call into the
 // lifetimes its callee's signature names and at the return into those its
 // own names; inside a stack lifetime nothing is put into an older cursor;
 // every slot lies in its lifetime's own run; no cell of a lifetime holds a
-// counted field; and every lifetime carries its proof of the frame-limited
-// rule, its cells bounded until its end or each reachable from what is
-// still to be used.
-mlir::LogicalResult lifetimes(FuncOp fn);
+// counted field; and every use of a lifetime keeps the frame-limited rule,
+// its cells bounded until its end or each reachable from what is still to
+// be used. The walk enters and leaves each region, so what encloses an op
+// is kept on a stack as the walk goes, never found by walking up.
+class LifetimeRules {
+public:
+  explicit LifetimeRules(FuncOp fn);
+  ~LifetimeRules();
+  LifetimeRules(const LifetimeRules &) = delete;
+  LifetimeRules &operator=(const LifetimeRules &) = delete;
+
+  // Before the ops of `region`, a region of `op`.
+  mlir::LogicalResult enter(mlir::Operation *op, mlir::Region &region);
+  // At `op`, before its regions.
+  mlir::LogicalResult check(mlir::Operation *op);
+  // After the ops of the region last entered.
+  void leave();
+
+  // What the rule keeps as the walk goes, opaque here.
+  struct State;
+
+private:
+  std::unique_ptr<State> state;
+};
 
 // The two proofs a lifetime that is put into again and again rests on,
 // which the verifier checks and the decide step meets before it writes a

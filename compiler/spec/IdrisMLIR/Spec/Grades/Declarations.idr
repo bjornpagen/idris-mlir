@@ -16,6 +16,7 @@ import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Lifetimes.Declarations
 
 import Decidable.Decidable
 import Data.Fin
@@ -235,31 +236,38 @@ graded = MkTypeDef
 -- The grade's one op
 --------------------------------------------------------------------------------
 
-||| `idr.lin.cast %v : T -> U`, C++ `LinCastOp`: a value cast between types
-||| equal but for their uses, into a linear position (Idris lets any value
-||| fill a binder of quantity 1) or out of one (the one use of a linear
-||| value, where it becomes an ordinary one), its direction what its types
-||| say (`getDirection`). A fresh identity both ways: two casts of one value
-||| stay two linear values, and an unused one goes. Its fold is the one QTT
-||| rule: a cast back of a cast with no other use is the value itself.
-linCast : Op 1 1 0 0
+||| `idr.lin.cast %v in (%l : !idr.lifetime<view>) : T -> U`, C++
+||| `LinCastOp`: a value cast between types equal but for their uses, into
+||| a linear position (Idris lets any value fill a binder of quantity 1) or
+||| out of one (the one use of a linear value, where it becomes an ordinary
+||| one), its direction what its types say (`getDirection`). A fresh
+||| identity both ways: two casts of one value stay two linear values, and
+||| an unused one goes. A scoped result lives in the lifetime `outers`
+||| states, its operand's or one that lifetime encloses; the builder from a
+||| type states its operand's. Its fold is the one QTT rule: a cast back of
+||| a cast with no other use is the value itself.
+linCast : Op 2 1 0 0
 linCast = MkOp
   { home = InIdr
   , mnemonic = "lin.cast"
-  , ins = [single "value" (UpstreamType AnyTypeC)]
+  , ins = [single "value" (UpstreamType AnyTypeC), variadic "outers" anyLifetime]
   , outs = [result "result" (UpstreamType AnyTypeC)]
   , attrs = []
   , regions = []
   , traits = [OurTrait resultCarriesOperand, OurTrait sameValue]
-  , interfaces = [Declares InferIntRange ["inferResultRangesFromOptional"], Implements flowInterface ["getFlowEdges"]]
+  , interfaces = [ Declares InferIntRange ["inferResultRangesFromOptional"], Implements flowInterface ["getFlowEdges"]
+                 , Implements statesLifetime statedMethods, Implements statesOuters [] ]
   , effects = Executes [OnValues Allocate Identity (Results FZ)] [] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = HandFolder
   , verify = VerifiesOp
-  , format = Declared [ValueOf (OperandRef FZ), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef FZ)),
-                       Lit "->", TypeOf (OfGroup (ResultRef FZ))]
-  , builders = []
+  , format = Declared [ ValueOf (OperandRef FZ)
+                      , OptionalGroup [Lit "in", Lit "("] (ValueOf (OperandRef (FS FZ)))
+                          [Lit ":", TypeOf (OfGroup (OperandRef (FS FZ))), Lit ")"]
+                      , AttrDict, Lit ":", TypeOf (OfGroup (OperandRef FZ))
+                      , Lit "->", TypeOf (OfGroup (ResultRef FZ)) ]
+  , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]]
   , defaultBuilders = WithDefaults
   , members = [MkMember OnObject "::idr::QuantityChange" "getDirection" []]
   , guards = []

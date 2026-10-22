@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Which constructor has a cell, what a use does with a reference in the
-// owned stage, and what a view was read from, by a value's structural
-// source (sourceOf) and upstream's buffer views: shared by the ownership
-// passes, so each has one meaning.
+// A value's structural source (sourceOf), the values seen through the
+// positions their grades put them in, and, by them and upstream's buffer
+// views, which constructor has a cell, what a use does with a reference in
+// the owned stage, and what a view was read from: shared by the verifier
+// and the ownership passes, so each has one meaning.
 
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Grades.h"
@@ -14,11 +15,119 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 #include <optional>
 
 using namespace mlir;
 using namespace idr;
+
+//===----------------------------------------------------------------------===//
+// Values through their positions
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// The value a cast into or out of a linear position moved: the operand of
+// an op that keeps its operand's value (Idr_SameValue) at other uses.
+std::optional<Value> linearPositionOf(Value value) {
+  Operation *def = value.getDefiningOp();
+  if (!def || !def->hasTrait<SameValue>())
+    return std::nullopt;
+  Value moved = def->getOperand(0);
+  if (usesOf(moved.getType()) == usesOf(value.getType()))
+    return std::nullopt;
+  return moved;
+}
+
+} // namespace
+
+SmallVector<Value, 4> idr::definitionChain(Value start,
+                                           function_ref<std::optional<Value>(Value)> step) {
+  SmallVector<Value, 4> chain{start};
+  llvm::SmallPtrSet<Value, 4> passed{start};
+  for (std::optional<Value> next = step(start); next && passed.insert(*next).second;
+       next = step(*next))
+    chain.push_back(*next);
+  return chain;
+}
+
+SmallVector<Value, 4> idr::linearPositions(Value value) {
+  return definitionChain(value, linearPositionOf);
+}
+
+Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
+
+// An op says it keeps its operand's value (Idr_SameValue); a field read
+// takes its operand refined to one constructor, which its type names; a
+// match enters each of its regions with the operands that enter it refined
+// (a data match its scrutinee first, then what it forwards; a literal match
+// its scrutinee, in its default alone), each argument the same value as the
+// operand that enters it, at a type that says more; a loan's view is the
+// value it lends, and the owner it gives back is that value.
+Source idr::sourceOf(Value value) {
+  if (auto result = dyn_cast<OpResult>(value)) {
+    Operation *op = result.getOwner();
+    if (op->hasTrait<SameValue>())
+      return Same{op->getOperand(0)};
+    if (auto loan = dyn_cast<LendOp>(op); loan && result == loan.getReturned())
+      return Same{loan.getOwner()};
+    if (auto read = dyn_cast<DataFieldOp>(op))
+      if (std::optional<Tag> tag = dataTypeOf(read.getValue().getType()).singleTag())
+        return Field{read.getValue(), *tag, static_cast<unsigned>(read.getIndex())};
+    return Made{};
+  }
+  auto arg = cast<BlockArgument>(value);
+  Operation *parent = arg.getOwner()->getParentOp();
+  if (auto loan = dyn_cast<LendOp>(parent); loan && arg == loan.getView())
+    return Same{loan.getOwner()};
+  if (isa<MatchOpInterface>(parent) && arg.getOwner()->isEntryBlock()) {
+    OperandRange entering = cast<RegionBranchOpInterface>(parent).getEntrySuccessorOperands(
+        RegionSuccessor(arg.getParentRegion()));
+    return Same{entering[arg.getArgNumber()]};
+  }
+  return Made{};
+}
+
+// What counting and linearity make of an array changes which value names
+// it, not which cell it is.
+Value idr::arrayRoot(Value array) {
+  return definitionChain(array, [](Value value) -> std::optional<Value> {
+           Source source = sourceOf(value);
+           if (auto *same = std::get_if<Same>(&source))
+             return same->value;
+           return std::nullopt;
+         }).back();
+}
+
+// Each value the grade changes make of `value` is the result of a use of
+// the one before, so the values form a tree rooted at `value` and each is
+// met once; in an unreachable block an op may carry its own result, which
+// the walk does not follow back.
+bool idr::fieldReadOnce(Value value, unsigned index) {
+  unsigned reads = 0;
+  SmallVector<Value, 4> work{value};
+  while (!work.empty()) {
+    Value held = work.pop_back_val();
+    for (Operation *user : held.getUsers()) {
+      if (user->hasTrait<ResultCarriesOperand>()) {
+        if (user->getResult(0) != held)
+          work.push_back(user->getResult(0));
+        continue;
+      }
+      auto read = dyn_cast<DataFieldOp>(user);
+      if (!read)
+        return false;
+      if (read.getIndex() == index)
+        ++reads;
+    }
+  }
+  return reads == 1;
+}
+
+//===----------------------------------------------------------------------===//
+// What the ownership passes share
+//===----------------------------------------------------------------------===//
 
 bool idr::buildsCell(Type type, Tag tag) {
   DataType data = dataTypeOf(type);

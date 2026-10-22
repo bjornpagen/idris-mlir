@@ -28,6 +28,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
+#include <utility>
+#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -158,48 +161,114 @@ private:
                               : "gives up a reference already given up on the same path");
   }
 
-  FailureOr<Account> accountOf(Block &block) {
-    unsigned uses = 0;
-    for (Operation &op : block) {
-      uses += own(&op);
-      if (op.getNumRegions() != 0 && holds(&op)) {
-        FailureOr<Account> inner = accountOf(op);
-        if (failed(inner))
-          return failure();
-        uses += inner->uses;
-        if (uses > 1)
+  // The account of `home`'s ops, each op whose regions hold a use looked
+  // into: the blocks and the region ops still being counted wait on a list,
+  // never on the C++ stack, so a deep nest of regions costs memory, not
+  // native frames. Each step returns its account to the one below it.
+  FailureOr<Account> accountOf(Block &home) {
+    // A block whose ops are being counted, and the op whose regions it
+    // waits on.
+    struct InBlock {
+      Block *block;
+      Block::iterator next;
+      unsigned uses;
+      Operation *waiting;
+    };
+    // An op whose regions are being counted: the region now and its block,
+    // whether that region is being looked into, its account so far, and
+    // each finished region's.
+    struct InRegions {
+      Operation *op;
+      bool exclusive;
+      unsigned region;
+      Region::iterator block;
+      bool lookedInto;
+      Account account;
+      SmallVector<Account, 4> each;
+    };
+    SmallVector<std::variant<InBlock, InRegions>, 8> steps;
+    steps.push_back(InBlock{&home, home.begin(), 0, nullptr});
+    std::optional<Account> returned;
+    for (;;) {
+      if (auto *in = std::get_if<InBlock>(&steps.back())) {
+        if (returned) {
+          Operation &op = *in->waiting;
+          Account inner = *std::exchange(returned, std::nullopt);
+          in->uses += inner.uses;
+          if (in->uses > 1)
+            return tooMany(op);
+          if (inner.reach == Reach::EndsRun) {
+            Account done{Reach::EndsRun, in->uses};
+            steps.pop_back();
+            if (steps.empty())
+              return done;
+            returned = done;
+            continue;
+          }
+        }
+        if (in->next == in->block->end()) {
+          Account done{endsRun(*in->block) ? Reach::EndsRun : Reach::GoesOn, in->uses};
+          steps.pop_back();
+          if (steps.empty())
+            return done;
+          returned = done;
+          continue;
+        }
+        Operation &op = *in->next++;
+        in->uses += own(&op);
+        if (op.getNumRegions() != 0 && holds(&op)) {
+          in->waiting = &op;
+          steps.push_back(InRegions{&op, exclusivity.alternatives(&op), 0, {}, false,
+                                    Account{Reach::GoesOn, 0}, {}});
+          continue;
+        }
+        if (in->uses > 1)
           return tooMany(op);
-        if (inner->reach == Reach::EndsRun)
-          return Account{Reach::EndsRun, uses};
+        continue;
       }
-      if (uses > 1)
-        return tooMany(op);
+
+      auto &at = std::get<InRegions>(steps.back());
+      if (returned) {
+        Account inner = *std::exchange(returned, std::nullopt);
+        at.account.uses += inner.uses;
+        if (at.op->getRegion(at.region).hasOneBlock())
+          at.account.reach = inner.reach;
+        ++at.block;
+      }
+      if (at.region < at.op->getNumRegions()) {
+        Region &region = at.op->getRegion(at.region);
+        if (!at.lookedInto && !region.empty() && holds(region)) {
+          at.lookedInto = true;
+          at.block = region.begin();
+        } else if (!at.lookedInto && region.hasOneBlock() && endsRun(region.front())) {
+          at.account.reach = Reach::EndsRun;
+        }
+        if (at.lookedInto && at.block != region.end()) {
+          Block &block = *at.block;
+          steps.push_back(InBlock{&block, block.begin(), 0, nullptr});
+          continue;
+        }
+        // The region is counted: twice if it runs again, beside regions
+        // that run one after another.
+        if (!at.exclusive && at.account.uses != 0 && repeated(at.op, at.region))
+          at.account.uses *= 2;
+        at.each.push_back(at.account);
+        ++at.region;
+        at.lookedInto = false;
+        at.account = Account{Reach::GoesOn, 0};
+        continue;
+      }
+      FailureOr<Account> done = combined(*at.op, at.exclusive, at.each);
+      if (failed(done))
+        return failure();
+      steps.pop_back();
+      returned = *done;
     }
-    return Account{endsRun(block) ? Reach::EndsRun : Reach::GoesOn, uses};
   }
 
-  // The regions of `op`, each a path or a part of one.
-  FailureOr<Account> accountOf(Operation &op) {
-    bool exclusive = exclusivity.alternatives(&op);
-    SmallVector<Account, 4> each;
-    for (Region &region : op.getRegions()) {
-      Account account{Reach::GoesOn, 0};
-      if (!region.empty() && holds(region)) {
-        for (Block &block : region) {
-          FailureOr<Account> inner = accountOf(block);
-          if (failed(inner))
-            return failure();
-          account.uses += inner->uses;
-          if (region.hasOneBlock())
-            account.reach = inner->reach;
-        }
-      } else if (region.hasOneBlock() && endsRun(region.front())) {
-        account.reach = Reach::EndsRun;
-      }
-      if (!exclusive && account.uses != 0 && repeated(&op, region.getRegionNumber()))
-        account.uses *= 2;
-      each.push_back(account);
-    }
+  // The account of an op from its regions' accounts, `each`: the sum over
+  // regions that run one after another; over alternatives, one runs.
+  FailureOr<Account> combined(Operation &op, bool exclusive, ArrayRef<Account> each) {
     if (!exclusive) {
       unsigned uses = 0;
       for (const Account &account : each)
@@ -209,9 +278,9 @@ private:
       });
       return Account{ends ? Reach::EndsRun : Reach::GoesOn, uses};
     }
-    // Alternatives: one runs. A value used at most once is used at most as
-    // often as the most any of them uses it; a value used or given up
-    // exactly once is used as often on every alternative that goes on.
+    // A value used at most once is used at most as often as the most any
+    // alternative uses it; a value used or given up exactly once is used as
+    // often on every alternative that goes on.
     std::optional<unsigned> goesOn;
     unsigned most = 0;
     for (const Account &account : each) {

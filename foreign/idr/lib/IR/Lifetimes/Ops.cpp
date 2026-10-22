@@ -134,6 +134,11 @@ Value idr::lifetimes::statedLifetime(Value scoped) {
   return states ? states.getStatedLifetime(scoped) : nullptr;
 }
 
+// The group's generated accessor keeps its segment's size with it.
+void idr::lifetimes::restateOuters(StatesOutersOpInterface op, ValueRange outers) {
+  op.getOutersMutable().assign(outers);
+}
+
 Value idr::lifetimes::extentOf(Value lifetime) {
   if (auto forget = lifetime.getDefiningOp<LifetimeForgetOp>())
     return forget.getLifetime();

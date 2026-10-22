@@ -218,6 +218,7 @@ packageType = MkTypeDef
 -- What other ops' operands ask of a lifetime
 --------------------------------------------------------------------------------
 
+export
 anyLifetime : TypeC
 anyLifetime = OurType (SomeType lifetimeType)
 
@@ -283,6 +284,26 @@ statesLifetime = MkInterfaceDef
   , doc = brief (line "the lifetime an op states for a scoped value it makes")
   }
 
+||| `StatesOutersOpInterface`: an op that states the lifetime of each scoped
+||| value it makes by its own operand of one group, `outers`, in the order
+||| the values' types pair them, the group its generated accessor gives. A
+||| pass that remakes such an op with other results restates the whole
+||| group through it at once (`lifetimes::restateOuters`). A function and a
+||| call state their lifetimes in their signatures, through no group, so
+||| this is no method of the stating interface every such op holds.
+export
+statesOuters : InterfaceDef
+statesOuters = MkInterfaceDef
+  { name = ident "StatesOutersOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::mlir::MutableOperandRange") (ident "getOutersMutable") [] EveryImplementer
+          (line "the operands that state the lifetimes of the scoped values this op makes, in their order") ]
+  , verifier = Unverified
+  , doc = brief (line "an op stating its scoped values' lifetimes by one operand group")
+  }
+
 ||| `OpensLifetimeOpInterface`: where the memory of the lifetime an opener
 ||| binds comes from, the constant of its class (`LifetimeOpener<Op>`), so a
 ||| reader asks the op and lists no op.
@@ -337,6 +358,7 @@ runsOnceGivingBack = MkTraitDef (ident "RunsOnceGivingBack")
 onceMethods : List Ident
 onceMethods = ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]
 
+export
 statedMethods : List Ident
 statedMethods = ["getStatedLifetime", "setStatedLifetime"]
 
@@ -399,7 +421,8 @@ plainOpener o = MkOp
   , attrs = []
   , regions = [sized (ident "body") 1]
   , traits = [SingleBlock, OurTrait runsOnce]
-  , interfaces = [Implements statesLifetime statedMethods, Implements opensLifetime [], Declares RegionBranch onceMethods]
+  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime []
+                   , Declares RegionBranch onceMethods ]
   , effects = closes (memoryOf o)
   , speculation = NotSpeculatable
   , stages = stagesOf o
@@ -456,7 +479,8 @@ stackOpener = MkOp
   , attrs = []
   , regions = [sized (ident "body") 1]
   , traits = [SingleBlock, OurTrait runsOnce]
-  , interfaces = [Implements statesLifetime statedMethods, Implements opensLifetime [], Declares RegionBranch onceMethods]
+  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime []
+                   , Declares RegionBranch onceMethods ]
   , effects = closes Untouched
   , speculation = NotSpeculatable
   , stages = between Graded Owned
@@ -524,7 +548,7 @@ lend : Op 2 2 0 1
 lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
   [result "returned" anyValue, results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, OurTrait runsOnceGivingBack]
-  [Implements statesLifetime statedMethods, Declares RegionBranch onceMethods]
+  [Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods]
   (Executes [] [] Recursive Untouched) NotSpeculatable Always VerifiesRegions
   (Declared
     [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
@@ -639,7 +663,7 @@ unpack = op "lifetime.unpack"
   , variadic "outers" anyLifetime ]
   [results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, AttrSizedOperandSegments, OurTrait runsOnce]
-  [Implements statesLifetime statedMethods, Declares RegionBranch onceMethods]
+  [Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods]
   (closes Touched) NotSpeculatable (between Graded Owned) VerifiesRegions
   (Declared [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
             , OptionalGroup [Lit "on"] (ValueOf (OperandRef (FS FZ)))
@@ -671,7 +695,7 @@ declarations =
                        SomeOp cellStack, SomeOp cellArena, SomeOp pack, SomeOp unpack]
   , types := [SomeType lifetimeType, SomeType packageType]
   , enums := [enumDef packedClosed]
-  , interfaces := [statesLifetime, opensLifetime, putsIntoLifetime]
+  , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime]
   , traits := [runsOnce, runsOnceGivingBack, givesLifetime]
   , directives := [kindDirective, sameType, viewOf, roomOf]
   , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate]

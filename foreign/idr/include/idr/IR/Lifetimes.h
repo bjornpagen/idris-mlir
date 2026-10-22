@@ -139,6 +139,10 @@ bool isRoomLifetime(mlir::Type type);
 bool isViewLifetime(mlir::Type type);
 bool isLifetimeOfCase(mlir::Type type, LifetimeKindCase kase);
 
+// The interface of an op that states through `outers`, generated after
+// this header with the dialect's interfaces.
+class StatesOutersOpInterface;
+
 } // namespace idr
 
 namespace idr::lifetimes {
@@ -186,15 +190,29 @@ mlir::Value baseOf(mlir::Value lifetime);
 // frees, whose source names none.
 mlir::Value cellLifetime(mlir::Value cell);
 
-// An op that states each scoped result's lifetime by its own operand of
-// `outers`, in result order, after the results it gives of its own: two
-// results of two lifetimes keep each its own span, and which entry is whose
-// is read off the results' types. The openers, the loan, the unpack, and
-// the control ops share this one definition.
+// An op that states the lifetime of each scoped value it makes by its own
+// operand of `outers`: its scoped results first, in result order, after the
+// results it gives of its own, then the scoped values its regions bind,
+// where it says so (StatesBindings). Two values of two lifetimes keep each
+// its own span, and which entry is whose is read off the values' types.
+// The openers, the loan, the unpack, the cast, the data ops, the answer
+// slot and the control ops share this one definition.
 template <typename Op>
 concept StatesOuters = requires(Op op) {
   op.getOuters();
   op.getOutersMutable();
+};
+
+// An op whose regions bind scoped values it states (a match's entering
+// positions, a join point's parameters): their entries follow its scoped
+// results'. The op counts them, and places a value one of its regions binds
+// among them, counted whether or not it is scoped yet, so an entry made as
+// the value becomes scoped goes where its position says; none for any
+// other value.
+template <typename Op>
+concept StatesBindings = StatesOuters<Op> && requires(Op op, mlir::Value made) {
+  { op.getScopedBindings() } -> std::convertible_to<unsigned>;
+  { op.getBindingEntry(made) } -> std::same_as<std::optional<unsigned>>;
 };
 
 // How many of `op`'s results after the first `own` and before `end` are
@@ -206,15 +224,31 @@ unsigned scopedResults(Op op, unsigned own, unsigned end) {
       [](mlir::Value result) { return freedBy(result.getType(), Release::Scoped); }));
 }
 
-// The position of result `made` among the scoped results after the first
-// `own`, which its entry of `outers` has; none for a value that is no such
-// result.
+// How many entries of `outers` `op` holds: one per scoped result after the
+// first `own`, then one per scoped value its regions bind.
+template <StatesOuters Op>
+unsigned scopedValues(Op op, unsigned own) {
+  unsigned scoped = scopedResults(op, own, op->getNumResults());
+  if constexpr (StatesBindings<Op>)
+    scoped += op.getScopedBindings();
+  return scoped;
+}
+
+// The entry of `outers` value `made` has: a result after the first `own`,
+// by the scoped results before it; a value a region binds, after every
+// scoped result, by the op's own count. None for a value the op does not
+// state.
 template <StatesOuters Op>
 std::optional<unsigned> outerAt(Op op, mlir::Value made, unsigned own) {
-  auto result = llvm::dyn_cast<mlir::OpResult>(made);
-  if (!result || result.getOwner() != op.getOperation() || result.getResultNumber() < own)
-    return std::nullopt;
-  return scopedResults(op, own, result.getResultNumber());
+  if (auto result = llvm::dyn_cast<mlir::OpResult>(made)) {
+    if (result.getOwner() != op.getOperation() || result.getResultNumber() < own)
+      return std::nullopt;
+    return scopedResults(op, own, result.getResultNumber());
+  }
+  if constexpr (StatesBindings<Op>)
+    if (std::optional<unsigned> entry = op.getBindingEntry(made))
+      return scopedResults(op, own, op->getNumResults()) + *entry;
+  return std::nullopt;
 }
 
 template <StatesOuters Op>
@@ -226,17 +260,19 @@ mlir::Value statedOuter(Op op, mlir::Value made, unsigned own) {
   return outers[*at];
 }
 
-// States `lifetime` for result `made`: its entry restated, or made where the
-// result has just become scoped; and, for a null lifetime of a result no
-// longer scoped, its entry gone, so an op remade with fewer scoped results
-// keeps one entry for each.
+// States `lifetime` for `made`: its entry restated, or made where its
+// position has just become scoped; and, for a null lifetime of a value
+// whose position is no longer scoped, its entry gone, so an op left with
+// fewer scoped values keeps one entry for each. A null lifetime for a value
+// still scoped states nothing, since a scoped value with no lifetime is no
+// state an op may hold.
 template <StatesOuters Op>
 void stateOuter(Op op, mlir::Value made, mlir::Value lifetime, unsigned own) {
   std::optional<unsigned> at = outerAt(op, made, own);
   if (!at)
     return;
   llvm::SmallVector<mlir::Value, 4> outers(op.getOuters());
-  unsigned scoped = scopedResults(op, own, op->getNumResults());
+  unsigned scoped = scopedValues(op, own);
   bool isScoped = freedBy(made.getType(), Release::Scoped);
   if (lifetime && isScoped && outers.size() == scoped)
     outers[*at] = lifetime;
@@ -249,15 +285,21 @@ void stateOuter(Op op, mlir::Value made, mlir::Value lifetime, unsigned own) {
   op.getOutersMutable().assign(outers);
 }
 
-// One entry of `outers` per scoped result after the first `own`.
+// One entry of `outers` per scoped value the op makes.
 template <StatesOuters Op>
 mlir::LogicalResult verifyOuters(Op op, unsigned own) {
-  unsigned scoped = scopedResults(op, own, op->getNumResults());
+  unsigned scoped = scopedValues(op, own);
   if (op.getOuters().size() != scoped)
     return op.emitOpError("states ") << op.getOuters().size() << " lifetimes for its " << scoped
-                                     << " scoped results, one each in their order";
+                                     << " scoped values, one each in their order";
   return mlir::success();
 }
+
+// States every scoped value's lifetime of `op` at once, in the order its
+// `outers` pairs them: what a pass that remakes an op with other results
+// writes, since one value at a time cannot restate a group whose length
+// the remade op no longer matches.
+void restateOuters(StatesOutersOpInterface op, mlir::ValueRange outers);
 
 } // namespace idr::lifetimes
 
