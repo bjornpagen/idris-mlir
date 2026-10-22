@@ -4164,6 +4164,16 @@ C137.
   a `Nat` is not. Both reads mean the same element; idris-mlir writes
   them as the one operation of the generating set, its index the word
   the bound proves, so the dialect holds one read.
+  *Withdrawn* (2026-10-22; L20's fifth pass, read in the pinned Idris).
+  Its premise was false and unmeasured: the stock host compiles every
+  type of `Nat`'s shape as an integer, `Fin` among them
+  (`TTImp/ProcessData.idr:342-363`), and its identity pass makes
+  `finToNat` and its kin free (`Compiler/Opts/Identity.idr`), which
+  upstream's `tests/base/data_fin/performance.idr` checks at 2^64-1. A
+  `Fin` index is constant time on both hosts, so `mlir-array` keeps one
+  index, and the fork's bounded indices are `Fin` again. The one
+  quadratic at those sites is base's `allFins`, rebuilt per call in the
+  size-change graphs, which the fork computes once.
 - **C213** (2026-10-22; L16's seventh pass; extends C174 under D83). A
   rank-2 argument, a polymorphic function or implementation passed as a
   value, and a field computed at run time that chooses an implementation
