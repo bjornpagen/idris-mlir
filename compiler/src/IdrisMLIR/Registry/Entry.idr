@@ -185,22 +185,24 @@ showShape = showAt False
 
 ||| What a function on naturals computes, as primitives on the representation
 ||| of `Nat`, a big that is never negative: the meaning Idris's own backends
-||| give the Prelude's `Nat` functions instead of their unary recursions.
+||| give the Prelude's `Nat` functions instead of their unary recursions. A
+||| library function it names is a `lib`: the registry writes one by its
+||| name (`QName`), and a reader that has read it holds it as it read it.
 public export
-data NatMeaning : Type where
+data NatMeaning : (lib : Type) -> Type where
   ||| The primitive of the arguments: `plus` is `Op BigAdd NatT`, whose sum
   ||| of naturals is a natural.
-  Primitive : {k : Nat} -> Prim k -> NatMeaning
+  Primitive : {k : Nat} -> Prim k -> NatMeaning lib
   ||| The primitive of the arguments' Integers, then the natural of its
   ||| Integer: `minus` is the difference, clamped at 0.
-  Clamped : {k : Nat} -> Prim k -> NatMeaning
+  Clamped : {k : Nat} -> Prim k -> NatMeaning lib
   ||| The comparison of the arguments, as the library function that makes
   ||| a `Bool` of an `Int` gives it: `equalNat` is `intToBool` of `NatCompare
   ||| Eq`.
-  Tested : Comparison -> QName -> NatMeaning
+  Tested : Comparison -> lib -> NatMeaning lib
   ||| The library function on Integers, of the arguments' Integers:
   ||| `compareNat` is `compareInteger`.
-  OnIntegers : QName -> NatMeaning
+  OnIntegers : lib -> NatMeaning lib
 
 ||| A function of the array language's generating set, or of `LArray`'s
 ||| operations, by what its calls are (`Frontend.Translate.Terms`).
@@ -350,7 +352,7 @@ data Hook : Kind -> Type where
   ||| A function on naturals whose calls compute what it means on the
   ||| representation of `Nat`, in constant time and stack, instead of its
   ||| unary recursion. Handler: `Frontend.Translate.application`.
-  NatOperation : {auto 0 lowers : Lowers kd} -> NatMeaning -> Hook kd
+  NatOperation : {auto 0 lowers : Lowers kd} -> NatMeaning QName -> Hook kd
   ||| A library function whose calls end the program with a status, after
   ||| which nothing runs (`ub.unreachable`). `System.exitWith` is one: its
   ||| body gives the `PrimIO ()` of `prim__exit` any result type by
@@ -383,9 +385,11 @@ data SumHook = IsList | IsInPlace | IsEquality
 
 ||| What the registry says of one definition: one field per kind of hook,
 ||| each the hook of the first entry of that kind that names it. A reader
-||| asks the field it handles, so a new kind of hook is one field.
+||| asks the field it handles, so a new kind of hook is one field. A library
+||| function a hook names is a `lib`, as `NatMeaning`'s is: the registry's
+||| hooks name each by its `QName`, and a reader's hold it as read.
 public export
-record Hooks where
+record Hooks (lib : Type) where
   constructor MkHooks
   pureCall : Maybe (PureOp, List Lit)
   ioCall : Maybe (SomeAction, List Lit)
@@ -398,10 +402,10 @@ record Hooks where
   handle : Maybe Lit
   wordType : Bool
   builds : Maybe PureOp
-  alias : Maybe QName
+  alias : Maybe lib
   identityOnLast : Bool
   programRoot : Bool
-  natOperation : Maybe NatMeaning
+  natOperation : Maybe (NatMeaning lib)
   exits : Bool
   systemInfo : Maybe SystemFact
   forbidden : Maybe (Reached, SomeRule)
@@ -410,14 +414,14 @@ record Hooks where
 
 ||| A definition no entry names.
 export
-noHooks : Hooks
+noHooks : Hooks lib
 noHooks = MkHooks Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing False Nothing Nothing
                   False False Nothing False Nothing Nothing Nothing False
 
 ||| The hooks with one more entry's, after those already there: an earlier
 ||| entry of the same kind stays.
 export
-withHook : Hooks -> Hook kd -> Hooks
+withHook : Hooks QName -> Hook kd -> Hooks QName
 withHook hs h = case h of
   PureCall p ls => { pureCall $= keep (MkPureOp p, ls) } hs
   IOCall a ls => { ioCall $= keep (MkSomeAction a, ls) } hs
@@ -446,12 +450,39 @@ withHook hs h = case h of
     keep x Nothing = Just x
     keep _ y = y
 
+||| The hooks with each library function they name read by `readOne`, as a
+||| reader that resolves the registry's names holds them; every other hook
+||| as it is.
+export
+readLibraries : Applicative m => (readOne : a -> m b) -> Hooks a -> m (Hooks b)
+readLibraries readOne hs =
+  (\al, nat => MkHooks hs.pureCall hs.ioCall hs.arrayCall hs.orderedArray hs.valueArray hs.generating
+                       hs.sumShape hs.primCall hs.handle hs.wordType hs.builds al hs.identityOnLast
+                       hs.programRoot nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash)
+    <$> traverse readOne hs.alias <*> traverse natural hs.natOperation
+  where
+    natural : NatMeaning a -> m (NatMeaning b)
+    natural (Primitive p) = pure (Primitive p)
+    natural (Clamped p) = pure (Clamped p)
+    natural (Tested c q) = Tested c <$> readOne q
+    natural (OnIntegers q) = OnIntegers <$> readOne q
+
+||| The library functions hooks name.
+export
+libraries : Hooks lib -> List lib
+libraries hs = toList hs.alias ++ maybe [] named hs.natOperation
+  where
+    named : NatMeaning lib -> List lib
+    named (Tested _ q) = [q]
+    named (OnIntegers q) = [q]
+    named _ = []
+
 ||| Does the registry give a bodiless `%extern` its meaning: its calls are a
 ||| primitive, an array operation, a string of `System.Info`, or the
 ||| identity on its last runtime argument? Any other `%extern` is outside
 ||| the language.
 export
-meansExtern : Hooks -> Bool
+meansExtern : Hooks lib -> Bool
 meansExtern hs = isJust hs.pureCall || isJust hs.ioCall || isJust hs.arrayCall || isJust hs.systemInfo ||
                  isJust hs.generating || hs.identityOnLast
 

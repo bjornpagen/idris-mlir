@@ -86,7 +86,7 @@ readSpine t = (\(b, sx) => MkSpine b (sx <>> [])) <$> go t
 ||| deeper) has no rank, and a tensor has nothing else, so the program is
 ||| refused here, before any type or key is made of it.
 export
-spineOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+spineOf : {auto s : Ref TState TS} -> {vs : Scope} ->
           FC -> String -> TT vs -> Front (Spine vs)
 spineOf fc owner t = case readSpine t of
   Just sp => pure sp
@@ -124,7 +124,7 @@ arrayParts _ = NoArray
 ||| The shape and the element of a value array's type, when the term is
 ||| one.
 export
-arrayView : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe (ClosedTerm, ClosedTerm))
+arrayView : ClosedTerm -> Front (Maybe (ClosedTerm, ClosedTerm))
 arrayView t with (arrayParts t)
   arrayView _ | ArrayOf n s a = pure (if !(valueArray n) then Just (s, a) else Nothing)
   arrayView _ | NoArray = pure Nothing
@@ -229,7 +229,7 @@ axes i t with (shapeView t)
 ||| element's after the shape's when it is an array too; `Nothing` for a
 ||| dimension no size variable fixes (a literal, a computed size).
 export
-dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (List (Maybe SizeVar))
+dimensionSources : ClosedTerm -> Front (List (Maybe SizeVar))
 dimensionSources t with (arrayParts t)
   dimensionSources _ | ArrayOf n s a =
     if !(valueArray n)
@@ -276,8 +276,7 @@ Telescope r = List (SizedParam r)
 ||| natural, can show. A binder that is not yet a pi may become one once
 ||| normalised: the type is read through definitions that compute it.
 export
-sizedTelescope : {auto c : Ref Ctxt Defs} ->
-                 Nat -> ClosedTerm -> (kinds : List PKind) -> Front (Telescope (Runtimes kinds), ClosedTerm)
+sizedTelescope : Nat -> ClosedTerm -> (kinds : List PKind) -> Front (Telescope (Runtimes kinds), ClosedTerm)
 sizedTelescope arity ty kinds = go 0 arity ty kinds
   where
     value : Nat -> PKind -> ClosedTerm
@@ -380,7 +379,7 @@ entryTies tel = mapMaybe arrayTies tel
 ||| quantity many has, a natural argument or a dimension of an array
 ||| argument.
 export
-resultTies : {auto c : Ref Ctxt Defs} -> Telescope r -> ClosedTerm -> Ty -> Front (List (Nat, Witness r))
+resultTies : Telescope r -> ClosedTerm -> Ty -> Front (List (Nat, Witness r))
 resultTies tel res rt = case valueDims rt of
   Nothing => pure []
   Just ds => (stated 0 . pairDims ds) <$> dimensionSources res

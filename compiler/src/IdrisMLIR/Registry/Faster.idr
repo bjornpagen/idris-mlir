@@ -37,7 +37,7 @@ intToBool = MkQName ["Prelude", "Basics"] "intToBool"
 ||| are the functions Idris's own backends compute on the representation of
 ||| `Nat` instead of by their unary recursions (the Prelude's `natHack`), and
 ||| `Data.Nat`'s tests, which are `compareNat` in another form.
-natural : List String -> String -> Shape -> NatMeaning -> Entry Faster
+natural : List String -> String -> Shape -> NatMeaning QName -> Entry Faster
 natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOperation m)
 
 ||| The functions on naturals.

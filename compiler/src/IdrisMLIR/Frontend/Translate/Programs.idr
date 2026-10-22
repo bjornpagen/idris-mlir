@@ -115,7 +115,7 @@ translateDefinition p n = do
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
   (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
-  tree' <- tree (MkCtx owner fc complete resTy') env (clauses m.args m.pats) m.tree
+  tree' <- tree (MkCtx owner fc complete resTy' (givesAfter (length m.args) (memberPlaces d))) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -162,7 +162,9 @@ translateApplication p uses = do
   (params, env) <- pure (runtimeParams 0 names kinds)
   let (_ :: form :: arguments) = variablesOf names
     | _ => internal fc "a member at a use with no form to apply"
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy') env resTy'
+  -- No definition is translated, so what its result is the instance
+  -- decides.
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy' ByInstance) env resTy'
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
   updateState { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params

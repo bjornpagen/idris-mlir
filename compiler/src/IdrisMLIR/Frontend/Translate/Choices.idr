@@ -135,20 +135,20 @@ without _ [] = []
 ||| A member's constructor, whatever its field.
 conOf : MemberCon -> (k ** Con k)
 conOf (Bare c) = (0 ** c)
-conOf (Holding _ c) = (1 ** c)
+conOf (Capturing _ c) = (1 ** c)
 
 ||| What a callee is given at a member: the implementation it is, and the
 ||| values it closes over when it closes over any.
 memberKind : ChoiceMember -> PKind
 memberKind m = case m.con of
   Bare _ => DictParam m.form Nothing
-  Holding h _ => DictParam m.form (Just h)
+  Capturing h _ => DictParam m.form (Just h)
 
 ||| The constructor of the member at position `at` of a choice's family,
 ||| labelled for a reader by the definition its implementation or function
 ||| is, and its place, which keeps two members of one definition apart; a
 ||| lambda is labelled by its place alone.
-newCon : {auto c : Ref Ctxt Defs} -> FC -> FamilyId -> (at : Nat) -> ClosedTerm -> Vect k Binder -> Front (Con k)
+newCon : {auto s : Ref TState TS} -> FC -> FamilyId -> (at : Nat) -> ClosedTerm -> Vect k Binder -> Front (Con k)
 newCon fc fam at form fields = do
   loc <- toLoc fc
   label <- case getFn form of
@@ -237,7 +237,7 @@ mutual
 ||| parameter's position, its place among the values the parameter holds,
 ||| and the type it is a choice of.
 export
-heldChoice : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+heldChoice : {auto s : Ref TState TS} ->
              List PKind -> Front (Maybe (Nat, Nat, ClosedTerm))
 heldChoice = go 0
   where
@@ -258,7 +258,7 @@ heldChoice = go 0
 ownValues : ChoiceMember -> List ClosedTerm
 ownValues m = case m.con of
   Bare _ => []
-  Holding h _ => forget h.types
+  Capturing h _ => forget h.types
 
 ||| The values an implementation closes over, by type, for one member of
 ||| the choice it holds at place `j`: the others in order, then the
@@ -378,12 +378,12 @@ memberHolding fc owner ty form held = do
     Just con => pure con
     Nothing => do
       con <- newCon fc choice.family (length choice.members) form [held.binder]
-      added choice (MkChoiceMember form (Holding held con))
+      added choice (MkChoiceMember form (Capturing held con))
       pure con
   where
     found : List ChoiceMember -> Maybe (Con 1)
     found [] = Nothing
-    found (MkChoiceMember f (Holding _ con) :: ms) = if f == form then Just con else found ms
+    found (MkChoiceMember f (Capturing _ con) :: ms) = if f == form then Just con else found ms
     found (_ :: ms) = found ms
 
 ------------------------------------------------------------------------------
@@ -458,7 +458,7 @@ dispatcher d = do
       inst <- armOf i
       case m.con of
         Bare con => pure (MkAlt con [] (Call loc inst Nothing indices (passed {k = 0} loc choice Nothing params)))
-        Holding _ con =>
+        Capturing _ con =>
           pure (MkAlt con [shown "held"] (Call loc inst Nothing indices (passed {k = 1} loc choice (Just (Bound FZ)) params)))
 
     -- The callee's instance at a member, given the dispatch's parameters,
@@ -480,7 +480,7 @@ dispatcher d = do
       inst <- armOf i
       case m.con of
         Bare con => MkAlt con [] <$> called loc inst indices held params ren others
-        Holding h con => do
+        Capturing h con => do
           let (t ::: ts) = h.types
           body <- takenApart d.site d.owner loc t ts (Bound {k = 1} {n = p} FZ) $ \ren', own =>
                     called loc inst indices held params (ren' . Free {k = 1} . ren)

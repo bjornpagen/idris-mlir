@@ -58,7 +58,7 @@ import System.File.Buffer
 ||| identity on its runtime argument and a function of the array language,
 ||| at any arity (a call below it is a closure over the saturated call).
 export
-answersForCalls : Hooks -> Bool
+answersForCalls : Hooks lib -> Bool
 answersForCalls hs = hs.identityOnLast || isJust hs.generating
 
 ||| Does a hook answer for a definition's body, so that the walk of what the
@@ -66,7 +66,7 @@ answersForCalls hs = hs.identityOnLast || isJust hs.generating
 ||| call (`answersForCalls`), and the exit, whose body is translated, with
 ||| its `believe_me` as an action that does not return: the escape hatch in
 ||| each body is the hook's, not the program's.
-answersForBody : Hooks -> Bool
+answersForBody : Hooks lib -> Bool
 answersForBody hs = answersForCalls hs || hs.exits
 
 ||| The first of the definitions a user definition refers to that the
@@ -227,7 +227,7 @@ proofOnly n = do
     | Nothing => pure False
   pure (isErased (multiplicity def))
 
-refsOf : Hooks -> GlobalDef -> Core (List Name)
+refsOf : Hooks lib -> GlobalDef -> Core (List Name)
 refsOf hs def = do
   fromType <- keys . Core.TT.getRefs (UN Underscore) <$> typeOfDefinition def
   case definition def of

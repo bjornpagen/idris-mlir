@@ -167,20 +167,61 @@ data Rejection = Refused Refusal | ByIdris Error
 
 ||| The hooks of a definition, by its full name.
 export
-hooksOf : Name -> Hooks
+hooksOf : Name -> Hooks QName
 hooksOf n = hooks (Def (qname n))
 
+||| Why the registry gives a `%foreign` definition no hooks: no entry
+||| declares one of its specs, or the entry that declares one names another
+||| definition.
+public export
+data ForeignMiss = NoEntry | DeclaredElsewhere AnyEntry Mismatch
+
 ||| What the registry makes of a `%foreign` definition, by its full name and
-||| the specs Idris recorded for it, at the site that reaches it: its hooks,
-||| or the refusal of it, a shape mismatch when another definition declares
-||| an entry's spec, or an escape hatch when no entry names a spec (`owner`
-||| reaches it, `via` the path that does).
+||| the specs Idris recorded for it: its hooks, or why it gives none.
 export
-foreignHookOf : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> List String -> Either Refusal Hooks
-foreignHookOf site owner via n specs = case foreignHook (qname n) specs of
+foreignHooks : Name -> List String -> Either ForeignMiss (Hooks QName)
+foreignHooks n specs = case foreignHook (qname n) specs of
   Just (Right hs) => Right hs
-  Just (Left (e, m)) => Left (MkRefusal (Refusal HookShape) site (show n ++ ": " ++ mismatch e m))
-  Nothing => Left (MkRefusal (Refusal EscapeHatch) site (owner ++ ": %foreign " ++ show n ++ via))
+  Just (Left (e, m)) => Left (DeclaredElsewhere e m)
+  Nothing => Left NoEntry
+
+||| The refusal of a `%foreign` definition the registry gives no hooks, at
+||| the site that reaches it: a shape mismatch when another definition
+||| declares an entry's spec, or an escape hatch when no entry names a spec
+||| (`owner` reaches it, `via` the path that does).
+export
+foreignRefusal : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> ForeignMiss -> Refusal
+foreignRefusal site owner via n (DeclaredElsewhere e m) = MkRefusal (Refusal HookShape) site (show n ++ ": " ++ mismatch e m)
+foreignRefusal site owner via n NoEntry = MkRefusal (Refusal EscapeHatch) site (owner ++ ": %foreign " ++ show n ++ via)
+
+%prefix_record_projections off
+
+||| A library function a hook of the registry names (a natural's test or
+||| its operation on integers, the function an alias stands for), read once
+||| with the definition whose hook names it (`Translate.Boundary`): as the
+||| registry names it, for a message, and as the context does, interned
+||| where it enters the compiler (`toName`).
+public export
+record LibraryFunction where
+  constructor MkLibraryFunction
+  named : QName
+  name : Name
+
+%prefix_record_projections on
+
+||| What the registry makes of a definition, read once with it
+||| (`Translate.Boundary`): the hooks a call of it is translated by, each
+||| library function they name read; or, for a `%foreign` definition whose
+||| specs give it none, why not, for which a call of it is refused where it
+||| is made (`foreignRefusal`).
+public export
+data Registered = Hooked (Hooks LibraryFunction) | Unhooked ForeignMiss
+
+||| What the registry makes of a `%foreign` definition at the site that
+||| reaches it: its hooks, or their refusal there (`foreignRefusal`).
+export
+foreignHookOf : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> List String -> Either Refusal (Hooks QName)
+foreignHookOf site owner via n specs = mapFst (foreignRefusal site owner via n) (foreignHooks n specs)
 
 ------------------------------------------------------------------------------
 -- Shapes

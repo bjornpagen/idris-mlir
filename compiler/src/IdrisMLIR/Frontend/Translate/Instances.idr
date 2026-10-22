@@ -90,7 +90,7 @@ applicationType = (.application) <$> reading
 ||| definition's arity and type; a member at a use's, as `applicationType`
 ||| applies it to the use's arguments.
 export
-signatureOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+signatureOf : {auto s : Ref TState TS} ->
               FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
 signatureOf fc owner (OfDefinition n) = do
   d <- lookupDef fc owner n
@@ -519,7 +519,7 @@ callIndices kinds vals = traverse (maybe (pure IOpaque) indexTerm) !(indexForms 
 ||| position (a number, a level of the site's own plus a count), outside the
 ||| language where the site gives no argument there or no term reads it.
 export
-binderTerms : {auto c : Ref Ctxt Defs} -> List ConBinder -> ArgValues -> Front (List ITerm)
+binderTerms : List ConBinder -> ArgValues -> Front (List ITerm)
 binderTerms bs vals = traverse term bs
   where
     term : ConBinder -> Front ITerm

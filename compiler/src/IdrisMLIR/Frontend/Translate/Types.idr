@@ -15,6 +15,7 @@ import Libraries.Data.NatSet
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Given
@@ -142,7 +143,7 @@ conBinders con g i t = ([], close g t)
 ||| type declared without them) or one names no definition. What the
 ||| translation reads of a type constructor is read from these
 ||| (`tyConFacts`).
-constructorsOf : {auto c : Ref Ctxt Defs} -> Defined -> Front (Maybe (List Constructor))
+constructorsOf : Defined -> Front (Maybe (List Constructor))
 constructorsOf tc = case definition tc.def of
   TCon _ _ _ _ _ (Just cons) _ => do
     found <- traverse defined cons
@@ -776,75 +777,42 @@ conIdOf inst con = do
       (Ref _ (TyCon _) tn, _) => Just tn
       _ => Nothing
 
-||| Is a type the type of implementations, whatever binds a value of it?
-||| Idris passes a function's constraints to its `where` functions and its
-||| case and with blocks as explicit arguments, so the binder does not say.
-||| An implementation is a value of an interface, which is what Idris
-||| declared as one, in its table of interfaces (`TS.interfaces`); of a
-||| pair of implementations, which is how Idris gives a tuple of
-||| constraints (`(Show a, Show b) => Show (a, b)`), each one found by
-||| search: its pair type (`%pair`) is the one Idris's search takes apart;
-||| or of a function to an implementation, a constraint over the values of
-||| its arguments (`{y : a} -> Show (p y)`, which `Show (DPair a p)` takes).
-||| A type whose values Idris finds by search is not an interface for that:
-||| an auto-implicit argument of any other type (`{auto c : Ref Ctxt
-||| Defs}`, a proof Idris searches for) is an ordinary argument, and any
-||| data type may ask for the unique search an interface's record has
-||| (`[uniqueSearch]`).
-export
-implementationType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                     TT vars -> Front Bool
-implementationType (Bind _ _ (Pi {}) sc) = implementationType sc
-implementationType ty = case getFn ty of
-  Ref _ (TyCon _) n => do
-    Just tc <- defined n
-      | Nothing => pure False
-    st <- getState
-    if contains (fullname tc.def) st.interfaces then pure True else
-      case ty of
-        App _ (App _ (Ref _ _ _) a) b => do
-          False <- pairTyped (fullname tc.def)
-            | True => do
-                first <- implementationType a
-                if first then implementationType b else pure False
-          pure False
-        _ => pure False
-  _ => pure False
+||| Is a value of a type at an instance a member, by the one rule the member
+||| table is read by (`Boundary.choiceHolding` and kin)? At an instance's
+||| type the instance has given everything it gives, so what the rule
+||| leaves undecided there (a head stuck on a runtime value) is no member.
+isMember : Holding -> Bool
+isMember AMember = True
+isMember _ = False
 
-||| Is a type the type of a polymorphic function: one that takes a type, or
-||| an implementation, before what it gives (`{0 a : Type} -> a -> List a`,
-||| `Show a => a -> String` under a binder of `a`)? Such a value passed as
-||| an argument is a compile-time value, as an implementation is: which
-||| function it is keys the instance of what it is given to, each use
-||| applies it at the use's own types, and the runtime values it closes
-||| over are what its parameter holds. One held at run time (in a field,
-||| as a result, chosen by a runtime value) is a value of its type's
-||| choice (`choiceFamily`), which function it is, so no polymorphic value
-||| exists at run time either. A function on values whose result is an
-||| implementation (`{y : Nat} -> Show (Tag y)`) takes neither: its type
-||| is an implementation's already (`implementationType`).
+||| Is a type the type of implementations, whatever binds a value of it
+||| (`Boundary.implementationHolding`)?
 export
-polymorphicType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                  TT vars -> Front Bool
-polymorphicType (Bind _ _ (Pi _ rig _ a) sc) =
-  if isTypeLike a then pure True else case use rig of
-    Erased => polymorphicType sc
-    Used _ => do
-      False <- implementationType a
-        | True => pure True
-      polymorphicType sc
-polymorphicType _ = pure False
+implementationType : TT vars -> Front Bool
+implementationType ty = (\r => isMember (implementationHolding r.frozen r.interfaces ty)) <$> reading
+
+||| Is a type the type of a polymorphic function, one that takes a type or
+||| an implementation before what it gives
+||| (`Boundary.polymorphicHolding`)?
+export
+polymorphicType : TT vars -> Front Bool
+polymorphicType ty = (\r => isMember (polymorphicHolding r.frozen r.interfaces ty)) <$> reading
 
 ||| Is a value of this type (normalised), held at run time, a value of the
-||| type's choice (`choiceFamily`): a polymorphic function, or an
-||| implementation? A function on values whose result is an implementation
-||| (`{y : Nat} -> Show (Tag y)`) is a closure that gives a choice, no
-||| choice itself.
+||| type's choice (`choiceFamily`, `Boundary.choiceHolding`): a
+||| polymorphic function, or an implementation?
 export
-choiceType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             TT vars -> Front Bool
-choiceType ty@(Bind _ _ (Pi {}) _) = polymorphicType ty
-choiceType ty = implementationType ty
+choiceType : TT vars -> Front Bool
+choiceType ty = (\r => isMember (choiceHolding r.frozen r.interfaces ty)) <$> reading
+
+||| Is a value at a place a member of its type's choice: as the member
+||| table says (`MemberPlaces`), and where the instance decides, as the
+||| instance's type there (`ty`, normalised) does.
+export
+holds : Holding -> (ty : ClosedTerm) -> Front Bool
+holds AMember _ = pure True
+holds NoMember _ = pure False
+holds ByInstance ty = choiceType ty
 
 ||| Does a binder of this quantity and (normalised) type bind a value the
 ||| program fixes at compile time wherever it fixes one: an implementation
@@ -853,8 +821,7 @@ choiceType ty = implementationType ty
 ||| what an applied lambda binds (`Terms.applyHead`), so that what a call
 ||| passes as a compile-time value, a lambda binds as one.
 export
-compileTimeBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                    RigCount -> TT vars -> Front Bool
+compileTimeBinder : RigCount -> TT vars -> Front Bool
 compileTimeBinder rig ty = case use rig of
   Erased => pure False
   Used _ => do
@@ -963,7 +930,7 @@ boundsHold fc what t statics = do
 ||| language, refining nothing. Read once, where a type is read, and where
 ||| a call gives an index parameter its argument.
 export
-indexTerm : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ITerm
+indexTerm : ClosedTerm -> Front ITerm
 indexTerm = go 0
   where
     roleOf : ClosedTerm -> Front (Maybe NatRole)

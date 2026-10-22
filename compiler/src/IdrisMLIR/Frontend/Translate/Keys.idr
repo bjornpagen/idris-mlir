@@ -19,15 +19,14 @@ import Algebra
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
-import Core.Env
 import Core.Name.Scoped
 import Core.TT
 import Libraries.Data.List.Thin
-import Libraries.Data.NameMap
 import Hash.XXH3
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
+import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
@@ -112,77 +111,11 @@ blockOf _ = Nothing
 -- Blocks by position
 ------------------------------------------------------------------------------
 
-||| What a definition refers to, in the order the walk meets it: a
-||| definition, or a solved metavariable, which is walked through its
-||| solution.
-data Reference = ARef Name | AMeta Name
-
-mutual
-  ||| The references of a term, left to right: a function before its
-  ||| argument, a binder's type and value before its scope.
-  termRefs : SnocList Reference -> TT vs -> SnocList Reference
-  termRefs acc (Ref _ _ n) = acc :< ARef n
-  termRefs acc (Meta _ n _ args) = termsRefs (acc :< AMeta n) args
-  termRefs acc (Bind _ _ b sc) = termRefs (binderRefs acc b) sc
-  termRefs acc (App _ f a) = termRefs (termRefs acc f) a
-  termRefs acc (As _ _ _ p) = termRefs acc p
-  termRefs acc (TDelayed _ _ t) = termRefs acc t
-  termRefs acc (TDelay _ _ t a) = termRefs (termRefs acc t) a
-  termRefs acc (TForce _ _ t) = termRefs acc t
-  termRefs acc _ = acc
-
-  termsRefs : SnocList Reference -> List (TT vs) -> SnocList Reference
-  termsRefs acc [] = acc
-  termsRefs acc (t :: ts) = termsRefs (termRefs acc t) ts
-
-  binderRefs : SnocList Reference -> TTBinder (TT vs) -> SnocList Reference
-  binderRefs acc (Lam _ _ _ ty) = termRefs acc ty
-  binderRefs acc (Let _ _ v ty) = termRefs (termRefs acc ty) v
-  binderRefs acc (Pi _ _ _ ty) = termRefs acc ty
-  binderRefs acc (PVar _ _ _ ty) = termRefs acc ty
-  binderRefs acc (PLet _ _ v ty) = termRefs (termRefs acc ty) v
-  binderRefs acc (PVTy _ _ ty) = termRefs acc ty
-
-mutual
-  ||| The references of a case tree: its alternatives in order, each leaf's
-  ||| term.
-  treeRefs : SnocList Reference -> CaseTree vs -> SnocList Reference
-  treeRefs acc (Case _ _ _ alts) = altsRefs acc alts
-  treeRefs acc (STerm _ tm) = termRefs acc tm
-  treeRefs acc _ = acc
-
-  altsRefs : SnocList Reference -> List (CaseAlt vs) -> SnocList Reference
-  altsRefs acc [] = acc
-  altsRefs acc (a :: as) = altsRefs (altRefs acc a) as
-
-  altRefs : SnocList Reference -> CaseAlt vs -> SnocList Reference
-  altRefs acc (ConCase _ _ _ sc) = treeRefs acc sc
-  altRefs acc (DelayCase _ _ sc) = treeRefs acc sc
-  altRefs acc (ConstCase _ sc) = treeRefs acc sc
-  altRefs acc (DefaultCase sc) = treeRefs acc sc
-
-||| What a definition refers to: its compile-time tree's references, then
-||| its clauses' terms, which the translation also takes references from
-||| when it unfolds a definition: a block whose call the tree compiled away
-||| is still referred to there. The runtime tree is never read: it is built
-||| from the same clauses after erasure, so it refers to nothing they do
-||| not. Its type's references come last: a block no body calls may still
-||| be named by a type (a local datatype of a block, named in the types
-||| that mention it), and after the body's, so the blocks a body refers to
-||| keep their numbers. For a solved metavariable these are its
-||| solution's.
-referencesOf : GlobalDef -> Front (List Reference)
-referencesOf def = do
-  body <- case definition def of
-            PMDef _ _ b => do
-              tree <- treeOfBody b
-              pats <- core (clausesOf b)
-              pure (treeRefs [<] tree <>> (pats >>= patRefs))
-            _ => pure []
-  pure (body ++ (termRefs [<] !(typeOfDefinition def) <>> []))
-  where
-    patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference
-    patRefs (_ ** (_, lhs, rhs)) = termRefs (termRefs [<] lhs) rhs <>> []
+||| What a definition read refers to, in the order the walk meets it
+||| (`Boundary.references`): its body as the translation reads it, then its
+||| type. For a solved metavariable these are its solution's.
+referentsOf : Defined -> List Referent
+referentsOf d = references d.matched d.type
 
 ||| Where a walk that names blocks has got to: how many blocks of each
 ||| kind are named so far under the definition being walked (none of a
@@ -208,70 +141,71 @@ mutual
   ||| methods the default was elaborated into, under the method's name),
   ||| so the walk follows references until it reaches a definition that
   ||| does refer to the block. A solved metavariable is walked through its
-  ||| solution, under the same parent and counters. Each definition and
-  ||| each metavariable is entered once (`Walk`), which is why the walk
-  ||| ends: `w0` is where this level of it began, and every definition it
-  ||| enters leaves fewer than `w0` to enter.
-  nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+  ||| solution, under the same parent and counters. Every definition the
+  ||| walk meets was read from what `main` reaches (`Boundary`). Each
+  ||| definition and each metavariable is entered once (`Walk`), which is
+  ||| why the walk ends: `w0` is where this level of it began, and every
+  ||| definition it enters leaves fewer than `w0` to enter.
+  nameUnder : {auto s : Ref TState TS} ->
               String -> SortedMap BlockKind Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
-              (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Front (Reached w)
+              (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Front (Reached w)
   nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
   nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
-    Just (placement, def) <- core (resolve m)
+    Just d <- defined m
       | Nothing => nameUnder origin ks w0 acc w p rest
-    case enter placement w of
+    case enter d.placement w of
       Nothing => nameUnder origin ks w0 acc w p rest
       Just (Element w1 q) => do
-        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
+        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
         MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
         pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
   nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
-    full <- fullNames r
+    full <- fullName r
     let Just kind = blockOf full
       | Nothing => do
           Element w1 q1 <- blocksFrom full w0 acc w p
           MkReached ks' w2 q2 <- nameUnder origin ks w0 acc w1 (thenNoMore q1 p) rest
           pure (MkReached ks' w2 (thenNoMore q2 q1))
     -- A name no definition has is no block to name.
-    Just (placement, def) <- core (resolve full)
+    Just d <- defined full
       | Nothing => nameUnder origin ks w0 acc w p rest
-    let key = addressOf placement
+    let key = addressOf d.placement
     let Nothing = lookup key (!(getState)).blockNames
       | Just _ => nameUnder origin ks w0 acc w p rest
-    let Just (Element w1 q) = enter placement w
+    let Just (Element w1 q) = enter d.placement w
       | Nothing => nameUnder origin ks w0 acc w p rest
     let k = fromMaybe 0 (lookup kind ks)
     let name = origin ++ "." ++ kindText kind ++ show k
     let ks' = insert kind (S k) ks
     updateState { blockNames $= insert key name }
-    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
+    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
     MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
     pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
 
   ||| Names the blocks of a definition that is no block, once, by its full
   ||| name.
-  blocksFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+  blocksFrom : {auto s : Ref TState TS} ->
                Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
                (w : Walked) -> (0 _ : NoMore w w0) -> Front (Subset Walked (\w' => NoMore w' w))
   blocksFrom full w0 acc@(Access rec) w p = do
     let Nothing = blockOf full
       | Just _ => pure (Element w (noMore w))
     -- Nor is a name no definition has a definition to walk.
-    Just (placement, def) <- core (resolve full)
+    Just d <- defined full
       | Nothing => pure (Element w (noMore w))
-    let key = addressOf placement
+    let key = addressOf d.placement
     let Nothing = lookup key (!(getState)).blockNames
       | Just _ => pure (Element w (noMore w))
-    let Just (Element w1 q) = enter placement w
+    let Just (Element w1 q) = enter d.placement w
       | Nothing => pure (Element w (noMore w))
     let origin = plainOrigin full
     updateState { blockNames $= insert key origin }
-    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
+    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
     pure (Element w2 (thenNoMore q2 (fewer q)))
 
 ||| Names the blocks of a definition that is no block, once.
-nameBlocksOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front ()
-nameBlocksOf n = ignore (blocksFrom !(fullNames n) start (sizeAccessible start) start (noMore start))
+nameBlocksOf : {auto s : Ref TState TS} -> Name -> Front ()
+nameBlocksOf n = ignore (blocksFrom !(fullName n) start (sizeAccessible start) start (noMore start))
 
 namespaceOf : Name -> Maybe Namespace
 namespaceOf (NS ns _) = Just ns
@@ -291,29 +225,29 @@ typedBlock _ = Nothing
 ||| name (`plainOrigin`), and for a case, with or nested block its
 ||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A block is named
 ||| when a definition that refers to it is walked: first the one being
-||| translated, then the block's root, and at last every definition in
-||| the block's namespace and beyond, since neither of the first two
+||| translated, then the block's root, and at last every definition read
+||| from what `main` reaches (`Boundary`), since neither of the first two
 ||| need refer to it: a default method's case block is referred to by
 ||| the implementation methods the default was elaborated into, and a
 ||| nested block's parent index is its place in the context that
 ||| elaborated it, which loading does not keep. The block and the
 ||| definition Idris made it in share a namespace, so that is where the
-||| search starts.
-keyOrigin : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front String
+||| search starts. The translation meets only blocks read from what `main`
+||| reaches, each because a definition read refers to it, so a block the
+||| search does not name is the compiler's error.
+keyOrigin : {auto s : Ref TState TS} -> Name -> Front String
 keyOrigin n = do
-  full <- fullNames n
+  full <- fullName n
   -- A case or with block names its parent and its ordinal under it, which
   -- Idris keeps: its name is read off it, with no search.
   let Nothing = typedBlock full
     | Just o => pure o
   let Just _ = blockOf full
     | Nothing => pure (plainOrigin full)
-  -- Naming blocks only reads the context, so this one read is the context
-  -- the search below lists.
-  defs <- getDefs
-  -- A block with no address is one no definition can refer to.
-  let Just key = definitionAddress (gamma defs) full
+  -- A block no definition has is one no definition can refer to.
+  Just d <- defined full
     | Nothing => unreferenced full
+  let key = addressOf d.placement
   Nothing <- named key
     | Just o => pure o
   st <- getState
@@ -328,15 +262,16 @@ keyOrigin n = do
   nameBlocksOf !(rootOf full)
   Nothing <- named key
     | Just o => pure o
-  let all = map fst (Libraries.Data.NameMap.toList (resolvedAs (gamma defs)))
-  let (near, far) = partition (\c => namespaceOf c == namespaceOf full) all
+  r <- reading
+  let everyRead = map (\e => fullname e.def) (SortedMap.values r.definitions)
+  let (near, far) = partition (\c => namespaceOf c == namespaceOf full) everyRead
   search key (near ++ far)
   Just o <- named key
     | Nothing => unreferenced full
   pure o
   where
     unreferenced : Name -> Front String
-    unreferenced full = internal EmptyFC ("no definition refers to the block " ++ show full)
+    unreferenced full = internal EmptyFC ("no definition read from what main reaches refers to the block " ++ show full)
 
     named : Address -> Front (Maybe String)
     named key = pure (lookup key (!(getState)).blockNames)
@@ -972,7 +907,7 @@ mutual
   ||| its inner name alone, and a block (case, with, nested) by the name of
   ||| its place in the definition that holds it (`keyOrigin`), never by the
   ||| counter Idris numbered it with, so an unrelated edit does not move it.
-  nameIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front String
+  nameIdentity : {auto s : Ref TState TS} -> Name -> Front String
   nameIdentity n = case blockOf n of
     Just _ => ("K" ++) . counted <$> keyOrigin n
     Nothing => structural n

@@ -304,9 +304,9 @@ record ConLayout where
 
 ||| The constructor of a member of a choice: one with no field, for an
 ||| implementation that closes over no runtime value, or one whose one
-||| field holds the values it closes over (`Holes`).
+||| field holds the values it captures (`Holes`), as a closure's does.
 public export
-data MemberCon = Bare (Con 0) | Holding Holes (Con 1)
+data MemberCon = Bare (Con 0) | Capturing Holes (Con 1)
 
 ||| An implementation the program fixes as a value of its interface type,
 ||| one constructor of that type's choice (`Choices`): its form, the
@@ -510,12 +510,60 @@ leafOf m = case m.tree of
   STerm _ rhs => Just rhs
   _ => Nothing
 
+||| Whether Idris proved that every call of a definition ends: its
+||| termination check's verdict, which follows everything the definition
+||| calls, read once (`Boundary`). A constructor ends: applying one runs
+||| nothing.
+public export
+data Ends = ProvedToEnd | NotProvedToEnd
+
+||| What a value of a type, held at run time, is to the choices
+||| (`Choices`): a member of its type's choice whatever an instance
+||| substitutes (an implementation's type, a polymorphic function's); never
+||| one (a type constructor no interface is, a constant, a function on
+||| values); or what the instance decides, where the type's head is a
+||| variable or a definition its arguments leave stuck, which an instance's
+||| arguments may make either.
+public export
+data Holding = AMember | NoMember | ByInstance
+
+||| Where a definition's values are members of a choice, read once off its
+||| type in normal form (`Boundary`): what a value given at each binder the
+||| type shows is (a constructor's field, a delayed argument, at the type
+||| under the delay), and what the definition applied to each count of
+||| arguments gives, from none to as many as the type shows binders, so one
+||| more than those. The translation tests a type only where the instance
+||| decides (`ByInstance`), and so does the growth check.
+public export
+record MemberPlaces where
+  constructor MkMemberPlaces
+  given : List Holding
+  gives : List1 Holding
+
+||| A binder or a count of arguments past those a definition's type shows:
+||| an instance's type may show more only where what the type gives after
+||| all of them is the instance's to decide.
+beyond : MemberPlaces -> Holding
+beyond ps = case last ps.gives of
+  ByInstance => ByInstance
+  _ => NoMember
+
+||| What a value given at binder `j` of a definition is (`MemberPlaces`).
+export
+givenAt : Nat -> MemberPlaces -> Holding
+givenAt j ps = fromMaybe (beyond ps) (getAt j ps.given)
+
+||| What a definition applied to `k` arguments gives (`MemberPlaces`).
+export
+givesAfter : Nat -> MemberPlaces -> Holding
+givesAfter k ps = fromMaybe (beyond ps) (getAt k (forget ps.gives))
+
 ||| A definition of the frozen context as the translation reads it, each
 ||| part read once (`Boundary`): its place, the definition, its type as the
-||| context's accessor reads it, its body when it matches (`Matched`), and
-||| the name of the library function the registry has a call of it stand
-||| for (a natural's test or its operation on integers, an alias), interned
-||| once, when its hooks name one.
+||| context's accessor reads it, its body when it matches (`Matched`),
+||| whether Idris proved it ends (`Ends`), what the registry makes of it
+||| (`Registered`), and where its values are members of a choice
+||| (`MemberPlaces`).
 public export
 record Defined where
   constructor MkDefined
@@ -523,21 +571,36 @@ record Defined where
   def : GlobalDef
   type : ClosedTerm
   matched : Maybe Matched
-  library : Maybe Name
+  ends : Ends
+  registered : Registered
+  places : MemberPlaces
+
+||| Where a definition's values are members of a choice (`MemberPlaces`),
+||| read once at the boundary: the lookup the translation and the growth
+||| check read it by, with `givenAt` and `givesAfter`.
+export
+memberPlaces : Defined -> MemberPlaces
+memberPlaces d = d.places
 
 ||| What the translation reads of the program: the context frozen once the
-||| program and everything it imports are loaded, which every normaliser
-||| reads; every definition the translation can meet from the program's
-||| entry, each read once and kept by its entry in the context
-||| (`Boundary.readProgram`); and the type a member at a use is applied as
-||| by (`Instances.applicationType`), whose binders' names are interned
-||| once. Nothing the translation does changes it.
+||| program and everything it imports are loaded and every termination
+||| verdict it reaches is in it, which every normaliser reads; every
+||| definition the translation can meet from the program's entry, each read
+||| once and kept by its entry in the context (`Boundary.readProgram`); the
+||| type a member at a use is applied as by (`Instances.applicationType`),
+||| whose binders' names are interned once; and the type constructors of
+||| the interfaces the program loaded, by full name, Idris's own table of
+||| them, since nothing the translation does declares one. An
+||| implementation is a value of one of these types, or of a pair of or a
+||| function to such values (`Boundary.implementationHolding`). Nothing the
+||| translation does changes it.
 public export
 record Read where
   constructor MkRead
   frozen : Frozen
   definitions : SortedMap Int Defined
   application : ClosedTerm
+  interfaces : SortedSet Name
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to; no definition, for a name the context defines as
@@ -617,12 +680,6 @@ record TS where
   ||| the one that requested it, back to the root, which its block names
   ||| and its exits read; the worklist sets it (`Finite.worklist`).
   chain : List Request
-  ||| The type constructors of the interfaces the program loaded, by full
-  ||| name: Idris's own table of them, read once, since nothing the
-  ||| translation does declares one. An implementation is a value of one
-  ||| of these types, or of a pair of or a function to such values
-  ||| (`Types.implementationType`).
-  interfaces : SortedSet Name
   ||| The program's rejections so far, in the order they were found: a
   ||| check or an instance that is rejected does not stop the others
   ||| (`Errors.noting`), so that one run reports every independent one.
@@ -665,15 +722,15 @@ record TS where
   sizes : Bounds
 
 export
-initState : Read -> Modules -> SortedSet Name -> NonEmptyFC -> TS
-initState r loaded ifaces fc = MkTS
+initState : Read -> Modules -> NonEmptyFC -> TS
+initState r loaded fc = MkTS
   { reads = r
   , familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
   , cons = empty, fns = empty, fnOrder = [<], instances = empty, requested = [<], moduleFC = fc
   , nextComponent = 0
   , loops = empty, named = empty, keyLinks = empty, blockNames = empty
   , choiceIds = empty, choices = empty, dispatches = empty, dispatchesOn = empty
-  , chain = [], interfaces = ifaces, rejected = [<], refused = empty
+  , chain = [], rejected = [<], refused = empty
   , spelled = empty, modules = loaded, tyCons = empty, argumentsTaken = empty, readings = empty, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
@@ -700,10 +757,9 @@ keepFound from = { rejected := from.rejected, refused := from.refused
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it
-||| but what it reads of the program, the modules, the interfaces, what
-||| they found that outlives them (`keepFound`), and the growth check's
-||| bounds.
+||| but what it reads of the program, the modules, what they found that
+||| outlives them (`keepFound`), and the growth check's bounds.
 export
 translating : TS -> TS
 translating st = keepFound st ({ bounds := st.bounds, sizes := st.sizes }
-                                 (initState st.reads st.modules st.interfaces st.moduleFC))
+                                 (initState st.reads st.modules st.moduleFC))

@@ -260,13 +260,13 @@ hasRuntimePart = mentions part
 ||| nothing else: it unfolds no definition, so it runs none. Its markers
 ||| come back as themselves (`markerName`).
 export
-lambdasApplied : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+lambdasApplied : ClosedTerm -> Front ClosedTerm
 lambdasApplied tm = (.value) <$> core (host.normaliseHoles !frozenContext tm)
 
 ||| A written form with the solutions of its metavariables filled in, and
 ||| nothing else evaluated when it has none.
 export
-solved : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+solved : ClosedTerm -> Front ClosedTerm
 solved tm = if hasMeta tm then lambdasApplied tm else pure tm
 
 ||| A metavariable applied to its arguments, as the solution the type checker
@@ -294,7 +294,7 @@ solution fc n args = do
 ||| The normal form of a closed term, its definitions unfolded as in
 ||| `closeNormalise`.
 export
-normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+normaliseClosed : ClosedTerm -> Front ClosedTerm
 normaliseClosed tm = (.value) <$> core (host.normaliseTypes !frozenContext tm)
 
 ||| What a binder of quantity `rig` takes, where no definition's decision
@@ -339,14 +339,14 @@ argumentsOfNormal def = argumentsWith (argumentAt def)
 ||| shows (a method's type past its record, computed at a call): its
 ||| binders' own quantities, since no clause of it was checked.
 export
-argumentsIn : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (List ArgumentAt)
+argumentsIn : ClosedTerm -> Front (List ArgumentAt)
 argumentsIn ty = argumentsWith (const byQuantity) <$> normaliseClosed ty
 
 ||| What a definition takes at each binder of its type in normal form
 ||| (`argumentsOfNormal`), read once per definition and kept by its
 ||| address (`TS.argumentsTaken`), since its type is normalised to read it.
 export
-argumentsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (List ArgumentAt)
+argumentsOf : {auto s : Ref TState TS} -> Defined -> Front (List ArgumentAt)
 argumentsOf d = do
   let key = addressOf d.placement
   case lookup key (!(getState)).argumentsTaken of
@@ -383,7 +383,7 @@ data Applied = OfType | Depends | Taking GlobalDef Nat | Unsaid
 ||| `n`, while `MkBox {v = n}` holds `n` itself. An argument the head's
 ||| type says nothing of may be a value.
 export
-runtimeDependent : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Bool
+runtimeDependent : ClosedTerm -> Front Bool
 runtimeDependent = go
   where
     mutual
@@ -435,7 +435,7 @@ runtimeDependent = go
 ||| normal form (`normaliseClosed`) when a name for a function type hides
 ||| it (`a -@ b`). The one place a type's next binder is read.
 export
-showingBinder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+showingBinder : ClosedTerm -> Front ClosedTerm
 showingBinder ty@(Bind _ _ (Pi {}) _) = pure ty
 showingBinder ty = normaliseClosed ty
 
@@ -524,26 +524,18 @@ rootOf n = climb start (sizeAccessible start) n
         Nothing => pure m
         Just (Element w' less) => climb w' (rec w' less) outer
 
-||| Did Idris prove that every call of a definition ends? Idris's own
-||| termination check, which follows everything the definition calls, so
-||| a reduction through such a definition ends by Idris's proof. Idris
-||| checks a block as part of the definition it belongs to, whose calls
-||| the block's are, so a block ends when that definition does too.
-terminates : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
-terminates n = do
-  root <- rootOf !(fullName n)
-  owner <- defined root
-  if not !(ends n) then pure False else maybe (pure True) (const (ends root)) owner
-  where
-    -- Idris decides a covering definition's termination only when asked,
-    -- and keeps the verdict in its context: its checker is asked of the
-    -- definitions a reduction meets.
-    ends : Name -> Front Bool
-    ends m = do
-      verdict <- core (host.checkTerminating EmptyFC m)
-      pure (case verdict of
-              IsTerminating => True
-              _ => False)
+||| Did Idris prove that every call of a definition ends? Its termination
+||| check's verdict, read once at the boundary (`Defined.ends`), which
+||| follows everything the definition calls, so a reduction through such a
+||| definition ends by Idris's proof. Idris checks a block as part of the
+||| definition it belongs to, whose calls the block's are, so a block ends
+||| when that definition does too.
+endsOf : Defined -> Front Ends
+endsOf d = do
+  owner <- defined !(rootOf (fullname d.def))
+  pure (case (d.ends, map (.ends) owner) of
+          (ProvedToEnd, Just NotProvedToEnd) => NotProvedToEnd
+          (own, _) => own)
 
 ||| The definitions a term refers to, each once, in the order first met.
 functionsIn : TT vars -> List Name
@@ -584,7 +576,7 @@ functionsIn tm = fst (go tm ([<], empty)) <>> []
 ||| The first definition a term refers to that Idris does not prove ends,
 ||| if any. Idris's normaliser runs a term only when there is none: it
 ||| normalises the whole term, so a definition anywhere in it is run.
-partialIn : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe Name)
+partialIn : ClosedTerm -> Front (Maybe Name)
 partialIn tm = firstOf (functionsIn tm)
   where
     firstOf : List Name -> Front (Maybe Name)
@@ -592,7 +584,9 @@ partialIn tm = firstOf (functionsIn tm)
     firstOf (n :: ns) = do
       Just d <- defined n
         | Nothing => firstOf ns
-      if !(terminates n) then firstOf ns else pure (Just (fullname d.def))
+      ProvedToEnd <- endsOf d
+        | NotProvedToEnd => pure (Just (fullname d.def))
+      firstOf ns
 
 ||| A closed term as written, its metavariables filled in, normalised by
 ||| one of Idris's normalisers: when the term refers to a definition Idris
@@ -601,7 +595,7 @@ partialIn tm = firstOf (functionsIn tm)
 ||| the translation reduces goes through here, so none runs what Idris does
 ||| not prove ends; the one that applies lambdas (`lambdasApplied`) runs
 ||| none.
-normalisedBy : {auto c : Ref Ctxt Defs} -> Normaliser form -> ClosedTerm -> Front (Either Name ClosedTerm)
+normalisedBy : Normaliser form -> ClosedTerm -> Front (Either Name ClosedTerm)
 normalisedBy normaliser tm = do
   filled <- solved tm
   Nothing <- partialIn filled
@@ -614,7 +608,7 @@ normalisedBy normaliser tm = do
 ||| own blocks take it at runtime. Nothing when the term refers to a
 ||| definition Idris does not prove ends.
 export
-expandClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe ClosedTerm)
+expandClosed : ClosedTerm -> Front (Maybe ClosedTerm)
 expandClosed tm = either (const Nothing) Just <$> normalisedBy host.normalise tm
 
 ------------------------------------------------------------------------------
@@ -764,7 +758,7 @@ normalHead ctxt tm = spine tm []
 ||| definition does not come back to itself through unfoldings and
 ||| projections alone unless it does not end, so the normaliser is asked
 ||| only where a match recurses.
-again : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Head Part)
+again : ClosedTerm -> Front (Head Part)
 again tm = do
   fz <- frozenContext
   either (Stuck . OnPartial) (normalHead (gamma (defsOf fz))) <$> normalisedBy host.normaliseAll tm
@@ -796,7 +790,7 @@ mutual
   ||| parts, is Idris's normaliser's, the one reduction the frontend takes
   ||| on trust (`Host`): Idris's theory is not strongly normalising, so no
   ||| measure of the term bounds it.
-  reduce : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  reduce : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Parts vs -> TT vs -> List Part -> Front (Head Part)
   reduce ph w acc env (App _ f a) args = reduce ph w acc env f (partOf ph w acc env a :: args)
   reduce ph w acc env (Bind _ _ (Lam {}) sc) (a :: args) = reduce ph w acc (a :: env) sc args
@@ -813,14 +807,14 @@ mutual
   reduce ph w acc env tm args = normalised ph w acc (whole env tm args)
 
   ||| A part met on the path.
-  partOf : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  partOf : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Parts vs -> TT vs -> Part
   partOf ph w acc env a = MkPart (close env a) (reduce ph w acc env a []) (implementing ph w acc env a [])
 
   ||| A definition applied to parts. A reference to a definition that does
   ||| not exist stands for what is not known of a runtime value
   ||| (`unknownPart`).
-  unfolded : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  unfolded : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Name -> Lazy ClosedTerm -> List Part -> Front (Head Part)
   unfolded ph w acc@(Access rec) n tm args = do
     Just d <- defined n
@@ -850,7 +844,7 @@ mutual
 
   ||| A metavariable applied, as the solution Idris gave it: unfolded as a
   ||| definition is, once on a path.
-  filledIn : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  filledIn : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Int -> Lazy ClosedTerm -> Front (Head Part)
   filledIn ph w acc@(Access rec) i tm = do
     -- A negative index is no place, which Idris's bare `Int` allows.
@@ -867,7 +861,7 @@ mutual
   ||| runtime value applied is one. Anything else, a lambda or a function
   ||| applied to fewer arguments than it takes, is applied as written
   ||| (`betaReduced`).
-  applied : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  applied : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             Part -> List Part -> Front (Head Part)
   applied ph w acc part [] = part.value
   applied ph w acc part args@(_ :: _) = do
@@ -884,7 +878,7 @@ mutual
   ||| theory is not strongly normalising, so it is Idris's normaliser's. In
   ||| a term that normaliser gave, what applies a function is a projection
   ||| or a `let`, and goes to the normaliser of the phase (`normalised`).
-  betaReduced : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  betaReduced : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                 Lazy ClosedTerm -> Front (Head Part)
   betaReduced (Written beta _) w acc tm = reduce beta w acc [] !(lambdasApplied tm) []
   betaReduced ph w acc tm = normalised ph w acc tm
@@ -894,7 +888,7 @@ mutual
   ||| form reduced on the same path. In the normal form, what is still not
   ||| reduced is kept from the normaliser by its visibility, and goes to it
   ||| again with every definition unfolded (`again`).
-  normalised : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  normalised : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                Lazy ClosedTerm -> Front (Head Part)
   normalised Normal w acc tm = again tm
   normalised (Beta next _) w acc tm = normalisedTo next w acc tm
@@ -902,7 +896,7 @@ mutual
   normalised (Written Normal ItIsBeta) _ _ _ impossible
   normalised (Written (Written _ _) ItIsBeta) _ _ _ impossible
 
-  normalisedTo : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  normalisedTo : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  Lazy ClosedTerm -> Front (Head Part)
   normalisedTo next w acc tm = case !(normalisedBy host.normalise tm) of
     Left n => pure (Stuck (OnPartial n))
@@ -910,7 +904,7 @@ mutual
 
   ||| The implementation a term stands for (`implementationOf`), with what
   ||| each of its variables stands for, applied to parts.
-  implementing : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  implementing : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  Parts vs -> TT vs -> List Part -> Front ClosedTerm
   implementing ph w acc env (App _ f a) args = implementing ph w acc env f (partOf ph w acc env a :: args)
   implementing ph w acc env (Bind _ _ (Lam {}) sc) (a :: args) = implementing ph w acc (a :: env) sc args
@@ -924,7 +918,7 @@ mutual
   implementing ph w acc env tm args = pure (whole env tm args)
 
   ||| A projection's field, when the name is a projection that applies.
-  projectedPart : {auto c : Ref Ctxt Defs} -> Name -> List Part -> Front (Maybe (Part, List Part))
+  projectedPart : Name -> List Part -> Front (Maybe (Part, List Part))
   projectedPart n args = do
     Just pr <- projection n
       | Nothing => pure Nothing
@@ -936,7 +930,7 @@ mutual
   ||| function an implementation is given, is applied to its arguments. In
   ||| a term that normaliser gave, a part is applied by a projection or a
   ||| `let`, and its implementation stays applied to theirs.
-  implementationApplied : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  implementationApplied : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                           Part -> List Part -> Front ClosedTerm
   implementationApplied ph w acc part [] = part.implemented
   implementationApplied (Written beta _) w acc part args@(_ :: _) =
@@ -945,7 +939,7 @@ mutual
     f <- part.implemented
     foldl (App EmptyFC) f <$> implementations args
 
-  implementations : {auto c : Ref Ctxt Defs} -> List Part -> Front (List ClosedTerm)
+  implementations : List Part -> Front (List ClosedTerm)
   implementations [] = pure []
   implementations (a :: as) = do
     t <- a.implemented
@@ -954,7 +948,7 @@ mutual
 ||| What a compile-time value reduces to at its head (`reduce`), from a
 ||| head path that has unfolded nothing.
 export
-whnf : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Head ClosedTerm)
+whnf : ClosedTerm -> Front (Head ClosedTerm)
 whnf tm = map (\a => Force a.written) <$> reduce asWritten start (sizeAccessible start) [] tm []
 
 ||| Whether an implementation the program writes is one implementation now
@@ -976,7 +970,7 @@ data Fixing = FixedNow | ChosenAtRunTime StuckOn
 ||| does not prove ends, is computed when the program runs, its value
 ||| chosen among the members its computation fixes.
 export
-fixing : {auto c : Ref Ctxt Defs} -> (type, form : ClosedTerm) -> Front Fixing
+fixing : (type, form : ClosedTerm) -> Front Fixing
 fixing type form = do
   reduced <- whnf form
   case (type, reduced) of
@@ -1002,7 +996,7 @@ fixing type form = do
 ||| field it takes from the constructor its record reduces to, applied to
 ||| the arguments past the projection's own.
 export
-projected : {auto c : Ref Ctxt Defs} -> Name -> List ClosedTerm -> Front (Maybe ClosedTerm)
+projected : Name -> List ClosedTerm -> Front (Maybe ClosedTerm)
 projected n args = do
   Just (field, extras) <- projectedPart n (map (partOf asWritten start (sizeAccessible start) []) args)
     | Nothing => pure Nothing
@@ -1019,7 +1013,7 @@ projected n args = do
 ||| so a field that leads back to a definition already unfolded there is
 ||| the one Idris's normaliser reduces (`again`).
 export
-implementationOf : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+implementationOf : ClosedTerm -> Front ClosedTerm
 implementationOf tm = implementing asWritten start (sizeAccessible start) [] tm []
 
 ||| A term as a message shows it, every name full: a name Idris has
@@ -1201,7 +1195,7 @@ lookupDef fc owner n = do
 ||| after its arguments? Normalised, since a type may be written with a
 ||| name for one: `VarSet : Scoped` is `Scope -> Type`.
 export
-computesType : {auto c : Ref Ctxt Defs} -> Defined -> Front Bool
+computesType : Defined -> Front Bool
 computesType d = isTypeLike <$> normaliseClosed d.type
 
 mutual
@@ -1259,7 +1253,7 @@ mutual
 ||| normalisation, and so is an alias of a data type: normalisation has
 ||| already made those one type.
 export
-canonicalTypeArg : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
+canonicalTypeArg : ClosedTerm -> Front ClosedTerm
 canonicalTypeArg tm = contracted <$> walk False (contracted tm)
   where
     -- Reduced to a name, rather than staying a lambda over its clause.
@@ -1479,7 +1473,7 @@ plain n = do
           Nothing => Nothing)
 
 ||| Does a definition compute a type?
-typeFunction : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
+typeFunction : Name -> Front Bool
 typeFunction n = do
   Just d <- defined n
     | Nothing => pure False
@@ -1489,7 +1483,7 @@ typeFunction n = do
 ||| the head, so that it is cut applied to more arguments as its cut
 ||| applied to theirs: a constructor, a type constructor, a function that
 ||| computes a type.
-keepsHead : {auto c : Ref Ctxt Defs} -> TT ws -> Front Bool
+keepsHead : TT ws -> Front Bool
 keepsHead (Ref _ (DataCon _ _) _) = pure True
 keepsHead (Ref _ (TyCon _) _) = pure True
 keepsHead (Ref _ Func n) = typeFunction n
@@ -1497,7 +1491,7 @@ keepsHead _ = pure False
 
 ||| The parameters of a plain function, bound to the arguments it is
 ||| applied to, cut where they are written, and the arguments past them.
-boundParams : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) -> (vs : Scope) ->
+boundParams : (w : Walked) -> (0 acc : SizeAccessible w) -> (vs : Scope) ->
               List (TT ws) -> Maybe (CutEnv vs ws, List (Arg ws))
 
 mutual
@@ -1507,27 +1501,27 @@ mutual
   ||| in the functions not yet unfolded on the path and the term: an
   ||| unfolding puts a function on the path, and every other step goes to a
   ||| part of the term, an argument's cut suspended where it is written.
-  cut : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  cut : (w : Walked) -> (0 acc : SizeAccessible w) ->
         CutEnv vs ws -> TT vs -> Front (TT ws)
   cut w acc env tm = cutApplied w acc env tm []
 
   ||| A term applied to arguments, cut: as written, unless it or an
   ||| argument mentions a runtime variable.
-  cutApplied : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  cutApplied : (w : Walked) -> (0 acc : SizeAccessible w) ->
                CutEnv vs ws -> TT vs -> List (Arg ws) -> Front (TT ws)
   cutApplied w acc env tm args =
     if dependsOn env tm || any (.runtime) args
        then spine w acc env tm args
        else pure (foldl (App EmptyFC) (rename env tm) (map (.written) args))
 
-  argOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  argOf : (w : Walked) -> (0 acc : SizeAccessible w) ->
           CutEnv vs ws -> TT vs -> Arg ws
   argOf w acc env a = MkArg (rename env a) (dependsOn env a) (cut w acc env a)
 
   ||| The head of an application, with its arguments, cut. The
   ||| accessibility proof is erased, and every clause matches its one
   ||| constructor: no alternative is chosen by it.
-  spine : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  spine : (w : Walked) -> (0 acc : SizeAccessible w) ->
           CutEnv vs ws -> TT vs -> List (Arg ws) -> Front (TT ws)
   spine w acc@(Access _) env (App _ f a) args = spine w acc env f (argOf w acc env a :: args)
   spine w acc@(Access _) env (Bind _ _ (Lam {}) sc) (a :: args) = cutApplied w acc (Apply a env) sc args
@@ -1562,7 +1556,7 @@ mutual
   ||| An argument a lambda or a plain function binds, applied in turn: the
   ||| argument's cut applied to theirs, when it keeps its head
   ||| (`keepsHead`); otherwise a computation through a value, and cut.
-  appliedArg : {auto c : Ref Ctxt Defs} -> Arg ws -> List (Arg ws) -> Front (TT ws)
+  appliedArg : Arg ws -> List (Arg ws) -> Front (TT ws)
   appliedArg a args = do
     True <- keepsHead (getFn a.written)
       | False => pure (Erased EmptyFC Placeholder)
@@ -1575,7 +1569,7 @@ mutual
     t <- a.cutForm
     (t ::) <$> cutArgs as
 
-  binder : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+  binder : (w : Walked) -> (0 acc : SizeAccessible w) ->
            CutEnv vs ws -> TTBinder (TT vs) -> Front (TTBinder (TT ws))
   binder w acc env (Lam fc r i ty) = Lam fc r (renamePi env i) <$> cut w acc env ty
   binder w acc env (Let fc r val ty) = Let fc r <$> cut w acc env val <*> cut w acc env ty
@@ -1616,7 +1610,7 @@ boundParams w acc (_ :: _) [] = Nothing
 ||| function's that does not match, a computation through a value. A value
 ||| whose constructors are known (`Shaped`) is no runtime variable, and a
 ||| type still reduces on it.
-cutRuntime : {auto c : Ref Ctxt Defs} -> TT vars -> Front (TT vars)
+cutRuntime : TT vars -> Front (TT vars)
 cutRuntime tm = cut start (sizeAccessible start) Same tm
 
 ||| The closed normal form of a term in scope, with type variables replaced by
@@ -1632,7 +1626,7 @@ cutRuntime tm = cut start (sizeAccessible start) Same tm
 ||| definition its module keeps to itself stays as it is (a parser's, whose
 ||| closures, normalised, would unfold without end).
 export
-closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
+closeNormalise : {vars : Scope} ->
                  FC -> List (VarInfo a) -> TT vars -> Front ClosedTerm
 closeNormalise fc env tm = do
   closed <- solved (betaAll (wrapLams fc tm) (reverse (map value env)))

@@ -39,17 +39,17 @@ entries = primitives ++ recognized ++ map Kinded faster
 ||| The hooks of each definition the registry names, by its qualified name,
 ||| in the entries' order: the definitions' keys indexed once, since every
 ||| definition the compiler reaches and every call it translates asks.
-defHooks : SortedMap (List String, String) Hooks
+defHooks : SortedMap (List String, String) (Hooks QName)
 defHooks = foldl add empty entries
   where
-    add : SortedMap (List String, String) Hooks -> AnyEntry -> SortedMap (List String, String) Hooks
+    add : SortedMap (List String, String) (Hooks QName) -> AnyEntry -> SortedMap (List String, String) (Hooks QName)
     add m (Kinded e) = case e.key of
       Def q => insert (q.space, q.name) (withHook (fromMaybe noHooks (lookup (q.space, q.name) m)) e.hook) m
       _ => m
 
 ||| The hooks of a key: those of every entry that has it.
 export
-hooks : Key -> Hooks
+hooks : Key -> Hooks QName
 hooks (Def q) = fromMaybe noHooks (lookup (q.space, q.name) defHooks)
 hooks k = foldl (\hs, e => withHook hs e.entry.hook) noHooks (filter (\e => e.entry.key == k) entries)
 
@@ -67,7 +67,7 @@ declaredAt e = fst <$> site e
 ||| hook if it is the definition the entry names; otherwise the entry and
 ||| its mismatch.
 export
-foreignHook : QName -> List String -> Maybe (Either (AnyEntry, Mismatch) Hooks)
+foreignHook : QName -> List String -> Maybe (Either (AnyEntry, Mismatch) (Hooks QName))
 foreignHook q specs = do
   -- Two entries may declare one spec at two names (Chez names one
   -- bytevector operation for a deprecated Int spelling and for Bits8, and

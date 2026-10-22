@@ -113,9 +113,9 @@ reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
   write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
-||| The registry's entries against the loaded context, once, before
-||| anything uses them; a broken entry is a refusal, at the module when the
-||| entry has no location.
+||| The registry's entries against the loaded context, once, before the
+||| checks and the translation rely on them; a broken entry is a refusal,
+||| at the module when the entry has no location.
 validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front ()
 validated = case !(core (validate !frozenContext (!getState).moduleFC)) of
   Nothing => pure ()
@@ -129,23 +129,27 @@ isUser _ = False
 ||| file, the one definition of that name visible there. That is the main
 ||| module's own `main` or one it imports; another module's private `main`
 ||| is not seen, and two visible ones are ambiguous, as Idris finds them.
-entryPoint : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front GlobalDef
-entryPoint = do
-  defs <- getDefs
-  entry <- core (internUserName programEntry)
-  found <- core (lookupCtxtName (UN entry) (gamma defs))
-  here <- core ((::) <$> getNS <*> getNestedNS)
+||| Found in the loaded context before anything is read of the program, so
+||| a refusal of it is at the main file's start (`fileSite`).
+entryPoint : {auto c : Ref Ctxt Defs} -> (fileSite : NonEmptyFC) -> Core (Either Refusal GlobalDef)
+entryPoint fileSite = do
+  defs <- get Ctxt
+  entry <- internUserName programEntry
+  found <- lookupCtxtName (UN entry) (gamma defs)
+  here <- (::) <$> getNS <*> getNestedNS
   visible <- keepIf (visibleFrom here) (map (\(_, _, def) => def) found)
-  case visible of
-    [def] => pure def
-    [] => reject EmptyFC programEntry ProgramShape "the program defines no main"
-    ms => reject EmptyFC programEntry ProgramShape
-            ("main is ambiguous: " ++ joinBy ", " (map (show . fullname) ms))
+  pure $ case visible of
+    [def] => Right def
+    [] => Left (refused "the program defines no main")
+    ms => Left (refused ("main is ambiguous: " ++ joinBy ", " (map (show . fullname) ms)))
   where
-    visibleFrom : List Namespace -> GlobalDef -> Front Bool
+    refused : String -> Refusal
+    refused what = MkRefusal (Refusal ProgramShape) fileSite (programEntry ++ ": " ++ what)
+
+    visibleFrom : List Namespace -> GlobalDef -> Core Bool
     visibleFrom here def = case fullname def of
       n@(NS ns _) =>
-        if !(core (isVisible ns))
+        if !(isVisible ns)
           then pure (visibleInAny here n (collapseDefault (visibility def)))
           else pure False
       _ => pure False
@@ -172,17 +176,18 @@ program loaded mainFile timing mlirPath = do
   interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
   -- Until main is found, a refusal is at the main file's start.
   let fileSite : NonEmptyFC = (PhysicalIdrSrc mainFile, (0, 0), (0, 0))
-  -- Idris has loaded the program and everything it imports: the context
-  -- changes no more, and every normaliser reads it as frozen here.
-  frozen <- host.freezeContext
-  application <- applicationOf
-  s <- newRef TState (initState (MkRead frozen SortedMap.empty application) loaded interfaces fileSite)
-  Just mainDef <- noting (entered fileSite)
+  Right mainDef <- entryPoint fileSite
+    | Left r => pure [Refused r]
+  -- Idris has loaded the program and everything it imports. Once the entry
+  -- is found, every definition the phases after it can meet from it is
+  -- read, once, and the context frozen (`readProgram`): they read nothing
+  -- else of it. A refusal is at main from then on.
+  r <- readProgram interfaces (fullname mainDef)
+  s <- newRef TState (initState r loaded (fromMaybe fileSite (isNonEmptyFC (location mainDef))))
+  -- The registry's entries are found good against the loaded context
+  -- before any phase uses them.
+  Just () <- noting validated
     | Nothing => rejections
-  -- Once the entry is found, every definition the phases after it can meet
-  -- from it is read, once, and they read nothing else of the context.
-  r <- readProgram (!(get TState)).reads (fullname mainDef)
-  update TState { reads := r }
   noted (compiled t0 mainDef)
   rejections
   where
@@ -197,15 +202,6 @@ program loaded mainFile timing mlirPath = do
        case lookup m loaded of
          Just l => if isUser l.origin then (m, checked, l.source) :: after else after
          Nothing => after
-
-   -- The program's entry, where a refusal is located from then on, once
-   -- the registry's entries are found good against the loaded context.
-   entered : {auto s : Ref TState TS} -> NonEmptyFC -> Front GlobalDef
-   entered fileSite = do
-    mainDef <- entryPoint
-    updateState { moduleFC := fromMaybe fileSite (isNonEmptyFC (location mainDef)) }
-    validated
-    pure mainDef
 
    covering
    compiled : {auto s : Ref TState TS} -> Integer -> GlobalDef -> Front ()

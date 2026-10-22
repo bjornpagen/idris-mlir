@@ -55,6 +55,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Walk
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate.State
+        , IdrisMLIR.Frontend.Translate.Boundary
         , IdrisMLIR.Frontend.Translate.Given
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
