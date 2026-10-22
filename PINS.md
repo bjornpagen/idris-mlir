@@ -176,7 +176,7 @@ which the top-level CMake configure gate reads.
 - symptom: on main at 7208ba24, the greedy rewrite driver adds an op's
   ancestors to its last-in-first-out worklist with the op, so an ancestor is
   revisited after each change below it; the patterns of an op with several
-  regions (upstream's region branch patterns, ours on idr.match and
+  regions (upstream's region branch patterns, ours then on idr.match and
   idr.match_lit) read all of them, so an op of n regions costs n visits of
   size n: canonicalize in idr-optimize took 30, 120, 223 s at n = 1k, 2k, 4k
   on defunc-tag-limit's program through the whole pipeline
@@ -720,7 +720,7 @@ which the top-level CMake configure gate reads.
   a flag yielded outward or blocks, which drop the scopes counting reads
 - sites: the join points of the control-flow lane (`idr.join` and
   `idr.loop` define a builtin `token` per target; `idr.jump` exits to it
-  across `idr.match` and `idr.match_lit`, which carry
+  across `idr.data.match` and `idr.lit.match`, which carry
   `PropagateControlFlowBreak`); every upstream analysis that reads the
   edge (dead code, SCCP, the sparse and dense analyses, post-dominance,
   the inliner's refusal of an escaping region); the lowering through
@@ -741,8 +741,8 @@ which the top-level CMake configure gate reads.
   propagating op's `getSuccessorRegions` for an exit through it
   (`terminatorPropagatesThrough`, `appendPropagatedTerminatorSuccessors`)
   are `static` in SCF.cpp, so every dialect writes its own copy
-- sites: the generated `getSuccessorRegions` of `idr.match`,
-  `idr.match_lit`, `idr.join` and `idr.loop`; `scf.index_switch` (71)
+- sites: the generated `getSuccessorRegions` of `idr.data.match`,
+  `idr.lit.match`, `idr.join` and `idr.loop`; `scf.index_switch` (71)
 - workaround: `upstream/66-early-exit-propagation-helpers/llvm.patch`: the
   two exported from ControlFlowInterfaces, unchanged; checked by
   tests/upstream-early-exit-propagation-helpers
@@ -757,7 +757,7 @@ which the top-level CMake configure gate reads.
   exit to an enclosing target is found trivially dead when the exit
   declares its (empty) effects, and is erased: the code after it runs in
   place of the exit, a miscompile
-- sites: `idr.match` under `idr.join` whose cases all `idr.jump`; every
+- sites: `idr.data.match` under `idr.join` whose cases all `idr.jump`; every
   erasure of dead ops (the e-graph pass's cleanup, dead-code elimination)
 - workaround: `upstream/67-early-exit-dead-match/llvm.patch`:
   `wouldOpBeTriviallyDead` keeps a root an exit leaves; checked by
@@ -772,7 +772,7 @@ which the top-level CMake configure gate reads.
 - symptom: with early exits carried, `InlineRegionBranchOp` follows a
   region's exit into its target, which it does not own, changes the IR,
   then fails (an assertion in a build with assertions)
-- sites: a known `idr.match` case ending in `idr.jump`; `scf.if` with a
+- sites: a known `idr.data.match` case ending in `idr.jump`; `scf.if` with a
   constant condition around an exit
 - workaround: `upstream/68-early-exit-region-inliner/llvm.patch`: the path
   stops at a successor the op does not own; checked by
@@ -818,11 +818,11 @@ which the top-level CMake configure gate reads.
 ## early-exit-index-switch
 
 - symptom: with early exits carried, only `scf.if` carries exits:
-  `scf.index_switch`, which `idr.match` lowers to, requires `scf.yield`,
-  answers "the op" for every terminator and casts its terminators in its
-  lowering; neither op accepts a terminator that never returns, so a case
-  that only crashes needs a yield of poison values
-- sites: the lowering of `idr.match` to `scf.index_switch`, nested jumps
+  `scf.index_switch`, which `idr.data.match` lowers to, requires
+  `scf.yield`, answers "the op" for every terminator and casts its
+  terminators in its lowering; neither op accepts a terminator that never
+  returns, so a case that only crashes needs a yield of poison values
+- sites: the lowering of `idr.data.match` to `scf.index_switch`, nested jumps
   lowered by upstream's `convert-scf-to-cf`; a crash case ending in
   `ub.unreachable` or a crash terminator of ours
 - workaround: `upstream/71-early-exit-index-switch/llvm.patch`: the
@@ -1212,8 +1212,8 @@ which the top-level CMake configure gate reads.
   out-of-place operand of a tensor-like type that is not a builtin tensor
   no copy, so the op writes a buffer read after it, and its allocation
   reaches `llvm_unreachable`
-- sites: the bufferization of linear arrays, `!idr.lin<T>` tensor-like
-  where `T` is (D43, L12)
+- sites: the bufferization of graded arrays, `!idr.graded<uses, hold, T>`
+  tensor-like where `T` is (D43, L12)
 - workaround: `upstream/27-one-shot-tensor-like-copy/llvm.patch`:
   `BufferizationOptions::tensorAllocationFn` and a copy of every
   tensor-like out-of-place operand; checked by
@@ -1229,7 +1229,8 @@ which the top-level CMake configure gate reads.
   type's class, and `to_tensor`/`to_buffer` require shaped types beside
   the interface's own check, so no graded tensor can be tensor-like for
   some payloads alone or bridged
-- sites: `!idr.lin<T>` and every bridge of a graded tensor (D43, L12)
+- sites: `!idr.graded<uses, hold, T>` and every bridge of a graded tensor
+  (D43, L12)
 - workaround: `upstream/64-tensor-like-per-instance/llvm.patch`:
   `isTensorLike`/`isBufferLike` through `extraClassOf`, and the shape
   traits gone; checked by tests/upstream-tensor-like-per-instance

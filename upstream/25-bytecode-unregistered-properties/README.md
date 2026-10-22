@@ -25,17 +25,25 @@ The read fails: `has properties but missing BytecodeOpInterface for
 test_op_properties.op_with_properties`. The op has no interface because it
 needs none: what the file holds for it is an attribute.
 
-With the tools at the pin, `written-unregistered.mlir`:
+With the tools at the pin, `written-unregistered.mlir`, the smallest
+program the idr dialect verifies, in the generic form:
 
 ```mlir
-"idr.crash"() <{message = "boom"}> : () -> ()
+"idr.program"() <{root = @main, stage = 1 : i32, sym_name = "written"}> ({
+  "idr.func"() <{function_type = () -> i64, sym_name = "main"}> ({
+    %c = "arith.constant"() <{value = 7 : i64}> : () -> i64
+    "idr.return"(%c) : (i64) -> ()
+  }) : () -> ()
+}) : () -> ()
 ```
 
 `mlir-opt -allow-unregistered-dialect -emit-bytecode written-unregistered.mlir
 -o x.mlirbc` writes it (the toolchain's `mlir-opt` has no `idr` dialect);
-`idris-mlir-opt x.mlirbc` then fails in `CrashOp::readProperties`, with
-`expected ...StringAttr, but got: {message = "boom"}`: the native decoder
-read the number of the properties dictionary as the number of `message`.
+`idris-mlir-opt x.mlirbc` then fails in `ProgramOp::readProperties`, at its
+first property, with `expected ...StringAttr, but got: {root = @main, stage
+= 1 : i32, sym_name = "written"}`: the native decoder reads the number of
+the properties dictionary as the number of `sym_name`. `idris-mlir-opt`
+reads the same file as text.
 
 ## Expected
 

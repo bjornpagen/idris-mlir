@@ -11,8 +11,9 @@ several regions read all of them: upstream's region branch patterns
 (`populateRegionBranchOpInterfaceCanonicalizationPatterns`) build the
 mapping of every region's successor operands, and ours on `idr.match`
 and `idr.match_lit` (IR/Canon's SinkConsumer, EndAfterNoYield,
-`getTakenRegion`) read every region too. So an op of n regions in which
-every region changes costs n visits of size n.
+`getTakenRegion`), until the cutover deleted every greedy rewrite of
+ours, read every region too. So an op of n regions in which every region
+changes costs n visits of size n.
 
 defunc-tag-limit's program, a `match_lit` of n cases, through the whole
 pipeline: canonicalize in idr-optimize took 30, 120 and 223 s at n = 1k,

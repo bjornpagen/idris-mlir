@@ -22,7 +22,7 @@ follows it, and the inliner refuses a region an exit escapes.
 
 The compiler's join points are this form: `idr.join` and `idr.loop`
 define a builtin `token` per target, `idr.jump` exits to it across
-`idr.match` and `idr.match_lit`, and upstream's analyses read the edge;
+`idr.data.match` and `idr.lit.match`, and upstream's analyses read the edge;
 no control-flow reading of ours stands beside them (proposals/0000 D25,
 D76, D82, C93).
 

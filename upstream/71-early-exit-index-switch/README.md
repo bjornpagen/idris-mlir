@@ -9,7 +9,7 @@ each region to end in `scf.yield`, its `getSuccessorRegions` answers
 "the op" for every terminator, and its lowering casts each region's
 terminator to `scf.yield` (*read* at 416f328b: `SCFOps.td`,
 `IndexSwitchOp::verify`, `IndexSwitchOp::getSuccessorRegions`,
-`IndexSwitchLowering`). `idr.match` lowers to `scf.index_switch`, so a
+`IndexSwitchLowering`). `idr.data.match` lowers to `scf.index_switch`, so a
 jump nested in a match has no upstream lowering, and a case that only
 crashes cannot end in `ub.unreachable` without a yield of poison values
 after it (L09 §1.3.4 U5). The same holds for `scf.if`, whose regions the

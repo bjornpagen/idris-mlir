@@ -46,8 +46,9 @@ The compiler's functions are `idr.func`, its calls `idr.call` and its
 returns `idr.return`. Its program is `idr.program`, a symbol table nested in
 the module, which idr-bufferize, a pass on that op, bufferizes. A linear
 array threaded through a call is written in place across it only if the
-callee's boundary is analyzed, a function that crashes ends in
-`ub.unreachable`, and Idris functions recurse. A constant array a function
+callee's boundary is analyzed, a function that only crashes ends in a
+terminator that never returns (`idr.crash.cause`), and Idris functions
+recurse. A constant array a function
 returns must be copied before a caller writes it. A pass on the program may create a constant's global
 only inside the program: it may not touch the module, and the program's
 `memref.get_global` resolves there.
@@ -139,10 +140,12 @@ but `func.func` has a `BufferizableOpInterface` implementation, which is the
 bug. The pass's own test, below, attaches the func dialect's models to the
 test dialect's `test.conversion_func_op`, `test.conversion_call_op` and
 `test.return`, which only the patch makes possible, and it fails without the
-change. `idr-call.mlir` is the same in this repository's dialect, together
-with defects 4 and 5 on `idr.program`.
-
-`idr-cycle.mlir` is `recursive-result.mlir` in this repository's dialect.
+change. This repository meets defect 1 on `idr.func`, `idr.call` and
+`idr.return`, to which idr-bufferize attaches the models, and defects 4 and
+5 on `idr.program`: what bufferization makes of a program's calls is the
+program suite's to check, every program that writes in place an array
+threaded through a call, and no reproducer here repeats it in the idr
+dialect, whose syntax would leave it behind as the dialect changes.
 
 `named-sequence.mlir` is the case that made upstream revert its own
 generalization: a payload `func.func` and a `transform.named_sequence` side

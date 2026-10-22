@@ -17,9 +17,9 @@ code after it runs in place of the exit, a miscompile.
 `scf.break` and `scf.continue` escape it only because they implement no
 `MemoryEffectOpInterface`, which reads as an unknown effect. Our
 `idr.jump` declares its effects, which are none, as an op that only moves
-control should: `idr.join` holding `idr.match %xs -> () { case @Nil {...;
-idr.jump %k(%c0)} case @Cons {...; idr.jump %k(%s)} }` followed by
-`ub.unreachable` has its match erased and its body becomes
+control should: an `idr.join` holding an `idr.data.match` of no result
+whose every case ends in an `idr.jump` to the join's target, followed by
+`ub.unreachable`, has its match erased and its body becomes
 `ub.unreachable` (*read*, L09 §1.3.4 U1).
 
 ## Reproduce

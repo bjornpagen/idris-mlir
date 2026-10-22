@@ -13,7 +13,7 @@ then inlines the region, erases the exit, and asks the op for the
 target's inputs, which asserts in a build with assertions, and returns
 "path ends after a different operation" after it has changed the IR.
 `scf.if` registers the pattern, so `scf.if %true { scf.break ... }`
-reaches it; so does `idr.match` with a known case ending in `idr.jump`
+reaches it; so does `idr.data.match` with a known case ending in `idr.jump`
 (L09 §1.3.4 U2).
 
 ## Reproduce

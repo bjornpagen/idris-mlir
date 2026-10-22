@@ -16,22 +16,16 @@ live. A terminator whose operands are all non-forwarded never is.
 ## Reproduce
 
 `tabulate-across-call.mlir`, with idris-mlir-opt (the idr dialect's
-`idr.tabulate`, whose region ends in `idr.array.yield`, which forwards
-nothing: each element is stored at its index, not passed to a result):
-`--remove-dead-values` turns `@squares`'s region into `%p = ub.poison : i64;
-idr.array.yield %p`. The array is a result of a private function read by
-the caller's callee, so its liveness arrives after the yield was first
-visited. The same tabulation read in the function that makes it keeps its
-elements. In the compiler this was a silent miscompile: idris-mlir runs
-remove-dead-values before idr-structure-loops, and a program summing a
-tabulated array in a loop printed 0 (tests/structure-tabulate's
-differential).
-
-The file is in the idr dialect as it stood when the compiler met the
-bug (`idr.tabulate`, the data-type table `#idr.types`), before the
-cutover renamed and retyped it, and is kept as that record: it runs
-under no idris-mlir-opt after the cutover, and what goes upstream is the
-test dialect's case below.
+`idr.array.tabulate`, whose region ends in `idr.array.yield`, which
+forwards nothing: each element moves into its destination at its index,
+not to a result): `--remove-dead-values` turns `@squares`'s region into
+`%p = ub.poison : i64; idr.array.yield %p`. The array is a result of a
+private function read by the caller's callee, so its liveness arrives
+after the yield was first visited. The same tabulation read in the
+function that makes it keeps its elements. In the compiler this was a
+silent miscompile: idris-mlir ran remove-dead-values before
+idr-structure-loops, and a program summing a tabulated array in a loop
+printed 0.
 
 Upstream's own dialects do not show it: each of their region terminators
 with a non-forwarded operand (`scf.condition`) forwards another operand
@@ -65,10 +59,11 @@ rebased, and that measurement is recorded here either way. The report
 stays a submission, with the pull request as `pull-request.diff`, which
 the bootstrap does not apply.
 
-## The pull request
+## The check
 
-`pull-request.diff`, applied by tools/bootstrap.sh; checked by
-tests/upstream-liveness-non-forwarded-terminator (the element is kept).
+tests/upstream-liveness-non-forwarded-terminator runs the reproducer with
+the pinned tools and expects the bug: the element replaced by poison. When
+the pin has upstream's fix it fails, and this report and the check go.
 
 ## Upstreaming plan
 

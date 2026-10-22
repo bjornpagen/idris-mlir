@@ -102,13 +102,9 @@ and an error.
 ## Our workaround
 
 `PINS.md`: `bytecode-deferred-quadratic`. The pinned reader carries the
-patch below; nothing in our code stands in for it. Compile-time evaluation
-still sends a call's results as a flat table of their parts
-(`foreign/idr/lib/Eval/Encoding.cppm`). That table is not this bug's
-workaround: bytecode writes an `idr.con` by its assembly, which repeats a
-shared part at every use, so the table is what keeps a shared value the
-size of its distinct parts. A chain, which shares nothing, is linear in
-the patched reader without the table.
+patch below; nothing in our code stands in for it. The frontend hands
+idris-mlir its module as bytecode, which the driver reads as it reads
+text.
 
 ## Patch
 

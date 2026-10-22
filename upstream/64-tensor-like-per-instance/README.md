@@ -13,9 +13,9 @@ which already asks the tensor-like type whether the buffer is compatible
 (`verifyCompatibleBufferType`; for builtins, the same shapes and element
 types, `BufferizationDialect.cpp`).
 
-The compiler's linear wrapper `!idr.lin<T>` is one class for every `T`:
-a linear array, which One-Shot must bufferize itself, and a linear
-handle, which is no tensor. Under proposals/0000 D43 and C108 it is
+The compiler's grade, `!idr.graded<uses, hold, T>`, is one class for
+every `T`: a graded array, which One-Shot must bufferize itself, and a
+graded handle, which is no tensor. Under proposals/0000 D43 and C108 it is
 tensor-like exactly where `T` is, and an array field is its buffer from
 the frontend on, through `to_buffer` and `to_tensor restrict`; with the
 two shape traits, every bridge of a graded tensor fails to verify, since
