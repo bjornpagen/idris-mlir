@@ -200,7 +200,7 @@ public:
   mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const {
     return labelsAt(points.find(anchor));
   }
-  mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
+  mlir::ArrayAttr labelsOf(const FlowSource &point) const;
   mlir::ArrayAttr labelsOf(const PointKey &key) const;
   std::optional<FlowPlace> sinkOf(mlir::OpOperand &operand) const { return sinks.of(operand); }
   FuncOp function(mlir::StringAttr label) const {
@@ -210,14 +210,20 @@ public:
   // the labels' one order; none when the set does not hold it.
   std::optional<unsigned> positionIn(mlir::ArrayAttr set, mlir::FlatSymbolRefAttr label) const;
 
+  // The number the reading gave `value`'s point, read through the points'
+  // one numbering; none where no statement named it.
+  std::optional<Node> nodeOf(mlir::Value value) const { return points.find(value); }
+  // The labels at a point by its number; the empty set at none.
+  mlir::ArrayAttr labelsAt(std::optional<Node> node) const {
+    return node ? labels[std::to_underlying(*node)] : empty;
+  }
+  // How many points there are: every number is below it.
+  std::uint32_t numPoints() const { return points.size(); }
+
 private:
   friend class Graph;
   Solution(Points points, Sinks sinks, footprint::Vector<mlir::ArrayAttr> labels,
            mlir::ArrayAttr empty);
-
-  mlir::ArrayAttr labelsAt(std::optional<Node> node) const {
-    return node ? labels[std::to_underlying(*node)] : empty;
-  }
 
   Points points;
   Sinks sinks;
@@ -239,7 +245,7 @@ public:
   // Two equal sets are one attribute. A part of a value is its anchor, the
   // same for every value of its kind.
   mlir::ArrayAttr labelsOf(mlir::Value value) const { return solution.labelsOf(value); }
-  mlir::ArrayAttr labelsOf(const FlowPoint &point) const { return solution.labelsOf(point); }
+  mlir::ArrayAttr labelsOf(const FlowSource &point) const { return solution.labelsOf(point); }
   mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const { return solution.labelsOf(anchor); }
   mlir::ArrayAttr labelsAt(const labels::PointKey &key) const { return solution.labelsOf(key); }
 
@@ -264,6 +270,15 @@ public:
   std::optional<unsigned> positionIn(mlir::ArrayAttr set, mlir::FlatSymbolRefAttr label) const {
     return solution.positionIn(set, label);
   }
+
+  // A value's point by the solve's one numbering, the labels at a point by
+  // its number, and how many points there are, so a reader that keeps
+  // something per point keeps it by number, in a table of numPoints.
+  std::optional<labels::Node> nodeOf(mlir::Value value) const { return solution.nodeOf(value); }
+  mlir::ArrayAttr labelsAt(std::optional<labels::Node> node) const {
+    return solution.labelsAt(node);
+  }
+  std::uint32_t numPoints() const { return solution.numPoints(); }
 
   // What the solve read, the work of the pass that computes the labels.
   std::uint64_t work() const { return spent.steps(); }

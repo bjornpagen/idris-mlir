@@ -295,12 +295,12 @@ Solution::Solution(Points points, Sinks sinks, footprint::Vector<ArrayAttr> labe
     : points(std::move(points)), sinks(std::move(sinks)), labels(std::move(labels)), empty(empty) {}
 
 // A point is found where the reading named it, and never made here.
-ArrayAttr Solution::labelsOf(const FlowPoint &point) const {
+ArrayAttr Solution::labelsOf(const FlowSource &point) const {
   return labelsAt(nodeOf(points, point, [&](const auto &key) { return points.find(key); }));
 }
 
 ArrayAttr Solution::labelsOf(const PointKey &key) const {
-  auto ofResult = [&](FlowPoint::Result result) {
+  auto ofResult = [&](FlowSource::Result result) {
     return labelsAt(points.result(points.labelOf(result.function), result.index));
   };
   return match(

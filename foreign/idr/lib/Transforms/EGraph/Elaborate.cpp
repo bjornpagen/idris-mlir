@@ -19,19 +19,28 @@
 
 #include "idr/IR/Tail.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
-
-// What each stage of a program implies: whether every call's tail fact is
-// the decider's.
-#include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
 
 namespace idr::egraph::detail {
 
 namespace {
+
+// The attribute of an integer at `type`, as its form writes it.
+TypedAttr attributeOf(Type type, const node::Integer &integer) {
+  switch (integer.form) {
+  case IntegerForm::Word:
+    return IntegerAttr::get(type, integer.value);
+  case IntegerForm::Splat:
+    return DenseIntElementsAttr::get(cast<ShapedType>(type), integer.value);
+  }
+  return {};
+}
 
 Cost ownCost(const Node &node) {
   return match(node.what, []<Atom N>(const N &) { return Cost::of(0); },
@@ -82,6 +91,7 @@ void Function::elaborate(RewriterBase &rewriter) {
         at(*best[c.index()]).what,
         [](const node::Leaf &leaf) -> std::optional<Value> { return leaf.value; },
         [](const node::Constant &) -> std::optional<Value> { return std::nullopt; },
+        [](const node::Integer &) -> std::optional<Value> { return std::nullopt; },
         [](const node::Input &) -> std::optional<Value> { return std::nullopt; },
         [](const node::Built &) -> std::optional<Value> { return std::nullopt; });
   };
@@ -113,9 +123,11 @@ void Function::elaborate(RewriterBase &rewriter) {
       SmallVector<Value, 4> values;
       for (ClassId operand : operands)
         values.push_back(*placedIn(operand, scope));
-      // A constant is materialized by its dialect; an op of the input is
-      // copied, its properties with it; a built one is made of its kind's op
-      // with the op's default properties; a leaf is where it is.
+      // A constant held as an attribute is materialized by its dialect; an
+      // integer gets its attribute here, the one place the graph makes one;
+      // an op of the input is copied, its properties with it; a built one is
+      // made of its kind's op with the op's default properties; a leaf is
+      // where it is.
       Value made = match(
           node.what, [](const node::Leaf &leaf) -> Value { return leaf.value; },
           [&](const node::Constant &literal) -> Value {
@@ -127,6 +139,11 @@ void Function::elaborate(RewriterBase &rewriter) {
               llvm::reportFatalInternalError("idr-simplify: a folded constant its dialect does "
                                              "not materialize");
             return op->getResult(0);
+          },
+          [&](const node::Integer &integer) -> Value {
+            return arith::ConstantOp::create(rewriter, loc, node.type,
+                                             attributeOf(node.type, integer))
+                .getResult();
           },
           [&](const node::Input &op) -> Value {
             IRMapping mapping;
@@ -236,7 +253,7 @@ void Function::elaborate(RewriterBase &rewriter) {
   // unchanged call apart costs what deciding it does, so each takes its
   // fact where it now stands. Before the program is first order its calls
   // promise nothing, and no pass decides one.
-  if (tailsAt[fn.getProgram().getStage()] == StageTails::Decided)
+  if (tail::decided(fn))
     fn.getBody().walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
 }
 

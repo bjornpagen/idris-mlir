@@ -68,7 +68,7 @@ footprint::Vector<std::pair<Node, PointKey>> Points::described() const {
       continue;
     const Laid &at = laid[label];
     for (std::uint32_t node = at.results; node < at.end; ++node)
-      all.emplace_back(Node(node), FlowPoint::Result{symbol, node - at.results});
+      all.emplace_back(Node(node), FlowSource::Result{symbol, node - at.results});
   }
   llvm::sort(all, [](const auto &a, const auto &b) { return a.first < b.first; });
   return all;

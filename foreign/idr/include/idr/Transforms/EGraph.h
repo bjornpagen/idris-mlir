@@ -52,9 +52,10 @@ namespace egraph {
 // kind), `rulesOfKind` (kind k's rules are rules[rulesOfKind[k],
 // rulesOfKind[k + 1])), `Kinds` (an OpList of every op kind a pattern
 // names, a kind's number its position), `intRanges` (each kind's range
-// function, by its number), `SkeletonRules` (a RuleList of the hand
-// skeleton rule classes) and `nodesPerOp`. Nothing is built per function
-// from them: the engine reads them where the compiler is built.
+// function, by its number), `NeverFolded` (an OpList of the ops whose fold
+// would compute on the compiling machine), `SkeletonRules` (a RuleList of
+// the hand skeleton rule classes) and `nodesPerOp`. Nothing is built per
+// function from them: the engine reads them where the compiler is built.
 namespace table {
 
 template <class... Ops>
@@ -191,10 +192,12 @@ private:
 class OperandFacts {
 public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
-  // The constant the value's class holds; null where it holds none.
+  // The constant the value's class holds as an attribute, one an op holds;
+  // null where it holds none. An integer the graph computed is a value and
+  // no attribute: it is the one value of the value's range.
   mlir::Attribute constant(mlir::Value value) const;
   // The interval of an integer value, where the interval analysis knows
-  // one.
+  // one; an interval of one value is the integer the value is.
   std::optional<mlir::ConstantIntRanges> range(mlir::Value value) const;
   // The op of the input that made the value's chosen form (a constructor a
   // known-case rule reads); null for an argument, a skeleton op's result

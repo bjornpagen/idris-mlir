@@ -10,16 +10,19 @@
 // position and a terminator stays in the skeleton of its region, in
 // order, and so does an op whose value depends on its parent
 // (DependsOnParent), which two parents would make two values. A node of
-// the input is made with its analyses (a constant, by the op's fold with
-// constant operands only; an interval, by upstream's transfer functions)
-// and the specification's rules rooted at its kind run at once, the first
-// that matches replacing the node with its right side: every rule runs one
-// way. A node a right side builds has no op to ask and none is made for
-// it: its interval is its kind's range function over its operands'
-// intervals, from the generated table, and it runs no rules. The class a
-// node lands in, its own or the one that replaces it, meets what the node
-// knows, so a rewrite loses no fact of the form it replaced, and that meet
-// is the only constant a right side's class takes beyond its own leaves'.
+// the input is made with its analyses (an interval, by upstream's transfer
+// function, whose one value, where it has one, is the integer it is; and,
+// for a constant with no integer form, the op's own fold over the
+// attributes its operands hold, never an op whose fold the compiling
+// machine would compute) and the specification's rules rooted at its kind
+// run at once, the first that matches replacing the node with its right
+// side: every rule runs one way. A node a right side builds has no op to
+// ask and none is made for it: its interval is its kind's range function
+// over its operands' intervals, from the generated table, so one built
+// over constants is its integer at once; it runs no rules. An integer is a
+// value until the write-back makes its attribute. The class a node lands
+// in, its own or the one that replaces it, meets what the node knows, so a
+// rewrite loses no fact of the form it replaced.
 // A class's members never change once made and its
 // analyses only narrow, so no id goes stale and nothing is rebuilt: a
 // node made over a class reads its analyses as they stood when it was
@@ -55,6 +58,7 @@
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -97,6 +101,15 @@ struct Run {
 // shared; one whose result takes a fresh identity is its own.
 enum class Identity : std::uint8_t { Shared, Own };
 
+// How the write-back writes an integer of a type: a word of the type, or
+// every element of a shaped value of a static shape the same word, each
+// arith's constant. A type whose integers have no constant op of their own
+// at it has none, and an integer of it stays the op that computes it: a
+// graded word, a numeral, and a big or a natural, whose constant op holds
+// one only held static, which an integer the graph computes never is.
+enum class IntegerForm : std::uint8_t { Word, Splat };
+std::optional<IntegerForm> integerFormOf(mlir::Type type);
+
 // What a node is.
 namespace node {
 // A value the e-graph does not see through: an argument of the function or
@@ -118,18 +131,28 @@ struct Built {
   std::uint16_t kind;
   mlir::RegisteredOperationName name;
 };
-// A constant, materialized by `dialect`'s hook where it is placed.
+// A constant held as an attribute: one an op of the input holds, or one a
+// fold made where the constant has no integer form; materialized by
+// `dialect`'s hook where it is placed.
 struct Constant {
   mlir::Attribute value;
   mlir::Dialect *dialect;
 };
+// An integer the graph computed, by an interval of one value or a rule's
+// literal: a value, made an attribute of `form` only where the write-back
+// places it.
+struct Integer {
+  llvm::APInt value;
+  IntegerForm form;
+};
 } // namespace node
-using What = std::variant<node::Leaf, node::Input, node::Built, node::Constant>;
+using What = std::variant<node::Leaf, node::Input, node::Built, node::Constant, node::Integer>;
 
 // A node that is no op: a leaf or a constant, of no operands. No table keys
 // it, no node pattern matches it, and it costs nothing to place.
 template <class N>
-concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Constant>;
+concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Constant> ||
+               std::same_as<N, node::Integer>;
 
 struct Node {
   What what;
@@ -137,15 +160,21 @@ struct Node {
   Run children;
 };
 
-// What the e-graph knows of a value: the constant it is and the interval
-// it lies in, each where known.
+// What the graph knows of a value, each where known: the interval an
+// integer lies in, whose one value, where it has one, is the integer it is
+// (the rule upstream's range optimizations use), so an integer constant is
+// a value and never an attribute; and the constant as an attribute where an
+// op already holds one, which the graph reads and never makes.
 struct Facts {
-  mlir::Attribute constant;
   std::optional<mlir::ConstantIntRanges> range;
+  mlir::Attribute attribute;
 
-  // What is known of one value known two ways, both of which hold: it is
-  // either's constant (two constants of one value are one) and lies in
-  // both intervals.
+  std::optional<llvm::APInt> integer() const {
+    return range ? range->getConstantValue() : std::nullopt;
+  }
+  // What is known of one value known two ways, both of which hold: it lies
+  // in both intervals, and is either's attribute (two constants of one
+  // value are one).
   void meet(const Facts &other);
 };
 
@@ -185,16 +214,24 @@ struct Region {
   Run skeleton;
 };
 
+// Whether the graph asks an op's own fold: every op but those whose fold
+// would compute on the compiling machine what the target computes.
+enum class Folding : std::uint8_t { Folds, Never };
+
 // What the pass reads where the compiler is built and when it is made,
-// never per function: each generated kind's op name, found once per pass
-// instance, which MLIR's open op set forces to be read at run time.
+// never per function: each generated kind's op name and the ops never
+// folded, found once per pass instance, which MLIR's open op set forces to
+// be read at run time.
 struct Kinds {
   // (the op's TypeID, its kind), sorted by TypeID, for the one lookup an
   // Operation * needs.
   std::vector<std::pair<mlir::TypeID, std::uint16_t>> byTypeId;
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
+  // The TypeIDs of the ops never folded, sorted.
+  std::vector<mlir::TypeID> neverFolded;
 
   std::optional<std::uint16_t> kindOf(mlir::Operation *op) const;
+  Folding foldingOf(mlir::Operation *op) const;
 };
 
 // A rule's variables as a match binds them, each to a class.
@@ -254,7 +291,12 @@ private:
 
   // Building.
   ClassId leaf(mlir::Value value);
-  ClassId constant(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect);
+  // A constant an op holds as an attribute, with the interval the op gives
+  // it where it is an integer.
+  ClassId constant(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect,
+                   std::optional<mlir::ConstantIntRanges> interval);
+  // The integer `value` of `type`; none where the type has no integer form.
+  std::optional<ClassId> integer(const llvm::APInt &value, mlir::Type type);
   // A node of the input runs the rules rooted at its kind as it is made; a
   // node a right side built runs none, so one insertion applies rules once,
   // never recursively, and it is the one a spent budget refuses.
@@ -266,8 +308,11 @@ private:
   // A class of its own for a node just made, holding what it knows.
   ClassId ownClass(NodeId made, mlir::Type type, Facts facts);
   ClassId alone(Node node, ClassId into);
-  // What an op of the input computes over its operands' classes.
+  // What an op of the input computes over its operands' classes, and the
+  // interval alone, which upstream's transfer function gives.
   Facts factsOf(mlir::Operation *op, std::span<const ClassId> operands) const;
+  std::optional<mlir::ConstantIntRanges> intervalOf(mlir::Operation *op,
+                                                    std::span<const ClassId> operands) const;
   // What a node a right side built computes over its operands' classes:
   // its kind's range function's interval (Rules.cpp).
   Facts factsOf(const node::Built &op, mlir::Type type, std::span<const ClassId> operands) const;
@@ -278,7 +323,7 @@ private:
   // lands in; none when no rule matches.
   std::optional<ClassId> rewrite(NodeId made, const node::Input &op, mlir::Type type);
   std::optional<ClassId> buildSide(const table::Rule &rule, const Bindings &bindings,
-                                   std::uint32_t &at, mlir::Type type, mlir::Dialect *dialect);
+                                   std::uint32_t &at, mlir::Type type);
   std::optional<std::uint32_t> matchClass(std::uint32_t at, ClassId cls, Bindings &bindings) const;
   std::optional<std::uint32_t> matchNode(std::uint32_t at, NodeId node, Bindings &bindings) const;
   bool holds(const table::Condition &condition, const Bindings &bindings) const;

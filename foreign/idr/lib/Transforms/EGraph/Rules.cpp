@@ -13,7 +13,6 @@
 // declared by those ops' dialects, included first.
 #include "idr/Transforms/EGraph/Engine.h"
 
-#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -86,32 +85,24 @@ void rewriteOne(table::RuleList<Rs...>, std::uint32_t rule, Operation *op, const
   (run.template operator()<Rs>(), ...);
 }
 
-// The integer a constant is: an integer's bits at its width, read signed,
-// or a big's value. Any other constant is no integer.
-std::optional<APInt> integerOf(Attribute constant) {
-  if (auto integer = dyn_cast_if_present<IntegerAttr>(constant))
-    return integer.getValue();
-  if (auto big = dyn_cast_if_present<BigAttr>(constant))
-    return big.getValue();
-  return std::nullopt;
+template <class... Ops>
+void listTypeIds(table::OpList<Ops...>, std::vector<TypeID> &out) {
+  (out.push_back(TypeID::get<Ops>()), ...);
 }
 
-// The literal `value` as a constant of `type`, the type of the place it
-// fills: a big, a natural where it is not negative, or an integer of the
-// type's width where it fits; none at any other type, so the rule does not
-// apply there.
-Attribute literalOf(Type type, std::int64_t value) {
-  Type plain = unrestricted(type);
-  if (isa<BigType>(plain) || (isa<NatType>(plain) && value >= 0))
-    return BigAttr::get(type.getContext(),
-                        APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true));
-  if (!plain.isIntOrIndex())
-    return Attribute();
-  unsigned width =
-      plain.isIndex() ? IndexType::kInternalStorageBitWidth : plain.getIntOrFloatBitWidth();
+bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaquePointer(); }
+
+// The literal `value` as an integer of `type`, the type of the place it
+// fills: a word of the type's width where it fits; none at any other type,
+// so the rule does not apply there. A value: the write-back makes its
+// attribute where it places it.
+std::optional<APInt> literalAt(Type type, std::int64_t value) {
+  if (!type.isIntOrIndex())
+    return std::nullopt;
+  unsigned width = ConstantIntRanges::getStorageBitwidth(type);
   if (!llvm::isIntN(width, value))
-    return Attribute();
-  return IntegerAttr::get(plain, value);
+    return std::nullopt;
+  return APInt(width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
 }
 
 } // namespace
@@ -127,12 +118,20 @@ std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
   return it->second;
 }
 
+Folding Kinds::foldingOf(Operation *op) const {
+  return std::binary_search(neverFolded.begin(), neverFolded.end(), op->getName().getTypeID(),
+                            beforeId)
+             ? Folding::Never
+             : Folding::Folds;
+}
+
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
   listKinds(generated::Kinds{}, context, out);
-  llvm::sort(out.byTypeId, [](const auto &a, const auto &b) {
-    return a.first.getAsOpaquePointer() < b.first.getAsOpaquePointer();
-  });
+  llvm::sort(out.byTypeId,
+             [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
+  listTypeIds(generated::NeverFolded{}, out.neverFolded);
+  llvm::sort(out.neverFolded, beforeId);
   return out;
 }
 
@@ -165,7 +164,7 @@ std::optional<std::uint32_t> Function::matchClass(std::uint32_t at, ClassId cls,
     return at + 1;
   }
   case table::PatternKind::Literal: {
-    std::optional<APInt> value = integerOf(this->at(cls).facts.constant);
+    std::optional<APInt> value = this->at(cls).facts.integer();
     if (!value || value->getSignificantBits() > 64 || value->getSExtValue() != pattern.literal)
       return std::nullopt;
     return at + 1;
@@ -211,9 +210,9 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   const Facts &known = at(*bindings.vars[condition.var]).facts;
   switch (condition.kind) {
   case table::ConditionKind::IsConstant:
-    return static_cast<bool>(known.constant);
+    return known.integer().has_value();
   case table::ConditionKind::PowerOfTwo: {
-    std::optional<APInt> value = integerOf(known.constant);
+    std::optional<APInt> value = known.integer();
     return value && value->isStrictlyPositive() && value->isPowerOf2();
   }
   case table::ConditionKind::InRange:
@@ -230,8 +229,8 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
 // What a node a right side built knows: the interval its kind's range
 // function gives its operands' intervals, an operand with none its type's
 // whole width (a kind with a range function takes integers), where the
-// kind has one. No op is made to fold it, so it holds no constant: its
-// class takes one only from the node it replaces, by the meet.
+// kind has one. No op is made to fold it: over constants, the interval's
+// one value is the integer it is.
 Facts Function::factsOf(const node::Built &op, Type type,
                         std::span<const ClassId> operands) const {
   const std::optional<table::IntRangeFn> &range = generated::intRanges[op.kind];
@@ -244,32 +243,31 @@ Facts Function::factsOf(const node::Built &op, Type type,
                                      : ConstantIntRanges::maxRange(
                                            ConstantIntRanges::getStorageBitwidth(cls.type)));
   }
-  return {Attribute(), (*range)(inputs, type)};
+  return {(*range)(inputs, type), Attribute()};
 }
 
 // The right side's subtree at `at`, built bottom-up: a variable is its
-// class; a literal a constant of the type its place takes, an integer or a
-// big as that type holds one, materialized by the dialect of the op the
-// rule is rooted at; a node made over its operands' classes, of `type` at
-// the top and of its first operand's type below (the arithmetic a rule
-// builds keeps its operands' type).
+// class; a literal the integer of the type its place takes; a node made
+// over its operands' classes, of `type` at the top and of its first
+// operand's type below (the arithmetic a rule builds keeps its operands'
+// type).
 std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindings &bindings,
-                                           std::uint32_t &at, Type type, Dialect *dialect) {
+                                           std::uint32_t &at, Type type) {
   const table::PatternNode &pattern = generated::patterns[at++];
   switch (pattern.kind) {
   case table::PatternKind::Var:
     return bindings.vars[pattern.var];
   case table::PatternKind::Literal: {
-    Attribute value = literalOf(type, pattern.literal);
+    std::optional<APInt> value = literalAt(type, pattern.literal);
     if (!value)
       return std::nullopt;
-    return constant(value, type, dialect);
+    return integer(*value, type);
   }
   case table::PatternKind::Node: {
     SmallVector<ClassId, 4> operands;
     for (std::uint8_t i = 0; i < pattern.arity; ++i) {
       Type place = operands.empty() ? type : this->at(operands.front()).type;
-      std::optional<ClassId> operand = buildSide(rule, bindings, at, place, dialect);
+      std::optional<ClassId> operand = buildSide(rule, bindings, at, place);
       if (!operand)
         return std::nullopt;
       operands.push_back(*operand);
@@ -290,7 +288,6 @@ std::optional<ClassId> Function::rewrite(NodeId made, const node::Input &op, Typ
   // An op no pattern names roots no rule.
   if (!op.kind)
     return std::nullopt;
-  Dialect *dialect = op.origin->getDialect();
   for (std::uint32_t r = generated::rulesOfKind[*op.kind];
        r < generated::rulesOfKind[*op.kind + 1]; ++r) {
     const table::Rule &rule = generated::rules[r];
@@ -304,7 +301,7 @@ std::optional<ClassId> Function::rewrite(NodeId made, const node::Input &op, Typ
     if (!llvm::all_of(conditions, [&](const table::Condition &c) { return holds(c, bindings); }))
       continue;
     std::uint32_t at = rule.rhs;
-    std::optional<ClassId> side = buildSide(rule, bindings, at, type, dialect);
+    std::optional<ClassId> side = buildSide(rule, bindings, at, type);
     // A specification sort is coarser than an MLIR type, which holds index
     // terms: a right side whose class is of another type here does not
     // apply here, since no rewrite changes a value's type.

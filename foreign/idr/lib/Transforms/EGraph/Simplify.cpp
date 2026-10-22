@@ -30,7 +30,7 @@ using detail::Kinds;
 using detail::Round;
 
 Attribute OperandFacts::constant(Value value) const {
-  return function.classOfValue(value).facts.constant;
+  return function.classOfValue(value).facts.attribute;
 }
 
 std::optional<ConstantIntRanges> OperandFacts::range(Value value) const {

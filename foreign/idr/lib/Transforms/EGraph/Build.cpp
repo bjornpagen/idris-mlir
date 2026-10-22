@@ -141,7 +141,7 @@ void Function::build() {
         Attribute known;
         classOf[numbering.at(result)] =
             matchPattern(result, m_Constant(&known))
-                ? constant(known, result.getType(), op->getDialect())
+                ? constant(known, result.getType(), op->getDialect(), intervalOf(op, operands))
                 : insert(node::Input{op, kinds.kindOf(op),
                                      entry == Entry::OwnIdentity ? Identity::Own
                                                                  : Identity::Shared},

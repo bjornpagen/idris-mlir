@@ -35,7 +35,7 @@ enum class Sink : unsigned {};
 // What a point is, for a reader that names it to a human or asks the solve
 // about it by what it is: a value (a function's parameter is its entry
 // argument), an anchor, or a function's result.
-using PointKey = std::variant<mlir::Value, FlowAnchor, FlowPoint::Result>;
+using PointKey = std::variant<mlir::Value, FlowAnchor, FlowSource::Result>;
 
 // An anchor as a key of the points' table: its own hash and equality, and
 // as the two keys a table reserves, the elements of the two types
@@ -116,16 +116,16 @@ private:
 // a part's anchor, through `known`, with which the reading makes a node
 // and an answer finds one; a parameter or a result by its function's label.
 template <class Known>
-auto nodeOf(const Points &points, const FlowPoint &point, Known &&known) {
+auto nodeOf(const Points &points, const FlowSource &point, Known &&known) {
   using Answer = decltype(known(mlir::Value()));
   return match(
-      point.at, [&](FlowPoint::Taken taken) -> Answer { return known(taken.use->get()); },
-      [&](FlowPoint::Whole whole) -> Answer { return known(whole.value); },
-      [&](const FlowPoint::Part &part) -> Answer { return known(part.anchor); },
-      [&](FlowPoint::Parameter param) -> Answer {
+      point.at, [&](FlowSource::Taken taken) -> Answer { return known(taken.use->get()); },
+      [&](FlowSource::Whole whole) -> Answer { return known(whole.value); },
+      [&](const FlowSource::Part &part) -> Answer { return known(part.anchor); },
+      [&](FlowSource::Parameter param) -> Answer {
         return points.parameter(points.labelOf(param.function), param.index);
       },
-      [&](FlowPoint::Result result) -> Answer {
+      [&](FlowSource::Result result) -> Answer {
         return points.result(points.labelOf(result.function), result.index);
       });
 }
@@ -136,12 +136,12 @@ template <class Known>
 auto nodeOf(const Points &points, const FlowPlace &place, Known &&known) {
   using Answer = decltype(known(mlir::Value()));
   return match(
-      place.at, [&](FlowPoint::Whole whole) -> Answer { return known(whole.value); },
+      place.at, [&](FlowSource::Whole whole) -> Answer { return known(whole.value); },
       [&](const FlowPlace::Part &part) -> Answer { return known(part.anchor); },
-      [&](FlowPoint::Parameter param) -> Answer {
+      [&](FlowSource::Parameter param) -> Answer {
         return points.parameter(points.labelOf(param.function), param.index);
       },
-      [&](FlowPoint::Result result) -> Answer {
+      [&](FlowSource::Result result) -> Answer {
         return points.result(points.labelOf(result.function), result.index);
       });
 }

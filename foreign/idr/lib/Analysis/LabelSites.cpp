@@ -108,14 +108,14 @@ public:
   void tailResults(Label callee, Operation *call);
 
 private:
-  Node nodeOf(const FlowPoint &point) {
+  Node nodeOf(const FlowSource &point) {
     return labels::nodeOf(out.points, point, [&](const auto &key) { return out.points.of(key); });
   }
   Node nodeOf(const FlowPlace &place) {
     return labels::nodeOf(out.points, place, [&](const auto &key) { return out.points.of(key); });
   }
   Node nodeOf(const Place &place);
-  void flow(Operation *op, const FlowPoint &from, const FlowPlace &target, Link how);
+  void flow(Operation *op, const FlowSource &from, const FlowPlace &target, Link how);
   void sink(OpOperand &use, const FlowPlace &target);
   void dispatch(CallOpInterface call);
   void moves(ValueRange values);
@@ -176,15 +176,15 @@ Node Reading::nodeOf(const Place &place) {
 // A flow of a whole value, which the op takes over or reads, moves it out
 // of the use that holds it; the flow of a part moves no use's value, and a
 // parameter or a result is no use's.
-void Reading::flow(Operation *op, const FlowPoint &from, const FlowPlace &target, Link how) {
+void Reading::flow(Operation *op, const FlowSource &from, const FlowPlace &target, Link how) {
   match(
-      from.at, [&](FlowPoint::Taken taken) { sink(*taken.use, target); },
-      [&](FlowPoint::Whole whole) {
+      from.at, [&](FlowSource::Taken taken) { sink(*taken.use, target); },
+      [&](FlowSource::Whole whole) {
         for (OpOperand &use : op->getOpOperands())
           if (use.get() == whole.value)
             sink(use, target);
       },
-      [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {}, [](FlowPoint::Result) {});
+      [](const FlowSource::Part &) {}, [](FlowSource::Parameter) {}, [](FlowSource::Result) {});
   out.statements.links.push_back({nodeOf(from), nodeOf(target), how});
 }
 
