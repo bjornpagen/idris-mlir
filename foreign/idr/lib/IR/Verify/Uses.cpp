@@ -258,8 +258,8 @@ std::optional<Value> idr::ownership::ownerOfPart(Value value) {
             given = Given::OwnReference;
         },
         [&](const FlowEdges::Overwrite &) { given = Given::OwnReference; },
-        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release, FlowEdges::Constant,
-                       FlowEdges::Dispatch> auto &) {});
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release, FlowEdges::Fill,
+                       FlowEdges::Constant, FlowEdges::Dispatch> auto &) {});
   if (given == Given::OwnReference)
     return std::nullopt;
   return owner;

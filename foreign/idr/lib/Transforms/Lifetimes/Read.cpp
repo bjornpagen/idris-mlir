@@ -317,6 +317,6 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
     match(
         each.move, readMove, [](const FlowEdges::Unify &) {}, [](const FlowEdges::Source &) {},
         [](const FlowEdges::Fresh &) {}, [](const FlowEdges::Release &) {},
-        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Constant &) {},
-        [](const FlowEdges::Dispatch &) {});
+        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Fill &) {},
+        [](const FlowEdges::Constant &) {}, [](const FlowEdges::Dispatch &) {});
 }
