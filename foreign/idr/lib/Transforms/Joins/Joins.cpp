@@ -105,7 +105,7 @@ void moveMember(RewriterBase &rewriter, const Member &member, Region &into, unsi
                 unsigned scope) {
   rewriter.inlineRegionBefore(*member.body, into, into.end());
   Block &entry = into.front();
-  Type token = rewriter.getType<TokenType>();
+  Type token = rewriter.getType<mlir::TokenType>();
   for (unsigned i = 0; i < tokens; ++i)
     entry.insertArgument(i, token, into.getParentOp()->getLoc());
   unsigned binders = static_cast<unsigned>(member.binders.getSorts().size());
@@ -166,7 +166,7 @@ Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Me
 
   Group group{nullptr, nullptr, Targets()};
   Builder::reserve(group.targets, count);
-  Type token = rewriter.getType<TokenType>();
+  Type token = rewriter.getType<mlir::TokenType>();
   for (unsigned d = 0; d < levels; ++d) {
     ArrayRef<unsigned> level(order.data() + first[d], first[d + 1] - first[d]);
     SmallVector<Attribute> binders =

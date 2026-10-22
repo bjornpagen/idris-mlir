@@ -11,25 +11,25 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 
-using namespace mlir;
-using namespace idr;
+namespace idr {
 
 namespace {
 
 // `(%k0, %k1)`, a region's tokens, given the token type.
-ParseResult parseTokens(OpAsmParser &parser, SmallVectorImpl<OpAsmParser::Argument> &args) {
-  Type token = parser.getBuilder().getType<TokenType>();
-  return parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&] {
+mlir::ParseResult parseTokens(mlir::OpAsmParser &parser,
+                              llvm::SmallVectorImpl<mlir::OpAsmParser::Argument> &args) {
+  mlir::Type token = parser.getBuilder().getType<mlir::TokenType>();
+  return parser.parseCommaSeparatedList(mlir::OpAsmParser::Delimiter::Paren, [&] {
     if (parser.parseArgument(args.emplace_back()))
-      return failure();
+      return mlir::failure();
     args.back().type = token;
-    return success();
+    return mlir::success();
   });
 }
 
-void printValues(OpAsmPrinter &printer, ValueRange values) {
+void printValues(mlir::OpAsmPrinter &printer, mlir::ValueRange values) {
   printer << '(';
-  llvm::interleaveComma(values, printer, [&](Value value) { printer.printOperand(value); });
+  llvm::interleaveComma(values, printer, [&](mlir::Value value) { printer.printOperand(value); });
   printer << ')';
 }
 
@@ -40,44 +40,44 @@ void printValues(OpAsmPrinter &printer, ValueRange values) {
 // `join tokens(%a0, ...)(%p: A, ...) {region}`. The erased binders are a
 // property, printed in the attribute dictionary.
 template <JoinFamily Group>
-ParseResult parseGroup(OpAsmParser &parser, OperationState &state) {
-  SmallVector<OpAsmParser::Argument> body;
-  SmallVector<Type> results;
+mlir::ParseResult parseGroup(mlir::OpAsmParser &parser, mlir::OperationState &state) {
+  llvm::SmallVector<mlir::OpAsmParser::Argument> body;
+  llvm::SmallVector<mlir::Type> results;
   if (parser.parseKeyword("tokens") || parseTokens(parser, body))
-    return failure();
-  if (succeeded(parser.parseOptionalKeyword("in"))) {
-    SmallVector<OpAsmParser::UnresolvedOperand> outers;
-    SmallVector<Type> lifetimes;
+    return mlir::failure();
+  if (mlir::succeeded(parser.parseOptionalKeyword("in"))) {
+    llvm::SmallVector<mlir::OpAsmParser::UnresolvedOperand> outers;
+    llvm::SmallVector<mlir::Type> lifetimes;
     if (parser.parseLParen() || parser.parseOperandList(outers) ||
         parser.parseColonTypeList(lifetimes) || parser.parseRParen() ||
         parser.resolveOperands(outers, lifetimes, parser.getCurrentLocation(), state.operands))
-      return failure();
+      return mlir::failure();
   }
   if (parser.parseArrow() || parser.parseLParen())
-    return failure();
-  if (failed(parser.parseOptionalRParen())) {
+    return mlir::failure();
+  if (mlir::failed(parser.parseOptionalRParen())) {
     if (parser.parseTypeList(results) || parser.parseRParen())
-      return failure();
+      return mlir::failure();
   }
   state.addTypes(results);
   if (parser.parseOptionalAttrDictWithKeyword(state.attributes) ||
       parser.parseRegion(*state.addRegion(), body))
-    return failure();
-  while (succeeded(parser.parseOptionalKeyword("join"))) {
-    SmallVector<OpAsmParser::Argument> args;
+    return mlir::failure();
+  while (mlir::succeeded(parser.parseOptionalKeyword("join"))) {
+    llvm::SmallVector<mlir::OpAsmParser::Argument> args;
     if constexpr (tokensAt<Group> == TokenScope::InEveryRegion) {
       if (parser.parseKeyword("tokens") || parseTokens(parser, args))
-        return failure();
+        return mlir::failure();
     }
-    if (parser.parseArgumentList(args, OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
+    if (parser.parseArgumentList(args, mlir::OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
         parser.parseRegion(*state.addRegion(), args))
-      return failure();
+      return mlir::failure();
   }
-  return success();
+  return mlir::success();
 }
 
 template <JoinFamily Group>
-void printGroup(Group op, OpAsmPrinter &printer) {
+void printGroup(Group op, mlir::OpAsmPrinter &printer) {
   printer << " tokens";
   printValues(printer, op.getTokens(op.getBody()));
   if (!op.getOuters().empty()) {
@@ -93,7 +93,7 @@ void printGroup(Group op, OpAsmPrinter &printer) {
   printer.printOptionalAttrDictWithKeyword(op->getAttrs());
   printer << ' ';
   printer.printRegion(op.getBody(), /*printEntryBlockArgs=*/false);
-  for (Region &region : op.getJoinRegions()) {
+  for (mlir::Region &region : op.getJoinRegions()) {
     printer << " join";
     if constexpr (tokensAt<Group> == TokenScope::InEveryRegion) {
       printer << " tokens";
@@ -101,7 +101,7 @@ void printGroup(Group op, OpAsmPrinter &printer) {
     }
     printer << '(';
     llvm::interleaveComma(op.getParameters(region), printer,
-                          [&](BlockArgument arg) { printer.printRegionArgument(arg); });
+                          [&](mlir::BlockArgument arg) { printer.printRegionArgument(arg); });
     printer << ") ";
     printer.printRegion(region, /*printEntryBlockArgs=*/false);
   }
@@ -109,14 +109,16 @@ void printGroup(Group op, OpAsmPrinter &printer) {
 
 } // namespace
 
-ParseResult JoinOp::parse(OpAsmParser &parser, OperationState &state) {
+mlir::ParseResult JoinOp::parse(mlir::OpAsmParser &parser, mlir::OperationState &state) {
   return parseGroup<JoinOp>(parser, state);
 }
 
-void JoinOp::print(OpAsmPrinter &printer) { printGroup(*this, printer); }
+void JoinOp::print(mlir::OpAsmPrinter &printer) { printGroup(*this, printer); }
 
-ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &state) {
+mlir::ParseResult LoopOp::parse(mlir::OpAsmParser &parser, mlir::OperationState &state) {
   return parseGroup<LoopOp>(parser, state);
 }
 
-void LoopOp::print(OpAsmPrinter &printer) { printGroup(*this, printer); }
+void LoopOp::print(mlir::OpAsmPrinter &printer) { printGroup(*this, printer); }
+
+} // namespace idr

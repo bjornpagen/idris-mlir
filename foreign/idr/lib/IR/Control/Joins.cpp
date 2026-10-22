@@ -44,8 +44,7 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 
-using namespace mlir;
-using namespace idr;
+namespace idr {
 
 namespace {
 
@@ -58,8 +57,8 @@ unsigned targetsOf(Group op) {
 // arguments, and none in a join region; in an idr.loop the first N
 // arguments of every region.
 template <JoinFamily Group>
-Block::BlockArgListType tokensOf(Group op, Region &region) {
-  Block::BlockArgListType args = region.front().getArguments();
+mlir::Block::BlockArgListType tokensOf(Group op, mlir::Region &region) {
+  mlir::Block::BlockArgListType args = region.front().getArguments();
   if constexpr (tokensAt<Group> == TokenScope::InBody)
     return &region == &op.getBody() ? args : args.take_front(0);
   else
@@ -69,15 +68,15 @@ Block::BlockArgListType tokensOf(Group op, Region &region) {
 // A join region's parameters: its arguments after its tokens. The body
 // takes none.
 template <JoinFamily Group>
-Block::BlockArgListType parametersOf(Group op, Region &region) {
+mlir::Block::BlockArgListType parametersOf(Group op, mlir::Region &region) {
   return region.front().getArguments().drop_front(tokensOf(op, region).size());
 }
 
 // The join region `token` designates, if it is a token of `op`: an
 // argument among the tokens one of its regions begins with.
 template <JoinFamily Group>
-Region *targetOf(Group op, BlockArgument token) {
-  Region *region = token.getOwner()->getParent();
+mlir::Region *targetOf(Group op, mlir::BlockArgument token) {
+  mlir::Region *region = token.getOwner()->getParent();
   if (region->getParentOp() != op.getOperation() ||
       token.getArgNumber() >= tokensOf(op, *region).size())
     return nullptr;
@@ -90,23 +89,23 @@ Region *targetOf(Group op, BlockArgument token) {
 // since a jump passes none. Each join region has its erased binders, an
 // empty list where it binds no index variable.
 template <JoinFamily Group>
-LogicalResult verifyGroup(Group op) {
+mlir::LogicalResult verifyGroup(Group op) {
   unsigned targets = targetsOf(op);
   if (targets == 0)
     return op.emitOpError("expects at least one join region");
   if (op.getBinders().size() != targets)
     return op.emitOpError("expects the erased binders of each of its ") << targets
                                                                          << " join regions";
-  for (Region &region : op->getRegions()) {
-    Block::BlockArgListType tokens = tokensOf(op, region);
+  for (mlir::Region &region : op->getRegions()) {
+    mlir::Block::BlockArgListType tokens = tokensOf(op, region);
     bool leads = &region == &op.getBody() || tokensAt<Group> == TokenScope::InEveryRegion;
     if (leads && tokens.size() != targets)
       return op.emitOpError("region #") << region.getRegionNumber() << " must begin with "
                                         << targets << " tokens, one per join region";
-    if (!llvm::all_of(tokens.getTypes(), llvm::IsaPred<TokenType>))
+    if (!llvm::all_of(tokens.getTypes(), llvm::IsaPred<mlir::TokenType>))
       return op.emitOpError("region #")
              << region.getRegionNumber() << " must begin with one token per join region";
-    if (llvm::any_of(parametersOf(op, region).getTypes(), llvm::IsaPred<TokenType>))
+    if (llvm::any_of(parametersOf(op, region).getTypes(), llvm::IsaPred<mlir::TokenType>))
       return op.emitOpError("region #") << region.getRegionNumber()
                                         << " takes a token as a parameter, which no jump passes";
   }
@@ -119,25 +118,26 @@ LogicalResult verifyGroup(Group op) {
 // of its own join regions, that region; from a jump to an enclosing join
 // point, what that point's op says, as every op the jump crosses does.
 template <JoinFamily Group>
-void successorsOf(Group op, RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &regions) {
+void successorsOf(Group op, mlir::RegionBranchPoint point,
+                  llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions) {
   if (point.isParent()) {
     regions.emplace_back(&op.getBody());
     return;
   }
-  RegionBranchTerminatorOpInterface terminator = point.getTerminatorPredecessorOrNull();
-  if (terminatorPropagatesThrough(terminator, op)) {
-    appendPropagatedTerminatorSuccessors(terminator, op, regions);
+  mlir::RegionBranchTerminatorOpInterface terminator = point.getTerminatorPredecessorOrNull();
+  if (mlir::terminatorPropagatesThrough(terminator, op)) {
+    mlir::appendPropagatedTerminatorSuccessors(terminator, op, regions);
     return;
   }
-  if (auto jump = dyn_cast<JumpOp>(terminator.getOperation())) {
-    regions.emplace_back(targetOf(op, cast<BlockArgument>(jump.getTarget())));
+  if (auto jump = llvm::dyn_cast<JumpOp>(terminator.getOperation())) {
+    regions.emplace_back(targetOf(op, llvm::cast<mlir::BlockArgument>(jump.getTarget())));
     return;
   }
-  regions.push_back(RegionSuccessor(op.getOperation()));
+  regions.push_back(mlir::RegionSuccessor(op.getOperation()));
 }
 
 template <JoinFamily Group>
-ValueRange inputsOf(Group op, RegionSuccessor successor) {
+mlir::ValueRange inputsOf(Group op, mlir::RegionSuccessor successor) {
   if (successor.isOperation())
     return op->getResults();
   return parametersOf(op, *successor.getSuccessor());
@@ -147,13 +147,13 @@ ValueRange inputsOf(Group op, RegionSuccessor successor) {
 // body or another op's region may jump to it; a join region of an idr.loop
 // any number of times.
 template <JoinFamily Group>
-void boundsOf(Group op, SmallVectorImpl<InvocationBounds> &bounds) {
+void boundsOf(Group op, llvm::SmallVectorImpl<mlir::InvocationBounds> &bounds) {
   bounds.emplace_back(1, 1);
   for (unsigned i = 0, n = targetsOf(op); i < n; ++i) {
     if constexpr (tokensAt<Group> == TokenScope::InBody)
       bounds.emplace_back(0, 1);
     else
-      bounds.push_back(InvocationBounds::getUnknown());
+      bounds.push_back(mlir::InvocationBounds::getUnknown());
   }
 }
 
@@ -162,26 +162,27 @@ void boundsOf(Group op, SmallVectorImpl<InvocationBounds> &bounds) {
 // token i enter join region i + 1; the yields that end the op's own regions
 // give its results.
 template <JoinFamily Group>
-void predecessorsOf(Group op, RegionSuccessor successor,
-                    SmallVectorImpl<RegionBranchPoint> &predecessors) {
+void predecessorsOf(Group op, mlir::RegionSuccessor successor,
+                    llvm::SmallVectorImpl<mlir::RegionBranchPoint> &predecessors) {
   if (successor.isOperation()) {
-    for (Region &region : op->getRegions())
-      if (auto yield = dyn_cast<YieldOp>(region.front().getTerminator()))
-        predecessors.emplace_back(cast<RegionBranchTerminatorOpInterface>(yield.getOperation()));
+    for (mlir::Region &region : op->getRegions())
+      if (auto yield = llvm::dyn_cast<YieldOp>(region.front().getTerminator()))
+        predecessors.emplace_back(
+            llvm::cast<mlir::RegionBranchTerminatorOpInterface>(yield.getOperation()));
     return;
   }
-  Region *target = successor.getSuccessor();
+  mlir::Region *target = successor.getSuccessor();
   if (target == &op.getBody()) {
-    predecessors.push_back(RegionBranchPoint::parent());
+    predecessors.push_back(mlir::RegionBranchPoint::parent());
     return;
   }
   unsigned index = target->getRegionNumber() - 1;
-  for (Region &region : op->getRegions()) {
-    Block::BlockArgListType tokens = tokensOf(op, region);
+  for (mlir::Region &region : op->getRegions()) {
+    mlir::Block::BlockArgListType tokens = tokensOf(op, region);
     if (index >= tokens.size())
       continue;
-    for (Operation *user : tokens[index].getUsers())
-      predecessors.emplace_back(cast<RegionBranchTerminatorOpInterface>(user));
+    for (mlir::Operation *user : tokens[index].getUsers())
+      predecessors.emplace_back(llvm::cast<mlir::RegionBranchTerminatorOpInterface>(user));
   }
 }
 
@@ -191,24 +192,24 @@ void predecessorsOf(Group op, RegionSuccessor successor,
 // idr.join
 //===----------------------------------------------------------------------===//
 
-LogicalResult JoinOp::verifyRegions() { return verifyGroup(*this); }
+mlir::LogicalResult JoinOp::verifyRegions() { return verifyGroup(*this); }
 
-void JoinOp::getSuccessorRegions(RegionBranchPoint point,
-                                 SmallVectorImpl<RegionSuccessor> &regions) {
+void JoinOp::getSuccessorRegions(mlir::RegionBranchPoint point,
+                                 llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions) {
   successorsOf(*this, point, regions);
 }
 
-ValueRange JoinOp::getSuccessorInputs(RegionSuccessor successor) {
+mlir::ValueRange JoinOp::getSuccessorInputs(mlir::RegionSuccessor successor) {
   return inputsOf(*this, successor);
 }
 
-void JoinOp::getRegionInvocationBounds(ArrayRef<Attribute>,
-                                       SmallVectorImpl<InvocationBounds> &bounds) {
+void JoinOp::getRegionInvocationBounds(llvm::ArrayRef<mlir::Attribute>,
+                                       llvm::SmallVectorImpl<mlir::InvocationBounds> &bounds) {
   boundsOf(*this, bounds);
 }
 
-void JoinOp::getPredecessors(RegionSuccessor successor,
-                             SmallVectorImpl<RegionBranchPoint> &predecessors) {
+void JoinOp::getPredecessors(mlir::RegionSuccessor successor,
+                             llvm::SmallVectorImpl<mlir::RegionBranchPoint> &predecessors) {
   predecessorsOf(*this, successor, predecessors);
 }
 
@@ -216,33 +217,37 @@ void JoinOp::getPredecessors(RegionSuccessor successor,
 // join region's, whose erased binders the jump instantiates: an argument
 // is an instance of its parameter's pattern. The jump's verifier and the
 // function's scope walk check the exact instance.
-bool JoinOp::areTypesCompatible(Type lhs, Type rhs) {
+bool JoinOp::areTypesCompatible(mlir::Type lhs, mlir::Type rhs) {
   return lhs == rhs || families::instanceOf(lhs, rhs);
 }
 
-Region *JoinOp::getTarget(BlockArgument token) { return targetOf(*this, token); }
+mlir::Region *JoinOp::getTarget(mlir::BlockArgument token) { return targetOf(*this, token); }
 
-Block::BlockArgListType JoinOp::getTokens(Region &region) { return tokensOf(*this, region); }
+mlir::Block::BlockArgListType JoinOp::getTokens(mlir::Region &region) {
+  return tokensOf(*this, region);
+}
 
-Block::BlockArgListType JoinOp::getParameters(Region &region) {
+mlir::Block::BlockArgListType JoinOp::getParameters(mlir::Region &region) {
   return parametersOf(*this, region);
 }
 
-ArrayRef<families::Sort> JoinOp::getBoundSorts(Region &region) {
+llvm::ArrayRef<families::Sort> JoinOp::getBoundSorts(mlir::Region &region) {
   if (&region == &getBody())
     return {};
-  return cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
+  return llvm::cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
 }
 
-Value JoinOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
+mlir::Value JoinOp::getStatedLifetime(mlir::Value made) {
+  return lifetimes::statedOuter(*this, made, 0);
+}
 
-void JoinOp::setStatedLifetime(Value made, Value lifetime) {
+void JoinOp::setStatedLifetime(mlir::Value made, mlir::Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
 unsigned JoinOp::getScopedBindings() { return control::scopedBindings(*this); }
 
-std::optional<unsigned> JoinOp::getBindingEntry(Value made) {
+std::optional<unsigned> JoinOp::getBindingEntry(mlir::Value made) {
   return control::bindingEntry(*this, made);
 }
 
@@ -251,60 +256,65 @@ std::optional<unsigned> JoinOp::getBindingEntry(Value made) {
 // idr.loop
 //===----------------------------------------------------------------------===//
 
-LogicalResult LoopOp::verifyRegions() { return verifyGroup(*this); }
+mlir::LogicalResult LoopOp::verifyRegions() { return verifyGroup(*this); }
 
-void LoopOp::getSuccessorRegions(RegionBranchPoint point,
-                                 SmallVectorImpl<RegionSuccessor> &regions) {
+void LoopOp::getSuccessorRegions(mlir::RegionBranchPoint point,
+                                 llvm::SmallVectorImpl<mlir::RegionSuccessor> &regions) {
   successorsOf(*this, point, regions);
 }
 
-ValueRange LoopOp::getSuccessorInputs(RegionSuccessor successor) {
+mlir::ValueRange LoopOp::getSuccessorInputs(mlir::RegionSuccessor successor) {
   return inputsOf(*this, successor);
 }
 
-void LoopOp::getRegionInvocationBounds(ArrayRef<Attribute>,
-                                       SmallVectorImpl<InvocationBounds> &bounds) {
+void LoopOp::getRegionInvocationBounds(llvm::ArrayRef<mlir::Attribute>,
+                                       llvm::SmallVectorImpl<mlir::InvocationBounds> &bounds) {
   boundsOf(*this, bounds);
 }
 
-void LoopOp::getPredecessors(RegionSuccessor successor,
-                             SmallVectorImpl<RegionBranchPoint> &predecessors) {
+void LoopOp::getPredecessors(mlir::RegionSuccessor successor,
+                             llvm::SmallVectorImpl<mlir::RegionBranchPoint> &predecessors) {
   predecessorsOf(*this, successor, predecessors);
 }
 
-bool LoopOp::areTypesCompatible(Type lhs, Type rhs) {
+bool LoopOp::areTypesCompatible(mlir::Type lhs, mlir::Type rhs) {
   return lhs == rhs || families::instanceOf(lhs, rhs);
 }
 
-Region *LoopOp::getTarget(BlockArgument token) { return targetOf(*this, token); }
+mlir::Region *LoopOp::getTarget(mlir::BlockArgument token) { return targetOf(*this, token); }
 
-Block::BlockArgListType LoopOp::getTokens(Region &region) { return tokensOf(*this, region); }
+mlir::Block::BlockArgListType LoopOp::getTokens(mlir::Region &region) {
+  return tokensOf(*this, region);
+}
 
-Block::BlockArgListType LoopOp::getParameters(Region &region) {
+mlir::Block::BlockArgListType LoopOp::getParameters(mlir::Region &region) {
   return parametersOf(*this, region);
 }
 
-ArrayRef<families::Sort> LoopOp::getBoundSorts(Region &region) {
+llvm::ArrayRef<families::Sort> LoopOp::getBoundSorts(mlir::Region &region) {
   if (&region == &getBody())
     return {};
-  return cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
+  return llvm::cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
 }
 
 // The loop's regions for upstream's loop utilities (LICM among them): its
 // join regions, which repeat; the body runs once.
-SmallVector<Region *> LoopOp::getLoopRegions() {
-  return llvm::map_to_vector(getJoinRegions(), [](Region &region) { return &region; });
+llvm::SmallVector<mlir::Region *> LoopOp::getLoopRegions() {
+  return llvm::map_to_vector(getJoinRegions(), [](mlir::Region &region) { return &region; });
 }
 
-Value LoopOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
+mlir::Value LoopOp::getStatedLifetime(mlir::Value made) {
+  return lifetimes::statedOuter(*this, made, 0);
+}
 
-void LoopOp::setStatedLifetime(Value made, Value lifetime) {
+void LoopOp::setStatedLifetime(mlir::Value made, mlir::Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
 unsigned LoopOp::getScopedBindings() { return control::scopedBindings(*this); }
 
-std::optional<unsigned> LoopOp::getBindingEntry(Value made) {
+std::optional<unsigned> LoopOp::getBindingEntry(mlir::Value made) {
   return control::bindingEntry(*this, made);
 }
 
+} // namespace idr
