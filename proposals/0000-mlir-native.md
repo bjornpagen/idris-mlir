@@ -4325,6 +4325,12 @@ C137.
   list, which C223's longest list now includes. A cycle through such
   arcs is a recursion that wraps a dictionary deeper at each call, a
   type that grows at each call, refused as any unbounded growth is.
+  *Sharpened* (L16bb's evidence): a holder's held values are two
+  positions, a one-value list's value as itself and the values of a
+  longer list in pairs, so a recursion that passes its dictionary on
+  unchanged has gain 0 and reaches its fixed key, while wrapping it
+  deeper is still refused. With one position per holder, passing on was
+  an arc of gain count−1, refused at a count of two.
 
 ## 4. Open: the owner's decisions, in order
 
