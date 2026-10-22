@@ -342,7 +342,7 @@ yieldOp = MkOp
 ||| interface.
 export
 scfIf : Admitted
-scfIf = MkAdmitted SCF "IfOp" (between Higher Owned) FrontendWrites [] []
+scfIf = MkAdmitted SCF "IfOp" "SCF_IfOp" (between Higher Owned) FrontendWrites [] [] Nothing
 
 ||| `scf.yield`: ends a region of `scf.if`, and of the scf loops passes
 ||| write, with what it gives the op's results. Upstream declares it pure,
@@ -350,7 +350,7 @@ scfIf = MkAdmitted SCF "IfOp" (between Higher Owned) FrontendWrites [] []
 ||| its ownership on, which is no consumption.
 export
 scfYield : Admitted
-scfYield = MkAdmitted SCF "YieldOp" (between Higher Owned) FrontendWrites [] []
+scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) FrontendWrites [] [] Nothing
 
 ||| Every upstream op control flow admits, once: those the frontend writes.
 export
