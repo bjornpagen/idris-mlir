@@ -3722,6 +3722,20 @@ C137.
   as `idr.func` and `idr.call`: a lifetime is an SSA value whose
   dominance MLIR checks (D93), not a field of a type or an attribute, and
   one interface states it for every op that makes scoped values.
+- **C171** (2026-10-21; L10's finding of a bug in frames' wrapper; C96's
+  answer slot). Where a function waits for an answer written through a
+  destination, the slot is one op, `idr.dest.answer`: a single region
+  that receives a `!idr.dest<R>` and the op's result, of type `R`, is
+  the value written through it, read out when the region ends. The
+  destination is used exactly once on every path (it is linear by its
+  type), cannot leave the region (dominance), and no call inside the
+  region is in tail position, since the op reads its slot after the
+  region; so C97 holds for it with no reading of where a destination
+  points. It lowers to a stack slot of `R`'s components, which the
+  destination's addresses name and the result loads. It replaces the
+  wrapper's `cell.stack` cell with a counted init, which refused an
+  answers member laid out in place, returned views of its own
+  activation, and had no way to move an owned value out of the slot.
 
 ## 4. Open: the owner's decisions, in order
 
