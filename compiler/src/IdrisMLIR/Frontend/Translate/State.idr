@@ -226,19 +226,18 @@ record StaticReading where
   height : Nat
   head : Maybe Address
 
-||| A function instance requested: its identity, its definition, its
-||| parameters as the call that requested it classified them, so that it is
-||| translated at the same values, its key, the call that requested it,
-||| where and in whose definition, for a message to print, its link, which
-||| is its identity, its node, and the height of each static argument by
-||| its parameter's index, ascending, which the worklist checks against the
-||| growth check's bounds at the node's positions (`Finite`). The node's
-||| heads and the heights are the arguments' readings, found when the
-||| instance is requested (`Instances.request`).
+||| A function instance requested: its definition, its parameters as the
+||| call that requested it classified them, so that it is translated at the
+||| same values, its key, the call that requested it, where and in whose
+||| definition, for a message to print, its link, which is its identity,
+||| its node, and the height of each static argument by its parameter's
+||| index, ascending, which the worklist checks against the growth check's
+||| bounds at the node's positions (`Finite`). The node's heads and the
+||| heights are the arguments' readings, found when the instance is
+||| requested (`Instances.request`).
 public export
 record Request where
   constructor MkRequest
-  inst : FnId
   name : Name
   kinds : List PKind
   key : InstanceKey
@@ -247,6 +246,11 @@ record Request where
   link : Link Form
   node : Node
   heights : List (Nat, Nat)
+
+||| A request's identity: the instance its link is.
+public export
+(.inst) : Request -> FnId
+(.inst) r = InstanceOf r.link
 
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
@@ -443,11 +447,9 @@ record TS where
   ||| (`Finite`), and so the order of the program's functions. An instance
   ||| translated again keeps its place.
   fnOrder : SnocList FnId
-  ||| The function instances requested, each by its link, its identity
-  ||| minted once, in request order, the next one `nextInstance`: a number,
-  ||| never text, and never part of what the program is called.
-  fnIds : SortedMap (Link Form) FnId
-  nextInstance : Nat
+  ||| The function instances requested, by their identity, which is their
+  ||| content: requesting one derives it, and nothing mints it.
+  instances : SortedSet FnId
   ||| The instances requested since the worklist last took them, in the
   ||| order requested (`Finite.requestedUnder`).
   requested : SnocList Request
@@ -536,7 +538,7 @@ export
 initState : Modules -> SortedSet Name -> NonEmptyFC -> TS
 initState loaded ifaces fc = MkTS
   { familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
-  , cons = empty, fns = empty, fnOrder = [<], fnIds = empty, nextInstance = 0, requested = [<], moduleFC = fc
+  , cons = empty, fns = empty, fnOrder = [<], instances = empty, requested = [<], moduleFC = fc
   , nextComponent = 0
   , loops = empty, named = empty, keyLinks = empty, blockNames = empty
   , choiceIds = empty, choices = empty, dispatches = empty, dispatchesOn = empty

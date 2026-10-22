@@ -141,12 +141,12 @@ mutual
   gradedIn : Among -> Uses -> Held -> Ty -> MlirType
   gradedIn a u h t = case (u, reachesIn a t, h) of
     (Many, WordsOnly, _) => typeIn a t
-    (Once, WordsOnly, _) => IdrHand (GradedOf Once Nothing (typeIn a t))
+    (Once, WordsOnly, _) => Idr (GradedType Once Nothing (typeIn a t))
     -- A value that holds references, used freely and freed by its count
     -- with no claim of its sharing, is the bare type: every such value
     -- before counting.
     (Many, HoldsReferences, Held.Counted) => typeIn a t
-    (_, HoldsReferences, _) => IdrHand (GradedOf u (Just (holdOf h)) (typeIn a t))
+    (_, HoldsReferences, _) => Idr (GradedType u (Just (holdOf h)) (typeIn a t))
 
   ||| An index term's nodes, in preorder, among the families given: a
   ||| type standing as an index is a literal of its type attribute; a
@@ -174,8 +174,8 @@ mutual
 ||| What the specification's grade says of a hold the frontend writes:
 ||| freed by its count with no claim of its sharing, or static.
 holdOf : Held -> Hold
-holdOf Held.Counted = Hold.Counted Unique.None
-holdOf Held.Exclusive = Hold.Counted Unique.Deep
+holdOf Held.Counted = Hold.Counted None
+holdOf Held.Exclusive = Hold.Counted Deep
 holdOf Held.Static = Hold.Static
 
 ||| The module's type of a Core type, among the program's families.
@@ -193,7 +193,7 @@ gradedType ix = gradedIn (MkAmong ix.families empty)
 ||| to be one of them, under its grade; the tags are part of the data type,
 ||| as `DataType::refined` makes it.
 refine : MlirType -> List1 Nat -> MlirType
-refine (IdrHand (GradedOf u h t)) tags = IdrHand (GradedOf u h (refine t tags))
+refine (Idr (GradedType u h t)) tags = Idr (GradedType u h (refine t tags))
 refine (IdrHand (DataOf g m ts _)) tags = IdrHand (DataOf g m ts (Just (DenseI32ArrayAttr (forget tags))))
 refine t tags = t
 
@@ -259,7 +259,7 @@ fieldType ix = fieldTypeIn (MkAmong ix.families empty)
 fieldsIn : Among -> List Binder -> List MlirType
 fieldsIn a [] = []
 fieldsIn a (MkBinder _ WorldT :: bs) = fieldsIn a bs
-fieldsIn a (MkBinder Once t :: bs) = IdrHand (GradedOf Once Nothing (fieldTypeIn a t)) :: fieldsIn a bs
+fieldsIn a (MkBinder Once t :: bs) = Idr (GradedType Once Nothing (fieldTypeIn a t)) :: fieldsIn a bs
 fieldsIn a (MkBinder Many t :: bs) = fieldTypeIn a t :: fieldsIn a bs
 
 ||| A constructor as its family's declaration holds it: its label, its

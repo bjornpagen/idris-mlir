@@ -56,6 +56,7 @@ import Control.WellFounded
 import Data.Fin
 import Data.List
 import Data.List.Elem
+import Data.List1
 import Data.List.Quantifiers
 import Data.Nat
 import Data.So
@@ -184,6 +185,7 @@ mutual
 -- decides.
 byRoot : View -> Own -> Root -> Template -> SortedSet Address
 byRoot v own (Rooted j) _ = singleton j
+byRoot v own (Members js) _ = fromList (forget js)
 byRoot v own (Parameter i Z) _ = own i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own t
 byRoot v own Unrooted t = byTemplate v own t
@@ -192,6 +194,7 @@ byRoot v own Unrooted t = byTemplate v own t
 -- own family there. A family no type constructor heads splits nothing.
 byFamily : Own -> Root -> SortedSet Address
 byFamily own (Rooted j) = singleton j
+byFamily own (Members _) = empty
 byFamily own (Parameter i Z) = own i
 byFamily own (Parameter _ (S _)) = empty
 byFamily own Unrooted = empty

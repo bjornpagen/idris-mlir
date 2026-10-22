@@ -90,9 +90,9 @@ types =
   , Idr (FnType [] [])
   , Idr (FnType [i64] [i64])
   , Idr (LazyType nat)
-  , IdrHand (GradedOf Once Nothing i64)
-  , IdrHand (GradedOf Once (Just (Hold.Counted Unique.None)) str)
-  , IdrHand (GradedOf Many (Just Hold.Static) str)
+  , Idr (GradedType Once Nothing i64)
+  , Idr (GradedType Once (Just (Hold.Counted None)) str)
+  , Idr (GradedType Many (Just Hold.Static) str)
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
   , MemRefType [Dynamic] (IntegerType 8) (Just (Idr MutableAttr))
@@ -202,10 +202,10 @@ sample =
             (FunctionType (MkSignature [vecAny, nat, i64, str] [i64]))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
-                 binding "%nil" (Idr.dataConOp [] (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0])))))
-               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0]))))) vecAny)
-               , binding "%lin" (Idr.linCastOp x (IdrHand (GradedOf Once Nothing i64)))
-               , binding "%used" (Idr.linCastOp (MkValue "%lin" (IdrHand (GradedOf Once Nothing i64))) i64)
+                 binding "%nil" (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0])))))
+               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
+               , binding "%lin" (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
+               , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) [] i64)
                , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x i64)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
@@ -214,14 +214,14 @@ sample =
                , binding "%applied" (Idr.fnApplyOp (MkValue "%f" fn) [x] [i64])
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
-               , binding "%m" (Idr.dataMatchOp v
-                                 [ (0, [], block [MkValue "%none" (IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [0]))))]
-                                             [stmt (Idr.yieldOp [MkValue "%checked" i64])])
-                                 , (1, [SortNat], block [cons]
-                                     [ binding "%hd" (Idr.dataFieldOp cons 0 nat)
-                                     , binding "%tl" (Idr.dataFieldOp cons 1 (IdrHand (DataOf natLists 0 [LevelNode 1] Nothing)))
-                                     , stmt (Idr.yieldOp [x]) ]) ]
-                                 NoBlocks [i64])
+               , binding "%m" (Idr.dataMatchOp (DenseI32ArrayAttr [0, 1]) v [] [] NoBlocks
+                                 [ block [MkValue "%none" (IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [0]))))]
+                                     [stmt (Idr.yieldOp [MkValue "%checked" i64])]
+                                 , block [cons]
+                                     [ binding "%hd" (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
+                                     , binding "%tl" (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (IdrHand (DataOf natLists 0 [LevelNode 1] Nothing)))
+                                     , stmt (Idr.yieldOp [x]) ] ]
+                                 [i64])
                , binding "%c4" (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
                , binding "%dest" (Tensor.emptyOp [c4] vec)
                , binding "%t" (Idr.arrayTabulateOp (MkValue "%dest" vec)

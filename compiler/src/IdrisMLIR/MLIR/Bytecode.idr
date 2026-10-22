@@ -146,6 +146,54 @@ prefixVarInt n = go lengths
 signedVarInt : Integer -> List Bits8
 signedVarInt n = prefixVarInt (cast (if n >= 0 then 2 * n else -2 * n - 1))
 
+||| The digits of a non-negative integer's decimal print bound its bits: a
+||| number of d digits is below 10^d, below 2^(4d). A walk over its bits or
+||| its words takes no more steps than that, one per step.
+digitBound : Integer -> Nat
+digitBound m = 4 * length (show m)
+
+||| The bits a non-negative integer needs: none for zero.
+bitLength : Integer -> Nat
+bitLength m = go (digitBound m) m
+  where
+    go : Nat -> Integer -> Nat
+    go Z _ = 0
+    go (S k) v = if v == 0 then 0 else S (go k (v `div` 2))
+
+||| The words of a non-negative integer, least significant first, up to
+||| its highest that is not zero, at least one: upstream's active words.
+activeWords : Integer -> List Integer
+activeWords m = go (S (digitBound m `div` 64)) m
+  where
+    go : Nat -> Integer -> List Integer
+    go Z _ = []
+    go (S k) v = let rest = v `div` pow2 64 in
+                 v `mod` pow2 64 :: (if rest == 0 then [] else go k rest)
+
+||| A 64-bit word as the signed integer of its bits, as upstream zigzags
+||| one.
+signedWord : Integer -> Integer
+signedWord u = if u >= pow2 63 then u - pow2 64 else u
+
+||| An integer of any size as the dialect's hand codec writes it: its
+||| width, the fewest bits that hold it in two's complement, then
+||| upstream's integer of that width (`writeAPIntWithKnownWidth`) over its
+||| bits read unsigned: a byte up to 8 bits; a zigzagged PrefixVarInt up to
+||| 64; past that, how many active words, then each word zigzagged as the
+||| signed word of its bits.
+integerBytes : Integer -> List Bits8
+integerBytes n =
+  let width = S (bitLength (if n >= 0 then n else -n - 1))
+      bits = if n >= 0 then n else n + pow2 width
+  in prefixVarInt width ++ known width bits
+  where
+    known : Nat -> Integer -> List Bits8
+    known width bits =
+      if width <= 8 then [cast bits]
+      else if width <= 64 then signedVarInt (signedWord bits)
+      else let ws = activeWords bits in
+           prefixVarInt (length ws) ++ concatMap (signedVarInt . signedWord) ws
+
 varint : Bytes -> Nat -> W ()
 varint bs n = bytes bs (prefixVarInt n)
 
@@ -298,6 +346,7 @@ opNameNumber w name =
 partBytes : Writer -> Part -> W (List Bits8)
 partBytes w (VarInt n) = pure (prefixVarInt n)
 partBytes w (SignedVarInt n) = pure (signedVarInt n)
+partBytes w (IntegerAt n) = pure (integerBytes n)
 partBytes w (Flag b) = pure [if b then 1 else 0]
 partBytes w (Str s) = prefixVarInt <$> stringNumber w s
 partBytes w (TypeAt r) = pure (prefixVarInt r.number)
@@ -525,7 +574,6 @@ mutual
     pure (encodeDataType (groupParts g') m (termsParts is') (refinementParts r') (termsParts (the (List (TermNode TypeRef AttrRef)) [])))
   handType w (SelfOf m is) = encodeSelfType m . termsParts <$> nodesNumbered w is
   handType w (NatOf i) = encodeNatType . termsParts <$> nodesNumbered w i
-  handType w (GradedOf u h c) = encodeGradedType u (holdParts h) <$> typeNumber w c
 
   ||| A type's entry.
   export

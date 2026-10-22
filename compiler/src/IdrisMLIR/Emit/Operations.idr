@@ -220,7 +220,7 @@ coerce ix l use v = case (v.uses, use) of
     cast : Uses -> E Val
     cast u = do
       let v' = { uses := u } v
-      r <- mlirValueAt (madeAt binder l u) (valueType ix v') (Idr.linCastOp (operand ix v))
+      r <- mlirValueAt (madeAt binder l u) (valueType ix v') (Idr.linCastOp (operand ix v) [])
       pure ({ name := r.name } v')
 
 ------------------------------------------------------------------------------
@@ -286,8 +286,8 @@ math1 Ceiling = Math.ceilOp
 ||| Fixed-width arithmetic, the variable `binder` bound to it. The bitwise
 ||| and wrapping ops are `arith`, whose integers are signless. Division and
 ||| remainder of a signed integer are Euclidean, the dialect's partial ops;
-||| of an unsigned one they are `arith`'s, after the guard that its divisor
-||| is not zero.
+||| of an unsigned one they are `arith`'s, whose builders give the guard
+||| that the divisor is not zero, as the specification admits them.
 intArith : Maybe Binding -> Index -> Loc -> ArithOp -> IntTy -> Val -> Val -> E Val
 intArith binder ix l Add t x y = value {binder} ix l (IntT t) (Arith.addiOp (operand ix x) (operand ix y))
 intArith binder ix l Sub t x y = value {binder} ix l (IntT t) (Arith.subiOp (operand ix x) (operand ix y))
@@ -297,14 +297,10 @@ intArith binder ix l Or t x y = value {binder} ix l (IntT t) (Arith.oriOp (opera
 intArith binder ix l Xor t x y = value {binder} ix l (IntT t) (Arith.xoriOp (operand ix x) (operand ix y))
 intArith binder ix l Div t x y = case signedness t of
   Signed => guardedValue {binder} ix l (IntT t) (Idr.intDivSOp (operand ix x) (operand ix y))
-  Unsigned => do
-    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (causeAttr DivisionByZero) !(siteOf l) (operand ix y))
-    value {binder} ix l (IntT t) (Arith.divuiOp (operand ix x) d)
+  Unsigned => guardedValue {binder} ix l (IntT t) (Arith.divuiOp (operand ix x) (operand ix y))
 intArith binder ix l Mod t x y = case signedness t of
   Signed => guardedValue {binder} ix l (IntT t) (Idr.intModSOp (operand ix x) (operand ix y))
-  Unsigned => do
-    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (causeAttr DivisionByZero) !(siteOf l) (operand ix y))
-    value {binder} ix l (IntT t) (Arith.remuiOp (operand ix x) d)
+  Unsigned => guardedValue {binder} ix l (IntT t) (Arith.remuiOp (operand ix x) (operand ix y))
 
 ||| A shift of a fixed-width integer, an op per direction and signedness,
 ||| since a shift amount's signedness is part of the computation.
@@ -442,8 +438,15 @@ fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l 
       t <- operand ix <$> coerce ix l Many v
       b <- mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
       case q of
+        -- A buffer at a position used many times stays the array's, which
+        -- other values may share: nothing takes it over.
         Many => pure b
-        Once => mlirValue l (IdrHand (GradedOf Once Nothing b.type)) (Idr.linCastOp b)
+        -- A buffer at a linear position is the one reference to it: it
+        -- enters the grades here, taken over by counting, so the cell that
+        -- holds it can claim it unshared, as its type promises.
+        Once => do
+          a <- mlirValue l b.type (Idr.ownAdoptOp b)
+          mlirValue l (Idr (GradedType Once Nothing a.type)) (Idr.linCastOp a [])
     held b = operand ix <$> coerce ix l b.quantity v
 
 ||| A constructor application (`idr.con`), built with every field: its value
@@ -455,7 +458,7 @@ con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List 
 con ix l c bs vs = do
   os <- fieldOperands ix l c.fields vs
   let v = MkVal "" (conType c bs) Many Held.Exclusive (OneOf (c.tag ::: []))
-  r <- mlirValueAt (madeAt binder l Many) (valueType ix v) (Idr.dataConOp os)
+  r <- mlirValueAt (madeAt binder l Many) (valueType ix v) (Idr.dataConOp os [])
   pure ({ name := r.name } v)
 
 ------------------------------------------------------------------------------

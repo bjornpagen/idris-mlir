@@ -168,13 +168,22 @@ record Arm where
   result : Maybe Val
   statements : List Statement
 
-||| A case of a match: its constructor's tag, the sorts of the binders it
-||| binds, and its arm.
+||| A case of a match: its constructor's tag, or its literal's place among
+||| the keys, and its arm. The sorts a data case binds are its
+||| constructor's, which the op reads off the family; nothing writes them.
 record Case where
   constructor MkCase
   tag : Nat
-  binders : List (SortOf MlirType MlirAttr)
   arm : Arm
+
+||| The regions of a match's cases, in order: each arm's arguments and its
+||| statements.
+caseRegions : List Case -> List MLIR.Region
+caseRegions = map (\c => MkRegion c.arm.arguments c.arm.statements)
+
+||| A field's position as `idr.data.field` holds it.
+fieldIndex : Nat -> MlirAttr
+fieldIndex i = IntegerAttr (natToInteger i) (IntegerType 64)
 
 ||| The yield that ends a region with its value; a region that never
 ||| returns has ended in a terminator already.
@@ -211,7 +220,7 @@ match ix l w build cases fallback =
       statement l UB.unreachableOp
       pure Nothing
 
-||| A literal as a key of `idr.match_lit`.
+||| A literal as a key of `idr.lit.match`.
 key : Lit -> MlirAttr
 key (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
 key (LChar c) = IntegerAttr c (IntegerType 32)
@@ -338,11 +347,11 @@ caseFields ix l r takenApart bs = case (r.uses, takenApart) of
     -- and never written in place here: what may write it is decided once
     -- exclusivity is.
     read i (MkBinder _ t@(TensorT _ _)) = do
-      buf <- mlirValue l (fieldType ix t) (Idr.dataFieldOp (operand ix r) i)
+      buf <- mlirValue l (fieldType ix t) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
       v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} buf)
       pure (Whole (val v.name t Many Held.Counted))
     read i b = do
-      v <- mlirValue l (gradedType ix Many (fieldHold b) b.type) (Idr.dataFieldOp (operand ix r) i)
+      v <- mlirValue l (gradedType ix Many (fieldHold b) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
       pure (Whole (val v.name b.type Many (fieldHold b)))
 
 ||| Starts a function: its own SSA numbers and operations.
@@ -377,7 +386,7 @@ holding ix l binder t captures build =
   where
     linearType : Value -> Bool
     linearType v = case v.type of
-      IdrHand (GradedOf Once _ _) => True
+      Idr (GradedType Once _ _) => True
       _ => False
 
 ||| The tail fact of a call at a position: in tail position a tail call; as
@@ -480,10 +489,12 @@ alg ix (CaseF l x arms) sc w = do
     Exhaustive alts => do
       cs <- traverse (alternative scrut) (forget alts)
       pure (cs, Nothing)
-  match ix l w (\cs, d, ts => Idr.dataMatchOp (operand ix scrut) (map caseRegion cs) d ts) cases fallback
+  -- The frontend forwards no value and states no lifetime: the scoped
+  -- values a match makes are decided once lifetimes are, which sets its
+  -- `outers`.
+  match ix l w (\cs, d, ts => Idr.dataMatchOp (DenseI32ArrayAttr (map (.tag) cs)) (operand ix scrut) [] [] d (caseRegions cs) ts)
+        cases fallback
   where
-    caseRegion : Case -> (Nat, List (SortOf MlirType MlirAttr), MLIR.Region)
-    caseRegion c = (c.tag, c.binders, MkRegion c.arm.arguments c.arm.statements)
     -- The value a region binds: the scrutinee refined to the constructors
     -- given, its argument at the region's start.
     refinedArg : Val -> List1 Nat -> E (Val, Argument)
@@ -500,7 +511,7 @@ alg ix (CaseF l x arms) sc w = do
       (res, ops) <- collect $ do
         vals <- caseFields ix l r (names 0 k body.term) bs
         plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
-      pure (MkCase c.tag (map (sortOf ix . (.sort)) c.binders) (MkArm [arg] res ops))
+      pure (MkCase c.tag (MkArm [arg] res ops))
     -- The default binds the scrutinee refined to the constructors no case
     -- takes; none is left only when Idris proved the cases cover it, which
     -- is `Exhaustive`, so a default here has at least one.
@@ -515,7 +526,7 @@ alg ix (CaseF l x arms) sc w = do
           pure (v, MkArgument a (At l))
       (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
       pure (MkArm [arg] res ops)
--- `idr.match_lit` has no exhaustive form: when Idris proved the default
+-- `idr.lit.match` has no exhaustive form: when Idris proved the default
 -- impossible, the last possible alternative stands for it, and a match of
 -- one is that alternative.
 alg ix (CaseLitF l x arms) sc w = case arms of
@@ -535,8 +546,8 @@ alg ix (CaseLitF l x arms) sc w = case arms of
       litMatch (map fst cases) scrut arms (MkArm [MkArgument arg (At l)] res ops)
     litMatch : List Lit -> Val -> List Arm -> Arm -> E (Maybe Val)
     litMatch ks scrut arms fallback =
-      match ix l w (\cs, dr, ts => Idr.litMatchOp (operand ix scrut) (map key ks) dr (map (\c => MkRegion [] c.arm.statements) cs) ts)
-            (map (\a => MkCase 0 [] a) arms) (Just fallback)
+      match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map key ks)) (operand ix scrut) [] dr (caseRegions cs) ts)
+            (map (MkCase 0) arms) (Just fallback)
 -- The predecessor exists only where the value is not zero: the successor's
 -- arm computes it from the value it binds, and only it binds it.
 alg ix (CaseNatF l x arms) sc w = case arms of
@@ -547,8 +558,8 @@ alg ix (CaseNatF l x arms) sc w = case arms of
     (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
     (back, arg) <- freshVal ix (NatT IOpaque) Many
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
-    match ix l w (\cs, dr, ts => Idr.litMatchOp (operand ix n) [key (LNat 0)] dr (map (\c => MkRegion [] c.arm.statements) cs) ts)
-          [MkCase 0 [] (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
+    match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [key (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
+          [MkCase 0 (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
     successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do
@@ -680,7 +691,7 @@ alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
     resultOf : Val -> E Val
     resultOf res = do
       let e = typeOf (head step.fields)
-      v <- mlirValue l (gradedType ix Many Held.Counted e) (Idr.dataFieldOp (operand ix res) 0)
+      v <- mlirValue l (gradedType ix Many Held.Counted e) (Idr.dataFieldOp (fieldIndex 0) (operand ix res) [])
       pure (val v.name e Many Held.Counted)
 alg ix (UnreachableF l) sc _ = do
   statement l UB.unreachableOp

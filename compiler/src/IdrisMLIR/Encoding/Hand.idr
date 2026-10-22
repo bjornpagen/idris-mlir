@@ -2,8 +2,8 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The `idr` types and attributes whose parameters the dialect's C++ codes
 ||| by hand: the families' index terms, sorts and members
-||| (`lib/IR/Families/Bytecode.cpp`), a natural's index term, a grade's hold
-||| and a termination proof. The specification's generator gives each of
+||| (`lib/IR/Families/Bytecode.cpp`), a natural's index term and a
+||| termination proof. The specification's generator gives each of
 ||| their encoders such a parameter as its parts already laid out, and an
 ||| entry's parts can only be laid out once the writer has numbered what it
 ||| holds; so the frontend holds these values typed, and lays out their
@@ -18,8 +18,6 @@ import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Terms
 import IdrisMLIR.Spec.Functions.Termination
-import IdrisMLIR.Spec.Grades.Declarations
-import IdrisMLIR.Spec.Grades.Grade
 
 %default total
 
@@ -79,15 +77,13 @@ data DataMember : (ty, at : Type) -> Type where
 ||| The hand-coded `idr` types: `!idr.data`, a member of a family's group
 ||| applied to one term per index, refined to the tags a dense array of
 ||| `i32` holds (none unrefined, empty uninhabited); `!idr.self`, a member
-||| of the group being declared, in a field of that group; `!idr.nat`, a
-||| natural, linked to the one index term it is; and `!idr.graded`, a
-||| carrier's uses and, where it holds references, its hold.
+||| of the group being declared, in a field of that group; and `!idr.nat`,
+||| a natural, linked to the one index term it is.
 public export
 data HandType : (ty, at : Type) -> Type where
   DataOf : (group : at) -> (member : Nat) -> (indices : List (TermNode ty at)) -> (refinement : Maybe at) -> HandType ty at
   SelfOf : (member : Nat) -> (indices : List (TermNode ty at)) -> HandType ty at
   NatOf : (index : List (TermNode ty at)) -> HandType ty at
-  GradedOf : Uses -> Maybe Hold -> (carrier : ty) -> HandType ty at
 
 ||| The hand-coded `idr` attributes: `#idr.family`, a group's data
 ||| members; `#idr.index_binders`, the sorts of a function's index
@@ -181,13 +177,6 @@ refinementParts r = [OptionalAttrAt r]
 export
 groupParts : AttrRef -> List Part
 groupParts g = [AttrAt g]
-
-||| A hold: zero where a carrier holds no reference, else one more than its
-||| case's place among the holds.
-export
-holdParts : Maybe Hold -> List Part
-holdParts Nothing = [VarInt 0]
-holdParts (Just h) = [VarInt (S (position holdClosed h))]
 
 ||| A termination proof: zero for a made function's acyclicity, else one
 ||| more than the component Idris proved it in.

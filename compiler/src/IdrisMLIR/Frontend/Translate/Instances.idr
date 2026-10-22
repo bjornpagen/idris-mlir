@@ -49,7 +49,8 @@ import Data.SortedSet
 -- (`Sites`). An implementation that is a function (`() -> Eq a`) and a
 -- family that is a lambda have no root (`Unrooted`) and split nothing:
 -- cases the problem has. A request's arguments hold no marker of the
--- growth check, so no root is a `Parameter` here. An argument is read
+-- growth check, so no root is a `Parameter` here, and no choice, which
+-- keys nothing, so none is a choice's `Members`. An argument is read
 -- once, by its kind and as the request's link writes it, its identity
 -- (`TS.readings`): the same type or implementation is given to many
 -- requests. Each argument comes with how the link writes it
@@ -65,6 +66,7 @@ readings i (Just ((Element kind _, t), w) :: as) = do
       (h, root) <- closedHeight kind t
       let r = MkStaticReading h (case root of
                              Rooted j => Just j
+                             Members _ => Nothing
                              Unrooted => Nothing
                              Parameter _ _ => Nothing)
       updateState { readings $= insert (kind, w) r }
@@ -85,19 +87,17 @@ request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> (owner : String) -> Name -> List PKind -> Front FnId
 request fc owner n kinds = do
   found <- instanceKey fc owner n snd (map staticKindOf kinds)
+  let inst = InstanceOf found.link
   st <- getState
-  case lookup found.link st.fnIds of
-    Just inst => pure inst
-    Nothing => do
-      let inst = MkFnId st.nextInstance
-      updateState { fnIds $= insert found.link inst, nextInstance $= S }
-      core (checkRecursion n)
-      read <- readings 0 found.arguments
-      let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
-      updateState { fnOrder $= (:< inst)
-                    , requested $= (:< MkRequest inst n kinds found.key fc (shown owner) found.link node
-                                                 (map (\(i, r) => (i, r.height)) read)) }
-      pure inst
+  if contains inst st.instances then pure inst else do
+    updateState { instances $= insert inst }
+    core (checkRecursion n)
+    read <- readings 0 found.arguments
+    let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+    updateState { fnOrder $= (:< inst)
+                  , requested $= (:< MkRequest n kinds found.key fc (shown owner) found.link node
+                                               (map (\(i, r) => (i, r.height)) read)) }
+    pure inst
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's

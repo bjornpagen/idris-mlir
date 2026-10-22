@@ -198,7 +198,7 @@ fit ix l slot v = case fitting slot v.type v.refinement of
     pure (val r.name t Many Held.Counted)
   Reindex t => do
     let v' = { type := t, refinement := AnyConstructor } v
-    r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v))
+    r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
     pure ({ name := r.name } v')
   Mismatch what expected =>
     internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
@@ -403,7 +403,7 @@ tensorOp ix l binder rt (Concat a x y) = do
           j <- mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} iv m)
           e <- readAt ix l Nothing el y (replaceAt a j cs)
           given ix l el e
-        r <- mlirValue l (mlirType ix el) (\t => Idr.litMatchOp flag [IntegerAttr 0 (IntegerType 64)]
+        r <- mlirValue l (mlirType ix el) (\t => Idr.litMatchOp (ArrayAttr [IntegerAttr 0 (IntegerType 64)]) flag []
                (MkRegion [] (xops ++ [MkStatement Nothing (Idr.yieldOp [fromX]) (At l)]))
                [MkRegion [] (yops ++ [MkStatement Nothing (Idr.yieldOp [fromY]) (At l)])] [t])
         pure (Just [r])

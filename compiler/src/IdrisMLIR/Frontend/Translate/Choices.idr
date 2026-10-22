@@ -50,6 +50,7 @@ import Data.List
 import Data.List1
 import Data.SnocList
 import Data.SortedMap
+import Data.SortedSet
 import Data.Vect
 
 %default total
@@ -124,17 +125,15 @@ mutual
   dispatchOn rest fc owner n kinds at ty = do
     choice <- choiceFamily fc owner ty
     found <- instanceKey fc owner n snd (map staticKindOf kinds)
+    let inst = InstanceOf found.link
     st <- getState
-    case lookup found.link st.fnIds of
-      Just inst => pure inst
-      Nothing => do
-        let inst = MkFnId st.nextInstance
-        let d = MkDispatch inst found.symbol found.key n kinds choice.family at rest fc owner empty
-        updateState { fnIds $= insert found.link inst, nextInstance $= S, fnOrder $= (:< inst)
-                    , dispatches $= insert inst d
-                    , dispatchesOn $= insert choice.family (inst :: fromMaybe [] (lookup choice.family st.dispatchesOn)) }
-        armsFor rest d 0 (choice.members <>> [])
-        pure inst
+    if contains inst st.instances then pure inst else do
+      let d = MkDispatch inst found.symbol found.key n kinds choice.family at rest fc owner empty
+      updateState { instances $= insert inst, fnOrder $= (:< inst)
+                  , dispatches $= insert inst d
+                  , dispatchesOn $= insert choice.family (inst :: fromMaybe [] (lookup choice.family st.dispatchesOn)) }
+      armsFor rest d 0 (choice.members <>> [])
+      pure inst
 
   ||| The arms of a dispatch for the members given, the first at position
   ||| `i`.

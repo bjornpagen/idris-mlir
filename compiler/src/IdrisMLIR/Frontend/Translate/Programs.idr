@@ -222,9 +222,9 @@ translateIOProgram fc main = do
   let loc = noLoc
   let body : Term 1
       body = App loc (Call loc inst Nothing [] []) (Var loc FZ)
-  -- The root's identity is the next the instance table would mint, so no
-  -- instance has it; its symbol is its key printed, as every symbol is.
-  let rootId = MkFnId st.nextInstance
+  -- The root is the one function of no definition, so no instance is it;
+  -- its symbol is its key printed, as every symbol is.
+  let rootId = RootFn
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`. It
   -- has no loop of its own; what main does is main's, which the passes find

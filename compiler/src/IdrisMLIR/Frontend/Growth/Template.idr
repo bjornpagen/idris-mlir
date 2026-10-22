@@ -99,11 +99,15 @@ data Template
 
 ||| What a dictionary or a family is at its root: the definition there (an
 ||| implementation or an interface constructor a dictionary is, the type
-||| constructor a family's value applies), the writer's own parameter there
-||| (a marker `Var i d`), or neither (a lambda's result, `\_ =>
-||| __Impl_Eq_Int`; a family that is a lambda).
+||| constructor a family's value applies); the implementations a dictionary
+||| a definition Idris does not prove ends computes can be, the ones its
+||| leaves give, each a member of the closed sum the translation makes of
+||| it and calls a callee at; the writer's own parameter there (a marker
+||| `Var i d`); or neither (a lambda's result, `\_ => __Impl_Eq_Int`; a
+||| family that is a lambda).
 public export
 data Root = Rooted Address
+          | Members (List1 Address)
           | Parameter Nat Nat
           | Unrooted
 
@@ -1335,7 +1339,7 @@ mutual
       DataConstructor a => pure (maybe Unrooted Rooted a)
       Defined a => do
         Just pr <- projection n
-          | Nothing => pure (Rooted a)
+          | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a args
         Just (field, []) <- projectedPiece pr args
           | _ => pure Unrooted
         Force field.root
@@ -1347,6 +1351,67 @@ mutual
       RuntimePart => pure Unrooted
       TypeConstructor _ => pure Unrooted
   rootOf w acc _ _ = pure Unrooted
+
+  ||| A definition applied that is no projection, at its root: itself, an
+  ||| implementation; or, where a definition Idris does not prove ends
+  ||| computes it, as the translation decides (`Instances.staticOrChosen`),
+  ||| a choice the translation computes at run time, whose members are the
+  ||| implementations its leaves give. The translation's dispatch calls a
+  ||| callee at each member, so the graph splits the callee by each, and
+  ||| each arm has its own bound at its own node. A choice none of whose
+  ||| leaves is rooted splits nothing, as a lambda's result does.
+  definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                   (head : ClosedTerm) -> Name -> Address -> List Piece -> Front Root
+  definitionRoot w acc head n a args = do
+    Stuck (OnPartial _) <- whnf (applyTo head (map (\p => Force p.written) args))
+      | _ => pure (Rooted a)
+    pure (case !(leafRoots w acc n args) of
+            [] => Unrooted
+            m :: ms => Members (m ::: ms))
+
+  ||| The implementations a definition applied gives at the leaves of its
+  ||| case tree: every alternative's, since what it matches on is known
+  ||| only at run time, each leaf read by its root, a leaf that is a choice
+  ||| in turn giving its members. A definition met again on its own
+  ||| unfolding gives nothing more.
+  leafRoots : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+              Name -> List Piece -> Front (List Address)
+  leafRoots w acc@(Access rec) n args = do
+    Just (placement, def) <- core (resolve n)
+      | Nothing => pure []
+    let PMDef _ pargs tree _ _ = definition def
+      | _ => pure []
+    case (bindParams pargs (map (\p => Force p.written) args), enter placement w) of
+      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env tree extras
+      _ => pure []
+
+  ||| The implementations a case tree gives at its leaves, its variables
+  ||| standing for what `env` says; a pattern's variables stand for the
+  ||| value matched, as a walk of every alternative reads them.
+  leaves : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+           Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (List Address)
+  leaves w acc env (STerm _ rhs) extras = do
+    root <- rootOf w acc (applyTo (close env rhs) extras) []
+    pure (case root of
+            Rooted j => [j]
+            Members ms => forget ms
+            Parameter _ _ => []
+            Unrooted => [])
+  leaves w acc env (Case idx p _ alts) extras = leavesOfAlts w acc env (valueAt env idx p) alts extras
+  leaves w acc env (Unmatched _) extras = pure []
+  leaves w acc env Impossible extras = pure []
+
+  leavesOfAlts : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                 Values ClosedTerm vs -> ClosedTerm -> List (CaseAlt vs) -> List ClosedTerm -> Front (List Address)
+  leavesOfAlts w acc env x [] extras = pure []
+  leavesOfAlts w acc env x (ConCase _ _ cargs t :: alts) extras =
+    (++) <$> leaves w acc (extend (bindAll cargs x) env) t extras <*> leavesOfAlts w acc env x alts extras
+  leavesOfAlts w acc env x (DelayCase _ _ t :: alts) extras =
+    (++) <$> leaves w acc (x :: x :: env) t extras <*> leavesOfAlts w acc env x alts extras
+  leavesOfAlts w acc env x (ConstCase _ t :: alts) extras =
+    (++) <$> leaves w acc env t extras <*> leavesOfAlts w acc env x alts extras
+  leavesOfAlts w acc env x (DefaultCase t :: alts) extras =
+    (++) <$> leaves w acc env t extras <*> leavesOfAlts w acc env x alts extras
 
 ||| What a dictionary is at its root (`rootOf`), never its written head:
 ||| `snd (MkPair x d)` is d's root. A lambda applied at its head is applied

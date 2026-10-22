@@ -1,14 +1,16 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Identifiers. Each kind of identity is its own type, so a function cannot
-||| be named where a family is meant. An identity is a dense number of the
-||| table that mints it, once; no identity reaches the output. A name the
-||| output carries (a symbol) is derived from the content it names, through
-||| XXH3's 128-bit hash where its print loses part of it, never from a
-||| number, so the order things are made in cannot reach the output.
+||| be named where a family is meant. A function instance is its content;
+||| any other identity is a dense number of the table that mints it, once.
+||| No identity reaches the output. A name the output carries (a symbol) is
+||| derived from the content it names, through XXH3's 128-bit hash where its
+||| print loses part of it, never from a number, so the order things are
+||| made in cannot reach the output.
 module IdrisMLIR.Ids
 
 import Hash.XXH3
+import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Spec.Core.Text
 
 import Data.Bits
@@ -17,14 +19,15 @@ import Data.List
 
 %default total
 
-||| A function instance, by its place in the program's instance table:
-||| minted once, when the instance is first requested, and never derived
-||| from text. Its symbol is a column of that table, printed once from its
-||| key (`Term.keyText`), for MLIR and for readers; nothing compares it.
+||| A function instance, by its content: the program's root, the one
+||| function of no definition; or an instance of a definition, its link
+||| (the definition's address and the static arguments the instance is
+||| translated at, written out). Requesting an instance derives its
+||| identity, so asking twice gives the same one and no table mints it.
+||| Its symbol is a column of the instance table, printed once from its key
+||| (`Term.keyText`), for MLIR and for readers; nothing compares it.
 public export
-record FnId where
-  constructor MkFnId
-  index : Nat
+data FnId = RootFn | InstanceOf (Link Form)
 
 ||| A family instance (a type constructor at its keyed parameters), by its
 ||| place in the program's family table, minted once when the family is
@@ -140,11 +143,25 @@ export
 Ord InstanceKey where
   compare k l = compare (k.origin, k.arguments, k.print) (l.origin, l.arguments, l.print)
 
-export Eq FnId where a == b = a.index == b.index
-export Ord FnId where compare a b = compare a.index b.index
+export
+Eq FnId where
+  RootFn == RootFn = True
+  InstanceOf a == InstanceOf b = a == b
+  _ == _ = False
+
+export
+Ord FnId where
+  compare RootFn RootFn = EQ
+  compare RootFn (InstanceOf _) = LT
+  compare (InstanceOf _) RootFn = GT
+  compare (InstanceOf a) (InstanceOf b) = compare a b
+
 -- For the compiler's own errors: what a user reads names an instance by
 -- its symbol.
-export Show FnId where show f = "instance " ++ show f.index
+export
+Show FnId where
+  show RootFn = "the root"
+  show (InstanceOf l) = "the instance of definition " ++ show (map finToNat l.definition)
 
 export Eq FamilyId where a == b = a.index == b.index
 export Ord FamilyId where compare a b = compare a.index b.index
