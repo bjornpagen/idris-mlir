@@ -2029,32 +2029,40 @@ which the top-level CMake configure gate reads.
   evaluates (`Evaluation`, `NormalForm`, `evaluationOf`, `Admits`,
   `Evaluates`); its steps (`Reduces`, `Contracts`, `Scrutinised`,
   `Chooses`, `Picks`, `Matches`, `Misses`, `Computes`); its normal forms
-  (`Redex`, `Irreducible`, `Relocated`, `Reduct`, `oneNormalForm`); the
-  accessors' evidence (`TypeOf`, `TreeOf`, `typeOnce`, `treeOnce`);
-  `fullNamesIn`; the trust (`trusted`, `reduct`)
-- workaround: none; the fork's own code (e5b39cb2, 31013e5a): the
+  (`Redex`, `Irreducible`, `Reduct`, `reachesNormalForm`, `substitutes`,
+  `normalisesThrough`); the accessors' evidence (`TypeOf`,
+  `TreeOf`, `typeOnce`, `treeOnce`); `fullNamesIn`; the trust (`trusted`,
+  `reduct`)
+- workaround: none; the fork's own code (e5b39cb2, 31013e5a, e129d745): the
   frontend's one stated trust in the evaluator (D68), stated of one
   context, frozen once the program and its imports are loaded
   (`host.freezeContext`: every entry, as Idris's lookup reads it, decoded
   once into an immutable map by entry, beside the definitions record the
   normalisers run on). A name resolves to one entry and a definition is
   the one at its name's entry, read purely, so `definedOnce` is proved,
-  not trusted. `Reduces` declares every step the evaluator takes under
-  each normaliser's options (which definitions it unfolds, whether it runs
-  only holes, as each does under a delay, whether it keeps an as pattern),
+  not trusted; the lookup gives the entry with the definition
+  (`DefinedAs`), so a frozen lookup resolves each name once. `Reduces`
+  declares every step the evaluator takes under each normaliser's options
+  (which definitions it unfolds, whether it runs only holes, as each does
+  under a delay, whether it keeps an as pattern),
   blind to locations: under every node, beta, a definition's leaf (a case
   tree's alternatives tried in order, each one passed over missing the
   scrutinee), a solved unknown, a primitive from the evaluator's own table
   or `believe_me`, and the rest the evaluator does, so the statement is
-  true of every term. Four postulates, each `trusted` (`believe_me ()` at
+  true of every term. Five postulates, each `trusted` (`believe_me ()` at
   quantity 0) where no proof reaches, since the evaluator and the
   accessors run in `Core`: what a normaliser gives is a reduct of its
   input by that normaliser's steps and normal for them (`reduct`); a
   definition's type and a body's case tree, read through the context's
   accessors, are one each, the ones the evaluator reads (`typeOnce`,
-  `treeOnce`); and two normal forms of one term for one normaliser are one
-  term but for their locations (`oneNormalForm`), the confluence Idris's
-  type checker rests on when it compares normal forms. A frontend that
+  `treeOnce`); every term a term reduces to reduces on to the term's
+  normal form (`reachesNormalForm`), the confluence the growth proof
+  needs, stated as a trust, in the form Idris's type checker rests on when
+  it compares normal forms; and reduction is closed under putting values
+  in for bound names (`substitutes`), the substitution lemma the type
+  checker rests on when it checks a definition used at its arguments.
+  That normalising commutes with putting closed values in is proved from
+  the last two (`normalisesThrough`). A frontend that
   proves its readings sound against `Reduces` (D46, D68) keeps no check,
   when it runs, that the evaluator agreed with it
 - retire: never; the fork's statement of its own evaluator
