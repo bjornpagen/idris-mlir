@@ -1848,6 +1848,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   as `value type`, where the program's types are first read; the growth
   check's reading (`staticsOver`) and the instance table's take a type
   already admitted, so neither aborts nor refuses on its own.
+- **C234** (2026-10-22; L16bh's question, under C228 and C123). An
+  instance's signature is read once, when the instance is requested, and
+  the request holds it: the instance's own step and every call to it read
+  that one value, and the step's second classification goes. A result
+  type the frontend refuses is then refused once, at the request that
+  first meets it, which the refusal names; it was refused either way,
+  so acceptance does not change.
   (C232's narrowing of this refusal is withdrawn with C232, by D116.)
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
