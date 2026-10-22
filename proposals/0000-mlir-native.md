@@ -4981,10 +4981,13 @@ is settled:
 - **Every surviving runtime dispatch is listed and justified** in the
   design document (L15 §2.10 adds five).
 - **Its boundary** (L15 §2): four libraries layered by link dependency,
-  `IdrSupport` and `IdrSolve` naming no MLIR, D41's header under
-  `runtime/` naming no LLVM or MLIR, `IdrIR` holding the one place an
-  IR-handle map lives (freed when its numbering is finished); ids minted
-  only by their owner.
+  `IdrSupport` naming no MLIR, D41's header naming no LLVM or MLIR (in
+  `include/idr/IR/Numeric/`, which the runtime includes, C110), `IdrIR`
+  holding the one place an IR-handle map lives (freed when its numbering
+  is finished); ids minted only by their owner. *Corrected* (recheck 3,
+  L14, C236): `IdrSolver`, the solver layer, is built over MLIR's own
+  analyses and call graph (C33, C114), so it names MLIR; what it keeps
+  is keyed by dense ids, never by an IR handle.
 
 ### 5.3 The dialect's surface (synthesis A)
 
