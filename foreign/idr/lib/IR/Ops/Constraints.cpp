@@ -50,6 +50,7 @@ bool listOf(Type type, Element element) {
 
 bool isStrRead(Type type) { return readInPlace<StrType>(type); }
 bool isStrValue(Type type) { return carried<StrType>(type); }
+bool isStrStatic(Type type) { return readInPlace<StrType>(type) && freedBy(type, Release::Static); }
 bool isBigRead(Type type) { return readInPlace<BigType>(type); }
 bool isBigValue(Type type) { return carried<BigType>(type); }
 bool isNatRead(Type type) { return readInPlace<NatType>(type); }

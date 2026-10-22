@@ -54,7 +54,8 @@ Value fails(CheckNonzeroOp op, Converted<CheckNonzeroOp> in, OpBuilder &b, Locat
 }
 
 // An index against the length of what it indexes: a string's characters,
-// which the runtime counts, or an array's size, which its value holds.
+// which the runtime counts, or an array's size, which its value holds. The
+// length, a word, is compared at the index's own type, a word or an index.
 Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Location loc,
             Runtime &runtime) {
   Type indexed = unrestricted(op.getIndexed().getType());
@@ -63,8 +64,11 @@ Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Loc
   Value length = array ? asWord(b, loc, unpack(b, loc, array, what).sizes.front())
                        : runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, what.front())
                              .getResult();
+  Value index = in.getIndex().front();
+  if (index.getType() != length.getType())
+    length = arith::IndexCastOp::create(b, loc, index.getType(), length);
   numeric::Arith d(b, loc);
-  return d.negation(numeric::inBounds(d, in.getIndex().front(), length)).bit;
+  return d.negation(numeric::inBounds(d, index, length)).bit;
 }
 
 // A string of no characters.

@@ -74,31 +74,23 @@ ConstantIntRanges widest(Type type) {
 // Guards
 //===----------------------------------------------------------------------===//
 
-// On constants the guard's own fold decides, which answers from its
-// constants alone and rewrites nothing; where every operand is a constant
-// and the fold gives nothing, the condition fails. On intervals the
-// guard's own decision, the meaning of its condition over intervals.
+// The guard's own decision on what the graph knows of its operands: each
+// one's interval, an integer the graph knows being its one value, whether
+// an op holds it or the graph computed it, and the constant an op holds of
+// one an interval says nothing of. No fold is asked: a fold reads
+// attributes, which an integer the graph computed is not, and none is made
+// here.
 std::optional<Edit> GuardDecided::decide(GuardOpInterface guard, const OperandFacts &facts) {
   Operation *op = guard.getOperation();
-  unsigned count = op->getNumOperands();
-  SmallVector<Attribute> constants(count);
-  bool everyConstant = true;
-  for (unsigned i = 0; i < count; ++i) {
-    constants[i] = facts.constant(op->getOperand(i));
-    everyConstant = everyConstant && constants[i];
-  }
-  if (everyConstant) {
-    SmallVector<OpFoldResult> folded;
-    if (succeeded(op->fold(constants, folded)) && !folded.empty())
-      return Forward{{0}};
-    return Rewrite{};
-  }
   SmallVector<ConstantIntRanges> ranges;
-  ranges.reserve(count);
-  for (unsigned i = 0; i < count; ++i)
-    ranges.push_back(
-        facts.range(op->getOperand(i)).value_or(widest(op->getOperand(i).getType())));
-  switch (guard.decide(ranges)) {
+  SmallVector<Attribute> constants;
+  ranges.reserve(op->getNumOperands());
+  constants.reserve(op->getNumOperands());
+  for (Value operand : op->getOperands()) {
+    ranges.push_back(facts.range(operand).value_or(widest(operand.getType())));
+    constants.push_back(facts.constant(operand));
+  }
+  switch (guard.decide(ranges, constants)) {
   case numeric::Known::Holds:
     return Forward{{0}};
   case numeric::Known::Fails:

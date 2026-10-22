@@ -157,14 +157,37 @@ bool idr::fold::buildable(Attribute value, Type type) {
   return ConstantOp::isBuildableWith(value, type);
 }
 
+Attribute idr::fold::held(Attribute constant, Type type) {
+  return constant && ConstantOp::isBuildableWith(constant, type) ? constant : Attribute();
+}
+
+namespace {
+
+// A big the runtime holds in its word, a small: no cell, so nothing a
+// count could write.
+bool inItsWord(Attribute value) {
+  auto big = dyn_cast<BigAttr>(value);
+  if (!big)
+    return false;
+  std::optional<int64_t> v = big.getValue().trySExtValue();
+  return v && *v >= IDRIS_RT_SMALL_MIN && *v <= IDRIS_RT_SMALL_MAX;
+}
+
+} // namespace
+
 // The kinds of value idr.constant holds: constructors, closures and the
 // literals of a type that says what its literals are; an integer's literal
-// and a Double's are arith.constant's. A constant is static data: used any number of times,
-// and where its type holds references, held static, graded from what it
-// holds, which nothing frees. A linear value of it is cast from it.
+// and a Double's are arith.constant's. A constant is static data, used any
+// number of times and, where its type holds references, held static,
+// graded from what it holds: nothing frees it and no count writes it, as
+// counting would a constant at a counted or scoped hold, though static
+// data is read-only. A small big has no cell, so it stands at any hold. A
+// linear value of it is cast from it.
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   Grade grade = gradeOf(type);
-  if (grade.uses != Uses::Many || (grade.hold && grade.hold->release() != Release::Static))
+  if (grade.uses != Uses::Many)
+    return false;
+  if (grade.hold && grade.hold->release() != Release::Static && !inItsWord(value))
     return false;
   type = unrestricted(type);
   if (auto con = dyn_cast<ConAttr>(value))

@@ -62,6 +62,13 @@ public export
 strValueP : Predicate
 strValueP = predicate "isStrValue" "a string at any grade"
 
+||| A string that is static data, used any number of times: what an op
+||| whose one meaning is its fold makes, since the constant it folds to is
+||| static and stands only at a static hold.
+public export
+strStaticP : Predicate
+strStaticP = predicate "isStrStatic" "a string held static, used any number of times"
+
 public export
 bigReadP : Predicate
 bigReadP = predicate "isBigRead" "an Integer, used any number of times, read in place"
@@ -112,7 +119,7 @@ rank1ArrayP = predicate "isRank1Array" "an array of mutable memory of one dimens
 public export
 opPredicates : List Predicate
 opPredicates =
-  [ strReadP, strValueP, bigReadP, bigValueP, natReadP, natValueP, bigOrNatReadP
+  [ strReadP, strValueP, strStaticP, bigReadP, bigValueP, natReadP, natValueP, bigOrNatReadP
   , bigOrNatValueP, charListP, strListP, byteBufferP, rank1ArrayP ]
 
 public export
@@ -122,6 +129,10 @@ strRead = SatisfiesType strReadP
 public export
 strValue : TypeC
 strValue = SatisfiesType strValueP
+
+public export
+strStatic : TypeC
+strStatic = SatisfiesType strStaticP
 
 public export
 bigRead : TypeC

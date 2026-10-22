@@ -146,9 +146,12 @@ crashMessageStops = StopsByCrash
 
 ||| What every guard is: the operand it guards, its first, which it gives
 ||| as its result; its cause and its site, its own properties; its
-||| condition decided on intervals, which the e-graph's rule asks (a guard
-||| that holds goes, one that fails is a crash of its cause at its site,
-||| with no test at run time).
+||| condition decided on what the e-graph knows of its operands, which its
+||| rule asks (a guard that holds goes, one that fails is a crash of its
+||| cause at its site, with no test at run time): each operand's interval,
+||| an integer the graph knows being its one value whether an op holds it or
+||| the graph computed it, and the constant an op holds of one an interval
+||| says nothing of (a string, a Double, an Integer past i64).
 public export
 guardInterface : InterfaceDef
 guardInterface = MkInterfaceDef
@@ -163,8 +166,9 @@ guardInterface = MkInterfaceDef
       , MkMethod PerObject "::idr::SiteAttr" "getSite" [] EveryImplementer
           "the place in the source its crash is at"
       , MkMethod PerClass "::idr::numeric::Known" "decide"
-          [param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"] EveryImplementer
-          "whether its condition holds, fails, or is unknown on its operands' intervals"
+          [ param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
+          , param "::llvm::ArrayRef<::mlir::Attribute>" "constants" ] EveryImplementer
+          "whether its condition holds, fails, or is unknown on its operands' intervals and the constants ops hold of them"
       ]
   , verifier = Unverified
   , doc = says "a guard of a partial primitive's operands"
@@ -176,12 +180,14 @@ guardInterface = MkInterfaceDef
 holds : Member
 holds = MkMember OnClass "bool" "holds" [param "FoldAdaptor" "adaptor"]
 
-||| Its condition on its operands' intervals, the interface's `decide`:
-||| each guard's own, its operands' structure being its own. Its cause and
-||| site are its generated accessors, which the interface's methods are.
+||| Its condition on its operands' intervals and the constants ops hold of
+||| them, the interface's `decide`: each guard's own, its operands'
+||| structure being its own. Its cause and site are its generated
+||| accessors, which the interface's methods are.
 decideMember : Member
 decideMember = MkMember OnClass "::idr::numeric::Known" "decide"
-  [param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"]
+  [ param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
+  , param "::llvm::ArrayRef<::mlir::Attribute>" "constants" ]
 
 ||| A condition read off the run's own state too, the runtime's handle
 ||| table, where the run ends by a crash if it fails.
@@ -243,16 +249,22 @@ nonzeroOp = guardOp "check.nonzero"
   [Implements flowInterface ["getFlowEdges"], Declares InferIntRange ["inferResultRanges"]]
   (says "the value, which must not be zero, else the program crashes")
 
+||| An index as a string's op takes it, a word, or as an array's access
+||| does, upstream's `index`: one guard over both carriers.
+indexCarrier : TypeC
+indexCarrier = AnyOfTypes (i64 ::: [UpstreamType IndexC]) "an i64 or an index"
+
 ||| An index of a string or of an array of one dimension, below its length:
 ||| the guard takes what is indexed, so the index is checked against the
-||| very value the op reads.
+||| very value the op reads. Its result is the index, at the index's own
+||| type, which it infers.
 public export
 inBoundsOp : Op 2 1 2 0
 inBoundsOp = guardOp "check.in_bounds"
-  [ single "index" i64
+  [ single "index" indexCarrier
   , single "indexed" (AnyOfTypes (strRead ::: [SatisfiesType rank1ArrayP]) "a string or an array of one dimension") ]
-  i64 (OfTemplate IndexInBounds) endsByCrash []
-  [Declares InferIntRange ["inferResultRangesFromOptional"]]
+  indexCarrier (OfTemplate IndexInBounds) endsByCrash []
+  [Declares InferIntRange ["inferResultRangesFromOptional"], Declares InferType ["inferReturnTypes"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
 ||| A string, which must have a byte at least. Its result is its operand,

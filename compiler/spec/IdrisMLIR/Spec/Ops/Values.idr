@@ -86,13 +86,14 @@ bigType = scalarType "big" MayBeOtherWord (says "an Integer")
 ||| `!idr.nat<v0>`, or `!idr.nat<_>` where no term is known, so a call that
 ||| passes one passes its term too. The term is read and printed by hand (a
 ||| natural's own syntax over the families' terms), held to one whole term
-||| at the boundary, and written in bytecode as the families write terms.
+||| at the boundary, and laid out in bytecode by the families' wire of a
+||| term, which the generator prints the codec of for both readers.
 public export
 natType : TypeDef 1
 natType = MkTypeDef
   { mnemonic = "nat"
   , params =
-      [ MkParameter "index" (HandArray "::idr::families::TermNode" termsParam)
+      [ MkParameter "index" (WiredValue (WiredArray termWire) termsParam)
           AlwaysWritten "the index term the natural is, opaque where none is known" ]
   , syntax = HandSyntax
   , interfaces = scalarInterfaces
@@ -154,7 +155,6 @@ constantOp = MkOp
   , traits = [ConstantLike]
   , interfaces =
       [ Declares SymbolUser ["verifySymbolUses"]
-      , Declares OpAsm ["getAsmResultNames"]
       , Declares InferIntRange ["inferResultRanges"] ]
   , effects = computes
   , speculation = AlwaysSpeculatable
@@ -181,14 +181,16 @@ constantOp = MkOp
 ||| The operating system the module's target triple names, in the spelling
 ||| Idris's Scheme backends share and base tests for: "darwin", "unix",
 ||| "windows" or "unknown". Folded from the triple, the target's one place;
-||| a module that names no target keeps the op.
+||| a module that names no target keeps the op. Its text is static data,
+||| which its result's type holds, so the constant it folds to stands
+||| where it stood.
 public export
 platformOsOp : Op 0 1 0 0
 platformOsOp = MkOp
   { home = InIdr
   , mnemonic = "platform.os"
   , ins = []
-  , outs = [result "result" strValue]
+  , outs = [result "result" strStatic]
   , attrs = []
   , regions = []
   , traits = []

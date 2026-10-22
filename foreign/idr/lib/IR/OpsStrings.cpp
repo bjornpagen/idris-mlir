@@ -32,9 +32,9 @@ void StrScalarBytesOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
 }
 
 OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
-  return fold::stringOfList(getContext(), adaptor.getList());
+  return fold::held(fold::stringOfList(getContext(), adaptor.getList()), getResult().getType());
 }
 
 OpFoldResult StrConcatOp::fold(FoldAdaptor adaptor) {
-  return fold::stringOfList(getContext(), adaptor.getList());
+  return fold::held(fold::stringOfList(getContext(), adaptor.getList()), getResult().getType());
 }

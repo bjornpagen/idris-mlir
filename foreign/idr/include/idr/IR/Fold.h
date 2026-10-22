@@ -96,6 +96,13 @@ mlir::Attribute wrapped(mlir::Type type, int64_t value);
 mlir::Attribute doubleAttr(mlir::Type type, double value);
 mlir::Attribute boolAttr(mlir::MLIRContext *ctx, bool value);
 
+// The constant where idr.constant holds it at `type`, else null: what a
+// fold of a string, a big or a constant of ours gives at its result's
+// type, so a fold gives only what its dialect materializes there, and
+// every folding driver can place it. Static data stands only at a static
+// hold; a small big at any.
+mlir::Attribute held(mlir::Attribute constant, mlir::Type type);
+
 // Whether a comparison whose predicate is the case `predicate` of the
 // dialect's CmpPredicate holds of an order: negative, zero or positive.
 mlir::Attribute ordered(mlir::MLIRContext *ctx, unsigned predicate, int32_t order);
@@ -187,9 +194,9 @@ private:
     constexpr runtime::ResultKind kind = runtime::Abi<ConcreteOp>::entry.result;
     mlir::Type type = op->getResult(0).getType();
     if constexpr (kind == Str)
-      return strAttr(scope, value);
+      return held(strAttr(scope, value), type);
     else if constexpr (kind == Big)
-      return bigAttr(scope, value);
+      return held(bigAttr(scope, value), type);
     else if constexpr (kind == Int32 || kind == Int64)
       return intAttr(type, value);
     else if constexpr (kind == Wrapped)

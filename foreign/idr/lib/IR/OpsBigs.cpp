@@ -225,9 +225,9 @@ bool NatPredOp::foldable(ArrayRef<Attribute> constants) {
 }
 
 // The constant is the same value under the other type, which the constant
-// that materializes it takes from the op's result.
+// that materializes it takes from the op's result, where it holds it there.
 OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
-  return dyn_cast_or_null<BigAttr>(adaptor.getValue());
+  return fold::held(dyn_cast_or_null<BigAttr>(adaptor.getValue()), getResult().getType());
 }
 
 //===----------------------------------------------------------------------===//
