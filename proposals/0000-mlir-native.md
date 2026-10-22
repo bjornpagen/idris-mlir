@@ -3963,14 +3963,21 @@ buffer's storage unshared, not its elements; but C185 obliges `unique
 deep`, which reaches the elements, so every `LArray` or `Linear.Vec`
 whose elements are shared values (`withVec n v` puts one `v` in every
 slot; `tests/vec-pop-then-push` holds static data) can never claim it
-and is refused. The choice: (A) `unique self` also covers the storage of
+and is refused. Worse, L08 found every `Linear.Vec` is refused under it:
+the vector's cell holds its size, a natural, which may be a big at run
+time and so holds a reference (`!idr.nat`'s `MayBeOtherWord`), and a
+deep claim reaches it; a literal size or the caller's many-use `n` is
+never unshared. Eight tests fall: linarray-fill-sum, -bubble,
+-push-pop, -reserve, -read-past-size, -write-past-size, -records, and
+vec-pop-then-push. Under (A), `unique self` never reaches such a field. The choice: (A) `unique self` also covers the storage of
 a buffer an own cell holds, never its elements, as D110 extended it to
 `in_place` fields, and buffer-holding `in_place` types oblige `unique
 self` as every other does (amends D90 and D110; recommended); (B) keep
 C185's `unique deep` and refuse those programs; (C) a new sharing level
 between the two (a third point in the grade). Until it is ruled, lanes
 write C185 as recorded, and either answer changes about ten lines of
-L08's.
+L04's `promisedClaim` and L05's read table (L08's
+code reads the promise and does not change).
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
