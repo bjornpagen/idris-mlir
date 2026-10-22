@@ -16,11 +16,12 @@
 using namespace mlir;
 using namespace idr;
 
-// One backward scan from `last` to the root, carrying whether the root is
-// used again on every path from where the scan stands; a region's block is
-// scanned with what holds after its op, so a use inside it covers only the
-// ops before it there. The blocks still to scan are kept on a list, never
-// on the C++ stack.
+// One backward scan from `last` to the root, which fails at an op that may
+// allocate before the root is used again and ends where it is: everything
+// before that use is followed by it on every path. A region's block is
+// scanned from its end, as if from after its op, so a use inside it ends
+// only its own scan. The blocks still to scan are kept on a list, never on
+// the C++ stack.
 bool idr::verify::usedAfterEveryAllocation(Value root, Operation *last) {
   Operation *maker = root.getDefiningOp();
   if (!maker || maker->getBlock() != last->getBlock())
@@ -50,22 +51,17 @@ bool idr::verify::usedAfterEveryAllocation(Value root, Operation *last) {
     return llvm::any_of(op->getOperands(), [&](Value operand) { return llvm::is_contained(same, operand); });
   };
 
-  struct Pending {
-    Operation *from;
-    bool covered;
-  };
-  SmallVector<Pending, 8> pending{{last, false}};
-  while (!pending.empty()) {
-    auto [from, covered] = pending.pop_back_val();
-    for (Operation *op = from; op && op != maker; op = op->getPrevNode()) {
+  SmallVector<Operation *, 8> pending{last};
+  while (!pending.empty())
+    for (Operation *op = pending.pop_back_val(); op && op != maker; op = op->getPrevNode()) {
       for (Region &region : op->getRegions())
         for (Block &block : region)
           if (!block.empty())
-            pending.push_back({&block.back(), covered});
-      if (!covered && effects::mayAcquire(effects::own(op)))
+            pending.push_back(&block.back());
+      if (effects::mayAcquire(effects::own(op)))
         return false;
-      covered = covered || uses(op);
+      if (uses(op))
+        break;
     }
-  }
   return true;
 }

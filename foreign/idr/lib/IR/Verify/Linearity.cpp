@@ -83,24 +83,27 @@ struct Account {
   unsigned uses;
 };
 
-// Whether an op's regions are alternatives, asked once per op class: a
-// fact of the class, which every op of it shares.
+// How an op's regions run: in turn, each counted beside the rest (a loop's,
+// a join point's); or as alternatives, one of which runs (a match's).
+enum class Regions : std::uint8_t { InTurn, OneOf };
+
+// Asked once per op class: a fact of the class, which every op of it shares.
 class Exclusivity {
 public:
-  bool alternatives(Operation *op) {
+  Regions of(Operation *op) {
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
     if (!branch)
-      return false;
+      return Regions::InTurn;
     for (const auto &[name, answer] : asked)
       if (name == op->getName())
         return answer;
-    bool answer = verify::alternatives(branch);
+    Regions answer = verify::alternatives(branch) ? Regions::OneOf : Regions::InTurn;
     asked.emplace_back(op->getName(), answer);
     return answer;
   }
 
 private:
-  SmallVector<std::pair<OperationName, bool>, 8> asked;
+  SmallVector<std::pair<OperationName, Regions>, 8> asked;
 };
 
 // Whether the last op of `block` ends the run: a terminator with no
@@ -186,16 +189,14 @@ private:
       unsigned uses;
       Operation *waiting;
     };
-    // An op whose regions are being counted: the region now and its block,
-    // whether that region is being looked into, its account so far, and
-    // each finished region's.
+    // An op whose regions are being counted: how they run, the region with
+    // a use being looked into and its block now, and each region's account,
+    // the last that region's so far. Past the last region, only `each` is.
     struct InRegions {
       Operation *op;
-      bool exclusive;
+      Regions regions;
       unsigned region;
       Region::iterator block;
-      bool lookedInto;
-      Account account;
       SmallVector<Account, 4> each;
     };
     SmallVector<std::variant<InBlock, InRegions>, 8> steps;
@@ -207,6 +208,20 @@ private:
       steps.pop_back();
       returned = done;
       return success();
+    };
+    // Moves `at` into the first region from its own that a use lies in;
+    // one before it has no use, and ends the run if its one block does.
+    auto enter = [&](InRegions &at) {
+      for (; at.region < at.op->getNumRegions(); ++at.region) {
+        Region &region = at.op->getRegion(at.region);
+        if (!region.empty() && holds(region)) {
+          at.block = region.begin();
+          at.each.push_back(Account{Reach::GoesOn, 0});
+          return;
+        }
+        bool ends = region.hasOneBlock() && endsRun(region.front());
+        at.each.push_back(Account{ends ? Reach::EndsRun : Reach::GoesOn, 0});
+      }
     };
     while (!steps.empty())
       if (failed(match(
@@ -228,8 +243,9 @@ private:
                 in.uses += own(&op);
                 if (op.getNumRegions() != 0 && holds(&op)) {
                   in.waiting = &op;
-                  steps.push_back(InRegions{&op, exclusivity.alternatives(&op), 0, {}, false,
-                                            Account{Reach::GoesOn, 0}, {}});
+                  InRegions at{&op, exclusivity.of(&op), 0, {}, {}};
+                  enter(at);
+                  steps.push_back(std::move(at));
                   return success();
                 }
                 if (in.uses > 1)
@@ -239,35 +255,27 @@ private:
               [&](InRegions &at) -> LogicalResult {
                 if (returned) {
                   Account inner = *std::exchange(returned, std::nullopt);
-                  at.account.uses += inner.uses;
+                  at.each.back().uses += inner.uses;
                   if (at.op->getRegion(at.region).hasOneBlock())
-                    at.account.reach = inner.reach;
+                    at.each.back().reach = inner.reach;
                   ++at.block;
                 }
                 if (at.region < at.op->getNumRegions()) {
-                  Region &region = at.op->getRegion(at.region);
-                  if (!at.lookedInto && !region.empty() && holds(region)) {
-                    at.lookedInto = true;
-                    at.block = region.begin();
-                  } else if (!at.lookedInto && region.hasOneBlock() && endsRun(region.front())) {
-                    at.account.reach = Reach::EndsRun;
-                  }
-                  if (at.lookedInto && at.block != region.end()) {
+                  if (at.block != at.op->getRegion(at.region).end()) {
                     Block &block = *at.block;
                     steps.push_back(InBlock{&block, block.begin(), 0, nullptr});
                     return success();
                   }
                   // The region is counted: twice if it runs again, beside
                   // regions that run one after another.
-                  if (!at.exclusive && at.account.uses != 0 && repeated(at.op, at.region))
-                    at.account.uses *= 2;
-                  at.each.push_back(at.account);
+                  unsigned &uses = at.each.back().uses;
+                  if (at.regions == Regions::InTurn && uses != 0 && repeated(at.op, at.region))
+                    uses *= 2;
                   ++at.region;
-                  at.lookedInto = false;
-                  at.account = Account{Reach::GoesOn, 0};
+                  enter(at);
                   return success();
                 }
-                FailureOr<Account> done = combined(*at.op, at.exclusive, at.each);
+                FailureOr<Account> done = combined(*at.op, at.regions, at.each);
                 if (failed(done))
                   return failure();
                 return finish(*done);
@@ -278,8 +286,8 @@ private:
 
   // The account of an op from its regions' accounts, `each`: the sum over
   // regions that run one after another; over alternatives, one runs.
-  FailureOr<Account> combined(Operation &op, bool exclusive, ArrayRef<Account> each) {
-    if (!exclusive) {
+  FailureOr<Account> combined(Operation &op, Regions regions, ArrayRef<Account> each) {
+    if (regions == Regions::InTurn) {
       unsigned uses = 0;
       for (const Account &account : each)
         uses += account.uses;

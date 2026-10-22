@@ -7,7 +7,6 @@
 // the lifetime of a scoped value it makes.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Quantities.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Enum.h"
 
@@ -201,12 +200,6 @@ bool idr::holdFits(Type from, Type to) {
   std::optional<Hold> held = holdOf(from);
   std::optional<Hold> asked = holdOf(to);
   return held == asked || (held && asked && held->fits(*asked));
-}
-
-std::optional<Exclusive> idr::asExclusive(Value value) {
-  if (holdOf(value.getType()) != Hold::counted(Unique::Deep))
-    return std::nullopt;
-  return Exclusive(value);
 }
 
 // The declaration says it: a field of a member of the family's own group,

@@ -301,16 +301,14 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
           else
             mustCount(*from);
         },
-        [&](const FlowPoint::Taken &taken) { into(*from, taken.use->get()); },
         [&](const FlowPoint::Whole &whole) { into(*from, whole.value); },
         // A part of what the op makes that no reference is (an array's
         // elements) is stored where no lifetime follows it.
-        [&](const FlowPoint::Part &part) {
-          Value to = part.value();
-          if (!holdsReferences(to.getType()))
+        [&](const FlowPlace::Part &part) {
+          if (!holdsReferences(part.of.getType()))
             mustCount(*from);
           else
-            into(*from, to);
+            into(*from, part.of);
         });
   };
   // Only a move takes what one value holds into another, and that is all
