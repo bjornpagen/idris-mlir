@@ -109,7 +109,7 @@ resetContext : {auto c : Ref Ctxt Defs} ->
                Core ()
 resetContext origin
     = do defs <- get Ctxt
-         put Ctxt ({ options := clearNames (options defs) } !initDefs)
+         put Ctxt ({ options := clearNames (options defs) } !(initDefsWith defs.gamma.idents))
          addPrimitives
          put UST initUState
          put DLY (the DelayedElabs [])

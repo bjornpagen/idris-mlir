@@ -237,12 +237,23 @@ call is on a part of its argument:
 - `mkdirAll` (`Core.Directory`) is done at once when the directory exists,
   and otherwise creates the path's prefixes, outermost first, as a walk
   over its body, passing those that exist already;
-- the fork's size-change decision (`loopsTerminate`, which the frontend
-  asks of each component of its program): a graph is dense and typed by
-  the functions its path starts and ends at (`Dense n from to`), so paths
-  join only in path order (`andThen : Dense n a b -> Dense n b c -> Dense n
-  a c`, the later graph times the earlier, since a call's rows are the
-  callee's arguments); its rows are a finite type
+- the fork's size-change decision (`loopsTerminate`), the one closure
+  behind every verdict on whether a recursion ends: the frontend asks it of
+  each component of its program, and the elaborator's termination check
+  (`calcTerminating`) asks it of each component of the unchecked functions
+  a checked one reaches, where upstream closed the graphs of every pair of
+  them. A walk is a dense graph and the calls it makes, typed by the
+  functions it starts and ends at (`Walk n from to`), so walks join only in
+  path order (`andThen : Walk n a b -> Walk n b c -> Walk n a c`, the
+  matrix product of the later graph by the earlier in the size-change
+  semiring, `contract` of `mlir-array`, since a call's rows are the
+  callee's arguments). Each function keeps only the weakest walks to it,
+  and a walk back to the searched function is judged as it is found: its
+  powers are taken until one repeats, and the one that goes round twice as
+  it goes round once either decreases some argument or is the loop the
+  answer names (`Loops`: `Decreasing`, or `Endless` with its calls, which a
+  check's message lists). A check that finds such loops reports the
+  greatest of their functions by name. The graphs' rows are a finite type
   (`Libraries.Data.List.Finite`), and each search keeps every graph, or
   pair of a function and a graph, it meets once, in a list without
   duplicates that the pigeonhole principle bounds by the type's values; the
@@ -265,17 +276,36 @@ same assertion in the frontend's modules, which are the program's, would be
 refused; the frontend calls these operations only through `host`.
 
 `Idris.Host` also states the one fact of the evaluator's results no proof
-of the frontend's can reach: a closed term's normal form, as each of the
-four normalisers gives it, is a reduct of the term (`Reduct`, its steps at
-quantity 0). `Reduces` declares every step the evaluator takes, blind to
-locations: under every node, beta of a lambda, a definition's leaf (a
-projection's among them), a solved unknown, and the rest it also does (a
-`let`, a primitive, a forced delay, an as pattern), so the statement is
-true of every term. `definition` reads the context with the evidence
-(`Defines`) a step that unfolds the same name holds, and `definedOnce`
-says a context defines a name once. A frontend that proves its readings
-sound against `Reduces` keeps no check, when it runs, that the evaluator
-agreed with it.
+of the frontend's can reach, of one context: `host.freezeContext`, called
+once the program and its imports are loaded, reads every entry as Idris's
+lookup does (each decoded once, stored as a definition read from a TTC is)
+into an immutable map by entry (`Frozen`), which every statement and
+normaliser is indexed by. A name resolves to an entry (`Resolves`), a
+definition is the one at its name's entry (`Defines`, read purely by
+`definitionIn`), and `definedOnce` is proved, not trusted. A closed term's
+normal form, as each of the four normalisers gives it, is a reduct of the
+term by that normaliser's steps and normal for them (`Reduct`, its steps
+and its normality at quantity 0); the steps are the evaluator's options
+as each normaliser sets them (`Evaluation`: which definitions it unfolds,
+whether it runs only holes, as every one does under a delay, whether it
+keeps an as pattern). `Reduces` declares every step, blind to locations:
+under every node, beta of a lambda, a definition's leaf (a projection's
+among them), a solved unknown, and the rest the evaluator also does (a
+`let`, a primitive from the evaluator's own table or `believe_me`, a
+forced delay, an as pattern, a nullary type's name, what it does with a
+head that is applied but takes no argument), so the statement is true of
+every term. A case tree's alternatives are tried in order (`Picks`): a
+constructor's alternative is the one whose name resolves to the
+scrutinee's head's entry, and a default is taken only past alternatives
+that miss. The other facts trusted are of the same kind: a definition's
+type and tree, read through the context's accessors (`host.typeOf`,
+`host.treeOf`), are the evaluator's, one each (`typeOnce`, `treeOnce`),
+and two normal forms of one term for one normaliser are one term but for
+locations (`oneNormalForm`), the confluence Idris's type checker rests on.
+Over the frozen context, making names full is a function (`fullNamesIn`),
+so that it only renames is its definition. A frontend that proves its
+readings sound against `Reduces` keeps no check, when it runs, that the
+evaluator agreed with it (PINS.md reducts).
 
 ### Rewritten so that this compiler can compile it
 
@@ -425,12 +455,45 @@ merge; each says what changed in its interface.
 
 ### Ours
 
+- Every identifier is interned (`Core.Name.Ident`). A process holds one
+  table of every text it has met as an identifier, each once at its own
+  id, kept by the context across resets and backtracking
+  (`Context.idents`), so two identifiers are equal exactly when their ids
+  are: a name's leaves (`Basic`, `Field`, `MN`, `DN`, a namespace's parts)
+  are identifiers, and comparing names compares ids, never text. The text
+  is the identifier's own, held once, for printing. Text becomes an
+  identifier only where it enters: between lexing and parsing, where the
+  lexer's tokens (`RawToken`) become the parser's (`Token`); in a TTC's
+  reader (`TTC Ident`, through the `TTC` interface's table); and where the
+  elaborator makes a name from text (`Core.Context.intern`). The
+  identifiers the compiler's own code spells form a closed vocabulary
+  (`Core.Name.Known`), each at an id the table holds before any other text,
+  checked when the compiler is built, so a builtin name is a constant and
+  never looked up. Identifiers order by their text, so a map or a sort
+  keyed by names, and everything written from one, is in the same order in
+  every session; a TTC writes each identifier as its text, never an id.
+  Upstream's leaves were strings, compared character by character by every
+  equality and every map lookup (PINS.md interned-identifiers).
+- A definition read back from a TTC is stored (`Core.TT.Stored`): its
+  terms are columns in preorder, one node per distinct subterm of the
+  definition, children by position, with every occurrence's location in
+  one more column, frozen as `mlir-array` arrays, so every read is a pure
+  read of an immutable value. A term being elaborated stays a located
+  tree, and a definition of the module being checked stays live until it
+  is written, so a definition's terms are held by their lifetime
+  (`Typed`, `Body`: live or stored), and every reader asks one accessor
+  (`typeOf`, `treeOf`, `clausesOf`, `clausePatsOf`, `walkTree`), which
+  decodes a stored term where upstream rebuilt the live one (`embed`).
+  The evaluator walks a stored case tree along the path it takes and
+  decodes only the right-hand side it reaches. Definitions name one
+  another by interned name, never by position, so nothing is shared across
+  definitions and no table grows under a read. A TTC still holds trees.
 - A package the build adds is recorded with its name and version, as its
   directory names them (`PackageDir`, `addPkgDir`), and each TTC the
   session reads with where the search found it (`Loaded`, `Found`: the
   build directory, a package, an import directory), where upstream kept
   the directories as text and a reader took a TTC's path apart to learn
-  its package.
+  its package (PINS.md typed-packages).
 - The elaborator keeps its own union-find (`Libraries.Data.UnionFind`:
   persistent, every member naming its root, the smaller class renamed on a
   merge; it merges and finds, and never searches) as the constraint
@@ -443,7 +506,8 @@ merge; each says what changed in its interface.
   wait, where upstream retried every guess until none progressed. Only a
   search waits: its failed retry restores the state it ran in, so passing
   it changes nothing a TTC records, where a unification constraint's failed
-  retry posts new constraints and names, and is retried as before.
+  retry posts new constraints and names, and is retried as before (PINS.md
+  union-find).
 - The context's definitions (`content` of `Core.Context.Context`) are a
   `Table` (`Libraries.Data.Table`): base's `IOArray` behind an `IORef`.
   Upstream's was an `IOArray` made with 10000 slots and moved to a copy
@@ -588,10 +652,11 @@ merge; each says what changed in its interface.
   or `Grows`) beside its failures, so no combinator can catch it as a
   failed branch and let a sibling answer. A growth through unknowns waits
   for a later round, and at the last chance, as one with everything known,
-  refuses the program (`GrowingSearch`). Kruskal's tree theorem makes every
-  endless path meet such a pair. A program the stock Idris elaborates with
-  a large enough `%auto_implicit_depth` is elaborated the same, but where
-  its answer was the depth running out (upstream/fork-search-depth).
+  refuses the program (`GrowingSearch`; PINS.md search-growth). Kruskal's
+  tree theorem makes every endless path meet such a pair. A program the
+  stock Idris elaborates with a large enough `%auto_implicit_depth` is
+  elaborated the same, but where its answer was the depth running out
+  (upstream/fork-search-depth).
 - Overloaded names are resolved with no count: every candidate elaborates
   smaller parts of the source, so resolution ends, and `%ambiguity_depth`
   only refused programs (`printLn (1, 2, 3, 4, 5, 6)`) or let a candidate
@@ -607,7 +672,8 @@ merge; each says what changed in its interface.
   that alone adds no constraint, else the value). Elaborating a tuple is
   linear in its size. Where its two readings are different terms (a
   dependent pair whose name is bound implicitly or substituted, an idiom
-  bracket), it is the generic alternative of its two readings.
+  bracket), it is the generic alternative of its two readings (PINS.md
+  tuple-node).
 - A quote that follows stuck applications only so deep (`quoteWithin`)
   returns the term or `TooDeep`, and its callers choose another quote by
   matching, where upstream threw an internal error that each caller caught
@@ -627,9 +693,9 @@ merge; each says what changed in its interface.
 - `ZeroOneOmega` is public, so a reader matches on a quantity.
 - No count bounds a recursion of the fork's own: the evaluator's `fuel`
   and per-name `reduceLimit` options, which nothing set, are gone; the
-  size-change decision collects a loop graph's powers until one repeats and
-  looks among them for the idempotent one, where it searched for it for at
-  most 1024 powers; and `normaliseTypes` follows each name once (above),
+  size-change decision takes a loop graph's powers until one repeats,
+  judging each as it comes, where it searched for the idempotent one for
+  at most 1024 powers; and `normaliseTypes` follows each name once (above),
   where it stopped at a depth of 8.
 - `processDecls` and `processTTImpDecls` (`TTImp.ProcessDecls`) return
   nothing: upstream's returned `True` whatever happened, an error being
@@ -683,15 +749,15 @@ Kept so far:
   `PDelay`; conversion and unification compare its laziness only): an
   inserted one stands for the whole expression the expected type delays,
   the `let`s placed around it included, which a reader with eager
-  evaluation must tell from a written one (upstream/fork-ttc-facts).
+  evaluation must tell from a written one (PINS.md ttc-delays).
 - A module's imports, each with its location (`Import`, moved from
   `Idris.Syntax` to `Core.Context`), and the pragmas it writes, each with
   its location (`PragmaUse` of a `KwPragma`, one constructor per spelling
   the parser accepts; the parser's rules take the kind, not text, and
   record each use in the parse's state, which a failing branch drops).
   `readDefinitions` gives both with the definitions (`ModuleFile`), so a
-  reader takes them from the TTC instead of scanning the source
-  (upstream/fork-ttc-facts).
+  reader takes them from the TTC instead of scanning the source (PINS.md
+  ttc-imports-pragmas).
 
 ## tools/extract-idris.sh
 
@@ -756,4 +822,9 @@ in a local definition or a record update), fork-search-depth,
 fork-ambiguity-depth, fork-posix-paths, fork-no-runtime-tree,
 fork-ttc-facts, fork-block-parent, fork-param-pos, fork-erase-args (a
 definition's erased positions are found again once its clauses are checked,
-when its type reaches its whole spine) and fork-parser-bounds.
+when its type reaches its whole spine) and fork-parser-bounds. Those
+records hold the changes of a386fe4d. The changes of e5b39cb2 have no
+diff under `upstream/` yet: each is recorded by its PINS.md entry, which
+names the commit (search-growth, tuple-node, reducts, union-find,
+ttc-delays, ttc-imports-pragmas, typed-packages), and a re-sync reads the
+change itself from that commit (`git show e5b39cb2 -- compiler/idris`).

@@ -172,11 +172,11 @@ resetNextVar = update UST { nextName := 0 }
 export
 genName : {auto c : Ref Ctxt Defs} ->
           {auto u : Ref UST UState} ->
-          String -> Core Name
-genName str
+          Ident -> Core Name
+genName root
     = do ust <- get UST
          put UST ({ nextName $= (+1) } ust)
-         n <- inCurrentNS (MN str (nextName ust))
+         n <- inCurrentNS (MN root (nextName ust))
          pure n
 
 -- Generate a global name based on the given name, in the current namespace
@@ -184,23 +184,21 @@ export
 genMVName : {auto c : Ref Ctxt Defs} ->
             {auto u : Ref UST UState} ->
             Name -> Core Name
-genMVName (UN str) = genName (displayUserName str)
-genMVName (MN str _) = genName str
-genMVName n
-    = do ust <- get UST
-         put UST ({ nextName $= (+1) } ust)
-         mn <- inCurrentNS (MN (show n) (nextName ust))
-         pure mn
+genMVName (UN (Basic root)) = genName root
+genMVName (UN (Field root)) = genName root
+genMVName (UN Underscore) = genName (known K_)
+genMVName (MN root _) = genName root
+genMVName n = genName !(intern (show n))
 
 -- Generate a unique variable name based on the given root
 export
 genVarName : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
-             String -> Core Name
-genVarName str
+             Ident -> Core Name
+genVarName root
     = do ust <- get UST
          put UST ({ nextName $= (+1) } ust)
-         pure (MN str (nextName ust))
+         pure (MN root (nextName ust))
 
 -- A case or with block in a definition is named by that definition's full
 -- name and the block's ordinal among the definition's blocks, the next one
@@ -534,7 +532,7 @@ newConstant : {vars : _} ->
 newConstant {vars} fc rig env tm ty constrs
     = do let def = mkConstant fc env tm
          let defty = abstractFullEnvType fc env ty
-         cn <- genName "postpone"
+         cn <- genName (known Kpostpone)
          let guess = newDef fc cn rig Scope.empty defty (specified Public)
                             (Guess def (length env) constrs)
          log "unify.constant" 5 $ "Adding new constant " ++ show (cn, fc, rig)
@@ -697,8 +695,9 @@ checkValidHole base (idx, (fc, n))
                                 ynf <- quote empty env y
                                 throw (CantSolveEq fc (gamma defs) env xnf ynf)
                           _ => pure ()
-              _ => traverse_ checkRef !(traverse getFullName
-                                        ((keys (getRefs (Resolved (-1)) (type gdef)))))
+              _ => do ty <- typeOf gdef
+                      traverse_ checkRef !(traverse getFullName
+                                             (keys (getRefs (Resolved (-1)) ty)))
   where
     checkRef : Name -> Core ()
     checkRef (PV n f)
@@ -754,8 +753,10 @@ dumpHole s n hole
          defs <- get Ctxt
          case !(lookupCtxtExact (Resolved hole) (gamma defs)) of
           Nothing => pure ()
-          Just gdef => case (definition gdef, type gdef) of
-             (Guess tm envb constraints, ty) =>
+          Just gdef => do
+           ty <- typeOf gdef
+           case definition gdef of
+             Guess tm envb constraints =>
                   do logString s.topic n $
                        "!" ++ show !(getFullName (Resolved hole)) ++ " : "
                            ++ show !(toFullNames !(normaliseHoles defs Env.empty ty))
@@ -763,26 +764,26 @@ dumpHole s n hole
                            ++ show !(normaliseHoles defs Env.empty tm)
                            ++ "\n\twhen"
                      traverse_ dumpConstraint constraints
-             (Hole _ p, ty) =>
+             Hole _ p =>
                   logString s.topic n $
                     "?" ++ show (fullname gdef) ++ " : "
                         ++ show !(normaliseHoles defs Env.empty ty)
                         ++ if implbind p then " (ImplBind)" else ""
                         ++ if invertible gdef then " (Invertible)" else ""
-             (BySearch _ _, ty) =>
+             BySearch _ _ =>
                   logString s.topic n $
                      "Search " ++ show hole ++ " : " ++
                      show !(toFullNames !(normaliseHoles defs Env.empty ty))
-             (PMDef _ args t _ _, ty) =>
+             PMDef {} =>
                   log s 4 $
                      "Solved: " ++ show hole ++ " : " ++
                      show !(normalise defs Env.empty ty) ++
                      " = " ++ show !(normalise defs Env.empty (Ref emptyFC Func (Resolved hole)))
-             (ImpBind, ty) =>
+             ImpBind =>
                   log s 4 $
                       "Bound: " ++ show hole ++ " : " ++
                       show !(normalise defs Env.empty ty)
-             (Delayed, ty) =>
+             Delayed =>
                   log s 4 $
                      "Delayed elaborator : " ++
                      show !(normalise defs Env.empty ty)

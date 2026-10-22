@@ -407,7 +407,7 @@ uniVar : {auto c : Ref Ctxt Defs} ->
          {auto u : Ref UST UState} ->
          FC -> Core Name
 uniVar fc
-    = do n <- genName "u"
+    = do n <- genName (known Ku)
          idx <- addDef n (newDef fc n erased Scope.empty (Erased fc Placeholder) (specified Public) None)
          pure (Resolved idx)
 
@@ -459,7 +459,8 @@ searchVar fc rig def env nest n ty
                  | Nothing => pure (vs ** (f, env'))
              let nt = getDefNameType ndef
              let app = tmf fc nt
-             let tyenv = useVars (getArgs app) (embed (type ndef))
+             ty <- typeOf ndef
+             let tyenv = useVars (getArgs app) (embed ty)
              let binder = Let fc top (weakenNs (mkSizeOf vs) app)
                                      (weakenNs (mkSizeOf vs) tyenv)
              varn <- toFullNames n'
@@ -555,7 +556,7 @@ successful allowCons ((tm, elab) :: elabs)
          defs <- branch
          catch (do -- Run the elaborator
                    logC "elab" 5 $
-                            do tm' <- maybe (pure (UN $ Basic "__"))
+                            do tm' <- maybe (pure (knownUN K__))
                                              toFullNames tm
                                pure ("Running " ++ show tm')
                    res <- elab
@@ -577,7 +578,7 @@ successful allowCons ((tm, elab) :: elabs)
                    put MD md
                    put Ctxt defs
                    logC "elab" 5 $
-                            do tm' <- maybe (pure (UN $ Basic "__"))
+                            do tm' <- maybe (pure (knownUN K__))
                                             toFullNames tm
                                pure ("Success " ++ show tm' ++
                                      " (" ++ show ncons' ++ " - "

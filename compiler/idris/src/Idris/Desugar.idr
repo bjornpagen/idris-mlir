@@ -147,7 +147,7 @@ checkConflictingFixities : {auto s : Ref Syn SyntaxInfo} ->
                            WithFC (OpStr' Name) -> Core (OpPrec, FixityDeclarationInfo)
 checkConflictingFixities isPrefix opn
   = do let op = nameRoot opn.val.toName
-       foundFixities <- getFixityInfo op
+       foundFixities <- getFixityInfo opn.val.toName
        let (pre, inf) = partition ((== Prefix) . fix . snd) foundFixities
        case (isPrefix, pre, inf) of
             -- If we do not find any fixity, and it is a backticked operator, then we
@@ -159,7 +159,7 @@ checkConflictingFixities isPrefix opn
 
             (True, ((fxName, fx) :: _), _) => do
                 -- in the prefix case, remove conflicts with infix (-)
-                let extraFixities = pre ++ (filter (\(nm, _) => not $ nameRoot nm == "-") inf)
+                let extraFixities = pre ++ (filter (\(nm, _) => not $ dropAllNS nm == knownUN KMinus) inf)
                 unless (isCompatible fx extraFixities) $ warnConflict fxName extraFixities
                 pure (mkPrec fx.fix fx.precedence, DeclaredFixity fx)
             -- Could not find any prefix operator fixities, there may still be conflicts with
@@ -168,7 +168,7 @@ checkConflictingFixities isPrefix opn
 
             (False, _, ((fxName, fx) :: _)) => do
                 -- In the infix case, remove conflicts with prefix (-)
-                let extraFixities = (filter (\(nm, _) => not $ nm == UN (Basic "-")) pre) ++ inf
+                let extraFixities = (filter (\(nm, _) => not $ nm == knownUN KMinus) pre) ++ inf
                 unless (isCompatible fx extraFixities) $ warnConflict fxName extraFixities
                 pure (mkPrec fx.fix fx.precedence, DeclaredFixity fx)
             -- Could not find any infix operator fixities, there may be prefix ones
@@ -214,7 +214,7 @@ checkConflictingBinding opName foundFixity use_site rhs
 
       keepCompatibleBinding : BindingModifier -> (Name, GlobalDef) -> Core Bool
       keepCompatibleBinding compatibleBinder (name, def) = do
-        fixities <- getFixityInfo (nameRoot name)
+        fixities <- getFixityInfo name
         let compatible = any (\(_, fx) => fx.bindingInfo == use_site.getBinder) fixities
         pure compatible
 
@@ -282,12 +282,12 @@ addNS _ n = n
 bindFun : FC -> Maybe Namespace -> RawImp -> RawImp -> RawImp
 bindFun fc ns ma f =
   let fc = virtualiseFC fc in
-  IApp fc (IApp fc (IVar fc (addNS ns $ UN $ Basic ">>=")) ma) f
+  IApp fc (IApp fc (IVar fc (addNS ns $ knownUN KBindOp)) ma) f
 
 seqFun : FC -> Maybe Namespace -> RawImp -> RawImp -> RawImp
 seqFun fc ns ma mb =
   let fc = virtualiseFC fc in
-  IApp fc (IApp fc (IVar fc (addNS ns (UN $ Basic ">>"))) ma) mb
+  IApp fc (IApp fc (IVar fc (addNS ns (knownUN KSeq))) ma) mb
 
 bindBangs : List (Name, FC, RawImp) -> Maybe Namespace -> RawImp -> RawImp
 bindBangs [] ns tm = tm
@@ -307,16 +307,22 @@ idiomise fc dons mns (ITypeOrValue afc ovl)
                     [typeReading afc ovl, valueReading afc ovl])
 idiomise fc dons mns (IApp afc f a)
   = let fc  = virtualiseFC fc
-        app = UN $ Basic "<*>"
+        app = knownUN KAp
         nm  = maybe app (`NS` app) (mns <|> dons)
      in IApp fc (IApp fc (IVar fc nm) (idiomise afc dons mns f)) a
 idiomise fc dons mns fn
   = let fc  = virtualiseFC fc
-        pur = UN $ Basic "pure"
+        pur = knownUN Kpure
         nm  = maybe pur (`NS` pur) (mns <|> dons)
      in IApp fc (IVar fc nm) fn
 
 data Bang : Type where
+
+-- An unqualified `=`, `$` or prefix `-` is syntax rather than an operator
+-- applied: the symbol it is, if it is one the desugarer knows.
+syntaxSymbol : OpStr -> Maybe Known
+syntaxSymbol (OpSymbols n) = knownRoot n
+syntaxSymbol (Backticked _) = Nothing
 
 mutual
   desugarB : {auto s : Ref Syn SyntaxInfo} ->
@@ -328,7 +334,7 @@ mutual
              Side -> List Name -> PTerm -> Core RawImp
   desugarB side ps (PRef fc x) = do
     let ns = mbNamespace !(get Bang)
-    let pur = UN $ Basic "pure"
+    let pur = knownUN Kpure
     case x == pur of -- implicitly add namespace to unqualified occurrences of `pure` in a qualified do-block
       False => pure $ IVar fc x
       True => pure $ IVar fc (maybe pur (`NS` pur) ns)
@@ -377,8 +383,8 @@ mutual
                            (Just n) !(desugarB AnyExpr ps argTy)
                                     !(desugar AnyExpr (n :: ps) scope)
            else pure $ ILam EmptyFC rig !(traverse (desugar AnyExpr ps) p)
-                   (Just (MN "lamc" 0)) !(desugarB AnyExpr ps argTy) $
-                 ICase fc [] (IVar EmptyFC (MN "lamc" 0)) (Implicit fc False)
+                   (Just (MN (known Klamc) 0)) !(desugarB AnyExpr ps argTy) $
+                 ICase fc [] (IVar EmptyFC (MN (known Klamc) 0)) (Implicit fc False)
                      [snd !(desugarClause ps True (MkPatClause fc pat scope []))]
   desugarB side ps (PLam fc rig p (PRef _ n@(MN {})) argTy scope)
       = pure $ ILam fc rig !(traverse (desugar AnyExpr ps) p)
@@ -390,8 +396,8 @@ mutual
                                    !(desugar AnyExpr ps scope)
   desugarB side ps (PLam fc rig p pat argTy scope)
       = pure $ ILam EmptyFC rig !(traverse (desugar AnyExpr ps) p)
-                   (Just (MN "lamc" 0)) !(desugarB AnyExpr ps argTy) $
-                 ICase fc [] (IVar EmptyFC (MN "lamc" 0)) (Implicit fc False)
+                   (Just (MN (known Klamc) 0)) !(desugarB AnyExpr ps argTy) $
+                 ICase fc [] (IVar EmptyFC (MN (known Klamc) 0)) (Implicit fc False)
                      [snd !(desugarClause ps True (MkPatClause fc pat scope []))]
   desugarB side ps (PLet fc rig (PRef prefFC n) nTy nVal scope [])
       = do whenJust (isConcreteFC prefFC) $ \nfc =>
@@ -418,8 +424,8 @@ mutual
   desugarB side ps (PUpdate fc fs)
       = desugarB side ps
       $ let vfc = virtualiseFC fc in
-      PLam vfc top Explicit (PRef vfc (MN "rec" 0)) (PImplicit vfc)
-      $ PApp vfc (PUpdate fc fs) (PRef vfc (MN "rec" 0))
+      PLam vfc top Explicit (PRef vfc (MN (known Krec) 0)) (PImplicit vfc)
+      $ PApp vfc (PUpdate fc fs) (PRef vfc (MN (known Krec) 0))
   desugarB side ps (PApp fc x y)
       = pure $ IApp fc !(desugarB side ps x) !(desugarB side ps y)
   desugarB side ps (PAutoApp fc x y)
@@ -438,8 +444,8 @@ mutual
       = do l' <- desugarB side ps l
            r' <- desugarB side ps r
            pure $ IAlternative fc FirstSuccess
-                     [apply (IVar fc (UN $ Basic "===")) [l', r'],
-                      apply (IVar fc (UN $ Basic "~=~")) [l', r']]
+                     [apply (IVar fc (knownUN KHomoEq)) [l', r'],
+                      apply (IVar fc (knownUN KHeteroEq)) [l', r']]
   desugarB side ps (PBracketed fc e) = desugarB side ps e
   desugarB side ps (POp fc l op r)
       = do ts <- toTokList side (POp fc l op r)
@@ -458,13 +464,13 @@ mutual
            case lookupName op.val.toName (prefixes syn) of
                 [] =>
                     desugarB side ps
-                        (PLam fc top Explicit (PRef fc (MN "arg" 0)) (PImplicit fc)
-                            (POp fc (MkFCVal op.fc (NoBinder (PRef fc (MN "arg" 0)))) op arg))
+                        (PLam fc top Explicit (PRef fc (MN (known Karg) 0)) (PImplicit fc)
+                            (POp fc (MkFCVal op.fc (NoBinder (PRef fc (MN (known Karg) 0)))) op arg))
                 (prec :: _) => desugarB side ps (PPrefixOp fc op arg)
   desugarB side ps (PSectionR fc arg op)
       = desugarB side ps
-          (PLam fc top Explicit (PRef fc (MN "arg" 0)) (PImplicit fc)
-              (POp fc (MkFCVal op.fc $ NoBinder arg) op (PRef fc (MN "arg" 0))))
+          (PLam fc top Explicit (PRef fc (MN (known Karg) 0)) (PImplicit fc)
+              (POp fc (MkFCVal op.fc $ NoBinder arg) op (PRef fc (MN (known Karg) 0))))
   desugarB side ps (PSearch fc) = pure $ ISearch fc
   desugarB side ps (PPrimVal fc (BI x))
       = case !fromIntegerName of
@@ -544,7 +550,7 @@ mutual
   desugarB side ps (PBang fc term)
       = do itm <- desugarB side ps term
            bs <- get Bang
-           let bn = MN "bind" (nextName bs)
+           let bn = MN (known Kbind) (nextName bs)
            put Bang ({ nextName $= (+1),
                        bangNames $= ((bn, fc, itm) ::)
                      } bs)
@@ -583,32 +589,32 @@ mutual
       = pure $ ITypeOrValue fc UnitOf
   desugarB side ps (PIfThenElse fc x t e)
       = let fc = virtualiseFC fc in
-        pure $ ICase fc [] !(desugarB side ps x) (IVar fc (UN $ Basic "Bool"))
-                   [PatClause fc (IVar fc (UN $ Basic "True")) !(desugar side ps t),
-                    PatClause fc (IVar fc (UN $ Basic "False")) !(desugar side ps e)]
+        pure $ ICase fc [] !(desugarB side ps x) (IVar fc (knownUN KBool))
+                   [PatClause fc (IVar fc (knownUN KTrue)) !(desugar side ps t),
+                    PatClause fc (IVar fc (knownUN KFalse)) !(desugar side ps e)]
   desugarB side ps (PComprehension fc ret conds) = do
         let ns = mbNamespace !(get Bang)
         desugarB side ps (PDoBlock fc ns (map (guard ns) conds ++ [toPure ns ret]))
     where
       guard : Maybe Namespace -> PDo -> PDo
       guard ns (DoExp fc tm)
-       = DoExp fc (PApp fc (PRef fc (mbApplyNS ns $ UN $ Basic "guard")) tm)
+       = DoExp fc (PApp fc (PRef fc (mbApplyNS ns $ knownUN Kguard)) tm)
       guard ns d = d
 
       toPure : Maybe Namespace -> PTerm -> PDo
-      toPure ns tm = DoExp fc (PApp fc (PRef fc (mbApplyNS ns $ UN $ Basic "pure")) tm)
+      toPure ns tm = DoExp fc (PApp fc (PRef fc (mbApplyNS ns $ knownUN Kpure)) tm)
   desugarB side ps (PRewrite fc rule tm)
       = pure $ IRewrite fc !(desugarB side ps rule) !(desugarB side ps tm)
   desugarB side ps (PRange fc start next end)
       = let fc = virtualiseFC fc in
         desugarB side ps $ case next of
-           Nothing => papply fc (PRef fc (UN $ Basic "rangeFromTo")) [start,end]
-           Just n  => papply fc (PRef fc (UN $ Basic "rangeFromThenTo")) [start, n, end]
+           Nothing => papply fc (PRef fc (knownUN KrangeFromTo)) [start,end]
+           Just n  => papply fc (PRef fc (knownUN KrangeFromThenTo)) [start, n, end]
   desugarB side ps (PRangeStream fc start next)
       = let fc = virtualiseFC fc in
         desugarB side ps $ case next of
-           Nothing => papply fc (PRef fc (UN $ Basic "rangeFrom")) [start]
-           Just n  => papply fc (PRef fc (UN $ Basic "rangeFromThen")) [start, n]
+           Nothing => papply fc (PRef fc (knownUN KrangeFrom)) [start]
+           Just n  => papply fc (PRef fc (knownUN KrangeFromThen)) [start, n]
   desugarB side ps (PUnifyLog fc lvl tm)
       = pure $ IUnifyLog fc lvl !(desugarB side ps tm)
   desugarB side ps (PPostfixApp fc rec projs)
@@ -616,7 +622,7 @@ mutual
       $ foldl (\x, (fc, proj) => PApp fc (PRef fc proj) x) rec projs
   desugarB side ps (PPostfixAppPartial fc projs)
       = do let vfc = virtualiseFC fc
-           let var = PRef vfc (MN "paRoot" 0)
+           let var = PRef vfc (MN (known KpaRoot) 0)
            desugarB side ps $
              PLam fc top Explicit var (PImplicit vfc) $
                foldl (\r, (fc, proj) => PApp fc (PRef fc proj) r) var projs
@@ -643,9 +649,9 @@ mutual
                {auto o : Ref ROpts REPLOpts} ->
                Side -> List Name ->
                (nilFC : FC) -> List (FC, PTerm) -> Core RawImp
-  expandList side ps nilFC [] = pure (IVar nilFC (UN $ Basic "Nil"))
+  expandList side ps nilFC [] = pure (IVar nilFC (knownUN KNil))
   expandList side ps nilFC ((consFC, x) :: xs)
-      = pure $ apply (IVar consFC (UN $ Basic "::"))
+      = pure $ apply (IVar consFC (knownUN KCons))
                 [!(desugarB side ps x), !(expandList side ps nilFC xs)]
 
   expandSnocList
@@ -657,9 +663,9 @@ mutual
                {auto o : Ref ROpts REPLOpts} ->
                Side -> List Name -> (nilFC : FC) ->
                SnocList (FC, PTerm) -> Core RawImp
-  expandSnocList side ps nilFC [<] = pure (IVar nilFC (UN $ Basic "Lin"))
+  expandSnocList side ps nilFC [<] = pure (IVar nilFC (knownUN KLin))
   expandSnocList side ps nilFC (xs :< (consFC, x))
-      = pure $ apply (IVar consFC (UN $ Basic ":<"))
+      = pure $ apply (IVar consFC (knownUN KSnoc))
                 [!(expandSnocList side ps nilFC xs) , !(desugarB side ps x)]
 
   maybeIApp : FC -> Maybe Name -> RawImp -> RawImp
@@ -685,9 +691,9 @@ mutual
              let vfc = virtualiseFC fc in
              IApp vfc
                (INamedApp vfc
-                 (IVar vfc (NS preludeNS $ UN $ Basic "concat"))
-                 (UN $ Basic "t")
-                 (IVar vfc (NS preludeNS $ UN $ Basic "List")))
+                 (IVar vfc (NS preludeNS $ knownUN Kconcat))
+                 (knownUN Kt)
+                 (IVar vfc (NS preludeNS $ knownUN KList)))
                (strInterpolate xs)
     where
       toRawImp : PStr -> Core RawImp
@@ -804,9 +810,9 @@ mutual
                         (\ty => desugarDo side ps ns ty) ty
            rest' <- expandDo side ps' topfc ns rest
            pure $ bindFun fc ns exp'
-                $ ILam EmptyFC top Explicit (Just (MN "_" 0))
+                $ ILam EmptyFC top Explicit (Just (MN (known K_) 0))
                           ty'
-                          (ICase fc [] (IVar patFC (MN "_" 0))
+                          (ICase fc [] (IVar patFC (MN (known K_) 0))
                                (Implicit fc False)
                                (PatClause fcOriginal bpat rest'
                                   :: alts'))
@@ -847,69 +853,73 @@ mutual
   -- Replace all operator by function application
   desugarTree : Side -> List Name -> Tree (OpStr, Maybe $ OperatorLHSInfo PTerm) PTerm ->
                 Core PTerm
-  desugarTree side ps (Infix loc eqFC (OpSymbols $ UN $ Basic "=", _) l r) -- special case since '=' is special syntax
-      = pure $ PEq eqFC !(desugarTree side ps l) !(desugarTree side ps r)
-
-  desugarTree side ps (Infix loc _ (OpSymbols $ UN $ Basic "$", _) l r) -- special case since '$' is special syntax
-      = do l' <- desugarTree side ps l
-           r' <- desugarTree side ps r
-           pure (PApp loc l' r')
-  -- normal operators
-  desugarTree side ps (Infix loc opFC (op, Just (NoBinder lhs)) l r)
-      = do l' <- desugarTree side ps l
-           r' <- desugarTree side ps r
-           pure (PApp loc (PApp loc (PRef opFC op.toName) l') r')
-  -- (x : ty) =@ f x ==>> (=@) ty (\x : ty => f x)
-  desugarTree side ps (Infix loc opFC (op, Just (BindType pat lhs)) l r)
-      = do l' <- desugarTree side ps l
-           body <- desugarTree side ps r
-           pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
-                      (PLam loc top Explicit pat l' body)
-  -- (x := exp) =@ f x ==>> (=@) exp (\x : ? => f x)
-  desugarTree side ps (Infix loc opFC (op, Just (BindExpr pat lhs)) l r)
-      = do l' <- desugarTree side ps l
-           body <- desugarTree side ps r
-           pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
-                      (PLam loc top Explicit pat (PInfer opFC) body)
-
-  -- (x : ty := exp) =@ f x ==>> (=@) exp (\x : ty => f x)
-  desugarTree side ps (Infix loc opFC (op, Just (BindExplicitType pat ty expr)) l r)
-      = do l' <- desugarTree side ps l
-           body <- desugarTree side ps r
-           pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
-                      (PLam loc top Explicit pat ty body)
-  desugarTree side ps (Infix loc opFC (op, Nothing) _ r)
-      = throw $ InternalError "illegal fixity: Parsed as infix but no binding information"
-
-  -- negation is a special case, since we can't have an operator with
-  -- two meanings otherwise
-  --
-  -- Note: In case of negated signed integer literals, we apply the
-  -- negation directly. Otherwise, the literal might be
-  -- truncated to 0 before being passed on to `negate`.
-  desugarTree side ps (Pre loc opFC (OpSymbols $ UN $ Basic "-", _) $ Leaf $ PPrimVal fc c)
-    = let newFC    = fromMaybe EmptyFC (mergeFC loc fc)
-          continue = desugarTree side ps . Leaf . PPrimVal newFC
-       in case c of
-            I   x => continue $ I (-x)
-            I8  x => continue $ I8 (-x)
-            I16 x => continue $ I16 (-x)
-            I32 x => continue $ I32 (-x)
-            I64 x => continue $ I64 (-x)
-            BI  x => continue $ BI (-x)
-
-            -- not a signed integer literal. proceed by desugaring
-            -- and applying to `negate`.
-            _     => do arg' <- desugarTree side ps (Leaf $ PPrimVal fc c)
-                        pure (PApp loc (PRef opFC (UN $ Basic "negate")) arg')
-
-  desugarTree side ps (Pre loc opFC (OpSymbols $ UN $ Basic "-", _) arg)
-    = do arg' <- desugarTree side ps arg
-         pure (PApp loc (PRef opFC (UN $ Basic "negate")) arg')
+  desugarTree side ps (Infix loc opFC (op, binder) l r)
+      = case syntaxSymbol op of
+             -- special case since '=' is special syntax
+             Just KEquals => pure $ PEq opFC !(desugarTree side ps l) !(desugarTree side ps r)
+             -- special case since '$' is special syntax
+             Just KDollar => do l' <- desugarTree side ps l
+                                r' <- desugarTree side ps r
+                                pure (PApp loc l' r')
+             _ => desugarBinder binder
+    where
+      desugarBinder : Maybe (OperatorLHSInfo PTerm) -> Core PTerm
+      -- normal operators
+      desugarBinder (Just (NoBinder lhs))
+          = do l' <- desugarTree side ps l
+               r' <- desugarTree side ps r
+               pure (PApp loc (PApp loc (PRef opFC op.toName) l') r')
+      -- (x : ty) =@ f x ==>> (=@) ty (\x : ty => f x)
+      desugarBinder (Just (BindType pat lhs))
+          = do l' <- desugarTree side ps l
+               body <- desugarTree side ps r
+               pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
+                          (PLam loc top Explicit pat l' body)
+      -- (x := exp) =@ f x ==>> (=@) exp (\x : ? => f x)
+      desugarBinder (Just (BindExpr pat lhs))
+          = do l' <- desugarTree side ps l
+               body <- desugarTree side ps r
+               pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
+                          (PLam loc top Explicit pat (PInfer opFC) body)
+      -- (x : ty := exp) =@ f x ==>> (=@) exp (\x : ty => f x)
+      desugarBinder (Just (BindExplicitType pat ty expr))
+          = do l' <- desugarTree side ps l
+               body <- desugarTree side ps r
+               pure $ PApp loc (PApp loc (PRef opFC op.toName) l')
+                          (PLam loc top Explicit pat ty body)
+      desugarBinder Nothing
+          = throw $ InternalError "illegal fixity: Parsed as infix but no binding information"
 
   desugarTree side ps (Pre loc opFC (op, _) arg)
-      = do arg' <- desugarTree side ps arg
-           pure (PApp loc (PRef opFC op.toName) arg')
+      = case syntaxSymbol op of
+             -- negation is a special case, since we can't have an operator with
+             -- two meanings otherwise
+             Just KMinus => negation arg
+             _ => do arg' <- desugarTree side ps arg
+                     pure (PApp loc (PRef opFC op.toName) arg')
+    where
+      -- Note: In case of negated signed integer literals, we apply the
+      -- negation directly. Otherwise, the literal might be
+      -- truncated to 0 before being passed on to `negate`.
+      negation : Tree (OpStr, Maybe $ OperatorLHSInfo PTerm) PTerm -> Core PTerm
+      negation (Leaf (PPrimVal fc c))
+        = let newFC    = fromMaybe EmptyFC (mergeFC loc fc)
+              continue = desugarTree side ps . Leaf . PPrimVal newFC
+           in case c of
+                I   x => continue $ I (-x)
+                I8  x => continue $ I8 (-x)
+                I16 x => continue $ I16 (-x)
+                I32 x => continue $ I32 (-x)
+                I64 x => continue $ I64 (-x)
+                BI  x => continue $ BI (-x)
+
+                -- not a signed integer literal. proceed by desugaring
+                -- and applying to `negate`.
+                _     => do arg' <- desugarTree side ps (Leaf $ PPrimVal fc c)
+                            pure (PApp loc (PRef opFC (knownUN Knegate)) arg')
+      negation arg
+        = do arg' <- desugarTree side ps arg
+             pure (PApp loc (PRef opFC (knownUN Knegate)) arg')
   desugarTree side ps (Leaf t) = pure t
 
   desugarType : {auto s : Ref Syn SyntaxInfo} ->
@@ -1253,7 +1263,7 @@ mutual
                                     pure (Just (concat b'))) body
            -- calculate the name of the implementation, if it's not explicitly
            -- given.
-           let impname = maybe (mkImplName impl.fc tn paramsb) id impln
+           impname <- maybe (mkImplName impl.fc tn paramsb) pure impln
 
            pure [IPragma impl.fc [impname]
                             (ImplementationPragma vis opts pass isb consb
@@ -1288,27 +1298,30 @@ mutual
            -- Look for bindable names in the parameters
            let bnames : List (Name, Name) =
                 if !isUnboundImplicits
-                   then concatMap (findBindableNames True (ps ++ fnames ++ paramNames) [])
+                   then concatMap (findBindableNames True (ps ++ fnames ++ paramNames))
                                   (map (boundType . val) params')
                    else []
 
            let paramsb : List ImpParameter = map (map $ mapType $ doBind bnames) params'
-           let recName = nameRoot tn
+           recNS <- internNamespace (nameRoot tn)
            fields' : List (List IField) <- for fields (desugarField (ps ++ fnames ++ paramNames)
-                                                                    (mkNamespace recName))
-           let conname : Name = maybe (mkConName tn) val conname_in
+                                                                    recNS)
+           conname <- maybe (mkConName tn) (pure . val) conname_in
            whenJust ((.doc) <$> conname_in) (addDocString conname)
-           pure [IRecord rec.fc (Just recName)
+           pure [IRecord rec.fc (Just recNS)
                          vis mbtot (MkWithData rec.fc $ MkImpRecord (MkWithName (NoFC tn) paramsb) (MkWithNameOpts (NoFC conname) opts (concat fields')))]
     where
       getfname : PField -> List Name
       getfname x = map val x.names
 
-      mkConName : Name -> Name
+      mkConName : Name -> Core Name
       mkConName (NS ns (UN n))
-        = let str = displayUserName n in
-          NS ns (DN str (MN ("__mk" ++ str) 0))
-      mkConName n = DN (show n) (MN ("__mk" ++ show n) 0)
+        = do root <- rootIdent (UN n)
+             mk <- intern ("__mk" ++ root.text)
+             pure $ NS ns (DN root (MN mk 0))
+      mkConName n
+        = do let str = show n
+             pure $ DN !(intern str) (MN !(intern ("__mk" ++ str)) 0)
 
   desugarDecl ps fx@(MkWithData _ $ PFixity (MkPFixityData vis binding fix prec opNames))
       = flip (Core.traverseList1_ {b = Unit}) opNames (\opName : OpStr => do
@@ -1333,8 +1346,9 @@ mutual
            -- given by the current namespace and its fixity name.
            -- This allows fixities to be stored along with the namespace at their
            -- declaration site and detect and handle ambiguous fixities
-           let updatedNS = NS (mkNestedNamespace (Just ctx.currentNS) (show fix))
-                              (UN $ Basic $ nameRoot opName.toName)
+           fixNS <- intern (show fix)
+           op <- rootIdent opName.toName
+           let updatedNS = NS (mkNestedNamespace (Just ctx.currentNS) fixNS) (UN $ Basic op)
 
            update Syn
              { fixities $=
@@ -1390,7 +1404,7 @@ mutual
   desugarDecl ps ts@(MkWithData _ $ PTransform n lhs rhs)
       = do (bound, blhs) <- bindNames False !(desugar LHS ps lhs)
            rhs' <- desugar AnyExpr (bound ++ ps) rhs
-           pure [ITransform ts.fc (UN $ Basic n) blhs rhs']
+           pure [ITransform ts.fc (UN $ Basic !(intern n)) blhs rhs']
   desugarDecl ps el@(MkWithData _ $ PRunElabDecl tm)
       = do tm' <- desugar AnyExpr ps tm
            pure [IRunElabDecl el.fc tm']

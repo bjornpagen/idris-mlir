@@ -87,7 +87,7 @@ TTC FC where
 ||| A name: a namespace's, a pattern variable's, a display name's or a
 ||| nested name holds a name.
 total
-decodeName : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Name
+decodeName : {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Name
 decodeName n (Access rec)
     = do t <- getTag
          Element m lt <- fewer n
@@ -191,14 +191,14 @@ lastMetaField : TTC a => Ref Bin Binary => a -> Core ()
 lastMetaField x = do metaField x; tag 0
 
 export
-readMetaField : TTC a => Ref Bin Binary => Core a
+readMetaField : TTC a => Ref Bin Binary => {auto ids : Ref Interned Idents} -> Core a
 readMetaField
     = case !getTag of
            1 => fromBuf
            _ => corrupt "Record"
 
 export
-readLastMetaField : TTC a => Ref Bin Binary => Core a
+readLastMetaField : TTC a => Ref Bin Binary => {auto ids : Ref Interned Idents} -> Core a
 readLastMetaField
     = do x <- readMetaField
          case !getTag of
@@ -545,7 +545,7 @@ encodeFC at fc@(MkFC o s e) = encodeAgainst at 1 fc o s e
 encodeFC at fc@(MkVirtualFC o s e) = encodeAgainst at 2 fc o s e
 
 total
-decodeFC : {auto b : Ref Bin Binary} -> (at : FC) -> Core FC
+decodeFC : {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) -> Core FC
 decodeFC at
     = case !getTag of
            0 => pure EmptyFC
@@ -571,7 +571,7 @@ decodeFC at
 -- within the location `at` it is part of.
 mutual
   total
-  decodePi : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodePi : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
              (n : Nat) -> (0 _ : Accessible LT n) -> Core (PiInfo (Term vars))
   decodePi at n (Access rec)
       = do t <- getTag
@@ -586,7 +586,7 @@ mutual
 
   total
 
-  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeBinder : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (Binder (Term vars))
   decodeBinder at n (Access rec)
       = do t <- getTag
@@ -622,7 +622,7 @@ mutual
   -- A list of terms as the list instance writes it: its length, then each
   -- term, all within the bytes left after the length.
   total
-  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeTerms : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                 (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
   decodeTerms at n (Access rec)
       = do len <- fromBuf {a = Int}
@@ -631,7 +631,7 @@ mutual
 
   total
 
-  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeTermList : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                    List (Term vars) -> (count : Nat) ->
                    (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (Term vars))
   decodeTermList at ts Z n acc = pure (reverse ts)
@@ -642,7 +642,7 @@ mutual
   -- The arguments of an application of `f` to several, as encodeArgs writes
   -- them: their count, then each with the location of its application.
   total
-  decodeArgs : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeArgs : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                Term vars -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
   decodeArgs at f n (Access rec)
       = do len <- fromBuf {a = Int}
@@ -650,7 +650,7 @@ mutual
            decodeSpine at f (integerToNat (cast len)) m (rec m lt)
 
   total
-  decodeSpine : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeSpine : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                 Term vars -> (count : Nat) ->
                 (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
   decodeSpine at f Z n acc = pure f
@@ -661,7 +661,7 @@ mutual
 
   total
 
-  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} -> (at : FC) ->
+  decodeTerm : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (at : FC) ->
                (n : Nat) -> (0 _ : Accessible LT n) -> Core (Term vars)
   decodeTerm {vars} at n (Access rec)
       = do t <- getTag
@@ -851,7 +851,7 @@ mutual
 -- definition is total.
 mutual
   total
-  decodePat : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Pat
+  decodePat : {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Pat
   decodePat n (Access rec)
       = do t <- getTag
            Element m lt <- fewer n
@@ -886,14 +886,14 @@ mutual
   -- A list of patterns as the list instance writes it: its length, then
   -- each, all within the bytes left after the length.
   total
-  decodePats : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
+  decodePats : {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
   decodePats n (Access rec)
       = do len <- fromBuf {a = Int}
            Element m lt <- fewer n
            decodePatList [] (integerToNat (cast len)) m (rec m lt)
 
   total
-  decodePatList : {auto b : Ref Bin Binary} -> List Pat -> (count : Nat) ->
+  decodePatList : {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} -> List Pat -> (count : Nat) ->
                   (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
   decodePatList ps Z n acc = pure (reverse ps)
   decodePatList ps (S k) n acc
@@ -939,7 +939,7 @@ TTC Pat where
 -- A case tree and its alternatives, each as its instance below writes it.
 mutual
   total
-  decodeTree : {vars : _} -> {auto b : Ref Bin Binary} ->
+  decodeTree : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} ->
                (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseTree vars)
   decodeTree {vars} n (Access rec)
       = do t <- getTag
@@ -965,7 +965,7 @@ mutual
   -- A list of alternatives as the list instance writes it: its length,
   -- then each, all within the bytes left after the length.
   total
-  decodeAlts : {vars : _} -> {auto b : Ref Bin Binary} ->
+  decodeAlts : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} ->
                (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
   decodeAlts n (Access rec)
       = do len <- fromBuf {a = Int}
@@ -974,7 +974,7 @@ mutual
 
   total
 
-  decodeAltList : {vars : _} -> {auto b : Ref Bin Binary} ->
+  decodeAltList : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} ->
                   List (CaseAlt vars) -> (count : Nat) ->
                   (n : Nat) -> (0 _ : Accessible LT n) -> Core (List (CaseAlt vars))
   decodeAltList alts Z n acc = pure (reverse alts)
@@ -984,7 +984,7 @@ mutual
 
   total
 
-  decodeAlt : {vars : _} -> {auto b : Ref Bin Binary} ->
+  decodeAlt : {vars : _} -> {auto b : Ref Bin Binary} -> {auto ids : Ref Interned Idents} ->
               (n : Nat) -> (0 _ : Accessible LT n) -> Core (CaseAlt vars)
   decodeAlt n (Access rec)
       = do t <- getTag
@@ -1356,8 +1356,11 @@ TTC TypeFlags where
 export
 TTC Def where
   toBuf None = tag 0
-  toBuf (PMDef pi args ct cps pats)
-      = do tag 1; toBuf pi; toBuf args; toBuf ct; toBuf cps; toBuf pats
+  -- A stored definition is written as the trees it decodes to, so the
+  -- bytes are those of the live definition it was frozen from.
+  toBuf (PMDef pi args body)
+      = do tag 1; toBuf pi; toBuf args
+           toBuf !(treeOf body); toBuf !(clausePatsOf body); toBuf !(clausesOf body)
   toBuf (ExternDef a)
       = do tag 2; toBuf a
   toBuf (ForeignDef a cs)
@@ -1387,7 +1390,7 @@ TTC Def where
                      ct <- fromBuf
                      cps <- fromBuf
                      pats <- fromBuf
-                     pure (PMDef pi args ct cps pats)
+                     pure (PMDef pi args (LiveBody ct cps pats))
              2 => do a <- fromBuf
                      pure (ExternDef a)
              3 => do a <- fromBuf
@@ -1502,7 +1505,7 @@ TTC GlobalDef where
            toBuf (map NameMap.toList (refersToM gdef))
            toBuf (definition gdef)
            when (isUserName (fullname gdef)) $
-              do toBuf (type gdef)
+              do toBuf !(typeOf gdef)
                  toBuf (eraseArgs gdef)
                  toBuf (safeErase gdef)
                  toBuf (specArgs gdef)
@@ -1534,10 +1537,10 @@ TTC GlobalDef where
                       inv <- fromBuf
                       c <- fromBuf
                       sc <- fromBuf
-                      pure (MkGlobalDef loc name ty eargs seargs specargs iargs
+                      pure (MkGlobalDef loc name (LiveType ty) eargs seargs specargs iargs
                                         mul vars vis
                                         tot hatch fl refs inv c True def sc)
-              else pure (MkGlobalDef loc name (Erased loc Placeholder) NatSet.empty NatSet.empty NatSet.empty NatSet.empty
+              else pure (MkGlobalDef loc name (LiveType (Erased loc Placeholder)) NatSet.empty NatSet.empty NatSet.empty NatSet.empty
                                      mul Scope.empty (specified Public) unchecked False [] refs
                                      False False True def [])
 
@@ -1559,11 +1562,13 @@ TTC Transform where
            pure (MkTransform {vars} n env lhs rhs)
 
 -- decode : Context -> Int -> (update : Bool) -> ContextEntry -> Core GlobalDef
+-- The bytes are read as the trees a TTC holds, and the definition is
+-- stored from them: every definition read from a TTC is stored.
 Core.Context.decode gam idx update (Coded ns bin)
     = do b <- newRef Bin bin
-         def <- fromBuf
-         def' <- resolveGlobalDef gam (restoreNS ns def)
-         -- Resolving looks up no definition, so nothing else is decoded,
+         def <- fromBuf {ids = gam.idents}
+         def' <- storeDecoded gam ns def
+         -- Storing looks up no definition, so nothing else is decoded,
          -- or written into the table, meanwhile.
          when update $ setEntry gam idx (Decoded def')
          pure def'

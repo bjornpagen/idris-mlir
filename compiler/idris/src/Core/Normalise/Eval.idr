@@ -6,6 +6,7 @@ import Core.Case.CaseTree
 import Core.Context.Log
 import Core.Env
 import Core.Primitives
+import Core.TT.Stored
 import Core.Value
 
 import Data.List.Quantifiers
@@ -79,11 +80,26 @@ data CaseResult a
      | NoMatch -- case alternative didn't match anything
      | GotStuck -- alternative matched, but got stuck later
 
-record TermWithEnv (free : Scope) where
-    constructor MkTermEnv
-    { varsEnv : Scope }
-    locEnv : LocalEnv free varsEnv
-    term : Term $ Scope.addInner free varsEnv
+-- The leaf a walk of a case tree reached, with the local environment that
+-- binds the variables of its scope. The leaf is as the tree holds it, live
+-- or stored: the walk reads only the tree's shape, and the leaf it
+-- reaches is made a term once, after the walk (`Leaves`).
+record Reached (t : Scoped) (free : Scope) where
+    constructor MkReached
+    { leafVars : Scope }
+    locEnv : LocalEnv free leafVars
+    leaf : t leafVars
+
+-- What an alternative matches, for a message: a stored tree's terms are
+-- not decoded to say why a match got stuck, so the alternative's tree is
+-- not shown.
+matched : {auto c : Ref Ctxt Defs} -> CaseAlt' t vars -> Core String
+matched (ConCase n _ args _)
+    = do n' <- toFullNames n
+         pure (foldl (\acc, a => acc ++ " " ++ show a) (show n') args)
+matched (DelayCase _ arg _) = pure ("Delay " ++ show arg)
+matched (ConstCase c _) = pure (show c)
+matched (DefaultCase _) = pure "_"
 
 parameters (defs : Defs) (topopts : EvalOpts)
   mutual
@@ -139,7 +155,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
         = do tm' <- eval env locs tm []
              case tm' of
                   NDelay fc r _ arg =>
-                      eval env (arg :: locs) (Local {name = UN (Basic "fvar")} fc Nothing _ First) stk
+                      eval env (arg :: locs) (Local {name = knownUN Kfvar} fc Nothing _ First) stk
                   _ => pure (NForce fc r tm' stk)
     eval env locs (PrimVal fc c) stk = pure $ NPrimVal fc c
     eval env locs (Erased fc a) stk
@@ -190,7 +206,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
        = do tm' <- applyToStack env tm []
             case tm' of
                  NDelay fc r _ arg =>
-                    eval env [arg] (Local {name = UN (Basic "fvar")} fc Nothing _ First) stk
+                    eval env [arg] (Local {name = knownUN Kfvar} fc Nothing _ First) stk
                  _ => pure (NForce fc r tm' (args ++ stk))
     applyToStack env nf@(NPrimVal fc _) _ = pure nf
     applyToStack env (NErased fc a) stk
@@ -284,7 +300,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                                                                       pure $ "Stuck function: " ++ show n'
                                   pure def
              redok1 <- if evalAll topopts then pure True
-                          else if evalTypes topopts then computesType [] (type res)
+                          else if evalTypes topopts then typeHead res >>= computesType []
                           else pure False
              let redok2 = reducibleInAny (currentNS defs :: nestedNS defs)
                                          (fullname res)
@@ -315,35 +331,33 @@ parameters (defs : Defs) (topopts : EvalOpts)
     -- arguments, an interface's, the record type declared with a unique
     -- search?
     implementationDef : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
-    implementationDef res = case resultType (type res) of
-        Just tn => do
-          Just tdef <- lookupCtxtExact tn (gamma defs)
-            | Nothing => pure False
-          case definition tdef of
-            TCon _ _ _ flags _ _ _ => pure (uniqueAuto flags)
-            _ => pure False
-        Nothing => pure False
-      where
-        resultType : Term vs -> Maybe Name
-        resultType (Bind _ _ (Pi {}) sc) = resultType sc
-        resultType tm = case getFn tm of
-          Ref _ (TyCon _) tn => Just tn
-          _ => Nothing
+    implementationDef res
+      = do HeadFamily tn <- typeHead res
+             | _ => pure False
+           Just tdef <- lookupCtxtExact tn (gamma defs)
+             | Nothing => pure False
+           case definition tdef of
+             TCon _ _ _ flags _ _ _ => pure (uniqueAuto flags)
+             _ => pure False
 
     -- Is a definition's type a universe, after its arguments: does it
     -- compute a type? Through the names the type is written with
     -- (`VarSet : Scoped` is `Scope -> Type`), each followed once: a name
     -- met again is an alias that leads back to itself, which computes no
     -- type, and the context holds finitely many names, so the walk ends.
-    computesType : {auto c : Ref Ctxt Defs} -> List Name -> Term vs -> Core Bool
-    computesType _ (TType _ _) = pure True
-    computesType seen (Bind _ _ (Pi {}) sc) = computesType seen sc
-    computesType seen (Ref _ Func n)
+    -- Each type and leaf is read off as it is held, a stored one without
+    -- decoding it (`typeHead`, `leafHead`).
+    computesType : {auto c : Ref Ctxt Defs} -> List Name -> ResultHead -> Core Bool
+    computesType _ HeadUniverse = pure True
+    computesType seen (HeadAlias n)
         = if n `elem` seen then pure False else do
             Just def <- lookupCtxtExact n (gamma defs)
               | Nothing => pure False
             case definition def of
-              PMDef _ [] (STerm _ tm) _ _ => computesType (n :: seen) tm
+              PMDef _ [] body =>
+                walkTree body (\leaf, tree => case tree of
+                                 STerm _ tm => leafHead leaf tm >>= computesType (n :: seen)
+                                 _ => pure False)
               _ => pure False
     computesType _ _ = pure False
 
@@ -365,8 +379,8 @@ parameters (defs : Defs) (topopts : EvalOpts)
                  Stack free ->
                  (args : List Name) ->
                  List (Closure free) ->
-                 CaseTree (Scope.addInner more args) ->
-                 Core (CaseResult (TermWithEnv free))
+                 CaseTree' t (Scope.addInner more args) ->
+                 Core (CaseResult (Reached t free))
     evalConAlt env loc opts fc stk args args' sc
          = do let Just bound = getCaseBound args' args loc
                    | Nothing => pure GotStuck
@@ -376,8 +390,8 @@ parameters (defs : Defs) (topopts : EvalOpts)
              {free, more : _} ->
              Env Term free ->
              LocalEnv free more -> EvalOpts -> FC ->
-             Stack free -> NF free -> CaseAlt more ->
-             Core (CaseResult (TermWithEnv free))
+             Stack free -> NF free -> CaseAlt' t more ->
+             Core (CaseResult (Reached t free))
     -- Dotted values should still reduce at compile time
     tryAlt {more} env loc opts fc stk (NErased _ (Dotted tm)) alt
          = tryAlt {more} env loc opts fc stk tm alt
@@ -394,22 +408,28 @@ parameters (defs : Defs) (topopts : EvalOpts)
     -- Primitive type matching, in typecase
     tryAlt env loc opts fc stk (NPrimVal _ c) (ConCase nm tag args sc)
          = case args of -- can't just test for it in the `if` for typing reasons
-             [] => if UN (Basic $ show c) == nm
+             -- A primitive type's constructor is the name of that type.
+             [] => if map PrT (isConstantType (dropNS nm)) == Just c
                    then evalTree env loc opts fc stk sc
                    else pure NoMatch
              _ => pure NoMatch
     -- Type of type matching, in typecase
-    tryAlt env loc opts fc stk (NType {}) (ConCase (UN (Basic "Type")) tag [] sc)
-         = evalTree env loc opts fc stk sc
+    tryAlt env loc opts fc stk (NType {}) (ConCase nm tag [] sc)
+         = case knownRoot nm of
+             Just KType => evalTree env loc opts fc stk sc
+             _ => pure NoMatch
     tryAlt env loc opts fc stk (NType {}) (ConCase {})
          = pure NoMatch
     -- Arrow matching, in typecase
     tryAlt {more}
-           env loc opts fc stk (NBind pfc x (Pi fc' r e aty) scty) (ConCase (UN (Basic "->")) tag [s,t] sc)
-       = evalConAlt {more} env loc opts fc stk [s,t]
+           env loc opts fc stk (NBind pfc x (Pi fc' r e aty) scty) (ConCase nm tag [s,t] sc)
+       = case knownRoot nm of
+           Just KArrow =>
+             evalConAlt {more} env loc opts fc stk [s,t]
                   [aty,
                    MkNFClosure opts env (NBind pfc x (Lam fc' r e aty) scty)]
                   sc
+           _ => pure NoMatch
     tryAlt {more}
            env loc opts fc stk (NBind pfc x (Pi fc' r e aty) scty) (ConCase nm tag args sc)
        = pure NoMatch
@@ -440,8 +460,8 @@ parameters (defs : Defs) (topopts : EvalOpts)
               {args, free : _} ->
               Env Term free ->
               LocalEnv free args -> EvalOpts -> FC ->
-              Stack free -> NF free -> List (CaseAlt args) ->
-              Core (CaseResult (TermWithEnv free))
+              Stack free -> NF free -> List (CaseAlt' t args) ->
+              Core (CaseResult (Reached t free))
     findAlt env loc opts fc stk val [] = do
       log "eval.casetree.stuck" 2 "Ran out of alternatives"
       pure GotStuck
@@ -451,16 +471,16 @@ parameters (defs : Defs) (topopts : EvalOpts)
                    | GotStuck => do
                        logC "eval.casetree.stuck" 5 $ do
                          val <- toFullNF val
-                         x <- toFullNames x
-                         pure $ "Got stuck matching \{show val} against \{show x}"
+                         alt <- matched x
+                         pure $ "Got stuck matching \{show val} against \{alt}"
                        pure GotStuck
               pure res
 
     evalTree : {auto c : Ref Ctxt Defs} ->
                {args, free : _} -> Env Term free -> LocalEnv free args ->
                EvalOpts -> FC ->
-               Stack free -> CaseTree args ->
-               Core (CaseResult (TermWithEnv free))
+               Stack free -> CaseTree' t args ->
+               Core (CaseResult (Reached t free))
     evalTree env loc opts fc stk (Case {name} idx x _ alts)
       = do xval <- unfolded env !(evalLocal env fc Nothing idx (embedIsVar x) [] loc)
            -- we have not defined quote yet (it depends on eval itself) so we show the NF
@@ -471,7 +491,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
            let loc' = updateLocal opts env idx (embedIsVar x) loc xval
            findAlt env loc' opts fc stk xval alts
     evalTree env loc opts fc stk (STerm _ tm)
-          = pure (Result $ MkTermEnv loc $ embed tm)
+          = pure (Result $ MkReached loc tm)
     evalTree env loc opts fc stk _ = pure GotStuck
 
     -- An implementation that normalising a type keeps folded (`evalRef`),
@@ -541,7 +561,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
               RigCount -> Def -> List DefFlag ->
               Stack free -> (def : Lazy (NF free)) ->
               Core (NF free)
-    evalDef env opts meta fc rigd (PMDef r args tree _ _) flags stk def
+    evalDef env opts meta fc rigd (PMDef r args body) flags stk def
        -- If evaluating the definition fails (e.g. due to a case being
        -- stuck) return the default.
        -- We can use the definition if one of the following is true:
@@ -562,12 +582,14 @@ parameters (defs : Defs) (topopts : EvalOpts)
                                        pure "Cannot reduce under-applied \{show def}"
                                      pure def
                        Just (locs', stk') =>
-                            do (Result (MkTermEnv newLoc res)) <- evalTree env locs' opts fc stk' tree
-                                    | _ => do logC "eval.def.stuck" 50 $ do
-                                                def <- toFullNF def
-                                                pure "evalTree failed on \{show def}"
-                                              pure def
-                               evalWithOpts defs opts env newLoc res stk'
+                            walkTree body (\leaf, tree =>
+                              do (Result (MkReached newLoc res)) <- evalTree env locs' opts fc stk' tree
+                                      | _ => do logC "eval.def.stuck" 50 $ do
+                                                  def <- toFullNF def
+                                                  pure "evalTree failed on \{show def}"
+                                                pure def
+                                 tm <- leafTerm leaf res
+                                 evalWithOpts defs opts env newLoc tm stk')
              else do -- logC "eval.def.stuck" 50 $ do
                      --   def <- toFullNames def
                      --   pure $ unlines [ "Refusing to reduce \{show def}:"

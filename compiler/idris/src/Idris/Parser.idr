@@ -79,7 +79,7 @@ decoratedDataConstructorName fname = decorate fname Data dataConstructorName
 decoratedSimpleBinderUName : OriginDesc -> Rule Name
 decoratedSimpleBinderUName fname = decorate fname Bound userName
 
-decoratedSimpleNamedArg : OriginDesc -> Rule String
+decoratedSimpleNamedArg : OriginDesc -> Rule Ident
 decoratedSimpleNamedArg fname
   = decorate fname Bound unqualifiedName
   <|> parens fname (decorate fname Bound unqualifiedOperatorName)
@@ -233,25 +233,24 @@ mutual
     <|> with_ fname indents
     <|> do b <- bounds (MkPair <$> simpleExpr fname indents <*> many (argExpr q fname indents))
            (f, args) <- pure b.val
-           pure (applyExpImp (start b) (end b) f (concat args))
+           pure (applyExpImp (boundToFC fname b) f (concat args))
     <|> do b <- fcBounds (MkPair <$> fcBounds iOperator <*> expr pdef fname indents)
            (op, arg) <- pure b.val
            pure (PPrefixOp b.fc op arg)
     <|> fail "Expected 'case', 'if', 'do', application or operator expression"
     where
-      applyExpImp : FilePos -> FilePos -> PTerm ->
+      applyExpImp : FC -> PTerm ->
                     List ArgType ->
                     PTerm
-      applyExpImp start end f [] = f
-      applyExpImp start end f (UnnamedExpArg exp :: args)
-          = applyExpImp start end (PApp (MkFC fname start end) f exp) args
-      applyExpImp start end f (UnnamedAutoArg imp :: args)
-          = applyExpImp start end (PAutoApp (MkFC fname start end) f imp) args
-      applyExpImp start end f (NamedArg n imp :: args)
-          = let fc = MkFC fname start end in
-            applyExpImp start end (PNamedApp fc f n imp) args
-      applyExpImp start end f (WithArg exp :: args)
-          = applyExpImp start end (PWithApp (MkFC fname start end) f exp) args
+      applyExpImp fc f [] = f
+      applyExpImp fc f (UnnamedExpArg exp :: args)
+          = applyExpImp fc (PApp fc f exp) args
+      applyExpImp fc f (UnnamedAutoArg imp :: args)
+          = applyExpImp fc (PAutoApp fc f imp) args
+      applyExpImp fc f (NamedArg n imp :: args)
+          = applyExpImp fc (PNamedApp fc f n imp) args
+      applyExpImp fc f (WithArg exp :: args)
+          = applyExpImp fc (PWithApp fc f exp) args
 
   argExpr : ParseOpts -> OriginDesc -> IndentInfo -> Rule (List ArgType)
   argExpr q fname indents
@@ -367,15 +366,18 @@ mutual
                          let fc = boundToFC fname (mergeBounds l r)
                              opFC = virtualiseFC fc -- already been highlighted: we don't care
                          in POp fc (map NoBinder l.withFC)
-                                   (MkFCVal opFC (OpSymbols $ UN $ Basic "="))
+                                   (MkFCVal opFC (OpSymbols $ knownUN KEquals))
                                    r.val
                else fail "= not allowed")
              <|>
              (do b <- bounds $ do
                         continue indents
                         op <- fcBounds iOperator
-                        e <- case op.val of
-                               OpSymbols (UN (Basic "$")) => typeExpr q fname indents
+                        let root = case op.val of
+                                        OpSymbols n => knownRoot n
+                                        Backticked _ => Nothing
+                        e <- case root of
+                               Just KDollar => typeExpr q fname indents
                                _ => expr q fname indents
                         pure (op, e)
                  (op, r) <- pure b.val
@@ -458,7 +460,7 @@ mutual
               tuple fname s indents e.val))
     <|> do here <- location
            let fc = MkFC fname here here
-           let var = PRef fc (MN "__leftTupleSection" 0)
+           let var = PRef fc (MN (known K__leftTupleSection) 0)
            ts <- bounds (nonEmptyTuple fname s indents var)
            pure (PLam fc top Explicit var (PInfer fc) ts.val)
 
@@ -547,7 +549,7 @@ mutual
                      (FC, Maybe PTerm) -> (Int, (List (FC, PTerm), PTerm))
       optionalPair i (fc, Just e)  = (i, ([], e))
       optionalPair i (fc, Nothing) =
-        let var = PRef fc (MN "__infixTupleSection" i) in
+        let var = PRef fc (MN (known K__infixTupleSection) i) in
         (i+1, ([(fc, var)], var))
 
       mergePairs : Int -> (FC, Maybe PTerm) ->
@@ -800,7 +802,7 @@ mutual
              let fc = boundToFC fname (mergeBounds lhs end)
                  alt = (MkImpossible fc lhs.val)
                  fcCase = boundToFC fname lhs
-                 n = MN "lcase" 0 in
+                 n = MN (known Klcase) 0 in
              (PLam fcCase top Explicit (PRef fcCase n) (PInfer fcCase) $
                  PCase (virtualiseFC fc) [] (PRef fcCase n) [alt]))
 
@@ -824,7 +826,7 @@ mutual
            pure
             (let fc = boundToFC fname b
                  fcCase = virtualiseFC $ boundToFC fname endCase
-                 n = MN "lcase" 0 in
+                 n = MN (known Klcase) 0 in
               PLam fcCase top Explicit (PRef fcCase n) (PInfer fcCase) $
                 PCase (virtualiseFC fc) [] (PRef fcCase n) b.val)
 
@@ -926,17 +928,26 @@ mutual
 
   field : Bool -> OriginDesc -> IndentInfo -> Rule PFieldUpdate
   field kw fname indents
-      = do path <- map fieldName <$> [| decorate fname Function name :: many recFieldCompat |]
+      = do path <- [| fieldPart (decorate fname Function name) :: many (fieldPart recFieldCompat) |]
            upd <- (ifThenElse kw (decoratedSymbol fname "=") (decoratedSymbol fname ":=") $> PSetField)
                       <|>
                   (decoratedSymbol fname "$=" $> PSetFieldApp)
            val <- typeExpr plhs fname indents
            pure (upd path val)
     where
-      fieldName : Name -> String
-      fieldName (UN (Basic s)) = s
-      fieldName (UN (Field s)) = s
-      fieldName _ = "_impossible"
+      fieldName : Name -> Maybe Ident
+      fieldName (UN (Basic s)) = Just s
+      fieldName (UN (Field s)) = Just s
+      fieldName _ = Nothing
+
+      -- A path names each field by its identifier, so a name that is no
+      -- field's (a qualified one) is refused here, where it is written.
+      fieldPart : Rule Name -> Rule Ident
+      fieldPart rule
+          = do n <- rule
+               the (EmptyRule Ident) $ case fieldName n of
+                    Just i => pure i
+                    Nothing => fail "Expected a record field name"
 
       -- this allows the dotted syntax .field
       -- but also the arrowed syntax ->field for compatibility with Idris 1
@@ -963,18 +974,19 @@ mutual
     <|> do nsdo <- bounds namespacedIdent
            -- TODO: need to attach metadata correctly here
            the (EmptyRule PTerm) $ case nsdo.val of
-                (ns, "do") =>
-                   do commit
-                      actions <- Core.bounds (block (doAct fname))
-                      let fc = virtualiseFC $
-                               boundToFC fname (mergeBounds nsdo actions)
-                      pure (PDoBlock fc ns (concat actions.val))
-                _ => fail "Not a namespaced 'do'"
+                (ns, n) =>
+                   if n.text == "do"
+                      then do commit
+                              actions <- Core.bounds (block (doAct fname))
+                              let fc = virtualiseFC $
+                                       boundToFC fname (mergeBounds nsdo actions)
+                              pure (PDoBlock fc ns (concat actions.val))
+                      else fail "Not a namespaced 'do'"
 
   validPatternVar : Name -> EmptyRule ()
   validPatternVar (UN Underscore) = pure ()
   validPatternVar (UN (Basic n))
-      = unless (lowerFirst n) $
+      = unless (lowerFirst n.text) $
           fail "Not a pattern variable"
   validPatternVar _ = fail "Not a pattern variable"
 

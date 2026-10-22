@@ -10,6 +10,8 @@ import Core.Context
 import Core.Env
 import Core.Value
 
+import Data.List
+
 import Libraries.Data.NatSet
 import Libraries.Data.List.SizeOf
 
@@ -83,6 +85,12 @@ tryUpdate ms (PrimVal fc c) = pure $ PrimVal fc c
 tryUpdate ms (Erased fc a) = Erased fc <$> traverse (tryUpdate ms) a
 tryUpdate ms (TType fc u) = pure $ TType fc u
 
+-- A leaf a walk of a case tree reaches, as a term in the leaf's own scope.
+leafAt : {vs : Scope} -> Leaves held -> held vs -> Core (Term vs)
+leafAt leaves x
+    = do tm <- leafTerm leaves {outer = []} x
+         pure (replace {p = Term} (appendNilRightNeutral vs) tm)
+
 mutual
   allConvNF : {auto c : Ref Ctxt Defs} ->
               {vars : _} ->
@@ -137,18 +145,21 @@ mutual
               else pure False
 
   -- If the case trees match in structure, get the list of variables which
-  -- have to match in the call
+  -- have to match in the call. The trees are walked as they are held: a
+  -- leaf is read only where the walk reaches it, as far as the structures
+  -- match.
   getMatchingVarAlt : {auto c : Ref Ctxt Defs} ->
-                      {args, args' : _} ->
+                      {0 held, held' : Scoped} -> {args, args' : _} ->
+                      Leaves held -> Leaves held' ->
                       Defs ->
                       List (Var args, Var args') ->
-                      CaseAlt args -> CaseAlt args' ->
+                      CaseAlt' held args -> CaseAlt' held' args' ->
                       Core (Maybe (List (Var args, Var args')))
-  getMatchingVarAlt defs ms (ConCase n tag cargs t) (ConCase n' tag' cargs' t')
+  getMatchingVarAlt lv lv' defs ms (ConCase n tag cargs t) (ConCase n' tag' cargs' t')
       = if n == n'
            then do let Just ms' = extend cargs cargs' ms
                         | Nothing => pure Nothing
-                   Just ms <- getMatchingVars defs ms' t t'
+                   Just ms <- getMatchingVars lv lv' defs ms' t t'
                         | Nothing => pure Nothing
                    -- drop the prefix from cargs/cargs' since they won't
                    -- be in the caller
@@ -174,44 +185,48 @@ mutual
               Maybe (Var args, Var args')
       dropP cs cs' (x, y) = pure (!(strengthenNs cs x), !(strengthenNs cs' y))
 
-  getMatchingVarAlt defs ms (ConstCase c t) (ConstCase c' t')
+  getMatchingVarAlt lv lv' defs ms (ConstCase c t) (ConstCase c' t')
       = if c == c'
-           then getMatchingVars defs ms t t'
+           then getMatchingVars lv lv' defs ms t t'
            else pure Nothing
-  getMatchingVarAlt defs ms (DefaultCase t) (DefaultCase t')
-      = getMatchingVars defs ms t t'
-  getMatchingVarAlt defs _ _ _ = pure Nothing
+  getMatchingVarAlt lv lv' defs ms (DefaultCase t) (DefaultCase t')
+      = getMatchingVars lv lv' defs ms t t'
+  getMatchingVarAlt _ _ defs _ _ _ = pure Nothing
 
   getMatchingVarAlts : {auto c : Ref Ctxt Defs} ->
-                       {args, args' : _} ->
+                       {0 held, held' : Scoped} -> {args, args' : _} ->
+                       Leaves held -> Leaves held' ->
                        Defs ->
                        List (Var args, Var args') ->
-                       List (CaseAlt args) -> List (CaseAlt args') ->
+                       List (CaseAlt' held args) -> List (CaseAlt' held' args') ->
                        Core (Maybe (List (Var args, Var args')))
-  getMatchingVarAlts defs ms [] [] = pure (Just ms)
-  getMatchingVarAlts defs ms (a :: as) (a' :: as')
-      = do Just ms <- getMatchingVarAlt defs ms a a'
+  getMatchingVarAlts lv lv' defs ms [] [] = pure (Just ms)
+  getMatchingVarAlts lv lv' defs ms (a :: as) (a' :: as')
+      = do Just ms <- getMatchingVarAlt lv lv' defs ms a a'
                 | Nothing => pure Nothing
-           getMatchingVarAlts defs ms as as'
-  getMatchingVarAlts defs _ _ _ = pure Nothing
+           getMatchingVarAlts lv lv' defs ms as as'
+  getMatchingVarAlts _ _ defs _ _ _ = pure Nothing
 
   getMatchingVars : {auto c : Ref Ctxt Defs} ->
-                    {args, args' : _} ->
+                    {0 held, held' : Scoped} -> {args, args' : _} ->
+                    Leaves held -> Leaves held' ->
                     Defs ->
                     List (Var args, Var args') ->
-                    CaseTree args -> CaseTree args' ->
+                    CaseTree' held args -> CaseTree' held' args' ->
                     Core (Maybe (List (Var args, Var args')))
-  getMatchingVars defs ms (Case _ p _ alts) (Case _ p' _ alts')
-      = getMatchingVarAlts defs ((MkVar p, MkVar p') :: ms) alts alts'
-  getMatchingVars defs ms (STerm i tm) (STerm i' tm')
-      = do let Just tm'' = tryUpdate ms tm
+  getMatchingVars lv lv' defs ms (Case _ p _ alts) (Case _ p' _ alts')
+      = getMatchingVarAlts lv lv' defs ((MkVar p, MkVar p') :: ms) alts alts'
+  getMatchingVars lv lv' defs ms (STerm i x) (STerm i' x')
+      = do tm <- leafAt lv x
+           let Just tm'' = tryUpdate ms tm
                | Nothing => pure Nothing
+           tm' <- leafAt lv' x'
            if !(convert defs (mkEnv (getLoc tm) args') tm'' tm')
               then pure (Just ms)
               else pure Nothing
-  getMatchingVars defs ms (Unmatched _) (Unmatched _) = pure (Just ms)
-  getMatchingVars defs ms Impossible Impossible = pure (Just ms)
-  getMatchingVars _ _ _ _ = pure Nothing
+  getMatchingVars _ _ defs ms (Unmatched _) (Unmatched _) = pure (Just ms)
+  getMatchingVars _ _ defs ms Impossible Impossible = pure (Just ms)
+  getMatchingVars _ _ _ _ _ _ = pure Nothing
 
   chkSameDefs : {auto c : Ref Ctxt Defs} ->
                 {vars : _} ->
@@ -219,15 +234,16 @@ mutual
                 Name -> Name ->
                 List (Closure vars) -> List (Closure vars) -> Core Bool
   chkSameDefs q i defs env n n' nargs nargs'
-     = do Just (PMDef _ args ct _ _) <- lookupDefExact n (gamma defs)
+     = do Just (PMDef _ args body) <- lookupDefExact n (gamma defs)
                | _ => pure False
-          Just (PMDef _ args' ct' _ _) <- lookupDefExact n' (gamma defs)
+          Just (PMDef _ args' body') <- lookupDefExact n' (gamma defs)
                | _ => pure False
 
           -- If the two case blocks match in structure, get which variables
           -- correspond. If corresponding variables convert, the two case
           -- blocks convert.
-          Just ms <- getMatchingVars defs [] ct ct'
+          Just ms <- walkTree body (\lv, ct =>
+                       walkTree body' (\lv', ct' => getMatchingVars lv lv' defs [] ct ct'))
                | Nothing => pure False
           convertMatches ms
      where
@@ -274,13 +290,13 @@ mutual
                 | _ => pure False
            Just def' <- lookupCtxtExact n' (gamma defs)
                 | _ => pure False
-           let PMDef _ _ tree _ _ = definition def
+           let PMDef _ _ body = definition def
                 | _ => pure False
-           let PMDef _ _ tree' _ _ = definition def'
+           let PMDef _ _ body' = definition def'
                 | _ => pure False
-           let Just scpos = findArgPos tree
+           Just scpos <- walkTree body (\_, tree => pure (findArgPos tree))
                 | Nothing => pure False
-           let Just scpos' = findArgPos tree'
+           Just scpos' <- walkTree body' (\_, tree => pure (findArgPos tree))
                 | Nothing => pure False
            let Just sc = getScrutinee scpos nargs
                 | Nothing => pure False
@@ -291,7 +307,7 @@ mutual
     where
       -- Need to find the position of the scrutinee to see if they are the
       -- same
-      findArgPos : CaseTree as -> Maybe Nat
+      findArgPos : CaseTree' held as -> Maybe Nat
       findArgPos (Case idx p _ _) = Just idx
       findArgPos _ = Nothing
 
@@ -341,7 +357,7 @@ mutual
   export
   Convert NF where
     convGen q i defs env (NBind fc x b sc) (NBind _ x' b' sc')
-        = do var <- genName "conv"
+        = do var <- genName (known Kconv)
              let c = MkClosure defaultOpts LocalEnv.empty env (Ref fc Bound var)
              bok <- convBinders q i defs env b b'
              if bok

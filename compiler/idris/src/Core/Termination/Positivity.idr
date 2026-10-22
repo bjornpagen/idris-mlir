@@ -18,7 +18,7 @@ import Libraries.Data.NatSet
 isAssertTotal : Ref Ctxt Defs => NHead vars -> Core Bool
 isAssertTotal (NRef _ fn_in) =
   do fn <- getFullName fn_in
-     pure (fn == NS builtinNS (UN $ Basic "assert_total"))
+     pure (fn == NS builtinNS (knownUN Kassert_total))
 isAssertTotal _ = pure False
 
 nameIn : {auto c : Ref Ctxt Defs} ->
@@ -26,7 +26,8 @@ nameIn : {auto c : Ref Ctxt Defs} ->
 nameIn defs tyns (NBind fc x b sc)
     = if !(nameIn defs tyns !(evalClosure defs (binderType b)))
          then pure True
-         else do let nm = Ref fc Bound (MN ("NAMEIN_" ++ show x) 0)
+         else do i <- intern ("NAMEIN_" ++ show x)
+                 let nm = Ref fc Bound (MN i 0)
                  let arg = toClosure defaultOpts Env.empty nm
                  sc' <- sc defs arg
                  nameIn defs tyns sc'
@@ -81,7 +82,8 @@ posArg defs tyns nf@(NBind fc x (Pi _ _ e ty) sc)
   = do logNF "totality.positivity" 50 "Found a Pi-type" Env.empty nf
        if !(nameIn defs tyns !(evalClosure defs ty))
          then pure (NotTerminating NotStrictlyPositive)
-         else do let nm = Ref fc Bound (MN ("POSCHECK_" ++ show x) 1)
+         else do i <- intern ("POSCHECK_" ++ show x)
+                 let nm = Ref fc Bound (MN i 1)
                  let arg = toClosure defaultOpts Env.empty nm
                  sc' <- sc defs arg
                  posArg defs tyns sc'
@@ -104,7 +106,8 @@ checkPosArgs : {auto c : Ref Ctxt Defs} ->
 checkPosArgs defs tyns (NBind fc x (Pi _ _ e ty) sc)
     = case !(posArg defs tyns !(evalClosure defs ty)) of
            IsTerminating =>
-               do let nm = Ref fc Bound (MN ("POSCHECK_" ++ show x) 0)
+               do i <- intern ("POSCHECK_" ++ show x)
+                  let nm = Ref fc Bound (MN i 0)
                   let arg = toClosure defaultOpts Env.empty nm
                   checkPosArgs defs tyns !(sc defs arg)
            bad => pure bad
@@ -140,7 +143,7 @@ checkData defs tyns (c :: cs)
 blockingAssertTotal : {auto c : Ref Ctxt Defs} -> FC -> Core a -> Core a
 blockingAssertTotal loc ma
   = do defs <- get Ctxt
-       let at = NS builtinNS (UN $ Basic "assert_total")
+       let at = NS builtinNS (knownUN Kassert_total)
        Just _ <- lookupCtxtExact at (gamma defs)
          | Nothing => ma
        setVisibility loc at Private

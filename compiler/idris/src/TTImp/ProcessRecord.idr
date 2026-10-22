@@ -43,7 +43,7 @@ elabRecord : {vars : _} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
              List ElabOpt -> FC -> Env Term vars ->
-             NestedNames vars -> Maybe String ->
+             NestedNames vars -> Maybe Namespace ->
              WithDefault Visibility Private ->
              Maybe TotalReq ->
              (tyName : Name) ->
@@ -74,7 +74,7 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
               Just ns =>
                    do let cns = currentNS defs
                       let nns = nestedNS defs
-                      extendNS (mkNamespace ns)
+                      extendNS ns
                       newns <- getNS
                       elabGetters tn conName params 0 [] Env.empty conty
                       -- Record that the current namespace is allowed to look
@@ -256,15 +256,15 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
                                   then S done else done)
                               upds (b :: tyenv) sc
              else
-                do let fldNameStr = nameRoot n
-                   let unName = UN $ Basic fldNameStr
-                   rfNameNS <- inCurrentNS (UN $ Field fldNameStr)
+                do fldName <- rootIdent n
+                   let unName = UN $ Basic fldName
+                   rfNameNS <- inCurrentNS (UN $ Field fldName)
                    unNameNS <- inCurrentNS unName
 
                    ty <- unelabNest (NoSugar False) !nestDrop tyenv ty_chk
                    let ty' = substNames (toList vars) upds $ map rawName ty
                    log "declare.record.field" 5 $ "Field type: " ++ show ty'
-                   let rname = MN "rec" 0
+                   let rname = MN (known Krec) 0
 
                    -- Claim the projection type
                    projTy <- bindTypeNames fc []
@@ -350,7 +350,7 @@ processRecord : {vars : _} ->
                 {auto s : Ref Syn SyntaxInfo} ->
                 {auto o : Ref ROpts REPLOpts} ->
                 List ElabOpt -> NestedNames vars ->
-                Env Term vars -> Maybe String ->
+                Env Term vars -> Maybe Namespace ->
                 WithDefault Visibility Private -> Maybe TotalReq ->
                 ImpRecord -> Core ()
 processRecord eopts nest env newns def_vis mbtot rec@(MkWithData _ $ MkImpRecord header body)

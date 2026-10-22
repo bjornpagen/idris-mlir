@@ -168,7 +168,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
                                (implicitMode elabinfo) env []
          log "elab.case" 5 $ "Doing a case under unbound implicits " ++ show fullImps
 
-         scrn <- genVarName "scr"
+         scrn <- genVarName (known Kscr)
          casen <- genCaseName !(toFullNames (Resolved (defining est)))
 
          -- Update environment so that linear bindings which were used
@@ -190,7 +190,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          caseretty_in <- case expected of
                            Just ty => getTerm ty
                            _ =>
-                              do nmty <- genName "caseTy"
+                              do nmty <- genName (known KcaseTy)
                                  u <- uniVar fc
                                  metaVar fc erased env nmty (TType fc u)
 
@@ -281,9 +281,16 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
     -- so that it applies to the right original variable
     getBindName : Int -> Name -> List Name -> (Name, Name)
     getBindName idx n@(UN un) vs
-       = if n `elem` vs then (n, MN (displayUserName un) idx) else (n, n)
+       = if n `elem` vs then (n, MN (stem un) idx) else (n, n)
+      where
+        -- The user name's own identifier, so the case block's name for the
+        -- variable displays as the variable does.
+        stem : UserName -> Ident
+        stem (Basic i) = i
+        stem (Field i) = i
+        stem Underscore = known K_
     getBindName idx n vs
-       = if n `elem` vs then (n, MN "_cn" idx) else (n, n)
+       = if n `elem` vs then (n, MN (known K_cn) idx) else (n, n)
 
     -- Returns a list of names that nestednames should be applied to, mapped
     -- to what the name has become in the case block, and a list of terms for

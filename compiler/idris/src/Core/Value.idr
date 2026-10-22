@@ -169,10 +169,11 @@ export
 ntCon : FC -> Name -> Nat -> List (FC, Closure vars) -> NF vars
 -- Part of the machinery for matching on types - I believe this won't affect
 -- universe checking so put a dummy name.
-ntCon fc (UN (Basic "Type")) Z [] = NType fc (MN "top" 0)
-ntCon fc n Z [] = case isConstantType n of
-  Just c => NPrimVal fc $ PrT c
-  Nothing => NTCon fc n Z []
+ntCon fc n Z [] = case knownRoot n of
+  Just KType => NType fc (MN (known Ktop) 0)
+  _ => case isConstantType n of
+         Just c => NPrimVal fc $ PrT c
+         Nothing => NTCon fc n Z []
 ntCon fc n arity args = NTCon fc n arity args
 
 export

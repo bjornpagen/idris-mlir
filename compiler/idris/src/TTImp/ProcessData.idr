@@ -501,14 +501,16 @@ processData {vars} eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw o
                       _ => pure $ mbtot <|> declTot
 
                     case definition ndef of
-                      TCon _ _ _ flags mw Nothing _ => case mfullty of
-                        Nothing => pure (mw, vis, tot, type ndef)
-                        Just fullty =>
-                            do ok <- convert defs Env.empty fullty (type ndef)
-                               if ok then pure (mw, vis, tot, fullty)
-                                     else do logTermNF "declare.data" 1 "Previous" Env.empty (type ndef)
-                                             logTermNF "declare.data" 1 "Now" Env.empty fullty
-                                             throw (CantConvert fc (gamma defs) Env.empty (type ndef) fullty)
+                      TCon _ _ _ flags mw Nothing _ => do
+                        nty <- typeOf ndef
+                        case mfullty of
+                          Nothing => pure (mw, vis, tot, nty)
+                          Just fullty =>
+                              do ok <- convert defs Env.empty fullty nty
+                                 if ok then pure (mw, vis, tot, fullty)
+                                       else do logTermNF "declare.data" 1 "Previous" Env.empty nty
+                                               logTermNF "declare.data" 1 "Now" Env.empty fullty
+                                               throw (CantConvert fc (gamma defs) Env.empty nty fullty)
                       _ => throw (AlreadyDefined fc n)
 
          logTermNF "declare.data" 5 ("data " ++ show n) Env.empty fullty

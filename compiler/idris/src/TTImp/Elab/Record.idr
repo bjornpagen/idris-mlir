@@ -41,9 +41,9 @@ getNames {} = pure empty
 
 data Rec : Type where
      Field : Maybe Name -> -- implicit argument name, if any
-             String -> RawImp -> Rec -- field name on left, value on right
+             Ident -> RawImp -> Rec -- field name on left, value on right
      Constr : Maybe Name -> -- implicit argument name, if any
-              Name -> List (String, Rec) -> Rec
+              Name -> List (Ident, Rec) -> Rec
 
 covering
 Show Rec where
@@ -80,37 +80,40 @@ findConName defs tyn
 
 findFieldsAndTypeArgs : {auto c : Ref Ctxt Defs} ->
                         Defs -> Name ->
-                        Core $ Maybe (List (String, Maybe Name, Maybe Name), SortedSet Name)
+                        Core $ Maybe (List (Ident, Maybe Name, Maybe Name), SortedSet Name)
 findFieldsAndTypeArgs defs con
     = case !(lookupTyExact con (gamma defs)) of
            Just t => pure (Just !(getExpNames empty [] !(nf defs Env.empty t)))
            _ => pure Nothing
   where
     getExpNames : SortedSet Name ->
-                  List (String, Maybe Name, Maybe Name) ->
+                  List (Ident, Maybe Name, Maybe Name) ->
                   ClosedNF ->
-                  Core (List (String, Maybe Name, Maybe Name), SortedSet Name)
+                  Core (List (Ident, Maybe Name, Maybe Name), SortedSet Name)
     getExpNames names expNames (NBind fc x (Pi _ _ p ty) sc)
         = do let imp = case p of
                             Explicit => Nothing
                             _ => Just x
              nfty <- evalClosure defs ty
              let names = !(getNames defs nfty) `union` names
-             let expNames = (nameRoot x, imp, getRecordType Env.empty nfty) :: expNames
+             let expNames = (!(rootIdent x), imp, getRecordType Env.empty nfty) :: expNames
              getExpNames names expNames !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x)))
     getExpNames names expNames nfty = pure (reverse expNames, (!(getNames defs nfty) `union` names))
 
-genFieldName : {auto u : Ref UST UState} ->
-               String -> Core String
+-- A fresh field variable's name is new text, so the session's table makes
+-- it an identifier.
+genFieldName : {auto c : Ref Ctxt Defs} ->
+               {auto u : Ref UST UState} ->
+               String -> Core Ident
 genFieldName root
     = do ust <- get UST
          put UST ({ nextName $= (+1) } ust)
-         pure (root ++ show (nextName ust))
+         intern (root ++ show (nextName ust))
 
 -- There's probably a generic version of this in the prelude isn't
 -- there?
-replace : String -> Rec ->
-          List (String, Rec) -> List (String, Rec)
+replace : Ident -> Rec ->
+          List (Ident, Rec) -> List (Ident, Rec)
 replace k v [] = []
 replace k v ((k', v') :: vs)
     = if k == k'
@@ -119,14 +122,14 @@ replace k v ((k', v') :: vs)
 
 findPath : {auto c : Ref Ctxt Defs} ->
            {auto u : Ref UST UState} ->
-           FC -> List String -> List String -> Maybe Name ->
-           (String -> RawImp) ->
+           FC -> List Ident -> List Ident -> Maybe Name ->
+           (Ident -> RawImp) ->
            Rec -> Core Rec
 findPath loc [] full tyn val (Field mn lhs _) = pure (Field mn lhs (val lhs))
 findPath loc [] full tyn val rec
-   = throw (IncompatibleFieldUpdate loc full)
+   = throw (IncompatibleFieldUpdate loc (map (.text) full))
 findPath loc (p :: ps) full Nothing val (Field mn n v)
-   = throw (NotRecordField loc p Nothing)
+   = throw (NotRecordField loc p.text Nothing)
 findPath loc (p :: ps) full (Just tyn) val (Field mn n v)
    = do defs <- get Ctxt
         Just con <- findConName defs tyn
@@ -137,12 +140,12 @@ findPath loc (p :: ps) full (Just tyn) val (Field mn n v)
         let rec' = Constr mn con args
         findPath loc (p :: ps) full (Just tyn) val rec'
   where
-    mkArgs : List (String, Maybe Name, Maybe Name) ->
+    mkArgs : List (Ident, Maybe Name, Maybe Name) ->
              SortedSet Name ->
-             Core (List (String, Rec))
+             Core (List (Ident, Rec))
     mkArgs [] _ = pure []
     mkArgs ((p, imp, _) :: ps) tyArgs
-        = do fldn <- genFieldName p
+        = do fldn <- genFieldName p.text
              args' <- mkArgs ps tyArgs
              -- If other types depend on that implicit argument, leave it as _ by default
              let arg = case (flip contains tyArgs) <$> imp of
@@ -152,12 +155,12 @@ findPath loc (p :: ps) full (Just tyn) val (Field mn n v)
 
 findPath loc (p :: ps) full tyn val (Constr mn con args)
    = do let Just prec = lookup p args
-                 | Nothing => throw (NotRecordField loc p tyn)
+                 | Nothing => throw (NotRecordField loc p.text tyn)
         defs <- get Ctxt
         Just (fs, _) <- findFieldsAndTypeArgs defs con
              | Nothing => pure (Constr mn con args)
         let Just (imp, mfty) = lookup p fs
-                 | Nothing => throw (NotRecordField loc p tyn)
+                 | Nothing => throw (NotRecordField loc p.text tyn)
         prec' <- findPath loc ps full mfty val prec
         pure (Constr mn con (replace p prec' args))
 
@@ -184,8 +187,8 @@ getAllSides loc (u :: upds) tyn orig rec
 
 checkForDuplicates :
   List IFieldUpdate ->
-  (seen, dups : SortedSet (List String)) ->
-  SortedSet (List String)
+  (seen, dups : SortedSet (List Ident)) ->
+  SortedSet (List Ident)
 checkForDuplicates [] seen dups = dups
 checkForDuplicates (x :: xs) seen dups
   = let path = getFieldUpdatePath x
@@ -206,7 +209,7 @@ recUpdate : {vars : _} ->
 recUpdate rigc elabinfo iloc nest env flds rec grecty
       = do let dups = checkForDuplicates flds empty empty
            unless (null dups) $
-             throw (DuplicatedRecordUpdatePath iloc $ Prelude.toList dups)
+             throw (DuplicatedRecordUpdatePath iloc $ map (map (.text)) $ Prelude.toList dups)
            defs <- get Ctxt
            rectynf <- getNF grecty
            let Just rectyn = getRecordType env rectynf

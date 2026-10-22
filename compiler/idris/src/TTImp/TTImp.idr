@@ -128,7 +128,7 @@ mutual
 
        IPrimVal : FC -> (c : Constant) -> RawImp' nm
        IType : FC -> RawImp' nm
-       IHole : FC -> String -> RawImp' nm
+       IHole : FC -> Ident -> RawImp' nm
 
        IUnifyLog : FC -> LogLevel -> RawImp' nm -> RawImp' nm
        -- An implicit value, solved by unification, but which will also be
@@ -147,8 +147,8 @@ mutual
 
   public export
   data IFieldUpdate' : Type -> Type where
-       ISetField : (path : List String) -> RawImp' nm -> IFieldUpdate' nm
-       ISetFieldApp : (path : List String) -> RawImp' nm -> IFieldUpdate' nm
+       ISetField : (path : List Ident) -> RawImp' nm -> IFieldUpdate' nm
+       ISetFieldApp : (path : List Ident) -> RawImp' nm -> IFieldUpdate' nm
   %name IFieldUpdate' upd
 
   public export
@@ -238,7 +238,7 @@ mutual
       show (IUnquote fc tm) = "(%unquote " ++ show tm ++ ")"
       show (IRunElab fc _ tm) = "(%runelab " ++ show tm ++ ")"
       show (IPrimVal fc c) = show c
-      show (IHole _ x) = "?" ++ x
+      show (IHole _ x) = "?" ++ x.text
       show (IUnifyLog _ lvl x) = "(%logging " ++ show lvl ++ " " ++ show x ++ ")"
       show (IType fc) = "%type"
       show (Implicit fc True) = "_"
@@ -248,8 +248,8 @@ mutual
   export
   covering
   Show nm => Show (IFieldUpdate' nm) where
-    show (ISetField p val) = showSep "->" p ++ " = " ++ show val
-    show (ISetFieldApp p val) = showSep "->" p ++ " $= " ++ show val
+    show (ISetField p val) = showSep "->" (map (.text) p) ++ " = " ++ show val
+    show (ISetFieldApp p val) = showSep "->" (map (.text) p) ++ " $= " ++ show val
 
   public export
   FnOpt : Type
@@ -567,7 +567,7 @@ mutual
                      List1 (ImpParameter' (RawImp' nm)) ->
                      List (ImpDecl' nm) -> ImpDecl' nm
        IRecord : FC ->
-                 Maybe String -> -- nested namespace
+                 Maybe Namespace -> -- nested namespace
                  WithDefault Visibility Private ->
                  Maybe TotalReq ->
                  WithFC (ImpRecordData nm) -> ImpDecl' nm
@@ -625,7 +625,7 @@ mkWithClause fc lhs ((rig, wval, prf) ::: []) flags cls
   = WithClause fc lhs rig wval prf flags cls
 mkWithClause fc lhs ((rig, wval, prf) ::: wp :: wps) flags cls
   = let vfc = virtualiseFC fc
-        arg = UN $ Basic "arg"
+        arg = knownUN Karg
      in WithClause fc lhs rig wval prf flags
           [mkWithClause fc (IApp vfc lhs $ IBindVar vfc arg) (wp ::: wps) flags cls]
 
@@ -637,7 +637,7 @@ getFieldUpdateTerm (ISetFieldApp _ term) = term
 
 
 export
-getFieldUpdatePath : IFieldUpdate' nm -> List String
+getFieldUpdatePath : IFieldUpdate' nm -> List Ident
 getFieldUpdatePath (ISetField    path _) = path
 getFieldUpdatePath (ISetFieldApp path _) = path
 
@@ -701,7 +701,7 @@ lhsInCurrentNS nest (IVar loc n)
 lhsInCurrentNS nest tm = pure tm
 
 export
-findIBinds : RawImp' nm -> List String
+findIBinds : RawImp' nm -> List Ident
 findIBinds (IPi fc rig p mn aty retty)
     = findIBinds aty ++ findIBinds retty
 findIBinds (ILam fc rig p n aty sc)
@@ -739,7 +739,7 @@ findIBinds (IUpdate fc updates tm)
 findIBinds tm = []
 
 export
-findImplicits : RawImp' nm -> List String
+findImplicits : RawImp' nm -> List Ident
 findImplicits (IPi fc rig p (Just (UN (Basic mn))) aty retty)
     = mn :: findImplicits aty ++ findImplicits retty
 findImplicits (IPi fc rig p mn aty retty)
@@ -934,7 +934,7 @@ definedInBlock ns decls =
         = foldl (flip insert) acc $ expandNS ns rec.val.body.name.val :: all
       where
         fldns' : Namespace
-        fldns' = maybe ns (\ f => ns <.> mkNamespace f) fldns
+        fldns' = maybe ns (ns <.>) fldns
 
         toRF : Name -> Name
         toRF (UN (Basic n)) = UN (Field n)
@@ -1093,7 +1093,7 @@ gapply f (x :: xs) = gapply (uncurry (app f) x) xs where
 export
 typeReading : FC -> Overlaid -> RawImp
 typeReading fc (PairOf l r) = apply (IVar fc pairname) [l, r]
-typeReading fc UnitOf = IVar fc (UN $ Basic "Unit")
+typeReading fc UnitOf = IVar fc (knownUN KUnit)
 typeReading fc (DPairOf opFC nameFC n r)
     = let vfc = virtualiseFC nameFC in
           apply (IVar opFC dpairname)
@@ -1104,7 +1104,7 @@ typeReading fc (DPairOf opFC nameFC n r)
 export
 valueReading : FC -> Overlaid -> RawImp
 valueReading fc (PairOf l r) = apply (IVar fc mkpairname) [l, r]
-valueReading fc UnitOf = IVar fc (UN $ Basic "MkUnit")
+valueReading fc UnitOf = IVar fc (knownUN KMkUnit)
 valueReading fc (DPairOf opFC nameFC n r)
     = apply (IVar opFC mkdpairname) [IVar nameFC n, r]
 

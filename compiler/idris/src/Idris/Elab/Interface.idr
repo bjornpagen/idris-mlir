@@ -34,14 +34,14 @@ record Signature where
   type     : RawImp
 
 constructorBindName : Name
-constructorBindName = UN (Basic "__con")
+constructorBindName = knownUN K__con
 
 -- Give implicit Pi bindings explicit names, if they don't have one already,
 -- because we need them to be consistent everywhere we refer to them
 namePis : Int -> RawImp -> RawImp
 namePis i (IPi fc r info n ty sc)
     = let (n', i') = if isImplicit info && isUnnamed n
-                        then (Just (MN "i_con" i), i + 1)
+                        then (Just (MN (known Ki_con) i), i + 1)
                         else (n, i)
        in IPi fc r info n' ty (namePis i' sc)
   where
@@ -233,8 +233,9 @@ getConstraintHint {vars} fc env vis iname cname constraints meths params (cn, co
          let fty = mkTy fc Implicit (map jname params) $
                    mkTy fc Explicit [(Nothing, top, ity)] con
          ty_imp <- bindTypeNames fc [] (pNames ++ meths ++ toList vars) fty
-         let hintname = DN ("Constraint " ++ show con)
-                           (UN (Basic $ "__" ++ show iname ++ "_" ++ show con))
+         hintDisplay <- intern ("Constraint " ++ show con)
+         hintRoot <- intern ("__" ++ show iname ++ "_" ++ show con)
+         let hintname = DN hintDisplay (UN (Basic hintRoot))
 
          let tydecl = IClaim (MkFCVal fc $ MkIClaimData top vis [Inline, Hint False]
                              (MkWithFCTyName EmptyFC (NoFC hintname) ty_imp))
@@ -254,13 +255,19 @@ getConstraintHint {vars} fc env vis iname cname constraints meths params (cn, co
         = impsBind (IAutoApp fc fn (IBindVar fc n)) ns
 
 
-mkCon : FC -> Name -> Name
+-- The constructor's name is made from the interface's text, so its
+-- identifiers are new to the session's table.
+mkCon : {auto c : Ref Ctxt Defs} -> FC -> Name -> Core Name
 mkCon loc (NS ns (UN n))
-   = let str = displayUserName n in
-     NS ns (DN (str ++ " at " ++ show loc) (UN $ Basic ("__mk" ++ str)))
+   = do let str = displayUserName n
+        display <- intern (str ++ " at " ++ show loc)
+        root <- intern ("__mk" ++ str)
+        pure (NS ns (DN display (UN $ Basic root)))
 mkCon loc n
-   = let str = show n in
-     DN (str ++ " at " ++ show loc) (UN $ Basic ("__mk" ++  str))
+   = do let str = show n
+        display <- intern (str ++ " at " ++ show loc)
+        root <- intern ("__mk" ++ str)
+        pure (DN display (UN $ Basic root))
 
 updateIfaceSyn : {auto c : Ref Ctxt Defs} ->
                  {auto s : Ref Syn SyntaxInfo} ->
@@ -305,7 +312,7 @@ elabInterface : {vars : _} ->
 elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon body
     = do fullIName <- getFullName iname
          ns_iname <- inCurrentNS fullIName
-         let conName_in = maybe (mkCon vfc fullIName) val mcon
+         conName_in <- maybe (mkCon vfc fullIName) (pure . val) mcon
          -- Machine generated names need to be qualified when looking them up
          conName <- inCurrentNS conName_in
          whenJust ((.doc) <$> mcon) (addDocString conName)
@@ -338,7 +345,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
     nameConstraints : List (Maybe Name, RawImp) -> Core (List (Name, RawImp))
     nameConstraints [] = pure []
     nameConstraints ((_, ty) :: rest)
-        = pure $ (!(genVarName "constraint"), ty) :: !(nameConstraints rest)
+        = pure $ (!(genVarName (known Kconstraint)), ty) :: !(nameConstraints rest)
 
     -- Elaborate the data declaration part of the interface
     elabAsData : (conName : Name) -> List Name ->
@@ -363,7 +370,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
 
     elabMethods : (conName : Name) -> List Name -> List Signature -> Core ()
     elabMethods conName methNames methSigs
-        = do bindNames <- for methNames $ genVarName . nameRoot
+        = do bindNames <- for methNames $ \ n => rootIdent n >>= genVarName
              -- Methods have same visibility as data declaration
              fnsm <- traverse (getMethToplevel env (collapseDefault def_vis)
                                                iname conName
@@ -388,7 +395,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
     elabDefault tydecls (dfc, opts, n, cs)
         = do -- orig <- branch
 
-             let dn_in = MN ("Default implementation of " ++ show n) 0
+             dn_in <- (\ i => MN i 0) <$> intern ("Default implementation of " ++ show n)
              dn <- inCurrentNS dn_in
 
              (rig, dty) <-

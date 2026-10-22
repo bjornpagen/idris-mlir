@@ -17,20 +17,19 @@ import public Core.Name.Namespace
 ||| A username has some structure
 public export
 data UserName : Type where
-  Basic : String -> UserName -- default name constructor       e.g. map
-  Field : String -> UserName -- field accessor                 e.g. .fst
-  Underscore : UserName      -- no name                        e.g. _
+  Basic : Ident -> UserName -- default name constructor       e.g. map
+  Field : Ident -> UserName -- field accessor                 e.g. .fst
+  Underscore : UserName     -- no name                        e.g. _
 
 %name UserName un
 
-||| A smart constructor taking a string and parsing it as the appropriate
-||| username
+||| The user name an identifier spells as a name: `_` is no name. A text
+||| that spells a field (`.fst`) is a field's identifier only once the
+||| table has the text after its dot (`Core.Context.internUserName`).
 export
-mkUserName : String -> UserName
-mkUserName "_" = Underscore
-mkUserName str = case strUncons str of
-  Just ('.', n) => Field n
-  _ => Basic str
+userNameOf : Ident -> UserName
+userNameOf i = if i == known K_ then Underscore else Basic i
+
 
 ||| Name helps us track a name's structure as well as its origin:
 ||| was it user-provided or machine-manufactured? For what reason?
@@ -38,9 +37,9 @@ public export
 data Name : Type where
      NS : Namespace -> Name -> Name -- in a namespace
      UN : UserName -> Name -- user defined name
-     MN : String -> Int -> Name -- machine generated name
+     MN : Ident -> Int -> Name -- machine generated name
      PV : Name -> Int -> Name -- pattern variable name; int is the resolved function id
-     DN : String -> Name -> Name -- a name and how to display it
+     DN : Ident -> Name -> Name -- a name and how to display it
      Nested : (Int, Int) -> Name -> Name -- nested function name
      -- A case or with block: the full name of the definition it is in,
      -- and its ordinal among that definition's blocks. Upstream kept the
@@ -52,6 +51,17 @@ data Name : Type where
      Resolved : Int -> Name -- resolved, index into context
 
 %name Name n
+
+||| The name a known identifier spells, in no namespace.
+export
+knownUN : Known -> Name
+knownUN k = UN (Basic (known k))
+
+||| Which known identifier a name in no namespace is, if it is one.
+export
+knownRoot : Name -> Maybe Known
+knownRoot (UN (Basic i)) = knownOf i
+knownRoot _ = Nothing
 
 export
 mkNamespacedName : Maybe Namespace -> UserName -> Name
@@ -96,7 +106,7 @@ export
 ||| Test whether a user name begins with an operator symbol.
 isOpUserName : UserName -> Bool
 isOpUserName (Basic n) = fromMaybe False $ do
-   c <- fst <$> strUncons n
+   c <- fst <$> strUncons n.text
    guard (isOpChar c)
    pure True
 isOpUserName (Field _) = False
@@ -110,12 +120,12 @@ isOpName = maybe False isOpUserName . userNameRoot
 export
 isUnderscoreName : Name -> Bool
 isUnderscoreName (UN Underscore) = True
-isUnderscoreName (MN "_" _) = True
+isUnderscoreName (MN i _) = i == known K_
 isUnderscoreName _ = False
 
 export
 isPatternVariable : UserName -> Bool
-isPatternVariable (Basic nm) = lowerFirst nm
+isPatternVariable (Basic nm) = lowerFirst nm.text
 isPatternVariable (Field _) = False
 isPatternVariable Underscore = True
 
@@ -142,7 +152,7 @@ isSourceName (WithBlock {}) = False
 isSourceName (Resolved {}) = False
 
 export
-isRF : Name -> Maybe (Namespace, String)
+isRF : Name -> Maybe (Namespace, Ident)
 isRF (NS ns n) = map (mapFst (ns <.>)) (isRF n)
 isRF (UN (Field n)) = Just (emptyNS, n)
 isRF _ = Nothing
@@ -154,12 +164,12 @@ isUN (NS ns n) = map (mapFst (ns <.>)) (isUN n)
 isUN _ = Nothing
 
 export
-isBasic : UserName -> Maybe String
+isBasic : UserName -> Maybe Ident
 isBasic (Basic str) = Just str
 isBasic _ = Nothing
 
 export
-isField : UserName -> Maybe String
+isField : UserName -> Maybe Ident
 isField (Field str) = Just str
 isField _ = Nothing
 
@@ -173,15 +183,15 @@ caseFn _ = False
 
 export
 displayUserName : UserName -> String
-displayUserName (Basic n) = n
-displayUserName (Field n) = n
+displayUserName (Basic n) = n.text
+displayUserName (Field n) = n.text
 displayUserName Underscore = "_"
 
 export
 nameRoot : Name -> String
 nameRoot (NS _ n) = nameRoot n
 nameRoot (UN n) = displayUserName n
-nameRoot (MN n _) = n
+nameRoot (MN n _) = n.text
 nameRoot (PV n _) = nameRoot n
 nameRoot (DN _ n) = nameRoot n
 nameRoot (Nested _ inner) = nameRoot inner
@@ -193,9 +203,9 @@ export
 displayName : Name -> (Maybe Namespace, String)
 displayName (NS ns n) = mapFst (pure . maybe ns (ns <.>)) $ displayName n
 displayName (UN n) = (Nothing, displayUserName n)
-displayName (MN n _) = (Nothing, n)
+displayName (MN n _) = (Nothing, n.text)
 displayName (PV n _) = displayName n
-displayName (DN n _) = (Nothing, n)
+displayName (DN n _) = (Nothing, n.text)
 displayName (Nested _ n) = displayName n
 displayName (CaseBlock outer _) = (Nothing, "case block in " ++ show (nameRoot outer))
 displayName (WithBlock outer _) = (Nothing, "with block in " ++ show (nameRoot outer))
@@ -228,31 +238,28 @@ isUnsafeBuiltin : Name -> Bool
 isUnsafeBuiltin nm = case splitNS nm of
   (ns, UN (Basic str)) =>
        (ns == builtinNS || ns == emptyNS)
-    && any {t = List} id
-           [ "assert_" `isPrefixOf` str
-           , str `elem` [ "prim__believe_me", "believe_me"
-                        , "prim__crash", "idris_crash"
-                        ]
-           ]
+    && ("assert_" `isPrefixOf` str.text
+        || str `elem` map known [ Kprim__believe_me, Kbelieve_me
+                                , Kprim__crash, Kidris_crash ])
   _ => False
 
 export
 Show UserName where
-  show (Basic n) = n
-  show (Field n) = "." ++ n
+  show (Basic n) = n.text
+  show (Field n) = "." ++ n.text
   show Underscore = "_"
 
 export
 Show Name where
   show (NS ns n@(UN (Field _))) = show ns ++ ".(" ++ show n ++ ")"
-  show (NS ns (UN (Basic n))) = if any isOpChar (unpack n)
-                       then "\{show ns}.(\{n})"
-                       else "\{show ns}.\{n}"
+  show (NS ns (UN (Basic n))) = if any isOpChar (unpack n.text)
+                       then "\{show ns}.(\{n.text})"
+                       else "\{show ns}.\{n.text}"
   show (NS ns n) = "\{show ns}.\{show n}"
   show (UN x) = show x
-  show (MN x y) = "{" ++ x ++ ":" ++ show y ++ "}"
+  show (MN x y) = "{" ++ x.text ++ ":" ++ show y ++ "}"
   show (PV n d) = "{P:" ++ show n ++ ":" ++ show d ++ "}"
-  show (DN str n) = str
+  show (DN str n) = str.text
   show (Nested (outer, idx) inner)
       = show outer ++ ":" ++ show idx ++ ":" ++ show inner
   show (CaseBlock outer i) = "case block in " ++ show (snd (splitNS outer))
@@ -261,8 +268,8 @@ Show Name where
 
 export
 [RawUN] Show UserName where
-  showPrec d (Basic n) = showCon d "Basic " n
-  showPrec d (Field n) = showCon d "Field " n
+  showPrec d (Basic n) = showCon d "Basic " n.text
+  showPrec d (Field n) = showCon d "Field " n.text
   showPrec d Underscore = "Underscore"
 
 export
@@ -398,14 +405,6 @@ Ord Name where
     compare x y = compare (nameTag x) (nameTag y)
 
 
-||| Generate the next machine name
-export
-next : Name -> Name
-next (MN n i) = MN n (i + 1)
-next (UN n) = MN (show n) 0
-next (NS ns n) = NS ns (next n)
-next n = MN (show n) 0
-
 ||| levenshtein distance that needs to be reached in order for a
 ||| namespace path to closely match another one.
 closeNamespaceDistance : Nat
@@ -421,11 +420,11 @@ closeDistance s1 s2 = pure (!(Distance.compute s1 s2) < closeNamespaceDistance)
 export
 closeMatch : (test, reference : Name) -> IO Bool
 closeMatch (NS pathTest nameTest) (NS pathRef nameRef)
-  = let extractNameString = toList . (map snd . isUN >=> isBasic)
-        unfoldedTest = unsafeUnfoldNamespace pathTest ++ extractNameString nameTest
-        unfoldedRef = unsafeUnfoldNamespace pathRef ++ extractNameString nameRef
+  = let extractNameString = toList . (map snd . isUN >=> map (.text) . isBasic)
+        unfoldedTest = map (.text) (unsafeUnfoldNamespace pathTest) ++ extractNameString nameTest
+        unfoldedRef = map (.text) (unsafeUnfoldNamespace pathRef) ++ extractNameString nameRef
         tests : IO (List Nat) = traverse (uncurry Distance.compute) (zip unfoldedTest unfoldedRef)
     in map ((<= closeNamespaceDistance) . sum) tests
-closeMatch (UN (Basic test)) (UN (Basic ref)) = closeDistance test ref
+closeMatch (UN (Basic test)) (UN (Basic ref)) = closeDistance test.text ref.text
 closeMatch _ _ = pure False
 

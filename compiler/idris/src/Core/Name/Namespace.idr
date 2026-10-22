@@ -2,6 +2,8 @@
 -- Copyright (c) 2020 Edwin Brady
 module Core.Name.Namespace
 
+import public Core.Name.Ident
+
 import Data.List
 import Data.String
 import Libraries.Data.String.Extra
@@ -21,14 +23,14 @@ import Libraries.Utils.Path
 ||| functions we provide.
 export
 data Namespace : Type where
-  MkNS : List String -> Namespace
+  MkNS : List Ident -> Namespace
 
 %name Namespace ns
 
 ||| A Module Identifier is, similarly to a namespace, stored inside out.
 export
 data ModuleIdent : Type where
-  MkMI : List String -> ModuleIdent
+  MkMI : List Ident -> ModuleIdent
 
 %name Namespace mi
 
@@ -52,28 +54,20 @@ nsAsModuleIdent (MkNS ns) = MkMI ns
 -- SMART CONSTRUCTORS
 -------------------------------------------------------------------------------------
 
+||| The namespace of these parts, outermost first, as it is written:
+||| `nsOf [a, b]` is `a.b`. A namespace spelled as text is made by the
+||| session's table of identifiers (`Core.Context.internNamespace`).
 export
-mkNamespacedIdent : String -> (Maybe Namespace, String)
-mkNamespacedIdent str
-    = let nns = reverse (split (== '.') str)
-          name = head nns
-          ns = tail nns in
-          case ns of
-               [] => (Nothing, name)
-               _ => (Just (MkNS ns), name)
+nsOf : List Ident -> Namespace
+nsOf parts = MkNS (reverse parts)
 
 export
-mkNestedNamespace : Maybe Namespace -> String -> Namespace
+mkNestedNamespace : Maybe Namespace -> Ident -> Namespace
 mkNestedNamespace Nothing n = MkNS [n]
 mkNestedNamespace (Just (MkNS ns)) n = MkNS (n :: ns)
 
 export
-mkNamespace : String -> Namespace
-mkNamespace ""  = MkNS []
-mkNamespace str = uncurry mkNestedNamespace (mkNamespacedIdent str)
-
-export
-mkModuleIdent : Maybe Namespace -> String -> ModuleIdent
+mkModuleIdent : Maybe Namespace -> Ident -> ModuleIdent
 mkModuleIdent Nothing n = MkMI [n]
 mkModuleIdent (Just (MkNS ns)) n = MkMI (n :: ns)
 
@@ -94,7 +88,7 @@ export
 replace : (old : ModuleIdent) -> (new, ns : Namespace) -> Namespace
 replace (MkMI old) (MkNS new) (MkNS ns) = MkNS (go ns) where
 
-  go : List String -> List String
+  go : List Ident -> List Ident
   go [] = []
   go (m :: ms)
         = if old == (m :: ms)
@@ -103,26 +97,26 @@ replace (MkMI old) (MkNS new) (MkNS ns) = MkNS (go ns) where
 
 ||| Use at your own risks!
 export
-unsafeUnfoldNamespace : Namespace -> List String
+unsafeUnfoldNamespace : Namespace -> List Ident
 unsafeUnfoldNamespace (MkNS ns) = ns
 
 export
-unsafeFoldNamespace : List String -> Namespace
+unsafeFoldNamespace : List Ident -> Namespace
 unsafeFoldNamespace = MkNS
 
 export
-unsafeUnfoldModuleIdent : ModuleIdent -> List String
+unsafeUnfoldModuleIdent : ModuleIdent -> List Ident
 unsafeUnfoldModuleIdent (MkMI ns) = ns
 
 export
-unsafeFoldModuleIdent : List String -> ModuleIdent
+unsafeFoldModuleIdent : List Ident -> ModuleIdent
 unsafeFoldModuleIdent = MkMI
 
 namespace ModuleIdent
   ||| A.B.C -> "A/B/C"
   export
   toPath : ModuleIdent -> String
-  toPath = joinPath . reverse . unsafeUnfoldModuleIdent
+  toPath = joinPath . reverse . map (.text) . unsafeUnfoldModuleIdent
 
   export
   parent : ModuleIdent -> Maybe ModuleIdent
@@ -145,7 +139,7 @@ export
 allParents : Namespace -> List Namespace
 allParents (MkNS ns) = go ns where
 
-  go : List String -> List Namespace
+  go : List Ident -> List Namespace
   go [] = []
   go (n :: ns) = MkNS (n :: ns) :: go ns
 
@@ -179,10 +173,10 @@ isApproximationOf (MkNS ms) (MkNS ns)
   -- the other's.
   = isPrefixOf ms ns
 
-||| We can check whether a given string (assumed to be a valid Namespace ident)
-||| is in the path of a given namespace.
+||| We can check whether a given identifier is in the path of a given
+||| namespace.
 export
-isInPathOf : (i : String) -> (candidate : Namespace) -> Bool
+isInPathOf : (i : Ident) -> (candidate : Namespace) -> Bool
 isInPathOf i (MkNS ns) = i `elem` ns
 
 -------------------------------------------------------------------------------------
@@ -212,7 +206,7 @@ showSep sep = Libraries.Data.String.Extra.join sep
 
 export
 showNSWithSep : String -> Namespace -> String
-showNSWithSep sep (MkNS ns) = showSep sep (reverse ns)
+showNSWithSep sep (MkNS ns) = showSep sep (reverse (map (.text) ns))
 
 export
 Show Namespace where
@@ -238,64 +232,68 @@ Pretty Void ModuleIdent where
 ||| This is used when evaluating things in the REPL
 export
 emptyNS : Namespace
-emptyNS = mkNamespace ""
+emptyNS = MkNS []
 
 export
 mainNS : Namespace
-mainNS = mkNamespace "Main"
+mainNS = nsOf [known KMain]
 
 export
 partialEvalNS : Namespace
-partialEvalNS = mkNamespace "_PE"
+partialEvalNS = nsOf [known K_PE]
 
 export
 builtinNS : Namespace
-builtinNS = mkNamespace "Builtin"
+builtinNS = nsOf [known KBuiltin]
 
 export
 preludeNS : Namespace
-preludeNS = mkNamespace "Prelude"
+preludeNS = nsOf [known KPrelude]
 
 export
 numNS : Namespace
-numNS = mkNamespace "Prelude.Num"
+numNS = nsOf [known KPrelude, known KNum]
 
 export
 typesNS : Namespace
-typesNS = mkNamespace "Prelude.Types"
+typesNS = nsOf [known KPrelude, known KTypes]
 
 export
 basicsNS : Namespace
-basicsNS = mkNamespace "Prelude.Basics"
+basicsNS = nsOf [known KPrelude, known KBasics]
 
 export
 eqOrdNS : Namespace
-eqOrdNS = mkNamespace "Prelude.EqOrd"
+eqOrdNS = nsOf [known KPrelude, known KEqOrd]
 
 export
 primIONS : Namespace
-primIONS = mkNamespace "PrimIO"
+primIONS = nsOf [known KPrimIO]
 
 export
 ioNS : Namespace
-ioNS = mkNamespace "Prelude.IO"
+ioNS = nsOf [known KPrelude, known KIO]
 
 export
 reflectionNS : Namespace
-reflectionNS = mkNamespace "Language.Reflection"
+reflectionNS = nsOf [known KLanguage, known KReflection]
 
 export
 reflectionTTNS : Namespace
-reflectionTTNS = mkNamespace "Language.Reflection.TT"
+reflectionTTNS = nsOf [known KLanguage, known KReflection, known KTT]
 
 export
 reflectionTTImpNS : Namespace
-reflectionTTImpNS = mkNamespace "Language.Reflection.TTImp"
+reflectionTTImpNS = nsOf [known KLanguage, known KReflection, known KTTImp]
 
 export
 dpairNS : Namespace
-dpairNS = mkNamespace "Builtin.DPair"
+dpairNS = nsOf [known KBuiltin, known KDPair]
 
 export
 natNS : Namespace
-natNS = mkNamespace "Data.Nat"
+natNS = nsOf [known KData, known KNat]
+
+export
+list1NS : Namespace
+list1NS = nsOf [known KData, known KList1]

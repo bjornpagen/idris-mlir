@@ -34,8 +34,10 @@ interface TTC a where -- TTC = TT intermediate code/interface file
   -- Add binary data representing the value to the given buffer
   toBuf : Ref Bin Binary => a -> Core ()
   -- Return the data representing a thing of type 'a' from the given buffer.
-  -- Throws if the data can't be parsed as an 'a'
-  fromBuf : Ref Bin Binary => Core a
+  -- Throws if the data can't be parsed as an 'a'. An identifier read back
+  -- is interned in the session's table: a TTC holds identifiers as text,
+  -- written from content, never as a session's ids.
+  fromBuf : Ref Bin Binary => {auto ids : Ref Interned Idents} -> Core a
 
 -- Create a new list of chunks, initialised with one 64k chunk
 export
@@ -194,6 +196,18 @@ TTC String where
                    pure val
               else throw (TTCError (EndOfBuffer ("String length " ++ show len ++
                                                  " at " ++ show (loc chunk))))
+
+||| An identifier is written as its text and read back by interning it.
+export
+TTC Ident where
+  toBuf i = toBuf i.text
+
+  fromBuf
+      = do s <- fromBuf {a = String}
+           t <- get Interned
+           let (i, t') = internIn s t
+           put Interned t'
+           pure i
 
 export
 TTC Binary where

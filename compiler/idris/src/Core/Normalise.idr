@@ -272,7 +272,7 @@ replace' {vars} tmpi defs env lhs parg tm
     repSub : NF vars -> Core (Term vars)
     repSub (NBind fc x b scfn)
         = do b' <- traverse (\c => repSub !(evalClosure defs c)) b
-             let x' = MN "tmp" tmpi
+             let x' = MN (known Ktmp) tmpi
              sc' <- replace' (tmpi + 1) defs env lhs parg
                              !(scfn defs (toClosure defaultOpts env (Ref fc Bound x')))
              pure (Bind fc x b' (refsToLocals (Add x x' None) sc'))

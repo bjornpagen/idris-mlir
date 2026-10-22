@@ -118,7 +118,7 @@ mutual
        PQuoteDecl : FC -> List (PDecl' nm) -> PTerm' nm
        PUnquote : FC -> PTerm' nm -> PTerm' nm
        PRunElab : FC -> PTerm' nm -> PTerm' nm
-       PHole : FC -> (bracket : Bool) -> (holename : String) -> PTerm' nm
+       PHole : FC -> (bracket : Bool) -> (holename : Ident) -> PTerm' nm
        PType : FC -> PTerm' nm
        PAs : FC -> (nameFC : FC) -> Name -> (pattern : PTerm' nm) -> PTerm' nm
        PDotted : FC -> PTerm' nm -> PTerm' nm
@@ -229,8 +229,8 @@ mutual
 
   public export
   data PFieldUpdate' : Type -> Type where
-       PSetField : (path : List String) -> PTerm' nm -> PFieldUpdate' nm
-       PSetFieldApp : (path : List String) -> PTerm' nm -> PFieldUpdate' nm
+       PSetField : (path : List Ident) -> PTerm' nm -> PFieldUpdate' nm
+       PSetFieldApp : (path : List Ident) -> PTerm' nm -> PFieldUpdate' nm
 
   public export
   PDo : Type
@@ -673,8 +673,8 @@ parameters {0 nm : Type} (toName : nm -> Name)
   showPStr (StrLiteral _ str) = show str
   showPStr (StrInterp _ tm) = showPTerm tm
 
-  showUpdate (PSetField p v) = showSep "." p ++ " = " ++ showPTerm v
-  showUpdate (PSetFieldApp p v) = showSep "." p ++ " $= " ++ showPTerm v
+  showUpdate (PSetField p v) = showSep "." (map (.text) p) ++ " = " ++ showPTerm v
+  showUpdate (PSetFieldApp p v) = showSep "." (map (.text) p) ++ " $= " ++ showPTerm v
 
   showBasicMultiBinder (MkBasicMultiBinder rig names type)
         = "\{showCount rig} \{showNames}: \{showPTerm type}"
@@ -765,7 +765,7 @@ parameters {0 nm : Type} (toName : nm -> Name)
   showPTermPrec d (PUnquote _ tm) = "~(" ++ showPTermPrec d tm ++ ")"
   showPTermPrec d (PRunElab _ tm) = "%runElab " ++ showPTermPrec d tm
   showPTermPrec d (PPrimVal _ c) = showPrec d c
-  showPTermPrec _ (PHole _ _ n) = "?" ++ n
+  showPTermPrec _ (PHole _ _ n) = "?" ++ n.text
   showPTermPrec _ (PType _) = "Type"
   showPTermPrec d (PAs _ _ n p) = showPrec d n ++ "@" ++ showPTermPrec d p
   showPTermPrec d (PDotted _ p) = "." ++ showPTermPrec d p
@@ -808,12 +808,12 @@ parameters {0 nm : Type} (toName : nm -> Name)
       where
         dePure : PTerm' nm -> PTerm' nm
         dePure tm@(PApp _ (PRef _ n) arg)
-            = if dropNS (toName n) == UN (Basic "pure") then arg else tm
+            = if dropNS (toName n) == knownUN Kpure then arg else tm
         dePure tm = tm
 
         deGuard : PDo' nm -> PDo' nm
         deGuard tm@(DoExp fc (PApp _ (PRef _ n) arg))
-            = if dropNS (toName n) == UN (Basic "guard") then DoExp fc arg else tm
+            = if dropNS (toName n) == knownUN Kguard then DoExp fc arg else tm
         deGuard tm = tm
   showPTermPrec d (PRewrite _ rule tm)
         = "rewrite " ++ showPTermPrec d rule ++ " in " ++ showPTermPrec d tm
@@ -885,7 +885,7 @@ record SyntaxInfo where
                            -- TODO: use Set instead List
   usingImpl : List (Maybe Name, RawImp)
   startExpr : RawImp
-  holeNames : List String -- hole names in the file
+  holeNames : List Ident -- hole names in the file
 
 export
 prefixes : SyntaxInfo -> ANameMap (FC, Nat)
@@ -952,7 +952,7 @@ initSyntax
                initDocStrings
                []
                []
-               (IVar EmptyFC (UN $ Basic "main"))
+               (IVar EmptyFC (knownUN Kmain))
                []
 
   where
@@ -960,9 +960,9 @@ initSyntax
 
     initFixities : ANameMap FixityInfo
     initFixities = fromList
-      [ (UN $ Basic "-", MkFixityInfo EmptyFC Export NotBinding Prefix 10)
-      , (UN $ Basic "negate", MkFixityInfo EmptyFC Export NotBinding Prefix 10) -- for documentation purposes
-      , (UN $ Basic "=", MkFixityInfo EmptyFC Export NotBinding Infix 0)
+      [ (knownUN KMinus, MkFixityInfo EmptyFC Export NotBinding Prefix 10)
+      , (knownUN Knegate, MkFixityInfo EmptyFC Export NotBinding Prefix 10) -- for documentation purposes
+      , (knownUN KEquals, MkFixityInfo EmptyFC Export NotBinding Infix 0)
       ]
 
     initDocStrings : ANameMap String
@@ -1013,12 +1013,16 @@ removeFixity loc _ key = do
     printFixityHide : Name -> String
     printFixityHide nm = "%hide \{show nm}"
 
-||| Return all fixity declarations for an operator name
+||| Return all fixity declarations for an operator name, by its root: a
+||| fixity is declared in a namespace of its own, which no qualified use of
+||| the operator names.
 export
-getFixityInfo : {auto s : Ref Syn SyntaxInfo} -> String -> Core (List (Name, FixityInfo))
+getFixityInfo : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
+                Name -> Core (List (Name, FixityInfo))
 getFixityInfo nm = do
   syn <- get Syn
-  pure $ lookupName (UN $ Basic nm) (fixities syn)
+  root <- rootIdent nm
+  pure $ lookupName (UN $ Basic root) (fixities syn)
 
 export
 covering

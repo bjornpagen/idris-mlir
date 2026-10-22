@@ -16,58 +16,102 @@ import Libraries.Data.List.SizeOf
 
 %default covering
 
+-- A case tree's terms (each case's scrutinee type and each leaf's
+-- right-hand side) are held as the definition holds them: `CaseTree` is a
+-- tree of live terms, as the current module's definitions are; a stored
+-- definition's tree holds the roots of its arena (`Core.TT.Stored`). The
+-- tree's shape, its scopes and its proofs are the same for both.
 mutual
   ||| Case trees in A-normal forms
   ||| i.e. we may only dispatch on variables, not expressions
   public export
-  data CaseTree : Scoped where
+  data CaseTree' : Scoped -> Scoped where
        ||| case x return scTy of { p1 => e1 ; ... }
        Case : {name : _} ->
               (idx : Nat) ->
               (0 p : IsVar name idx vars) ->
-              (scTy : Term vars) -> List (CaseAlt vars) ->
-              CaseTree vars
+              (scTy : t vars) -> List (CaseAlt' t vars) ->
+              CaseTree' t vars
        ||| RHS: no need for further inspection
        ||| The Int is a clause id that allows us to see which of the
        ||| initial clauses are reached in the tree
-       STerm : Int -> Term vars -> CaseTree vars
+       STerm : Int -> t vars -> CaseTree' t vars
        ||| error from a partial match
-       Unmatched : (msg : String) -> CaseTree vars
+       Unmatched : (msg : String) -> CaseTree' t vars
        ||| Absurd context
-       Impossible : CaseTree vars
+       Impossible : CaseTree' t vars
 
   ||| Case alternatives. Unlike arbitrary patterns, they can be at most
   ||| one constructor deep.
   public export
-  data CaseAlt : Scoped where
+  data CaseAlt' : Scoped -> Scoped where
        ||| Constructor for a data type; bind the arguments and subterms.
        ConCase : Name -> (tag : Int) -> (args : List Name) ->
-                 CaseTree (Scope.addInner vars args) -> CaseAlt vars
+                 CaseTree' t (Scope.addInner vars args) -> CaseAlt' t vars
        ||| Lazy match for the Delay type use for codata types
        DelayCase : (ty : Name) -> (arg : Name) ->
-                   CaseTree (Scope.addInner vars [ty, arg]) -> CaseAlt vars
+                   CaseTree' t (Scope.addInner vars [ty, arg]) -> CaseAlt' t vars
                    -- TODO `arg` and `ty` should be swapped, as in Yaffle
        ||| Match against a literal
-       ConstCase : Constant -> CaseTree vars -> CaseAlt vars
+       ConstCase : Constant -> CaseTree' t vars -> CaseAlt' t vars
        ||| Catch-all case
-       DefaultCase : CaseTree vars -> CaseAlt vars
+       DefaultCase : CaseTree' t vars -> CaseAlt' t vars
+
+||| A case tree of live terms.
+public export
+CaseTree : Scoped
+CaseTree = CaseTree' Term
+
+||| An alternative of a case tree of live terms.
+public export
+CaseAlt : Scoped
+CaseAlt = CaseAlt' Term
 
 mutual
   public export
-  measure : CaseTree vars -> Nat
+  measure : CaseTree' t vars -> Nat
   measure (Case idx p scTy xs) = sum $ measureAlts <$> xs
   measure (STerm x y) = 0
   measure (Unmatched msg) = 0
   measure Impossible = 0
 
-  measureAlts : CaseAlt vars -> Nat
+  measureAlts : CaseAlt' t vars -> Nat
   measureAlts (ConCase x tag args y) = 1 + (measure y)
   measureAlts (DelayCase ty arg x) = 1 + (measure x)
   measureAlts (ConstCase x y) = 1 + (measure y)
   measureAlts (DefaultCase x) = 1 + (measure x)
 
+-- A case tree with `g` applied to each term it holds, given the size of
+-- the scope the term is in, each alternative's subtree in the scope its
+-- pattern extends; the alternatives in a list of their own, so that every
+-- recursive call is on a part of its argument. The tree's shape is kept:
+-- this is how a tree's terms change lifetime.
+mutual
+  export
+  traverseTree : Applicative f => (forall vs . SizeOf vs -> t vs -> f (u vs)) ->
+                 SizeOf vars -> CaseTree' t vars -> f (CaseTree' u vars)
+  traverseTree g s (Case {name} idx p scTy alts)
+      = Case {name} idx p <$> g s scTy <*> traverseAlts g s alts
+  traverseTree g s (STerm i x) = STerm i <$> g s x
+  traverseTree g s (Unmatched msg) = pure (Unmatched msg)
+  traverseTree g s Impossible = pure Impossible
+
+  traverseAlts : Applicative f => (forall vs . SizeOf vs -> t vs -> f (u vs)) ->
+                 SizeOf vars -> List (CaseAlt' t vars) -> f (List (CaseAlt' u vars))
+  traverseAlts g s [] = pure []
+  traverseAlts g s (alt :: alts) = (::) <$> traverseAlt g s alt <*> traverseAlts g s alts
+
+  traverseAlt : Applicative f => (forall vs . SizeOf vs -> t vs -> f (u vs)) ->
+                SizeOf vars -> CaseAlt' t vars -> f (CaseAlt' u vars)
+  traverseAlt g s (ConCase n tag args sc)
+      = ConCase n tag args <$> traverseTree g (mkSizeOf args + s) sc
+  traverseAlt g s (DelayCase ty arg sc)
+      = DelayCase ty arg <$> traverseTree g (suc (suc s)) sc
+  traverseAlt g s (ConstCase c sc) = ConstCase c <$> traverseTree g s sc
+  traverseAlt g s (DefaultCase sc) = DefaultCase <$> traverseTree g s sc
+
 export
-isDefault : CaseAlt vars -> Bool
+isDefault : CaseAlt' t vars -> Bool
 isDefault (DefaultCase _) = True
 isDefault _ = False
 
@@ -101,18 +145,46 @@ StripNamespace (CaseAlt vars) where
   restoreNS ns = onAltTerms (restoreNS ns)
 
 
+-- A clause's argument as the case builder read it. A term it holds (one a
+-- pattern cannot match) is held as the definition holds its terms: `Pat`
+-- holds a live term, a stored definition's a root of its arena.
 public export
-data Pat : Type where
-     PAs : FC -> Name -> Pat -> Pat
+data Pat' : Type -> Type where
+     PAs : FC -> Name -> Pat' tm -> Pat' tm
      PCon : FC -> Name -> (tag : Int) -> (arity : Nat) ->
-            List Pat -> Pat
-     PTyCon : FC -> Name -> (arity : Nat) -> List Pat -> Pat
-     PConst : FC -> (c : Constant) -> Pat
-     PArrow : FC -> (x : Name) -> Pat -> Pat -> Pat
-     PDelay : FC -> Delaying -> Pat -> Pat -> Pat
+            List (Pat' tm) -> Pat' tm
+     PTyCon : FC -> Name -> (arity : Nat) -> List (Pat' tm) -> Pat' tm
+     PConst : FC -> (c : Constant) -> Pat' tm
+     PArrow : FC -> (x : Name) -> Pat' tm -> Pat' tm -> Pat' tm
+     PDelay : FC -> Delaying -> Pat' tm -> Pat' tm -> Pat' tm
      -- TODO: Matching on lazy types
-     PLoc : FC -> Name -> Pat
-     PUnmatchable : FC -> ClosedTerm -> Pat
+     PLoc : FC -> Name -> Pat' tm
+     PUnmatchable : FC -> tm -> Pat' tm
+
+||| A clause's argument holding live terms.
+public export
+Pat : Type
+Pat = Pat' ClosedTerm
+
+-- A pattern with `g` applied to each term it holds; the patterns a pattern
+-- holds are in a list of their own, so that every recursive call is on a
+-- part of its argument. This is how a pattern's terms change lifetime.
+mutual
+  export
+  traversePat : Applicative f => (a -> f b) -> Pat' a -> f (Pat' b)
+  traversePat g (PAs fc n p) = PAs fc n <$> traversePat g p
+  traversePat g (PCon fc n tag ar ps) = PCon fc n tag ar <$> traversePats g ps
+  traversePat g (PTyCon fc n ar ps) = PTyCon fc n ar <$> traversePats g ps
+  traversePat g (PConst fc c) = pure (PConst fc c)
+  traversePat g (PArrow fc x s t) = PArrow fc x <$> traversePat g s <*> traversePat g t
+  traversePat g (PDelay fc r t p) = PDelay fc r <$> traversePat g t <*> traversePat g p
+  traversePat g (PLoc fc n) = pure (PLoc fc n)
+  traversePat g (PUnmatchable fc x) = PUnmatchable fc <$> g x
+
+  export
+  traversePats : Applicative f => (a -> f b) -> List (Pat' a) -> f (List (Pat' b))
+  traversePats g [] = pure []
+  traversePats g (p :: ps) = (::) <$> traversePat g p <*> traversePats g ps
 
 export
 isPConst : Pat -> Maybe Constant
@@ -133,42 +205,53 @@ public export
 0 IsConPat : Pat -> Type
 IsConPat = So . isConPat
 
+-- A case tree shown with each term it holds shown by `sh`, in the scope
+-- the term is in.
 total
-showCT : {vars : _} -> (indent : String) -> CaseTree vars -> String
+showCT : ({vs : Scope} -> t vs -> String) ->
+         {vars : _} -> (indent : String) -> CaseTree' t vars -> String
 total
-showCA : {vars : _} -> (indent : String) -> CaseAlt vars  -> String
+showCA : ({vs : Scope} -> t vs -> String) ->
+         {vars : _} -> (indent : String) -> CaseAlt' t vars  -> String
 total
-showCAs : {vars : _} -> (indent : String) -> List (CaseAlt vars) -> List String
+showCAs : ({vs : Scope} -> t vs -> String) ->
+          {vars : _} -> (indent : String) -> List (CaseAlt' t vars) -> List String
 
-showCT indent (Case {name} idx prf ty alts)
-  = "case " ++ show name ++ "[" ++ show idx ++ "] : " ++ show ty ++ " of"
+showCT sh indent (Case {name} idx prf ty alts)
+  = "case " ++ show name ++ "[" ++ show idx ++ "] : " ++ sh ty ++ " of"
   ++ "\n" ++ indent ++ " { "
-  ++ showSep ("\n" ++ indent ++ " | ") (showCAs ("  " ++ indent) alts)
+  ++ showSep ("\n" ++ indent ++ " | ") (showCAs sh ("  " ++ indent) alts)
   ++ "\n" ++ indent ++ " }"
-showCT indent (STerm i tm) = "[" ++ show i ++ "] " ++ show tm
-showCT indent (Unmatched msg) = "Error: " ++ show msg
-showCT indent Impossible = "Impossible"
+showCT sh indent (STerm i tm) = "[" ++ show i ++ "] " ++ sh tm
+showCT sh indent (Unmatched msg) = "Error: " ++ show msg
+showCT sh indent Impossible = "Impossible"
 
-showCA indent (ConCase n tag args sc)
+showCA sh indent (ConCase n tag args sc)
         = showSep " " (map show (n :: args)) ++ " => " ++
-          showCT indent sc
-showCA indent (DelayCase _ arg sc)
-        = "Delay " ++ show arg ++ " => " ++ showCT indent sc
-showCA indent (ConstCase c sc)
-        = "Constant " ++ show c ++ " => " ++ showCT indent sc
-showCA indent (DefaultCase sc)
-        = "_ => " ++ showCT indent sc
+          showCT sh indent sc
+showCA sh indent (DelayCase _ arg sc)
+        = "Delay " ++ show arg ++ " => " ++ showCT sh indent sc
+showCA sh indent (ConstCase c sc)
+        = "Constant " ++ show c ++ " => " ++ showCT sh indent sc
+showCA sh indent (DefaultCase sc)
+        = "_ => " ++ showCT sh indent sc
 
-showCAs indent [] = []
-showCAs indent (alt :: alts) = showCA indent alt :: showCAs indent alts
+showCAs sh indent [] = []
+showCAs sh indent (alt :: alts) = showCA sh indent alt :: showCAs sh indent alts
+
+||| A case tree shown with each term it holds shown by `sh`.
+export
+showTree : ({vs : Scope} -> t vs -> String) ->
+           {vars : _} -> CaseTree' t vars -> String
+showTree sh = showCT sh ""
 
 export
 {vars : _} -> Show (CaseTree vars) where
-  show = showCT ""
+  show = showCT showTerm ""
 
 export
 {vars : _} -> Show (CaseAlt vars) where
-  show = showCA ""
+  show = showCA showTerm ""
 
 mutual
   export

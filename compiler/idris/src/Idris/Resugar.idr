@@ -27,7 +27,8 @@ unbracketApp (PBracketed _ tm@(PApp {})) = tm
 unbracketApp tm = tm
 
 -- TODO: Deal with precedences
-mkOp : {auto s : Ref Syn SyntaxInfo} ->
+mkOp : {auto c : Ref Ctxt Defs} ->
+       {auto s : Ref Syn SyntaxInfo} ->
        IPTerm -> Core IPTerm
 mkOp tm@(PApp fc (PApp _ (PRef opFC kn) x) y)
   = do syn <- get Syn
@@ -40,7 +41,7 @@ mkOp tm@(PApp fc (PApp _ (PRef opFC kn) x) y)
        -- that looks like this: `M1.M2.infixl.(++)`. However, since we only want
        -- to know if the name is an operator or not, it's enough to check
        -- that the fixity context contains the name `(++)`
-       let rootName = UN (Basic (nameRoot raw))
+       rootName <- UN . Basic <$> rootIdent raw
        let asOp = POp fc (MkFCVal opFC
                 $ NoBinder (unbracketApp x)) (MkFCVal opFC (pop kn)) (unbracketApp y)
        if not (null (lookupName rootName (infixes syn)))
@@ -52,7 +53,8 @@ mkOp tm@(PApp fc (PRef opFC kn) x)
   = do syn <- get Syn
        let n = rawName kn
        let asOp = PSectionR fc (unbracketApp x) (MkFCVal opFC $ OpSymbols kn)
-       if not (null $ lookupName (UN $ Basic (nameRoot n)) (infixes syn))
+       root <- rootIdent n
+       if not (null $ lookupName (UN $ Basic root) (infixes syn))
          then pure asOp
          else case dropNS n of
            DN str _ => pure $ ifThenElse (isOpUserName (Basic str)) asOp tm
@@ -70,7 +72,8 @@ mkSectionL tm@(PLam fc rig info (PRef _ bd) ty
        syn <- get Syn
        let n = rawName kn
        let asOp = PSectionL fc (MkFCVal opFC $ OpSymbols kn) (unbracketApp x)
-       if not (null $ lookupName (UN $ Basic (nameRoot n)) (fixities syn))
+       root <- rootIdent n
+       if not (null $ lookupName (UN $ Basic root) (fixities syn))
          then pure asOp
          else case dropNS n of
            DN str _ => pure $ ifThenElse (isOpUserName (Basic str)) asOp tm
@@ -136,13 +139,13 @@ unbracket tm = tm
 extractNat : Nat -> IPTerm -> Maybe Nat
 extractNat acc tm = case tm of
   PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn) =>
-    do guard (n == "Z")
+    do guard (n == known KZ)
        guard (ns == typesNS || ns == preludeNS)
        pure acc
-  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case n of
-    "S" => do guard (ns == typesNS || ns == preludeNS)
-              extractNat (1 + acc) k
-    "fromInteger" => extractNat acc k
+  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case knownOf n of
+    Just KS => do guard (ns == typesNS || ns == preludeNS)
+                  extractNat (1 + acc) k
+    Just KfromInteger => extractNat acc k
     _ => Nothing
   PPrimVal _ (BI n) => do guard (0 <= n)
                           pure (acc + integerToNat n)
@@ -152,9 +155,9 @@ extractNat acc tm = case tm of
 ||| Attempt to extract a constant integer
 extractInteger : IPTerm -> Maybe Integer
 extractInteger tm = case tm of
-  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case n of
-    "fromInteger" => extractInteger k
-    "negate"      => negate <$> extractInteger k
+  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case knownOf n of
+    Just KfromInteger => extractInteger k
+    Just Knegate      => negate <$> extractInteger k
     _ => Nothing
   PPrimVal _ (BI i) => pure i
   PBracketed _ t    => extractInteger t
@@ -163,9 +166,9 @@ extractInteger tm = case tm of
 ||| Attempt to extract a constant double
 extractDouble : IPTerm -> Maybe Double
 extractDouble tm = case tm of
-  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case n of
-    "fromDouble" => extractDouble k
-    "negate"     => negate <$> extractDouble k
+  PApp _ (PRef _ (MkKindedName _ (NS ns (UN (Basic n))) rn)) k => case knownOf n of
+    Just KfromDouble => extractDouble k
+    Just Knegate     => negate <$> extractDouble k
     _ => Nothing
   PPrimVal _ (Db d) => pure d
   PBracketed _ t    => extractDouble t
@@ -179,12 +182,12 @@ sugarPrimAppM (PApp fc (PApp fc' (PRef opFC (MkKindedName nt (UN $ Basic n) rn))
   defs <- get Ctxt
   case definition <$> !(lookupCtxtExact rn defs.gamma) of
       Just (Builtin {arity=2} f) =>
-         let nm' = (UN $ Basic $ show @{Sugared} f)
-             l'  = (MkFCVal fc' $ NoBinder l)
-             op' = (MkFCVal opFC (OpSymbols $ (MkKindedName nt nm' nm')))
-             in  do log "resugar.var" 80
-                          "Resugaring primitive op \{show n} to \{show nm'}"
-                    pure . Just $ POp fc l' op' r
+         do nm' <- UN . Basic <$> intern (show @{Sugared} f)
+            let l'  = (MkFCVal fc' $ NoBinder l)
+                op' = (MkFCVal opFC (OpSymbols $ (MkKindedName nt nm' nm')))
+            log "resugar.var" 80
+                  "Resugaring primitive op \{show n} to \{show nm'}"
+            pure . Just $ POp fc l' op' r
       _ => pure Nothing
 sugarPrimAppM _ = pure Nothing
 
@@ -197,36 +200,36 @@ mutual
   ||| Returns `Nothing` in case there was nothing to resugar.
   sugarAppM : IPTerm -> Maybe IPTerm
   sugarAppM (PApp fc (PApp _ (PApp _ (PRef opFC (MkKindedName nt (NS ns nm) rn)) l) m) r) =
-    case nameRoot nm of
-      "rangeFromThenTo" => pure $ PRange fc (unbracket l) (Just $ unbracket m) (unbracket r)
+    case knownRoot nm of
+      Just KrangeFromThenTo => pure $ PRange fc (unbracket l) (Just $ unbracket m) (unbracket r)
       _ => Nothing
   sugarAppM (PApp fc (PApp _ (PRef opFC (MkKindedName nt (NS ns nm) rn)) l) r) =
     if builtinNS == ns then
-      case nameRoot nm of
-        "Pair"   => pure $ PPair fc (unbracket l) (unbracket r)
-        "MkPair" => pure $ PPair fc (unbracket l) (unbracket r)
-        "Equal"  => pure $ PEq fc (unbracket l) (unbracket r)
-        "==="    => pure $ PEq fc (unbracket l) (unbracket r)
-        "~=~"    => pure $ PEq fc (unbracket l) (unbracket r)
-        _        => Nothing
+      case knownRoot nm of
+        Just KPair      => pure $ PPair fc (unbracket l) (unbracket r)
+        Just KMkPair    => pure $ PPair fc (unbracket l) (unbracket r)
+        Just KEqual     => pure $ PEq fc (unbracket l) (unbracket r)
+        Just KHomoEq    => pure $ PEq fc (unbracket l) (unbracket r)
+        Just KHeteroEq  => pure $ PEq fc (unbracket l) (unbracket r)
+        _               => Nothing
     else if dpairNS == ns then
-      case nameRoot nm of
-        "DPair"  => case unbracket r of
+      case knownRoot nm of
+        Just KDPair  => case unbracket r of
           PLam _ _ _ n _ r' => pure $ PDPair fc opFC n (unbracket l) (unbracket r')
           _                 => Nothing
-        "MkDPair" => pure $ PDPair fc opFC (unbracket l) (PImplicit opFC) (unbracket r)
+        Just KMkDPair => pure $ PDPair fc opFC (unbracket l) (PImplicit opFC) (unbracket r)
         _                 => Nothing
     else
-      case nameRoot nm of
-        "::" => case sugarApp (unbracket r) of
+      case knownRoot nm of
+        Just KCons => case sugarApp (unbracket r) of
           PList fc nilFC xs => pure $ PList fc nilFC ((opFC, unbracketApp l) :: xs)
           _ => Nothing
-        ":<" => case sugarApp (unbracket l) of
+        Just KSnoc => case sugarApp (unbracket l) of
           PSnocList fc nilFC xs => pure $ PSnocList fc nilFC
                                             (xs :< (opFC, unbracketApp r))
           _ => Nothing
-        "rangeFromTo" => pure $ PRange fc (unbracket l) Nothing (unbracket r)
-        "rangeFromThen" => pure $ PRangeStream fc (unbracket l) (Just $ unbracket r)
+        Just KrangeFromTo => pure $ PRange fc (unbracket l) Nothing (unbracket r)
+        Just KrangeFromThen => pure $ PRangeStream fc (unbracket l) (Just $ unbracket r)
         _    => Nothing
   sugarAppM tm =
   -- refolding natural numbers if the expression is a constant
@@ -239,17 +242,17 @@ mutual
     in case tm of
         PRef fc (MkKindedName nt (NS ns nm) rn) =>
           if builtinNS == ns
-             then case nameRoot nm of
-               "Unit"   => pure $ PUnit fc
-               "MkUnit" => pure $ PUnit fc
+             then case knownRoot nm of
+               Just KUnit   => pure $ PUnit fc
+               Just KMkUnit => pure $ PUnit fc
                _           => Nothing
-             else case nameRoot nm of
-               "Nil" => pure $ PList fc fc []
-               "Lin" => pure $ PSnocList fc fc [<]
+             else case knownRoot nm of
+               Just KNil => pure $ PList fc fc []
+               Just KLin => pure $ PSnocList fc fc [<]
                _     => Nothing
         PApp fc (PRef _ (MkKindedName nt (NS ns nm) rn)) arg =>
-          case nameRoot nm of
-            "rangeFrom" => pure $ PRangeStream fc (unbracket arg) Nothing
+          case knownRoot nm of
+            Just KrangeFrom => pure $ PRangeStream fc (unbracket arg) Nothing
             _           => Nothing
         _ => Nothing
 
@@ -259,9 +262,9 @@ mutual
 
 export
 sugarName : Name -> String
-sugarName (MN n _) = "(implicit) " ++ n
+sugarName (MN n _) = "(implicit) " ++ n.text
 sugarName (PV n _) = sugarName n
-sugarName (DN n _) = n
+sugarName (DN n _) = n.text
 sugarName x = show x
 
 toPRef : FC -> KindedName -> Core IPTerm
@@ -298,7 +301,7 @@ mutual
       needsBind : Maybe Name -> Bool
       needsBind (Just nm@(UN (Basic _)))
           = let ret = map rawName ret
-                ns = findBindableNames False [] [] ret
+                ns = findBindableNames False [] ret
                 allNs = findAllNames [] ret in
                 (nm `elem` allNs) && not (nm `elem` (map Builtin.fst ns))
       needsBind _ = False
@@ -342,8 +345,8 @@ mutual
       mkIf tm@(PCase loc opts sc
                  [ MkPatClause _ (PRef _ tval) t []
                  , MkPatClause _ (PRef _ fval) f []])
-         = if dropNS (rawName tval) == UN (Basic "True")
-           && dropNS (rawName fval) == UN (Basic "False")
+         = if dropNS (rawName tval) == knownUN KTrue
+           && dropNS (rawName fval) == knownUN KFalse
               then PIfThenElse loc sc t f
               else tm
       mkIf tm = tm
@@ -571,20 +574,23 @@ cleanPTerm ptm
     cleanName : Name -> Core Name
     cleanName nm = case nm of
       PV n _     => pure n
-      -- Some of these may be "_" so we use `mkUserName`
-      MN n _     => pure (UN $ mkUserName n)
-      DN n _     => pure (UN $ mkUserName n)
+      -- Some of these may be "_" so we use `userNameOf`
+      MN n _     => pure (UN $ userNameOf n)
+      DN n _     => pure (UN $ userNameOf n)
       -- namespaces have already been stripped in toPTerm if necessary
       NS ns n    => NS ns <$> cleanName n
       Nested _ n => cleanName n
       UN n       => pure (UN n)
-      _          => UN . mkUserName <$> prettyName nm
+      _          => UN <$> (prettyName nm >>= internUserName)
 
     cleanKindedName : KindedName -> Core KindedName
     cleanKindedName (MkKindedName nt fn nm) = MkKindedName nt fn <$> cleanName nm
 
     cleanBinderName : PiInfo IPTerm -> Name -> Core (Maybe Name)
-    cleanBinderName AutoImplicit (UN (Basic "__con")) = pure Nothing
+    cleanBinderName AutoImplicit nm
+        = case knownRoot nm of
+               Just K__con => pure Nothing
+               _ => Just <$> cleanName nm
     cleanBinderName _ nm = Just <$> cleanName nm
 
     cleanNode : IPTerm -> Core IPTerm

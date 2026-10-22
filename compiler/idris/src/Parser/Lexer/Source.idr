@@ -39,8 +39,12 @@ Eq DebugInfo where
   DebugCol == DebugCol = True
   _ == _ = False
 
+||| A token of source, over how it spells an identifier: the lexer spells one
+||| as text (`RawToken`), and the parser reads it interned (`Token`). A
+||| symbol is an identifier too, since a symbol may name an operator; a
+||| keyword or a pragma is text of the language, never a name.
 public export
-data Token
+data SourceToken identifier
   -- Literals
   = CharLit String
   | DoubleLit Double
@@ -52,11 +56,11 @@ data Token
   | InterpEnd
   | StringLit String
   -- Identifiers
-  | HoleIdent String
-  | Ident String
-  | DotSepIdent Namespace String -- ident.ident
-  | DotIdent String               -- .ident
-  | Symbol String
+  | HoleIdent identifier
+  | Ident identifier
+  | DotSepIdent (List identifier) identifier -- ident.ident, the namespace's parts outermost first
+  | DotIdent identifier                      -- .ident
+  | Symbol identifier
   -- Whitespace
   | Space
   -- Comments
@@ -70,6 +74,43 @@ data Token
   | MagicDebugInfo DebugInfo
   | Unrecognised String
 
+||| A token as the lexer makes it.
+public export
+RawToken : Type
+RawToken = SourceToken String
+
+||| A token as the parser reads it, its identifiers interned where the source
+||| enters the compiler.
+public export
+Token : Type
+Token = SourceToken Ident
+
+||| The token with each identifier it spells replaced.
+export
+traverseIdents : Applicative f => (a -> f b) -> SourceToken a -> f (SourceToken b)
+traverseIdents f (CharLit x) = pure (CharLit x)
+traverseIdents f (DoubleLit x) = pure (DoubleLit x)
+traverseIdents f (IntegerLit x) = pure (IntegerLit x)
+traverseIdents f (StringBegin hashtag multi) = pure (StringBegin hashtag multi)
+traverseIdents f StringEnd = pure StringEnd
+traverseIdents f InterpBegin = pure InterpBegin
+traverseIdents f InterpEnd = pure InterpEnd
+traverseIdents f (StringLit x) = pure (StringLit x)
+traverseIdents f (HoleIdent x) = HoleIdent <$> f x
+traverseIdents f (Ident x) = Ident <$> f x
+traverseIdents f (DotSepIdent ns n) = DotSepIdent <$> traverse f ns <*> f n
+traverseIdents f (DotIdent x) = DotIdent <$> f x
+traverseIdents f (Symbol x) = Symbol <$> f x
+traverseIdents f Space = pure Space
+traverseIdents f Comment = pure Comment
+traverseIdents f (DocComment x) = pure (DocComment x)
+traverseIdents f (CGDirective x) = pure (CGDirective x)
+traverseIdents f EndInput = pure EndInput
+traverseIdents f (Keyword x) = pure (Keyword x)
+traverseIdents f (Pragma x) = pure (Pragma x)
+traverseIdents f (MagicDebugInfo di) = pure (MagicDebugInfo di)
+traverseIdents f (Unrecognised x) = pure (Unrecognised x)
+
 export
 Show DebugInfo where
   show DebugLoc = "__LOC__"
@@ -78,7 +119,7 @@ Show DebugInfo where
   show DebugCol = "__COL__"
 
 export
-Show Token where
+Show identifier => Show (SourceToken identifier) where
   -- Literals
   show (CharLit x) = "character " ++ show x
   show (DoubleLit x) = "double " ++ show x
@@ -91,11 +132,11 @@ Show Token where
   show InterpEnd = "string interp end"
   show (StringLit x) = "string " ++ show x
   -- Identifiers
-  show (HoleIdent x) = "hole identifier " ++ x
-  show (Ident x) = "identifier " ++ x
-  show (DotSepIdent ns n) = "namespaced identifier " ++ show ns ++ "." ++ show n
-  show (DotIdent x) = "dot+identifier " ++ x
-  show (Symbol x) = "symbol " ++ x
+  show (HoleIdent x) = "hole identifier " ++ show x
+  show (Ident x) = "identifier " ++ show x
+  show (DotSepIdent ns n) = "namespaced identifier " ++ concatMap (\ p => show p ++ ".") ns ++ show n
+  show (DotIdent x) = "dot+identifier " ++ show x
+  show (Symbol x) = "symbol " ++ show x
   -- Whitespace
   show Space = "whitespace"
   -- Comments
@@ -110,7 +151,7 @@ Show Token where
   show (Unrecognised x) = "Unrecognised " ++ x
 
 export
-Pretty Void Token where
+Pretty Void identifier => Pretty Void (SourceToken identifier) where
   -- Literals
   pretty (CharLit x) = pretty "character" <++> squotes (pretty x)
   pretty (DoubleLit x) = pretty "double" <++> pretty (show x)
@@ -125,7 +166,7 @@ Pretty Void Token where
   -- Identifiers
   pretty (HoleIdent x) = reflow "hole identifier" <++> pretty x
   pretty (Ident x) = pretty "identifier" <++> pretty x
-  pretty (DotSepIdent ns n) = reflow "namespaced identifier" <++> pretty ns <+> dot <+> pretty n
+  pretty (DotSepIdent ns n) = reflow "namespaced identifier" <++> foldr (\ p, d => pretty p <+> dot <+> d) (pretty n) ns
   pretty (DotIdent x) = pretty "dot+identifier" <++> pretty x
   pretty (Symbol x) = pretty "symbol" <++> pretty x
   -- Whitespace
@@ -182,7 +223,7 @@ cgDirective
            is '}')
          <|> many (isNot '\n'))
 
-mkDirective : String -> Token
+mkDirective : String -> RawToken
 mkDirective str = CGDirective (trimSpace (substr 3 (length str) str))
 
 public export
@@ -287,7 +328,7 @@ fromOctLit str
              --        ^-- can't happen if the literal lexed correctly
 
 mutual
-  stringTokens : Bool -> Nat -> Tokenizer Token
+  stringTokens : Bool -> Nat -> Tokenizer RawToken
   stringTokens multi hashtag
       = let escapeChars = "\\" ++ replicate hashtag '#'
             interpStart = escapeChars ++ "{"
@@ -304,7 +345,7 @@ mutual
                     (const $ is '}')
                     (const InterpEnd)
 
-  rawTokens : Tokenizer Token
+  rawTokens : Tokenizer RawToken
   rawTokens =
           match comment (const Comment)
       <|> match blockComment (const Comment)
@@ -345,14 +386,18 @@ mutual
       <|> match validSymbol Symbol
       <|> match symbol Unrecognised
     where
-      parseIdent : String -> Token
+      parseIdent : String -> RawToken
       parseIdent x = if x `elem` keywords then Keyword x
                      else Ident x
 
-      parseNamespace : String -> Token
-      parseNamespace ns = case mkNamespacedIdent ns of
-                               (Nothing, ident) => parseIdent ident
-                               (Just ns, n)     => DotSepIdent ns n
+      -- A single part is an identifier or a keyword; a namespaced one is
+      -- never a keyword.
+      dotted : (List String, String) -> RawToken
+      dotted ([], n) = parseIdent n
+      dotted (ns, n) = DotSepIdent ns n
+
+      parseNamespace : String -> RawToken
+      parseNamespace = dotted . dottedParts
 
       countHashtag : String -> Nat
       countHashtag = count (== '#') . unpack
@@ -369,8 +414,8 @@ export
 lexTo : Lexer ->
         String ->
         Either (StopReason, Int, Int, String)
-               ( List (Located ())     -- bounds of comments
-               , List (Located Token)) -- tokens
+               ( List (Located ())        -- bounds of comments
+               , List (Located RawToken)) -- tokens
 lexTo reject str
     = case lexTo reject rawTokens str of
            (toks, (EndInput, l, c, _)) =>
@@ -384,13 +429,13 @@ lexTo reject str
            (_, fail) => Left fail
     where
 
-      isNotSpace : Located Token -> Bool
+      isNotSpace : Located RawToken -> Bool
       isNotSpace t = case t.val of
         Space => False
         _ => True
 
-      spotComment : Located Token ->
-                    Either (Located ()) (Located Token)
+      spotComment : Located RawToken ->
+                    Either (Located ()) (Located RawToken)
       spotComment t = case t.val of
         Comment => Left (() <$ t)
         _ => Right t
@@ -398,6 +443,6 @@ lexTo reject str
 export
 lex : String ->
       Either (StopReason, Int, Int, String)
-             ( List (Located ())     -- bounds of comments
-             , List (Located Token)) -- tokens
+             ( List (Located ())        -- bounds of comments
+             , List (Located RawToken)) -- tokens
 lex = lexTo (pred $ const False)

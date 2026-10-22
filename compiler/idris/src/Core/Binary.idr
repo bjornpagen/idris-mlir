@@ -37,7 +37,7 @@ import public Libraries.Utils.Binary
 ||| blob (`writeTTCFile`), which upstream's do not.
 export
 ttcVersion : Int
-ttcVersion = 1_2026_10_21_00
+ttcVersion = 1_2026_10_21_01
 
 export
 checkTTCVersion : String -> Int -> Int -> Core ()
@@ -193,11 +193,20 @@ encodeBlob x
          toBuf x
          get Bin
 
+||| Reads with the session's table of identifiers, in which every name read
+||| back is interned.
+export
+withIdents : {auto c : Ref Ctxt Defs} ->
+             ({auto ids : Ref Interned Idents} -> Core a) -> Core a
+withIdents k
+    = do defs <- get Ctxt
+         k {ids = defs.gamma.idents}
+
 ||| The value a blob holds.
-decodeBlob : TTC a => Binary -> Core a
+decodeBlob : TTC a => {auto c : Ref Ctxt Defs} -> Binary -> Core a
 decodeBlob blob
-    = do b <- newRef Bin blob
-         fromBuf
+    = withIdents $ do b <- newRef Bin blob
+                      fromBuf
 
 -- NOTE: TTC files are only compatible if the version number is the same,
 -- *and* the 'annot/extra' type are the same, or there are no holes/constraints
@@ -238,7 +247,8 @@ readTTCFileWith : {auto c : Ref Ctxt Defs} ->
                   Bool -> String -> Maybe (Namespace) ->
                   Ref Bin Binary -> Core (TTCFile extra)
 readTTCFileWith readExtra readall file as b
-      = do hdr <- fromBuf
+      = withIdents $ do
+           hdr <- fromBuf
            when (hdr /= "TT2") $
              corrupt ("TTC header in " ++ file ++ " " ++ show hdr)
            ver <- fromBuf @{Wasteful}
@@ -253,7 +263,7 @@ readTTCFileWith readExtra readall file as b
               then pure (MkTTCFile ver totalReq
                                    ifaceHash importHashes
                                    [] [] [] [] [] []
-                                   0 (mkNamespace "") [] Nothing
+                                   0 emptyNS [] Nothing
                                    Nothing
                                    (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
                                    [] [] [] [] ex)
@@ -329,7 +339,7 @@ getSaveDefs modns (n :: ns) acc defs
          case definition gdef of
               Builtin _ => getSaveDefs modns ns acc defs
               _ => do bin <- initBinaryS 16384
-                      toBuf (trimNS modns !(full (gamma defs) gdef))
+                      toBuf !(writtenDef (gamma defs) modns gdef)
                       b <- get Bin
                       getSaveDefs modns ns ((trimName (fullname gdef), b) :: acc) defs
   where
@@ -347,10 +357,13 @@ getSaveDefs modns (n :: ns) acc defs
 saveMetas : {auto c : Ref Ctxt Defs} -> Core ()
 saveMetas = go . keys . toSave =<< get Ctxt
   where
-    metasOf : GlobalDef -> List Name
-    metasOf d = keys (getMetas (type d)) ++ case definition d of
-      PMDef _ _ ct _ _ => keys (Core.Case.CaseTree.getMetas ct)
-      _ => []
+    metasOf : GlobalDef -> Core (List Name)
+    metasOf d
+        = do ty <- typeOf d
+             inTree <- case definition d of
+                            PMDef _ args body => keys . Core.Case.CaseTree.getMetas <$> treeOf body
+                            _ => pure []
+             pure (keys (getMetas ty) ++ inTree)
 
     go : List Name -> Core ()
     go [] = pure ()
@@ -358,7 +371,7 @@ saveMetas = go . keys . toSave =<< get Ctxt
         = do defs <- get Ctxt
              Just d <- lookupCtxtExact n (gamma defs)
                | Nothing => go ns
-             ms <- traverse (full (gamma defs)) (metasOf d)
+             ms <- traverse (full (gamma defs)) !(metasOf d)
              let new = nub (filter (\m => isNothing (lookup m (toSave defs))) ms)
              traverse_ addToSave new
              go (new ++ ns)
@@ -598,7 +611,8 @@ readFromTTC nestedns loc reexp fname foundIn modNS importAs
 -- Implements a portion of @readTTCFile@. The fields must be read in order.
 -- This reads everything up to and including `totalReq`.
 export
-getTotalReq : String -> Ref Bin Binary -> Core TotalReq
+getTotalReq : {auto ids : Ref Interned Idents} ->
+              String -> Ref Bin Binary -> Core TotalReq
 getTotalReq file b
     = do hdr <- fromBuf {a = String}
          when (hdr /= "TT2") $
@@ -610,44 +624,52 @@ getTotalReq file b
 -- Implements a portion of @readTTCFile@. The fields must be read in order.
 -- This reads everything up to and including `interfaceHash`.
 export
-getHashes : String -> Ref Bin Binary -> Core Int
+getHashes : {auto ids : Ref Interned Idents} ->
+            String -> Ref Bin Binary -> Core Int
 getHashes file b
     = do ignore $ getTotalReq file b
          fromBuf -- `interfaceHash`
 
 -- Implements a portion of @readTTCFile@. The fields must be read in order.
 -- This reads everything up to and including `importHashes`.
-getImportHashes : String -> Ref Bin Binary ->
+getImportHashes : {auto ids : Ref Interned Idents} ->
+                  String -> Ref Bin Binary ->
                   Core (List (Namespace, Int))
 getImportHashes file b
     = do ignore $ getHashes file b
          fromBuf -- `importHashes`
 
 export
-readTotalReq : (fileName : String) -> -- file containing the module
+readTotalReq : {auto c : Ref Ctxt Defs} ->
+               (fileName : String) -> -- file containing the module
                Core (Maybe TotalReq)
 readTotalReq fileName
-    = do Right buffer <- coreLift $ readFromFile fileName
+    = withIdents $ do
+         Right buffer <- coreLift $ readFromFile fileName
             | Left err => pure Nothing
          b <- newRef Bin buffer
          catch (Just <$> getTotalReq fileName b)
                (\err => pure Nothing)
 
 export
-readHashes : (fileName : String) -> -- file containing the module
-                Core Int
+readHashes : {auto c : Ref Ctxt Defs} ->
+             (fileName : String) -> -- file containing the module
+             Core Int
 readHashes fileName
-    = do Right buffer <- coreLift $ readFromFile fileName
+    = withIdents $ do
+         Right buffer <- coreLift $ readFromFile fileName
             | Left err => pure 0
          b <- newRef Bin buffer
          catch (getHashes fileName b)
                (\err => pure 0)
 
 export
-readImportHashes : (fname : String) -> -- file containing the module
+readImportHashes : {auto c : Ref Ctxt Defs} ->
+                   (fname : String) -> -- file containing the module
                    Core (List (Namespace, Int))
 readImportHashes fname
-    = do Right buffer <- coreLift $ readFromFile fname
+    = withIdents $ do
+         Right buffer <- coreLift $ readFromFile fname
             | Left err => pure []
          b <- newRef Bin buffer
          catch (do res <- getImportHashes fname b

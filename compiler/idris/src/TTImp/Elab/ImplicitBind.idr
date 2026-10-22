@@ -46,7 +46,7 @@ mkOuterHole loc rig n topenv Nothing
     = do est <- get EST
          let sub = subEnv est
          let env = outerEnv est
-         nm <- genName ("type_of_" ++ nameRoot n)
+         nm <- genName !(intern ("type_of_" ++ nameRoot n))
          u <- uniVar loc
          ty <- metaVar loc erased env nm (TType loc u)
          log "elab.implicits" 10 $ "Made metavariable for type of " ++ show n ++ ": " ++ show nm
@@ -142,7 +142,7 @@ bindUnsolved {vars} fc elabmode _
                Nothing => do tmn <- toFullNames expected
                              throw (GenericMsg fc ("Can't bind implicit " ++ show n ++ " of type " ++ show tmn))
                Just exp' =>
-                    do impn <- genVarName (nameRoot n)
+                    do impn <- genVarName !(rootIdent n)
                        tm <- metaVar fc rig env impn exp'
                        let p' : PiInfo (Term vars) = forgetDef p
                        update EST { toBind $= ((impn, NameBinding loc rig p'
@@ -265,7 +265,7 @@ bindImplVars {vars} fc mode gam env imps_in scope scty
               case mode of
                    PI c =>
                       (Bind fc _ (Pi fc c Implicit bty') tm',
-                       TType fc (MN "top" 0))
+                       TType fc (MN (known Ktop) 0))
                    _ =>
                       (Bind fc _ (PVar loc c (map (weakenNs (sizeOf bs)) p) bty') tm',
                        Bind fc _ (PVTy fc c bty') ty')

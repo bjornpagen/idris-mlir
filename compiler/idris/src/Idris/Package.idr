@@ -57,8 +57,9 @@ data DescField  : Type where
   PSourceLoc    : FC -> String -> DescField
   PBugTracker   : FC -> String -> DescField
   PDepends      : List Depends -> DescField
-  PModules      : List (FC, ModuleIdent) -> DescField
-  PMainMod      : FC -> ModuleIdent -> DescField
+  -- A module the package names, as written: `addField` interns it.
+  PModules      : List (FC, List1 String) -> DescField
+  PMainMod      : FC -> List1 String -> DescField
   PExec         : String -> DescField
   POpts         : FC -> String -> DescField
   PSourceDir    : FC -> String -> DescField
@@ -212,6 +213,14 @@ data ParsedMods : Type where
 
 data MainMod : Type where
 
+-- A module's identifier becomes a name here, where the package description
+-- is read: the grammar that met it cannot intern it.
+internModule : {auto c : Ref Ctxt Defs} ->
+               (FC, List1 String) -> Core (FC, ModuleIdent)
+internModule (fc, parts)
+    = do ids <- traverse intern (forget parts)
+         pure (fc, nsAsModuleIdent (nsOf ids))
+
 addField : {auto c : Ref Ctxt Defs} ->
            {auto s : Ref Syn SyntaxInfo} ->
            {auto o : Ref ROpts REPLOpts} ->
@@ -234,9 +243,9 @@ addField (PBugTracker fc a)  pkg = pure $ { bugtracker := Just a } pkg
 addField (PDepends ds)       pkg = pure $ { depends := ds } pkg
 -- we can't resolve source files for modules without knowing the source directory,
 -- so we save them for the second pass
-addField (PModules ms)       pkg = do put ParsedMods ms
+addField (PModules ms)       pkg = do put ParsedMods !(traverse internModule ms)
                                       pure pkg
-addField (PMainMod loc n)    pkg = do put MainMod (Just (loc, n))
+addField (PMainMod loc n)    pkg = do put MainMod (Just !(internModule (loc, n)))
                                       pure pkg
 addField (PExec e)           pkg = pure $ { executable := Just e } pkg
 addField (POpts fc e)        pkg = pure $ { options := Just (fc, e) } pkg
@@ -534,7 +543,7 @@ installBuildArtifactFrom file_extension builddir destdir ns
     = do let filename_trunk = ModuleIdent.toPath ns
          let filename = builddir </> filename_trunk <.> file_extension
 
-         let modPath  = reverse $ fromMaybe [] $ tail' $ unsafeUnfoldModuleIdent ns
+         let modPath  = reverse $ map (.text) $ fromMaybe [] $ tail' $ unsafeUnfoldModuleIdent ns
          let destNest = joinPath modPath
          let destPath = destdir </> destNest
          let destFile = destdir </> filename_trunk <.> file_extension
@@ -567,7 +576,7 @@ installSrcFrom wdir destdir (ns, srcRelPath)
               ++ "\n"
               ++ "Can't extract file extension.")
 
-         let modPath  = reverse $ fromMaybe [] $ tail' $ unsafeUnfoldModuleIdent ns
+         let modPath  = reverse $ map (.text) $ fromMaybe [] $ tail' $ unsafeUnfoldModuleIdent ns
          let destNest = joinPath modPath
          let destPath = destdir </> destNest
          let destFile = destdir </> srcfile <.> ext
@@ -695,10 +704,7 @@ clean pkg opts -- `opts` is not used but might be in the future
                          (\m => fst m :: map fst (modules pkg))
                          (mainmod pkg)
          let toClean : List (List String, String)
-               = mapMaybe (\ mod => case unsafeUnfoldModuleIdent mod of
-                                       [] => Nothing
-                                       (x :: xs) => Just(xs, x))
-                          pkgmods
+               = mapMaybe (artifact . unsafeUnfoldModuleIdent) pkgmods
          srcdir <- getWorkingDir
          -- ttcBuildDirectory is already where the TTCs are (build/ttc/<TTC
          -- version>); upstream appends another "ttc" and so removes nothing.
@@ -716,6 +722,12 @@ clean pkg opts -- `opts` is not used but might be in the future
                        pkgTrie
          deleteFolder builddir []
   where
+    -- Where a module's build artifact is, as file path parts: the
+    -- directories of its namespace, innermost first, and its own name.
+    artifact : List Ident -> Maybe (List String, String)
+    artifact [] = Nothing
+    artifact (x :: xs) = Just (map (.text) xs, x.text)
+
     delete : String -> Core ()
     delete path = do Right () <- coreLift $ removeFile path
                        | Left err => pure ()

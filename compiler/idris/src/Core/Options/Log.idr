@@ -199,7 +199,9 @@ public export
 record LogTopic where
   constructor MkLogTopic
   topic : String
-  {auto 0 known : KnownTopic topic}
+  -- Not `known`, the name of a known identifier (`Core.Name.Ident`), which
+  -- every module that logs also sees.
+  {auto 0 listed : KnownTopic topic}
 
 export
 fromString : (s : String) -> (0 _ : KnownTopic s) => LogTopic

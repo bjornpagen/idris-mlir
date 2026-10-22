@@ -76,7 +76,7 @@ mutual
   getUnquote (IQuote fc t)
       = pure $ IQuote fc !(getUnquote t)
   getUnquote (IUnquote fc tm)
-      = do qv <- genVarName "q"
+      = do qv <- genVarName (known Kq)
            update Unq ((qv, fc, tm) ::)
            pure (IUnquote fc (IVar fc qv)) -- turned into just qv when reflecting
   getUnquote tm = pure tm
@@ -167,8 +167,8 @@ bindUnqs : {vars : _} ->
 bindUnqs [] _ _ _ _ tm = pure tm
 bindUnqs ((qvar, fc, esctm) :: qs) rig elabinfo nest env tm
     = do defs <- get Ctxt
-         Just (idx, gdef) <- lookupCtxtExactI (reflectionttimp "TTImp") (gamma defs)
-              | _ => throw (UndefinedName fc (reflectionttimp "TTImp"))
+         Just (idx, gdef) <- lookupCtxtExactI (reflectionttimp KTTImp) (gamma defs)
+              | _ => throw (UndefinedName fc (reflectionttimp KTTImp))
          (escv, escty) <- check rig elabinfo nest env esctm
                                 (Just (gnf env (Ref fc (TyCon 0)
                                            (Resolved idx))))
@@ -199,7 +199,7 @@ checkQuote rig elabinfo nest env fc tm exp
          tm' <- getUnquote tm
          qtm <- reflect fc defs (onLHS (elabMode elabinfo)) env tm'
          unqs <- get Unq
-         qty <- getCon fc defs (reflectionttimp "TTImp")
+         qty <- getCon fc defs (reflectionttimp KTTImp)
          qtm <- bindUnqs unqs rig elabinfo nest env qtm
          fullqtm <- normalise defs env qtm
          checkExp rig elabinfo env fc fullqtm (gnf env qty) exp
@@ -215,7 +215,7 @@ checkQuoteName : {vars : _} ->
 checkQuoteName rig elabinfo nest env fc n exp
     = do defs <- get Ctxt
          qnm <- reflect fc defs (onLHS (elabMode elabinfo)) env n
-         qty <- getCon fc defs (reflectiontt "Name")
+         qty <- getCon fc defs (reflectiontt KName)
          checkExp rig elabinfo env fc qnm (gnf env qty) exp
 
 export
@@ -237,8 +237,8 @@ checkQuoteDecl rig elabinfo nest env fc ds exp
          ds' <- traverse getUnquoteDecl ds
          qds <- reflect fc defs (onLHS (elabMode elabinfo)) env ds'
          unqs <- get Unq
-         qd <- getCon fc defs (reflectionttimp "Decl")
-         qty <- appCon fc defs (basics "List") [qd]
+         qd <- getCon fc defs (reflectionttimp KDecl)
+         qty <- appCon fc defs (basics KList) [qd]
          checkExp rig elabinfo env fc
                   !(bindUnqs unqs rig elabinfo nest env qds)
                   (gnf env qty) exp

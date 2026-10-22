@@ -547,8 +547,8 @@ checkClause {vars} mult vis totreq hashit n opts nest env
                       Nothing => []
                       Just _  =>
                        let fc = emptyFC in
-                       let refl = IVar fc (NS builtinNS (UN $ Basic "Refl")) in
-                       [(map snd mprf, INamedApp fc refl (UN $ Basic "x") wval_raw)]
+                       let refl = IVar fc (NS builtinNS (knownUN KRefl)) in
+                       [(map snd mprf, INamedApp fc refl (knownUN Kx) wval_raw)]
 
          let rhs_in = gapply (IVar vfc wname)
                     $ map (\ nm => (Nothing, IVar vfc nm)) envns
@@ -585,7 +585,7 @@ checkClause {vars} mult vis totreq hashit n opts nest env
             ))
     bindWithArgs {xs} rig wvalTy Nothing wvalEnv =
       let wargn : Name
-          wargn = MN "warg" 0
+          wargn = MN (known Kwarg) 0
           wargs : Scope
           wargs = [wargn]
 
@@ -603,18 +603,18 @@ checkClause {vars} mult vis totreq hashit n opts nest env
     bindWithArgs {xs} rig wvalTy (Just ((rigPrf, name), wval)) wvalEnv = do
       defs <- get Ctxt
 
-      let eqName = NS builtinNS (UN $ Basic "Equal")
+      let eqName = NS builtinNS (knownUN KEqual)
       Just (TCon ar _ _ _ _ _ _) <- lookupDefExact eqName (gamma defs)
         | _ => throw (InternalError "Cannot find builtin Equal")
       let eqTyCon = Ref vfc (TyCon ar) !(toResolvedNames eqName)
 
       let wargn : Name
-          wargn = MN "warg" 0
+          wargn = MN (known Kwarg) 0
           wargs : Scope
           wargs = [name, wargn]
 
           wvalTy' := weaken wvalTy
-          eqTy : Term (MN "warg" 0 :: xs)
+          eqTy : Term (MN (known Kwarg) 0 :: xs)
                := apply vfc eqTyCon
                            [ wvalTy'
                            , wvalTy'
@@ -682,17 +682,20 @@ checkClause {vars} mult vis totreq hashit n opts nest env
 
 -- Calculate references for the given name, and recursively if they haven't
 -- been calculated already: what its compile-time tree, the program the
--- frontend translates, refers to.
+-- frontend translates, refers to. The references are asked for first, so
+-- that a definition whose references are known has its tree left as it is
+-- held: every reference in the tree is read, so a stored tree is decoded.
 calcRefs : {auto c : Ref Ctxt Defs} ->
            (aTotal : Name) -> (fn : Name) -> Core ()
 calcRefs at fn
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact fn (gamma defs)
               | _ => pure ()
-         let PMDef r cargs tree_ct _ pats = definition gdef
-              | _ => pure () -- not a function definition
          let Nothing = refersToM gdef
               | Just _ => pure () -- already done
+         let PMDef r cargs body = definition gdef
+              | _ => pure () -- not a function definition
+         tree_ct <- treeOf body
          let metas = CaseTree.getMetas tree_ct
          traverse_ addToSave (keys metas)
          let refs = addRefs at metas tree_ct
@@ -807,7 +810,7 @@ processDef opts nest env fc n_in cs_in
            | Nothing => noDeclaration fc n
          let None = definition gdef
               | _ => throw (AlreadyDefined fc n)
-         let ty = type gdef
+         ty <- typeOf gdef
          -- a module's interface hash (what determines when the module has changed)
          -- should include the definition (RHS) of anything that is public (available
          -- at compile time for elaboration) _or_ inlined (dropped into destination definitions
@@ -844,7 +847,7 @@ processDef opts nest env fc n_in cs_in
                         Nothing => defaultPI
                         Just e => { externalDecl := e } defaultPI
          ignore $ addDef (Resolved nidx)
-                  ({ definition := PMDef pi cargs tree_ct clausePats pats
+                  ({ definition := PMDef pi cargs (LiveBody tree_ct clausePats pats)
                    } gdef)
          -- The erased positions found where the type was declared may be
          -- too few: a type that reaches its binders through a definition
@@ -857,11 +860,11 @@ processDef opts nest env fc n_in cs_in
                 log "declare.def" 10 $ "Saving from " ++ show n ++ ": " ++ show (keys rmetas)
                 traverse_ addToSave (keys rmetas)
          when (isUserName n && collapseDefault (visibility gdef) /= Private) $
-             do let tymetas = getMetas (type gdef)
+             do let tymetas = getMetas ty
                 traverse_ addToSave (keys tymetas)
          addToSave n
 
-         atotal <- toResolvedNames (NS builtinNS (UN $ Basic "assert_total"))
+         atotal <- toResolvedNames (NS builtinNS (knownUN Kassert_total))
          logTime 3 ("Building size change graphs " ++ show n) $
            when (not (InCase `elem` opts)) $
              do calcRefs atotal (Resolved nidx)

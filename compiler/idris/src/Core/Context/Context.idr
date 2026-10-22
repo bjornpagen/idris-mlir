@@ -5,6 +5,7 @@ module Core.Context.Context
 import        Core.Case.CaseTree
 import        Core.CompileExpr
 import        Core.Env
+import        Core.TT.Stored
 import public Core.Name
 import public Core.Options.Log
 import public Core.TT
@@ -70,22 +71,29 @@ export
 holeInit : Bool -> HoleFlags
 holeInit b = MkHoleFlags b False
 
+||| A pattern-matching definition's terms, held by their lifetime: its case
+||| tree; each clause's arguments as the case builder read them, in the
+||| order of the clauses, whose index a leaf of the tree (`STerm`) names
+||| (none for a definition with no clauses); and the clauses as checked,
+||| each left- and right-hand side with the names in its environment, in
+||| full (not erased), for display, for the size changes the termination
+||| check finds and for specialised definitions. Live while the current
+||| module elaborates the definition; stored once it is read from a TTC,
+||| every term a root of the definition's one arena. Never a mix: a
+||| stored definition holds no live tree, a live one no root.
+public export
+data Body : Scoped where
+    LiveBody : CaseTree args -> List (List Pat) ->
+               List (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> Body args
+    StoredBody : CaseTree' Root args -> List (List (Pat' (Root []))) ->
+                 List (vs : Scope ** (Env Root vs, Root vs, Root vs)) -> Body args
+
 public export
 data Def : Type where
     None : Def -- Not yet defined
     PMDef : (pminfo : PMDefInfo) ->
             (args : Scope) ->
-            (treeCT : CaseTree args) ->
-            -- each clause's arguments as the case builder read them, in
-            -- the order of the clauses, whose index a leaf of the tree
-            -- (`STerm`) names; none for a definition with no clauses
-            (clausePats : List (List Pat)) ->
-            (pats : List (vs : Scope ** (Env Term vs, Term vs, Term vs))) ->
-                -- original checked patterns (LHS/RHS) with the names in
-                -- the environment. Used for display purposes, for helping
-                -- find size changes in termination checking, and for
-                -- generating specialised definitions (so needs to be the
-                -- full, non-erased, term)
+            Body args ->
             Def -- Ordinary function definition
     ExternDef : (arity : Nat) -> Def
     ForeignDef : (arity : Nat) ->
@@ -148,14 +156,21 @@ defNameType ImpBind = Just Bound
 defNameType (UniverseLevel {}) = Nothing
 defNameType Delayed = Nothing
 
+showRoot : {vs : Scope} -> Root vs -> String
+showRoot = show
+
 export
 covering
 Show Def where
   show None = "undefined"
-  show (PMDef _ args ct _ pats)
+  show (PMDef _ args body)
       = unlines [ show args ++ ";"
-                , "Compile time tree: " ++ show ct
+                , "Compile time tree: " ++ showBody body
                 ]
+    where
+      showBody : Body args -> String
+      showBody (LiveBody ct _ _) = show ct
+      showBody (StoredBody ct _ _) = showTree showRoot ct
   show (DCon t a nt)
       = "DataCon " ++ show t ++ " " ++ show a
            ++ maybe "" (\n => " (newtype by " ++ show n ++ ")") nt
@@ -289,12 +304,19 @@ export
 Eq SCCall where
   x == y = fnCall x == fnCall y && fnArgs x == fnArgs y
 
+||| A definition's type, held by its lifetime: live while the current module
+||| elaborates the definition, stored once it is read from a TTC.
+public export
+data Typed : Type where
+     LiveType : ClosedTerm -> Typed
+     StoredType : Root [] -> Typed
+
 public export
 record GlobalDef where
   constructor MkGlobalDef
   location : FC
   fullname : Name -- original unresolved name
-  type : ClosedTerm
+  type : Typed
   eraseArgs : NatSet -- which argument positions to erase at runtime
   safeErase : NatSet -- which argument positions are safe to assume
                        -- erasable without 'dotting', because their types
@@ -415,5 +437,9 @@ record Context where
     inlineOnly : Bool -- only return things with the 'alwaysReduce' flag
     hidden : NameMap () -- Never return these
     uconstraints : List UConstraint
+    -- The session's identifiers. One table holds every identifier a
+    -- process meets, so it is shared by every context the process makes
+    -- (a reload, a branch that backtracks) and never rebuilt.
+    idents : Ref Interned Idents
 
 %name Context gam

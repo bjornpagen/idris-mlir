@@ -73,7 +73,7 @@ elabRewrite : {vars : _} ->
               Core (Lemma vars)
 elabRewrite loc env expected rulety
     = do defs <- get Ctxt
-         parg <- genVarName "rwarg"
+         parg <- genVarName (known Krwarg)
          tynf <- nf defs env rulety
          (lt, rt, lty) <- getRewriteTerms loc defs tynf (NotRewriteRule loc env rulety)
          lemn <- findRewriteLemma loc rulety
@@ -131,8 +131,8 @@ checkRewriteDelayed {vars} rigc elabinfo nest env ifc rule tm delayed expected
          when delayed $ log "elab.rewrite" 5 "Retrying rewrite"
          lemma <- elabRewrite vfc env expTy rulet
 
-         rname <- genVarName "_"
-         pname <- genVarName "_"
+         rname <- genVarName (known K_)
+         pname <- genVarName (known K_)
 
          let pbind = Let vfc erased lemma.pred lemma.predTy
          let rbind = Let vfc erased (weaken rulev) (weaken rulet)

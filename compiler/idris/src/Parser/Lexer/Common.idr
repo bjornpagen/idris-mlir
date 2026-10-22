@@ -4,6 +4,9 @@ module Parser.Lexer.Common
 
 import public Libraries.Text.Lexer
 
+import Data.List1
+import Data.String
+
 %default total
 
 ||| In `comment` we are careful not to parse closing delimiters as
@@ -114,6 +117,21 @@ namespaceIdent = ident Capitalised <+> many (is '.' <+> ident Capitalised <+> ex
 export
 namespacedIdent : Lexer
 namespacedIdent = namespaceIdent <+> opt (is '.' <+> identNormal)
+
+||| A dotted identifier's parts as it is written: its namespace's, outermost
+||| first, and its own, last. Both lexers split here, and a part is text
+||| until the parser that reads it makes it a name.
+export
+dottedParts : String -> (List String, String)
+dottedParts str = parts (split (== '.') str)
+  where
+    -- `n` is the part last met: the identifier's own once no part follows.
+    go : SnocList String -> String -> List String -> (List String, String)
+    go ns n [] = (ns <>> [], n)
+    go ns n (m :: rest) = go (ns :< n) m rest
+
+    parts : List1 String -> (List String, String)
+    parts (n ::: rest) = go [<] n rest
 
 export
 spacesOrNewlines : Lexer

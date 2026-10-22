@@ -182,8 +182,8 @@ checkNatCons c cons ty fc = case !(foldr checkCon (pure (Nothing, Nothing)) cons
     ||| Check the type of an 'S'-like constructor.
     checkTyS : Name -> GlobalDef -> Core ()
     checkTyS n gdef = do
-        let type = gdef.type
-            erase = gdef.eraseArgs
+        type <- typeOf gdef
+        let erase = gdef.eraseArgs
         let Just (_ ** arg) = getFirstNEType type
             | Nothing => throw $ InternalError "Expected a non-erased argument, found none."
         let Just (_ ** ret) = getReturnType type
@@ -237,10 +237,10 @@ processNatToInteger fc fn = do
     log "builtin.NaturalToInteger" 5 $ "Processing %builtin NaturalToInteger " ++ show_fn ++ "."
     [(_ , i, gdef)] <- lookupCtxtName fn ds.gamma
         | ns => ambiguousName fc fn $ (\(n, _, _) => n) <$> ns
-    let PMDef _ args _ cases _ = gdef.definition
+    let PMDef _ _ _ = gdef.definition
         | def => throw $ GenericMsg fc
             $ "Expected function definition, found " ++ showDefType def ++ "."
-    type <- toFullNames gdef.type
+    type <- toFullNames !(typeOf gdef)
     logTerm "builtin.NaturalToInteger" 25 ("Type of " ++ show_fn) type
     let [(_ ** arg)] = getNEArgs type
         | [] => throw $ GenericMsg fc $ "No arguments found for " ++ show_fn ++ "."
@@ -264,8 +264,8 @@ processIntegerToNat fc fn = do
     log "builtin.IntegerToNatural" 5 $ "Processing %builtin IntegerToNatural " ++ show_fn ++ "."
     [(_, i, gdef)] <- lookupCtxtName fn ds.gamma
         | ns => ambiguousName fc fn $ (\(n, _, _) => n) <$> ns
-    type <- toFullNames gdef.type
-    let PMDef _ _ _ _ _ = gdef.definition
+    type <- toFullNames !(typeOf gdef)
+    let PMDef _ _ _ = gdef.definition
         | def => throw $ GenericMsg fc
             $ "Expected function definition, found " ++ showDefType def ++ "."
     logTerm "builtin.IntegerToNatural" 25 ("Type of " ++ show_fn) type

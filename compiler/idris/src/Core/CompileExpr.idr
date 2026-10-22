@@ -284,15 +284,10 @@ elem : Name -> Names xs -> Bool
 elem n [] = False
 elem n (x :: xs) = n == x || elem n xs
 
-tryNext : Name -> Name
-tryNext (UN n) = MN (displayUserName n) 0
-tryNext (MN n i) = MN n (1 + i)
-tryNext n = MN (nameRoot n) 0
-
 uniqueName : Name -> Names vs -> Name
 uniqueName s ns =
     if s `elem` ns
-       then uniqueName (tryNext s) ns
+       then uniqueName (nameAfter s) ns
        else s
 
 export

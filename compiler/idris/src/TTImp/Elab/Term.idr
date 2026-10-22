@@ -51,17 +51,17 @@ insertImpLam {vars} env tm (Just ty) = bindLam tm ty
     bindLamTm tm@(ILam _ _ (DefImplicit _) _ _ _) (Bind fc n (Pi _ _ (DefImplicit _) _) sc)
         = pure (Just tm)
     bindLamTm tm (Bind fc n (Pi _ c Implicit ty) sc)
-        = do n' <- genVarName (nameRoot n)
+        = do n' <- genVarName !(rootIdent n)
              Just sc' <- bindLamTm tm sc
                  | Nothing => pure Nothing
              pure $ Just (ILam fc c Implicit (Just n') (Implicit fc False) sc')
     bindLamTm tm (Bind fc n (Pi _ c AutoImplicit ty) sc)
-        = do n' <- genVarName (nameRoot n)
+        = do n' <- genVarName !(rootIdent n)
              Just sc' <- bindLamTm tm sc
                  | Nothing => pure Nothing
              pure $ Just (ILam fc c AutoImplicit (Just n') (Implicit fc False) sc')
     bindLamTm tm (Bind fc n (Pi _ c (DefImplicit _) ty) sc)
-        = do n' <- genVarName (nameRoot n)
+        = do n' <- genVarName !(rootIdent n)
              Just sc' <- bindLamTm tm sc
                  | Nothing => pure Nothing
              pure $ Just (ILam fc c (DefImplicit (Implicit fc False))
@@ -81,19 +81,19 @@ insertImpLam {vars} env tm (Just ty) = bindLam tm ty
         = pure tm
     bindLamNF tm (NBind fc n (Pi fc' c Implicit ty) sc)
         = do defs <- get Ctxt
-             n' <- genVarName (nameRoot n)
+             n' <- genVarName !(rootIdent n)
              sctm <- sc defs (toClosure defaultOpts env (Ref fc Bound n'))
              sc' <- bindLamNF tm sctm
              pure $ ILam fc c Implicit (Just n') (Implicit fc False) sc'
     bindLamNF tm (NBind fc n (Pi fc' c AutoImplicit ty) sc)
         = do defs <- get Ctxt
-             n' <- genVarName (nameRoot n)
+             n' <- genVarName !(rootIdent n)
              sctm <- sc defs (toClosure defaultOpts env (Ref fc Bound n'))
              sc' <- bindLamNF tm sctm
              pure $ ILam fc c AutoImplicit (Just n') (Implicit fc False) sc'
     bindLamNF tm (NBind fc n (Pi _ c (DefImplicit _) ty) sc)
         = do defs <- get Ctxt
-             n' <- genVarName (nameRoot n)
+             n' <- genVarName !(rootIdent n)
              sctm <- sc defs (toClosure defaultOpts env (Ref fc Bound n'))
              sc' <- bindLamNF tm sctm
              pure $ ILam fc c (DefImplicit (Implicit fc False))
@@ -130,10 +130,10 @@ checkTerm rig elabinfo nest env (IVar fc n) exp
       checkApp rig elabinfo nest env fc (IVar fc n) [] [] [] exp
 checkTerm rig elabinfo nest env (IPi fc r p Nothing argTy retTy) exp
     = do n <- case p of
-                   Explicit => genVarName "arg"
-                   Implicit => genVarName "impArg"
-                   AutoImplicit => genVarName "conArg"
-                   (DefImplicit _) => genVarName "defArg"
+                   Explicit => genVarName (known Karg)
+                   Implicit => genVarName (known KimpArg)
+                   AutoImplicit => genVarName (known KconArg)
+                   (DefImplicit _) => genVarName (known KdefArg)
          checkPi rig elabinfo nest env fc r p n argTy retTy exp
 checkTerm rig elabinfo nest env (IPi fc r p (Just (UN Underscore)) argTy retTy) exp
     = checkTerm rig elabinfo nest env (IPi fc r p Nothing argTy retTy) exp
@@ -142,7 +142,7 @@ checkTerm rig elabinfo nest env (IPi fc r p (Just n) argTy retTy) exp
 checkTerm rig elabinfo nest env (ILam fc r p (Just n) argTy scope) exp
     = checkLambda rig elabinfo nest env fc r p n argTy scope exp
 checkTerm rig elabinfo nest env (ILam fc r p Nothing argTy scope) exp
-    = do n <- genVarName "_"
+    = do n <- genVarName (known K_)
          checkLambda rig elabinfo nest env fc r p n argTy scope exp
 checkTerm rig elabinfo nest env (ILet fc lhsFC r n nTy nVal scope) exp
     = checkLet rig elabinfo nest env fc lhsFC r n nTy nVal scope exp
@@ -164,16 +164,16 @@ checkTerm rig elabinfo nest env (INamedApp fc fn nm arg) exp
     = checkApp rig elabinfo nest env fc fn [] [] [(nm, arg)] exp
 checkTerm rig elabinfo nest env (ISearch fc) (Just gexpty)
     = do est <- get EST
-         nm <- genName "search"
+         nm <- genName (known Ksearch)
          expty <- getTerm gexpty
          sval <- searchVar fc rig (Resolved (defining est)) env nest nm expty
          pure (sval, gexpty)
 checkTerm rig elabinfo nest env (ISearch fc) Nothing
     = do est <- get EST
-         nmty <- genName "searchTy"
+         nmty <- genName (known KsearchTy)
          u <- uniVar fc
          ty <- metaVar fc erased env nmty (TType fc u)
-         nm <- genName "search"
+         nm <- genName (known Ksearch)
          sval <- searchVar fc rig (Resolved (defining est)) env nest nm ty
          pure (sval, gnf env ty)
 checkTerm rig elabinfo nest env (IAlternative fc uniq alts) exp
@@ -219,7 +219,7 @@ checkTerm rig elabinfo nest env (IHole fc str) exp
 checkTerm rig elabinfo nest env (IUnifyLog fc lvl tm) exp
     = withLogLevel lvl $ check rig elabinfo nest env tm exp
 checkTerm rig elabinfo nest env (Implicit fc b) (Just gexpty)
-    = do nm <- genName "_"
+    = do nm <- genName (known K_)
          expty <- getTerm gexpty
          metaval <- metaVar fc rig env nm expty
          -- Add to 'bindIfUnsolved' if 'b' set
@@ -229,10 +229,10 @@ checkTerm rig elabinfo nest env (Implicit fc b) (Just gexpty)
                update EST $ addBindIfUnsolved nm fc rig Explicit env metaval expty
          pure (metaval, gexpty)
 checkTerm rig elabinfo nest env (Implicit fc b) Nothing
-    = do nmty <- genName "implicit_type"
+    = do nmty <- genName (known Kimplicit_type)
          u <- uniVar fc
          ty <- metaVar fc erased env nmty (TType fc u)
-         nm <- genName "_"
+         nm <- genName (known K_)
          metaval <- metaVar fc rig env nm ty
          -- Add to 'bindIfUnsolved' if 'b' set
          when (b && bindingVars elabinfo) $

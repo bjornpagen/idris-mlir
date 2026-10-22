@@ -91,7 +91,7 @@ getNameType elabMode rigc env fc x
                        $ "getNameType is adding " ++ show decor ++ ": " ++ show def.fullname
                      addSemanticDecorations [(nfc, decor, Just def.fullname)]
 
-                 pure (Ref fc nt (Resolved i), gnf env (embed (type def)))
+                 pure (Ref fc nt (Resolved i), gnf env (embed !(typeOf def)))
   where
     rigSafe : RigCount -> RigCount -> Core ()
     rigSafe lhs rhs = when (lhs < rhs)
@@ -126,10 +126,10 @@ getVarType elabMode rigc nest env fc x
                       Nothing => undefinedName fc n'
                       Just ndef =>
                          let nt = getDefNameType ndef
-                             tm = tmf fc nt
-                             tyenv = useVars (getArgs tm)
-                                             (embed (type ndef)) in
-                             do checkVisibleNS fc (fullname ndef) (collapseDefault $ visibility ndef)
+                             tm = tmf fc nt in
+                             do ty <- typeOf ndef
+                                let tyenv = useVars (getArgs tm) (embed ty)
+                                checkVisibleNS fc (fullname ndef) (collapseDefault $ visibility ndef)
                                 logTerm "elab" 5 ("Type of " ++ show n') tyenv
                                 logTerm "elab" 5 ("Expands to") tm
                                 log "elab" 5 $ "Arg length " ++ show arglen
@@ -565,8 +565,8 @@ mutual
              -- Mark for reduction when we finish elaborating
              updateDef (Resolved idx)
                   (\def => case def of
-                        (PMDef pminfo args treeCT clausePats pats) =>
-                           Just (PMDef ({alwaysReduce := True} pminfo) args treeCT clausePats pats)
+                        (PMDef pminfo args body) =>
+                           Just (PMDef ({alwaysReduce := True} pminfo) args body)
                         _ => Nothing
                         )
              removeHole idx
@@ -670,7 +670,7 @@ mutual
                    then -- We are done
                         checkExp rig elabinfo env fc tm (glueBack defs env ty) expty
                    else -- Some user defined binding is present while we are out of explicit arguments, that's an error
-                        throw (InvalidArgs fc env (map (const (UN $ Basic "<auto>")) autoargs ++ map fst namedargs) tm)
+                        throw (InvalidArgs fc env (map (const (knownUN KAutoMark)) autoargs ++ map fst namedargs) tm)
   -- Function type is delayed:
   --   RHS: force the term
   --   LHS: strip off delay but only for explicit functions and disallow any further patterns
@@ -764,8 +764,8 @@ mutual
         -- later when we unify with expty
         do logNF "elab.with" 10 "Function type" env ty
            logTerm "elab.with" 10 "Function " tm
-           argn <- genName "argTy"
-           retn <- genName "retTy"
+           argn <- genName (known KargTy)
+           retn <- genName (known KretTy)
            u <- uniVar fc
            argTy <- metaVar fc erased env argn (TType fc u)
            let argTyG = gnf env argTy
@@ -792,7 +792,7 @@ mutual
       = do defs <- get Ctxt
            if all isImplicitAs (autoargs ++ map snd (filter (not . isBindAllExpPattern . fst) namedargs))
               then checkExp rig elabinfo env fc tm (glueBack defs env ty) expty
-              else throw (InvalidArgs fc env (map (const (UN $ Basic "<auto>")) autoargs ++ map fst namedargs) tm)
+              else throw (InvalidArgs fc env (map (const (knownUN KAutoMark)) autoargs ++ map fst namedargs) tm)
 
   ||| Entrypoint for checkAppWith: run the elaboration first and, if we're
   ||| on the LHS and the result is an under-applied constructor then insist

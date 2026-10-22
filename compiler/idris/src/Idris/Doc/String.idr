@@ -101,7 +101,7 @@ getImplDocs keep
               let Just Func = defNameType (definition def)
                 | _ => pure []
               -- Check that the type mentions the name of interest
-              ty <- toFullNames !(normaliseHoles defs Env.empty (type def))
+              ty <- toFullNames =<< normaliseHoles defs Env.empty =<< typeOf def
               True <- keep ty
                 | False => pure []
               ty <- resugar Env.empty ty
@@ -241,8 +241,9 @@ getDocsForName : {auto o : Ref ROpts REPLOpts} ->
 getDocsForName fc n config
     = do syn <- get Syn
          defs <- get Ctxt
-         let extra = case nameRoot n of
-                       "-" => [NS numNS (UN $ Basic "negate")]
+         root <- rootIdent n
+         let extra = case knownOf root of
+                       Just KMinus => [NS numNS (knownUN Knegate)]
                        _ => []
          resolved <- lookupCtxtName n (gamma defs)
          let all@(_ :: _) = extra ++ map fst resolved
@@ -274,7 +275,7 @@ getDocsForName fc n config
                   -- should never happen, since we know that the DCon exists:
                   | Nothing => pure Empty
              syn <- get Syn
-             ty <- prettyType Syntax (type def)
+             ty <- prettyType Syntax !(typeOf def)
              let conWithTypeDoc
                    = annotate (Decl con (location def))
                    $ ifThenElse showType
@@ -296,7 +297,7 @@ getDocsForName fc n config
         = do defs <- get Ctxt
              Just def <- lookupCtxtExact n (gamma defs)
                   | Nothing => pure []
-             ty <- prettyType Syntax (type def)
+             ty <- prettyType Syntax !(typeOf def)
              pure [annotate (Decl n (location def)) ty]
 
     getMethDoc : Method -> Core (List (Doc IdrisDocAnn))
@@ -308,8 +309,9 @@ getDocsForName fc n config
 
     getInfixDoc : Name -> Core (List (Doc IdrisDocAnn))
     getInfixDoc n
-        = let names = lookupName (UN $ Basic $ nameRoot n) (infixes !(get Syn))
-          in pure $ map printName names
+        = do root <- rootIdent n
+             syn <- get Syn
+             pure $ map printName (lookupName (UN $ Basic root) (infixes syn))
         where
           printName : (Name, FC, Fixity, Nat) -> (Doc IdrisDocAnn)
           printName (name,  loc, fixity, assoc) =
@@ -323,8 +325,9 @@ getDocsForName fc n config
 
     getPrefixDoc : Name -> Core (List (Doc IdrisDocAnn))
     getPrefixDoc n
-        = let names = lookupName (UN $ Basic $ nameRoot n) (prefixes !(get Syn))
-          in pure $ map printPrefixName names
+        = do root <- rootIdent n
+             syn <- get Syn
+             pure $ map printPrefixName (lookupName (UN $ Basic root) (prefixes syn))
           where
             printPrefixName : (Name, FC, Nat) -> Doc IdrisDocAnn
             printPrefixName (_, _, assoc) = "prefix operator, level" <++> pretty0 (show assoc)
@@ -374,7 +377,7 @@ getDocsForName fc n config
            Just def <- lookupCtxtExact nm (gamma defs)
                 -- should never happen, since we know that the DCon exists:
                 | Nothing => pure Empty
-           ty <- prettyType Syntax (type def)
+           ty <- prettyType Syntax !(typeOf def)
            let projDecl = annotate (Decl nm (location def)) $
                             reAnnotate Syntax (prettyRig def.multiplicity) <+> hsep
                             [ fun nm (prettyName nm), colon, ty ]
@@ -392,7 +395,7 @@ getDocsForName fc n config
     getFieldsDoc recName
       = do let (Just ns, n) = displayName recName
                | _ => pure Nothing
-           let recNS = ns <.> mkNamespace n
+           recNS <- (ns <.>) <$> internNamespace n
            defs <- get Ctxt
            let fields = getFieldNames (gamma defs) recNS
            case fields of
@@ -444,7 +447,7 @@ getDocsForName fc n config
                                (pure (Nothing, []))
 
              -- Then form the type declaration
-             ty <- resugar Env.empty =<< normaliseHoles defs Env.empty (type def)
+             ty <- resugar Env.empty =<< normaliseHoles defs Env.empty =<< typeOf def
              -- when printing e.g. interface methods there is no point in
              -- repeating the interface's name
              let ty = ifThenElse (not dropFirst) ty $ case ty of
@@ -497,7 +500,7 @@ getDocsForImplementation t = do
     -- get the return type of all the candidate hints
     Just (ix, def) <- lookupCtxtExactI hint (gamma defs)
       | Nothing => pure Nothing
-    ty <- resugar Env.empty =<< normaliseHoles defs Env.empty (type def)
+    ty <- resugar Env.empty =<< normaliseHoles defs Env.empty =<< typeOf def
     let (_, retTy) = underPis ty
     -- try to see whether it approximates what we are looking for
     -- we throw the head away because it'll be the interface name (I)
@@ -529,7 +532,7 @@ getDocsForImplementation t = do
       let [] = existing
         | _ => pure False
       -- If the name starts with an uppercase letter it's probably a misspelt constructor name
-      whenJust ((isUN >=> (isBasic . snd) >=> strUncons >=> (guard . isUpper . fst)) hd) $ \ _ =>
+      whenJust ((isUN >=> (isBasic . snd) >=> (strUncons . (.text)) >=> (guard . isUpper . fst)) hd) $ \ _ =>
         undefinedName fc hd
       pure True
     -- all arguments better be valid approximations
@@ -667,7 +670,7 @@ summarise n -- n is fully qualified
     = do defs <- get Ctxt
          Just def <- lookupCtxtExact n (gamma defs)
              | _ => pure ""
-         ty <- prettyType Syntax (type def)
+         ty <- prettyType Syntax !(typeOf def)
          pure $ reAnnotate Syntax (prettyRig def.multiplicity)
             <+> hsep [ showCategory Syntax def (prettyName n)
                      , colon, hang 0 ty

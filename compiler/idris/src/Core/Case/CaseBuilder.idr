@@ -36,7 +36,7 @@ import Libraries.Text.PrettyPrint.Prettyprinter
 ||| type constructor `->`, applied to its domain and codomain.
 export
 arrowConName : Name
-arrowConName = UN (Basic "->")
+arrowConName = knownUN KArrow
 
 -- The tree built is the compile-time tree of a definition of this
 -- multiplicity: the one the frontend translates, and Idris's checks read.
@@ -499,7 +499,7 @@ checkGroupMatch _ _ _ = NoMatch
 data PName : Type where
 
 nextName : {auto i : Ref PName Int} ->
-           String -> Core Name
+           Ident -> Core Name
 nextName root
     = do x <- get PName
          put PName (x + 1)
@@ -508,7 +508,7 @@ nextName root
 nextNames : {vars : _} ->
             {auto i : Ref PName Int} ->
             {auto c : Ref Ctxt Defs} ->
-            FC -> String -> (unified : List Name) -> Source ->
+            FC -> Ident -> (unified : List Name) -> Source ->
             List Pat -> Maybe (NF vars) ->
             Core (args ** (SizeOf args, NamedPats args (args ++ vars)))
 nextNames fc root unified src [] fty = pure ([] ** (zero, []))
@@ -597,14 +597,14 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
     -- the same name in each of the clauses
     addConG n tag src pargs pats pid rhs []
         = do cty <- if n == arrowConName
-                      then pure $ NBind fc (MN "_" 0) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
-                              (\d, a => pure $ NBind fc (MN "_" 1) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NErased fc Placeholder)))
-                                (\d, a => pure $ NType fc (MN "top" 0)))
+                      then pure $ NBind fc (MN (known K_) 0) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN (known Ktop) 0)))) $
+                              (\d, a => pure $ NBind fc (MN (known K_) 1) (Pi fc top Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NErased fc Placeholder)))
+                                (\d, a => pure $ NType fc (MN (known Ktop) 0)))
                       else do defs <- get Ctxt
                               Just t <- lookupTyExact n (gamma defs)
                                    | Nothing => pure (NErased fc Placeholder)
                               nf defs (mkEnv fc vars') (embed t)
-             (patnames ** (l, newargs)) <- nextNames fc "e" (unified pid) src pargs (Just cty)
+             (patnames ** (l, newargs)) <- nextNames fc (known Ke) (unified pid) src pargs (Just cty)
              -- Update non-linear names in remaining patterns (to keep
              -- explicit dependencies in types accurate)
              let pats' = updatePatNames (updateNames (zip patnames pargs))
@@ -635,12 +635,12 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
                 (acc : List01 ne (Group todo' vars')) ->
                 Core (List01 True (Group todo' vars'))
     addDelayG src pty parg pats pid rhs []
-        = do let dty = NBind fc (MN "a" 0) (Pi fc erased Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN "top" 0)))) $
+        = do let dty = NBind fc (MN (known Ka) 0) (Pi fc erased Explicit (MkNFClosure defaultOpts (mkEnv fc vars') (NType fc (MN (known Ktop) 0)))) $
                         (\d, a =>
                             do a' <- evalClosure d a
-                               pure (NBind fc (MN "x" 0) (Pi fc top Explicit a)
+                               pure (NBind fc (MN (known Kx) 0) (Pi fc top Explicit a)
                                        (\dv, av => pure (NDelayed fc LUnknown a'))))
-             ([tyname, argname] ** (l, newargs)) <- nextNames fc "e" (unified pid) src [pty, parg]
+             ([tyname, argname] ** (l, newargs)) <- nextNames fc (known Ke) (unified pid) src [pty, parg]
                                                   (Just dty)
                 | _ => throw (InternalError "Error compiling Delay pattern match")
              let pats' = updatePatNames (updateNames [(tyname, pty),
@@ -1056,9 +1056,9 @@ mkPat True args orig (As fc _ _ ptm)
 mkPat True args orig (TDelay fc r ty p)
     = pure $ PDelay fc r !(mkPat True [] orig ty) !(mkPat True [] orig p)
 mkPat True args orig (PrimVal fc $ PrT c) -- Primitive type constant
-    = pure $ PTyCon fc (UN (Basic $ show c)) 0 []
+    = pure $ PTyCon fc (knownUN (primTypeKnown c)) 0 []
 mkPat True args orig (PrimVal fc c) = pure $ PConst fc c -- Non-type constant
-mkPat True args orig (TType fc _) = pure $ PTyCon fc (UN $ Basic "Type") 0 []
+mkPat True args orig (TType fc _) = pure $ PTyCon fc (knownUN KType) 0 []
 mkPat _ args orig tm
    = do log "compile.casetree" 10 $
           "Catchall: marking " ++ show tm ++ " as unmatchable"
@@ -1139,7 +1139,7 @@ patCompile fc fn phase ty (p :: ps)
     getNames i [] = ([] ** zero)
     getNames i (x :: xs) =
       let (ns ** n) = getNames (i + 1) xs
-      in (MN "arg" i :: ns ** suc n)
+      in (MN (known Karg) i :: ns ** suc n)
 
 toPatClause : {auto c : Ref Ctxt Defs} ->
               FC -> Name -> (List Name, ClosedTerm, ClosedTerm) ->
@@ -1280,11 +1280,12 @@ getPMDef fc phase fn ty []
     getArgs i (NBind fc x (Pi {}) sc)
         = do defs <- get Ctxt
              sc' <- sc defs (toClosure defaultOpts Env.empty (Erased fc Placeholder))
-             pure (MN "arg" i :: !(getArgs i sc'))
+             pure (MN (known Karg) i :: !(getArgs i sc'))
     getArgs i _ = pure []
 getPMDef fc phase fn ty clauses@(_ :: _)
     = do defs <- get Ctxt
-         let cs = map (toClosed defs) (labelPat 0 $ fromList clauses)
+         labelled <- labelPat 0 (fromList clauses)
+         let cs = map (toClosed defs) labelled
          (_ ** (t, pats)) <- simpleCase fc phase fn ty cs
          logC "compile.casetree.getpmdef" 20 $
            pure $ "Compiled to: " ++ show !(toFullNames t)
@@ -1302,16 +1303,20 @@ getPMDef fc phase fn ty clauses@(_ :: _)
              then getUnreachable (i + 1) is cs
              else c :: getUnreachable (i + 1) is cs
 
-    labelPat : Int -> List01 ne a -> List01 ne (String, a)
-    labelPat i [] = []
-    labelPat i (x :: xs) = ("pat" ++ show i ++ ":", x) :: labelPat (i + 1) xs
+    -- Each clause's label is the stem of its variables' names, so that the
+    -- variables of two clauses are never the same name.
+    labelPat : Int -> List01 ne a -> Core (List01 ne (Ident, a))
+    labelPat i [] = pure []
+    labelPat i (x :: xs)
+        = do l <- intern ("pat" ++ show i ++ ":")
+             pure ((l, x) :: !(labelPat (i + 1) xs))
 
     -- The names `close` gives the variables a clause leaves to
     -- unification, which the tree splits after the others (patCompile).
-    unifiedNames : {vars : _} -> String -> VarSet vars -> List Name
+    unifiedNames : {vars : _} -> Ident -> VarSet vars -> List Name
     unifiedNames pname unified
         = map (\v => MN pname (cast (varIdx v))) (VarSet.toList unified)
 
-    toClosed : Defs -> (String, Clause) -> (List Name, ClosedTerm, ClosedTerm)
+    toClosed : Defs -> (Ident, Clause) -> (List Name, ClosedTerm, ClosedTerm)
     toClosed defs (pname, MkClause env lhs rhs unified)
           = (unifiedNames pname unified, close fc pname env lhs, close fc pname env rhs)

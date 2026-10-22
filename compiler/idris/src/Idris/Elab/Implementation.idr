@@ -25,7 +25,7 @@ import Libraries.Data.NameMap
 %default covering
 
 constructorBindName : Name
-constructorBindName = UN (Basic "__con")
+constructorBindName = knownUN K__con
 
 -- TODO move out of file, maybe make `show` instance for `FC` platform-independent
 replaceSep : String -> String
@@ -35,12 +35,14 @@ replaceSep = pack . map toForward . unpack
     toForward '\\' = '/'
     toForward x = x
 
+-- An implementation's name is made from its interface's and parameters'
+-- text, so its identifiers are new to the session's table.
 export
-mkImplName : FC -> Name -> List RawImp -> Name
+mkImplName : {auto c : Ref Ctxt Defs} -> FC -> Name -> List RawImp -> Core Name
 mkImplName fc n ps
-    = DN (show n ++ " implementation at " ++ replaceSep (show fc))
-         (UN $ Basic ("__Impl_" ++ show n ++ "_" ++
-          showSep "_" (map show ps)))
+    = do display <- intern (show n ++ " implementation at " ++ replaceSep (show fc))
+         root <- intern ("__Impl_" ++ show n ++ "_" ++ showSep "_" (map show ps))
+         pure (DN display (UN $ Basic root))
 
 bindConstraints : FC -> PiInfo RawImp ->
                   List (Maybe Name, RawImp) -> RawImp -> RawImp
@@ -180,7 +182,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
          let initTy = bindImpls is $ bindConstraints vfc AutoImplicit cons
                          (apply (IVar vfc iname) ps)
          let paramBinds = if !isUnboundImplicits
-                          then findBindableNames True varsList [] initTy
+                          then findBindableNames True varsList initTy
                           else []
          let impTy = doBind paramBinds initTy
 
@@ -204,10 +206,11 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
                                       (IBindHere vfc (PI erased) impTy)
                                       (Just (gType vfc u))
                    let fullty = abstractFullEnvType vfc env ty
-                   ok <- convert defs Env.empty fullty (type gdef)
-                   unless ok $ do logTermNF "elab.implementation" 1 "Previous" Env.empty (type gdef)
+                   declared <- typeOf gdef
+                   ok <- convert defs Env.empty fullty declared
+                   unless ok $ do logTermNF "elab.implementation" 1 "Previous" Env.empty declared
                                   logTermNF "elab.implementation" 1 "Now" Env.empty fullty
-                                  throw (CantConvert (getFC impTy) (gamma defs) Env.empty fullty (type gdef))
+                                  throw (CantConvert (getFC impTy) (gamma defs) Env.empty fullty declared)
 
          -- If the body is empty, we're done for now (just declaring that
          -- the implementation exists and define it later)
@@ -286,7 +289,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
                --    case of dependencies)
 
                -- 5. Elaborate the method bodies
-               let upds = map methNameUpdate fns
+               upds <- traverse methNameUpdate fns
                body' <- traverse (updateBody upds) body
 
                log "elab.implementation" 10 $ "Implementation body: " ++ show body'
@@ -376,17 +379,18 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
             = maybe (UN (Basic n), c, p) (\n' => (UN (Basic n'), c, p)) (lookup n upds)
         applyUpdate t = t
 
-    methName : Name -> Name
+    methName : Name -> Core Name
     methName (NS _ n) = methName n
     methName n
-        = DN (show n)
-             (UN $ Basic (show n ++ "_" ++ show iname ++ "_" ++
-                     (if named then show impName_in else "") ++
-                     showSep "_" (map show ps)))
+        = do display <- intern (show n)
+             root <- intern (show n ++ "_" ++ show iname ++ "_" ++
+                             (if named then show impName_in else "") ++
+                             showSep "_" (map show ps))
+             pure (DN display (UN $ Basic root))
 
     applyCon : Name -> Name -> Core (Name, RawImp)
     applyCon impl n
-        = do mn <- inCurrentNS (methName n)
+        = do mn <- inCurrentNS !(methName n)
              pure (dropNS n, IVar vfc mn)
 
     bindImps : List (Name, RigCount, Maybe RawImp, RawImp) -> RawImp -> RawImp
@@ -408,7 +412,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
     topMethType methupds impName methImps impsp imppnames pnames allmeths meth
         = do -- Get the specialised type by applying the method to the
              -- parameters
-             n <- inCurrentNS (methName meth.nameVal)
+             n <- inCurrentNS !(methName meth.nameVal)
              let varsList = toList vars
 
              -- Avoid any name clashes between parameters and method types by
@@ -416,7 +420,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
              -- parameters
              let upds' = !(traverse (applyCon impName) allmeths)
              let mty_in = substNames varsList upds' meth.val
-             let (upds, mty_in) = runState [] (renameIBinds impsp (findImplicits mty_in) mty_in)
+             (upds, mty_in) <- runStateT [] (renameIBinds impsp (findImplicits mty_in) mty_in)
              -- Finally update the method type so that implicits from the
              -- parameters are passed through to any earlier methods which
              -- appear in the type
@@ -479,10 +483,10 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
 
     -- Given the method type (result of topMethType) return the mapping from
     -- top level method name to current implementation's method name
-    methNameUpdate : (Name, Name, t) -> (Name, Name)
-    methNameUpdate (UN mn, fn, _) = (UN mn, fn)
+    methNameUpdate : (Name, Name, t) -> Core (Name, Name)
+    methNameUpdate (UN mn, fn, _) = pure (UN mn, fn)
     methNameUpdate (NS _ mn, fn, p) = methNameUpdate (mn, fn, p)
-    methNameUpdate (mn, fn, p) = (UN (Basic $ nameRoot mn), fn) -- probably impossible
+    methNameUpdate (mn, fn, p) = pure (UN (Basic !(rootIdent mn)), fn) -- probably impossible
 
 
     findMethName : List (Name, Name) -> FC -> Name -> Core Name
@@ -551,7 +555,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
              log "elab.implementation" 5 $ show lhs ++ " ==> " ++ show rhs
              handleUnifyElab
                  (processDecl [] nest env
-                     (ITransform vfc (UN $ Basic (show meth.nameVal ++ " " ++ show iname)) lhs rhs))
+                     (ITransform vfc (UN $ Basic !(intern (show meth.nameVal ++ " " ++ show iname))) lhs rhs))
                  (\err =>
                      log "elab.implementation" 5 $ "Can't add transform " ++
                                 show lhs ++ " ==> " ++ show rhs ++

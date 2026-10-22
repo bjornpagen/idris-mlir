@@ -5,7 +5,6 @@ module Core.TT.Primitive
 import Core.Name
 
 import Data.String
-import Data.Vect
 
 import Idris.Pretty.Annotations
 
@@ -73,25 +72,26 @@ primType (Db {})  = Just DoubleType
 primType (PrT {}) = Nothing
 primType WorldVal = Just WorldType
 
+||| The primitive type a name in no namespace names: `primTypeKnown`, read
+||| back.
 export
 isConstantType : Name -> Maybe PrimType
-isConstantType (UN (Basic n)) = case n of
-  "Int"     => Just IntType
-  "Int8"    => Just Int8Type
-  "Int16"   => Just Int16Type
-  "Int32"   => Just Int32Type
-  "Int64"   => Just Int64Type
-  "Integer" => Just IntegerType
-  "Bits8"   => Just Bits8Type
-  "Bits16"  => Just Bits16Type
-  "Bits32"  => Just Bits32Type
-  "Bits64"  => Just Bits64Type
-  "String"  => Just StringType
-  "Char"    => Just CharType
-  "Double"  => Just DoubleType
-  "%World"  => Just WorldType
+isConstantType n = case knownRoot n of
+  Just KInt          => Just IntType
+  Just KInt8         => Just Int8Type
+  Just KInt16        => Just Int16Type
+  Just KInt32        => Just Int32Type
+  Just KInt64        => Just Int64Type
+  Just KInteger      => Just IntegerType
+  Just KBits8        => Just Bits8Type
+  Just KBits16       => Just Bits16Type
+  Just KBits32       => Just Bits32Type
+  Just KBits64       => Just Bits64Type
+  Just KString       => Just StringType
+  Just KChar         => Just CharType
+  Just KDouble       => Just DoubleType
+  Just KPercentWorld => Just WorldType
   _ => Nothing
-isConstantType _ = Nothing
 
 export
 isPrimType : Constant -> Bool
@@ -112,22 +112,28 @@ primTypeEq DoubleType DoubleType = Just Refl
 primTypeEq WorldType WorldType = Just Refl
 primTypeEq _ _ = Nothing
 
+||| The identifier a primitive type is named by (`isConstantType` reads it
+||| back), whose spelling is the type's printed form.
+export
+primTypeKnown : PrimType -> Known
+primTypeKnown IntType = KInt
+primTypeKnown Int8Type = KInt8
+primTypeKnown Int16Type = KInt16
+primTypeKnown Int32Type = KInt32
+primTypeKnown Int64Type = KInt64
+primTypeKnown IntegerType = KInteger
+primTypeKnown Bits8Type = KBits8
+primTypeKnown Bits16Type = KBits16
+primTypeKnown Bits32Type = KBits32
+primTypeKnown Bits64Type = KBits64
+primTypeKnown StringType = KString
+primTypeKnown CharType = KChar
+primTypeKnown DoubleType = KDouble
+primTypeKnown WorldType = KPercentWorld
+
 export
 Show PrimType where
-  show IntType = "Int"
-  show Int8Type = "Int8"
-  show Int16Type = "Int16"
-  show Int32Type = "Int32"
-  show Int64Type = "Int64"
-  show IntegerType = "Integer"
-  show Bits8Type = "Bits8"
-  show Bits16Type = "Bits16"
-  show Bits32Type = "Bits32"
-  show Bits64Type = "Bits64"
-  show StringType = "String"
-  show CharType = "Char"
-  show DoubleType = "Double"
-  show WorldType = "%World"
+  show t = spelling (primTypeKnown t)
 
 export
 Show Constant where
@@ -148,21 +154,7 @@ Show Constant where
   show WorldVal = "%MkWorld"
 
 Pretty IdrisSyntax PrimType where
-  pretty c = annotate (TCon Nothing) $ case c of
-    IntType => "Int"
-    Int8Type => "Int8"
-    Int16Type => "Int16"
-    Int32Type => "Int32"
-    Int64Type => "Int64"
-    IntegerType => "Integer"
-    Bits8Type => "Bits8"
-    Bits16Type => "Bits16"
-    Bits32Type => "Bits32"
-    Bits64Type => "Bits64"
-    StringType => "String"
-    CharType => "Char"
-    DoubleType => "Double"
-    WorldType => "%World"
+  pretty c = annotate (TCon Nothing) $ pretty0 $ show c
 
 export
 Pretty IdrisSyntax Constant where
@@ -457,58 +449,6 @@ export
   show (Cast x y) = "cast-" ++ show x ++ "-" ++ show y
   show BelieveMe = "believe_me"
   show Crash = "crash"
-
-pretty : PrimFn arity -> Doc ann
-pretty = pretty0 . show @{Sugared}
-
-annotatedOp : {default False ticked : Bool} -> PrimFn arity -> Doc IdrisSyntax
-annotatedOp {ticked} f =
-  annotate (Fun . UN . Basic $ show f) (ticks (pretty f))
-    where
-      ticks : Doc IdrisSyntax -> Doc IdrisSyntax
-      ticks = if ticked then enclose "`" "`" else id
-
-export
-prettyOp : PrimFn arity -> Vect arity (Doc IdrisSyntax) -> Doc IdrisSyntax
-prettyOp op@(Add ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(Sub ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(Mul ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(Div ty) [v1,v2] = v1 <++> annotatedOp {ticked=True} op <++> v2
-prettyOp op@(Mod ty) [v1,v2] = v1 <++> annotatedOp {ticked=True} op <++> v2
-prettyOp op@(Neg ty) [v] = annotatedOp op <++> v
-prettyOp op@(ShiftL ty) [v1,v2] = annotatedOp op <++> v1 <++> v2
-prettyOp op@(ShiftR ty) [v1,v2] = annotatedOp op <++> v1 <++> v2
-prettyOp op@(BAnd ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(BOr ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(BXOr ty) [v1,v2] = v1 <++> annotatedOp {ticked=True} op <++> v2
-prettyOp op@(LT ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(LTE ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(EQ ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(GTE ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@(GT ty) [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@StrLength [v] = annotatedOp op <++> v
-prettyOp op@StrHead [v] = annotatedOp op <++> v
-prettyOp op@StrTail [v] = annotatedOp op <++> v
-prettyOp op@StrIndex [v1,v2] = v1 <++> annotate (Fun $ UN $ Basic $ show op) "[" <+> v2 <+> annotate (Fun $ UN $ Basic $ show op) "]"
-prettyOp op@StrCons [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@StrAppend [v1,v2] = v1 <++> annotatedOp op <++> v2
-prettyOp op@StrReverse [v] = annotatedOp op <++> v
-prettyOp op@StrSubstr [v1,v2,v3] = v1 <++> annotate (Fun $ UN $ Basic $ show op) "[" <+> v2 <+> annotate (Fun $ UN $ Basic $ show op) "," <++> v3 <+> annotate (Fun $ UN $ Basic $ show op) "]"
-prettyOp op@DoubleExp [v] = annotatedOp op <++> v
-prettyOp op@DoubleLog [v] = annotatedOp op <++> v
-prettyOp op@DoublePow [v1,v2] = v1 <++> annotatedOp {ticked=True} op <++> v2
-prettyOp op@DoubleSin [v] = annotatedOp op <++> v
-prettyOp op@DoubleCos [v] = annotatedOp op <++> v
-prettyOp op@DoubleTan [v] = annotatedOp op <++> v
-prettyOp op@DoubleASin [v] = annotatedOp op <++> v
-prettyOp op@DoubleACos [v] = annotatedOp op <++> v
-prettyOp op@DoubleATan [v] = annotatedOp op <++> v
-prettyOp op@DoubleSqrt [v] = annotatedOp op <++> v
-prettyOp op@DoubleFloor [v] = annotatedOp op <++> v
-prettyOp op@DoubleCeiling [v] = annotatedOp op <++> v
-prettyOp op@(Cast x y) [v] = annotate (Fun $ UN $ Basic $ show op) "[" <+> pretty x <++> annotate (Fun $ UN $ Basic $ show op) "->" <++> pretty y <+> annotate (Fun $ UN $ Basic $ show op) "]" <++> v
-prettyOp op@BelieveMe [v1,v2,v3] = annotatedOp op <++> v1 <++> v2 <++> v3
-prettyOp op@Crash [v1,v2] = annotatedOp op <++> v1 <++> v2
 
 export
 primFnEq : PrimFn a1 -> PrimFn a2 -> Maybe (a1 = a2)

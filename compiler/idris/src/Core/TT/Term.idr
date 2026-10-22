@@ -428,11 +428,11 @@ applyStackWithFC fn ((fc, arg) :: args) = applyStackWithFC (App fc fn arg) args
 -- Build a simple function type
 export
 fnType : FC -> Term vars -> Term vars -> Term vars
-fnType fc arg scope = Bind emptyFC (MN "_" 0) (Pi fc top Explicit arg) (weaken scope)
+fnType fc arg scope = Bind emptyFC (MN (known K_) 0) (Pi fc top Explicit arg) (weaken scope)
 
 export
 linFnType : FC -> Term vars -> Term vars -> Term vars
-linFnType fc arg scope = Bind emptyFC (MN "_" 0) (Pi fc linear Explicit arg) (weaken scope)
+linFnType fc arg scope = Bind emptyFC (MN (known K_) 0) (Pi fc linear Explicit arg) (weaken scope)
 
 export
 getFnArgs : Term vars -> (Term vars, List (Term vars))

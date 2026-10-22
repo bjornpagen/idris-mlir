@@ -233,10 +233,14 @@ chaseMetas (n :: ns) all
     = case lookup n all of
            Just _ => chaseMetas ns all
            _ => do defs <- get Ctxt
-                   Just (PMDef _ _ (STerm _ soln) _ _) <-
-                                  lookupDefExact n (gamma defs)
+                   Just (PMDef _ args body) <- lookupDefExact n (gamma defs)
                         | _ => chaseMetas ns (insert n () all)
-                   let sns = keys (getMetas soln)
+                   -- Only a tree that is one leaf holds a solution, and only
+                   -- that leaf is decoded.
+                   sns <- walkTree body (\leaf, tree => case tree of
+                            STerm _ x => do soln <- leafTerm leaf {outer = []} x
+                                            pure (keys (getMetas soln))
+                            _ => pure [])
                    chaseMetas (sns ++ ns) (insert n () all)
 
 -- Get all the metavariable names used by the term (recursively, so we
@@ -475,10 +479,11 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
               PV pv pi => throw (PatternVariableUnifies loc (getLoc otm) env (PV pv pi) otm)
               _ => pure ()
          defs <- get Ctxt
-         ty <- normalisePis defs Env.empty $ type mdef
+         mty <- typeOf mdef
+         ty <- normalisePis defs Env.empty mty
                      -- make sure we have all the pi binders we need in the
                      -- type to make the metavariable definition
-         logTerm "unify.instantiate" 5 ("Type: " ++ show mname) (type mdef)
+         logTerm "unify.instantiate" 5 ("Type: " ++ show mname) mty
          logTerm "unify.instantiate" 5 ("Type: " ++ show mname) ty
          log "unify.instantiate" 5 ("With locs: " ++ show locs)
          log "unify.instantiate" 5 ("From vars: " ++ show newvars)
@@ -495,7 +500,7 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
                                      (not (isUserName mname) && isSimple rhs)
                                      False
          let newdef = { definition :=
-                          PMDef simpleDef Scope.empty (STerm 0 rhs) [] []
+                          PMDef simpleDef Scope.empty (LiveBody (STerm 0 rhs) [] [])
                       } mdef
          ignore $ addDef (Resolved mref) newdef
          -- Meta-to-meta unification: an unknown solved as another's
@@ -1113,7 +1118,7 @@ mutual
                                (do ty' <- quote empty env ty
                                    pure ("Unifying arg types " ++ show tx' ++ " and " ++ show ty'))
                      ct <- unify (lower mode) loc env tx ty
-                     xn <- genVarName "x"
+                     xn <- genVarName (known Kx)
                      let env' : Env Term (x :: _)
                               = Pi fcy cy Explicit tx' :: env
                      case constraints ct of
@@ -1152,7 +1157,7 @@ mutual
                      Just ci <- unifyPiInfo (lower mode) loc env ix iy
                        | Nothing => err
                      ct <- unify (lower mode) loc env tx ty
-                     xn <- genVarName "x"
+                     xn <- genVarName (known Kx)
                      txtm <- quote empty env tx
                      let env' : Env Term (x :: _)
                               = Lam fcx cx Explicit txtm :: env
@@ -1478,8 +1483,12 @@ unknownsOf tm = reach (keys (addMetas True empty tm)) empty
                Nothing =>
                  do defs <- get Ctxt
                     case !(lookupDefExact (Resolved i) (gamma defs)) of
-                         Just (PMDef _ _ (STerm _ soln) _ _) =>
-                           reach (keys (addMetas True empty soln) ++ ns) (insert i () seen)
+                         Just (PMDef _ args body) =>
+                           do sns <- walkTree body (\leaf, tree => case tree of
+                                       STerm _ x => do soln <- leafTerm leaf {outer = []} x
+                                                       pure (keys (addMetas True empty soln))
+                                       _ => pure [])
+                              reach (sns ++ ns) (insert i () seen)
                          _ => reach ns (insert i () seen)
     -- `addMetas True` names every unknown by its index; no other name
     -- comes.
@@ -1508,13 +1517,14 @@ retryGuess mode smode (hid, (loc, hname))
            Just def =>
              case definition def of
                BySearch rig defining =>
-                  do Right searched <- tryErrorUnify
+                  do ty <- typeOf def
+                     Right searched <- tryErrorUnify
                                          (search loc rig (smode == Defaults) defining
-                                                 (type def) Env.empty)
+                                                 ty Env.empty)
                           | Left err => failed rig def err
                      case searched of
                           Found tm =>
-                            do let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) [] [] } def
+                            do let gdef = { definition := PMDef defaultPI Scope.empty (LiveBody (STerm 0 tm) [] []) } def
                                logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
                                ignore $ addDef (Resolved hid) gdef
                                removeGuess hid
@@ -1534,7 +1544,7 @@ retryGuess mode smode (hid, (loc, hname))
                                                  logTerm "unify.retry" 5 "Retry Delay" tm
                                                  pure $ delayMeta r envb !(getTerm ty) tm
                                   let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
-                                                                   Scope.empty (STerm 0 tm') [] [] } def
+                                                                   Scope.empty (LiveBody (STerm 0 tm') [] []) } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm'
                                   ignore $ addDef (Resolved hid) gdef
                                   removeGuess hid
@@ -1560,7 +1570,7 @@ retryGuess mode smode (hid, (loc, hname))
                          -- proper definition and remove it from the
                          -- hole list
                          [] => do let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
-                                                                   Scope.empty (STerm 0 tm) [] [] } def
+                                                                   Scope.empty (LiveBody (STerm 0 tm) [] []) } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm
                                   ignore $ addDef (Resolved hid) gdef
                                   removeGuess hid
@@ -1581,7 +1591,7 @@ retryGuess mode smode (hid, (loc, hname))
     stillWaits def
         = do case smode of
                   Defaults => pure ()
-                  _ => do unknowns <- unknownsOf (type def)
+                  _ => do unknowns <- unknownsOf !(typeOf def)
                           waitOn hid unknowns
              pure False
 
@@ -1601,20 +1611,21 @@ retryGuess mode smode (hid, (loc, hname))
     failed rig def (DeterminingArg _ n i _ _)
         = do logTerm "unify.retry" 5
                      ("Failed (det " ++ show hname ++ " " ++ show n ++ ")")
-                     (type def)
+                     !(typeOf def)
              setInvertible loc (Resolved i)
              pure False -- progress not made yet!
     failed rig def err
-        = do logTermNF "unify.retry" 5
+        = do ty <- typeOf def
+             logTermNF "unify.retry" 5
                        ("Search failed at " ++ show rig ++ " for " ++ show hname)
-                       Env.empty (type def)
+                       Env.empty ty
              case smode of
                   LastChance => throw err
                   _ => if recoverable err
                           then stillWaits def -- Postpone again
                           else do defs <- get Ctxt
                                   throw (CantSolveGoal loc (gamma defs)
-                                           Env.empty (type def) (Just err))
+                                           Env.empty ty (Just err))
 
 -- A round: each guess retried in turn, but a search that waits is passed,
 -- since a retry would fail as its last did. Whether it waits is read when
@@ -1693,8 +1704,9 @@ checkArgsSame : {auto u : Ref UST UState} ->
 checkArgsSame [] = pure False
 checkArgsSame (x :: xs)
     = do defs <- get Ctxt
-         Just (PMDef _ [] (STerm 0 def) _ _) <-
-                    lookupDefExact (Resolved x) (gamma defs)
+         Just (PMDef _ [] body) <- lookupDefExact (Resolved x) (gamma defs)
+              | _ => checkArgsSame xs
+         STerm 0 def <- treeOf body
               | _ => checkArgsSame xs
          s <- anySame def xs
          if s
@@ -1705,8 +1717,9 @@ checkArgsSame (x :: xs)
     anySame tm [] = pure False
     anySame tm (t :: ts)
         = do defs <- get Ctxt
-             Just (PMDef _ [] (STerm 0 def) _ _) <-
-                        lookupDefExact (Resolved t) (gamma defs)
+             Just (PMDef _ [] body) <- lookupDefExact (Resolved t) (gamma defs)
+                 | _ => anySame tm ts
+             STerm 0 def <- treeOf body
                  | _ => anySame tm ts
              if !(convert defs Env.empty tm def)
                 then pure True

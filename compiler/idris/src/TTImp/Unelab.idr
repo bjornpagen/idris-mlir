@@ -8,6 +8,7 @@ import Core.Env
 import Core.Normalise
 import Core.Value
 
+import TTImp.Elab.Check
 import TTImp.TTImp
 
 import Data.String
@@ -78,17 +79,19 @@ mutual
       = do defs <- get Ctxt
            Just glob <- lookupCtxtExact n (gamma defs)
                 | Nothing => pure Nothing
-           let PMDef _ pargs treect _ pats = definition glob
+           let PMDef _ pargs body = definition glob
                 | _ => pure Nothing
-           let Just argpos = findArgPos treect
+           Just argpos <- walkTree body (\_, ct => pure (findArgPos ct))
                 | _ => pure Nothing
            if length args == length pargs
-              then mkCase pats argpos args
+              then do pats <- clausesOf body
+                      mkCase pats argpos args
               else pure Nothing
     where
       -- Need to find the position of the scrutinee to rebuild original
-      -- case correctly
-      findArgPos : CaseTree as -> Maybe Nat
+      -- case correctly. Only the tree's root is read, so the tree is read
+      -- as it is held.
+      findArgPos : CaseTree' t as -> Maybe Nat
       findArgPos (Case idx p _ _) = Just idx
       findArgPos _ = Nothing
 
@@ -224,7 +227,7 @@ mutual
            pure (IVar fc (MkKindedName (Just nt) fn n'), gnf env (embed ty))
   unelabTy' umode nest env (Meta fc n i args)
       = do defs <- get Ctxt
-           let mkn = nameRoot n
+           mkn <- rootIdent n
            def <- lookupDefExact (Resolved i) (gamma defs)
            let term = case def of
                               (Just (BySearch {})) => ISearch fc
@@ -237,7 +240,7 @@ mutual
   unelabTy' umode nest env (Bind fc x b sc)
       = case umode of
           NoSugar True => do
-            let x' = uniqueLocal vars x
+            x' <- uniqueLocal vars x
             let sc : Term (x' :: vars) = compat sc
             (sc', scty) <- unelabTy umode nest (b :: env) sc
             unelabBinder umode nest fc env x' b
@@ -247,17 +250,22 @@ mutual
             (sc', scty) <- unelabTy umode nest (b :: env) sc
             unelabBinder umode nest fc env x b sc sc' !(getTerm scty)
     where
-      next : Name -> Name
-      next (MN n i) = MN n (i + 1)
-      next (UN n) = MN (show n) 0
-      next (NS ns n) = NS ns (next n)
-      next n = MN (show n) 0
+      -- A machine name spelled as the name shows: by the name's own
+      -- identifier where that is all it shows, and otherwise by the text
+      -- it shows, which the session's table makes an identifier.
+      next : Name -> Core Name
+      next (MN n i) = pure (MN n (i + 1))
+      next (UN (Basic n)) = pure (MN n 0)
+      next (UN Underscore) = pure (MN (known K_) 0)
+      next (NS ns n) = NS ns <$> next n
+      next (DN str _) = pure (MN str 0)
+      next n = pure (MN !(intern (show n)) 0)
 
-      uniqueLocal : Scope -> Name -> Name
+      uniqueLocal : Scope -> Name -> Core Name
       uniqueLocal vs n
          = if n `elem` vs
-              then uniqueLocal vs (next n)
-              else n
+              then uniqueLocal vs !(next n)
+              else pure n
   unelabTy' umode nest env tm@(App fc fn arg)
       = do (fn', gfnty) <- unelabTy umode nest env fn
            (arg', gargty) <- unelabTy umode nest env arg
@@ -310,7 +318,7 @@ mutual
   unelabTy' umode nest env (Erased fc (Dotted t))
     = unelabTy' umode nest env t
   unelabTy' umode nest env (Erased fc _) = pure (Implicit fc True, gErased fc)
-  unelabTy' umode nest env (TType fc _) = pure (IType fc, gType fc (MN "top" 0))
+  unelabTy' umode nest env (TType fc _) = pure (IType fc, gType fc (MN (known Ktop) 0))
 
   unelabPi : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
@@ -351,7 +359,7 @@ mutual
                        else if rig /= top || isDefImp p
                                then Just (UN Underscore)
                                else Nothing
-           pure (IPi fc rig p' nm ty' sc, gType fc (MN "top" 0))
+           pure (IPi fc rig p' nm ty' sc, gType fc (MN (known Ktop) 0))
     where
       isNoSugar : UnelabMode -> Bool
       isNoSugar (NoSugar _) = True
@@ -369,7 +377,7 @@ mutual
                     gnf env (Bind fc x (PLet fc' rig val ty) scty))
   unelabBinder umode nest fc env x (PVTy _ rig ty) sctm sc scty
       = do (ty', _) <- unelabTy umode nest env ty
-           pure (sc, gType fc (MN "top" 0))
+           pure (sc, gType fc (MN (known Ktop) 0))
 
 export
 unelabNoSugar : {vars : _} ->
@@ -403,7 +411,7 @@ unelabNest : {vars : _} ->
              Env Term vars ->
              Term vars -> Core IRawImp
 unelabNest mode nest env (Meta fc n i args)
-    = do let mkn = nameRoot n ++ showScope args
+    = do mkn <- intern (nameRoot n ++ showScope args)
          pure (IHole fc mkn)
   where
     toName : Term vars -> Maybe Name

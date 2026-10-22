@@ -30,9 +30,8 @@ getCons defs (NTCon _ tn _ _)
     addTy cn
         = do Just gdef <- lookupCtxtExact cn (gamma defs)
                   | _ => pure Nothing
-             case (gdef.definition, gdef.type) of
-                  (DCon t arity _, ty) =>
-                        pure . Just $ MkDataCon cn t arity
+             case gdef.definition of
+                  DCon t arity _ => pure . Just $ MkDataCon cn t arity
                   _ => pure Nothing
 getCons defs _ = pure []
 
@@ -50,7 +49,7 @@ emptyRHS fc sc = sc
 export
 mkAlt : FC -> CaseTree vars -> DataCon -> CaseAlt vars
 mkAlt fc sc (MkDataCon cn t ar)
-    = ConCase cn t (map (MN "m") (take ar [0..]))
+    = ConCase cn t (map (MN (known Km)) (take ar [0..]))
               (weakenNs (map take) (emptyRHS fc sc))
 
 export

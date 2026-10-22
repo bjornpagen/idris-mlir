@@ -196,10 +196,10 @@ readHeader path origin
          -- Stop at the first :, that's definitely not part of the header, to
          -- save lexing the whole file unnecessarily
          setCurrentElabSource res -- for error printing purposes
-         let Right (ws, decor, mod)
-            = runParserTo (PhysicalIdrSrc origin)
-                          (isLitFile path) (is ':') res
-                          (progHdr (PhysicalIdrSrc origin))
+         Right (ws, decor, mod) <-
+             runParserTo (PhysicalIdrSrc origin)
+                         (isLitFile path) (is ':') res
+                         (progHdr (PhysicalIdrSrc origin))
             | Left err => throw err
          traverse_ recordWarning ws
          pure mod
@@ -282,10 +282,10 @@ processMod sourceFileName ttcFileName msg sourcecode origin
              do iputStrLn msg
                 Right (ws, MkState decor hnames uses, mod) <-
                     logTime 2 ("Parsing " ++ sourceFileName) $
-                      pure $ runParser (PhysicalIdrSrc origin)
-                                       (isLitFile sourceFileName)
-                                       sourcecode
-                                       (do p <- prog (PhysicalIdrSrc origin); eoi; pure p)
+                      runParser (PhysicalIdrSrc origin)
+                                (isLitFile sourceFileName)
+                                sourcecode
+                                (do p <- prog (PhysicalIdrSrc origin); eoi; pure p)
                   | Left err => pure (Just [err])
                 traverse_ recordWarning ws
 

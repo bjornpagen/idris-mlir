@@ -72,7 +72,7 @@ localHelper {vars} nest env nestdecls_in func
          -- everything
          let oldhints = localHints defs
 
-         let nestdecls = map (updateName nest') nestdeclsMult
+         nestdecls <- traverse (updateName nest') nestdeclsMult
          log "elab.def.local" 20 $ show nestdecls
 
          traverse_ (processDecl [] nest' env') nestdecls
@@ -118,20 +118,34 @@ localHelper {vars} nest env nestdecls_in func
               updatedParameters = (map (map (updateFieldName nest)) updatedConName)
           in MkImpRecord updatedTyName updatedParameters
 
-    updateRecordNS : NestedNames vars -> Maybe String -> Maybe String
-    updateRecordNS _    Nothing   = Nothing
-    updateRecordNS nest (Just ns) = Just $ show $ mapNestedName nest (UN $ mkUserName ns)
+    -- The namespace a name is spelled as: its own namespace, then its root
+    -- as one more part. A nested name's root is text it does not hold, so
+    -- the session's table makes that part an identifier.
+    nameNS : Name -> Core Namespace
+    nameNS (NS outer n) = (outer <.>) <$> nameNS n
+    nameNS (UN (Basic i)) = pure (nsOf [i])
+    nameNS n = pure (nsOf [!(intern (show n))])
 
-    updateName : NestedNames vars -> ImpDecl -> ImpDecl
+    -- A record's fields are in the namespace its name spells, so a record
+    -- this block defines has its fields in the namespace of its nested
+    -- name. Only a namespace of one part spells a name defined here.
+    updateRecordNS : NestedNames vars -> Maybe Namespace -> Core (Maybe Namespace)
+    updateRecordNS _    Nothing   = pure Nothing
+    updateRecordNS nest (Just ns)
+        = case unsafeUnfoldNamespace ns of
+               [r] => Just <$> nameNS (mapNestedName nest (UN (Basic r)))
+               _ => pure (Just ns)
+
+    updateName : NestedNames vars -> ImpDecl -> Core ImpDecl
     updateName nest (IClaim claim)
-         = IClaim $ map {type $= updateTyName nest} claim
+         = pure $ IClaim $ map {type $= updateTyName nest} claim
     updateName nest (IDef loc' n cs)
-         = IDef loc' (mapNestedName nest n) cs
+         = pure $ IDef loc' (mapNestedName nest n) cs
     updateName nest (IData loc' vis mbt d)
-         = IData loc' vis mbt (updateDataName nest d)
+         = pure $ IData loc' vis mbt (updateDataName nest d)
     updateName nest (IRecord loc' ns vis mbt imprecord)
-         = IRecord loc' (updateRecordNS nest ns) vis mbt (map (updateRecordName nest) imprecord)
-    updateName nest i = i
+         = pure $ IRecord loc' !(updateRecordNS nest ns) vis mbt (map (updateRecordName nest) imprecord)
+    updateName nest i = pure i
 
     setPublic : ImpDecl -> ImpDecl
     setPublic (IClaim claim)

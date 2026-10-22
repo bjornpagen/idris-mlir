@@ -23,10 +23,10 @@ import Idris.Resugar
 -- they involve resolving interfaces - they'll just become unmatchable patterns.
 
 match : {auto c : Ref Ctxt Defs} ->
-        ClosedNF -> (Name, Int, ClosedTerm) -> Core Bool
-match nty (n, i, rty)
+        ClosedNF -> (Name, Int, GlobalDef) -> Core Bool
+match nty (n, i, gdef)
     = do defs <- get Ctxt
-         rtynf <- nf defs Env.empty rty
+         rtynf <- nf defs Env.empty !(typeOf gdef)
          sameRet nty rtynf
   where
     sameRet : ClosedNF -> ClosedNF -> Core Bool
@@ -49,14 +49,14 @@ dropNoMatch : {auto c : Ref Ctxt Defs} ->
 dropNoMatch Nothing ts = pure ts
 dropNoMatch (Just nty) ts
     = -- if the return type of a thing in ts doesn't match nty, drop it
-      filterM (match nty . map (map type)) ts
+      filterM (match nty) ts
 
 nextVar : {auto q : Ref QVar Int} ->
           FC -> Core ClosedTerm
 nextVar fc
     = do i <- get QVar
          put QVar (i + 1)
-         pure (Ref fc Bound (MN "imp" i))
+         pure (Ref fc Bound (MN (known Kimp) i))
 
 badClause : {auto c : Ref Ctxt Defs} ->
             ClosedTerm ->
@@ -166,7 +166,7 @@ mutual
                         then undefinedName fc n
                         else throw $ GenericMsg fc "\{show n} does not match expected type"
               | ts => throw $ AmbiguousName fc (map fst ts)
-           tynf <- nf defs Env.empty (type gdef)
+           tynf <- nf defs Env.empty !(typeOf gdef)
            -- #899 we need to make sure that type & data constructors are marked
            -- as such so that the coverage checker actually uses the matches in
            -- `impossible` branches to generate parts of the case tree.
@@ -223,7 +223,7 @@ mutual
           = do defs <- get Ctxt
                Just (NType {}) <- traverseOpt (evalClosure defs) mty
                  | _ => throw $ GenericMsg fc "Type does not match expected type"
-               pure (TType fc $ MN "top" 0)
+               pure (TType fc $ MN (known Ktop) 0)
       -- We're taking UniqueDefault here, _and_ we're falling through to error otherwise, which is sketchy.
       -- One option is to try each and emit an AmbiguousElab? We maybe should respect `UniqueDefault` if there
       -- is no evidence (mty), but we should _try_ to resolve here if there is an mty.

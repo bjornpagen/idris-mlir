@@ -80,7 +80,7 @@ processFnOpt fc _ ndef (SpecArgs ns)
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact ndef (gamma defs)
               | Nothing => undefinedName fc ndef
-         nty <- nf defs Env.empty (type gdef)
+         nty <- nf defs Env.empty !(typeOf gdef)
          ps <- getNamePos 0 nty
          ddeps <- collectDDeps nty
          specs <- collectSpec NatSet.empty ddeps ps nty

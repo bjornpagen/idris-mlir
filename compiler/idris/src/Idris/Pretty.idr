@@ -153,9 +153,9 @@ mutual
 
   prettyPFieldUpdate : PFieldUpdate' KindedName -> Doc IdrisSyntax
   prettyPFieldUpdate (PSetField path v) =
-      prettyFieldPath path <++> equals <++> pretty v
+      prettyFieldPath (map (.text) path) <++> equals <++> pretty v
   prettyPFieldUpdate (PSetFieldApp path v) =
-      prettyFieldPath path <++> keyword "$=" <++> pretty v
+      prettyFieldPath (map (.text) path) <++> keyword "$=" <++> pretty v
 
   prettyBinder : Name -> Doc IdrisSyntax
   prettyBinder = annotate Bound . pretty0
@@ -349,7 +349,7 @@ mutual
     prettyPrec d (PUnquote _ tm) = parenthesise (d > startPrec) $ "~" <+> parens (pretty tm)
     prettyPrec d (PRunElab _ tm) = parenthesise (d > startPrec) $ pragma "%runElab" <++> pretty tm
     prettyPrec d (PPrimVal _ c) = pretty c
-    prettyPrec d (PHole _ _ n) = hole (pretty0 (strCons '?' n))
+    prettyPrec d (PHole _ _ n) = hole (pretty0 (strCons '?' n.text))
     prettyPrec d (PType _) = annotate (TCon Nothing) "Type"
     prettyPrec d (PAs _ _ n p) = pretty0 n <+> "@" <+> prettyPrec d p
     prettyPrec d (PDotted _ p) = dot <+> prettyPrec d p
@@ -408,12 +408,12 @@ mutual
       where
       dePure : IPTerm -> IPTerm
       dePure tm@(PApp _ (PRef _ n) arg)
-        = if dropNS (rawName n) == UN (Basic "pure") then arg else tm
+        = if dropNS (rawName n) == knownUN Kpure then arg else tm
       dePure tm = tm
 
       deGuard : PDo' KindedName -> PDo' KindedName
       deGuard tm@(DoExp fc (PApp _ (PRef _ n) arg))
-        = if dropNS (rawName n) == UN (Basic "guard") then DoExp fc arg else tm
+        = if dropNS (rawName n) == knownUN Kguard then DoExp fc arg else tm
       deGuard tm = tm
     prettyPrec d (PRewrite _ rule tm) =
       parenthesise (d > startPrec) $ group $

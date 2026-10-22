@@ -63,11 +63,35 @@ Scoped = Scope -> Type
 ------------------------------------------------------------------------
 -- Generate a fresh name (for a given scope)
 
+-- The identifier a name is spelled from, which the fresh names made from
+-- it reuse, so making one interns no text. A resolved name has no
+-- identifier of its own; its printed root starts with `$`.
+freshStem : Name -> Ident
+freshStem (NS _ n) = freshStem n
+freshStem (UN (Basic i)) = i
+freshStem (UN (Field i)) = i
+freshStem (UN Underscore) = known K_
+freshStem (MN i _) = i
+freshStem (PV n _) = freshStem n
+freshStem (DN i _) = i
+freshStem (Nested _ n) = freshStem n
+freshStem (CaseBlock n _) = freshStem n
+freshStem (WithBlock n _) = freshStem n
+freshStem (Resolved _) = known KDollar
+
+||| The name tried after `n` when `n` is taken: the next machine name over
+||| the identifier `n` is spelled from.
+export
+nameAfter : Name -> Name
+nameAfter (MN i k) = MN i (k + 1)
+nameAfter (NS ns n) = NS ns (nameAfter n)
+nameAfter n = MN (freshStem n) 0
+
 export
 mkFresh : Scope -> Name -> Name
 mkFresh vs n
   = if n `elem` vs
-    then assert_total $ mkFresh vs (next n)
+    then assert_total $ mkFresh vs (nameAfter n)
     else n
 
 

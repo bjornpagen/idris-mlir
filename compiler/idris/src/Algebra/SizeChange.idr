@@ -6,8 +6,6 @@ import Algebra.Semiring
 
 import Decidable.Equality
 
-import Libraries.Text.PrettyPrint.Prettyprinter
-
 public export
 data SizeChange = Smaller | Same | Unknown
 
@@ -170,9 +168,3 @@ scMultPlusDist a Same Same =
 scMultPlusDist Smaller Same Smaller = Refl
 scMultPlusDist Smaller Smaller Same = Refl
 scMultPlusDist Smaller Smaller Smaller = Refl
-
-export
-Pretty Void SizeChange where
-  pretty Smaller = pretty "<"
-  pretty Same = pretty "="
-  pretty Unknown = neutral

@@ -12,30 +12,36 @@ import Data.List
 
 %default covering
 
+-- Core's monad is a named implementation; the renaming's state runs over
+-- it, since each new spelling is interned.
+%hint
+coreMonad : Monad Core
+coreMonad = CORE
+
 -- Rename the IBindVars in a term. Anything which appears in the list 'renames'
 -- should be renamed, to something which is *not* in the list 'used'
 export
-renameIBinds : (renames : List String) ->
-               (used : List String) ->
-               RawImp -> State (List (String, String)) RawImp
-renameIBinds rs us (IPi fc c p (Just un@(UN (Basic n))) ty sc)
+renameIBinds : {auto c : Ref Ctxt Defs} ->
+               (renames : List Ident) ->
+               (used : List Ident) ->
+               RawImp -> StateT (List (Ident, Ident)) Core RawImp
+renameIBinds rs us (IPi fc rig p (Just un@(UN (Basic n))) ty sc)
     = if n `elem` rs
-         then let n' = genUniqueStr (rs ++ us) n
-                  un' = UN (Basic n')
-                  sc' = substNames (map (UN . Basic) (filter (/= n) us))
-                                   [(un, IVar fc un')] sc in
-             do scr <- renameIBinds rs (n' :: us) sc'
-                ty' <- renameIBinds rs us ty
-                upds <- get
-                put ((n, n') :: upds)
-                pure $ IPi fc c p (Just un') ty' scr
+         then do n' <- lift (genUniqueIdent (rs ++ us) n)
+                 let un' = UN (Basic n')
+                 let sc' = substNames (map (UN . Basic) (filter (/= n) us))
+                                      [(un, IVar fc un')] sc
+                 scr <- renameIBinds rs (n' :: us) sc'
+                 ty' <- renameIBinds rs us ty
+                 modify ((n, n') ::)
+                 pure $ IPi fc rig p (Just un') ty' scr
          else do scr <- renameIBinds rs us sc
                  ty' <- renameIBinds rs us ty
-                 pure $ IPi fc c p (Just un) ty' scr
-renameIBinds rs us (IPi fc c p n ty sc)
-    = pure $ IPi fc c p n !(renameIBinds rs us ty) !(renameIBinds rs us sc)
-renameIBinds rs us (ILam fc c p n ty sc)
-    = pure $ ILam fc c p n !(renameIBinds rs us ty) !(renameIBinds rs us sc)
+                 pure $ IPi fc rig p (Just un) ty' scr
+renameIBinds rs us (IPi fc rig p n ty sc)
+    = pure $ IPi fc rig p n !(renameIBinds rs us ty) !(renameIBinds rs us sc)
+renameIBinds rs us (ILam fc rig p n ty sc)
+    = pure $ ILam fc rig p n !(renameIBinds rs us ty) !(renameIBinds rs us sc)
 renameIBinds rs us (IApp fc fn arg)
     = pure $ IApp fc !(renameIBinds rs us fn) !(renameIBinds rs us arg)
 renameIBinds rs us (IAutoApp fc fn arg)
@@ -57,14 +63,14 @@ renameIBinds rs us (IForce fc t)
 renameIBinds rs us (IUpdate fc updates tm)
     = pure $ IUpdate fc !(traverse f updates) !(renameIBinds rs us tm)
   where
-      f : IFieldUpdate -> State (List (String, String)) IFieldUpdate
-      f (ISetField path x)    = ISetField path <$> renameIBinds rs us x
-      f (ISetFieldApp path x) = ISetFieldApp path <$> renameIBinds rs us x
+      f : IFieldUpdate -> StateT (List (Ident, Ident)) Core IFieldUpdate
+      f (ISetField path x)    = pure $ ISetField path !(renameIBinds rs us x)
+      f (ISetFieldApp path x) = pure $ ISetFieldApp path !(renameIBinds rs us x)
 renameIBinds rs us (IAlternative fc u alts)
     = pure $ IAlternative fc !(renameAlt u)
                              !(traverse (renameIBinds rs us) alts)
   where
-    renameAlt : AltType -> State (List (String, String)) AltType
+    renameAlt : AltType -> StateT (List (Ident, Ident)) Core AltType
     renameAlt (UniqueDefault t) = pure $ UniqueDefault !(renameIBinds rs us t)
     renameAlt u = pure u
 renameIBinds rs us (ITypeOrValue fc (PairOf l r))
@@ -75,9 +81,8 @@ renameIBinds rs us (ITypeOrValue fc (DPairOf opFC nameFC n r))
     = pure $ ITypeOrValue fc (DPairOf opFC nameFC n !(renameIBinds rs us r))
 renameIBinds rs us (IBindVar fc nm@(UN (Basic n)))
     = if n `elem` rs
-         then do let n' = genUniqueStr (rs ++ us) n
-                 upds <- get
-                 put ((n, n') :: upds)
+         then do n' <- lift (genUniqueIdent (rs ++ us) n)
+                 modify ((n, n') ::)
                  pure $ IBindVar fc (UN (Basic n'))
          else pure $ IBindVar fc nm
 renameIBinds rs us tm = pure $ tm
@@ -144,7 +149,7 @@ bindNames : {auto c : Ref Ctxt Defs} ->
             (arg : Bool) -> RawImp -> Core (List Name, RawImp)
 bindNames arg tm
     = if !isUnboundImplicits
-         then do let ns = nub (findBindableNames arg [] [] tm)
+         then do let ns = nub (findBindableNames arg [] tm)
                  log "elab.bindnames" 10 $ "Found names :" ++ show ns
                  pure (map snd ns, doBind ns tm)
          else pure ([], tm)
@@ -199,7 +204,7 @@ bindTypeNames fc uimpls env tm
 
 export
 bindTypeNamesUsed : {auto c : Ref Ctxt Defs} ->
-                    FC -> List String -> List Name -> RawImp -> Core RawImp
+                    FC -> List Ident -> List Name -> RawImp -> Core RawImp
 bindTypeNamesUsed fc used env tm
     = if !isUnboundImplicits
          then do ns <- findUniqueBindableNames fc True env used tm

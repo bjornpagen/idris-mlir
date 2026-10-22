@@ -57,7 +57,7 @@ checkHole rig elabinfo nest env fc n_in (Just gexpty)
          saveHole nm
          pure (metaval, gexpty)
 checkHole rig elabinfo nest env fc n_in exp
-    = do nmty <- genName ("type_of_" ++ show n_in)
+    = do nmty <- genName !(intern ("type_of_" ++ show n_in))
          let env' = letToLam env
          u <- uniVar fc
          ty <- metaVar fc erased env' nmty (TType fc u)

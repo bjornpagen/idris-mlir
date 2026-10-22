@@ -86,7 +86,7 @@ delayOnFailure fc rig env expected pred pri elab
               do est <- get EST
                  if pred err
                     then
-                      do nm <- genName "delayed"
+                      do nm <- genName (known Kdelayed)
                          ty <- getTerm expected
                          (ci, dtm) <- newDelayed fc linear env nm ty
                          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
@@ -120,7 +120,7 @@ delayElab : {vars : _} ->
 delayElab {vars} fc rig env exp pri elab
     = do ust <- get UST
          let nos = noSolve ust -- remember the holes we shouldn't solve
-         nm <- genName "delayed"
+         nm <- genName (known Kdelayed)
          expected <- mkExpected exp
          ty <- getTerm expected
          (ci, dtm) <- newDelayed fc linear env nm ty
@@ -138,7 +138,7 @@ delayElab {vars} fc rig env exp pri elab
     mkExpected : Maybe (Glued vars) -> Core (Glued vars)
     mkExpected (Just ty) = pure ty
     mkExpected Nothing
-        = do nm <- genName "delayTy"
+        = do nm <- genName (known KdelayTy)
              u <- uniVar fc
              ty <- metaVar fc erased env nm (TType fc u)
              pure (gnf env ty)
@@ -276,7 +276,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
 
                updateDef (Resolved i) (const (Just
                     (PMDef (MkPMDefInfo NotHole True False)
-                           Scope.empty (STerm 0 tm) [] [])))
+                           Scope.empty (LiveBody (STerm 0 tm) [] []))))
                logTerm "elab.update" 5 ("Resolved delayed hole " ++ show i) tm
                logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
                removeHole i

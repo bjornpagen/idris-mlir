@@ -21,14 +21,15 @@ displayType : {auto c : Ref Ctxt Defs} ->
               (shortName : Bool) -> Defs -> (Name, Int, GlobalDef) ->
               Core (Doc IdrisSyntax)
 displayType shortName defs (n, i, gdef)
-  = maybe (do tm <- resugar Env.empty !(normaliseHoles defs Env.empty (type gdef))
-              nm <- aliasName (fullname gdef)
-              let nm = ifThenElse shortName (dropNS nm) nm
-              let prig = prettyRig gdef.multiplicity
-              let ann = showCategory id gdef
-              pure (prig <+> ann (cast $ prettyOp True nm) <++> colon <++> pretty tm))
-          (\num => prettyHole defs Env.empty n num (type gdef))
-          (isHole gdef)
+  = do ty <- typeOf gdef
+       maybe (do tm <- resugar Env.empty !(normaliseHoles defs Env.empty ty)
+                 nm <- aliasName (fullname gdef)
+                 let nm = ifThenElse shortName (dropNS nm) nm
+                 let prig = prettyRig gdef.multiplicity
+                 let ann = showCategory id gdef
+                 pure (prig <+> ann (cast $ prettyOp True nm) <++> colon <++> pretty tm))
+             (\num => prettyHole defs Env.empty n num ty)
+             (isHole gdef)
 export
 displayTerm : {auto c : Ref Ctxt Defs} ->
               {auto s : Ref Syn SyntaxInfo} ->
@@ -60,9 +61,9 @@ displayPats : {auto c : Ref Ctxt Defs} ->
               Core (Doc IdrisSyntax)
 displayPats shortName defs (n, idx, gdef)
   = case definition gdef of
-      PMDef _ _ _ _ pats =>
+      PMDef _ _ body =>
         do ty <- displayType shortName defs (n, idx, gdef)
-           ps <- traverse (displayClause defs) pats
+           ps <- traverse (displayClause defs) !(clausesOf body)
            pure (vsep (ty :: ps))
       _ => pure (pretty0 n <++> reflow "is not a pattern matching definition")
 
@@ -73,8 +74,10 @@ displayImpl : {auto c : Ref Ctxt Defs} ->
               Core (Doc IdrisSyntax)
 displayImpl defs (n, idx, gdef)
   = case definition gdef of
-      PMDef _ _ ct _ [(vars ** (env,  _, rhs))] =>
-        do rhstm <- resugar env !(normaliseHoles defs env rhs)
+      PMDef _ _ body =>
+        do [(vars ** (env,  _, rhs))] <- clausesOf body
+             | _ => notImpl
+           rhstm <- resugar env !(normaliseHoles defs env rhs)
            let (_, args) = getFnArgs defaultKindedName rhstm
            defs <- get Ctxt
            pds <- map catMaybes $ for args $ \ arg => do
@@ -92,4 +95,7 @@ displayImpl defs (n, idx, gdef)
              pdef <- displayPats True defs (nm, idx, gdef)
              pure (Just pdef)
            pure (vcat $ intersperse "" pds)
-      _ => pure (pretty0 n <++> reflow "is not an implementation definition")
+      _ => notImpl
+  where
+    notImpl : Core (Doc IdrisSyntax)
+    notImpl = pure (pretty0 n <++> reflow "is not an implementation definition")

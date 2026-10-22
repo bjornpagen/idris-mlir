@@ -21,7 +21,7 @@ import Data.String
 import Libraries.Utils.String
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
-import Libraries.Data.StringMap
+import Data.SortedMap
 import Libraries.Data.WithDefault
 
 %default covering
@@ -35,7 +35,7 @@ getFnString : {auto c : Ref Ctxt Defs} ->
                RawImp -> Core String
 getFnString (IPrimVal _ (Str st)) = pure st
 getFnString tm
-    = do inidx <- resolveName (UN $ Basic "[foreign]")
+    = do inidx <- resolveName (knownUN KForeign)
          let fc = getFC tm
          let gstr = gnf Env.empty (PrimVal fc $ PrT StringType)
          etm <- checkTerm inidx InExpr [] (MkNested []) Env.empty tm gstr
@@ -117,14 +117,14 @@ findInferrable defs ty = fi 0 0 [] NatSet.empty ty
 
     fi : Nat -> Int -> List (Name, Nat) -> NatSet -> ClosedNF -> Core NatSet
     fi pos i args acc (NBind fc x (Pi _ _ _ aty) sc)
-        = do let argn = MN "inf" i
+        = do let argn = MN (known Kinf) i
              sc' <- sc defs (toClosure defaultOpts Env.empty (Ref fc Bound argn))
              acc' <- findInf acc args !(evalClosure defs aty)
              rest <- fi (1 + pos) (1 + i) ((argn, pos) :: args) acc' sc'
              pure rest
     fi pos i args acc ret = findInf acc args ret
 
-checkForShadowing : (env : StringMap FC) -> RawImp -> StringMap (FC, FC)
+checkForShadowing : (env : SortedMap Ident FC) -> RawImp -> SortedMap Ident (FC, FC)
 checkForShadowing env (IPi fc _ _ nm argTy retTy)
     = do let argShadowing = checkForShadowing empty argTy
          let retShadowing =
@@ -219,5 +219,5 @@ processType {vars} eopts nest env fc rig vis opts ty_raw
                  log "module.hash" 15 "Adding hash for type with name \{show n}"
 
          when (showShadowingWarning !getSession) $
-            whenJust (fromList $ toList $ checkForShadowing StringMap.empty ty_raw.val)
+            whenJust (fromList $ map (\ (n, at) => (n.text, at)) $ SortedMap.toList $ checkForShadowing empty ty_raw.val)
                 $ recordWarning . ShadowingLocalBindings fc

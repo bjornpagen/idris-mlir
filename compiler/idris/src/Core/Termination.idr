@@ -25,9 +25,9 @@ checkIfGuarded : {auto c : Ref Ctxt Defs} ->
 checkIfGuarded fc n
     = do logC "totality.termination.guarded" 6 $ do pure $ "Check if Guarded: " ++ show !(toFullNames n)
          defs <- get Ctxt
-         Just (PMDef _ _ _ _ pats) <- lookupDefExact n (gamma defs)
+         Just (PMDef _ _ body) <- lookupDefExact n (gamma defs)
               | _ => pure ()
-         t <- allGuarded pats
+         t <- allGuarded !(clausesOf body)
          when t $ setFlag fc n AllGuarded
   where
     guardedNF : Defs -> Env Term vars -> NF vars -> Core Bool

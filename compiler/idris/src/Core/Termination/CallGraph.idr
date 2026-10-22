@@ -162,7 +162,7 @@ mutual
 
         isAssertTotal : Term vars -> Core Bool
         isAssertTotal (Ref fc Func fn)
-            = pure $ !(toFullNames fn) == NS builtinNS (UN $ Basic "assert_total")
+            = pure $ !(toFullNames fn) == NS builtinNS (knownUN Kassert_total)
         isAssertTotal tm = pure False
 
         conIfGuarded : Term vars -> Core (Term vars)
@@ -232,7 +232,8 @@ mutual
   -- otherwise try to expand RHS meta
   compareNew rs ls s@(Meta n _ i args) t = do
     Just gdef <- lookupCtxtExact (Resolved i) (gamma defs) | _ => pure Unknown
-    let (PMDef _ [] (STerm _ tm) _ _) = definition gdef | _ => pure Unknown
+    let (PMDef _ [] body) = definition gdef | _ => pure Unknown
+    STerm _ tm <- treeOf body | _ => pure Unknown
     tm <- substMeta (embed tm) args zero Subst.empty
     sizeCompare (Solution :: rs) ls tm t
     where
@@ -353,8 +354,9 @@ mutual
                                          List (Term vs), Term vs))))
 
   getCasePats {vars} defs n pats args
-      = do Just (PMDef _ _ _ _ pdefs) <- lookupDefExact n (gamma defs)
+      = do Just (PMDef _ _ body) <- lookupDefExact n (gamma defs)
              | _ => pure Nothing
+           pdefs <- clausesOf body
            log "totality" 20 $
              unwords ["Looking at the", show (length pdefs), "cases of", show  n]
            let pdefs' = map matchArgs pdefs
@@ -434,7 +436,7 @@ mutual
         -- the size change list empty
       = do fn <- getFullName fn_in
            logC "totality.termination.sizechange" 10 $ do pure $ "Looking under " ++ show !(toFullNames fn)
-           aSmaller <- resolved (gamma defs) (NS builtinNS (UN $ Basic "assert_smaller"))
+           aSmaller <- resolved (gamma defs) (NS builtinNS (knownUN Kassert_smaller))
            if caseFn fn
               then do scs1 <- traverse (findSC defs env g pats) args
                       mps  <- getCasePats defs fn pats args
@@ -469,8 +471,8 @@ findCalls defs (_ ** (env, lhs, rhs_in))
 
 getSC : {auto c : Ref Ctxt Defs} ->
         Defs -> Def -> Core (List SCCall)
-getSC defs (PMDef _ args _ _ pats)
-   = do sc <- traverse (findCalls defs) pats
+getSC defs (PMDef _ args body)
+   = do sc <- traverse (findCalls defs) !(clausesOf body)
         pure $ nub (concat sc)
 getSC defs _ = pure []
 

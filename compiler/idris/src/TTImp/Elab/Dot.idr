@@ -23,7 +23,7 @@ registerDot : {vars : _} ->
               Term vars -> Glued vars ->
               Core (Term vars, Glued vars)
 registerDot rig env fc reason wantedTm gexpty
-    = do nm <- genName "dotTm"
+    = do nm <- genName (known KdotTm)
          expty <- getTerm gexpty
          metaval <- metaVar fc rig env nm expty
          addDot fc env nm wantedTm reason metaval

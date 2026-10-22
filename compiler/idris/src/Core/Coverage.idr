@@ -80,9 +80,9 @@ conflict : {vars : _} ->
 conflict defs env nfty n
     = do Just gdef <- lookupCtxtExact n (gamma defs)
               | Nothing => pure False
-         case (definition gdef, type gdef) of
-              (DCon t arity _, dty)
-                  => do Nothing <- conflictNF 0 nfty !(nf defs Env.empty dty)
+         case definition gdef of
+              DCon t arity _
+                  => do Nothing <- conflictNF 0 nfty !(nf defs Env.empty !(typeOf gdef))
                             | Just ms => pure $ conflictMatch ms
                         pure True
               _ => pure False
@@ -112,10 +112,14 @@ conflict defs env nfty n
       conflictNF i t (NBind fc x b sc)
           -- invent a fresh name, in case a user has bound the same name
           -- twice somehow both references appear in the result it's unlikely
-          -- put possible
-          = let x' = MN (show x) i in
-                conflictNF (i + 1) t
-                       !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x')))
+          -- put possible. A user name's printed form is its identifier's
+          -- text, so only another name's is interned.
+          = do stem <- case x of
+                            UN (Basic j) => pure j
+                            _ => intern (show x)
+               let x' = MN stem i
+               conflictNF (i + 1) t
+                      !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x')))
       conflictNF i nf (NApp _ (NRef Bound n) [])
           = pure (Just [(n, !(quote defs env nf))])
       conflictNF i (NDCon _ n t a args) (NDCon _ n' t' a' args')
@@ -442,7 +446,7 @@ clauseMatches : {vars : _} ->
                 (erase : Bool) -> Env Term vars -> Term vars ->
                 ClosedTerm -> Core Bool
 clauseMatches erase env tm trylhs
-    = do let lhs = close (getLoc tm) "cov" env tm
+    = do let lhs = close (getLoc tm) (known Kcov) env tm
          lhs <- if erase
                    then eraseApps lhs
                    else pure lhs

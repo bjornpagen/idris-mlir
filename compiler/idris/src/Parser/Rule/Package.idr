@@ -6,8 +6,6 @@ import public Parser.Lexer.Package
 
 import Data.List1
 
-import Core.Name.Namespace
-
 %default total
 
 public export
@@ -74,13 +72,14 @@ eoi = terminal "Expected end of input" $
                  EndOfInput => Just ()
                  _ => Nothing
 
+-- A property is spelled as one part, with no namespace.
+isProperty : String -> Token -> Maybe String
+isProperty p (DotSepIdent [] p') = if p == p' then Just p else Nothing
+isProperty _ _ = Nothing
+
 export
 exactProperty : String -> Rule String
-exactProperty p = terminal ("Expected property " ++ p) $
-                           \case
-                             DotSepIdent Nothing p' =>
-                               if p == p' then Just p else Nothing
-                             _ => Nothing
+exactProperty p = terminal ("Expected property " ++ p) (isProperty p)
 
 export
 stringLit : Rule String
@@ -97,30 +96,31 @@ integerLit = terminal "Expected integer" $
                         _ => Nothing
 
 export
-namespacedIdent : Rule (Maybe Namespace, String)
+namespacedIdent : Rule (List String, String)
 namespacedIdent = terminal "Expected namespaced identifier" $
                            \case
                              DotSepIdent ns n => Just (ns, n)
                              _ => Nothing
 
+||| A module's identifier as written, its parts outermost first. It is text
+||| here, where nothing can intern it, and becomes a `ModuleIdent` where the
+||| package description is read.
 export
-moduleIdent : Rule ModuleIdent
+moduleIdent : Rule (List1 String)
 moduleIdent = terminal "Expected module identifier" $
                        \case
-                         DotSepIdent ns m =>
-                           Just $ nsAsModuleIdent $
-                                  mkNestedNamespace ns m
+                         DotSepIdent ns m => Just (lappend ns (m ::: []))
                          _ => Nothing
+
+-- A package's name is spelled as one part, with no namespace.
+isPackageName : Token -> Maybe String
+isPackageName (DotSepIdent [] str)
+    = if isIdent AllowDashes str then Just str else Nothing
+isPackageName _ = Nothing
 
 export
 packageName : Rule String
-packageName = terminal "Expected package name" $
-                       \case
-                         DotSepIdent Nothing str =>
-                           if isIdent AllowDashes str
-                              then Just str
-                              else Nothing
-                         _ => Nothing
+packageName = terminal "Expected package name" isPackageName
 
 export
 dot' : Rule ()

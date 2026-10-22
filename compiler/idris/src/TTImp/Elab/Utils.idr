@@ -68,7 +68,7 @@ updateErasable n
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact n (gamma defs)
               | Nothing => pure ()
-         (es, dtes) <- findErased (type gdef)
+         (es, dtes) <- findErased !(typeOf gdef)
          ignore $ addDef n $
                     { eraseArgs := es,
                       safeErase := dtes } gdef
@@ -92,13 +92,13 @@ bindNotReq : {vs : _} ->
              Term vs -> (List (PiInfo RawImp, Name), Term pre)
 bindNotReq fc i [] Refl ns tm = (ns, embed tm)
 bindNotReq fc i (b :: env) Refl ns tm
-   = let tmptm = subst (Ref fc Bound (MN "arg" i)) tm
+   = let tmptm = subst (Ref fc Bound (MN (known Karg) i)) tm
          (ns', btm) = bindNotReq fc (1 + i) env Refl ns tmptm in
-         (ns', refToLocal (MN "arg" i) _ btm)
+         (ns', refToLocal (MN (known Karg) i) _ btm)
 bindNotReq fc i (b :: env) (Keep p) ns tm
-   = let tmptm = subst (Ref fc Bound (MN "arg" i)) tm
+   = let tmptm = subst (Ref fc Bound (MN (known Karg) i)) tm
          (ns', btm) = bindNotReq fc (1 + i) env p ns tmptm in
-         (ns', refToLocal (MN "arg" i) _ btm)
+         (ns', refToLocal (MN (known Karg) i) _ btm)
 bindNotReq {vs = n :: _} fc i (b :: env) (Drop p) ns tm
    = bindNotReq fc i env p ((plicit b, n) :: ns)
        (Bind fc _ (Pi (binderLoc b) (multiplicity b) Explicit (binderType b)) tm)

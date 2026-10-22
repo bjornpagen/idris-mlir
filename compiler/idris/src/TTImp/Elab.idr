@@ -75,10 +75,11 @@ normaliseHoleTypes
   where
     updateType : Defs -> Int -> GlobalDef -> Core ()
     updateType defs i def
-        = do ty' <- case !(tryNormaliseSizeLimit defs 10 Env.empty (type def)) of
+        = do ty <- typeOf def
+             ty' <- case !(tryNormaliseSizeLimit defs 10 Env.empty ty) of
                          Quoted ty' => pure ty'
-                         TooDeep => normaliseHoles defs Env.empty (type def)
-             ignore $ addDef (Resolved i) ({ type := ty' } def)
+                         TooDeep => normaliseHoles defs Env.empty ty
+             ignore $ addDef (Resolved i) ({ type := LiveType ty' } def)
 
     normaliseH : Defs -> Int -> Core ()
     normaliseH defs i

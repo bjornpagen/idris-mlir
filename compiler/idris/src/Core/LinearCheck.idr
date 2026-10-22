@@ -13,20 +13,72 @@ import Core.Value
 import Libraries.Data.List.SizeOf
 import Libraries.Data.SnocList.SizeOf
 
+import Array
+import Linear.Notation
+
+import Data.Nat
+
 %default covering
 
--- List of variable usages - we'll count the contents of specific variables
--- when discharging binders, to ensure that linear names are only used once
+-- The uses of the binders in scope, one for each use in a linear context,
+-- each naming the binder it uses. A binder's quantity is the sum of its
+-- uses in 0/1/ω, which is all a check of it reads.
 Usage : Scoped
 Usage vars = List (Var vars)
 
-doneScope : Usage (n :: vars) -> Usage vars
-doneScope = mapMaybe isLater
+||| The quantity each binder of a scope is used at, by its position.
+Uses : Scoped
+Uses vars = Array [<length vars] RigCount
 
-count : Nat -> Usage ns -> Nat
-count p [] = 0
-count p (v :: xs)
-    = if p == varIdx v then 1 + count p xs else count p xs
+||| Closes a binder's scope: the sum of the binder's uses in 0/1/ω, and the
+||| uses of the binders outside it, in the scope outside.
+closeScope : Usage (n :: vars) -> (RigCount, Usage vars)
+closeScope [] = (erased, [])
+closeScope (MkVar First :: us) = let (q, outer) = closeScope us in (linear |+| q, outer)
+closeScope (MkVar (Later p) :: us) = let (q, outer) = closeScope us in (q, MkVar p :: outer)
+
+||| The binder a use names, as a place in its scope.
+binderOf : Var vars -> Index [<length vars]
+binderOf (MkVar p) = [<finIdx p]
+
+noIndex : Index [<Z] -> a
+noIndex [<i] = absurd i
+
+||| The elements of a list from place `i` on, each written at its own place
+||| of a linear array of `n`, in order.
+writeFrom : (1 _ : LArray [<n] a) -> (i : Nat) -> (xs : List a) ->
+            (0 _ : LTE (i + length xs) n) -> LArray [<n] a
+writeFrom arr i [] _ = arr
+writeFrom arr i (x :: xs) fits
+    = let 0 rest = replace {p = \k => LTE k n} (sym (plusSuccRightSucc i (length xs))) fits in
+      writeFrom (LArray.write arr [<natToFinLT i {prf = transitive (LTESucc (lteAddRight i)) rest}] x)
+                (S i) xs rest
+
+||| The elements of a list, in order, as an array: written in place into a
+||| fresh array the first fills, then frozen.
+arrayOf : (xs : List a) -> Array [<length xs] a
+arrayOf [] = tabulate [<Z] noIndex
+arrayOf (x :: xs)
+    = unrestricted (LArray.thaw (fill [<S (length xs)] x)
+                                (\arr => LArray.freeze (writeFrom arr (S Z) xs reflexive)))
+
+||| The quantity each binder of a scope is used at: the uses grouped by the
+||| binder each names, and each group summed in 0/1/ω, every use one, in
+||| one pass over the uses.
+usesOf : {vars : _} -> Usage vars -> Uses vars
+usesOf us = sumUses (map binderOf us)
+  where
+    sumUses : List (Index [<length vars]) -> Uses vars
+    sumUses owners = accumulate (|+|) (fill [<length vars] erased) (arrayOf owners)
+                                (fill [<length owners] linear)
+
+||| The number of uses a message about a binder names. A quantity keeps no
+||| count past one, so the uses of a binder used many times are counted for
+||| the message, once, as it is thrown.
+usesNamed : RigCount -> Var vars -> Usage vars -> Nat
+usesNamed Rig0 _ _ = 0
+usesNamed Rig1 _ _ = 1
+usesNamed RigW v us = length (filter (== v) us)
 
 mutual
   updateHoleUsageArgs : {0 vars : _} ->
@@ -86,7 +138,7 @@ mutual
            let vars = mapMaybe (findLocal (getArgs lhs)) argpos
            hs <- traverse (\vsel => updateHoleUsage useInHole vsel [] rhs)
                           vars
-           pure (any id hs)
+           pure (elem True hs)
     where
       findArg : Nat -> List (Term vars) -> List Nat
       findArg i [] = []
@@ -122,13 +174,13 @@ mutual
            -- only update for holes with no definition yet
            case definition gdef of
                 Hole {} =>
-                   do let ty = type gdef
+                   do ty <- typeOf gdef
                       ty' <- updateHoleType useInHole var zs ty args
                       updateTy i ty'
                       logTerm "quantity.hole.update" 5 ("New type of " ++
                                  show (fullname gdef)) ty'
                       logTerm "quantity.hole.update" 5 ("Updated from " ++
-                                 show (fullname gdef)) (type gdef)
+                                 show (fullname gdef)) ty
                       pure True
                 _ => updateHoleUsageArgs useInHole var zs args
   updateHoleUsage useInHole var zs (As _ _ a p)
@@ -192,28 +244,34 @@ mutual
            defs <- get Ctxt
            Just gdef <- lookupCtxtExact (Resolved idx) (gamma defs)
                 | _ => undefinedName fc n
-           let expand = branchZero
-                          (case type gdef of
-                                Erased {} => True -- defined elsewhere, need to expand
-                                _ => False)
-                          (case definition gdef of
-                                PMDef {} => True
-                                _ => False)
-                          rig
+           -- The type is read only where the answer depends on it.
+           expand <- branchZero
+                       (do ty <- typeOf gdef
+                           pure (case ty of
+                                      Erased {} => True -- defined elsewhere, need to expand
+                                      _ => False))
+                       (pure (case definition gdef of
+                                   PMDef {} => True
+                                   _ => False))
+                       rig
            logC "quantity" 10 $ do
              def <- case definition gdef of
-                         PMDef _ _ (STerm _ tm) _ _ =>
-                              do tm' <- toFullNames tm
-                                 pure (show tm')
+                         PMDef _ margs body =>
+                              walkTree body (\leaf, tree => case tree of
+                                STerm _ x => do tm <- leafTerm leaf {outer = []} x
+                                                tm' <- toFullNames tm
+                                                pure (show tm')
+                                _ => pure "")
                          _ => pure ""
              pure (show rig ++ ": " ++ show n ++ " " ++ show fc ++ "\n"
                      ++ show def)
            if expand
               then expandMeta rig erase env n idx (definition gdef) args
-              else do let ty : ClosedTerm
+              else do gty <- typeOf gdef
+                      let ty : ClosedTerm
                              = case definition gdef of
-                                    Hole {} => unusedHoleArgs args (type gdef)
-                                    _ => type gdef
+                                    Hole {} => unusedHoleArgs args gty
+                                    _ => gty
                       nty <- nf defs env (embed ty)
                       lcheckMeta rig erase env fc n idx args [] nty
     where
@@ -242,9 +300,9 @@ mutual
                          else env
            (sc', sct, usedsc) <- lcheck rig erase (b' :: env') sc
 
-           let used_in = count 0 usedsc
+           let (used_in, usedOutside) = closeScope usedsc
            holeFound <- if not erase && isLinear (multiplicity b)
-                           then updateHoleUsage (used_in == 0)
+                           then updateHoleUsage (isErased used_in)
                                          first
                                          (map weaken (getErased env'))
                                          sc'
@@ -253,14 +311,14 @@ mutual
            -- if there's a hole, assume it will contain the missing usage
            -- if there is none already
            let used = if isLinear ((multiplicity b) |*| rig) &&
-                         holeFound && used_in == 0
-                         then 1
+                         holeFound && isErased used_in
+                         then linear
                          else used_in
 
            when (not erase) $
-               checkUsageOK used ((multiplicity b) |*| rig)
+               checkUsageOK used (usesNamed used first usedsc) ((multiplicity b) |*| rig)
            defs <- get Ctxt
-           discharge defs env fc nm b' bt sc' sct (usedb ++ doneScope usedsc)
+           discharge defs env fc nm b' bt sc' sct (usedb ++ usedOutside)
     where
       rig : RigCount
       rig = case b of
@@ -273,9 +331,9 @@ mutual
                          then erased
                          else linear
 
-      checkUsageOK : Nat -> RigCount -> Core ()
-      checkUsageOK used r = when (isLinear r && used /= 1)
-                                 (throw (LinearUsed fc used nm))
+      checkUsageOK : RigCount -> Lazy Nat -> RigCount -> Core ()
+      checkUsageOK used named r = when (isLinear r && not (isLinear used))
+                                       (throw (LinearUsed fc named nm))
 
   lcheck rig erase env (App fc f a)
       = do logC "quantity" 15 $ do pure "lcheck App \{show !(toFullNames f)} \{show !(toFullNames a)}"
@@ -325,7 +383,7 @@ mutual
   lcheck rig erase env (TDelayed fc r ty)
       = do log "quantity" 15 "lcheck Delayed"
            (ty', _, u) <- lcheck rig erase env ty
-           pure (TDelayed fc r ty', gType fc (MN "top" 0), u)
+           pure (TDelayed fc r ty', gType fc (MN (known Ktop) 0), u)
   lcheck rig erase env (TDelay fc d ty val)
       = do (ty', _, _) <- lcheck erased erase env ty
            (val', gty, u) <- lcheck rig erase env val
@@ -349,7 +407,7 @@ mutual
   lcheck rig erase env (TType fc u)
       -- Not universe checking here, just use the top of the hierarchy
       = do log "quantity" 15 "lcheck TType"
-           pure (TType fc u, gType fc (MN "top" 0), [])
+           pure (TType fc u, gType fc (MN (known Ktop) 0), [])
 
   lcheckBinder : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
@@ -431,38 +489,35 @@ mutual
            pure (map snd !(combine us))
     where
       getCaseUsage : Term ns -> Env Term vs -> List (Term vs) ->
-                     Usage vs -> Term vs ->
+                     Uses vs -> Term vs ->
                      Core (List (Name, ArgUsage))
-      getCaseUsage ty env (As _ _ _ p :: args) used rhs
-          = getCaseUsage ty env (p :: args) used rhs
-      getCaseUsage (Bind _ n (Pi _ rig _ ty) sc) env (arg :: args) used rhs
+      getCaseUsage ty env (As _ _ _ p :: args) uses rhs
+          = getCaseUsage ty env (p :: args) uses rhs
+      getCaseUsage (Bind _ n (Pi _ rig _ ty) sc) env (arg :: args) uses rhs
           = if isLinear rig
                then case arg of
                          (Local _ _ idx p) =>
-                           do rest <- getCaseUsage sc env args used rhs
-                              let used_in = count idx used
-                              holeFound <- updateHoleUsage (used_in == 0) (MkVar p) [] rhs
-                              let ause
-                                  = if holeFound && used_in == 0
-                                            then UseUnknown
-                                            else if used_in == 0
-                                                    then Use0
-                                                    else Use1
+                           do rest <- getCaseUsage sc env args uses rhs
+                              let used_in = uses !! binderOf (MkVar p)
+                              holeFound <- updateHoleUsage (isErased used_in) (MkVar p) [] rhs
+                              let ause = case used_in of
+                                              Rig0 => if holeFound then UseUnknown else Use0
+                                              _ => Use1
                               pure ((n, ause) :: rest)
                          _ => do elseCase
                else elseCase
           where
             elseCase : Core (List (Name, ArgUsage))
-            elseCase = do rest <- getCaseUsage sc env args used rhs
+            elseCase = do rest <- getCaseUsage sc env args uses rhs
                           pure $ if isErased rig
                              then ((n, Use0) :: rest)
                              else ((n, UseKeep) :: rest)
-      getCaseUsage tm env args used rhs = pure []
+      getCaseUsage tm env args uses rhs = pure []
 
-      checkUsageOK : FC -> Nat -> Name -> Bool -> RigCount -> Core ()
-      checkUsageOK fc used nm isloc rig
-          = when (isLinear rig && ((isloc && used > 1) || (not isloc && used /= 1)))
-                 (throw (LinearUsed fc used nm))
+      checkUsageOK : FC -> RigCount -> Lazy Nat -> Name -> Bool -> RigCount -> Core ()
+      checkUsageOK fc used named nm isloc rig
+          = when (isLinear rig && ((isloc && used == RigW) || (not isloc && not (isLinear used))))
+                 (throw (LinearUsed fc named nm))
 
       -- Is the variable one of the lhs arguments; i.e. do we treat it as
       -- affine rather than linear
@@ -480,25 +535,25 @@ mutual
       checkEnvUsage : {vars : _} ->
                       SizeOf done ->
                       RigCount ->
-                      Env Term vars -> Usage (done <>> vars) ->
+                      Env Term vars -> Usage (done <>> vars) -> Uses (done <>> vars) ->
                       List (Term (done <>> vars)) ->
                       Term (done <>> vars) -> Core ()
-      checkEnvUsage s rig [] usage args tm = pure ()
-      checkEnvUsage s rig {done} {vars = nm :: xs} (b :: env) usage args tm
+      checkEnvUsage s rig [] usage uses args tm = pure ()
+      checkEnvUsage s rig {done} {vars = nm :: xs} (b :: env) usage uses args tm
           = do let pos = mkVarChiply s
-               let used_in = count (varIdx pos) usage
+               let used_in = uses !! binderOf pos
 
                holeFound <- if isLinear (multiplicity b)
-                               then updateHoleUsage (used_in == 0) pos [] tm
+                               then updateHoleUsage (isErased used_in) pos [] tm
                                else pure False
                let used = if isLinear ((multiplicity b) |*| rig) &&
-                             holeFound && used_in == 0
-                             then 1
+                             holeFound && isErased used_in
+                             then linear
                              else used_in
                checkUsageOK (getLoc (binderType b))
-                            used nm (isLocArg pos args)
+                            used (usesNamed used pos usage) nm (isLocArg pos args)
                                     ((multiplicity b) |*| rig)
-               checkEnvUsage (s :< nm) rig env usage args tm
+               checkEnvUsage (s :< nm) rig env usage uses args tm
 
       getPUsage : ClosedTerm -> (vs ** (Env Term vs, Term vs, Term vs)) ->
                   Core (List (Name, ArgUsage))
@@ -509,8 +564,9 @@ mutual
                (rhs', _, used) <- lcheck rig False penv rhs
                log "quantity" 10 $ "Used: " ++ show used
                let args = getArgs lhs
-               checkEnvUsage [<] rig penv used args rhs'
-               ause <- getCaseUsage ty penv args used rhs
+               let uses = usesOf used
+               checkEnvUsage [<] rig penv used uses args rhs'
+               ause <- getCaseUsage ty penv args uses rhs
                log "quantity" 10 $ "Arg usage: " ++ show ause
                pure ause
 
@@ -553,7 +609,7 @@ mutual
       = do defs <- get Ctxt
            Just def <- lookupCtxtExact n (gamma defs)
                 | Nothing => undefinedName fc n
-           pure (type def)
+           typeOf def
   lcheckDef fc rig False env n
       = do defs <- get Ctxt
            let Just idx = getNameID n (gamma defs)
@@ -562,21 +618,22 @@ mutual
                 | Nothing => undefinedName fc n
            rigSafe (multiplicity def) rig
            if linearChecked def
-              then pure (type def)
+              then typeOf def
               else case definition def of
-                        PMDef _ _ _ _ pats =>
-                            do u <- getArgUsage (getLoc (type def))
-                                                rig (type def) pats
+                        PMDef _ _ body =>
+                            do ty <- typeOf def
+                               pats <- clausesOf body
+                               u <- getArgUsage (getLoc ty) rig ty pats
                                log "quantity" 5 $ "Overall arg usage " ++ show u
-                               let ty' = updateUsage u (type def)
+                               let ty' = updateUsage u ty
                                updateTy idx ty'
                                setLinearCheck idx True
                                logTerm "quantity" 5 ("New type of " ++
                                           show (fullname def)) ty'
                                logTerm "quantity" 5 ("Updated from " ++
-                                          show (fullname def)) (type def)
+                                          show (fullname def)) ty
                                pure ty'
-                        _ => pure (type def)
+                        _ => typeOf def
     where
       updateUsage : List ArgUsage -> Term ns -> Term ns
       updateUsage (u :: us) (Bind bfc n (Pi fc c e ty) sc)
@@ -600,20 +657,23 @@ mutual
                RigCount -> (erase : Bool) -> Env Term vars ->
                Name -> Int -> Def -> List (Term vars) ->
                Core (Term vars, Glued vars, Usage vars)
-  expandMeta rig erase env n idx (PMDef _ [] (STerm _ fn) _ _) args
-      = do tm <- substMeta (embed fn) args zero Subst.empty
+  expandMeta rig erase env n idx (PMDef _ [] body) args
+      = do STerm _ fn <- treeOf body
+               | ct => throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show ct))
+           tm <- substMeta fn (embed fn) args zero Subst.empty
            lcheck rig erase env tm
     where
+      -- The solution is given whole too, for the message.
       substMeta : {drop, vs : _} ->
-                  Term (drop ++ vs) -> List (Term vs) ->
+                  ClosedTerm -> Term (drop ++ vs) -> List (Term vs) ->
                   SizeOf drop -> SubstEnv drop vs ->
                   Core (Term vs)
-      substMeta (Bind bfc n (Lam _ c e ty) sc) (a :: as) drop env
-          = substMeta sc as (suc drop) (a :: env)
-      substMeta (Bind bfc n (Let _ c val ty) sc) as drop env
-          = substMeta (subst val sc) as drop env
-      substMeta rhs [] drop env = pure (substs drop env rhs)
-      substMeta rhs _ _ _ = throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show fn))
+      substMeta fn (Bind bfc n (Lam _ c e ty) sc) (a :: as) drop env
+          = substMeta fn sc as (suc drop) (a :: env)
+      substMeta fn (Bind bfc n (Let _ c val ty) sc) as drop env
+          = substMeta fn (subst val sc) as drop env
+      substMeta fn rhs [] drop env = pure (substs drop env rhs)
+      substMeta fn rhs _ _ _ = throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show fn))
   expandMeta rig erase env n idx def _
       = throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show def))
 
@@ -653,27 +713,27 @@ checkEnvUsage : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto u : Ref UST UState} ->
                 FC -> SizeOf done -> RigCount ->
-                Env Term vars -> Usage (done <>> vars) ->
+                Env Term vars -> Usage (done <>> vars) -> Uses (done <>> vars) ->
                 Term (done <>> vars) ->
                 Core ()
-checkEnvUsage fc s rig [] usage tm = pure ()
-checkEnvUsage fc s rig {vars = nm :: xs} (b :: env) usage tm
+checkEnvUsage fc s rig [] usage uses tm = pure ()
+checkEnvUsage fc s rig {vars = nm :: xs} (b :: env) usage uses tm
     = do let pos = mkVarChiply s
-         let used_in = count (varIdx pos) usage
+         let used_in = uses !! binderOf pos
 
          holeFound <- if isLinear (multiplicity b)
-                         then updateHoleUsage (used_in == 0) pos [] tm
+                         then updateHoleUsage (isErased used_in) pos [] tm
                          else pure False
          let used = if isLinear ((multiplicity b) |*| rig) &&
-                       holeFound && used_in == 0
-                       then 1
+                       holeFound && isErased used_in
+                       then linear
                        else used_in
-         checkUsageOK used ((multiplicity b) |*| rig)
-         checkEnvUsage fc (s :< nm) rig env usage tm
+         checkUsageOK used (usesNamed used pos usage) ((multiplicity b) |*| rig)
+         checkEnvUsage fc (s :< nm) rig env usage uses tm
   where
-    checkUsageOK : Nat -> RigCount -> Core ()
-    checkUsageOK used r = when (isLinear r && used /= 1)
-                               (throw (LinearUsed fc used nm))
+    checkUsageOK : RigCount -> Lazy Nat -> RigCount -> Core ()
+    checkUsageOK used named r = when (isLinear r && not (isLinear used))
+                                     (throw (LinearUsed fc named nm))
 
 -- Linearity check an elaborated term. If 'erase' is set, erase anything that's in
 -- a Rig0 argument position (we can't do this until typechecking is complete, though,
@@ -691,5 +751,5 @@ linearCheck fc rig erase env tm
          logEnv "quantity" 5 "In env" env
          (tm', _, used) <- lcheck rig erase env tm
          log "quantity" 5 $ "Used: " ++ show used
-         when (not erase) $ checkEnvUsage fc [<] rig env used tm'
+         when (not erase) $ checkEnvUsage fc [<] rig env used (usesOf used) tm'
          pure tm'

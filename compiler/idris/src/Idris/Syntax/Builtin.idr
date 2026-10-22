@@ -8,36 +8,36 @@ import Core.Name
 
 export
 pairname : Name
-pairname = NS builtinNS (UN $ Basic "Pair")
+pairname = NS builtinNS (knownUN KPair)
 
 export
 mkpairname : Name
-mkpairname = NS builtinNS (UN $ Basic "MkPair")
+mkpairname = NS builtinNS (knownUN KMkPair)
 
 export
 dpairname : Name
-dpairname = NS dpairNS (UN $ Basic "DPair")
+dpairname = NS dpairNS (knownUN KDPair)
 
 export
 mkdpairname : Name
-mkdpairname = NS dpairNS (UN $ Basic "MkDPair")
+mkdpairname = NS dpairNS (knownUN KMkDPair)
 
 export
 nilName : Name
-nilName = NS preludeNS (UN $ Basic "Nil")
+nilName = NS preludeNS (knownUN KNil)
 
 export
 consName : Name
-consName = NS preludeNS (UN $ Basic "::")
+consName = NS preludeNS (knownUN KCons)
 
 export
 interpolateName : Name
-interpolateName = NS preludeNS (UN $ Basic "interpolate")
+interpolateName = NS preludeNS (knownUN Kinterpolate)
 
 export
 eqName : Name
-eqName = NS builtinNS (UN $ Basic "===")
+eqName = NS builtinNS (knownUN KHomoEq)
 
 export
 heqName : Name
-heqName = NS builtinNS (UN $ Basic "~=~")
+heqName = NS builtinNS (knownUN KHeteroEq)

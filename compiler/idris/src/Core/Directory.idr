@@ -220,26 +220,33 @@ nsToSource loc ns
 
 
 -- Given a filename in the working directory + source directory, return the correct
--- namespace for it
+-- namespace for it. Its parts are a file's path, so they become identifiers
+-- here, where the path enters the compiler.
 export
-mbPathToNS : String -> Maybe String -> String -> Maybe ModuleIdent
+mbPathToNS : {auto c : Ref Ctxt Defs} ->
+             String -> Maybe String -> String -> Core (Maybe ModuleIdent)
 mbPathToNS wdir sdir fname =
   let
     sdir = fromMaybe "" sdir
     base = if isAbsolute fname then wdir </> sdir else sdir
   in
-    unsafeFoldModuleIdent . reverse . splitPath . Path.dropExtensions
-      <$> (Path.dropBase `on` cleanPath) base fname
+    case (Path.dropBase `on` cleanPath) base fname of
+         Nothing => pure Nothing
+         Just rel => do parts <- traverse intern (splitPath (Path.dropExtensions rel))
+                        pure (Just (nsAsModuleIdent (nsOf parts)))
 
 export
-corePathToNS : String -> Maybe String -> String -> Core ModuleIdent
+corePathToNS : {auto c : Ref Ctxt Defs} ->
+               String -> Maybe String -> String -> Core ModuleIdent
 corePathToNS wdir sdir fname = do
   let err = UserError $
           "Source file "
        ++ show (cleanPath fname)
        ++ " is not in the source directory "
        ++ show (cleanPath (wdir </> fromMaybe "" sdir))
-  maybe (throw err) pure (mbPathToNS wdir sdir fname)
+  Just ns <- mbPathToNS wdir sdir fname
+    | Nothing => throw err
+  pure ns
 
 export
 ctxtPathToNS : {auto c : Ref Ctxt Defs} -> String -> Core ModuleIdent
@@ -286,7 +293,7 @@ makeBuildDirectory : {auto c : Ref Ctxt Defs} ->
 makeBuildDirectory ns
     = do bdir <- ttcBuildDirectory
          let ns = reverse $ fromMaybe [] $ tail' $ unsafeUnfoldModuleIdent ns -- first item is file name
-         let ndir = joinPath ns
+         let ndir = joinPath (map (.text) ns)
          Right _ <- coreLift $ mkdirAll (bdir </> ndir)
             | Left err => throw (FileErr (bdir </> ndir) err)
          pure ()

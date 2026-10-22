@@ -74,7 +74,7 @@ isHole : GlobalDef -> Maybe Nat
 isHole def
     = case definition def of
            Hole locs _ => Just locs
-           PMDef pi _ _ _ _ =>
+           PMDef pi _ _ =>
                  case holeInfo pi of
                       NotHole => Nothing
                       SolvedHole n => Just n
@@ -152,7 +152,8 @@ getUserHolesData
          traverse (\n_gdef_args =>
                      -- Inference can't deal with this for now :/
                      let (n, gdef, args) = the (Name, GlobalDef, Nat) n_gdef_args in
-                     holeData defs Env.empty n args (type gdef))
+                     do ty <- typeOf gdef
+                        holeData defs Env.empty n args ty)
                   holesWithArgs
 
 export

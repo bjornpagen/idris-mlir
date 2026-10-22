@@ -437,7 +437,7 @@ checkAlternative : {vars : _} ->
                    FC -> AltType -> List RawImp -> Maybe (Glued vars) ->
                    Core (Term vars, Glued vars)
 checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
-    = do expected <- maybe (do nm <- genName "altTy"
+    = do expected <- maybe (do nm <- genName (known KaltTy)
                                u <- uniVar fc
                                ty <- metaVar fc erased env nm (TType fc u)
                                pure (gnf env ty))
@@ -454,7 +454,7 @@ checkAlternative rig elabinfo nest env fc uniq alts mexpected
          case alts' of
            [alt] => checkImp rig elabinfo nest env alt mexpected
            _ =>
-             do expected <- maybe (do nm <- genName "altTy"
+             do expected <- maybe (do nm <- genName (known KaltTy)
                                       u <- uniVar fc
                                       ty <- metaVar fc erased env nm (TType fc u)
                                       pure (gnf env ty))
@@ -513,16 +513,16 @@ pairParts : {vars : _} ->
             RigCount -> ElabInfo -> NestedNames vars -> Env Term vars ->
             FC -> (l, r : RawImp) -> Core (PairParts vars)
 pairParts rig elabinfo nest env fc l r
-    = do lty <- partType "pairFst"
-         rty <- partType "pairSnd"
+    = do lty <- partType KpairFst
+         rty <- partType KpairSnd
          let partInfo = { topLevel := False } elabinfo
          (r', _) <- check (rig |*| top) partInfo nest env r (Just (gnf env rty))
          (l', _) <- check (rig |*| top) partInfo nest env l (Just (gnf env lty))
          pure (MkPairParts lty rty l' r')
   where
-    partType : String -> Core (Term vars)
+    partType : Known -> Core (Term vars)
     partType root
-        = do nm <- genName root
+        = do nm <- genName (known root)
              u <- uniVar fc
              metaVar fc erased env nm (TType fc u)
 
@@ -667,7 +667,7 @@ checkTypeOrValue : {vars : _} ->
                    FC -> Overlaid -> Maybe (Glued vars) ->
                    Core (Term vars, Glued vars)
 checkTypeOrValue rig elabinfo nest env fc ovl mexpected
-    = do expected <- maybe (do nm <- genName "altTy"
+    = do expected <- maybe (do nm <- genName (known KaltTy)
                                u <- uniVar fc
                                ty <- metaVar fc erased env nm (TType fc u)
                                pure (gnf env ty))

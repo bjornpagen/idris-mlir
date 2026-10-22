@@ -95,7 +95,7 @@ checkDelay : {vars : _} ->
              FC -> RawImp -> Maybe (Glued vars) ->
              Core (Term vars, Glued vars)
 checkDelay rig elabinfo nest env fc tm mexpected
-    = do expected <- maybe (do nm <- genName "delayTy"
+    = do expected <- maybe (do nm <- genName (known KdelayTy)
                                u <- uniVar fc
                                ty <- metaVar fc erased env nm (TType fc u)
                                pure (gnf env ty))

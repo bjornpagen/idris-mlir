@@ -299,30 +299,13 @@ uniqifyEnv : {vars : _} ->
              (vars' ** (Env Term vars', CompatibleVars vars vars'))
 uniqifyEnv env = uenv [] env
   where
-    next : Name -> Name
-    next (MN n i) = MN n (i + 1)
-    next (UN n) = MN (displayUserName n) 0
-    next (NS ns n) = NS ns (next n)
-    next n = MN (show n) 0
-
-    uniqueLocal : List Name -> Name -> Name
-    uniqueLocal vs n
-       = if n `elem` vs
-                 -- we'll find a new name eventualy since the list of names
-                 -- is empty, and next generates something new. But next has
-                 -- to be correct... an exercise for someone: this could
-                 -- probebly be done without an assertion by making a stream of
-                 -- possible names...
-            then assert_total (uniqueLocal vs (next n))
-            else n
-
     uenv : {vars : _} ->
            List Name -> Env Term vars ->
            (vars' ** (Env Term vars', CompatibleVars vars vars'))
     uenv used [] = ([] ** ([], Pre))
     uenv used {vars = v :: vs} (b :: bs)
         = if v `elem` used
-             then let v' = uniqueLocal used v
+             then let v' = mkFresh used v
                       (vs' ** (env', compat)) = uenv (v' :: used) bs
                       b' = map (compatNs compat) b in
                   (v' :: vs' ** (b' :: env', Ext compat))
@@ -353,7 +336,7 @@ allVarsNoLet env = go env [<] where
   go (v :: vs) p = mkVarChiply p :: go vs (p :< _)
 
 export
-close : FC -> String -> Env Term vars -> Term vars -> ClosedTerm
+close : FC -> Ident -> Env Term vars -> Term vars -> ClosedTerm
 close fc nm env tm
   = let (s, env) = mkSubstEnv 0 env in
     substs s env (rewrite appendNilRightNeutral vars in tm)

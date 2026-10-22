@@ -11,6 +11,7 @@ import public Core.Name
 import        Core.Options
 import public Core.Options.Log
 import public Core.TT
+import        Core.TT.Stored
 
 import Libraries.Utils.Binary
 import Libraries.Utils.Path
@@ -20,8 +21,10 @@ import Idris.Syntax.Pragmas
 
 import Data.Either
 import Data.List1
+import Data.String
 import Data.Nat
 import Libraries.Data.IntMap
+import Libraries.Data.List.SizeOf
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 import Libraries.Data.StringMap
@@ -49,8 +52,8 @@ initSize : Int
 initSize = 10000
 
 export
-initCtxtS : Int -> Core Context
-initCtxtS s
+initCtxtS : Ref Interned Idents -> Int -> Core Context
+initCtxtS ids s
     = do aref <- coreLift (newTable s)
          pure $ MkContext
             { firstEntry = 0
@@ -65,11 +68,12 @@ initCtxtS s
             , inlineOnly = False
             , hidden = empty
             , uconstraints = []
+            , idents = ids
             }
 
 export
-initCtxt : Core Context
-initCtxt = initCtxtS initSize
+initCtxt : Ref Interned Idents -> Core Context
+initCtxt ids = initCtxtS ids initSize
 
 addPossible : Name -> Int ->
               UserNameMap (List PossibleName) -> UserNameMap (List PossibleName)
@@ -164,7 +168,7 @@ returnDef : Bool -> Int -> GlobalDef -> Maybe (Int, GlobalDef)
 returnDef False idx def = Just (idx, def)
 returnDef True idx def
     = case definition def of
-           PMDef pi _ _ _ _ =>
+           PMDef pi _ _ =>
                  if alwaysReduce pi
                     then Just (idx, def)
                     else Nothing
@@ -293,7 +297,7 @@ newDef fc n rig vars ty vis def
     = MkGlobalDef
         { location = fc
         , fullname = n
-        , type = ty
+        , type = LiveType ty
         , eraseArgs = NatSet.empty
         , safeErase = NatSet.empty
         , specArgs = NatSet.empty
@@ -520,6 +524,198 @@ HasNames Pat where
   resolved gam (PUnmatchable fc t) = PUnmatchable fc <$> resolved gam t
 
 
+------------------------------------------------------------------------------
+-- A definition's terms, by their lifetime
+------------------------------------------------------------------------------
+
+-- Every reader of a definition's type, case tree, clause patterns or
+-- clauses asks one of the functions below, and none tells a live term
+-- from a stored one: a live term is read as it is, and a stored one is
+-- decoded where the reader rebuilt or embedded the live one.
+
+-- A stored term decoded; one `freeze` never made is no term, which only
+-- a fault in this compiler makes.
+storedIn : SizeOf vars -> Root vars -> Core (Term (vars ++ outer))
+storedIn s r
+    = case decodeWithin s r of
+           Just tm => pure tm
+           Nothing => throw (InternalError "A stored term is not a term of its arena")
+
+stored : SizeOf vars -> Root vars -> Core (Term vars)
+stored s r
+    = case Stored.decode s r of
+           Just tm => pure tm
+           Nothing => throw (InternalError "A stored term is not a term of its arena")
+
+storedHeadOf : Root vars -> Core ResultHead
+storedHeadOf r
+    = case storedHead r of
+           Just h => pure h
+           Nothing => throw (InternalError "A stored term is not a term of its arena")
+
+||| A definition's type.
+export
+typeOf : GlobalDef -> Core ClosedTerm
+typeOf gdef
+    = case type gdef of
+           LiveType ty => pure ty
+           StoredType r => stored zero r
+
+||| What a definition's type computes once its arguments are given, read
+||| off the type as it is held: a stored type is not decoded to say it.
+export
+typeHead : GlobalDef -> Core ResultHead
+typeHead gdef
+    = case type gdef of
+           LiveType ty => pure (resultHead ty)
+           StoredType r => storedHeadOf r
+
+||| A pattern-matching definition's case tree.
+export
+treeOf : {args : _} -> Body args -> Core (CaseTree args)
+treeOf (LiveBody ct _ _) = pure ct
+treeOf (StoredBody ct _ _) = traverseTree stored (mkSizeOf args) ct
+
+||| Each clause's arguments as the case builder read them, in the order of
+||| the clauses.
+export
+clausePatsOf : Body args -> Core (List (List Pat))
+clausePatsOf (LiveBody _ ps _) = pure ps
+clausePatsOf (StoredBody _ ps _) = traverse (traversePats (stored zero)) ps
+
+-- The size of a scope a variable is bound beyond.
+tailSize : SizeOf (x :: vs) -> SizeOf vs
+tailSize s = case sizedView s of
+                  S s' => s'
+
+-- An environment with `g` applied to each term of each binder, given the
+-- size of the scope the binder is in.
+traverseEnv : Applicative f => (forall vs . SizeOf vs -> t vs -> f (u vs)) ->
+              SizeOf vars -> Env t vars -> f (Env u vars)
+traverseEnv g s [] = pure []
+traverseEnv g s (b :: env)
+    = let s' = tailSize s in (::) <$> traverse (g s') b <*> traverseEnv g s' env
+
+||| The clauses as checked: each left- and right-hand side, with the
+||| environment that names their variables.
+export
+clausesOf : Body args -> Core (List (vs : Scope ** (Env Term vs, Term vs, Term vs)))
+clausesOf (LiveBody _ _ cs) = pure cs
+clausesOf (StoredBody _ _ cs) = traverse decodeClause cs
+  where
+    decodeClause : (vs : Scope ** (Env Root vs, Root vs, Root vs)) ->
+                   Core (vs : Scope ** (Env Term vs, Term vs, Term vs))
+    decodeClause (vs ** (env, lhs, rhs))
+        = do let s = mkSizeOf vs
+             env' <- traverseEnv stored s env
+             lhs' <- stored s lhs
+             rhs' <- stored s rhs
+             pure (vs ** (env', lhs', rhs'))
+
+||| What a walk of a definition's case tree makes of a leaf it reaches: its
+||| right-hand side as a term, in the scope of the tree's variables and of
+||| the variables beyond them; and what that right-hand side computes once
+||| its arguments are given.
+public export
+record Leaves (t : Scoped) where
+  constructor MkLeaves
+  leafTerm : {vs : Scope} -> {0 outer : Scope} -> t vs -> Core (Term (vs ++ outer))
+  leafHead : {0 vs : Scope} -> t vs -> Core ResultHead
+
+liveLeaf : {vs : Scope} -> {0 outer : Scope} -> Term vs -> Core (Term (vs ++ outer))
+liveLeaf tm = pure (embed tm)
+
+liveHead : {0 vs : Scope} -> Term vs -> Core ResultHead
+liveHead tm = pure (resultHead tm)
+
+storedLeaf : {vs : Scope} -> {0 outer : Scope} -> Root vs -> Core (Term (vs ++ outer))
+storedLeaf r = storedIn (mkSizeOf vs) r
+
+||| A pattern-matching definition's case tree, given to a walk that reads
+||| it: a live tree's leaf is its term, embedded in the walk's scope where
+||| the walk reaches it; a stored tree's leaf is decoded into that scope
+||| there, so only the leaf the walk reaches is decoded.
+export
+walkTree : Body args -> ({0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core r) -> Core r
+walkTree (LiveBody ct _ _) k = k (MkLeaves liveLeaf liveHead) ct
+walkTree (StoredBody ct _ _) k = k (MkLeaves storedLeaf storedHeadOf) ct
+
+-- What freezing a pattern-matching definition gives, each term a place in
+-- its arena; and the same, each place made a root of the arena.
+FrozenBody : (Scope -> Type) -> Scope -> Type
+FrozenBody t args
+    = (t [], CaseTree' t args, List (List (Pat' (t []))),
+       List (vs : Scope ** (Env t vs, t vs, t vs)))
+
+frozenBody : ClosedTerm -> (args : Scope) -> CaseTree args -> List (List Pat) ->
+             List (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
+             Freeze (FrozenBody Pos args)
+frozenBody ty args ct ps cs
+    = do tyAt <- freeze ty
+         ctAt <- traverseTree (\_ => freeze) (mkSizeOf args) ct
+         psAt <- traverse (traversePats freeze) ps
+         csAt <- traverse frozenClause cs
+         pure (tyAt, ctAt, psAt, csAt)
+  where
+    frozenClause : (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
+                   Freeze (vs : Scope ** (Env Pos vs, Pos vs, Pos vs))
+    frozenClause (vs ** (env, lhs, rhs))
+        = do env' <- traverseEnv (\_ => freeze) (mkSizeOf vs) env
+             lhs' <- freeze lhs
+             rhs' <- freeze rhs
+             pure (vs ** (env', lhs', rhs'))
+
+rootedBody : (a : Arena) -> (args : Scope) -> FrozenBody Pos args -> Maybe (FrozenBody Root args)
+rootedBody a args (tyAt, ctAt, psAt, csAt)
+    = do ty <- rootAt a tyAt
+         ct <- traverseTree (\_ => rootAt a) (mkSizeOf args) ctAt
+         ps <- traverse (traversePats (rootAt a)) psAt
+         cs <- traverse rootedClause csAt
+         pure (ty, ct, ps, cs)
+  where
+    rootedClause : (vs : Scope ** (Env Pos vs, Pos vs, Pos vs)) ->
+                   Maybe (vs : Scope ** (Env Root vs, Root vs, Root vs))
+    rootedClause (vs ** (env, lhs, rhs))
+        = do env' <- traverseEnv (\_ => rootAt a) (mkSizeOf vs) env
+             lhs' <- rootAt a lhs
+             rhs' <- rootAt a rhs
+             pure (vs ** (env', lhs', rhs'))
+
+-- A sealed freezing; one that is not sealed (a child that is not among
+-- the nodes made before it, or a place outside its arena) only a fault in
+-- this compiler makes.
+sealed : Freeze x -> Core (Arena, x)
+sealed job
+    = case seal job of
+           Just r => pure r
+           Nothing => throw (InternalError "A frozen node's child is not a node of its arena")
+
+rooted : Maybe x -> Core x
+rooted (Just x) = pure x
+rooted Nothing = throw (InternalError "A frozen term is not a term of its arena")
+
+-- A definition with its terms stored: its type, and a pattern-matching
+-- definition's case tree, clause patterns and clauses with their
+-- environments, all frozen into one arena, each subterm shared within it.
+-- Every other kind of definition holds no term but its type, or holds a
+-- guess, which stays live.
+freezeDef : GlobalDef -> Core GlobalDef
+freezeDef gdef
+    = do ty <- typeOf gdef
+         case definition gdef of
+              PMDef pi args body =>
+                do ct <- treeOf body
+                   ps <- clausePatsOf body
+                   cs <- clausesOf body
+                   (a, places) <- sealed (frozenBody ty args ct ps cs)
+                   (ty', ct', ps', cs') <- rooted (rootedBody a args places)
+                   pure ({ type := StoredType ty',
+                           definition := PMDef pi args (StoredBody ct' ps' cs') } gdef)
+              _ => do (a, tyAt) <- sealed (freeze ty)
+                      ty' <- rooted (rootAt a tyAt)
+                      pure ({ type := StoredType ty' } gdef)
+
+
 -- Resolving each part of a definition decoded from a TTC.
 resolveEnv : Context -> Env Term vars -> Core (Env Term vars)
 resolveEnv gam [] = pure Env.empty
@@ -548,31 +744,6 @@ onClausePatNames : (Name -> Core Name) -> (ClosedTerm -> Core ClosedTerm) ->
                    List (List Pat) -> Core (List (List Pat))
 onClausePatNames f g [] = pure []
 onClausePatNames f g (c :: cs) = [| onPatsNames f g c :: onClausePatNames f g cs |]
-
-resolveDef : Context -> Def -> Core Def
-resolveDef gam (PMDef r args ct cps pats)
-    = pure $ PMDef r args !(onNamesTree (resolvedNames gam) ct)
-                          !(traverseClauses cps)
-                          !(traverse resolvePat pats)
-  where
-    traverseClauses : List (List Pat) -> Core (List (List Pat))
-    traverseClauses
-        = onClausePatNames (pure . indexedName gam) (onNamesTerm (resolvedNames gam))
-
-    resolvePat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                 Core (vs ** (Env Term vs, Term vs, Term vs))
-    resolvePat (_ ** (env, lhs, rhs))
-        = pure (_ ** (!(resolveEnv gam env),
-                      !(onNamesTerm (resolvedNames gam) lhs),
-                      !(onNamesTerm (resolvedNames gam) rhs)))
--- A type's constructors are kept by their full names, which is how a TTC
--- holds them: resolving leaves them as they are.
-resolveDef gam (TCon a ps ds u ms mcs det)
-    = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
-resolveDef gam (BySearch c def) = pure $ BySearch c (indexedName gam def)
-resolveDef gam (Guess tm b cs)
-    = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
-resolveDef gam t = pure t
 
 -- Later keys overwrite earlier ones that resolve to the same name, as
 -- inserting them in order does.
@@ -606,15 +777,47 @@ resolveTotality gam (MkTotality t c)
 resolveSCCall : Context -> SCCall -> SCCall
 resolveSCCall gam sc = { fnCall := indexedName gam (fnCall sc) } sc
 
+||| The definition a TTC held, as the context stores it: the namespace the
+||| TTC trimmed from its case tree's and clauses' references restored, its
+||| names resolved, and its terms frozen. Resolving looks up no definition,
+||| so nothing else is decoded meanwhile.
 export
-resolveGlobalDef : Context -> GlobalDef -> Core GlobalDef
-resolveGlobalDef gam def
-    = pure $ { type := !(onNamesTerm (resolvedNames gam) (type def)),
-               definition := !(resolveDef gam (definition def)),
-               totality := !(resolveTotality gam (totality def)),
-               refersToM := map (resolveNameMap gam) (refersToM def),
-               sizeChange := map (resolveSCCall gam) (sizeChange def)
-             } def
+storeDecoded : Context -> Namespace -> GlobalDef -> Core GlobalDef
+storeDecoded gam ns def
+    = do ty <- typeOf def
+         d <- resolveDef (definition def)
+         tot <- resolveTotality gam (totality def)
+         freezeDef ({ type := LiveType !(onNamesTerm (resolvedNames gam) ty),
+                      definition := d,
+                      totality := tot,
+                      refersToM := map (resolveNameMap gam) (refersToM def),
+                      sizeChange := map (resolveSCCall gam) (sizeChange def)
+                    } def)
+  where
+    resolveClause : (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
+                    Core (vs : Scope ** (Env Term vs, Term vs, Term vs))
+    resolveClause (_ ** (env, lhs, rhs))
+        = pure (_ ** (!(resolveEnv gam env),
+                      !(onNamesTerm (resolvedNames gam) (restoreNS ns lhs)),
+                      !(onNamesTerm (resolvedNames gam) (restoreNS ns rhs))))
+
+    resolveDef : Def -> Core Def
+    resolveDef (PMDef r args body)
+        = do ct <- treeOf body
+             ps <- clausePatsOf body
+             cs <- clausesOf body
+             ct' <- onNamesTree (resolvedNames gam) (restoreNS ns ct)
+             ps' <- onClausePatNames (pure . indexedName gam) (onNamesTerm (resolvedNames gam)) ps
+             cs' <- traverse resolveClause cs
+             pure (PMDef r args (LiveBody ct' ps' cs'))
+    -- A type's constructors are kept by their full names, which is how a
+    -- TTC holds them: resolving leaves them as they are.
+    resolveDef (TCon a ps ds u ms mcs det)
+        = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
+    resolveDef (BySearch c n) = pure $ BySearch c (indexedName gam n)
+    resolveDef (Guess tm b cs)
+        = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
+    resolveDef t = pure t
 
 export
 HasNames (Env Term vars) where
@@ -632,56 +835,6 @@ HasNames Clause where
   resolved gam (MkClause env lhs rhs unified)
     = [| MkClause (resolved gam env) (resolved gam lhs) (resolved gam rhs) (pure unified) |]
 
-
-export
-HasNames Def where
-  full gam (PMDef r args ct cps pats)
-      = pure $ PMDef r args !(full gam ct) !(fullClauses cps)
-                     !(traverse fullNamesPat pats)
-    where
-      fullClauses : List (List Pat) -> Core (List (List Pat))
-      fullClauses = onClausePatNames (full gam) (full gam)
-
-      fullNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                     Core (vs ** (Env Term vs, Term vs, Term vs))
-      fullNamesPat (_ ** (env, lhs, rhs))
-          = pure $ (_ ** (!(full gam env),
-                          !(full gam lhs), !(full gam rhs)))
-  full gam (TCon a ps ds u ms mcs det)
-      = pure $ TCon a ps ds u !(traverse (full gam) ms)
-                                !(traverseOpt (traverse (full gam)) mcs) det
-  full gam (BySearch c def)
-      = pure $ BySearch c !(full gam def)
-  full gam (Guess tm b cs)
-      = pure $ Guess !(full gam tm) b cs
-  full gam t = pure t
-
-  resolved = resolveDef
-
-export
-StripNamespace Def where
-  trimNS ns (PMDef i args ct cps pats)
-      = PMDef i args (trimNS ns ct) cps (map trimNSpat pats)
-    where
-      trimNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                  (vs ** (Env Term vs, Term vs, Term vs))
-      trimNSpat (vs ** (env, lhs, rhs))
-          = (vs ** (env, trimNS ns lhs, trimNS ns rhs))
-  trimNS ns d = d
-
-  restoreNS ns (PMDef i args ct cps pats)
-      = PMDef i args (restoreNS ns ct) cps (map restoreNSpat pats)
-    where
-      restoreNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                  (vs ** (Env Term vs, Term vs, Term vs))
-      restoreNSpat (vs ** (env, lhs, rhs))
-          = (vs ** (env, restoreNS ns lhs, restoreNS ns rhs))
-  restoreNS ns d = d
-
-export
-StripNamespace GlobalDef where
-  trimNS ns def = { definition $= trimNS ns } def
-  restoreNS ns def = { definition $= restoreNS ns } def
 
 -- A definition's references (`refersToM`) are the one map whose names are
 -- made full or resolved, so the instance is at that map's type.
@@ -982,21 +1135,42 @@ HasNames a => HasNames (Maybe a) where
   resolved gam Nothing = pure Nothing
   resolved gam (Just x) = pure $ Just !(resolved gam x)
 
+||| A definition as a TTC holds it: every term live (a stored one decoded),
+||| every name full, and the module's namespace trimmed from its case
+||| tree's and clauses' references.
 export
-HasNames GlobalDef where
-  full gam def
-      = do
---            ts <- full gam (type def)
---            d <- full gam (definition def)
---            coreLift $ printLn (fullname def, ts)
---            coreLift $ printLn (fullname def, d)
-           pure $ { type := !(full gam (type def)),
-                    definition := !(full gam (definition def)),
-                    totality := !(full gam (totality def)),
-                    refersToM := !(full gam (refersToM def)),
-                    sizeChange := !(traverse (full gam) (sizeChange def))
-                  } def
-  resolved = resolveGlobalDef
+writtenDef : Context -> Namespace -> GlobalDef -> Core GlobalDef
+writtenDef gam ns def
+    = do ty <- typeOf def
+         d <- fullDef (definition def)
+         pure $ { type := LiveType !(full gam ty),
+                  definition := d,
+                  totality := !(full gam (totality def)),
+                  refersToM := !(full gam (refersToM def)),
+                  sizeChange := !(traverse (full gam) (sizeChange def))
+                } def
+  where
+    fullClause : (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
+                 Core (vs : Scope ** (Env Term vs, Term vs, Term vs))
+    fullClause (_ ** (env, lhs, rhs))
+        = pure (_ ** (!(full gam env),
+                      trimNS ns !(full gam lhs), trimNS ns !(full gam rhs)))
+
+    fullDef : Def -> Core Def
+    fullDef (PMDef r args body)
+        = do ct <- treeOf body
+             ps <- clausePatsOf body
+             cs <- clausesOf body
+             ct' <- full gam ct
+             ps' <- onClausePatNames (full gam) (full gam) ps
+             cs' <- traverse fullClause cs
+             pure (PMDef r args (LiveBody (trimNS ns ct') ps' cs'))
+    fullDef (TCon a ps ds u ms mcs det)
+        = pure $ TCon a ps ds u !(traverse (full gam) ms)
+                                  !(traverseOpt (traverse (full gam)) mcs) det
+    fullDef (BySearch c n) = pure $ BySearch c !(full gam n)
+    fullDef (Guess tm b cs) = pure $ Guess !(full gam tm) b cs
+    fullDef t = pure t
 
 export
 HasNames Transform where
@@ -1129,10 +1303,11 @@ clearDefs : Defs -> Core Defs
 clearDefs defs
     = pure ({ gamma->inlineOnly := True } defs)
 
+||| A context holding nothing, over the session's table of identifiers.
 export
-initDefs : Core Defs
-initDefs
-    = do gam <- initCtxt
+initDefsWith : Ref Interned Idents -> Core Defs
+initDefsWith ids
+    = do gam <- initCtxt ids
          opts <- defaults
          pure $ MkDefs
            { gamma = gam
@@ -1165,6 +1340,64 @@ initDefs
            , unimported = MkUnimported [] empty
            }
 
+||| The first context of a process, with the process's table of identifiers.
+export
+initDefs : Core Defs
+initDefs
+    = do ids <- newRef Interned seeded
+         initDefsWith ids
+
+||| The identifier spelled so, from the session's table: the one met before,
+||| or a new one. Text becomes an identifier only here, where it enters the
+||| compiler (a source's tokens, a TTC's names, a name the elaborator makes
+||| from text); everything after compares identifiers by id.
+export
+internWith : (ids : Ref Interned Idents) -> String -> Core Ident
+internWith ids s
+    = do t <- get Interned @{ids}
+         let (i, t') = internIn s t
+         put Interned @{ids} t'
+         pure i
+
+export
+intern : {auto c : Ref Ctxt Defs} -> String -> Core Ident
+intern s = internWith (!(get Ctxt)).gamma.idents s
+
+||| A user name spelled as text: `_` is no name, `.x` the field `x`.
+export
+internUserName : {auto c : Ref Ctxt Defs} -> String -> Core UserName
+internUserName "_" = pure Underscore
+internUserName str
+    = case strUncons str of
+           Just ('.', n) => Field <$> intern n
+           _ => Basic <$> intern str
+
+||| A namespace spelled as text, its parts separated by dots.
+export
+internNamespace : {auto c : Ref Ctxt Defs} -> String -> Core Namespace
+internNamespace "" = pure emptyNS
+internNamespace str = nsOf <$> traverse intern (forget (split (== '.') str))
+
+||| A module's identifier spelled as text, its parts separated by dots.
+export
+internModuleIdent : {auto c : Ref Ctxt Defs} -> String -> Core ModuleIdent
+internModuleIdent str = nsAsModuleIdent <$> internNamespace str
+
+||| The identifier a name's root (`nameRoot`) is spelled by: the name's own,
+||| reused, and interned only for the text a block's or a resolved name's
+||| root is printed as, which no identifier holds.
+export
+rootIdent : {auto c : Ref Ctxt Defs} -> Name -> Core Ident
+rootIdent (NS _ n) = rootIdent n
+rootIdent (UN (Basic i)) = pure i
+rootIdent (UN (Field i)) = pure i
+rootIdent (UN Underscore) = pure (known K_)
+rootIdent (MN i _) = pure i
+rootIdent (PV n _) = rootIdent n
+rootIdent (DN _ n) = rootIdent n
+rootIdent (Nested _ n) = rootIdent n
+rootIdent n = intern (nameRoot n)
+
 -- Reset the context, except for the options
 export
 clearCtxt : {auto c : Ref Ctxt Defs} ->
@@ -1172,7 +1405,7 @@ clearCtxt : {auto c : Ref Ctxt Defs} ->
 clearCtxt
     = do defs <- get Ctxt
          put Ctxt ({ options := resetElab (options defs),
-                     timings := timings defs } !initDefs)
+                     timings := timings defs } !(initDefsWith defs.gamma.idents))
   where
     resetElab : Options -> Options
     resetElab opts =
@@ -1401,7 +1634,7 @@ addBuiltin n ty tot op
        addDef n $ MkGlobalDef
          { location = emptyFC
          , fullname = n
-         , type = ty
+         , type = LiveType ty
          , eraseArgs = NatSet.empty
          , safeErase = NatSet.empty
          , specArgs = NatSet.empty
@@ -1438,7 +1671,7 @@ updateTy i ty
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact (Resolved i) (gamma defs)
               | Nothing => pure ()
-         ignore $ addDef (Resolved i) ({ type := ty } gdef)
+         ignore $ addDef (Resolved i) ({ type := LiveType ty } gdef)
 
 -- Record that the name has been linearity checked so we don't need to do
 -- it again
@@ -1548,15 +1781,24 @@ lookupDefName = lookupNameBy definition
 
 export
 lookupTyExact : Name -> Context -> Core (Maybe ClosedTerm)
-lookupTyExact = lookupExactBy type
+lookupTyExact n gam
+  = do Just gdef <- lookupCtxtExact n gam
+            | Nothing => pure Nothing
+       Just <$> typeOf gdef
 
 export
 lookupTyName : Name -> Context -> Core (List (Name, Int, ClosedTerm))
-lookupTyName = lookupNameBy type
+lookupTyName n gam
+  = do gdefs <- lookupCtxtName n gam
+       traverse (\ (n, i, gd) => do ty <- typeOf gd
+                                     pure (n, i, ty)) gdefs
 
 export
 lookupDefTyExact : Name -> Context -> Core (Maybe (Def, ClosedTerm))
-lookupDefTyExact = lookupExactBy (\g => (definition g, type g))
+lookupDefTyExact n gam
+  = do Just gdef <- lookupCtxtExact n gam
+            | Nothing => pure Nothing
+       pure (Just (definition gdef, !(typeOf gdef)))
 
 -- private names are only visible in this namespace if their namespace
 -- is the current namespace (or an outer one)
@@ -1839,7 +2081,7 @@ setDetermining fc tyn args
               | _ => undefinedName fc tyn
          let TCon a ps _ u cons ms det = definition g
               | _ => throw (GenericMsg fc (show (fullname g) ++ " is not a type constructor [setDetermining]"))
-         apos <- getPos 0 (forget args) (type g)
+         apos <- getPos 0 (forget args) !(typeOf g)
          updateDef tyn (const (Just (TCon a ps apos u cons ms det)))
   where
     -- Type isn't normalised, but the argument names refer to those given

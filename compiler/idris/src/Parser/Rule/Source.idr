@@ -25,7 +25,7 @@ public export
 record ParserState (container : Type -> Type) where
   constructor MkState
   decorations : container ASemanticDecoration
-  holeNames : List String
+  holeNames : List Ident
   ||| The pragmas the source writes, each where it is written: a branch
   ||| that fails takes its state with it, so only what the parse kept is here.
   pragmaUses : container PragmaUse
@@ -74,7 +74,7 @@ actD : List ASemanticDecoration -> EmptyRule ()
 actD s = act (MkState (cast s) [] [<])
 
 export
-actH : String -> EmptyRule ()
+actH : Ident -> EmptyRule ()
 actH s = act (MkState [<] [s] [<])
 
 ||| A magic debug directive, with where it is written.
@@ -141,9 +141,13 @@ onOffLit : Rule Bool
 onOffLit
     = terminal "Expected on or off" $
                \case
-                 Ident "on" => Just True
-                 Ident "off" => Just False
+                 Ident s => onOff s.text
                  _ => Nothing
+  where
+    onOff : String -> Maybe Bool
+    onOff "on" = Just True
+    onOff "off" = Just False
+    onOff _ = Nothing
 
 export
 simpleStrLit : Rule String
@@ -214,7 +218,7 @@ simpleMultiStr : Rule String
 simpleMultiStr = multilineBegin *> commit *> (option "" simpleStrLit) <* strEnd
 
 export
-aDotIdent : Rule String
+aDotIdent : Rule Ident
 aDotIdent = terminal "Expected dot+identifier" $
                      \case
                        DotIdent s => Just s
@@ -229,7 +233,7 @@ symbol : String -> Rule ()
 symbol req
     = terminal ("Expected '" ++ req ++ "'") $
                \case
-                 Symbol s => guard (s == req)
+                 Symbol s => guard (s.text == req)
                  _ => Nothing
 
 export
@@ -237,7 +241,7 @@ anyReservedSymbol : Rule String
 anyReservedSymbol
   = terminal ("Expected a reserved symbol") $
                \case
-                 Symbol s => s <$ guard (s `elem` reservedSymbols)
+                 Symbol s => s.text <$ guard (s.text `elem` reservedSymbols)
                  _ => Nothing
 
 export
@@ -261,7 +265,7 @@ exactIdent : String -> Rule ()
 exactIdent req
     = terminal ("Expected " ++ req) $
                \case
-                 Ident s => guard (s == req)
+                 Ident s => guard (s.text == req)
                  _ => Nothing
 
 ||| The pragma given, its use recorded where it is written.
@@ -297,11 +301,11 @@ operatorCandidate
                  _ => Nothing
 
 export
-unqualifiedOperatorName : Rule String
+unqualifiedOperatorName : Rule Ident
 unqualifiedOperatorName
     = terminal "Expected operator" $
                \case
-                 Symbol s => s <$ guard (not $ s `elem` reservedSymbols)
+                 Symbol s => s <$ guard (not $ s.text `elem` reservedSymbols)
                  _ => Nothing
 
 export
@@ -309,7 +313,7 @@ operator : Rule Name
 operator = UN . Basic <$> unqualifiedOperatorName
                -- ^ TODO: add an operator constructor?
 
-identPart : Rule String
+identPart : Rule Ident
 identPart
     = terminal "Expected name" $
                \case
@@ -317,17 +321,17 @@ identPart
                  _ => Nothing
 
 export
-namespacedIdent : Rule (Maybe Namespace, String)
+namespacedIdent : Rule (Maybe Namespace, Ident)
 namespacedIdent
     = terminal "Expected namespaced name" $
                \case
-                 DotSepIdent ns n => Just (Just ns, n)
+                 DotSepIdent ns n => Just (Just (nsOf ns), n)
                  Ident i => Just (Nothing, i)
                  _ => Nothing
 
-isCapitalisedIdent : WithBounds String -> EmptyRule ()
+isCapitalisedIdent : WithBounds Ident -> EmptyRule ()
 isCapitalisedIdent str =
-  let val = str.val
+  let val = str.val.text
       loc = str.bounds
       err : EmptyRule ()
           = failLoc loc ("Expected a capitalised identifier, got: \{val}")
@@ -355,7 +359,7 @@ moduleIdent : Rule ModuleIdent
 moduleIdent = nsAsModuleIdent <$> namespaceId
 
 export
-unqualifiedName : Rule String
+unqualifiedName : Rule Ident
 unqualifiedName = identPart
 
 export
@@ -363,7 +367,7 @@ userName : Rule Name
 userName = UN . Basic <$> unqualifiedName
 
 export
-holeName : Rule String
+holeName : Rule Ident
 holeName
     = terminal "Expected hole name" $
                \case
@@ -378,16 +382,16 @@ reservedNames
       ]
 
 export
-anyReservedIdent : Rule (WithBounds String)
+anyReservedIdent : Rule (WithBounds Ident)
 anyReservedIdent = do
     id <- bounds identPart
-    unless (id.val `elem` reservedNames) $ failLoc id.bounds "Expected reserved identifier"
+    unless (id.val.text `elem` reservedNames) $ failLoc id.bounds "Expected reserved identifier"
     pure id
 
-isNotReservedName : WithBounds String -> EmptyRule ()
+isNotReservedName : WithBounds Ident -> EmptyRule ()
 isNotReservedName x
-    = when (x.val `elem` reservedNames) $
-        failLoc x.bounds $ "Can't use reserved name \{x.val}"
+    = when (x.val.text `elem` reservedNames) $
+        failLoc x.bounds $ "Can't use reserved name \{x.val.text}"
 
 isNotReservedSymbol : WithBounds String -> EmptyRule ()
 isNotReservedSymbol x
@@ -404,7 +408,7 @@ opNonNS = do
   symbol ")"
   pure id.val
 
-identWithCapital : (capitalised : Bool) -> WithBounds String ->
+identWithCapital : (capitalised : Bool) -> WithBounds Ident ->
                    EmptyRule ()
 identWithCapital b x = when b (isCapitalisedIdent x)
 
@@ -414,14 +418,14 @@ nameWithCapital b = opNonNS <|> do
   opNS nsx <|> nameNS nsx
  where
 
-  nameNS : WithBounds (Maybe Namespace, String) -> EmptyRule Name
+  nameNS : WithBounds (Maybe Namespace, Ident) -> EmptyRule Name
   nameNS nsx = do
     let id = snd <$> nsx
     identWithCapital b id
     isNotReservedName id
     pure $ uncurry mkNamespacedName (map Basic nsx.val)
 
-  opNS : WithBounds (Maybe Namespace, String) -> Rule Name
+  opNS : WithBounds (Maybe Namespace, Ident) -> Rule Name
   opNS nsx = do
     isCapitalisedIdent (snd <$> nsx)
     let ns = uncurry mkNestedNamespace nsx.val
@@ -435,7 +439,7 @@ fixityNS : Rule HidingDirective
 fixityNS = do
   namespacePrefix <- bounds namespacedIdent
   let nsVal = namespacePrefix.val
-  fx <- checkFixity (snd nsVal) namespacePrefix.bounds
+  fx <- checkFixity (snd nsVal).text namespacePrefix.bounds
   symbol ".("
   n <- unqualifiedOperatorName
   symbol ")"
@@ -457,7 +461,7 @@ capitalisedName : Rule Name
 capitalisedName = nameWithCapital True
 
 export
-capitalisedIdent : Rule String
+capitalisedIdent : Rule Ident
 capitalisedIdent = do
   id <- bounds identPart
   isCapitalisedIdent id
@@ -523,15 +527,20 @@ checkValid (AtPos x) c = unless (c == x) $ fail "Invalid indentation"
 checkValid (AfterPos x) c = unless (c >= x) $ fail "Invalid indentation"
 checkValid EndOfBlock c = fail "End of block"
 
+||| A symbol which ends a statement/block/expression
+terminatorSymbol : String -> Bool
+terminatorSymbol "," = True
+terminatorSymbol "]" = True
+terminatorSymbol ";" = True
+terminatorSymbol "}" = True
+terminatorSymbol ")" = True
+terminatorSymbol "|" = True
+terminatorSymbol "**" = True
+terminatorSymbol _ = False
+
 ||| Any token which indicates the end of a statement/block/expression
 isTerminator : Token -> Bool
-isTerminator (Symbol ",") = True
-isTerminator (Symbol "]") = True
-isTerminator (Symbol ";") = True
-isTerminator (Symbol "}") = True
-isTerminator (Symbol ")") = True
-isTerminator (Symbol "|") = True
-isTerminator (Symbol "**") = True
+isTerminator (Symbol s) = terminatorSymbol s.text
 isTerminator (Keyword "in") = True
 isTerminator (Keyword "then") = True
 isTerminator (Keyword "else") = True

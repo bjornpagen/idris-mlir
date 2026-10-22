@@ -12,8 +12,6 @@ import Data.String
 import Libraries.Data.String.Extra
 import Libraries.Utils.String
 
-import Core.Name.Namespace
-
 %default total
 
 public export
@@ -21,7 +19,10 @@ data Token
   = Comment String
   | EndOfInput
   | Equals
-  | DotSepIdent (Maybe Namespace) String
+  -- A dotted identifier's parts as written, the namespace's outermost first:
+  -- a property's or a package's name is text, and a module's identifier is
+  -- interned where the package description is read.
+  | DotSepIdent (List String) String
   | Separator
   | Dot
   | LTE
@@ -39,7 +40,7 @@ Show Token where
   show (Comment str) = "Comment: " ++ str
   show EndOfInput = "EndOfInput"
   show Equals = "Equals"
-  show (DotSepIdent ns n) = "DotSepIdentifier: " ++ show ns ++ "." ++ show n
+  show (DotSepIdent ns n) = "DotSepIdentifier: " ++ joinBy "." (ns ++ [n])
   show Separator = "Separator"
   show Dot = "Dot"
   show LTE = "LTE"
@@ -57,7 +58,7 @@ Pretty Void Token where
   pretty (Comment str) = "Comment:" <++> pretty str
   pretty EndOfInput = "EndOfInput"
   pretty Equals = "Equals"
-  pretty (DotSepIdent ns n) = "DotSepIdentifier:" <++> prettyMaybe ns <+> dot <+> pretty n
+  pretty (DotSepIdent ns n) = "DotSepIdentifier:" <++> foldr (\ p, d => pretty p <+> dot <+> d) (pretty n) ns
   pretty Separator = "Separator"
   pretty Dot = "Dot"
   pretty LTE = "LTE"
@@ -101,8 +102,8 @@ rawTokens : TokenMap Token
 rawTokens =
   [ (comment, Comment . drop 2)
   , (blockComment, Comment . shrink 2)
-  , (identAllowDashes <+> reject dot, DotSepIdent Nothing)
-  , (namespacedIdent, uncurry DotSepIdent . mkNamespacedIdent)
+  , (identAllowDashes <+> reject dot, DotSepIdent [])
+  , (namespacedIdent, uncurry DotSepIdent . dottedParts)
   , (separator, const Separator)
   , (dot, const Dot)
   , (lte, const LTE)

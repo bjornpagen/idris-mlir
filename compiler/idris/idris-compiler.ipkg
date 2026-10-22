@@ -7,6 +7,8 @@ license = "BSD-3-Clause (see LICENSE)"
 
 sourcedir = "src"
 
+depends = mlir-linear, mlir-array
+
 modules =
     Algebra,
     Algebra.Preorder,
@@ -37,6 +39,8 @@ modules =
     Core.LinearCheck,
     Core.Metadata,
     Core.Name,
+    Core.Name.Ident,
+    Core.Name.Known,
     Core.Name.Namespace,
     Core.Name.Scoped,
     Core.Normalise,
@@ -50,6 +54,7 @@ modules =
     Core.TT,
     Core.TT.Binder,
     Core.TT.Primitive,
+    Core.TT.Stored,
     Core.TT.Subst,
     Core.TT.Term,
     Core.TT.Term.Subst,

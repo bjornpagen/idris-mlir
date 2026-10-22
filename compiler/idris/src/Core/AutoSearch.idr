@@ -254,7 +254,7 @@ mkArgs : {vars : _} ->
 mkArgs fc rigc env (NBind nfc x (Pi fc' c p ty) sc)
     = do defs <- get Ctxt
          empty <- clearDefs defs
-         nm <- genName "sa"
+         nm <- genName (known Ksa)
          argTy <- quote empty env ty
          let argRig = rigMult rigc c
          (idx, arg) <- newMeta fc' argRig env nm argTy
@@ -294,7 +294,8 @@ searchIfHole fc defaults trying ispair track def top env arg
          let Hole _ _ = definition gdef
               | _ => pure (Found ()) -- already solved
          top' <- if ispair
-                    then normaliseScope defs Env.empty (type gdef)
+                    then do ty <- typeOf gdef
+                            normaliseScope defs Env.empty ty
                     else pure top
 
          andThen (searchType fc rig defaults trying track def False top' env
@@ -575,7 +576,7 @@ searchName fc rigc defaults trying track def top env target (n, ndef)
          when (BlockedHint `elem` flags ndef) $
             throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
 
-         let ty = type ndef
+         ty <- typeOf ndef
          when (isErased ty) $
             throw (CantSolveGoal fc (gamma defs) [] top Nothing)
 

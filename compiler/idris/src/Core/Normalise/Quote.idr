@@ -66,7 +66,7 @@ interface Quote tm where
                        err => throw err)
 
 export
-genName : {auto q : Ref QVar Int} -> String -> Core Name
+genName : {auto q : Ref QVar Int} -> Ident -> Core Name
 genName n
     = do i <- get QVar
          put QVar (i + 1)
@@ -188,7 +188,7 @@ mutual
                Defs -> Bounds bound ->
                Env Term vars -> NF vars -> Core (Term (bound ++ vars))
   quoteGenNF q opts defs bound env (NBind fc n b sc)
-      = do var <- genName "qv"
+      = do var <- genName (known Kqv)
            sc' <- quoteGenNF q opts defs (Add n var bound) env
                        !(sc defs (toClosure defaultOpts env (Ref fc Bound var)))
            b' <- quoteBinder q opts defs bound env b
@@ -265,7 +265,7 @@ quoteWithPiGen : {auto _ : Ref Ctxt Defs} ->
                  Ref QVar Int -> QuoteOpts -> Defs -> Bounds bound ->
                  Env Term vars -> NF vars -> Core (Term (bound ++ vars))
 quoteWithPiGen q opts defs bound env (NBind fc n (Pi bfc c p ty) sc)
-    = do var <- genName "qv"
+    = do var <- genName (known Kqv)
          empty <- clearDefs defs
          sc' <- quoteWithPiGen q opts defs (Add n var bound) env
                      !(sc defs (toClosure defaultOpts env (Ref fc Bound var)))
