@@ -46,19 +46,21 @@ struct Read {
 // constructor or a capture of a closure: the places a hole or a context's
 // part may be.
 std::optional<unsigned> fieldIndex(const FlowAnchor &anchor) {
+  using Found = std::optional<unsigned>;
   return idr::match(
-      anchor.place, [](const FlowAnchor::Field &field) -> std::optional<unsigned> {
-        return field.index;
-      },
-      [](const FlowAnchor::Capture &capture) -> std::optional<unsigned> { return capture.index; },
-      [](const auto &) -> std::optional<unsigned> { return std::nullopt; });
+      anchor.place, [](const FlowAnchor::Field &field) -> Found { return field.index; },
+      [](const FlowAnchor::Capture &capture) -> Found { return capture.index; },
+      [](const FlowAnchor::Elements &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::Forced &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::MemoState &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::Hole &) -> Found { return std::nullopt; });
 }
 
-// Whether `point` is the value `use` gives, taken or only read.
-bool isUse(const std::variant<FlowPoint::Taken, FlowPoint::Whole> &point, OpOperand &use) {
+// Whether `source` is the value `use` gives, taken or only read.
+bool isUse(const std::variant<FlowSource::Taken, FlowSource::Whole> &source, OpOperand &use) {
   return idr::match(
-      point, [&](FlowPoint::Taken taken) { return taken.use == &use; },
-      [&](FlowPoint::Whole whole) { return whole.value == use.get(); });
+      source, [&](FlowSource::Taken taken) { return taken.use == &use; },
+      [&](FlowSource::Whole whole) { return whole.value == use.get(); });
 }
 
 // What the op that holds `use` declares it does with the use's value: a
@@ -73,38 +75,39 @@ std::variant<std::monostate, Moved, Read> movesOf(OpOperand &use) {
   flowEdgesOf(op, edges);
   std::optional<Moved> moved;
   std::optional<Read> read;
-  for (const FlowEdges::Edge &edge : edges.edges())
+  // Only a flow moves a value; every other edge says nothing of where.
+  auto readFlow = [&](const FlowEdges::Flow &flow) {
     idr::match(
-        edge.move,
-        [&](const FlowEdges::Flow &flow) {
-          idr::match(
-              flow.to.at,
-              [&](const FlowPoint::Part &to) {
-                // From the use itself into a part of a result of the op.
-                bool fromUse = idr::match(
-                    flow.from.at, [&](FlowPoint::Taken taken) { return taken.use == &use; },
-                    [&](FlowPoint::Whole whole) { return whole.value == use.get(); },
-                    [](const auto &) { return false; });
-                std::optional<unsigned> field = fieldIndex(to.anchor);
-                Value built = idr::match(
-                    to.of, [](FlowPoint::Taken) { return Value(); },
-                    [](FlowPoint::Whole whole) { return whole.value; });
-                if (fromUse && field && built && built.getDefiningOp() == op)
-                  moved = Moved{built, to.anchor, *field};
-              },
-              [&](const FlowPoint::Whole &to) {
-                // From a part of the use's value to a result of the op.
-                idr::match(
-                    flow.from.at,
-                    [&](const FlowPoint::Part &from) {
-                      if (isUse(from.of, use) && to.value.getDefiningOp() == op)
-                        read = Read{to.value, from.anchor};
-                    },
-                    [](const auto &) {});
-              },
-              [](const auto &) {});
+        flow.to.at,
+        [&](const FlowPlace::Part &to) {
+          // From the use itself into a part of a result of the op.
+          bool fromUse = idr::match(
+              flow.from.at, [&](FlowSource::Taken taken) { return taken.use == &use; },
+              [&](FlowSource::Whole whole) { return whole.value == use.get(); },
+              [](const FlowSource::Part &) { return false; },
+              [](FlowSource::Parameter) { return false; }, [](FlowSource::Result) { return false; });
+          std::optional<unsigned> field = fieldIndex(to.anchor);
+          if (fromUse && field && to.of.getDefiningOp() == op)
+            moved = Moved{to.of, to.anchor, *field};
         },
-        [](const auto &) {});
+        [&](FlowSource::Whole to) {
+          // From a part of the use's value to a result of the op.
+          idr::match(
+              flow.from.at,
+              [&](const FlowSource::Part &from) {
+                if (isUse(from.of, use) && to.value.getDefiningOp() == op)
+                  read = Read{to.value, from.anchor};
+              },
+              [](FlowSource::Taken) {}, [](FlowSource::Whole) {}, [](FlowSource::Parameter) {},
+              [](FlowSource::Result) {});
+        },
+        [](FlowSource::Parameter) {}, [](FlowSource::Result) {});
+  };
+  for (const FlowEdges::Edge &edge : edges.edges())
+    idr::match(edge.move, readFlow, [](const FlowEdges::Unify &) {},
+               [](const FlowEdges::Source &) {}, [](const FlowEdges::Fresh &) {},
+               [](const FlowEdges::Release &) {}, [](const FlowEdges::Overwrite &) {},
+               [](const FlowEdges::Constant &) {}, [](const FlowEdges::Dispatch &) {});
   if (moved)
     return *moved;
   if (read)

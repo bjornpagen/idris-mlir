@@ -6,8 +6,9 @@
 // depth on typed frame stacks, never on the native stack. The passes that
 // make it so share these declarations:
 //   - idr-accumulate: a self call combined in a tail by an operation the
-//     runtime defines as exactly associative, with its identity, becomes
-//     a tail call carrying the combination so far (an optimization).
+//     runtime defines as exactly associative, with its identity, or by the
+//     short circuit `&&` and `||` are, becomes a tail call carrying the
+//     combination so far (an optimization).
 //   - idr-trmc: every self call modulo a context (a promise) fills the
 //     hole of cells built before it, so it is a tail call of a clone that
 //     takes a destination.
@@ -54,11 +55,44 @@ namespace idr::tail {
 // keeps the combination on that side, so the operation need not commute.
 enum class Side : std::uint8_t { Left, Right };
 
+// An op the specification calls exactly associative, with its identity
+// (the attribute its dialect materializes at the combination's type,
+// untyped for a big), held as what the op is, so the clone makes it again
+// wherever it combines, whatever became of the op it was read off.
+struct Law {
+  mlir::OperationName name;
+  mlir::Attribute properties;
+  mlir::DictionaryAttr discardable;
+  mlir::Attribute identity;
+};
+
+// `&&` and `||` as they reach the pass: base's functions of a lazy second
+// operand, inlined, are a match on the first operand, of a type of two
+// constructors that hold nothing, whose region for one, the absorbing
+// constructor (`&&`'s False, `||`'s True), gives it back, and whose region
+// for the other gives the second operand. "a if a is the absorbing
+// constructor, else b" is exactly associative, the other constructor its
+// identity, and reads b only where a does not decide. Held as the two
+// constructors and the refined scrutinee each region binds, from which the
+// clone builds the match again.
+struct ShortCircuit {
+  Tag absorbing;
+  Tag identity;
+  mlir::Type absorbingType;
+  mlir::Type identityType;
+};
+
+// The operation a tail combines a self call's result by.
+using Combination = std::variant<Law, ShortCircuit>;
+
 // A self call whose one result `combine`, the tail, takes with another
-// value that no self call computes: `f(...) ⊕ g` or `g ⊕ f(...)`.
+// value that no self call computes, by `by`: `f(...) ⊕ g` or `g ⊕ f(...)`,
+// where `combine` is the law's op or the short circuit's match (the call
+// then on the left).
 struct Combined {
   CallOp call;
   mlir::Operation *combine;
+  Combination by;
   Side side;
 };
 // A self call of a function of accumulator tails: a tail call, which
@@ -67,19 +101,21 @@ using Site = std::variant<CallOp, Combined>;
 
 // What becomes of a function whose every self call is a site and one at
 // least is combined, every combination by one operation on one side (or
-// by one that commutes): its sites, the operation (the first site's op,
-// which the clone copies to combine), its identity (the attribute the
-// dialect materializes at the combination's type, untyped for a big), and
-// the side.
+// by one that commutes), at the function's result type: its sites, the
+// operation, and the side.
 struct Accumulator {
   llvm::SmallVector<Site> sites;
-  mlir::Operation *combine;
-  mlir::Attribute identity;
+  Combination by;
   Side side;
 };
 
 // `fn`'s accumulator, or none.
 std::optional<Accumulator> accumulatorOf(FuncOp fn);
+
+// The one constructor `value` is, where its type says so through what
+// gives it on with no run-time work: a constructor built, a constant, a
+// match's refined scrutinee. None where its type leaves more than one.
+std::optional<Tag> statedConstructor(mlir::Value value);
 
 //===----------------------------------------------------------------------===//
 // Frames

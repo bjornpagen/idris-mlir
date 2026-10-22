@@ -20,18 +20,28 @@
 using namespace mlir;
 
 namespace idr::tail {
+
+// A reindex is one op whose run-time work its two types decide: none where
+// they share a layout, a re-pack where they do not, which is work after
+// the value it takes. A change of grade has no run-time form.
+bool carriesOn(Operation *op) {
+  if (auto reindex = dyn_cast<DataReindexOp>(op))
+    return reindex.isFree();
+  return op->hasTrait<ResultCarriesOperand>();
+}
+
 namespace {
 
-// The block's terminator, when the ops after `op` only change the grade of
-// its results and the terminator forwards exactly those values, which
-// `values` then holds; null when another op runs after `op`, so that what
-// `op` gives is not yet what the block gives, or when the terminator
+// The block's terminator, when the ops after `op` only give its results on
+// with no run-time work and the terminator forwards exactly those values,
+// which `values` then holds; null when another op runs after `op`, so that
+// what `op` gives is not yet what the block gives, or when the terminator
 // forwards anything else.
 Operation *passesOn(Operation *op, SmallVectorImpl<Value> &values) {
   values.assign(op->result_begin(), op->result_end());
   Operation *next = op->getNextNode();
   for (; next && !next->hasTrait<OpTrait::IsTerminator>(); next = next->getNextNode()) {
-    if (!next->hasTrait<ResultCarriesOperand>())
+    if (!carriesOn(next))
       return nullptr;
     auto *carried = llvm::find(values, next->getOperand(0));
     if (carried == values.end())
@@ -61,7 +71,7 @@ Operation *rejoinOf(Operation *terminator) {
 Operation *tailSource(Block &block) {
   Operation *terminator = block.getTerminator();
   Operation *source = terminator->getPrevNode();
-  while (source && source->hasTrait<ResultCarriesOperand>())
+  while (source && carriesOn(source))
     source = source->getPrevNode();
   llvm::SmallVector<Value, 4> values;
   return source && passesOn(source, values) == terminator ? source : nullptr;
@@ -106,13 +116,9 @@ TailKind decide(CallOp call) {
   return TailKind::nontail;
 }
 
-namespace {
-
-// Whether every call's fact in `fn`'s program is decide's answer, as it is
-// from the pass that makes the program first order on, which writes it on
-// every call; before it, `tail` and `modulo_context` are promises a call
-// keeps and a call left `nontail` makes none.
 bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTails::Decided; }
+
+namespace {
 
 // Whether an operand of a call that becomes a jump is, or lives in, a
 // lifetime that ends with the call: that lifetime, through the views and

@@ -12,8 +12,10 @@
 // first-order program on, the fact is exactly decide's answer: a call in
 // tail position left an ordinary call, or a self call the rule below
 // admits left one, is a jump the compiler fails to make. The verifier
-// reports either as an internal error. The frontend decides none: its
-// program writes every call `nontail`, which promises nothing.
+// reports either as an internal error. The frontend writes every call
+// `nontail`, which promises nothing: no source syntax states a context,
+// so it would only restate the decider. decide, run where the program
+// becomes first order, writes `tail` and `modulo_context`.
 //
 // A self call modulo a context (`modulo_context`) is the second promise:
 // its one result goes only into cells built for it whose value a tail
@@ -34,18 +36,23 @@
 
 namespace idr::tail {
 
+// Whether `op` gives its operand's value on with no run-time work, so that
+// a call whose result it takes may still be the tail: a change of grade
+// (ResultCarriesOperand), or a reindex whose two types share a run-time
+// layout. A reindex that re-packs is work after the call.
+bool carriesOn(mlir::Operation *op);
+
 // Whether what `op` gives is what its function gives: the ops after it in
-// its block only change the grade of its results (ResultCarriesOperand,
-// no run-time form), the block's terminator forwards exactly those values,
-// and that terminator is the function's return, or ends a region of an op
-// a control-flow break may cross (PropagateControlFlowBreak: the matches,
-// the join points) and forwards them to that op's results, which give what
-// the function gives in turn. An op that does something when its region
-// ends (a lifetime's opener frees its memory there, an answer slot reads
-// its results there) lets no break cross it, so nothing inside it is in
-// tail position. The one definition of
-// tail position. It reads up the regions above `op`; a verifier asks
-// verify(FuncOp) instead, which reads each region once.
+// its block only give its results on (carriesOn), the block's terminator
+// forwards exactly those values, and that terminator is the function's
+// return, or ends a region of an op a control-flow break may cross
+// (PropagateControlFlowBreak: the matches, the join points) and forwards
+// them to that op's results, which give what the function gives in turn.
+// An op that does something when its region ends (a lifetime's opener
+// frees its memory there, an answer slot reads its results there) lets no
+// break cross it, so nothing inside it is in tail position. The one
+// definition of tail position. It reads up the regions above `op`; a
+// verifier asks verify(FuncOp) instead, which reads each region once.
 bool inTailPosition(mlir::Operation *op);
 
 // The blocks of `fn` where a tail ends: the body's, and down through each
@@ -115,6 +122,13 @@ struct Context {
 
 // `call`'s context, or none when the rule does not admit it.
 std::optional<Context> contextOf(CallOp call);
+
+// Whether every call's fact in `fn`'s program is decide's answer, as it is
+// from the stage where the program becomes first order on; before it, the
+// frontend's `nontail` promises nothing. The one reading of the stage
+// table for tail facts: a pass that must keep them exact, or may leave
+// them, asks here.
+bool decided(FuncOp fn);
 
 // What `call`'s place in its function makes it: `tail` in tail position;
 // `modulo_context` for a self call contextOf admits; `nontail` otherwise.

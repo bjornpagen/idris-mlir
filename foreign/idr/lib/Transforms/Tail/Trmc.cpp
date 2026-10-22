@@ -4,9 +4,9 @@
 //
 // Every self call modulo a context becomes a tail call that writes its
 // result. The call's fact says it is one (`modulo_context`, which the
-// frontend wrote and every pass kept, the verifier holding each to the
-// rule), so nothing here searches: each call's context is read once, off
-// the call, and executed.
+// decider wrote where the program became first order and every pass kept,
+// the verifier holding each to the rule), so nothing here searches: each
+// call's context is read once, off the call, and executed.
 //
 // `copy (Cons x xs) = Cons x (copy xs)` returns through every level of the
 // list. The cell can be built before the call, with the field a hole, and

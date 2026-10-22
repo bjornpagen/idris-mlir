@@ -7,7 +7,15 @@
 // operation's identity, and the clone combines before it calls itself. A
 // tail of the clone that gives a value combines it with what it carries;
 // a tail that is already a self call passes it on. idr-tail-loops makes
-// the clone a loop, and the combination a value of the iteration.
+// the clone a loop, and the combination a value of the iteration. A
+// short circuit (`&&`, `||` with the self call first) combines by a match
+// the clone builds of the two constructors, whose second operand moves
+// before the call: it runs on every path, which only a value that
+// computes and may run anywhere does.
+//
+// What the clone combines by is held as data, never as an op of the
+// function: the first site's op is gone once its site is rewritten, and
+// the function's own body once it starts the clone.
 //
 // It runs before counting, while the call's result is still what the tail
 // combines: counting borrows that result and drops it after the
@@ -24,9 +32,12 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Generated/Actions.h.inc"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Footprint.h"
@@ -36,6 +47,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+
+#include <array>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRACCUMULATE
@@ -54,19 +67,95 @@ struct AccumulateAction : support::TaggedAction<AccumulateAction> {
   static constexpr std::string_view tag = ::idr::actions::accumulate;
 };
 
-// `a ⊕ b`, the plan's operation on two values: a copy of its op, which
-// carries whatever attributes say how it computes.
-Value combine(RewriterBase &rewriter, const Accumulator &plan, Value a, Value b) {
-  Operation *made = rewriter.clone(*plan.combine);
-  made->setOperands({a, b});
-  return made->getResult(0);
+// `value`, of a type refined to one constructor of `type`'s data, at
+// `type`: the refinement forgotten by the dialect's cast, then the grade.
+Value forgetRefinement(OpBuilder &b, Location loc, Value value, Type type) {
+  Type carrier = unrestricted(type);
+  if (unrestricted(value.getType()) != carrier)
+    value = DataReindexOp::create(b, loc, graded(gradeOf(value.getType()), carrier), value);
+  return heldAs(b, loc, value, type);
 }
 
-// The combination of `value`, given at a tail of the clone, with what the
-// clone carries, on the side the calls were on.
-Value withCarried(RewriterBase &rewriter, const Accumulator &plan, Value value, Value carried) {
-  return plan.side == Side::Left ? combine(rewriter, plan, value, carried)
-                                 : combine(rewriter, plan, carried, value);
+// `a ⊕ b` at `type`, the function's result type: the law's op made again
+// from what it is; or the short circuit's match, which gives `a` where `a`
+// is the absorbing constructor and `b` where it is the other, so `b` is
+// read only where `a` does not decide. Where `a`'s type already says which
+// it is, that decides here, never at run time.
+Value combine(RewriterBase &rewriter, Location loc, const Combination &by, Type type, Value a,
+              Value b) {
+  return idr::match(
+      by,
+      [&](const Law &law) -> Value {
+        OperationState state(loc, law.name);
+        state.addOperands({a, b});
+        state.addTypes(type);
+        state.addAttributes(law.discardable.getValue());
+        state.propertiesAttr = law.properties;
+        return rewriter.create(state)->getResult(0);
+      },
+      [&](const ShortCircuit &circuit) -> Value {
+        std::optional<Tag> known = statedConstructor(a);
+        if (known == circuit.absorbing)
+          return a;
+        if (known == circuit.identity)
+          return b;
+        std::array<Tag, 2> tags{circuit.absorbing, circuit.identity};
+        auto made = DataMatchOp::create(rewriter, loc, TypeRange(type), a, ValueRange(), tags);
+        OpBuilder::InsertionGuard guard(rewriter);
+        Region &absorbing = made.getCaseRegion(0);
+        Block *absorbs =
+            rewriter.createBlock(&absorbing, absorbing.end(), circuit.absorbingType, loc);
+        YieldOp::create(rewriter, loc,
+                        forgetRefinement(rewriter, loc, absorbs->getArgument(0), type));
+        Region &other = made.getCaseRegion(1);
+        rewriter.createBlock(&other, other.end(), circuit.identityType, loc);
+        YieldOp::create(rewriter, loc, b);
+        return made->getResult(0);
+      });
+}
+
+// The operation's identity at `type`, from which the function the program
+// calls starts the clone: the law's constant, as its op's dialect makes it;
+// or the short circuit's other constructor, a constant of its refined type.
+Value identityAt(RewriterBase &rewriter, Location loc, const Combination &by, Type type) {
+  return idr::match(
+      by,
+      [&](const Law &law) -> Value {
+        return law.name.getDialect()
+            ->materializeConstant(rewriter, law.identity, type, loc)
+            ->getResult(0);
+      },
+      [&](const ShortCircuit &circuit) -> Value {
+        Type bare = unrestricted(circuit.identityType);
+        auto constructor =
+            ConAttr::get(rewriter.getContext(), dataTypeOf(bare), rewriter.getArrayAttr({}));
+        Value made = ConstantOp::create(rewriter, loc, bare, constructor);
+        return forgetRefinement(rewriter, loc, made, type);
+      });
+}
+
+// The value the combination at `site` takes beside the call's, ready where
+// the combination is: a law's other operand; or what the short circuit's
+// other region gives, its ops moved out before the match, which they may
+// precede (they only compute, on every path), each call among them taking
+// the fact its new place gives it.
+Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
+  return idr::match(
+      site.by,
+      [&](const Law &) -> Value { return at->getOperand(site.side == Side::Left ? 1 : 0); },
+      [&](const ShortCircuit &circuit) -> Value {
+        Region *other =
+            control::takenRegion(cast<DataMatchOp>(at), static_cast<int32_t>(circuit.identity));
+        Block &body = other->front();
+        llvm::SmallVector<Operation *> moved;
+        for (Operation &op : llvm::make_early_inc_range(body.without_terminator())) {
+          rewriter.moveOpBefore(&op, at);
+          moved.push_back(&op);
+        }
+        for (Operation *op : moved)
+          op->walk([](CallOp call) { call.setTailKind(decide(call)); });
+        return body.getTerminator()->getOperand(0);
+      });
 }
 
 // A tail call of `clone` in place of `old`, passing `carried` after the
@@ -83,7 +172,7 @@ CallOp callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, Value carried
 // `fn` calls it with the identity.
 void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumulator &plan) {
   MLIRContext *ctx = fn.getContext();
-  Type carriedType = plan.combine->getResult(0).getType();
+  Type carriedType = fn.getFunctionType().getResult(0);
   IRMapping mapping;
   auto clone = cast<FuncOp>(fn->clone(mapping));
   clone.setSymNameAttr(StringAttr::get(ctx, fn.getSymName() + ".acc"));
@@ -91,8 +180,6 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
                              fn.getLoc());
   symbols.insert(clone, std::next(fn->getIterator()));
   Value carried = clone.getArguments().back();
-  Accumulator mapped = plan;
-  mapped.combine = mapping.lookup(plan.combine);
 
   for (const Site &site : plan.sites)
     idr::match(
@@ -105,20 +192,21 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
         [&](const Combined &combined) {
           auto call = cast<CallOp>(mapping.lookup(combined.call.getOperation()));
           Operation *at = mapping.lookup(combined.combine);
-          Value other = at->getOperand(combined.side == Side::Left ? 1 : 0);
+          Value other = otherOf(rewriter, combined, at);
           rewriter.setInsertionPoint(at);
           // The other operand joins what is carried on the call's side: for
           // f(...) ⊕ g the clone goes on with g ⊕ carried, for g ⊕ f(...)
           // with carried ⊕ g.
-          Value next = combined.side == Side::Left ? combine(rewriter, mapped, other, carried)
-                                                    : combine(rewriter, mapped, carried, other);
+          Value next = combined.side == Side::Left
+                           ? combine(rewriter, at->getLoc(), plan.by, carriedType, other, carried)
+                           : combine(rewriter, at->getLoc(), plan.by, carriedType, carried, other);
           rewriter.replaceOp(at, callClone(rewriter, call, clone, next));
           rewriter.eraseOp(call);
         });
 
-  // Every other tail of the clone combines the value it gives; a call that
-  // gave it is no longer in tail position, and takes the fact its place
-  // now gives it.
+  // Every other tail of the clone combines the value it gives, on the side
+  // the calls were on; a call that gave it is no longer in tail position,
+  // and takes the fact its place now gives it.
   for (Block *end : tailEnds(clone)) {
     Operation *terminator = end->getTerminator();
     if (terminator->getNumOperands() != 1)
@@ -127,7 +215,11 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
     if (call && call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
       continue;
     rewriter.setInsertionPoint(terminator);
-    Value given = withCarried(rewriter, mapped, terminator->getOperand(0), carried);
+    Value value = terminator->getOperand(0);
+    Location loc = terminator->getLoc();
+    Value given = plan.side == Side::Left
+                      ? combine(rewriter, loc, plan.by, carriedType, value, carried)
+                      : combine(rewriter, loc, plan.by, carriedType, carried, value);
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, given); });
     if (call)
       call.setTailKind(decide(call));
@@ -138,9 +230,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   for (Operation &op : llvm::make_early_inc_range(llvm::reverse(entry)))
     rewriter.eraseOp(&op);
   rewriter.setInsertionPointToStart(&entry);
-  Value identity = plan.combine->getDialect()
-                       ->materializeConstant(rewriter, plan.identity, carriedType, fn.getLoc())
-                       ->getResult(0);
+  Value identity = identityAt(rewriter, fn.getLoc(), plan.by, carriedType);
   llvm::SmallVector<Value> args(entry.getArguments());
   args.push_back(identity);
   unsigned own = static_cast<unsigned>(
