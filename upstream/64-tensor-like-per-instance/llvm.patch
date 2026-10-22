@@ -1,0 +1,105 @@
+Subject: [PATCH] [mlir][bufferization] Tensor-likeness per instance; bridges
+ checked by their interface alone
+
+`TensorLikeType` and `BufferLikeType` belong to a type's class, so a
+type whose instances are tensor-like for some parameters alone (a
+wrapper of another type, tensor-like where the wrapped type is, and not
+where it wraps a scalar) cannot implement them: every instance would be
+a tensor to One-Shot Bufferize. Interfaces already decide per instance
+through `extraClassOf`, as `SymbolOpInterface` does for ops; the two
+bufferization type interfaces now do: `isTensorLike()` and
+`isBufferLike()`, true by default, narrow `isa` to the instances that
+answer true.
+
+`bufferization.to_tensor` and `to_buffer` also carry
+`SameOperandsAndResultShape` and `SameOperandsAndResultElementType`,
+which require shaped types, beside
+`Bufferization_TensorAndBufferMatch`, which asks the tensor-like type
+whether the buffer type is compatible
+(`TensorLikeType::verifyCompatibleBufferType`). For builtins that check
+is the same shapes and element types; for a tensor-like type that is not
+shaped, the two traits refuse every bridge. They go, and the interface's
+check is the one rule.
+---
+diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationOps.td b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationOps.td
+index 30317c2d..e95dc992 100644
+--- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationOps.td
++++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationOps.td
+@@ -329,8 +329,6 @@ class Bufferization_TensorAndBufferMatch<string tensor, string buffer> : PredOpT
+ >;
+ 
+ def Bufferization_ToTensorOp : Bufferization_Op<"to_tensor", [
+-    SameOperandsAndResultShape,
+-    SameOperandsAndResultElementType,
+     Bufferization_TensorAndBufferMatch<"result", "buffer">
+   ]> {
+   let summary = "create a tensor-like type from a buffer-like type";
+@@ -413,8 +411,6 @@ def Bufferization_ToTensorOp : Bufferization_Op<"to_tensor", [
+ //===----------------------------------------------------------------------===//
+ 
+ def Bufferization_ToBufferOp : Bufferization_Op<"to_buffer", [
+-    SameOperandsAndResultShape,
+-    SameOperandsAndResultElementType,
+     Pure,
+     Bufferization_TensorAndBufferMatch<"tensor", "buffer">
+   ]> {
+diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td
+index 6bbc6cb5..cd97664c 100644
+--- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td
++++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td
+@@ -33,8 +33,25 @@ def Bufferization_TensorLikeTypeInterface
+       /*args=*/(ins
+         "::mlir::bufferization::BufferLikeType":$bufferType,
+         "::llvm::function_ref<::mlir::InFlightDiagnostic()>":$emitError)
++    >,
++    InterfaceMethod<[{
++        Returns whether this instance of the type is tensor-like. A type whose
++        instances are tensor-like for some parameters alone (a wrapper of
++        another type, tensor-like where the wrapped type is) implements the
++        interface and answers per instance; `isa<TensorLikeType>` is false
++        for an instance that answers false.
++      }],
++      /*retTy=*/"bool",
++      /*methodName=*/"isTensorLike",
++      /*args=*/(ins),
++      /*methodBody=*/"",
++      /*defaultImplementation=*/[{ return true; }]
+     >
+   ];
++
++  let extraClassOf = [{
++    return $_type.isTensorLike();
++  }];
+ }
+ 
+ def Bufferization_BufferLikeTypeInterface
+@@ -44,8 +61,27 @@ def Bufferization_BufferLikeTypeInterface
+     Indicates that this type is a buffer type (similarly to a MLIR builtin
+     memref) for bufferization purposes.
+ 
+-    The interface currently has no methods as it is used by types to opt into
+-    being supported by the bufferization procedures.
++    A type opts into being supported by the bufferization procedures by
++    implementing it.
++  }];
++
++  let methods = [
++    InterfaceMethod<[{
++        Returns whether this instance of the type is buffer-like. A type whose
++        instances are buffer-like for some parameters alone answers per
++        instance; `isa<BufferLikeType>` is false for an instance that answers
++        false.
++      }],
++      /*retTy=*/"bool",
++      /*methodName=*/"isBufferLike",
++      /*args=*/(ins),
++      /*methodBody=*/"",
++      /*defaultImplementation=*/[{ return true; }]
++    >
++  ];
++
++  let extraClassOf = [{
++    return $_type.isBufferLike();
+   }];
+ }
+ 

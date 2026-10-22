@@ -2,7 +2,7 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][bufferization] An out-of-place OpOperand of a tensor-like type that is not a builtin tensor gets no copy
 
-On llvm main at 7208ba24 (the pin), One-Shot Bufferize handles a
+On llvm main at 416f328b (the pin, 2026-10-21), as at 7208ba24, One-Shot Bufferize handles a
 `TensorLikeType` that is not a builtin tensor everywhere but where it
 copies. Two places carry the same TODO, "Properly support with options, for
 now it is hardcoded to builtin Tensor/MemRef types based approach":
@@ -48,9 +48,10 @@ converters, `reconcileBufferTypeMismatchFn`), but none to make a tensor-level
 copy of a value of a dialect's own tensor-like type: `bufferization.alloc_tensor`
 makes builtin ranked tensors alone.
 
-## The fix
+## Patch
 
-`pull-request.diff` is a `git diff` against 7208ba24:
+`llvm.patch` is a `git diff` against 7208ba24, which applies unchanged to
+416f328b and after every patch before it:
 
 - `BufferizationOptions::tensorAllocationFn` (`TensorAllocationFn`: builder,
   location, value, `copy`, options): a new value of the value's type, a copy
@@ -67,49 +68,34 @@ makes builtin ranked tensors alone.
 - `one-shot-bufferize-tensor-like-copy.mlir`: the reproducer under
   `-verify-diagnostics`, which expects the error.
 
-## Why there is no patch
+## Why it is carried
 
-Nothing in this repository reaches the bug: every tensor idr-bufferize
-bufferizes is a builtin ranked tensor. The type a fix would bring into
-reach is `!idr.lin<T>`, a linear array, which is not tensor-like, and the
-fix alone does not make it one:
-
-- A type interface belongs to a type's class, and `!idr.lin<T>` is
-  `!idr.q<one, plain, T>`, the class of every grade, the world's included.
-  Upstream MLIR can decide an interface per instance: an interface's
-  `extraClassOf` (`mlir/include/mlir/IR/Interfaces.td:128`, emitted for type
-  interfaces by `mlir-tblgen`'s `OpInterfacesGen.cpp:658-668` with
-  `$_type`) narrows `isa` to the instances an interface method accepts, as
-  `SymbolOpInterface` does for ops. `TensorLikeType` and `BufferLikeType`
-  have none, so a second patch would add one (a method that says whether
-  the instance is tensor-like, true by default); then `!idr.lin<T>` is
-  tensor-like exactly where `T` is, and the world is not.
-- With both patches, `!idr.lin<T>` as tensor-like would still not delete the
-  retyping idr-bufferize runs after One-Shot (`idr::DataRemap` with the
-  `buffers` kind, `foreign/idr/lib/Transforms/Bufferize/Bufferize.cpp`). It
-  would remove its wrapper and signature cases, which One-Shot would then
-  bufferize itself, but a data type's body holds tensors too: a field of a
-  constructor is `tensor<...>` or `!idr.lin<tensor<...>>` (a vector's cells,
-  a record's array), and a body is set once, so a body that holds a buffer
-  is a new data type, which only the remap makes. Making a data type that
-  holds an array tensor-like would make every such data type a tensor to
-  the analysis, which is the world made a tensor. The remap goes only when
-  a body holds a buffer from the start, a change to what the frontend emits
-  and to what a data type's verifier accepts.
-- So the patch would carry no case of ours; it is kept as a submission.
+`!idr.lin<T>`, a linear array, is tensor-like wherever `T` is, so
+One-Shot bufferizes linear wrappers and signatures itself, and an array
+field is its buffer from the frontend on (proposals/0000 D43, C108): the
+retyping idr-bufferize ran after One-Shot (`idr::DataRemap` with the
+`buffers` kind) is deleted. A linear array that bufferizes out-of-place is
+then an OpOperand of a tensor-like type that is not a builtin tensor,
+which this patch copies through the dialect's hook where the pin wrote it
+in place. The per-instance tensor-likeness is the other half,
+`upstream/64-tensor-like-per-instance`, without which `!idr.lin<T>`, a
+grade's class, could not be tensor-like for some `T` alone.
 
 ## Testing at the pin
 
-Not built. The diff applies to the pristine pin and after every carried
-patch (`git apply --check`; its hunks are clear of patch 24's in the same
-two files), and `BufferizableOpInterface.cpp` passes `-fsyntax-only` with
-the typecheck build's compile command of the pin, the patched header first.
-`tests/upstream-one-shot-tensor-like-copy` checked that the pinned source
-still skips such an OpOperand.
+Not built. The diff applies to the pristine pin, 416f328b, and after every
+patch before it (`git apply --check`; its hunks are clear of patch 24's in
+the same two files). At 7208ba24, `BufferizableOpInterface.cpp` passed
+`-fsyntax-only` with the typecheck build's compile command, the patched
+header first. Its check, `tests/upstream-one-shot-tensor-like-copy`, is
+written with this change: the toolchain's `mlir-opt` builds no test
+dialect, so the check bufferizes an out-of-place linear array, a
+tensor-like type that is not a builtin tensor, with the compiler's own
+tools, and asserts that the operand is copied, never written in place.
 
 ## Upstreaming plan
 
-Status: not filed; not built; no `submission.md` yet.
+Status: carried (2026-10-21); not filed; not built; no `submission.md` yet.
 
 One issue (the miscompile, with `tensor-like-copy.mlir` and the bufferized
 output that writes the argument) and one pull request, "[mlir][bufferization]
@@ -123,15 +109,13 @@ If reviewers want a test of the hook itself, the test pass sets it to a
 dialect gains a copy op for one with.
 
 Before filing:
-- search for an upstream fix since 7208ba24 (main still had both TODOs on
-  2026-10-15);
+- search for an upstream fix since 416f328b (main still had both TODOs on
+  2026-10-21);
 - read the in-tree callers of `allocateTensorForShapedValue` for a value of
   a custom type they assume builtin;
 - check that the diff applies to then-current main and is clang-format
   clean.
 
 `check-mlir` is the pull request's pre-merge CI's (upstream/README.md,
-**CI decides**). When the pin carries upstream's fix, this directory and its
-check go. The per-instance `extraClassOf` for `TensorLikeType` and
-`BufferLikeType` is written only with a consumer: the day `!idr.lin<T>` is
-made tensor-like.
+**CI decides**). When the pin carries upstream's fix, `llvm.patch`, its
+check and its `PINS.md` entry go.

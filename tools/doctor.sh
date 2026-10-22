@@ -73,7 +73,7 @@ for name in cmake ninja chez llvm sysroot; do
   if "$pins" "$name" 2> /dev/null; then
     case $name in
       llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; ${llvm_prefix#"$root"/})" ;;
-      sysroot) echo "Pinned sysroot: the target's C library, the LLVM runtimes, GMP $(lock_field gmp version)" ;;
+      sysroot) echo "Pinned sysroot: the target's C library, the LLVM runtimes, GMP $(lock_field gmp version), snmalloc $(lock_field snmalloc version)" ;;
       *) echo "Pinned $name: $(lock_field "$name" version)" ;;
     esac
   else

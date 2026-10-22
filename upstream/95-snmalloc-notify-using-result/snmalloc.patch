@@ -1,0 +1,60 @@
+Subject: [PATCH] POSIX and Apple PALs report a refused commit
+
+With `pal_enforce_access`, memory is reserved `PROT_NONE` and committed
+by `notify_using`'s `mprotect`, whose result both PALs ignore: they
+return true, so on a host that refuses the commit (Linux with
+overcommit mode 2 past its limit) the caller hands out pages that stayed
+`PROT_NONE`, and the program dies by SIGSEGV at its first touch. Every
+caller already handles a false result (`CommitRange` releases the range
+and returns null; the pagemap's registration fails), so
+`notify_using` and `notify_using_readonly` now return false when
+`mprotect` fails.
+---
+diff --git a/src/snmalloc/pal/pal_apple.h b/src/snmalloc/pal/pal_apple.h
+index 7e800f7..f1d8b1e 100644
+--- a/src/snmalloc/pal/pal_apple.h
++++ b/src/snmalloc/pal/pal_apple.h
+@@ -215,8 +215,11 @@ namespace snmalloc
+       {
+         // Mark pages as writable for `madvise` below.
+         //
+-        // `mach_vm_protect` is observably slower in benchmarks.
+-        mprotect(p, size, PROT_READ | PROT_WRITE);
++        // `mach_vm_protect` is observably slower in benchmarks. A refused
++        // commit is reported, so that the caller hands out no pages that
++        // stayed PROT_NONE.
++        if (mprotect(p, size, PROT_READ | PROT_WRITE) != 0)
++          return false;
+       }
+ 
+       // `MADV_FREE_REUSE` can only be applied to writable pages,
+diff --git a/src/snmalloc/pal/pal_posix.h b/src/snmalloc/pal/pal_posix.h
+index 3ab85bf..5cb4753 100644
+--- a/src/snmalloc/pal/pal_posix.h
++++ b/src/snmalloc/pal/pal_posix.h
+@@ -242,7 +242,12 @@ namespace snmalloc
+         is_aligned_block<OS::page_size>(p, size) || (zero_mem == NoZero));
+ 
+       if constexpr (mitigations(pal_enforce_access))
+-        mprotect(p, size, PROT_READ | PROT_WRITE);
++      {
++        // The commit can be refused (a strict overcommit limit): report it,
++        // so that the caller hands out no pages that stayed PROT_NONE.
++        if (mprotect(p, size, PROT_READ | PROT_WRITE) != 0)
++          return false;
++      }
+       else
+       {
+         UNUSED(p, size);
+@@ -265,7 +270,10 @@ namespace snmalloc
+       SNMALLOC_ASSERT(is_aligned_block<OS::page_size>(p, size));
+ 
+       if constexpr (mitigations(pal_enforce_access))
+-        mprotect(p, size, PROT_READ);
++      {
++        if (mprotect(p, size, PROT_READ) != 0)
++          return false;
++      }
+       else
+       {
+         UNUSED(p, size);

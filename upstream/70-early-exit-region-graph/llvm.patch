@@ -1,0 +1,81 @@
+Subject: [PATCH] [mlir] The region-graph traversal stays inside its op
+
+On top of llvm/llvm-project#166688. `traverseRegionGraph`, which serves
+`isRegionReachable`, `isRepetitiveRegion` and
+`insideMutuallyExclusiveRegions`, sizes `visited` by the op's region
+count and enqueues every region successor of each terminator of its
+regions. Once exits cross the op, a terminator that exits through it has
+the regions of an enclosing op as successors, and the traversal reads
+`visited` at that op's region numbers: out of bounds when the number is
+at least the op's region count, a wrong answer otherwise. In the other
+direction it reads only the terminators of each region's blocks, so a
+loop whose back exit is nested in an `scf.if` is reported not repetitive.
+
+The traversal now enqueues only the op's own regions, and adds, for each
+region, the exits nested deeper in it that land on the op, with the
+successors the op reports for them, as `getAllRegionBranchPoints` already
+enumerates them.
+---
+diff --git a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+index 18c5290f..3bf4ca26 100644
+--- a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
++++ b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+@@ -261,7 +261,26 @@ static bool traverseRegionGraph(Region *begin,
+          << " regions";
+ 
+   // Retrieve all successors of the region and enqueue them in the worklist.
++  // Only `op`'s own regions are nodes of its graph: a terminator that exits
++  // through `op` to an enclosing op has that op's regions as successors,
++  // which `visited`, indexed by `op`'s region numbers, cannot hold.
+   SmallVector<Region *> worklist;
++  auto enqueueOwnedRegions = [&](ArrayRef<RegionSuccessor> successors) {
++    for (RegionSuccessor successor : successors) {
++      if (!successor.isRegion()) {
++        LDBG() << "Skipping operation successor";
++        continue;
++      }
++      Region *region = successor.getSuccessor();
++      if (region->getParentOp() != op.getOperation()) {
++        LDBG() << "Skipping region of another operation";
++        continue;
++      }
++      worklist.push_back(region);
++      LDBG() << "Added region #" << region->getRegionNumber()
++             << " to worklist";
++    }
++  };
+   auto enqueueAllSuccessors = [&](Region *region) {
+     LDBG() << "Enqueuing successors for region #" << region->getRegionNumber();
+     for (Block &block : *region) {
+@@ -276,17 +295,21 @@ static bool traverseRegionGraph(Region *begin,
+           extractConstants(terminator->getOperands()), successors);
+       LDBG() << "Found " << successors.size()
+              << " successors from terminator in block";
+-      for (RegionSuccessor successor : successors) {
+-        if (successor.isRegion()) {
+-          worklist.push_back(successor.getSuccessor());
+-          LDBG() << "Added region #"
+-                 << successor.getSuccessor()->getRegionNumber()
+-                 << " to worklist";
+-        } else {
+-          LDBG() << "Skipping operation successor";
+-        }
+-      }
++      enqueueOwnedRegions(successors);
+     }
++    // An early exit nested deeper in `region` that lands on `op` is an edge
++    // of `op`'s region graph too, as `getAllRegionBranchPoints` reports it.
++    visitNestedBreakingControlFlowOps(*region, [&](Operation *exit, int) {
++      auto exitInterface = cast<RegionExitTerminatorOpInterface>(exit);
++      auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(exit);
++      if (!terminator ||
++          !llvm::is_contained(exitInterface.getPotentialTargets(),
++                              op.getOperation()))
++        return;
++      SmallVector<RegionSuccessor> successors;
++      op.getSuccessorRegions(RegionBranchPoint(terminator), successors);
++      enqueueOwnedRegions(successors);
++    });
+   };
+   enqueueAllSuccessors(begin);
+   LDBG() << "Initial worklist size: " << worklist.size();

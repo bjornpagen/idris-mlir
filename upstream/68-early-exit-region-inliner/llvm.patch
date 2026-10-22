@@ -1,0 +1,32 @@
+Subject: [PATCH] [mlir] The region inliner stops at an early exit
+
+On top of llvm/llvm-project#166688. `InlineRegionBranchOp` inlines an op
+when `computeSingleAcyclicRegionBranchPath` finds one path through it
+from "parent" back to its results. Once an exit crosses the op, a region
+ending in that exit has, as its one successor, a region or the results of
+the exit's target, an enclosing op. The path follows it into the target,
+which the pattern does not own: the pattern then inlines the region,
+erases the exit and asks the op for the target's inputs, which asserts in
+a build with assertions, and returns "path ends after a different
+operation" after it has changed the IR. `scf.if %true { scf.break ... }`
+reaches it through `scf.if`'s registration of the pattern.
+
+The path now ends, unmatched, at a successor the op does not own
+(`getRegionBranchSuccessorOwner`), before anything is changed.
+---
+diff --git a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+index 06deedb5..c53fd9bc 100644
+--- a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
++++ b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+@@ -1252,6 +1252,11 @@ computeSingleAcyclicRegionBranchPath(RegionBranchOpInterface op) {
+       // through the region branch op.
+       return {};
+     }
++    if (getRegionBranchSuccessorOwner(successors.front()) != op) {
++      // The path leaves the op through an early exit to a region or the
++      // results of an enclosing op, which this op does not own.
++      return {};
++    }
+     path.push_back(successors.front());
+     if (successors.front().isOperation()) {
+       // Found path that ends after an operation.

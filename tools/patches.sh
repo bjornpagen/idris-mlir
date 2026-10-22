@@ -14,12 +14,15 @@
 #           and the runtimes (steps stage2 and runtimes)
 #   chez    Chez Scheme at the lock's revision (step chez)
 #   idris   Idris 2 at third_party/Idris2's gitlink (step idris)
+#   snmalloc
+#           the runtime's snmalloc at third_party/snmalloc's gitlink, the
+#           lock's revision (step snmalloc)
 #
 # A bug has one patch per project it touches. The patches of a project
 # apply in the byte order of their bugs' names, each to the source as the
 # ones before it left it.
 
-patch_projects='llvm chez idris'
+patch_projects='llvm chez idris snmalloc'
 
 # patches PROJECT: the project's patch files, in the order they apply.
 patches() {

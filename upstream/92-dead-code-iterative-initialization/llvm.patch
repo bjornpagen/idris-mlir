@@ -1,0 +1,118 @@
+Subject: [PATCH] [mlir][dataflow] Initialize dead-code analysis from a worklist
+
+`DeadCodeAnalysis::initializeRecursively` calls itself once per level of
+region nesting, so the native stack an analysis needs grows with the
+depth of the IR it analyses: every sparse forward analysis loads
+dead-code analysis, so SCCP and the integer range analysis on a deeply
+nested function overflow the stack of a thread with a small one. The
+initialization now visits the same ops in the same pre-order from an
+explicit worklist, each entry carrying whether a symbol table encloses
+it, which visiting a call reads; the flag is restored to its value at
+entry, as the recursion left it.
+---
+diff --git a/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h
+index a7bb3d8c..049e2774 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h
+@@ -191,8 +191,9 @@ private:
+   /// analysis is operating on.
+   void initializeSymbolCallables(Operation *top);
+ 
+-  /// Recursively Initialize the analysis on nested regions.
+-  LogicalResult initializeRecursively(Operation *op);
++  /// Initialize the analysis on `top` and every op nested in it, in
++  /// pre-order, from a worklist.
++  LogicalResult initializeRecursively(Operation *top);
+ 
+   /// Visit the given call operation and compute any necessary lattice state.
+   void visitCallOperation(CallOpInterface call);
+diff --git a/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp b/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp
+index 76b25b27..8dcd109b 100644
+--- a/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/DeadCodeAnalysis.cpp
+@@ -258,47 +258,48 @@ static bool isRegionOrCallableReturn(Operation *op) {
+          op->getBlock()->getTerminator() == op;
+ }
+ 
+-LogicalResult DeadCodeAnalysis::initializeRecursively(Operation *op) {
+-  LDBG() << "[init] Entering initializeRecursively for op: "
+-         << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-  // Initialize the analysis by visiting every op with control-flow semantics.
+-  if (op->getNumRegions() || op->getNumSuccessors() ||
+-      isRegionOrCallableReturn(op) || isa<CallOpInterface>(op)) {
+-    LDBG() << "[init] Visiting op with control-flow semantics: "
++LogicalResult DeadCodeAnalysis::initializeRecursively(Operation *top) {
++  // The ops are visited in pre-order from an explicit worklist rather than by
++  // recursion, so that the nesting depth of the IR is not the depth of the
++  // native stack. Each entry carries whether a symbol table encloses it,
++  // which visiting a call reads.
++  bool topHasSymbolTable = hasSymbolTable;
++  llvm::scope_exit restoreHasSymbolTable(
++      [&]() { hasSymbolTable = topHasSymbolTable; });
++  SmallVector<std::pair<Operation *, bool>> worklist;
++  worklist.emplace_back(top, hasSymbolTable);
++  while (!worklist.empty()) {
++    auto [op, enclosedBySymbolTable] = worklist.pop_back_val();
++    hasSymbolTable = enclosedBySymbolTable;
++    LDBG() << "[init] Initializing op: "
+            << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-    // When the liveness of the parent block changes, make sure to
+-    // re-invoke the analysis on the op.
+-    if (op->getBlock())
+-      getOrCreate<Executable>(getProgramPointBefore(op->getBlock()))
+-          ->blockContentSubscribe(this);
+-    // Visit the op.
+-    if (failed(visit(getProgramPointAfter(op))))
+-      return failure();
+-  }
+-  // Recurse on nested operations.
+-  if (op->getNumRegions()) {
+-    // If we haven't seen a symbol table yet, check if the current operation
+-    // has one. If so, update the flag to allow for resolving callables in
+-    // nested regions.
+-    bool savedHasSymbolTable = hasSymbolTable;
+-    llvm::scope_exit restoreHasSymbolTable(
+-        [&]() { hasSymbolTable = savedHasSymbolTable; });
+-    if (!hasSymbolTable && op->hasTrait<OpTrait::SymbolTable>())
+-      hasSymbolTable = true;
+-
+-    for (Region &region : op->getRegions()) {
+-      LDBG() << "[init] Recursing into region of op: "
++    // Initialize the analysis by visiting every op with control-flow
++    // semantics.
++    if (op->getNumRegions() || op->getNumSuccessors() ||
++        isRegionOrCallableReturn(op) || isa<CallOpInterface>(op)) {
++      LDBG() << "[init] Visiting op with control-flow semantics: "
+              << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-      for (Operation &nestedOp : region.getOps()) {
+-        LDBG() << "[init] Recursing into nested op: "
+-               << OpWithFlags(&nestedOp, OpPrintingFlags().skipRegions());
+-        if (failed(initializeRecursively(&nestedOp)))
+-          return failure();
+-      }
++      // When the liveness of the parent block changes, make sure to
++      // re-invoke the analysis on the op.
++      if (op->getBlock())
++        getOrCreate<Executable>(getProgramPointBefore(op->getBlock()))
++            ->blockContentSubscribe(this);
++      // Visit the op.
++      if (failed(visit(getProgramPointAfter(op))))
++        return failure();
+     }
++    if (!op->getNumRegions())
++      continue;
++    // A symbol table met on the way down lets callables in its regions be
++    // resolved. The nested ops are pushed last first, so that they are
++    // visited in the order the regions hold them.
++    bool nestedHasSymbolTable =
++        enclosedBySymbolTable || op->hasTrait<OpTrait::SymbolTable>();
++    for (Region &region : llvm::reverse(op->getRegions()))
++      for (Block &block : llvm::reverse(region))
++        for (Operation &nestedOp : llvm::reverse(block))
++          worklist.emplace_back(&nestedOp, nestedHasSymbolTable);
+   }
+-  LDBG() << "[init] Finished initializeRecursively for op: "
+-         << OpWithFlags(op, OpPrintingFlags().skipRegions());
+   return success();
+ }
+ 

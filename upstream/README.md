@@ -27,6 +27,10 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   `upstream/*/llvm.patch` in name order to a copy of the pinned
   llvm-project when it builds the toolchain; `tests/upstream-patches`
   checks they apply.
+- `snmalloc.patch`: the same for the runtime's snmalloc, against
+  third_party/snmalloc's gitlink (the lock's revision), which the
+  bootstrap's `snmalloc` step applies, in name order, to its export of the
+  checkout for the runtime's build (`.toolchain/snmalloc/src`).
 - `idris.patch`: the same for Idris 2, against third_party/Idris2's
   gitlink, which the bootstrap's `idris` step would apply to its copy of
   the checkout (the checkout itself stays unmodified). None is carried:
@@ -37,21 +41,29 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   **Rules for sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
   repository does not carry as a patch (08, 17, since the pipeline
-  cutover 02, 16 and 22, and 25, 27 and 58, which nothing in the tree
-  reaches, **When nothing reaches the bug** below), which the
-  bootstrap therefore never applies; apply it with `git apply`, and take the commit
-  message from `submission.md`, never from the file's header. For simdutf
-  and snmalloc (48, 49), the pull request to that project, which no patch
-  project applies. For Idris (18, 20, 21, 50, 51, 52, 53, 59 and the seven fork-* directories),
-  the change the fork carries as its own code, laid out
-  against third_party/Idris2's pin with the test upstream's suite would
-  hold: the record a re-sync of the fork reads, never sent.
+  cutover 02, 16 and 22, 25 and 58, and since the P0 cutover 06, 23, 28
+  and 63, which nothing in the tree reaches, **When nothing reaches the
+  bug** below), which the bootstrap therefore never applies; apply it
+  with `git apply`, and take the commit message from `submission.md`,
+  never from the file's header. For simdutf (48), the pull request to
+  that project, which nothing reaches. For Idris: 96, a fix to the stock
+  Idris nothing it builds reaches, recorded and not carried; and (18, 20,
+  21, 50, 51, 52, 53, 59 and the seventeen fork-* directories) the change
+  the fork carries as its own code, laid out against third_party/Idris2's
+  pin (the ten from a386fe4d against the fork before that commit) with
+  the test upstream's suite would hold: the record a re-sync of the fork
+  reads, never sent.
 - `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
   when it goes.
 
-## Status (2026-10-15)
+## Status (2026-10-15, the pin then 7208ba24)
+
+The pin moved to llvm main at 416f328b on 2026-10-21; each row below
+says where it stands there, and This repository's toolchain lists what
+is carried.
+
 
 All of 01-08 (01 since fixed on main by #208881, 0edf6243) are still broken on llvm main at
 7208ba24ca2894729cd394475a00d2a7b605e642. With the seven code diffs of
@@ -110,8 +122,30 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 57 | linalg-index-int-range | PR: an `InferIntRangeInterface` model for `linalg.index`, [0, extent - 1] (Linalg int-range-interface.mlir) | carried; not filed; check-mlir passes on a private build |
 | 58 | delinearize-empty-basis | issue + PR: affine.delinearize_index declares that it has a result, which the generated verifier checks before it reads the first result's type (Affine invalid.mlir) | not carried (nothing in the tree reaches it); not filed; pull-request.diff; check-mlir passes on a private build |
 | 59 | literal-partial-fold | nothing (**Idris**) | carried as fork code (compiler/idris), after 18's change to `normalisePrims`; the diff records it for re-syncs |
-| 60 | print-local-aliases | PR: a nested operation's print may write its aliases first (`-mlir-print-local-aliases`), so a dump writes each type once | carried; not filed |
 | 61 | sqrt-negative-fold | PR: `math.sqrt` of a negative constant folds to a quiet NaN, of -0 to -0 | carried; not filed |
+| 62 | greedy-multi-region-ancestors | PR: an ancestor with several regions is revisited once the worklist is empty | carried (the greedy driver inside D99's upstream passes); not filed |
+| 63 | liveness-trivially-dead | NFC PR: liveness asks once per op whether it is trivially dead | not carried since 2026-10-21 (C35); not filed; applies at 416f328b |
+| 64 | tensor-like-per-instance | PR: `isTensorLike`/`isBufferLike` through `extraClassOf`; `to_tensor`/`to_buffer` checked by the interface alone | carried (2026-10-21); not filed |
+| 65 | early-exits | nothing of ours: llvm/llvm-project#166688 itself, rebased by hand | carried (D25, D82); #166688 open, no approval |
+| 66 | early-exit-propagation-helpers | review comment on #166688: the propagation helpers exported | carried; not posted |
+| 67 | early-exit-dead-match | review comment on #166688: an op an exit leaves is not trivially dead | carried; not posted |
+| 68 | early-exit-region-inliner | review comment on #166688: the region inliner stops at an exit | carried; not posted |
+| 69 | early-exit-successor-inputs | review comment on #166688: successor-input patterns edit only owned inputs | carried; not posted |
+| 70 | early-exit-region-graph | review comment on #166688: the region-graph traversal stays inside its op | carried; not posted |
+| 71 | early-exit-index-switch | review comment on #166688: scf.index_switch carries exits; scf.if and the switch accept a terminator that never returns | carried; not posted |
+| 72 | scc-iterator-node-numbers | PR: scc_iterator keeps visit numbers by node number | carried; not filed |
+| 73 | call-graph-dense-ids | RFC, then PR: CallGraph's dense node ids and kept components | carried; not filed |
+| 74 | pass-adaptor-preserved-analyses | PR: an adaptor preserves what its nested passes preserve | carried; not filed |
+| 75 | thread-pool-stack-size | PR: ThreadPoolStrategy::StackSizeInBytes | carried; not filed |
+| 76 | pass-base-derived-class | NFC PR: a pass's CRTP baseClass documented | carried; not filed |
+| 77 | dataflow-state-storage | PR: the solver's per-state maps and sets inline when small | carried; not filed; measured in the qualification |
+| 78 | func-to-llvm-expanded-arg-attrs | PR: pointer attributes of a memref argument kept on its descriptor's pointers | carried; not filed |
+| 79 | operation-equivalence-symbol-hook | PR: OperationEquivalence compares symbol references through a hook | carried; not filed |
+| 92 | dead-code-iterative-initialization | PR after the recursion RFC: dead-code analysis initialized from a worklist | carried; not filed |
+| 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
+| 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
+| 95 | snmalloc-notify-using-result | PR to microsoft/snmalloc: the PALs report a refused commit | carried; not filed; Microsoft CLA |
+| 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | recorded, not carried (nothing stock-built reaches it); pull-request.diff against Idris main 89ba32eb |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
@@ -119,6 +153,16 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | fork | fork-build-main | nothing: no bug of Idris's; the frontend's entry point (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-total-frontend-paths | nothing: no bug of Idris's; total code on the frontend's paths (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-ttc-term-locations | nothing: no bug of Idris's; term locations kept in the TTC (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| fork | fork-search-depth | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-ambiguity-depth | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-posix-paths | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-no-runtime-tree | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-ttc-facts | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-block-parent | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-param-pos | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-erase-args | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-parser-bounds | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-dead-options | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -254,15 +298,19 @@ entry in one change, and a `submission.md` once it is ready to send.
 
 ## This repository's toolchain
 
-The LLVM pin is llvm main at 7208ba24ca2894729cd394475a00d2a7b605e642
-(LLVM 24.0.0git, `toolchain.lock.json`), moved from `llvmorg-23.1.2` so
-that the patch we carry for a bug we send is its pull request (PINS.md). One recipe builds the toolchain
-on both targets: `tools/bootstrap.sh llvm` (stage 1, the target's C
-library, the runtimes and stage 2, into `.toolchain/llvm`) applies every
-`upstream/*/llvm.patch` in name order, and stage 2's stamp records each by
-SHA-256. The pin was first built on arm64 macOS, with 02-07 and 09 among its
-patches, by the bootstrap's earlier one-stage Darwin recipe. No toolchain is built
-yet with the patches the tree carries now (03-07, 09, 19, 23 and 24 for
-LLVM; none for Idris), on either target, and `make build` refuses until one
-is. That is this repository's build, not a precondition for sending
-anything upstream.
+The LLVM pin is llvm main at 416f328b939fe1373ddc9060f6773ad4c5039f59
+(LLVM 24.0.0git, llvmorg-24-init-15655, `toolchain.lock.json`), moved
+from 7208ba24 on 2026-10-21, so that the patch we carry for a bug we send
+is its pull request (PINS.md); every dependency moves to its latest about
+weekly. One recipe builds the toolchain on all four targets:
+`tools/bootstrap.sh llvm` (stage 1, the target's C library, the runtimes
+and stage 2, into `.toolchain/llvm`, without assertions) applies every
+`upstream/*/llvm.patch` in name order, and stage 2's stamp records each
+by SHA-256; `tools/bootstrap.sh snmalloc` does the same for
+`upstream/*/snmalloc.patch` on an export of third_party/snmalloc. Carried
+for LLVM: 03, 04, 05, 07, 09, 19, 24, 27, 29, 30, 56, 57, 61, 62, 64 to
+79, 92 and 93, every one applying at 416f328b in that order (`git apply
+--check` on the pin's tree, 2026-10-21); for snmalloc: 49, 94 and 95;
+for Idris and Chez: none. No toolchain is built yet with them, on any
+target, and `make build` refuses until one is. That is this repository's
+build, not a precondition for sending anything upstream.

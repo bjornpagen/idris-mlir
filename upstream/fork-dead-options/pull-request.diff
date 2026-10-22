@@ -1,0 +1,568 @@
+diff --git a/src/Core/Binary.idr b/src/Core/Binary.idr
+index 28dbbc06..08b0a7b5 100644
+--- a/src/Core/Binary.idr
++++ b/src/Core/Binary.idr
+@@ -466,10 +455,6 @@ export
+ updatePrims : {auto c : Ref Ctxt Defs} -> PrimNames -> Core ()
+ updatePrims p = update Ctxt { options->primnames $= updatePrimNames p }
+ 
+-export
+-updateForeignImpl : {auto c : Ref Ctxt Defs} -> List (Name, String) -> Core ()
+-updateForeignImpl xs = update Ctxt { options->foreignImpl $= (xs ++) }
+-
+ export
+ updateNameDirectives : {auto c : Ref Ctxt Defs} ->
+                        List (Name, List String) -> Core ()
+@@ -570,7 +555,6 @@ readFromTTC nestedns loc reexp fname modNS importAs
+                     updatePair (pairnames ttc)
+                     updateRewrite (rewritenames ttc)
+                     updatePrims (primnames ttc)
+-                    updateForeignImpl (foreignImpl ttc)
+                     updateNameDirectives (reverse (namedirectives ttc))
+                     updateCGDirectives (cgdirectives ttc)
+                     updateTransforms (transforms ttc)
+diff --git a/src/Core/Context.idr b/src/Core/Context.idr
+index a250dfe0..f0f15647 100644
+--- a/src/Core/Context.idr
++++ b/src/Core/Context.idr
+@@ -1047,20 +1076,12 @@ record Defs where
+   cgdirectives : List (CG, String)
+      -- ^ Code generator directives, which are free form text and thus to
+      -- be interpreted however the specific code generator requires
+-  toCompileCase : List Name
+-     -- ^ Names which need to be compiled to run time case trees
+   userHoles : NameMap Bool
+      -- ^ Metavariables the user still has to fill in. In practice, that's
+      -- everything with a user accessible name and a definition of Hole.
+      -- The Bool says whether it was introduced in another module.
+-  peFailures : NameMap ()
+-     -- ^ Partial evaluation names which have failed, so don't bother trying
+-     -- again
+   timings : StringMap (Bool, Integer)
+      -- ^ record of timings from logTimeRecord
+-  timer : Maybe (Integer, String)
+-     -- ^ for timing and checking timeouts; the maximum time after which a
+-     -- timeout should be thrown
+   warnings : List Warning
+      -- ^ as yet unreported warnings
+   schemeEvalLoaded : Bool
+@@ -2516,10 +2497,6 @@ export
+ setLogTimings : {auto c : Ref Ctxt Defs} -> Nat -> Core ()
+ setLogTimings n = update Ctxt { options->session->logTimings := Just n }
+ 
+-export
+-setDebugElabCheck : {auto c : Ref Ctxt Defs} -> Bool -> Core ()
+-setDebugElabCheck b = update Ctxt { options->session->debugElabCheck := b }
+-
+ export
+ getSession : {auto c : Ref Ctxt Defs} ->
+              Core Session
+@@ -2550,39 +2527,6 @@ getTime
+     nano : Integer
+     nano = 1000000000
+ 
+--- A simple timeout mechanism. We can start a timer, clear it, or check
+--- whether too much time has passed and throw an exception if so
+-
+-||| Initialise the timer, setting the time in milliseconds after which a
+-||| timeout should be thrown.
+-||| Note: It's important to clear the timer when the operation that might
+-||| timeout is complete, otherwise something else might throw a timeout
+-||| error!
+-export
+-startTimer : {auto c : Ref Ctxt Defs} ->
+-             Integer -> String -> Core ()
+-startTimer tmax action
+-    = do t <- getTime
+-         update Ctxt { timer := Just (t + tmax * 1000000, action) }
+-
+-||| Clear the timer
+-export
+-clearTimer : {auto c : Ref Ctxt Defs} -> Core ()
+-clearTimer = update Ctxt { timer := Nothing }
+-
+-||| If the timer was started more than t milliseconds ago, throw an exception
+-export
+-checkTimer : {auto c : Ref Ctxt Defs} ->
+-             Core ()
+-checkTimer
+-    = do defs <- get Ctxt
+-         let Just (max, action) = timer defs
+-                | Nothing => pure ()
+-         t <- getTime
+-         if (t > max)
+-            then throw (Timeout action)
+-            else pure ()
+-
+ -- Set a name as Private that was previously visible (and, if 'everywhere' is
+ -- set, hide in any modules imported by this one)
+ export
+diff --git a/src/Core/LinearCheck.idr b/src/Core/LinearCheck.idr
+index cfc8af60..03a09026 100644
+--- a/src/Core/LinearCheck.idr
++++ b/src/Core/LinearCheck.idr
+@@ -291,19 +291,6 @@ mutual
+                       (a', gaty, aused) <- lcheck checkRig erase env a
+                       sc' <- scdone defs (toClosure defaultOpts env a')
+                       let aerased = if erase && isErased rigf then Erased fc Placeholder else a'
+-                      -- Possibly remove this check, or make it a compiler
+-                      -- flag? It is a useful double check on the result of
+-                      -- elaboration, but there are pathological cases where
+-                      -- it makes the check very slow (id id id id ... id id etc
+-                      -- for example) and there may be similar realistic cases.
+-                      -- If elaboration is correct, this should never fail!
+-                      opts <- getSession
+-                      when (debugElabCheck opts) $ do
+-                        aty <- getNF gaty
+-                        when (not !(convert defs env aty !(evalClosure defs ty))) $
+-                           do ty' <- quote defs env ty
+-                              aty' <- quote defs env aty
+-                              throw (CantConvert fc (gamma defs) env ty' aty')
+                       pure (App fc f' aerased,
+                             glueBack defs env sc',
+                             fused ++ aused)
+diff --git a/src/Core/Options.idr b/src/Core/Options.idr
+index c167de5f..b2ff992b 100644
+--- a/src/Core/Options.idr
++++ b/src/Core/Options.idr
+@@ -137,8 +135,6 @@ record Session where
+   nobanner : Bool
+   findipkg : Bool
+   directives : List String
+-  searchTimeout : Integer -- maximum number of milliseconds to run
+-                          -- expression/program search
+   ignoreMissingPkg : Bool -- fail silently on missing packages. This is because
+           -- while we're bootstrapping, we find modules by a different route
+           -- but we still want to have the dependencies listed properly
+@@ -148,7 +144,6 @@ record Session where
+                     -- any logging is enabled.
+   logLevel : LogLevels
+   logTimings : Maybe Nat -- log level, higher means more details
+-  debugElabCheck : Bool -- do conversion check to verify results of elaborator
+   logErrorCount : Nat -- when parsing alternatives fails, how many errors
+                       -- should be shown.
+ 
+@@ -156,9 +151,6 @@ record Session where
+   warningsAsErrors : Bool
+   showShadowingWarning : Bool
+ 
+-  -- Experimental
+-  caseTreeHeuristics : Bool -- apply heuristics to pick matches for case tree building
+-
+ public export
+ record PPrinter where
+   constructor MkPPOpts
+@@ -179,8 +171,6 @@ record Options where
+   primnames : PrimNames
+   extensions : List LangExt
+   additionalCGs : List (String, CG)
+-  -- fullName and definition for %foreign_impl
+-  foreignImpl : List (Name, String)
+ 
+ export
+ availableCGs : Options -> List (String, CG)
+@@ -213,20 +203,19 @@ docsPPrint = MkPPOpts
+ 
+ export
+ defaultSession : Session
+-defaultSession = MkSessionOpts False CoveringOnly False False [] 1000 False False
+-                               defaultLogLevel Nothing False 1 False True
+-                               False
++defaultSession = MkSessionOpts False CoveringOnly False False [] False False
++                               defaultLogLevel Nothing 1 False True
+ 
+ export
+ defaultElab : ElabDirectives
+-defaultElab = MkElabDirectives True True CoveringOnly 3 50 25 True
++defaultElab = MkElabDirectives True True CoveringOnly 25 True
+ 
+ export
+ defaults : Core Options
+ defaults
+     = pure $ MkOptions
+         defaultDirs defaultPPrint defaultSession defaultElab Nothing Nothing
+-        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) [] [] []
++        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) [] []
+ 
+ -- Reset the options which are set by source files
+ export
+@@ -234,14 +223,9 @@ clearNames : Options -> Options
+ clearNames = { pairnames := Nothing,
+                rewritenames := Nothing,
+                primnames := MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing,
+-               foreignImpl := [],
+                extensions := []
+              }
+ 
+-export
+-addForeignImpl : (fullName : Name) -> (def : String) -> Options -> Options
+-addForeignImpl fullName def = { foreignImpl $= ((fullName, def) ::) }
+-
+ export
+ setPair : (pairType : Name) -> (fstn : Name) -> (sndn : Name) ->
+           Options -> Options
+diff --git a/src/Idris/CommandLine.idr b/src/Idris/CommandLine.idr
+index 4c7875b3..5226197b 100644
+--- a/src/Idris/CommandLine.idr
++++ b/src/Idris/CommandLine.idr
+@@ -122,16 +122,11 @@ data CLOpt
+   IgnoreMissingIPKG |
+   FindIPKG |
+   Timing (Maybe Nat) |
+-  DebugElabCheck |
+   AltErrorCount Nat |
+    ||| Treat warnings as errors
+   WarningsAsErrors |
+    ||| Do not print shadowing warnings
+   IgnoreShadowingWarnings |
+-   ||| Apply experimental heuristics to case tree generation that
+-   ||| sometimes improves performance and reduces compiled code
+-   ||| size.
+-  CaseTreeHeuristics |
+    ||| Turn on %default total globally
+   Total
+ 
+@@ -270,8 +261,6 @@ options = [MkOpt ["--check", "-c"] (NoArg [CheckOnly])
+               (Just "Display help text"),
+ 
+            -- Internal debugging options
+-           MkOpt ["--debug-elab-check"] (NoArg [DebugElabCheck])
+-              Nothing, -- do more elaborator checks (currently conversion in LinearCheck)
+            MkOpt ["--alt-error-count"] (RequiredNat "alternative count" (\c => [AltErrorCount c]))
+               (Just "Outputs errors for the given number of alternative parsing attempts.")
+            ]
+diff --git a/src/Idris/Desugar.idr b/src/Idris/Desugar.idr
+index 6348b300..4cffa14a 100644
+--- a/src/Idris/Desugar.idr
++++ b/src/Idris/Desugar.idr
+@@ -25,7 +25,6 @@ import Idris.Desugar.Mutual
+ import Parser.Support.Escaping
+ 
+ import TTImp.BindImplicits
+-import TTImp.Parser
+ import TTImp.ProcessDecls
+ import TTImp.ProcessType
+ import TTImp.TTImp
+@@ -57,6 +56,34 @@ import Data.String
+ 
+ %default covering
+ 
++-- The clauses of one definition are desugared one at a time, each a
++-- definition of its own; neighbouring ones of the same name become one.
++-- Upstream kept this in its parser of raw TTImp files, which nothing here
++-- reads.
++collectDefs : List ImpDecl -> List ImpDecl
++collectDefs [] = []
++collectDefs (IDef loc fn cs :: ds)
++    = let (cs', rest) = spanMap (isClause fn) ds in
++          IDef loc fn (cs ++ cs') :: assert_total (collectDefs rest)
++  where
++    spanMap : (a -> Maybe (List b)) -> List a -> (List b, List a)
++    spanMap f [] = ([], [])
++    spanMap f (x :: xs) = case f x of
++                               Nothing => ([], x :: xs)
++                               Just y => case spanMap f xs of
++                                              (ys, zs) => (y ++ ys, zs)
++
++    isClause : Name -> ImpDecl -> Maybe (List ImpClause)
++    isClause n (IDef _ n' cs)
++        = if n == n' then Just cs else Nothing
++    isClause n _ = Nothing
++collectDefs (INamespace loc ns nds :: ds)
++    = INamespace loc ns (collectDefs nds) :: collectDefs ds
++collectDefs (IFail loc msg nds :: ds)
++    = IFail loc msg (collectDefs nds) :: collectDefs ds
++collectDefs (d :: ds)
++    = d :: collectDefs ds
++
+ public export
+ data Side = LHS | AnyExpr
+ 
+@@ -1383,10 +1410,7 @@ mutual
+                pure [IPragma fc [] (UnboundImplicitsPragma a)]
+              PrefixRecordProjections b => do
+                pure [IPragma fc [] (PrefixRecordProjectionsPragma b)]
+-             AmbigDepth n => pure [IPragma fc [] (AmbigDepthPragma n)]
+-             AutoImplicitDepth n => pure [IPragma fc [] (AutoImplicitDepthPragma n)]
+              NFMetavarThreshold n => pure [IPragma fc [] (NFMetavarThresholdPragma n)]
+-             SearchTimeout n => pure [IPragma fc [] (SearchTimeoutPragma n)]
+              PairNames ty f s => pure [IPragma fc [] (PairNamesPragma ty f s)]
+              RewriteName eq rw => pure [IPragma fc [] (RewriteNamePragma eq rw)]
+              PrimInteger n => pure [IPragma fc [] (PrimIntegerPragma n)]
+@@ -1402,9 +1426,6 @@ mutual
+              Overloadable n => pure [IPragma fc [] (OverloadablePragma n)]
+              Extension e => pure [IPragma fc [] (ExtensionPragma e)]
+              DefaultTotality tot => pure [IPragma fc [] (DefaultTotalityPragma tot)]
+-             ForeignImpl n cs => do
+-               cs' <- traverse (desugar AnyExpr ps) cs
+-               pure [IPragma fc [] (ForeignImplPragma n cs')]
+   desugarDecl ps bt@(MkWithData _ $ PBuiltin type name) = pure [IBuiltin bt.fc type name]
+ 
+   export
+@@ -1445,26 +1466,13 @@ interpretPragma fc nest env (InterfacePragma vis consb tn paramsb det conname bo
+ interpretPragma fc nest env (ImplementationPragma vis opts pass isb consb tn paramsb named impname nusing body)
+     = elabImplementation {dl} fc vis opts pass env nest isb consb
+                          tn paramsb named impname nusing body
+-interpretPragma fc _ _ (ForeignImplPragma n cs)
+-    = do defs <- get Ctxt
+-         calls <- traverse (getFnString {dl}) cs
+-         [(n',_,gdef)] <- lookupCtxtName n (gamma defs)
+-           | [] => throw (UndefinedName fc n)
+-           | xs => throw (AmbiguousName fc (map fst xs))
+-         let ForeignDef arity xs = gdef.definition
+-           | _ => throw (GenericMsg fc "\{show n} is not a foreign definition")
+-
+-         update Ctxt { options->foreignImpl $= (map (n',) calls ++) }
+ interpretPragma fc _ _ (HideNamePragma n) = hide fc n
+ interpretPragma fc _ _ (HideFixityPragma fx n) = removeFixity fc fx n
+ interpretPragma fc _ _ (UnhidePragma n) = unhide fc n
+ interpretPragma _ _ _ (LazyPragma a) = lazyActive a
+ interpretPragma _ _ _ (UnboundImplicitsPragma a) = setUnboundImplicits a
+ interpretPragma _ _ _ (PrefixRecordProjectionsPragma b) = setPrefixRecordProjections b
+-interpretPragma _ _ _ (AmbigDepthPragma n) = setAmbigLimit n
+-interpretPragma _ _ _ (AutoImplicitDepthPragma n) = setAutoImplicitLimit n
+ interpretPragma _ _ _ (NFMetavarThresholdPragma n) = setNFThreshold n
+-interpretPragma _ _ _ (SearchTimeoutPragma n) = setSearchTimeout n
+ interpretPragma fc _ _ (PairNamesPragma ty fstn sndn) = setPair fc ty fstn sndn
+ interpretPragma fc _ _ (RewriteNamePragma eq rw) = setRewrite fc eq rw
+ interpretPragma _ _ _ (PrimIntegerPragma n) = setFromInteger n
+diff --git a/src/Idris/Error.idr b/src/Idris/Error.idr
+index 7d9e3ec6..c0127ce7 100644
+--- a/src/Idris/Error.idr
++++ b/src/Idris/Error.idr
+@@ -755,7 +769,6 @@ perrorRaw (NoForeignCC fc specs) = do
+ perrorRaw (BadMultiline fc str)
+   = pure $ errorDesc (reflow "While processing multi-line string" <+> dot <++> pretty0 str <+> dot)
+       <+> line <+> !(ploc fc)
+-perrorRaw (Timeout str) = pure $ errorDesc (reflow "Timeout in" <++> pretty0 str)
+ 
+ perrorRaw (FailingDidNotFail fc)
+   = pure $ errorDesc (reflow "Failing block did not fail" <+> dot)
+diff --git a/src/Idris/Package.idr b/src/Idris/Package.idr
+index 4ddff778..7b610b59 100644
+--- a/src/Idris/Package.idr
++++ b/src/Idris/Package.idr
+@@ -830,7 +828,6 @@ errorMsg = unlines
+   , "    --verbose"
+   , "    --timing"
+   , "    --log <log level>"
+-  , "    --debug-elab-check"
+   , "    --codegen <cg>"
+   , "    --directive <directive>"
+   , "    --build-dir <dir>"
+diff --git a/src/Idris/Parser.idr b/src/Idris/Parser.idr
+index a8063393..47bf0a0d 100644
+--- a/src/Idris/Parser.idr
++++ b/src/Idris/Parser.idr
+@@ -1467,11 +1467,6 @@ directive
+          n <- name
+          atEnd indents
+          pure (Unhide n)
+-  <|> do decoratedPragma fname "foreign_impl"
+-         n <- name
+-         cs <- block (expr pdef fname)
+-         atEnd indents
+-         pure (ForeignImpl n cs)
+ --   <|> do pragma "hide_export"
+ --          n <- name
+ --          atEnd indents
+diff --git a/src/Idris/SetOptions.idr b/src/Idris/SetOptions.idr
+index 2a809d68..35e1530e 100644
+--- a/src/Idris/SetOptions.idr
++++ b/src/Idris/SetOptions.idr
+@@ -328,9 +328,6 @@ preOptions (ListPackages :: opts)
+ preOptions (Timing tm :: opts)
+     = do setLogTimings (fromMaybe 10 tm)
+          preOptions opts
+-preOptions (DebugElabCheck :: opts)
+-    = do setDebugElabCheck True
+-         preOptions opts
+ preOptions (AltErrorCount c :: opts)
+     = do setSession ({ logErrorCount := c } !getSession)
+          preOptions opts
+@@ -365,9 +362,6 @@ preOptions (WarningsAsErrors :: opts)
+ preOptions (IgnoreShadowingWarnings :: opts)
+     = do updateSession ({ showShadowingWarning := False })
+          preOptions opts
+-preOptions (CaseTreeHeuristics :: opts)
+-    = do updateSession ({ caseTreeHeuristics := True })
+-         preOptions opts
+ preOptions (Total :: opts)
+     = do updateSession ({ totalReq := Total })
+          preOptions opts
+diff --git a/src/Idris/Syntax.idr b/src/Idris/Syntax.idr
+index 30de9cae..02f25f4e 100644
+--- a/src/Idris/Syntax.idr
++++ b/src/Idris/Syntax.idr
+@@ -448,11 +447,7 @@ mutual
+        Extension : LangExt -> Directive
+        DefaultTotality : TotalReq -> Directive
+        PrefixRecordProjections : Bool -> Directive
+-       AutoImplicitDepth : Nat -> Directive
+        NFMetavarThreshold : Nat -> Directive
+-       SearchTimeout : Integer -> Directive
+-       -- There is no nm on Directive
+-       ForeignImpl : Name -> List PTerm -> Directive
+ 
+   public export
+   RecordField' : Type -> Type
+diff --git a/src/Idris/Syntax/Pragmas.idr b/src/Idris/Syntax/Pragmas.idr
+index d35fd869..bb25b1ce 100644
+--- a/src/Idris/Syntax/Pragmas.idr
++++ b/src/Idris/Syntax/Pragmas.idr
+@@ -27,9 +26,7 @@ data KwPragma
+   | KwLanguage
+   | KwDefault
+   | KwPrefixRecordProjections
+-  | KwAutoImplicitDepth
+   | KwNfMetavarThreshold
+-  | KwSearchTimeOut
+ 
+ public export
+ data LangExt
+@@ -94,9 +90,7 @@ pragmaArgs KwAllowOverloads = [AName "nm"]
+ pragmaArgs KwLanguage = [ALangExt]
+ pragmaArgs KwDefault = [ATotalityLevel]
+ pragmaArgs KwPrefixRecordProjections = [AnOnOff]
+-pragmaArgs KwAutoImplicitDepth = [ANat]
+ pragmaArgs KwNfMetavarThreshold = [ANat]
+-pragmaArgs KwSearchTimeOut = [ANat]
+ 
+ export
+ Show KwPragma where
+@@ -146,9 +136,7 @@ allPragmas =
+   , KwLanguage
+   , KwDefault
+   , KwPrefixRecordProjections
+-  , KwAutoImplicitDepth
+   , KwNfMetavarThreshold
+-  , KwSearchTimeOut
+   ]
+ 
+ export
+diff --git a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
+index f901b1b9..f238806a 100644
+--- a/src/TTImp/Elab/Check.idr
++++ b/src/TTImp/Elab/Check.idr
+@@ -145,7 +143,6 @@ record EState (vars : Scope) where
+                   -- Metavars which need to be a polymorphic type at the end
+                   -- of elaboration. If they aren't, it means we're trying to
+                   -- pattern match on a type that we don't have available.
+-  delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
+   linearUsed : VarSet vars
+   saveHoles : NameMap () -- things we'll need to save to TTC, even if solved
+   marks : List Name
+@@ -173,7 +170,6 @@ initEStateSub n env sub = MkEState
+     , lhsPatVars = []
+     , allPatVars = []
+     , polyMetavars = []
+-    , delayDepth = Z
+     , linearUsed = VarSet.empty
+     , saveHoles = empty
+     , unambiguousNames = empty
+diff --git a/src/TTImp/Elab/Delayed.idr b/src/TTImp/Elab/Delayed.idr
+index 3fa6673e..a10504c7 100644
+--- a/src/TTImp/Elab/Delayed.idr
++++ b/src/TTImp/Elab/Delayed.idr
+@@ -39,17 +39,6 @@ mkClosedElab {vars = x :: vars} fc (b :: env) elab
+     newBinder b@(Let {}) = b
+     newBinder b = Lam (binderLoc b) (multiplicity b) Explicit (binderType b)
+ 
+-deeper : {auto e : Ref EST (EState vars)} ->
+-         Core a -> Core a
+-deeper elab
+-    = do est <- get EST
+-         let d = delayDepth est
+-         put EST ({ delayDepth := 1 + d } est)
+-         res <- elab
+-         est <- get EST
+-         put EST ({ delayDepth := d } est)
+-         pure res
+-
+ -- Run an elaborator with the holes it must not solve set to the given ones,
+ -- and the unification state's own restored after. It is a function of its
+ -- own, not code in the closure delayOnFailure and delayElab store: a record
+@@ -109,7 +98,7 @@ delayOnFailure fc rig env expected pred pri elab
+                                  ((pri, ci, localHints defs,
+                                    MkDelayedElab $ \dl =>
+                                    mkClosedElab fc env
+-                                      (deeper (withNoSolve nos (elab dl True (gnf env ty))))) :: )
++                                      (withNoSolve nos (elab dl True (gnf env ty)))) :: )
+                          pure (dtm, expected)
+                     else throw err)
+ 
+@@ -276,8 +265,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
+          Just Delayed <- lookupDefExact (Resolved i) (gamma defs)
+               | _ => retryDelayed' errmode p acc ds
+          handle
+-           (do est <- get EST
+-               logC "elab.retry" 5 $ do pure $ show (delayDepth est) ++ ": Retrying delayed hole " ++ show !(getFullName (Resolved i))
++           (do logC "elab.retry" 5 $ do pure $ "Retrying delayed hole " ++ show !(getFullName (Resolved i))
+                -- elab itself might have delays internally, so keep track of them
+                put DLY (the DelayedElabs [])
+                update Ctxt { localHints := hints }
+diff --git a/src/TTImp/ProcessDecls.idr b/src/TTImp/ProcessDecls.idr
+index c6874185..a0d6135c 100644
+--- a/src/TTImp/ProcessDecls.idr
++++ b/src/TTImp/ProcessDecls.idr
+@@ -16,7 +16,6 @@ import Parser.Source
+ 
+ import TTImp.BindImplicits
+ import TTImp.Elab.Check
+-import TTImp.Parser
+ import TTImp.ProcessBuiltin
+ import TTImp.ProcessData
+ import TTImp.ProcessDef
+@@ -194,29 +193,3 @@ processTTImpDecls {vars} nest env decls
+         = do d' <- bindDataNames d
+              pure (IData fc vis mbtot d')
+     bindNames d = pure d
+-
+-export
+-processTTImpFile : {auto c : Ref Ctxt Defs} ->
+-                   {auto m : Ref MD Metadata} ->
+-                   {auto u : Ref UST UState} ->
+-                   {auto dl : Ref DLY DelayedElabs} ->
+-                   {auto s : Ref Syn SyntaxInfo} ->
+-                   {auto o : Ref ROpts REPLOpts} ->
+-                   String -> Core Bool
+-processTTImpFile fname
+-    = do modIdent <- ctxtPathToNS fname
+-         Right (ws, decor, tti) <- logTime 0 "Parsing" $
+-                            coreLift $ parseFile fname (PhysicalIdrSrc modIdent)
+-                            (do decls <- prog (PhysicalIdrSrc modIdent)
+-                                eoi
+-                                pure decls)
+-               | Left err => do coreLift (putStrLn (show err))
+-                                pure False
+-         traverse_ recordWarning ws
+-         logTime 0 "Elaboration" $
+-            catch (do processTTImpDecls (MkNested []) Env.empty tti
+-                      Nothing <- checkDelayedHoles
+-                          | Just err => throw err
+-                      pure True)
+-                  (\err => do coreLift_ (printLn err)
+-                              pure False)
+diff --git a/src/TTImp/TTImp.idr b/src/TTImp/TTImp.idr
+index 317e9c48..49488ac4 100644
+--- a/src/TTImp/TTImp.idr
++++ b/src/TTImp/TTImp.idr
+@@ -506,18 +506,13 @@ mutual
+                               (implName : Name) ->
+                               (nusing : List Name) ->
+                               Maybe (List ImpDecl) -> Pragma
+-       -- The foreign calls, desugared
+-       ForeignImplPragma : Name -> List RawImp -> Pragma
+        HideNamePragma : Name -> Pragma
+        HideFixityPragma : Fixity -> Name -> Pragma
+        UnhidePragma : Name -> Pragma
+        LazyPragma : Bool -> Pragma
+        UnboundImplicitsPragma : Bool -> Pragma
+        PrefixRecordProjectionsPragma : Bool -> Pragma
+-       AmbigDepthPragma : Nat -> Pragma
+-       AutoImplicitDepthPragma : Nat -> Pragma
+        NFMetavarThresholdPragma : Nat -> Pragma
+-       SearchTimeoutPragma : Integer -> Pragma
+        PairNamesPragma : Name -> Name -> Name -> Pragma
+        RewriteNamePragma : Name -> Name -> Pragma
+        PrimIntegerPragma : Name -> Pragma

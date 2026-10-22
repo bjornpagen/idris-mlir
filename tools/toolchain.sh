@@ -12,6 +12,9 @@
 # as the checkout that built it did. One not built yet is named as given.
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 if [ -d "$toolchain" ]; then toolchain=$(cd "$toolchain" && pwd -P); fi
+# The runtime's snmalloc, exported with its patches (tools/bootstrap.sh
+# snmalloc): the source the runtime's build compiles, and its stamp.
+snmalloc_prefix=$toolchain/snmalloc
 # The pinned Chez Scheme: Idris 2 runs on it, and so do the programs of
 # Idris's Chez backend, the tests' runner and bench/'s baseline.
 chez_prefix=$toolchain/chez

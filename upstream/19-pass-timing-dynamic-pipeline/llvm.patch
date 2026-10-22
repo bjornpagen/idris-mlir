@@ -1,29 +1,32 @@
 diff --git a/mlir/lib/Pass/PassTiming.cpp b/mlir/lib/Pass/PassTiming.cpp
-index dab56f0..c67f994 100644
+index 27d847c2..b13ec6a4 100644
 --- a/mlir/lib/Pass/PassTiming.cpp
 +++ b/mlir/lib/Pass/PassTiming.cpp
-@@ -90,8 +90,8 @@ struct PassTiming : public PassInstrumentation {
-     auto &activeTimers = activeThreadTimers[tid];
-     auto &parentScope = activeTimers.empty() ? rootScope : activeTimers.back();
- 
-+    parentTimerIndices[{tid, pass}] = activeTimers.size();
-     if (auto *adaptor = dyn_cast<OpToOpPassAdaptor>(pass)) {
--      parentTimerIndices[{tid, pass}] = activeTimers.size();
-       auto scope =
+@@ -100,17 +100,19 @@ struct PassTiming : public PassInstrumentation {
+       if (adaptor->getPassManagers().size() <= 1)
+         scope.hide();
+       activeTimers.push_back(std::move(scope));
+-      llvm::sys::SmartScopedWriter<true> lock(parentScopesMutex);
+-      parentScopes[{llvm::get_threadid(), pass}] = &activeTimers.back();
+     } else {
+       activeTimers.push_back(
            parentScope.nest(pass->getThreadingSiblingOrThis(),
-                            [adaptor]() { return adaptor->getAdaptorName(); });
-@@ -107,8 +107,7 @@ struct PassTiming : public PassInstrumentation {
+                            [pass]() { return std::string(pass->getName()); }));
+     }
++    // Any pass, not only an adaptor, may run a pipeline (`Pass::runPipeline`),
++    // whose parent info names the pass: its timer is the pipeline's parent.
++    llvm::sys::SmartScopedWriter<true> lock(parentScopesMutex);
++    parentScopes[{llvm::get_threadid(), pass}] = &activeTimers.back();
+   }
  
    void runAfterPass(Pass *pass, Operation *) override {
-     auto tid = llvm::get_threadid();
--    if (isa<OpToOpPassAdaptor>(pass))
--      parentTimerIndices.erase({tid, pass});
-+    parentTimerIndices.erase({tid, pass});
-     auto &activeTimers = activeThreadTimers[tid];
-     assert(!activeTimers.empty() && "expected active timer");
-     activeTimers.pop_back();
+-    if (isa<OpToOpPassAdaptor>(pass)) {
++    {
+       llvm::sys::SmartScopedWriter<true> lock(parentScopesMutex);
+       parentScopes.erase({llvm::get_threadid(), pass});
+     }
 diff --git a/mlir/test/Pass/pass-timing.mlir b/mlir/test/Pass/pass-timing.mlir
-index a383d01..437b3b5 100644
+index e3d8e026..48187469 100644
 --- a/mlir/test/Pass/pass-timing.mlir
 +++ b/mlir/test/Pass/pass-timing.mlir
 @@ -5,6 +5,8 @@
@@ -35,7 +38,7 @@ index a383d01..437b3b5 100644
  
  // LIST: Execution time report
  // LIST: Total Execution Time:
-@@ -95,6 +97,28 @@
+@@ -91,6 +93,28 @@
  // NESTED_PIPELINE-NEXT: Rest
  // NESTED_PIPELINE-NEXT: Total
  

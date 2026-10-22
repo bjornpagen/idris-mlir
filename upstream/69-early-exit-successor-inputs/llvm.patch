@@ -1,0 +1,55 @@
+Subject: [PATCH] [mlir] Successor-input patterns edit only inputs the op owns
+
+On top of llvm/llvm-project#166688. With early exits, the successor
+mapping of a region branch op includes the exits nested in it, whose
+inputs belong to their target, an enclosing op. The pull request guards
+`MakeRegionBranchOpSuccessorInputsDead` with `isSuccessorInputOwnedBy`
+and leaves the two other patterns that build their maps from the same
+mapping unguarded:
+
+- `RemoveDeadRegionBranchOpSuccessorInputs` erases a dead input of the
+  target and the operands of the exits this op holds; the target's other
+  exits keep theirs, and the verifier refuses the IR.
+- `RemoveDuplicateSuccessorInputUses` compares two inputs of the target
+  by the operands of the exits this op holds, a part of their
+  predecessors, and may merge inputs that differ on the rest.
+
+Both now skip an input this op does not own, as the pull request's
+pattern does.
+---
+diff --git a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+index c53fd9bc..18c5290f 100644
+--- a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
++++ b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+@@ -998,6 +998,20 @@ struct RemoveDeadRegionBranchOpSuccessorInputs : public RewritePattern {
+       if (!(*it)->isLeader())
+         continue;
+ 
++      // A set that holds an input another op owns (the target of an early
++      // exit, whose inputs the mapping includes) is that op's to remove: this
++      // op sees only the exits nested in it, not every operand of the input.
++      bool allOwned = true;
++      for (auto memberIt = tiedSuccessorInputs.member_begin(**it);
++           memberIt != tiedSuccessorInputs.member_end(); ++memberIt) {
++        if (!isSuccessorInputOwnedBy(regionBranchOp, *memberIt)) {
++          allOwned = false;
++          break;
++        }
++      }
++      if (!allOwned)
++        continue;
++
+       // Value can be removed if it is dead and all other tied values are also
+       // dead.
+       bool allDead = true;
+@@ -1174,6 +1188,10 @@ struct RemoveDuplicateSuccessorInputUses : public RewritePattern {
+     // Total complexity: O(n * k * max(log k, log n)). For each input, sorting
+     // the signature costs O(k log k) and the std::map lookup costs O(k log n).
+     for (Value input : inputs) {
++      // An input another op owns (the target of an early exit) has operands
++      // outside this op, so its signature here is partial.
++      if (!isSuccessorInputOwnedBy(regionBranchOp, input))
++        continue;
+       // Gather the predecessor value for each predecessor (region branch
+       // point) and sort them to form this input's signature.
+       Signature sig;

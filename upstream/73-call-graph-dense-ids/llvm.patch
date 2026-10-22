@@ -1,0 +1,181 @@
+Subject: [PATCH] [mlir] CallGraph: dense node indices and its components, kept
+
+`mlir::CallGraph` names its nodes by pointer and leaves every client
+that needs its strongly connected components to run `scc_iterator`
+again: the inliner does, `print` does, transform's call-graph utility
+does, and an out-of-tree analysis layer that solves bottom-up over
+components needs, per node, state that a pointer-keyed map holds.
+
+- `CallGraphNode::getIndex()`: a dense number the graph gives each node
+  when it makes it (the external caller node 0, the unknown callee node
+  1, then in order of creation), never reused and never changed for the
+  graph's life; `CallGraph::getNumIndices()` sizes a vector of per-node
+  state. The graph traits give it as the node's number
+  (`getNumber`/`getMaxNumber`), so `scc_iterator` and `po_iterator` keep
+  their visited state in vectors.
+- `CallGraph::getSCCs()`: the components reachable from the external
+  caller node, bottom-up (a component after every component it has an
+  edge to), each a range of one permutation of the nodes, computed on the
+  first call and kept until a node is added or erased;
+  `invalidateSCCs()` drops them for a client that adds edges. `print`
+  reads them, so test-callgraph.mlir's SCC checks cover them.
+---
+diff --git a/mlir/include/mlir/Analysis/CallGraph.h b/mlir/include/mlir/Analysis/CallGraph.h
+index 9808aea1..171acba4 100644
+--- a/mlir/include/mlir/Analysis/CallGraph.h
++++ b/mlir/include/mlir/Analysis/CallGraph.h
+@@ -114,6 +114,12 @@ public:
+   /// Returns true if this node has any child edges.
+   bool hasChildren() const;
+ 
++  /// Returns the index of this node: a dense number the graph gives each node
++  /// when it makes it, never reused and never changed for the graph's life,
++  /// so that a client may keep per-node state in a vector. The external
++  /// caller node is 0 and the unknown callee node 1.
++  unsigned getIndex() const { return index; }
++
+ private:
+   /// DenseMap info for callgraph edges.
+   struct EdgeKeyInfo {
+@@ -126,7 +132,8 @@ private:
+     static bool isEqual(const Edge &lhs, const Edge &rhs) { return lhs == rhs; }
+   };
+ 
+-  CallGraphNode(Region *callableRegion) : callableRegion(callableRegion) {}
++  CallGraphNode(Region *callableRegion, unsigned index)
++      : callableRegion(callableRegion), index(index) {}
+ 
+   /// Add an edge to 'node' with the given kind.
+   void addEdge(CallGraphNode *node, Edge::Kind kind);
+@@ -136,6 +143,9 @@ private:
+   /// boundary as operations may define multiple callable regions.
+   Region *callableRegion;
+ 
++  /// The dense index of this node in its graph.
++  unsigned index;
++
+   /// A set of out-going edges from this node to other nodes in the graph.
+   SetVector<Edge, SmallVector<Edge, 4>,
+             llvm::SmallDenseSet<Edge, 4, EdgeKeyInfo>>
+@@ -202,6 +212,26 @@ public:
+   /// Erase the given node from the callgraph.
+   void eraseNode(CallGraphNode *node);
+ 
++  /// Returns one more than the largest index of a node the graph has made: a
++  /// vector of this size holds per-node state by `CallGraphNode::getIndex`.
++  unsigned getNumIndices() const { return nextIndex; }
++
++  /// Returns the strongly connected components of the graph, reachable from
++  /// the external caller node, bottom-up: a component comes after every
++  /// component it has an edge to. Each component is a range of one
++  /// permutation of the nodes, kept by the graph. They are computed on the
++  /// first call and kept until a node is added or erased; a client that adds
++  /// an edge to a node of the graph after that calls `invalidateSCCs`. The
++  /// first call after a change must not race another.
++  ArrayRef<ArrayRef<CallGraphNode *>> getSCCs() const;
++
++  /// Drops the components `getSCCs` keeps, so that its next call computes
++  /// them again.
++  void invalidateSCCs() const {
++    sccs.clear();
++    sccNodes.clear();
++  }
++
+   /// An iterator over the nodes of the graph.
+   using iterator = NodeIterator;
+   iterator begin() const { return nodes.begin(); }
+@@ -220,6 +250,13 @@ private:
+ 
+   /// A special node used to indicate an unknown callee.
+   CallGraphNode unknownCalleeNode;
++
++  /// The index the next node made gets.
++  unsigned nextIndex = 2;
++
++  /// The components `getSCCs` computed, as ranges of `sccNodes`, or none.
++  mutable SmallVector<ArrayRef<CallGraphNode *>> sccs;
++  mutable SmallVector<CallGraphNode *> sccNodes;
+ };
+ 
+ } // namespace mlir
+@@ -245,6 +282,9 @@ struct GraphTraits<const mlir::CallGraphNode *> {
+   static ChildIteratorType child_end(NodeRef node) {
+     return {node->end(), &unwrap};
+   }
++
++  /// Nodes are numbered by their dense index.
++  static unsigned getNumber(NodeRef node) { return node->getIndex(); }
+ };
+ 
+ template <>
+@@ -259,6 +299,10 @@ struct GraphTraits<const mlir::CallGraph *>
+   using nodes_iterator = mlir::CallGraph::iterator;
+   static nodes_iterator nodes_begin(mlir::CallGraph *cg) { return cg->begin(); }
+   static nodes_iterator nodes_end(mlir::CallGraph *cg) { return cg->end(); }
++
++  static unsigned getMaxNumber(const mlir::CallGraph *cg) {
++    return cg->getNumIndices();
++  }
+ };
+ } // namespace llvm
+ 
+diff --git a/mlir/lib/Analysis/CallGraph.cpp b/mlir/lib/Analysis/CallGraph.cpp
+index 4098c657..c6f0a36e 100644
+--- a/mlir/lib/Analysis/CallGraph.cpp
++++ b/mlir/lib/Analysis/CallGraph.cpp
+@@ -97,8 +97,8 @@ static void computeCallGraph(Operation *op, CallGraph &cg,
+ }
+ 
+ CallGraph::CallGraph(Operation *op)
+-    : externalCallerNode(/*callableRegion=*/nullptr),
+-      unknownCalleeNode(/*callableRegion=*/nullptr) {
++    : externalCallerNode(/*callableRegion=*/nullptr, /*index=*/0),
++      unknownCalleeNode(/*callableRegion=*/nullptr, /*index=*/1) {
+   // Make two passes over the graph, one to compute the callables and one to
+   // resolve the calls. We split these up as we may have nested callable objects
+   // that need to be reserved before the calls.
+@@ -116,7 +116,8 @@ CallGraphNode *CallGraph::getOrAddNode(Region *region,
+          "expected parent operation to be callable");
+   std::unique_ptr<CallGraphNode> &node = nodes[region];
+   if (!node) {
+-    node.reset(new CallGraphNode(region));
++    node.reset(new CallGraphNode(region, nextIndex++));
++    invalidateSCCs();
+ 
+     // Add this node to the given parent node if necessary.
+     if (parentNode) {
+@@ -169,6 +170,25 @@ void CallGraph::eraseNode(CallGraphNode *node) {
+     });
+   }
+   nodes.erase(node->getCallableRegion());
++  invalidateSCCs();
++}
++
++ArrayRef<ArrayRef<CallGraphNode *>> CallGraph::getSCCs() const {
++  if (!sccs.empty())
++    return sccs;
++  // Every component is copied into one vector first, and the ranges taken
++  // after, so that no range is left pointing at storage that grew under it.
++  SmallVector<unsigned> sccEnds;
++  for (auto it = llvm::scc_begin(this); !it.isAtEnd(); ++it) {
++    llvm::append_range(sccNodes, *it);
++    sccEnds.push_back(sccNodes.size());
++  }
++  unsigned begin = 0;
++  for (unsigned end : sccEnds) {
++    sccs.push_back(ArrayRef(sccNodes).slice(begin, end - begin));
++    begin = end;
++  }
++  return sccs;
+ }
+ 
+ //===----------------------------------------------------------------------===//
+@@ -234,7 +254,7 @@ void CallGraph::print(raw_ostream &os) const {
+ 
+   os << "// -- SCCs --\n";
+ 
+-  for (auto &scc : make_range(llvm::scc_begin(this), llvm::scc_end(this))) {
++  for (ArrayRef<CallGraphNode *> scc : getSCCs()) {
+     os << "// - SCC : \n";
+     for (auto &node : scc) {
+       os << "// -- Node :";

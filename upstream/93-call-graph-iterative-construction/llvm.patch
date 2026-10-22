@@ -1,0 +1,93 @@
+Subject: [PATCH] [mlir] Build the call graph from a worklist
+
+`computeCallGraph` calls itself once per level of region nesting, so
+building `CallGraph` on deeply nested IR needs a native stack that grows
+with the depth of the IR: a tool that runs its passes on threads with
+one small, bounded stack cannot analyse such a module. The two passes
+over the IR now visit the same ops in the same pre-order from an
+explicit worklist, each entry carrying the node of its enclosing
+callable, so nodes are made, and edges added, in the order they were.
+---
+diff --git a/mlir/lib/Analysis/CallGraph.cpp b/mlir/lib/Analysis/CallGraph.cpp
+index c6f0a36e..5df9d488 100644
+--- a/mlir/lib/Analysis/CallGraph.cpp
++++ b/mlir/lib/Analysis/CallGraph.cpp
+@@ -69,31 +69,43 @@ void CallGraphNode::addEdge(CallGraphNode *node, Edge::Kind kind) {
+ // CallGraph
+ //===----------------------------------------------------------------------===//
+ 
+-/// Recursively compute the callgraph edges for the given operation. Computed
+-/// edges are placed into the given callgraph object.
+-static void computeCallGraph(Operation *op, CallGraph &cg,
++/// Compute the callgraph edges for the given operation and every operation
++/// nested in it. Computed edges are placed into the given callgraph object.
++static void computeCallGraph(Operation *top, CallGraph &cg,
+                              SymbolTableCollection &symbolTable,
+-                             CallGraphNode *parentNode, bool resolveCalls) {
+-  if (CallOpInterface call = dyn_cast<CallOpInterface>(op)) {
+-    // If there is no parent node, we ignore this operation. Even if this
+-    // operation was a call, there would be no callgraph node to attribute it
+-    // to.
+-    if (resolveCalls && parentNode)
+-      parentNode->addCallEdge(cg.resolveCallable(call, symbolTable));
+-    return;
+-  }
++                             bool resolveCalls) {
++  // The ops are visited in pre-order from an explicit worklist rather than by
++  // recursion, so that the nesting depth of the IR is not the depth of the
++  // native stack. Each entry carries the node of the callable that holds it,
++  // or none.
++  SmallVector<std::pair<Operation *, CallGraphNode *>> worklist;
++  worklist.emplace_back(top, nullptr);
++  while (!worklist.empty()) {
++    auto [op, parentNode] = worklist.pop_back_val();
++    if (CallOpInterface call = dyn_cast<CallOpInterface>(op)) {
++      // If there is no parent node, we ignore this operation. Even if this
++      // operation was a call, there would be no callgraph node to attribute
++      // it to.
++      if (resolveCalls && parentNode)
++        parentNode->addCallEdge(cg.resolveCallable(call, symbolTable));
++      continue;
++    }
+ 
+-  // Compute the callgraph nodes and edges for each of the nested operations.
+-  if (CallableOpInterface callable = dyn_cast<CallableOpInterface>(op)) {
+-    if (auto *callableRegion = callable.getCallableRegion())
+-      parentNode = cg.getOrAddNode(callableRegion, parentNode);
+-    else
+-      return;
+-  }
++    // Compute the callgraph nodes and edges for each of the nested operations.
++    if (CallableOpInterface callable = dyn_cast<CallableOpInterface>(op)) {
++      if (auto *callableRegion = callable.getCallableRegion())
++        parentNode = cg.getOrAddNode(callableRegion, parentNode);
++      else
++        continue;
++    }
+ 
+-  for (Region &region : op->getRegions())
+-    for (Operation &nested : region.getOps())
+-      computeCallGraph(&nested, cg, symbolTable, parentNode, resolveCalls);
++    // The nested ops are pushed last first, so that they are visited in the
++    // order the regions hold them, which is the order nodes are made in.
++    for (Region &region : llvm::reverse(op->getRegions()))
++      for (Block &block : llvm::reverse(region))
++        for (Operation &nested : llvm::reverse(block))
++          worklist.emplace_back(&nested, parentNode);
++  }
+ }
+ 
+ CallGraph::CallGraph(Operation *op)
+@@ -103,10 +115,8 @@ CallGraph::CallGraph(Operation *op)
+   // resolve the calls. We split these up as we may have nested callable objects
+   // that need to be reserved before the calls.
+   SymbolTableCollection symbolTable;
+-  computeCallGraph(op, *this, symbolTable, /*parentNode=*/nullptr,
+-                   /*resolveCalls=*/false);
+-  computeCallGraph(op, *this, symbolTable, /*parentNode=*/nullptr,
+-                   /*resolveCalls=*/true);
++  computeCallGraph(op, *this, symbolTable, /*resolveCalls=*/false);
++  computeCallGraph(op, *this, symbolTable, /*resolveCalls=*/true);
+ }
+ 
+ /// Get or add a call graph node for the given region.

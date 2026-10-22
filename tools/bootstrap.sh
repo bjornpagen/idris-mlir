@@ -21,6 +21,9 @@
 #             runtimes, which it installs beside itself
 #   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
 #             stage-2 clang
+#   snmalloc  the runtime's allocator (third_party/snmalloc) -> .toolchain/snmalloc
+#             at the lock's revision, with its patches: the
+#             source the runtime's build compiles
 #   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
 #             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
@@ -49,9 +52,9 @@
 # A bug in a pinned upstream is fixed by a patch to its source, kept with
 # the bug's report as upstream/<bug>/<project>.patch (tools/patches.sh). The
 # steps that build LLVM's runtimes and tools (runtimes, stage2), Chez
-# Scheme and Idris 2 build a copy of the pinned source with their
-# project's patches applied in name order, and fail naming the patch that
-# does not apply. The patches are inputs of those steps and their stamps
+# Scheme and Idris 2, and the step that exports snmalloc for the runtime,
+# build a copy of the pinned source with their project's patches applied
+# in name order, and fail naming the patch that does not apply. The patches are inputs of those steps and their stamps
 # record them, so a changed or added patch rebuilds the step and everything
 # built with it, and tools/verify-pins.sh refuses a tool built without it.
 # Stage 1 builds the pristine pin: it only compiles and links the next
@@ -103,8 +106,8 @@ die() {
 }
 
 # The parts only the bootstrap names; the others (sysroot, llvm_prefix,
-# chez_prefix, idris_prefix, typecheck_toolchain, cmake) are
-# tools/toolchain.sh's.
+# snmalloc_prefix, chez_prefix, idris_prefix, typecheck_toolchain, cmake)
+# are tools/toolchain.sh's.
 cmake_prefix=$toolchain/cmake
 ninja_prefix=$toolchain/ninja
 stage1=$toolchain/stage1
@@ -145,6 +148,9 @@ llvm_targets='AArch64;X86'
 #                   dispatch, an x86 feature
 #   stage2_disk     GiB a stage-2 build and install takes (measured on
 #                   x86_64 Linux and arm64 Darwin)
+#   stack_clash     the flag that probes every frame larger than a page, so
+#                   none steps over a stack's guard: GMP's and LLVM's code
+#                   in our tools are frames the compiler does not size
 host_kind=
 case $(uname -s):$(uname -m) in
   Linux:x86_64 | Linux:aarch64) host_kind=linux ;;
@@ -187,6 +193,7 @@ case $host_kind in
       aarch64-*) gmp_host=aarch64-unknown-linux-gnu gmp_fat= ;;
     esac
     stage2_disk=13
+    stack_clash=-fstack-clash-protection
     ;;
   darwin)
     triple=arm64-apple-macosx14.0
@@ -206,6 +213,11 @@ $sdk
     gmp_host=aarch64-apple-darwin
     gmp_fat=
     stage2_disk=40
+    # The pinned clang's driver renders stack clash protection for Linux,
+    # FreeBSD and Fuchsia alone (RenderSCPOptions), so on Darwin the flag is
+    # an unused argument, an error in a configure check that adds -Werror.
+    # PIN(darwin-stack-clash) — see PINS.md
+    stack_clash=
     ;;
 esac
 # native_cmake_flags: what a CMake build for this machine names beside its
@@ -219,7 +231,7 @@ native_cmake_flags() {
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
-  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp chez idris typecheck llvm all)' >&2
+  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp snmalloc chez idris typecheck llvm all)' >&2
   exit 2
 }
 
@@ -227,9 +239,9 @@ usage() {
 steps=
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris | typecheck) steps="$steps $arg" ;;
+    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | snmalloc | chez | idris | typecheck) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 libc runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris" ;;
+    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp snmalloc chez idris" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -248,7 +260,10 @@ jobs=$ncpu
 # settings are its own configuration file, which every run of ccache on it
 # reads (ours, our CMake build's, `ccache -s`): a 1T cap; the times of
 # headers ignored, since the patched llvm-project is written just before it
-# is built; and no build directory hashed, since a compile of the same unit
+# is built; the defines a precompiled header was made with and the time
+# macros not hashed, which is what lets ccache cache a compile that uses our
+# build's precompiled header (made with -fno-pch-timestamp); and no build
+# directory hashed, since a compile of the same unit
 # in another directory, or another checkout, makes the same object (our
 # build maps its paths away). What a user of the cache names is CCACHE_DIR
 # and its own root, CCACHE_BASEDIR, under which paths are hashed relative
@@ -258,15 +273,15 @@ CCACHE_DIR=$toolchain/ccache
 CCACHE_BASEDIR=$root
 export CCACHE_DIR CCACHE_BASEDIR
 mkdir -p "$CCACHE_DIR"
-printf '%s\n' 'max_size = 1T' 'sloppiness = include_file_ctime,include_file_mtime' 'hash_dir = false' \
+printf '%s\n' 'max_size = 1T' 'sloppiness = include_file_ctime,include_file_mtime,pch_defines,time_macros' 'hash_dir = false' \
   > "$CCACHE_DIR/ccache.conf"
 ccache_state="ccache $CCACHE_DIR"
 
 # ccache_flags: the launcher, for a CMake configure. Like the job count, it
 # is passed beside a step's recipe, not in it. ccache cannot cache a
-# compile that uses a precompiled header (LLVM's builds make them by
-# default), so with ccache there are none: they only speed a compile up,
-# and change nothing it produces.
+# compile that uses a precompiled header made with a timestamp (LLVM's
+# builds make them by default), so with ccache there are none: they only
+# speed a compile up, and change nothing it produces.
 ccache_flags() {
   printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache" \
     -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
@@ -338,6 +353,8 @@ ninja_tag=$(lock_value ninja tag) || exit 1
 ninja_version=$(lock_value ninja version) || exit 1
 gmp_revision=$(lock_value gmp revision) || exit 1
 gmp_version=$(lock_value gmp version) || exit 1
+snmalloc_revision=$(lock_value snmalloc revision) || exit 1
+snmalloc_tag=$(lock_value snmalloc tag) || exit 1
 chez_revision=$(lock_value chez revision) || exit 1
 chez_tag=$(lock_value chez tag) || exit 1
 chez_version=$(lock_value chez version) || exit 1
@@ -381,6 +398,7 @@ stamp_of() {
     libc | gmp) echo "$sysroot/provenance/$1.json" ;;
     runtimes) echo "$runtimes_prefix/provenance.json" ;;
     stage2) echo "$llvm_prefix/provenance.json" ;;
+    snmalloc) echo "$snmalloc_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
     typecheck) echo "$typecheck_toolchain/provenance.json" ;;
@@ -872,6 +890,7 @@ set(CMAKE_NM "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-nm" CACHE FILEPATH "the pinned
 set(CMAKE_OBJDUMP "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-objdump" CACHE FILEPATH "the pinned objdump")
 set(CMAKE_READELF "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-readelf" CACHE FILEPATH "the pinned readelf")
 set(MLIR_DIR "\${CMAKE_CURRENT_LIST_DIR}/lib/cmake/mlir" CACHE PATH "the pinned MLIR's package")
+set(IDRIS_MLIR_SNMALLOC "\${CMAKE_CURRENT_LIST_DIR}/../snmalloc/src" CACHE PATH "the runtime's snmalloc, with its patches")
 set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, the machine's that built this toolchain")
 CMAKE
 }
@@ -1011,24 +1030,28 @@ recipe_runtimes() {
 # What stage 2 installs.
 stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
-# Stage 2, by stage 1, against the runtimes beside it, assertions on, no
+# Stage 2, by stage 1, against the runtimes beside it, no assertions, no
 # shared libraries or plugins, and no LTO: its libraries are native code,
 # which every build of our tools links as it is, and a rebuild through the
-# compiler cache relinks without optimizing LLVM again. Statistics are
-# forced on, so that llvm-config.h says they count to every includer, as
-# they do in an LLVM with assertions: a pass statistic's layout follows it,
-# and our Release build defines NDEBUG. On every target a PIE linked
-# against the system's C library.
+# compiler cache relinks without optimizing LLVM again. One toolchain,
+# without assertions, is the one our tools link and the tests run: no
+# behaviour is chosen by the build. Statistics are forced on, so that
+# llvm-config.h says they count to every includer, which an LLVM without
+# assertions does not: a pass statistic's layout follows it. Its code takes
+# the target's stack clash protection (stack_clash), since it is the frames
+# of our tools that our compiler does not size. On every target a PIE
+# linked against the system's C library.
 args_stage2() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
   printf '%s\n' "-DCMAKE_INSTALL_PREFIX=$llvm_prefix" \
     '-DLLVM_ENABLE_PROJECTS=clang;lld;mlir;clang-tools-extra' "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INSTALL_UTILS=ON \
     -DLLVM_ENABLE_LTO=OFF -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DLLVM_ENABLE_PLUGINS=OFF \
     -DCLANG_PLUGIN_SUPPORT=OFF "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components"
+  [ -z "$stack_clash" ] || printf '%s\n' "-DCMAKE_C_FLAGS=$stack_clash" "-DCMAKE_CXX_FLAGS=$stack_clash"
   native_cmake_flags
   case $object_format in
     elf)
@@ -1056,12 +1079,15 @@ recipe_stage2() {
 
 # GMP, static and position-independent, by the stage-2 clang for the
 # target: every x86-64 kernel selected at run time (gmp_fat), one arm64
-# build, where there is no run-time dispatch to ask for.
+# build, where there is no run-time dispatch to ask for. Its temporaries
+# come from the allocator, never `alloca`, so no operand's size is a
+# frame's (malloc-reentrant); its frames, which the compiler does not size,
+# take the target's stack clash protection.
 args_gmp() {
   printf '%s\n' --prefix=/usr "--build=$gmp_host" "--host=$gmp_host"
   [ -z "$gmp_fat" ] || printf '%s\n' "$gmp_fat"
-  printf '%s\n' --with-pic --disable-shared --enable-static \
-    "CC=$llvm_prefix/bin/clang --target=$triple" 'CFLAGS=-O2 -pipe -ffp-contract=off' \
+  printf '%s\n' --with-pic --disable-shared --enable-static --enable-alloca=malloc-reentrant \
+    "CC=$llvm_prefix/bin/clang --target=$triple" "CFLAGS=-O2 -pipe -ffp-contract=off${stack_clash:+ $stack_clash}" \
     "AR=$llvm_prefix/bin/llvm-ar" "NM=$llvm_prefix/bin/llvm-nm" "RANLIB=$llvm_prefix/bin/llvm-ranlib"
 }
 
@@ -1069,6 +1095,14 @@ recipe_gmp() {
   recipe_stage2_inputs=$(inputs stage2) || exit 1
   printf '%s\n' "gmp $gmp_revision" "stage2 $recipe_stage2_inputs"
   args_gmp
+}
+
+# snmalloc is compiled by the runtime's build, from this export: the
+# submodule's commit, which is the lock's, with its patches applied.
+recipe_snmalloc() {
+  recipe_snmalloc_revision=$(submodule third_party/snmalloc snmalloc) || exit 1
+  printf '%s\n' "snmalloc $recipe_snmalloc_revision"
+  patch_inputs snmalloc
 }
 
 # chez_machine: Chez Scheme's threaded machine type for the host it runs on
@@ -1128,7 +1162,7 @@ args_typecheck() {
     "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" "-DCMAKE_MAKE_PROGRAM=$ninja" \
     -DLLVM_ENABLE_PROJECTS=mlir "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_PLUGINS=OFF
   native_cmake_flags
   llvm_without_host_libraries
@@ -1156,6 +1190,7 @@ set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "-std=c++2c")
 set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "-std=gnu++2c")
 set(MLIR_DIR "$builds/typecheck-llvm/lib/cmake/mlir" CACHE PATH "the TableGen-only MLIR's package")
 set(LLVM_DIR "$builds/typecheck-llvm/lib/cmake/llvm" CACHE PATH "the TableGen-only LLVM's package")
+set(IDRIS_MLIR_SNMALLOC "$snmalloc_prefix/src" CACHE PATH "the runtime's snmalloc, with its patches")
 set(IDRIS_MLIR_TYPECHECK ON CACHE BOOL "compile our code against the TableGen-only LLVM/MLIR" FORCE)
 set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, this machine's")
 CMAKE
@@ -1417,6 +1452,25 @@ step_gmp() {
   finish
 }
 
+# The runtime's snmalloc: third_party/snmalloc at its gitlink, the lock's
+# revision, exported with its patches into .toolchain/snmalloc/src, which
+# the toolchain files name to the runtime's build (IDRIS_MLIR_SNMALLOC).
+# Nothing is compiled here: the runtime compiles it with its own profile.
+step_snmalloc() {
+  begin snmalloc "snmalloc $snmalloc_tag, with its patches, for the runtime" || return 0
+  need git
+  snmalloc_link=$(submodule third_party/snmalloc snmalloc) || exit 1
+  build_dir
+  export_source "$root/third_party/snmalloc" "$build/src" snmalloc
+  [ -f "$build/src/src/snmalloc/snmalloc.h" ] || die "the export of third_party/snmalloc has no src/snmalloc/snmalloc.h"
+  rm -rf "$snmalloc_prefix"
+  mkdir -p "$snmalloc_prefix"
+  mv "$build/src" "$snmalloc_prefix/src"
+  write_stamp "$(stamp_of snmalloc)" step snmalloc revision "$snmalloc_link" tag "$snmalloc_tag" \
+    inputs "$step_inputs" patches "$(patch_stamp snmalloc)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finish
+}
+
 # Chez Scheme, with the host's C compiler. Idris 2 runs on it and bench/
 # times Idris's Chez backend on it, so it is one pinned release on every
 # host, not whichever the host packages. Idris's support library is
@@ -1517,7 +1571,7 @@ step_typecheck() {
     fi
   fi
   begin typecheck "LLVM/MLIR's TableGen and headers $llvm_name, with the host's C++ compiler" || return 0
-  require cmake ninja
+  require cmake ninja snmalloc
   need git python3 "$host_cc" "$host_cxx"
   llvm_tree
   build=$builds/typecheck-llvm

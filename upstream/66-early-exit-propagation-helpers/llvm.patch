@@ -1,0 +1,107 @@
+Subject: [PATCH] [mlir] Export the early-exit propagation helpers
+
+On top of llvm/llvm-project#166688. `terminatorPropagatesThrough` and
+`appendPropagatedTerminatorSuccessors` decide how an op that an exit
+crosses (an op with `PropagateControlFlowBreak`) answers
+`getSuccessorRegions` for that exit: with its target's successors, never
+itself. Every propagating `RegionBranchOpInterface` op needs exactly
+that answer, but the pull request keeps them `static` in SCF.cpp, so
+each other dialect, `scf.index_switch` included, would write its own
+copy. Move them, unchanged, to ControlFlowInterfaces, declared beside
+`getRegionBranchSuccessorOwner`.
+---
+diff --git a/mlir/include/mlir/Interfaces/ControlFlowInterfaces.h b/mlir/include/mlir/Interfaces/ControlFlowInterfaces.h
+index cd74de81..7ef2418a 100644
+--- a/mlir/include/mlir/Interfaces/ControlFlowInterfaces.h
++++ b/mlir/include/mlir/Interfaces/ControlFlowInterfaces.h
+@@ -452,6 +452,20 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
+ RegionBranchOpInterface
+ getRegionBranchSuccessorOwner(RegionSuccessor successor);
+ 
++/// Return true if `terminator` exits through `op` to a target that is a
++/// proper ancestor of `op`. An op that `terminator` crosses this way (an op
++/// with the `PropagateControlFlowBreak` trait) does not receive it: its
++/// `getSuccessorRegions` reports the target's successors for it, through
++/// `appendPropagatedTerminatorSuccessors`.
++bool terminatorPropagatesThrough(Operation *terminator, Operation *op);
++
++/// Append to `regions` the successors that every target of `terminator`
++/// that is a proper ancestor of `op` reports for `terminator`. This is what
++/// `getSuccessorRegions` of an op that propagates the exit returns for it.
++void appendPropagatedTerminatorSuccessors(
++    RegionBranchTerminatorOpInterface terminator, Operation *op,
++    SmallVectorImpl<RegionSuccessor> &regions);
++
+ } // namespace mlir
+ 
+ #endif // MLIR_INTERFACES_CONTROLFLOWINTERFACES_H
+diff --git a/mlir/lib/Dialect/SCF/IR/SCF.cpp b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+index 76c3c043..11c0419d 100644
+--- a/mlir/lib/Dialect/SCF/IR/SCF.cpp
++++ b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+@@ -393,30 +393,6 @@ static LogicalResult verifyLoopTerminatorTarget(Operation *terminator,
+   return success();
+ }
+ 
+-static bool terminatorPropagatesThrough(Operation *terminator, Operation *op) {
+-  for (HasBreakingControlFlowOpInterface target :
+-       findPotentialBreakTargets(terminator)) {
+-    if (target.getOperation() != op &&
+-        target.getOperation()->isProperAncestor(op))
+-      return true;
+-  }
+-  return false;
+-}
+-
+-static void appendPropagatedTerminatorSuccessors(
+-    RegionBranchTerminatorOpInterface terminator, Operation *op,
+-    SmallVectorImpl<RegionSuccessor> &regions) {
+-  for (HasBreakingControlFlowOpInterface target :
+-       findPotentialBreakTargets(terminator)) {
+-    Operation *targetOp = target.getOperation();
+-    if (targetOp == op || !targetOp->isProperAncestor(op))
+-      continue;
+-    auto targetBranch = dyn_cast<RegionBranchOpInterface>(targetOp);
+-    assert(targetBranch && "expected breaking target to model region branch");
+-    targetBranch.getSuccessorRegions(RegionBranchPoint(terminator), regions);
+-  }
+-}
+-
+ LogicalResult BreakOp::verify() {
+   return verifyLoopTerminatorTarget(getOperation(), getTargetToken());
+ }
+diff --git a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+index 1dc398af..06deedb5 100644
+--- a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
++++ b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+@@ -487,6 +487,30 @@ mlir::getRegionBranchSuccessorOwner(RegionSuccessor successor) {
+       successor.getSuccessor()->getParentOp());
+ }
+ 
++bool mlir::terminatorPropagatesThrough(Operation *terminator, Operation *op) {
++  for (HasBreakingControlFlowOpInterface target :
++       findPotentialBreakTargets(terminator)) {
++    if (target.getOperation() != op &&
++        target.getOperation()->isProperAncestor(op))
++      return true;
++  }
++  return false;
++}
++
++void mlir::appendPropagatedTerminatorSuccessors(
++    RegionBranchTerminatorOpInterface terminator, Operation *op,
++    SmallVectorImpl<RegionSuccessor> &regions) {
++  for (HasBreakingControlFlowOpInterface target :
++       findPotentialBreakTargets(terminator)) {
++    Operation *targetOp = target.getOperation();
++    if (targetOp == op || !targetOp->isProperAncestor(op))
++      continue;
++    auto targetBranch = dyn_cast<RegionBranchOpInterface>(targetOp);
++    assert(targetBranch && "expected breaking target to model region branch");
++    targetBranch.getSuccessorRegions(RegionBranchPoint(terminator), regions);
++  }
++}
++
+ static MutableArrayRef<OpOperand> operandsToOpOperands(OperandRange &operands) {
+   return MutableArrayRef<OpOperand>(operands.getBase(), operands.size());
+ }

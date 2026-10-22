@@ -1,0 +1,55 @@
+Subject: [PATCH] [mlir][Pass][NFC] Document a CRTP `baseClass` for a pass
+
+`PassBase`'s `baseClass` is spliced into the generated `<Pass>Base`
+template, whose parameter is the derived pass, `DerivedT`, so a project
+may give its passes a CRTP base class of its own that takes the derived
+pass's type. Nothing says so: PassBase.td documents the field as "the
+C++ base class", and PassManagement.md names only `OperationPass` and
+`InterfacePass`. Say what the generated code already allows, and what
+such a base class must provide (a constructor from `TypeID`, a pass base
+of its own).
+---
+diff --git a/mlir/docs/PassManagement.md b/mlir/docs/PassManagement.md
+index 70f055f7..1acc169a 100644
+--- a/mlir/docs/PassManagement.md
++++ b/mlir/docs/PassManagement.md
+@@ -927,6 +927,21 @@ struct MyPass : foo::impl::MyPassBase<MyPass> {
+ These definitions can be enabled on a per-pass basis by defining the appropriate
+ preprocessor `GEN_PASS_DEF_PASSNAME` macro, with `PASSNAME` equal to the
+ uppercase version of the name of the pass definition in tablegen.
++
++The generated base class derives from the pass's `baseClass`, which is
++`::mlir::OperationPass<...>` for a `Pass` and `::mlir::InterfacePass<...>` for
++an `InterfacePass`. A project may give its passes a base class of its own by
++setting `baseClass` in a `PassBase` of its own. The string is spliced into the
++generated template, whose parameter is the derived pass, `DerivedT`, so a base
++class that needs the derived pass's type (a CRTP base) names it there:
++
++```tablegen
++class StagedPass<string passArg, string operation>
++    : PassBase<passArg, "::foo::StagedPass<DerivedT, " # operation # ">">;
++```
++
++Such a base class derives from `OperationPass` or `InterfacePass` and takes the
++`::mlir::TypeID` they are constructed from.
+ The default constructors are also defined and expect the name of the actual pass
+ class to be equal to the name defined in tablegen.
+ 
+diff --git a/mlir/include/mlir/Pass/PassBase.td b/mlir/include/mlir/Pass/PassBase.td
+index e37f9735..93aad015 100644
+--- a/mlir/include/mlir/Pass/PassBase.td
++++ b/mlir/include/mlir/Pass/PassBase.td
+@@ -66,7 +66,12 @@ class PassBase<string passArg, string base> {
+   // The command line argument of the pass.
+   string argument = passArg;
+ 
+-  // The C++ base class for the pass.
++  // The C++ base class for the pass. The generated `<Pass>Base` class is a
++  // template over `DerivedT`, the pass that derives from it, and this string
++  // is spliced into it, so a base class that is itself a CRTP template may
++  // name the derived pass: `"::my::StagedPass<DerivedT>"`. Such a base class
++  // derives from `::mlir::OperationPass<...>` (or `InterfacePass<...>`) and
++  // has a constructor from `::mlir::TypeID`, as those do.
+   string baseClass = base;
+ 
+   // A short 1-line summary of the pass.

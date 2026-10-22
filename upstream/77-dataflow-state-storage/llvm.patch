@@ -1,0 +1,59 @@
+Subject: [PATCH] [mlir][dataflow] Keep a state's maps and sets inline when small
+
+Every lattice anchor with a state has an inner
+`DenseMap<TypeID, std::unique_ptr<AnalysisState>>`, and every state
+with a dependent a `SetVector<WorkItem>`. LLVM's `DenseMap` never
+allocates fewer than 64 buckets once it holds anything, and a
+`SetVector` with no inline size starts a 64-bucket `DenseSet` at its
+first insert, so "this value has a state" costs two minimum-size hash
+tables, about 2.9 KB for one bit of liveness measured on arm64 macOS,
+more than 90 percent of it the two tables.
+
+An anchor holds the states of one or two analyses, so its map is now a
+`SmallDenseMap<TypeID, ..., 2>`, and a state's dependents a `SetVector`
+with 4 inline elements: about 0.2 KB per state, fifteenfold less, with
+no API change. The solver runs on one thread, so its program-point
+uniquer no longer takes locks (`disableMultithreading`).
+---
+diff --git a/mlir/include/mlir/Analysis/DataFlowFramework.h b/mlir/include/mlir/Analysis/DataFlowFramework.h
+index b9dc9609..9609053f 100644
+--- a/mlir/include/mlir/Analysis/DataFlowFramework.h
++++ b/mlir/include/mlir/Analysis/DataFlowFramework.h
+@@ -329,6 +329,8 @@ public:
+   explicit DataFlowSolver(const DataFlowConfig &config = DataFlowConfig())
+       : config(config) {
+     uniquer.registerParametricStorageType<ProgramPoint>();
++    // The solver runs on one thread, so its program points need no locks.
++    uniquer.disableMultithreading();
+   }
+ 
+   /// Load an analysis into the solver. Return the analysis instance.
+@@ -485,8 +487,11 @@ private:
+   StorageUniquer uniquer;
+ 
+   /// A type-erased map of lattice anchors to associated analysis states for
+-  /// first-class lattice anchors.
+-  DenseMap<LatticeAnchor, DenseMap<TypeID, std::unique_ptr<AnalysisState>>>
++  /// first-class lattice anchors. An anchor holds the states of one or two
++  /// analyses, so its map stays inline: a `DenseMap` allocates 64 buckets
++  /// once it holds anything, about 1 KiB per anchor.
++  DenseMap<LatticeAnchor,
++           SmallDenseMap<TypeID, std::unique_ptr<AnalysisState>, 2>>
+       analysisStates;
+ 
+   /// A map of Ananlysis state type to the equivalent lattice anchors.
+@@ -563,8 +568,12 @@ private:
+   /// pushed to the back of the queue. Use a `SetVector` to keep the analysis
+   /// deterministic.
+   ///
+-  /// Store the dependents on the analysis state for efficiency.
+-  SetVector<DataFlowSolver::WorkItem> dependents;
++  /// Store the dependents on the analysis state for efficiency. A state has a
++  /// few dependents, so the set stays inline until it grows: a `SetVector`
++  /// with no inline size starts a 64-bucket `DenseSet` at its first insert.
++  SetVector<DataFlowSolver::WorkItem, SmallVector<DataFlowSolver::WorkItem, 0>,
++            DenseSet<DataFlowSolver::WorkItem>, 4>
++      dependents;
+ 
+   /// Allow the framework to access the dependents.
+   friend class DataFlowSolver;

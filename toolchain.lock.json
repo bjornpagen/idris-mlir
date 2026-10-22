@@ -2,17 +2,17 @@
   "schema_version": 4,
   "llvm": {
     "repository": "https://github.com/llvm/llvm-project.git",
-    "revision": "7208ba24ca2894729cd394475a00d2a7b605e642",
-    "describe": "llvmorg-24-init-13225-g7208ba24ca28",
+    "revision": "416f328b939fe1373ddc9060f6773ad4c5039f59",
+    "describe": "llvmorg-24-init-15655-g416f328b939f",
     "version": "24.0.0git",
     "accept": "24"
   },
   "cmake": {
     "repository": "https://github.com/Kitware/CMake.git",
-    "revision": "ff7c4824e7cd1f11e3a6af4cdeb39840bbb62cdc",
-    "tag": "v4.2.8",
-    "version": "4.2.8",
-    "accept": "4.2"
+    "revision": "2e0b3aec14fe2e3e555faac4698e281749aae4b5",
+    "tag": "v4.4.4",
+    "version": "4.4.4",
+    "accept": "4.4"
   },
   "ninja": {
     "repository": "https://github.com/ninja-build/ninja.git",
@@ -34,9 +34,9 @@
   "simdutf": {
     "path": "third_party/simdutf",
     "repository": "https://github.com/simdutf/simdutf.git",
-    "revision": "bb77e7bb98fe0c2296e7cf9f324c56fcd704885a",
-    "tag": "v9.3.0",
-    "version": "9.3.0"
+    "revision": "8d82299606e675b50de8dc16fd118aae4b65bfde",
+    "tag": "v9.3.2",
+    "version": "9.3.2"
   },
   "fast_float": {
     "path": "third_party/fast_float",

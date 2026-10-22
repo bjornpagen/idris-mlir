@@ -1,0 +1,70 @@
+Subject: [PATCH] [mlir] An op an early exit leaves is not trivially dead
+
+On top of llvm/llvm-project#166688. `wouldOpBeTriviallyDead` walks the
+nested ops of an op with recursive memory effects and finds the op dead
+when none of them has an effect but a read or an allocation. An early
+exit that leaves the op transfers control out of it, but an op that only
+transfers control declares no memory effect, so a resultless op whose
+regions all exit to an enclosing target is found dead and erased, and
+the code after it runs in place of the exit. `scf.break` escapes this
+only because it implements no `MemoryEffectOpInterface`, which reads as
+unknown; an exit that declares its (empty) effects meets it.
+
+The walk now keeps the root when it meets a
+`RegionExitTerminatorOpInterface` op with a potential target outside the
+root: O(1) per visited op.
+---
+diff --git a/mlir/lib/Interfaces/CMakeLists.txt b/mlir/lib/Interfaces/CMakeLists.txt
+index c6a36a72..cace81f7 100644
+--- a/mlir/lib/Interfaces/CMakeLists.txt
++++ b/mlir/lib/Interfaces/CMakeLists.txt
+@@ -106,7 +106,19 @@ add_mlir_interface_library(MemorySlotInterfaces)
+ add_mlir_interface_library(ParallelCombiningOpInterface)
+ add_mlir_interface_library(RuntimeVerifiableOpInterface)
+ add_mlir_interface_library(ShapedOpInterfaces)
+-add_mlir_interface_library(SideEffectInterfaces)
++add_mlir_library(MLIRSideEffectInterfaces
++  SideEffectInterfaces.cpp
++
++  ADDITIONAL_HEADER_DIRS
++  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Interfaces
++
++  DEPENDS
++  MLIRRegionKindInterfaceIncGen
++  MLIRSideEffectInterfacesIncGen
++
++  LINK_LIBS PUBLIC
++  MLIRIR
++  )
+ 
+ add_mlir_library(MLIRSubsetOpInterface
+   SubsetOpInterface.cpp
+diff --git a/mlir/lib/Interfaces/SideEffectInterfaces.cpp b/mlir/lib/Interfaces/SideEffectInterfaces.cpp
+index b5a6888e..7cdd2681 100644
+--- a/mlir/lib/Interfaces/SideEffectInterfaces.cpp
++++ b/mlir/lib/Interfaces/SideEffectInterfaces.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "mlir/Interfaces/SideEffectInterfaces.h"
+ 
++#include "mlir/IR/RegionKindInterface.h"
+ #include "mlir/IR/SymbolTable.h"
+ #include <utility>
+ 
+@@ -54,6 +55,16 @@ static bool wouldOpBeTriviallyDeadImpl(Operation *rootOp) {
+     }
+     mlir::Operation *op = &*(it++);
+ 
++    // An early exit that leaves `rootOp` transfers control out of it: the
++    // root is not dead, whatever effects the exit itself declares (an op that
++    // only transfers control declares none).
++    if (auto exit = dyn_cast<RegionExitTerminatorOpInterface>(op)) {
++      if (llvm::any_of(exit.getPotentialTargets(), [&](Operation *target) {
++            return !rootOp->isAncestor(target);
++          }))
++        return false;
++    }
++
+     // If the operation has recursive effects, push all of the nested operations
+     // on to the stack to consider.
+     bool hasRecursiveEffects =

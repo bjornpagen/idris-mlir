@@ -1,0 +1,66 @@
+Subject: [PATCH] Bounded pagemap: range tests on the fast path under sanity_checks
+
+A bounded `FlatPagemap` tests every lookup and every write against its
+range, and calls `PAL::error` when the address lies outside it. On the
+lookup of a pointer the caller says is in range (`get<false>`, which
+`dealloc` and the remote paths use), and on `set`, the test checks the
+client, which is what the `sanity_checks` mitigation is for: the test now
+runs only under it. Without it the lookup is the subtraction of the base
+and one load; null still reads the default entry, so `free(nullptr)`
+needs no test of its own. A lookup that may be out of range
+(`get<true>`) keeps its test.
+---
+diff --git a/src/snmalloc/ds/pagemap.h b/src/snmalloc/ds/pagemap.h
+index 2ee3cdd..ac89af9 100644
+--- a/src/snmalloc/ds/pagemap.h
++++ b/src/snmalloc/ds/pagemap.h
+@@ -328,13 +328,14 @@ namespace snmalloc
+ 
+       if constexpr (has_bounds)
+       {
+-        if (p - base > size)
++        if constexpr (potentially_out_of_range)
+         {
+-          if constexpr (potentially_out_of_range)
+-          {
++          if (p - base > size)
+             return const_cast<T&>(default_value);
+-          }
+-          else
++        }
++        else if constexpr (mitigations(sanity_checks))
++        {
++          if (p - base > size)
+           {
+             // Out of range null should
+             // still return the default value.
+@@ -343,6 +344,14 @@ namespace snmalloc
+             PAL::error("Internal error: Pagemap read access out of range.");
+           }
+         }
++        else
++        {
++          // Without sanity checks, an address the caller says is in range is
++          // trusted to be; null still reads the default value, so that
++          // `free(nullptr)` needs no test of its own.
++          if (SNMALLOC_UNLIKELY(p == 0))
++            return const_cast<T&>(default_value);
++        }
+         p = p - base;
+       }
+ 
+@@ -405,9 +414,12 @@ namespace snmalloc
+ #endif
+       if constexpr (has_bounds)
+       {
+-        if (p - base > size)
++        if constexpr (mitigations(sanity_checks))
+         {
+-          PAL::error("Internal error: Pagemap write access out of range.");
++          if (p - base > size)
++          {
++            PAL::error("Internal error: Pagemap write access out of range.");
++          }
+         }
+         p = p - base;
+       }

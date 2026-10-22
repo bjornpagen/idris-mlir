@@ -2,8 +2,8 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] `-mlir-timing` times a dynamic pipeline outside the pass that runs it
 
-On llvm main at 7208ba24 (the pin), and on main at 626eeb8e (2026-10-09),
-whose four files involved are the pin's, MLIR's pass timing nests the
+On llvm main at 416f328b (the pin, 2026-10-21), as at 7208ba24, MLIR's
+pass timing nests the
 timer of a pipeline that a pass runs through `Pass::runPipeline` under the
 root of the report, not under the timer of the pass. The pipeline's row
 prints at the top level beside the pass, its time is counted twice (in the
@@ -115,15 +115,18 @@ record themselves.
 
 ## Patch
 
-`llvm.patch`, a `git diff` against 7208ba24. `runBeforePass` records the
-index of every pass's timer in `parentTimerIndices`, before it pushes the
-timer, and `runAfterPass` erases it for every pass. The `PassTiming.cpp`
-hunk is #169615's, byte for byte (the file's blob after it is c67f994, as
-on the pull request). The key `{thread, pass}` is still one running pass,
-as it was for adaptors. A dynamic pipeline on another thread (the
-inliner's, with threading on) finds its pass's timer as an adaptor's
-asynchronous pipelines find theirs, and nests in it as an asynchronous
-child; the instrumentor calls PassTiming under its lock.
+`llvm.patch`, a `git diff` against the pin, llvm main at 416f328b. Main's
+b93b033ab8a5 (#232948, 2026-10-21) rewrote `PassTiming` for thread
+safety: the parents of pipelines are `parentScopes`, a map from
+`{thread, pass}` to the pass's scope under a reader-writer lock, and each
+thread's timers a deque, so a published scope keeps its address. It still
+records adaptors alone (`runBeforePass`, `runAfterPass`), so the bug
+stands. The patch records every pass's scope there once its timer is
+pushed, and erases it for every pass after it runs: #169615's change, as
+the rewritten file spells it. The key `{thread, pass}` is still one
+running pass, as it was for adaptors. A dynamic pipeline on another
+thread (the inliner's, with threading on) finds its pass's scope as an
+adaptor's asynchronous pipelines find theirs.
 
 The test hunk is ours: #169615's test, revised so that it fails without
 the change. Review of #169615 found its test passing at HEAD (2025-11-28,
@@ -140,7 +143,8 @@ pinned source alone and after the others (`tests/upstream-patches`).
 
 ## Testing at the pin
 
-On arm64 macOS, with two scratch `mlir-opt`s: a main that registers every
+At the earlier pin, 7208ba24, before #232948 (the rewritten patch has not
+been run). On arm64 macOS, with two scratch `mlir-opt`s: a main that registers every
 upstream dialect, extension and pass (no test dialect or test passes),
 compiled by Apple clang 21 with the toolchain's flags (`-std=c++17
 -fno-rtti -fno-exceptions`, assertions on) and linked against the static
@@ -167,12 +171,11 @@ among its patches), one with `PassTiming.cpp` as pinned and one with this patch.
 
 ## Upstreaming plan
 
-Status: not posted. #169443 and #169615 are open; #169615's change is as
-reviewed, its author has not answered the review's question about the
-test since 2025-11-28 (last push 2026-01-26). `PassTiming.cpp`,
-`pass-timing.mlir`, `Pass.cpp` and `Timing.cpp` on main at 626eeb8e
-(2026-10-09) are the pin's blobs, so the bug and the test stand on main as
-at the pin.
+Status: not posted. #169443 and #169615 are open (2026-10-21); #169615's
+change is as reviewed, its author has not answered the review's question
+about the test since 2025-11-28 (last push 2026-01-26). Main's #232948
+rewrote `PassTiming.cpp` after it, so #169615 no longer applies to main;
+the bug and the test stand on main at 416f328b.
 
 - Where: one comment on #169615, the text in `submission.md`: why its test
   passes at HEAD, and the revised test, which fails there and passes with
@@ -181,8 +184,8 @@ at the pin.
   month of the comment, a pull request with its change and the revised
   test, naming #169443 and #169615, is Bjorn's call: it takes over
   another author's change.
-- Before posting: check that main's four files are still the pin's (or
-  that the diff in `submission.md` still applies to #169615's file). Before
+- Before posting: the comment names #232948's rewrite, and the change
+  as the rewritten file spells it (this patch's `PassTiming.cpp` hunk). Before
   a pull request of our own: `git apply --check` on then-current main;
   `check-mlir` is left to LLVM's pre-merge CI, as LLVM is not built here.
 - Upstream test: the `DYNAMIC-PIPELINE` RUN lines and checks in

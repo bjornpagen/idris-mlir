@@ -1,0 +1,261 @@
+Subject: [PATCH] [mlir] OperationEquivalence: compare symbol references through a hook
+
+`OperationEquivalence` compares two operations' attributes and
+properties by identity, so two functions whose bodies differ only in
+which callee they name are never equivalent, even when the callees are.
+Deduplicating functions by partition refinement (the classes refined
+until each is stable, as for a finite automaton) needs exactly that
+comparison: two calls are equal when their callees are in one class.
+
+`computeHash`, `isEquivalentTo` and `isRegionEquivalentTo` take an
+optional `MapSymbolRefFn`, which gives the attribute standing for each
+symbol reference (the representative of its class): every symbol
+reference in the operations' attributes and properties is replaced by
+it before they are hashed or compared, and the comparison by identity
+is tried first, so a caller that passes none pays nothing. Unit test in
+OperationSupportTest.cpp.
+---
+diff --git a/mlir/include/mlir/IR/OperationSupport.h b/mlir/include/mlir/IR/OperationSupport.h
+index 3b43a1cf..a020aee8 100644
+--- a/mlir/include/mlir/IR/OperationSupport.h
++++ b/mlir/include/mlir/IR/OperationSupport.h
+@@ -1416,16 +1416,25 @@ struct OperationEquivalence {
+     LLVM_MARK_AS_BITMASK_ENUM(/* LargestValue = */ IgnoreCommutativity)
+   };
+ 
++  /// A callback that gives the attribute standing for a symbol reference when
++  /// operations are compared or hashed: for example the representative of
++  /// the class of symbols a caller found equivalent. Every symbol reference
++  /// in an operation's attributes and properties is replaced by it first, so
++  /// two operations that differ only in which member of a class they name
++  /// are equivalent and hash alike.
++  using MapSymbolRefFn = function_ref<Attribute(SymbolRefAttr)>;
++
+   /// Compute a hash for the given operation.
+   /// The `hashOperands` and `hashResults` callbacks are expected to return a
+-  /// unique hash_code for a given Value.
++  /// unique hash_code for a given Value. When `mapSymbolRef` is given, the
++  /// attributes and properties are hashed with their symbol references mapped.
+   static llvm::hash_code computeHash(
+       Operation *op,
+       function_ref<llvm::hash_code(Value)> hashOperands =
+           [](Value v) { return hash_value(v); },
+       function_ref<llvm::hash_code(Value)> hashResults =
+           [](Value v) { return hash_value(v); },
+-      Flags flags = Flags::None);
++      Flags flags = Flags::None, MapSymbolRefFn mapSymbolRef = nullptr);
+ 
+   /// Helper that can be used with `computeHash` above to ignore operation
+   /// operands/result mapping.
+@@ -1447,6 +1456,9 @@ struct OperationEquivalence {
+   ///   in, then equivalence is checked pairwise. This callback is needed to be
+   ///   able to query the optional equivalence classes.
+   ///
++  /// * `mapSymbolRef` is an optional callback that gives the attribute
++  ///   standing for each symbol reference (see `MapSymbolRefFn`).
++  ///
+   /// Note: Additional information regarding value equivalence can be injected
+   /// into the analysis via `checkEquivalent`. Typically, callers may want
+   /// values that were determined to be equivalent as per `markEquivalent` to be
+@@ -1458,7 +1470,8 @@ struct OperationEquivalence {
+                  function_ref<void(Value, Value)> markEquivalent = nullptr,
+                  Flags flags = Flags::None,
+                  function_ref<LogicalResult(ValueRange, ValueRange)>
+-                     checkCommutativeEquivalent = nullptr);
++                     checkCommutativeEquivalent = nullptr,
++                 MapSymbolRefFn mapSymbolRef = nullptr);
+ 
+   /// Compare two operations and return if they are equivalent.
+   static bool isEquivalentTo(Operation *lhs, Operation *rhs, Flags flags);
+@@ -1471,7 +1484,8 @@ struct OperationEquivalence {
+       function_ref<void(Value, Value)> markEquivalent,
+       OperationEquivalence::Flags flags,
+       function_ref<LogicalResult(ValueRange, ValueRange)>
+-          checkCommutativeEquivalent = nullptr);
++          checkCommutativeEquivalent = nullptr,
++      MapSymbolRefFn mapSymbolRef = nullptr);
+ 
+   /// Compare two regions and return if they are equivalent.
+   static bool isRegionEquivalentTo(Region *lhs, Region *rhs,
+diff --git a/mlir/lib/IR/OperationSupport.cpp b/mlir/lib/IR/OperationSupport.cpp
+index 545791df..da6f44ed 100644
+--- a/mlir/lib/IR/OperationSupport.cpp
++++ b/mlir/lib/IR/OperationSupport.cpp
+@@ -12,6 +12,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "mlir/IR/OperationSupport.h"
++#include "mlir/IR/AttrTypeSubElements.h"
+ #include "mlir/IR/BuiltinAttributes.h"
+ #include "mlir/IR/BuiltinTypes.h"
+ #include "mlir/IR/OpDefinition.h"
+@@ -728,20 +729,44 @@ Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
+ // Operation Equivalency
+ //===----------------------------------------------------------------------===//
+ 
++/// `attr` with every symbol reference in it replaced by what `mapSymbolRef`
++/// gives for it.
++static Attribute
++mapSymbolRefs(Attribute attr,
++              OperationEquivalence::MapSymbolRefFn mapSymbolRef) {
++  if (!attr)
++    return attr;
++  AttrTypeReplacer replacer;
++  replacer.addReplacement(
++      [&](SymbolRefAttr ref) -> std::optional<Attribute> {
++        return mapSymbolRef(ref);
++      });
++  return replacer.replace(attr);
++}
++
+ llvm::hash_code OperationEquivalence::computeHash(
+     Operation *op, function_ref<llvm::hash_code(Value)> hashOperands,
+-    function_ref<llvm::hash_code(Value)> hashResults, Flags flags) {
++    function_ref<llvm::hash_code(Value)> hashResults, Flags flags,
++    MapSymbolRefFn mapSymbolRef) {
+   // Hash operations based upon their:
+   //   - Operation Name
+   //   - Attributes
+   //   - Result Types
+-  DictionaryAttr dictAttrs;
+-  if (!(flags & Flags::IgnoreDiscardableAttrs))
++  Attribute dictAttrs;
++  if (!(flags & Flags::IgnoreDiscardableAttrs)) {
+     dictAttrs = op->getRawDictionaryAttrs();
++    if (mapSymbolRef)
++      dictAttrs = mapSymbolRefs(dictAttrs, mapSymbolRef);
++  }
+   llvm::hash_code hash =
+       llvm::hash_combine(op->getName(), dictAttrs, op->getResultTypes());
+-  if (!(flags & Flags::IgnoreProperties))
+-    hash = llvm::hash_combine(hash, op->hashProperties());
++  if (!(flags & Flags::IgnoreProperties)) {
++    if (mapSymbolRef)
++      hash = llvm::hash_combine(
++          hash, mapSymbolRefs(op->getPropertiesAsAttribute(), mapSymbolRef));
++    else
++      hash = llvm::hash_combine(hash, op->hashProperties());
++  }
+ 
+   //   - Location if required
+   if (!(flags & Flags::IgnoreLocations))
+@@ -772,7 +797,8 @@ llvm::hash_code OperationEquivalence::computeHash(
+     function_ref<void(Value, Value)> markEquivalent,
+     OperationEquivalence::Flags flags,
+     function_ref<LogicalResult(ValueRange, ValueRange)>
+-        checkCommutativeEquivalent) {
++        checkCommutativeEquivalent,
++    MapSymbolRefFn mapSymbolRef) {
+   DenseMap<Block *, Block *> blocksMap;
+   auto blocksEquivalent = [&](Block &lBlock, Block &rBlock) {
+     // Check block arguments.
+@@ -800,9 +826,9 @@ llvm::hash_code OperationEquivalence::computeHash(
+ 
+     auto opsEquivalent = [&](Operation &lOp, Operation &rOp) {
+       // Check for op equality (recursively).
+-      if (!OperationEquivalence::isEquivalentTo(&lOp, &rOp, checkEquivalent,
+-                                                markEquivalent, flags,
+-                                                checkCommutativeEquivalent))
++      if (!OperationEquivalence::isEquivalentTo(
++              &lOp, &rOp, checkEquivalent, markEquivalent, flags,
++              checkCommutativeEquivalent, mapSymbolRef))
+         return false;
+       // Check successor mapping.
+       for (auto successorsPair :
+@@ -892,13 +918,17 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+     function_ref<LogicalResult(Value, Value)> checkEquivalent,
+     function_ref<void(Value, Value)> markEquivalent, Flags flags,
+     function_ref<LogicalResult(ValueRange, ValueRange)>
+-        checkCommutativeEquivalent) {
++        checkCommutativeEquivalent,
++    MapSymbolRefFn mapSymbolRef) {
+   if (lhs == rhs)
+     return true;
+ 
+   // 1. Compare the operation properties.
+   if (!(flags & IgnoreDiscardableAttrs) &&
+-      lhs->getRawDictionaryAttrs() != rhs->getRawDictionaryAttrs())
++      lhs->getRawDictionaryAttrs() != rhs->getRawDictionaryAttrs() &&
++      (!mapSymbolRef ||
++       mapSymbolRefs(lhs->getRawDictionaryAttrs(), mapSymbolRef) !=
++           mapSymbolRefs(rhs->getRawDictionaryAttrs(), mapSymbolRef)))
+     return false;
+ 
+   if (lhs->getName() != rhs->getName() ||
+@@ -909,7 +939,10 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+     return false;
+   if (!(flags & IgnoreProperties) &&
+       !(lhs->getName().compareOpProperties(lhs->getPropertiesStorage(),
+-                                           rhs->getPropertiesStorage())))
++                                           rhs->getPropertiesStorage())) &&
++      (!mapSymbolRef ||
++       mapSymbolRefs(lhs->getPropertiesAsAttribute(), mapSymbolRef) !=
++           mapSymbolRefs(rhs->getPropertiesAsAttribute(), mapSymbolRef)))
+     return false;
+   if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
+     return false;
+@@ -947,9 +980,10 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+ 
+   // 4. Compare regions.
+   for (auto regionPair : llvm::zip(lhs->getRegions(), rhs->getRegions()))
+-    if (!isRegionEquivalentTo(
+-            &std::get<0>(regionPair), &std::get<1>(regionPair), checkEquivalent,
+-            markEquivalent, flags, checkCommutativeEquivalent))
++    if (!isRegionEquivalentTo(&std::get<0>(regionPair),
++                              &std::get<1>(regionPair), checkEquivalent,
++                              markEquivalent, flags, checkCommutativeEquivalent,
++                              mapSymbolRef))
+       return false;
+ 
+   return true;
+diff --git a/mlir/unittests/IR/OperationSupportTest.cpp b/mlir/unittests/IR/OperationSupportTest.cpp
+index 33f69a6e..69c99104 100644
+--- a/mlir/unittests/IR/OperationSupportTest.cpp
++++ b/mlir/unittests/IR/OperationSupportTest.cpp
+@@ -443,4 +443,46 @@ TEST(RepeatedRangeTest, TypeRangeFromRepeatedValueViaValueRange) {
+   useOp->destroy();
+ }
+ 
++TEST(OperationEquivalenceTest, MapSymbolRef) {
++  MLIRContext context;
++  context.allowUnregisteredDialects();
++  Builder builder(&context);
++  auto makeCall = [&](StringRef callee) {
++    NamedAttrList attrs;
++    attrs.append("callee", FlatSymbolRefAttr::get(&context, callee));
++    return Operation::create(UnknownLoc::get(&context),
++                             OperationName("foo.call", &context), {}, {},
++                             std::move(attrs), PropertyRef(), {}, 0);
++  };
++  Operation *callA = makeCall("a");
++  Operation *callB = makeCall("b");
++  Operation *callC = makeCall("c");
++
++  // @a and @b are one class, represented by @a; @c is its own.
++  auto classOf = [&](SymbolRefAttr ref) -> Attribute {
++    if (ref.getRootReference() == "b")
++      return FlatSymbolRefAttr::get(&context, "a");
++    return ref;
++  };
++  auto exact = OperationEquivalence::exactValueMatch;
++  EXPECT_FALSE(OperationEquivalence::isEquivalentTo(
++      callA, callB, exact, nullptr, OperationEquivalence::IgnoreLocations));
++  EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
++      callA, callB, exact, nullptr, OperationEquivalence::IgnoreLocations,
++      nullptr, classOf));
++  EXPECT_FALSE(OperationEquivalence::isEquivalentTo(
++      callA, callC, exact, nullptr, OperationEquivalence::IgnoreLocations,
++      nullptr, classOf));
++  auto hash = [&](Operation *op) {
++    return OperationEquivalence::computeHash(
++        op, OperationEquivalence::directHashValue,
++        OperationEquivalence::ignoreHashValue,
++        OperationEquivalence::IgnoreLocations, classOf);
++  };
++  EXPECT_EQ(hash(callA), hash(callB));
++  callA->destroy();
++  callB->destroy();
++  callC->destroy();
++}
++
+ } // namespace

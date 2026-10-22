@@ -1,0 +1,218 @@
+Subject: [PATCH] [mlir][Pass] An adaptor preserves what its nested passes preserve
+
+`OpToOpPassAdaptor` never says what it preserves, so after a group of
+nested passes runs, the pass manager invalidates every analysis of the
+parent op, though each nested pass declared what it keeps. LLVM's pass
+manager intersects the preserved sets of the passes it runs
+(llvm/lib/IR/PassManager.cpp). The adaptor now does the same: each
+nested pipeline intersects what its passes preserved on its op, and the
+adaptor preserves the intersection over every op it ran on, computed
+after the parallel run from per-op results. An adaptor that ran no
+pipeline preserves everything; the parent's analysis that every nested
+pass keeps outlives the group.
+
+`PreservedAnalyses::intersect` is the one new method. Unit test in
+PassManagerTest.cpp, with and without threading.
+---
+diff --git a/mlir/include/mlir/Pass/AnalysisManager.h b/mlir/include/mlir/Pass/AnalysisManager.h
+index 45009d4b..43fa648d 100644
+--- a/mlir/include/mlir/Pass/AnalysisManager.h
++++ b/mlir/include/mlir/Pass/AnalysisManager.h
+@@ -55,6 +55,19 @@ public:
+   }
+   void preserve(TypeID id) { preservedIDs.insert(id); }
+ 
++  /// Keep only the analyses that `other` preserves too: what a sequence of
++  /// passes preserves is what each of them preserves.
++  void intersect(const PreservedAnalyses &other) {
++    if (other.isAll())
++      return;
++    if (isAll()) {
++      preservedIDs = other.preservedIDs;
++      return;
++    }
++    preservedIDs.remove_if(
++        [&](TypeID id) { return !other.preservedIDs.count(id); });
++  }
++
+   /// Returns true if the given analysis has been marked as preserved. Note that
+   /// this simply checks for the presence of a given analysis ID and should not
+   /// be used as a general preservation checker.
+diff --git a/mlir/lib/Pass/Pass.cpp b/mlir/lib/Pass/Pass.cpp
+index 656b8044..2dbf598f 100644
+--- a/mlir/lib/Pass/Pass.cpp
++++ b/mlir/lib/Pass/Pass.cpp
+@@ -661,7 +661,8 @@ LogicalResult OpToOpPassAdaptor::run(Pass *pass, Operation *op,
+ LogicalResult OpToOpPassAdaptor::runPipeline(
+     OpPassManager &pm, Operation *op, AnalysisManager am, bool verifyPasses,
+     unsigned parentInitGeneration, PassInstrumentor *instrumentor,
+-    const PassInstrumentation::PipelineParentInfo *parentInfo) {
++    const PassInstrumentation::PipelineParentInfo *parentInfo,
++    detail::PreservedAnalyses *preserved) {
+   LDBG_OS([&](raw_ostream &os) {
+     os << "Running pipeline on operation '"
+        << OpWithFlags(op, OpPrintingFlags().skipRegions()) << "' with "
+@@ -692,6 +693,8 @@ LogicalResult OpToOpPassAdaptor::runPipeline(
+              << OpWithFlags(op, OpPrintingFlags().skipRegions()) << "'";
+       return failure();
+     }
++    if (preserved)
++      preserved->intersect(pass.passState->preservedAnalyses);
+   }
+ 
+   if (instrumentor) {
+@@ -867,6 +870,11 @@ void OpToOpPassAdaptor::runOnOperationImpl(bool verifyPasses) {
+                                                         this};
+   auto *instrumentor = am.getPassInstrumentor();
+ 
++  // The adaptor preserves what every nested pass preserved on every op, as
++  // LLVM's pass manager does, so that an analysis of the parent that every
++  // nested pass keeps outlives the adaptor.
++  detail::PreservedAnalyses preserved;
++  preserved.preserveAll();
+   unsigned processedOps = 0;
+   for (auto &region : getOperation()->getRegions()) {
+     for (auto &block : region) {
+@@ -886,7 +894,8 @@ void OpToOpPassAdaptor::runOnOperationImpl(bool verifyPasses) {
+ 
+         unsigned initGeneration = mgr->impl->initializationGeneration;
+         if (failed(runPipeline(*mgr, &op, am.nest(&op), verifyPasses,
+-                               initGeneration, instrumentor, &parentInfo))) {
++                               initGeneration, instrumentor, &parentInfo,
++                               &preserved))) {
+           LDBG(2) << "Pipeline failed for operation '"
+                   << OpWithFlags(&op, OpPrintingFlags().skipRegions()) << "'";
+           signalPassFailure();
+@@ -896,6 +905,7 @@ void OpToOpPassAdaptor::runOnOperationImpl(bool verifyPasses) {
+       }
+     }
+   }
++  getPassState().preservedAnalyses = preserved;
+ 
+   LDBG() << "Completed synchronous pass adaptor run, processed " << processedOps
+          << " operations";
+@@ -989,19 +999,31 @@ void OpToOpPassAdaptor::runOnOperationAsyncImpl(bool verifyPasses) {
+   // index belongs to the task, rather than the thread: nested waits may run
+   // other tasks on the same thread while this task's executor is still in use.
+   std::atomic<bool> hasFailure = false;
++  // What each op's pipeline preserved, intersected once every task is done,
++  // as the synchronous run intersects them.
++  std::vector<detail::PreservedAnalyses> preservedPerOp(opInfos.size());
++  for (detail::PreservedAnalyses &preserved : preservedPerOp)
++    preserved.preserveAll();
+   (void)failableParallelForEachWithWorkerId(
+       context, opInfos.begin(), opInfos.end(),
+       [&](OpPMInfo &opInfo, unsigned pmIndex) {
+         OpPassManager &pm = asyncExecutors[pmIndex][opInfo.passManagerIdx];
+         LogicalResult pipelineResult = runPipeline(
+             pm, opInfo.op, opInfo.am, verifyPasses,
+-            pm.impl->initializationGeneration, instrumentor, &parentInfo);
++            pm.impl->initializationGeneration, instrumentor, &parentInfo,
++            &preservedPerOp[&opInfo - opInfos.data()]);
+         if (failed(pipelineResult))
+           hasFailure.store(true);
+         // Continue processing independent operations after a pipeline failure.
+         return success();
+       });
+ 
++  detail::PreservedAnalyses preserved;
++  preserved.preserveAll();
++  for (const detail::PreservedAnalyses &opPreserved : preservedPerOp)
++    preserved.intersect(opPreserved);
++  getPassState().preservedAnalyses = preserved;
++
+   // Signal a failure if any of the executors failed.
+   if (hasFailure)
+     signalPassFailure();
+diff --git a/mlir/lib/Pass/PassDetail.h b/mlir/lib/Pass/PassDetail.h
+index 5cc72629..341e5959 100644
+--- a/mlir/lib/Pass/PassDetail.h
++++ b/mlir/lib/Pass/PassDetail.h
+@@ -76,10 +76,13 @@ private:
+   /// manager. `parentInitGeneration` is the initialization generation of the
+   /// parent pass manager, and is used to initialize any dynamic pass pipelines
+   /// run by the given passes.
++  /// When `preserved` is given, the analyses every pass of the pipeline
++  /// preserved are intersected into it.
+   static LogicalResult runPipeline(
+       OpPassManager &pm, Operation *op, AnalysisManager am, bool verifyPasses,
+       unsigned parentInitGeneration, PassInstrumentor *instrumentor = nullptr,
+-      const PassInstrumentation::PipelineParentInfo *parentInfo = nullptr);
++      const PassInstrumentation::PipelineParentInfo *parentInfo = nullptr,
++      detail::PreservedAnalyses *preserved = nullptr);
+ 
+   /// A set of adaptors to run.
+   SmallVector<OpPassManager, 1> mgrs;
+diff --git a/mlir/unittests/Pass/PassManagerTest.cpp b/mlir/unittests/Pass/PassManagerTest.cpp
+index e873a68d..04eeaf3e 100644
+--- a/mlir/unittests/Pass/PassManagerTest.cpp
++++ b/mlir/unittests/Pass/PassManagerTest.cpp
+@@ -95,6 +95,68 @@ TEST(PassManagerTest, OpSpecificAnalysis) {
+   }
+ }
+ 
++/// A module pass that computes GenericAnalysis on the module, and records
++/// whether a later run found it cached.
++struct ComputeModuleAnalysisPass
++    : public PassWrapper<ComputeModuleAnalysisPass, OperationPass<ModuleOp>> {
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ComputeModuleAnalysisPass)
++
++  ComputeModuleAnalysisPass(bool &foundCached) : foundCached(foundCached) {}
++  void runOnOperation() override {
++    foundCached = getCachedAnalysis<GenericAnalysis>().has_value();
++    (void)getAnalysis<GenericAnalysis>();
++    markAllAnalysesPreserved();
++  }
++  bool &foundCached;
++};
++
++/// A function pass that changes nothing a module analysis reads, and says
++/// which analyses it preserves.
++struct PreservingFunctionPass
++    : public PassWrapper<PreservingFunctionPass, OperationPass<func::FuncOp>> {
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(PreservingFunctionPass)
++
++  PreservingFunctionPass(bool preserveGeneric)
++      : preserveGeneric(preserveGeneric) {}
++  void runOnOperation() override {
++    if (preserveGeneric)
++      markAnalysesPreserved<GenericAnalysis>();
++  }
++  bool preserveGeneric;
++};
++
++TEST(PassManagerTest, AdaptorPreservesWhatNestedPassesPreserve) {
++  for (bool threading : {false, true}) {
++    for (bool preserveGeneric : {true, false}) {
++      MLIRContext context;
++      context.enableMultithreading(threading);
++      context.loadDialect<func::FuncDialect>();
++      Builder builder(&context);
++      OwningOpRef<ModuleOp> module(ModuleOp::create(UnknownLoc::get(&context)));
++      for (StringRef name : {"a", "b", "c"}) {
++        auto func = func::FuncOp::create(builder.getUnknownLoc(), name,
++                                         builder.getFunctionType({}, {}));
++        func.setPrivate();
++        module->push_back(func);
++      }
++
++      // The module's analysis outlives the group of function passes exactly
++      // when every pass of the group preserves it on every function.
++      bool firstFoundCached = false, secondFoundCached = false;
++      auto pm = PassManager::on<ModuleOp>(&context);
++      pm.addPass(std::make_unique<ComputeModuleAnalysisPass>(firstFoundCached));
++      OpPassManager &nested = pm.nest<func::FuncOp>();
++      nested.addPass(std::make_unique<PreservingFunctionPass>(true));
++      nested.addPass(std::make_unique<PreservingFunctionPass>(preserveGeneric));
++      pm.addPass(
++          std::make_unique<ComputeModuleAnalysisPass>(secondFoundCached));
++      ASSERT_TRUE(succeeded(pm.run(module.get())));
++      EXPECT_FALSE(firstFoundCached);
++      EXPECT_EQ(secondFoundCached, preserveGeneric);
++    }
++  }
++}
++
+ /// Simple pass to annotate a func::FuncOp with a single attribute `didProcess`.
+ struct AddAttrFunctionPass
+     : public PassWrapper<AddAttrFunctionPass, OperationPass<func::FuncOp>> {

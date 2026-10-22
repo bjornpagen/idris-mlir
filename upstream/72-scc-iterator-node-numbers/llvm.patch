@@ -1,0 +1,208 @@
+Subject: [PATCH] [ADT] scc_iterator keeps visit numbers by node number
+
+`scc_iterator` keeps each node's Tarjan visit number in a
+`DenseMap<NodeRef, unsigned>`, whatever the graph. `po_iterator`
+already keeps its visited set in a vector indexed by
+`GraphTraits::getNumber` when the graph numbers its nodes
+(`po_detail::NumberSet`); `scc_iterator` now does the same: a graph
+whose traits give `getNumber` has its visit numbers in a vector indexed
+by the node's number, with 0 for a node not visited (visit numbers count
+from 1), and any other graph keeps the map. No hashing per edge for a
+numbered graph, and the SCCs and their order are unchanged (unit test).
+---
+diff --git a/llvm/include/llvm/ADT/SCCIterator.h b/llvm/include/llvm/ADT/SCCIterator.h
+index 48f57942..c0de4e28 100644
+--- a/llvm/include/llvm/ADT/SCCIterator.h
++++ b/llvm/include/llvm/ADT/SCCIterator.h
+@@ -25,7 +25,9 @@
+ #include "llvm/ADT/DenseMap.h"
+ #include "llvm/ADT/DenseSet.h"
+ #include "llvm/ADT/GraphTraits.h"
++#include "llvm/ADT/STLExtras.h"
+ #include "llvm/ADT/SmallPtrSet.h"
++#include "llvm/ADT/SmallVector.h"
+ #include "llvm/ADT/iterator.h"
+ #include <cassert>
+ #include <cstddef>
+@@ -36,6 +38,56 @@
+ 
+ namespace llvm {
+ 
++namespace scc_detail {
++template <typename GT>
++using number_t = decltype(GT::getNumber(std::declval<typename GT::NodeRef>()));
++
++/// The visit numbers of Tarjan's traversal, 0 for a node not visited yet.
++/// A graph that numbers its nodes (GraphTraits::getNumber) keeps them in a
++/// vector indexed by the node's number, as po_iterator keeps its visited
++/// set; any other graph in a DenseMap keyed by the node.
++template <typename GT, bool Numbered = is_detected<number_t, GT>::value>
++class VisitNumbers {
++  using NodeRef = typename GT::NodeRef;
++  DenseMap<NodeRef, unsigned> Numbers;
++
++public:
++  unsigned lookup(NodeRef N) const { return Numbers.lookup(N); }
++  void set(NodeRef N, unsigned Num) { Numbers[N] = Num; }
++  void replace(NodeRef Old, NodeRef New) {
++    // Do the assignment in two steps, in case 'New' is not yet in the map,
++    // and inserting it causes the map to grow.
++    unsigned Num = Numbers.lookup(Old);
++    Numbers[New] = Num;
++    Numbers.erase(Old);
++  }
++};
++
++template <typename GT> class VisitNumbers<GT, true> {
++  using NodeRef = typename GT::NodeRef;
++  SmallVector<unsigned> Numbers;
++
++public:
++  unsigned lookup(NodeRef N) const {
++    unsigned Idx = GT::getNumber(N);
++    return Idx < Numbers.size() ? Numbers[Idx] : 0;
++  }
++  void set(NodeRef N, unsigned Num) {
++    unsigned Idx = GT::getNumber(N);
++    if (Idx >= Numbers.size())
++      Numbers.resize(Idx + 1, 0);
++    Numbers[Idx] = Num;
++  }
++  void replace(NodeRef Old, NodeRef New) {
++    // A null New (a node removed from the traversal) has no number.
++    unsigned Num = lookup(Old);
++    if (New)
++      set(New, Num);
++    set(Old, 0);
++  }
++};
++} // namespace scc_detail
++
+ /// Enumerate the SCCs of a directed graph in reverse topological order
+ /// of the SCC DAG.
+ ///
+@@ -70,9 +122,10 @@ class scc_iterator : public iterator_facade_base<
+   /// The visit counters used to detect when a complete SCC is on the stack.
+   /// visitNum is the global counter.
+   ///
+-  /// nodeVisitNumbers are per-node visit numbers, also used as DFS flags.
++  /// nodeVisitNumbers are per-node visit numbers, also used as DFS flags:
++  /// 0 is a node not visited yet, since visitNum counts from 1.
+   unsigned visitNum;
+-  DenseMap<NodeRef, unsigned> nodeVisitNumbers;
++  scc_detail::VisitNumbers<GT> nodeVisitNumbers;
+ 
+   /// Stack holding nodes of the SCC.
+   std::vector<NodeRef> SCCNodeStack;
+@@ -137,19 +190,15 @@ public:
+   /// This informs the \c scc_iterator that the specified \c Old node
+   /// has been deleted, and \c New is to be used in its place.
+   void ReplaceNode(NodeRef Old, NodeRef New) {
+-    assert(nodeVisitNumbers.count(Old) && "Old not in scc_iterator?");
+-    // Do the assignment in two steps, in case 'New' is not yet in the map, and
+-    // inserting it causes the map to grow.
+-    auto tempVal = nodeVisitNumbers[Old];
+-    nodeVisitNumbers[New] = tempVal;
+-    nodeVisitNumbers.erase(Old);
++    assert(nodeVisitNumbers.lookup(Old) != 0 && "Old not in scc_iterator?");
++    nodeVisitNumbers.replace(Old, New);
+   }
+ };
+ 
+ template <class GraphT, class GT>
+ void scc_iterator<GraphT, GT>::DFSVisitOne(NodeRef N) {
+   ++visitNum;
+-  nodeVisitNumbers[N] = visitNum;
++  nodeVisitNumbers.set(N, visitNum);
+   SCCNodeStack.push_back(N);
+   VisitStack.push_back(StackElement(N, GT::child_begin(N), visitNum));
+ #if 0 // Enable if needed when debugging.
+@@ -164,14 +213,13 @@ void scc_iterator<GraphT, GT>::DFSVisitChildren() {
+   while (VisitStack.back().NextChild != GT::child_end(VisitStack.back().Node)) {
+     // TOS has at least one more child so continue DFS
+     NodeRef childN = *VisitStack.back().NextChild++;
+-    auto Visited = nodeVisitNumbers.find(childN);
+-    if (Visited == nodeVisitNumbers.end()) {
++    unsigned childNum = nodeVisitNumbers.lookup(childN);
++    if (childNum == 0) {
+       // this node has never been seen.
+       DFSVisitOne(childN);
+       continue;
+     }
+ 
+-    unsigned childNum = Visited->second;
+     if (VisitStack.back().MinVisited > childNum)
+       VisitStack.back().MinVisited = childNum;
+   }
+@@ -195,10 +243,10 @@ template <class GraphT, class GT> void scc_iterator<GraphT, GT>::GetNextSCC() {
+ #if 0 // Enable if needed when debugging.
+     dbgs() << "TarjanSCC: Popped node " << visitingN <<
+           " : minVisitNum = " << minVisitNum << "; Node visit num = " <<
+-          nodeVisitNumbers[visitingN] << "\n";
++          nodeVisitNumbers.lookup(visitingN) << "\n";
+ #endif
+ 
+-    if (minVisitNum != nodeVisitNumbers[visitingN])
++    if (minVisitNum != nodeVisitNumbers.lookup(visitingN))
+       continue;
+ 
+     // A full SCC is on the SCCNodeStack!  It includes all nodes below
+@@ -208,7 +256,7 @@ template <class GraphT, class GT> void scc_iterator<GraphT, GT>::GetNextSCC() {
+     do {
+       CurrentSCC.push_back(SCCNodeStack.back());
+       SCCNodeStack.pop_back();
+-      nodeVisitNumbers[CurrentSCC.back()] = ~0U;
++      nodeVisitNumbers.set(CurrentSCC.back(), ~0U);
+     } while (CurrentSCC.back() != visitingN);
+     return;
+   }
+diff --git a/llvm/unittests/ADT/SCCIteratorTest.cpp b/llvm/unittests/ADT/SCCIteratorTest.cpp
+index 5f088294..21c7ebd8 100644
+--- a/llvm/unittests/ADT/SCCIteratorTest.cpp
++++ b/llvm/unittests/ADT/SCCIteratorTest.cpp
+@@ -117,4 +117,45 @@ TEST(SCCIteratorTest, AllSmallGraphs) {
+   }
+ }
+ 
++/// The test graph, with its nodes numbered by their index, so that
++/// scc_iterator keeps its visit numbers by number.
++struct NumberedTestGraph {
++  Graph<4> G;
++};
++
++template <> struct GraphTraits<NumberedTestGraph> : GraphTraits<Graph<4>> {
++  static NodeRef getEntryNode(const NumberedTestGraph &NG) {
++    return NG.G.AccessNode(0);
++  }
++  static unsigned getNumber(NodeRef N) { return N->first; }
++};
++
++TEST(SCCIteratorTest, NumberedNodesGiveTheSameSCCs) {
++  // Every graph of 4 nodes, each with a self-edge, gives the same SCCs in
++  // the same order whether its nodes are numbered or not.
++  using GT = Graph<4>;
++  for (unsigned GraphDescriptor = 0; GraphDescriptor < (1U << 12);
++       ++GraphDescriptor) {
++    NumberedTestGraph NG;
++    unsigned DescriptorCopy = GraphDescriptor;
++    for (unsigned i = 0; i != 4; ++i)
++      for (unsigned j = 0; j != 4; ++j) {
++        if (i == j) {
++          NG.G.AddEdge(i, j);
++          continue;
++        }
++        if (DescriptorCopy & 1)
++          NG.G.AddEdge(i, j);
++        DescriptorCopy >>= 1;
++      }
++
++    std::vector<std::vector<GT::NodeType *>> Plain, Numbered;
++    for (scc_iterator<GT> I = scc_begin(NG.G); !I.isAtEnd(); ++I)
++      Plain.push_back(*I);
++    for (scc_iterator<NumberedTestGraph> I = scc_begin(NG); !I.isAtEnd(); ++I)
++      Numbered.push_back(*I);
++    EXPECT_EQ(Plain, Numbered);
++  }
++}
++
+ }

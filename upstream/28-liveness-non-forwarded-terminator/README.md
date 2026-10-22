@@ -2,7 +2,7 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir][dataflow] A terminator whose operands are all non-forwarded is never revisited, so remove-dead-values poisons them
 
-On llvm main at 7208ba24 (the pin), `LivenessAnalysis::visitBranchOperand`
+On llvm main at 7208ba24 (the pin then) and at 416f328b (the pin since 2026-10-21, where the pull request still applies), `LivenessAnalysis::visitBranchOperand`
 (`mlir/lib/Analysis/DataFlow/LivenessAnalysis.cpp:127-162`) gives a
 non-forwarded operand of a `RegionBranchTerminatorOpInterface` op the
 liveness of its parent's results. It reads them with `getLatticeElement`,
@@ -39,15 +39,29 @@ results are live, whenever they become so.
 
 ## The fix
 
-`llvm.patch`: `visitBranchOperand` reads the parent's results with
+`pull-request.diff`: `visitBranchOperand` reads the parent's results with
 `getLatticeElementFor(getProgramPointAfter(op), result)`, `op` being the
 operand's owner, which subscribes the terminator (or the branch op itself,
 for a non-forwarded operand of its own), so the solver visits it again
 when a result becomes live.
 
-## Patch
+## Why there is no patch
 
-`llvm.patch`, applied by tools/bootstrap.sh; checked by
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through one pass, `remove-dead-values`, the one reader of
+liveness in the tree, which the pipeline ran once after the optimizer. The cutover retires it (proposals/0000
+C35): dead parameters are a demand bit in the optimizer's summary and
+dead results one callers-first pass, so the pipeline runs no
+`remove-dead-values`, and nothing in the tree reaches the bug. The pass
+returns, nested on each function, only if the cutover's measured trial
+shows it erases what the rest leave; then its patches are carried again,
+rebased, and that measurement is recorded here either way. The report
+stays a submission, with the pull request as `pull-request.diff`, which
+the bootstrap does not apply.
+
+## The pull request
+
+`pull-request.diff`, applied by tools/bootstrap.sh; checked by
 tests/upstream-liveness-non-forwarded-terminator (the element is kept).
 
 ## Upstreaming plan
@@ -57,5 +71,5 @@ An issue and a PR to llvm/llvm-project, `[mlir][dataflow]`, with a test in
 `remove-dead-values.mlir`) on a test-dialect region branch op whose
 terminator forwards nothing; the test is to be written against a build of
 mlir-opt with the test dialect, which the toolchain's does not have.
-Status: not filed; carried; the upstream test not written; check-mlir not
-run.
+Status: not filed; not carried since 2026-10-21 (Why there is no patch);
+the upstream test not written; check-mlir not run.

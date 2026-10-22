@@ -1,0 +1,211 @@
+Subject: [PATCH] [mlir][scf] scf.index_switch carries early exits
+
+On top of llvm/llvm-project#166688, which makes `scf.if` carry exits:
+`scf.index_switch` gets the same treatment, so a dialect whose
+multi-way branch lowers to it keeps its exits until its target's
+lowering.
+
+- `scf.index_switch` takes `PropagateControlFlowBreak`, and its regions
+  accept the terminators `scf.if`'s accept
+  (`IndexSwitchOpImplicitTerminatorType`); its verifier checks result
+  types only for `scf.yield`, since an exit carries no value to it.
+- `getSuccessorRegions` reports an exit that propagates through it with
+  its target's successors, through the helpers exported by the patch
+  before this one.
+- Its lowering in SCFToControlFlow turns `scf.yield` into a branch and
+  leaves an exit in place for its target's lowering, as `lowerIfOpToCFG`
+  does.
+- A region of `scf.if` or `scf.index_switch` may end in a terminator
+  that never returns (`isNoReturnTerminator`: no successor, not
+  `ReturnLike`, no region branch terminator), such as `ub.unreachable`
+  or a dialect's own crash: a case that only crashes needs no yield of
+  poison values. `scf.if`'s type inference reads `scf.yield` alone for
+  that reason.
+
+The switch's structural type conversion already moves its regions
+whole and converts `scf.yield` by its own pattern, and its
+canonicalizations are the generic region-branch ones, guarded by the
+patches before this one; neither changes. Test in
+convert-early-exit-to-cfg.mlir.
+---
+diff --git a/mlir/include/mlir/Dialect/SCF/IR/SCF.h b/mlir/include/mlir/Dialect/SCF/IR/SCF.h
+index 2d038bb0..21e8581b 100644
+--- a/mlir/include/mlir/Dialect/SCF/IR/SCF.h
++++ b/mlir/include/mlir/Dialect/SCF/IR/SCF.h
+@@ -34,6 +34,9 @@ void buildTerminatedBody(OpBuilder &builder, Location loc);
+ 
+ namespace op_impl {
+ struct IfOpImplicitTerminatorType;
++/// `index_switch` operations accept the terminators `if` operations accept:
++/// an `scf.yield`, or an early exit that propagates through the switch.
++using IndexSwitchOpImplicitTerminatorType = IfOpImplicitTerminatorType;
+ struct LoopOpImplicitTerminatorType;
+ } // namespace op_impl
+ } // namespace scf
+@@ -150,13 +153,23 @@ struct ControlFlowImplicitTerminatorOpType {
+     return ImplicitOpT::getOperationName();
+   }
+ };
++/// Returns true if `op` is a terminator that never returns: control leaves it
++/// to no successor block, no region and no parent (`ub.unreachable`,
++/// `llvm.unreachable`, a dialect's own crash), so it carries no value to the
++/// op that holds its region.
++inline bool isNoReturnTerminator(Operation *op) {
++  return op->hasTrait<OpTrait::IsTerminator>() && op->getNumSuccessors() == 0 &&
++         !op->hasTrait<OpTrait::ReturnLike>() &&
++         !isa<RegionBranchTerminatorOpInterface>(op);
++}
++
+ /// An implicit terminator type for `if` operations. Empty regions still receive
+ /// an `scf.yield`, but explicitly terminated regions may use any terminator
+ /// implementing RegionExitTerminatorOpInterface so dialect-defined exits can
+-/// propagate through `scf.if`.
++/// propagate through `scf.if`, or a terminator that never returns.
+ struct IfOpImplicitTerminatorType {
+   static bool classof(Operation *op) {
+-    return isa<RegionExitTerminatorOpInterface>(op);
++    return isa<RegionExitTerminatorOpInterface>(op) || isNoReturnTerminator(op);
+   }
+ 
+   template <typename... Args>
+diff --git a/mlir/include/mlir/Dialect/SCF/IR/SCFOps.td b/mlir/include/mlir/Dialect/SCF/IR/SCFOps.td
+index 672050f6..a99e2075 100644
+--- a/mlir/include/mlir/Dialect/SCF/IR/SCFOps.td
++++ b/mlir/include/mlir/Dialect/SCF/IR/SCFOps.td
+@@ -1342,7 +1342,8 @@ def WhileOp : SCF_Op<"while",
+ //===----------------------------------------------------------------------===//
+ 
+ def IndexSwitchOp : SCF_Op<"index_switch", [RecursiveMemoryEffects,
+-    SingleBlockImplicitTerminator<"scf::YieldOp">,
++    SingleBlockImplicitTerminator<"op_impl::IndexSwitchOpImplicitTerminatorType">,
++    PropagateControlFlowBreak,
+     DeclareOpInterfaceMethods<PromotableRegionOpInterface>,
+     DeclareOpInterfaceMethods<RegionBranchOpInterface,
+                               ["getRegionInvocationBounds",
+@@ -1360,6 +1361,11 @@ def IndexSwitchOp : SCF_Op<"index_switch", [RecursiveMemoryEffects,
+     not equal any of the case values, control-flow transfer to the "default"
+     region.
+ 
++    A region may end, in place of `scf.yield`, in an early exit to an
++    enclosing operation (`scf.break`, `scf.continue` or a dialect's own),
++    which propagates through `scf.index_switch` as it does through `scf.if`,
++    or in a terminator that never returns (`ub.unreachable`).
++
+     Example:
+ 
+     ```mlir
+diff --git a/mlir/lib/Conversion/SCFToControlFlow/SCFToControlFlow.cpp b/mlir/lib/Conversion/SCFToControlFlow/SCFToControlFlow.cpp
+index 7286a259..7a3fe5d9 100644
+--- a/mlir/lib/Conversion/SCFToControlFlow/SCFToControlFlow.cpp
++++ b/mlir/lib/Conversion/SCFToControlFlow/SCFToControlFlow.cpp
+@@ -714,11 +714,14 @@ IndexSwitchLowering::matchAndRewrite(IndexSwitchOp op,
+   auto convertRegion = [&](Region &region) -> FailureOr<Block *> {
+     Block *block = &region.front();
+ 
+-    // Convert the yield terminator to a branch to the continue block.
+-    auto yield = cast<scf::YieldOp>(block->getTerminator());
+-    rewriter.setInsertionPoint(yield);
+-    rewriter.replaceOpWithNewOp<cf::BranchOp>(yield, continueBlock,
+-                                              yield.getOperands());
++    // Convert the yield terminator to a branch to the continue block. An
++    // early exit is left in place, for its target's lowering, as
++    // `lowerIfOpToCFG` leaves it.
++    if (auto yield = dyn_cast<scf::YieldOp>(block->getTerminator())) {
++      rewriter.setInsertionPoint(yield);
++      rewriter.replaceOpWithNewOp<cf::BranchOp>(yield, continueBlock,
++                                                yield.getOperands());
++    }
+ 
+     // Inline the region.
+     rewriter.inlineRegionBefore(region, continueBlock);
+diff --git a/mlir/lib/Dialect/SCF/IR/SCF.cpp b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+index 11c0419d..17fcbf85 100644
+--- a/mlir/lib/Dialect/SCF/IR/SCF.cpp
++++ b/mlir/lib/Dialect/SCF/IR/SCF.cpp
+@@ -2276,15 +2276,18 @@ IfOp::inferReturnTypes(MLIRContext *ctx, std::optional<Location> loc,
+   Block *b = &r->front();
+   if (b->empty())
+     return failure();
++  // Only an `scf.yield` carries values to this op: a region that ends in an
++  // early exit through it, or in a terminator that never returns, says
++  // nothing of its types.
+   Operation *terminator = &b->back();
+-  if (terminatorPropagatesThrough(terminator, terminator->getParentOp())) {
++  if (!isa<YieldOp>(terminator)) {
+     if (adaptor.getElseRegion().empty())
+       return success();
+     b = &adaptor.getElseRegion().front();
+     if (b->empty())
+       return success();
+     terminator = &b->back();
+-    if (terminatorPropagatesThrough(terminator, terminator->getParentOp()))
++    if (!isa<YieldOp>(terminator))
+       return success();
+   }
+   TypeRange types = terminator->getOperandTypes();
+@@ -4204,6 +4207,11 @@ LogicalResult scf::IndexSwitchOp::verify() {
+       return emitOpError("has duplicate case value: ") << value;
+   auto verifyRegion = [&](Region &region, const Twine &name) -> LogicalResult {
+     auto yield = dyn_cast<YieldOp>(region.front().back());
++    // An early exit carries no value to this op (its target checks it), and
++    // neither does a terminator that never returns.
++    if (!yield && isa<op_impl::IndexSwitchOpImplicitTerminatorType>(
++                      region.front().back()))
++      return success();
+     if (!yield)
+       return emitOpError("expected region to end with scf.yield, but got ")
+              << region.front().back().getName();
+@@ -4251,8 +4259,16 @@ Block &scf::IndexSwitchOp::getCaseBlock(unsigned idx) {
+ 
+ void IndexSwitchOp::getSuccessorRegions(
+     RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) {
+-  // All regions branch back to the parent op.
++  // All regions branch back to the parent op, but for an early exit that
++  // propagates through this op: it reaches its target's successors.
+   if (!point.isParent()) {
++    if (auto terminator = point.getTerminatorPredecessorOrNull()) {
++      if (terminatorPropagatesThrough(terminator, getOperation())) {
++        appendPropagatedTerminatorSuccessors(terminator, getOperation(),
++                                             successors);
++        return;
++      }
++    }
+     successors.push_back(RegionSuccessor(getOperation()));
+     return;
+   }
+diff --git a/mlir/test/Conversion/SCFToControlFlow/convert-early-exit-to-cfg.mlir b/mlir/test/Conversion/SCFToControlFlow/convert-early-exit-to-cfg.mlir
+index c5f5a05e..81765d0d 100644
+--- a/mlir/test/Conversion/SCFToControlFlow/convert-early-exit-to-cfg.mlir
++++ b/mlir/test/Conversion/SCFToControlFlow/convert-early-exit-to-cfg.mlir
+@@ -133,3 +133,31 @@ func.func @loop_with_iter_args(%init: i32, %cond: i1) -> i32 {
+   // CHECK-NEXT: return %[[RES]]
+   return %result : i32
+ }
++
++// -----
++
++// An exit from a case of scf.index_switch leaves both the switch and the
++// loop; a case that never completes ends in ub.unreachable.
++// CHECK-LABEL: func @index_switch_break
++// CHECK-SAME: %[[I:.*]]: index, %[[V:.*]]: i32
++func.func @index_switch_break(%i: index, %v: i32) -> i32 {
++  // CHECK: cf.switch
++  %r = scf.loop token(%loop) -> i32 {
++    scf.index_switch %i
++    case 0 {
++      // CHECK: cf.br ^[[EXIT:.*]](%[[V]] : i32)
++      scf.break [%loop] %v : i32
++    }
++    case 1 {
++      // CHECK: ub.unreachable
++      ub.unreachable
++    }
++    default {
++      scf.yield
++    }
++    scf.continue [%loop]
++  }
++  // CHECK: ^[[EXIT]](%[[RES:.*]]: i32):
++  // CHECK-NEXT: return %[[RES]]
++  return %r : i32
++}

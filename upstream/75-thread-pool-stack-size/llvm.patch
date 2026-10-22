@@ -1,0 +1,75 @@
+Subject: [PATCH] [Support] A thread pool strategy may name its threads' stack size
+
+`StdThreadPool` starts every worker with `llvm::thread`'s default stack
+size (8 MiB on Darwin, the system's elsewhere), whatever its client
+needs: a tool that sizes every thread's stack from a measured bound
+(its own main thread included) cannot give the pool's workers the same.
+`ThreadPoolStrategy::StackSizeInBytes`, when set, is the stack size of
+every thread the pool starts; otherwise the default stands, as before.
+MLIR's context takes a caller's pool (`MLIRContext::setThreadPool`), so
+a tool configures its compiler's threads through it. Unit test in
+ThreadPool.cpp.
+---
+diff --git a/llvm/include/llvm/Support/Threading.h b/llvm/include/llvm/Support/Threading.h
+index 89d90b34..2a08b78d 100644
+--- a/llvm/include/llvm/Support/Threading.h
++++ b/llvm/include/llvm/Support/Threading.h
+@@ -147,6 +147,11 @@ using once_flag = std::once_flag;
+     /// jobserver, acquiring a job slot before processing a task. If no
+     /// jobserver is found in the environment, this is ignored.
+     bool UseJobserver = false;
++
++    /// If set, the stack size in bytes of every thread a pool built with this
++    /// strategy starts, so that a client may give all of its threads one
++    /// stack size; otherwise `llvm::thread::DefaultStackSize`.
++    std::optional<unsigned> StackSizeInBytes;
+   };
+ 
+   /// Build a strategy from a number of threads as a string provided in \p Num.
+diff --git a/llvm/lib/Support/ThreadPool.cpp b/llvm/lib/Support/ThreadPool.cpp
+index a05ff348..d79d900f 100644
+--- a/llvm/lib/Support/ThreadPool.cpp
++++ b/llvm/lib/Support/ThreadPool.cpp
+@@ -48,7 +48,10 @@ void StdThreadPool::grow(int requested) {
+   int newThreadCount = std::min<int>(requested, MaxThreadCount);
+   while (static_cast<int>(Threads.size()) < newThreadCount) {
+     int ThreadID = Threads.size();
+-    Threads.emplace_back([this, ThreadID] {
++    std::optional<unsigned> StackSize = Strategy.StackSizeInBytes
++                                            ? Strategy.StackSizeInBytes
++                                            : llvm::thread::DefaultStackSize;
++    Threads.emplace_back(StackSize, [this, ThreadID] {
+       set_thread_name(formatv("llvm-worker-{0}", ThreadID));
+       Strategy.apply_thread_strategy(ThreadID);
+       // Note on jobserver deadlock avoidance:
+diff --git a/llvm/unittests/Support/ThreadPool.cpp b/llvm/unittests/Support/ThreadPool.cpp
+index 34217434..f1c4ce2f 100644
+--- a/llvm/unittests/Support/ThreadPool.cpp
++++ b/llvm/unittests/Support/ThreadPool.cpp
+@@ -156,6 +156,26 @@ TYPED_TEST(ThreadPoolTest, AsyncBarrier) {
+ 
+ static void TestFunc(std::atomic_int &checked_in, int i) { checked_in += i; }
+ 
++#if LLVM_ENABLE_THREADS == 1
++TEST(StdThreadPoolTest, StackSizeInBytes) {
++  // A pool whose strategy names a stack size starts its threads with it and
++  // runs every task: here one deep enough to need more than a page.
++  ThreadPoolStrategy S = hardware_concurrency(2);
++  S.StackSizeInBytes = 2 * 1024 * 1024;
++  StdThreadPool Pool(S);
++  std::atomic_int Sum{0};
++  for (int I = 0; I < 8; ++I)
++    Pool.async([&Sum] {
++      volatile char Frame[256 * 1024];
++      Frame[0] = 1;
++      Frame[sizeof(Frame) - 1] = 1;
++      Sum += Frame[0] + Frame[sizeof(Frame) - 1];
++    });
++  Pool.wait();
++  EXPECT_EQ(16, Sum);
++}
++#endif
++
+ TYPED_TEST(ThreadPoolTest, AsyncBarrierArgs) {
+   CHECK_UNSUPPORTED();
+   // Test that async works with a function requiring multiple parameters.

@@ -1,49 +1,23 @@
-Subject: [PATCH] [mlir][arith] Don't narrow remainders whose narrow form differs
+Subject: [PATCH] [mlir][arith] Don't narrow remsi whose narrow form overflows
 
 arith-int-range-narrowing rewrites an elementwise op on a narrower type
-when the ranges of its operands and results fit it. Main's 44a4dbf32a6b
-(#218495) stopped it for shifts whose amount can reach the narrow width;
-two kinds of op still compute something else narrowed:
+when the ranges of its operands and results fit it. A remsi whose
+dividend can be the narrow signed minimum while its divisor can be -1 is
+0 in the wide type and an overflow in the narrow one (undefined
+behaviour once it is llvm.srem), and the result range cannot rule it
+out: the result is 0 either way. Such a remsi now keeps its width.
 
-- remsi whose dividend can be the narrow signed minimum while its divisor
-  can be -1: 0 in the wide type, an overflow in the narrow one (undefined
-  behaviour once it is llvm.srem);
-- the ops that read their operands as unsigned (divui, ceildivui, remui,
-  maxui, minui, shrui), which kept CastKind::Both: a sign truncation of a
-  negative operand is another number to them, so (2^64 - 2) % 7 = 0
-  became (2^32 - 2) % 7 = 2. They now get CastKind::Unsigned, as the
-  signed ops get Signed.
-
-Tests for each case in int-range-narrowing.mlir.
+Tests in int-range-narrowing.mlir.
 ---
-  .../Arith/Transforms/IntRangeOptimizations.cpp    | 19 +++++++++-
-  mlir/test/Dialect/Arith/int-range-narrowing.mlir  | 40 +++++++++++++++++++++
-  2 files changed, 58 insertions(+), 1 deletion(-)
+ .../Arith/Transforms/IntRangeOptimizations.cpp     | 12 ++++++++++
+ mlir/test/Dialect/Arith/int-range-narrowing.mlir   | 26 ++++++++++++++++++++++
+ 2 files changed, 38 insertions(+)
 
 diff --git a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
-index 583f75be2072459ed1972fc95fc329aee1bbe2c3..7ad372522a6edebbc24a776b77a9e47e0da4a125 100644
+index 6556df18..cd0082cb 100644
 --- a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
 +++ b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
-@@ -392,12 +392,17 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
-       }
-       // For operations that explicitly treat the values as signed, we should
-       // only do signed casts, if those are deemed possible as such based on the
--      // value range.
-+      // value range. Likewise, operations that read their operands as unsigned
-+      // must only see unsigned truncations: a sign truncation of a negative
-+      // value is another number to them in the narrow type.
-       auto castKindForOp =
-           llvm::TypeSwitch<Operation *, CastKind>(op)
-               .Case<arith::DivSIOp, arith::CeilDivSIOp, arith::FloorDivSIOp,
-                     arith::RemSIOp, arith::MaxSIOp, arith::MinSIOp,
-                     arith::ShRSIOp>([](auto) { return CastKind::Signed; })
-+              .Case<arith::DivUIOp, arith::CeilDivUIOp, arith::RemUIOp,
-+                    arith::MaxUIOp, arith::MinUIOp, arith::ShRUIOp>(
-+                  [](auto) { return CastKind::Unsigned; })
-               .Default(CastKind::Both);
-       castKind = mergeCastKinds(castKind, castKindForOp);
-       if (castKind == CastKind::None)
-@@ -407,6 +412,18 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
+@@ -408,6 +408,18 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
        if (isa<arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp>(op) &&
            !ranges[1].umax().ult(targetBitwidth))
          continue;
@@ -63,11 +37,11 @@ index 583f75be2072459ed1972fc95fc329aee1bbe2c3..7ad372522a6edebbc24a776b77a9e47e
        if (targetType == srcType)
          continue;
 diff --git a/mlir/test/Dialect/Arith/int-range-narrowing.mlir b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
-index 780e4a918d15977d9774d982f3297b6e31e9eba1..268b94d4ec4187dcccde5bc74e660deef8c66065 100644
+index ec0ac797..5b19ddd8 100644
 --- a/mlir/test/Dialect/Arith/int-range-narrowing.mlir
 +++ b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
-@@ -348,6 +348,46 @@ func.func @shrui_amount_in_narrowed_range() -> i64 {
-   return %2 : i64
+@@ -321,6 +321,32 @@ func.func @unsigned_ops_out_of_narrowed_signed_range() -> (i64, i64, i64, i64, i
+   return %3, %4, %5, %6, %7, %8 : i64, i64, i64, i64, i64, i64
  }
  
 +//===----------------------------------------------------------------------===//
@@ -96,20 +70,6 @@ index 780e4a918d15977d9774d982f3297b6e31e9eba1..268b94d4ec4187dcccde5bc74e660dee
 +  return %2 : i64
 +}
 +
-+//===----------------------------------------------------------------------===//
-+// Ops that read their operands as unsigned must not take a sign truncation:
-+// -2 is 2^64 - 2 to the wide op and 2^32 - 2 to the narrow one.
-+//===----------------------------------------------------------------------===//
-+
-+// CHECK-LABEL: func.func @remui_of_negative
-+// CHECK: arith.remui {{.*}} : i64
-+func.func @remui_of_negative() -> i64 {
-+  %0 = test.with_bounds < umin = 0 : i64, umax = -1 : i64, smin = -2 : i64, smax = 0 : i64 > : i64
-+  %1 = test.with_bounds < umin = 7 : i64, umax = 7 : i64, smin = 7 : i64, smax = 7 : i64 > : i64
-+  %2 = arith.remui %0, %1 : i64
-+  return %2 : i64
-+}
-+
  //===----------------------------------------------------------------------===//
- // arith.muli
+ // Unsigned division, remainder and logical right shift
  //===----------------------------------------------------------------------===//

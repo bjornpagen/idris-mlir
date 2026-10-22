@@ -1,0 +1,145 @@
+diff --git a/src/Compiler/Inline.idr b/src/Compiler/Inline.idr
+index fe8530e..83529f8 100644
+--- a/src/Compiler/Inline.idr
++++ b/src/Compiler/Inline.idr
+@@ -131,14 +131,38 @@ mutual
+              List Name -> Stack free -> EEnv free vars -> CDef ->
+              Core (Maybe (CExp free))
+   tryApply {free} {vars} rec stk env (MkFun args exp)
+-      = do let Just (env', stk') = takeFromStack env stk args
++      = do (stk, lets) <- bindComputations (length args) stk
++           let Just (env', stk') = takeFromStack env stk args
+                | Nothing => pure Nothing
+            res <- eval rec env' stk'
+                      (rewrite sym (appendAssociative args vars free) in
+                               embed {outer = vars ++ free} exp)
+-           pure (Just res)
++           pure (Just (bindLets lets res))
+   tryApply rec stk env _ = pure Nothing
+ 
++  -- The arguments a call consumes that are not values are evaluated once,
++  -- before the body, as eager evaluation evaluates them: each is bound by a
++  -- let the inliner keeps, and the body takes the let's name, so an argument
++  -- the body never uses still runs.
++  bindComputations : {free : _} ->
++                     {auto l : Ref LVar Int} ->
++                     Nat -> Stack free ->
++                     Core (Stack free, List (Name, CExp free))
++  bindComputations Z stk = pure (stk, [])
++  bindComputations (S k) [] = pure ([], [])
++  bindComputations (S k) (e :: stk)
++      = do (stk', lets) <- bindComputations k stk
++           if isValue e
++              then pure (e :: stk', lets)
++              else do xn <- genName "arg"
++                      pure (CRef (getFC e) xn :: stk', (xn, e) :: lets)
++
++  -- The lets of `bindComputations`, the first argument's outermost.
++  bindLets : {free : _} -> List (Name, CExp free) -> CExp free -> CExp free
++  bindLets [] body = body
++  bindLets ((xn, e) :: lets) body
++      = CLet (getFC e) xn NotInline e (refToLocal xn xn (bindLets lets body))
++
+   eval : {vars, free : _} ->
+          {auto c : Ref Ctxt Defs} ->
+          {auto l : Ref LVar Int} ->
+@@ -199,15 +223,19 @@ mutual
+            pure (unload stk $ CLet fc x NotInline val' (refToLocal xn x sc'))
+   eval {vars} {free} rec env stk (CLet fc x YesInline val sc)
+       = do let u = used First sc
+-           if u < 1 -- TODO: Can make this <= as long as we know *all* inlinings
++           val' <- eval rec env [] val
++           -- An unused value is dropped; an unused computation still runs,
++           -- as eager evaluation runs it, so its let stays and is never
++           -- inlined.
++           if u < 1 && isValue val'
++                    -- TODO: Can make this <= as long as we know *all* inlinings
+                     -- are guaranteed not to duplicate work. (We don't know
+                     -- that yet).
+-              then do val' <- eval rec env [] val
+-                      eval rec (val' :: env) stk sc
++              then eval rec (val' :: env) stk sc
+               else do xn <- genName "letv"
+                       sc' <- eval rec (CRef fc xn :: env) stk sc
+-                      val' <- eval rec env [] val
+-                      pure (CLet fc x YesInline val' (refToLocal xn x sc'))
++                      let inl = if u < 1 then NotInline else YesInline
++                      pure (CLet fc x inl val' (refToLocal xn x sc'))
+   eval rec env stk (CApp fc f@(CRef nfc n) args)
+       = do -- If we don't know 'n' leave the arity alone, because it's
+            -- a name from another module where the job is already done
+diff --git a/src/Compiler/Opts/Identity.idr b/src/Compiler/Opts/Identity.idr
+index 714a99b..1767962 100644
+--- a/src/Compiler/Opts/Identity.idr
++++ b/src/Compiler/Opts/Identity.idr
+@@ -9,6 +9,13 @@ import Libraries.Data.List.SizeOf
+ makeArgs : (args : Scope) -> List (Var (args ++ vars))
+ makeArgs args = embed @{ListFreelyEmbeddable} (Var.allVars args)
+ 
++-- Whether every argument but the one at the index is a value: a recursive
++-- call an identity drops drops its other arguments with it.
++othersAreValues : Nat -> List (CExp vars) -> Bool
++othersAreValues _ [] = True
++othersAreValues Z (_ :: as) = all isValue as
++othersAreValues (S k) (a :: as) = isValue a && othersAreValues k as
++
+ parameters (fn1 : Name) (idIdx : Nat)
+   mutual
+     -- special case for matching on 'Nat'-shaped things
+@@ -32,13 +39,15 @@ parameters (fn1 : Name) (idIdx : Nat)
+     cexpIdentity var con const (CLet _ _ _ val sc) = (case isUnsucc var val of
+         Just (c, var') => unsuccIdentity c var' sc
+         Nothing => False)
+-        || cexpIdentity
++        -- A let whose value is a computation runs it: the body is no
++        -- identity, since an identity's calls are dropped.
++        || isValue val && cexpIdentity
+             (weaken var)
+             (map (map (map weaken)) con)
+             const
+             sc
+     cexpIdentity var con const (CApp _ (CRef _ fn2) as) = -- special case for self-recursive functions
+-        fn1 == fn2 &&
++        fn1 == fn2 && othersAreValues idIdx as &&
+         case getAt idIdx as of
+             Just exp => cexpIdentity var con const exp
+             Nothing => False
+@@ -61,7 +70,7 @@ parameters (fn1 : Name) (idIdx : Nat)
+     cexpIdentity var _ _ (COp _ (Add _) [a1, a2]) = case a2 of
+         CPrimVal _ c1 => case a1 of
+             CApp _ (CRef _ fn2) as =>
+-                fn1 == fn2
++                fn1 == fn2 && othersAreValues idIdx as
+                 && (case getAt idIdx as of
+                     Just (COp _ (Sub _) [a3, (CPrimVal _ c2)]) =>
+                         c1 == c2 && cexpIdentity var Nothing Nothing a3
+diff --git a/src/Core/CompileExpr.idr b/src/Core/CompileExpr.idr
+index ab12593..c718bd8 100644
+--- a/src/Core/CompileExpr.idr
++++ b/src/Core/CompileExpr.idr
+@@ -651,6 +651,25 @@ refsToLocals : Bounds bound -> CExp vars -> CExp (bound ++ vars)
+ refsToLocals None tm = tm
+ refsToLocals bs y = mkLocals zero bs y
+ 
++mutual
++  ||| Whether evaluating an expression can only give a value: no call,
++  ||| primitive, force or case runs in it. Such an expression may be
++  ||| substituted, or dropped when unused, without changing what eager
++  ||| evaluation does; any other is evaluated once, where it stands.
++  export
++  isValue : CExp vars -> Bool
++  isValue (CLocal {}) = True
++  isValue (CLam {}) = True
++  isValue (CDelay {}) = True
++  isValue (CPrimVal {}) = True
++  isValue (CErased {}) = True
++  isValue (CCon _ _ _ _ args) = allValues args
++  isValue _ = False
++
++  allValues : List (CExp vars) -> Bool
++  allValues [] = True
++  allValues (a :: as) = isValue a && allValues as
++
+ export
+ getFC : CExp args -> FC
+ getFC (CLocal fc _) = fc

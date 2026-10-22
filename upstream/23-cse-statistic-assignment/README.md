@@ -2,7 +2,7 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [mlir] CSE's pass statistics depend on thread scheduling
 
-On llvm main at 7208ba24 (the pin), the CSE pass's `num-cse'd` and
+On llvm main at 7208ba24 (the pin then) and at 416f328b (the pin since 2026-10-21, where the pull request still applies), the CSE pass's `num-cse'd` and
 `num-dce'd` statistics in a nested pipeline are whatever its last run on
 one operation assigned, so the reported total is the count of the last
 function each clone ran on: under one thread, the module's last
@@ -54,9 +54,20 @@ there is one clone, and the report is the last operation's count.
 once per region-branch operation it walks; the report did not name it
 here, and the patch does not touch it.
 
-## Patch
+## Why there is no patch
 
-`llvm.patch`, a `git diff` against 7208ba24: CSE accumulates
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through upstream's `cse`, nested in the optimizer's
+per-function pipeline and in the pipeline's cleans. The cutover deletes
+every run of it (proposals/0000 D98, D100): at the points that hold our
+ops the e-graph pass takes its place, and at the points that hold
+upstream's ops only nothing runs. Nothing in the tree runs `cse`, so
+nothing reaches the bug. The report stays a submission, with the pull
+request as `pull-request.diff`, which the bootstrap does not apply.
+
+## The fix
+
+`pull-request.diff`, a `git diff` against 7208ba24: CSE accumulates
 (`numCSE += cseCount`, `numDCE += dceCount`), and a new test,
 `mlir/test/Transforms/cse-statistics.mlir`, checks the accumulated
 total under one thread and under many. `tests/upstream-cse-statistic-assignment`
@@ -66,8 +77,8 @@ checks the reproducer with the pinned tools.
 
 Status: not sent. Send as one pull request to llvm/llvm-project,
 `[mlir] Accumulate CSE pass statistics over nested runs`, with
-`llvm.patch` as its diff and the texts in `submission.md`. No issue is
+`pull-request.diff` as its diff and the texts in `submission.md`. No issue is
 needed: the reproducer is three functions. Mention ControlFlowSink's
 same assignment in the pull request body and follow its reviewers on
-whether to fix it in the same change. The patch goes when the pin
+whether to fix it in the same change. The report goes when the pin
 moves past a fix its test passes with.

@@ -1,0 +1,38 @@
+diff --git a/src/Algebra/ZeroOneOmega.idr b/src/Algebra/ZeroOneOmega.idr
+index 372b9804..5286e8c2 100644
+--- a/src/Algebra/ZeroOneOmega.idr
++++ b/src/Algebra/ZeroOneOmega.idr
+@@ -7,7 +7,9 @@ import Algebra.Preorder
+ 
+ %default total
+ 
+-export
++-- Public, so a reader matches on a quantity rather than asking a chain of
++-- tests of it.
++public export
+ data ZeroOneOmega = Rig0 | Rig1 | RigW
+ 
+ %name ZeroOneOmega rig
+diff --git a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
+index 589be8f0..05cb3ce1 100644
+--- a/src/TTImp/ProcessDef.idr
++++ b/src/TTImp/ProcessDef.idr
+@@ -986,12 +843,14 @@ processDef opts nest env fc n_in cs_in
+          let pi = case lookup n (userHoles defs) of
+                         Nothing => defaultPI
+                         Just e => { externalDecl := e } defaultPI
+-         -- Add compile time tree as a placeholder for the runtime tree,
+-         -- but we'll rebuild that in a later pass once all the case
+-         -- blocks etc are resolved
+          ignore $ addDef (Resolved nidx)
+-                  ({ definition := PMDef pi cargs tree_ct tree_ct pats
++                  ({ definition := PMDef pi cargs tree_ct clausePats pats
+                    } gdef)
++         -- The erased positions found where the type was declared may be
++         -- too few: a type that reaches its binders through a definition
++         -- declared before and defined after is stuck there. Its clauses
++         -- were checked against the whole spine, so it is complete now.
++         updateErasable (Resolved nidx)
+ 
+          when (collapseDefault (visibility gdef) == Public) $
+              do let rmetas = getMetas tree_ct

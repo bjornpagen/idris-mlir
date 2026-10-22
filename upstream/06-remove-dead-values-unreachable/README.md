@@ -101,9 +101,23 @@ use by one of the ops above is left null. The three ways in:
   erases it from every call (`:360-363`), including a call in such a region
   whose result is used there.
 
-## Patch
+## Why there is no patch
 
-`llvm.patch` is the pull request, against llvm main at 7208ba24, the
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through one pass, `remove-dead-values`, which the pipeline
+ran once after the optimizer. The cutover retires it (proposals/0000
+C35): dead parameters are a demand bit in the optimizer's summary and
+dead results one callers-first pass, so the pipeline runs no
+`remove-dead-values`, and nothing in the tree reaches the bug. The pass
+returns, nested on each function, only if the cutover's measured trial
+shows it erases what the rest leave; then its patches are carried again,
+rebased, and that measurement is recorded here either way. The report
+stays a submission, with the pull request as `pull-request.diff`, which
+the bootstrap does not apply.
+
+## The fix
+
+`pull-request.diff` is the pull request, against llvm main at 7208ba24, the
 pin. It changes `RemoveDeadValues.cpp`: one helper,
 `replaceUsesWithPoison`, replaces the uses of a value about to be erased
 with a `ub.poison` at its definition (the start of the block for an
@@ -124,7 +138,7 @@ call takes a `ub.poison` of the type), not the order:
 - `@dead_block_argument_used_in_unreachable_code`, from
   `dead-block-arg.mlir`.
 
-While the pin was llvmorg-23.1.2, `llvm.patch` was a version for it
+While the pin was llvmorg-23.1.2, `pull-request.diff` was a version for it
 whose test hunk also carried two modules that are not part of the pull
 request: `@unreachable_func_with_for_loops`, the test of the open pull
 request #208881 (the same fix for function arguments alone), and
@@ -168,7 +182,7 @@ region the constant selects.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (02-07's `llvm.patch` and 08's
+01-08 applied together (02-07's `pull-request.diff` and 08's
 `pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
@@ -183,16 +197,17 @@ the change back, it passes.
 
 Status: file upstream, after a rebase. #208881 merged on 2026-10-12 as
 0edf6243 (its own change replaces the uses of dead function arguments
-with `ub.poison`), so `llvm.patch` no longer applies to main
-(b43c0361): its function-argument hunk conflicts. It still applies to the
-pin, which the bootstrap builds. The pull request must be rebased onto
+with `ub.poison`), so `pull-request.diff` no longer applies to main
+(b43c0361): its function-argument hunk conflicts, and it does not apply
+to the pin since 2026-10-21 (416f328b) either; it is no longer carried
+(Why there is no patch). The pull request must be rebased onto
 main, keeping what #208881 does not cover (its block-argument, result
 and operation cases), and
 `submission.md`'s texts and its comment on #208881 redone (not yet done).
 
 - Where: a new issue (the block-argument and result cases; #206920 and
   #203226 cover function arguments), a pull request against llvm main
-  (`llvm.patch`), and a short comment on the open pull request
+  (`pull-request.diff`), and a short comment on the open pull request
   [#208881](https://github.com/llvm/llvm-project/pull/208881), which
   fixes function arguments alone and has been approved but not merged
   since 2026-07-18. A review suggestion on #208881 would reopen an
@@ -200,6 +215,6 @@ and operation cases), and
   needs a user branch Bjorn cannot push, so the pull request stands on
   trunk; whichever of the two lands second rebases. The texts and the
   overlap with #208940 and #182711 are in `submission.md`.
-- Upstream test: the three modules listed under Patch.
-- The patch is dropped when the pin includes the pull request (or
-  #208881 together with a fix for block arguments and results).
+- Upstream test: the three modules listed under The fix.
+- The report goes when the pin includes the pull request (or #208881
+  together with a fix for block arguments and results).

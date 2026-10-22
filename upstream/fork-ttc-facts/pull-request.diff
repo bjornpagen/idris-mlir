@@ -1,0 +1,697 @@
+diff --git a/src/Core/AutoSearch.idr b/src/Core/AutoSearch.idr
+index 973ef812..ae5e510f 100644
+--- a/src/Core/AutoSearch.idr
++++ b/src/Core/AutoSearch.idr
+@@ -41,12 +42,189 @@ tryNoDefaultsFirst f = tryUnifyUnambig {preferLeftError=True} (f False) (f True)
+ SearchEnv : Scoped
+ SearchEnv vars = List (NF vars, Closure vars)
+ 
++-- The path rule. A search that never ends meets, on one of its paths, a
++-- goal into which an earlier goal of the same type constructor embeds
++-- (Kruskal's tree theorem, over finitely many labels), so the search stops
++-- at the first such pair, by construction and with no count: the later goal
++-- repeats the earlier (convertible: that step fails, as upstream's cycle
++-- check does), or grows from it through unknowns a later round may fix (the
++-- search waits), or grows with everything known (the program is refused).
++-- What the stock Idris answers with a large enough depth is answered the
++-- same, but where its answer was its depth running out.
++
++-- A goal's argument as the rule compares it. The labels are finitely many:
++-- unknowns are one symbol, and so are the locals the search binds itself
++-- (its Π goals add them without bound) and the goal's own binders' locals,
++-- and a universe, whose level is a fresh name each time, is one symbol too.
++-- A constant keeps its value, under an order with no infinite descent and no
++-- infinite antichain: an integer by its magnitude, a string as a
++-- subsequence, any other constant (of a finite type) by equality. A numeral
++-- of a unary type is its constructors' tree already.
++data Label
++  = Named Name
++  | RootLocal Nat
++  | SearchLocal
++  | Unsolved
++  | Universe
++  | Literal Constant
++  | Binds Nat
++  | LazyType
++  | LazyValue
++  | Forced
++  | ErasedPart
++
++-- Whether the earlier label is below the later one.
++labelBelow : Label -> Label -> Bool
++labelBelow (Named m) (Named n) = m == n
++labelBelow (RootLocal i) (RootLocal j) = i == j
++labelBelow SearchLocal SearchLocal = True
++labelBelow Unsolved Unsolved = True
++labelBelow Universe Universe = True
++labelBelow (Literal c) (Literal d) = constantBelow c d
++  where
++    subsequence : List Char -> List Char -> Bool
++    subsequence [] _ = True
++    subsequence (_ :: _) [] = False
++    subsequence (x :: xs) (y :: ys)
++        = if x == y then subsequence xs ys else subsequence (x :: xs) ys
++
++    constantBelow : Constant -> Constant -> Bool
++    constantBelow (BI x) (BI y) = abs x <= abs y
++    constantBelow (Str x) (Str y) = subsequence (unpack x) (unpack y)
++    constantBelow x y = x == y
++labelBelow (Binds i) (Binds j) = i == j
++labelBelow LazyType LazyType = True
++labelBelow LazyValue LazyValue = True
++labelBelow Forced Forced = True
++labelBelow ErasedPart ErasedPart = True
++labelBelow _ _ = False
++
++data Shape = Shaped Label (List Shape)
++
++bindingKind : Binder (Term vs) -> Nat
++bindingKind (Lam {}) = 0
++bindingKind (Let {}) = 1
++bindingKind (Pi {}) = 2
++bindingKind (PVar {}) = 3
++bindingKind (PLet {}) = 4
++bindingKind (PVTy {}) = 5
++
++mutual
++  -- A goal's argument's shape, given how many of the innermost locals of
++  -- its environment the search bound itself (`k`) and how many binders of
++  -- the term itself are around it (`inner`).
++  shapeIn : (k, inner : Nat) -> Term vs -> Shape
++  shapeIn k inner (Local _ _ idx _)
++      = if idx < inner + k
++           then Shaped SearchLocal []
++           else Shaped (RootLocal (minus idx (inner + k))) []
++  shapeIn k inner (Ref _ _ n) = Shaped (Named n) []
++  shapeIn k inner (Meta {}) = Shaped Unsolved []
++  shapeIn k inner (Bind _ _ b sc)
++      = Shaped (Binds (bindingKind b)) [shapeIn k inner (binderType b), shapeIn k (S inner) sc]
++  shapeIn k inner (App _ f a) = applied k inner f [shapeIn k inner a]
++  shapeIn k inner (As _ _ _ p) = shapeIn k inner p
++  shapeIn k inner (TDelayed _ _ t) = Shaped LazyType [shapeIn k inner t]
++  shapeIn k inner (TDelay _ _ t a) = Shaped LazyValue [shapeIn k inner t, shapeIn k inner a]
++  shapeIn k inner (TForce _ _ t) = Shaped Forced [shapeIn k inner t]
++  shapeIn k inner (PrimVal _ c) = Shaped (Literal c) []
++  shapeIn k inner (Erased {}) = Shaped ErasedPart []
++  shapeIn k inner (TType {}) = Shaped Universe []
++
++  -- An application's head takes its arguments as children; an unknown
++  -- applied is an unknown.
++  applied : (k, inner : Nat) -> Term vs -> List Shape -> Shape
++  applied k inner (App _ f a) args = applied k inner f (shapeIn k inner a :: args)
++  applied k inner (Meta {}) args = Shaped Unsolved []
++  applied k inner f args
++      = case shapeIn k inner f of
++             Shaped l cs => Shaped l (cs ++ args)
++
++mutual
++  -- Homeomorphic embedding: the earlier shape is in a child of the later
++  -- one, or the roots agree and the children embed, in order, into a
++  -- subsequence of the later's (the leftmost match never loses one).
++  embeds : Shape -> Shape -> Bool
++  embeds s t@(Shaped _ ts) = couples s t || embedsChild s ts
++
++  embedsChild : Shape -> List Shape -> Bool
++  embedsChild s [] = False
++  embedsChild s (t :: ts) = embeds s t || embedsChild s ts
++
++  couples : Shape -> Shape -> Bool
++  couples (Shaped l ss) (Shaped l' ts) = labelBelow l l' && embedsAll ss ts
++
++  embedsAll : List Shape -> List Shape -> Bool
++  embedsAll [] _ = True
++  embedsAll (_ :: _) [] = False
++  embedsAll (s :: ss) (t :: ts)
++      = if embeds s t then embedsAll ss ts else embedsAll (s :: ss) ts
++
++hasUnknown : Shape -> Bool
++hasUnknown (Shaped Unsolved _) = True
++hasUnknown (Shaped _ cs) = anyUnknown cs
++  where
++    anyUnknown : List Shape -> Bool
++    anyUnknown [] = False
++    anyUnknown (c :: cs) = hasUnknown c || anyUnknown cs
++
++-- Two argument lists of one type constructor, compared argument by
++-- argument: tuples of a fixed arity, whose order is again a
++-- well-quasi-order.
++pointwise : List Shape -> List Shape -> Bool
++pointwise [] [] = True
++pointwise (s :: ss) (t :: ts) = embeds s t && pointwise ss ts
++pointwise _ _ = False
++
++-- How the search came to a goal.
++data Via = AtTop | ByHint Name | ByLocal
++
++viaHints : Via -> List Name
++viaHints (ByHint n) = [n]
++viaHints _ = []
++
++-- A goal the search took up, as the path rule reads it.
++record Visited where
++  constructor MkVisited
++  family : Name
++  arguments : List Shape
++  goal : ClosedTerm
++  reachedBy : Via
++
++-- What the search knows of the path that led to the goal it is given: how
++-- many of the innermost locals it bound itself, how it came to the goal, and
++-- the goals before it, the latest first. Upstream's path (`trying`) starts
++-- again under a Π goal; this one is kept whole.
++record Track where
++  constructor MkTrack
++  bound : Nat
++  via : Via
++  visited : List Visited
++
++-- The earliest goal of the path, scanning back, that embeds in a goal of
++-- the given type constructor and arguments, with the hints between them.
++grownFrom : Name -> List Shape -> Track -> Maybe (Visited, List Name)
++grownFrom fam shapes track = scan (viaHints track.via) track.visited
++  where
++    scan : List Name -> List Visited -> Maybe (Visited, List Name)
++    scan hints [] = Nothing
++    scan hints (v :: vs)
++        = if v.family == fam && pointwise v.arguments shapes
++             then Just (v, hints)
++             else scan (viaHints v.reachedBy ++ hints) vs
++
++-- A growth is the search's answer, never a failed branch: every combinator
++-- that tries alternatives passes it up rather than trying the next.
++isGrowth : Error -> Bool
++isGrowth (SearchGrows {}) = True
++isGrowth _ = False
++
+ searchType : {vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+              {auto u : Ref UST UState} ->
+              FC -> RigCount ->
+              (defaults : Bool) -> (trying : List (Term vars)) ->
+-             (depth : Nat) ->
++             (track : Track) ->
+              (defining : Name) ->
+              (checkDets : Bool) -> (topTy : ClosedTerm) ->
+              Env Term vars -> (target : Term vars) -> Core (Term vars)
+diff --git a/src/Core/Binary.idr b/src/Core/Binary.idr
+index 28dbbc06..08b0a7b5 100644
+--- a/src/Core/Binary.idr
++++ b/src/Core/Binary.idr
+@@ -36,7 +36,7 @@ import public Libraries.Utils.Binary
+ ||| blob (`writeTTCFile`), which upstream's do not.
+ export
+ ttcVersion : Int
+-ttcVersion = 1_2026_10_19_00
++ttcVersion = 1_2026_10_21_00
+ 
+ export
+ checkTTCVersion : String -> Int -> Int -> Core ()
+@@ -60,7 +60,6 @@ record TTCFile extra where
+   pairnames : Maybe PairNames
+   rewritenames : Maybe RewriteNames
+   primnames : PrimNames
+-  foreignImpl : List (Name, String)
+   namedirectives : List (Name, List String)
+   cgdirectives : List (CG, String)
+   transforms : List (Name, Transform)
+@@ -103,7 +102,7 @@ HasNames e => HasNames (TTCFile e) where
+                       context userHoles
+                       autoHints typeHints
+                       imported nextVar currentNS nestedNS
+-                      pairnames rewritenames primnames foreignImpl
++                      pairnames rewritenames primnames
+                       namedirectives cgdirectives trans
+                       fexp extra)
+       = pure $ MkTTCFile version totalReq ifaceHash iHashes
+@@ -114,7 +113,6 @@ HasNames e => HasNames (TTCFile e) where
+                          !(fullPair gam pairnames)
+                          !(fullRW gam rewritenames)
+                          !(fullPrim gam primnames)
+-                         !(traverse fullForeign foreignImpl)
+                          !(full gam namedirectives)
+                          cgdirectives
+                          !(full gam trans)
+@@ -141,8 +139,6 @@ HasNames e => HasNames (TTCFile e) where
+                         (full gam mn)
+                         (full gam mdl) |]
+ 
+-      fullForeign : (Name, String) -> Core (Name, String)
+-      fullForeign (n,s) = pure $ (!(full gam n), s)
+ 
+   -- I don't think we ever actually want to call this, because after we read
+   -- from the file we're going to add them to learn what the resolved names
+@@ -151,7 +147,7 @@ HasNames e => HasNames (TTCFile e) where
+                       context userHoles
+                       autoHints typeHints
+                       imported nextVar currentNS nestedNS
+-                      pairnames rewritenames primnames foreignImpl
++                      pairnames rewritenames primnames
+                       namedirectives cgdirectives trans
+                       fexp extra)
+       = pure $ MkTTCFile version totalReq ifaceHash iHashes
+@@ -162,7 +158,6 @@ HasNames e => HasNames (TTCFile e) where
+                          !(resolvedPair gam pairnames)
+                          !(resolvedRW gam rewritenames)
+                          !(resolvedPrim gam primnames)
+-                         !(traverse resolvedForeign foreignImpl)
+                          !(resolved gam namedirectives)
+                          cgdirectives
+                          !(resolved gam trans)
+@@ -189,9 +184,6 @@ HasNames e => HasNames (TTCFile e) where
+                             !(resolved gam mn)
+                             !(resolved gam mdl)
+ 
+-      resolvedForeign : (Name, String) -> Core (Name, String)
+-      resolvedForeign (n,s) = pure $ (!(resolved gam n), s)
+-
+ ||| A value written into a blob of its own.
+ encodeBlob : TTC a => a -> Core Binary
+ encodeBlob x
+@@ -231,7 +223,6 @@ writeTTCFile b file_in
+            toBuf (pairnames file)
+            toBuf (rewritenames file)
+            toBuf (primnames file)
+-           toBuf (foreignImpl file)
+            toBuf (namedirectives file)
+            toBuf (cgdirectives file)
+            toBuf (transforms file)
+@@ -261,7 +252,7 @@ readTTCFileWith readExtra readall file as b
+                                    0 (mkNamespace "") [] Nothing
+                                    Nothing
+                                    (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
+-                                   [] [] [] [] [] ex)
++                                   [] [] [] [] ex)
+               else do
+                  defs <- fromBuf
+                  uholes <- fromBuf
+@@ -273,7 +264,6 @@ readTTCFileWith readExtra readall file as b
+                  pns <- fromBuf
+                  rws <- fromBuf
+                  prims <- fromBuf
+-                 foreignImpl <- fromBuf
+                  nds <- fromBuf
+                  cgds <- fromBuf
+                  trans <- fromBuf
+@@ -282,7 +272,7 @@ readTTCFileWith readExtra readall file as b
+                                  ifaceHash importHashes
+                                  (map (replaceNS cns) defs) uholes
+                                  autohs typehs imp nextv cns nns
+-                                 pns rws prims foreignImpl nds cgds trans fexp ex)
++                                 pns rws prims nds cgds trans fexp ex)
+   where
+     -- We don't store full names in 'defs' - we remove the namespace if it's
+     -- the same as the current namespace. So, this puts it back.
+@@ -342,7 +332,7 @@ saveMetas = go . keys . toSave =<< get Ctxt
+   where
+     metasOf : GlobalDef -> List Name
+     metasOf d = keys (getMetas (type d)) ++ case definition d of
+-      PMDef _ _ ct rt _ => keys (Core.Case.CaseTree.getMetas ct) ++ keys (Core.Case.CaseTree.getMetas rt)
++      PMDef _ _ ct _ _ => keys (Core.Case.CaseTree.getMetas ct)
+       _ => []
+ 
+     go : List Name -> Core ()
+@@ -389,7 +379,6 @@ writeToTTC extradata sourceFileName ttcFileName
+                               (pairnames (options defs))
+                               (rewritenames (options defs))
+                               (primnames (options defs))
+-                              (foreignImpl (options defs))
+                               (NameMap.toList (namedirectives defs))
+                               (cgdirectives defs)
+                               (saveTransforms defs)
+diff --git a/src/Core/Context.idr b/src/Core/Context.idr
+index a250dfe0..f0f15647 100644
+--- a/src/Core/Context.idr
++++ b/src/Core/Context.idr
+@@ -305,7 +305,6 @@ newDef fc n rig vars ty vis def
+         , isEscapeHatch = False
+         , flags = []
+         , refersToM = Nothing
+-        , refersToRuntimeM = Nothing
+         , invertible = False
+         , noCycles = False
+         , linearChecked = False
+@@ -587,7 +613,6 @@ resolveGlobalDef gam def
+                definition := !(resolveDef gam (definition def)),
+                totality := !(resolveTotality gam (totality def)),
+                refersToM := map (resolveNameMap gam) (refersToM def),
+-               refersToRuntimeM := map (resolveNameMap gam) (refersToRuntimeM def),
+                sizeChange := map (resolveSCCall gam) (sizeChange def)
+              } def
+ 
+@@ -964,7 +994,6 @@ HasNames GlobalDef where
+                     definition := !(full gam (definition def)),
+                     totality := !(full gam (totality def)),
+                     refersToM := !(full gam (refersToM def)),
+-                    refersToRuntimeM := !(full gam (refersToRuntimeM def)),
+                     sizeChange := !(traverse (full gam) (sizeChange def))
+                   } def
+   resolved = resolveGlobalDef
+@@ -1366,8 +1384,7 @@ addBuiltin n ty tot op
+          , isEscapeHatch = False
+          , flags = [Inline]
+          , refersToM = Nothing
+-         , refersToRuntimeM = Nothing
+-         , invertible = False
++          , invertible = False
+          , noCycles = False
+          , linearChecked = True
+          , definition = Builtin op
+diff --git a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
+index e059e543..b6769914 100644
+--- a/src/Core/Context/Context.idr
++++ b/src/Core/Context/Context.idr
+@@ -313,7 +308,6 @@ record GlobalDef where
+   isEscapeHatch : Bool
+   flags : List DefFlag
+   refersToM : Maybe (NameMap Bool)
+-  refersToRuntimeM : Maybe (NameMap Bool)
+   invertible : Bool -- for an ordinary definition, is it invertible in unification
+   noCycles : Bool -- for metavariables, whether they can be cyclic (this
+                   -- would only be allowed when using a metavariable as a
+@@ -338,9 +332,6 @@ export
+ refersTo : GlobalDef -> NameMap Bool
+ refersTo def = maybe empty id (refersToM def)
+ 
+-export
+-refersToRuntime : GlobalDef -> NameMap Bool
+-refersToRuntime def = maybe empty id (refersToRuntimeM def)
+ 
+ export
+ findSetTotal : List DefFlag -> Maybe TotalReq
+diff --git a/src/Core/TTC.idr b/src/Core/TTC.idr
+index adbcdaee..fb8202b7 100644
+--- a/src/Core/TTC.idr
++++ b/src/Core/TTC.idr
+@@ -110,10 +110,10 @@ decodeName n (Access rec)
+              6 => do x <- fromBuf
+                      y <- decodeName m (rec m lt)
+                      pure (Nested x y)
+-             7 => do x <- fromBuf
++             7 => do x <- decodeName m (rec m lt)
+                      y <- fromBuf
+                      pure (CaseBlock x y)
+-             8 => do x <- fromBuf
++             8 => do x <- decodeName m (rec m lt)
+                      y <- fromBuf
+                      pure (WithBlock x y)
+              9 => pure (UN Underscore)
+@@ -479,7 +479,8 @@ mutual
+                         pure (Lam fc c x ty)
+                 1 => do c <- fromBuf
+                         x <- decodeTerm inner m (rec m lt)
+-                        pure (Let fc c x (Erased emptyFC Placeholder))
++                        ty <- decodeTerm inner m (rec m lt)
++                        pure (Let fc c x ty)
+                 2 => do c <- fromBuf
+                         x <- decodePi inner m (rec m lt)
+                         y <- decodeTerm inner m (rec m lt)
+@@ -490,9 +491,11 @@ mutual
+                         pure (PVar fc c p ty)
+                 4 => do c <- fromBuf
+                         x <- decodeTerm inner m (rec m lt)
+-                        pure (PLet fc c x (Erased emptyFC Placeholder))
++                        ty <- decodeTerm inner m (rec m lt)
++                        pure (PLet fc c x ty)
+                 5 => do c <- fromBuf
+-                        pure (PVTy fc c (Erased emptyFC Placeholder))
++                        ty <- decodeTerm inner m (rec m lt)
++                        pure (PVTy fc c ty)
+                 _ => corrupt "Binder"
+ 
+   -- A list of terms as the list instance writes it: its length, then each
+@@ -580,7 +583,13 @@ mutual
+                         pure (TForce fc lr tm)
+                 9 => do c <- fromBuf
+                         pure (PrimVal fc c)
+-                10 => pure (Erased fc Placeholder)
++                10 => do why <- getTag
++                         case why of
++                              0 => pure (Erased fc Placeholder)
++                              1 => pure (Erased fc Impossible)
++                              2 => do t <- decodeTerm inner m (rec m lt)
++                                      pure (Erased fc (Dotted t))
++                              _ => corrupt "WhyErased"
+                 11 => do u <- fromBuf; pure (TType fc u)
+                 12 => do fn <- decodeTerm at m (rec m lt)
+                          decodeArgs at fn m (rec m lt)
+@@ -609,15 +618,17 @@ mutual
+   encodeBinder at (Lam fc c x ty)
+       = do tag 0; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
+   encodeBinder at (Let fc c val ty)
+-      = do tag 1; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
++      = do tag 1; encodeFC at fc; toBuf c; encodeTerm (within at fc) val
++           encodeTerm (within at fc) ty
+   encodeBinder at (Pi fc c x ty)
+       = do tag 2; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
+   encodeBinder at (PVar fc c p ty)
+       = do tag 3; encodeFC at fc; toBuf c; encodePi (within at fc) p; encodeTerm (within at fc) ty
+   encodeBinder at (PLet fc c val ty)
+-      = do tag 4; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
++      = do tag 4; encodeFC at fc; toBuf c; encodeTerm (within at fc) val
++           encodeTerm (within at fc) ty
+   encodeBinder at (PVTy fc c ty)
+-      = do tag 5; encodeFC at fc; toBuf c -- ; toBuf ty
++      = do tag 5; encodeFC at fc; toBuf c; encodeTerm (within at fc) ty
+ 
+   -- As the list instance writes a list: its length, then each.
+   total
+@@ -691,8 +702,12 @@ mutual
+   encodeTerm at (PrimVal fc c)
+       = do tag 9; encodeFC at fc
+            toBuf c
+-  encodeTerm at (Erased fc _)
++  encodeTerm at (Erased fc why)
+       = do tag 10; encodeFC at fc
++           case why of
++                Placeholder => tag 0
++                Impossible => tag 1
++                Dotted t => do tag 2; encodeTerm (within at fc) t
+   encodeTerm at (TType fc u)
+       = do tag 11; encodeFC at fc; toBuf u
+ 
+@@ -710,51 +725,95 @@ mutual
+ 
+     fromBuf = do n <- remaining; decodeTerm EmptyFC n (wellFounded n)
+ 
+-export
+-TTC Pat where
+-  toBuf (PAs fc x y)
+-      = do tag 0; toBuf fc; toBuf x; toBuf y
+-  toBuf (PCon fc x t arity xs)
+-      = do tag 1; toBuf fc; toBuf x; toBuf t; toBuf arity; toBuf xs
+-  toBuf (PTyCon fc x arity xs)
+-      = do tag 2; toBuf fc; toBuf x; toBuf arity; toBuf xs
+-  toBuf (PConst fc c)
++-- A pattern and its parts, decoded within the bytes left to read, as a
++-- term is: a definition keeps its clauses' patterns, and decoding a
++-- definition is total.
++mutual
++  total
++  decodePat : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Pat
++  decodePat n (Access rec)
++      = do t <- getTag
++           Element m lt <- fewer n
++           case t of
++                0 => do fc <- fromBuf; x <- fromBuf
++                        y <- decodePat m (rec m lt)
++                        pure (PAs fc x y)
++                1 => do fc <- fromBuf; x <- fromBuf
++                        t <- fromBuf; arity <- fromBuf
++                        xs <- decodePats m (rec m lt)
++                        pure (PCon fc x t arity xs)
++                2 => do fc <- fromBuf; x <- fromBuf
++                        arity <- fromBuf
++                        xs <- decodePats m (rec m lt)
++                        pure (PTyCon fc x arity xs)
++                3 => do fc <- fromBuf; c <- fromBuf
++                        pure (PConst fc c)
++                4 => do fc <- fromBuf; x <- fromBuf
++                        s <- decodePat m (rec m lt)
++                        t <- decodePat m (rec m lt)
++                        pure (PArrow fc x s t)
++                5 => do fc <- fromBuf; x <- fromBuf
++                        t <- decodePat m (rec m lt)
++                        y <- decodePat m (rec m lt)
++                        pure (PDelay fc x t y)
++                6 => do fc <- fromBuf; x <- fromBuf
++                        pure (PLoc fc x)
++                7 => do fc <- fromBuf; x <- fromBuf
++                        pure (PUnmatchable fc x)
++                _ => corrupt "Pat"
++
++  -- A list of patterns as the list instance writes it: its length, then
++  -- each, all within the bytes left after the length.
++  total
++  decodePats : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
++  decodePats n (Access rec)
++      = do len <- fromBuf {a = Int}
++           Element m lt <- fewer n
++           decodePatList [] (integerToNat (cast len)) m (rec m lt)
++
++  total
++  decodePatList : {auto b : Ref Bin Binary} -> List Pat -> (count : Nat) ->
++                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
++  decodePatList ps Z n acc = pure (reverse ps)
++  decodePatList ps (S k) n acc
++      = do p <- decodePat n acc
++           decodePatList (p :: ps) k n acc
++
++-- A pattern and its parts written as the list instance and upstream's
++-- instance wrote them.
++mutual
++  total
++  encodePat : {auto b : Ref Bin Binary} -> Pat -> Core ()
++  encodePat (PAs fc x y)
++      = do tag 0; toBuf fc; toBuf x; encodePat y
++  encodePat (PCon fc x t arity xs)
++      = do tag 1; toBuf fc; toBuf x; toBuf t; toBuf arity; encodePats xs
++  encodePat (PTyCon fc x arity xs)
++      = do tag 2; toBuf fc; toBuf x; toBuf arity; encodePats xs
++  encodePat (PConst fc c)
+       = do tag 3; toBuf fc; toBuf c
+-  toBuf (PArrow fc x s t)
+-      = do tag 4; toBuf fc; toBuf x; toBuf s; toBuf t
+-  toBuf (PDelay fc x t y)
+-      = do tag 5; toBuf fc; toBuf x; toBuf t; toBuf y
+-  toBuf (PLoc fc x)
++  encodePat (PArrow fc x s t)
++      = do tag 4; toBuf fc; toBuf x; encodePat s; encodePat t
++  encodePat (PDelay fc x t y)
++      = do tag 5; toBuf fc; toBuf x; encodePat t; encodePat y
++  encodePat (PLoc fc x)
+       = do tag 6; toBuf fc; toBuf x
+-  toBuf (PUnmatchable fc x)
++  encodePat (PUnmatchable fc x)
+       = do tag 7; toBuf fc; toBuf x
+ 
+-  fromBuf
+-      = case !getTag of
+-             0 => do fc <- fromBuf; x <- fromBuf;
+-                     y <- fromBuf
+-                     pure (PAs fc x y)
+-             1 => do fc <- fromBuf; x <- fromBuf
+-                     t <- fromBuf; arity <- fromBuf
+-                     xs <- fromBuf
+-                     pure (PCon fc x t arity xs)
+-             2 => do fc <- fromBuf; x <- fromBuf
+-                     arity <- fromBuf
+-                     xs <- fromBuf
+-                     pure (PTyCon fc x arity xs)
+-             3 => do fc <- fromBuf; c <- fromBuf
+-                     pure (PConst fc c)
+-             4 => do fc <- fromBuf; x <- fromBuf
+-                     s <- fromBuf; t <- fromBuf
+-                     pure (PArrow fc x s t)
+-             5 => do fc <- fromBuf; x <- fromBuf;
+-                     t <- fromBuf; y <- fromBuf
+-                     pure (PDelay fc x t y)
+-             6 => do fc <- fromBuf; x <- fromBuf
+-                     pure (PLoc fc x)
+-             7 => do fc <- fromBuf; x <- fromBuf
+-                     pure (PUnmatchable fc x)
+-             _ => corrupt "Pat"
++  total
++  encodePats : {auto b : Ref Bin Binary} -> List Pat -> Core ()
++  encodePats ps = do toBuf (the Int (cast (length ps))); encodeEachPat ps
++
++  total
++  encodeEachPat : {auto b : Ref Bin Binary} -> List Pat -> Core ()
++  encodeEachPat [] = pure ()
++  encodeEachPat (p :: ps) = do encodePat p; encodeEachPat ps
++
++export
++TTC Pat where
++  toBuf = encodePat
++  fromBuf = do n <- remaining; decodePat n (wellFounded n)
+ 
+ -- A case tree and its alternatives, each as its instance below writes it.
+ mutual
+@@ -766,15 +825,17 @@ mutual
+            Element m lt <- fewer n
+            case t of
+                 0 => do name <- fromBuf; idx <- fromBuf
++                        scTy <- decodeTerm EmptyFC m (rec m lt)
+                         xs <- decodeAlts m (rec m lt)
+                         -- the name stored is the scope's at that index
+                         let Just (Element name' p) = isVarAt idx vars
+                             | Nothing => corrupt "CaseTree"
+                         let True = name == name'
+                             | False => corrupt "CaseTree"
+-                        pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
+-                1 => do x <- decodeTerm EmptyFC m (rec m lt)
+-                        pure (STerm 0 x)
++                        pure (Case {name = name'} idx p scTy xs)
++                1 => do i <- fromBuf
++                        x <- decodeTerm EmptyFC m (rec m lt)
++                        pure (STerm i x)
+                 2 => do msg <- fromBuf
+                         pure (Unmatched msg)
+                 3 => pure Impossible
+@@ -828,9 +889,9 @@ mutual
+   total
+   encodeTree : {auto b : Ref Bin Binary} -> CaseTree vars -> Core ()
+   encodeTree (Case {name} idx x scTy xs)
+-      = do tag 0; toBuf name; toBuf idx; encodeAlts xs
+-  encodeTree (STerm _ x)
+-      = do tag 1; encodeTerm EmptyFC x
++      = do tag 0; toBuf name; toBuf idx; encodeTerm EmptyFC scTy; encodeAlts xs
++  encodeTree (STerm i x)
++      = do tag 1; toBuf i; encodeTerm EmptyFC x
+   encodeTree (Unmatched msg)
+       = do tag 2; toBuf msg
+   encodeTree Impossible = tag 3
+@@ -1174,8 +1235,8 @@ TTC TypeFlags where
+ export
+ TTC Def where
+   toBuf None = tag 0
+-  toBuf (PMDef pi args ct rt pats)
+-      = do tag 1; toBuf pi; toBuf args; toBuf ct; toBuf pats
++  toBuf (PMDef pi args ct cps pats)
++      = do tag 1; toBuf pi; toBuf args; toBuf ct; toBuf cps; toBuf pats
+   toBuf (ExternDef a)
+       = do tag 2; toBuf a
+   toBuf (ForeignDef a cs)
+@@ -1203,8 +1264,9 @@ TTC Def where
+              1 => do pi <- fromBuf
+                      args <- fromBuf
+                      ct <- fromBuf
++                     cps <- fromBuf
+                      pats <- fromBuf
+-                     pure (PMDef pi args ct (Unmatched "") pats)
++                     pure (PMDef pi args ct cps pats)
+              2 => do a <- fromBuf
+                      pure (ExternDef a)
+              3 => do a <- fromBuf
+@@ -1315,8 +1375,7 @@ TTC GlobalDef where
+   toBuf gdef
+       = -- Only write full details for user specified names. The others will
+         -- be holes where all we will ever need after loading is the definition
+-        do toBuf (map NameMap.toList (refersToRuntimeM gdef))
+-           toBuf (location gdef)
++        do toBuf (location gdef)
+            toBuf (multiplicity gdef)
+            toBuf (fullname gdef)
+            toBuf (map NameMap.toList (refersToM gdef))
+@@ -1337,9 +1396,7 @@ TTC GlobalDef where
+                  toBuf (sizeChange gdef)
+ 
+   fromBuf
+-      = do refsRList <- fromBuf
+-           let refsR = map fromList refsRList
+-           loc <- fromBuf
++      = do loc <- fromBuf
+            mul <- fromBuf
+            name <- fromBuf
+            refsList <- fromBuf
+@@ -1358,9 +1415,9 @@ TTC GlobalDef where
+                       sc <- fromBuf
+                       pure (MkGlobalDef loc name ty eargs seargs specargs iargs
+                                         mul vars vis
+-                                        tot hatch fl refs refsR inv c True def sc)
++                                        tot hatch fl refs inv c True def sc)
+               else pure (MkGlobalDef loc name (Erased loc Placeholder) NatSet.empty NatSet.empty NatSet.empty NatSet.empty
+-                                     mul Scope.empty (specified Public) unchecked False [] refs refsR
++                                     mul Scope.empty (specified Public) unchecked False [] refs
+                                      False False True def [])
+ 
+ export

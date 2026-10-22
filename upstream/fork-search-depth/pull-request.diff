@@ -1,0 +1,1248 @@
+diff --git a/src/Core/AutoSearch.idr b/src/Core/AutoSearch.idr
+index 973ef812..ae5e510f 100644
+--- a/src/Core/AutoSearch.idr
++++ b/src/Core/AutoSearch.idr
+@@ -23,6 +23,7 @@ tryUnifyUnambig' : {auto c : Ref Ctxt Defs} ->
+                    Core a -> (Error -> Core a) -> Core a
+ tryUnifyUnambig' left right = handleUnify left $ \case
+   e@(AmbiguousSearch {}) => throw e
++  e@(SearchGrows {})     => throw e
+   e                      => if preferLeftError
+                               then tryUnify (right e) (throw e)
+                               else right e
+@@ -96,13 +274,11 @@ searchIfHole : {vars : _} ->
+                {auto u : Ref UST UState} ->
+                FC ->
+                (defaults : Bool) -> List (Term vars) ->
+-               (ispair : Bool) -> (depth : Nat) ->
++               (ispair : Bool) -> (track : Track) ->
+                (defining : Name) -> (topTy : ClosedTerm) -> Env Term vars ->
+                (arg : ArgInfo vars) ->
+                Core ()
+-searchIfHole fc defaults trying ispair Z def top env arg
+-    = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing) -- possibly should say depth limit hit?
+-searchIfHole fc defaults trying ispair (S depth) def top env arg
++searchIfHole fc defaults trying ispair track def top env arg
+     = do let hole = holeID arg
+          let rig = argRig arg
+ 
+@@ -115,7 +291,7 @@ searchIfHole fc defaults trying ispair (S depth) def top env arg
+                     then normaliseScope defs Env.empty (type gdef)
+                     else pure top
+ 
+-         argdef <- searchType fc rig defaults trying depth def False top' env
++         argdef <- searchType fc rig defaults trying track def False top' env
+                               !(normaliseScope defs env (argType arg))
+          logTermNF "auto" 5 "Solved arg" env argdef
+          logTermNF "auto" 5 "Arg meta" env (metaApp arg)
+@@ -149,6 +325,7 @@ successful (elab :: elabs)
+                    pure (Right (res, defs', ust') :: elabs'))
+                (\err => do put UST ust
+                            put Ctxt defs
++                           when (isGrowth err) $ throw err
+                            elabs' <- successful elabs
+                            pure (Left err :: elabs'))
+ 
+@@ -163,9 +340,11 @@ anyOne fc env top [elab]
+          \case
+            err@(CantSolveGoal {})   => throw err
+            err@(AmbiguousSearch {}) => throw err
++           err@(SearchGrows {})     => throw err
+            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
+ anyOne fc env top (elab :: elabs)
+-    = tryUnify elab (anyOne fc env top elabs)
++    = handleUnify elab $ \err =>
++        if isGrowth err then throw err else anyOne fc env top elabs
+ 
+ exactlyOne : {vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+@@ -177,6 +356,7 @@ exactlyOne fc env top target [elab]
+     = catch elab $
+          \case
+            err@(CantSolveGoal {}) => throw err
++           err@(SearchGrows {})   => throw err
+            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
+ exactlyOne {vars} fc env top target all
+     = do elabs <- successful all
+@@ -262,11 +442,11 @@ searchLocalWith : {vars : _} ->
+                   {auto u : Ref UST UState} ->
+                   FC -> RigCount ->
+                   (defaults : Bool) -> List (Term vars) ->
+-                  (depth : Nat) ->
++                  (track : Track) ->
+                   (defining : Name) -> (topTy : ClosedTerm) ->
+                   Env Term vars -> (Term vars, Term vars) ->
+                   (target : NF vars) -> Core (Term vars)
+-searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) target
++searchLocalWith {vars} fc rigc defaults trying track def top env (prf, ty) target
+     = do defs <- get Ctxt
+          nty <- nf defs env ty
+          findPos defs pure nty target
+@@ -306,7 +486,8 @@ searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) targe
+                    let env' = clearEnv prf env
+                    -- Work right to left, because later arguments may solve
+                    -- earlier ones by unification
+-                   traverse_ (searchIfHole fc defaults trying False depth def top env')
++                   traverse_ (searchIfHole fc defaults trying False
++                                  ({ via := ByLocal } track) def top env')
+                             (impLast args)
+                    pure candidate
+                 else do logNF "auto" 10 "Can't use " env ty
+@@ -353,12 +534,12 @@ searchLocalVars : {vars : _} ->
+                   {auto u : Ref UST UState} ->
+                   FC -> RigCount ->
+                   (defaults : Bool) -> List (Term vars) ->
+-                  (depth : Nat) ->
++                  (track : Track) ->
+                   (defining : Name) -> (topTy : ClosedTerm) ->
+                   Env Term vars ->
+                   (target : NF vars) -> Core (Term vars)
+-searchLocalVars fc rig defaults trying depth def top env target
+-    = do let elabs = map (\t => searchLocalWith fc rig defaults trying depth def
++searchLocalVars fc rig defaults trying track def top env target
++    = do let elabs = map (\t => searchLocalWith fc rig defaults trying track def
+                                               top env t target)
+                          (getUsableEnv fc rig zero env)
+          exactlyOne fc env top target elabs
+@@ -376,12 +557,12 @@ searchName : {vars : _} ->
+              {auto u : Ref UST UState} ->
+              FC -> RigCount ->
+              (defaults : Bool) -> List (Term vars) ->
+-             (depth : Nat) ->
++             (track : Track) ->
+              (defining : Name) -> (topTy : ClosedTerm) ->
+              Env Term vars -> (target : NF vars) ->
+              (Name, GlobalDef) ->
+              Core (Term vars)
+-searchName fc rigc defaults trying depth def top env target (n, ndef)
++searchName fc rigc defaults trying track def top env target (n, ndef)
+     = do defs <- get Ctxt
+          when (not (visibleInAny (!getNS :: !getNestedNS)
+                                  (fullname ndef) (collapseDefault $ visibility ndef))) $
+@@ -404,7 +585,8 @@ searchName fc rigc defaults trying depth def top env target (n, ndef)
+          logTermNF "auto" 10 "Candidate " env candidate
+          -- Work right to left, because later arguments may solve earlier
+          -- dependencies by unification
+-         traverse_ (searchIfHole fc defaults trying ispair depth def top env)
++         traverse_ (searchIfHole fc defaults trying ispair
++                                 ({ via := ByHint n } track) def top env)
+                   (impLast args)
+          pure candidate
+ 
+@@ -413,17 +595,17 @@ searchNames : {vars : _} ->
+               {auto u : Ref UST UState} ->
+               FC -> RigCount ->
+               (defaults : Bool) -> List (Term vars) ->
+-              (depth : Nat) ->
++              (track : Track) ->
+               (defining : Name) -> (topTy : ClosedTerm) ->
+               Env Term vars -> Bool -> List Name ->
+               (target : NF vars) -> Core (Term vars)
+-searchNames fc rigc defaults trying depth defining topty env ambig [] target
++searchNames fc rigc defaults trying track defining topty env ambig [] target
+     = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty topty Nothing)
+-searchNames fc rigc defaults trying depth defining topty env ambig (n :: ns) target
++searchNames fc rigc defaults trying track defining topty env ambig (n :: ns) target
+     = do defs <- get Ctxt
+          visnsm <- traverse (visible (gamma defs) (currentNS defs :: nestedNS defs)) (n :: ns)
+          let visns = mapMaybe id visnsm
+-         let elabs = map (searchName fc rigc defaults trying depth defining topty env target) visns
++         let elabs = map (searchName fc rigc defaults trying track defining topty env target) visns
+          if ambig
+             then anyOne fc env topty elabs
+             else exactlyOne fc env topty target elabs
+@@ -505,56 +687,77 @@ checkConcreteDets fc defaults env top (NTCon tfc tyn a args)
+ checkConcreteDets fc defaults env top _
+     = pure ()
+ 
++-- A goal convertible with one before it on its path repeats it: that step
++-- fails, as an ordinary failure, and the search tries what else it has.
+ abandonIfCycle : {vars : _} ->
+                  {auto c : Ref Ctxt Defs} ->
++                 FC -> ClosedTerm ->
+                  Env Term vars -> Term vars -> List (Term vars) ->
+                  Core ()
+-abandonIfCycle env tm [] = pure ()
+-abandonIfCycle env tm (ty :: tys)
++abandonIfCycle fc top env tm [] = pure ()
++abandonIfCycle fc top env tm (ty :: tys)
+     = do defs <- get Ctxt
+          if !(convert defs env tm ty)
+-            then throw (InternalError "Cycle in search")
+-            else abandonIfCycle env tm tys
++            then throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
++            else abandonIfCycle fc top env tm tys
+ 
+ -- Declared at the top
+-searchType fc rigc defaults trying depth def checkdets top env (Bind nfc x b@(Pi fc' c p ty) sc)
++searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Pi fc' c p ty) sc)
+     = pure (Bind nfc x (Lam fc' c p ty)
+-             !(searchType fc rigc defaults [] depth def checkdets top
++             !(searchType fc rigc defaults [] ({ bound $= S } track) def checkdets top
+                           (b :: env) sc))
+-searchType fc rigc defaults trying depth def checkdets top env (Bind nfc x b@(Let fc' c val ty) sc)
++searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Let fc' c val ty) sc)
+     = pure (Bind nfc x b
+-             !(searchType fc rigc defaults [] depth def checkdets top
++             !(searchType fc rigc defaults [] ({ bound $= S } track) def checkdets top
+                           (b :: env) sc))
+-searchType {vars} fc rigc defaults trying depth def checkdets top env target
++searchType {vars} fc rigc defaults trying track def checkdets top env target
+     = do defs <- get Ctxt
+-         abandonIfCycle env target trying
++         abandonIfCycle fc top env target trying
+          let trying' = target :: trying
+          nty <- nf defs env target
+          case nty of
+               NTCon tfc tyn a args =>
+                   if a == length args
+                      then do logNF "auto" 10 "Next target" env nty
++                             track' <- visit tyn (map snd args)
+                              sd <- getSearchData fc defaults tyn
+                              -- Check determining arguments are okay for 'args'
+                              when checkdets $
+                                  checkConcreteDets fc defaults env top
+                                                    (NTCon tfc tyn a args)
+                              if defaults && checkdets
+-                                then tryGroups Nothing nty (hintGroups sd)
++                                then tryGroups track' Nothing nty (hintGroups sd)
+                                 else tryUnifyUnambig
+-                                       (searchLocalVars fc rigc defaults trying' depth def top env nty)
+-                                       (tryGroups Nothing nty (hintGroups sd))
++                                       (searchLocalVars fc rigc defaults trying' track' def top env nty)
++                                       (tryGroups track' Nothing nty (hintGroups sd))
+                      else throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
+               _ => do logNF "auto" 10 "Next target: " env nty
+-                      searchLocalVars fc rigc defaults trying' depth def top env nty
++                      searchLocalVars fc rigc defaults trying' track def top env nty
+   where
++    -- The path rule, before the goal is taken up: an earlier goal of the
++    -- same type constructor that embeds in this one stops the search (the
++    -- convertible ones were caught above); else the goal joins the path.
++    visit : Name -> List (Closure vars) -> Core Track
++    visit tyn args
++        = do defs <- get Ctxt
++             tms <- traverse (quote defs env) args
++             let shapes = map (shapeIn track.bound 0) tms
++             let goal = abstractEnvType fc env target
++             case grownFrom tyn shapes track of
++                  Nothing => pure ({ visited $= (MkVisited tyn shapes goal track.via ::) } track)
++                  Just (earlier, hints) =>
++                     let growth = if any hasUnknown earlier.arguments || any hasUnknown shapes
++                                     then ThroughUnknowns
++                                     else Settled in
++                         throw (SearchGrows fc (gamma defs) growth earlier.goal goal hints)
++
+     -- Take the earliest error message (that's when we look inside pairs,
+     -- typically, and it's best to be more precise)
+-    tryGroups : Maybe Error ->
++    tryGroups : Track -> Maybe Error ->
+                 NF vars -> List (Bool, List Name) -> Core (Term vars)
+-    tryGroups (Just err) nty [] = throw err
+-    tryGroups Nothing nty [] = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing)
+-    tryGroups merr nty ((ambigok, g) :: gs)
++    tryGroups track' (Just err) nty [] = throw err
++    tryGroups track' Nothing nty [] = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing)
++    tryGroups track' merr nty ((ambigok, g) :: gs)
+         = tryUnifyUnambig'
+              (do logC "auto" 5
+                         (do gn <- traverse getFullName g
+@@ -562,21 +765,21 @@ searchType {vars} fc rigc defaults trying depth def checkdets top env target
+                                            " names " ++ show gn))
+                  logNF "auto" 5 "For target" env nty
+                  tryNoDefaultsFirst $ \d =>
+-                   searchNames fc rigc d (target :: trying) depth def top env ambigok g nty)
+-             (\err => tryGroups (Just $ fromMaybe err merr) nty gs)
++                   searchNames fc rigc d (target :: trying) track' def top env ambigok g nty)
++             (\err => tryGroups track' (Just $ fromMaybe err merr) nty gs)
+ 
+ -- Declared in Core.Unify as:
+ -- search : {vars : _} ->
+ --          {auto c : Ref Ctxt Defs} ->
+ --          {auto u : Ref UST UState} ->
+ --          FC -> RigCount ->
+---          (defaults : Bool) -> (depth : Nat) ->
++--          (defaults : Bool) ->
+ --          (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
+ --          Core (Term vars)
+-Core.Unify.search fc rigc defaults depth def top env
++Core.Unify.search fc rigc defaults def top env
+     = do logTermNF "auto" 3 "Initial target: " env top
+          log "auto" 3 $ "Running search with defaults " ++ show defaults
+-         tm <- searchType fc rigc defaults [] depth def
++         tm <- searchType fc rigc defaults [] (MkTrack 0 AtTop []) def
+                           True (abstractEnvType fc env top) env
+                           top
+          logTermNF "auto" 3 "Result" env tm
+diff --git a/src/Core/Context.idr b/src/Core/Context.idr
+index a250dfe0..f0f15647 100644
+--- a/src/Core/Context.idr
++++ b/src/Core/Context.idr
+@@ -543,7 +569,7 @@ resolveDef gam (PMDef r args ct rt pats)
+ -- holds them: resolving leaves them as they are.
+ resolveDef gam (TCon a ps ds u ms mcs det)
+     = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
+-resolveDef gam (BySearch c d def) = pure $ BySearch c d (indexedName gam def)
++resolveDef gam (BySearch c def) = pure $ BySearch c (indexedName gam def)
+ resolveDef gam (Guess tm b cs)
+     = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
+ resolveDef gam t = pure t
+@@ -622,8 +650,8 @@ HasNames Def where
+   full gam (TCon a ps ds u ms mcs det)
+       = pure $ TCon a ps ds u !(traverse (full gam) ms)
+                                 !(traverseOpt (traverse (full gam)) mcs) det
+-  full gam (BySearch c d def)
+-      = pure $ BySearch c d !(full gam def)
++  full gam (BySearch c def)
++      = pure $ BySearch c !(full gam def)
+   full gam (Guess tm b cs)
+       = pure $ Guess !(full gam tm) b cs
+   full gam t = pure t
+@@ -784,6 +811,8 @@ HasNames Error where
+     = CantSolveGoal fc gam <$> full gam rho <*> full gam s <*> traverseOpt (full gam) merr
+   full gam (DeterminingArg fc n x rho s)
+     = DeterminingArg fc <$> full gam n <*> pure x <*> full gam rho <*> full gam s
++  full _ (SearchGrows fc gam g e l hs)
++    = SearchGrows fc gam g <$> full gam e <*> full gam l <*> traverse (full gam) hs
+   full gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (full gam)) xs
+   full gam (CantInferArgType fc rho n n1 s)
+     = CantInferArgType fc <$> full gam rho <*> full gam n <*> full gam n1 <*> full gam s
+@@ -817,10 +846,10 @@ HasNames Error where
+   full gam (CyclicImports xs) = pure (CyclicImports xs)
+   full gam ForceNeeded = pure ForceNeeded
+   full gam (InternalError x) = pure (InternalError x)
++  full gam QuoteTooDeep = pure QuoteTooDeep
+   full gam (UserError x) = pure (UserError x)
+   full gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
+   full gam (BadMultiline fc x) = pure (BadMultiline fc x)
+-  full gam (Timeout x) = pure (Timeout x)
+   full gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
+   full gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (full gam) err
+   full gam (InType fc n err) = InType fc <$> full gam n <*> full gam err
+@@ -883,6 +911,8 @@ HasNames Error where
+     = CantSolveGoal fc gam <$> resolved gam rho <*> resolved gam s <*> traverseOpt (resolved gam) merr
+   resolved gam (DeterminingArg fc n x rho s)
+     = DeterminingArg fc <$> resolved gam n <*> pure x <*> resolved gam rho <*> resolved gam s
++  resolved _ (SearchGrows fc gam g e l hs)
++    = SearchGrows fc gam g <$> resolved gam e <*> resolved gam l <*> traverse (resolved gam) hs
+   resolved gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (resolved gam)) xs
+   resolved gam (CantInferArgType fc rho n n1 s)
+     = CantInferArgType fc <$> resolved gam rho <*> resolved gam n <*> resolved gam n1 <*> resolved gam s
+@@ -916,10 +946,10 @@ HasNames Error where
+   resolved gam (CyclicImports xs) = pure (CyclicImports xs)
+   resolved gam ForceNeeded = pure ForceNeeded
+   resolved gam (InternalError x) = pure (InternalError x)
++  resolved gam QuoteTooDeep = pure QuoteTooDeep
+   resolved gam (UserError x) = pure (UserError x)
+   resolved gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
+   resolved gam (BadMultiline fc x) = pure (BadMultiline fc x)
+-  resolved gam (Timeout x) = pure (Timeout x)
+   resolved gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
+   resolved gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (resolved gam) err
+   resolved gam (InType fc n err) = InType fc <$> resolved gam n <*> resolved gam err
+@@ -2242,26 +2259,11 @@ setDefaultTotalityOption : {auto c : Ref Ctxt Defs} ->
+                            TotalReq -> Core ()
+ setDefaultTotalityOption tot = update Ctxt { options->elabDirectives->totality := tot }
+ 
+-export
+-setAmbigLimit : {auto c : Ref Ctxt Defs} ->
+-                Nat -> Core ()
+-setAmbigLimit max = update Ctxt { options->elabDirectives->ambigLimit := max }
+-
+-export
+-setAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->
+-                       Nat -> Core ()
+-setAutoImplicitLimit max = update Ctxt { options->elabDirectives->autoImplicitLimit := max }
+-
+ export
+ setNFThreshold : {auto c : Ref Ctxt Defs} ->
+                  Nat -> Core ()
+ setNFThreshold max = update Ctxt { options->elabDirectives->nfThreshold := max }
+ 
+-export
+-setSearchTimeout : {auto c : Ref Ctxt Defs} ->
+-                   Integer -> Core ()
+-setSearchTimeout t = update Ctxt { options->session->searchTimeout := t }
+-
+ export
+ isLazyActive : {auto c : Ref Ctxt Defs} ->
+                Core Bool
+@@ -2288,27 +2290,6 @@ getDefaultTotalityOption
+     = do defs <- get Ctxt
+          pure (totality (elabDirectives (options defs)))
+ 
+-export
+-getAmbigLimit : {auto c : Ref Ctxt Defs} ->
+-                Core Nat
+-getAmbigLimit
+-    = do defs <- get Ctxt
+-         pure (ambigLimit (elabDirectives (options defs)))
+-
+-export
+-getAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->
+-                       Core Nat
+-getAutoImplicitLimit
+-    = do defs <- get Ctxt
+-         pure (autoImplicitLimit (elabDirectives (options defs)))
+-
+-export
+-addForeignImpl : {auto c : Ref Ctxt Defs} ->
+-          FC -> (fullName : Name) -> (def : String) -> Core ()
+-addForeignImpl fc name def
+-   = do name <- toFullNames name
+-        update Ctxt { options $= addForeignImpl name def }
+-
+ export
+ setPair : {auto c : Ref Ctxt Defs} ->
+           FC -> (pairType : Name) -> (fstn : Name) -> (sndn : Name) ->
+diff --git a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
+index e059e543..b6769914 100644
+--- a/src/Core/Context/Context.idr
++++ b/src/Core/Context/Context.idr
+@@ -115,7 +118,7 @@ data Def : Type where
+                               -- (mostly to help display)
+            HoleFlags ->
+            Def
+-    BySearch : RigCount -> (maxdepth : Nat) -> (defining : Name) -> Def
++    BySearch : RigCount -> (defining : Name) -> Def
+     -- Constraints are integer references into the current map of
+     -- constraints in the UnifyState (see Core.UnifyState)
+     Guess : (guess : ClosedTerm) ->
+@@ -167,7 +169,7 @@ Show Def where
+                            " " ++ show cs ++">"
+   show (Builtin {arity} _) = "<builtin with arith " ++ show arity ++ ">"
+   show (Hole _ p) = "Hole" ++ if implbind p then " [impl]" else ""
+-  show (BySearch c depth def) = "Search in " ++ show def
++  show (BySearch c def) = "Search in " ++ show def
+   show (Guess tm _ cs) = "Guess " ++ show tm ++ " when " ++ show cs
+   show (UniverseLevel i) = "Universe level #" ++ show i
+   show ImpBind = "Bound name"
+diff --git a/src/Core/Core.idr b/src/Core/Core.idr
+index 50012640..9c60dec5 100644
+--- a/src/Core/Core.idr
++++ b/src/Core/Core.idr
+@@ -88,6 +88,18 @@ data Warning : Type where
+ %name Warning wrn
+ 
+ -- All possible errors, carrying a location
++||| How an automatic search's goals grow along one of its paths: through
++||| unknowns a later round of elaboration may fix, or with every part of both
++||| goals known, when no later round can change the search.
++public export
++data Growth = ThroughUnknowns | Settled
++
++export
++Eq Growth where
++  ThroughUnknowns == ThroughUnknowns = True
++  Settled == Settled = True
++  _ == _ = False
++
+ public export
+ data Error : Type where
+      Fatal : Error -> Error -- flag as unrecoverable (so don't postpone awaiting further info)
+@@ -144,6 +155,13 @@ data Error : Type where
+                      Maybe Error -> Error
+      DeterminingArg : {vars : _} ->
+                       FC -> Name -> Int -> Env Term vars -> Term vars -> Error
++     ||| An automatic search whose later goal embeds an earlier goal of its
++     ||| own path, of the same type constructor: a search that never ends
++     ||| repeats such a pair, so it stops here, by construction, with no
++     ||| count. The goals are closed over their environments; the names are
++     ||| the hints between them, in the order the search applied them.
++     SearchGrows : FC -> Context -> Growth ->
++                   (earlier, later : ClosedTerm) -> (hints : List Name) -> Error
+      UnsolvedHoles : List (FC, Name) -> Error
+      CantInferArgType : {vars : _} ->
+                         FC -> Env Term vars -> Name -> Name -> Term vars -> Error
+@@ -191,11 +209,13 @@ data Error : Type where
+      CyclicImports : List ModuleIdent -> Error
+      ForceNeeded : Error
+      InternalError : String -> Error
++     ||| A quote within a depth went deeper; caught by `quoteWithin`
++     ||| alone, and never reported.
++     QuoteTooDeep : Error
+      UserError : String -> Error
+      ||| Contains list of specifiers for which foreign call cannot be resolved
+      NoForeignCC : FC -> List String -> Error
+      BadMultiline : FC -> String -> Error
+-     Timeout : String -> Error
+      FailingDidNotFail : FC -> Error
+      FailingWrongError : FC -> String -> List1 Error -> Error
+ 
+@@ -346,6 +364,9 @@ mutual
+   showError (DeterminingArg fc n i env g)
+       = show fc ++ ":Can't solve goal " ++ show g ++
+                 " since argument " ++ show n ++ " can't be inferred"
++  showError (SearchGrows fc gam _ earlier later hints)
++      = show fc ++ ":Search grows from " ++ show earlier ++ " to " ++ show later ++
++                " through " ++ show hints
+   showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
+   showError (CantInferArgType fc env n h ty)
+       = show fc ++ ":Can't infer type for " ++ show n ++
+@@ -399,11 +420,11 @@ mutual
+       = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
+   showError ForceNeeded = "Internal error when resolving implicit laziness"
+   showError (InternalError str) = "INTERNAL ERROR: " ++ str
++  showError QuoteTooDeep = "Quote too deep"
+   showError (UserError str) = "Error: " ++ str
+   showError (NoForeignCC fc specs) = show fc ++
+        ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
+   showError (BadMultiline fc str) = "Invalid multiline string: " ++ str
+-  showError (Timeout str) = "Timeout in " ++ str
+ 
+   showError (FailingDidNotFail _) = "Failing block did not fail"
+   showError (FailingWrongError fc msg (err ::: errs))
+@@ -487,6 +507,7 @@ getErrorLoc (TryWithImplicits loc _ _) = Just loc
+ getErrorLoc (BadUnboundImplicit loc _ _ _) = Just loc
+ getErrorLoc (CantSolveGoal loc _ _ _ _) = Just loc
+ getErrorLoc (DeterminingArg loc _ _ _ _) = Just loc
++getErrorLoc (SearchGrows loc _ _ _ _ _) = Just loc
+ getErrorLoc (UnsolvedHoles ((loc, _) :: _)) = Just loc
+ getErrorLoc (UnsolvedHoles []) = Nothing
+ getErrorLoc (CantInferArgType loc _ _ _ _) = Just loc
+@@ -519,10 +540,10 @@ getErrorLoc (ModuleNotFound loc _) = Just loc
+ getErrorLoc (CyclicImports _) = Nothing
+ getErrorLoc ForceNeeded = Nothing
+ getErrorLoc (InternalError _) = Nothing
++getErrorLoc QuoteTooDeep = Nothing
+ getErrorLoc (UserError _) = Nothing
+ getErrorLoc (NoForeignCC loc _) = Just loc
+ getErrorLoc (BadMultiline loc _) = Just loc
+-getErrorLoc (Timeout _) = Nothing
+ getErrorLoc (InType _ _ err) = getErrorLoc err
+ getErrorLoc (InCon _ err) = getErrorLoc err
+ getErrorLoc (FailingDidNotFail loc) = Just loc
+@@ -579,6 +599,7 @@ killErrorLoc (TryWithImplicits fc x xs) = TryWithImplicits emptyFC x xs
+ killErrorLoc (BadUnboundImplicit fc x y z) = BadUnboundImplicit emptyFC x y z
+ killErrorLoc (CantSolveGoal fc x y z w) = CantSolveGoal emptyFC x y z w
+ killErrorLoc (DeterminingArg fc x y z w) = DeterminingArg emptyFC x y z w
++killErrorLoc (SearchGrows fc gam g e l hs) = SearchGrows emptyFC gam g e l hs
+ killErrorLoc (UnsolvedHoles xs) = UnsolvedHoles xs
+ killErrorLoc (CantInferArgType fc x y z w) = CantInferArgType emptyFC x y z w
+ killErrorLoc (SolvedNamedHole fc x y z) = SolvedNamedHole emptyFC x y z
+@@ -610,10 +631,10 @@ killErrorLoc (ModuleNotFound fc x) = ModuleNotFound emptyFC x
+ killErrorLoc (CyclicImports xs) = CyclicImports xs
+ killErrorLoc ForceNeeded = ForceNeeded
+ killErrorLoc (InternalError x) = InternalError x
++killErrorLoc QuoteTooDeep = QuoteTooDeep
+ killErrorLoc (UserError x) = UserError x
+ killErrorLoc (NoForeignCC fc xs) = NoForeignCC emptyFC xs
+ killErrorLoc (BadMultiline fc x) = BadMultiline emptyFC x
+-killErrorLoc (Timeout x) = Timeout x
+ killErrorLoc (FailingDidNotFail fc) = FailingDidNotFail emptyFC
+ killErrorLoc (FailingWrongError fc x errs) = FailingWrongError emptyFC x (map killErrorLoc errs)
+ killErrorLoc (InType fc x err) = InType emptyFC x (killErrorLoc err)
+diff --git a/src/Core/Normalise.idr b/src/Core/Normalise.idr
+index 49a424c6..9cbd27d9 100644
+--- a/src/Core/Normalise.idr
++++ b/src/Core/Normalise.idr
+@@ -73,14 +73,17 @@ normaliseLHS defs env (Bind fc n b sc)
+ normaliseLHS defs env tm
+     = quote defs env !(nfOpts onLHS defs env tm)
+ 
++||| The normal form, its stuck applications followed at most `limit` deep,
++||| or `TooDeep`, where the caller keeps the term another way: the limit
++||| decides only a stored term's form.
+ export
+ tryNormaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
+                      {free : _} ->
+                      Defs -> Nat ->
+-                     Env Term free -> Term free -> Core (Term free)
++                     Env Term free -> Term free -> Core (Quoted free)
+ tryNormaliseSizeLimit defs limit env tm
+     = do tm' <- nf defs env tm
+-         quoteOpts (MkQuoteOpts False False (Just limit)) defs env tm'
++         quoteWithin limit defs env tm'
+ 
+ -- The size limit here is the depth of stuck applications. If it gets past
+ -- that size, return the original
+@@ -90,9 +93,9 @@ normaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
+                      Defs -> Nat ->
+                      Env Term free -> Term free -> Core (Term free)
+ normaliseSizeLimit defs limit env tm
+-    = catch (do tm' <- nf defs env tm
+-                quoteOpts (MkQuoteOpts False False (Just limit)) defs env tm')
+-            (\err => pure tm)
++    = case !(tryNormaliseSizeLimit defs limit env tm) of
++           Quoted tm' => pure tm'
++           TooDeep => pure tm
+ 
+ export
+ normaliseArgHoles : {auto c : Ref Ctxt Defs} ->
+diff --git a/src/Core/Normalise/Convert.idr b/src/Core/Normalise/Convert.idr
+index d5c773af..baafbe75 100644
+--- a/src/Core/Normalise/Convert.idr
++++ b/src/Core/Normalise/Convert.idr
+@@ -219,9 +219,9 @@ mutual
+                 Name -> Name ->
+                 List (Closure vars) -> List (Closure vars) -> Core Bool
+   chkSameDefs q i defs env n n' nargs nargs'
+-     = do Just (PMDef _ args ct rt _) <- lookupDefExact n (gamma defs)
++     = do Just (PMDef _ args ct _ _) <- lookupDefExact n (gamma defs)
+                | _ => pure False
+-          Just (PMDef _ args' ct' rt' _) <- lookupDefExact n' (gamma defs)
++          Just (PMDef _ args' ct' _ _) <- lookupDefExact n' (gamma defs)
+                | _ => pure False
+ 
+           -- If the two case blocks match in structure, get which variables
+diff --git a/src/Core/Normalise/Eval.idr b/src/Core/Normalise/Eval.idr
+index 782ed74c..b4512193 100644
+--- a/src/Core/Normalise/Eval.idr
++++ b/src/Core/Normalise/Eval.idr
+@@ -299,9 +299,6 @@ parameters (defs : Defs) (topopts : EvalOpts)
+              folded <- if evalTypes topopts && not (evalAll topopts) && (redok1 || redok2)
+                           then implementationDef res else pure False
+              let redok = (redok1 || redok2) && not folded
+-             checkTimer -- If we're going to time out anywhere, it'll be
+-                        -- when evaluating something recursive, so this is a
+-                        -- good place to check
+              unless redok2 $ logC "eval.stuck" 5 $ do n' <- toFullNames n
+                                                       pure $ "Stuck function: \{show n'}"
+              if redok
+diff --git a/src/Core/Normalise/Quote.idr b/src/Core/Normalise/Quote.idr
+index 83c40a01..3d769759 100644
+--- a/src/Core/Normalise/Quote.idr
++++ b/src/Core/Normalise/Quote.idr
+@@ -21,6 +21,15 @@ record QuoteOpts where
+                   -- local
+   sizeLimit : Maybe Nat
+ 
++||| A quote that follows stuck applications only so deep: the term, or the
++||| news that it is deeper, where the caller then quotes another way. The
++||| depth decides only how much work a stored term's form costs, never
++||| whether a program is accepted.
++public export
++data Quoted : Scoped where
++  Quoted : Term vars -> Quoted vars
++  TooDeep : Quoted vars
++
+ public export
+ interface Quote tm where
+     quote : {auto c : Ref Ctxt Defs} ->
+@@ -29,9 +38,10 @@ interface Quote tm where
+     quoteLHS : {auto c : Ref Ctxt Defs} ->
+                {vars : Scope} ->
+                Defs -> Env Term vars -> tm vars -> Core (Term vars)
+-    quoteOpts : {auto c : Ref Ctxt Defs} ->
+-                {vars : Scope} ->
+-                QuoteOpts -> Defs -> Env Term vars -> tm vars -> Core (Term vars)
++    ||| Quoting with stuck applications followed at most `depth` deep.
++    quoteWithin : {auto c : Ref Ctxt Defs} ->
++                  {vars : Scope} ->
++                  (depth : Nat) -> Defs -> Env Term vars -> tm vars -> Core (Quoted vars)
+ 
+     quoteGen : {auto c : Ref Ctxt Defs} ->
+                {vars : _} ->
+@@ -46,9 +56,14 @@ interface Quote tm where
+         = do q <- newRef QVar 0
+              quoteGen q (MkQuoteOpts True True Nothing) defs env tm
+ 
+-    quoteOpts opts defs env tm
++    -- The quoter signals the depth reached by its own error, which only
++    -- this catches, and no other error is taken for it.
++    quoteWithin depth defs env tm
+         = do q <- newRef QVar 0
+-             quoteGen q opts defs env tm
++             catch (Quoted <$> quoteGen q (MkQuoteOpts False False (Just depth)) defs env tm)
++                   (\case
++                       QuoteTooDeep => pure TooDeep
++                       err => throw err)
+ 
+ export
+ genName : {auto q : Ref QVar Int} -> String -> Core Name
+@@ -182,7 +197,7 @@ mutual
+       = do f' <- quoteHead q opts defs fc bound env f
+            opts' <- case sizeLimit opts of
+                          Nothing => pure opts
+-                         Just Z => throw (InternalError "Size limit exceeded")
++                         Just Z => throw QuoteTooDeep
+                          Just (S k) => pure ({ sizeLimit := Just k } opts)
+            args' <- if patterns opts && not (topLevel opts) && isRef f
+                        then do empty <- clearDefs defs
+diff --git a/src/Core/Options.idr b/src/Core/Options.idr
+index c167de5f..b2ff992b 100644
+--- a/src/Core/Options.idr
++++ b/src/Core/Options.idr
+@@ -102,8 +102,6 @@ record ElabDirectives where
+   lazyActive : Bool
+   unboundImplicits : Bool
+   totality : TotalReq
+-  ambigLimit : Nat
+-  autoImplicitLimit : Nat
+   nfThreshold : Nat
+   --
+   -- produce traditional (prefix) record projections,
+diff --git a/src/Core/TTC.idr b/src/Core/TTC.idr
+index adbcdaee..fb8202b7 100644
+--- a/src/Core/TTC.idr
++++ b/src/Core/TTC.idr
+@@ -1189,8 +1250,8 @@ TTC Def where
+            toBuf dets
+   toBuf (Hole locs p)
+       = do tag 6; toBuf locs; toBuf (implbind p)
+-  toBuf (BySearch c depth def)
+-      = do tag 7; toBuf c; toBuf depth; toBuf def
++  toBuf (BySearch c def)
++      = do tag 7; toBuf c; toBuf def
+   toBuf (Guess guess envb constraints)
+       = do tag 8; toBuf guess; toBuf envb; toBuf constraints
+   toBuf ImpBind = tag 9
+@@ -1221,9 +1283,9 @@ TTC Def where
+              6 => do l <- fromBuf
+                      p <- fromBuf
+                      pure (Hole l (holeInit p))
+-             7 => do c <- fromBuf; depth <- fromBuf
++             7 => do c <- fromBuf
+                      def <- fromBuf
+-                     pure (BySearch c depth def)
++                     pure (BySearch c def)
+              8 => do g <- fromBuf; envb <- fromBuf; cs <- fromBuf
+                      pure (Guess g envb cs)
+              9 => pure ImpBind
+diff --git a/src/Core/Unify.idr b/src/Core/Unify.idr
+index bb9f70b0..3ddaad54 100644
+--- a/src/Core/Unify.idr
++++ b/src/Core/Unify.idr
+@@ -163,7 +163,7 @@ search : {vars : _} ->
+          {auto c : Ref Ctxt Defs} ->
+          {auto u : Ref UST UState} ->
+          FC -> RigCount ->
+-         (defaults : Bool) -> (depth : Nat) ->
++         (defaults : Bool) ->
+          (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
+          Core (Term vars)
+ 
+@@ -473,6 +473,9 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
+     -- A solution is deemed simple enough to inline if either:
+     --   * It is smaller than some threshold and has no metavariables in it
+     --   * It's just a metavariable itself
++    -- The thresholds (6 and 3 below) decide only whether the solved hole is
++    -- unfolded where it is used, so the form of the checked term the TTC
++    -- stores, never whether the program is accepted.
+     noMeta : Term vs -> Nat -> Bool
+     noMeta (App _ f a) (S k) = noMeta f k && noMeta a k
+     noMeta (Bind _ _ b sc) (S k) = noMeta (binderType b) k && noMeta sc k
+@@ -867,10 +870,10 @@ mutual
+                          | _ => postponeS swap loc mode "Delayed hole" env
+                                           (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
+                                           tmnf
+-                     let qopts = MkQuoteOpts False False
+-                                             (Just defs.options.elabDirectives.nfThreshold)
+-                     tm <- catch (quoteOpts qopts empty env tmnf)
+-                                 (\err => quote defs env tmnf)
++                     tm <- case !(quoteWithin defs.options.elabDirectives.nfThreshold
++                                              empty env tmnf) of
++                                Quoted tm => pure tm
++                                TooDeep => quote defs env tmnf
+                      Just tm <- occursCheck loc env mode mname tm
+                          | _ => postponeS swap loc mode "Occurs check failed" env
+                                           (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
+@@ -1417,6 +1420,7 @@ forceMeta r envb tm = TForce (getLoc tm) r tm
+ -- Check whether it's worth trying a search again, based on what went wrong
+ recoverable : Error -> Bool
+ recoverable (UndefinedName {}) = False
++recoverable (SearchGrows {}) = False
+ recoverable (InType _ _ err) = recoverable err
+ recoverable (InCon _ err) = recoverable err
+ recoverable (InLHS _ _ err) = recoverable err
+@@ -1436,11 +1440,11 @@ retryGuess mode smode (hid, (loc, hname))
+            Nothing => pure False
+            Just def =>
+              case definition def of
+-               BySearch rig depth defining =>
++               BySearch rig defining =>
+                   handleUnify
+-                     (do tm <- search loc rig (smode == Defaults) depth defining
++                     (do tm <- search loc rig (smode == Defaults) defining
+                                       (type def) Env.empty
+-                         let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) (STerm 0 tm) [] } def
++                         let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) [] [] } def
+                          logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
+                          ignore $ addDef (Resolved hid) gdef
+                          removeGuess hid
+@@ -1452,6 +1456,17 @@ retryGuess mode smode (hid, (loc, hname))
+                                     (type def)
+                             setInvertible loc (Resolved i)
+                             pure False -- progress not made yet!
++                       -- A search that grows through unknowns may end once
++                       -- a later round fixes them, so it waits as a
++                       -- determining argument's does; at the last chance,
++                       -- the end of the declaration's elaboration, nothing
++                       -- more will be fixed, and the program is refused.
++                       err@(SearchGrows _ _ ThroughUnknowns _ _ _) =>
++                         case smode of
++                              LastChance => throw err
++                              _ => pure False
++                       -- With every part known, no later round changes it.
++                       err@(SearchGrows {}) => throw err
+                        err =>
+                          do logTermNF "unify.retry" 5
+                                       ("Search failed at " ++ show rig ++ " for " ++ show hname)
+diff --git a/src/Core/UnifyState.idr b/src/Core/UnifyState.idr
+index 8562279e..f35900bc 100644
+--- a/src/Core/UnifyState.idr
++++ b/src/Core/UnifyState.idr
+@@ -495,11 +504,11 @@ export
+ newSearch : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+             {auto u : Ref UST UState} ->
+-            FC -> RigCount -> Nat -> Name ->
++            FC -> RigCount -> Name ->
+             Env Term vars -> Name -> Term vars -> Core (Int, Term vars)
+-newSearch {vars} fc rig depth def env n ty
++newSearch {vars} fc rig def env n ty
+     = do let hty = abstractEnvType fc env ty
+-         let hole = newDef fc n rig Scope.empty hty (specified Public) (BySearch rig depth def)
++         let hole = newDef fc n rig Scope.empty hty (specified Public) (BySearch rig def)
+          log "unify.search" 10 $ "Adding new search " ++ show fc ++ " " ++ show n
+          logTermNF "unify.search" 10 "New search type" Env.empty hty
+          idx <- addDef n hole
+@@ -710,7 +719,7 @@ dumpHole s n hole
+                         ++ show !(normaliseHoles defs Env.empty ty)
+                         ++ if implbind p then " (ImplBind)" else ""
+                         ++ if invertible gdef then " (Invertible)" else ""
+-             (BySearch _ _ _, ty) =>
++             (BySearch _ _, ty) =>
+                   logString s.topic n $
+                      "Search " ++ show hole ++ " : " ++
+                      show !(toFullNames !(normaliseHoles defs Env.empty ty))
+diff --git a/src/Idris/Desugar.idr b/src/Idris/Desugar.idr
+index 6348b300..4cffa14a 100644
+--- a/src/Idris/Desugar.idr
++++ b/src/Idris/Desugar.idr
+@@ -432,7 +459,7 @@ mutual
+       = desugarB side ps
+           (PLam fc top Explicit (PRef fc (MN "arg" 0)) (PImplicit fc)
+               (POp fc (MkFCVal op.fc $ NoBinder arg) op (PRef fc (MN "arg" 0))))
+-  desugarB side ps (PSearch fc depth) = pure $ ISearch fc depth
++  desugarB side ps (PSearch fc) = pure $ ISearch fc
+   desugarB side ps (PPrimVal fc (BI x))
+       = case !fromIntegerName of
+              Nothing =>
+diff --git a/src/Idris/Elab/Implementation.idr b/src/Idris/Elab/Implementation.idr
+index fc59a8c7..2ed44b7a 100644
+--- a/src/Idris/Elab/Implementation.idr
++++ b/src/Idris/Elab/Implementation.idr
+@@ -257,7 +257,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
+                defs <- get Ctxt
+                let fldTys = getFieldArgs !(normaliseHoles defs Env.empty conty)
+                log "elab.implementation" 5 $ "Field types " ++ show fldTys
+-               let irhs = apply (autoImpsApply (IVar vfc con) $ map (const (ISearch vfc 500)) (parents cdata))
++               let irhs = apply (autoImpsApply (IVar vfc con) $ map (const (ISearch vfc)) (parents cdata))
+                                 (map (mkMethField methImps fldTys) fns)
+                let impFn = IDef vfc impName [PatClause vfc ilhs irhs]
+                log "elab.implementation" 5 $ "Implementation record: " ++ show impFn
+diff --git a/src/Idris/Error.idr b/src/Idris/Error.idr
+index 7d9e3ec6..c0127ce7 100644
+--- a/src/Idris/Error.idr
++++ b/src/Idris/Error.idr
+@@ -87,6 +86,7 @@ Eq Error where
+   BadUnboundImplicit fc1 rho1 n1 s1 == BadUnboundImplicit fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
+   CantSolveGoal fc1 gam1 rho1 s1 x1 == CantSolveGoal fc2 gam2 rho2 s2 x2 = fc1 == fc2
+   DeterminingArg fc1 n1 x1 rho1 s1 == DeterminingArg fc2 n2 x2 rho2 s2 = fc1 == fc2 && n1 == n2 && x1 == x2
++  SearchGrows fc1 _ g1 _ _ hs1 == SearchGrows fc2 _ g2 _ _ hs2 = fc1 == fc2 && g1 == g2 && hs1 == hs2
+   UnsolvedHoles xs1 == UnsolvedHoles xs2 = xs1 == xs2
+   CantInferArgType fc1 rho1 n1 m1 s1 == CantInferArgType fc2 rho2 n2 m2 s2 = fc1 == fc2 && n1 == n2 && m1 == m2
+   SolvedNamedHole fc1 rho1 n1 s1 == SolvedNamedHole fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
+@@ -117,10 +117,10 @@ Eq Error where
+   CyclicImports xs1 == CyclicImports xs2 = xs1 == xs2
+   ForceNeeded == ForceNeeded = True
+   InternalError x1 == InternalError x2 = x1 == x2
++  QuoteTooDeep == QuoteTooDeep = True
+   UserError x1 == UserError x2 = x1 == x2
+   NoForeignCC fc1 xs1 == NoForeignCC fc2 xs2 = fc1 == fc2 && xs1 == xs2
+   BadMultiline fc1 x1 == BadMultiline fc2 x2 = fc1 == fc2 && x1 == x2
+-  Timeout x1 == Timeout x2 = x1 == x2
+   FailingDidNotFail fc1 == FailingDidNotFail fc2 = fc1 == fc2
+   FailingWrongError fc1 x1 err1 == FailingWrongError fc2 x2 err2
+     = fc1 == fc2 && x1 == x2 && assert_total (err1 == err2)
+@@ -534,6 +528,25 @@ perrorRaw (CantSolveGoal fc gam env g reason)
+     dropEnv env (Bind _ n b@(Let {}) sc) = dropEnv (b :: env) sc
+     dropEnv env tm = (_ ** (env, tm))
+ 
++perrorRaw (SearchGrows fc gam _ earlier later hints)
++    = do defs <- get Ctxt
++         setCtxt gam
++         let (_ ** (eenv, egoal)) = dropEnv Env.empty earlier
++         let (_ ** (lenv, lgoal)) = dropEnv Env.empty later
++         res <- pure $ errorDesc (reflow "Can't find an implementation: the search grows from"
++                     <++> code !(pshow eenv egoal) <++> reflow "to" <++> code !(pshow lenv lgoal)
++                     <+> dot) <+> line <+> !(ploc fc)
++                     <+> line <+> reflow "through" <++> concatWith (surround " --> ") (pretty0 <$> hints)
++         put Ctxt defs
++         pure res
++  where
++    dropEnv : {vars : _} ->
++              Env Term vars -> Term vars ->
++              (ns ** (Env Term ns, Term ns))
++    dropEnv env (Bind _ n b@(Pi {}) sc) = dropEnv (b :: env) sc
++    dropEnv env (Bind _ n b@(Let {}) sc) = dropEnv (b :: env) sc
++    dropEnv env tm = (_ ** (env, tm))
++
+ perrorRaw (DeterminingArg fc n i env g)
+     = pure $ errorDesc (reflow "Can't find an implementation for" <++> code !(pshow env g) <+> line
+         <+> reflow "since I can't infer a value for argument" <++> code (pretty0 n) <+> dot)
+@@ -744,6 +757,7 @@ perrorRaw (CyclicImports ns)
+         <++> concatWith (surround " -> ") (pretty0 <$> ns)
+ perrorRaw ForceNeeded = pure $ errorDesc (reflow "Internal error when resolving implicit laziness")
+ perrorRaw (InternalError str) = pure $ errorDesc (reflow "INTERNAL ERROR" <+> colon) <++> pretty0 str
++perrorRaw QuoteTooDeep = pure $ errorDesc (reflow "Quote too deep")
+ perrorRaw (UserError str) = pure . errorDesc $ pretty0 str
+ perrorRaw (NoForeignCC fc specs) = do
+     let cgs = fst <$> availableCGs (options !(get Ctxt))
+diff --git a/src/Idris/Parser.idr b/src/Idris/Parser.idr
+index a8063393..47bf0a0d 100644
+--- a/src/Idris/Parser.idr
++++ b/src/Idris/Parser.idr
+@@ -144,7 +144,7 @@ atom fname
+   <|> do x <- bounds $ decorate fname Typ  $ pragma "World"
+          pure (PPrimVal (boundToFC fname x) $ PrT WorldType)
+   <|> do x <- bounds $ decoratedPragma fname "search"
+-         pure (PSearch (boundToFC fname x) 50)
++         pure (PSearch (boundToFC fname x))
+ 
+ whereBlock : OriginDesc -> Int -> Rule (List PDecl)
+ whereBlock fname col
+diff --git a/src/Idris/Resugar.idr b/src/Idris/Resugar.idr
+index 1c75fef3..2be7d92f 100644
+--- a/src/Idris/Resugar.idr
++++ b/src/Idris/Resugar.idr
+@@ -375,7 +375,7 @@ mutual
+            if imp
+               then bracket p startPrec app
+               else mkOp app
+-  toPTerm p (ISearch fc d) = pure (PSearch fc d)
++  toPTerm p (ISearch fc) = pure (PSearch fc)
+   toPTerm p (IAlternative fc _ _) = pure (PImplicit fc)
+   toPTerm p (IRewrite fc rule tm)
+       = pure (PRewrite fc !(toPTerm startPrec rule)
+diff --git a/src/Idris/Syntax.idr b/src/Idris/Syntax.idr
+index 30de9cae..02f25f4e 100644
+--- a/src/Idris/Syntax.idr
++++ b/src/Idris/Syntax.idr
+@@ -111,7 +111,7 @@ mutual
+        PDelay : FC -> PTerm' nm -> PTerm' nm
+        PForce : FC -> PTerm' nm -> PTerm' nm
+ 
+-       PSearch : FC -> (depth : Nat) -> PTerm' nm
++       PSearch : FC -> PTerm' nm
+        PPrimVal : FC -> Constant -> PTerm' nm
+        PQuote : FC -> PTerm' nm -> PTerm' nm
+        PQuoteName : FC -> Name -> PTerm' nm
+@@ -184,7 +184,7 @@ mutual
+   getPTermLoc (PDelayed fc _ _) = fc
+   getPTermLoc (PDelay fc _) = fc
+   getPTermLoc (PForce fc _) = fc
+-  getPTermLoc (PSearch fc _) = fc
++  getPTermLoc (PSearch fc) = fc
+   getPTermLoc (PPrimVal fc _) = fc
+   getPTermLoc (PQuote fc _) = fc
+   getPTermLoc (PQuoteName fc _) = fc
+diff --git a/src/Idris/Syntax/Pragmas.idr b/src/Idris/Syntax/Pragmas.idr
+index d35fd869..bb25b1ce 100644
+--- a/src/Idris/Syntax/Pragmas.idr
++++ b/src/Idris/Syntax/Pragmas.idr
+@@ -120,9 +113,7 @@ Show KwPragma where
+     KwLanguage => "%language"
+     KwDefault => "%default"
+     KwPrefixRecordProjections => "%prefix_record_projections"
+-    KwAutoImplicitDepth => "%auto_implicit_depth"
+     KwNfMetavarThreshold => "%nf_metavar_threshold"
+-    KwSearchTimeOut => "%search_timeout"
+ 
+ export
+ allPragmas : List KwPragma
+diff --git a/src/Idris/Syntax/Traversals.idr b/src/Idris/Syntax/Traversals.idr
+index fd4f3c75..02825fe6 100644
+--- a/src/Idris/Syntax/Traversals.idr
++++ b/src/Idris/Syntax/Traversals.idr
+@@ -617,7 +617,7 @@ substFC fc = mapPTerm $ \case
+   PDelayed _ x y => PDelayed fc x y
+   PDelay _ x => PDelay fc x
+   PForce _ x => PForce fc x
+-  PSearch _ depth => PSearch fc depth
++  PSearch _ => PSearch fc
+   PPrimVal _ x => PPrimVal fc x
+   PQuote _ x => PQuote fc x
+   PQuoteName _ n => PQuoteName fc n
+diff --git a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
+index 05136656..38f20d5e 100644
+--- a/src/TTImp/Elab.idr
++++ b/src/TTImp/Elab.idr
+@@ -75,8 +75,9 @@ normaliseHoleTypes
+   where
+     updateType : Defs -> Int -> GlobalDef -> Core ()
+     updateType defs i def
+-        = do ty' <- catch (tryNormaliseSizeLimit defs 10 Env.empty (type def))
+-                          (\err => normaliseHoles defs Env.empty (type def))
++        = do ty' <- case !(tryNormaliseSizeLimit defs 10 Env.empty (type def)) of
++                         Quoted ty' => pure ty'
++                         TooDeep => normaliseHoles defs Env.empty (type def)
+              ignore $ addDef (Resolved i) ({ type := ty' } def)
+ 
+     normaliseH : Defs -> Int -> Core ()
+diff --git a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
+index 2098f57b..b2b14597 100644
+--- a/src/TTImp/Elab/App.idr
++++ b/src/TTImp/Elab/App.idr
+@@ -265,12 +265,11 @@ mutual
+                    -- We have to get the normal form eventually anyway, but
+                    -- it might be too early to do it now if something is
+                    -- blocking it and we're not yet ready to search.
+-                   metaty <- catch (quoteOpts (MkQuoteOpts False False (Just 10))
+-                                              defs env aty)
+-                                   (\err => quote empty env aty)
++                   metaty <- case !(quoteWithin 10 defs env aty) of
++                                  Quoted metaty => pure metaty
++                                  TooDeep => quote empty env aty
+                    est <- get EST
+-                   lim <- getAutoImplicitLimit
+-                   metaval <- searchVar fc argRig lim (Resolved (defining est))
++                   metaval <- searchVar fc argRig (Resolved (defining est))
+                                         env nest nm metaty
+                    let fntm = App fc tm metaval
+                    fnty <- sc defs (toClosure defaultOpts env metaval)
+diff --git a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
+index f901b1b9..f238806a 100644
+--- a/src/TTImp/Elab/Check.idr
++++ b/src/TTImp/Elab/Check.idr
+@@ -419,14 +415,14 @@ export
+ searchVar : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+             {auto u : Ref UST UState} ->
+-            FC -> RigCount -> Nat -> Name ->
++            FC -> RigCount -> Name ->
+             Env Term vars -> NestedNames vars -> Name -> Term vars -> Core (Term vars)
+-searchVar fc rig depth def env nest n ty
++searchVar fc rig def env nest n ty
+     = do defs <- get Ctxt
+          (vars' ** (bind, env')) <- envHints (keys (localHints defs)) env
+          -- Initial the search with an environment which binds the applied
+          -- local hints
+-         (_, tm) <- newSearch fc rig depth def env' n
++         (_, tm) <- newSearch fc rig def env' n
+                               (weakenNs (mkSizeOf vars') ty)
+          pure (bind tm)
+   where
+@@ -604,6 +599,7 @@ successful allowCons ((tm, elab) :: elabs)
+     -- something serious has gone wrong, so just give up immediately.
+     abandon : Error -> Bool
+     abandon (UndefinedName {}) = True
++    abandon (SearchGrows {}) = True
+     abandon (InType _ _ err) = abandon err
+     abandon (InCon _ err) = abandon err
+     abandon (InLHS _ _ err) = abandon err
+diff --git a/src/TTImp/Elab/Delayed.idr b/src/TTImp/Elab/Delayed.idr
+index 3fa6673e..a10504c7 100644
+--- a/src/TTImp/Elab/Delayed.idr
++++ b/src/TTImp/Elab/Delayed.idr
+@@ -241,6 +229,7 @@ recoverable (CantSolveEq _ gam env l r)
+         pure $ not !(contra defs !(nf defs env l) !(nf defs env r))
+ recoverable (UndefinedName {}) = pure False
+ recoverable (LinearMisuse {}) = pure False
++recoverable (SearchGrows {}) = pure False
+ recoverable (InType _ _ err) = recoverable err
+ recoverable (InCon _ err) = recoverable err
+ recoverable (InLHS _ _ err) = recoverable err
+diff --git a/src/TTImp/Elab/ImplicitBind.idr b/src/TTImp/Elab/ImplicitBind.idr
+index acb8ee68..3967b6b9 100644
+--- a/src/TTImp/Elab/ImplicitBind.idr
++++ b/src/TTImp/Elab/ImplicitBind.idr
+@@ -111,9 +111,10 @@ normaliseType : {auto c : Ref Ctxt Defs} ->
+                 {free : _} ->
+                 Defs -> Env Term free -> Term free -> Core (Term free)
+ normaliseType defs env tm
+-    = catch (do tm' <- nfOpts withHoles defs env tm
+-                quoteOpts (MkQuoteOpts False False (Just 5)) defs env tm')
+-            (\err => normalise defs env tm)
++    = do tm' <- nfOpts withHoles defs env tm
++         case !(quoteWithin 5 defs env tm') of
++              Quoted ntm => pure ntm
++              TooDeep => normalise defs env tm
+ 
+ -- For any of the 'bindIfUnsolved' - these were added as holes during
+ -- elaboration, but are as yet unsolved, so create a pattern variable for
+diff --git a/src/TTImp/Elab/Term.idr b/src/TTImp/Elab/Term.idr
+index d66e86bc..bc94e593 100644
+--- a/src/TTImp/Elab/Term.idr
++++ b/src/TTImp/Elab/Term.idr
+@@ -162,19 +162,19 @@ checkTerm rig elabinfo nest env (IWithApp fc fn arg) exp
+     = throw (GenericMsg fc "with application not implemented yet")
+ checkTerm rig elabinfo nest env (INamedApp fc fn nm arg) exp
+     = checkApp rig elabinfo nest env fc fn [] [] [(nm, arg)] exp
+-checkTerm rig elabinfo nest env (ISearch fc depth) (Just gexpty)
++checkTerm rig elabinfo nest env (ISearch fc) (Just gexpty)
+     = do est <- get EST
+          nm <- genName "search"
+          expty <- getTerm gexpty
+-         sval <- searchVar fc rig depth (Resolved (defining est)) env nest nm expty
++         sval <- searchVar fc rig (Resolved (defining est)) env nest nm expty
+          pure (sval, gexpty)
+-checkTerm rig elabinfo nest env (ISearch fc depth) Nothing
++checkTerm rig elabinfo nest env (ISearch fc) Nothing
+     = do est <- get EST
+          nmty <- genName "searchTy"
+          u <- uniVar fc
+          ty <- metaVar fc erased env nmty (TType fc u)
+          nm <- genName "search"
+-         sval <- searchVar fc rig depth (Resolved (defining est)) env nest nm ty
++         sval <- searchVar fc rig (Resolved (defining est)) env nest nm ty
+          pure (sval, gnf env ty)
+ checkTerm rig elabinfo nest env (IAlternative fc uniq alts) exp
+     = checkAlternative rig elabinfo nest env fc uniq alts exp
+diff --git a/src/TTImp/Reflect.idr b/src/TTImp/Reflect.idr
+index beaff880..04de6046 100644
+--- a/src/TTImp/Reflect.idr
++++ b/src/TTImp/Reflect.idr
+@@ -158,10 +158,10 @@ mutual
+                           f' <- reify defs !(evalClosure defs f)
+                           a' <- reify defs !(evalClosure defs a)
+                           pure (IWithApp fc' f' a')
++               -- A search here has no depth: a script's is dropped.
+                (UN (Basic "ISearch"), [fc, d])
+                     => do fc' <- reify defs !(evalClosure defs fc)
+-                          d' <- reify defs !(evalClosure defs d)
+-                          pure (ISearch fc' d')
++                          pure (ISearch fc')
+                (UN (Basic "IAlternative"), [fc, t, as])
+                     => do fc' <- reify defs !(evalClosure defs fc)
+                           t' <- reify defs !(evalClosure defs t)
+@@ -553,10 +553,10 @@ mutual
+              f' <- reflect fc defs lhs env f
+              a' <- reflect fc defs lhs env a
+              appCon fc defs (reflectionttimp "IWithApp") [fc', f', a']
+-    reflect fc defs lhs env (ISearch tfc d)
+-        = do fc' <- reflect fc defs lhs env tfc
+-             d' <- reflect fc defs lhs env d
+-             appCon fc defs (reflectionttimp "ISearch") [fc', d']
++    -- The reflected form holds a depth this compiler's search does not
++    -- have, and any number would be invented, so the script is refused.
++    reflect fc defs lhs env (ISearch tfc)
++        = throw (GenericMsg tfc "A search has no depth to give a script")
+     reflect fc defs lhs env (IAlternative tfc t as)
+         = do fc' <- reflect fc defs lhs env tfc
+              t' <- reflect fc defs lhs env t
+diff --git a/src/TTImp/TTImp.idr b/src/TTImp/TTImp.idr
+index 317e9c48..49488ac4 100644
+--- a/src/TTImp/TTImp.idr
++++ b/src/TTImp/TTImp.idr
+@@ -94,7 +94,7 @@ mutual
+        INamedApp : FC -> RawImp' nm -> Name -> RawImp' nm -> RawImp' nm
+        IWithApp : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
+ 
+-       ISearch : FC -> (depth : Nat) -> RawImp' nm
++       ISearch : FC -> RawImp' nm
+        IAlternative : FC -> AltType' nm -> List (RawImp' nm) -> RawImp' nm
+        IRewrite : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
+        ICoerced : FC -> RawImp' nm -> RawImp' nm
+@@ -188,7 +188,7 @@ mutual
+          = "(" ++ show f ++ " [" ++ show a ++ "])"
+       show (IWithApp fc f a)
+          = "(" ++ show f ++ " | " ++ show a ++ ")"
+-      show (ISearch fc d)
++      show (ISearch fc)
+          = "%search"
+       show (IAlternative fc ty alts)
+          = "(|" ++ showSep "," (map show alts) ++ "|)"
+@@ -941,7 +936,7 @@ getFC (IApp x _ _) = x
+ getFC (INamedApp x _ _ _) = x
+ getFC (IAutoApp x _ _) = x
+ getFC (IWithApp x _ _) = x
+-getFC (ISearch x _) = x
++getFC (ISearch x) = x
+ getFC (IAlternative x _ _) = x
+ getFC (IRewrite x _ _) = x
+ getFC (ICoerced x _) = x
+diff --git a/src/TTImp/TTImp/Functor.idr b/src/TTImp/TTImp/Functor.idr
+index d2c4f5b1..2577c3b5 100644
+--- a/src/TTImp/TTImp/Functor.idr
++++ b/src/TTImp/TTImp/Functor.idr
+@@ -38,8 +38,8 @@ mutual
+     = INamedApp fc (mapRawImp f fn) nm (mapRawImp f t)
+   mapRawImp f (IWithApp fc fn t)
+     = IWithApp fc (mapRawImp f fn) (mapRawImp f t)
+-  mapRawImp f (ISearch fc n)
+-    = ISearch fc n
++  mapRawImp f (ISearch fc)
++    = ISearch fc
+   mapRawImp f (IAlternative fc alt ts)
+     = IAlternative fc (mapAltType f alt) (map (mapRawImp f) ts)
+   mapRawImp f (IRewrite fc e t)
+diff --git a/src/TTImp/TTImp/TTC.idr b/src/TTImp/TTImp/TTC.idr
+index d00828ef..5a6543ba 100644
+--- a/src/TTImp/TTImp/TTC.idr
++++ b/src/TTImp/TTImp/TTC.idr
+@@ -42,8 +42,8 @@ mutual
+         = do tag 8; toBuf fc; toBuf fn; toBuf y; toBuf arg
+     toBuf (IWithApp fc fn arg)
+         = do tag 9; toBuf fc; toBuf fn; toBuf arg
+-    toBuf (ISearch fc depth)
+-        = do tag 10; toBuf fc; toBuf depth
++    toBuf (ISearch fc)
++        = do tag 10; toBuf fc
+     toBuf (IAlternative fc y xs)
+         = do tag 11; toBuf fc; toBuf y; toBuf xs
+     toBuf (IRewrite fc x y)
+@@ -132,8 +132,8 @@ mutual
+                9 => do fc <- fromBuf; fn <- fromBuf
+                        arg <- fromBuf
+                        pure (IWithApp fc fn arg)
+-               10 => do fc <- fromBuf; depth <- fromBuf
+-                        pure (ISearch fc depth)
++               10 => do fc <- fromBuf
++                        pure (ISearch fc)
+                11 => do fc <- fromBuf; y <- fromBuf
+                         xs <- fromBuf
+                         pure (IAlternative fc y xs)
+diff --git a/src/TTImp/TTImp/Traversals.idr b/src/TTImp/TTImp/Traversals.idr
+index a0e5932d..17c5e1c7 100644
+--- a/src/TTImp/TTImp/Traversals.idr
++++ b/src/TTImp/TTImp/Traversals.idr
+@@ -100,7 +100,7 @@ parameters (f : RawImp' nm -> RawImp' nm)
+   mapTTImp (IAutoApp fc t u) = f $ IAutoApp fc (mapTTImp t) (mapTTImp u)
+   mapTTImp (INamedApp fc t n u) = f $ INamedApp fc (mapTTImp t) n (mapTTImp u)
+   mapTTImp (IWithApp fc t u) = f $ IWithApp fc (mapTTImp t) (mapTTImp u)
+-  mapTTImp (ISearch fc depth) = f $ ISearch fc depth
++  mapTTImp (ISearch fc) = f $ ISearch fc
+   mapTTImp (IAlternative fc alt ts) = f $ IAlternative fc (mapAltType alt) (assert_total map mapTTImp ts)
+   mapTTImp (IRewrite fc t u) = f $ IRewrite fc (mapTTImp t) (mapTTImp u)
+   mapTTImp (ICoerced fc t) = f $ ICoerced fc (mapTTImp t)
+diff --git a/src/TTImp/Unelab.idr b/src/TTImp/Unelab.idr
+index f6fb4a80..d7d8f545 100644
+--- a/src/TTImp/Unelab.idr
++++ b/src/TTImp/Unelab.idr
+@@ -227,7 +227,7 @@ mutual
+            let mkn = nameRoot n
+            def <- lookupDefExact (Resolved i) (gamma defs)
+            let term = case def of
+-                              (Just (BySearch _ d _)) => ISearch fc d
++                              (Just (BySearch {})) => ISearch fc
+                               _ => IHole fc mkn
+            Just ty <- lookupTyExact (Resolved i) (gamma defs)
+                | Nothing => case umode of
+diff --git a/src/TTImp/Utils.idr b/src/TTImp/Utils.idr
+index 04c02de0..7678f2df 100644
+--- a/src/TTImp/Utils.idr
++++ b/src/TTImp/Utils.idr
+@@ -167,7 +167,7 @@ findBindableNamesQuot env used (IUnquote fc x)
+ findBindableNamesQuot env used (IWithUnambigNames fc xs x)
+     = findBindableNamesQuot env used x
+ findBindableNamesQuot env used (IVar fc x) = []
+-findBindableNamesQuot env used (ISearch fc depth) = []
++findBindableNamesQuot env used (ISearch fc) = []
+ findBindableNamesQuot env used (IAlternative fc x xs) = []
+ findBindableNamesQuot env used (IBindVar fc x) = []
+ findBindableNamesQuot env used (IPrimVal fc c) = []
+diff --git a/src/TTImp/WithClause.idr b/src/TTImp/WithClause.idr
+index 6933f090..0a71b958 100644
+--- a/src/TTImp/WithClause.idr
++++ b/src/TTImp/WithClause.idr
+@@ -153,7 +153,7 @@ getArgMatch ploc mode True warg ms (Just (AutoImplicit, nm))
+     = case lookup nm ms of
+         Just tm => tm
+         Nothing =>
+-          let arg = ISearch ploc 500 in
++          let arg = ISearch ploc in
+           if isJust (isLHS mode)
+             then IAs ploc ploc UseLeft nm arg
+              else arg

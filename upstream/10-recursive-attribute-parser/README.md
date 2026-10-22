@@ -76,9 +76,33 @@ would still need its large stack. The fix is a change of design across
 the parser, the printer and the sub-element walks, which needs upstream's
 agreement before code.
 
+Proposals/0000 D33 owes the patch, and C99 sets the family it belongs to:
+one patch per family of MLIR's recursions on input size. Two are carried
+(2026-10-21): dead-code initialization
+(`upstream/92-dead-code-iterative-initialization`) and call graph
+construction (`upstream/93-call-graph-iterative-construction`). Left,
+each recursing once per level of nesting at 416f328b (*read*): the
+attribute parser and every dialect parser that calls `parseAttribute`
+for its parameters (`mlir/lib/AsmParser/AttributeParser.cpp`,
+`Parser::parseAttribute`), the op and region parser
+(`mlir/lib/AsmParser/Parser.cpp`, `parseRegion` and `parseRegionBody`
+through `parseOperation`), the printer (`mlir/lib/IR/AsmPrinter.cpp`,
+`OperationPrinter::printRegion`, and alias collection), the sub-element
+walker and replacer (`mlir/lib/IR/AttrTypeSubElements.cpp`,
+`walkSubElements`, `replaceBase`), `walk` (`mlir/include/mlir/IR/Visitors.h`,
+`detail::walk`), the bytecode writer (`BytecodeWriter.cpp`, `writeOp` and
+`writeBlock`), clone (`Operation::clone`, `Region::cloneInto`), drop and
+destruction (`Operation::dropAllReferences`, `~Operation`), region DCE
+(`RegionUtils.cpp`, `propagateLiveness`) and slices
+(`SliceAnalysis.cpp`). Each is a rewrite of MLIR's core traversal, not
+written unbuilt here: the stage-1 stack painting (on the tools' one small
+stack) decides which reach the guard first, and they are written in that
+order, the parser and printer of attributes first when it is they. The
+reproducer stands until then.
+
 ## Upstreaming plan
 
-Status: not ready. Still reproduces on the pin, llvm main at 7208ba24:
+Status: not ready; the patch is owed (D33). Reproduced on the earlier pin, llvm main at 7208ba24 (the attribute parser is unchanged at 416f328b, the pin since 2026-10-21):
 on arm64 macOS, with `.toolchain/llvm-macos` built at that commit
 (2026-10-09), `tests/upstream-recursive-attribute-parser` printed
 `nested: still reproduces`: on an 8 MiB stack the array nested 1,000

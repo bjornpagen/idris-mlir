@@ -79,6 +79,26 @@ its attribute dictionary, which the reader moves into properties, so
 nothing in the tree reaches the bug. Its report, reproducer and pull
 request are kept as a submission, with `tests/upstream-bytecode-unregistered-properties`
 checking that the pin still has it.
+Retired when the LLVM pin moved from 7208ba24 to llvm main at 416f328b
+(2026-10-21), with every other dependency fast-forwarded to its latest
+(CMake 4.4.4, simdutf 9.3.2; the rest were already their latest) and the
+toolchain built without assertions in every stage our code compiles
+against or links (D91): `print-local-aliases`
+(`upstream/60-print-local-aliases`, its check and its report: main's
+8bcccd8b6576, #232518, gives the same printing as
+`-mlir-print-always-use-aliases`, which the harness's dumps take); and,
+because nothing in the tree reaches their bugs once the cutover runs no
+`remove-dead-values` (C35) and no upstream `cse` (D98, D100):
+`remove-dead-values-unreachable`, `remove-dead-values-address-taken`,
+`liveness-non-forwarded-terminator`, `liveness-trivially-dead` and
+`cse-statistic-assignment` (`upstream/06`, `01`, `28`, `63` and `23`),
+whose reports stay as submissions with their pull requests as
+`pull-request.diff`. Retired with the deduplicator's port (C10):
+`eliminate-duplicate-functions`, its port replaced by partition
+refinement over upstream's `OperationEquivalence`
+(operation-equivalence-symbol-hook). Never carried: dead-argument
+elimination's always-true `tailcc` test (proposals/0000 C141), fixed on
+main by 3d88cd257637 (#233919) before the pin.
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
 not LTO on any target: its libraries are native code that every build of
 our tools links as it is, a rebuild through the compiler cache relinks
@@ -89,33 +109,15 @@ build is full LTO.
 
 The LLVM pin is a commit of llvm main, not a release: the patch we carry
 for a bug we send upstream is then its pull request, one diff, not two.
-It moves when a patch of ours lands upstream, or about monthly otherwise.
-Each bump is one commit: the lock, the toolchain rebuilt from it by the one
-recipe (`tools/bootstrap.sh`) on every target, the full suites green on
-each, and this file's sweep.
+Every dependency is fast-forwarded to its latest about weekly (the LLVM
+umbrella projects, modular and Idris 2 at main, the rest at their latest
+release), and when a patch of ours lands upstream. Each bump is one
+commit: the lock, the gitlinks, the carried patches rebased or dropped,
+the toolchain rebuilt from it by the one recipe (`tools/bootstrap.sh`) on
+every target, the full suites green on each, and this file's sweep.
 
 The accepted toolchain release series live only in `toolchain.lock.json`,
 which the top-level CMake configure gate reads.
-
-## liveness-non-forwarded-terminator
-
-- symptom: on main at 7208ba24, liveness never revisits a region
-  terminator whose operands are all non-forwarded, so they keep the
-  liveness its parent's results had when it was first visited;
-  `remove-dead-values` then erases the ops that define them and leaves
-  ub.poison. `idr.array.yield` is such a terminator (each element is stored
-  at its index): an array tabulated in a private function and read only
-  through a call had every element poisoned, a silent miscompile
-- sites: foreign/idr/lib/Transforms/Pipeline.cpp (remove-dead-values runs
-  before idr-structure-loops); the idr ops whose regions end in
-  idr.array.yield (idr.tabulate, idr.fold_last, idr.scan_last)
-- workaround: `upstream/28-liveness-non-forwarded-terminator/llvm.patch`:
-  `visitBranchOperand` reads the parent's results with a dependency on the
-  operand's owner; checked by tests/upstream-liveness-non-forwarded-terminator
-- retire: drop the patch when the pin has the fix
-- upstream: upstream/28-liveness-non-forwarded-terminator; plan in its
-  README: an issue and a PR with a test-dialect test
-- status (2026-10-18): carried; not filed
 
 ## dead-code-nested-symbol-use
 
@@ -127,15 +129,17 @@ which the top-level CMake configure gate reads.
   ub.poison. Every idr program is a symbol table nested in the module, and
   a label reached only through an idr.closure returned poison, a silent
   miscompile
-- sites: foreign/idr/lib/Transforms/Pipeline.cpp (remove-dead-values on the
-  program); every analysis on MLIR's solver that loads DeadCodeAnalysis
+- sites: every analysis on MLIR's solver that loads DeadCodeAnalysis
+  (idr-constants, narrowing's copy analysis, Ranges and Borrows, per
+  function); remove-dead-values, if the qualification's trial brings it
+  back (C35)
 - workaround: `upstream/29-dead-code-nested-symbol-use/llvm.patch`: the use
   is resolved in the table being walked; checked by
   tests/upstream-dead-code-nested-symbol-use
 - retire: drop the patch when the pin has the fix
 - upstream: upstream/29-dead-code-nested-symbol-use; plan in its README: an
   issue and a PR with a remove-dead-values test
-- status (2026-10-19): carried; not filed
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## aarch64-sibcall-callee-pop
 
@@ -156,7 +160,7 @@ which the top-level CMake configure gate reads.
 - retire: drop the patch when the pin has the fix
 - upstream: upstream/30-aarch64-sibcall-callee-pop; plan in its README: an
   issue and a PR with an llc test
-- status (2026-10-19): carried; not filed
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## greedy-multi-region-ancestors
 
@@ -167,56 +171,21 @@ which the top-level CMake configure gate reads.
   idr.match_lit) read all of them, so an op of n regions costs n visits of
   size n: canonicalize in idr-optimize took 30, 120, 223 s at n = 1k, 2k, 4k
   on defunc-tag-limit's program through the whole pipeline
-- sites: every greedy rewrite of ours (canonicalize in idr-optimize's and
-  the pipeline's cleans, foreign/idr/lib/Transforms/Optimize,
-  foreign/idr/lib/Transforms/Pipeline.cpp); IR/Canon's patterns on matches
+- sites: the greedy driver inside the upstream passes the pipeline runs
+  over a module that still holds multi-region ops (`convert-linalg-to-loops`,
+  `convert-vector-to-scf`, `expand-strided-metadata`,
+  `convert-vector-to-llvm`'s pre-lowering, D99), whose every visit of such
+  an op asks whether it is dead across all its regions; our own greedy
+  rewrites are gone (D98)
 - workaround: `upstream/62-greedy-multi-region-ancestors/llvm.patch`: an
   ancestor with several regions is revisited once the worklist is empty;
   checked by tests/upstream-greedy-multi-region-ancestors
 - retire: drop the patch when the pin has the change
 - upstream: upstream/62-greedy-multi-region-ancestors; plan in its README:
   one PR
-- status (2026-10-19): tested on a private build of the pinned source
-  (check-mlir 4101 passed, 0 failed); not yet built into the toolchain; not
+- status (2026-10-21): tested on a private build of the earlier pin,
+  7208ba24 (check-mlir 4101 passed, 0 failed); applies at 416f328b; not
   filed
-
-## liveness-trivially-dead
-
-- symptom: on main at 7208ba24, liveness asks wouldOpBeTriviallyDead of a
-  region branch op once per region successor, each answer a walk of every
-  region: remove-dead-values took 10.9, 30.9, 87 s at n = 1k, 2k, 4k on
-  defunc-tag-limit's program through the whole pipeline
-- sites: remove-dead-values in the pipeline
-  (foreign/idr/lib/Transforms/Pipeline.cpp)
-- workaround: `upstream/63-liveness-trivially-dead/llvm.patch`: the answer
-  kept per op for the analysis; checked by
-  tests/upstream-liveness-trivially-dead
-- retire: drop the patch when the pin has the change
-- upstream: upstream/63-liveness-trivially-dead; plan in its README: one
-  NFC PR
-- status (2026-10-19): tested on a private build of the pinned source
-  (check-mlir 4101 passed, 0 failed); not yet built into the toolchain; not
-  filed
-
-## print-local-aliases
-
-- symptom: on main at 7208ba24, an operation printed nested in another, or
-  with local scope, writes every attribute and type inline at each use:
-  only a top-level print at module scope prints aliases. The IR printer
-  prints every nested operation so, and our data types print their bodies,
-  which hold other data types, so each dump unfolds the type DAG at every
-  use: directory-listing's dumps are 1.9 GB and its compile under the
-  harness crosses the 60 s step
-- sites: harness/lib/mlir.sh (dump_options: every program the harness
-  compiles prints its IR after every pass)
-- workaround: `upstream/60-print-local-aliases/llvm.patch`: the option
-  `-mlir-print-local-aliases`, under which such a print writes its
-  aliases first; checked by tests/upstream-print-local-aliases.
-  dump_options takes it once the toolchain carries the patch
-- retire: drop the patch when the pin has the option
-- upstream: upstream/60-print-local-aliases; plan in its README: one PR
-- status (2026-10-19): written and tested on a patched AsmPrinter linked
-  into idris-mlir; not yet built into the toolchain; not filed
 
 ## sqrt-negative-fold
 
@@ -225,14 +194,14 @@ which the top-level CMake configure gate reads.
   a negative constant stays a `math.sqrt` that a run computes: the
   fuzzer's static form of a program, whose every line must fold, fails on
   it (tests/fuzz-seeds)
-- sites: the folders of idr-optimize, which fold math ops by their own
-  folder
+- sites: the e-graph pass, which reads every op's fold (D98), and
+  `createOrFold` in the conversions
 - workaround: `upstream/61-sqrt-negative-fold/llvm.patch`: a quiet NaN for
   a negative non-zero operand, -0 for -0; checked by
   tests/upstream-sqrt-negative-fold
 - retire: drop the patch when the pin folds it
 - upstream: upstream/61-sqrt-negative-fold; plan in its README: one PR
-- status (2026-10-19): carried; not filed
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## cse-nested-linalg-index
 
@@ -243,16 +212,17 @@ which the top-level CMake configure gate reads.
   are not isolated from above. An array tabulated in a tabulate's body read
   its row index for its column index after the cse that follows
   idr-bufferize, a silent miscompile (tests/linarray-rows-crash-order)
-- sites: foreign/idr/lib/Transforms/StructureLoops (a tabulate in a
-  tabulate's body is a linalg.generic in another's body);
-  foreign/idr/lib/Transforms/Pipeline.cpp (cse after idr-bufferize)
+- sites: a tabulate in a tabulate's body, a linalg.generic in another's
+  body; the e-graph pass, which takes cse's place and must key an op with
+  `DependsOnParent` by its parent as cse's key does (D98; L14's seam).
+  Upstream's cse itself runs nowhere now (D98, D100)
 - workaround: `upstream/56-cse-nested-linalg-index/llvm.patch`: the trait
   `DependsOnParent` on `linalg.index`, and cse's key for such an op holds
   its parent; checked by tests/upstream-cse-nested-linalg-index
 - retire: drop the patch when the pin has the fix
 - upstream: upstream/56-cse-nested-linalg-index; plan in its README: a PR
   that fixes issue #62644, perhaps after an RFC for the trait
-- status (2026-10-19): carried; not filed
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## linalg-index-int-range
 
@@ -274,58 +244,7 @@ which the top-level CMake configure gate reads.
   pin has the fix (in ODS, the registration goes with it)
 - upstream: upstream/57-linalg-index-int-range; plan in its README: a PR
   with a Linalg int-range test
-- status (2026-10-19): carried; not filed
-
-## remove-dead-values-unreachable
-
-- symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`
-  finds a function or a block unreachable (dead-code analysis never visits
-  it: a private function nothing live calls, or a match region a constant
-  rules out), marks every value there dead and erases the function's
-  arguments, but keeps the ops that still use them, and then crashes on
-  the null operand (`mlir/lib/Transforms/RemoveDeadValues.cpp:661` on main,
-  the region-branch canonicalization at `:862`, `Matchers.h:491`). It drops
-  the uses of a dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Transforms/Pipeline.cpp (the pipeline runs
-  `remove-dead-values{canonicalize=false}` once, after idr-optimize); the
-  patch itself has no other site
-- workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, the
-  pull request: every value the pass erases (function argument, block
-  argument, result, result of an erased op) gives its remaining uses a
-  ub.poison at its definition, through one helper, `replaceUsesWithPoison`;
-  the pass drops no use. Nothing of ours empties the code
-  the analyses prove unreachable: the match canonicalization asks which
-  regions a match can take (the one its constant scrutinee selects), so it
-  cuts the code after a match whose other regions never complete without
-  an emptied region (foreign/idr/lib/IR/Canon/MatchPatterns.cpp,
-  `EndAfterNoYield`)
-- retire: drop the patch when the pin has our pull request (or #208881
-  together with a fix for block arguments and results)
-- upstream: upstream/06-remove-dead-values-unreachable (function arguments
-  reported by others, #206920, #203226, open PR #208881); plan in its
-  README: a new issue and a pull request against main for all four sites
-- status (2026-10-15): #208881 merged on main 2026-10-12 (0edf6243); the
-  PR is to be rebased onto main for the block-argument, result and
-  erased-op cases. Retire when the pin is past 0edf6243 and has the
-  rebased PR.
-
-## cse-statistic-assignment
-
-- symptom: on main at 7208ba24, `CSE::runOnOperation`
-  (`mlir/lib/Transforms/CSE.cpp:46-47`) assigns each run's counts to its
-  `num-cse'd`/`num-dce'd` statistics instead of accumulating them, so a
-  nested CSE's reported total is the last function's count of each
-  clone: `tests/determinism-threads-*` compare one module's statistics
-  under one thread and under many and fail (234 under many, 0 under one,
-  on rbtree), the module itself identical
-- sites: none in our code; the patch. CSE runs nested in idr-optimize's
-  per-function pipeline (foreign/idr/lib/Transforms/Optimize) and in the
-  pipeline's cleans (foreign/idr/lib/Transforms/Pipeline.cpp)
-- workaround: `upstream/23-cse-statistic-assignment/llvm.patch`: CSE
-  accumulates, with a test of the total under one thread and many
-- retire: drop the patch when the pin has the fix
-- upstream: upstream/23-cse-statistic-assignment (not filed); plan in
-  its README: one pull request, no issue
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## elaboration-primitive-folding
 
@@ -531,28 +450,6 @@ which the top-level CMake configure gate reads.
   tests/upstream-literal-partial-fold and this entry go
 - upstream: nothing is sent (upstream/README.md, **Idris**)
 
-## remove-dead-values-address-taken
-
-- symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`
-  leaves alone the parameters of a function that is named other than as a
-  callee (by an `idr.closure` or a closure constant, or because it is
-  public), but still finds a value that a direct call passes to one of
-  those parameters dead when the function never reads it: it erases the
-  value (a parameter of the caller, or the op that made it) and the call
-  keeps a null operand ("null operand found"). Arity raising and apply of
-  a known closure make such direct calls
-- sites: none in our code; the patch
-- workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, which
-  gives such an operand `ub.poison` (this bug has no patch of its own)
-- retire: drop the patch when the pin has #208881 or our
-  remove-dead-values-unreachable pull request (neither on main at 7208ba24)
-- upstream: upstream/01-remove-dead-values-address-taken; its test was
-  posted as a comment on #208881 on 2026-10-08
-  (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698);
-  a test-only pull request follows if #208881 lands without it
-- status (2026-10-15): retire when the pin is past 0edf6243, which fixed
-  01's test as #208881 stood on 2026-10-08; the test-only PR is due.
-
 ## inline-unreachable
 
 - symptom: the upstream inliner aborts on a single-block callee whose
@@ -577,7 +474,7 @@ which the top-level CMake configure gate reads.
   end of its block, and the inliner pass leaves a call of such a callee in
   a region that must stay one block
 - retire: drop the patch when the pin has the merged fix (not on main at
-  7208ba24)
+  416f328b)
 - upstream: upstream/07-inline-unreachable-terminator (not yet filed);
   plan in its README: an issue and a pull request, #206083 named as a
   separate case
@@ -593,20 +490,21 @@ which the top-level CMake configure gate reads.
   foreign/idr/tools/idris-mlir-opt.cpp, foreign/idr/tools/idris-mlir-reduce.cpp
   (each through `runTool`); runtime/Start/Runner.cpp (`idris_rt_run_on_stack`)
 - workaround: idris-mlir runs the whole compilation, and idris-mlir-opt and
-  idris-mlir-reduce their runs, on the runtime's reserved-stack runner: 2^40
-  bytes of address space,
-  committed as touched, above a guard, so the depth is bounded by memory
-  (2^40 bytes is more than a compiling machine has; reserving costs time
-  in proportion to the size, at start and exit). Running out of it is a
-  named error
-- retire: when MLIR parses, prints and walks nested attributes from a
-  worklist; `tests/upstream-recursive-attribute-parser` fails then. There is
-  no patch: the fix is a design change across the parser, the printer and
-  the sub-element walks (its README says why), so this code stays until
-  upstream has it
-- upstream: upstream/10-recursive-attribute-parser (not yet filed; still
-  reproduces on main at 7208ba24, run on arm64 macOS); plan in its README:
-  an RFC on Discourse first
+  idris-mlir-reduce their runs, on the runtime's reserved-stack runner: 2^36
+  bytes (64 GiB) of address space, committed as touched, above a guard
+  (`runtime/Start/Runner.cpp`). Running out of it is a named error. The
+  families of MLIR's recursion on input size are patched upstream one by
+  one (C99): dead-code initialization (92) and call graph construction
+  (93) are carried; the attribute parser (10) and the rest are listed in
+  their reports for the stage-1 stack painting to decide
+- retire: the reservation shrinks to D33's measured bound in the change that
+  lands the last upstream recursion patch (C43), not before; the families
+  left are the parser, the printer, attributes' walks, the walker and
+  replacer, the bytecode writer, clone, destruction, region DCE and slices
+- upstream: upstream/10-recursive-attribute-parser (not yet filed;
+  reproduced on main at 7208ba24, arm64 macOS; the parser is unchanged at
+  416f328b); plan in its README: an RFC on Discourse first for the family
+  set, then one pull request per family
 
 ## bytecode-deferred-quadratic
 
@@ -627,7 +525,7 @@ which the top-level CMake configure gate reads.
   in linear time and rejects cycles (the patch's two tests pass unpatched)
 - upstream: upstream/03-bytecode-deferred-quadratic (not yet filed); plan in
   its README: an issue and a pull request against main, where the reader
-  is unchanged
+  is unchanged (it applies at 416f328b)
 
 ## vectorize-precondition-body
 
@@ -655,9 +553,8 @@ which the top-level CMake configure gate reads.
   `vectorize` fails before it creates any IR
 - retire: drop the patch when the pin's precondition refuses such a body
   (the pull request landing on main)
-- upstream: upstream/04-vectorize-precondition-body (not yet filed; still
-  broken on main at 7208ba24); plan in its README: an issue and a pull
-  request
+- upstream: upstream/04-vectorize-precondition-body (not yet filed; applies
+  at 416f328b); plan in its README: an issue and a pull request
 
 ## int-range-narrowing-exactness
 
@@ -669,24 +566,19 @@ which the top-level CMake configure gate reads.
   that can see INT_MIN % -1 of the narrow type (undefined behaviour once
   `llvm.srem`, where the wide op gives 0), and a `remui` of a word that may
   be negative, which the narrow op reads as another number. Main's
-  44a4dbf32 (#218495) fixed the shift. Main at 7208ba24 still has neither
-  remainder check: nothing stops a `remsi` whose dividend can be the narrow
-  minimum while its divisor can be -1, and the ops that read their
-  operands unsigned keep `CastKind::Both`
-  (`mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp:396-402`
-  there)
+  44a4dbf32 (#218495) fixed the shift, and 28db2071a69c (#233323) the
+  unsigned ops. Main at 416f328b still lets a `remsi` narrow whose dividend
+  can be the narrow minimum while its divisor can be -1
 - sites: none in our code; the patch. idr-narrow-lanes versions a
   vectorized loop when its wide integer ops fit 32 bits, and the narrowing
   of its copy leaves wide an op whose 32-bit form would compute something
   else (tests/linarray-lanes-exact)
 - workaround: `upstream/09-int-range-narrowing-exactness/llvm.patch`, the
-  remainders alone: `remsi` does not narrow when the dividend's range holds
-  the narrow signed minimum and the divisor's holds -1, and the unsigned
-  ops get `CastKind::Unsigned`
-- retire: drop the patch when the pin's narrowing handles the remainders
-- upstream: upstream/09-int-range-narrowing-exactness (remainders not yet
-  filed; both still broken on main at 7208ba24); plan in its README: an
-  issue and a pull request
+  `remsi` half alone: it does not narrow when the dividend's range holds
+  the narrow signed minimum and the divisor's holds -1
+- retire: drop the patch when the pin's narrowing handles `remsi`
+- upstream: upstream/09-int-range-narrowing-exactness (the `remsi` half
+  not yet filed); plan in its README: an issue and a pull request
 
 ## forward-dataflow-callee-lookup
 
@@ -707,15 +599,15 @@ which the top-level CMake configure gate reads.
   from a symbol table (`tests/upstream-forward-dataflow-callee-lookup`
   then shows it with the pristine tools)
 - upstream: upstream/05-forward-dataflow-callee-lookup (not yet filed; still
-  present on main at 7208ba24); plan in its README: a pull request
+  present on main at 416f328b); plan in its README: a pull request
 
 ## pass-timing-dynamic-pipeline
 
-- symptom: on main at 7208ba24, MLIR's pass timing nests a pipeline that a
+- symptom: on main at 416f328b, MLIR's pass timing nests a pipeline that a
   pass runs through `Pass::runPipeline` under the root of the report, not
   under the pass: `PassTiming::runBeforePipeline` looks for its parent in
-  `parentTimerIndices`, where `runBeforePass` records adaptors alone
-  (`mlir/lib/Pass/PassTiming.cpp:63-67`, `:93-94`). The pipeline's time is
+  `parentScopes`, where `runBeforePass` records adaptors alone (main's
+  #232948 rewrote the file for thread safety and kept that). The pipeline's time is
   counted twice, and two pipelines on one op name, one run inside the
   other, share one timer. idr-optimize (its per-function pipeline), idr-rc,
   idr-narrow, idr-returned-arguments and idr-tail-calls run pipelines so:
@@ -725,8 +617,9 @@ which the top-level CMake configure gate reads.
 - sites: none in our code; the patch. idris-mlir runs one pass manager
   (foreign/idr/lib/Driver/Run.cpp), whose timing is the report
 - workaround: `upstream/19-pass-timing-dynamic-pipeline/llvm.patch`:
-  #169615's change, under which every pass records its timer for the
-  pipelines it runs, and a test of ours that fails without it
+  #169615's change as the rewritten file spells it, under which every
+  pass records its scope for the pipelines it runs, and a test of ours
+  that fails without it
 - retire: drop the patch when the pin has #169615 (or another fix the
   patch's test passes with)
 - upstream: upstream/19-pass-timing-dynamic-pipeline (#169443; open pull
@@ -780,39 +673,319 @@ which the top-level CMake configure gate reads.
   patch goes when all have (`tests/upstream-one-shot-module-function-interface`
   then passes with the pristine tools); the models stay upstream's templates
 - upstream: upstream/24-one-shot-module-function-interface (not filed; not
-  built; upstream main is the pin's at 2026-10-14); plan in its README:
-  four pull requests, the reland of #110322 first, cycles second
+  built; applies at 416f328b); plan in its README: four pull requests, the
+  reland of #110322 first, cycles second
 
-## eliminate-duplicate-functions
+## early-exits
 
-- symptom: upstream's `duplicate-function-elimination` works on
-  `func::FuncOp` alone and merges in one round, so callers that differ
-  only in which copy they call stay apart
-  (`mlir/lib/Dialect/Func/Transforms/DuplicateFunctionElimination.cpp:23-48`)
-- sites: foreign/idr/lib/Transforms/Deduplicate/EliminateDuplicateFunctions.cpp,
-  a port; foreign/idr/lib/Transforms/Deduplicate/Equivalence.cpp, ours, its
-  comparison
-- workaround: the port of Modular's
-  `Mojo/lib/Transforms/EliminateDuplicateFunctions.cpp`, taken at revision
-  `9211931` (`third_party/modular`, a reference submodule: shallow, `update = none`, so a plain checkout does not fetch it; `git submodule update --init third_party/modular` does), Apache-2.0 WITH LLVM-exception, its
-  header kept. What changed: it runs on idr.func; KGEN's call graph
-  (Mojo's `CallGraphUtils.h`) is a graph of every symbol reference, and
-  AsyncRT's dependency chains are waves by height over the graph's
-  components (`llvm::scc_iterator`, as Modular's), renamed and hashed in
-  parallel on MLIR's thread pool, classes formed serially in module
-  order; its comparison is ours (the facts but the name and `instance`,
-  the body op for op, locations aside, a function that refers to itself
-  matched with one that does too); a function is merged only when every
-  use of it may be renamed, every use is renamed and the copies are
-  erased; the kept function takes every member's location. The
-  lexicographically smallest member kept and the external node that
-  reaches every function are Modular's
-- retire: when the pin carries upstream's `duplicate-function-elimination`
-  generalized to `FunctionOpInterface`, merging transitively in one pass,
-  with a hook for the facts that must match: then the port goes and the
-  pass runs upstream's. Re-read against Modular when the submodule moves
-- upstream: the generalization is planned (the pipeline cutover's proposal
-  at 484d6403, §7 item 1), not written
+- symptom: on llvm main at 416f328b, a region terminator hands control to
+  its immediate parent op alone: a jump from a match case to a join point
+  two levels up, or a loop's back edge nested in a match, has no form but
+  a flag yielded outward or blocks, which drop the scopes counting reads
+- sites: the join points of the control-flow lane (`idr.join` and
+  `idr.loop` define a builtin `token` per target; `idr.jump` exits to it
+  across `idr.match` and `idr.match_lit`, which carry
+  `PropagateControlFlowBreak`); every upstream analysis that reads the
+  edge (dead code, SCCP, the sparse and dense analyses, post-dominance,
+  the inliner's refusal of an escaping region); the lowering through
+  `scf.if` and `scf.index_switch`
+- workaround: `upstream/65-early-exits/llvm.patch`, llvm/llvm-project
+  #166688 (head 968e49b1) rebased by hand onto the pin, five hunks placed
+  where the pin's text moved; its own gaps are 66 to 71 below; checked by
+  tests/upstream-early-exits
+- retire: when the pin passes the merge of #166688; if upstream merges
+  another form, ours moves to it only when it keeps every fact this one
+  keeps (D82), and a rejection of the pull request is a new ruling
+- upstream: upstream/65-early-exits; the pull request itself
+- status (2026-10-21): carried; #166688 open, no approving review
+
+## early-exit-propagation-helpers
+
+- symptom: with early exits carried, the helpers that answer a
+  propagating op's `getSuccessorRegions` for an exit through it
+  (`terminatorPropagatesThrough`, `appendPropagatedTerminatorSuccessors`)
+  are `static` in SCF.cpp, so every dialect writes its own copy
+- sites: the generated `getSuccessorRegions` of `idr.match`,
+  `idr.match_lit`, `idr.join` and `idr.loop`; `scf.index_switch` (71)
+- workaround: `upstream/66-early-exit-propagation-helpers/llvm.patch`: the
+  two exported from ControlFlowInterfaces, unchanged; checked by
+  tests/upstream-early-exit-propagation-helpers
+- retire: with early-exits, or when #166688 exports them
+- upstream: upstream/66-early-exit-propagation-helpers; a review comment
+  on #166688
+- status (2026-10-21): carried; not posted
+
+## early-exit-dead-match
+
+- symptom: with early exits carried, a resultless op whose regions all
+  exit to an enclosing target is found trivially dead when the exit
+  declares its (empty) effects, and is erased: the code after it runs in
+  place of the exit, a miscompile
+- sites: `idr.match` under `idr.join` whose cases all `idr.jump`; every
+  erasure of dead ops (the e-graph pass's cleanup, dead-code elimination)
+- workaround: `upstream/67-early-exit-dead-match/llvm.patch`:
+  `wouldOpBeTriviallyDead` keeps a root an exit leaves; checked by
+  tests/upstream-early-exit-dead-match
+- retire: with early-exits, or when #166688 covers it
+- upstream: upstream/67-early-exit-dead-match; a review comment on
+  #166688
+- status (2026-10-21): carried; not posted
+
+## early-exit-region-inliner
+
+- symptom: with early exits carried, `InlineRegionBranchOp` follows a
+  region's exit into its target, which it does not own, changes the IR,
+  then fails (an assertion in a build with assertions)
+- sites: a known `idr.match` case ending in `idr.jump`; `scf.if` with a
+  constant condition around an exit
+- workaround: `upstream/68-early-exit-region-inliner/llvm.patch`: the path
+  stops at a successor the op does not own; checked by
+  tests/upstream-early-exit-region-inliner
+- retire: with early-exits, or when #166688 covers it
+- upstream: upstream/68-early-exit-region-inliner; a review comment on
+  #166688
+- status (2026-10-21): carried; not posted
+
+## early-exit-successor-inputs
+
+- symptom: with early exits carried, `RemoveDeadRegionBranchOpSuccessorInputs`
+  and `RemoveDuplicateSuccessorInputUses` edit the inputs of an exit's
+  target from an op that holds only some of the exits to it: the target's
+  other exits keep their operands (refused by the verifier), or two of its
+  inputs are merged on a partial view
+- sites: a dead or duplicate join-point parameter seen from a match that
+  holds only some of the jumps to it
+- workaround: `upstream/69-early-exit-successor-inputs/llvm.patch`: both
+  skip an input the op does not own; checked by
+  tests/upstream-early-exit-successor-inputs
+- retire: with early-exits, or when #166688 covers them
+- upstream: upstream/69-early-exit-successor-inputs; a review comment on
+  #166688
+- status (2026-10-21): carried; not posted
+
+## early-exit-region-graph
+
+- symptom: with early exits carried, `traverseRegionGraph` indexes its op's
+  `visited` by another op's region numbers (out of bounds past the op's
+  region count) and misses an exit nested below a region's terminator (a
+  loop whose back edge sits in a match reads not repetitive)
+- sites: the linearity verifier's `isRepetitiveRegion` on matches;
+  bufferization's repetitive-region queries for arrays in loops
+- workaround: `upstream/70-early-exit-region-graph/llvm.patch`: only the
+  op's regions are nodes, and nested exits landing on it are edges;
+  checked by tests/upstream-early-exit-region-graph
+- retire: with early-exits, or when #166688 covers it
+- upstream: upstream/70-early-exit-region-graph; a review comment on
+  #166688
+- status (2026-10-21): carried; not posted
+
+## early-exit-index-switch
+
+- symptom: with early exits carried, only `scf.if` carries exits:
+  `scf.index_switch`, which `idr.match` lowers to, requires `scf.yield`,
+  answers "the op" for every terminator and casts its terminators in its
+  lowering; neither op accepts a terminator that never returns, so a case
+  that only crashes needs a yield of poison values
+- sites: the lowering of `idr.match` to `scf.index_switch`, nested jumps
+  lowered by upstream's `convert-scf-to-cf`; a crash case ending in
+  `ub.unreachable` or a crash terminator of ours
+- workaround: `upstream/71-early-exit-index-switch/llvm.patch`: the
+  switch propagates exits as `scf.if` does, and both accept any
+  terminator that never returns (`scf::op_impl::isNoReturnTerminator`);
+  checked by tests/upstream-early-exit-index-switch
+- retire: with early-exits, or when #166688 covers it
+- upstream: upstream/71-early-exit-index-switch; a review comment on
+  #166688
+- status (2026-10-21): carried; not posted
+
+## scc-iterator-node-numbers
+
+- symptom: on llvm main at 416f328b, `scc_iterator` hashes every node of a
+  graph into a `DenseMap` for its visit numbers, where `po_iterator`
+  indexes a vector by `GraphTraits::getNumber`
+- sites: the solver layer's components (the program graph over
+  `mlir::CallGraph`, 73); the inliner's component walk
+- workaround: `upstream/72-scc-iterator-node-numbers/llvm.patch`: visit
+  numbers by node number when the graph numbers its nodes; checked by
+  tests/upstream-scc-iterator-node-numbers
+- retire: when the pin's `scc_iterator` reads node numbers
+- upstream: upstream/72-scc-iterator-node-numbers; one pull request
+- status (2026-10-21): carried; not filed
+
+## call-graph-dense-ids
+
+- symptom: on llvm main at 416f328b, `mlir::CallGraph` names its nodes by
+  pointer and keeps no components, so a client keeps per-node state in a
+  pointer-keyed map and runs `scc_iterator` itself
+- sites: the solver layer's program graph (L14), which reads
+  `CallGraphNode::getIndex()` and `CallGraph::getSCCs()` and keeps what
+  upstream cannot hold (tail kinds, sites, the editor); upstream's inliner
+- workaround: `upstream/73-call-graph-dense-ids/llvm.patch`: dense ids
+  minted by the graph, stable for its life, and its bottom-up components
+  as ranges of one kept permutation; checked by
+  tests/upstream-call-graph-dense-ids
+- retire: when the pin's `CallGraph` holds dense ids and kept components
+  in a form that keeps every fact this one gives
+- upstream: upstream/73-call-graph-dense-ids; an RFC on Discourse, then
+  the pull request with 72
+- status (2026-10-21): carried; not filed
+
+## pass-adaptor-preserved-analyses
+
+- symptom: on llvm main at 416f328b, `OpToOpPassAdaptor` preserves no
+  analysis, so every group of nested passes invalidates every analysis of
+  its parent, though each nested pass declared what it kept
+- sites: the nested `idr.func` groups of the pipeline, after which the
+  program graph and the solver layer's cached analyses survive
+- workaround: `upstream/74-pass-adaptor-preserved-analyses/llvm.patch`:
+  the adaptor preserves the intersection of what its nested passes
+  preserved, as LLVM's pass manager does; checked by
+  tests/upstream-pass-adaptor-preserved-analyses
+- retire: when the pin's adaptor preserves the intersection
+- upstream: upstream/74-pass-adaptor-preserved-analyses; one pull request
+- status (2026-10-21): carried; not filed
+
+## thread-pool-stack-size
+
+- symptom: on llvm main at 416f328b, `StdThreadPool` starts its workers
+  with `llvm::thread`'s default stack size (8 MiB on Darwin, the system's
+  elsewhere), which no strategy changes
+- sites: the compiler's driver, which builds MLIR's thread pool with every
+  thread on one stack size, D33's measured bound with a margin, sized in
+  one platform place (C43)
+- workaround: `upstream/75-thread-pool-stack-size/llvm.patch`:
+  `ThreadPoolStrategy::StackSizeInBytes`; checked by
+  tests/upstream-thread-pool-stack-size
+- retire: when the pin's pool takes a stack size
+- upstream: upstream/75-thread-pool-stack-size; one pull request
+- status (2026-10-21): carried; not filed
+
+## pass-base-derived-class
+
+- symptom: on llvm main at 416f328b, a pass's `baseClass` is spliced into
+  the generated template over `DerivedT`, so a CRTP base class works, but
+  nothing documents it
+- sites: `StagedPass`, CRTP over the derived pass, which deletes the last
+  virtual of ours (C120)
+- workaround: `upstream/76-pass-base-derived-class/llvm.patch`,
+  documentation only; checked by tests/upstream-pass-base-derived-class
+- retire: when the pin documents it
+- upstream: upstream/76-pass-base-derived-class; one NFC pull request
+- status (2026-10-21): carried; not filed
+
+## dataflow-state-storage
+
+- symptom: on llvm main at 416f328b, `DataFlowSolver` keeps behind every
+  anchor a `DenseMap` and in every state with a dependent a `SetVector`
+  with no inline size, two 64-bucket hash tables from the first entry:
+  about 2.9 KB for one bit of liveness (measured, arm64 macOS)
+- sites: the per-function solves on upstream's framework: idr-constants,
+  narrowing's copy analysis, Ranges and Borrows, measured on it before any
+  leaves it (C32, S3)
+- workaround: `upstream/77-dataflow-state-storage/llvm.patch`: small maps
+  and sets inline, the solver's uniquer single-threaded; about fifteenfold
+  less per state; checked by tests/upstream-dataflow-state-storage
+- retire: when the pin's solver keeps small states inline
+- upstream: upstream/77-dataflow-state-storage; one pull request with
+  massif numbers
+- status (2026-10-21): carried; not filed; the qualification records its
+  bytes per anchor on all four targets
+
+## func-to-llvm-expanded-arg-attrs
+
+- symptom: on llvm main at 416f328b, FuncToLLVM drops every attribute of an
+  argument that expands into several, a memref's descriptor among them,
+  under its own TODO: a quantity-1 buffer's `llvm.noalias` never reaches
+  LLVM
+- sites: the lowering of a function that owns a quantity-1 buffer (L21);
+  D61's argument-memory fact
+- workaround: `upstream/78-func-to-llvm-expanded-arg-attrs/llvm.patch`:
+  pointer attributes on the allocated and aligned pointers, alignment and
+  dereferenceable bytes on the aligned one; checked by
+  tests/upstream-func-to-llvm-expanded-arg-attrs, which shows `noalias`
+  surviving. Both pointers address one buffer, so the lowering frees a
+  `noalias` buffer through the aligned pointer, or writes `noalias` only
+  where the function does not free it (its README)
+- retire: when the pin keeps pointer attributes on an expanded memref
+- upstream: upstream/78-func-to-llvm-expanded-arg-attrs; one pull request
+- status (2026-10-21): carried; not filed
+
+## operation-equivalence-symbol-hook
+
+- symptom: on llvm main at 416f328b, `OperationEquivalence` compares and
+  hashes symbol references by identity, so two functions that differ only
+  in which of two equal callees they call are never equivalent
+- sites: the deduplication of functions by partition refinement over
+  upstream's `OperationEquivalence` (L18), which retires the port of
+  Modular's `EliminateDuplicateFunctions` (C10)
+- workaround: `upstream/79-operation-equivalence-symbol-hook/llvm.patch`:
+  an optional `MapSymbolRefFn` through which symbol references are
+  compared and hashed; checked by
+  tests/upstream-operation-equivalence-symbol-hook
+- retire: when the pin's `OperationEquivalence` takes such a hook
+- upstream: upstream/79-operation-equivalence-symbol-hook; one pull
+  request
+- status (2026-10-21): carried; not filed
+
+## dead-code-iterative-initialization
+
+- symptom: on llvm main at 416f328b, `DeadCodeAnalysis::initializeRecursively`
+  recurses once per level of region nesting, so every sparse forward
+  analysis needs a native stack that grows with the IR's depth
+- sites: every solve on upstream's framework, under the tools' one small
+  stack (D33, C43)
+- workaround: `upstream/92-dead-code-iterative-initialization/llvm.patch`:
+  the same pre-order from a worklist; checked by
+  tests/upstream-dead-code-iterative-initialization
+- retire: when the pin initializes it without recursion on depth
+- upstream: upstream/92-dead-code-iterative-initialization; one pull
+  request after the RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## call-graph-iterative-construction
+
+- symptom: on llvm main at 416f328b, `computeCallGraph` recurses once per
+  level of region nesting
+- sites: every build of `mlir::CallGraph` (the program graph, the
+  inliner), under the tools' one small stack (D33, C43)
+- workaround: `upstream/93-call-graph-iterative-construction/llvm.patch`:
+  the same pre-order from a worklist; checked by
+  tests/upstream-call-graph-iterative-construction
+- retire: when the pin builds it without recursion on depth
+- upstream: upstream/93-call-graph-iterative-construction; one pull
+  request after the RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## one-shot-tensor-like-copy
+
+- symptom: on llvm main at 416f328b, One-Shot Bufferize gives an
+  out-of-place operand of a tensor-like type that is not a builtin tensor
+  no copy, so the op writes a buffer read after it, and its allocation
+  reaches `llvm_unreachable`
+- sites: the bufferization of linear arrays, `!idr.lin<T>` tensor-like
+  where `T` is (D43, L12)
+- workaround: `upstream/27-one-shot-tensor-like-copy/llvm.patch`:
+  `BufferizationOptions::tensorAllocationFn` and a copy of every
+  tensor-like out-of-place operand; checked by
+  tests/upstream-one-shot-tensor-like-copy
+- retire: when the pin copies such an operand
+- upstream: upstream/27-one-shot-tensor-like-copy; an issue and a pull
+  request
+- status (2026-10-21): carried; not filed
+
+## tensor-like-per-instance
+
+- symptom: on llvm main at 416f328b, tensor-likeness is a property of a
+  type's class, and `to_tensor`/`to_buffer` require shaped types beside
+  the interface's own check, so no graded tensor can be tensor-like for
+  some payloads alone or bridged
+- sites: `!idr.lin<T>` and every bridge of a graded tensor (D43, L12)
+- workaround: `upstream/64-tensor-like-per-instance/llvm.patch`:
+  `isTensorLike`/`isBufferLike` through `extraClassOf`, and the shape
+  traits gone; checked by tests/upstream-tensor-like-per-instance
+- retire: when the pin decides tensor-likeness per instance
+- upstream: upstream/64-tensor-like-per-instance; one pull request
+- status (2026-10-21): carried; not filed
 
 ## platform-gate
 
@@ -941,16 +1114,81 @@ which the top-level CMake configure gate reads.
   `__asm__ volatile("yield")` in `AAL_arm::pause()`
   (third_party/snmalloc/src/snmalloc/aal/aal_arm.h:53-60), where the runtime
   reaches the processor through intrinsics only; every snmalloc spin loop
-  the runtime meets on arm64 runs it. No configuration macro or AAL the
-  build can select replaces it: aal.h takes aal_arm.h for every Arm target,
-  and `pause()` takes `__yield()` only under MSVC
-- sites: third_party/snmalloc, compiled by runtime/Alloc/Cells.cpp
-- workaround: none; the assembly is carried as snmalloc writes it, since
-  snmalloc is no patch project of tools/patches.sh. The fix, one
-  `#elif __has_builtin(__builtin_arm_yield)` branch that emits the same
-  instruction as an intrinsic, is a submission
+  the runtime meets on arm64 runs it
+- sites: the runtime's snmalloc, compiled by runtime/Alloc/Cells.cpp from
+  the bootstrap's export (snmalloc-export)
+- workaround: `upstream/49-snmalloc-arm-yield-intrinsic/snmalloc.patch`:
+  one `#elif __has_builtin(__builtin_arm_yield)` branch that emits the
+  same instruction as an intrinsic, applied to the export since snmalloc
+  became a patch project (2026-10-21); checked by
+  tests/upstream-snmalloc-arm-yield-intrinsic
 - retire: when the snmalloc pin moves past upstream's change
 - upstream: upstream/49-snmalloc-arm-yield-intrinsic (not filed)
+
+## snmalloc-export
+
+- symptom: snmalloc's fixes are patches to its source (94, 95, 49), which
+  the runtime's build cannot apply to the submodule it compiles
+- sites: tools/bootstrap.sh (step `snmalloc`), tools/patches.sh (project
+  `snmalloc`), tools/verify-pins.sh (`sysroot`); the toolchain files,
+  which name the export as `IDRIS_MLIR_SNMALLOC`; runtime/CMakeLists.txt,
+  which compiles snmalloc from it
+- workaround: the bootstrap exports third_party/snmalloc at its gitlink,
+  the lock's revision, with its patches applied in name order, into
+  .toolchain/snmalloc/src, stamped with them; the runtime compiles that
+  copy
+- retire: when snmalloc carries no patch
+- upstream: none
+- status (2026-10-21): new with this bump
+
+## snmalloc-pagemap-sanity-checks
+
+- symptom: at snmalloc 0.7.6, a bounded pagemap tests every in-range lookup
+  and every write against its range, a check of the client paid on every
+  free
+- sites: the runtime's heap (runtime/Alloc), snmalloc's bounded flat map
+  over the heap's one span (C5, C100); its frees are of cells its types
+  prove are heap cells
+- workaround: `upstream/94-snmalloc-pagemap-sanity-checks/snmalloc.patch`:
+  the tests run only under `sanity_checks`; null still reads the default
+  entry; checked by tests/upstream-snmalloc-pagemap-sanity-checks
+- retire: when a pinned snmalloc release gates them
+- upstream: upstream/94-snmalloc-pagemap-sanity-checks; a pull request to
+  microsoft/snmalloc
+- status (2026-10-21): carried; not filed
+
+## snmalloc-notify-using-result
+
+- symptom: at snmalloc 0.7.6, with `pal_enforce_access`, the POSIX and
+  Apple PALs ignore `notify_using`'s `mprotect` result, so a refused commit
+  hands out `PROT_NONE` pages and the program dies by SIGSEGV, unnamed
+- sites: the runtime's heap under a strict host (overcommit mode 2,
+  `ulimit -v`), which must end with status 111 (D35, D37)
+- workaround: `upstream/95-snmalloc-notify-using-result/snmalloc.patch`:
+  `notify_using` and `notify_using_readonly` return false when `mprotect`
+  fails; every caller already handles it; checked by
+  tests/upstream-snmalloc-notify-using-result
+- retire: when a pinned snmalloc release reports the failure
+- upstream: upstream/95-snmalloc-notify-using-result; a pull request to
+  microsoft/snmalloc
+- status (2026-10-21): carried; not filed
+
+## darwin-stack-clash
+
+- symptom: the pinned clang's driver renders `-fstack-clash-protection`
+  for Linux, FreeBSD and Fuchsia alone (`RenderSCPOptions`), so on arm64
+  macOS the flag is an unused argument, an error in a configure check
+  that adds `-Werror`
+- sites: tools/bootstrap.sh, the target section's `stack_clash`, read by
+  GMP's and stage 2's flags (C5, C59)
+- workaround: the Darwin target passes no flag; GMP and the LLVM in our
+  tools are built without stack clash protection on arm64 macOS, where
+  the other three targets have it
+- retire: when the pinned clang protects Darwin's stack (a driver patch to
+  write, with the backend's inline probing checked on Mach-O)
+- upstream: none filed
+- status (2026-10-21): a gap against C59's "every target"
+
 ## mirrored-sources
 
 - symptom: GMP's official host (gmplib.org) is unreachable here; the
@@ -1194,3 +1432,144 @@ which the top-level CMake configure gate reads.
   own total version
 - upstream: nothing is sent (**Idris**)
 
+## search-depth
+
+- symptom: at the pinned Idris, the automatic search stops at
+  `%auto_implicit_depth` (default 50) and a goal it cannot solve within
+  it fails the program: acceptance is a count. The fork inherited it
+- sites: compiler/idris/src/Core/AutoSearch.idr (the embedding check,
+  `SearchGrows`), Core/Core.idr (`Growth`), the depth fields of `ISearch`,
+  `PSearch` and `BySearch`, the pragma's parser, Core/Normalise/Quote.idr
+  (`quoteWithin`, `TooDeep`)
+- workaround: none; the fork carries the change of
+  `upstream/fork-search-depth/pull-request.diff` (a386fe4d): a goal that
+  embeds an earlier goal of its path waits, and at the last chance
+  refuses the program, never caught as a failed branch; the pragma is
+  refused; the depths that remain decide a stored term's form, never
+  acceptance (D53, C66, C127)
+- retire: when a re-sync brings upstream's own removal of the count
+- upstream: nothing is sent (**Idris**)
+
+## ambiguity-depth
+
+- symptom: at the pinned Idris, nested resolution of overloaded names
+  stops at `%ambiguity_depth` (default 3) and only refuses programs
+  (`printLn (1, 2, 3, 4, 5, 6)`). The fork inherited it
+- sites: compiler/idris/src/TTImp/Elab/Ambiguity.idr, TTImp/Elab/Check.idr
+  (`ambigTries`), the pragma's parser and option
+- workaround: none; the fork carries the change of
+  `upstream/fork-ambiguity-depth/pull-request.diff` (a386fe4d): the count
+  and everything serving it go, and the pragma is refused (D55)
+- retire: when a re-sync brings upstream's own removal of the count
+- upstream: nothing is sent (**Idris**)
+
+## posix-paths
+
+- symptom: at the pinned Idris, `Libraries.Utils.Path` reads every path
+  with Windows's grammar and tests the host's operating system at run
+  time (`"/tmp/a:b" </> "Main.idr"` is `/tmp/a/Main.idr`). The fork
+  inherited it
+- sites: compiler/idris/src/Libraries/Utils/Path.idr, its users
+- workaround: none; the fork carries the change of
+  `upstream/fork-posix-paths/pull-request.diff` (a386fe4d): a path is an
+  optional root and the names after it, split at `/` alone; `Volume`,
+  `isWindows` and the separators go (C125)
+- retire: never as a whole: the compiler's targets are all POSIX
+- upstream: nothing is sent (**Idris**)
+
+## no-runtime-tree
+
+- symptom: at the pinned Idris, every definition gets a second, run-time
+  case tree, built with `%transform`s, `%spec` and partial evaluation,
+  that the TTC drops and the frontend never reads. The fork inherited it
+- sites: compiler/idris/src/Core/Case/CaseBuilder.idr,
+  Core/Context/Context.idr (`PMDef`'s `clausePats`), TTImp/ProcessDef.idr;
+  `TTImp.PartialEval` and `Core.Transform`'s use gone
+- workaround: none; the fork carries the change of
+  `upstream/fork-no-runtime-tree/pull-request.diff` (a386fe4d): none is
+  built; a `PMDef` holds the compile-time tree and each clause's patterns
+  (C55)
+- retire: never as a whole; the frontend reads checked TT (AGENTS.md)
+- upstream: nothing is sent (**Idris**)
+
+## ttc-facts
+
+- symptom: at the pinned Idris, the TTC drops a `let`'s, `PLet`'s and
+  `PVTy`'s binder type, why a term is erased, a case tree's scrutinee type
+  and clause indices, and a block's typed parent, which the frontend
+  guessed back (one guess refused valid programs, 17 FB-01)
+- sites: compiler/idris/src/Core/TTC.idr, Core/Binary.idr (`ttcVersion`)
+- workaround: none; the fork carries the change of
+  `upstream/fork-ttc-facts/pull-request.diff` (a386fe4d): the TTC keeps
+  them (D44's F1, C129)
+- retire: when a re-sync brings a TTC that keeps them
+- upstream: nothing is sent (**Idris**)
+
+## block-parent
+
+- symptom: at the pinned Idris, a case or with block's name holds its
+  parent's printed text and the session's machine-name counter (17
+  FB-10). The fork inherited it
+- sites: compiler/idris/src/Core/Name.idr (`CaseBlock`, `WithBlock`),
+  Core/UnifyState.idr (`blockOrdinals`), TTImp/Elab/Case.idr,
+  Core/Reflect.idr
+- workaround: none; the fork carries the change of
+  `upstream/fork-block-parent/pull-request.diff` (a386fe4d): the parent's
+  full name and the block's ordinal among its parent's blocks (C129)
+- retire: when a re-sync brings upstream's own typed parent
+- upstream: nothing is sent (**Idris**)
+
+## param-pos
+
+- symptom: at the pinned Idris, a type's parameters are read off its
+  constructors' types as written, so a constructor whose binders come
+  through a definition has none (17 FB-18). The fork inherited it
+- sites: compiler/idris/src/Core/Context/Data.idr
+- workaround: none; the fork carries the change of
+  `upstream/fork-param-pos/pull-request.diff` (a386fe4d): read off the
+  types in normal form
+- retire: when a re-sync brings upstream's fix
+- upstream: nothing is sent (**Idris**)
+
+## erase-args
+
+- symptom: at the pinned Idris, a definition's erased positions are fixed
+  where its type is declared, too few when the type reaches its binders
+  through a definition declared before and defined after. The fork
+  inherited it
+- sites: compiler/idris/src/TTImp/ProcessDef.idr (`updateErasable`),
+  Algebra/ZeroOneOmega.idr
+- workaround: none; the fork carries the change of
+  `upstream/fork-erase-args/pull-request.diff` (a386fe4d): found again
+  once the clauses are checked against the whole spine; the frontend
+  reads them once (C122)
+- retire: when a re-sync brings upstream's fix
+- upstream: nothing is sent (**Idris**)
+
+## parser-bounds
+
+- symptom: at the pinned Idris, `WithBounds` keeps `isIrrelevant : Bool`
+  beside bounds that are junk when it is set, so the functor and monad
+  identities fail (measured, payoffs.md §1.5). The fork inherited it
+- sites: compiler/idris/src/Libraries/Text/Bounded.idr, the lexers, the
+  parser core and their users
+- workaround: none; the fork carries the change of
+  `upstream/fork-parser-bounds/pull-request.diff` (a386fe4d): a sum,
+  `Irrelevant val | Relevant val bounds`, and `Located` tokens (D101)
+- retire: when a re-sync brings upstream's own sum
+- upstream: nothing is sent (**Idris**)
+
+## dead-options
+
+- symptom: at the pinned Idris, the elaborator carries a never-started
+  search timer, `%search_timeout`, `%foreign_impl`, `--debug-elab-check`,
+  `delayDepth` and the raw TTImp parser, none of which a reader needs. The
+  fork inherited them
+- sites: compiler/idris/src/Core/Options.idr, Idris/Syntax/Pragmas.idr,
+  Idris/CommandLine.idr, Core/Context.idr, TTImp/Elab/Delayed.idr,
+  Idris/Desugar.idr (`collectDefs`)
+- workaround: none; the fork carries the change of
+  `upstream/fork-dead-options/pull-request.diff` (a386fe4d): they go, and
+  the parser refuses a removed pragma where it is written (C128)
+- retire: never as a whole
+- upstream: nothing is sent (**Idris**)
