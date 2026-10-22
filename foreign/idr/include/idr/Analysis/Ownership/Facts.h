@@ -57,18 +57,18 @@ constexpr Unique readClaim(FieldReach reach, Uses uses, Unique claim) {
 // The alternatives of the flow sums that one case takes together, each set
 // named by its list, so an alternative a sum gains is taken by no case
 // until one names it.
-// A point at a whole value, no part of one.
+// A source at a whole value, no part of one.
 template <class T>
-concept WholePoint =
-    OneOf<T, FlowPoint::Taken, FlowPoint::Whole, FlowPoint::Parameter, FlowPoint::Result>;
-// A point that is no use the op takes over whole.
+concept WholeSource =
+    OneOf<T, FlowSource::Taken, FlowSource::Whole, FlowSource::Parameter, FlowSource::Result>;
+// A source that is no use the op takes over whole.
 template <class T>
 concept NotTaken =
-    OneOf<T, FlowPoint::Whole, FlowPoint::Part, FlowPoint::Parameter, FlowPoint::Result>;
+    OneOf<T, FlowSource::Whole, FlowSource::Part, FlowSource::Parameter, FlowSource::Result>;
 // A place at a whole value, no part of one.
 template <class T>
-concept WholePlace = OneOf<T, FlowPoint::Whole, FlowPoint::Parameter, FlowPoint::Result>;
-// A move that is no flow from a point into a place.
+concept WholePlace = OneOf<T, FlowSource::Whole, FlowSource::Parameter, FlowSource::Result>;
+// A move that is no flow from a source into a place.
 template <class T>
 concept NoFlow = OneOf<T, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
                        FlowEdges::Release, FlowEdges::Overwrite, FlowEdges::Constant,
@@ -221,10 +221,10 @@ inline std::optional<FlowAnchor::Field> fieldOf(const FlowAnchor &anchor) {
 // How a part is reached: out of a use the op takes over, or read from a
 // value the op leaves its reference.
 enum class Reach : std::uint8_t { Taken, Read };
-inline Reach reachOf(const FlowPoint::Part &part) {
+inline Reach reachOf(const FlowSource::Part &part) {
   return match(
-      part.of, [](const FlowPoint::Taken &) { return Reach::Taken; },
-      [](const FlowPoint::Whole &) { return Reach::Read; });
+      part.of, [](const FlowSource::Taken &) { return Reach::Taken; },
+      [](const FlowSource::Whole &) { return Reach::Read; });
 }
 
 // Whether `op` is one of upstream's, which reads and makes only the bare
@@ -280,10 +280,10 @@ inline bool readsPart(mlir::OpOperand &use) {
         [&](const FlowEdges::Flow &flow) {
           return match(
               flow.from.at,
-              [&](const FlowPoint::Part &part) {
+              [&](const FlowSource::Part &part) {
                 return reachOf(part) == Reach::Read && flow.from.value() == use.get();
               },
-              [](const WholePoint auto &) { return false; });
+              [](const WholeSource auto &) { return false; });
         },
         [](const NoFlow auto &) { return false; });
   });
@@ -306,7 +306,7 @@ inline bool readOutOfElements(mlir::Value value) {
             return false;
           return match(
               flow.from.at,
-              [](const FlowPoint::Part &part) {
+              [](const FlowSource::Part &part) {
                 return match(
                     part.anchor.place, [](const FlowAnchor::Elements &) { return true; },
                     [](const OneOf<FlowAnchor::Field, FlowAnchor::Forced, FlowAnchor::MemoState,
@@ -314,7 +314,7 @@ inline bool readOutOfElements(mlir::Value value) {
                       return false;
                     });
               },
-              [](const WholePoint auto &) { return false; });
+              [](const WholeSource auto &) { return false; });
         },
         [](const NoFlow auto &) { return false; });
   });

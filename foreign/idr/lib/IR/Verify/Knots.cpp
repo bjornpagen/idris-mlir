@@ -193,9 +193,9 @@ bool copies(const FlowEdges &edges, OpOperand &use) {
         [&](const FlowEdges::Flow &flow) {
           bool read = match(
               flow.from.at,
-              [&](const FlowPoint::Whole &whole) { return whole.value == use.get(); },
-              [](const OneOf<FlowPoint::Taken, FlowPoint::Part, FlowPoint::Parameter,
-                             FlowPoint::Result> auto &) { return false; });
+              [&](const FlowSource::Whole &whole) { return whole.value == use.get(); },
+              [](const OneOf<FlowSource::Taken, FlowSource::Part, FlowSource::Parameter,
+                             FlowSource::Result> auto &) { return false; });
           return read && flow.to.value().has_value();
         },
         [](const ownership::NoFlow auto &) { return false; });

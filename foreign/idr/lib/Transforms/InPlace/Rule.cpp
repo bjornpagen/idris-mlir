@@ -94,12 +94,12 @@ ParametersOf::ParametersOf(FuncOp fn) : values(fn), table(values.size()) {
           [&](const FlowEdges::Flow &flow) {
             match(
                 flow.from.at,
-                [&](const FlowPoint::Part &part) {
+                [&](const FlowSource::Part &part) {
                   std::optional<Value> to = flow.to.value();
                   if (ownership::reachOf(part) == ownership::Reach::Read && to)
                     inherit(*to, *flow.from.value());
                 },
-                [](const ownership::WholePoint auto &) {});
+                [](const ownership::WholeSource auto &) {});
           },
           [](const ownership::NoFlow auto &) {});
   });

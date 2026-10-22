@@ -214,7 +214,7 @@ private:
     match(
         flow.to.at,
         // Into a value whole, which that explains.
-        [&](const FlowPoint::Whole &into) {
+        [&](const FlowSource::Whole &into) {
           explain(into.value);
           readInto(flow.from, into.value);
         },
@@ -227,23 +227,23 @@ private:
           readInto(flow.from, part.of);
         },
         // A parameter or a result: the call's and the return's own reading.
-        [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
+        [](const FlowSource::Parameter &) {}, [](const FlowSource::Result &) {});
   }
 
   // What `from` brings `to`: a use taken over moves its sharing; a value
   // read and not given up is copied, which shares both; a part taken out of
   // a value moves that value's sharing, or a memo label field's; a part
   // read is a view, a reference of its own only when the op takes one.
-  void readInto(const FlowPoint &from, Value to) {
+  void readInto(const FlowSource &from, Value to) {
     match(
-        from.at, [&](const FlowPoint::Taken &taken) { move(taken.use->get(), to); },
-        [&](const FlowPoint::Whole &read) {
+        from.at, [&](const FlowSource::Taken &taken) { move(taken.use->get(), to); },
+        [&](const FlowSource::Whole &read) {
           if (!holdsReferences(read.value.getType()))
             return;
           copied(read.value);
           seed(to);
         },
-        [&](const FlowPoint::Part &part) {
+        [&](const FlowSource::Part &part) {
           Value of = *from.value();
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(of.getType()))
@@ -257,11 +257,11 @@ private:
             seed(to);
           }
         },
-        [&](const FlowPoint::Parameter &) { seed(to); },
-        [&](const FlowPoint::Result &) { seed(to); });
+        [&](const FlowSource::Parameter &) { seed(to); },
+        [&](const FlowSource::Result &) { seed(to); });
   }
 
-  void intoAnchor(const FlowPoint &from, Anchor anchor) {
+  void intoAnchor(const FlowSource &from, Anchor anchor) {
     std::optional<OpOperand *> taken = from.taken();
     Value value = *from.value();
     if (taken && localOf(value) != noLocal)
@@ -273,7 +273,7 @@ private:
   // A capture moved out of a memo label's field holds what the field holds;
   // read without being moved, and used, a second reference to it may be
   // taken there, so the field is shared.
-  void outOfAnchor(const FlowPoint::Part &part, Anchor anchor, Value to) {
+  void outOfAnchor(const FlowSource::Part &part, Anchor anchor, Value to) {
     if (ownership::reachOf(part) == ownership::Reach::Taken) {
       explain(to);
       if (Local at = localOf(to); at != noLocal)

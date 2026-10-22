@@ -126,18 +126,18 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
             return;
           match(
               flow.to.at,
-              [&](const FlowPoint::Whole &into) {
+              [&](const FlowSource::Whole &into) {
                 match(
                     flow.from.at,
-                    [&](const FlowPoint::Taken &taken) {
+                    [&](const FlowSource::Taken &taken) {
                       term(into.value, Term<mlir::Value>{taken.use->get(), Via::Moved,
                                                          FieldReach::Other});
                     },
-                    [&](const FlowPoint::Whole &read) {
+                    [&](const FlowSource::Whole &read) {
                       term(into.value, Term<mlir::Value>{read.value, Via::Copied,
                                                          FieldReach::Other});
                     },
-                    [&](const FlowPoint::Part &part) {
+                    [&](const FlowSource::Part &part) {
                       mlir::Value whole = *flow.from.value();
                       match(
                           part.anchor.place,
@@ -159,21 +159,21 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                                                    usesOf(into.value.getType())});
                           });
                     },
-                    [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
+                    [](const FlowSource::Parameter &) {}, [](const FlowSource::Result &) {});
               },
               [&](const FlowPlace::Part &into) {
                 mlir::Value built = into.of;
                 FieldReach reach = reachAt(into.anchor);
                 match(
                     flow.from.at,
-                    [&](const FlowPoint::Taken &taken) {
+                    [&](const FlowSource::Taken &taken) {
                       term(built, Term<mlir::Value>{taken.use->get(), Via::Built, reach});
                     },
                     [&](const NotTaken auto &) {
                       term(built, Term<mlir::Value>{mlir::Value(), Via::Filled, reach});
                     });
               },
-              [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
+              [](const FlowSource::Parameter &) {}, [](const FlowSource::Result &) {});
         },
         // A part of a value the op builds that it joins to another place,
         // a hole another op writes: what fills it is what the hole's

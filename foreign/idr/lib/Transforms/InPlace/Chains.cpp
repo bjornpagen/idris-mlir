@@ -197,7 +197,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                   return;
                 match(
                     flow.from.at,
-                    [&](const FlowPoint::Taken &taken) {
+                    [&](const FlowSource::Taken &taken) {
                       next.push_back({moved, asks, taken.use});
                     },
                     // Read and left its reference, or a part: the value
@@ -207,16 +207,16 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     });
               },
               // The value whole: moved, moved out of a part, or copied.
-              [&](const FlowPoint::Whole &) {
+              [&](const FlowSource::Whole &) {
                 explained = true;
                 match(
                     flow.from.at,
-                    [&](const FlowPoint::Taken &taken) {
+                    [&](const FlowSource::Taken &taken) {
                       next.push_back({taken.use->get(), asks, taken.use});
                     },
                     // Out of a part: what the holder must claim for its
                     // read of the part to meet the requirement.
-                    [&](const FlowPoint::Part &part) {
+                    [&](const FlowSource::Part &part) {
                       Value whole = *flow.from.value();
                       Asks of = ownership::holderAsks(asks, ownership::reachAt(part.anchor));
                       OpOperand *use = ownership::reachOf(part) == ownership::Reach::Taken
@@ -224,12 +224,12 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                                            : operandOf(op, whole);
                       next.push_back({whole, of, use});
                     },
-                    [&](const OneOf<FlowPoint::Whole, FlowPoint::Parameter,
-                                    FlowPoint::Result> auto &) {
+                    [&](const OneOf<FlowSource::Whole, FlowSource::Parameter,
+                                    FlowSource::Result> auto &) {
                       ends.push_back(cause(op, Why::Shared));
                     });
               },
-              [](const OneOf<FlowPoint::Parameter, FlowPoint::Result> auto &) {});
+              [](const OneOf<FlowSource::Parameter, FlowSource::Result> auto &) {});
         },
         [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release,
                        FlowEdges::Overwrite, FlowEdges::Dispatch> auto &) {});
