@@ -14,7 +14,8 @@
 ||| it, which each held arm carries (`putAnswers`). From them the count is
 ||| bounded by the program alone (`heldWithin`): at most the longest list
 ||| a site packs, and per stuck path the program has, the most values a
-||| member closes over and one.
+||| member closes over and one; and so is every hole a request holds
+||| (`holeWithin`).
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Held
@@ -164,3 +165,15 @@ heldWithin {s} {n} {l} {m} {ps} once inside answered small start =
     multRightMonotone : (c : Nat) -> LTE a b -> LTE (a * c) (b * c)
     multRightMonotone c LTEZero = LTEZero
     multRightMonotone c (LTESucc le) = plusLteMonotoneLeft c _ _ (multRightMonotone c le)
+
+||| A hole a request holds is numbered below the values its chain holds, and
+||| its token weighs one more than its number: within the same count, so a
+||| hole in a member's place, or a member's hole renumbered after the ones
+||| an arm holds already, is a token the held count covers
+||| (`Proof.Bound.AtHeldHole`, `Proof.Bound.Renumbered`).
+export
+0 holeWithin : {s : List HeldStep} -> {n, l, m : Nat} -> {ps : List (List1 Nat)} ->
+               NoDup (heldPaths s) -> All (\p => Elem p ps) (heldPaths s) -> Answered s ->
+               All (\o => LTE o m) (owns s) -> LTE n l -> LT i (heldAfter n s) ->
+               LTE (S i) (l + length ps * S m)
+holeWithin once inside answered small start below = transitive below (heldWithin once inside answered small start)

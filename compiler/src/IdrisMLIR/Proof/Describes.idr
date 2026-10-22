@@ -229,13 +229,13 @@ graphOf : {n : Nat} -> (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin
           (beyond : Nat) -> Vect n (Maybe Nat) -> List (Site n, tag) -> Graph
 graphOf ps fps cps beyond caps ss = MkGraph n (map fst (drawn ps fps cps ss)) (topOf beyond (allOf siteNeeds ss)) caps
 
-||| The model the graph is drawn from.
+||| The model the graph is drawn from, with the program's held count.
 public export
 modelOf : {n : Nat} -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
-          (cps : ChoiceHead -> List (Fin n)) -> (Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) ->
+          (cps : ChoiceHead -> List (Fin n)) -> (Fin n -> Maybe (Head, Nat)) -> (held : Nat) -> (beyond : Nat) ->
           (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
           Model (graphOf ps fps cps beyond caps ss)
-modelOf ps fps cps positionOf beyond caps ss = MkModel (map fst ss) fps cps positionOf ps
+modelOf ps fps cps positionOf held beyond caps ss = MkModel (map fst ss) fps cps positionOf ps held
 
 ||| The sites that land at uncapped positions, with the erased evidence of
 ||| each, and those that land at capped ones: a capped position's cap is
@@ -585,12 +585,12 @@ covering {m} fe s own projected =
 ||| arc being one no feasible potential satisfies.
 export
 0 describes : {n : Nat} -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
-              (cps : ChoiceHead -> List (Fin n)) -> (positionOf : Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) ->
-              (caps : Vect n (Maybe Nat)) ->
+              (cps : ChoiceHead -> List (Fin n)) -> (positionOf : Fin n -> Maybe (Head, Nat)) -> (held : Nat) ->
+              (beyond : Nat) -> (caps : Vect n (Maybe Nat)) ->
               (ss : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) ss ->
               {pot : Vect n Nat} -> Feasible (graphOf ps fps cps beyond caps ss) pot ->
-              Describes (modelOf ps fps cps positionOf beyond caps ss)
-describes ps fps cps positionOf beyond caps ss uncapped fe = sitesCovered ss uncapped (\y, el => el)
+              Describes (modelOf ps fps cps positionOf held beyond caps ss)
+describes ps fps cps positionOf held beyond caps ss uncapped fe = sitesCovered ss uncapped (\y, el => el)
   where
     -- K stands above every site's template.
     0 needed : (s : Site n) -> (x : tag) -> Elem (s, x) ss ->
@@ -599,7 +599,7 @@ describes ps fps cps positionOf beyond caps ss uncapped fe = sitesCovered ss unc
 
     0 sitesCovered : (rest : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) rest ->
                      ((y : (Site n, tag)) -> Elem y rest -> Elem y ss) ->
-                     All (Covers (graphOf ps fps cps beyond caps ss) (modelOf ps fps cps positionOf beyond caps ss)) (map fst rest)
+                     All (Covers (graphOf ps fps cps beyond caps ss) (modelOf ps fps cps positionOf held beyond caps ss)) (map fst rest)
     sitesCovered [] [] _ = []
     sitesCovered ((s, x) :: rest) (u :: us) sub =
       MkCovers u (needed s x (sub (s, x) Here))

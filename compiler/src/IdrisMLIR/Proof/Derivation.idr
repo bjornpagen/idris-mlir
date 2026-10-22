@@ -192,13 +192,13 @@ sitePlaced p v written keyed under = Keyed (MkArgumentDerivation p v (siteGives 
 ||| as it made it (`made'`), a site into the arm's position writes the
 ||| arm's argument: the site's template reads the field as a member of the
 ||| choice (`Member k`), which `Writes.AtMember` reads from that position up
-||| to the renumbering, and every other part as the implementation is
-||| written.
+||| to the renumbering, none past the held count (`Proof.Held.holeWithin`),
+||| and every other part as the implementation is written.
 public export
 0 HeldArmWritten : {g : Graph} -> Model g -> ChoiceHead -> (arm : Fin g.size) -> (member, argument : Template) -> Type
 HeldArmWritten {g} m k arm member argument =
   (made : Fin g.size) -> Elem made (m.choicePositions k) -> (made' : Template) -> InV m made made' ->
-  Renumbered made' member -> SiteWrites m arm argument
+  Renumbered m.heldCount made' member -> SiteWrites m arm argument
 
 ||| A held dispatch's arm, placed: the member, as it was made, is a value of
 ||| V where it was made, its sites then write the arm's argument, and that
@@ -208,7 +208,7 @@ export
                   (k : ChoiceHead) -> (arm : Fin g.size) -> (member, argument : Template) ->
                   HeldArmWritten m k arm member argument ->
                   (made : Fin g.size) -> Elem made (m.choicePositions k) -> (made' : Template) -> InV m made made' ->
-                  Renumbered made' member ->
+                  Renumbered m.heldCount made' member ->
                   LTE w.size (sizeWithin b.arity (height argument) b.heaviest) -> LTE (bound g pot arm) h ->
                   ArgumentWithin m pot b (Just w) h
 heldArmPlaced k arm member argument held made madeAt made' memberIn again keyed under =

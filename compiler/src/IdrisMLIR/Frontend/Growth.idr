@@ -313,21 +313,34 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
     place : Loc -> (Maybe String, Maybe Int)
     place l = (locFile l, (.startLine) <$> locSpan l)
 
+||| A dictionary's place, as a message names it: a parameter of what holds
+||| it, by the parameter's name and the holder's, or argument i of the
+||| application at a use; an implementation's field, by the
+||| implementation's name; or a choice, by its interface's name, as the
+||| polymorphic functions', or as one whose type only an instance shows.
+placeText : {auto c : Ref Ctxt Defs} -> FC -> HeldBy -> Front String
+placeText fc (ByParameter (OfNode node) i) = do
+  (def, name) <- graphDefinition fc node.definition
+  (++ " of " ++ name) <$> parameter i def
+placeText fc (ByParameter OfApplication i) =
+  pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
+placeText fc (ByField j k) = (\name => "field " ++ show k ++ " of " ++ name) . snd <$> graphDefinition fc j
+placeText fc (ByChoice (InterfaceHead j)) =
+  (\name => "the implementations of " ++ name ++ " the running program chooses") . snd <$> graphDefinition fc j
+placeText fc (ByChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
+placeText fc (ByChoice UnshownHead) =
+  pure "the members the running program chooses of a choice whose type only an instance shows"
+
 ||| What holds a position, as a message names it: a node's definition, by
 ||| its name; the application at a use, which no name is; an
-||| implementation's field, by the implementation's name; or a choice, by
-||| its interface's name, as the polymorphic functions', or as one whose
-||| type only an instance shows.
+||| implementation's field or a choice, as its place is named; or the
+||| values a dictionary's place holds, by that place.
 holderText : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front String
 holderText fc (OfParameter (OfNode node) _) = snd <$> graphDefinition fc node.definition
 holderText fc (OfParameter OfApplication _) = pure "the application of a polymorphic function at its use"
-holderText fc (OfField j k) = (\name => "field " ++ show k ++ " of " ++ name) . snd <$> graphDefinition fc j
-holderText fc (OfChoice (InterfaceHead j)) =
-  (\name => "the implementations of " ++ name ++ " the running program chooses") . snd <$> graphDefinition fc j
-holderText fc (OfChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
-holderText fc (OfChoice UnshownHead) =
-  pure "the members the running program chooses of a choice whose type only an instance shows"
-holderText fc (OfHeld _) = pure "the values a dictionary holds"
+holderText fc (OfField j k) = placeText fc (ByField j k)
+holderText fc (OfChoice k) = placeText fc (ByChoice k)
+holderText fc (OfHeld v) = (\place => "the values " ++ place ++ " holds") <$> placeText fc v.heldBy
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
