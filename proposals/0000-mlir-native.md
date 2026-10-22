@@ -1754,6 +1754,20 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   goes: anything of ours above the C++ is Idris, and shell only as
   glue, so the typecheck build's per-unit syntax check is written in
   Idris or done by the build's own compile of each unit.
+- **C230** (2026-10-22; under D113, with C174 and C213). What the
+  frontend gains for the fork's restored code. A constructor field whose
+  type the constructor hides (upstream's `SeqEat`, `SeqEmpty`, holding a
+  grammar and a continuation at a first result type the constructor's
+  own type does not show) is a closed sum at each instance of the
+  family: one alternative per hidden type the whole program puts there,
+  each with its fields at that type, so a match on it dispatches and
+  calls the code monomorphized at that type, as C213 does for a
+  polymorphic value. A constructor that fixes its family's index
+  (`NextIs`, `EOF`, `Bounds`, `Position`) is D48's equation. A recursion
+  at the hidden type, or from `WithBounds ty` to `ty`, is a recursion at
+  a type the program fixes, which the growth graph bounds. Only a hidden
+  type set no analysis bounds is refused, as `runtime closure` refuses
+  today, naming the site.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
