@@ -3844,6 +3844,17 @@ C137.
   words keep their slices, since the invariant concerns only
   reference-holding elements. No upstream hook is carried: a
   tabulation is the representation that states the fact.
+- **C181** (2026-10-21; L05's open question; reads C170's "one interface
+  states it for every op that makes scoped values"). Every op that can
+  make a scoped value states its lifetime through `outers` (C179),
+  `data.field`, `data.con`, `data.reindex` and `lin.cast` among them,
+  not only control ops: a value's lifetime is then read off its defining
+  op in one step, never found by walking its definitions back to an
+  opener, and nothing read through these ops stays counted for want of
+  a stated lifetime. An op that passes a scoped operand through states
+  that operand's lifetime or one it encloses, which the verifier checks
+  locally; a constructor states one its scoped fields all outlive. The
+  decide step sets them all.
 
 ## 4. Open: the owner's decisions, in order
 
