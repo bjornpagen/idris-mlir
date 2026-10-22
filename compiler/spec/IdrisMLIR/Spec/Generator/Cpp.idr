@@ -231,13 +231,17 @@ areaHeader h =
 
 ||| The hand storage classes, `::idr::detail::<Class>Storage`, declared
 ||| before the generated classes that name them as their storage: ODS
-||| declares no class it does not define.
+||| declares no class it does not define. And every type class, declared
+||| before the attributes, whose parameters and members may name a type
+||| that mlir-tblgen declares only after them.
 export
 storagesHeader : List AnyTypeDef -> List AnyAttrDef -> Lines
 storagesHeader ts as =
   header "Storages" []
     (inNamespace "idr::detail"
-      (map (\c => "struct " ++ c ++ "Storage;") (concatMap typeStorage ts ++ concatMap attrStorage as)))
+       (map (\c => "struct " ++ c ++ "Storage;") (concatMap typeStorage ts ++ concatMap attrStorage as))
+     ++ [""]
+     ++ inNamespace "idr" (map (\(SomeType t) => "class " ++ typeClass t ++ ";") ts))
   where
     typeStorage : AnyTypeDef -> List String
     typeStorage (SomeType t) = case t.storage of
