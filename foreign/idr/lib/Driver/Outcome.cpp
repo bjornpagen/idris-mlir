@@ -64,8 +64,9 @@ llvm::StringLiteral severityName(mlir::DiagnosticSeverity severity) {
 
 // A diagnostic's fields in the report, `<severity> <rule> <file:line>`: the
 // rule it refuses the program by and the first file location its location
-// holds, each `-` where it has none. A rule's category is IdrRules.txt's,
-// which a reader joins on the rule. No field names a pass: a handler is
+// holds, each `-` where it has none. No field holds the rule's category: it
+// is the specification's, a function of the rule, which a reader joins on
+// the rule as refusalHead does. No field names a pass: a handler is
 // given the diagnostic alone, and a group MLIR runs in parallel replays its
 // diagnostics after the group, so where one is delivered says nothing of
 // the pass that emitted it.
