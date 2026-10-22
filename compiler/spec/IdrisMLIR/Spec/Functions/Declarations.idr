@@ -221,9 +221,10 @@ funcOp = MkOp
 callEffects : Declaration 1 1
 callEffects = Executes [] [Summarized, Consumes FZ, NewIdentity FZ] Covered Untouched
 
-||| A call of a function by name, with its callee's row, write part and
-||| `lives_in`, so upstream's dead code, CSE and sinking, and a pass on the
-||| caller, read a call alone. It states its scoped results' lifetimes.
+||| A call of a function by name, with its callee's result types, row,
+||| write part and `lives_in`, so upstream's dead code, CSE and sinking, and
+||| a pass on the caller, read a call alone: a result's grade says what the
+||| callee's signature says of it. It states its scoped results' lifetimes.
 export
 callOp : Op 1 1 8 0
 callOp = MkOp
@@ -258,7 +259,6 @@ callOp = MkOp
       , Lit ":", FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
   , builders = [MkBuilder [ param "FuncOp" "callee"
                           , param "::idr::IndexArgsAttr" "indexArgs"
-                          , param "::mlir::TypeRange" "results"
                           , param "::mlir::ValueRange" "args"
                           , param "::idr::TailKind" "tail" ]]
   , defaultBuilders = WithDefaults
@@ -268,20 +268,19 @@ callOp = MkOp
           [param "::mlir::CallInterfaceCallable" "callee"]
       , MkMember OnObject "::mlir::Operation::operand_range" "getArgOperands" []
       , MkMember OnObject "::mlir::MutableOperandRange" "getArgOperandsMutable" []
-      , MkMember OnObject "void" "copyCallee" [param "FuncOp" "callee"]
-      , MkMember OnObject "void" "forEachWritten"
-          [param "::llvm::function_ref<void(::mlir::OpOperand &)>" "visit"] ]
+      , MkMember OnObject "void" "copyCallee" [param "FuncOp" "callee"] ]
   , guards = []
   , specializations = []
   , laws = []
   , doc = MkDoc "a call of a function by name, with its callee's row"
       """
-      Built of a callee, it takes the callee's row, write part and lives_in;
-      its symbol-use verifier holds the three equal to the callee's, and its
-      operand types to the callee's parameters, a lifetime of any kind
-      standing where a view is asked. Where it stands is the tail calls' to
-      decide and check; a tail call's callee takes as many cursors as its
-      caller and gives back the same result components.
+      Built of a callee, it takes the callee's result types at its index
+      arguments, row, write part and lives_in, and takes them again when the
+      callee's change; its symbol-use verifier holds the four equal to the
+      callee's, and its operand types to the callee's parameters, a lifetime
+      of any kind standing where a view is asked. Where it stands is the
+      tail calls' to decide and check; a tail call's callee takes as many
+      cursors as its caller and gives back the same result components.
       """
   }
 

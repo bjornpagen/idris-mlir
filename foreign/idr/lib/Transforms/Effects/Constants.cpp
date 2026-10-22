@@ -97,36 +97,20 @@ struct Rewritten {
   bool changed = false;
 };
 
-// The rewrite of the solve over a body, each block before the regions its
-// ops hold, so that a constant met first is the one the folder hands out
-// for its value. An op every result of which became a constant goes when
-// the effect system says it, with everything in it, only computes them: a
-// crash or a divergence it may reach stays where evaluation reaches it. The
-// walk recurses on the regions, each smaller than the block that holds it.
+// The rewrite of the solve over a body, one block at a time. An op every
+// result of which became a constant goes when the effect system says it,
+// with everything in it, only computes them: a crash or a divergence it may
+// reach stays where evaluation reaches it.
 class Rewrite {
 public:
   Rewrite(DataFlowSolver &solver, MLIRContext *context)
       : solver(solver), folder(context), builder(context) {}
 
-  // The regions of the last op first, each region's blocks in order, as
-  // the solve's own walk would leave them to the folder.
-  void regions(MutableArrayRef<Region> held) {
-    for (Region &region : llvm::reverse(held))
-      for (Block &block : region)
-        visit(block);
-  }
-
-  Rewritten done() {
-    out.changed = out.changed || out.replaced != 0;
-    return out;
-  }
-
-private:
-  void visit(Block &block) {
+  // One block: its arguments, then its ops in order.
+  void block(Block &block) {
     builder.setInsertionPointToStart(&block);
     for (BlockArgument argument : block.getArguments())
       out.replaced += replaceWithConstant(solver, folder, builder, argument);
-    SmallVector<Operation *> holding;
     for (Operation &op : llvm::make_early_inc_range(block)) {
       Attribute held;
       if (matchPattern(&op, m_Constant(&held))) {
@@ -144,26 +128,33 @@ private:
       for (Value result : op.getResults())
         out.replaced += replaceWithConstant(solver, folder, builder, result);
       if (op.getNumResults() != 0 && out.replaced - before == op.getNumResults() &&
-          op.use_empty() && idr::effects::whole(&op).onlyComputes() &&
-          idr::support::perform<ConstantsEraseAction>(&op, [&] { op.erase(); }))
-        continue;
-      if (op.getNumRegions() != 0)
-        holding.push_back(&op);
+          op.use_empty() && idr::effects::whole(&op).onlyComputes())
+        (void)idr::support::perform<ConstantsEraseAction>(&op, [&] { op.erase(); });
     }
-    for (Operation *op : llvm::reverse(holding))
-      regions(op->getRegions());
   }
 
+  Rewritten done() {
+    out.changed = out.changed || out.replaced != 0;
+    return out;
+  }
+
+private:
   DataFlowSolver &solver;
   OperationFolder folder;
   OpBuilder builder;
   Rewritten out;
 };
 
+// MLIR's walk, in pre-order, hands the rewrite each block before the
+// regions its ops hold, so a constant met first is the one the folder
+// hands out for its value; and it reads a block's ops only after the
+// rewrite is done with them, so an op erased there takes its regions with
+// it unread. It keeps its place in a stack of its own, so a body nested
+// deep needs no deeper native stack.
 Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
-  Rewrite walk(solver, fn.getContext());
-  walk.regions(fn->getRegions());
-  return walk.done();
+  Rewrite step(solver, fn.getContext());
+  fn->walk<WalkOrder::PreOrder>([&](Block *block) { step.block(*block); });
+  return step.done();
 }
 
 struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {

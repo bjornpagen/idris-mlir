@@ -9,11 +9,13 @@
 // admits. Each part exists only where the parameter's type admits it: the
 // record names a parameter by its position among the parameters that admit
 // that part, so a write part cannot describe a lifetime, nor an amount a
-// value. Then the dialect's inliner rules.
+// value. Last, the operands a call's callee writes through, which every
+// reader of a call's effects asks. The dialect's inliner rules come first.
 //
 // It reads types alone (Grades.h, Lifetimes.h) and the effect system's
-// words, and no op; what a function's body does and the one derivation of
-// its row are Analysis/Effects.h's.
+// words, and no op but a call's copy of its callee's write part; what a
+// function's body does and the one derivation of its row are
+// Analysis/Effects.h's.
 #ifndef IDR_IR_FUNC_H
 #define IDR_IR_FUNC_H
 
@@ -23,15 +25,18 @@
 #include "idr/Support/Match.h"
 
 #include "mlir/Bytecode/BytecodeImplementation.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <variant>
@@ -280,6 +285,42 @@ private:
   std::uint32_t writes = 0;
   std::uint32_t puts = 0;
 };
+
+//===----------------------------------------------------------------------===//
+// A call's write part
+//===----------------------------------------------------------------------===//
+
+// A call holding its copy of its callee's write part: its arguments, and
+// the positions, among those that admit a write part, its callee never
+// writes through, increasing.
+template <class C>
+concept HoldsWritePart = requires(C call) {
+  { call.getArgsMutable() } -> std::convertible_to<mlir::MutableOperandRange>;
+  { call.getUntouchedAttr() } -> std::convertible_to<mlir::DenseI32ArrayAttr>;
+};
+
+// Each operand of `call` its callee writes through: every operand that
+// admits a write part and is not listed untouched. The operands come in
+// order and the untouched positions increase, so one pass meets both. It
+// takes the call as a template parameter, not as a member of idr.call,
+// since this header comes before the op classes: every reader of a call's
+// effects, the generated ones among them, sees it here.
+template <HoldsWritePart C, std::invocable<mlir::OpOperand &> Visit>
+void forEachWritten(C call, Visit &&visit) {
+  llvm::ArrayRef<std::int32_t> untouched;
+  if (mlir::DenseI32ArrayAttr listed = call.getUntouchedAttr())
+    untouched = listed.asArrayRef();
+  std::int32_t position = 0;
+  for (mlir::OpOperand &operand : call.getArgsMutable()) {
+    if (!admitsWrite(operand.get().getType()))
+      continue;
+    if (!untouched.empty() && untouched.front() == position)
+      untouched = untouched.drop_front();
+    else
+      visit(operand);
+    ++position;
+  }
+}
 
 } // namespace idr
 

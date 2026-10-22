@@ -395,7 +395,7 @@ void rows::Fold::anything() {
 
 void rows::CallCopies::call(CallOp call, Fold &fold, Runs) {
   fold.join(call.getRow());
-  call.forEachWritten([&](OpOperand &operand) { fold.writeThrough(operand.get()); });
+  forEachWritten(call, [&](OpOperand &operand) { fold.writeThrough(operand.get()); });
 }
 
 template class rows::Derivation<rows::CallCopies>;

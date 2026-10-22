@@ -33,6 +33,7 @@
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Summarize.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
 
@@ -48,8 +49,9 @@ namespace idr::rows {
 // derivation: what each changed is written, nothing else. Reads each body
 // in parallel, joins over `graph`'s components serially, writes each
 // function and its calls in parallel. Every attribute a record needs is
-// made serially, before the parallel writes.
-void write(ProgramOp program, const solver::ProgramGraph &graph);
+// made serially, before the parallel writes. The join's transfers are
+// added to `work`, which the pass that writes reports as its own.
+void write(ProgramOp program, const solver::ProgramGraph &graph, solver::Work &work);
 
 // Every function and call holds at least `atoms` besides its own, and no
 // parameter is known untouched: what a nested pass that adds effects runs
@@ -100,7 +102,7 @@ void addCycles(const solver::ProgramGraph &graph, IndexVector<solver::FunctionId
 namespace idr::solver {
 extern template IndexVector<FunctionId, effects::Row>
 summarize<CalleesFirst, rows::AtomsProblem>(const ProgramGraph &, const rows::AtomsProblem &,
-                                           mlir::MLIRContext &);
+                                           mlir::MLIRContext &, Work &);
 } // namespace idr::solver
 
 namespace idr::rows {
@@ -109,11 +111,13 @@ namespace idr::rows {
 // defunctionalization's decision asks before it converts, its reader
 // reading each label's run as calls of the labels the label solve gives
 // it, and `graph` holding those runs as calls. Before counting no
-// parameter admits a part, so the atoms are the whole row.
+// parameter admits a part, so the atoms are the whole row. The join's
+// transfers are added to `work`.
 template <CallReader R>
 IndexVector<solver::FunctionId, effects::Row> solveAtoms(const solver::ProgramGraph &graph,
                                                        const R &reader,
-                                                       mlir::MLIRContext &context) {
+                                                       mlir::MLIRContext &context,
+                                                       solver::Work &work) {
   AtomsProblem problem{graph.table(effects::Row{})};
   IdRange<solver::FunctionId> functions = graph.functions();
   mlir::parallelFor(&context, 0, functions.size(), [&](std::size_t at) {
@@ -122,7 +126,7 @@ IndexVector<solver::FunctionId, effects::Row> solveAtoms(const solver::ProgramGr
     problem.own[f] = derive(graph.op(f), mine).atoms;
   });
   detail::addCycles(graph, problem.own);
-  return solver::summarize<CalleesFirst>(graph, problem, context);
+  return solver::summarize<CalleesFirst>(graph, problem, context, work);
 }
 
 } // namespace idr::rows

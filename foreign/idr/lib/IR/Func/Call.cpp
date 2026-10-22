@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.call and idr.return. A call holds its callee's row, write part and
-// lives_in, as llvm.call holds its memory effects, and declares to MLIR
-// what they stand for (its typed rule reads them), so every pass, upstream's
-// among them, reads a call alone. Its symbol-use verifier, run once per
-// verification of its program from the collection MLIR shares among every
-// symbol user, holds the call to its callee: its types are the callee's
-// signature at its index arguments, a lifetime of any kind standing where a
-// view is asked; its copies are the callee's; what its callee puts into a
-// lifetime its caller passes on fits what the caller says it puts; and a
-// tail call's callee takes as many cursors as its caller and gives back the
-// same result components. Where it stands in its function is the tail
-// calls' to check.
+// idr.call and idr.return. A call holds its callee's result types, row,
+// write part and lives_in, as llvm.call holds its memory effects, each
+// taken from the callee when the call is built and again when the callee's
+// change (copyCallee), and declares to MLIR what they stand for (its typed
+// rule reads them), so every pass, upstream's among them, reads a call
+// alone. Its symbol-use verifier, run once per verification of its program
+// from the collection MLIR shares among every symbol user, holds the call
+// to its callee: its types are the callee's signature at its index
+// arguments, a lifetime of any kind standing where a view is asked; its
+// copies are the callee's; what its callee puts into a lifetime its caller
+// passes on fits what the caller says it puts; and a tail call's callee
+// takes as many cursors as its caller and gives back the same result
+// components. Where it stands in its function is the tail calls' to check.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Families/Substitute.h"
@@ -28,10 +29,22 @@
 using namespace mlir;
 using namespace idr;
 
+namespace {
+
+// The callee's signature at a call's index arguments: each binder replaced
+// by the term the call gives it.
+FunctionType signatureAt(FuncOp callee, IndexArgsAttr args) {
+  return args ? families::substitute(callee.getFunctionType(), args) : callee.getFunctionType();
+}
+
+} // namespace
+
+// A call's result types are its callee's at its index arguments, as its
+// row, write part and lives_in are its callee's: taken from the callee, so
+// no builder states them apart.
 void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee,
-                        IndexArgsAttr indexArgs, TypeRange results, ValueRange args,
-                        TailKind tail) {
-  state.addTypes(results);
+                        IndexArgsAttr indexArgs, ValueRange args, TailKind tail) {
+  state.addTypes(signatureAt(callee, indexArgs).getResults());
   state.addOperands(args);
   Properties &properties = state.getOrAddProperties<Properties>();
   properties.callee = FlatSymbolRefAttr::get(callee.getSymNameAttr());
@@ -44,32 +57,14 @@ void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee
 
 // What a call holds of its callee, taken whole: the copies its symbol-use
 // verifier holds equal, for a call whose callee changed or whose callee's
-// facts did.
+// facts did, a result's grade among them.
 void idr::CallOp::copyCallee(FuncOp callee) {
   setRow(callee.getRow());
   setUntouchedAttr(callee.getUntouchedAttr());
   setLivesInAttr(callee.getLivesInAttr());
-}
-
-// Each operand the callee writes through: every operand that admits a
-// write part and is not listed untouched. The order is the operands', and
-// the untouched positions increase, so one pass meets both. The visitor is
-// type-erased since the class's members are declared by the specification,
-// which declares no template.
-void idr::CallOp::forEachWritten(function_ref<void(OpOperand &)> visit) {
-  ArrayRef<std::int32_t> untouched;
-  if (DenseI32ArrayAttr listed = getUntouchedAttr())
-    untouched = listed.asArrayRef();
-  std::int32_t position = 0;
-  for (OpOperand &operand : getArgsMutable()) {
-    if (!admitsWrite(operand.get().getType()))
-      continue;
-    if (!untouched.empty() && untouched.front() == position)
-      untouched = untouched.drop_front();
-    else
-      visit(operand);
-    ++position;
-  }
+  for (auto [result, type] :
+       llvm::zip(getResults(), signatureAt(callee, getIndexArgsAttr()).getResults()))
+    result.setType(type);
 }
 
 CallInterfaceCallable idr::CallOp::getCallableForCallee() { return getCalleeAttr(); }
@@ -188,8 +183,7 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   if (binding != giving)
     return emitOpError("gives ") << giving << " index arguments to " << name << ", which binds "
                                  << binding;
-  FunctionType signature =
-      args ? families::substitute(fn.getFunctionType(), args) : fn.getFunctionType();
+  FunctionType signature = signatureAt(fn, args);
   ArrayRef<Type> inputs = signature.getInputs();
   if (getArgs().size() != inputs.size())
     return emitOpError("passes ") << getArgs().size() << " arguments to " << name
@@ -200,6 +194,8 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
       return emitOpError("passes ") << given << " as argument " << index << " of " << name
                                     << ", which takes " << asked;
   }
+  // Each result's type is the callee's, its grade included, so a result's
+  // exclusivity is read off the call alone, as fresh as its callee says.
   ArrayRef<Type> results = signature.getResults();
   if (getNumResults() != results.size())
     return emitOpError("expects ") << getNumResults() << " results from " << name

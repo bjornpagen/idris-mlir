@@ -37,7 +37,7 @@ using solver::FunctionId;
 
 template IndexVector<FunctionId, effects::Row>
 solver::summarize<CalleesFirst, AtomsProblem>(const solver::ProgramGraph &, const AtomsProblem &,
-                                             mlir::MLIRContext &);
+                                             mlir::MLIRContext &, solver::Work &);
 
 namespace {
 
@@ -257,7 +257,7 @@ void rows::detail::addCycles(const solver::ProgramGraph &graph,
   }
 }
 
-void rows::write(ProgramOp program, const solver::ProgramGraph &graph) {
+void rows::write(ProgramOp program, const solver::ProgramGraph &graph, solver::Work &work) {
   MLIRContext *context = program.getContext();
   IdRange<FunctionId> functions = graph.functions();
 
@@ -289,7 +289,7 @@ void rows::write(ProgramOp program, const solver::ProgramGraph &graph) {
     atoms.own[f] = own[f].derived.atoms | writesElsewhere(own[f].sites, nodes, written, ordinalOf);
   detail::addCycles(graph, atoms.own);
   IndexVector<FunctionId, effects::Row> joined =
-      solver::summarize<CalleesFirst>(graph, atoms, *context);
+      solver::summarize<CalleesFirst>(graph, atoms, *context, work);
 
   // The amounts, callees first: a callee in another component is final
   // when its caller is read, and one in the caller's own component lies on
