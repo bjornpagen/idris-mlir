@@ -1,16 +1,18 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The solver layer: the graphs every solve runs on and their components,
-# the program's graph of calls, and the label solve's points and sets. The
-# dialect itself reads its components, so it names nothing of the analyses.
-# It lists only its own units, under Solver/, and the analyses' library
-# below checks the whole directory (PARTIAL_SOURCES_INTENDED).
+# the program's graph of calls, the graph of the types that hold one
+# another, which the knots' pass and exclusivity read, and the label
+# solve's points and sets. It lists only its own units, under Solver/, and
+# the analyses' library below checks the whole directory
+# (PARTIAL_SOURCES_INTENDED).
 add_mlir_library(IdrSolver
 	Solver/Components.cpp
 	Solver/Graph.cpp
 	Solver/LabelPoints.cpp
 	Solver/LabelSets.cpp
 	Solver/ProgramGraph.cpp
+	Solver/TypeGraph.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL

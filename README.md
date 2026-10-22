@@ -31,7 +31,9 @@ its sharing. MLIR's verifier checks them after every pass.
 Idris 2 frontend: check, monomorphise, choose representations
   -> idr dialect: closures and suspensions as regions
   -> isolate, contify
-  -> simplify: inline, specialize, canonicalize, to a fixed point
+  -> optimize: specialize and inline in a fixed sequence, callees first,
+     simplified by a rewrite graph (an e-graph) built from the dialect's
+     specification; no greedy canonicalization of the dialect's ops
   -> defunctionalize closures into closed sums
   -> stack cells, reference counting with reuse, tail loops
   -> narrow integers, prove indices in bounds

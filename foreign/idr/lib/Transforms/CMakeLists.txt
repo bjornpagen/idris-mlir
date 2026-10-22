@@ -10,7 +10,9 @@
 
 # idr-simplify: the e-graph over a function's ops, its rules and laws
 # generated from the specification, with the interval analysis it reads
-# operands by.
+# operands by. It calls the skeleton rules the specification names, which
+# the dialect, the joins and defunctionalization declare, so it links their
+# libraries; they read it through its headers alone and link it not.
 add_mlir_library(IdrEGraph
 	EGraph/Build.cpp
 	EGraph/Elaborate.cpp
@@ -29,6 +31,8 @@ add_mlir_library(IdrEGraph
 	LINK_LIBS PUBLIC
 	IdrIR
 	IdrAnalysis
+	IdrDefunctionalize
+	IdrJoins
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -63,7 +67,6 @@ add_mlir_library(IdrJoins
 
 	LINK_LIBS PUBLIC
 	IdrIR
-	IdrEGraph
 	IdrSupport
 	MLIRIR
 	MLIRControlFlowInterfaces
@@ -72,7 +75,7 @@ add_mlir_library(IdrJoins
 
 # The rows every function and call holds, written from their derivation,
 # and idr-constants, the step idr-optimize's inner pipeline ends with,
-# which reads the optimizer's schedule.
+# which reads the optimizer's schedule through its header alone.
 add_mlir_library(IdrEffects
 	Effects/Component.cpp
 	Effects/Constants.cpp
@@ -90,7 +93,6 @@ add_mlir_library(IdrEffects
 	LINK_LIBS PUBLIC
 	IdrIR
 	IdrAnalysis
-	IdrOptimize
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -102,7 +104,8 @@ add_mlir_library(IdrEffects
 )
 
 # idr-inline, upstream's inliner by MLton's rule on the callee's final
-# size, and the leaf inlining the optimizer's inner pipeline runs.
+# size, with its admission of what may still be inlined, and the leaf
+# inlining the optimizer's inner pipeline runs.
 add_mlir_library(IdrInline
 	Inline/Inline.cpp
 	Inline/InlinePass.cpp
@@ -120,7 +123,6 @@ add_mlir_library(IdrInline
 	IdrAnalysis
 	IdrEGraph
 	IdrEffects
-	IdrOptimize
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -177,7 +179,6 @@ add_mlir_library(IdrSpecialize
 	IdrIR
 	IdrAnalysis
 	IdrDeduplicate
-	IdrOptimize
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -190,8 +191,8 @@ add_mlir_library(IdrSpecialize
 
 # idr-optimize, its schedule over the call graph's components and the
 # inner pipeline each function runs on it, and idr-contify. Its inner steps
-# (effects, inline, specialize) read the schedule it builds, so they and it
-# link one another.
+# (effects, inline, specialize) read the schedule it builds through its
+# header alone.
 add_mlir_library(IdrOptimize
 	Optimize/CaptureDrops.cpp
 	Optimize/Captures.cpp
@@ -254,7 +255,6 @@ add_mlir_library(IdrDefunctionalize
 	LINK_LIBS PUBLIC
 	IdrIR
 	IdrAnalysis
-	IdrEGraph
 	IdrEffects
 	IdrJoins
 	IdrSolver

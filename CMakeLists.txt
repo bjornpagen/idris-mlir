@@ -208,13 +208,16 @@ set(IDRIS_MLIR_GMP "${IDRIS_MLIR_TOOLCHAIN_ROOT}/sysroot/usr/lib/libgmp.a")
 #                                   same runs and on the program suite
 #                                   (make test); the margin programs take
 #                                   too
-# The build that measures is configured with sizes it knows cover its runs
-# (-D<name>=<bytes>); those are the instrument's, and are never recorded.
+# The build that measures is configured with sizes it knows cover its runs;
+# those are the instrument's, and are never recorded. Until an entry holds
+# its numbers, every configure on the target is given provisional sizes,
+# typecheck's too; the Makefile's opening comment says how each command
+# takes them.
 function(idris_mlir_unmeasured_stacks)
 	foreach(size IDRIS_MLIR_TOOL_STACK_BYTES IDRIS_MLIR_TOOL_SIGNAL_BYTES IDRIS_MLIR_OUTSIDE_STACK_BYTES)
 		set(${size} "" CACHE STRING "Bytes, measured on the target as CMakeLists.txt says above its target entries")
 		if(NOT "${${size}}" MATCHES "^[1-9][0-9]*$")
-			message(FATAL_ERROR "${size} is not measured for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: measure it as CMakeLists.txt says above its target entries, and record it in the entry")
+			message(FATAL_ERROR "${size} is not measured for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: measure it as CMakeLists.txt says above its target entries and record it in the entry, or give it provisionally as the Makefile's opening comment says (make help)")
 		endif()
 	endforeach()
 endfunction()
@@ -257,9 +260,8 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-gnu$" AND IDRIS_MLIR_P
 	# leaf, and LLVM's code uses them.
 	set(IDRIS_MLIR_RED_ZONE_BYTES 128)
 	idris_mlir_unmeasured_stacks()
-	# Our tools: PIE code with CET and stack-clash probes.
-	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection
-		${IDRIS_MLIR_TOOL_FORTIFY})
+	# Our tools: PIE code with CET.
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full ${IDRIS_MLIR_TOOL_FORTIFY})
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_MLIR_PAGE_SIZE EQUAL 4096)
 	# arm64 Linux on the kernel's default 4 KiB pages: every 64-bit
 	# Raspberry Pi before the 5 (Zero 2 W, 3, 4), Graviton, Ampere,
@@ -276,10 +278,8 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	set(IDRIS_MLIR_RED_ZONE_BYTES 0)
 	idris_mlir_unmeasured_stacks()
 	# Our tools: PIE code with branch protection (PAC and BTI, live on Linux
-	# where the CPU has them and NOPs where it does not) and stack-clash
-	# probes.
-	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard -fstack-clash-protection
-		${IDRIS_MLIR_TOOL_FORTIFY})
+	# where the CPU has them and NOPs where it does not).
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard ${IDRIS_MLIR_TOOL_FORTIFY})
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_MLIR_PAGE_SIZE EQUAL 16384)
 	# arm64 Linux on 16 KiB pages: the Raspberry Pi 5 family under Raspberry
 	# Pi OS, and Apple Silicon under Linux. cortex-a76 is the Pi 5's core
@@ -295,8 +295,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	# LLVM's code uses nothing there.
 	set(IDRIS_MLIR_RED_ZONE_BYTES 0)
 	idris_mlir_unmeasured_stacks()
-	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard -fstack-clash-protection
-		${IDRIS_MLIR_TOOL_FORTIFY})
+	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard ${IDRIS_MLIR_TOOL_FORTIFY})
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PAGE_SIZE EQUAL 16384)
 	# Apple Silicon: apple-m1 is the baseline every Apple CPU since the M1
 	# has, and a program compiled for a later one names what an older lacks.
@@ -418,16 +417,20 @@ target_compile_options(idris_mlir_warnings INTERFACE
 	-Wimplicit-fallthrough
 )
 
-# The language profile of our tools. No FP contraction anywhere. The Release
-# build of our code is full LTO, linked with LLVM's and MLIR's libraries as
-# the native code stage 2 built them. The precompiled header our libraries
-# share (foreign/idr/lib/IR) holds no timestamp, so the compile cache takes
-# it, and every compile that reads it, by content.
+# The language profile of our tools. No FP contraction anywhere. Every
+# frame is probed a page at a time on every target, so no frame of a tool
+# steps over the one-page guard below its stack (idr/Driver/Tool.h): the
+# pinned clang probes on Darwin as on Linux. The Release build of our code
+# is full LTO, linked with LLVM's and MLIR's libraries as the native code
+# stage 2 built them. The precompiled header our libraries share
+# (foreign/idr/lib/IR) holds no timestamp, so the compile cache takes it,
+# and every compile that reads it, by content.
 add_library(idris_mlir_language_profile INTERFACE)
 target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
 target_compile_options(idris_mlir_language_profile INTERFACE
 	-ffp-contract=off
+	-fstack-clash-protection
 	"$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>"
 	"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections;-flto=full>"
 )

@@ -3,13 +3,11 @@
 # The dialect: its types, attributes and ops with their hooks (verifiers,
 # folders, effects, asm names, skeleton rules), the families, the counting,
 # lifetime, control and tail ops, the flow models of every op, the rules of
-# a function and of the program, the grades, the layouts of cells and the
-# type graph.
+# a function and of the program, the grades and the layouts of cells.
 # The folders and the tag limit call the runtime natively; the runtime's
-# headers reach every library that includes the dialect's. The type graph
-# and the knots' check read the solver layer's components, and the skeleton
-# rules read what the e-graph knows of their operands, so the dialect, the
-# solver layer and the e-graph link one another.
+# headers reach every library that includes the dialect's. The skeleton
+# rules read what the e-graph knows of their operands through its headers
+# alone; the e-graph, which calls them, links the dialect.
 #
 # The one precompiled header of the build, which every library that links
 # the dialect reuses (and each executable of ours that does, by
@@ -118,13 +116,12 @@ add_mlir_dialect_library(IdrIR
 	Tail.cpp
 	Tail/Context.cpp
 	Tail/Destinations.cpp
-	TypeGraph.cpp
 	TypeLiterals.cpp
 	Types.cpp
 	ValueFacts.cpp
 	Verify/Attributes.cpp
-	Verify/Knots.cpp
 	Verify/Linearity.cpp
+	Verify/Local.cpp
 	Verify/Program.cpp
 	Verify/Uses.cpp
 
@@ -142,8 +139,6 @@ add_mlir_dialect_library(IdrIR
 
 	LINK_LIBS PUBLIC
 	IdrSupport
-	IdrSolver
-	IdrEGraph
 	idris_rt
 	MLIRIR
 	MLIRSupport

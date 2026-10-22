@@ -45,6 +45,25 @@
 #                          is in build/typecheck/logs, the C++ errors one per
 #                          line in build/typecheck/errors.log
 #
+# Until a target's entry in CMakeLists.txt holds its measured stack sizes
+# (IDRIS_MLIR_TOOL_STACK_BYTES, IDRIS_MLIR_TOOL_SIGNAL_BYTES,
+# IDRIS_MLIR_OUTSIDE_STACK_BYTES), the C++ build's configure refuses, and
+# the build that measures them, like every build before, is given
+# provisional sizes, each -D<name>=<bytes>:
+#   - make build: configure the preset once by hand, from the root, with
+#     the pinned CMake, `cmake --preset <preset>
+#     -DIDRIS_MLIR_IDRIS_PREFIX=<CHECKOUT_PREFIX> -D<name>=<bytes>...`;
+#     make build configures without --fresh, so the build directory's cache
+#     keeps them;
+#   - make typecheck, whose configure is --fresh and drops the cache: a
+#     preset of one's own in CMakeUserPresets.json, which no checkout
+#     tracks, that inherits typecheck, keeps its binaryDir
+#     (${sourceDir}/build/typecheck) and sets the three as cacheVariables,
+#     with a build preset of the same name; then
+#     `make typecheck TYPECHECK_PRESET=<name>`. A preset gives its cache
+#     variables at every configure.
+# The comment above the target entries says what is measured.
+#
 # The test commands run harness/Main.idr, a golden runner over tests/,
 # where every test is one directory at one level, and its kind is what it
 # holds (harness/README.md). It plans the runs and tallies them, and
@@ -130,7 +149,7 @@ TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = IDRIS_MLIR_NCPU=1 $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 sh $(ROOT)/harness/runs.sh $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork spec frontend prefix libs host-libs \
-        test test-idr test-mlir-tools test-unit runner knowngen compile bench self self-fork typecheck \
+        test test-idr test-mlir-tools test-unit runner knowngen compile bench self self-fork self-spec typecheck \
         typecheck-configure typecheck-tblgen typecheck-cxx typecheck-dialects typecheck-libs \
         typecheck-fork typecheck-frontend
 .DEFAULT_GOAL := help
@@ -285,10 +304,25 @@ $(SELF_FORK_STAMP): $(FORK_SOURCES) $(LIBS_STAMP)
 	cd '$(CHECKOUT_PREFIX)-src/idris-compiler' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install idris-compiler.ipkg
 	@touch $@
 
+# The dialect's specification as a package of the frontend's prefix too,
+# installed by the frontend, which imports it when it compiles itself
+# (-p idris-mlir-spec), as it does mlir-hash, which `libs` installs: from a
+# copy of compiler/spec, its earlier installation removed first, again
+# whenever a file of it changes.
+SELF_SPEC_STAMP := $(CHECKOUT_PREFIX)/.spec-installed
+self-spec: $(SELF_SPEC_STAMP)
+$(SELF_SPEC_STAMP): $(SPEC_SOURCES) $(LIBS_STAMP)
+	@packages=$$('$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --libdir) && rm -rf "$$packages"/idris-mlir-spec-* \
+	  '$(CHECKOUT_PREFIX)-src/spec' && mkdir -p '$(CHECKOUT_PREFIX)-src' && \
+	  cp -R '$(ROOT)/compiler/spec' '$(CHECKOUT_PREFIX)-src/spec' && \
+	  rm -rf '$(CHECKOUT_PREFIX)-src/spec/build'
+	cd '$(CHECKOUT_PREFIX)-src/spec' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install spec.ipkg
+	@touch $@
+
 # The self compile runs the optimized build's pipeline (tools/self.sh),
 # built here first.
 SELF_PRESET := $(call toolchain,self_preset)
-self: self-fork
+self: self-fork self-spec
 	@$(PINS) built llvm sysroot
 	@$(MAKE) --no-print-directory build PRESET=$(SELF_PRESET)
 	$(ROOT)/tools/self.sh
