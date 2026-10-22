@@ -247,9 +247,7 @@ struct ReadColumns : OpConversionPattern<ArrayReadOp> {
     SmallVector<Value> indices = flatten(adaptor.getIndices());
     SmallVector<Value> leaves, after;
     for (Value column : adaptor.getArray()) {
-      auto type = cast<RankedTensorType>(column.getType());
-      auto read = ArrayReadOp::create(rewriter, op.getLoc(), type.getElementType(), type, column,
-                                      indices);
+      auto read = ArrayReadOp::create(rewriter, op.getLoc(), column, indices);
       leaves.push_back(read.getValue());
       after.push_back(read.getAfter());
     }

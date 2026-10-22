@@ -184,18 +184,23 @@ void ArrayUpdateYieldOp::getFlowEdges(FlowEdges &edges) {
 // idr.array.read
 //===----------------------------------------------------------------------===//
 
-// One index per dimension, the element of the array's element type, and
-// the array given back as it was: a new value of the same array, which
-// whatever writes it next consumes, so that the read precedes the write by
-// the data it reads and not by where it stands.
+// One index per dimension.
 LogicalResult ArrayReadOp::verify() {
   auto type = cast<RankedTensorType>(getArray().getType());
   if (getIndices().size() != static_cast<size_t>(type.getRank()))
     return emitOpError("takes ") << getIndices().size() << " indices for an array of rank "
                                  << type.getRank();
-  if (getValue().getType() != type.getElementType())
-    return emitOpError("reads ") << getValue().getType() << " from an array of "
-                                 << type.getElementType();
+  return success();
+}
+
+// The element is of the array's element type exactly as the array holds
+// it, its grade the one the value has, and the array given back is of the
+// array's type: one fact each, read off the array.
+LogicalResult ArrayReadOp::inferReturnTypes(MLIRContext *, std::optional<Location>,
+                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  auto type = cast<RankedTensorType>(adaptor.getArray().getType());
+  inferred.push_back(type.getElementType());
+  inferred.push_back(type);
   return success();
 }
 

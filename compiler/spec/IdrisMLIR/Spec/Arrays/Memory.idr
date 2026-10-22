@@ -245,7 +245,10 @@ arrayUpdateYieldOp = MkOp
 ||| as it was, a new value of it, as Idris's type of a linear array's read
 ||| says. Whatever writes the array next takes the value given back, so the
 ||| read precedes the write by the data it reads, never by where it
-||| stands, and no reordering of pure values can put the write first.
+||| stands, and no reordering of pure values can put the write first. Both
+||| types are inferred: the element's is the array's element type exactly
+||| as the array holds it, whose grade is the one the value has, so no
+||| writer states it and no verifier compares it.
 export
 arrayReadOp : Op 2 2 0 0
 arrayReadOp = MkOp
@@ -256,7 +259,7 @@ arrayReadOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Implements flowInterface ["getFlowEdges"]]
+  , interfaces = [Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]]
   , effects = noEffects
   , speculation = AlwaysSpeculatable
   , stages = between Higher First
