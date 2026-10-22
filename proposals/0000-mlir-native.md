@@ -3913,6 +3913,19 @@ C137.
   does not carry. The claim is checked, not assumed: a shipped program's
   object references no account entry, a test of L19's beside
   `check-archive`'s refusal of an account in a shipped archive.
+- **C187** (2026-10-21; L02's finding). `idr.func`'s positional facts
+  (`lives_in`, `given_back`, the bounds) stay consistent under every
+  insert or erase of an argument or result, by whoever calls it, through
+  an upstream patch: `FunctionOpInterface`'s four edits become interface
+  methods with upstream's present behaviour as their defaults, so a
+  generic caller reaches `idr.func`'s own edits, which keep the facts.
+  Today they are shared class declarations that a generic handle never
+  dispatches, and none of the hooks they call receives the index map. A
+  refusal through `cloneTypeWith` returning null would leave a generic
+  caller holding a null type, which without assertions is undefined
+  behaviour, not a refusal. It is carried as an `upstream/` patch with
+  its check and PINS entry (AGENTS.md: the change we need is carried),
+  and lets upstream passes edit `idr.func` safely.
 
 ## 4. Open: the owner's decisions, in order
 
