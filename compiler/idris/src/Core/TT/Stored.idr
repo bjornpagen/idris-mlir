@@ -474,28 +474,32 @@ rootAt a (MkPos n s) = MkRoot a <$> checkIndex (nodeCount a) n <*> checkIndex (l
 -- Decoding
 ------------------------------------------------------------------------------
 
--- The name at a place below the length of a scope.
-0 nameBelow : {0 vars : List a} -> HasLength n vars -> So (idx < n) -> a
-nameBelow {idx = Z} Z lt = absurd lt
-nameBelow {idx = S _} Z lt = absurd lt
+-- The name at a place below the length of a scope. The bound is the
+-- evidence `LT`, whose steps follow the place down the scope.
+0 nameBelow : {0 vars : List a} -> {0 idx : Nat} -> HasLength n vars -> LT idx n -> a
+nameBelow Z LTEZero impossible
+nameBelow Z (LTESucc _) impossible
 nameBelow {vars = x :: _} {idx = Z} (S _) _ = x
-nameBelow {idx = S k} (S p) lt = nameBelow {idx = k} p lt
+nameBelow {idx = S k} (S p) (LTESucc lt) = nameBelow p lt
 
 -- A place below the length of a scope is a variable of it.
-0 inScope : (h : HasLength n vars) -> (lt : So (idx < n)) -> IsVar (nameBelow h lt) idx vars
-inScope {idx = Z} Z lt = absurd lt
-inScope {idx = S _} Z lt = absurd lt
+0 inScope : {0 idx : Nat} -> (h : HasLength n vars) -> (lt : LT idx n) ->
+            IsVar (nameBelow h lt) idx vars
+inScope Z LTEZero impossible
+inScope Z (LTESucc _) impossible
 inScope {idx = Z} (S _) _ = First
-inScope {idx = S k} (S p) lt = Later (inScope {idx = k} p lt)
+inScope {idx = S k} (S p) (LTESucc lt) = Later (inScope p lt)
 
 -- A local variable: its proof is decided from the scope's length, which
--- the decoder carries, so deciding it is one comparison.
+-- the decoder carries, so deciding it is one comparison, and the evidence
+-- the comparison stands for is erased.
 decodeLocal : FC -> Maybe Bool -> (idx : Nat) -> SizeOf vars -> Maybe (Term (vars ++ outer))
 decodeLocal fc l idx s
     = case choose (idx < size s) of
            Left lt =>
-             Just (Local {name = nameBelow (hasLength s) lt} fc l idx
-                         (embedIsVar (inScope (hasLength s) lt)))
+             let 0 below = ltOpReflectsLT idx (size s) lt in
+             Just (Local {name = nameBelow (hasLength s) below} fc l idx
+                         (embedIsVar (inScope (hasLength s) below)))
            Right _ => Nothing
 
 both : (p -> q -> r) -> Maybe p -> Maybe q -> Maybe r
