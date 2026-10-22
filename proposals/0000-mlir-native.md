@@ -4091,6 +4091,15 @@ C137.
   default handed the scrutinee, and a double match into its chain of
   `cmpf oeq`; the frontend writes no `scf.index_switch`, which is
   admitted only where the lowering writes it.
+- **C205** (2026-10-22; L14's eighth pass; under C191). A node's
+  constant in the rewrite graph is a value, an `APInt` read off its
+  singleton range (the rule upstream's range optimizations use), never
+  an attribute: no attribute is made on a worker, and the write-back
+  makes the attributes, once, on the main thread. A rule's literal is
+  generated as a value, and a rule that builds `c0 . c1` over two
+  constants gets its constant from the built node's range at once, as
+  the folds did before C191. The ops C198 never folds are a generated
+  list the rewrite graph reads once, when it is built, and skips.
 
 ## 4. Open: the owner's decisions, in order
 
