@@ -3957,6 +3957,18 @@ C137.
   to shared at the first match that takes it apart, and bufferization
   never sees it. One rule, run where the grade it reads has just been
   written.
+- **C191** (2026-10-21; L14's seam against `mlir-form.md` §3.2). A node
+  a rule builds gets its facts without materializing an op: its range
+  from upstream's own range functions (`InferIntRangeCommon.h`,
+  `inferAnd`, `inferSub` and kin) for an admitted upstream op, and from
+  D41's templates (`InlineArith<F>`, exposing `F`) for ours, chosen by
+  the rule table's generated op kind through a generated table, so no
+  op is created on a worker and no attribute made there; its constant
+  comes only from the meet with what it replaced, since a node whose
+  operands are all constant is folded when it is inserted. The admitted
+  op's record names its range function in the specification. §3.2's
+  line ("a rule-made node is never folded through an `Operation`")
+  stands, and L14's detached-op route goes.
 
 ## 4. Open: the owner's decisions, in order
 
