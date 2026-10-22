@@ -6,14 +6,13 @@
 // regions need into them, each region dropping at its head what a sibling
 // needs and it does not; one that may run a region any number of times, or
 // none, holds what its regions read across it. A terminator's successors
-// say what is needed where it leaves. The walk's stack is on the heap, so
+// say what is needed where it leaves. The walk's stacks are on the heap, so
 // a nesting of any depth costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
 
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -21,15 +20,13 @@ using namespace mlir;
 
 namespace idr::counting::placement {
 
-// The frame of a region op on the walk's stack: the op whose results a
-// yield gives or whose region a jump enters, the walk's own parent or an op
-// around it.
+// The frame of a region op on the walk's stack of them: the op whose
+// results a yield gives or whose region a jump enters, the walk's own
+// parent or an op around it.
 OpWalk *Placement::frameOf(Operation *op) {
-  for (Frame &frame : llvm::reverse(stack))
-    if (OpWalk *walk = match(
-            frame, [&](OpWalk &at) { return at.op == op ? &at : nullptr; },
-            [](BlockWalk &) -> OpWalk * { return nullptr; }))
-      return walk;
+  for (OpWalk &walk : llvm::reverse(ops))
+    if (walk.op == op)
+      return &walk;
   return nullptr;
 }
 
@@ -185,7 +182,7 @@ void Placement::stepBlock(BlockWalk &walk) {
       regions.pinnedHere.set(at);
       pinned.set(at);
     }
-  stack.push_back(std::move(regions));
+  ops.push_back(std::move(regions));
 }
 
 void Placement::stepOp(OpWalk &walk) {
@@ -195,14 +192,14 @@ void Placement::stepOp(OpWalk &walk) {
     if (region.empty())
       return;
     Block &entry = region.front();
-    stack.push_back(BlockWalk{&entry, &entry.back(), State{llvm::BitVector(count.value()), Ahead::Allocation}, index});
+    blocks.push_back(BlockWalk{&entry, &entry.back(), State{llvm::BitVector(count.value()), Ahead::Allocation}, index});
     return;
   }
   State before = finishOp(walk);
   OpWalk finished = std::move(walk);
   pinned.reset(finished.pinnedHere);
-  stack.pop_back();
-  State &state = std::get<BlockWalk>(stack.back()).state;
+  ops.pop_back();
+  State &state = blocks.back().state;
   state = std::move(before);
   // The op's own operands, read or moved as it begins: a value its regions
   // need is live into it already.
@@ -214,7 +211,7 @@ void Placement::stepOp(OpWalk &walk) {
 
 void Placement::finishBlock(BlockWalk &walking) {
   BlockWalk walk = std::move(walking);
-  stack.pop_back();
+  blocks.pop_back();
   // The block's arguments are made at its start: one nothing needs dies
   // there.
   for (BlockArgument arg : walk.block->getArguments()) {
@@ -223,9 +220,9 @@ void Placement::finishBlock(BlockWalk &walking) {
       death(id, Where::atStart(*walk.block), Death::Reading, walk.state);
     walk.state.live.reset(id.index());
   }
-  if (stack.empty())
+  if (ops.empty())
     return;
-  std::get<OpWalk>(stack.back()).entries[walk.region] = std::move(walk.state);
+  ops.back().entries[walk.region] = std::move(walk.state);
 }
 
 // What is live as a region op begins, its regions walked: for an op that

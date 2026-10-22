@@ -48,8 +48,8 @@
 // memory; a drop after that allocation is not placed, since nothing follows
 // it but the end.
 //
-// The walk is iterative, its stack on the heap: a nesting of any depth costs
-// no native stack. It decides everything on the function as it came, and
+// The walk is iterative, its stacks on the heap: a nesting of any depth
+// costs no native stack. It decides everything on the function as it came, and
 // the rewrite follows it.
 #include "idr/Transforms/Counting/Placement.h"
 
@@ -287,9 +287,13 @@ void Placement::run() {
   classify();
   pinned.resize(count.value());
   Block &body = fn.getBody().front();
-  stack.push_back(BlockWalk{&body, &body.back(), State{llvm::BitVector(count.value()), Ahead::Allocation}, 0});
-  while (!stack.empty() && succeeded(outcome))
-    match(stack.back(), [&](BlockWalk &walk) { stepBlock(walk); }, [&](OpWalk &walk) { stepOp(walk); });
+  blocks.push_back(BlockWalk{&body, &body.back(), State{llvm::BitVector(count.value()), Ahead::Allocation}, 0});
+  while (!blocks.empty() && succeeded(outcome)) {
+    if (blocks.size() > ops.size())
+      stepBlock(blocks.back());
+    else
+      stepOp(ops.back());
+  }
   if (succeeded(outcome))
     apply();
 }

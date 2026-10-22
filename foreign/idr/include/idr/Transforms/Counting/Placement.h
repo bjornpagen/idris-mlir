@@ -4,7 +4,7 @@
 // function's placement, its values numbered once, each with the role its
 // type and its making give it, an element read out of memory with what may
 // overwrite it while it is in use (Placement.cpp, which holds the pass); the
-// reverse walk over the function's regions, its stack on the heap
+// reverse walk over the function's regions, its stacks on the heap
 // (PlacementWalk.cpp); what each use and each death of a value places
 // (PlacementUses.cpp); and the rewrite that follows what the walk decided
 // (PlacementRewrite.cpp). The walk decides everything on the function as it
@@ -15,7 +15,6 @@
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
-#include "idr/Support/Match.h"
 #include "idr/Transforms/Counting/Facts.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -29,7 +28,6 @@
 #include <cstdint>
 #include <optional>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace idr::counting::placement {
@@ -118,7 +116,11 @@ struct TakeSupply {
 
 // The frames of the iterative walk: a block walked backward, and a region op
 // whose regions are walked last first, so a join point's targets are walked
-// before the body that jumps to them.
+// before the body that jumps to them. They alternate from the function's
+// body down, a region op's frame on its block's and a region's block on its
+// op's, so each kind has a stack of its own: the top is a block exactly when
+// there is one more block than region ops, and the frame below either is
+// the other stack's top.
 struct BlockWalk {
   mlir::Block *block;
   mlir::Operation *next;
@@ -136,7 +138,6 @@ struct OpWalk {
   // The parts live after the op that its regions may not supply.
   llvm::BitVector pinnedHere;
 };
-using Frame = std::variant<BlockWalk, OpWalk>;
 
 class Placement {
 public:
@@ -225,7 +226,8 @@ private:
   std::vector<std::uint32_t> childStart;
 
   llvm::BitVector pinned;
-  llvm::SmallVector<Frame, 16> stack;
+  llvm::SmallVector<BlockWalk, 8> blocks;
+  llvm::SmallVector<OpWalk, 8> ops;
 
   llvm::SmallVector<DupAt> dups;
   llvm::SmallVector<DropAt> drops;

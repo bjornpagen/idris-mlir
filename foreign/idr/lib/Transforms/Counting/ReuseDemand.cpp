@@ -10,13 +10,11 @@
 #include "idr/Transforms/Counting/Reuse.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
-#include <variant>
 
 using namespace mlir;
 
@@ -53,7 +51,12 @@ void Reuse::demands() {
     unsigned remaining;
     llvm::SmallVector<Demand, 2> entries;
   };
-  llvm::SmallVector<std::variant<BlockAt, OpAt>, 16> stack;
+  // The walk's frames alternate from the body down, a region op's on its
+  // block's and a region's block on its op's, so each kind has a stack of
+  // its own: the top is a block exactly when there is one more block than
+  // region ops, and the frame below either is the other stack's top.
+  llvm::SmallVector<BlockAt, 8> blocks;
+  llvm::SmallVector<OpAt, 8> ops;
   // A region op's regions, walked last first; then what is asked before it:
   // before an op that enters one region once, the most any region it enters
   // asks; before one that repeats, what is asked after it, since no token
@@ -62,7 +65,7 @@ void Reuse::demands() {
     if (at.remaining > 0) {
       Region &region = at.op->getRegion(--at.remaining);
       if (!region.empty())
-        stack.push_back(BlockAt{&region.front(), &region.front().back(), none(), region.getRegionNumber()});
+        blocks.push_back(BlockAt{&region.front(), &region.front().back(), none(), region.getRegionNumber()});
       return;
     }
     Demand before = at.after;
@@ -73,25 +76,24 @@ void Reuse::demands() {
       for (const RegionSuccessor &entry : entries)
         raise(before, at.entries[entry.getSuccessor()->getRegionNumber()]);
     }
-    stack.pop_back();
-    std::get<BlockAt>(stack.back()).demand = std::move(before);
+    ops.pop_back();
+    blocks.back().demand = std::move(before);
   };
-  // The frame of the region op `op`, a terminator's parent, on the stack.
+  // The frame of the region op `op`, a terminator's parent, on the stack
+  // of region ops.
   auto frameOf = [&](Operation *op) {
-    for (auto &frame : llvm::reverse(stack))
-      if (OpAt *around = match(
-              frame, [&](OpAt &at) { return at.op == op ? &at : nullptr; },
-              [](BlockAt &) -> OpAt * { return nullptr; }))
-        return around;
+    for (OpAt &at : llvm::reverse(ops))
+      if (at.op == op)
+        return &at;
     return static_cast<OpAt *>(nullptr);
   };
   auto stepBlock = [&](BlockAt &walk) {
     if (!walk.next) {
       BlockAt done = std::move(walk);
-      stack.pop_back();
+      blocks.pop_back();
       trail.push_back(done.demand);
-      if (!stack.empty())
-        std::get<OpAt>(stack.back()).entries[done.region] = std::move(done.demand);
+      if (!ops.empty())
+        ops.back().entries[done.region] = std::move(done.demand);
       return;
     }
     Operation *op = walk.next;
@@ -124,13 +126,17 @@ void Reuse::demands() {
       trail.push_back(walk.demand);
       OpAt at{op, runsOf(op), walk.demand, op->getNumRegions(), {}};
       at.entries.assign(op->getNumRegions(), none());
-      stack.push_back(std::move(at));
+      ops.push_back(std::move(at));
     }
   };
   Block &body = fn.getBody().front();
-  stack.push_back(BlockAt{&body, &body.back(), none(), 0});
-  while (!stack.empty())
-    match(stack.back(), stepOp, stepBlock);
+  blocks.push_back(BlockAt{&body, &body.back(), none(), 0});
+  while (!blocks.empty()) {
+    if (blocks.size() > ops.size())
+      stepBlock(blocks.back());
+    else
+      stepOp(ops.back());
+  }
 }
 
 } // namespace idr::counting::reuse

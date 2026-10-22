@@ -15,7 +15,6 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -23,7 +22,6 @@
 
 #include <algorithm>
 #include <tuple>
-#include <variant>
 
 using namespace mlir;
 
@@ -161,7 +159,12 @@ void Reuse::assign() {
     // What each region that rejoins holds at its yield.
     llvm::SmallVector<std::optional<llvm::SmallVector<Held>>, 2> leftover;
   };
-  llvm::SmallVector<std::variant<Path, Regions>, 16> stack;
+  // The walk's frames alternate from the body down, a region op's on the
+  // path it stands on and a region's path on its op's, so each kind has a
+  // stack of its own: the top is a path exactly when there is one more path
+  // than region ops, and the frame below either is the other stack's top.
+  llvm::SmallVector<Path, 8> paths;
+  llvm::SmallVector<Regions, 8> ops;
   auto count = [](const llvm::SmallVector<Held> &held, unsigned size) {
     return static_cast<std::uint32_t>(llvm::count_if(held, [&](const Held &h) { return h.size == size; }));
   };
@@ -185,24 +188,24 @@ void Reuse::assign() {
         TokenFreeOp::create(b, op->getLoc(), std::move(each.token).consume());
         ++freed;
       }
-      stack.push_back(Path{&entry, &entry.front(), std::move(start), region.getRegionNumber()});
+      paths.push_back(Path{&entry, &entry.front(), std::move(start), region.getRegionNumber()});
       return;
     }
     Regions done = std::move(regions);
-    stack.pop_back();
+    ops.pop_back();
     Demand ahead = std::move(trail.back());
     trail.pop_back();
     llvm::SmallVector<Held> after;
     if (done.runs == Runs::Once)
       after = carryAcross(done.op, done.leftover, ahead);
-    auto &path = std::get<Path>(stack.back());
+    Path &path = paths.back();
     for (Held &each : after)
       path.held.push_back(std::move(each));
     path.next = done.op->getNextNode();
   };
   auto stepPath = [&](Path &path) {
     if (!path.next) {
-      stack.pop_back();
+      paths.pop_back();
       return;
     }
     Operation *op = path.next;
@@ -230,10 +233,8 @@ void Reuse::assign() {
       bool rejoins = llvm::all_of(successors, [&](const RegionSuccessor &s) {
         return s.isOperation() && s.getSuccessorOp() == parent;
       });
-      Regions *around = stack.size() >= 2 ? match(
-                                                stack[stack.size() - 2], [](Regions &at) { return &at; },
-                                                [](Path &) -> Regions * { return nullptr; })
-                                          : nullptr;
+      // The op whose region the path walks, unless it is the body's.
+      Regions *around = ops.empty() ? nullptr : &ops.back();
       if (rejoins && around && around->op == parent && around->runs == Runs::Once) {
         around->leftover[op->getParentRegion()->getRegionNumber()] = std::move(path.held);
         path.held.clear();
@@ -310,13 +311,17 @@ void Reuse::assign() {
       }
       path.held.clear();
     }
-    stack.push_back(std::move(regions));
+    ops.push_back(std::move(regions));
   };
   Block &body = fn.getBody().front();
   trail.pop_back();
-  stack.push_back(Path{&body, &body.front(), {}, 0});
-  while (!stack.empty())
-    match(stack.back(), stepRegions, stepPath);
+  paths.push_back(Path{&body, &body.front(), {}, 0});
+  while (!paths.empty()) {
+    if (paths.size() > ops.size())
+      stepPath(paths.back());
+    else
+      stepRegions(ops.back());
+  }
 }
 
 } // namespace idr::counting::reuse
