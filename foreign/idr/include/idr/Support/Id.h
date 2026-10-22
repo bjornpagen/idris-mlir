@@ -14,10 +14,13 @@
 //
 // Nothing here names MLIR. A numbering of IR handles mints these ids where
 // the IR is read; what is solved over them is solved over dense integers.
+// Each array and set takes its memory through the footprint's allocator,
+// so the most a run held of them is its footprint.
 #ifndef IDR_SUPPORT_ID_H
 #define IDR_SUPPORT_ID_H
 
 #include "idr/Support/Changed.h"
+#include "idr/Support/Footprint.h"
 
 #include "llvm/ADT/BitVector.h"
 
@@ -30,7 +33,6 @@
 #include <ranges>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace idr {
 
@@ -131,42 +133,50 @@ public:
 
 private:
   Count<IdT> count;
-  std::vector<T> items;
+  footprint::Vector<T> items;
 };
 
 // A set of ids that only rises: no member leaves it and it has no reset, so
 // a marking over it is monotone by its API, and a loop that pushes an id
-// only when it rose ends after each id rose once.
+// only when it rose ends after each id rose once. One bit per id, in words.
 template <class IdT>
-  requires(std::numeric_limits<typename IdT::rep>::max() <=
-           std::numeric_limits<unsigned>::max())
 class BitSet {
+  using Word = std::uint64_t;
+  static constexpr std::size_t wordBits = std::numeric_limits<Word>::digits;
+
 public:
-  explicit BitSet(Count<IdT> n) : count(n), bits(n.value()) {}
+  explicit BitSet(Count<IdT> n)
+      : count(n), words((std::size_t{n.value()} + wordBits - 1) / wordBits) {}
 
   // The set whose members are the bits a marking set, one bit per id of the
   // count; a bit past the count names no id and is dropped.
-  BitSet(Count<IdT> n, llvm::BitVector marked) : count(n), bits(std::move(marked)) {
-    bits.resize(n.value());
+  BitSet(Count<IdT> n, const llvm::BitVector &marked) : BitSet(n) {
+    for (unsigned at : marked.set_bits())
+      if (at < n.value())
+        words[at / wordBits] |= Word{1} << (at % wordBits);
   }
 
   Count<IdT> size() const { return count; }
 
-  bool test(IdT id) const { return bits.test(id.index()); }
+  bool test(IdT id) const { return (words[wordOf(id)] & bitOf(id)) != 0; }
 
   // Adds `id`; whether the set rose.
   [[nodiscard]] Changed raise(IdT id) {
-    if (bits.test(id.index()))
+    Word &word = words[wordOf(id)];
+    if ((word & bitOf(id)) != 0)
       return Changed::No;
-    bits.set(id.index());
+    word |= bitOf(id);
     return Changed::Yes;
   }
 
   friend bool operator==(const BitSet &, const BitSet &) = default;
 
 private:
+  static std::size_t wordOf(IdT id) { return id.index() / wordBits; }
+  static Word bitOf(IdT id) { return Word{1} << (id.index() % wordBits); }
+
   Count<IdT> count;
-  llvm::BitVector bits;
+  footprint::Vector<Word> words;
 };
 
 // A fact per (owner, position) where owners differ in arity: a parameter's
@@ -205,8 +215,8 @@ public:
 private:
   Count<OwnerId> count;
   // count + 1 offsets: owner o's row is [start[o], start[o + 1]).
-  std::vector<std::size_t> start;
-  std::vector<T> items;
+  footprint::Vector<std::size_t> start;
+  footprint::Vector<T> items;
 };
 
 } // namespace idr

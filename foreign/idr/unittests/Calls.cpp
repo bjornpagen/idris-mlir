@@ -70,8 +70,8 @@ Program programOf(std::uint64_t seed) {
   Program program(functions);
   for (std::vector<Call> &calls : program) {
     for (unsigned c = draws.below(busiest); c > 0; --c)
-      calls.push_back({draws.below(functions), TailKind::NonTail});
-    const TailKind last[] = {TailKind::NonTail, TailKind::Tail};
+      calls.push_back({draws.below(functions), TailKind::nontail});
+    const TailKind last[] = {TailKind::nontail, TailKind::tail};
     if (!calls.empty())
       calls.back().kind = last[draws.below(std::size(last))];
   }
@@ -103,8 +103,8 @@ mlir::OwningOpRef<mlir::ModuleOp> built(mlir::MLIRContext &context, const Progra
   for (unsigned f = 0; f < program.size(); ++f) {
     b.createBlock(&functions[f].getBody());
     for (Call call : program[f])
-      idr::CallOp::create(b, loc, functions[call.callee], idr::IndexArgsAttr(), mlir::TypeRange(),
-                          mlir::ValueRange(), call.kind);
+      idr::CallOp::create(b, loc, functions[call.callee], idr::IndexArgsAttr(), mlir::ValueRange(),
+                          call.kind);
     idr::ReturnOp::create(b, loc, mlir::ValueRange());
   }
   return module;
@@ -154,7 +154,7 @@ std::string describe(const Program &program) {
   for (unsigned f = 0; f < program.size(); ++f) {
     text += "\n  " + nameOf(f) + ":";
     for (Call call : program[f])
-      text += " " + nameOf(call.callee) + (call.kind == TailKind::Tail ? "(tail)" : "");
+      text += " " + nameOf(call.callee) + (call.kind == TailKind::tail ? "(tail)" : "");
   }
   return text;
 }
@@ -267,7 +267,7 @@ Model kindsMerged(const Program &program) {
   Program merged = program;
   for (std::vector<Call> &calls : merged)
     for (Call &call : calls)
-      call.kind = TailKind::NonTail;
+      call.kind = TailKind::nontail;
   return truth(merged);
 }
 

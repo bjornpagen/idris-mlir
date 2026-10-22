@@ -294,7 +294,7 @@ TEST_F(Ranges, BoundsOf) {
 TEST_F(Ranges, OfType) {
   mlir::MLIRContext context;
   context.loadDialect<idr::IdrDialect>();
-  mlir::Type nat = idr::NatType::get(&context);
+  mlir::Type nat = natural(context);
   mlir::IntegerValueRange natural(ranges::rangeOf(ranges::natural()));
   EXPECT_EQ(ranges::ofType(nat), natural);
   EXPECT_EQ(ranges::ofType(idr::BigType::get(&context)),

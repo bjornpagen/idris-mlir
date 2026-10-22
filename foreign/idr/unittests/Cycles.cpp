@@ -62,10 +62,14 @@ std::string describe(unsigned n, std::uint32_t bits) {
   return "graph " + std::to_string(bits) + " on " + std::to_string(n) + " nodes";
 }
 
+// Whether a failing case is reported: by the box's own judgement, each;
+// by a mutant's, none, since a mutant must fail.
+enum class Report : std::uint8_t { Each, None };
+
 // The cases whose components disagree with `oracle`, over every graph on
 // one to four nodes, up to `limit`; each reported as a failure when
-// `report` is set.
-unsigned judge(Oracle oracle, unsigned limit, bool report) {
+// `report` says so.
+unsigned judge(Oracle oracle, unsigned limit, Report report) {
   unsigned failures = 0;
   for (unsigned n = 1; n <= most; ++n) {
     idr::Count<Node> count = Nodes::Minter::count(n);
@@ -82,7 +86,7 @@ unsigned judge(Oracle oracle, unsigned limit, bool report) {
       idr::Partition<Nodes> parts = idr::components(graph);
       auto fail = [&](const std::string &what) {
         ++failures;
-        if (report)
+        if (report == Report::Each)
           ADD_FAILURE() << what << " in " << describe(n, bits);
       };
       for (Node i : count.ids()) {
@@ -117,7 +121,7 @@ unsigned judge(Oracle oracle, unsigned limit, bool report) {
 }
 
 TEST(Components, EveryGraphAgainstReachability) {
-  EXPECT_EQ(judge(reaches, 10, /*report=*/true), 0u);
+  EXPECT_EQ(judge(reaches, 10, Report::Each), 0u);
 }
 
 // One edge, not a path of them: a cycle through three nodes is then no
@@ -136,8 +140,8 @@ Matrix noSelfEdges(unsigned n, const Matrix &edges) {
 // The judgement can fail: each oracle with a planted fault disagrees with
 // the components on some graph of the box.
 TEST(Components, EachMutantOracleIsCaught) {
-  EXPECT_GT(judge(oneEdge, 1, /*report=*/false), 0u);
-  EXPECT_GT(judge(noSelfEdges, 1, /*report=*/false), 0u);
+  EXPECT_GT(judge(oneEdge, 1, Report::None), 0u);
+  EXPECT_GT(judge(noSelfEdges, 1, Report::None), 0u);
 }
 
 } // namespace

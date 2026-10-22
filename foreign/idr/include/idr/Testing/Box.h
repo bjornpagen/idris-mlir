@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The exhaustive boxes' one test API: the fixture every box's tests share,
-// the bigs a test owns and the readings of what the runtime gives back, the
-// reduced domains a box walks, the walks over their intervals and members,
-// and the printers a failure is reported with. Each box holds only its own
-// rule's tests.
+// the natural a box builds its ops of, the bigs a test owns and the
+// readings of what the runtime gives back, the reduced domains a box walks,
+// the walks over their intervals and members, and the printers a failure
+// is reported with. Each box holds only its own rule's tests.
 #ifndef IDR_TESTING_BOX_H
 #define IDR_TESTING_BOX_H
 
+#include "idr/IR/Families/Terms.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 #include "idr/Support/Enum.h"
@@ -47,6 +48,12 @@ private:
   mlir::OwningOpRef<mlir::ModuleOp> module;
 };
 
+// A natural of no index term a box knows: the opaque term, which a range
+// rule and a hook read as any natural.
+inline idr::NatType natural(mlir::MLIRContext &context) {
+  return idr::NatType::get(&context, idr::families::TermNode{idr::families::TermKind::Opaque});
+}
+
 // The fixture of each test of a box, googletest's hook around it: its
 // TearDown expects no failing input. A box can fail on millions of inputs,
 // and an assertion reports each; googletest has none that counts, so
@@ -68,12 +75,13 @@ private:
   unsigned failures = 0;
 };
 
-// A big the test owns, released once when it ends: the runtime's C ABI
-// hands out references, and nothing in googletest owns one.
+// A big the test owns, released once when it ends by the runtime's
+// decrement of a big's word, a small or a cell: the runtime's C ABI hands
+// out references, and nothing in googletest owns one.
 class Owned {
 public:
   explicit Owned(idris_rt_big reference) : word(reference) {}
-  ~Owned() { idris_rt_big_release(word); }
+  ~Owned() { idris_rt_dec_big(word); }
   Owned(const Owned &) = delete;
   Owned &operator=(const Owned &) = delete;
 
@@ -112,7 +120,7 @@ inline bool represents(idris_rt_big r, i128 e) {
 inline bool is(idris_rt_big result, i128 e) {
   if (!represents(result, e))
     return false;
-  idris_rt_big_release(result);
+  idris_rt_dec_big(result);
   return true;
 }
 

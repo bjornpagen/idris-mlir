@@ -66,7 +66,7 @@ TEST_F(Hooks, Pred) {
   mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
-  mlir::Type nat = idr::NatType::get(&context);
+  mlir::Type nat = natural(context);
   auto op = idr::NatPredOp::create(builder, loc, nat, block.addArgument(nat, loc));
   // The operand is a natural that is not zero.
   checkUnary(*this, op, 1,
@@ -84,7 +84,7 @@ TEST_F(Hooks, NatFromBig) {
   mlir::Block &block = scratch.block();
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
-  auto op = idr::NatFromBigOp::create(builder, loc, idr::NatType::get(&context),
+  auto op = idr::NatFromBigOp::create(builder, loc, natural(context),
                                       block.addArgument(idr::BigType::get(&context), loc));
   // The operand is any Integer.
   checkUnary(*this, op, INT64_MIN,
@@ -103,7 +103,7 @@ TEST_F(Hooks, NatToBig) {
   mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(&block);
   mlir::Location loc = builder.getUnknownLoc();
   auto op = idr::NatToBigOp::create(builder, loc, idr::BigType::get(&context),
-                                    block.addArgument(idr::NatType::get(&context), loc));
+                                    block.addArgument(natural(context), loc));
   // The operand is a natural, and the result the same big under another
   // type, with no runtime function.
   checkUnary(*this, op, 0, [](int64_t x) { return big(x); });

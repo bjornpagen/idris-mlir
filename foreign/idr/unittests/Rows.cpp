@@ -186,16 +186,15 @@ mlir::OwningOpRef<mlir::ModuleOp> programOf(mlir::MLIRContext &context, const Sh
   for (unsigned f = 0; f < rows.size(); ++f) {
     b.createBlock(&functions[f].getBody());
     for (unsigned callee : shape.calls[f])
-      idr::CallOp::create(b, loc, functions[callee], idr::IndexArgsAttr(), mlir::TypeRange(),
-                          mlir::ValueRange(), idr::TailKind::NonTail);
+      idr::CallOp::create(b, loc, functions[callee], idr::IndexArgsAttr(), mlir::ValueRange(),
+                          idr::TailKind::nontail);
     idr::ReturnOp::create(b, loc, mlir::ValueRange());
   }
   return module;
 }
 
-// Writes one function's row, and every call of it takes the same, as the
-// one writer of rows leaves a function and its calls: no function of the
-// box has a write part, so a call's copy is its row.
+// Writes one function's row, and every call of it copies what it holds of
+// its callee, as the one writer of rows leaves a function and its calls.
 struct Rewrite : mlir::PassWrapper<Rewrite, mlir::OperationPass<idr::ProgramOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Rewrite)
 
@@ -203,10 +202,11 @@ struct Rewrite : mlir::PassWrapper<Rewrite, mlir::OperationPass<idr::ProgramOp>>
 
   void runOnOperation() override {
     idr::ProgramOp program = getOperation();
-    llvm::cast<idr::FuncOp>(mlir::SymbolTable::lookupSymbolIn(program, function)).setRow(row);
+    auto fn = llvm::cast<idr::FuncOp>(mlir::SymbolTable::lookupSymbolIn(program, function));
+    fn.setRow(row);
     program.walk([&](idr::CallOp call) {
       if (call.getCalleeAttr().getAttr() == function)
-        call.setRow(row);
+        call.copyCallee(fn);
     });
   }
 

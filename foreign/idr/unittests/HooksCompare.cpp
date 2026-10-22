@@ -78,7 +78,7 @@ void checkCmp(Judge &box, Order order) {
   // Two Integers, of any member, and two naturals, of the members not
   // negative.
   std::pair<mlir::Type, int64_t> operands[] = {{idr::BigType::get(&context), INT64_MIN},
-                                               {idr::NatType::get(&context), 0}};
+                                               {natural(context), 0}};
   for (auto [type, least] : operands) {
     mlir::Value lhs = block.addArgument(type, loc), rhs = block.addArgument(type, loc);
     eachPredicate([&](idr::CmpPredicate predicate) {
@@ -132,7 +132,7 @@ void checkToInt(Judge &box, Value value) {
   mlir::Location loc = builder.getUnknownLoc();
   // An Integer, of any member, and a natural, of the members not negative.
   std::pair<mlir::Type, int64_t> operands[] = {{idr::BigType::get(&context), INT64_MIN},
-                                               {idr::NatType::get(&context), 0}};
+                                               {natural(context), 0}};
   for (auto [type, least] : operands)
     for (unsigned width : {8u, 16u, 32u, 64u}) {
       mlir::IntegerType result = builder.getIntegerType(width);

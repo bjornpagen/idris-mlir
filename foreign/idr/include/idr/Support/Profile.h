@@ -7,15 +7,24 @@
 // initialized and a zone is a load and a branch, so nothing is recorded
 // and no output byte changes. The trace is Chrome trace JSON, read by
 // Perfetto. The zones of passes and analyses, whose names are only
-// known at run time, are addInstrumentation's and llvmCallbacks'.
+// known at run time, are addInstrumentation's and llvmCallbacks'; each
+// pass's footprint, run by run, is footprints', handed to whoever records
+// it (the driver's report).
 #ifndef IDR_SUPPORT_PROFILE_H
 #define IDR_SUPPORT_PROFILE_H
 
+#include "idr/Support/Footprint.h"
+
+#include "mlir/Pass/PassInstrumentation.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TimeProfiler.h"
 
+#include <concepts>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <utility>
 
 namespace llvm {
 class PassInstrumentationCallbacks;
@@ -72,6 +81,41 @@ void addInstrumentation(mlir::PassManager &pm);
 // pointer it may be given or not. Null while no trace is started, so a
 // builder given it is then the builder it was.
 llvm::PassInstrumentationCallbacks *llvmCallbacks();
+
+namespace detail {
+
+// The runs of passes this thread is inside, innermost last: the pass
+// manager calls a run's before- and after-hooks on the one thread that runs
+// it, in nesting order, so each thread's stack is its own and needs no lock.
+template <class Record>
+class Footprints final : public mlir::PassInstrumentation {
+public:
+  explicit Footprints(Record record) : record(std::move(record)) {}
+
+  void runBeforePass(mlir::Pass *, mlir::Operation *) override {
+    runs.push_back(footprint::Run::begin());
+  }
+  void runAfterPass(mlir::Pass *pass, mlir::Operation *) override { end(*pass); }
+  void runAfterPassFailed(mlir::Pass *pass, mlir::Operation *) override { end(*pass); }
+
+private:
+  void end(mlir::Pass &pass) { record(pass, runs.pop_back_val().end()); }
+
+  Record record;
+  static inline thread_local llvm::SmallVector<footprint::Run, 4> runs;
+};
+
+} // namespace detail
+
+// The footprint of every run of every pass a manager runs, those of its
+// nested and dynamic pipelines included (footprint::Run): `record` is given
+// the pass and the bytes as each run ends, on the thread that ran it, which
+// may be any of the manager's, so what it writes into is its own to lock.
+template <class Record>
+  requires std::invocable<Record &, mlir::Pass &, std::uint64_t>
+std::unique_ptr<mlir::PassInstrumentation> footprints(Record record) {
+  return std::make_unique<detail::Footprints<Record>>(std::move(record));
+}
 
 } // namespace idr::profile
 
