@@ -69,7 +69,7 @@ readings i (Just ((Element kind _, t), w) :: as) = do
       (h, root) <- closedHeight kind t
       let r = MkStaticReading h (case root of
                              Rooted j => Just j
-                             Template.Chosen => Nothing
+                             Template.Chosen _ => Nothing
                              Gives _ => Nothing
                              Unrooted => Nothing
                              Parameter _ _ => Nothing)

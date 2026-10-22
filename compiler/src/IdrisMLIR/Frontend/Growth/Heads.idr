@@ -303,6 +303,22 @@ mutual
   byLeaves v own u [] = empty
   byLeaves v own u (t :: ts) = union (byTemplate v own u t) (byLeaves v own u ts)
 
+-- What an instance that fixes a dictionary its site leaves to the running
+-- program keys a callee by: the definition its one right-hand side builds
+-- it with, or no head, where it gives what its leaves give; nothing where
+-- no instance fixes it. A request at that instance is keyed by its root
+-- there, so the callee is split by it.
+fixedKey : Settling -> SortedSet Heading
+fixedKey AtRunTimeAlways = empty
+fixedKey (FixedAt (BuiltBy j)) = singleton (HeadedBy j)
+fixedKey (FixedAt (GivenBy _)) = singleton Headless
+
+-- And what a dispatch through it reaches there: what keys a callee, and
+-- what its leaves give, which reach beside it.
+fixedReach : Settling -> SortedSet Heading
+fixedReach (FixedAt (GivenBy js)) = insert Headless (fromList (map HeadedBy js))
+fixedReach s = fixedKey s
+
 -- A dictionary with the root Core gave it. A parameter matched deeper, or
 -- no root (a projection of what no constructor builds), says nothing of
 -- its own, and the template decides, a part of it no root is read off at
@@ -312,8 +328,9 @@ mutual
 byRoot : View -> Own -> Root -> Template -> SortedSet Heading
 byRoot v own (Rooted j) _ = singleton (HeadedBy j)
 -- What the running program chooses, its template says: its choice, which
--- the reader put in (`asGiven`).
-byRoot v own Chosen t = byTemplate v own OfChosen t
+-- the reader put in (`asGiven`); and what an instance that fixes it after
+-- all makes of it.
+byRoot v own (Chosen s) t = union (byTemplate v own OfChosen t) (fixedReach s)
 byRoot v own (Gives js) _ = insert Headless (fromList (map HeadedBy (forget js)))
 byRoot v own (Parameter i Z) _ = own.ofMarker i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own OfRootless t
@@ -325,7 +342,7 @@ byRoot v own Unrooted t = byTemplate v own OfRootless t
 byFamily : Own -> Root -> SortedSet Heading
 byFamily own (Rooted j) = singleton (HeadedBy j)
 byFamily own (Parameter i Z) = own.ofMarker i
-byFamily own Chosen = singleton Headless
+byFamily own (Chosen _) = singleton Headless
 byFamily own (Gives _) = singleton Headless
 byFamily own (Parameter _ (S _)) = singleton Headless
 byFamily own Unrooted = singleton Headless
@@ -351,10 +368,12 @@ byArgument v own ByTypeConstructor x = byFamily own x.root
 -- What an argument keys its callee by, at the call: what it can be, but
 -- no head alone for a function that gives an implementation at each use
 -- (`Gives`), which the callee is given as written, one instance of it
--- taking every member.
+-- taking every member; and for one the running program chooses, its
+-- choice's members and what an instance that fixes it is keyed by there.
 keyedBy : View -> Own -> Splitting -> Argument -> SortedSet Heading
 keyedBy v own how x = case (how, x.root) of
   (ByImplementation, Gives _) => singleton Headless
+  (ByImplementation, Chosen s) => union (byTemplate v own OfChosen x.template) (fixedKey s)
   _ => byArgument v own how x
 
 -- The arguments a site passes that split their callee, each with how.

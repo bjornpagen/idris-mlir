@@ -128,13 +128,30 @@ definitionRead a = do
 -- Roots
 ------------------------------------------------------------------------------
 
+||| What a dictionary is at an instance whose values fix it: the definition
+||| there, whose one right-hand side builds it, an implementation, which
+||| splits its callee; or the implementations its leaves give, where it
+||| computes one by matching or by applying another, which split nothing.
+public export
+data FixedRoot = BuiltBy Address | GivenBy (List Address)
+
+||| What an instance makes of a dictionary its site leaves to the running
+||| program. Stuck on a runtime value, or on a definition Idris does not
+||| prove ends, it is the running program's at every instance. Stuck on
+||| the writer's markers, each of which an instance puts a value in for,
+||| an instance may fix it after all (`Closed.fixing`), and there it is
+||| what a fixed one is (`FixedRoot`).
+public export
+data Settling = AtRunTimeAlways | FixedAt FixedRoot
+
 ||| What a dictionary or a family is at its root: the definition there (an
 ||| implementation or an interface constructor a dictionary is, the type
 ||| constructor a family's value applies); a dictionary the running program
 ||| chooses (`Closed.fixing`): a runtime value, or a definition no
 ||| compile-time reduction fixes, a member of its type's choice, which the
 ||| translation dispatches on wherever it is given, so a reader of it puts
-||| in the choice (`asGiven`); the implementations a definition's leaves
+||| in the choice (`asGiven`), with what an instance that fixes it after
+||| all makes of it (`Settling`); the implementations a definition's leaves
 ||| give, where the program fixes the dictionary but no site names which: a
 ||| function that gives one at each use (a rank-2 dictionary, `\{y} => if
 ||| y == 0 then loud else quiet`), or a definition that computes one by
@@ -144,7 +161,7 @@ definitionRead a = do
 ||| builds, which the template's field says).
 public export
 data Root = Rooted Address
-          | Chosen
+          | Chosen Settling
           | Gives (List1 Address)
           | Parameter Nat Nat
           | Unrooted
@@ -1196,15 +1213,39 @@ givesOf : List Address -> Root
 givesOf [] = Unrooted
 givesOf (m :: ms) = Gives (m ::: ms)
 
+||| The implementations an instance that fixes a dictionary can make it.
+fixedAddresses : FixedRoot -> List Address
+fixedAddresses (BuiltBy a) = [a]
+fixedAddresses (GivenBy js) = js
+
 ||| The implementations a root can be: none for the writer's own parameter,
-||| whose head is the node's, none for one the running program chooses,
-||| whose members its choice holds, and none for what roots nothing.
+||| whose head is the node's; for one the running program chooses, whose
+||| members its choice holds, only those an instance that fixes it after
+||| all makes it; and none for what roots nothing.
 addresses : Root -> List Address
 addresses (Rooted j) = [j]
-addresses Chosen = []
+addresses (Chosen AtRunTimeAlways) = []
+addresses (Chosen (FixedAt f)) = fixedAddresses f
 addresses (Gives ms) = forget ms
 addresses (Parameter _ _) = []
 addresses Unrooted = []
+
+||| Does a term mention one of the walk's markers, each of which an
+||| instance puts a value in for: the writer's parameter, a part of one a
+||| site matched, a field of its dictionary, an argument of a family's
+||| value? Any other probe stands for a runtime value, which no instance
+||| puts in.
+mentionsMarker : TT vs -> Bool
+mentionsMarker = mentions marker
+  where
+    marker : {0 ws : Scope} -> TT ws -> Bool
+    marker (Ref _ Bound n) = case probeOf n of
+      Just (ProbeVar _ _) => True
+      Just (ProbePattern _) => True
+      Just (ProbeFieldPath _ _ _) => True
+      Just (ProbeFormal _ _) => True
+      _ => False
+    marker _ = False
 
 ||| The type of a definition applied to arguments, normalised as a type is
 ||| read: each argument put in for the binder that takes it, and past the
@@ -1316,9 +1357,9 @@ mutual
       -- A field of a dictionary, which the template's field says, and
       -- what is no dictionary.
       WalkMarker _ => pure Unrooted
-      HoleMarker _ => pure Chosen
+      HoleMarker _ => pure (Chosen AtRunTimeAlways)
       FormalMarker _ _ => pure Unrooted
-      RuntimePart => pure Chosen
+      RuntimePart => pure (Chosen AtRunTimeAlways)
       TypeConstructor _ => pure Unrooted
   -- A dictionary delayed, or forced, is that dictionary: a choice's leaves
   -- hold their alternatives lazily.
@@ -1343,7 +1384,7 @@ mutual
           | Just _ => pure Unrooted
         givesOf . addresses <$> definitionRoot w acc (Ref EmptyFC Func n) n a as
     _ => pure Unrooted
-  rootOf w acc (Erased _ Impossible) _ = pure Chosen
+  rootOf w acc (Erased _ Impossible) _ = pure (Chosen AtRunTimeAlways)
   rootOf w acc _ _ = pure Unrooted
 
   ||| A definition applied that is no projection, at its root, as the
@@ -1358,7 +1399,9 @@ mutual
   ||| that computes it, by matching or by applying another, is one of the
   ||| implementations its leaves give, which a match reads through each.
   ||| Otherwise the running program chooses it, a member of its type's
-  ||| choice, which every dispatch on it reads whole.
+  ||| choice, which every dispatch on it reads whole; and where what its
+  ||| reduction is stuck on mentions the walk's markers, an instance's
+  ||| values may fix it after all, and it is there what a fixed one is.
   definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                    (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front Root
   definitionRoot w acc head n a args = do
@@ -1371,20 +1414,37 @@ mutual
       -- each use; a value of an interface's type is one.
       Bind _ _ (Pi {}) _ => givesOf <$> leafRoots w acc n (args ++ replicate (lacking def) unknownPart)
       _ => case !(fixing ty (applyTo head args)) of
-        ChosenAtRunTime _ => pure Chosen
-        FixedNow => case definition def of
-          PMDef _ pargs body => do
-            Just rhs <- leafOfBody {args = pargs} body
-              | Nothing => givesOf <$> leafRoots w acc n args
-            case getFn rhs of
-              Ref _ (DataCon _ _) _ => pure (Rooted a)
-              _ => givesOf <$> leafRoots w acc n args
-          _ => pure (Rooted a)
+        ChosenAtRunTime on => Chosen <$> settling on def
+        FixedNow => asRoot <$> fixedAs def
     where
       lacking : GlobalDef -> Nat
       lacking def = case definition def of
         PMDef _ pargs _ => minus (length pargs) (length args)
         _ => 0
+
+      -- What the definition applied is where the program fixes it.
+      fixedAs : GlobalDef -> Front FixedRoot
+      fixedAs def = case definition def of
+        PMDef _ pargs body => do
+          Just rhs <- leafOfBody {args = pargs} body
+            | Nothing => GivenBy <$> leafRoots w acc n args
+          case getFn rhs of
+            Ref _ (DataCon _ _) _ => pure (BuiltBy a)
+            _ => GivenBy <$> leafRoots w acc n args
+        _ => pure (BuiltBy a)
+
+      asRoot : FixedRoot -> Root
+      asRoot (BuiltBy j) = Rooted j
+      asRoot (GivenBy js) = givesOf js
+
+      -- Essential: a reduction stuck on a value that mentions the walk's
+      -- markers is one an instance puts values in for, and one stuck on
+      -- anything else, a definition Idris does not prove ends above all,
+      -- stays stuck at every instance.
+      settling : StuckOn -> GlobalDef -> Front Settling
+      settling (OnPartial _) def = pure AtRunTimeAlways
+      settling (OnRuntime t) def = if mentionsMarker t then FixedAt <$> fixedAs def else pure AtRunTimeAlways
+      settling (OnValue t) def = if mentionsMarker t then FixedAt <$> fixedAs def else pure AtRunTimeAlways
 
   ||| The implementations a definition applied gives at the leaves of its
   ||| case tree: every alternative's, since what it matches on is known
@@ -1498,7 +1558,7 @@ choiceHeadOf ty = case getFn ty of
 ||| so is every argument that is no dictionary.
 export
 asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
-asGiven (Just k) (t, Chosen) = Choice (Leaf 1) [t, Member k]
+asGiven (Just k) (t, Chosen _) = Choice (Leaf 1) [t, Member k]
 asGiven _ (t, _) = t
 
 ||| A request's argument read as its key (`rooted`): its height and its

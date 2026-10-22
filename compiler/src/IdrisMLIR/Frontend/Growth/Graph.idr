@@ -479,7 +479,7 @@ joinLanding _ _ = Open
 -- an arc carries.
 landingOf : Argument -> Landing
 landingOf x = case x.root of
-  Template.Chosen => Open
+  Template.Chosen _ => Open
   Gives _ => Open
   _ => case (beta x.template, selfBounded x.template, x.term) of
     (Computes, True, Just tm) => Evaluable [tm]
