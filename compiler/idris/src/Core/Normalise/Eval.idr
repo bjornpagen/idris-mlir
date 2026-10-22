@@ -253,10 +253,10 @@ parameters (defs : Defs) (topopts : EvalOpts)
                   (idx : Nat) -> (0 p : IsVar nm idx (vars ++ free)) ->
                   LocalEnv free vars -> NF free ->
                   LocalEnv free vars
-    updateLocal opts env Z _ (x :: locs) nf
+    updateLocal opts env Z First (x :: locs) nf
         = MkNFClosure opts env nf :: locs
-    updateLocal opts env (S idx) p (x :: locs) nf
-        = x :: updateLocal opts env idx (dropLater p) locs nf
+    updateLocal opts env (S idx) (Later p) (x :: locs) nf
+        = x :: updateLocal opts env idx p locs nf
     updateLocal _ _ _ _ locs nf = locs
 
     evalMeta : {auto c : Ref Ctxt Defs} ->
@@ -470,7 +470,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                    | NoMatch => findAlt env loc opts fc stk val xs
                    | GotStuck => do
                        logC "eval.casetree.stuck" 5 $ do
-                         val <- toFullNF val
+                         val <- toFullNames val
                          alt <- matched x
                          pure $ "Got stuck matching \{show val} against \{alt}"
                        pure GotStuck
@@ -486,7 +486,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
            -- we have not defined quote yet (it depends on eval itself) so we show the NF
            -- i.e. only the top-level constructor.
            logC "eval.casetree" 5 $ do
-             xval <- toFullNF xval
+             xval <- toFullNames xval
              pure "Evaluated \{show name} to \{show xval}"
            let loc' = updateLocal opts env idx (embedIsVar x) loc xval
            findAlt env loc' opts fc stk xval alts
@@ -578,14 +578,14 @@ parameters (defs : Defs) (topopts : EvalOpts)
              || (tcInline opts && elem TCInline flags)
              then case argsFromStack args stk of
                        Nothing => do logC "eval.def.underapplied" 50 $ do
-                                       def <- toFullNF def
+                                       def <- toFullNames def
                                        pure "Cannot reduce under-applied \{show def}"
                                      pure def
                        Just (locs', stk') =>
                             walkTree body (\leaf, tree =>
                               do (Result (MkReached newLoc res)) <- evalTree env locs' opts fc stk' tree
                                       | _ => do logC "eval.def.stuck" 50 $ do
-                                                  def <- toFullNF def
+                                                  def <- toFullNames def
                                                   pure "evalTree failed on \{show def}"
                                                 pure def
                                  tm <- leafTerm leaf res
@@ -618,7 +618,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
     -- the stack
     evalDef env opts meta fc rigd def flags stk orig = do
       logC "eval.def.stuck" 50 $ do
-        orig <- toFullNF orig
+        orig <- toFullNames orig
         pure "Cannot reduce def \{show orig}: it is a \{show def}"
       pure orig
 

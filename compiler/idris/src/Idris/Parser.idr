@@ -391,7 +391,7 @@ mutual
   opExpr q fname indents = autobindOp q fname indents
                        <|> opExprBase q fname indents
 
-  dpairType : OriginDesc -> WithBounds () -> IndentInfo -> Rule (Id FTerm)
+  dpairType : OriginDesc -> WithBounds t -> IndentInfo -> Rule (Id FTerm)
   dpairType fname start indents
       = do loc <- bounds (do x <- decoratedSimpleBinderUName fname
                              decoratedSymbol fname SymColon
@@ -399,7 +399,7 @@ mutual
                              pure (x, ty))
            (x, ty) <- pure loc.val
            op <- bounds (symbol SymStarStar)
-           rest <- bounds (nestedDpair fname (ignore loc) indents <|> typeExpr pdef fname indents)
+           rest <- bounds (nestedDpair fname loc indents <|> typeExpr pdef fname indents)
            var <- node (TmRef (boundToFC fname loc) x)
            node (TmDPair (boundToFC fname (mergeBounds start rest))
                          (boundToFC fname op)
@@ -407,7 +407,7 @@ mutual
                          ty
                          rest.val)
 
-  nestedDpair : OriginDesc -> WithBounds () -> IndentInfo -> Rule (Id FTerm)
+  nestedDpair : OriginDesc -> WithBounds t -> IndentInfo -> Rule (Id FTerm)
   nestedDpair fname start indents
       = dpairType fname start indents
     <|> do l <- expr pdef fname indents
@@ -420,7 +420,7 @@ mutual
                          imp
                          rest.val)
 
-  bracketedExpr : OriginDesc -> WithBounds () -> IndentInfo -> Rule (Id FTerm)
+  bracketedExpr : OriginDesc -> WithBounds t -> IndentInfo -> Rule (Id FTerm)
   bracketedExpr fname s indents
       -- left section. This may also be a prefix operator, but we'll sort
       -- that out when desugaring: if the operator is infix, treat it as a
@@ -476,7 +476,7 @@ mutual
   getInitRange [x,y] = pure (x.val, Just y.val)
   getInitRange _ = fatalError "Invalid list range syntax"
 
-  listRange : OriginDesc -> WithBounds () -> IndentInfo -> List (WithBounds (Id FTerm)) -> Rule (Id FTerm)
+  listRange : OriginDesc -> WithBounds t -> IndentInfo -> List (WithBounds (Id FTerm)) -> Rule (Id FTerm)
   listRange fname s indents xs
       = do b <- bounds (decoratedSymbol fname SymBracketClose)
            let fc = boundToFC fname (mergeBounds s b)
@@ -535,7 +535,7 @@ mutual
   -- A tuple with its first component `e`, or a section of one: each
   -- component left out is a variable the section binds, each pair is where
   -- its comma is.
-  nonEmptyTuple : OriginDesc -> WithBounds () -> IndentInfo -> Id FTerm -> Rule (Id FTerm)
+  nonEmptyTuple : OriginDesc -> WithBounds t -> IndentInfo -> Id FTerm -> Rule (Id FTerm)
   nonEmptyTuple fname s indents e
       = do vals <- some $ do b <- bounds (symbol SymComma)
                              exp <- optional (typeExpr pdef fname indents)
@@ -571,7 +571,7 @@ mutual
           = MkPair fc <$> traverse (\i => make (TmRef fc (MN (known K__infixTupleSection) i))) c
 
   -- A pair, dependent pair, or just a single expression
-  tuple : OriginDesc -> WithBounds () -> IndentInfo -> Id FTerm -> Rule (Id FTerm)
+  tuple : OriginDesc -> WithBounds t -> IndentInfo -> Id FTerm -> Rule (Id FTerm)
   tuple fname s indents e
      =   nonEmptyTuple fname s indents e
      <|> do end <- bounds (continueWithDecorated fname indents SymParenClose)
@@ -891,9 +891,9 @@ mutual
   caseAlt : OriginDesc -> IndentInfo -> Rule (Id FClause)
   caseAlt fname indents
       = do lhs <- bounds (opExpr plhs fname indents)
-           caseRHS fname (ignore lhs) indents lhs.val
+           caseRHS fname lhs indents lhs.val
 
-  caseRHS : OriginDesc -> WithBounds () -> IndentInfo -> Id FTerm -> Rule (Id FClause)
+  caseRHS : OriginDesc -> WithBounds t -> IndentInfo -> Id FTerm -> Rule (Id FClause)
   caseRHS fname start indents lhs
       = do rhs <- bounds $ do
                     decoratedSymbol fname SymFatArrow
@@ -1287,7 +1287,7 @@ withProblem fname col indents
 
 mutual
   parseRHS : (withArgs : Nat) ->
-             OriginDesc -> WithBounds () -> Int ->
+             OriginDesc -> WithBounds t -> Int ->
              IndentInfo -> (lhs : (Id FTerm, List (FC, Id FTerm))) -> Rule (Id FClause)
   parseRHS withArgs fname start col indents lhs
        = do b <- bounds $ do
@@ -1337,7 +1337,7 @@ mutual
               (fatalError $ "Wrong number of 'with' arguments:"
                          ++ " expected " ++ show withArgs
                          ++ " but got " ++ show (length extra))
-              (parseRHS withArgs fname (ignore b) col indents lhs)
+              (parseRHS withArgs fname b col indents lhs)
     where
 
       clauseLHS : OriginDesc -> IndentInfo ->
@@ -1370,8 +1370,8 @@ tyConType fname fc params
 -- A constructor's argument in a simple data declaration: explicit or auto
 -- implicit, as only these may be.
 conArg : WithFC ArgType -> Maybe (FC, PiInfo (Id FTerm), Id FTerm)
-conArg (MkWithData fc (UnnamedExpArg x)) = Just (fc, Explicit, x)
-conArg (MkWithData fc (UnnamedAutoArg x)) = Just (fc, AutoImplicit, x)
+conArg con@(MkWithData _ (UnnamedExpArg x)) = Just (con.fc, Explicit, x)
+conArg con@(MkWithData _ (UnnamedAutoArg x)) = Just (con.fc, AutoImplicit, x)
 conArg _ = Nothing -- with and named applications not allowed in simple ADTs
 
 -- A constructor's type in a simple data declaration: its arguments, and the
@@ -1395,7 +1395,7 @@ simpleCon fname ret indents
          let (cdoc, cname, conType) = b.val
          node (TyClaim (boundToFC fname b) (singleton ("", cname)) cdoc conType)
 
-simpleData : OriginDesc -> WithBounds () ->
+simpleData : OriginDesc -> WithBounds t ->
              WithBounds Name -> IndentInfo -> Rule (Id FData)
 simpleData fname start tyName indents
     = do b <- bounds (do params <- many (bounds $ decorate fname Bound name)
@@ -1430,7 +1430,7 @@ dataOpts fname = option [] $ do
   decoratedSymbol fname SymBracketClose
   pure (forget opts)
 
-dataBody : OriginDesc -> Int -> WithBounds () -> Name -> IndentInfo -> Maybe (Id FTerm) ->
+dataBody : OriginDesc -> Int -> WithBounds t -> Name -> IndentInfo -> Maybe (Id FTerm) ->
           EmptyRule (Id FData)
 dataBody fname mincol start n indents ty
     = do ty <- maybe (fail "Telescope is not optional in forward declaration") pure ty
@@ -1443,7 +1443,7 @@ dataBody fname mincol start n indents ty
          (opts, cs) <- pure b.val
          node (DtBody (boundToFC fname (mergeBounds start b)) n ty opts cs)
 
-gadtData : OriginDesc -> Int -> WithBounds () ->
+gadtData : OriginDesc -> Int -> WithBounds t ->
            WithBounds Name -> IndentInfo -> EmptyRule (Id FData)
 gadtData fname mincol start tyName indents
     = do ty <- optional $
@@ -1459,7 +1459,7 @@ dataDeclBody fname indents
                          n <- mustWork (bounds $ decoratedDataTypeName fname)
                          pure (col, n))
          (col, n) <- pure b.val
-         simpleData fname (ignore b) n indents <|> gadtData fname col (ignore b) n indents
+         simpleData fname b n indents <|> gadtData fname col b n indents
 
 -- a data declaration can have a visibility and an optional totality (#1404)
 dataVisOpt : OriginDesc -> EmptyRule (WithDefault Visibility Private, Maybe TotalReq)
@@ -1696,7 +1696,7 @@ getVisibility (Just vis) (Left x :: xs)
    = fatalError "Multiple visibility modifiers"
 getVisibility v (_ :: xs) = getVisibility v xs
 
-recordConstructor : OriginDesc -> Rule (WithDocFC Name)
+recordConstructor : OriginDesc -> Rule (WithDoc $ AddFC Name)
 recordConstructor fname
   = do doc <- optDocumentation fname
        decorate fname Keyword $ exactIdent Kconstructor

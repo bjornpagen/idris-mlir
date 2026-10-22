@@ -45,8 +45,7 @@ bindAs rig elabinfo env fc nameFC side n_in (pattm, patty) topexp
          (tm, exp, bty) <- mkPatternHole nameFC rig n env
                                  (implicitMode elabinfo)
                                  topexp
-         log "elab.as" 5 $ "Added as pattern name (" ++ show n ++ ", (" ++ show (rigAs side rig) ++ ", (" ++
-                            showTerm tm ++ ", (" ++ showTerm exp ++ ", " ++ showTerm bty ++ "))))"
+         log "elab.as" 5 $ "Added as pattern name " ++ show (n, (rigAs side rig, tm, exp, bty))
          update EST { boundNames $= ((n, AsBinding (rigAs side rig) Explicit tm exp pattm) :: ),
                       toBind $= ((n, AsBinding (rigAs side rig) Explicit tm bty pattm) ::) }
          (ntm, nty) <- checkExp rig elabinfo env nameFC tm (gnf env exp)

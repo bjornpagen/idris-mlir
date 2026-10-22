@@ -30,8 +30,8 @@ localHelper : {vars : _} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
              NestedNames vars -> Env Term vars ->
-             List ImpDecl -> (NestedNames vars -> Core (Term vars, Glued vars)) ->
-             Core (Term vars, Glued vars)
+             List ImpDecl -> (NestedNames vars -> Core a) ->
+             Core a
 localHelper {vars} nest env nestdecls_in func
     = do est <- get EST
          let f = defining est
@@ -98,7 +98,7 @@ localHelper {vars} nest env nestdecls_in func
     -- application of the nested name.
     updateTyName : NestedNames vars -> ImpTy -> ImpTy
     updateTyName nest ty
-        = { tyName $= map (mapNestedName nest) } ty
+        = update "tyname" (map (mapNestedName nest)) ty
 
     updateDataName : NestedNames vars -> ImpData -> ImpData
     updateDataName nest (MkImpData loc' n tycons dopts dcons)
@@ -109,12 +109,12 @@ localHelper {vars} nest env nestdecls_in func
 
     updateFieldName : NestedNames vars -> IField -> IField
     updateFieldName nest field
-        = { name $= map (mapNestedName nest) } field
+        = update "name" (map (mapNestedName nest)) field
 
     updateRecordName : NestedNames vars -> ImpRecordData Name -> ImpRecordData Name
     updateRecordName nest (MkImpRecord header body)
-        = let updatedTyName = ({ name $= map (mapNestedName nest) } header)
-              updatedConName = ({ name $= map (mapNestedName nest) } body)
+        = let updatedTyName = (update "name" (map (mapNestedName nest)) header)
+              updatedConName = (update "name" (map (mapNestedName nest)) body)
               updatedParameters = (map (map (updateFieldName nest)) updatedConName)
           in MkImpRecord updatedTyName updatedParameters
 

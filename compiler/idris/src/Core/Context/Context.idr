@@ -192,7 +192,7 @@ Show Def where
 
 public export
 Constructor' : Type -> Type
-Constructor' = WithFCNameArity
+Constructor' = AddFC . WithName . WithArity
 
 public export
 Constructor : Type

@@ -12,12 +12,14 @@ import public Libraries.Text.Token
 
 %default total
 
-||| Parse a terminal based on a kind of token, giving the text recognised.
+||| Parse a terminal based on a kind of token.
 export
-match : Eq k => (kind : k) -> Grammar state (Token k) True String
+match : (Eq k, TokenKind k) =>
+        (kind : k) ->
+        Grammar state (Token k) True (TokType kind)
 match k = terminal "Unrecognised input" $
     \t => if t.kind == k
-             then Just t.text
+             then Just $ tokValue k t.text
              else Nothing
 
 ||| Optionally parse a thing, with a default value if the grammar doesn't

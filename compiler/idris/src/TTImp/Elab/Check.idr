@@ -239,16 +239,15 @@ strengthenedEState {n} {vars} c e fc env
     -- in scope.
     removeArgVars : List (Term (n :: vs)) -> Maybe (List (Term vs))
     removeArgVars [] = pure []
-    removeArgVars (a :: args)
+    removeArgVars (Local fc r (S k) p :: args)
         = do args' <- removeArgVars args
-             if isFirst a
-                then pure args'
-                else do a' <- shrink a (Drop Refl)
-                        pure (a' :: args')
-      where
-        isFirst : Term (n :: vs) -> Bool
-        isFirst (Local _ _ Z _) = True
-        isFirst _ = False
+             pure (Local fc r _ (dropLater p) :: args')
+    removeArgVars (Local fc r Z p :: args)
+        = removeArgVars args
+    removeArgVars (a :: args)
+        = do a' <- shrink a (Drop Refl)
+             args' <- removeArgVars args
+             pure (a' :: args')
 
     removeArg : Term (n :: vs) -> Maybe (Term vs)
     removeArg tm

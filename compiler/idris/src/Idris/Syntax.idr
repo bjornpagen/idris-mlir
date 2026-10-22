@@ -382,7 +382,7 @@ mutual
        MkPRecord : (tyname : Name) ->
                    (params : List (PBinder' nm)) ->
                    (opts : List DataOpt) ->
-                   (conName : Maybe (WithDocFC Name)) ->
+                   (conName : Maybe (WithDoc $ AddFC Name)) ->
                    (decls : List (PField' nm)) ->
                    PRecordDecl' nm
        MkPRecordLater : (tyname : Name) ->
@@ -457,7 +457,7 @@ mutual
 
   public export
   RecordField' : Type -> Type
-  RecordField' nm = WithDocRigNames $ PiBindData (PTerm' nm)
+  RecordField' nm = WithDoc $ WithRig $ WithNames $ PiBindData (PTerm' nm)
 
   public export
   PField : Type
@@ -465,7 +465,7 @@ mutual
 
   public export
   PField' : Type -> Type
-  PField' nm = WithFCDocRigNames $ PiBindData (PTerm' nm)
+  PField' nm = AddFC (RecordField' nm)
 
   public export
   0 PRecordDeclLet : Type
@@ -528,11 +528,11 @@ mutual
                     (doc : String) ->
                     (params : List (BasicMultiBinder' nm)) ->
                     (det : Maybe (List1 Name)) ->
-                    (conName : Maybe (WithDocFC Name)) ->
+                    (conName : Maybe (WithDoc $ AddFC Name)) ->
                     List (PDecl' nm) ->
                     PDeclNoFC' nm
        PImplementation : Visibility -> List PFnOpt -> Pass ->
-                         (implicits : List (WithFCRigName (PiBindData (PTerm' nm)))) ->
+                         (implicits : List (AddFC (ImpParameter' (PTerm' nm)))) ->
                          (constraints : List (Maybe Name, PTerm' nm)) ->
                          Name ->
                          (params : List (PTerm' nm)) ->
@@ -877,7 +877,7 @@ Show IPTerm where
 
 public export 0
 Method : Type
-Method = WithNameRigTot RawImp
+Method = WithName $ WithRig $ AddMetadata Tot' $ RawImp
 
 public export
 record IFaceInfo where

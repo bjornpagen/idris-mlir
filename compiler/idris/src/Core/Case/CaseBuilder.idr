@@ -296,13 +296,6 @@ HasNames (PatClause todo vars) where
   resolved gam (MkPatClause ns nps i rhs)
      = [| MkPatClause (traverse (resolved gam) ns) (resolved gam nps) (pure i) (resolved gam rhs) |]
 
--- A clause with its names made full, as a log shows it. Its scopes are
--- taken at quantity 0: no name depends on them, so the implementation is
--- one for every scope, never one chosen by a scope known only at runtime.
-toFullClause : {auto c : Ref Ctxt Defs} -> {0 todo : List Name} -> {0 vars : Scope} ->
-               PatClause todo vars -> Core (PatClause todo vars)
-toFullClause = toFullNames
-
 0 IsConClause : PatClause (a :: todo) vars -> Type
 IsConClause (MkPatClause _ (MkInfo pat _ _ _ :: _) _ _) = IsConPat pat
 
@@ -819,8 +812,8 @@ moveFirst el nps = getPat el nps :: dropPat el nps
 
 shuffleVars : {idx : Nat} -> (0 el : IsVar nm idx todo) -> PatClause todo vars ->
               PatClause (nm :: dropIsVar todo el) vars
-shuffleVars {idx = Z} First orig = orig -- no-op
-shuffleVars {idx = S _} el (MkPatClause pvars lhs pid rhs)
+shuffleVars First orig@(MkPatClause pvars lhs pid rhs) = orig -- no-op
+shuffleVars el (MkPatClause pvars lhs pid rhs)
     = MkPatClause pvars (moveFirst el lhs) pid rhs
 
 -- The columns `todo` taken apart, each part in order, into those the tree
@@ -1117,7 +1110,7 @@ patCompile fc fn phase ty (p :: ps)
          pats <- mkPatClausesFrom 0 ns (p :: ps)
          -- low verbosity level: pretty print fully resolved names
          logC "compile.casetree" 5 $ do
-           pats <- traverse toFullClause $ forget pats
+           pats <- traverse toFullNames $ forget pats
            pure $ "Pattern clauses:\n"
                 ++ show (indent 2 $ vcat $ pretty <$> pats)
          -- higher verbosity: dump the raw data structure

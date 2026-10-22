@@ -125,7 +125,8 @@ findBindableNames arg env (IAlternative fc u alts)
 -- A name either reading would bind: the dependent pair's value reading
 -- refers to its name where the type reading binds it.
 findBindableNames arg env (ITypeOrValue fc ovl)
-    = concatMap (findBindableNames arg env) [typeReading fc ovl, valueReading fc ovl]
+    = findBindableNames arg env (typeReading fc ovl)
+      ++ findBindableNames arg env (valueReading fc ovl)
 findBindableNames arg env (IUpdate fc updates tm)
     = findBindableNames True env tm ++
       concatMap (findBindableNames True env . getFieldUpdateTerm) updates
@@ -268,7 +269,8 @@ findAllNames env (IUnquote fc t)
 findAllNames env (IAlternative fc u alts)
     = concatMap (findAllNames env) alts
 findAllNames env (ITypeOrValue fc ovl)
-    = concatMap (findAllNames env) [typeReading fc ovl, valueReading fc ovl]
+    = findAllNames env (typeReading fc ovl)
+    ++ findAllNames env (valueReading fc ovl)
 findAllNames env (IUpdate fc updates tm)
     = findAllNames env tm
     ++ concatMap (findAllNames env . getFieldUpdateTerm) updates
@@ -517,13 +519,13 @@ mutual
   substLocData : FC -> ImpData -> ImpData
   substLocData fc' (MkImpData fc n con opts dcons)
       = MkImpData fc' n (map (substLoc fc') con) opts
-                        (map (map (substLoc fc') . { fc := fc' }) dcons)
+                        (map (map (substLoc fc') . set "fc" fc') dcons)
   substLocData fc' (MkImpLater fc n con)
       = MkImpLater fc' n (substLoc fc' con)
 
   substLocDecl : FC -> ImpDecl -> ImpDecl
   substLocDecl fc' (IClaim (MkWithData _ $ MkIClaimData r vis opts td))
-      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') ({ fc := fc' } td)))
+      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') (set "fc" fc' td)))
   substLocDecl fc' (IDef fc n cs)
       = IDef fc' n (map (substLocClause fc') cs)
   substLocDecl fc' (IData fc vis mbtot d)

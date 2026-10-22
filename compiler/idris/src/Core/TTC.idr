@@ -179,90 +179,33 @@ TTC t => TTC (PiBindData t) where
          ty <- fromBuf
          pure (MkPiBindData info ty)
 
--- A payload with metadata is written as upstream's extensible record wrote
--- it: each field of the metadata after a 1, in order, then a 0, then the
--- payload.
-
 export
-metaField : TTC a => Ref Bin Binary => a -> Core ()
-metaField x = do tag 1; toBuf x
+{fs : _} -> (ev : All (TTC . KeyVal.type) fs) => TTC (Record fs) where
+  toBuf [] = tag 0
+  toBuf {ev = _ :: _} ((lbl :- v) :: y)
+    = do tag 1
+       ; toBuf v ; toBuf y
 
-export
-lastMetaField : TTC a => Ref Bin Binary => a -> Core ()
-lastMetaField x = do metaField x; tag 0
-
-export
-readMetaField : TTC a => Ref Bin Binary => {auto ids : Ref Interned Idents} -> Core a
-readMetaField
+  fromBuf {fs = []}
     = case !getTag of
-           1 => fromBuf
+           0 => pure []
+           _ => corrupt "Record"
+  fromBuf {fs = (str :-: v :: xs)} {ev = ba :: bs}
+    = case !getTag of
+           1 => do val <- fromBuf @{ba}
+                   tail <- the (Core (Record xs)) fromBuf
+                   pure ((str :- val) :: tail)
            _ => corrupt "Record"
 
 export
-readLastMetaField : TTC a => Ref Bin Binary => {auto ids : Ref Interned Idents} -> Core a
-readLastMetaField
-    = do x <- readMetaField
-         case !getTag of
-              0 => pure x
-              _ => corrupt "Record"
-
-export
-TTC a => TTC (WithFC a) where
-  toBuf (MkWithData fc x) = do lastMetaField fc; toBuf x
+{fs : _} -> All (TTC . KeyVal.type) fs => TTC a => TTC (WithData fs a) where
+  toBuf (MkWithData extra val)
+    = do toBuf extra
+         toBuf val
   fromBuf
-    = do fc <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithData fc x)
-
-export
-TTC a => TTC (WithName a) where
-  toBuf (MkWithName n x) = do lastMetaField n; toBuf x
-  fromBuf
-    = do n <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithName n x)
-
-export
-TTC a => TTC (WithFCTyName a) where
-  toBuf (MkWithFCTyName fc n x) = do metaField fc; lastMetaField n; toBuf x
-  fromBuf
-    = do fc <- readMetaField
-         n <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithFCTyName fc n x)
-
-export
-TTC a => TTC (WithFCNameArity a) where
-  toBuf (MkWithFCNameArity fc n arity x)
-    = do metaField fc; metaField n; lastMetaField arity; toBuf x
-  fromBuf
-    = do fc <- readMetaField
-         n <- readMetaField
-         arity <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithFCNameArity fc n arity x)
-
-export
-TTC a => TTC (WithRigName a) where
-  toBuf (MkWithRigName rig n x) = do metaField rig; lastMetaField n; toBuf x
-  fromBuf
-    = do rig <- readMetaField
-         n <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithRigName rig n x)
-
-export
-TTC a => TTC (WithFCRigName a) where
-  toBuf (MkWithFCRigName fc rig n x)
-    = do metaField fc; metaField rig; lastMetaField n; toBuf x
-  fromBuf
-    = do fc <- readMetaField
-         rig <- readMetaField
-         n <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithFCRigName fc rig n x)
-
-
+    = do nm <- fromBuf
+         val <- fromBuf
+         pure $ MkWithData nm val
 
 export
 TTC PrimType where
@@ -1349,17 +1292,6 @@ TTC TotalReq where
              1 => pure CoveringOnly
              2 => pure PartialOK
              _ => corrupt "TotalReq"
-
-export
-TTC a => TTC (WithNameRigTot a) where
-  toBuf (MkWithNameRigTot n rig treq x)
-    = do metaField n; metaField rig; lastMetaField treq; toBuf x
-  fromBuf
-    = do n <- readMetaField
-         rig <- readMetaField
-         treq <- readLastMetaField
-         x <- fromBuf
-         pure (MkWithNameRigTot n rig treq x)
 
 TTC DefFlag where
   toBuf Inline = tag 2

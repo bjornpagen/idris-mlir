@@ -66,6 +66,17 @@ Eq VersionTokenKind where
 VersionToken : Type
 VersionToken = Token VersionTokenKind
 
+TokenKind VersionTokenKind where
+  TokType VersionText = String
+  TokType VersionDot = ()
+  TokType VersionDash = ()
+  TokType VersionNum = Nat
+
+  tokValue VersionText x = x
+  tokValue VersionDot _ = ()
+  tokValue VersionDash _ = ()
+  tokValue VersionNum n = stringToNatOrZ n
+
 versionTokenMap : TokenMap VersionToken
 versionTokenMap = toTokenMap $
   [ (is '.', VersionDot)
@@ -82,17 +93,13 @@ lexVersion str =
     tokens
 
 
--- A number: its text, read as a natural.
-number : Grammar () VersionToken True Nat
-number = stringToNatOrZ <$> match VersionNum
-
 versionParser : Grammar () VersionToken True Version
 versionParser = do
-  maj <- stringToNatOrZ <$> match VersionNum
-  ignore $ match VersionDot
-  min <- stringToNatOrZ <$> match VersionNum
-  ignore $ match VersionDot
-  patch <- stringToNatOrZ <$> match VersionNum
+  maj <- match VersionNum
+  match VersionDot
+  min <- match VersionNum
+  match VersionDot
+  patch <- match VersionNum
   optTag <- optional $ match VersionDash *> match VersionText
   pure $ MkVersion (maj, min, patch) optTag
 

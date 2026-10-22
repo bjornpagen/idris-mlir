@@ -71,7 +71,7 @@ Decoded FWith = PWithProblem
 Decoded FNames = BasicMultiBinder
 Decoded FBinder = PBinder
 Decoded FPlain = PlainBinder
-Decoded FImplicit = WithFCRigName (PiBindData PTerm)
+Decoded FImplicit = AddFC (ImpParameter' PTerm)
 
 ||| A node a parse has made, of the form its rule gives: its place among
 ||| the nodes made, and how many nodes it unfolds to, which is what its
@@ -105,7 +105,7 @@ data DeclOf : (Form -> Type) -> Type where
   DcInterface : WithDefault Visibility Private ->
                 (constraints : List (Maybe Name, c FTerm)) -> Name -> (doc : String) ->
                 (params : List (c FNames)) -> (det : Maybe (List1 Name)) ->
-                (conName : Maybe (WithDocFC Name)) -> List (c FDecl) -> DeclOf c
+                (conName : Maybe (WithDoc $ AddFC Name)) -> List (c FDecl) -> DeclOf c
   DcImplementation : Visibility -> List (c FOpt) -> Pass ->
                      (implicits : List (c FImplicit)) ->
                      (constraints : List (Maybe Name, c FTerm)) -> Name ->
@@ -224,7 +224,7 @@ data NodeOf : (Form -> Type) -> Type where
            (datacons : List (c FTyDecl)) -> NodeOf c
   DtLater : FC -> (tyname : Name) -> (tycon : c FTerm) -> NodeOf c
   RcBody : (tyname : Name) -> (params : List (c FBinder)) -> (opts : List DataOpt) ->
-           (conName : Maybe (WithDocFC Name)) -> (decls : List (c FField)) -> NodeOf c
+           (conName : Maybe (WithDoc $ AddFC Name)) -> (decls : List (c FField)) -> NodeOf c
   RcLater : (tyname : Name) -> (params : List (c FBinder)) -> NodeOf c
   -- Type declarations, a record's fields and a `with` clause's problems
   TyClaim : FC -> List1 (String, WithFC Name) -> (doc : String) -> (type : c FTerm) ->
@@ -898,7 +898,7 @@ mutual
   decodeField : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PField
   decodeField t m acc (FdField fc doc rig ns p ty)
-      = (\p', ty' => MkWithFCDocRigNames fc doc rig ns (MkPiBindData p' ty'))
+      = (\p', ty' => the PField (Mk [fc, doc, rig, ns] (MkPiBindData p' ty')))
           <$> piChild t m acc p <*> child t m acc FTerm ty
   decodeField t m acc _ = Nothing
 
@@ -920,13 +920,13 @@ mutual
 
   decodePlain : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PlainBinder
-  decodePlain t m acc (BnPlain n ty) = MkWithName n <$> child t m acc FTerm ty
+  decodePlain t m acc (BnPlain n ty) = (\ty' => the PlainBinder (Mk [n] ty')) <$> child t m acc FTerm ty
   decodePlain t m acc _ = Nothing
 
   decodeImplicit : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
-                   Node (nodeCount t) -> Maybe (WithFCRigName (PiBindData PTerm))
+                   Node (nodeCount t) -> Maybe (AddFC (ImpParameter' PTerm))
   decodeImplicit t m acc (BnImplicit fc rig n p ty)
-      = (\p', ty' => MkWithFCRigName fc rig n (MkPiBindData p' ty'))
+      = (\p', ty' => the (AddFC (ImpParameter' PTerm)) (Mk [fc, rig, n] (MkPiBindData p' ty')))
           <$> piChild t m acc p <*> child t m acc FTerm ty
   decodeImplicit t m acc _ = Nothing
 

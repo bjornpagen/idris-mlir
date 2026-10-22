@@ -315,7 +315,7 @@ mutual
                     => do fc' <- reify defs !(evalClosure defs w)
                           name' <- the (Core (WithFC Name)) (reify defs !(evalClosure defs y))
                           term' <- reify defs !(evalClosure defs z)
-                          pure (MkWithFCTyName fc' name' term')
+                          pure (Mk [fc', name'] term')
                _ => cantReify val "ITy"
     reify defs val = cantReify val "ITy"
 
@@ -362,7 +362,7 @@ mutual
                           info <- reify defs !(evalClosure defs x)
                           name <- reify defs !(evalClosure defs y)
                           type <- reify defs !(evalClosure defs z)
-                          pure (MkWithFCRigName fc rig (NoFC name) (MkPiBindData info type))
+                          pure (Mk [fc, rig, NoFC name] (MkPiBindData info type))
                _ => cantReify val "IField"
     reify defs val = cantReify val "IField"
 
@@ -377,8 +377,8 @@ mutual
                           opts <- reify defs !(evalClosure defs y)
                           conName <- reify defs !(evalClosure defs z)
                           fields <- reify defs !(evalClosure defs a)
-                          pure (MkWithData fc $ MkImpRecord (MkWithName (NoFC tyName) (map fromOldParams params))
-                                                      (MkWithNameOpts (NoFC conName) opts fields))
+                          pure (Mk [fc] $ MkImpRecord (Mk [NoFC tyName] (map fromOldParams params))
+                                                      (Mk [NoFC conName, opts] fields))
                _ => cantReify val "Record"
     reify defs val = cantReify val "Record"
 

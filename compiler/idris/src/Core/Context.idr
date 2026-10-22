@@ -749,7 +749,7 @@ onClausePatNames f g (c :: cs) = [| onPatsNames f g c :: onClausePatNames f g cs
 
 -- Later keys overwrite earlier ones that resolve to the same name, as
 -- inserting them in order does.
-resolveNameMap : Context -> NameMap Bool -> NameMap Bool
+resolveNameMap : Context -> NameMap a -> NameMap a
 resolveNameMap gam nmap
     = foldl (\m, (k, v) => insert (indexedName gam k) v m) empty (NameMap.toList nmap)
 
@@ -838,13 +838,11 @@ HasNames Clause where
     = [| MkClause (resolved gam env) (resolved gam lhs) (resolved gam rhs) (pure unified) |]
 
 
--- A definition's references (`refersToM`) are the one map whose names are
--- made full or resolved, so the instance is at that map's type.
-HasNames (NameMap Bool) where
+HasNames (NameMap a) where
   full gam nmap
       = insertAll empty (toList nmap)
     where
-      insertAll : NameMap Bool -> List (Name, Bool) -> Core (NameMap Bool)
+      insertAll : NameMap a -> List (Name, a) -> Core (NameMap a)
       insertAll ms [] = pure ms
       insertAll ms ((k, v) :: ns)
           = insertAll (insert !(full gam k) v ms) ns

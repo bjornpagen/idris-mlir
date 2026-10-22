@@ -342,123 +342,44 @@ so that it only renames is its definition. A frontend that proves its
 readings sound against `Reduces` keeps no check, when it runs, that the
 evaluator agreed with it (PINS.md reducts).
 
-### Rewritten so that this compiler can compile it
+### Changed from upstream's form, and kept
 
-These keep upstream's interfaces where they can, so that a re-sync stays a
-merge; each says what changed in its interface.
+Each of these was first rewritten so that an earlier frontend could compile
+it, and stays changed because the change says more than upstream's form
+did, for the reason given; every other such rewrite went back to upstream's
+form, which the frontend compiles. Each keeps upstream's interface where it
+can, so that a re-sync stays a merge.
 
-- **Metadata records.** Upstream attaches metadata to a payload with one
-  extensible record, `WithData fields a` (`Libraries.Data.WithData`, over
-  `Libraries.Data.Record`): `fields` is a list of labels paired with
-  types, a `KeyVal` holds a `Type` at run time, each value's type is
-  computed from that list, and building one takes the list at run time.
-  This compiler refuses a `Type` stored at run time and a field whose type
-  is computed from an index, so both modules are gone. `Core.WithData`
-  instead declares one record per combination of metadata that is used,
-  named by its fields in their order (`WithFC`, `WithName`,
-  `WithFCTyName`, `WithFCNameArity`, `WithRigName`, `WithFCRigName`,
-  `WithNameOpts`, `WithRigMName`, `WithFCRigMName`, `WithDocFC`,
-  `WithDocRigNames`, `WithFCDocRigNames`, `WithNameRigTot`), each with
-  fixed field types and a `Functor` on its payload. The fields keep
-  upstream's projection names (`.fc`, `.val`, `.name`, `.rig`, `.doc`,
-  `.names`, `.mName`, `.tyName`, `.arity`, `.opts`, `.totReq`), so
-  `x.fc` and `{ val := v } x` read as upstream's do; they resolve by the
-  record's type. `WithFC`'s constructor keeps upstream's `MkWithData`,
-  which call sites match on, and `MkFCVal`, `NoFC`, `.withFC`, `setFC`,
-  `.nameVal`, `:+`, `AddDef`, `distribData` and `Core.Core`'s
-  `traverse` keep their names, at the types they are used. What changed
-  at call sites: the type-level combinators (`AddFC`, `WithRig`,
-  `WithDoc`, `AddMetadata`, ...) are replaced by the record they built
-  (`Constructor'` is `WithFCNameArity`, `ImpTy'` is `WithFCTyName`,
-  `ImpParameter'` is `WithRigName`, `IField'` is `WithFCRigName`,
-  `RecordField'` is `WithDocRigNames`, `PField'` is
-  `WithFCDocRigNames`, `Method` is `WithNameRigTot`); `Mk [x, y] v`
-  becomes the record's constructor applied to `x y v`; `get "doc"`,
-  `set "fc"` and `update "name"` become a projection or a record update;
-  and `TTImp.Impossible` names `WithFC.val`, one of fourteen records'
-  `.val`, so its elaboration tries no other. A TTC holds these
-  records as upstream's extensible record wrote them (each metadata field
-  after a 1, in order, then a 0, then the payload), so its bytes are
-  unchanged; `Core.TTC` (and `TTImp.TTImp.TTC` for `WithNameOpts`, whose
-  `DataOpt` is defined there) writes each one. Upstream's
-  `DocBindFC`, `.bind`, `HasDefault`, `MkDef` and the generic
-  `get`/`set`/`update`/`getAt`/`drop` had no use left and are gone, as are
-  the public re-exports of `Data.List.Quantifiers`, `Data.List` and
-  `Data.Maybe` that came with `Libraries.Data.WithData`
-  (`Core.Normalise.Eval` imports `Data.List.Quantifiers` itself).
-- `Libraries.Text.Lexer.Tokenizer`: the `Compose` constructor makes its
-  middle tokenizer and its end lexer from the begin lexeme itself, a
-  `String`; upstream's held a `tagger` to a tag type the constructor hid.
-  `compose` keeps upstream's type, tagger included, and applies the tagger
-  before building the constructor, so its callers (`Parser.Lexer.Source`)
-  are upstream's. It is `public export %tcinline` rather than `export`
-  (upstream's was `Compose` itself, point-free), so that the totality
-  checker still sees the recursion of `rawTokens` and `stringTokens`
-  through it guarded by the constructor.
-
-- `Libraries.Text.Token`: the `TokenKind` interface, whose `tokValue`
-  converted a token's text to a type computed from its kind, is gone, with
-  `value`. `Libraries.Text.Parser.match` gives the text recognised, and its
-  two users convert it where they match (`Libraries.Data.Version` reads its
-  numbers with `stringToNatOrZ`; `Libraries.Utils.Path` ignores
-  punctuation).
-- `Idris.CommandLine`: an option's argument and its action are one value,
-  `OptArg`, a constructor per kind of argument holding a function of that
-  argument's value; upstream's `OptDesc` held a list of argument
-  descriptions and an action whose type `ActType` computed from that list.
-  No option takes more than one argument. The usage text and the errors are
-  upstream's.
-- `Idris.Syntax`: a directive (`Directive'`) is over what its `StartExpr`
-  holds, the parse tree's node while parsing and a `PTerm' Name` once
-  decoded; upstream's held a term over any name type, which the
-  constructor hid.
-
+- `Idris.Syntax`: a directive (`Directive' tm`) is over what its `%start`
+  expression holds: the parse tree's node while parsing (`Directive' (Id
+  FTerm)`, in `Idris.Syntax.Tree`) and a `PTerm' Name` once decoded
+  (`Directive`). Upstream's `StartExpr` held a term at a name type the
+  constructor hid, so nothing could read it back at a known type; the
+  parameter states it, and the parse tree and the decoded syntax share one
+  declaration.
 - `Parser.Rule.Source.decorationFromBounded`: a parser's semantic
-  decoration holds no name. Upstream's matched on the type of what the
-  decorated rule parsed, and kept it when it was a `Name`, for the IDE's
-  metadata, whose adders are no-ops here; `decorate`, `dependentDecorate`
-  and `decorateKeywords` (`Idris.Parser`) take that type erased.
-
-- `Core.Case.CaseBuilder.shuffleVars` and `Core.Normalise.Eval`'s
-  `updateLocal` match on the variable's position, which they have at
-  runtime, and not on its proof (`First`, `Later`), which is erased:
-  `updateLocal` takes the proof of the next position with `dropLater`.
-  `TTImp.Elab.Check`'s `removeArgVars` drops the arguments that are the
-  first variable, by its position, and shrinks the others, which is what
-  upstream's clause for a later variable did by hand.
-
-- **Recursion at the types it is given.** This compiler makes an instance
-  of a definition for each type and implementation it is given, so a
-  group of definitions that call each other passes those on only as it
-  got them. Where upstream's did not: each `map` of `TTImp.TTImp.Functor`
-  is a function of its own (`mapRawImp`, `mapClause`, `mapDecl`, ...),
-  which its `Functor` implementation is, where upstream's methods called
-  `map` through the implementation, which applies them to types it binds
-  itself; `Idris.Syntax.Traversals` traverses a list of paired terms
-  (`PList`, `PUsing`, ...) with a function on the pair, where upstream's
-  `goPairedPTerms` took the first component's type from each use;
-  `Idris.Parser`'s rules that take the bounds of where they start take a
-  `WithBounds ()` (`ignore` where the bounds hold a value), not any
-  `WithBounds t`; `localHelper` (`TTImp.Elab.Local`) returns its one
-  use's result, a term and its type; `Core.Context`'s `HasNames` for a
-  `NameMap` is at `NameMap Bool`, a definition's references, the one map
-  whose names are resolved; and `convertMatches` in
-  `Core.Normalise.Convert` binds its scopes as `Scope`, where upstream's
-  `_` made them lists of any type.
-- **Logs of values in a scope.** A log that makes a value's names full
-  takes its scope at quantity 0: `toFullNF` (`Core.Value`, for the
-  evaluator's logs) and `toFullClause` (`Core.Case.CaseBuilder`, for
-  `patCompile`'s). The logs of a pattern variable and of an as-pattern
-  (`TTImp.Elab.ImplicitBind`, `TTImp.Elab.As`) show their terms by
-  `showTerm`, as the text upstream's `show` of the tuple gave. Upstream's
-  applied `HasNames` and `Show` of a pair at the scope the caller holds at
-  runtime; this compiler chooses an implementation at compile time, and
-  one Idris does not prove ends cannot be expanded to show that its scope
-  is used only where it is erased.
+  decoration holds no name, and `decorate`, `dependentDecorate` and
+  `decorateKeywords` (`Idris.Parser`) take the type of what they decorate
+  erased. Upstream's matched on that type at run time and kept the value
+  when it was a `Name`, for the IDE's metadata, whose adders are no-ops
+  here (Stubbed, above): the name had no reader, and the rules are
+  parametric in what they decorate.
+- `Idris.Syntax.Traversals` traverses a list of paired terms (`PList`,
+  `PSnocList`, `PUsing`, `PInterface`, `PImplementation`) with `traverse`
+  and `map` over the pair's second component, where upstream wrote
+  `goPairedPTerms` and `goPairedSnocPTerms` by hand in each traversal.
+- `convertMatches` (`Core.Normalise.Convert`) binds its scopes as `Scope`;
+  upstream's `{vs, vs' : _}` made them lists of a type nothing fixed.
 - `OperatorLHSInfo` (`Core.TT`) is a family over `Type`, as its
-  constructors use it. Upstream declared it over a value of an implicit
-  type (`tm -> Type`), which this compiler reads as a parameter that is a
-  value, not a type, on which its fields' types then depend.
+  constructors use it; upstream declared it over a value of an implicit
+  type (`tm -> Type`), which every use instantiates at `Type`.
+- `Libraries.Text.Lexer.Tokenizer.compose` is upstream's `Compose`, made
+  `public export %tcinline` so that the totality checker sees the
+  recursion of `rawTokens` and `stringTokens` (`Parser.Lexer.Source`)
+  through it guarded by the constructor.
+- `Libraries.Data.WithData` re-exports `Data.List.Quantifiers`, whose `All`
+  a metadata record is, but not `Data.List` and `Data.Maybe`, which its
+  own definitions do not use; a module imports those where it uses them.
 
 ### Ours
 
