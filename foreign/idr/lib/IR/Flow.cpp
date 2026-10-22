@@ -40,14 +40,17 @@ MutableArrayRef<OpOperand> usesOf(OperandRange operands) {
 }
 
 // What `branch` forwards from `point`, the op itself or a terminator of one
-// of its regions, to each of its successors.
+// of its regions, to each of its successors. A jump through `branch` to an
+// enclosing join point has a successor `branch` does not own, whose inputs
+// are its owner's to say.
 void forwardFrom(RegionBranchOpInterface branch, RegionBranchPoint point,
                  function_ref<void(OpOperand &, Value)> each) {
   SmallVector<RegionSuccessor> successors;
   branch.getSuccessorRegions(point, successors);
   for (RegionSuccessor successor : successors)
-    for (auto [use, input] : llvm::zip_equal(usesOf(branch.getSuccessorOperands(point, successor)),
-                                             branch.getSuccessorInputs(successor)))
+    for (auto [use, input] :
+         llvm::zip_equal(usesOf(branch.getSuccessorOperands(point, successor)),
+                         getRegionBranchSuccessorOwner(successor).getSuccessorInputs(successor)))
       each(use, input);
 }
 
@@ -161,7 +164,7 @@ LogicalResult writesKnown(Operation *op, const FlowEdges::Edge &edge, const Flow
 // The ends each edge `op`'s model declares may name, the one carrier type
 // of an edge that carries labels, and what a write into memory that exists
 // before the op says the place held.
-LogicalResult idr::detail::verifyFlowEdges(Operation *op) {
+LogicalResult idr::verifyFlowEdges(Operation *op) {
   auto operandValue = [&](Value value) { return llvm::is_contained(op->getOperands(), value); };
   // A terminator moves into a part of what its parent makes or writes.
   auto parentValue = [&](Value value) {

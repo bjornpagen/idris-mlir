@@ -129,24 +129,6 @@ void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
              FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
-// A case's arguments are its constructor's fields, read out of the
-// scrutinee; the default region's argument, when the region is not empty,
-// is the scrutinee itself, a binding RegionBranchOpInterface does not
-// declare, so the match does. The match's results come from its yields,
-// which RegionBranchOpInterface says.
-void idr::MatchOp::getFlowEdges(FlowEdges &edges) {
-  DataType data = getDataType();
-  Value scrutinee = getScrutinee();
-  for (unsigned c = 0, n = getNumCases(); c < n; ++c) {
-    Tag tag = getCaseTag(c);
-    for (BlockArgument field : getCaseRegion(c).getArguments())
-      edges.flow(FlowPoint::partOf(scrutinee, FlowAnchor::fieldOf(data, tag, field.getArgNumber())),
-                 FlowPoint::of(Value(field)));
-  }
-  for (BlockArgument arg : getDefaultRegion().getArguments())
-    edges.flow(FlowPoint::of(scrutinee), FlowPoint::of(Value(arg)));
-}
-
 void idr::ClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
 
 // A suspension's label returns into the forced state of its type, the one

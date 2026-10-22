@@ -1,23 +1,47 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Phase 1 of idr-lower: matches become scf, still on idr types.
+// The lowering of the control-flow ops, in idr-lower's three steps. Blocks
+// appear only in the last, in one conversion with upstream's scf patterns.
 
 #ifndef IDR_CONVERSION_MATCHES_H
 #define IDR_CONVERSION_MATCHES_H
 
+#include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace idr::conversion {
 
-// idr.match becomes idr.tag and scf.index_switch, whose cases read their
-// constructor's fields; idr.match_lit becomes scf.index_switch on an integer
-// and a chain of scf.if on string or big comparisons. A region that ends in
-// ub.unreachable (after idr.crash) yields poison instead, which the crash
-// before it makes unreachable. The structural conversion of scf then takes
-// the types apart. A constructor's tag and fields are read from the
-// scrutinee's type. Applied by the walk driver, which visits a region before
-// its op: nested matches lower first, and the bodies move whole.
+// Phase 1, on idr types: idr.match becomes idr.tag and scf.index_switch,
+// each case taking the scrutinee and the forwarded values at their refined
+// types, which have no run-time form; a match left with one region tests
+// no tag. idr.match_lit becomes a chain of scf.if on the key's comparison.
+// A case that jumps to an enclosing join point or never ends keeps its
+// terminator, which upstream's scf.index_switch and scf.if hold. Applied
+// by the walk driver, which visits a region before its op: nested matches
+// lower first, and the bodies move whole.
 void populateMatchPatterns(mlir::RewritePatternSet &patterns);
+
+// Phase 2, the conversion of types: idr.join, idr.loop, idr.jump and the
+// idr.yield that ends a join point's region take the converted types of
+// their results, parameters and arguments, one value becoming its
+// components, beside upstream's structural conversion of scf; each is
+// legal once its types are.
+void populateJoinTypeConversions(const mlir::TypeConverter &converter,
+                                 mlir::RewritePatternSet &patterns,
+                                 mlir::ConversionTarget &target);
+
+// Phase 3: the join points become blocks in one conversion with upstream's
+// scf patterns, so a jump nested in a match, which upstream's lowering of
+// scf.index_switch and scf.if leaves in place, is a branch by then: each
+// region's blocks move into the function, each jump a cf.br to its join
+// region's entry, each yield a cf.br to what follows the op. An
+// irreducible group lowers as any other, with no run-time selector.
+void populateJoinLoweringPatterns(mlir::RewritePatternSet &patterns);
+
+// Applies phase 3 to `root`: upstream's scf patterns and the join points',
+// on upstream's own target with the join points' ops illegal beside scf's.
+mlir::LogicalResult lowerControlFlow(mlir::Operation *root);
 
 } // namespace idr::conversion
 

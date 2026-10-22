@@ -1,18 +1,33 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.match and idr.match_lit: their rules, their builders, the region each
-// takes for a known key, and their canonicalization. A case of idr.match is
-// a constructor's tag, whose fields are checked against the scrutinee's
-// data type, whose body is in the type; a key of idr.match_lit is a literal
-// of the scrutinee's type, which the type says.
+// idr.match and idr.match_lit: their rules, their builders, the region
+// each takes for a known key, and the edges upstream's control-flow
+// interfaces read off them.
+//
+// A match is a region per case, from the frontend to the lowering. Each
+// region of idr.match binds the scrutinee refined: a case to its
+// constructor, the default to the constructors no case holds, so a field is
+// a total read of that refined value and a nested match on it has no region
+// for a constructor the type excludes. The values whose types mention an
+// index the case refines enter it refined too, forwarded beside the
+// scrutinee. That a region's arguments are those refinements is the
+// function's scope walk's to check, which keeps every enclosing case's
+// refinement as it walks; this file checks what the op alone says.
+//
+// idr.match_lit's scrutinee is a string, a big integer or a natural, read in
+// place and never taken apart, so its regions bind nothing. An integer or a
+// condition is matched by scf.index_switch or scf.if.
+//
+// A region ends by yielding the match's results, by jumping to an enclosing
+// join point, which the match lets through, or by never ending. That is
+// each terminator's own rule: a yield names its parents, a jump checks what
+// it crosses, and a terminator that never ends has no successor.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Canon.h"
 #include "idr/IR/Symbols.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/RegionKindInterface.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVectorExtras.h"
@@ -22,29 +37,13 @@ using namespace idr;
 
 namespace {
 
-// Every region that runs ends in idr.yield, or in ub.unreachable after a
-// crash. Each is one block that is not empty (SingleBlock), so it has an op
-// to end in; an exhaustive match's empty default has none, and never runs.
-// What a yield gives is the match's results, which RegionBranchOpInterface
-// checks along the edge from the yield to the match.
-LogicalResult verifyMatchRegions(Operation *op) {
-  for (Region &region : op->getRegions())
-    if (!region.empty() && !isa<YieldOp, ub::UnreachableOp>(region.front().back()))
-      return op->emitOpError("region #")
-             << region.getRegionNumber() << " must end in idr.yield or ub.unreachable";
-  return success();
-}
-
-// A default that runs binds the scrutinee back, at its type: the value no
-// case took apart, which a linear scrutinee needs, since the match used it.
-LogicalResult verifyDefault(MatchOpInterface match) {
-  Region &fallback = match.getDefaultRegion();
-  if (fallback.empty() ||
-      (fallback.getNumArguments() == 1 &&
-       fallback.getArgument(0).getType() == match.getScrutinee().getType()))
-    return success();
-  return match->emitOpError("expects a default region that takes the scrutinee back at its type");
-}
+// The two members of the match family, each with its key.
+template <typename Match>
+concept MatchFamily = requires(Match op) {
+  op.getCases();
+  op.getDefaultRegion();
+  op.getCaseRegions();
+};
 
 // An empty default region and one per case, the default first.
 void addRegions(OperationState &state, size_t cases) {
@@ -52,170 +51,213 @@ void addRegions(OperationState &state, size_t cases) {
     state.addRegion();
 }
 
-// The region of `Match` taken for the key `key`: its case, else the
-// default. A key is a literal of idr.match_lit, or a tag of idr.match: the
-// two keys are different things, so this is written over the op. An empty
-// default never runs: the key is then one the match has no region for,
-// which nothing reaches.
-template <typename Match, typename Key>
+// The region of `op` its key `key` takes: its case, else the default. An
+// empty default never runs: the key is then one the match has no region
+// for, which nothing reaches. A key is a tag of idr.match or a literal of
+// idr.match_lit, two different things, so this is written over the op.
+template <MatchFamily Match, typename Key>
 Region *takenRegion(Match op, Key key) {
   auto cases = op.getCases();
   const auto *it = llvm::find(cases, key);
   if (it != cases.end())
-    return &op.getCaseRegion(static_cast<unsigned>(it - cases.begin()));
+    return &op.getCaseRegions()[static_cast<unsigned>(it - cases.begin())];
   Region &fallback = op.getDefaultRegion();
   return fallback.empty() ? nullptr : &fallback;
 }
 
-// The region a match takes because it sits in a region of another match on
-// the same value: in a case of the enclosing match the value has that
-// case's key, and in its default it has none of its keys, so a match whose
-// keys are all among them takes its default. A match on a value no
-// enclosing match took is known no better; the enclosing match's default
-// says too little when this match has a key of its own, and the search
-// goes on outward. Only the value matters, not the position it is held in:
-// the same value in a linear position is still that value.
-template <typename Match>
-Region *takenFromEnclosing(Match op) {
-  Value source = throughLinear(op.getScrutinee());
-  for (Region *region = op->getParentRegion(); region; region = region->getParentRegion()) {
-    auto outer = dyn_cast<Match>(region->getParentOp());
-    if (!outer || throughLinear(outer.getScrutinee()) != source)
-      continue;
-    if (region != &outer.getDefaultRegion())
-      return takenRegion(op, outer.getCases()[outer.caseOf(*region)]);
-    Region &fallback = op.getDefaultRegion();
-    if (!fallback.empty() && llvm::all_of(op.getCases(), [&](auto key) {
-          return llvm::is_contained(outer.getCases(), key);
-        }))
-      return &fallback;
+// Every region that runs, entered from the match; the match's results,
+// from a yield; from a jump to an enclosing join point, what that point's
+// op says, since the match lets the jump through.
+template <MatchFamily Match>
+void successorsOf(Match op, RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &successors) {
+  if (point.isParent()) {
+    for (Region &region : op->getRegions())
+      if (!region.empty())
+        successors.emplace_back(&region);
+    return;
   }
+  RegionBranchTerminatorOpInterface terminator = point.getTerminatorPredecessorOrNull();
+  if (terminatorPropagatesThrough(terminator, op)) {
+    appendPropagatedTerminatorSuccessors(terminator, op, successors);
+    return;
+  }
+  successors.push_back(RegionSuccessor(op.getOperation()));
+}
+
+// The region taken when it is known, else every region that runs.
+template <MatchFamily Match>
+void entrySuccessorsOf(Match op, Region *taken, SmallVectorImpl<RegionSuccessor> &successors) {
+  if (taken)
+    successors.emplace_back(taken);
+  else
+    successorsOf(op, RegionBranchPoint::parent(), successors);
+}
+
+// At most once each region that runs, and none but the taken one when it
+// is known.
+template <MatchFamily Match>
+void boundsOf(Match op, Region *taken, SmallVectorImpl<InvocationBounds> &bounds) {
+  for (Region &region : op->getRegions())
+    bounds.emplace_back(/*lb=*/0,
+                        /*ub=*/!region.empty() && (!taken || taken == &region) ? 1 : 0);
+}
+
+// One key per case region, each once. ODS ties no key to a case region, so
+// the two lists are held to one length here.
+template <MatchFamily Match>
+LogicalResult verifyKeys(Match op) {
+  if (op.getCases().size() != op.getCaseRegions().size())
+    return op.emitOpError("expects one key per case region");
+  llvm::SmallDenseSet<std::decay_t<decltype(*op.getCases().begin())>> seen;
+  for (auto key : op.getCases())
+    if (!seen.insert(key).second)
+      return op.emitOpError("has two cases for one key");
+  return success();
+}
+
+// The region a known scrutinee takes: a constant constructor; the
+// constructor of the idr.con that built it, where its state still holds at
+// the match (a memo cell's changes); or the one constructor its type leaves
+// possible. Else none is known.
+Region *takenRegionOf(MatchOp op, Attribute value) {
+  Value scrutinee = op.getScrutinee();
+  const auto &possible = dataTypeOf(scrutinee.getType()).possibleTags();
+  if (possible.size() == 1)
+    return takenRegion(op, static_cast<int32_t>(possible.front()));
+  if (auto con = dyn_cast_or_null<ConAttr>(value))
+    return takenRegion(op, static_cast<int32_t>(con.getTag()));
+  if (!builtStateHolds(scrutinee, op.getOperation()))
+    return nullptr;
+  if (auto built = scrutinee.getDefiningOp<ConOp>())
+    return takenRegion(op, static_cast<int32_t>(built.getTag()));
   return nullptr;
 }
 
 } // namespace
 
 //===----------------------------------------------------------------------===//
+// What the matches take
+//===----------------------------------------------------------------------===//
+
+// A data value, at any grade: its carrier is a family application.
+bool idr::isMatchable(Type type) { return isa<DataType>(unrestricted(type)); }
+
+// A value of a type with literals that no upstream op matches: an integer
+// or a condition is scf.index_switch's or scf.if's.
+bool idr::isMatchedLiteral(Type type) {
+  Type carrier = unrestricted(type);
+  return isa<LiteralTypeInterface>(carrier) && !isa<IntegerType>(carrier);
+}
+
+//===----------------------------------------------------------------------===//
 // idr.match
 //===----------------------------------------------------------------------===//
 
-// Each case is a constructor of the scrutinee's data type, once, and its
-// region's arguments are that constructor's fields at the scrutinee's
-// grade: what the type's body says, read with the op and its regions'
-// arguments alone. ODS ties no key to a case region, so the two lists are
-// held to one length here.
+// Each key is a constructor of the scrutinee's family, and every region
+// that runs binds the refined scrutinee and each forwarded value, in that
+// order.
 LogicalResult MatchOp::verify() {
-  if (getCases().size() != getNumCases())
-    return emitOpError("expects one key per case region");
-  llvm::SmallDenseSet<int32_t> seen;
-  for (unsigned index = 0, count = getNumCases(); index < count; ++index) {
-    FailureOr<std::reference_wrapper<const Ctor>> found =
-        idr::detail::ctorAt(*this, getScrutinee().getType(), getCaseTag(index));
-    if (failed(found))
-      return failure();
-    const Ctor &ctor = *found;
-    if (!seen.insert(getCases()[index]).second)
-      return emitOpError("has two cases for @") << ctor.name.getValue();
-    SmallVector<Type> expected;
-    for (Type field : ctor.fields)
-      expected.push_back(fieldType(getScrutinee().getType(), field));
-    TypeRange args = getCaseRegion(index).getArgumentTypes();
-    if (args != TypeRange(expected))
-      return emitOpError("case @") << ctor.name.getValue()
-                                   << " must take the constructor's fields at the "
-                                   << "scrutinee's grade, " << expected;
-  }
-  return verifyDefault(*this);
+  if (failed(verifyKeys(*this)))
+    return failure();
+  uint32_t declared = getDataType().declaredCount();
+  for (int32_t tag : getCases())
+    if (tag < 0 || static_cast<uint32_t>(tag) >= declared)
+      return emitOpError("has a case for constructor #")
+             << tag << ", which its scrutinee's family does not declare";
+  size_t bound = 1 + getForwarded().size();
+  for (Region &region : getOperation()->getRegions())
+    if (!region.empty() && region.getNumArguments() != bound)
+      return emitOpError("region #")
+             << region.getRegionNumber() << " must bind the refined scrutinee and the "
+             << getForwarded().size() << " values the match forwards";
+  return success();
 }
-
-LogicalResult MatchOp::verifyRegions() { return verifyMatchRegions(*this); }
-
-// A match on a memo sum's value reads its state, which a force writes;
-// what its regions do is theirs (RecursiveMemoryEffects).
-void MatchOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  readsMemoState(getScrutineeMutable(), effects);
-}
-
-DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
 
 void MatchOp::build(OpBuilder &builder, OperationState &state, TypeRange results,
-                    Value scrutinee, ArrayRef<Tag> tags) {
+                    Value scrutinee, ValueRange forwarded, ArrayRef<Tag> tags) {
   state.addOperands(scrutinee);
+  state.addOperands(forwarded);
   state.addTypes(results);
   state.getOrAddProperties<Properties>().cases = builder.getDenseI32ArrayAttr(
       llvm::map_to_vector(tags, [](Tag tag) { return static_cast<int32_t>(tag); }));
   addRegions(state, tags.size());
 }
 
-// A case region is entered at its constructor; the default at none, the
-// scrutinee being none of the cases'.
-std::optional<Tag> MatchOp::knownTag(Region &region) {
+unsigned MatchOp::getNumCases() { return static_cast<unsigned>(getCaseRegions().size()); }
+
+Region &MatchOp::getCaseRegion(unsigned index) { return getCaseRegions()[index]; }
+
+// The case `region` is: the default, region 0, is none of them.
+unsigned MatchOp::caseOf(Region &region) { return region.getRegionNumber() - 1; }
+
+// Case `index`'s constructor, the key the match holds for it.
+Tag MatchOp::getCaseTag(unsigned index) {
+  return Tag{static_cast<uint32_t>(getCases()[index])};
+}
+
+// The scrutinee's family application, which its type is.
+DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
+
+// The refined scrutinee a region that runs binds first.
+BlockArgument MatchOp::getRefined(Region &region) { return region.getArgument(0); }
+
+// The constructor's binders bind in its case; the default binds none.
+ArrayRef<families::Sort> MatchOp::getBoundSorts(Region &region) {
   if (&region == &getDefaultRegion())
-    return std::nullopt;
-  return getCaseTag(caseOf(region));
+    return {};
+  return getDataType().binderSorts(getCaseTag(caseOf(region)));
 }
 
-// A constant constructor, or the constructor of the idr.con that built the
-// scrutinee, also through a linear position, where that still holds
-// (builtStateHolds); else what an enclosing match on the same value
-// established.
-Region *MatchOp::getTakenRegion(Attribute value) {
-  std::optional<int32_t> tag;
-  Value source = throughLinear(getScrutinee());
-  ConAttr constant;
-  if (!builtStateHolds(source, getOperation()))
-    return takenFromEnclosing(*this);
-  if (auto con = dyn_cast_or_null<ConAttr>(value))
-    tag = static_cast<int32_t>(con.getTag());
-  else if (auto built = source.getDefiningOp<ConOp>())
-    tag = static_cast<int32_t>(built.getTag());
-  else if (matchPattern(source, m_Constant(&constant)))
-    tag = static_cast<int32_t>(constant.getTag());
-  if (!tag)
-    return takenFromEnclosing(*this);
-  return takenRegion(*this, *tag);
+void MatchOp::getSuccessorRegions(RegionBranchPoint point,
+                                  SmallVectorImpl<RegionSuccessor> &successors) {
+  successorsOf(*this, point, successors);
 }
 
-// Upstream's region patterns, as scf.index_switch uses them, then the
-// dialect's. Results no region needs drop, and a match whose taken region
-// is known (a constant or an idr.con scrutinee, or one region left) is
-// replaced by that region, whose arguments are no successor inputs: a
-// case's become idr.field reads that fold, and the default's the scrutinee
-// (canon::readField). A match that takes a linear value apart stays
-// (canon::readsPlainValue).
-void MatchOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  populateRegionBranchOpInterfaceCanonicalizationPatterns(results, getOperationName());
-  populateRegionBranchOpInterfaceInliningPattern(results, getOperationName(), canon::readField,
-                                                 canon::readsPlainValue);
-  canon::addMatchPatterns(results, context);
+// The scrutinee and the forwarded values enter every region, refined.
+OperandRange MatchOp::getEntrySuccessorOperands(RegionSuccessor) { return getOperands(); }
+
+ValueRange MatchOp::getSuccessorInputs(RegionSuccessor successor) {
+  if (successor.isOperation())
+    return getResults();
+  return successor.getSuccessor()->getArguments();
+}
+
+// A value enters a region refined: as itself, or at its family with fewer
+// constructors possible or at an index the case's equation fixes. A yield
+// gives the match's results at their own types.
+bool MatchOp::areTypesCompatible(Type lhs, Type rhs) {
+  return lhs == rhs || families::refines(rhs, lhs);
+}
+
+void MatchOp::getEntrySuccessorRegions(ArrayRef<Attribute> operands,
+                                       SmallVectorImpl<RegionSuccessor> &successors) {
+  entrySuccessorsOf(*this, takenRegionOf(*this, operands.front()), successors);
+}
+
+void MatchOp::getRegionInvocationBounds(ArrayRef<Attribute> operands,
+                                        SmallVectorImpl<InvocationBounds> &bounds) {
+  boundsOf(*this, takenRegionOf(*this, operands.front()), bounds);
 }
 
 //===----------------------------------------------------------------------===//
 // idr.match_lit
 //===----------------------------------------------------------------------===//
 
-// Keys are distinct literals of the scrutinee's type, as the type says, one
-// per case region, which binds nothing.
+// Keys are literals of the scrutinee's type, as the type says; no region
+// binds anything, since the scrutinee is read in place.
 LogicalResult MatchLitOp::verify() {
-  if (getCases().size() != getNumCases())
-    return emitOpError("expects one key per case region");
-  Type type = unrestricted(getScrutinee().getType());
-  auto literals = cast<LiteralTypeInterface>(type);
-  llvm::SmallDenseSet<Attribute> seen;
-  for (Attribute key : getCases()) {
+  if (failed(verifyKeys(*this)))
+    return failure();
+  auto literals = cast<LiteralTypeInterface>(unrestricted(getScrutinee().getType()));
+  for (Attribute key : getCases())
     if (!literals.isLiteral(key))
-      return emitOpError("has a key ") << key << " that is not a literal of " << type;
-    if (!seen.insert(key).second)
-      return emitOpError("has two cases for ") << key;
-  }
-  for (Region &region : getCaseRegions())
-    if (region.getNumArguments())
-      return emitOpError("expects case regions without arguments");
-  return verifyDefault(*this);
+      return emitOpError("has a key ") << key << " that is not a literal of " << literals;
+  for (Region &region : getOperation()->getRegions())
+    if (!region.empty() && region.getNumArguments())
+      return emitOpError("region #") << region.getRegionNumber()
+                                     << " binds an argument, and a literal match binds none";
+  return success();
 }
-
-LogicalResult MatchLitOp::verifyRegions() { return verifyMatchRegions(*this); }
 
 void MatchLitOp::build(OpBuilder &, OperationState &state, TypeRange results, Value scrutinee,
                        ArrayAttr cases) {
@@ -225,24 +267,30 @@ void MatchLitOp::build(OpBuilder &, OperationState &state, TypeRange results, Va
   addRegions(state, cases.size());
 }
 
-// A literal match binds no fields: no region is entered at a constructor.
-std::optional<Tag> MatchLitOp::knownTag(Region &) { return std::nullopt; }
+unsigned MatchLitOp::getNumCases() { return static_cast<unsigned>(getCaseRegions().size()); }
 
-// The literal itself, else what an enclosing match on the same value
-// established.
-Region *MatchLitOp::getTakenRegion(Attribute value) {
-  if (!value)
-    return takenFromEnclosing(*this);
-  return takenRegion(*this, value);
+Region &MatchLitOp::getCaseRegion(unsigned index) { return getCaseRegions()[index]; }
+
+unsigned MatchLitOp::caseOf(Region &region) { return region.getRegionNumber() - 1; }
+
+void MatchLitOp::getSuccessorRegions(RegionBranchPoint point,
+                                     SmallVectorImpl<RegionSuccessor> &successors) {
+  successorsOf(*this, point, successors);
 }
 
-// Upstream's region patterns, as for idr.match: the default's argument,
-// the one value a literal match binds, is the scrutinee when its region
-// replaces the match.
-void MatchLitOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                             MLIRContext *context) {
-  populateRegionBranchOpInterfaceCanonicalizationPatterns(results, getOperationName());
-  populateRegionBranchOpInterfaceInliningPattern(results, getOperationName(), canon::readField,
-                                                 canon::readsPlainValue);
-  canon::addMatchLitPatterns(results, context);
+ValueRange MatchLitOp::getSuccessorInputs(RegionSuccessor successor) {
+  return successor.isOperation() ? ValueRange(getResults()) : ValueRange();
+}
+
+// The literal itself, when the scrutinee is a constant.
+void MatchLitOp::getEntrySuccessorRegions(ArrayRef<Attribute> operands,
+                                          SmallVectorImpl<RegionSuccessor> &successors) {
+  Attribute value = operands.front();
+  entrySuccessorsOf(*this, value ? takenRegion(*this, value) : nullptr, successors);
+}
+
+void MatchLitOp::getRegionInvocationBounds(ArrayRef<Attribute> operands,
+                                           SmallVectorImpl<InvocationBounds> &bounds) {
+  Attribute value = operands.front();
+  boundsOf(*this, value ? takenRegion(*this, value) : nullptr, bounds);
 }

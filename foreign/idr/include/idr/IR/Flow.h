@@ -10,14 +10,12 @@
 // idr.func's body is one block, so no branch forwards a value in one.
 //
 // Every op of ours with an edge to declare holds the interface in its ODS,
-// whose verifier holds its edges to their rule (detail::verifyFlowEdges);
+// whose verifier holds its edges to their rule (verifyFlowEdges);
 // the upstream ops that move a value into or out of the elements of a
 // tensor or a buffer, or make one from nothing, hold it as an external
-// model, attached by registerFlowInterfaceExternalModels.
-//
-// Then what an op does besides computing its results, which the passes
-// that move ops ask (lib/IR/Effects.cpp), read from MLIR's memory effects
-// alone: a call holds its own.
+// model, attached by registerFlowInterfaceExternalModels. What an op does
+// besides moving values is the effect system's one query API to say
+// (idr/IR/Effects/), never this header's.
 #ifndef IDR_IR_FLOW_H
 #define IDR_IR_FLOW_H
 
@@ -26,10 +24,7 @@
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
-
-#include <cstdint>
 
 namespace idr {
 
@@ -37,8 +32,9 @@ namespace idr {
 // in successor order: a region branch's entry operands, and the operands of
 // a terminator of one of its regions, and the region arguments or results
 // they become, as RegionBranchOpInterface says for each successor. An
-// operand may become one value per successor. A forwarded operand moves on
-// with what it holds: its reference too.
+// operand may become one value per successor, and a jump's successor is the
+// join region its token designates, whose op owns the inputs. A forwarded
+// operand moves on with what it holds: its reference too.
 void forwardedValues(mlir::Operation *op,
                      llvm::function_ref<void(mlir::OpOperand &operand, mlir::Value input)> each);
 
@@ -72,43 +68,8 @@ mlir::LogicalResult verifyFlow(FuncOp fn);
 // does not declare. Every
 // registry a module is read with takes it. No interface verifier reaches an
 // external model; a unit test holds each to the rule of
-// detail::verifyFlowEdges.
+// verifyFlowEdges.
 void registerFlowInterfaceExternalModels(mlir::DialectRegistry &registry);
-
-// What an op, with everything in it, does as one asker sees it, ordered:
-// only computes; has an effect the asker ignores; touches what it asks
-// about, or does what MLIR cannot say (no answer from
-// mlir::getEffectsRecursively). An allocation of the op's own results is
-// computing.
-enum class Does : std::uint8_t { Computes, Effects, Touches };
-Does classify(mlir::Operation *op,
-              llvm::function_ref<bool(const mlir::MemoryEffects::EffectInstance &,
-                                      mlir::Operation *)>
-                  touches);
-
-// Whether `op`, with everything in it, only computes: its effects are at
-// most the allocation of its own results, so it may move across any op,
-// run on fewer paths, or not at all. classify(op, nothing touched) is
-// Computes.
-bool onlyAllocates(mlir::Operation *op);
-
-// Whether `op`, or something in it, may perform IO: a read or a write of
-// the IO resource touches. An op that does not may run later, past ops that
-// only compute, though it may crash or not return.
-bool performsIO(mlir::Operation *op);
-
-// Whether `call` may run at `at`, an op after it in its block, in place of
-// where it is: nothing between can tell. What a call reads is its
-// arguments and what each is the same value as or a part of (sourceOf); an
-// op between that writes or frees one of those, as a drop of the value a
-// borrowed argument views does, could tell. Any other memory an op between
-// writes or frees nothing after it reads before the call, and no crash or
-// loop of the call leaves a reader to tell. A call that only computes (its
-// effects are none: no IO, no crash, and it returns) may run after IO; any
-// other only after ops that perform none, which its crash or its loop
-// would be ordered with. Raising asks it of a call whose result it takes to
-// its consumer, and idr-trmc of a call it moves to the end of a tail.
-bool mayRunAt(CallOp call, mlir::Operation *at);
 
 } // namespace idr
 

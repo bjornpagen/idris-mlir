@@ -368,7 +368,7 @@ struct llvm::DenseMapInfo<idr::FlowAnchor> {
   static bool isEqual(const idr::FlowAnchor &a, const idr::FlowAnchor &b) { return a == b; }
 };
 
-namespace idr::detail {
+namespace idr {
 
 // The rule every op that holds the flow interface keeps, which the
 // interface's verifier holds it to at every stage: each edge its model
@@ -381,7 +381,7 @@ namespace idr::detail {
 // Declared before the interface, whose verifier calls it.
 mlir::LogicalResult verifyFlowEdges(mlir::Operation *op);
 
-} // namespace idr::detail
+} // namespace idr
 
 #include "idr/IR/IdrFlow.h.inc"
 

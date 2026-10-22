@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Phase 1 of idr-lower: matches become scf, still on idr types.
+// The lowering of the control-flow ops (Matches.h): matches to scf on idr
+// types, the join points' types converted, then every region to blocks in
+// one conversion with upstream's scf patterns.
 
-#include "idr/IR/IdrDialect.h"
-#include "idr/IR/Grades.h"
 #include "idr/Conversion/Matches.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/PatternMatch.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
 
-#include <optional>
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/PatternMatch.h"
 
 using namespace mlir;
 
@@ -19,147 +22,120 @@ namespace idr::conversion {
 
 namespace {
 
-// Moves the body of `from` into `into`, a new block of the op that replaces
-// the match, whose results are `results`; `args` stand for the body's
-// arguments. An idr.yield becomes scf.yield, and a ub.unreachable (after
-// idr.crash) yields poison, which is never used. The terminator is replaced
-// while it is still the match's, which the walk driver lets a pattern erase.
-void moveBody(RewriterBase &rewriter, Region &from, Block *into, ValueRange args,
-              TypeRange results) {
-  Operation *terminator = from.front().getTerminator();
-  rewriter.setInsertionPoint(terminator);
-  if (auto yield = dyn_cast<YieldOp>(terminator)) {
+//===----------------------------------------------------------------------===//
+// Phase 1
+//===----------------------------------------------------------------------===//
+
+// Moves the body of `from` into `into`, a new block of the scf op that
+// replaces the match; `args` stand for the body's arguments. An idr.yield
+// becomes scf.yield; a jump, or a terminator that never ends, stays, as the
+// scf ops hold it. The terminator is replaced while it is still the
+// match's, which the walk driver lets a pattern erase.
+void moveBody(RewriterBase &rewriter, Region &from, Block *into, ValueRange args) {
+  if (auto yield = dyn_cast<YieldOp>(from.front().getTerminator())) {
+    rewriter.setInsertionPoint(yield);
     rewriter.replaceOpWithNewOp<scf::YieldOp>(yield, yield.getResults());
-  } else {
-    SmallVector<Value> poison;
-    for (Type type : results)
-      poison.push_back(ub::PoisonOp::create(rewriter, terminator->getLoc(), type));
-    rewriter.replaceOpWithNewOp<scf::YieldOp>(terminator, poison);
   }
   rewriter.mergeBlocks(&from.front(), into, args);
 }
 
-// A region of a match and what its arguments stand for: the fields of the
-// constructor it is entered at (MatchOpInterface::knownTag), or the
-// scrutinee itself, which a default binds; a literal match's case binds
-// nothing.
-struct Arm {
-  Region &region;
-  std::optional<Tag> ctor;
-};
-
-// What `arm`'s arguments stand for, read from the scrutinee's value at the
-// end of `into`, each held as the region binds it.
-SmallVector<Value> readFields(RewriterBase &rewriter, const Arm &arm, Block *into, Value value) {
+// A case's arguments at the end of `into`: the scrutinee and each
+// forwarded value at the type the case binds it at, a refinement with no
+// run-time form, which the conversion of types then folds away.
+SmallVector<Value> refinedArgs(RewriterBase &rewriter, Region &region, Block *into,
+                               ValueRange entering) {
   rewriter.setInsertionPointToEnd(into);
-  SmallVector<Value> fields;
-  for (BlockArgument field : arm.region.front().getArguments()) {
-    Value read = value;
-    if (arm.ctor)
-      read = FieldOp::create(rewriter, field.getLoc(), value, *arm.ctor, field.getArgNumber());
-    fields.push_back(heldAs(rewriter, field.getLoc(), read, field.getType()));
+  SmallVector<Value> args;
+  for (auto [arg, value] : llvm::zip_equal(region.getArguments(), entering)) {
+    if (arg.getType() == value.getType()) {
+      args.push_back(value);
+      continue;
+    }
+    args.push_back(
+        UnrealizedConversionCastOp::create(rewriter, arg.getLoc(), arg.getType(), value)
+            .getResult(0));
   }
-  return fields;
+  return args;
 }
 
-// Moves `arm` into `into`, at whose end its arguments are read from the
-// scrutinee's `value`.
-void moveArm(RewriterBase &rewriter, const Arm &arm, Block *into, Value value,
-             TypeRange results) {
-  SmallVector<Value> fields = readFields(rewriter, arm, into, value);
-  moveBody(rewriter, arm.region, into, fields, results);
-}
-
-// The tag selects the case; the default is the match's default or, when
-// Idris proved the other constructors impossible, its last case.
+// The tag selects the case. An exhaustive match's empty default leaves its
+// last case as the switch's default, which is not tested for: a match may be
+// exhaustive, a switch may not; a match left with one region reads no tag.
 void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   Location loc = op.getLoc();
-  // A linear scrutinee is used here, once, and its regions read the value.
   rewriter.setInsertionPoint(op);
-  Value scrutinee =
-      heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
-  SmallVector<Arm> cases;
-  for (unsigned i = 0, e = op.getNumCases(); i < e; ++i) {
-    Region &region = op.getCaseRegion(i);
-    cases.push_back({region, op.knownTag(region)});
+  SmallVector<Region *> cases;
+  SmallVector<int64_t> tags;
+  for (auto [tag, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
+    cases.push_back(&region);
+    tags.push_back(static_cast<uint32_t>(tag));
   }
-  // scf.index_switch has a default always, and an exhaustive match has none
-  // (its default region is empty), so its last case is the switch's default
-  // and is not tested for: a match may be exhaustive, a switch may not.
-  Region &other = op.getDefaultRegion();
-  Arm fallback = other.empty() ? cases.pop_back_val() : Arm{other, op.knownTag(other)};
-  SmallVector<int64_t> tags = llvm::map_to_vector(
-      cases, [](const Arm &arm) -> int64_t { return static_cast<uint32_t>(*arm.ctor); });
-  Value tag = TagOp::create(rewriter, loc, scrutinee);
-  Value index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), tag);
-  TypeRange results = op.getResultTypes();
-  auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, tags,
-                                             static_cast<unsigned>(cases.size()));
-  for (auto [arm, to] : llvm::zip_equal(cases, switchOp.getCaseRegions()))
-    moveArm(rewriter, arm, rewriter.createBlock(&to), scrutinee, results);
-  moveArm(rewriter, fallback, rewriter.createBlock(&switchOp.getDefaultRegion()), scrutinee,
-          results);
+  Region *fallback = &op.getDefaultRegion();
+  if (fallback->empty()) {
+    fallback = cases.pop_back_val();
+    tags.pop_back();
+  }
+  Value index;
+  if (tags.empty()) {
+    index = arith::ConstantIndexOp::create(rewriter, loc, 0);
+  } else {
+    Value scrutinee =
+        heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
+    Value tag = TagOp::create(rewriter, loc, scrutinee);
+    index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), tag);
+  }
+  auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, op.getResultTypes(), index, tags,
+                                             static_cast<unsigned>(tags.size()));
+  ValueRange entering = op->getOperands();
+  for (auto [region, to] : llvm::zip_equal(cases, switchOp.getCaseRegions())) {
+    Block *into = rewriter.createBlock(&to);
+    moveBody(rewriter, *region, into, refinedArgs(rewriter, *region, into, entering));
+  }
+  Block *into = rewriter.createBlock(&switchOp.getDefaultRegion());
+  moveBody(rewriter, *fallback, into, refinedArgs(rewriter, *fallback, into, entering));
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
-// An integer key selects its case through scf.index_switch on the key's bits,
-// zero-extended; a string or big key, which is no index, is compared in
-// turn.
+// `case k0 {A} case k1 {B} default {C}` is `if s == k0 then A else (if s ==
+// k1 then B else C)`, each comparison made only where the one before
+// failed. The chain is built in the block of a scaffold made where the
+// match is: every link is made at the end of the block it continues, which
+// yields the link's results, and the link's else block is the next block
+// continued. The default ends the last block continued. The scaffold's
+// block then takes the match's place.
 void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
   Location loc = op.getLoc();
   Value scrutinee = op.getScrutinee();
   TypeRange results = op.getResultTypes();
-  unsigned cases = op.getNumCases();
-  Arm fallback{op.getDefaultRegion(), std::nullopt};
   rewriter.setInsertionPoint(op);
-  if (auto integer = dyn_cast<IntegerType>(scrutinee.getType())) {
-    Value wide = scrutinee;
-    if (integer.getWidth() < 64)
-      wide = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), scrutinee);
-    Value index = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getIndexType(), wide);
-    SmallVector<int64_t> keys;
-    for (Attribute key : op.getCases())
-      keys.push_back(static_cast<int64_t>(cast<IntegerAttr>(key).getValue().getZExtValue()));
-    auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, keys, cases);
-    for (unsigned i = 0; i < cases; ++i)
-      moveArm(rewriter, {op.getCaseRegion(i), std::nullopt},
-              rewriter.createBlock(&switchOp.getCaseRegions()[i]), scrutinee, results);
-    moveArm(rewriter, fallback, rewriter.createBlock(&switchOp.getDefaultRegion()), scrutinee,
-            results);
-    rewriter.replaceOp(op, switchOp.getResults());
-    return;
-  }
-  // case k0 {A} case k1 {B} default {C} is
-  // if s == k0 then A else (if s == k1 then B else C), each comparison made
-  // only where the one before failed. The chain is built in the block of a
-  // scaffold made where the match is: every link, the first among them, is
-  // made at the end of the block it continues, which yields the link's
-  // results, and the link's else block is the next block continued. The
-  // default ends the last block continued, which is the scaffold's own when
-  // there is no case. The scaffold's block then takes the match's place.
   auto scaffold = scf::ExecuteRegionOp::create(rewriter, loc, results);
   Block *continued = rewriter.createBlock(&scaffold.getRegion());
-  for (unsigned i = 0; i < cases; ++i) {
+  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
     rewriter.setInsertionPointToEnd(continued);
-    Value literal = ConstantOp::create(rewriter, loc, scrutinee.getType(), op.getCases()[i]);
+    Value literal = ConstantOp::create(rewriter, loc, scrutinee.getType(), key);
     auto eq = CmpPredicate::eq;
-    // The scrutinee is graded once counted: its kind is its carrier's.
+    // A string is compared as a string; a big integer or a natural as a big.
     Value equal = isa<StrType>(unrestricted(scrutinee.getType()))
                       ? Value(StrCmpOp::create(rewriter, loc, eq, scrutinee, literal))
                       : Value(BigCmpOp::create(rewriter, loc, eq, scrutinee, literal));
     auto link = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,
                                   /*addElseBlock=*/false);
     scf::YieldOp::create(rewriter, loc, link.getResults());
-    moveArm(rewriter, {op.getCaseRegion(i), std::nullopt},
-            rewriter.createBlock(&link.getThenRegion()), scrutinee, results);
+    moveBody(rewriter, region, rewriter.createBlock(&link.getThenRegion()), ValueRange());
     continued = rewriter.createBlock(&link.getElseRegion());
   }
-  moveArm(rewriter, fallback, continued, scrutinee, results);
+  moveBody(rewriter, op.getDefaultRegion(), continued, ValueRange());
   Block *chain = &scaffold.getRegion().front();
-  auto yield = cast<scf::YieldOp>(chain->getTerminator());
+  Operation *last = chain->getTerminator();
   rewriter.inlineBlockBefore(chain, op);
-  rewriter.replaceOp(op, yield.getResults());
-  rewriter.eraseOp(yield);
+  if (auto yield = dyn_cast<scf::YieldOp>(last)) {
+    rewriter.replaceOp(op, yield.getResults());
+    rewriter.eraseOp(yield);
+  } else {
+    // With no case, the default's own end is the chain's: a jump, or one
+    // that never ends, after which nothing of the match's results is read.
+    rewriter.eraseOp(op);
+  }
   rewriter.eraseOp(scaffold);
 }
 
@@ -179,10 +155,180 @@ struct LowerMatchLit : OpRewritePattern<MatchLitOp> {
   }
 };
 
+//===----------------------------------------------------------------------===//
+// Phase 2
+//===----------------------------------------------------------------------===//
+
+SmallVector<Value> flatten(ArrayRef<ValueRange> values) {
+  SmallVector<Value> flat;
+  for (ValueRange range : values)
+    llvm::append_range(flat, range);
+  return flat;
+}
+
+// A join point's op with its results' and its regions' arguments converted,
+// one value to its components; its regions moved into the new op.
+template <typename Group>
+struct ConvertGroupTypes : OpConversionPattern<Group> {
+  using OpConversionPattern<Group>::OpConversionPattern;
+  using OneToNOpAdaptor = typename OpConversionPattern<Group>::OneToNOpAdaptor;
+
+  LogicalResult matchAndRewrite(Group op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    const TypeConverter &converter = *this->getTypeConverter();
+    SmallVector<Type> types;
+    SmallVector<unsigned> offsets{0};
+    for (Value result : op->getResults()) {
+      if (failed(converter.convertType(result.getType(), types)))
+        return rewriter.notifyMatchFailure(op, "a result's type has no conversion");
+      offsets.push_back(static_cast<unsigned>(types.size()));
+    }
+    for (Region &region : op->getRegions())
+      if (failed(rewriter.convertRegionTypes(&region, converter)))
+        return rewriter.notifyMatchFailure(op, "a region's arguments have no conversion");
+    OperationState state(op.getLoc(), Group::getOperationName(), ValueRange(), types);
+    state.getOrAddProperties<typename Group::Properties>().binders = op.getBinders();
+    for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
+      state.addRegion();
+    Operation *fresh = rewriter.create(state);
+    for (auto [from, into] : llvm::zip_equal(op->getRegions(), fresh->getRegions()))
+      rewriter.inlineRegionBefore(from, into, into.end());
+    SmallVector<ValueRange> packed;
+    for (unsigned i = 1, e = static_cast<unsigned>(offsets.size()); i < e; ++i)
+      packed.push_back(fresh->getResults().slice(offsets[i - 1], offsets[i] - offsets[i - 1]));
+    rewriter.replaceOpWithMultiple(op, packed);
+    return success();
+  }
+};
+
+struct ConvertJumpTypes : OpConversionPattern<JumpOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(JumpOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<JumpOp>(op, llvm::getSingleElement(adaptor.getTarget()),
+                                        flatten(adaptor.getArgs()),
+                                        op.getTermsAttr());
+    return success();
+  }
+};
+
+// After phase 1 every idr.yield left ends a join point's region.
+struct ConvertGroupYieldTypes : OpConversionPattern<YieldOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(YieldOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<YieldOp>(op, flatten(adaptor.getOperands()));
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// Phase 3
+//===----------------------------------------------------------------------===//
+
+// The join points' op as blocks. Its regions are legalized first, so every
+// match and every inner join point in them is blocks already, and every
+// jump to this op and every yield of it ends a block of its regions; a jump
+// to an enclosing op stays for that op's lowering.
+template <typename Group>
+struct LowerGroup : OpConversionPattern<Group> {
+  using OpConversionPattern<Group>::OpConversionPattern;
+  void initialize() { this->setHasBoundedRewriteRecursion(); }
+
+  LogicalResult matchAndRewrite(Group op, typename OpConversionPattern<Group>::OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    for (Region &region : op->getRegions()) {
+      OpBuilder::InsertionGuard guard(rewriter);
+      if (failed(rewriter.legalize(&region)))
+        return rewriter.notifyMatchFailure(op, "a region did not lower");
+    }
+    Location loc = op.getLoc();
+    auto points = cast<JoinPointsOpInterface>(op.getOperation());
+    SmallVector<Block *> entries;
+    SmallVector<unsigned> tokens;
+    SmallVector<YieldOp> yields;
+    // Each jump to this op with its target's entry block, read while the
+    // tokens are still the regions' own.
+    SmallVector<std::pair<JumpOp, Block *>> jumps;
+    for (Region &region : op->getRegions()) {
+      entries.push_back(&region.front());
+      tokens.push_back(static_cast<unsigned>(points.getTokens(region).size()));
+    }
+    for (Region &region : op->getRegions())
+      for (Block &block : region) {
+        Operation *terminator = block.getTerminator();
+        if (auto yield = dyn_cast<YieldOp>(terminator)) {
+          yields.push_back(yield);
+          continue;
+        }
+        auto jump = dyn_cast<JumpOp>(terminator);
+        auto token = jump ? cast<BlockArgument>(jump.getTarget()) : BlockArgument();
+        if (token && token.getOwner()->getParentOp() == op)
+          jumps.emplace_back(jump, entries[points.getTarget(token)->getRegionNumber()]);
+      }
+    Block *before = rewriter.getInsertionBlock();
+    Block *after = rewriter.splitBlock(before, rewriter.getInsertionPoint());
+    after->addArguments(op->getResultTypes(),
+                        SmallVector<Location>(op->getNumResults(), loc));
+    for (Region &region : op->getRegions())
+      rewriter.inlineRegionBefore(region, after);
+    for (YieldOp yield : yields) {
+      rewriter.setInsertionPoint(yield);
+      cf::BranchOp::create(rewriter, yield.getLoc(), after, yield.getResults());
+      rewriter.eraseOp(yield);
+    }
+    for (auto [jump, entry] : jumps) {
+      rewriter.setInsertionPoint(jump);
+      cf::BranchOp::create(rewriter, jump.getLoc(), entry, jump.getArgs());
+      jump->setOperands({});
+      rewriter.eraseOp(jump);
+    }
+    for (auto [entry, leading] : llvm::zip_equal(entries, tokens))
+      entry->eraseArguments(0, leading);
+    rewriter.setInsertionPointToEnd(before);
+    cf::BranchOp::create(rewriter, loc, entries.front(), ValueRange());
+    rewriter.replaceOp(op, after->getArguments());
+    return success();
+  }
+};
+
 } // namespace
 
 void populateMatchPatterns(RewritePatternSet &patterns) {
   patterns.add<LowerMatch, LowerMatchLit>(patterns.getContext());
+}
+
+void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternSet &patterns,
+                                 ConversionTarget &target) {
+  patterns.add<ConvertGroupTypes<JoinOp>, ConvertGroupTypes<LoopOp>, ConvertJumpTypes,
+               ConvertGroupYieldTypes>(converter, patterns.getContext());
+  auto groupLegal = [&converter](Operation *op) {
+    return converter.isLegal(op->getResultTypes()) &&
+           llvm::all_of(op->getRegions(), [&](Region &region) {
+             return converter.isLegal(region.getArgumentTypes());
+           });
+  };
+  target.addDynamicallyLegalOp<JoinOp, LoopOp>(groupLegal);
+  target.addDynamicallyLegalOp<JumpOp>(
+      [&converter](JumpOp op) { return converter.isLegal(op->getOperandTypes()); });
+  target.addDynamicallyLegalOp<YieldOp>(
+      [&converter](YieldOp op) { return converter.isLegal(op->getOperandTypes()); });
+}
+
+void populateJoinLoweringPatterns(RewritePatternSet &patterns) {
+  patterns.add<LowerGroup<JoinOp>, LowerGroup<LoopOp>>(patterns.getContext());
+}
+
+LogicalResult lowerControlFlow(Operation *root) {
+  MLIRContext *context = root->getContext();
+  RewritePatternSet patterns(context);
+  populateSCFToControlFlowConversionPatterns(patterns);
+  populateJoinLoweringPatterns(patterns);
+  ConversionTarget target(*context);
+  target.addIllegalOp<scf::ForallOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, scf::LoopOp,
+                      scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp, JoinOp, LoopOp>();
+  target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+  return applyPartialConversion(root, target, std::move(patterns));
 }
 
 } // namespace idr::conversion

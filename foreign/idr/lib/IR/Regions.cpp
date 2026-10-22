@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// How control leaves the regions of a match: the yield that ends one goes
-// on to the match's results. How it enters them is the match's own
-// (Idr_MatchOpBase, IdrMatchOps.td).
+// How control leaves a region by idr.yield: to the results of the op whose
+// region it ends, a match or a join point's op. How it enters their regions
+// is each op's own (OpsMatch.cpp, Control/Joins.cpp); how it leaves by a
+// jump is idr.jump's.
 
 #include "idr/IR/IdrDialect.h"
 
@@ -17,7 +18,7 @@ void YieldOp::getSuccessorRegions(ArrayRef<Attribute>, SmallVectorImpl<RegionSuc
           RegionBranchPoint(cast<RegionBranchTerminatorOpInterface>(getOperation())), regions);
 }
 
-// A match's yield is the match's results.
+// A yield's operands are its parent's results.
 MutableOperandRange YieldOp::getMutableSuccessorOperands(RegionSuccessor) {
   return MutableOperandRange(*this);
 }
