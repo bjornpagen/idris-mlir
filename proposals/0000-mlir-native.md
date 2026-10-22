@@ -3272,7 +3272,8 @@ C137.
   computed in Idris (on 0015's core where it is a fixpoint) and crosses
   Emit as a type or a property; a fact about the IR after Emit is C++; no
   fact is computed on both sides.
-- **C119** (L15 §3, I-7). Quantity handles in C++: `Exclusive`, made only
+- **C119** (L15 §3, I-7) (amended by C195: the `Exclusive` handle
+  goes; a value's exclusivity is its grade). Quantity handles in C++: `Exclusive`, made only
   by `asExclusive`, and a move-only `Token` (copy deleted, `consume() &&`
   leaving counting's walk by a recycle, a join argument or a drop;
   `rejoin` taking both sides by value), in `include/idr/IR/Quantities.h`,
@@ -4050,6 +4051,25 @@ C137.
   alternatives names them, by a list or by the concept they share. The
   fold refuses an unconstrained case when the compiler is built, by
   probing the cases with a type no sum holds.
+- **C201** (2026-10-22; L11's sixth pass; settles C43's margin). The
+  tools' threads run on D33's measured mark plus the target's
+  outside-code margin, the same one value the programs' stack takes
+  (C98, C5): the deepest stack the C library's entries the tools reach
+  use, painted and measured per target and recorded in the target's
+  entry with its build and input. Our C++ and MLIR's, patched, never
+  recurse on the input, so the mark over the stage-1 module and the
+  nesting fixtures covers our own frames; only outside code needs the
+  margin, and a round factor would be a size that is neither the
+  program's nor the host's.
+- **C202** (2026-10-22; L08's fifth pass). No pass of ours rewrites the
+  type of a value an upstream op produces. An element that
+  `tensor.extract` or `memref.load` reads has its type's grade, from the
+  array's element type: the in-place rule never raises it and never
+  follows it into the array, so a requirement the element's type does
+  not meet ends at the shared value's cause, as the in-place promise
+  asks. `ub.poison` is graded as any value of ours: it holds no value,
+  so its type is ours to choose, and a dead arm yielding it costs a
+  match no claim.
 
 ## 4. Open: the owner's decisions, in order
 

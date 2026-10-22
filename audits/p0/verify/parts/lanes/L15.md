@@ -22,8 +22,8 @@ a type-erased callback only where an upstream API takes one; every fact
 knowable when the compiler is built a compile-time constant; a choice a
 type or an enum case; no pointer-keyed map holding per-node state; no
 `assert` (D91). The shared vocabulary of P0 §5.2: typed dense ids and
-`IndexVector`; `Exclusive` and `Token` handles in `Quantities.h`, whose
-copy fails to compile with its message (WU-10).
+`IndexVector`; the `Token` handle in `Quantities.h` (C195: exclusivity
+is the grade, with no handle), whose copy fails to compile with its message (WU-10).
 
 **End state:** `include/idr/Support/` holds the typed ids, index vectors
 and the concepts the solver layer and passes share; `Quantities.h`'s
@@ -40,7 +40,7 @@ vocabulary), amended by D91.
 `[[maybe_unused]]` hiding a dropped answer in your files, unit tests that
 name passes or pin op sequences.
 
-**QTT:** a copied `Token` and a duplicated `Exclusive` fail to compile.
+**QTT:** a copied `Token` fails to compile.
 
 **NOT TO DO:** any pass's logic; the solver layer's analyses (L14); CMake
 flags (INT, from your handoff).
