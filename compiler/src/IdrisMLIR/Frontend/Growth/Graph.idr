@@ -19,7 +19,10 @@
 ||| program (`heldCount`); a dictionary held by another is one value of the
 ||| other's list, written from its own place's held positions. The walk over
 ||| definitions reads what each reachable one writes (its sites), and the
-||| walk over nodes follows those sites from main to the nodes they reach.
+||| walk over nodes follows those sites from main to the nodes they reach,
+||| visiting a node once for each set of stuck paths the chains of held
+||| dispatches that reach it hold (`Heads.Visit`), its sites written at
+||| the node's positions.
 ||| Every argument a site writes lands at a position of its callee: it is a
 ||| site of the growth theorem's model (`Proof.Bound.Site`), and the graph
 ||| is drawn from the model (`Proof.Describes`), which proves that it
@@ -247,30 +250,38 @@ definitions main = do
 -- The universe of nodes, and novelty
 ------------------------------------------------------------------------------
 
--- Two nodes, as the machine compares their parts: the definition's
--- address by its bytes, then each head by its parameter and its address.
-decideNode : (x, y : Node) -> Decided (x = y)
-decideNode (MkNode d hs) (MkNode d' hs') = case decideAddress d d' of
+-- Two visits, as the machine compares their parts: the definition's
+-- address by its bytes, then each head by its parameter, its root's
+-- address and the paths it held.
+decideVisit : (x, y : Visit) -> Decided (x = y)
+decideVisit (MkVisit d hs) (MkVisit d' hs') = case decideAddress d d' of
   Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
   Proof.Growth.Yes Refl => case sameList decideHead hs hs' of
     Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
     Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
   where
-    decideHead : (h, h' : (Nat, Address)) -> Decided (h = h')
-    decideHead (i, a) (j, b) = case sameNat i j of
+    decideHeaded : (h, h' : Headed) -> Decided (h = h')
+    decideHeaded (MkHeaded a s) (MkHeaded b s') = case decideAddress a b of
       Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-      Proof.Growth.Yes Refl => case decideAddress a b of
+      Proof.Growth.Yes Refl => case sameList samePath s s' of
         Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
         Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
 
--- A node not yet in a list, with the erased proof.
-data IsNew : Node -> List Node -> Type where
+    decideHead : (h, h' : (Nat, Headed)) -> Decided (h = h')
+    decideHead (i, a) (j, b) = case sameNat i j of
+      Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+      Proof.Growth.Yes Refl => case decideHeaded a b of
+        Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+        Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+
+-- A visit not yet in a list, with the erased proof.
+data IsNew : Visit -> List Visit -> Type where
   New : (0 _ : Not (Elem x xs)) -> IsNew x xs
 
--- Whether a node is new to a list: its proof, or nothing when it is there.
-novel : (x : Node) -> (xs : List Node) -> Maybe (IsNew x xs)
+-- Whether a visit is new to a list: its proof, or nothing when it is there.
+novel : (x : Visit) -> (xs : List Visit) -> Maybe (IsNew x xs)
 novel x [] = Just (New (\case _ impossible))
-novel x (y :: ys) = case decideNode x y of
+novel x (y :: ys) = case decideVisit x y of
   Proof.Growth.Yes _ => Nothing
   Proof.Growth.No no => case novel x ys of
     Nothing => Nothing
@@ -317,139 +328,177 @@ flatMap : (a -> List b) -> List a -> List b
 flatMap f [] = []
 flatMap f (x :: xs) = f x ++ flatMap f xs
 
-pairs : List Nat -> List Address -> List (Nat, Address)
+pairs : List Nat -> List a -> List (Nat, a)
 pairs is as = flatMap (\i => map (i,) as) is
 
-0 pairsComplete : (is : List Nat) -> (as : List Address) -> Elem i is -> Elem a as -> Elem (i, a) (pairs is as)
-pairsComplete (i :: is) as Here ea = elemAppendLeft (elemMap (i,) ea)
-pairsComplete (j :: is) as (There ei) ea = elemAppendRight (map (j,) as) (pairsComplete is as ei ea)
-
--- Every node of at most h heads, each at a parameter below p (erased).
-0 Nodes : Listed Address -> (h, p : Nat) -> List Node
-Nodes names h p = flatMap (\d => map (MkNode d) (upTo h (pairs (below p) names.values))) names.values
+0 pairsComplete : (is : List Nat) -> (as : List a) -> Elem i is -> Elem x as -> Elem (i, x) (pairs is as)
+pairsComplete (i :: is) as Here ex = elemAppendLeft (elemMap (i,) ex)
+pairsComplete (j :: is) as (There ei) ex = elemAppendRight (map (j,) as) (pairsComplete is as ei ex)
 
 0 flatMapComplete : (f : a -> List b) -> (xs : List a) -> Elem x xs -> Elem y (f x) -> Elem y (flatMap f xs)
 flatMapComplete f (x :: xs) Here ey = elemAppendLeft ey
 flatMapComplete f (z :: xs) (There ex) ey = elemAppendRight (f z) (flatMapComplete f xs ex ey)
 
-0 headsIn : (names : Listed Address) -> (p : Nat) -> (hs : List (Nat, Address)) -> All (\e => LT (fst e) p) hs ->
-            All (\y => Elem y (pairs (below p) names.values)) hs
-headsIn names p [] [] = []
-headsIn names p ((i, a) :: hs) (lt :: lts) =
-  pairsComplete (below p) names.values (belowComplete p lt) (names.complete a) :: headsIn names p hs lts
+-- Every head a parameter can have: a definition at its root, holding at
+-- most as many stuck paths as the program has, each one of the program's
+-- (erased).
+0 Headeds : Listed Address -> List (List1 Nat) -> List Headed
+Headeds names ps = flatMap (\a => map (MkHeaded a) (upTo (length ps) ps)) names.values
 
-0 nodeIn : (names : Listed Address) -> (h, p : Nat) -> (x : Node) -> LTE (length x.heads) h ->
-           All (\e => LT (fst e) p) x.heads -> Elem x (Nodes names h p)
-nodeIn names h p (MkNode d hs) le lts =
-  flatMapComplete (\d => map (MkNode d) (upTo h (pairs (below p) names.values))) names.values
+-- Every visit of at most h heads, each at a parameter below p (erased).
+0 Visits : Listed Address -> List (List1 Nat) -> (h, p : Nat) -> List Visit
+Visits names ps h p = flatMap (\d => map (MkVisit d) (upTo h (pairs (below p) (Headeds names ps)))) names.values
+
+-- A head among those: each path it holds one of the program's, and no
+-- more of them than the program has (erased).
+0 HeldAmong : List (List1 Nat) -> Headed -> Type
+HeldAmong ps h = (All (\q => Elem q ps) h.held, LTE (length h.held) (length ps))
+
+0 headedIn : (names : Listed Address) -> (ps : List (List1 Nat)) -> (h : Headed) -> HeldAmong ps h -> Elem h (Headeds names ps)
+headedIn names ps (MkHeaded a s) (inPs, short) =
+  flatMapComplete (\a' => map (MkHeaded a') (upTo (length ps) ps)) names.values (names.complete a)
+    (elemMap (MkHeaded a) (upToComplete ps (length ps) s inPs short))
+
+0 headsIn : (names : Listed Address) -> (ps : List (List1 Nat)) -> (p : Nat) -> (hs : List (Nat, Headed)) ->
+            All (\e => LT (fst e) p) hs -> All (\e => HeldAmong ps (snd e)) hs ->
+            All (\y => Elem y (pairs (below p) (Headeds names ps))) hs
+headsIn names ps p [] [] [] = []
+headsIn names ps p ((i, h) :: hs) (lt :: lts) (w :: ws) =
+  pairsComplete (below p) (Headeds names ps) (belowComplete p lt) (headedIn names ps h w) :: headsIn names ps p hs lts ws
+
+0 visitIn : (names : Listed Address) -> (ps : List (List1 Nat)) -> (h, p : Nat) -> (x : Visit) ->
+            LTE (length x.heads) h -> All (\e => LT (fst e) p) x.heads -> All (\e => HeldAmong ps (snd e)) x.heads ->
+            Elem x (Visits names ps h p)
+visitIn names ps h p (MkVisit d hs) le lts ws =
+  flatMapComplete (\d' => map (MkVisit d') (upTo h (pairs (below p) (Headeds names ps)))) names.values
     (names.complete d)
-    (elemMap (MkNode d) (upToComplete (pairs (below p) names.values) h hs (headsIn names p hs lts) le))
+    (elemMap (MkVisit d) (upToComplete (pairs (below p) (Headeds names ps)) h hs (headsIn names ps p hs lts ws) le))
 
 ------------------------------------------------------------------------------
 -- The nodes
 ------------------------------------------------------------------------------
 
 -- The room the universe leaves a path (erased).
-0 Room : Listed Address -> Nat -> List Node -> Nat
-Room names b path = minus (length (Nodes names b b)) (length path)
+0 Room : Listed Address -> List (List1 Nat) -> Nat -> List Visit -> Nat
+Room names ps b path = minus (length (Visits names ps b b)) (length path)
 
--- What the walk has found: every node entered, once (a run-time set, no
+-- What the walk has found: every visit entered, once (a run-time set, no
 -- proof: skipping needs none), each with what its sites reach, and each
--- one's reachers, the path it was entered below: the node that first
--- reached it, nearest first, back to main.
+-- node's reachers, the path its visit was entered below: the node that
+-- first reached it, nearest first, back to main.
 record Found where
   constructor MkFound
-  entered : SortedSet Node
-  done : SnocList (Node, List (Sites.Site, Reached))
+  entered : SortedSet Visit
+  done : SnocList (Visit, List (Sites.Site, Reached))
   reachers : SortedMap Node (List Node)
 
 -- Where the walk over nodes stops, either a broken invariant of the
--- graph's own construction that would lose a node's arcs if the node were
--- skipped: a node outside the universe, split at a head where no site
--- writes one; or a node at heads the flow did not give, with no reading.
-data Stray = Outside Node | Unheaded Node
+-- graph's own construction that would lose a visit's arcs if the visit
+-- were skipped: a visit outside the universe, split at a head where no
+-- site writes one, or holding a path no site re-packs; or a visit at
+-- heads the flow did not give, with no reading.
+data Stray = Outside Visit | Unheaded Visit
 
--- A node of the universe, with its erased membership.
-data Inside : Listed Address -> Nat -> Node -> Type where
-  In : {0 names : Listed Address} -> {0 b : Nat} -> {0 x : Node} ->
-       (0 _ : Elem x (Nodes names b b)) -> Inside names b x
+-- A visit of the universe, with its erased membership.
+data Inside : Listed Address -> List (List1 Nat) -> Nat -> Visit -> Type where
+  In : {0 names : Listed Address} -> {0 ps : List (List1 Nat)} -> {0 b : Nat} -> {0 x : Visit} ->
+       (0 _ : Elem x (Visits names ps b b)) -> Inside names ps b x
 
 -- Every head at a parameter below b, as the machine compares them.
-lowHeads : Nat -> List (Nat, Address) -> Bool
+lowHeads : Nat -> List (Nat, a) -> Bool
 lowHeads b [] = True
 lowHeads b ((i, _) :: hs) = i < b && lowHeads b hs
 
-0 lowHeadsSo : (b : Nat) -> (hs : List (Nat, Address)) -> So (lowHeads b hs) -> All (\e => LT (fst e) b) hs
+0 lowHeadsSo : (b : Nat) -> (hs : List (Nat, a)) -> So (lowHeads b hs) -> All (\e => LT (fst e) b) hs
 lowHeadsSo b [] _ = []
 lowHeadsSo b ((i, _) :: hs) so = let (lt, rest) = soAnd so in Proof.Growth.ltSo lt :: lowHeadsSo b hs rest
 
--- A node's evidence of being in the universe, or nothing: the machine's
--- comparisons of naturals, read as the erased membership, with no search
--- and no proof built at run time.
-inside : (0 names : Listed Address) -> (b : Nat) -> (x : Node) -> Maybe (Inside names b x)
-inside names b x = case (choose (length x.heads <= b), choose (lowHeads b x.heads)) of
-  (Left short, Left low) => Just (In (nodeIn names b b x (Proof.Growth.lteSo short) (lowHeadsSo b x.heads low)))
+-- Every path of a list among the program's, as the machine compares
+-- them: the erased evidence, or nothing.
+amongAll : (ps : List (List1 Nat)) -> (qs : List (List1 Nat)) -> Maybe (Subset () (\_ => All (\q => Elem q ps) qs))
+amongAll ps [] = Just (Element () [])
+amongAll ps (q :: qs) = case (pathAmong q ps, amongAll ps qs) of
+  (Proof.Growth.Yes e, Just (Element () es)) => Just (Element () (e :: es))
   _ => Nothing
 
--- The walk is depth first, and a node's newness is decided against its own
--- path from main, which is no longer than the walk is deep: one novelty
--- test per node entered, so O(nodes x depth), where a global list with
--- proofs costs a comparison per pair, about 87 million at the self
--- compile's 13,218 nodes (measured). A node met again off its path is
--- skipped by the run-time set, which needs no proof.
+-- Every head's paths among the program's, and no more of them than it
+-- has: the erased evidence, or nothing.
+withinPaths : (ps : List (List1 Nat)) -> (hs : List (Nat, Headed)) -> Maybe (Subset () (\_ => All (\e => HeldAmong ps (snd e)) hs))
+withinPaths ps [] = Just (Element () [])
+withinPaths ps ((_, h) :: hs) = case (amongAll ps h.held, choose (length h.held <= length ps), withinPaths ps hs) of
+  (Just (Element () inPs), Left short, Just (Element () rest)) => Just (Element () ((inPs, Proof.Growth.lteSo short) :: rest))
+  _ => Nothing
+
+-- A visit's evidence of being in the universe, or nothing: the machine's
+-- comparisons, read as the erased membership, with no proof built at run
+-- time. Each path a head holds is searched for among the program's few.
+inside : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) -> (x : Visit) -> Maybe (Inside names ps b x)
+inside names ps b x = case (choose (length x.heads <= b), choose (lowHeads b x.heads), withinPaths ps x.heads) of
+  (Left short, Left low, Just (Element () held)) =>
+    Just (In (visitIn names ps b b x (Proof.Growth.lteSo short) (lowHeadsSo b x.heads low) held))
+  _ => Nothing
+
+-- The walk is depth first, and a visit's newness is decided against its
+-- own path from main, which is no longer than the walk is deep: one
+-- novelty test per visit entered, so O(visits x depth), where a global
+-- list with proofs costs a comparison per pair, about 87 million at the
+-- self compile's 13,218 nodes (measured). A visit met again off its path
+-- is skipped by the run-time set, which needs no proof.
 mutual
-  -- Enters a node new to its path from main: its sites' callees are walked
-  -- below it, each new to the longer path, which leaves less room.
-  visit : (0 names : Listed Address) -> (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) ->
-          (x : Node) -> (path : List Node) ->
-          (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Nodes names b b)) (x :: path)) ->
-          (0 acc : Accessible LT (Room names b (x :: path))) -> Found -> Either Stray Found
-  visit names b out x path nd inU acc found = case out x of
+  -- Enters a visit new to its path from main: its sites' callees are
+  -- walked below it, each new to the longer path, which leaves less room.
+  visit : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
+          (out : Visit -> Maybe (List (Sites.Site, Reached))) -> (x : Visit) -> (path : List Visit) ->
+          (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
+          (0 acc : Accessible LT (Room names ps b (x :: path))) -> Found -> Either Stray Found
+  visit names ps b out x path nd inU acc found = case out x of
     Nothing => Left (Unheaded x)
     Just edges =>
-      under names b out x path nd inU acc (mapMaybe (\(_, e) => calleeNode e.callee) edges) ({ done $= (:< (x, edges)) } found)
+      under names ps b out x path nd inU acc (mapMaybe (\(_, e) => calleeVisit e.callee) edges)
+            ({ done $= (:< (x, edges)) } found)
     where
       -- The application at a use is no node, nor is a choice, nor a
       -- rebuilt constructor's fields, and the walk enters nothing there:
       -- what each holds, the sites into it bound.
-      calleeNode : Callee -> Maybe Node
-      calleeNode (Entering c) = Just c
-      calleeNode Applying = Nothing
-      calleeNode (Making _) = Nothing
-      calleeNode (Filling _) = Nothing
+      calleeVisit : Callee -> Maybe Visit
+      calleeVisit (Entering c) = Just c
+      calleeVisit Applying = Nothing
+      calleeVisit (Making _) = Nothing
+      calleeVisit (Filling _) = Nothing
 
-  under : (0 names : Listed Address) -> (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) ->
-          (x : Node) -> (path : List Node) ->
-          (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Nodes names b b)) (x :: path)) ->
-          (0 acc : Accessible LT (Room names b (x :: path))) -> List Node -> Found -> Either Stray Found
-  under names b out x path nd inU acc [] found = Right found
-  under names b out x path nd inU acc@(Access rec) (c :: cs) found =
-    if contains c found.entered then under names b out x path nd inU acc cs found else
-    case inside names b c of
+  under : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
+          (out : Visit -> Maybe (List (Sites.Site, Reached))) -> (x : Visit) -> (path : List Visit) ->
+          (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
+          (0 acc : Accessible LT (Room names ps b (x :: path))) -> List Visit -> Found -> Either Stray Found
+  under names ps b out x path nd inU acc [] found = Right found
+  under names ps b out x path nd inU acc@(Access rec) (c :: cs) found =
+    if contains c found.entered then under names ps b out x path nd inU acc cs found else
+    case inside names ps b c of
       -- Outside the universe: a head where no site writes one, so that the
-      -- node's arcs would be lost if it were skipped.
+      -- visit's arcs would be lost if it were skipped.
       Nothing => Left (Outside c)
       Just (In cIn) => case novel c (x :: path) of
         -- On its own path: entered already, so the set holds it.
-        Nothing => under names b out x path nd inU acc cs found
+        Nothing => under names ps b out x path nd inU acc cs found
         Just (New notIn) =>
-          let found' = { entered $= insert c, reachers $= insert c (x :: path) } found in
-          case visit names b out c (x :: path) (notIn :: nd) (cIn :: inU)
+          let found' = { entered $= insert c, reachers $= insert (visitNode c) (map visitNode (x :: path)) } found in
+          case visit names ps b out c (x :: path) (notIn :: nd) (cIn :: inU)
                  (rec _ (room (notIn :: nd) (cIn :: inU))) found' of
             Left bad => Left bad
-            Right after => under names b out x path nd inU acc cs after
+            Right after => under names ps b out x path nd inU acc cs after
 
-nodesFrom : (0 names : Listed Address) -> (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) -> Node ->
-            Either Stray Found
-nodesFrom names b out root = case inside names b root of
+nodesFrom : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
+            (out : Visit -> Maybe (List (Sites.Site, Reached))) -> Visit -> Either Stray Found
+nodesFrom names ps b out root = case inside names ps b root of
   Nothing => Left (Outside root)
-  Just (In rIn) => visit names b out root [] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
+  Just (In rIn) => visit names ps b out root [] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
                      (MkFound (insert root empty) [<] empty)
 
 -- The walk over the real listing, named through an alias on a right-hand
 -- side: a lower-case global written in a type is bound as a new implicit.
-nodesFromMain : (b : Nat) -> (out : Node -> Maybe (List (Sites.Site, Reached))) -> Node -> Either Stray Found
-nodesFromMain b out root = let 0 names = addresses in nodesFrom names b out root
+nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> Maybe (List (Sites.Site, Reached))) -> Visit ->
+                Either Stray Found
+nodesFromMain ps b out root = let 0 names = addresses in nodesFrom names ps b out root
 
 -- The bound on a node's heads, b. A head sits at a dictionary parameter of
 -- its definition, by index, where a site's argument lands: a call's
@@ -524,7 +573,7 @@ leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
   where
     lead : Leads -> (Sites.Site, Reached) -> Leads
     lead m (_, e) = case (e.callee, e.via) of
-      (Entering callee, Dispatched j k leading) => insert (callee, j, k) leading m
+      (Entering callee, Dispatched j k leading) => insert (visitNode callee, j, k) leading m
       -- Essential: a call, a build and an application place no
       -- implementation's parameters, and a dispatch reaches a method
       -- function's node.
@@ -746,14 +795,32 @@ fieldWritings fl families nodes ls fs =
 -- Held values
 ------------------------------------------------------------------------------
 
--- What the held count is read off: the most values a place gives a
--- dictionary, the most a member closes over, and each distinct path at
--- which a match finds a field of its writer's dictionary stuck.
+-- What the held count is read off, from every reading's sites, once: the
+-- most values a place gives a dictionary, the most a member closes over,
+-- and each distinct path at which a match finds a field of its writer's
+-- dictionary stuck, which are also every path a chain of held dispatches
+-- can hold (`Heads.Headed`).
 record Counted where
   constructor MkCounted
   packed : Nat
   member : Nat
-  paths : SortedSet (List Nat)
+  paths : SortedSet (List1 Nat)
+
+countedIn : List (List Sites.Site) -> Counted
+countedIn = foldl (foldl counted) (MkCounted 0 0 empty)
+  where
+    -- The longest list an argument of a site holds.
+    longest : List Argument -> Nat
+    longest = foldl (\m, x => foldl (\m', l => max m' (length (forget l))) m x.holds) 0
+
+    counted : Counted -> Sites.Site -> Counted
+    counted c s = case s.reach of
+      Makes _ => { member $= max (longest s.arguments) } c
+      Repacks _ path => { paths $= insert path } c
+      Calls _ => { packed $= max (longest s.arguments) } c
+      Builds _ => { packed $= max (longest s.arguments) } c
+      Dispatches _ _ _ => { packed $= max (longest s.arguments) } c
+      Applies => { packed $= max (longest s.arguments) } c
 
 ||| The most values one list of held values holds (`Closed.packedType`), a
 ||| constant of the graph derived from the program: the most a place that
@@ -766,23 +833,8 @@ record Counted where
 ||| new list. It rests on two facts of the translation: a chain of
 ||| requests holds each path at most once, and every member a dispatch puts
 ||| in reduces, so no match finds that path stuck again below it.
-heldCount : List (List Sites.Site) -> Nat
-heldCount readings =
-  let found = foldl (foldl counted) (MkCounted 0 0 empty) readings in
-  foldl (\h, _ => h + S found.member) found.packed (SortedSet.toList found.paths)
-  where
-    -- The longest list an argument of a site holds.
-    longest : List Argument -> Nat
-    longest = foldl (\m, x => foldl (\m', l => max m' (length (forget l))) m x.holds) 0
-
-    counted : Counted -> Sites.Site -> Counted
-    counted c s = case s.reach of
-      Makes _ => { member $= max (longest s.arguments) } c
-      Repacks _ path => { paths $= insert (forget path) } c
-      Calls _ => { packed $= max (longest s.arguments) } c
-      Builds _ => { packed $= max (longest s.arguments) } c
-      Dispatches _ _ _ => { packed $= max (longest s.arguments) } c
-      Applies => { packed $= max (longest s.arguments) } c
+heldCount : Counted -> Nat
+heldCount found = foldl (\h, _ => h + S found.member) found.packed (SortedSet.toList found.paths)
 
 -- A list of n + 1 values held as one, over the held position of their
 -- values: n pairs, each but the last value in one with the rest after it.
@@ -1196,23 +1248,30 @@ build main = do
   -- what came before, the square of the length in all.
   let fl = flow entered.fields (values entered.sites >>= id)
   reads <- readings fl entered
-  -- The most values one list of held values holds, read off every
-  -- reading's sites, and the pair that holds such lists.
-  let count = heldCount (values reads)
+  -- The most values one list of held values holds, and every stuck path a
+  -- chain of held dispatches can hold, read off every reading's sites
+  -- once; and the pair that holds such lists.
+  let counted = countedIn (values reads)
+  let count = heldCount counted
   pairing <- pairingOf
-  -- Every node met has its reading (`readings`): one without would lose
-  -- the arcs its sites write.
-  let out : Node -> Maybe (List (Sites.Site, Reached))
-      out x = (\ss => [(s, r) | s <- ss, r <- reaches fl x s]) <$> SortedMap.lookup (readAt entered.families x) reads
-  let Right found = nodesFromMain (headBound entered.fields (values reads)) out (MkNode root [])
+  -- Every visit's node has its reading (`readings`): one without would
+  -- lose the arcs its sites write.
+  let out : Visit -> Maybe (List (Sites.Site, Reached))
+      out x = (\ss => [(s, r) | s <- ss, r <- reaches fl x s]) <$> SortedMap.lookup (readAt entered.families (visitNode x)) reads
+  let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields (values reads)) out
+                                  (MkVisit root [])
     | Left (Outside x) => do
         n <- nameOf x.definition
-        internal fc ("the growth graph met a node split at a parameter no site writes: " ++ n)
+        internal fc ("the growth graph met a node split at a parameter no site writes, or holding a path no site re-packs: " ++ n)
     | Left (Unheaded x) => do
         n <- nameOf x.definition
         internal fc ("the growth graph met a node at heads its flow did not give: " ++ n)
-  let walked0 = found.done <>> []
-  let nodes = byDefinition (.definition) (map fst walked0)
+  -- Each visit's sites write at its node's positions, which bound every
+  -- request the translation keys by that node, whatever chain reached it.
+  let walked0 = map (\(v, edges) => (visitNode v, edges)) (found.done <>> [])
+  -- Each node once, though the walk visits a node once for each set of
+  -- paths its chains held.
+  let nodes = byDefinition (the (Node -> Address) (.definition)) (SortedSet.toList (SortedSet.fromList (map fst walked0)))
   let leads = leadsOf walked0
   -- The positions the arguments name, with what lands at each.
   let placed0 = written walked0

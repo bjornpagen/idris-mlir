@@ -177,7 +177,7 @@ record ClosedOver where
 ||| one known as a term, the dictionary a constructor holds, matched out of
 ||| a value, or one written where a lambda's dictionary binder takes it,
 ||| closed as every term is (`close`), with what it closes over where it
-||| closes over runtime values whose types the walk knows.
+||| closes over values whose types the walk knows (`knownAt`).
 data Dict = Own Nat Nat (List Nat) | Known ClosedTerm (Maybe ClosedOver)
 
 ||| What a variable of the walk stands for: a compile-time value that is
@@ -300,25 +300,46 @@ mutual
   occurringAll wanted [] met = met
   occurringAll wanted (t :: ts) met = occurringAll wanted ts (occurring wanted t met)
 
+||| What a hole marker of a dictionary's key stands for (`holedAt`): a
+||| runtime value or a shape of the scope, of the type the walk knows,
+||| where it knows one; or a dictionary known as a term that closes over
+||| values, the one value of the type that packs them, as the translation
+||| holds a variable that holds values (`Terms.headed`).
+data Marked = ARuntime (Maybe ClosedTerm) | AHolder ClosedTerm
+
+||| A term closed as a dictionary's key holds it, its markers numbered by
+||| first occurrence (`holedAt`): the key, each runtime value a hole marker
+||| and each dictionary known as a term that closes over values its form,
+||| whose values are the projections of its marker, as the translation's
+||| key has it (`Terms.headed`); the same term with each such dictionary
+||| its bare marker, which a reading of what the key holds reads as the one
+||| value it holds (`heldIn`); and what each marker stands for.
+record Holed where
+  constructor MkHoled
+  key : ClosedTerm
+  marked : ClosedTerm
+  markers : List Marked
+
 ||| A term closed as a dictionary's key holds it: every runtime value and
-||| shape it mentions a hole marker, numbered by first occurrence, as the
-||| translation marks what an implementation closes over; with the place in
-||| the scope of the value each marker stands for, by marker.
-holedAt : {vs : Scope} -> Env vs -> TT vs -> (ClosedTerm, List Nat)
-holedAt env t =
+||| shape it mentions a hole marker, numbered by first occurrence, and every
+||| dictionary known as a term that closes over values one marker too, as
+||| the translation marks what an implementation closes over (`Holed`).
+holedAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front Holed
+holedAt env t = do
   let valued = zipWith value [0 .. length (standings env)] (standings env)
       c = closeWritten EmptyFC (map (\(v, _) => the (VarInfo ()) (TypeValue v)) valued) t
       order = fst (occurring (SortedSet.fromList (mapMaybe snd valued)) c ([<], empty)) <>> []
-  in (replacing (zipWith (\r, n => (n, holeMarker r)) [0 .. length order] order) c, mapMaybe placeOf order)
+      numbered = zip [0 .. length order] order
+  marks <- traverse (markedAt . snd) numbered
+  -- A holder's form is put in first, over its own name, so that its
+  -- values' projections take the holder's marker with every other name's.
+  let filled = replacing (mapMaybe snd marks) c
+  let renumbered = map (\(r, n) => (n, holeMarker r)) numbered
+  pure (MkHoled (replacing renumbered filled) (replacing renumbered c) (map fst marks))
   where
-    -- The place a runtime value's name was made for (`runtimeAt`).
-    placeOf : Name -> Maybe Nat
-    placeOf n = case probeOf n of
-      Just (ProbeRuntimeAt p) => Just p
-      _ => Nothing
-
-    -- A runtime value or a shape as a name of its own, by its place in
-    -- the scope, which is renumbered once the term is closed.
+    -- A runtime value, a shape, or a dictionary known as a term that
+    -- closes over values, as a name of its own, by its place in the
+    -- scope, which is renumbered once the term is closed.
     runtimeAt : Nat -> (ClosedTerm, Maybe Name)
     runtimeAt p = (probeTerm (ProbeRuntimeAt p), Just (probeName (ProbeRuntimeAt p)))
 
@@ -326,30 +347,53 @@ holedAt env t =
     value p (Runtime, _, _) = runtimeAt p
     value p (Pattern _, _, _) = runtimeAt p
     value p (Shape _, _, _) = runtimeAt p
+    value p (Holds (Known _ (Just _)), _, _) = runtimeAt p
     value p (s, _, _) = (termOf s, Nothing)
 
-||| A term closed as a dictionary's key holds it (`holedAt`).
-holed : {vs : Scope} -> Env vs -> TT vs -> ClosedTerm
-holed env t = fst (holedAt env t)
+    -- What stands at the place a name was made for: a runtime value as
+    -- itself, of its type where the walk knows it; a dictionary known as
+    -- a term as its form, its values the projections of the one value at
+    -- its marker, of the type that packs them.
+    markedAt : Name -> Front (Marked, Maybe (Name, ClosedTerm))
+    markedAt n = case probeOf n of
+      Just pr@(ProbeRuntimeAt p) => case getAt p (standings env) of
+        Just (Holds (Known _ (Just co)), _, _) => do
+          values <- unpacked co.valueTypes (probeTerm pr)
+          packed <- packedType co.valueTypes
+          pure (AHolder packed, Just (n, fillHoles values co.holedForm))
+        Just (_, _, ty) => pure (ARuntime ty, Nothing)
+        Nothing => pure (ARuntime Nothing, Nothing)
+      _ => pure (ARuntime Nothing, Nothing)
 
-||| The types of the runtime values a term closed as a dictionary's key
-||| mentions, by marker (`holedAt`), where the walk knows each: what a lambda
-||| closes over, which the member it is holds as one value
+||| A term closed as a dictionary's key holds it (`holedAt`).
+holed : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front ClosedTerm
+holed env t = do
+  h <- holedAt env t
+  pure h.key
+
+||| The types of the values a key's markers stand for (`holedAt`), where the
+||| walk knows each: what a lambda or a dictionary known as a term closes
+||| over, which the member or the variable it is holds as one value
 ||| (`Closed.packedType`). Nothing when the walk knows one's type not.
-closedOverTypes : {vs : Scope} -> Env vs -> (places : List Nat) -> Maybe (List ClosedTerm)
-closedOverTypes env = traverse (\p => getAt p (standings env) >>= \(_, _, ty) => ty)
+typesOf : List Marked -> Maybe (List ClosedTerm)
+typesOf = traverse typed
+  where
+    typed : Marked -> Maybe ClosedTerm
+    typed (ARuntime ty) = ty
+    typed (AHolder packed) = Just packed
 
 ||| A dictionary known as a term, as the walk binds it (`Known`): closed as
-||| every term is, and, where it closes over runtime values whose types the
-||| walk knows, its form with a hole marker for each and their types, which
-||| a settling of it holds as one variable, as the translation's does
-||| (`Terms.standingFor`).
+||| every term is, and, where it closes over values whose types the walk
+||| knows (runtime values, and dictionaries known as terms that close over
+||| values, each the one value it holds), its form with a hole marker for
+||| each and their types, which a settling of it holds as one variable, as
+||| the translation's does (`Terms.standingFor`).
 knownAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front Dict
 knownAt env t = do
   closed <- solved (close env t)
-  let (form, places) = holedAt env t
-  case closedOverTypes env places of
-    Just (ty :: tys) => (\f => Known closed (Just (MkClosedOver f (ty ::: tys)))) <$> solved form
+  h <- holedAt env t
+  case typesOf h.markers of
+    Just (ty :: tys) => (\f => Known closed (Just (MkClosedOver f (ty ::: tys)))) <$> solved h.key
     _ => pure (Known closed Nothing)
 
 ||| What a definition's leaves give at a node: a member of its result
@@ -689,9 +733,10 @@ dictionaryParameter statics n = probeOf n >>= parameter
     parameter _ = Nothing
 
 ||| What an argument of a spine mentions that a dictionary holds: a runtime
-||| value (a hole marker), or a dictionary parameter of the writer that
-||| may hold values, both of which the translation holds where the
-||| argument is computed from them (`Terms.holed`); or nothing held.
+||| value or a dictionary known as a term that closes over values (a hole
+||| marker), or a dictionary parameter of the writer that may hold values,
+||| each of which the translation holds where the argument is computed
+||| from them (`Terms.holed`); or nothing held.
 data Mentioning = MentionsHeld | MentionsNothing
 
 mentioningIn : List (Maybe Static) -> ClosedTerm -> Mentioning
@@ -699,44 +744,64 @@ mentioningIn statics t =
   if mentionsHole t || any (\n => isJust (dictionaryParameter statics n)) (keys (getRefs (UN Underscore) t))
     then MentionsHeld else MentionsNothing
 
+||| What a reference given alone holds as one value: a dictionary parameter
+||| of the writer, or a field matched out of one, its values packed into
+||| one; a dictionary known as a term that closes over values, by the
+||| marker the key gives it (`Holed.marked`), the one value of the type
+||| that packs them (`Terms.headed`). A runtime value's marker is a value
+||| of its binder's type, which the spine reads there.
+heldAs : List (Maybe Static) -> (holders : List Marked) -> Name -> Maybe InSpine
+heldAs statics holders n = case dictionaryParameter statics n of
+  Just i => Just (ValuesOfParameter i)
+  Nothing => Closed.markerOf n >>= \r => getAt r holders >>= holder
+  where
+    holder : Marked -> Maybe InSpine
+    holder (AHolder packed) = Just (ValueOfType packed)
+    holder (ARuntime _) = Nothing
+
 mutual
   ||| What a dictionary closes over, in the order the translation finds it
   ||| (`Terms.holed`): each argument a definition that gives a dictionary
   ||| takes at a runtime parameter that is no dictionary, where the argument
-  ||| as its key holds it (`keyed`) mentions a runtime value or a dictionary
-  ||| parameter of the writer's, a value of that parameter's type, each
-  ||| earlier argument put in as `putIn` has it; a compile-time value there
-  ||| (an implementation, a polymorphic function: `compileTimeBinder`) is
-  ||| looked into; and a dictionary parameter of the writer's as it is, the
-  ||| one value it holds. The two terms are one term closed two ways, so
-  ||| their spines are one.
+  ||| as its key holds it (`keyed`, `Holed.marked`) mentions a runtime value
+  ||| or a dictionary parameter of the writer's, a value of that parameter's
+  ||| type, each earlier argument put in as `putIn` has it; a compile-time
+  ||| value there (an implementation, a polymorphic function:
+  ||| `compileTimeBinder`) is looked into; and a dictionary parameter of the
+  ||| writer's, or a dictionary known as a term that closes over values, as
+  ||| it is, the one value it holds (`heldAs`, by the key's markers
+  ||| `holders`). The two terms are one term closed two ways, so their
+  ||| spines are one.
   ||| A value two parameters share is listed at each: the translation holds
   ||| it once, so the packing below is never shorter than its.
   heldIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           List (Maybe Static) -> (keyed, putIn : ClosedTerm) -> Front (List InSpine)
-  heldIn statics keyed putIn = heldSpine statics keyed putIn []
+           List (Maybe Static) -> (holders : List Marked) -> (keyed, putIn : ClosedTerm) -> Front (List InSpine)
+  heldIn statics holders keyed putIn = heldSpine statics holders keyed putIn []
 
   heldSpine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              List (Maybe Static) -> (keyed, putIn : ClosedTerm) -> List HeldPart -> Front (List InSpine)
-  heldSpine statics (App _ f a) (App _ f' a') args = heldSpine statics f f' (MkHeldPart a a' (heldIn statics a a') :: args)
-  heldSpine statics (Ref _ _ n) _ args = case (dictionaryParameter statics n, args) of
-    (Just i, []) => pure [ValuesOfParameter i]
+              List (Maybe Static) -> (holders : List Marked) -> (keyed, putIn : ClosedTerm) -> List HeldPart ->
+              Front (List InSpine)
+  heldSpine statics holders (App _ f a) (App _ f' a') args =
+    heldSpine statics holders f f' (MkHeldPart a a' (heldIn statics holders a a') :: args)
+  heldSpine statics holders (Ref _ _ n) _ args = case (heldAs statics holders n, args) of
+    (Just v, []) => pure [v]
     _ => do
       Just (_, d) <- definitionOf n
         | Nothing => pure []
       case definition d.def of
         -- A definition of one right-hand side.
-        PMDef {} => if oneLeaf d then heldOver statics d.def 0 d.type args else pure []
-        DCon {} => heldOver statics d.def 0 d.type args
+        PMDef {} => if oneLeaf d then heldOver statics holders d.def 0 d.type args else pure []
+        DCon {} => heldOver statics holders d.def 0 d.type args
         _ => pure []
-  heldSpine statics _ _ _ = pure []
+  heldSpine statics holders _ _ _ = pure []
 
   -- The arguments from position `j` of the definition on, its type there
   -- `ty`, what it takes at each read as the definition's (`argumentAt`).
   heldOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             List (Maybe Static) -> GlobalDef -> (j : Nat) -> ClosedTerm -> List HeldPart -> Front (List InSpine)
-  heldOver statics def j ty [] = pure []
-  heldOver statics def j ty (x :: rest) = do
+             List (Maybe Static) -> (holders : List Marked) -> GlobalDef -> (j : Nat) -> ClosedTerm -> List HeldPart ->
+             Front (List InSpine)
+  heldOver statics holders def j ty [] = pure []
+  heldOver statics holders def j ty (x :: rest) = do
     Bind _ _ (Pi _ rig _ aty) sc <- normaliseClosed ty
       | _ => pure []
     here <- case argumentAt def j rig of
@@ -746,7 +811,7 @@ mutual
                   aty' <- normaliseClosed aty
                   if !(compileTimeBinder rig aty') then Force x.inner else pure [ValueOfType aty']
               _ => pure []
-    (here ++) <$> heldOver statics def (S j) (subst x.putIn sc) rest
+    (here ++) <$> heldOver statics holders def (S j) (subst x.putIn sc) rest
 
 ||| A static argument at a position, read off the closed term its key holds
 ||| at its kind (`rooted`), a term of a site whose stand-ins are `stands`,
@@ -827,18 +892,19 @@ held at stands fc (v :: vs) = do
 ||| The lists of values a dictionary or a member closes over (`held`), one
 ||| written term closed two ways: each earlier argument a later binder's
 ||| type depends on put in as its key holds it (`keyed`), a hole marker
-||| where it is a runtime value; or as the site knows it (`shaped`), a
-||| shape it matched as that shape. An instance that holds such an
-||| argument's whole shape puts the shape in, a compile-time value, so a
-||| value's type there can be taller than any part of the one with holes,
-||| which the shape's stand-ins bound; one that does not puts a hole in,
-||| whose token the keyed list weighs. Where both read alike, there is one
-||| list.
+||| where it is a runtime value or a dictionary known as a term that closes
+||| over values; or as the site knows it (`shaped`), a shape it matched as
+||| that shape. An instance that holds such an argument's whole shape puts
+||| the shape in, a compile-time value, so a value's type there can be
+||| taller than any part of the one with holes, which the shape's
+||| stand-ins bound; one that does not puts a hole in, whose token the
+||| keyed list weighs. Where both read alike, there is one list.
 packings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           At -> List StandIn -> FC -> (keyed, shaped : ClosedTerm) -> Front (List (List1 HeldItem), List Site)
-packings at stands fc keyed shaped = do
-  holes <- heldIn at.statics keyed keyed
-  shapes <- heldIn at.statics keyed shaped
+           At -> List StandIn -> FC -> (keyed : Holed) -> (shaped : ClosedTerm) -> Front (List (List1 HeldItem), List Site)
+packings at stands fc h shaped = do
+  keyed <- solved h.marked
+  holes <- heldIn at.statics h.markers keyed keyed
+  shapes <- heldIn at.statics h.markers keyed shaped
   if shapes == holes then held at stands fc holes else do
     (hs, hsites) <- held at stands fc holes
     (ss, ssites) <- held at stands fc shapes
@@ -863,22 +929,21 @@ knownGiven env (Local _ _ idx p) = case entryAt env idx p of
   _ => Nothing
 knownGiven _ _ = Nothing
 
-||| The dictionaries a term mentions that hold values, each once, in the
-||| order a reading from the left first meets them, as a lambda holds them
-||| (`Terms.captured`): a dictionary parameter of the writer, or a field
-||| matched out of one, the one value it holds; and a dictionary known as a
-||| term, the one value of the type that packs what it closes over.
-holdersIn : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front (List InSpine)
-holdersIn env t =
+||| The dictionary parameters of the writer a term mentions, or fields
+||| matched out of one, each once, in the order a reading from the left
+||| first meets them, each the one value it holds, as a lambda holds them
+||| (`Terms.captured`). A dictionary known as a term that closes over
+||| values is a marker of the term's key, and held there (`holedAt`).
+ownHolders : {vs : Scope} -> Env vs -> TT vs -> List InSpine
+ownHolders env t =
   let marked = zipWith mark [0 .. length (standings env)] (standings env)
       c = closeWritten EmptyFC (map (\(v, _) => the (VarInfo ()) (TypeValue v)) marked) t
       order = fst (occurring (SortedSet.fromList (mapMaybe snd marked)) c ([<], empty)) <>> [] in
-  sequence (mapMaybe placed order)
+  mapMaybe placed order
   where
-    -- What a variable that holds a dictionary with values holds.
-    holding : Stand -> Maybe (Front InSpine)
-    holding (Holds (Own i _ _)) = Just (pure (ValuesOfParameter i))
-    holding (Holds (Known _ (Just co))) = Just (ValueOfType <$> packedType co.valueTypes)
+    -- What a variable that holds the writer's dictionary holds.
+    holding : Stand -> Maybe InSpine
+    holding (Holds (Own i _ _)) = Just (ValuesOfParameter i)
     holding _ = Nothing
 
     -- Each such variable as a name of its own, by its place in the scope.
@@ -887,7 +952,7 @@ holdersIn env t =
       Just _ => (probeTerm (ProbeRuntimeAt p), Just (probeName (ProbeRuntimeAt p)))
       Nothing => (termOf s, Nothing)
 
-    placed : Name -> Maybe (Front InSpine)
+    placed : Name -> Maybe InSpine
     placed n = case probeOf n of
       Just (ProbeRuntimeAt p) => getAt p (standings env) >>= \(s, _, _) => holding s
       _ => Nothing
@@ -978,11 +1043,12 @@ argument at ps env fc g k = do
     AForm => pure (g.offer.value, pure ([], []))
     AShape => pure (g.offer.value, pure ([], []))
     ADictionary => do
-      d <- solved (holed env g.offer.arg.written)
+      h <- holedAt env g.offer.arg.written
+      d <- solved h.key
       shaped <- solved (close env g.offer.arg.written)
       pure (d, case knownGiven env g.offer.arg.written of
                  Just co => (\lists => (lists, [])) <$> knownHeld ps.made co
-                 Nothing => packings at ps.made fc d shaped)
+                 Nothing => packings at ps.made fc h shaped)
   memberOf <- case k of
     ADictionary => Just <$> choiceAt g.binder
     _ => pure Nothing
@@ -1022,20 +1088,19 @@ memberAt at ps env fc k d (lists, packed) written = do
 ||| type's choice (`Translate.Terms.member`), of a polymorphic function
 ||| type, whose head is the arrow, written at its choice's position
 ||| (`memberAt`), holding the runtime values of the scope it mentions and
-||| each dictionary holding values it mentions (`holdersIn`). A lambda is a
-||| value, so the program fixes it.
+||| each dictionary holding values it mentions: one known as a term at its
+||| key's marker (`holedAt`), and the writer's own (`ownHolders`). A lambda
+||| is a value, so the program fixes it.
 lambdaAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> TT vs -> Front (List Site)
 lambdaAt at ps env fc lam = do
-  let (form, places) = holedAt env lam
-  d <- solved form
+  h <- holedAt env lam
+  d <- solved h.key
   -- A value the walk binds with no type (a case's field past the binders
   -- its constructor's type shows) is held with nothing it knows of the
   -- pair's halves, so the list is left out with it.
-  packed <- case closedOverTypes env places of
-    Just types => do
-      holders <- holdersIn env lam
-      held at ps.made fc (map ValueOfType types ++ holders)
+  packed <- case typesOf h.markers of
+    Just types => held at ps.made fc (map ValueOfType types ++ ownHolders env lam)
     Nothing => pure ([], [])
   memberAt at ps env fc ArrowHead d packed lam
 
@@ -1144,11 +1209,12 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
     made ty = do
       k <- choiceHeadOf ty
       let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
-      form <- solved (holed env written)
+      h <- holedAt env written
+      form <- solved h.key
       FixedNow <- fixing ty form
         | ChosenAtRunTime _ => pure []
       shaped <- solved (close env written)
-      memberAt at ps env fc k form !(packings at ps.made fc form shaped) written
+      memberAt at ps env fc k form !(packings at ps.made fc h shaped) written
 
 ||| What a definition's leaves give at its node, from what the member table
 ||| says it gives after its parameters; where the instance decides, the
@@ -1435,7 +1501,7 @@ methodRecord d gs = do
 dispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> Projected -> Given vs -> ClosedTerm -> List (Arg vs) -> Front (List Site)
 dispatch at ps env fc p dict rest extras = do
-  read <- rooted ps.made ADictionary !(solved (holed env dict.offer.arg.written))
+  read <- rooted ps.made ADictionary !(solved !(holed env dict.offer.arg.written))
   tm <- (\head => asGiven (Just head) read) <$> choiceAt dict.binder
   -- The method's own arguments are those its type shows binders for; any
   -- past them applies its result.

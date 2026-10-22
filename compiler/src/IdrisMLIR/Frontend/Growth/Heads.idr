@@ -598,8 +598,8 @@ mutual
       there (Just con) = if c == l.taken then singleton (HeadedBy con) else own
       there Nothing = if c == l.taken then membersAt v l.choiceOf else own
 
--- Heads with the one at parameter i, ascending as a node holds them.
-headedAt : Nat -> Address -> List (Nat, Address) -> List (Nat, Address)
+-- Heads with the one at parameter i, ascending as a visit holds them.
+headedAt : Nat -> a -> List (Nat, a) -> List (Nat, a)
 headedAt i con [] = [(i, con)]
 headedAt i con ((j, a) :: hs) = case compare i j of
   LT => (i, con) :: (j, a) :: hs
@@ -829,11 +829,92 @@ roots fl families w ps t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt 
     dictionaryApplied : Nat -> SortedSet Heading
     dictionaryApplied i = if elem i families then empty else dictionaryAt fl w ps i
 
+------------------------------------------------------------------------------
+-- Visits
+------------------------------------------------------------------------------
+
+||| What heads a dictionary or family parameter of a visit: the definition
+||| at its root, as the translation's node holds it (`Node`), and the stuck
+||| paths of fields its chain of held dispatches held a value for, newest
+||| first. At each of those paths the dictionary holds the member a held
+||| arm put in, which reduces (`Cases.heldHere`), so a match there is not
+||| stuck again. A family, and a dictionary no re-pack rebuilt, held none.
+public export
+record Headed where
+  constructor MkHeaded
+  root : Address
+  held : List (List1 Nat)
+
+export
+Eq Headed where
+  x == y = x.root == y.root && x.held == y.held
+
+export
+Ord Headed where
+  compare x y = compare (x.root, x.held) (y.root, y.held)
+
+||| What the walk over nodes visits: a definition and the head of each
+||| dictionary and family parameter it is split at, by index, ascending.
+||| Its node (`visitNode`) is what the translation splits a request by, and
+||| what a position belongs to; a visit also holds what each chain of held
+||| dispatches settled, so that a dictionary a re-pack rebuilt is told apart
+||| from one whose path is still chosen, which the node, holding only the
+||| root, cannot tell.
+public export
+record Visit where
+  constructor MkVisit
+  definition : Address
+  heads : List (Nat, Headed)
+
+export
+Eq Visit where
+  x == y = x.definition == y.definition && x.heads == y.heads
+
+export
+Ord Visit where
+  compare x y = compare (x.definition, x.heads) (y.definition, y.heads)
+
+||| The node a visit is of: its definition, split at each head's root.
+export
+visitNode : Visit -> Node
+visitNode v = MkNode v.definition (map rootAt v.heads)
+  where
+    rootAt : (Nat, Headed) -> (Nat, Address)
+    rootAt (i, h) = (i, h.root)
+
+||| Two paths of fields are one when their fields are, as the machine
+||| compares them.
+export
+samePath : (p, q : List1 Nat) -> Decided (p = q)
+samePath (k ::: ks) (k' ::: ks') = case sameNat k k' of
+  Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+  Proof.Growth.Yes Refl => case sameList sameNat ks ks' of
+    Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+    Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+
+||| Whether a path of fields is among some, as the machine compares them.
+export
+pathAmong : (p : List1 Nat) -> (ps : List (List1 Nat)) -> Decided (Elem p ps)
+pathAmong p [] = Proof.Growth.No (\case _ impossible)
+pathAmong p (q :: qs) = case samePath p q of
+  Proof.Growth.Yes Refl => Proof.Growth.Yes Here
+  Proof.Growth.No ne => case pathAmong p qs of
+    Proof.Growth.Yes e => Proof.Growth.Yes (There e)
+    Proof.Growth.No out => Proof.Growth.No (\case Here => ne Refl; There e => out e)
+
+||| A dictionary rebuilt down a stuck path its chain has not held, at the
+||| root its rebuilt constructor is: a chain holds each stuck path at most
+||| once, so the path goes in only beside the evidence that it was not
+||| there.
+rebuiltHead : (root : Address) -> (path : List1 Nat) -> (held : List (List1 Nat)) -> (0 _ : Not (Elem path held)) ->
+              Headed
+rebuiltHead root path held _ = MkHeaded root (path :: held)
+
 -- A callee's dictionary and family parameters, by index, so ascending,
--- each with the heads it can be keyed by there: an implementation, or
--- none.
+-- each with the heads it can be keyed by there: an implementation with
+-- what its chain held, or none.
 Choices : Type
-Choices = SortedMap Nat (List (Maybe Address))
+Choices = SortedMap Nat (List (Maybe Headed))
 
 -- What some headings key a callee by: each implementation, and no head. A
 -- dictionary the running program chooses keys nothing of its own, since
@@ -846,27 +927,28 @@ keyings hs = mapMaybe keying (Prelude.toList hs)
     keying Headless = Just Nothing
     keying Unsettled = Nothing
 
--- A parameter with its headings. One that nothing keys is keyed at no
--- head alone, as one only `Headless` reaches is: the request that reaches
--- the callee holds no head there. The case is the program's (a function
--- that gives an implementation at each use keys nothing, and a projection
--- of a value no constructor builds is rooted by no implementation), not
--- the representation's.
-choice : Nat -> SortedSet Heading -> Choices -> Choices
-choice i hs cs = case keyings hs of
+-- A parameter with its headings, each implementation holding the stuck
+-- paths the argument carries (`reaches`). One that nothing keys is keyed
+-- at no head alone, as one only `Headless` reaches is: the request that
+-- reaches the callee holds no head there. The case is the program's (a
+-- function that gives an implementation at each use keys nothing, and a
+-- projection of a value no constructor builds is rooted by no
+-- implementation), not the representation's.
+choice : Nat -> SortedSet Heading -> (held : List (List1 Nat)) -> Choices -> Choices
+choice i hs held cs = case keyings hs of
   [] => cs
-  ks => insert i ks cs
+  ks => insert i (map (map (\a => MkHeaded a held)) ks) cs
 
 -- One list of heads for each way of choosing a head at each parameter,
 -- ascending by index: a parameter at no head has none in it.
-combinations : Choices -> List (List (Nat, Address))
+combinations : Choices -> List (List (Nat, Headed))
 combinations cs = go (Data.SortedMap.toList cs)
   where
-    headed : Nat -> Maybe Address -> List (Nat, Address) -> List (Nat, Address)
+    headed : Nat -> Maybe Headed -> List (Nat, Headed) -> List (Nat, Headed)
     headed i (Just j) hs = (i, j) :: hs
     headed i Nothing hs = hs
 
-    go : List (Nat, List (Maybe Address)) -> List (List (Nat, Address))
+    go : List (Nat, List (Maybe Headed)) -> List (List (Nat, Headed))
     go [] = [[]]
     go ((i, js) :: rest) = let tails = go rest in
                            [headed i h hs | h <- js, hs <- tails]
@@ -1019,20 +1101,20 @@ data Via : Type where
   Called : Via
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
-||| What a site reaches from a node: a callee node, which the walk enters;
-||| the application at a use; a choice it makes a member of; or the fields
-||| of a constructor a dictionary is rebuilt with, which no definition's
-||| node holds, each a field's position.
+||| What a site reaches from a visit: a callee's visit, which the walk
+||| enters; the application at a use; a choice it makes a member of; or the
+||| fields of a constructor a dictionary is rebuilt with, which no
+||| definition's node holds, each a field's position.
 public export
-data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address
+data Callee = Entering Visit | Applying | Making ChoiceHead | Filling Address
 
 ||| The place an argument placed at a callee's parameter i is at: that
-||| parameter of the node or of the application; at a choice, its one
-||| place, where every member is whatever it is placed at; at a rebuilt
+||| parameter of the visit's node or of the application; at a choice, its
+||| one place, where every member is whatever it is placed at; at a rebuilt
 ||| constructor, its field i. What a dictionary there holds is held there.
 export
 calleePlace : Callee -> Nat -> HeldBy
-calleePlace (Entering n) i = ByParameter (OfNode n) i
+calleePlace (Entering v) i = ByParameter (OfNode (visitNode v)) i
 calleePlace Applying i = ByParameter OfApplication i
 calleePlace (Making k) _ = ByChoice k
 calleePlace (Filling con) i = ByField con i
@@ -1051,15 +1133,38 @@ record Reached where
   placed : List Placed
   via : Via
 
-||| Each callee a site reaches from the writer's node. A callee is split by
-||| the roots of its dictionary and family arguments, one node for each
-||| combination.
+||| Each callee a site reaches from the writer's visit. A callee is split by
+||| the roots of its dictionary and family arguments, one visit for each
+||| combination; the writer's own dictionary given as it is keeps what its
+||| chain held.
 export
-reaches : Flow -> (writer : Node) -> Site -> List Reached
-reaches fl w s = from s.reach
+reaches : Flow -> (writer : Visit) -> Site -> List Reached
+reaches fl v s = from s.reach
   where
+    -- The writer's node, whose heads key what the writer's text gives.
+    w : Node
+    w = visitNode v
+
     rootsAt : Root -> Template -> SortedSet Heading
     rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w s.params))
+
+    -- The stuck paths the writer's chain held a value for at its parameter
+    -- i, as the site reads it: none at a position of the application, whose
+    -- every use gives its own.
+    heldAt : Nat -> List (List1 Nat)
+    heldAt i = case parameterOf s.params i of
+      WritersOwn j => maybe [] (.held) (lookup j v.heads)
+      UsesPosition _ => []
+
+    -- What an argument carries to the head it keys its callee by: the
+    -- writer's own dictionary parameter, given as it is, is the dictionary
+    -- the writer's chain rebuilt, with the paths it held; any other is a
+    -- dictionary of its own, or a family, and held none.
+    carried : Splitting -> Argument -> List (List1 Nat)
+    carried ByImplementation x = case x.template of
+      Var i Z => heldAt i
+      _ => []
+    carried ByTypeConstructor _ = []
 
     -- The dictionaries and families among the placed arguments, at their
     -- parameters.
@@ -1068,7 +1173,7 @@ reaches fl w s = from s.reach
       where
         add : Choices -> Placed -> Choices
         add acc (MkPlaced x p) = case splitting x.kind of
-          Just how => choice p (keyedBy fl.solution (headAt fl w s.params) how x) acc
+          Just how => choice p (keyedBy fl.solution (headAt fl w s.params) how x) (carried how x) acc
           Nothing => acc
 
     -- J's method function k. The parameters J's land at take what every
@@ -1079,9 +1184,9 @@ reaches fl w s = from s.reach
     method k j = case methodAt fl.dictionaries j k of
       Nothing => []
       Just (m, own, leading) =>
-        let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) acc) (the Choices empty) leading
+        let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) [] acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (Entering (MkNode m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (Entering (MkVisit m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
 
     -- A dispatch through field k of j: each method field it runs (`runs`).
     through : Nat -> Address -> List Reached
@@ -1103,29 +1208,33 @@ reaches fl w s = from s.reach
       , memberOf := Nothing, holds := [] } x
 
     -- The writer again, its dictionary parameter, whose argument is `x`,
-    -- rebuilt down a chain: at its node with the dictionary's head the
+    -- rebuilt down a chain to the stuck path `path`, which the writer's
+    -- chain has not held: at its visit with the dictionary's head the
     -- constructor the chain's root is built with, which is the rebuilt
-    -- dictionary's root, and every other static parameter as it is; and
-    -- the rebuilt constructors' fields, which no other site writes. The
-    -- rebuilt dictionary holds the values its writer was given, each as
-    -- itself, and the stuck field after them; and, in each arm of the
-    -- dispatch on that field, those values and then the values the member
-    -- put in its place holds (`Choices.heldMember`).
-    rebuiltAt : Argument -> Chain -> List Reached
-    rebuiltAt x (l ::: ls) =
+    -- dictionary's root, holding that path after those held before, and
+    -- every other static parameter as it is; and the rebuilt constructors'
+    -- fields, which no other site writes. The rebuilt dictionary holds the
+    -- values its writer was given, each as itself, and the stuck field
+    -- after them; and, in each arm of the dispatch on that field, those
+    -- values and then the values the member put in its place holds
+    -- (`Choices.heldMember`).
+    rebuiltAt : Argument -> (path : List1 Nat) -> (held : List (List1 Nat)) -> (0 _ : Not (Elem path held)) -> Chain ->
+                List Reached
+    rebuiltAt x path held fresh (l ::: ls) =
       let r = rebuilt (Template.Var x.position 0) l ls
           final = lastOf (Template.Var x.position 0) l ls
           lists = [ EachOf x.position ::: [OfType (stuckField x final ::: [])]
                   , EachOf x.position ::: [MembersOf (snd final).choiceOf] ]
           dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, holds := lists } x) x.position
-          target = MkNode w.definition (headedAt x.position l.holds.builtBy w.heads) in
+          settled = rebuiltHead l.holds.builtBy path held fresh
+          target = MkVisit v.definition (headedAt x.position settled v.heads) in
       MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called ::
         map (filling x) r.fillings
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
-                     map (\hs => MkReached (Entering (MkNode t hs)) placed Called) (combinations (passed placed empty))
-    from (Builds t) = [MkReached (Entering (MkNode t [])) (atOwnPositions s.arguments) Called]
+                     map (\hs => MkReached (Entering (MkVisit t hs)) placed Called) (combinations (passed placed empty))
+    from (Builds t) = [MkReached (Entering (MkVisit t [])) (atOwnPositions s.arguments) Called]
     -- A dispatch through a dictionary with no head runs what its leaves
     -- give, which reach beside it.
     from (Dispatches t r k) = headsIn (rootsAt r t) >>= through k
@@ -1137,5 +1246,11 @@ reaches fl w s = from s.reach
     -- each chain to a field the running program may have chosen, none
     -- where every root holds that field fixed, as no translation then
     -- rebuilds it.
-    from (Repacks x (k ::: ks)) =
-      chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) k ks >>= rebuiltAt x
+    from (Repacks x path@(k ::: ks)) = case pathAmong path (heldAt x.position) of
+      -- Essential: at a path the writer's chain held a value for, the
+      -- dictionary holds the member a held arm put in, which reduces, so
+      -- no match there is stuck, and a chain holds each stuck path once.
+      Proof.Growth.Yes _ => []
+      Proof.Growth.No fresh =>
+        chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) k ks
+          >>= rebuiltAt x path (heldAt x.position) fresh
