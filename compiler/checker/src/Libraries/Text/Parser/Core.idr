@@ -677,9 +677,10 @@ entries stop entry s = MkGrammar (\left, fits, under => entriesAt stop entry s l
 ||| read a token, and only at the bound it then stands at, so a grammar that
 ||| names itself through a box names a grammar at a smaller bound. What a
 ||| box holds is suspended, as its bound and evidence are erased: it is made
-||| where a grammar opens the box, never where the box is.
+||| where a grammar opens the box, never where the box is. The box's type
+||| mentions its erased bound, so it is computed at quantity 0, as a type.
 public export
-Box : (Nat -> Type) -> Nat -> Type
+0 Box : (Nat -> Type) -> Nat -> Type
 Box p n = {0 m : Nat} -> (0 below : Nat.LT m n) -> Lazy (p m)
 
 ||| A family of grammars at every bound, made at each bound of the box of

@@ -16,6 +16,7 @@ import Data.Nat
 
 import Libraries.Text.Lexer.Core
 import Libraries.Text.PrettyPrint.Prettyprinter
+import Libraries.Text.Progress
 import Libraries.Text.Token
 import Libraries.Text.Trail
 
@@ -178,10 +179,14 @@ mutual
   tokenise : (stop : Lexer) -> Tokenizer a -> (input : List Char) -> (line, col : Int) ->
              (1 toks : Lexed a) -> (0 acc : Accessible Nat.LT (List.length input)) -> Ended a input
   tokenise stop t [] line col toks acc = MkEnded toks EndInput line col [] reflexive
-  tokenise stop t input@(_ :: _) line col toks acc
-      = case scan stop input of
-             Just _ => MkEnded toks EndInput line col input reflexive
-             Nothing => stepFrom stop t input line col (measured toks) acc
+  tokenise stop t input line col toks acc = stopOr stop t input line col toks acc (scan stop input)
+
+  -- Where `stop` matched, the end; otherwise one step.
+  stopOr : (stop : Lexer) -> Tokenizer a -> (input : List Char) -> (line, col : Int) ->
+           (1 toks : Lexed a) -> (0 acc : Accessible Nat.LT (List.length input)) ->
+           Maybe (Scanned True input) -> Ended a input
+  stopOr stop t input line col toks acc (Just _) = MkEnded toks EndInput line col input reflexive
+  stopOr stop t input line col toks acc Nothing = stepFrom stop t input line col (measured toks) acc
 
   -- One step, from the tokens read so far, measured so that a group left
   -- open is cut back off them.

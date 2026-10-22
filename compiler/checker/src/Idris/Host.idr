@@ -577,7 +577,9 @@ mutual
   ||| scrutinee's parts.
   public export
   data Chooses : Evaluation -> Frozen -> SubstEnv args vars -> CaseTree args -> Term vars -> Type where
-    ToLeaf : Chooses ev ctx env (STerm i rhs) (substs (mkSizeOf args) env (embed {outer = vars} rhs))
+    -- `substs` is given the scope the leaf lands in: the leaf names it
+    -- only past `++`, which no unification inverts.
+    ToLeaf : Chooses ev ctx env (STerm i rhs) (substs {vars} (mkSizeOf args) env (embed {outer = vars} rhs))
     ByCase : {0 p : IsVar nm idx args} ->
              Scrutinised ev ctx (Var.index env (MkVar p)) s ->
              Picks ev ctx env s alts v ->
@@ -1230,7 +1232,13 @@ mutual
   export
   0 mentionsEmbed : (k : Naming) -> (bs : Bounds ns) -> (t : Term vs) -> mentions k bs (embed {outer} t) = mentions k bs t
   mentionsEmbed k bs (Local fc r i p) = Refl
-  mentionsEmbed k bs (Ref fc nt n) = Refl
+  -- A reference by its kind: `mentions` reads the kind, so at an unknown
+  -- one both sides are stuck, and they differ in the scope the reference
+  -- is typed in.
+  mentionsEmbed k bs (Ref fc Bound n) = Refl
+  mentionsEmbed k bs (Ref fc Func n) = Refl
+  mentionsEmbed k bs (Ref fc (DataCon tag arity) n) = Refl
+  mentionsEmbed k bs (Ref fc (TyCon arity) n) = Refl
   mentionsEmbed k bs (Meta fc m i args) = cong (\x => replaces bs m || x) (mentionsEmbedAll k bs args)
   mentionsEmbed k bs (Bind fc x b sc) = cong2 (\y, z => y || z) (mentionsEmbedBinder k bs b) (mentionsEmbed k bs sc)
   mentionsEmbed k bs (App fc f a) = cong2 (\y, z => y || z) (mentionsEmbed k bs f) (mentionsEmbed k bs a)
@@ -2111,8 +2119,11 @@ envMappedAt (EnvEach _ ms) (MkVar (Later v)) = envMappedAt ms (MkVar v)
 envMappedAt EnvNone (MkVar _) impossible
 
 -- A local among the variables values are put in for, on both sides: the
--- value, weakened under the binders, mapped as the value is.
-0 substMiddleMapped : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+-- value, weakened under the binders, mapped as the value is. The values'
+-- scopes are named in their types: the locals' scopes reach them only
+-- through `++`, from which a type's implicit is not solved.
+0 substMiddleMapped : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+                      {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                       (k : Nat) -> Nat.LT k (size s) ->
                       (0 p : IsVar n (size o + k) (outer ++ (ds ++ xs))) -> (0 q : IsVar m (size o + k) (outer ++ (ds ++ ys))) ->
                       Mapped mv bs vals (size o + c)
@@ -2123,7 +2134,8 @@ substMiddleMapped c {env} {env'} {fc} {l} o s envm k lt p q = case varAt s k lt 
     rewrite substMiddle {fc} {r = l} o s env' q w (cong (size o +) (sym at)) in
     mappedInsert c zero o (envMappedAt envm w)
 
-0 substLocal : (mv : LocalMove) -> (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+0 substLocal : (mv : LocalMove) -> (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+               {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                (0 p : IsVar n i (outer ++ (ds ++ xs))) -> (0 q : IsVar m j (outer ++ (ds ++ ys))) ->
                MovesLocal mv (size o + (size s + c)) i j ->
                Mapped mv bs vals (size o + c) (substTerm o s env (Local fc l i p)) (substTerm o s env' (Local fc l j q))
@@ -2150,8 +2162,10 @@ substLocal DropsOne c {env} {env'} {i} o s envm p q d = case range (size o) (siz
 mutual
   -- A map commutes with putting values in: a term mapped at a depth past
   -- the variables values are put in for, given those values, is its image
-  -- given theirs, mapped as many shallower.
-  0 mappedSubst : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+  -- given theirs, mapped as many shallower. The values' scopes are named
+  -- in their types, as the terms' reach them only through `++`.
+  0 mappedSubst : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+                  {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                   {0 src : Term (outer ++ (ds ++ xs))} -> {0 img : Term (outer ++ (ds ++ ys))} ->
                   Mapped mv bs vals (size o + (size s + c)) src img ->
                   Mapped mv bs vals (size o + c) (substTerm o s env src) (substTerm o s env' img)
@@ -2171,14 +2185,16 @@ mutual
   mappedSubst c o s envm (MDotted t) = MDotted (mappedSubst c o s envm t)
   mappedSubst c o s envm MType = MType
 
-  0 mappedSubstAll : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+  0 mappedSubstAll : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+                     {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                      {0 srcs : List (Term (outer ++ (ds ++ xs)))} -> {0 imgs : List (Term (outer ++ (ds ++ ys)))} ->
                      AllMapped mv bs vals (size o + (size s + c)) srcs imgs ->
                      AllMapped mv bs vals (size o + c) (substTerms o s env srcs) (substTerms o s env' imgs)
   mappedSubstAll c o s envm MNone = MNone
   mappedSubstAll c o s envm (MEach t ts) = MEach (mappedSubst c o s envm t) (mappedSubstAll c o s envm ts)
 
-  0 mappedSubstBinder : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+  0 mappedSubstBinder : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+                        {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                         {0 b : Binder (Term (outer ++ (ds ++ xs)))} -> {0 b' : Binder (Term (outer ++ (ds ++ ys)))} ->
                         BinderMapped mv bs vals (size o + (size s + c)) b b' ->
                         BinderMapped mv bs vals (size o + c) (substBinder o s env b) (substBinder o s env' b')
@@ -2189,7 +2205,8 @@ mutual
   mappedSubstBinder c o s envm (MPLet v ty) = MPLet (mappedSubst c o s envm v) (mappedSubst c o s envm ty)
   mappedSubstBinder c o s envm (MPVTy ty) = MPVTy (mappedSubst c o s envm ty)
 
-  0 mappedSubstPi : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) -> EnvMapped mv bs vals c env env' ->
+  0 mappedSubstPi : (c : Nat) -> (o : SizeOf outer) -> (s : SizeOf ds) ->
+                    {0 env : SubstEnv ds xs} -> {0 env' : SubstEnv ds ys} -> EnvMapped mv bs vals c env env' ->
                     {0 p : PiInfo (Term (outer ++ (ds ++ xs)))} -> {0 p' : PiInfo (Term (outer ++ (ds ++ ys)))} ->
                     PiMapped mv bs vals (size o + (size s + c)) p p' ->
                     PiMapped mv bs vals (size o + c) (substPi o s env p) (substPi o s env' p')
@@ -3230,9 +3247,12 @@ resultBoundMonotone op within = atSizesMonotone (boundOf op) within
 ||| width does not, and whose cast from String reads what Scheme reads. No
 ||| operation of the table reads anything but its arguments (none reads the
 ||| clock or the world), so none is left out.
+-- The measure mapped over the arguments is named in full: unqualified, a
+-- name in argument position of a type is bound as a fresh implicit, and
+-- the trust would hold of every function.
 export
 0 computedWithin : {arity : Nat} -> (op : PrimFn arity) -> (cs : Vect arity Constant) ->
-                   tableOf op cs = Just c -> Nat.LTE (constantSize c) (resultBound op (map constantSize cs))
+                   tableOf op cs = Just c -> Nat.LTE (constantSize c) (resultBound op (map Host.constantSize cs))
 computedWithin _ _ _ = trusted
 
 ------------------------------------------------------------------------------

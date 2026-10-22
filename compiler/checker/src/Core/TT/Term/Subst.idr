@@ -2,6 +2,7 @@
 -- Copyright (c) 2020 Edwin Brady
 module Core.TT.Term.Subst
 
+import Core.FC
 import Core.Name.Scoped
 
 import Core.TT.Binder

@@ -13,6 +13,7 @@ import Core.TT.Var
 
 import Data.DPair
 import Data.List
+import Data.Nat
 
 import Libraries.Data.List.SizeOf
 

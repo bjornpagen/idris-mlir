@@ -82,10 +82,10 @@ import public Libraries.Text.Token
 ||| A token of the kind given, giving its text.
 export
 match : Eq k => (kind : k) -> Grammar state (Token k) bound r True String
-match k = terminal "Unrecognised input" ofKind
+match wanted = terminal "Unrecognised input" ofKind
   where
     ofKind : Token k -> Maybe String
-    ofKind t = if t.kind == k then Just t.text else Nothing
+    ofKind t = if t.kind == wanted then Just t.text else Nothing
 
 ||| The grammar, or else the value given, reading nothing. May match the
 ||| empty input.
