@@ -7,13 +7,12 @@
 // says per arm. The join points are built by the one construction of them
 // (idr/Transforms/Joins.h).
 
-#include "Rules.h"
-
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"

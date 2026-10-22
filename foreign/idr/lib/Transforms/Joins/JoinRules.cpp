@@ -6,12 +6,11 @@
 // Each keeps the lifetimes the op states one per scoped value it still
 // makes: a value that goes takes its entry of `outers` with it.
 
-#include "Rules.h"
-
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/BitVector.h"

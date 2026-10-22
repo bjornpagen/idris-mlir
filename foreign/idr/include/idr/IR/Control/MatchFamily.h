@@ -11,8 +11,8 @@
 // join point, which the match lets through, or by never ending. That is
 // each terminator's own rule: a yield names its parents, a jump checks what
 // it crosses, and a terminator that never ends has no successor.
-#ifndef IDR_LIB_IR_CONTROL_MATCHFAMILY_H
-#define IDR_LIB_IR_CONTROL_MATCHFAMILY_H
+#ifndef IDR_IR_CONTROL_MATCHFAMILY_H
+#define IDR_IR_CONTROL_MATCHFAMILY_H
 
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
@@ -142,4 +142,4 @@ inline mlir::LogicalResult verifyYields(mlir::Operation *op) {
 
 } // namespace idr::control
 
-#endif // IDR_LIB_IR_CONTROL_MATCHFAMILY_H
+#endif // IDR_IR_CONTROL_MATCHFAMILY_H

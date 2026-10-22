@@ -6,12 +6,11 @@
 // after the match. Only while the holds are undecided, so no result it
 // touches is scoped yet and the lifetimes the match states are none.
 
-#include "Rules.h"
-
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/IR/PatternMatch.h"
 

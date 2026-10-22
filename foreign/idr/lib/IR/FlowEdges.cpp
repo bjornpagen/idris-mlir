@@ -25,9 +25,9 @@ using namespace idr;
 
 Carriers Carriers::of(Type type) {
   // A cell is the one type that is another value before it exists: the box
-  // its init makes of it.
+  // its init makes of it, a data value, which its type holds to be no cell.
   if (auto cell = dyn_cast<CellType>(type))
-    return of(cell.getValue());
+    type = cell.getValue();
   Carriers carriers;
   if (isClosureType(type))
     carriers = carriers | Carrier::Closure;

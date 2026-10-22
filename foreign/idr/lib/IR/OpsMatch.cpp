@@ -4,7 +4,7 @@
 // region it takes for a known constructor, the edges upstream's
 // control-flow interfaces read off it, the equation each case assumes, and
 // the lifetimes it states for the scoped values it makes. What it shares
-// with idr.lit.match is Control/MatchFamily.h; idr.lit.match is
+// with idr.lit.match is idr/IR/Control/MatchFamily.h; idr.lit.match is
 // Control/LiteralMatch.cpp.
 //
 // A match is a region per case, from the frontend to the lowering. Each
@@ -18,8 +18,7 @@
 // scope walk reads it as it enters the region, with every enclosing one on
 // its stack, and holds each refined value to it.
 
-#include "Control/MatchFamily.h"
-
+#include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/Grades.h"

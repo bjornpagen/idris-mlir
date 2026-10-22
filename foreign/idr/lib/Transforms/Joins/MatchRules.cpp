@@ -7,13 +7,12 @@
 // constructor reaches, a match none of whose regions yields, and a result
 // no op uses.
 
-#include "Rules.h"
-
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ops/Rules.h"
 #include "idr/Transforms/EGraph.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"

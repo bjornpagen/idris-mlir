@@ -8,9 +8,9 @@
 // its Rewrite; `rewrite` carries that out between the engine's two rounds,
 // on the root as it then is, checking that the shape it rewrites still
 // stands and leaving the root as it is where it does not. This unit holds
-// what the rule families share (Rules.h).
+// what the rule families share (idr/Transforms/Joins/Rules.h).
 
-#include "Rules.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/Grades.h"

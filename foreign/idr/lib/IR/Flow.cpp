@@ -15,8 +15,8 @@
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 #include <utility>
 #include <variant>
@@ -91,21 +91,73 @@ bool holdsLabels(Value value) {
   return !(Carriers::of(value.getType()) & Carriers::labels()).empty();
 }
 
+// What the edges of `op` account for of its own values, each by the number
+// MLIR gives it: its operands, its results, and the arguments of its
+// regions, one region's after another's. An end of another op (a yield's
+// use a region branch forwards) is no value of `op` to account for.
+class Covered {
+public:
+  explicit Covered(Operation *op)
+      : op(op), operands(op->getNumOperands()), results(op->getNumResults()) {
+    unsigned count = 0;
+    for (Region &region : op->getRegions()) {
+      firstArgument.push_back(count);
+      count += region.getNumArguments();
+    }
+    arguments.resize(count);
+  }
+
+  // A use the op takes over.
+  void take(OpOperand &use) {
+    if (use.getOwner() == op)
+      operands.set(use.getOperandNumber());
+  }
+  // A value the op reads: each of its uses that holds it.
+  void read(Value value) {
+    for (OpOperand &use : op->getOpOperands())
+      if (use.get() == value)
+        operands.set(use.getOperandNumber());
+  }
+  // A result of the op, or an argument of one of its regions, given whole.
+  void give(Value value) {
+    if (auto result = dyn_cast<OpResult>(value)) {
+      if (result.getOwner() == op)
+        results.set(result.getResultNumber());
+      return;
+    }
+    auto arg = cast<BlockArgument>(value);
+    Region *region = arg.getOwner()->getParent();
+    if (region->getParentOp() == op && arg.getOwner() == &region->front())
+      arguments.set(at(arg));
+  }
+
+  bool covers(OpOperand &use) const { return operands.test(use.getOperandNumber()); }
+  bool covers(OpResult result) const { return results.test(result.getResultNumber()); }
+  bool covers(BlockArgument arg) const { return arguments.test(at(arg)); }
+
+private:
+  unsigned at(BlockArgument arg) const {
+    return firstArgument[arg.getOwner()->getParent()->getRegionNumber()] + arg.getArgNumber();
+  }
+
+  Operation *op;
+  llvm::BitVector operands, results, arguments;
+  llvm::SmallVector<unsigned, 2> firstArgument;
+};
+
 // The values of `op` a region branch makes from its predecessors: its
 // results and its regions' arguments that some successor takes.
-llvm::SmallPtrSet<void *, 8> successorInputs(Operation *op) {
-  llvm::SmallPtrSet<void *, 8> inputs;
+void giveSuccessorInputs(Operation *op, Covered &covered) {
   auto region = dyn_cast<RegionBranchOpInterface>(op);
   if (!region)
-    return inputs;
+    return;
   auto add = [&](RegionSuccessor successor) {
     for (Value input : region.getSuccessorInputs(successor))
-      inputs.insert(input.getAsOpaquePointer());
+      covered.give(input);
   };
   add(RegionSuccessor(op));
   for (Region &body : op->getRegions())
     add(RegionSuccessor(&body));
-  return inputs;
 }
 
 // Whether `value` is a result of `op` or an argument of a block of its
@@ -285,22 +337,21 @@ LogicalResult idr::verifyFlowOf(Operation *op) {
     return success();
   FlowEdges edges;
   flowEdgesOf(op, edges);
-  // The uses the edges take, the values they read, and the values they give:
-  // the uses and values each edge's `from` names, and the whole values its
-  // `to` does.
-  llvm::SmallPtrSet<OpOperand *, 8> moved;
-  llvm::SmallPtrSet<void *, 8> read;
-  llvm::SmallPtrSet<void *, 8> inputs = successorInputs(op);
+  // The uses the edges take, the operands whose values they read, and the
+  // values they give: the uses and values each edge's `from` names, and the
+  // whole values its `to` does, beside what the op makes from its
+  // predecessors.
+  Covered covered(op);
+  giveSuccessorInputs(op, covered);
   auto note = [&](const FlowPoint &point) {
     if (std::optional<OpOperand *> use = point.taken())
-      moved.insert(*use);
+      covered.take(**use);
     else if (std::optional<Value> value = point.value())
-      read.insert(value->getAsOpaquePointer());
+      covered.read(*value);
   };
-  auto give = [&](Value value) { inputs.insert(value.getAsOpaquePointer()); };
   auto gives = [&](const FlowPoint &point) {
     if (const auto *whole = std::get_if<FlowPoint::Whole>(&point.at))
-      give(whole->value);
+      covered.give(whole->value);
   };
   for (const FlowEdges::Edge &edge : edges.edges())
     std::visit(llvm::makeVisitor(
@@ -312,25 +363,24 @@ LogicalResult idr::verifyFlowOf(Operation *op) {
                      note(move.a);
                      gives(move.b);
                    },
-                   [&](const FlowEdges::Source &move) { give(move.to); },
-                   [&](const FlowEdges::Fresh &move) { give(move.to); },
-                   [&](const FlowEdges::Release &move) { moved.insert(move.use); },
+                   [&](const FlowEdges::Source &move) { covered.give(move.to); },
+                   [&](const FlowEdges::Fresh &move) { covered.give(move.to); },
+                   [&](const FlowEdges::Release &move) { covered.take(*move.use); },
                    [](const FlowEdges::Overwrite &) {},
-                   [&](const FlowEdges::Constant &move) { give(move.to); },
+                   [&](const FlowEdges::Constant &move) { covered.give(move.to); },
                    [](const FlowEdges::Dispatch &) {}),
                edge.move);
   for (OpOperand &use : op->getOpOperands())
-    if (holdsLabels(use.get()) && !moved.contains(&use) &&
-        !read.contains(use.get().getAsOpaquePointer()))
+    if (holdsLabels(use.get()) && !covered.covers(use))
       return op->emitOpError("takes a closure or a suspension as operand #")
              << use.getOperandNumber() << ", and declares no edge for it";
   for (OpResult result : op->getResults())
-    if (holdsLabels(result) && !inputs.contains(result.getAsOpaquePointer()))
+    if (holdsLabels(result) && !covered.covers(result))
       return op->emitOpError("gives a closure or a suspension as result #")
              << result.getResultNumber() << ", and declares no edge for it";
   for (Region &region : op->getRegions())
     for (BlockArgument arg : region.getArguments())
-      if (holdsLabels(arg) && !inputs.contains(arg.getAsOpaquePointer()))
+      if (holdsLabels(arg) && !covered.covers(arg))
         return op->emitOpError("binds a closure or a suspension as argument #")
                << arg.getArgNumber() << " of region #" << region.getRegionNumber()
                << ", and declares no edge for it";

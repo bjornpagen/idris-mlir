@@ -6,8 +6,8 @@
 // follows an op that never gives control back; what the e-graph knows of a
 // value's constructor. Each rule family is its own unit: MatchRules.cpp,
 // IdenticalRegions.cpp, YieldedFields.cpp, CaseOfCase.cpp, JoinRules.cpp.
-#ifndef IDR_LIB_TRANSFORMS_JOINS_RULES_H
-#define IDR_LIB_TRANSFORMS_JOINS_RULES_H
+#ifndef IDR_TRANSFORMS_JOINS_RULES_H
+#define IDR_TRANSFORMS_JOINS_RULES_H
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
@@ -66,4 +66,4 @@ bool knownConstructor(mlir::Value value, const egraph::OperandFacts &facts);
 
 } // namespace idr::control
 
-#endif // IDR_LIB_TRANSFORMS_JOINS_RULES_H
+#endif // IDR_TRANSFORMS_JOINS_RULES_H

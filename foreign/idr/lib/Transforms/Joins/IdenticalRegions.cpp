@@ -6,11 +6,10 @@
 // become its default. Two regions are compared body to body, after their
 // operations' shapes are hashed, so only regions of one shape are.
 
-#include "Rules.h"
-
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
+#include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
@@ -35,8 +34,11 @@ bool sameBody(Region &a, Region &b) {
   Block &x = a.front(), &y = b.front();
   if (x.getOperations().size() != y.getOperations().size())
     return false;
-  // Values each body makes, matched as the comparison meets them: a
-  // comparison's own scratch, gone when it returns.
+  // Values each body makes, matched as the comparison meets them. A value
+  // carries no number MLIR gives it, so how two bodies' values correspond
+  // is a map, as in upstream's own comparison of regions, whose block
+  // arguments must agree in type where a case's need not; it is one
+  // comparison's scratch, sized by the body and gone when it returns.
   llvm::DenseMap<Value, Value> same;
   return llvm::all_of_zip(x, y, [&](Operation &l, Operation &r) {
     return OperationEquivalence::isEquivalentTo(

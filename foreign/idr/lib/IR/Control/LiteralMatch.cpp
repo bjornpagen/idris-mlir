@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.lit.match: its rules, its builder, the region a constant takes, the
 // edges upstream's control-flow interfaces read off it, and the lifetimes
-// it states. What it shares with idr.data.match is MatchFamily.h.
+// it states. What it shares with idr.data.match is
+// idr/IR/Control/MatchFamily.h.
 //
 // Its scrutinee is a string, a big integer or a natural, read in place and
 // never taken apart: a case binds nothing, since in it the scrutinee is its
@@ -10,8 +11,7 @@
 // exhaustive, binds the scrutinee, none of the keys, at its own type. An
 // integer or a condition is matched by scf.index_switch or scf.if.
 
-#include "MatchFamily.h"
-
+#include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
