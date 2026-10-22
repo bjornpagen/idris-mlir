@@ -11,8 +11,7 @@
 # archive's digest), the archive itself of another runtime (the same), and
 # the build's prepared runtime with another CPU or other features recorded
 # (its CPU, its features), planted in its bitcode's flags. A runtime's
-# bitcode is in the prepared object's .llvm.lto section or the file beside
-# it, wherever the target entry keeps it.
+# bitcode is the file beside the prepared object, on every target.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
@@ -83,14 +82,11 @@ refused "prepared from another archive" "$work/other-rt.o" "archive's digest"
 refused "another archive" "$work/other.a" "archive's digest"
 
 # The build's prepared bitcode, as text, and back with one flag planted.
-if [ -f "${runtime%.o}.bc" ]; then
-  cp "${runtime%.o}.bc" "$work/built.bc"
-elif ! bounded "$llvm_bin/llvm-objcopy" --dump-section=.llvm.lto="$work/built.bc" "$runtime" \
-    "$work/objcopy.o" > "$work/objcopy.log" 2>&1; then
-  say "the prepared runtime's bitcode: not found"
-  show "$work/objcopy.log"
+if [ ! -f "${runtime%.o}.bc" ]; then
+  say "the prepared runtime's bitcode: not beside the object"
   exit 0
 fi
+cp "${runtime%.o}.bc" "$work/built.bc"
 if ! bounded "$llvm_bin/opt" -S "$work/built.bc" -o "$work/built.ll" > "$work/opt.log" 2>&1; then
   say "the prepared runtime's bitcode: opt cannot read it"
   show "$work/opt.log"

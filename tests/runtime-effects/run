@@ -30,20 +30,17 @@ if ! grep -q '^op ' "$work/declared"; then
   exit 0
 fi
 
-# The runtime's bitcode, where the target entry keeps it: in a file beside
-# the prepared object, or in the object's .llvm.lto section.
+# The runtime's bitcode, in the file beside the prepared object, as on every
+# target.
 runtime=$("$idris_mlir" --print-runtime) || {
   say "runtime: idris-mlir names no prepared runtime"
   exit 0
 }
-if [ -f "${runtime%.o}.bc" ]; then
-  cp "${runtime%.o}.bc" "$work/runtime.bc"
-elif ! bounded "$llvm_bin/llvm-objcopy" --dump-section=.llvm.lto="$work/runtime.bc" \
-    "$runtime" "$work/sections.o" 2> "$work/objcopy.err"; then
-  say "runtime bitcode: not where the target entry keeps it"
-  show "$work/objcopy.err"
+if [ ! -f "${runtime%.o}.bc" ]; then
+  say "runtime bitcode: not beside the prepared object"
   exit 0
 fi
+cp "${runtime%.o}.bc" "$work/runtime.bc"
 if ! bounded "$llvm_bin/opt" -passes='inferattrs,cgscc(function-attrs),rpo-function-attrs' -S \
     "$work/runtime.bc" -o "$work/runtime.ll" 2> "$work/opt.err"; then
   say "runtime bitcode: opt does not read it"
