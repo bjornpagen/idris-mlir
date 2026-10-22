@@ -221,12 +221,15 @@ LogicalResult NumeralOfNatOp::verify() {
 
 // The number of a constant numeral's successor layers, read off its run of
 // cells, however long: each run's last cell holds the next constant of the
-// numeral, a field of the numeral's own type, until a cell of its zero.
+// numeral, which the constant's verifier holds it to, until a cell of its
+// zero.
 uint64_t idr::families::numeralValue(ConAttr numeral) {
   uint64_t layers = 0;
-  for (ConAttr at = numeral; at && !at.getData().ctor(at.getTag()).fields.empty();
-       at = dyn_cast<ConAttr>(at.getCell(at.getRunLength() - 1)[0]))
+  for (ConAttr at = numeral; !at.getData().ctor(at.getTag()).fields.empty();) {
     layers += at.getRunLength();
+    ArrayAttr last = at.getCell(at.getRunLength() - 1);
+    at = cast<ConAttr>(last[static_cast<unsigned>(at.getSpine())]);
+  }
   return layers;
 }
 

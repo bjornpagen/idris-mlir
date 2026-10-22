@@ -101,6 +101,24 @@ DataType restOf(DataType data, unsigned spine) {
   return cast<DataType>(unrestricted(fields[spine])).refined({tag});
 }
 
+// That a constant of a numeral's successor holds the next constant of the
+// numeral as its one field, at the end of its run: the numeral's value is
+// its successor layers, so a field given as anything else would leave the
+// layers below it uncounted.
+LogicalResult verifyNumeral(function_ref<InFlightDiagnostic()> emitError, DataType data,
+                            ArrayRef<ArrayAttr> cells, uint64_t spine) {
+  if (data.getGroup().shape(data.getMember()) != families::Shape::Numeral ||
+      cells.back().empty())
+    return success();
+  Attribute next = cells.back()[static_cast<unsigned>(spine)];
+  auto below = dyn_cast<ConAttr>(next);
+  if (!below || below.getData().getGroup() != data.getGroup() ||
+      below.getData().getMember() != data.getMember())
+    return emitError() << "expects @" << data.ctor(*data.singleTag()).label
+                       << " of a numeral to hold the next constant of the numeral, got " << next;
+  return success();
+}
+
 // That `cells`, linked through field `spine`, are cells of the constructor
 // `data` is refined to: one or more, the last holding every field and every
 // other every field but the spine. A memo cell or a family rebuilt in place
@@ -129,7 +147,7 @@ LogicalResult verifyShape(function_ref<InFlightDiagnostic()> emitError, DataType
     if (spine != 0)
       return emitError() << "expects @" << spelled
                          << " of one cell to run along no field, got field " << spine;
-    return success();
+    return verifyNumeral(emitError, data, cells, spine);
   }
   if (spine >= width)
     return emitError() << "expects a run of @" << spelled << " along one of its " << width
@@ -138,7 +156,7 @@ LogicalResult verifyShape(function_ref<InFlightDiagnostic()> emitError, DataType
                    [&](ArrayAttr cell) { return cell.size() + 1 != width; }))
     return emitError() << "expects each cell of @" << spelled << " but the last to hold its "
                        << width << " fields but the spine";
-  return success();
+  return verifyNumeral(emitError, data, cells, spine);
 }
 
 } // namespace
