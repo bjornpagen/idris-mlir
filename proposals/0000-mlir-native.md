@@ -4154,6 +4154,16 @@ C137.
   `visitRegionSuccessors`; `lit.match` declares no `InferIntRange`. The
   binding stays the scrutinee for every reader of forwarding, so no
   ownership, sharing or counting reader changes.
+- **C212** (2026-10-22; L17's fourth pass; under C154). `mlir-array`
+  gives code the stock host runs a read and a write by a `Nat` with its
+  bound at quantity 0, beside the `Fin`-indexed ones. A `Fin` is unary on
+  the stock host, so each index costs as many steps as its value, and
+  the fork's parser, arena and size-change graphs turned quadratic on the
+  host that builds stage 1. Programs keep `Fin`: under idris-mlir a
+  closed `Fin` is a fixed-width word whose bound the ranges read, which
+  a `Nat` is not. Both reads mean the same element; idris-mlir writes
+  them as the one operation of the generating set, its index the word
+  the bound proves, so the dialect holds one read.
 
 ## 4. Open: the owner's decisions, in order
 
