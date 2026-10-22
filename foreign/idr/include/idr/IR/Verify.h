@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The verifier of a program, at the stage its idr.program says: the
-// program's rules (its data types, its effects and the cells its recycles
-// give), which idr.program's region verifier runs once it has checked the
-// root and every op of the program is verified, on one thread, when the
-// module is read and after every pass on the program; and the rules of one
-// function at its program's stage, which idr.func's region verifier runs
-// after its body's ops are, in parallel with every other function's. A
-// function's rules read the function, the types its values have and its
-// program's stage, and nothing else of the module, so no pass rewriting a
-// sibling function races them; nothing keeps a table or an answer beyond
-// one verify. The knot rule is no verifier's: it refuses the user's program,
-// so it is the body of a check pass (knots).
+// program's rules (its target, its buffers' globals and the cells its
+// recycles give), which idr.program's region verifier runs once it has
+// checked the root and every op of the program is verified, on one thread,
+// when the module is read and after every pass on the program; and the
+// rules of one function at its program's stage, which idr.func's region
+// verifier runs after its body's ops are, in parallel with every other
+// function's. A function's rules read the function, the types its values
+// have and its program's stage, and nothing else of the module, so no pass
+// rewriting a sibling function races them; nothing keeps a table or an
+// answer beyond one verify. The knot rule is no verifier's: it refuses the
+// user's program, so it is the body of a check pass (knots).
 #ifndef IDR_IR_VERIFY_H
 #define IDR_IR_VERIFY_H
 
@@ -35,12 +35,10 @@ class TypeGraph;
 namespace verify {
 
 // The rules of the program: its target's pointers are the runtime's
-// words; each function's declared effects cover what its body may do; a
-// memo sum is held only in a cell; past the higher stage containment in
-// place is acyclic and no data type has a field of a closure or a
-// suspension; and once the program is counted every idr.cell.recycle gives
-// a cell of its token's layout. A lowered program is upstream's functions
-// and globals, which hold no rule of ours.
+// words; and once the program is counted, a buffer's static data is aligned
+// as a cell's elements are, to at most a word, and every idr.cell.recycle
+// gives a cell of its token's layout. A lowered program is upstream's
+// functions and globals, which hold no rule of ours.
 mlir::LogicalResult program(ProgramOp program);
 
 // No array can hold a reference to itself, by the cycles of `graph`, else
@@ -49,9 +47,10 @@ mlir::LogicalResult program(ProgramOp program);
 mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 
 // The rules of one function at its program's stage: what the stage lets its
-// values hold; closures' flow while they exist; the one linearity rule; and
-// the lifetimes' rules (LifetimeRules), each a rule of its one walk but the
-// linearity rule, which counts each value's uses.
+// values hold, past the higher stage no value whose type reaches a closure
+// or a suspension; closures' flow while they exist; the one linearity rule;
+// and the lifetimes' rules (LifetimeRules), each a rule of its one walk but
+// the linearity rule, which counts each value's uses.
 mlir::LogicalResult function(FuncOp fn);
 
 // The one linearity rule of `fn`, after every pass. A value its grade uses
