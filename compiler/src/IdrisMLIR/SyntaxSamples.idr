@@ -73,7 +73,7 @@ i64 = IntegerType 64
 ||| the group's one member by `self`, at its binder's level.
 natLists : MlirAttr
 natLists = IdrHand (FamilyOf
-  [ MkDataMember "List[Nat]" Promise.None (LocAttr (At noLoc)) [SortOfNatSort]
+  [ MkDataMember "List[Nat]" None (LocAttr (At noLoc)) [SortOfNatSort]
       [ MkCtorDecl "Nil" [] [TermNodeNatural 0] []
       , MkCtorDecl "Cons" [SortOfNatSort] [TermNodeSuccessor 1, TermNodeLevel 0]
           [nat, IdrHand (SelfOf 0 [TermNodeLevel 0])] ] ])
@@ -313,6 +313,7 @@ containers =
   , (At noLoc, Idr.programOp "samples" "root" Higher) ]
 
 ||| Writes the samples to `path`.
+covering
 writeSamples : String -> IO ()
 writeSamples path = do
   Right w <- newWriter
@@ -326,6 +327,7 @@ writeSamples path = do
   Right () <- finish w h containers
     | Left e => die ("syntax-samples: " ++ e)
   closeFile h
+covering
 main : IO ()
 main = do
   let missed = unsampled

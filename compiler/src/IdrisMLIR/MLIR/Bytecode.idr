@@ -542,16 +542,21 @@ proofParts : Proof -> List Part
 proofParts MadeAcyclic = [VarInt 0]
 proofParts (ProvedIn c) = [VarInt (S c)]
 
--- Every recursion is on a part of the type or attribute written, through
--- mutual helpers for lists and for each value a wire lays out, so that
--- totality holds: the wire's generated traversals take the numbering as a
--- function, through which no host can see the recursion end.
+-- The writer numbers what a type or an attribute holds through the
+-- traversals printed with them (IdrisMLIR.Encoding.Idr, .Wire), each
+-- given the numbering as a function, through which no host can see the
+-- recursion end: a trust the writer takes in itself, stated as `covering`.
+-- What a value holds is finite, and a traversal visits each part once.
 mutual
-  ||| The one switch over the kinds of type: how `t` is written.
+  ||| The one switch over the kinds of type: how `t` is written. An `idr`
+  ||| type is the specification's encoding of it, what it holds by its
+  ||| entries.
+  covering
   native : Writer -> MlirType -> W Native
-  native w (Idr t) = Record IdrDialect <$> idrType w t
+  native w (Idr t) = Record IdrDialect . encodeIdrType <$> traverseIdrType (typeNumber w) (attrNumber w) t
   native w (IdrHand t) = Record IdrDialect <$> handType w t
-  native w (FunctionType sig) = recordOf BuiltinDialect id <$> functionType w sig
+  native w (FunctionType (MkSignature ins outs)) =
+    (\is, os => Record BuiltinDialect (encodeFunctionType is os)) <$> traverse (held w) ins <*> traverse (held w) outs
   native w (RankedTensorType ds e) =
     recordOf BuiltinDialect (encodeRankedTensorType (map extent ds)) <$> held w e
   -- Upstream has a record for a memref in the default memory space and one
@@ -570,120 +575,49 @@ mutual
   native w IndexType = pure (Record BuiltinDialect encodeIndexType)
   native w NoneType = pure (Record BuiltinDialect encodeNoneType)
 
-  ||| An `idr` type the specification's encoders lay out whole: each type
-  ||| it holds by its entry, a hand-coded parameter's parts as they are.
-  ||| The frontend makes the hand-coded types typed (`handType`); the
-  ||| clauses for the generated constructors that hold such parts are the
-  ||| sum's, which this writer covers whole.
-  idrType : Writer -> IdrType MlirType MlirAttr -> W (List Part)
-  idrType w (CellType v) = encodeCellType <$> typeNumber w v
-  idrType w (TokenType vs) = encodeTokenType <$> typeNumbers w vs
-  idrType w (GradedType u h c) = encodeGradedType u h <$> typeNumber w c
-  idrType w (LifetimeType k) = pure (encodeLifetimeType k)
-  idrType w (LifetimePackageType p hs) = encodeLifetimePackageType p <$> typeNumbers w hs
-  idrType w (DestType v) = encodeDestType <$> typeNumber w v
-  idrType w StrType = pure encodeStrType
-  idrType w BigType = pure encodeBigType
-  idrType w (NatType i) = encodeNatType <$> nodesNumbered w i
-  idrType w (FnType ins outs) = encodeFnType <$> typeNumbers w ins <*> typeNumbers w outs
-  idrType w (LazyType v) = encodeLazyType <$> typeNumber w v
-  idrType w (DataType g m is r bs) = pure (encodeDataType g m is r bs)
-  idrType w (SelfType m is) = pure (encodeSelfType m is)
-
   ||| A hand-coded `idr` type: what it holds numbered, then its parts laid
   ||| out as the wire's codecs read them (IdrisMLIR.Encoding.Wire): a family
   ||| and a refinement as the attribute or none, terms as their array. A data
   ||| type's one constructor's undetermined binders are never the frontend's
   ||| to state: a case binds them as index variables of its region.
+  covering
   handType : Writer -> HandType MlirType MlirAttr -> W (List Part)
   handType w (DataOf g m is r) = do
     g' <- attrNumber w g
-    is' <- nodesNumbered w is
-    r' <- maybeAttrNumber w r
+    is' <- nodes w is
+    r' <- traverse (attrNumber w) r
     pure (encodeDataType [AttrAt g'] m (arrayParts partsTermNode is') [OptionalAttrAt r'] (arrayParts partsTermNode []))
-  handType w (SelfOf m is) = encodeSelfType m . arrayParts partsTermNode <$> nodesNumbered w is
+  handType w (SelfOf m is) = encodeSelfType m . arrayParts partsTermNode <$> nodes w is
 
   ||| A type's entry.
-  export
+  export covering
   typeNumber : Writer -> MlirType -> W TypeRef
   typeNumber w t = case !(native w t) of
     Record d parts => typeEntry w d parts
 
   ||| A type a record holds: its entry.
+  covering
   held : Writer -> MlirType -> W (List Part)
   held w t = (\r => [TypeAt r]) <$> typeNumber w t
 
-  heldAll : Writer -> List MlirType -> W (List (List Part))
-  heldAll w [] = pure []
-  heldAll w (t :: ts) = (::) <$> held w t <*> heldAll w ts
-
-  ||| A builtin function type's record, from its signature.
-  functionType : Writer -> Signature MlirType -> W (List Part)
-  functionType w (MkSignature ins outs) = encodeFunctionType <$> heldAll w ins <*> heldAll w outs
-
-  ||| The types of a list, each by its entry.
-  typeNumbers : Writer -> List MlirType -> W (List TypeRef)
-  typeNumbers w [] = pure []
-  typeNumbers w (t :: ts) = (::) <$> typeNumber w t <*> typeNumbers w ts
-
-  ||| An optional attribute's entry.
-  maybeAttrNumber : Writer -> Maybe MlirAttr -> W (Maybe AttrRef)
-  maybeAttrNumber w Nothing = pure Nothing
-  maybeAttrNumber w (Just a) = Just <$> attrNumber w a
-
-  ||| Index term nodes, each literal and group by its entry.
-  nodesNumbered : Writer -> List (TermNode MlirType MlirAttr) -> W (List (TermNode TypeRef AttrRef))
-  nodesNumbered w [] = pure []
-  nodesNumbered w (n :: ns) = (::) <$> node n <*> nodesNumbered w ns
-    where
-      node : TermNode MlirType MlirAttr -> W (TermNode TypeRef AttrRef)
-      node (TermNodeNatural k) = pure (TermNodeNatural k)
-      node (TermNodeLevel k) = pure (TermNodeLevel k)
-      node (TermNodeSuccessor k) = pure (TermNodeSuccessor k)
-      node (TermNodeLiteral a) = TermNodeLiteral <$> attrNumber w a
-      node (TermNodeConstructor g m t k) = (\g' => TermNodeConstructor g' m t k) <$> maybeAttrNumber w g
-      node TermNodeOpaque = pure TermNodeOpaque
-
-  ||| Index terms, each its nodes numbered.
-  termsNumbered : Writer -> List (List (TermNode MlirType MlirAttr)) -> W (List (List (TermNode TypeRef AttrRef)))
-  termsNumbered w [] = pure []
-  termsNumbered w (t :: ts) = (::) <$> nodesNumbered w t <*> termsNumbered w ts
-
-  ||| Sorts, each scalar's type attribute and member's group by its entry.
-  sortsNumbered : Writer -> List (SortOf MlirType MlirAttr) -> W (List (SortOf TypeRef AttrRef))
-  sortsNumbered w [] = pure []
-  sortsNumbered w (x :: xs) = (::) <$> sort x <*> sortsNumbered w xs
-    where
-      sort : SortOf MlirType MlirAttr -> W (SortOf TypeRef AttrRef)
-      sort SortOfNatSort = pure SortOfNatSort
-      sort SortOfTypeSort = pure SortOfTypeSort
-      sort SortOfOpaqueSort = pure SortOfOpaqueSort
-      sort (SortOfScalarSort a) = SortOfScalarSort <$> attrNumber w a
-      sort (SortOfFamilySort g m) = (\g' => SortOfFamilySort g' m) <$> maybeAttrNumber w g
-
-  ||| Constructors, what each holds by its entry.
-  ctorsNumbered : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List (CtorDecl TypeRef AttrRef))
-  ctorsNumbered w [] = pure []
-  ctorsNumbered w (MkCtorDecl l bs eq fs :: cs) =
-    (\bs', eq', fs', rest => MkCtorDecl l bs' eq' fs' :: rest)
-      <$> sortsNumbered w bs <*> nodesNumbered w eq <*> typeNumbers w fs <*> ctorsNumbered w cs
-
-  ||| Data members, what each holds by its entry.
-  membersNumbered : Writer -> List (DataMember MlirType MlirAttr) -> W (List (DataMember TypeRef AttrRef))
-  membersNumbered w [] = pure []
-  membersNumbered w (MkDataMember l p loc is cs :: ms) =
-    (\loc', is', cs', rest => MkDataMember l p loc' is' cs' :: rest)
-      <$> attrNumber w loc <*> sortsNumbered w is <*> ctorsNumbered w cs <*> membersNumbered w ms
+  ||| An index term's nodes, what each holds by its entry.
+  covering
+  nodes : Writer -> List (TermNode MlirType MlirAttr) -> W (List (TermNode TypeRef AttrRef))
+  nodes w = traverse (traverseTermNode (typeNumber w) (attrNumber w))
 
   ||| An attribute's entry: an array, a dictionary, a type, a string and a
-  ||| float are builtin's records, every `idr` attribute the dialect's; an
-  ||| identity layout and `arith`'s and `ub`'s attributes are their text.
+  ||| float are builtin's records, every `idr` attribute the dialect's, the
+  ||| specification's encoding of it, what it holds by its entries; an
+  ||| identity layout and the spelled upstream attributes are their text. A
+  ||| dictionary's entries are each its name, a string, and its value, in
+  ||| the op's order: the reader sorts them, as the parser does.
+  covering
   attrNumber : Writer -> MlirAttr -> W AttrRef
   attrNumber w (ArrayAttr as) = do
-    rs <- attrNumbers w as
+    rs <- traverse (attrNumber w) as
     attrEntry w BuiltinDialect (encodeArrayAttr rs)
   attrNumber w (DictionaryAttr es) = do
-    rs <- namedNumbers w es
+    rs <- traverse (\(name, a) => (,) <$> stringAttrNumber w name <*> attrNumber w a) es
     attrEntry w BuiltinDialect (encodeDictionaryAttr rs)
   attrNumber w (TypeAttr t) = do
     r <- typeNumber w t
@@ -694,61 +628,28 @@ mutual
   attrNumber w (FloatAttr d t) = do
     r <- typeNumber w t
     attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt (doubleBits d)]
-  attrNumber w (Idr a) = attrEntry w IdrDialect !(idrAttr w a)
+  attrNumber w (Idr a) = attrEntry w IdrDialect . encodeIdrAttr =<< traverseIdrAttr (typeNumber w) (attrNumber w) a
   attrNumber w (IdrHand a) = attrEntry w IdrDialect !(handAttr w a)
   attrNumber w (LocAttr l) = locationNumber w l
   attrNumber w a = attrTextEntry w a
-
-  ||| An `idr` attribute the specification's encoders lay out whole: each
-  ||| type and attribute it holds by its entry, a hand-coded parameter's
-  ||| parts as they are. The frontend makes the hand-coded attributes typed
-  ||| (`handAttr`).
-  idrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (List Part)
-  idrAttr w (BinderAttr d i) = (\d' => encodeBinderAttr d' i) <$> attrNumber w d
-  idrAttr w MutableAttr = pure encodeMutableAttr
-  -- A put bound, a scoped value's lifetime and a bound between lifetimes
-  -- hold numbers alone, the same values at any types and attributes.
-  idrAttr w (PutBoundsAttr bs) = pure (encodePutBoundsAttr (map (\(MkPutBound p n) => MkPutBound p n) bs))
-  idrAttr w (GivenBackEntryAttr r rfs a afs) = pure (encodeGivenBackEntryAttr r rfs a afs)
-  idrAttr w (GivenBackAttr es) = encodeGivenBackAttr <$> attrNumbers w es
-  idrAttr w (LivesInAttr ps rs bs) =
-    pure (encodeLivesInAttr (map livesIn ps) (map livesIn rs) (map (\(MkOutlives a b) => MkOutlives a b) bs))
-    where
-      livesIn : LivesIn MlirType MlirAttr -> LivesIn TypeRef AttrRef
-      livesIn (MkLivesIn v l) = MkLivesIn v l
-  idrAttr w (TerminatesAttr p) = pure (encodeTerminatesAttr p)
-  idrAttr w (SiteAttr file line column function) = pure (encodeSiteAttr file line column function)
-  idrAttr w (FamilyAttr ms) = pure (encodeFamilyAttr ms)
-  idrAttr w (IndexBindersAttr ss) = pure (encodeIndexBindersAttr ss)
-  idrAttr w (IndexArgsAttr ts n) = pure (encodeIndexArgsAttr ts n)
-  idrAttr w (EquationAttr l r) = pure (encodeEquationAttr l r)
-  idrAttr w (ConAttr d cs spine) = (\cs' => encodeConAttr d cs' spine) <$> attrNumbers w cs
-  idrAttr w (BigAttr n) = pure (encodeBigAttr n)
 
   ||| A hand-coded `idr` attribute: what it holds numbered, then its parts
   ||| laid out as the wire's codecs read them (IdrisMLIR.Encoding.Wire): a
   ||| group's members as an array of members, each a data member; the terms
   ||| a call gives, their nodes in order, and how many terms they are.
+  covering
   handAttr : Writer -> HandAttr MlirType MlirAttr -> W (List Part)
-  handAttr w (FamilyOf ms) = encodeFamilyAttr . arrayParts (partsMemberOf . MemberOfData) <$> membersNumbered w ms
-  handAttr w (BindersOf ss) = encodeIndexBindersAttr . arrayParts partsSortOf <$> sortsNumbered w ss
+  handAttr w (FamilyOf ms) =
+    encodeFamilyAttr . arrayParts (partsMemberOf . MemberOfData)
+      <$> traverse (traverseDataMember (typeNumber w) (attrNumber w)) ms
+  handAttr w (BindersOf ss) =
+    encodeIndexBindersAttr . arrayParts partsSortOf <$> traverse (traverseSortOf (typeNumber w) (attrNumber w)) ss
   handAttr w (ArgsOf ts) =
-    (\ns => encodeIndexArgsAttr (arrayParts partsTermNode (concat ns)) (length ts)) <$> termsNumbered w ts
+    (\ns => encodeIndexArgsAttr (arrayParts partsTermNode (concat ns)) (length ts)) <$> traverse (nodes w) ts
   handAttr w (EquationOf lhs rhs) =
     (\l, r => encodeEquationAttr (arrayParts partsTermNode l) (arrayParts partsTermNode r))
-      <$> nodesNumbered w lhs <*> nodesNumbered w rhs
+      <$> nodes w lhs <*> nodes w rhs
   handAttr w (TerminatesOf p) = pure (encodeTerminatesAttr (proofParts p))
-
-  attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
-  attrNumbers w [] = pure []
-  attrNumbers w (a :: as) = (::) <$> attrNumber w a <*> attrNumbers w as
-
-  ||| A dictionary's entries, each its name, a string, and its value, in the
-  ||| op's order: the reader sorts them, as the parser does.
-  namedNumbers : Writer -> List (String, MlirAttr) -> W (List (AttrRef, AttrRef))
-  namedNumbers w [] = pure []
-  namedNumbers w ((name, a) :: es) =
-    (\n, v, rest => (n, v) :: rest) <$> stringAttrNumber w name <*> attrNumber w a <*> namedNumbers w es
 
 ------------------------------------------------------------------------------
 -- The writer
@@ -804,6 +705,7 @@ mutual
   ||| An op up to its regions: its name, the mask of its parts, its
   ||| location, its inherent and discardable attributes as one dictionary,
   ||| its result types and its operands' numbers.
+  covering
   encodeHead : Writer -> Bytes -> Scope -> Statement -> W ()
   encodeHead w out scope (MkStatement _ o at) = do
     let attributes = o.properties ++ o.attributes
@@ -830,6 +732,7 @@ mutual
 
   ||| An op nested in a region, its regions inline, their values after
   ||| every value of the regions around them (`base`).
+  covering
   encodeNested : Writer -> Bytes -> Scope -> Nat -> Statement -> W ()
   encodeNested w out scope base s@(MkStatement _ (MkOp _ _ _ regions _ _) _) = do
     encodeHead w out scope s
@@ -838,6 +741,7 @@ mutual
       encodeRegions w out scope base regions
 
   ||| Regions, in order, each as `encodeRegion` writes it.
+  covering
   encodeRegions : Writer -> Bytes -> Scope -> Nat -> List Region -> W ()
   encodeRegions w out scope base [] = pure ()
   encodeRegions w out scope base (r :: rs) = do
@@ -845,6 +749,7 @@ mutual
     encodeRegions w out scope base rs
 
   ||| A region: of no blocks, or of one block, its values from `base`.
+  covering
   encodeRegion : Writer -> Bytes -> Scope -> Nat -> Region -> W ()
   encodeRegion w out scope base NoBlocks = varint out 0
   encodeRegion w out scope base (MkRegion arguments statements) = do
@@ -863,6 +768,7 @@ mutual
     encodeStatements w out inner (base + n) statements
 
   ||| A region's ops, in order, each as `encodeNested` writes it.
+  covering
   encodeStatements : Writer -> Bytes -> Scope -> Nat -> List Statement -> W ()
   encodeStatements w out scope base [] = pure ()
   encodeStatements w out scope base (s :: ss) = do
@@ -871,6 +777,7 @@ mutual
 
 ||| An op isolated from what holds it: its regions in a section of their
 ||| own, their values from 0, nothing outside in scope.
+covering
 encodeIsolated : Writer -> Bytes -> Statement -> W ()
 encodeIsolated w out s@(MkStatement _ (MkOp _ _ _ rs _ _) _) = do
   encodeHead w out SortedMap.empty s
@@ -883,7 +790,8 @@ encodeIsolated w out s@(MkStatement _ (MkOp _ _ _ rs _ _) _) = do
 ||| Encodes one op of the innermost container's block (`finish`), isolated,
 ||| after those before it. Its results, if any, are no value another of
 ||| those ops uses.
-export writeTopLevel : Writer -> Statement -> IO (Either String ())
+export covering
+writeTopLevel : Writer -> Statement -> IO (Either String ())
 writeTopLevel w s = runEitherT $ do
   encodeIsolated w w.body s
   modifyIORef w.count S
@@ -939,6 +847,7 @@ mutual
   ||| rest, or, past the last container, the ops given to `writeTopLevel`.
   ||| A container is isolated, its region in a section of its own, whose
   ||| values are its block's: the next container's results, or those ops'.
+  covering
   block : Writer -> Bytes -> List Container -> W ()
   block w out [] = do
     varintFlag out !(readIORef w.count) False
@@ -963,7 +872,8 @@ mutual
 ||| given to `writeTopLevel`, in order; then the attributes and types, the
 ||| dialects and op names, the strings, and the properties, which no op
 ||| holds natively.
-export finish : Writer -> File -> List Container -> IO (Either String ())
+export covering
+finish : Writer -> File -> List Container -> IO (Either String ())
 finish w h containers = runEitherT $ do
   ir <- newBytes
   block w ir containers
