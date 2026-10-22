@@ -76,15 +76,18 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
   if (!call)
     return call;
   SmallVector<families::TermNode> kept;
+  std::uint64_t count = 0;
   ArrayRef<families::TermNode> mine = call.getTerms(), theirs = classes.getTerms();
   while (!mine.empty()) {
     families::Term own(mine), fixed(theirs);
-    if (fixed.head().kind == families::TermKind::Level)
+    if (fixed.head().kind == families::TermKind::Level) {
       llvm::append_range(kept, own.nodes());
+      ++count;
+    }
     mine = mine.drop_front(own.nodes().size());
     theirs = theirs.drop_front(fixed.nodes().size());
   }
-  return IndexArgsAttr::get(ctx, kept);
+  return IndexArgsAttr::get(ctx, kept, count);
 }
 
 // Each call of `fn` in walk order: its want decided, its key requested,

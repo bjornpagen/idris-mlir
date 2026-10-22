@@ -85,12 +85,8 @@ enum class CoercionId : std::uint32_t {};
 
 template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
   using Key = idr::defunctionalize::Key;
-  static Key getEmptyKey() {
-    return {llvm::DenseMapInfo<mlir::Type>::getEmptyKey(), mlir::ArrayAttr()};
-  }
-  static Key getTombstoneKey() {
-    return {llvm::DenseMapInfo<mlir::Type>::getTombstoneKey(), mlir::ArrayAttr()};
-  }
+  static Key getEmptyKey() { return {DenseMapInfo<mlir::Type>::getEmptyKey(), {}}; }
+  static Key getTombstoneKey() { return {DenseMapInfo<mlir::Type>::getTombstoneKey(), {}}; }
   static unsigned getHashValue(const Key &key) {
     return llvm::hash_combine(key.carrier, key.labels.getAsOpaquePointer());
   }
@@ -110,9 +106,8 @@ struct Dispatcher {
 };
 
 // What the decision holds for one key: its family's declaration; the
-// family applied to the key's own index variables, in the order its
-// carrier first names them, which every slot of the key holds; and for a
-// lazy key, how a force calls its dispatch function.
+// family at the index terms the key's carrier names, which every slot of
+// the key holds; for a lazy key, how a force calls its dispatch function.
 struct Family {
   Key key;
   DataType type;
@@ -260,9 +255,7 @@ public:
   llvm::ArrayRef<Edits> edits() const { return planned; }
   const Family &family(KeyId id) const { return families[static_cast<unsigned>(id)]; }
   const Match &match(MatchId id) const { return matches[static_cast<unsigned>(id)]; }
-  const Coercion &coercion(CoercionId id) const {
-    return coercions[static_cast<unsigned>(id)];
-  }
+  const Coercion &coercion(CoercionId id) const { return coercions[static_cast<unsigned>(id)]; }
   // The index a read of field `index` names.
   mlir::IntegerAttr fieldIndex(unsigned index) const { return fieldIndices[index]; }
   mlir::ub::PoisonAttr poison() const { return poisoned; }
@@ -278,7 +271,7 @@ private:
   Decision(ProgramOp program, const Labels &labels);
 
   // The keys (Decide.cpp).
-  Slot keyWith(mlir::Type carrier, const FlowPoint &point) const;
+  Slot keyWith(mlir::Type carrier, const FlowSource &source) const;
   Slot anchorKey(const FlowAnchor &anchor) const;
   Slot keyOf(mlir::Value value) const;
   Slot sinkOf(mlir::OpOperand &use) const;
@@ -362,14 +355,21 @@ private:
 void rewrite(const Edits &edits, const Decision &decision);
 
 // The terms a case of `family` at state `tag`, which binds the state's
-// binders as `levels`, gives a call of its label: all of those the family's
-// indices determine, where they determine every binder; else, where the
-// label's equation names a binder alone at an index of the family, the
-// family's term there, so the label's results are the family's with
-// nothing after the call to relate them, and its captures, read at the
-// levels, are given it before the call; else the level, which only the
-// case names.
-IndexArgsAttr givenBinders(DataType family, Tag tag, IndexArgsAttr levels);
+// binders as the levels from `depth` on, gives a call of its label: each
+// binder's as the case's refinement solves it, else its level, which only
+// the case names.
+IndexArgsAttr givenBinders(DataType family, Tag tag, unsigned depth);
+
+// The index terms a type names, one per place (each index of each data
+// type it holds, a natural's), in the order its parts stand: each place's
+// sort, and the terms' nodes; and the type with each term the level of its
+// place, as a family's forced state is over its indices (Indices.cpp).
+struct IndexTerms {
+  llvm::SmallVector<families::Sort> sorts;
+  llvm::SmallVector<families::TermNode> nodes;
+};
+IndexTerms indexTermsOf(mlir::Type type);
+mlir::Type overPositions(mlir::Type type);
 
 // `value` given where `type` is asked: where only their uses differ, a
 // grade cast; where their indices or refinements differ, a reindex, never
@@ -377,7 +377,7 @@ IndexArgsAttr givenBinders(DataType family, Tag tag, IndexArgsAttr levels);
 // check the reindex: a case's equation makes a label's type at the case's
 // binders its family's at the enclosing scope's, and a constructor refined
 // to one tag stands for its family with no equation. The two never differ
-// in both: a label's carrier is its key's up to its variables.
+// in both: a label's carrier is its key's up to its terms.
 mlir::Value givenAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 } // namespace idr::defunctionalize

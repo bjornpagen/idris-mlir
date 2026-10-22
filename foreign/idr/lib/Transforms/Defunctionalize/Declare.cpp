@@ -4,14 +4,15 @@
 //
 // A closure family has one label per function of its key's set, in the
 // order of their functions in the program, each naming its function and
-// holding its captures; a memo family
-// one per function, memoized or run by name, then its two states, its
-// forced state holding the value. A family is indexed by the index
-// variables its carrier mentions, in the order they occur, and each label
-// binds its function's own index variables, its equation the terms its
-// function's carrier has where the family's indices stand: so an apply's
-// result type, which names those variables, is what each case's call gives
-// once the case refines the indices.
+// holding its captures; a memo family one per function, memoized or run by
+// name, then its two states, its forced state holding the value. A family
+// is indexed by every index term its carrier names, one index per place a
+// term stands (each index of a data type, a natural's), of the sort of that
+// place; each label binds its function's own index variables, its equation
+// the terms its function's carrier names at the same places. So a label's
+// binders are what the case's refinement solves them to, wherever they
+// stand in a term, and an apply's result type is what each case's call
+// gives with nothing after the call to relate them.
 //
 // A capture or forced value that is itself a closure is held as its key's
 // family, and a data family of the program whose field holds one is
@@ -50,59 +51,6 @@ namespace {
 unsigned arity(Type carrier) {
   auto fn = dyn_cast<FnType>(carrier);
   return fn ? static_cast<unsigned>(fn.getInputs().size()) : 0;
-}
-
-// The terms a data type's indices hold, one by one.
-SmallVector<ArrayRef<families::TermNode>> termsOf(ArrayRef<families::TermNode> nodes) {
-  SmallVector<ArrayRef<families::TermNode>> out;
-  while (!nodes.empty()) {
-    families::Term term(nodes);
-    out.push_back(term.nodes());
-    nodes = nodes.drop_front(term.nodes().size());
-  }
-  return out;
-}
-
-// Where `key`'s carrier names an index variable, the term `label`'s carrier
-// names at the same place: the two are one type up to their variables, so
-// the walk goes through both in step, and each variable's first occurrence
-// gives its term. Each variable of the key, in the order it first occurs,
-// is one of the family's indices.
-struct Equation {
-  SmallVector<std::uint64_t> levels;
-  SmallVector<SmallVector<families::TermNode>> terms;
-};
-Equation equate(Type key, Type label) {
-  Equation out;
-  SmallVector<std::pair<Type, Type>> work{{key, label}};
-  while (!work.empty()) {
-    auto [k, l] = work.pop_back_val();
-    k = unrestricted(k);
-    l = unrestricted(l);
-    if (auto kf = dyn_cast<FnType>(k)) {
-      auto lf = cast<FnType>(l);
-      for (auto [a, b] : llvm::reverse(llvm::zip_equal(kf.getResults(), lf.getResults())))
-        work.push_back({a, b});
-      for (auto [a, b] : llvm::reverse(llvm::zip_equal(kf.getInputs(), lf.getInputs())))
-        work.push_back({a, b});
-      continue;
-    }
-    if (auto ks = dyn_cast<ShapedType>(k)) {
-      work.push_back({ks.getElementType(), cast<ShapedType>(l).getElementType()});
-      continue;
-    }
-    auto kd = dyn_cast<DataType>(k);
-    if (!kd)
-      continue;
-    auto ld = cast<DataType>(l);
-    for (auto [mine, theirs] : llvm::zip_equal(termsOf(kd.getIndices()), termsOf(ld.getIndices())))
-      if (mine.size() == 1 && mine.front().kind == families::TermKind::Level &&
-          !llvm::is_contained(out.levels, mine.front().value)) {
-        out.levels.push_back(mine.front().value);
-        out.terms.emplace_back(theirs.begin(), theirs.end());
-      }
-  }
-  return out;
 }
 
 // One new declaration, before its group is known: a key's family, or one
@@ -191,7 +139,8 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
           if (carrierOf(k) == Carrier::Lazy) {
             auto lazy = cast<LazyType>(k.carrier);
             out.push_back({});
-            out.push_back({{lazy.getValue(), anchorKey(FlowAnchor::forcedOf(lazy))}});
+            out.push_back(
+                {{overPositions(lazy.getValue()), anchorKey(FlowAnchor::forcedOf(lazy))}});
           }
         },
         [&](ForData data) {
@@ -250,14 +199,17 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
       placed[node] = std::pair(static_cast<unsigned>(&scc - sccs.data()), static_cast<unsigned>(position));
     // A field's type in the group: a slot's key family, a reference to a
     // member of this group a self type, any other new declaration its type.
+    // A slot's family is at the terms the field's own type names, in the
+    // scope of the declaration that holds it.
     auto inGroup = [&](Type type, const Slot &slot) -> Type {
       Type held = type;
       if (slot) {
         unsigned to = static_cast<unsigned>(ids.find(*slot)->second);
+        SmallVector<families::TermNode> terms = indexTermsOf(unrestricted(type)).nodes;
         if (std::find(scc.begin(), scc.end(), to) != scc.end())
-          held = SelfType::get(ctx, static_cast<uint32_t>(placed[to]->second), {});
+          held = SelfType::get(ctx, static_cast<uint32_t>(placed[to]->second), terms);
         else
-          held = made[to];
+          held = DataType::get(ctx, made[to].getGroup(), made[to].getMember(), terms);
         return graded(gradeOf(type), held);
       }
       AttrTypeReplacer local;
@@ -280,23 +232,25 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
             const Key &k = families[static_cast<unsigned>(key.key)].key;
             SmallVector<families::LabelDecl> &decls = labelStore.emplace_back();
             SmallVector<families::MemoLabelDecl> &memos = memoStore.emplace_back();
-            SmallVector<families::Sort> &indices = sortStore.emplace_back();
+            // The family's indices: each place of an index term the key's
+            // carrier names, by its sort, whatever labels it has.
+            SmallVector<families::Sort> &indices =
+                sortStore.emplace_back(indexTermsOf(k.carrier).sorts);
             for (auto [at, label] : llvm::enumerate(k.labels.getAsRange<FlatSymbolRefAttr>())) {
               FuncOp fn = labels.function(label.getAttr());
               SmallVector<Type> &fields = fieldStore.emplace_back();
               for (const Field &field : ctors[at])
                 fields.push_back(inGroup(field.type, field.slot));
               // The label's carrier: its parameters after its captures and
-              // its results, in its own variables.
+              // its results, in its own variables; its equation the terms it
+              // names at the family's places.
               FunctionType type = fn.getFunctionType();
               unsigned n = type.getNumInputs() - arity(k.carrier);
               Type own = carrierOf(k) == Carrier::Lazy
                              ? Type(LazyType::get(ctx, type.getResult(0)))
                              : Type(FnType::get(ctx, type.getInputs().drop_front(n), type.getResults()));
-              Equation equation = equate(k.carrier, own);
-              SmallVector<families::TermNode> &terms = termStore.emplace_back();
-              for (const SmallVector<families::TermNode> &term : equation.terms)
-                llvm::append_range(terms, term);
+              SmallVector<families::TermNode> &terms =
+                  termStore.emplace_back(indexTermsOf(own).nodes);
               ArrayRef<families::Sort> binders;
               if (IndexBindersAttr bound = fn.getBindersAttr())
                 binders = bound.getSorts();
@@ -308,14 +262,6 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
                                  decl});
               else
                 decls.push_back(decl);
-              // The family's indices: the key's variables, sorted as the
-              // label function binds them where its equation names one.
-              if (at == 0)
-                for (const SmallVector<families::TermNode> &term : equation.terms)
-                  indices.push_back(term.size() == 1 && term.front().kind == families::TermKind::Level &&
-                                            term.front().value < binders.size()
-                                        ? binders[term.front().value]
-                                        : families::Sort{families::SortKind::OpaqueSort, 0, Attribute()});
             }
             StringAttr name = StringAttr::get(ctx, carrierOf(k) == Carrier::Lazy ? "lazy" : "fn");
             if (carrierOf(k) == Carrier::Closure)
@@ -354,15 +300,13 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
     }
   }
 
-  // Each key's family, applied at its uses to the variables its carrier
+  // Each key's family, applied at its uses to the index terms its carrier
   // names; and every old data type replaced by its new declaration, which
   // the replacer reads for the decision's life, so it holds its own tables.
   for (unsigned at = 0; at < families.size(); ++at) {
     families[at].type = made[at];
-    SmallVector<families::TermNode> args;
-    for (std::uint64_t level : equate(families[at].key.carrier, families[at].key.carrier).levels)
-      args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
-    families[at].at = DataType::get(ctx, made[at].getGroup(), made[at].getMember(), args);
+    families[at].at = DataType::get(ctx, made[at].getGroup(), made[at].getMember(),
+                                    indexTermsOf(families[at].key.carrier).nodes);
   }
   replacer.addReplacement([this, firsts = std::move(firstOf),
                            remade = std::move(made)](DataType data) -> std::optional<Type> {

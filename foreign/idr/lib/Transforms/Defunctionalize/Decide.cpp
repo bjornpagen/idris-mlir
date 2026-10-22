@@ -37,10 +37,10 @@ namespace idr::defunctionalize {
 Decision::Decision(ProgramOp top, const Labels &solve)
     : program(top), labels(solve), ctx(top.getContext()), widened(solve.numPoints()) {}
 
-Slot Decision::keyWith(Type carrier, const FlowPoint &point) const {
+Slot Decision::keyWith(Type carrier, const FlowSource &source) const {
   if (!carriesLabels(carrier))
     return std::nullopt;
-  return Key{unrestricted(carrier), labels.labelsOf(point)};
+  return Key{unrestricted(carrier), labels.labelsOf(source)};
 }
 
 // What every value of a kind holds at `anchor`. A capture has no slot of
@@ -68,12 +68,12 @@ Slot Decision::sinkOf(OpOperand &use) const {
   if (!sink)
     return std::nullopt;
   return idr::match(
-      sink->at, [&](FlowPoint::Whole whole) { return keyOf(whole.value); },
+      sink->at, [&](FlowSource::Whole whole) { return keyOf(whole.value); },
       [&](const FlowPlace::Part &part) { return anchorKey(part.anchor); },
-      [&](FlowPoint::Parameter param) {
+      [&](FlowSource::Parameter param) {
         return signature(param.function.getAttr()).arguments[param.index];
       },
-      [&](FlowPoint::Result result) {
+      [&](FlowSource::Result result) {
         return signature(result.function.getAttr()).results[result.index];
       });
 }
@@ -144,7 +144,9 @@ void Decision::widen() {
           edge.move, [&](const FlowEdges::Source &source) { return source.to == value; },
           [&](const FlowEdges::Constant &constant) { return constant.to == value; },
           [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Fresh, FlowEdges::Release,
-                         FlowEdges::Overwrite, FlowEdges::Dispatch> auto &) { return false; });
+                         FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Dispatch> auto &) {
+            return false;
+          });
     });
     if (!made)
       return;
@@ -229,10 +231,10 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   for (FuncOp fn : program.getOps<FuncOp>()) {
     Signature &sig = d.signatures[fn.getSymNameAttr()];
     for (BlockArgument arg : fn.getArguments())
-      sig.arguments.push_back(d.keyWith(arg.getType(), FlowPoint::of(Value(arg))));
+      sig.arguments.push_back(d.keyWith(arg.getType(), FlowSource::of(Value(arg))));
     auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
     for (auto [j, type] : llvm::enumerate(fn.getResultTypes()))
-      sig.results.push_back(d.keyWith(type, FlowPoint::result(name, static_cast<unsigned>(j))));
+      sig.results.push_back(d.keyWith(type, FlowSource::result(name, static_cast<unsigned>(j))));
   }
   d.widen();
   IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> ran(graph.size());
@@ -269,14 +271,16 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   auto held = program.getOps<FuncOp>();
   footprint::Vector<FuncOp> functions(held.begin(), held.end());
   // Each memo family's dispatch function, and how a force calls it: at the
-  // cell's indices, which are the family's own variables in every slot.
+  // cell's indices, the index terms its key's carrier names, which every
+  // slot of the key holds.
   for (Family &family : d.families) {
     if (carrierOf(family.key) != Carrier::Lazy)
       continue;
     FailureOr<FuncOp> force = d.defineForce(family);
     if (failed(force))
       return failure();
-    auto indices = IndexArgsAttr::get(d.ctx, family.at.getIndices());
+    auto indices = IndexArgsAttr::get(d.ctx, family.at.getIndices(),
+                                      family.at.getGroup().indices(family.at.getMember()).size());
     FunctionType at = families::substitute(force->getFunctionType(), indices);
     family.force = Dispatcher{*force, FlatSymbolRefAttr::get(force->getSymNameAttr()), indices,
                               at.getInput(0), at.getResult(0)};

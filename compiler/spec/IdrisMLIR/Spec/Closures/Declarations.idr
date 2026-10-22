@@ -227,9 +227,7 @@ captureOp b = MkOp
   , attrs = attrsOf (madeOf b)
   , regions = []
   , traits = [ResultUsesMaxOf 0 [0]]
-  , interfaces =
-      symbolUse (madeOf b) ++
-      [Implements flowInterface ["getFlowEdges"], Declares OpAsm ["getAsmResultNames"]]
+  , interfaces = symbolUse (madeOf b) ++ [Implements flowInterface ["getFlowEdges"]]
   , effects = buildsEffects b
   , speculation = AlwaysSpeculatable
   , stages = between Higher Higher
@@ -244,6 +242,20 @@ captureOp b = MkOp
   , laws = []
   , doc = buildsDoc b
   }
+
+||| The capture family's members, each by its name, so a reader of one
+||| member's facts (Emit, the quantity its result takes) reads them here.
+export
+closureOp : Op 1 1 2 0
+closureOp = captureOp AClosure
+
+export
+suspendOp : Op 1 1 2 0
+suspendOp = captureOp ASuspension
+
+export
+delayOp : Op 1 1 0 0
+delayOp = captureOp AnEvaluated
 
 ------------------------------------------------------------------------------
 -- The runs of a label
@@ -261,9 +273,7 @@ forceOp = MkOp
   , regions = []
   , traits = []
   , interfaces =
-      [ Implements runsLabelsInterface ["getLabelCarrier"]
-      , Implements flowInterface ["getFlowEdges"]
-      , Declares OpAsm ["getAsmResultNames"] ]
+      [Implements runsLabelsInterface ["getLabelCarrier"], Implements flowInterface ["getFlowEdges"]]
   , effects = unknownCode
   , speculation = NotSpeculatable
   , stages = between Higher Higher
@@ -282,31 +292,37 @@ forceOp = MkOp
   }
 
 ||| `idr.fn.apply`: a closure applied to arguments. A call through a value,
-||| upstream's indirect call; which functions it runs the label solve says.
+||| upstream's indirect call, with its attributes per argument and per
+||| result, which upstream's call interface reads; which functions it runs
+||| the label solve says. Its arguments and results are its closure's up to
+||| what each holds, which counting grades after the closure's type is
+||| fixed, so their types are written beside the closure's.
 export
-applyOp : Op 2 1 0 0
+applyOp : Op 2 1 2 0
 applyOp = MkOp
   { home = InIdr
   , mnemonic = "fn.apply"
   , ins = [single "callee" (SatisfiesType closureValue), variadic "args" (UpstreamType AnyTypeC)]
   , outs = [results "results" (UpstreamType AnyTypeC)]
-  , attrs = []
+  , attrs =
+      [ MkAttr "arg_attrs" (AnAttribute (UpstreamAttr DictArrayAttrC) MayBeAbsent)
+      , MkAttr "res_attrs" (AnAttribute (UpstreamAttr DictArrayAttrC) MayBeAbsent) ]
   , regions = []
   , traits = []
   , interfaces =
       [ Declares CallOp ["getCallableForCallee", "setCalleeFromCallable", "getArgOperands",
                           "getArgOperandsMutable"]
       , Implements runsLabelsInterface ["getLabelCarrier"]
-      , Implements flowInterface ["getFlowEdges"]
-      , Declares OpAsm ["getAsmResultNames"] ]
+      , Implements flowInterface ["getFlowEdges"] ]
   , effects = unknownCode
   , speculation = NotSpeculatable
   , stages = between Higher Higher
   , meaning = NoFold
   , verify = VerifiesOp
   , format = Declared
-      [ ValueOf (OperandRef 0), Lit "(", ValueOf (OperandRef 1), Lit ")", AttrDict, Lit ":"
-      , QualifiedTypeOf (OfGroup (OperandRef 0)) ]
+      [ ValueOf (OperandRef 0), Lit "(", ValueOf (OperandRef 1), Lit ")", PropDict, AttrDict, Lit ":"
+      , QualifiedTypeOf (OfGroup (OperandRef 0)), Lit ","
+      , FunctionalType (OfGroup (OperandRef 1)) (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
@@ -319,8 +335,7 @@ applyOp = MkOp
 export
 declarations : Declarations
 declarations =
-  { ops := [ SomeOp (captureOp AClosure), SomeOp (captureOp ASuspension), SomeOp (captureOp AnEvaluated)
-           , SomeOp forceOp, SomeOp applyOp ] ++ memoOps
+  { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp delayOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
   , interfaces := [runsLabelsInterface]
   , predicates := [closureValue, suspensionValue, memoState]

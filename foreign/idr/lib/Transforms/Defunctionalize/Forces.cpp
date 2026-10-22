@@ -104,11 +104,11 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
     Location at_ = target.getLoc();
     // The label's function on `captures`, at the terms the case gives its
     // binders (givenBinders): the captures, read at the case's levels, are
-    // given before the call, so where the family's indices name the label's
-    // binders the label's value is the family's with nothing after the
-    // call; else the case's refinement checks the reindex of its value. The
-    // decision converted the function's type before this body.
-    IndexArgsAttr given = givenBinders(own, tag, levels);
+    // given before the call, so where the family's indices solve the
+    // label's binders the label's value is the family's with nothing after
+    // the call; else the case's refinement checks the reindex of its value.
+    // The decision converted the function's type before this body.
+    IndexArgsAttr given = givenBinders(own, tag, depth);
     FunctionType bound = families::substitute(target.getFunctionType(), given);
     auto call = [&](ValueRange captures) {
       SmallVector<Value> args;

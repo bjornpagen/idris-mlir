@@ -20,11 +20,11 @@
 // simplification runs, and what is left of a force after it (a call of a
 // known label, a cell forced in one case) is the e-graph's.
 //
-// The exchange reads a memoized label's captures as fields of the cell,
-// so it takes the cell refined to the label's state, as its dispatch's
-// case binds it: the captures are at the label's binders, and the state is
-// the refinement's. Its steps, idr.memo.take and idr.memo.store, are the
-// same exchange for a pass that cannot keep its region.
+// The exchange reads a memoized label's captures as fields of the cell, so
+// it takes the cell refined to the label's state, as its dispatch's case
+// binds it: the captures are at the label's binders, the state the
+// refinement's. Its steps, idr.memo.take and idr.memo.store, are the same
+// exchange for a pass that cannot keep its region.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
@@ -33,7 +33,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
-#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 
 using namespace mlir;
@@ -135,19 +134,19 @@ LogicalResult FnClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 // A closure of constants is an immutable value nothing reads the identity
-// of, so it is the constant. A capture folds only as a constant the
-// dialect builds at its type: a poison capture is the program's value
-// where control never arrives, which no constant holds, so the closure
-// stays an op around it. Essential, two closures: a constant closure holds
-// no index terms, so one at terms stays an op.
+// of, so it is the constant idr.constant holds at its type. A capture is a
+// constant the dialect builds at its type, never a poison, the program's
+// value where control never arrives, which no constant holds. Essential,
+// two closures: a constant closure holds no index terms, so one at terms
+// stays an op.
 OpFoldResult FnClosureOp::fold(FoldAdaptor adaptor) {
   if (getIndexArgs().getCount() != 0)
     return {};
   for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
     if (!capture || !fold::buildable(capture, operand.getType()))
       return {};
-  return ClosureAttr::get(getContext(), getCalleeAttr(),
-                          ArrayAttr::get(getContext(), adaptor.getCaptures()));
+  auto captures = ArrayAttr::get(getContext(), adaptor.getCaptures());
+  return fold::held(ClosureAttr::get(getContext(), getCalleeAttr(), captures), getType());
 }
 
 //===----------------------------------------------------------------------===//
@@ -200,6 +199,43 @@ OpFoldResult LazyForceOp::fold(FoldAdaptor) {
   if (isLinear(value.getType()) && !delay.getResult().hasOneUse())
     return {};
   return value;
+}
+
+Value LazyForceOp::getLabelCarrier() { return getSuspension(); }
+
+// The force gives the value its suspension holds, at the quantity the
+// force gives it.
+LogicalResult LazyForceOp::verify() {
+  Type held = cast<LazyType>(unrestricted(getSuspension().getType())).getValue();
+  if (unrestricted(held) != unrestricted(getType()))
+    return emitOpError("gives ") << getType() << " where its suspension holds " << held;
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// idr.fn.apply
+//===----------------------------------------------------------------------===//
+
+// Upstream's indirect call: the callee is the closure, a value, and the
+// arguments are the operands after it.
+CallInterfaceCallable FnApplyOp::getCallableForCallee() { return getCallee(); }
+void FnApplyOp::setCalleeFromCallable(CallInterfaceCallable callee) {
+  getCalleeMutable().set(cast<Value>(callee));
+}
+Operation::operand_range FnApplyOp::getArgOperands() { return getArgs(); }
+MutableOperandRange FnApplyOp::getArgOperandsMutable() { return getArgsMutable(); }
+
+Value FnApplyOp::getLabelCarrier() { return getCallee(); }
+
+// The arguments are the closure's inputs and the results its results, each
+// used as often as its type says; what each holds is counting's to grade.
+LogicalResult FnApplyOp::verify() {
+  auto fn = cast<FnType>(unrestricted(getCallee().getType()));
+  if (!sameCarriers(fn.getInputs(), getArgs().getTypes()))
+    return emitOpError("applies ") << fn << " to " << getArgs().getTypes();
+  if (!sameCarriers(fn.getResults(), getResultTypes()))
+    return emitOpError("gives ") << getResultTypes() << " where the closure gives " << fn;
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -273,7 +309,7 @@ MutableOperandRange MemoYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
 // the family, whatever state a refinement names.
 void MemoYieldOp::getFlowEdges(FlowEdges &edges) {
   auto run = cast<MemoRunOp>((*this)->getParentOp());
-  edges.flow(FlowPoint::of(getValueMutable()),
+  edges.flow(FlowSource::of(getValueMutable()),
              FlowPlace::partOf(run.getCell(),
                                FlowAnchor::memoStateOf(run.getDataType().unrefined())));
 }
@@ -306,7 +342,7 @@ void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
 void MemoRunOp::getFlowEdges(FlowEdges &edges) {
   DataType memo = getDataType();
   for (BlockArgument capture : getRegion().front().getArguments())
-    edges.flow(FlowPoint::partOf(getCellMutable(),
+    edges.flow(FlowSource::partOf(getCellMutable(),
                                  FlowAnchor::fieldOf(memo, getTag(), capture.getArgNumber())),
                FlowPlace::of(Value(capture)));
 }
@@ -351,7 +387,7 @@ LogicalResult MemoStoreOp::verify() {
 void MemoTakeOp::getFlowEdges(FlowEdges &edges) {
   DataType memo = getDataType();
   for (OpResult capture : getCaptures())
-    edges.flow(FlowPoint::partOf(getCellMutable(),
+    edges.flow(FlowSource::partOf(getCellMutable(),
                                  FlowAnchor::fieldOf(memo, getTag(), capture.getResultNumber())),
                FlowPlace::of(Value(capture)));
 }
@@ -359,6 +395,6 @@ void MemoTakeOp::getFlowEdges(FlowEdges &edges) {
 // The value moves into the one forced state of every cell of the family,
 // as the exchange's yield moves it.
 void MemoStoreOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValueMutable()),
+  edges.flow(FlowSource::of(getValueMutable()),
              FlowPlace::partOf(getCell(), FlowAnchor::memoStateOf(getDataType().unrefined())));
 }

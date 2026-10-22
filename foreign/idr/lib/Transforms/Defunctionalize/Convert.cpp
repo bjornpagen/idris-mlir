@@ -7,12 +7,14 @@
 // edit is read; a constant holding a closure is its label's constructor in
 // its slot's family; a match over a family, at the depth it is built at,
 // binds each state's binders as the next levels; a coercion rebuilds each
-// state in the sink's family at the binders its case gives. A match and a
-// coercion are each made once, whichever edit asks first.
+// state in the sink's family, where the move lands, at the binders its case
+// gives. A match and a coercion are each made once, whichever edit asks
+// first.
 
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Families/Unify.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -20,7 +22,6 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallBitVector.h"
 
 #include <numeric>
 
@@ -28,19 +29,27 @@ using namespace mlir;
 
 namespace idr::defunctionalize {
 
-// A slot's type: its key's family applied to the variables the carrier
-// names, at the carrier's grade; any other type remade where its parts
-// hold slots. Essential, two carriers: a family that holds no reference (a
-// closure sum whose labels capture nothing) takes no hold, though the
-// closure it stands for held one.
-Type Decision::typeOf(Type type, const Slot &slot) {
-  if (!slot)
-    return replacer.replace(type);
-  DataType at = familyOf(*slot).at;
+namespace {
+
+// A slot's family at some terms, at the grade `type` has. Essential, two
+// carriers: a family that holds no reference (a closure sum whose labels
+// capture nothing) takes no hold, though the closure it stands for held one.
+Type heldAt(Type type, DataType at) {
   Grade grade = gradeOf(type);
   if (!holdsReferences(at))
     grade.hold = std::nullopt;
   return graded(grade, at);
+}
+
+} // namespace
+
+// A slot's type: its key's family applied to the index terms the carrier
+// names, at the carrier's grade; any other type remade where its parts
+// hold slots.
+Type Decision::typeOf(Type type, const Slot &slot) {
+  if (!slot)
+    return replacer.replace(type);
+  return heldAt(type, familyOf(*slot).at);
 }
 
 Tag Decision::tagOf(const Key &key, FlatSymbolRefAttr label) const {
@@ -143,29 +152,32 @@ Built Decision::constructorOf(DataType family, Tag tag, Grade grade,
   return Built{graded(grade, refined), *refined.determinedFields(tag)};
 }
 
-IndexArgsAttr givenBinders(DataType family, Tag tag, IndexArgsAttr levels) {
+// The family's indices are rigid, the state's binders the unknowns, as a
+// type's own binders are read: one unification, whose binding of each
+// binder is written in the case's scope, an unbound one as the case's level
+// from `depth` on. A state the indices exclude is a case never entered, so
+// what its call would be given is never read, and its binders are levels.
+IndexArgsAttr givenBinders(DataType family, Tag tag, unsigned depth) {
+  MLIRContext *ctx = family.getContext();
   families::CtorView ctor = family.ctor(tag);
-  size_t count = ctor.binders.size();
-  // Where the indices determine every binder, the refined value keeps none
-  // of its own, and its fields are at the terms they determine.
-  if (DataType refined = family.refinedTo(tag, levels.getTerms()); refined.getBinders().empty())
-    return IndexArgsAttr::get(family.getContext(), *refined.bindersOf(tag), count);
-  size_t positions = family.getGroup().indices(family.getMember()).size();
-  SmallVector<families::Term> given = families::termsOf(levels.getTerms(), count);
-  SmallVector<families::Term> equation = families::termsOf(ctor.equation, positions);
-  SmallVector<families::Term> indices = families::termsOf(family.getIndices(), positions);
-  // Each binder takes the family's term at the first index that names it.
-  llvm::SmallBitVector named(count);
-  for (auto [term, index] : llvm::zip_equal(equation, indices))
-    if (term.kind() == families::TermKind::Level && term.head().value < count &&
-        !named.test(term.head().value)) {
-      named.set(term.head().value);
-      given[term.head().value] = index;
-    }
+  auto count = static_cast<std::uint32_t>(ctor.binders.size());
+  ArrayRef<families::TermNode> indices = family.getIndices();
+  families::Subst subst(families::freeLevelsOf(indices), count, families::Freedom::Rigid,
+                        families::Freedom::Unknown, families::Opacity::MeetsAnything,
+                        family.getGroup());
+  if (families::unifyAll(subst, indices, ctor.equation,
+                         family.getGroup().indices(family.getMember()).size()) ==
+      families::Unified::Clash)
+    return families::levelArgs(ctx, depth, count);
   SmallVector<families::TermNode> nodes;
-  for (const families::Term &term : given)
-    llvm::append_range(nodes, term.nodes());
-  return IndexArgsAttr::get(family.getContext(), nodes, count);
+  families::TermWriter write(nodes);
+  families::TermNode binder{families::TermKind::Level, 0, 0, 0, Attribute()};
+  for (std::uint32_t at = 0; at < count; ++at) {
+    binder.value = at;
+    subst.write(write, families::Term(ArrayRef<families::TermNode>(binder)),
+                families::Side::Constructor, depth);
+  }
+  return IndexArgsAttr::get(ctx, nodes, count);
 }
 
 // A match over `value`'s family, built where `depth` index variables are
@@ -192,8 +204,8 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
     IndexArgsAttr binders = families::levelArgs(
         ctx, depth, static_cast<uint32_t>(family.binderSorts(tag).size()));
     Type refined = graded(grade, family.refinedTo(tag, binders.getTerms()));
-    Case &taken = made.cases.emplace_back(
-        Case{binders, givenBinders(family, tag, binders), refined, {}});
+    Case &taken =
+        made.cases.emplace_back(Case{binders, givenBinders(family, tag, depth), refined, {}});
     unsigned count = static_cast<unsigned>(family.ctor(tag).fields.size());
     for (unsigned i = 0; i < count; ++i)
       taken.fields.push_back(*fieldReadType(taken.refined, i));
@@ -219,17 +231,25 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
 // A label is rebuilt as its own label there; running and forced, the
 // states past a memo family's labels, as the same states past the sink's,
 // a forced cell with its value and a running one with nothing.
+//
+// The sink's family is at the terms the value's family is at, so the sink
+// is in the scope the move lands in: a value is its sink there, the two
+// carriers one type up to their terms, so the two families name as many,
+// each at the other's place. A key's own terms are of the scope it was
+// named in, a callee's for its parameter, which no reader translates.
 CoercionId Decision::coercionOf(Type value, const Key &from, const Key &to, unsigned depth) {
   auto key = std::tuple(value, static_cast<unsigned>(idOf(to)), depth);
   if (auto found = coercionIds.find(key); found != coercionIds.end())
     return found->second;
-  Type sink = typeOf(atUses(to.carrier, usesOf(value)), to);
+  DataType family = familyOf(to).type;
+  DataType target = DataType::get(ctx, family.getGroup(), family.getMember(),
+                                  cast<DataType>(unrestricted(value)).getIndices());
+  Type sink = heldAt(atUses(to.carrier, usesOf(value)), target);
   Coercion made = NeverRuns{sink};
   // A move from a family with no state never runs: a closure no label
   // reaches. A memo family always has its running and forced states.
   if (familyOf(from).at.declaredCount() != 0) {
     MatchId over = matchOver(value, depth);
-    DataType target = familyOf(to).at;
     auto labelled = static_cast<uint32_t>(from.labels.size());
     auto past = static_cast<uint32_t>(to.labels.size());
     Rebuild rebuild{over, sink, {}};
