@@ -22,6 +22,11 @@
 ||| type, whichever constructor and field it is: an insertion into a tree
 ||| hands on the hole of a node's left field on one path and of its right on
 ||| the other, and one clone takes either.
+|||
+||| What lets a call stay the tail when an op takes its result is the op's
+||| own answer: whether it gives that value on with no run-time work. One
+||| interface asks it of every op that gives its operand on, so neither the
+||| rule of tail position nor that of a tail modulo a context names an op.
 module IdrisMLIR.Spec.Tail.Declarations
 
 import IdrisMLIR.Spec.Control.Flow
@@ -30,6 +35,8 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Lifetimes.Declarations
 
 import Data.Fin
+import Data.List.Elem
+import Data.List1
 import Data.Vect
 
 %default total
@@ -166,11 +173,69 @@ destAnswer = MkOp
   }
 
 --------------------------------------------------------------------------------
+-- Giving a value on
+--------------------------------------------------------------------------------
+
+||| What an op whose result is its first operand's value does at run time
+||| to give it on: nothing, so a call whose result it takes may still be the
+||| tail; or work, which comes after the value it takes, so the call is not.
+public export
+data Carry = Free | Works
+
+||| The C++ `Carry`, the answer of `CarriesOnOpInterface`, as upstream's
+||| speculatability is an op's answer of its own.
+export
+carryClosed : Closed Carry
+carryClosed = MkClosed
+  { name = "Carry"
+  , shape = OneOf
+  , every = Free ::: [Works]
+  , complete = \case
+      Free => Here
+      Works => There Here
+  , describe = \case
+      Free => MkCase "Free" (word "free" ::: []) "no run-time work: the result is the operand's own words"
+      Works => MkCase "Works" (word "works" ::: []) "run-time work, after the value it takes"
+  , doc = brief "what an op does at run time to give its operand on"
+  }
+
+||| `CarriesOnOpInterface`: an op whose result is its first operand's value
+||| says what it does at run time to give it on. A change of grade has no
+||| run-time form, so its trait's class derives from this interface's trait
+||| and answers `Free` once for every op of the trait; an op whose two types
+||| decide its work answers from them. The tail rule and the rule of a tail
+||| modulo a context ask it and look through a free one, naming no op.
+export
+carriesOnInterface : InterfaceDef
+carriesOnInterface = MkInterfaceDef
+  { name = "CarriesOnOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::idr::Carry" "getCarry" [] EveryImplementer
+          "what this op does at run time to give its first operand's value on as its result" ]
+  , verifier = Unverified
+  , doc = brief "an op whose result is its first operand's value, given on with or without run-time work"
+  }
+
+||| The answer's enum, which the trait's class names before the generated
+||| interfaces are declared, and so is its own header.
+carryHeader : Header
+carryHeader = MkHeader "Carry" [(DialectNamespace, [EnumOf (enumDef carryClosed)])]
+  (brief "what an op does at run time to give its operand on")
+
+--------------------------------------------------------------------------------
 -- The area
 --------------------------------------------------------------------------------
 
-||| The tail area's declarations: the destination, its one write, and the
-||| answer slots.
+||| The tail area's declarations: the destination, its one write, the
+||| answer slots, and the interface by which an op says whether it gives its
+||| operand on with no run-time work.
 public export
 declarations : Declarations
-declarations = { ops := [SomeOp destWrite, SomeOp destAnswer], types := [SomeType destType] } nothing
+declarations =
+  { ops := [SomeOp destWrite, SomeOp destAnswer]
+  , types := [SomeType destType]
+  , interfaces := [carriesOnInterface]
+  , headers := [carryHeader]
+  } nothing

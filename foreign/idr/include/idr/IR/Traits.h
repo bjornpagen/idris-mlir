@@ -3,13 +3,17 @@
 // The C++ halves of the dialect's own op traits, which the specification
 // names (Spec.idr's core declarations) and its printed ODS gives the ops as
 // bases, so IdrDialect.h includes this before them: an op whose result is
-// its operand at another grade, one that keeps its operand's identity too,
-// one that eliminates its first operand, one whose result is used as often
-// as the values it takes, and a partial op's guards.
+// its operand at another grade, which gives it on with no run-time work,
+// one that keeps its operand's identity too, one that eliminates its first
+// operand, one whose result is used as often as the values it takes, and a
+// partial op's guards.
 #ifndef IDR_IR_TRAITS_H
 #define IDR_IR_TRAITS_H
 
 #include "idr/IR/Grades.h"
+// What an op does at run time to give its operand on, which a change of
+// grade answers here, before the generated interfaces.
+#include "idr/IR/Generated/Carry.h.inc"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
@@ -20,16 +24,37 @@
 
 namespace idr {
 
+// Declared by the generated interfaces, after this header.
+class CarriesOnOpInterface;
+
+namespace detail {
+// The trait by which an op of class `ConcreteType` implements the op
+// interface `Interface`, found through the op's class, so where the op is
+// defined: a trait here may implement an interface the generated header
+// declares after it, since the generated ops come after both.
+template <typename Interface, typename ConcreteType>
+struct InterfaceTraitOf {
+  using type = typename Interface::template Trait<ConcreteType>;
+};
+} // namespace detail
+
 // The result is the operand's value at whatever grade the result has: an
 // op that only changes a grade, which a pass looks through by this trait.
+// A grade has no run-time form, so every such op gives its operand on with
+// no run-time work: the class is the carrying interface's trait, which
+// registers the interface for each op of the trait, and answers `Free`
+// here, once for all of them.
 template <typename ConcreteType>
-class ResultCarriesOperand : public mlir::OpTrait::TraitBase<ConcreteType, ResultCarriesOperand> {
+class ResultCarriesOperand
+    : public detail::InterfaceTraitOf<CarriesOnOpInterface, ConcreteType>::type {
 public:
   static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
     if (unrestricted(op->getResult(0).getType()) != unrestricted(op->getOperand(0).getType()))
       return op->emitOpError("expects its result to be its operand's value, at any grade");
     return mlir::success();
   }
+
+  static constexpr Carry getCarry() { return Carry::Free; }
 };
 
 // A grade op whose result is its operand's value with its identity and its

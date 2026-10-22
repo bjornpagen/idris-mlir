@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The ops of refinement and of numerals: idr.data.reindex, a value at a
-// type its enclosing refinements make equal to its own; idr.index.assume, a
-// region in which an erased equality holds; and the two conversions between
-// a numeral and a natural, the first carrying the bound its operand's type
-// proves into the natural's range. Each op checks here what it says alone;
-// that a cast's two types are equal under the refinements around it is the
-// function's scope walk's, which holds them.
+// type its enclosing refinements make equal to its own, which says by its
+// types whether it gives that value on with no run-time work;
+// idr.index.assume, a region in which an erased equality holds; and the two
+// conversions between a numeral and a natural, the first carrying the bound
+// its operand's type proves into the natural's range. Each op checks here
+// what it says alone; that a cast's two types are equal under the
+// refinements around it is the function's scope walk's, which holds them.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
@@ -88,6 +89,11 @@ OpFoldResult DataReindexOp::fold(FoldAdaptor) {
 bool DataReindexOp::isFree() {
   return families::layoutMatch(getValue().getType(), getType()) == LayoutMatch::SameLayout;
 }
+
+// It gives its operand on with no run-time work exactly where it is free:
+// a re-pack is work after the value it takes, which a call whose result it
+// takes would have to wait for.
+Carry DataReindexOp::getCarry() { return isFree() ? Carry::Free : Carry::Works; }
 
 // A re-pack builds the cells its result needs where an index known inside
 // a function changes the layout, so it stays where it is.

@@ -13,6 +13,7 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Lifetimes.Declarations
+import IdrisMLIR.Spec.Tail.Declarations
 
 import Data.Fin
 import Data.List1
@@ -209,7 +210,10 @@ tagOp = MkOp
 ||| asked. Whether it does work is a fact of its two types (`isFree`): none
 ||| where they are the same words at run time, a bounded re-pack where an
 ||| index known inside a function changes the layout, which builds the cells
-||| a result held in a cell needs. One that builds a cell or an array gives
+||| a result held in a cell needs. It answers the same when asked whether it
+||| gives its operand on with no run-time work, so a call whose result a free
+||| one takes may still be the tail, and one a re-pack takes is not. One that
+||| builds a cell or an array gives
 ||| a fresh value, counted and claimed unique whatever the operand's hold;
 ||| one that builds nothing, free or not (a cell taken apart in place, a
 ||| numeral widened), keeps the operand's hold, its result's memory the
@@ -230,7 +234,7 @@ dataReindexOp = MkOp
   , traits = []
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
-      , Implements statesOuters [] ]
+      , Implements statesOuters [], Implements carriesOnInterface ["getCarry"] ]
   , effects = Executes [] [Repacks 0 0] Covered Untouched
   , speculation = Conditionally
   , stages = Always

@@ -7,7 +7,6 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
-#include "idr/IR/Traits.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
@@ -21,13 +20,13 @@ using namespace mlir;
 
 namespace idr::tail {
 
-// A reindex is one op whose run-time work its two types decide: none where
-// they share a layout, a re-pack where they do not, which is work after
-// the value it takes. A change of grade has no run-time form.
+// The op says what it does at run time to give its operand on; one that
+// works does so after the value it takes, so what it takes is no tail. An
+// op without the interface does not give its operand on: the ops that may
+// follow a call are every op there is, an open set.
 bool carriesOn(Operation *op) {
-  if (auto reindex = dyn_cast<DataReindexOp>(op))
-    return reindex.isFree();
-  return op->hasTrait<ResultCarriesOperand>();
+  auto carry = dyn_cast<CarriesOnOpInterface>(op);
+  return carry && carry.getCarry() == ::idr::Carry::Free;
 }
 
 namespace {
