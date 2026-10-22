@@ -22,7 +22,8 @@ import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Core.Enums
 
 import Data.List
-import Data.List.Elem
+-- An effect's admission proof is searched where its op is written.
+import public Data.List.Elem
 import Data.List1
 import Data.Nat
 import Decidable.Equality
