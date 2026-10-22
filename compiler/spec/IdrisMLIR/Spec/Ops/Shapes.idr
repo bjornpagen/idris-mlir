@@ -239,9 +239,27 @@ public export
 cmpI : Admitted
 cmpI = arithOp "Arith_CmpIOp" [] Nothing
 
+-- The least and the greatest of two words, signed or unsigned as the op
+-- reads them: each associative, with the far end of its order as its
+-- identity, so a reduction over them starts there. The unsigned ends are
+-- one value at every width, 0 and every bit set; the signed ends are the
+-- width's own. Commutativity is upstream's trait.
+
 public export
 maxSI : Admitted
-maxSI = arithOp "Arith_MaxSIOp" [] (rangedBy "inferMaxS")
+maxSI = arithOp "Arith_MaxSIOp" [UpAssociative, UpIdentity UpSignedLeast] (rangedBy "inferMaxS")
+
+public export
+minSI : Admitted
+minSI = arithOp "Arith_MinSIOp" [UpAssociative, UpIdentity UpSignedGreatest] (rangedBy "inferMinS")
+
+public export
+maxUI : Admitted
+maxUI = arithOp "Arith_MaxUIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferMaxU")
+
+public export
+minUI : Admitted
+minUI = arithOp "Arith_MinUIOp" [UpAssociative, UpIdentity (-1)] (rangedBy "inferMinU")
 
 ||| A choice's interval is its condition's side, or both sides joined,
 ||| which arith computes itself and no range function of upstream's does.
@@ -401,7 +419,8 @@ ubUnreachable = MkAdmitted
 public export
 opAdmitted : List Admitted
 opAdmitted =
-  [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, arithSelect, truncI
+  [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, minSI, maxUI, minUI
+  , arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
   , expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
   , ubUnreachable ]
