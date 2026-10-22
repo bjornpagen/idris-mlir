@@ -2170,6 +2170,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `!idr.token` renamed: join points take upstream's builtin `token`
   (D76), and one name for two types made every unit that saw both
   ambiguous. Its readers (L04, L05, L15, L16, L19, L21) take the new name.
+- **C254** (2026-10-22; L16ce's handoff, under D68). Two settlements
+  of the growth graph. It draws the arc it now misses: a field read of a
+  rank-2 dictionary parameter, applied, landing open with computing
+  arguments, inside a field's record, which the graph read as computing
+  and so rooted nothing. The analysis models every path the program has,
+  so a program growing through that path is refused by the graph, as the
+  language's bound requires, rather than met by the re-check; a program
+  that does not grow through it is unchanged. And positions are numbered
+  before landings are read, so the proof reads a numbered table where it
+  needed lookup-after-insert facts base's `SortedMap` does not state; the
+  ids change and no verdict does.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
