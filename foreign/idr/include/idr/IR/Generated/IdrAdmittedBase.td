@@ -13,7 +13,9 @@ include "mlir/IR/OpBase.td"
 // there; the positions among upstream's operand groups of those it is
 // given (the one it guards first); and the cause its crash names, by
 // its position in the closed set of causes, which the module and name
-// give, so the builder writes the cause typed.
+// give, so the builder writes the cause typed, by `caseAt`; and what a
+// module that writes a case by `caseAt` imports, the Idris printer's
+// own list, so the backend does not restate it.
 class IdrAdmittedGuard<string dialect, string check, list<int> given,
                        string causeHome, string causeSet, int cause> {
   string guardDialect = dialect;
@@ -22,6 +24,7 @@ class IdrAdmittedGuard<string dialect, string check, list<int> given,
   string causeModule = causeHome;
   string causeSetName = causeSet;
   int causeNumber = cause;
+  list<string> caseImports = ["IdrisMLIR.Spec.Core.Enums", "Data.Fin", "Data.List1"];
 }
 
 // An upstream op the dialect admits: upstream's own record, the alias

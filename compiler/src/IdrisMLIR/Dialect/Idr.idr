@@ -17,8 +17,9 @@ import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Runtime.Clocks
-
 import Data.Fin
+import Data.List1
+
 import Data.List
 
 %default total

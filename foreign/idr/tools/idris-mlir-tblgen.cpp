@@ -1448,9 +1448,9 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
       std::vector<StringRef> imports = guard->getValueAsListOfStrings("caseImports");
       imports.insert(imports.begin(), guard->getValueAsString("causeModule"));
-      for (StringRef module : imports)
-        if (!llvm::is_contained(v.guardImports, module))
-          v.guardImports.push_back(module.str());
+      for (StringRef imported : imports)
+        if (!llvm::is_contained(v.guardImports, imported))
+          v.guardImports.push_back(imported.str());
     }
     emitOp(v.enums, u, op, *admitted, opsOs);
   }

@@ -427,6 +427,7 @@ def Idr_LendOp : Idr_Op<"lend", [
 }
 
 def Idr_CarrierOp : Idr_Op<"carrier", [
+    Idr_NoRuntimeFormTrait,
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -1002,6 +1003,7 @@ def Idr_ConstantOp : Idr_Op<"constant", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
   ]> {
