@@ -8,8 +8,10 @@
 // it declares (FlowEdges.h), so the rule names no op: a fresh value claims
 // the most whose read of each part moved into it gives no more than the
 // part claims; a value moved on claims what was moved; a part read or taken
-// out claims what the grade's read of it gives (Hold::read); a copy, a
-// constant and a value no edge explains claim nothing.
+// out claims what the grade's read of it gives (Hold::read), except a
+// capture moved out of a memo label's field, which holds what the label's
+// field held; a copy, a constant and a value no edge explains claim
+// nothing.
 //
 // Two readers instantiate it. The verifier holds every value typed `unique
 // deep` to it, one op at a time, each source's claim its type's (LocalCheck,
@@ -30,6 +32,7 @@
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
 #include <concepts>
@@ -73,8 +76,9 @@ enum class Via : std::uint8_t {
   // over: a value read, shared; or a hole another op writes, holding what
   // its destination's type bounds the write to (`held`).
   Filled,
-  // Taken out of a memo label's field: what every init moved into the
-  // label's field, which only the marking follows across the program.
+  // Moved out of a memo label's field, its place emptied: what every init
+  // moved into the label's field, which only the marking follows across the
+  // program.
   Anchored,
   // Read out of a slot whose own type states what it holds (a hole, whose
   // destination's type bounds the write that fills it): that claim.
@@ -95,6 +99,33 @@ struct Term {
   Uses uses = Uses::Once;
   Unique held = Unique::None;
 };
+
+// What the place a part is read from holds once the op has read it, as the
+// op's edges say: nothing, the reference it held moved out with the part,
+// where the op takes over the whole the part is of, or keeps the whole and
+// declares the place overwritten (an array's take, a memo cell's exchange:
+// the place holds nothing until a later write fills it); or the reference
+// it held, which the part only views.
+enum class PlaceAfter : std::uint8_t { Emptied, Kept };
+
+// The place `part` is read from among `edges`, the edges of the op that
+// reads it.
+inline PlaceAfter placeAfter(const FlowEdges &edges, const FlowSource::Part &part) {
+  if (reachOf(part) == Reach::Taken)
+    return PlaceAfter::Emptied;
+  mlir::Value whole = part.value();
+  bool overwritten = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move,
+        [&](const FlowEdges::Overwrite &over) {
+          return over.place.of == whole && over.place.anchor == part.anchor;
+        },
+        [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
+                       FlowEdges::Release, FlowEdges::Fill, FlowEdges::Constant,
+                       FlowEdges::Dispatch> auto &) { return false; });
+  });
+  return overwritten ? PlaceAfter::Emptied : PlaceAfter::Kept;
+}
 
 // Whether an op makes the value new, or the value is moved into from
 // elsewhere, or no edge of the op explains it.
@@ -150,9 +181,10 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                                                    Uses::Once, claimOf(hole.dest.getValue())});
                           },
                           [&](const FlowAnchor::Field &field) {
-                            bool taken = flow.from.taken().has_value();
                             bool memo = field.group.memberKind(field.member) == MemberKind::Memo;
-                            Via via = taken && memo ? Via::Anchored : Via::ReadOut;
+                            Via via = memo && placeAfter(edges, part) == PlaceAfter::Emptied
+                                          ? Via::Anchored
+                                          : Via::ReadOut;
                             term(into.value, Term<mlir::Value>{whole, via, reachAt(part.anchor),
                                                                usesOf(into.value.getType())});
                           },

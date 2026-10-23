@@ -18,6 +18,7 @@
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/Flow.h"
@@ -200,7 +201,7 @@ private:
     for (const FlowEdges::Edge &edge : edges.edges())
       if (edge.carries(Carrier::Reference))
         match(
-            edge.move, [&](const FlowEdges::Flow &flow) { readFlow(flow); },
+            edge.move, [&](const FlowEdges::Flow &flow) { readFlow(flow, edges); },
             [&](const FlowEdges::Fresh &fresh) { explain(fresh.to); },
             [&](const FlowEdges::Constant &constant) {
               explain(constant.to);
@@ -212,13 +213,14 @@ private:
             [](const FlowEdges::Dispatch &) {});
   }
 
-  void readFlow(const FlowEdges::Flow &flow) {
+  // A flow among `edges`, the edges of the op that declares it.
+  void readFlow(const FlowEdges::Flow &flow, const FlowEdges &edges) {
     match(
         flow.to.at,
         // Into a value whole, which that explains.
         [&](const FlowSource::Whole &into) {
           explain(into.value);
-          readInto(flow.from, into.value);
+          readInto(flow.from, into.value, edges);
         },
         // Into a part of a value: the value holds what moves in, a memo
         // label's field the label.
@@ -226,17 +228,18 @@ private:
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(part.of.getType()))
             return intoAnchor(flow.from, anchors.of(*field));
-          readInto(flow.from, part.of);
+          readInto(flow.from, part.of, edges);
         },
         // A parameter or a result: the call's and the return's own reading.
         [](const FlowSource::Parameter &) {}, [](const FlowSource::Result &) {});
   }
 
-  // What `from` brings `to`: a use taken over moves its sharing; a value
-  // read and not given up is copied, which shares both; a part taken out of
-  // a value moves that value's sharing, or a memo label field's; a part
-  // read is a view, a reference of its own only when the op takes one.
-  void readInto(const FlowSource &from, Value to) {
+  // What `from` brings `to`, among the edges of the op: a use taken over
+  // moves its sharing; a value read and not given up is copied, which
+  // shares both; a part taken out of a value moves that value's sharing; a
+  // part of a memo label's field brings what the field holds; a part read
+  // is a view, a reference of its own only when the op takes one.
+  void readInto(const FlowSource &from, Value to, const FlowEdges &edges) {
     match(
         from.at, [&](const FlowSource::Taken &taken) { move(taken.use->get(), to); },
         [&](const FlowSource::Whole &read) {
@@ -249,7 +252,7 @@ private:
           Value of = *from.value();
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(of.getType()))
-            return outOfAnchor(part, anchors.of(*field), to);
+            return outOfAnchor(ownership::placeAfter(edges, part), anchors.of(*field), to);
           if (ownership::reachOf(part) == ownership::Reach::Taken)
             return move(of, to);
           if (!partOf[numbering.at(to)])
@@ -276,18 +279,22 @@ private:
       anchors.share(anchor);
   }
 
-  // A capture moved out of a memo label's field holds what the field holds;
-  // read without being moved, and used, a second reference to it may be
-  // taken there, so the field is shared.
-  void outOfAnchor(const FlowSource::Part &part, Anchor anchor, Value to) {
-    if (ownership::reachOf(part) == ownership::Reach::Taken) {
+  // A capture moved out of a memo label's field, its place emptied, holds
+  // what the field held, whatever else holds the cell; read with the field
+  // keeping its reference, and used, a second reference to it may be taken
+  // there, so the field is shared.
+  void outOfAnchor(ownership::PlaceAfter place, Anchor anchor, Value to) {
+    switch (place) {
+    case ownership::PlaceAfter::Emptied:
       explain(to);
       if (Local at = localOf(to); at != noLocal)
         body.outOfAnchors.push_back({anchor, at});
       return;
+    case ownership::PlaceAfter::Kept:
+      if (!to.use_empty())
+        anchors.share(anchor);
+      return;
     }
-    if (!to.use_empty())
-      anchors.share(anchor);
   }
 
   void readCall(CallOp call) {
