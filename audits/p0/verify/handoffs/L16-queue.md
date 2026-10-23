@@ -122,3 +122,18 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
   `Defined` and `Read` parametrised by the whole-program facts
   (`Read = Reading Nature`); it needs a ruling on a nested block no walk
   names.
+
+## From L17ah (the checker's located facts), frontend readers
+
+- `Driver.built` matches `Reloaded m`, passes `m.file` and `m.ident` to
+  `program`, and drops its own `ctxtPathToNS`.
+- `Keys.idr:1022` and `Template.inFrozen` take addresses from
+  `definitionIn` (`Host.definedPlaced`, `resolvesAs`), so `unresolved` and
+  the negative-index `Nothing` go.
+- `loadedModules` reads all of `allImported`; `unnamed`,
+  `elaboratedChecked`, `elaboratedFile` and the Driver's patch-in go.
+- `Profile.checkModule` iterates `importsRead`, so `Profile.idr:127` goes.
+- `toLoc` still looks a module up by name: a location's `OriginDesc`
+  (`PhysicalIdrSrc ModuleIdent`) already names its module, so read it
+  there, with no change to what reflection sees (L17, if the checker's
+  side needs it).
