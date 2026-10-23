@@ -401,14 +401,14 @@ isMember _ = False
 ||| (`Boundary.implementationHolding`)?
 export
 implementationType : TT vars -> Front Bool
-implementationType ty = (\r => isMember (implementationHolding r.frozen r.interfaces ty)) <$> reading
+implementationType ty = (\r => isMember (implementationHolding r.frozen r.interfaces (pairTypeIn r) ty)) <$> reading
 
 ||| Is a type the type of a polymorphic function, one that takes a type or
 ||| an implementation before what it gives
 ||| (`Boundary.polymorphicHolding`)?
 export
 polymorphicType : TT vars -> Front Bool
-polymorphicType ty = (\r => isMember (polymorphicHolding r.frozen r.interfaces ty)) <$> reading
+polymorphicType ty = (\r => isMember (polymorphicHolding r.frozen r.interfaces (pairTypeIn r) ty)) <$> reading
 
 ||| A type a choice is of, read off its head (`ChoiceType`): a function
 ||| type keys its choice itself, and one a type constructor heads by that
@@ -426,7 +426,7 @@ choiceHead ty = case getFnArgs ty of
 ||| with what keys its choice; nothing for any other.
 export
 choiceType : ClosedTerm -> Front (Maybe ChoiceType)
-choiceType ty = (\r => if isMember (choiceHolding r.frozen r.interfaces ty) then choiceHead ty else Nothing) <$> reading
+choiceType ty = (\r => if isMember (choiceHolding r.frozen r.interfaces (pairTypeIn r) ty) then choiceHead ty else Nothing) <$> reading
 
 ||| Where a value at a place is a member of its type's choice, the type as
 ||| a choice's (`choiceType`): as the member table says (`MemberPlaces`),

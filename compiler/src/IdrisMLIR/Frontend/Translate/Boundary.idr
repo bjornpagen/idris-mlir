@@ -351,37 +351,35 @@ headed ty = case getFn ty of
 ||| as one, in its table of interfaces (`Read.interfaces`); of a pair of
 ||| implementations, which is how Idris gives a tuple of constraints
 ||| (`(Show a, Show b) => Show (a, b)`), each one found by search: its pair
-||| type (`%pair`) is the one Idris's search takes apart; or of a function
-||| to an implementation, a constraint over the values of its arguments
+||| type is the one `%pair` names, which Idris's search takes apart, known
+||| by the address the boundary read it at (`pairType`, nothing for a
+||| program that declares no `%pair`); or of a function to an
+||| implementation, a constraint over the values of its arguments
 ||| (`{y : a} -> Show (p y)`, which `Show (DPair a p)` takes). A type whose
 ||| values Idris finds by search is not an interface for that: an
 ||| auto-implicit argument of any other type (`{auto c : Ref Ctxt Defs}`, a
 ||| proof Idris searches for) is an ordinary argument, and any data type may
 ||| ask for the unique search an interface's record has (`[uniqueSearch]`).
 export
-implementationHolding : Frozen -> (interfaces : SortedSet Name) -> Term vs -> Holding
-implementationHolding fz ifs (Bind _ _ (Pi {}) sc) = implementationHolding fz ifs sc
-implementationHolding fz ifs ty = case headed ty of
+implementationHolding : Frozen -> (interfaces : SortedSet Name) -> (pairType : Maybe Address) -> Term vs -> Holding
+implementationHolding fz ifs pt (Bind _ _ (Pi {}) sc) = implementationHolding fz ifs pt sc
+implementationHolding fz ifs pt ty = case headed ty of
   Undecided => ByInstance
   Neither => NoMember
   ByTypeConstructor n =>
-    let full = fullNameIn fz n in
-    if contains full ifs then AMember else case ty of
+    if contains (fullNameIn fz n) ifs then AMember else case ty of
       App _ (App _ (Ref _ _ _) a) b =>
-        if paired full then bothHold (implementationHolding fz ifs a) (implementationHolding fz ifs b) else NoMember
+        if pairTypeNamed fz pt n
+          then bothHold (implementationHolding fz ifs pt a) (implementationHolding fz ifs pt b)
+          else NoMember
       _ => NoMember
-  where
-    paired : Name -> Bool
-    paired full = case pairnames (options (defsOf fz)) of
-      Just ns => full == fullNameIn fz (pairType ns)
-      Nothing => False
 
 ||| Does a binder of quantity `rig` and type `a` take a type or an
 ||| implementation, as a polymorphic function's first does?
-takesStatic : Frozen -> SortedSet Name -> RigCount -> Term vs -> Holding
-takesStatic fz ifs rig a = eitherHolds typeLike (case use rig of
-                                                   Erased => NoMember
-                                                   Used _ => implementationHolding fz ifs a)
+takesStatic : Frozen -> SortedSet Name -> Maybe Address -> RigCount -> Term vs -> Holding
+takesStatic fz ifs pt rig a = eitherHolds typeLike (case use rig of
+                                                      Erased => NoMember
+                                                      Used _ => implementationHolding fz ifs pt a)
   where
     typeLike : Holding
     typeLike = if isTypeLike a then AMember else case headed a of
@@ -401,9 +399,10 @@ takesStatic fz ifs rig a = eitherHolds typeLike (case use rig of
 ||| implementation (`{y : Nat} -> Show (Tag y)`) takes neither: its type is
 ||| an implementation's already (`implementationHolding`).
 export
-polymorphicHolding : Frozen -> (interfaces : SortedSet Name) -> Term vs -> Holding
-polymorphicHolding fz ifs (Bind _ _ (Pi _ rig _ a) sc) = eitherHolds (takesStatic fz ifs rig a) (polymorphicHolding fz ifs sc)
-polymorphicHolding fz ifs ty = case headed ty of
+polymorphicHolding : Frozen -> (interfaces : SortedSet Name) -> (pairType : Maybe Address) -> Term vs -> Holding
+polymorphicHolding fz ifs pt (Bind _ _ (Pi _ rig _ a) sc) =
+  eitherHolds (takesStatic fz ifs pt rig a) (polymorphicHolding fz ifs pt sc)
+polymorphicHolding fz ifs pt ty = case headed ty of
   Undecided => ByInstance
   _ => NoMember
 
@@ -413,30 +412,30 @@ polymorphicHolding fz ifs ty = case headed ty of
 ||| (`{y : Nat} -> Show (Tag y)`) is a closure that gives a choice, no
 ||| choice itself.
 export
-choiceHolding : Frozen -> (interfaces : SortedSet Name) -> Term vs -> Holding
-choiceHolding fz ifs ty@(Bind _ _ (Pi {}) _) = polymorphicHolding fz ifs ty
-choiceHolding fz ifs ty = implementationHolding fz ifs ty
+choiceHolding : Frozen -> (interfaces : SortedSet Name) -> (pairType : Maybe Address) -> Term vs -> Holding
+choiceHolding fz ifs pt ty@(Bind _ _ (Pi {}) _) = polymorphicHolding fz ifs pt ty
+choiceHolding fz ifs pt ty = implementationHolding fz ifs pt ty
 
 ||| Where a definition's values are members of a choice, read off its type
 ||| in normal form (`MemberPlaces`): a value given at a binder is one by
 ||| the binder's type, under the delay where the binder is delayed (a
 ||| delayed polymorphic function, a branch of `if`); the definition applied
 ||| to as many arguments as binders before a type gives one by that type.
-placesOf : Frozen -> SortedSet Name -> ClosedTerm -> MemberPlaces
-placesOf fz ifs normal = fst (go normal)
+placesOf : Frozen -> SortedSet Name -> Maybe Address -> ClosedTerm -> MemberPlaces
+placesOf fz ifs pt normal = fst (go normal)
   where
     taken : Term vs -> Holding
-    taken (TDelayed _ _ inner) = choiceHolding fz ifs inner
-    taken a = choiceHolding fz ifs a
+    taken (TDelayed _ _ inner) = choiceHolding fz ifs pt inner
+    taken a = choiceHolding fz ifs pt a
 
     -- The places of a type, with what the type is as a polymorphic
     -- function's, which the type one binder out is when it is one.
     go : Term vs -> (MemberPlaces, Holding)
     go (Bind _ _ (Pi _ rig _ a) sc) =
       let (rest, after) = go sc
-          here = eitherHolds (takesStatic fz ifs rig a) after in
+          here = eitherHolds (takesStatic fz ifs pt rig a) after in
       (MkMemberPlaces (taken a :: rest.given) (here ::: forget rest.gives), here)
-    go t = (MkMemberPlaces [] (implementationHolding fz ifs t ::: []), polymorphicHolding fz ifs t)
+    go t = (MkMemberPlaces [] (implementationHolding fz ifs pt t ::: []), polymorphicHolding fz ifs pt t)
 
 ------------------------------------------------------------------------------
 -- What each block is called
@@ -865,8 +864,9 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
 ||| constructor or else at `fallback`, as the translation refuses a missing
 ||| definition, so no reader after meets a type with a constructor it
 ||| cannot read, or one it reads at another tag than Idris gave it.
-constructorsRead : NonEmptyFC -> Reading () -> DefinitionRead () -> Core (Either Refusal Constructors)
-constructorsRead fallback r tc = case definition tc.def of
+constructorsRead : NonEmptyFC -> Frozen -> SortedMap Int (DefinitionRead ()) -> DefinitionRead () ->
+                   Core (Either Refusal Constructors)
+constructorsRead fallback fz ds tc = case definition tc.def of
   TCon _ _ _ _ _ (Just cons) _ => map DeclaredAs <$> listed 0 cons
   TCon _ _ _ _ _ Nothing _ => pure (Right NoneDeclared)
   _ => pure (Right (DeclaredAs []))
@@ -880,7 +880,7 @@ constructorsRead fallback r tc = case definition tc.def of
     listed : (place : Nat) -> List Name -> Core (Either Refusal (List ConstructorAt))
     listed place [] = pure (Right [])
     listed place (cn :: rest) = do
-      ReadAs _ _ _ con <- readOf r cn
+      ReadAs _ _ _ con <- readIn fz ds cn
         | NoDefinition _ => pure (Left (refused ("missing definition " ++ show cn ++ ", which its type lists as a constructor")))
       let DCon tag arity _ = definition con.def
         | _ => pure (Left (refused (show (fullname con.def) ++ " is not a constructor")))
@@ -891,40 +891,21 @@ constructorsRead fallback r tc = case definition tc.def of
         | Left refusal => pure (Left refusal)
       pure (Right (MkConstructorAt con place arity :: later))
 
-||| The reading with every definition given its constructors
-||| (`constructorsRead`), the entry and the pair's as every other; the
+||| Every definition read given its constructors (`constructorsRead`), each
+||| once, by its entry, before the entry and the pair are read from them,
+||| so each of those holds what its definition's one reading found; the
 ||| first refusal stops it.
-constructed : NonEmptyFC -> Reading () -> Core (Either Refusal (Reading Constructors))
-constructed fallback r = do
-  Right entry <- given r.entry
-    | Left refusal => pure (Left refusal)
-  Right pair <- pairGiven r.pair
-    | Left refusal => pure (Left refusal)
-  Right ds <- each empty (SortedMap.toList r.definitions)
-    | Left refusal => pure (Left refusal)
-  pure (Right (MkReading r.frozen entry ds r.application r.interfaces r.solutions pair))
+constructed : NonEmptyFC -> Frozen -> SortedMap Int (DefinitionRead ()) ->
+              Core (Either Refusal (SortedMap Int (DefinitionRead Constructors)))
+constructed fallback fz ds = each empty (SortedMap.toList ds)
   where
-    given : DefinitionRead () -> Core (Either Refusal (DefinitionRead Constructors))
-    given d = map (\cons => withNature cons d) <$> constructorsRead fallback r d
-
-    pairGiven : Maybe (PairRead ()) -> Core (Either Refusal (Maybe (PairRead Constructors)))
-    pairGiven Nothing = pure (Right Nothing)
-    pairGiven (Just pg) = do
-      Right p <- given pg.pairDefined
-        | Left refusal => pure (Left refusal)
-      Right f <- given pg.firstDefined
-        | Left refusal => pure (Left refusal)
-      Right s <- given pg.secondDefined
-        | Left refusal => pure (Left refusal)
-      pure (Right (Just (MkPairRead pg.pairAddress p pg.firstAddress f pg.secondAddress s)))
-
     each : SortedMap Int (DefinitionRead Constructors) -> List (Int, DefinitionRead ()) ->
            Core (Either Refusal (SortedMap Int (DefinitionRead Constructors)))
     each done [] = pure (Right done)
     each done ((i, d) :: rest) = do
-      Right d' <- given d
+      Right cons <- constructorsRead fallback fz ds d
         | Left refusal => pure (Left refusal)
-      each (insert i d' done) rest
+      each (insert i (withNature cons d) done) rest
 
 ||| The solution of the metavariable at entry `i` (`Solution`), read once
 ||| from the frozen context by that entry, which its term gives it and
@@ -964,30 +945,68 @@ solutionsOf fz fallback = go noSolutions
         | Left refusal => pure (Left refusal)
       go (withSolution i s done) rest
 
-||| The pair Idris's `%pair` names (`PairRead`), each of its three names
-||| read as the reading has it (`readIn`), by its entry's address
-||| (`definedAddress`); nothing for a program that declares no `%pair`. A
-||| declared one that names what the frozen context defines as nothing is
-||| the compiled module's error, refused here at `fallback`; the checker
-||| takes the pragma only of names it resolves, so no program reaches it.
-pairingIn : (fz : Frozen) -> SortedMap Int (DefinitionRead ()) -> NonEmptyFC -> Core (Either Refusal (Maybe (PairRead ())))
-pairingIn fz ds fallback = case pairnames (options (defsOf fz)) of
-  Nothing => pure (Right Nothing)
+%prefix_record_projections off
+
+||| One of the names `%pair` gives, resolved once in the frozen context
+||| (`pairPlacedIn`): the name, which the reading's own miss shows; the
+||| entry it resolves to, with the evidence; and the address of the
+||| definition there.
+record PairPart (fz : Frozen) where
+  constructor MkPairPart
+  named : Name
+  entry : Int
+  0 resolved : Resolves fz named entry
+  address : Address
+
+||| The pair `%pair` names, each of its three names resolved once
+||| (`PairPart`): the pair type, by whose address a pair of implementations
+||| is told while the definitions are read off their types
+||| (`implementationHolding`), and its two projections; read as
+||| definitions once those are (`pairingIn`).
+record PairPlaced (fz : Frozen) where
+  constructor MkPairPlaced
+  pairPart : PairPart fz
+  firstPart : PairPart fz
+  secondPart : PairPart fz
+
+%prefix_record_projections on
+
+||| The pair `%pair` names, each of its three names resolved once in the
+||| frozen context (`PairPlaced`), before any definition is read off its
+||| type, which tells a pair of implementations by the pair type's
+||| address; nothing for a program that declares no `%pair`. A declared
+||| one that names what the frozen context defines as nothing is the
+||| compiled module's error, refused here at `fallback`; the checker takes
+||| the pragma only of names it resolves, so no program reaches it.
+pairPlacedIn : (fz : Frozen) -> NonEmptyFC -> Either Refusal (Maybe (PairPlaced fz))
+pairPlacedIn fz fallback = case pairnames (options (defsOf fz)) of
+  Nothing => Right Nothing
   Just ns => do
-    Right (pa, pd) <- part (pairType ns)
-      | Left refusal => pure (Left refusal)
-    Right (fa, fd) <- part (fstName ns)
-      | Left refusal => pure (Left refusal)
-    Right (sa, sd) <- part (sndName ns)
-      | Left refusal => pure (Left refusal)
-    pure (Right (Just (MkPairRead pa pd fa fd sa sd)))
+    p <- part (pairType ns)
+    f <- part (fstName ns)
+    s <- part (sndName ns)
+    pure (Just (MkPairPlaced p f s))
   where
-    part : Name -> Core (Either Refusal (Address, DefinitionRead ()))
-    part n = do
-      ReadAs i resolved defines d <- readIn fz ds n
-        | NoDefinition _ => pure (Left (MkRefusal (Refusal CompiledModule) fallback
-                                                  (show n ++ ": named by %pair, and defined as nothing")))
-      pure (Right (definedAddress i resolved defines, d))
+    part : Name -> Either Refusal (PairPart fz)
+    part n = case definitionIn fz n of
+      NotDefined _ => Left (MkRefusal (Refusal CompiledModule) fallback (show n ++ ": named by %pair, and defined as nothing"))
+      DefinedAs i resolved _ defines => Right (MkPairPart n i resolved (definedAddress i resolved defines))
+
+||| The pair `%pair` names as its definitions were read (`PairRead`), each
+||| at the entry its name was resolved to (`PairPlaced`, `State.readEntry`),
+||| so no name of it is resolved again; nothing for a program that
+||| declares no `%pair`.
+pairingIn : {0 facts : Type} -> (fz : Frozen) -> SortedMap Int (DefinitionRead facts) -> Maybe (PairPlaced fz) ->
+            Core (Maybe (PairRead facts))
+pairingIn fz ds Nothing = pure Nothing
+pairingIn fz ds (Just placed) = do
+  p <- definedAt placed.pairPart
+  f <- definedAt placed.firstPart
+  s <- definedAt placed.secondPart
+  pure (Just (MkPairRead placed.pairPart.address p placed.firstPart.address f placed.secondPart.address s))
+  where
+    definedAt : PairPart fz -> Core (DefinitionRead facts)
+    definedAt part = readEntry fz ds part.named part.entry part.resolved
 
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
@@ -995,19 +1014,21 @@ pairingIn fz ds fallback = case pairnames (options (defsOf fz)) of
 ||| read from the loaded context, every verdict the reading writes in it
 ||| and every registry name the validation resolves interned before it is
 ||| frozen; then the context frozen, the registry's entries validated
-||| against it, and each definition's values that are members of a choice,
-||| its binders with what it takes at each and their types, and the hook
-||| that lowers its calls read off its type in normal form; the entry, as
-||| it was read, found once by its name; the solution of every
-||| metavariable a term read names, by its entry, and the pair `%pair`
-||| names, each read once; each type constructor's constructors read; and
-||| what follows from the definitions alone found once: each type
-||| constructor's facts, each definition's loops, and each block's name. A
-||| registry entry or row the loaded definitions contradict, a type
-||| constructor whose constructors the context does not hold, and a
-||| metavariable or a `%pair` the context does not define as one, are
-||| refused here, once, at their definition or else at `fallback`, and
-||| nothing after reads the registry's rows but as this read them.
+||| against it, the pair's names resolved once, and each definition's
+||| values that are members of a choice, its binders with what it takes at
+||| each and their types, and the hook that lowers its calls read off its
+||| type in normal form; the entry's name resolved once; the solution of
+||| every metavariable a term read names, by its entry; each type
+||| constructor's constructors read, once, before the entry and the pair
+||| are read from the definitions at their entries, so each holds what its
+||| definition's one reading found; and what follows from the definitions
+||| alone found once: each type constructor's facts, each definition's
+||| loops, and each block's name. A registry entry or row the loaded
+||| definitions contradict, a type constructor whose constructors the
+||| context does not hold, and a metavariable or a `%pair` the context does
+||| not define as one, are refused here, once, at their definition or else
+||| at `fallback`, and nothing after reads the registry's rows but as this
+||| read them.
 export
 readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) ->
               (fallback : NonEmptyFC) -> Core (Either Refusal Read)
@@ -1023,34 +1044,44 @@ readProgram ifs entry fallback = do
   fz <- host.freezeContext
   Nothing <- validate fz sites fallback
     | Just refusal => pure (Left refusal)
-  Right definitions <- frozenAll fz met.found empty (SortedMap.toList met.found)
+  -- The pair's names resolved once, before any definition is read off its
+  -- type: a pair of implementations is told by the pair type's address.
+  let Right placed = pairPlacedIn fz fallback
     | Left refusal => pure (Left refusal)
-  -- The entry was read first, from its name: the definition the frozen
-  -- context gives that name, found once here and held by the reading, so
-  -- no phase after looks it up again. The program found it by that name
-  -- in the context before the reading, so a context that defines it as
-  -- nothing is a program with no main, refused as one.
-  ReadAs _ _ _ entryRead <- readIn fz definitions entry
-    | NoDefinition _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback (programEntry ++ ": the program defines no main")))
-  -- Each metavariable met, and the pair, read once from the frozen
-  -- context by their entries, so no phase after looks either up by name:
-  -- the solutions with the evidence the evaluator's own step states, the
-  -- pair with its definitions as the reading has them.
+  Right definitions <- frozenAll fz (map (\pp => pp.pairPart.address) placed) met.found empty (SortedMap.toList met.found)
+    | Left refusal => pure (Left refusal)
+  -- The entry was met first, by its name: the entry the frozen context
+  -- resolves that name to, found once here, at which its definition is
+  -- read once every definition holds its constructors, and held by the
+  -- reading, so no phase after looks it up again. The program found it by
+  -- that name in the context before the reading, so a context that
+  -- defines it as nothing is a program with no main, refused as one.
+  let DefinedAs entryAt entryResolved _ _ = definitionIn fz entry
+    | NotDefined _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback (programEntry ++ ": the program defines no main")))
+  -- Each metavariable met read once from the frozen context by its entry,
+  -- so no phase after looks one up by name, with the evidence the
+  -- evaluator's own step states.
   Right solutions <- solutionsOf fz fallback (SortedMap.toList met.metavariables)
-    | Left refusal => pure (Left refusal)
-  Right pairing <- pairingIn fz definitions fallback
     | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before
   -- any definition holds it: none of the three readings reads what the
   -- others find, and each definition is given all three at once. The type
-  -- constructors' facts read their constructors, read first.
-  let fromDefinitions = MkReading fz entryRead definitions application ifs solutions pairing
-  Right withConstructors <- constructed fallback fromDefinitions
+  -- constructors' facts read their constructors, read first, each
+  -- definition's once; the entry and the pair are then read from those at
+  -- their entries, and the readings of loops and block names, which read
+  -- the definitions alone, hold them with what their constructors say
+  -- forgotten.
+  Right withConstructors <- constructed fallback fz definitions
     | Left refusal => pure (Left refusal)
+  entryRead <- readEntry fz withConstructors entry entryAt entryResolved
+  pairing <- pairingIn fz withConstructors placed
+  let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing
+  let fromDefinitions = MkReading fz (withNature () entryRead) definitions application ifs solutions
+                                  (pairWith (withNature ()) <$> pairing)
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
-  Right <$> readWhole proved blocks withConstructors
+  Right <$> readWhole proved blocks constructedReading
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are
@@ -1060,8 +1091,8 @@ readProgram ifs entry fallback = do
     -- definitions (`checkedRow`), and, for an exit, what Idris's types say
     -- of its `believe_me` (`exitTypesOf`); or the refusal of the registry's
     -- row the definitions contradict.
-    frozenAs : Frozen -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either Refusal (DefinitionRead ()))
-    frozenAs fz found u = do
+    frozenAs : Frozen -> Maybe Address -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either Refusal (DefinitionRead ()))
+    frozenAs fz pt found u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
       let refused = \msg => MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
                                      (show (fullname u.def) ++ ": " ++ msg)
@@ -1074,14 +1105,15 @@ readProgram ifs entry fallback = do
       Right exit <- exitTypesOf fz found u
         | Left msg => pure (Left (refused msg))
       pure (Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered checked exit
-                             (placesOf fz ifs normal) (bindersWith (argumentAt u.def) normal) ()))
+                             (placesOf fz ifs pt normal) (bindersWith (argumentAt u.def) normal) ()))
 
-    -- Every definition read, frozen in order, by its entry; the first
+    -- Every definition read, frozen in order, by its entry, each told a
+    -- pair of implementations by the pair type's address; the first
     -- refusal stops the reading.
-    frozenAll : Frozen -> SortedMap Int Unfrozen -> SortedMap Int (DefinitionRead ()) -> List (Int, Unfrozen) ->
-                Core (Either Refusal (SortedMap Int (DefinitionRead ())))
-    frozenAll fz found done [] = pure (Right done)
-    frozenAll fz found done ((i, u) :: rest) = do
-      Right d <- frozenAs fz found u
+    frozenAll : Frozen -> Maybe Address -> SortedMap Int Unfrozen -> SortedMap Int (DefinitionRead ()) ->
+                List (Int, Unfrozen) -> Core (Either Refusal (SortedMap Int (DefinitionRead ())))
+    frozenAll fz pt found done [] = pure (Right done)
+    frozenAll fz pt found done ((i, u) :: rest) = do
+      Right d <- frozenAs fz pt found u
         | Left refusal => pure (Left refusal)
-      frozenAll fz found (insert i d done) rest
+      frozenAll fz pt found (insert i d done) rest

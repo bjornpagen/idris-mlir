@@ -11,6 +11,7 @@ import Core.TT
 import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
@@ -1138,6 +1139,18 @@ pairWith : (DefinitionRead facts -> DefinitionRead facts') -> PairRead facts -> 
 pairWith f pg =
   MkPairRead pg.pairAddress (f pg.pairDefined) pg.firstAddress (f pg.firstDefined) pg.secondAddress (f pg.secondDefined)
 
+||| Is a name the pair type `%pair` names, at the address the boundary read
+||| it at (nothing for a program that declares no `%pair`)? The name is
+||| the definition the frozen context gives it, compared by its address,
+||| so no two names are compared; a name it defines as nothing names no
+||| type.
+export
+pairTypeNamed : Frozen -> (pairType : Maybe Address) -> Name -> Bool
+pairTypeNamed fz Nothing n = False
+pairTypeNamed fz (Just a) n = case definitionIn fz n of
+  DefinedAs i resolved _ defines => sameAddress (definedAddress i resolved defines) a
+  NotDefined _ => False
+
 ||| What a definition takes at each binder of its type in normal form, in
 ||| order (`binders`).
 public export
@@ -1195,6 +1208,14 @@ data Solution : Frozen -> Int -> Type where
   Unsolved : {0 fz : Frozen} -> {0 i : Int} -> {0 d : GlobalDef} -> {0 locals : Nat} -> {0 flags : HoleFlags} ->
              (0 _ : Defines fz (Resolved i) d) -> (0 _ : definition d = Hole locals flags) -> Solution fz i
 
+||| The place of the entry a metavariable was read at (`Solution`): a
+||| solution's, which it holds; a hole's, placed off the evidence it was
+||| read with, as the solution's was, so no reader tests the entry again.
+export
+solutionPlacement : {i : Int} -> Solution fz i -> Placement
+solutionPlacement (SolvedAs _ placement _ _ _ _) = placement
+solutionPlacement (Unsolved defines _) = placementAt i (resolvedPlaced resolvedItself defines)
+
 ||| The solution of each metavariable a term the boundary read names, by
 ||| its entry in the frozen context, each read at that entry (`Solution`).
 ||| An entry is a key, not an index: Idris's terms carry a metavariable's
@@ -1250,6 +1271,12 @@ public export
 Read : Type
 Read = Reading Nature
 
+||| The address of the pair type `%pair` names, as the reading holds the
+||| pair (`PairRead`); nothing for a program that declares no `%pair`.
+export
+pairTypeIn : Reading facts -> Maybe Address
+pairTypeIn r = (.pairAddress) <$> r.pair
+
 ||| What follows of a definition from the whole program's definitions,
 ||| read off what was found from all of them, each by address: the type
 ||| constructors' facts, a table that holds a type constructor's and no
@@ -1287,26 +1314,36 @@ data ReadOf : Frozen -> Name -> Type -> Type where
   NoDefinition : {0 ctx : Frozen} -> {0 n : Name} -> {0 facts : Type} ->
                  (0 _ : (g : GlobalDef) -> Not (Defines ctx n g)) -> ReadOf ctx n facts
 
--- The one miss of the reading, a definition's (`readIn`) or a solution's
--- (`solutionIn`): every definition a phase can meet, a metavariable among
--- them, was read from what `main` reaches, so an entry the context defines
--- and the reading missed is the compiler's error, which no program decides.
+-- The one miss of the reading, a definition's (`readEntry`) or a
+-- solution's (`solutionIn`): every definition a phase can meet, a
+-- metavariable among them, was read from what `main` reaches, so an entry
+-- the context defines and the reading missed is the compiler's error,
+-- which no program decides.
 missedEntry : Frozen -> Name -> Core a
 missedEntry fz n = throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn fz n)))
+
+||| What was read of the definition at the entry a name resolves to, by
+||| that entry, for a reader that resolved the name once already: the one
+||| read of an entry, which `readIn` reads a name by. Every definition a
+||| phase can meet was read from what `main` reaches, so an entry the
+||| context defines and the reading missed is the compiler's error
+||| (`missedEntry`).
+export
+readEntry : (fz : Frozen) -> SortedMap Int (DefinitionRead facts) -> (n : Name) -> (i : Int) ->
+            (0 _ : Resolves fz n i) -> Core (DefinitionRead facts)
+readEntry fz ds n i _ = case lookup i ds of
+  Just d => pure d
+  Nothing => missedEntry fz n
 
 ||| What was read of a name among the definitions read from what `main`
 ||| reaches, each by its entry in the frozen context (`ReadOf`): the one
 ||| reading of a name, which the boundary also finds the entry by before
-||| the reading is whole. Every definition a phase can meet was read from
-||| what `main` reaches, so an entry the context defines and the reading
-||| missed is the compiler's error (`missedEntry`).
+||| the reading is whole, the entry read as every entry is (`readEntry`).
 export
 readIn : (fz : Frozen) -> SortedMap Int (DefinitionRead facts) -> (n : Name) -> Core (ReadOf fz n facts)
 readIn fz ds n = case definitionIn fz n of
   NotDefined none => pure (NoDefinition none)
-  DefinedAs i resolved _ defines => case lookup i ds of
-    Just d => pure (ReadAs i resolved defines d)
-    Nothing => missedEntry fz n
+  DefinedAs i resolved _ defines => ReadAs i resolved defines <$> readEntry fz ds n i resolved
 
 ||| The solution the boundary read of the metavariable at entry `i`
 ||| (`Solution`), from the reading's table, by the entry the walk's term

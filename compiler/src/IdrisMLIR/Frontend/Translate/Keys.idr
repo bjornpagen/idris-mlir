@@ -115,13 +115,18 @@ blockOrigin n = do
 ------------------------------------------------------------------------------
 
 ||| What writing a term and printing it read beside it: the context, which
-||| gives each name its address, and the roles of the constructors of
-||| `Nat`-like types the term names (`rolesIn`), by address.
+||| gives each name its address; the roles of the constructors of
+||| `Nat`-like types the term names (`rolesIn`), by address; and the
+||| address of the entry each metavariable it names was read at, from the
+||| reading's one table of them (`State.solutionIn`), by the entry its term
+||| gives it. A writer is made for the terms it writes (`writerOf`), so it
+||| holds every metavariable it writes.
 public export
 record Writer where
   constructor MkWriter
   context : Context
   roles : SortedMap Address NatRole
+  metavariables : SortedMap Int Address
 
 ||| The role of the constructor a term is, if the writer knows it as a zero
 ||| or a successor, with its address.
@@ -369,14 +374,16 @@ mutual
   ||| as `\(_ : _) => v` (`Core.Unify.instantiate`). Written, it would make
   ||| one type two data instances, and a value built as one would reach a
   ||| match on the other, whose constructors no site builds.
-  ||| A name is its address in the context, a marker its number; a name
-  ||| the context defines as nothing is no instance's (`missingIn`), and a
-  ||| request of one stops before it is written. A run of a `Nat`-like
-  ||| type's successor, a literal's above all (`Fin 1024`), is two symbols.
+  ||| A name is its address in the context, a marker its number, a
+  ||| metavariable the address of the entry it was read at (`Writer`); a
+  ||| name the context defines as nothing is no instance's (`missingIn`),
+  ||| and a request of one stops before it is written. A run of a
+  ||| `Nat`-like type's successor, a literal's above all (`Fin 1024`), is
+  ||| two symbols.
   write : Writer -> TT vs -> List (Token Form)
   write w (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
   write w (Ref _ nt n) = referenceTo w.context n (holeAt nt n)
-  write w (Meta _ _ i args) = Node (Shaped Hole) (addressOf <$> placementOf i) (length args) :: writeAll w args
+  write w (Meta _ _ i args) = Node (Shaped Hole) (lookup i w.metavariables) (length args) :: writeAll w args
   write w (Bind _ _ b sc) = writeBinder w b ++ write w sc
   write w (App _ f a) = writeApplication w (successorOf w f) f a
   write w (As _ _ a p) = node (Shaped AsPattern) :: (write w a ++ write w p)
@@ -413,69 +420,75 @@ mutual
   writePassing w b q AutoImplicit = [node (Bound b (quantity (use q)) BySearch)]
   writePassing w b q (DefImplicit t) = node (Bound b (quantity (use q)) ByDefault) :: write w t
 
+||| What `write` writes by identity, the frontend's own markers aside: a
+||| reference, with its kind, which it writes by its definition's address;
+||| or a metavariable, by the entry its term gives it, which it writes by
+||| the address of the entry it was read at (`Writer`).
+data Identified = Referring NameType Name | Unknown Int
+
 mutual
-  ||| The references of a term `write` writes by address, with their
-  ||| kinds, in the order it writes them, before `acc`: every reference
-  ||| but the frontend's own markers.
-  namesOf : TT vs -> List (NameType, Name) -> List (NameType, Name)
-  namesOf (Ref _ nt n) acc = maybe ((nt, n) :: acc) (const acc) (holeAt nt n)
-  namesOf (Meta _ _ _ args) acc = namesOfAll args acc
-  namesOf (Bind _ _ b sc) acc = namesOfBinder b (namesOf sc acc)
-  namesOf (App _ f a) acc = namesOf f (namesOf a acc)
-  namesOf (As _ _ a p) acc = namesOf a (namesOf p acc)
-  namesOf (TDelayed _ _ t) acc = namesOf t acc
-  namesOf (TDelay _ _ t a) acc = namesOf t (namesOf a acc)
-  namesOf (TForce _ _ t) acc = namesOf t acc
-  namesOf (Erased _ (Dotted t)) acc = namesOf t acc
-  namesOf (Local {}) acc = acc
-  namesOf (PrimVal {}) acc = acc
-  namesOf (Erased _ Placeholder) acc = acc
-  namesOf (Erased _ Impossible) acc = acc
-  namesOf (TType {}) acc = acc
+  ||| What a term `write` writes by identity (`Identified`), in the order
+  ||| it writes them, before `acc`.
+  identifiedIn : TT vs -> List Identified -> List Identified
+  identifiedIn (Ref _ nt n) acc = maybe (Referring nt n :: acc) (const acc) (holeAt nt n)
+  identifiedIn (Meta _ _ i args) acc = Unknown i :: identifiedInAll args acc
+  identifiedIn (Bind _ _ b sc) acc = identifiedInBinder b (identifiedIn sc acc)
+  identifiedIn (App _ f a) acc = identifiedIn f (identifiedIn a acc)
+  identifiedIn (As _ _ a p) acc = identifiedIn a (identifiedIn p acc)
+  identifiedIn (TDelayed _ _ t) acc = identifiedIn t acc
+  identifiedIn (TDelay _ _ t a) acc = identifiedIn t (identifiedIn a acc)
+  identifiedIn (TForce _ _ t) acc = identifiedIn t acc
+  identifiedIn (Erased _ (Dotted t)) acc = identifiedIn t acc
+  identifiedIn (Local {}) acc = acc
+  identifiedIn (PrimVal {}) acc = acc
+  identifiedIn (Erased _ Placeholder) acc = acc
+  identifiedIn (Erased _ Impossible) acc = acc
+  identifiedIn (TType {}) acc = acc
 
-  namesOfAll : List (TT vs) -> List (NameType, Name) -> List (NameType, Name)
-  namesOfAll [] acc = acc
-  namesOfAll (t :: ts) acc = namesOf t (namesOfAll ts acc)
+  identifiedInAll : List (TT vs) -> List Identified -> List Identified
+  identifiedInAll [] acc = acc
+  identifiedInAll (t :: ts) acc = identifiedIn t (identifiedInAll ts acc)
 
-  namesOfBinder : TTBinder (TT vs) -> List (NameType, Name) -> List (NameType, Name)
-  namesOfBinder (Lam _ _ info _) acc = namesOfPassing info acc
-  namesOfBinder (Let _ _ v ty) acc = namesOf v (namesOf ty acc)
-  namesOfBinder (Pi _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
-  namesOfBinder (PVar _ _ info ty) acc = namesOfPassing info (namesOf ty acc)
-  namesOfBinder (PLet _ _ v ty) acc = namesOf v (namesOf ty acc)
-  namesOfBinder (PVTy _ _ ty) acc = namesOf ty acc
+  identifiedInBinder : TTBinder (TT vs) -> List Identified -> List Identified
+  identifiedInBinder (Lam _ _ info _) acc = identifiedInPassing info acc
+  identifiedInBinder (Let _ _ v ty) acc = identifiedIn v (identifiedIn ty acc)
+  identifiedInBinder (Pi _ _ info ty) acc = identifiedInPassing info (identifiedIn ty acc)
+  identifiedInBinder (PVar _ _ info ty) acc = identifiedInPassing info (identifiedIn ty acc)
+  identifiedInBinder (PLet _ _ v ty) acc = identifiedIn v (identifiedIn ty acc)
+  identifiedInBinder (PVTy _ _ ty) acc = identifiedIn ty acc
 
-  namesOfPassing : PiInfo (TT vs) -> List (NameType, Name) -> List (NameType, Name)
-  namesOfPassing (DefImplicit t) acc = namesOf t acc
-  namesOfPassing _ acc = acc
+  identifiedInPassing : PiInfo (TT vs) -> List Identified -> List Identified
+  identifiedInPassing (DefImplicit t) acc = identifiedIn t acc
+  identifiedInPassing _ acc = acc
 
-||| The first name the terms refer to (`namesOf`) that the frozen context
-||| defines as nothing, if there is one.
+||| The first name the terms refer to (`identifiedIn`) that the frozen
+||| context defines as nothing, if there is one.
 missingIn : Frozen -> List (TT vs) -> Maybe Name
-missingIn ctx tms = firstMissing (foldr namesOf [] tms)
+missingIn ctx tms = firstMissing (foldr identifiedIn [] tms)
   where
-    firstMissing : List (NameType, Name) -> Maybe Name
+    firstMissing : List Identified -> Maybe Name
     firstMissing [] = Nothing
-    firstMissing ((_, n) :: ns) = case definitionIn ctx n of
+    firstMissing (Unknown _ :: ns) = firstMissing ns
+    firstMissing (Referring _ n :: ns) = case definitionIn ctx n of
       NotDefined _ => Just n
       DefinedAs {} => firstMissing ns
 
-||| The zeros and successors of `Nat`-like types the terms name, by address:
-||| the constructors of no argument and of one that Idris flags as such
-||| (`natRole`, its metadata, never a name), whose runs `write` writes and
-||| whose literals the key prints.
-rolesIn : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Front (SortedMap Address NatRole)
-rolesIn tms = do
+||| The zeros and successors of `Nat`-like types the terms name
+||| (`identifiedIn`), by address: the constructors of no argument and of
+||| one that Idris flags as such (`natRole`, its metadata, never a name),
+||| whose runs `write` writes and whose literals the key prints.
+rolesIn : {auto c : Ref Ctxt Defs} -> List Identified -> Front (SortedMap Address NatRole)
+rolesIn identified = do
   defs <- getDefs
-  let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) (foldr namesOf [] tms))
+  let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) identified)
   found <- traverse (role defs) (SortedMap.toList candidates)
   pure (SortedMap.fromList (catMaybes found))
   where
     -- A constructor by its address, with the role its arity admits: a zero
     -- takes no argument, a successor one.
-    candidate : Context -> (NameType, Name) -> Maybe (Address, (Name, NatRole))
-    candidate ctx (DataCon _ 0, n) = (\a => (a, (n, Zero))) <$> definitionAddress ctx n
-    candidate ctx (DataCon _ 1, n) = (\a => (a, (n, Succ))) <$> definitionAddress ctx n
+    candidate : Context -> Identified -> Maybe (Address, (Name, NatRole))
+    candidate ctx (Referring (DataCon _ 0) n) = (\a => (a, (n, Zero))) <$> definitionAddress ctx n
+    candidate ctx (Referring (DataCon _ 1) n) = (\a => (a, (n, Succ))) <$> definitionAddress ctx n
     candidate ctx _ = Nothing
 
     role : Defs -> (Address, (Name, NatRole)) -> Front (Maybe (Address, NatRole))
@@ -487,11 +500,27 @@ rolesIn tms = do
               (Just Succ, Succ) => Just (a, Succ)
               _ => Nothing)
 
-||| What reading terms beside the context needs (`Writer`): the context, and
-||| the roles of the zeros and successors the terms name (`rolesIn`).
+||| What reading terms beside the context needs (`Writer`): the context;
+||| the roles of the zeros and successors the terms name (`rolesIn`); and
+||| the address of the entry each metavariable they name was read at, its
+||| solution's or its hole's (`State.solutionPlacement`), from the
+||| reading's table (`State.solutionIn`), so no writer tests an entry
+||| again.
 export
 writerOf : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Front Writer
-writerOf tms = MkWriter (gamma !(getDefs)) <$> rolesIn tms
+writerOf tms = do
+  let identified = foldr identifiedIn [] tms
+  roles <- rolesIn identified
+  r <- reading
+  placed <- placedIn r empty identified
+  pure (MkWriter (gamma !(getDefs)) roles placed)
+  where
+    placedIn : Read -> SortedMap Int Address -> List Identified -> Front (SortedMap Int Address)
+    placedIn r done [] = pure done
+    placedIn r done (Referring _ _ :: rest) = placedIn r done rest
+    placedIn r done (Unknown i :: rest) = do
+      s <- core (solutionIn r i)
+      placedIn r (insert i (addressOf (solutionPlacement s)) done) rest
 
 -- Every number a written term holds is below its weight and its depth
 -- together: a variable's index is below the binders around it, each of

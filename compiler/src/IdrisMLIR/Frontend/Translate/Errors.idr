@@ -9,7 +9,6 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.FC
-import Core.Options
 import Core.TT
 import Idris.Host
 
@@ -240,15 +239,11 @@ export
 fullTerm : Core.TT.Term.Term vs -> Front (Core.TT.Term.Term vs)
 fullTerm tm = (\r => fullNamesIn r.frozen tm) <$> reading
 
-||| Whether a name is the type of Idris's `%pair`, as the frozen context's
-||| options name it, both names full.
+||| Whether a name is the type of Idris's `%pair`, the pair the boundary
+||| read (`State.pairTypeNamed`), by address.
 export
 pairTyped : Name -> Front Bool
-pairTyped n = do
-  r <- reading
-  pure (case pairnames (options (defsOf r.frozen)) of
-          Nothing => False
-          Just ns => fullNameIn r.frozen n == fullNameIn r.frozen (pairType ns))
+pairTyped n = (\r => pairTypeNamed r.frozen (pairTypeIn r) n) <$> reading
 
 ||| Runs one check, or translates one part, of the program so that its
 ||| refusal does not stop the others: the part's refusal, recorded once
