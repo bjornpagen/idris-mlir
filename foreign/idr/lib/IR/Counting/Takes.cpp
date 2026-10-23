@@ -36,10 +36,12 @@ using namespace idr;
 namespace {
 
 // The data type a value of `type` is, refined to the one constructor whose
-// fields it determines; null for any other type.
+// fields it determines; null for any other type. The fields are determined
+// exactly where the constructor's binders are, which it asks instead: that
+// makes no field type, so the reuse walks may ask it of every drop.
 DataType refinedData(Type type) {
   DataType data = dataTypeOf(type);
-  if (!data || !data.singleTag() || !data.determinedFields(*data.singleTag()))
+  if (!data || !data.singleTag() || !data.bindersOf(*data.singleTag()))
     return DataType();
   return data;
 }
@@ -186,16 +188,13 @@ Value CountTakeOp::takeFreedToken(OpBuilder &builder) {
   return token;
 }
 
-// A drop of a value whose type fixes a constructor that has a cell of its
-// own can become the take of that cell, but for a memo's, which is never
-// taken apart.
+// A drop can become the take of its value's cell exactly where the take can
+// be built: a constructor with a cell of its own whose fields the type
+// determines, never a memo's. A value of one constructor whose binders its
+// indices leave open (an existential's) is dropped whole.
 DataType CountDropOp::getFreedCellType() {
   Type value = getValue().getType();
-  DataType data = dataTypeOf(value);
-  std::optional<Tag> tag = data ? data.singleTag() : std::nullopt;
-  if (tag && !data.memo().has_value() && buildsCell(value, *tag))
-    return data;
-  return DataType();
+  return isTakeable(value) ? dataTypeOf(value) : DataType();
 }
 
 // The drop becomes the take of its value, built where the builder stands,
