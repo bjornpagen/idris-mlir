@@ -373,6 +373,7 @@ def Idr_LifetimeStackOp : Idr_Op<"lifetime.stack", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
+    Idr_PerLevelOpInterface,
     Idr_CursorBinderOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
@@ -392,6 +393,7 @@ def Idr_LifetimeChainOp : Idr_Op<"lifetime.chain", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
+    Idr_PerLevelOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "opens a lifetime in its own chain of chunks";
@@ -452,7 +454,8 @@ def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
     Idr_GivesLifetimeTrait,
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
-    AlwaysSpeculatable
+    AlwaysSpeculatable,
+    Idr_DerivesLifetimeOpInterface
   ]> {
   let summary = "the view of a lifetime, of its extent";
   let arguments = (ins Idr_LifetimeType:$lifetime);
@@ -464,7 +467,8 @@ def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
     Idr_GivesLifetimeTrait,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>,
+    Idr_DerivesLifetimeOpInterface
   ]> {
   let summary = "a room reserved in a cursor lifetime";
   let arguments = (ins Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">:$lifetime, I64Attr:$bytes);
@@ -485,7 +489,7 @@ def Idr_CellStackOp : Idr_Op<"cell.stack", [
 
 def Idr_CellArenaOp : Idr_Op<"cell.arena", [
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes", "getPutCell"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
   ]> {
@@ -514,6 +518,7 @@ def Idr_LifetimeUnpackOp : Idr_Op<"lifetime.unpack", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
+    DeclareOpInterfaceMethods<Idr_PerLevelOpInterface, ["getPacked"]>,
     Idr_CursorBinderOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
@@ -1778,7 +1783,8 @@ def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [
 def Idr_CrashCauseOp : Idr_Op<"crash.cause", [
     Terminator,
     MemoryEffects<[MemWrite<Idr_CrashResource>]>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_CrashSiteOpInterface
   ]> {
   let summary = "ends the program with a crash of a cause at a site";
   let arguments = (ins EnumProp<Idr_CrashCause>:$cause, Idr_SiteAttr:$site);
@@ -1789,7 +1795,8 @@ def Idr_CrashCauseOp : Idr_Op<"crash.cause", [
 def Idr_CrashMessageOp : Idr_Op<"crash.message", [
     Terminator,
     MemoryEffects<[MemWrite<Idr_CrashResource>]>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_CrashSiteOpInterface
   ]> {
   let summary = "ends the program with a string's text at a site";
   let arguments = (ins Type<CPred<"::idr::isStrRead($_self)">, "a string, used any number of times, read in place", "::mlir::Type">:$message, Idr_SiteAttr:$site);
@@ -1988,7 +1995,8 @@ def Idr_IoNProcessorsOp : Idr_Op<"io.n_processors", [
 def Idr_IoExitOp : Idr_Op<"io.exit", [
     Terminator,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>, MemWrite<Idr_ExitResource>, MemWrite<Idr_CrashResource>]>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_CrashSiteOpInterface
   ]> {
   let summary = "writes pending output and ends the process with a status; does not return";
   let arguments = (ins I64:$status, Idr_SiteAttr:$site);

@@ -6,7 +6,7 @@
 // module verify through the collection the symbol-use walk hands over. Each
 // constant of ours answers for itself, through ConstantAttrInterface: at
 // which types idr.constant holds it, how it is laid out as static data,
-// whether it may hold a closure, and what it names and holds; the upstream
+// how it holds closures, and what it names and holds; the upstream
 // constants idr.constant and a field hold are classified once, here, beside
 // them.
 
@@ -48,12 +48,21 @@ bool BigAttr::isBuildableAt(Type type) const {
 }
 
 //===----------------------------------------------------------------------===//
-// Whether a constant of ours may hold a closure
+// How a constant of ours holds closures
 //===----------------------------------------------------------------------===//
 
-bool ConAttr::mayHoldClosure() const { return true; }
-bool ClosureAttr::mayHoldClosure() const { return true; }
-bool BigAttr::mayHoldClosure() const { return false; }
+// A constructor holds those its fields hold; a closure is one; a big holds
+// none.
+ClosureHolding ConAttr::getClosureHolding() const { return AttrOf<ConAttr>{*this}; }
+ClosureHolding ClosureAttr::getClosureHolding() const { return AttrOf<ClosureAttr>{*this}; }
+ClosureHolding BigAttr::getClosureHolding() const { return HoldsNoClosure{}; }
+
+// Upstream's constants hold no interface of ours, and none holds a
+// closure: a string, an integer, a Double.
+ClosureHolding idr::closureHoldingOf(Attribute value) {
+  auto constant = dyn_cast<ConstantAttrInterface>(value);
+  return constant ? constant.getClosureHolding() : ClosureHolding(HoldsNoClosure{});
+}
 
 //===----------------------------------------------------------------------===//
 // What a constant of ours names and holds

@@ -27,7 +27,12 @@ import Data.Vect
 ||| How a literal of a runtime value is written and read: a quoted string,
 ||| or a `#idr.big` for an Integer and a natural (never negative). Every op
 ||| that holds a literal (`idr.constant`, a literal match's keys) asks the
-||| type.
+||| type. A type admits one literal per value at most, so two literals are
+||| one value exactly when they are one attribute, and identity is every
+||| carrier's equality of keys: a string's literal is its one string
+||| attribute, a big's is keyed by its integer at its fewest bits, and a
+||| Double's is never a NaN, which equals nothing, nor negative zero, which
+||| equals zero and is written as zero.
 public export
 literalType : InterfaceDef
 literalType = MkInterfaceDef
@@ -36,13 +41,10 @@ literalType = MkInterfaceDef
   , bases = []
   , methods =
       [ MkMethod PerObject "bool" "isLiteral" [param "::mlir::Attribute" "literal"]
-          EveryImplementer "whether the attribute is a literal of this type"
+          EveryImplementer "whether the attribute is a literal of this type, the one literal of its value, so two literals are one value exactly when they are one attribute"
       , MkMethod PerObject "::mlir::ParseResult" "parseLiteral"
           [param "::mlir::AsmParser &" "parser", param "::mlir::Attribute &" "literal"]
           EveryImplementer "reads a literal of this type"
-      , MkMethod PerObject "bool" "sameLiteral"
-          [param "::mlir::Attribute" "a", param "::mlir::Attribute" "b"]
-          (Delegates "literalsIdentical") "whether two literals of this type are the same value"
       , MkMethod PerObject "::mlir::Value" "buildKeyTest"
           [ param "::mlir::OpBuilder &" "builder", param "::mlir::Location" "loc"
           , param "::mlir::Value" "held", param "::mlir::Attribute" "key" ]

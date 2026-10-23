@@ -25,10 +25,11 @@ using namespace mlir;
 using namespace idr;
 using namespace idr::control;
 
-// Keys are literals of the scrutinee's type, as the type says, and only
-// then compared by its equality, which reads a literal of its own. A case
-// binds nothing, since in it the scrutinee equals its literal; the default
-// binds the scrutinee, none of the keys, at its own type.
+// Keys are literals of the scrutinee's type, as the type says, each its
+// value's one literal, so two keys are one exactly when they are one
+// attribute. A case binds nothing, since in it the scrutinee equals its
+// literal; the default binds the scrutinee, none of the keys, at its own
+// type.
 LogicalResult LitMatchOp::verify() {
   auto literals = cast<LiteralTypeInterface>(unrestricted(getScrutinee().getType()));
   for (Attribute key : getCases())
@@ -111,12 +112,12 @@ ValueRange LitMatchOp::getSuccessorInputs(RegionSuccessor successor) {
 
 namespace {
 
-// The region a constant scrutinee takes: the case whose key its carrier
-// calls the same literal (takenRegion, by sameLiteral), or the default's
-// for a literal that is no key. Only a literal is looked up: a constant
-// that is none (a double's NaN or negative zero, or a constant of no value
-// of the type, a poison's) is found by no key here, so every region may
-// run, and the lowering's comparison decides it.
+// The region a constant scrutinee takes: the case whose key is that very
+// literal (takenRegion), its value's one form, or the default's for a
+// literal that is no key. Only a literal is looked up: a constant that is
+// none (a double's NaN or negative zero, or a constant of no value of the
+// type, a poison's) is found by no key here, so every region may run, and
+// the lowering's comparison decides it.
 Region *takenBy(LitMatchOp op, Attribute value) {
   auto literals = cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()));
   return value && literals.isLiteral(value) ? takenRegion(op, value) : nullptr;

@@ -39,7 +39,7 @@ bigAttr = MkAttrDef
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ">"]
   , typed = Untyped
   , interfaces =
-      [ Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]
+      [ Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]
       , Implements integerKeyAttrInterface ["getKeyInteger"] ]
   , verifier = AnyParameters
   , bytecode = Derived

@@ -355,10 +355,48 @@ opensLifetime = MkInterfaceDef
   , doc = brief (line "where an opener's memory comes from")
   }
 
+||| `PerLevelOpInterface`: an op whose region binds, as its first argument,
+||| a lifetime that may be per level, and what that lifetime's package
+||| holds: the stack's and the chain's openers, by the constant of their
+||| class (`LifetimeOpener<Op>`), and the unpack that reopens a package, by
+||| its package's type. A reader asks the op and lists no op.
+export
+perLevelInterface : InterfaceDef
+perLevelInterface = MkInterfaceDef
+  { name = ident "PerLevelOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::Packed") (ident "getPacked") [] (DelegatesByClass (ident "packedOfOp"))
+          (line "what the package of the lifetime this op binds holds: a stack's mark, or a chain") ]
+  , verifier = Unverified
+  , doc = brief (line "an op that binds a lifetime that may be per level")
+  }
+
+||| `DerivesLifetimeOpInterface`: an op whose result is a lifetime derived
+||| from the one it takes, of that one's extent (the view a cast gives, a
+||| room reserved in a cursor), the lifetime its operand `lifetime`, read
+||| from the op's own class. A reader of a lifetime's extent asks the op
+||| that made it and lists no op.
+export
+derivesLifetime : InterfaceDef
+derivesLifetime = MkInterfaceDef
+  { name = ident "DerivesLifetimeOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::mlir::Value") (ident "getDerivedFrom") [] (DelegatesByClass (ident "derivedFromOfOp"))
+          (line "the lifetime the lifetime this op gives is derived from, whose extent it has") ]
+  , verifier = Unverified
+  , doc = brief (line "an op that derives a lifetime of another's extent")
+  }
+
 ||| `LifetimePutOpInterface`: an op that puts into a lifetime, the lifetime
 ||| and how many bytes, as the target lays them out: what the function's
 ||| record of each lifetime parameter's amount is summed from, and what a
-||| room's block is sized by.
+||| room's block is sized by; and the cell it puts there, whose box the
+||| lifetime's rule follows where the put runs again, which a room reserved
+||| in a cursor, bytes and no cell, has none of.
 export
 putsIntoLifetime : InterfaceDef
 putsIntoLifetime = MkInterfaceDef
@@ -370,7 +408,9 @@ putsIntoLifetime = MkInterfaceDef
           (line "the lifetime this op puts into")
       , MkMethod PerObject (code "std::uint64_t") (ident "getPutBytes")
           [param (code "const ::idr::Layouts &") (ident "layouts")] EveryImplementer
-          (line "the bytes this op puts there, as the module's layouts lay them out") ]
+          (line "the bytes this op puts there, as the module's layouts lay them out")
+      , MkMethod PerObject (code "::mlir::TypedValue<::idr::CellType>") (ident "getPutCell") [] (Delegates (ident "putsNoCell"))
+          (line "the cell this op puts there; null for a put of bytes and no cell") ]
   , verifier = Unverified
   , doc = brief (line "an op that puts into a lifetime, and how much")
   }
@@ -440,6 +480,25 @@ roomOf = MkDirective (ident "RoomLifetime") [TypeArg] (brief (line "a room lifet
 closes : RuntimeMemory -> Declaration i o
 closes memory = Executes [] [] Recursive memory
 
+||| What an opener's class holds of itself (`LifetimeOpener<Op>`): where
+||| its memory comes from, and, for one that may be per level, what the
+||| package of its lifetime holds.
+openerConstants : Opener -> List (Ident, Constant)
+openerConstants o = (ident "opener", EnumConstant (caseRef openerClosed o)) :: packed (perLevel o)
+  where
+    packed : Dec (PerLevel o) -> List (Ident, Constant)
+    packed (Yes l) = [(ident "packed", EnumConstant (caseRef packedClosed (levelPacked l)))]
+    packed (No _) = []
+
+||| What an opener that may be per level says of it: what its package
+||| holds, which its class's constant answers.
+levelInterfaces : Opener -> List InterfaceUse
+levelInterfaces o = level (perLevel o)
+  where
+    level : Dec (PerLevel o) -> List InterfaceUse
+    level (Yes _) = [Implements perLevelInterface []]
+    level (No _) = []
+
 ||| The format of an opener without a base: `idr.lifetime in %l, %m :
 ||| !idr.lifetime<k>, !idr.lifetime<j> -> (T…) { … }`, the lifetimes of its
 ||| scoped results. A lifetime's type is written where its value is, since
@@ -468,8 +527,8 @@ plainOpener o = MkOp
   , attrs = []
   , regions = [sized (ident "body") 1]
   , traits = [SingleBlock, OurTrait runsOnce]
-  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime []
-                   , Declares RegionBranch onceMethods ]
+  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime [] ]
+                 ++ levelInterfaces o ++ [Declares RegionBranch onceMethods]
   , effects = closes (memoryOf o)
   , speculation = NotSpeculatable
   , stages = stagesOf o
@@ -480,7 +539,7 @@ plainOpener o = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = [MkSpecialized (ident "LifetimeOpener") [(ident "opener", EnumConstant (caseRef openerClosed o))]]
+  , specializations = [MkSpecialized (ident "LifetimeOpener") (openerConstants o)]
   , laws = []
   , doc = brief (summaryOf o)
   }
@@ -527,8 +586,8 @@ stackOpener = MkOp
   , attrs = []
   , regions = [sized (ident "body") 1]
   , traits = [SingleBlock, OurTrait runsOnce]
-  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime []
-                   , Implements cursorBinderInterface [], Declares RegionBranch onceMethods ]
+  , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime [] ]
+                 ++ levelInterfaces OnStack ++ [Implements cursorBinderInterface [], Declares RegionBranch onceMethods]
   , effects = closes Untouched
   , speculation = NotSpeculatable
   , stages = between Graded Owned
@@ -545,7 +604,7 @@ stackOpener = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = [MkSpecialized (ident "LifetimeOpener") [(ident "opener", EnumConstant (caseRef openerClosed OnStack))]]
+  , specializations = [MkSpecialized (ident "LifetimeOpener") (openerConstants OnStack)]
   , laws = []
   , doc = brief "opens a lifetime on its base cursor's stack"
   }
@@ -650,7 +709,7 @@ carrier = op "carrier" [single "value" lendable, single "lifetime" viewLifetime]
 public export
 forget : Op 1 1 0 0
 forget = op "lifetime.forget" [single "lifetime" anyLifetime] [result "view" viewLifetime] [] []
-  [OurTrait givesLifetime] [] noEffects AlwaysSpeculatable Always DeclarationOnly
+  [OurTrait givesLifetime] [Implements derivesLifetime []] noEffects AlwaysSpeculatable Always DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef FZ)),
              Custom viewOf [TypeOfGroup (ResultRef FZ)]]) []
   (brief "the view of a lifetime, of its extent")
@@ -664,7 +723,9 @@ public export
 reserve : Op 1 1 1 0
 reserve = op "lifetime.reserve" [single "lifetime" cursorLifetime] [result "room" roomLifetime]
   [attr "bytes" (UpstreamAttr I64AttrC)] []
-  [OurTrait givesLifetime] [Implements putsIntoLifetime putMethods, Implements lifetimeUseInterface ["getLifetimeUse"]]
+  [OurTrait givesLifetime]
+  [ Implements putsIntoLifetime putMethods, Implements lifetimeUseInterface ["getLifetimeUse"]
+  , Implements derivesLifetime [] ]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), Lit ",", ValueOf (AttrRef FZ), AttrDict, Lit ":",
@@ -706,7 +767,7 @@ cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell]
 public export
 cellArena : Op 1 1 0 0
 cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell] [] [] []
-  [ Implements putsIntoLifetime putMethods, Implements flowInterface ["getFlowEdges"]
+  [ Implements putsIntoLifetime (putMethods ++ ["getPutCell"]), Implements flowInterface ["getFlowEdges"]
   , Implements lifetimeUseInterface ["getLifetimeUse"] ]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
@@ -759,8 +820,8 @@ unpack = op "lifetime.unpack"
   , variadic "entering" anyValue, variadic "outers" anyLifetime ]
   [results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, OurTrait runsOnce]
-  [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements cursorBinderInterface []
-  , Declares RegionBranch onceMethods ]
+  [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements perLevelInterface ["getPacked"]
+  , Implements cursorBinderInterface [], Declares RegionBranch onceMethods ]
   (closes Touched) NotSpeculatable (between Graded Owned) VerifiesRegions
   (Declared [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
             , OptionalGroup [Lit "on"] (ValueOf (OperandRef (FS FZ)))
@@ -797,7 +858,8 @@ declarations =
                        SomeOp cellStack, SomeOp cellArena, SomeOp pack, SomeOp unpack]
   , types := [SomeType lifetimeType, SomeType packageType]
   , enums := [enumDef packedClosed]
-  , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime, lifetimeUseInterface, cursorBinderInterface]
+  , interfaces := [ statesLifetime, statesOuters, opensLifetime, perLevelInterface, derivesLifetime, putsIntoLifetime
+                  , lifetimeUseInterface, cursorBinderInterface ]
   , traits := [runsOnce, runsOnceGivingBack, givesLifetime, adoptsCarrier]
   , directives := [sameType, viewOf, roomOf]
   , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate, lendablePredicate]

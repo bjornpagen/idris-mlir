@@ -39,12 +39,6 @@ namespace idr::conversion {
 
 namespace {
 
-// The name of the inherent attribute every op that can crash holds its
-// site in: the crash ops', the guards', an exit's. Sites live on several
-// families of ops with no interface in common, so they are read here by
-// the attribute's own class under that one name.
-constexpr StringLiteral siteName = "site";
-
 // The static atom of each constructor with no field of each family in
 // cells a value of the program is laid out at, and every one their fields
 // hold, an array's elements among them, read through the layouts' own
@@ -96,18 +90,20 @@ struct LowerStatics : idr::impl::IdrLowerStaticsBase<LowerStatics> {
     // Poison of a cell pointer may stand anywhere a function is lowered.
     data.nothing();
     atoms(program, layouts, data);
+    program.walk(
+        [&](ConstantOp constant) { data.constant(constant.getValue(), constant.getType()); });
+    // Every op that can crash says where (CrashSiteOpInterface): a crash, a
+    // guard, an exit whose status no parent can read.
+    program.walk([&](CrashSiteOpInterface crash) {
+      SiteAttr site = crash.getSite();
+      data.text(StringRef(site.getFile()));
+      data.text(StringRef(site.getFunction()));
+    });
     uint32_t homes = 0;
-    program.walk([&](Operation *op) {
-      if (auto constant = dyn_cast<ConstantOp>(op))
-        data.constant(constant.getValue(), constant.getType());
-      if (auto site = dyn_cast_or_null<SiteAttr>(op->getInherentAttr(siteName).value_or(nullptr))) {
-        data.text(StringRef(site.getFile()));
-        data.text(StringRef(site.getFunction()));
-      }
-      if (auto home = dyn_cast<LifetimeHomeOp>(op))
-        cast<LifetimeType>(home.getBody().front().getArgument(0).getType())
-            .getKind()
-            .fold([] {}, [] {}, [] {}, [&](uint32_t site) { homes = std::max(homes, site + 1); });
+    program.walk([&](LifetimeHomeOp home) {
+      cast<LifetimeType>(home.getBody().front().getArgument(0).getType())
+          .getKind()
+          .fold([] {}, [] {}, [] {}, [&](uint32_t site) { homes = std::max(homes, site + 1); });
     });
     for (auto fn : program->getRegion(0).getOps<FuncOp>())
       if (fn.getFrameBound() != 0)

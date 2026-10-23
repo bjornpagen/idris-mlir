@@ -102,15 +102,9 @@ struct DoubleLiterals : LiteralTypeInterface::ExternalModel<DoubleLiterals, Floa
     return success();
   }
 
-  // Equal as the runtime's match compares a Double with its key, by IEEE's
-  // ordered equality: either zero is the other, and a NaN equals nothing.
-  bool sameLiteral(Type, Attribute a, Attribute b) const {
-    return cast<FloatAttr>(a).getValue().compare(cast<FloatAttr>(b).getValue()) ==
-           APFloat::cmpEqual;
-  }
-
-  // The same equality at run time: arith's ordered comparison of the plain
-  // Double and the key's constant, under which no key is a NaN.
+  // IEEE's ordered equality at run time: arith's ordered comparison of the
+  // plain Double and the key's constant, under which no key is a NaN and
+  // the zero key is taken by either zero.
   Value buildKeyTest(Type, OpBuilder &builder, Location loc, Value held, Attribute key) const {
     Value literal = arith::ConstantOp::create(builder, loc, cast<TypedAttr>(key));
     return arith::CmpFOp::create(builder, loc, arith::CmpFPredicate::OEQ, held, literal);

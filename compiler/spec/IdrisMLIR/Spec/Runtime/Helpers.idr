@@ -132,6 +132,22 @@ building = TakesPointerTo "idris_rt_str"
 cursor : OperandKind
 cursor = TakesPointerTo "char"
 
+||| A character's UTF-8 written into a string being built: what a list's
+||| pack writes of each element.
+public export
+strPutChar : RuntimeHelper
+strPutChar = MkRuntimeHelper (ident "strPutChar") (symbol "str_put_char")
+  [(building, ident "s"), (TakesInt64, ident "offset"), (TakesInt32, ident "c")] (HelperReturns GivesInt64)
+  (line "a character's UTF-8 written into a string being built, giving the next offset")
+
+||| A string's bytes written into a string being built: what a list's
+||| concat writes of each element.
+public export
+strPutStr : RuntimeHelper
+strPutStr = MkRuntimeHelper (ident "strPutStr") (symbol "str_put_str")
+  [(building, ident "s"), (TakesInt64, ident "offset"), (TakesStr, ident "part")] (HelperReturns GivesInt64)
+  (line "a string's bytes written into a string being built, giving the next offset")
+
 ||| Every helper, in the order the generator prints them.
 public export
 helpers : List RuntimeHelper
@@ -166,12 +182,8 @@ helpers =
   , MkRuntimeHelper (ident "strAlloc") (symbol "str_alloc")
       [(TakesInt64, ident "bytes"), (TakesInt64, ident "scalars")] (HelperReturns (GivesPointerTo "idris_rt_str"))
       (line "a new string of bytes bytes and scalars scalar values, to be written in place")
-  , MkRuntimeHelper (ident "strPutChar") (symbol "str_put_char")
-      [(building, ident "s"), (TakesInt64, ident "offset"), (TakesInt32, ident "c")] (HelperReturns GivesInt64)
-      (line "a character's UTF-8 written into a string being built, giving the next offset")
-  , MkRuntimeHelper (ident "strPutStr") (symbol "str_put_str")
-      [(building, ident "s"), (TakesInt64, ident "offset"), (TakesStr, ident "part")] (HelperReturns GivesInt64)
-      (line "a string's bytes written into a string being built, giving the next offset")
+  , strPutChar
+  , strPutStr
   , MkRuntimeHelper (ident "crashAt") (symbol "crash_at")
       ((TakesInt32, ident "cause") :: site) HelperNeverReturns
       (line "ends the program as a crash of a cause of the closed set, at its site")

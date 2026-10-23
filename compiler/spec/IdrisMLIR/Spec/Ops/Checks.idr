@@ -66,8 +66,29 @@ causeSlot = property "cause" (EnumProperty (imported causeClosed
   (MkSource ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "Cause"
             ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "causeClosed")))
 
+||| The site of an op that can crash, its own attribute, which its
+||| generated accessor gives and the crash site's interface reads.
+public export
 siteSlot : Attr
 siteSlot = attr "site" (OurAttr (SomeAttr siteAttr))
+
+||| `CrashSiteOpInterface`: the place in the source an op's crash is at,
+||| held by every op that can crash (a crash, a guard, an exit whose status
+||| no parent can read) in its site slot, whose generated accessor is the
+||| method. A reader of every site asks it, so it names no op and no
+||| attribute by name.
+public export
+crashSiteInterface : InterfaceDef
+crashSiteInterface = MkInterfaceDef
+  { name = "CrashSiteOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::idr::SiteAttr" "getSite" [] EveryImplementer
+          "the place in the source its crash is at" ]
+  , verifier = Unverified
+  , doc = says "an op that can crash, at its site"
+  }
 
 ------------------------------------------------------------------------------
 -- The ends of a run
@@ -91,7 +112,7 @@ crashOp = MkOp
   , attrs = [causeSlot, siteSlot]
   , regions = []
   , traits = [Terminator]
-  , interfaces = []
+  , interfaces = [Implements crashSiteInterface []]
   , effects = endsByCrash
   , speculation = NotSpeculatable
   , stages = Always
@@ -124,7 +145,7 @@ crashMessageOp = MkOp
   , attrs = [siteSlot]
   , regions = []
   , traits = [Terminator]
-  , interfaces = []
+  , interfaces = [Implements crashSiteInterface []]
   , effects = endsByCrash
   , speculation = NotSpeculatable
   , stages = Always
@@ -155,20 +176,19 @@ crashMessageStops = StopsByCrash
 ||| cause at its site, with no test at run time): each operand's interval,
 ||| an integer the graph knows being its one value whether an op holds it or
 ||| the graph computed it, and the constant an op holds of one an interval
-||| says nothing of (a string, a Double, an Integer past i64).
+||| says nothing of (a string, a Double, an Integer past i64). A guard can
+||| crash, so its site is the crash site's interface's, which it extends.
 public export
 guardInterface : InterfaceDef
 guardInterface = MkInterfaceDef
   { name = "GuardOpInterface"
   , subject = OverOps
-  , bases = []
+  , bases = [crashSiteInterface]
   , methods =
       [ MkMethod PerObject "::mlir::Value" "getGuarded" [] (Delegates "guardedOperand")
           "the operand the guard guards, its first, which it gives as its result"
       , MkMethod PerObject "::idr::CrashCause" "getCause" [] EveryImplementer
           "the cause its crash names"
-      , MkMethod PerObject "::idr::SiteAttr" "getSite" [] EveryImplementer
-          "the place in the source its crash is at"
       , MkMethod PerClass "::idr::numeric::Known" "decide"
           [ param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
           , param "::llvm::ArrayRef<::mlir::Attribute>" "constants" ] EveryImplementer

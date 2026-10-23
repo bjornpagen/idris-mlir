@@ -11,6 +11,8 @@
 // live. Writing a list's pack or concat, its one reader, is the composition
 // the lowering emits with no string at all: one walk, each element written
 // as idr.io.put_char or idr.io.put_str writes it, where the output stands.
+// What each builder does with one element, a runtime function for each
+// step, is the specification's table (ListElement).
 // Writing a number's show, its one reader, is the show's writer called
 // there (ShownOutput): the runtime's put and show share the formatter, so
 // the text is formatted into the output and no string is made.
@@ -32,9 +34,12 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
+#include <cstdint>
 #include <optional>
 
-// Each show's writer: ShownOutput.
+// Each show's writer: ShownOutput. What each builder over a list does with
+// one element: ListElement.
+#include "idr/IR/Generated/ListElement.h.inc"
 #include "idr/IR/Generated/ShownOutput.h.inc"
 
 using namespace mlir;
@@ -165,27 +170,30 @@ Value allocate(OpBuilder &b, Location loc, Runtime &runtime, Value bytes, Value 
       .getResult();
 }
 
-// What writing one element of a list writes: a character as put_char does,
-// a string as put_str does, each by its op's own runtime function.
-template <typename OpT>
-const idr::runtime::Function &elementOutput() {
-  if constexpr (std::is_same_v<OpT, StrPackOp>)
-    return idr::runtime::Abi<IoPutCharOp>::entry;
-  else
-    return idr::runtime::Abi<IoPutStrOp>::entry;
+// The scalar values of one element: the count every element has, as a
+// character's one, or the runtime's count of the element's own, as a
+// string's length.
+Value scalarsOf(OpBuilder &b, Location loc, const Runtime &, std::int64_t each, Value) {
+  return arith::ConstantIntOp::create(b, loc, each, 64);
+}
+Value scalarsOf(OpBuilder &b, Location loc, const Runtime &runtime,
+                const idr::runtime::Function &count, Value element) {
+  return runtime.call(b, loc, count, element).getResult();
 }
 
 // pack and concat walk a list the same way: once for the bytes and the
-// scalar values, then once to write each element after the last. A
-// character's sizes and a string's are the runtime's. Where the string is
-// made only to be written, the walk writes each element there instead, and
-// neither the string, its output nor its drops are left.
+// scalar values, then once to write each element after the last. What each
+// step does with an element is its builder's table (ListElement): the
+// runtime's sizes of a character or a string, and its writing of one into
+// the string or to the output. Where the string is made only to be
+// written, the walk writes each element there instead, and neither the
+// string, its output nor its drops are left.
 template <typename OpT>
 struct LowerStringOfList : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
+  using Element = ListElement<OpT>;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    constexpr bool packing = std::is_same_v<OpT, StrPackOp>;
     Location loc = op.getLoc();
     List list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
@@ -193,7 +201,7 @@ struct LowerStringOfList : IdrPattern<OpT> {
       rewriter.setInsertionPoint(output);
       walk(rewriter, output.getLoc(), this->layouts, this->runtime, list, cell, {},
            [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
-             this->runtime.call(b, l, elementOutput<OpT>(), head.front());
+             this->runtime.call(b, l, Element::output, head.front());
              return SmallVector<Value>{};
            });
       eraseReaders(rewriter, op.getResult());
@@ -205,30 +213,18 @@ struct LowerStringOfList : IdrPattern<OpT> {
         walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero},
              [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
                Value item = head.front();
-               auto count = [&](const idr::runtime::Function &function) {
-                 return this->runtime.call(b, l, function, item).getResult();
-               };
-               Value bytes, scalars;
-               if constexpr (packing) {
-                 bytes = arith::AddIOp::create(b, l, carried[0],
-                                               count(idr::runtime::Abi<StrScalarBytesOp>::entry));
-                 Value one = arith::ConstantIntOp::create(b, l, 1, 64);
-                 scalars = arith::AddIOp::create(b, l, carried[1], one);
-               } else {
-                 bytes = arith::AddIOp::create(b, l, carried[0],
-                                               count(idr::runtime::Abi<StrBytesLengthOp>::entry));
-                 scalars = arith::AddIOp::create(b, l, carried[1],
-                                                 count(idr::runtime::Abi<StrLengthOp>::entry));
-               }
+               Value bytes = arith::AddIOp::create(
+                   b, l, carried[0], this->runtime.call(b, l, Element::bytes, item).getResult());
+               Value scalars = arith::AddIOp::create(
+                   b, l, carried[1], scalarsOf(b, l, this->runtime, Element::scalars, item));
                return SmallVector<Value>{bytes, scalars};
              });
     Value s = allocate(rewriter, loc, this->runtime, counts[0], counts[1]);
     walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
-           const idr::runtime::Function &put =
-               packing ? idr::runtime::helper::strPutChar : idr::runtime::helper::strPutStr;
-           Value next =
-               this->runtime.call(b, l, put, ValueRange{s, carried[0], head.front()}).getResult();
+           Value next = this->runtime
+                            .call(b, l, Element::into, ValueRange{s, carried[0], head.front()})
+                            .getResult();
            return SmallVector<Value>{next};
          });
     rewriter.replaceOpWithMultiple(op, {{s}});
@@ -265,6 +261,13 @@ struct LowerShownOutput : IdrPattern<ShowOp> {
   }
 };
 
+// One LowerStringOfList rooted at each builder of `Builders`.
+template <typename... Builders>
+void addStringsOfLists(RewritePatternSet &patterns, const TypeConverter &converter,
+                       const Layouts &layouts, Runtime &runtime) {
+  patterns.add<LowerStringOfList<Builders>...>(converter, patterns.getContext(), layouts, runtime);
+}
+
 // One LowerShownOutput rooted at each show of `Shows`.
 template <typename... Shows>
 void addShownOutputs(RewritePatternSet &patterns, const TypeConverter &converter,
@@ -277,8 +280,10 @@ void addShownOutputs(RewritePatternSet &patterns, const TypeConverter &converter
 // The string builders over lists, and the output of a show.
 void populateStringPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerStringOfList<StrPackOp>, LowerStringOfList<StrConcatOp>>(
-      converter, patterns.getContext(), layouts, runtime);
+  addStringsOfLists<
+#define GET_LIST_ELEMENT_LIST
+#include "idr/IR/Generated/ListElement.h.inc"
+      >(patterns, converter, layouts, runtime);
   addShownOutputs<
 #define GET_SHOWN_OUTPUT_LIST
 #include "idr/IR/Generated/ShownOutput.h.inc"

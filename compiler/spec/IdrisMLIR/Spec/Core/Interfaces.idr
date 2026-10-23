@@ -215,7 +215,11 @@ numericTypeInterface = MkInterfaceDef
 
 ||| `ConstantAttrInterface`: a constant value of ours, at which types
 ||| idr.constant holds it, how it is laid out as static data, that it agrees
-||| with what it names, and whether it may hold a closure.
+||| with what it names, and how it holds closures: a closed sum
+||| (`::idr::ClosureHolding`, which the vocabulary's header defines before
+||| the interfaces, each attribute it holds by a handle complete before its
+||| class), so a reader that walks a constant's closures folds the answer
+||| and names no attribute.
 public export
 constantAttrInterface : InterfaceDef
 constantAttrInterface = MkInterfaceDef
@@ -234,8 +238,8 @@ constantAttrInterface = MkInterfaceDef
           , param (code "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>") (ident "part") ]
           EveryImplementer
           (line "that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big has none")
-      , MkMethod PerObject (code "bool") (ident "mayHoldClosure") [] EveryImplementer
-          (line "whether this value may hold a closure: a closure is one, a constructor may hold one in a field, a literal holds none") ]
+      , MkMethod PerObject (code "::idr::ClosureHolding") (ident "getClosureHolding") [] EveryImplementer
+          (line "how this value holds closures: a closure is one, a constructor holds those of its fields, a big holds none") ]
   , verifier = Unverified
   , doc = brief (line "a constant value of ours, and how it is held and laid out")
   }

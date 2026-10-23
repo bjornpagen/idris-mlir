@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The questions every pass asks of a lifetime value (the lifetime a scoped
-// value lives in, where its memory comes from, the cursor a stack lies on,
-// what a use does with it), and the hooks of the lifetime's ops: the region
-// that runs once, which the openers, the loan and the unpack share, what a
-// loan and an unpack bind, the pack that ends a per-level lifetime's
-// region, the cell bumped into a lifetime, and how each op that does more
-// than name a lifetime uses it. The kind itself is Kind.cpp's.
+// value lives in, the lifetime whose extent it has, what its package holds
+// where it is per level, the cursor a stack lies on, what a use does with
+// it), and the hooks of the lifetime's ops: the region that runs once,
+// which the openers, the loan and the unpack share, what a loan and an
+// unpack bind, the pack that ends a per-level lifetime's region, the cell
+// bumped into a lifetime, and how each op that does more than name a
+// lifetime uses it. The kind itself is Kind.cpp's.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -40,40 +41,24 @@ void idr::lifetimes::restateOuters(StatesOutersOpInterface op, ValueRange outers
   op.getOutersMutable().assign(outers);
 }
 
+// A lifetime derived from another, a view cast from it or a room reserved
+// in it, has its extent, which the op that derived it names
+// (DerivesLifetimeOpInterface); any other lifetime is its own extent.
 Value idr::lifetimes::extentOf(Value lifetime) {
-  if (auto forget = lifetime.getDefiningOp<LifetimeForgetOp>())
-    return forget.getLifetime();
-  if (auto reserve = lifetime.getDefiningOp<LifetimeReserveOp>())
-    return reserve.getLifetime();
-  return lifetime;
-}
-
-// Each opener binds its lifetime as its region's first argument, and says
-// where its memory comes from (OpensLifetimeOpInterface).
-std::optional<Opener> idr::lifetimes::openerOf(Value lifetime) {
-  auto arg = dyn_cast<BlockArgument>(extentOf(lifetime));
-  if (!arg || arg.getArgNumber() != 0)
-    return std::nullopt;
-  if (auto opens = dyn_cast<OpensLifetimeOpInterface>(arg.getOwner()->getParentOp()))
-    return opens.getOpener();
-  return std::nullopt;
+  auto derived = lifetime.getDefiningOp<DerivesLifetimeOpInterface>();
+  return derived ? derived.getDerivedFrom() : lifetime;
 }
 
 // A stack lifetime packs its mark and a chained one its chain, whether its
-// opener or an unpack bound it; a block, a home and a lifetime without
-// memory are never per level.
+// opener or an unpack bound it, which its binder says (PerLevelOpInterface);
+// a block, a home and a lifetime without memory are never per level, and
+// their openers bind none.
 std::optional<Packed> idr::lifetimes::packedOf(Value lifetime) {
   auto arg = dyn_cast<BlockArgument>(lifetime);
   if (!arg || arg.getArgNumber() != 0)
     return std::nullopt;
-  if (auto unpack = dyn_cast<LifetimeUnpackOp>(arg.getOwner()->getParentOp()))
-    return cast<LifetimePackageType>(unpack.getPackage().getType()).getPacked();
-  std::optional<Opener> opener = openerOf(lifetime);
-  if (opener == Opener::OnStack)
-    return Packed::FromStack;
-  if (opener == Opener::InChain)
-    return Packed::FromChain;
-  return std::nullopt;
+  auto binder = dyn_cast<PerLevelOpInterface>(arg.getOwner()->getParentOp());
+  return binder ? std::optional<Packed>(binder.getPacked()) : std::nullopt;
 }
 
 // A stack's opener and a stack package's unpack name the cursor below
@@ -209,6 +194,9 @@ LogicalResult LendOp::verifyRegions() {
 // idr.lifetime.unpack
 //===----------------------------------------------------------------------===//
 
+// The lifetime it reopens is per level as its package's source was.
+Packed LifetimeUnpackOp::getPacked() { return getPackage().getType().getPacked(); }
+
 // A stack's mark goes back to the cursor whose stack it is, which the
 // unpack names exactly when its package is a stack's; what enters the level
 // lies in that cursor above the mark, so a chain's unpack, which names
@@ -256,8 +244,11 @@ std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
 // idr.cell.arena
 //===----------------------------------------------------------------------===//
 
-// The cell is bumped into its one lifetime operand.
+// The cell is bumped into its one lifetime operand, and is what it puts
+// there.
 Value CellArenaOp::getPutLifetime() { return getLifetime(); }
+
+TypedValue<CellType> CellArenaOp::getPutCell() { return getCell(); }
 
 LifetimeUse CellArenaOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Puts; }
 

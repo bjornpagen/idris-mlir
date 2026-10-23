@@ -178,6 +178,28 @@ packedPerLevel : (p : Packed) -> PerLevel (packedOpener p)
 packedPerLevel FromStack = StackLevel
 packedPerLevel FromChain = ChainLevel
 
+||| Whether an opener may be per level.
+public export
+perLevel : (o : Opener) -> Dec (PerLevel o)
+perLevel NoMemory = No absurd
+perLevel AtHome = No absurd
+perLevel InBlock = No absurd
+perLevel OnStack = Yes StackLevel
+perLevel InChain = Yes ChainLevel
+
+||| What the package of a per-level opener's lifetime holds: its stack's
+||| mark, or its chain.
+public export
+levelPacked : PerLevel o -> Packed
+levelPacked StackLevel = FromStack
+levelPacked ChainLevel = FromChain
+
+||| A per-level opener's package reopens a lifetime of that opener.
+export
+levelPackedOpener : (l : PerLevel o) -> packedOpener (levelPacked l) = o
+levelPackedOpener StackLevel = Refl
+levelPackedOpener ChainLevel = Refl
+
 ||| A package reopens a cursor, as its opener bound.
 export
 packedBindsCursor : (p : Packed) -> bound (packedOpener p) = CursorCase

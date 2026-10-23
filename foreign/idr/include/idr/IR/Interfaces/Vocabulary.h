@@ -12,6 +12,7 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Value.h"
+#include "llvm/Support/Casting.h"
 
 #include <cstdint>
 #include <variant>
@@ -34,6 +35,39 @@ enum class NumericReading : std::uint8_t { Integer, Natural, Bits };
 // How a constant value is laid out as static data: a closed sum, defined
 // after the attributes its alternatives hold (Interfaces/StaticForm.h).
 struct StaticForm;
+
+// An attribute of a class the dialect generates after this header, held
+// as itself: the handle is complete before its class is, so a closed sum
+// an attribute interface returns by value, whose interface is generated
+// before the attributes, may hold one, and its reader takes the attribute
+// at its class by `get`. A handle is made only of an attribute of its
+// class, which `get` asserts.
+template <class A>
+struct AttrOf {
+  mlir::Attribute held;
+  A get() const { return llvm::cast<A>(held); }
+};
+
+class ClosureAttr;
+class ConAttr;
+
+// A constant that holds no closure: a big, or an attribute that is no
+// constant of ours (a string, an integer, a Double).
+struct HoldsNoClosure {};
+
+// How a constant holds closures, the answer of
+// ConstantAttrInterface::getClosureHolding: it is a closure, which holds
+// itself; a constructor, which holds those its fields hold; or it holds
+// none. A reader that walks a constant's closures folds it with `match`, so
+// a constant of ours that gains a way to hold one is refused at every
+// reader that forgot it.
+struct ClosureHolding : std::variant<AttrOf<ClosureAttr>, AttrOf<ConAttr>, HoldsNoClosure> {
+  using variant::variant;
+};
+
+// How `value` holds closures: a constant of ours answers through
+// ConstantAttrInterface, and any other attribute holds none.
+ClosureHolding closureHoldingOf(mlir::Attribute value);
 
 // What a match's region knows of its scrutinee: the value it binds it as,
 // whose type says what it knows (a data match's case or default, refined; a
@@ -65,6 +99,26 @@ class ScopeQuery;
 template <class Op>
 mlir::Value cursorBaseOfOp(Op op) {
   return op.getBase();
+}
+
+// The lifetime a derived lifetime is derived from, read from the op's own
+// class, which names it `lifetime`.
+template <class Op>
+mlir::Value derivedFromOfOp(Op op) {
+  return op.getLifetime();
+}
+
+// The constants an opener's class holds of itself, which the generated code
+// specializes for each opener after the ops (Lifetimes.h).
+template <class Op>
+struct LifetimeOpener;
+
+// What the package of a per-level opener's lifetime holds: the constant of
+// its class, which only an opener that may be per level holds (`packed`).
+// Its type is the dialect's enum, which this header comes before.
+template <class Op>
+auto packedOfOp(Op) {
+  return LifetimeOpener<Op>::packed;
 }
 
 } // namespace idr

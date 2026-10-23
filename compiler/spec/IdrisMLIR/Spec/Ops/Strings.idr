@@ -12,6 +12,8 @@ module IdrisMLIR.Spec.Ops.Strings
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Runtime.Helpers
+import IdrisMLIR.Spec.Ops.IO
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
 
@@ -184,45 +186,6 @@ strTail =
     (MkRuntimeCall "str_tail" [TakesStr] (Returns GivesStr)) []
     (says "a string without its first character, of a string that is not empty"))
 
-||| A string of a list the Prelude would build a piece at a time: pack over
-||| a list of characters, concat over a list of strings. Built once, in two
-||| walks of the list, the first for its size; folded from a constant list
-||| by the runtime's cons and append. No runtime function of its own: its
-||| lowering is the walk.
-public export
-listBuilder : Mnemonic -> TypeC -> Doc -> Op 1 1 0 0
-listBuilder m list d = MkOp
-  { home = InIdr
-  , mnemonic = m
-  , ins = [single "list" list]
-  , outs = [result "result" strValue]
-  , attrs = []
-  , regions = []
-  , traits = []
-  , interfaces = []
-  , effects = builds 0 Untouched
-  , speculation = AlwaysSpeculatable
-  , stages = Always
-  , meaning = HandFolder
-  , verify = DeclarationOnly
-  , format = plain 1
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = d
-  }
-
-public export
-strPack : Op 1 1 0 0
-strPack = listBuilder "str.pack" (SatisfiesType charListP) (says "the string of a list of characters, built once")
-
-public export
-strConcat : Op 1 1 0 0
-strConcat = listBuilder "str.concat" (SatisfiesType strListP) (says "the concatenation of a list of strings, built once")
-
 ------------------------------------------------------------------------------
 -- What a string gives
 ------------------------------------------------------------------------------
@@ -354,6 +317,81 @@ strToDouble : Op 1 1 0 0
 strToDouble = reader "str.to_double" [single "str" strRead] (result "result" f64)
   (MkRuntimeCall "str_to_double" [TakesStr] (Returns GivesDouble)) []
   (says "a string as a Double, as prim__cast_StringDouble reads it")
+
+------------------------------------------------------------------------------
+-- A string of a list
+------------------------------------------------------------------------------
+
+||| A string of a list the Prelude would build a piece at a time: pack over
+||| a list of characters, concat over a list of strings. Built once, in two
+||| walks of the list, the first for its size; folded from a constant list
+||| by the runtime's cons and append. No runtime function of its own: its
+||| lowering is the walk.
+public export
+listBuilder : Mnemonic -> TypeC -> Doc -> Op 1 1 0 0
+listBuilder m list d = MkOp
+  { home = InIdr
+  , mnemonic = m
+  , ins = [single "list" list]
+  , outs = [result "result" strValue]
+  , attrs = []
+  , regions = []
+  , traits = []
+  , interfaces = []
+  , effects = builds 0 Untouched
+  , speculation = AlwaysSpeculatable
+  , stages = Always
+  , meaning = HandFolder
+  , verify = DeclarationOnly
+  , format = plain 1
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = d
+  }
+
+||| How many scalar values an element of a list is: one each, as every
+||| character is, or as many as an op of the runtime counts of it, as a
+||| string's length does.
+public export
+data ElementScalars = OneEach | CountedBy OpRef
+
+||| An element's scalar values as its table holds them: the count, or the
+||| op whose runtime function counts them.
+scalarsConstant : ElementScalars -> Constant
+scalarsConstant OneEach = IntConstant 1
+scalarsConstant (CountedBy m) = OpEntry m
+
+||| What a builder of a string of a list does with each element
+||| (`ListElement<Op>`), its lowering's one table: where the string is made
+||| only to be written, each element is written as the op that writes one
+||| writes it (`output`); otherwise the first walk adds up each element's
+||| bytes, as the op that measures one does (`bytes`), and its scalar
+||| values (`scalars`), and the second writes it into the string being
+||| built, giving the next offset (`into`).
+listElement : (output, bytes : OpRef) -> ElementScalars -> (into : RuntimeHelper) -> Specialized
+listElement output bytes scalars into = MkSpecialized "ListElement"
+  [ ("output", OpEntry output), ("bytes", OpEntry bytes), ("scalars", scalarsConstant scalars)
+  , ("into", HelperConstant into) ]
+
+||| A character is written as io.put_char writes one, is as many bytes as
+||| str.scalar_bytes says, and is one scalar value.
+public export
+strPack : Op 1 1 0 0
+strPack =
+  { specializations := [listElement putCharOp.mnemonic strScalarBytes.mnemonic OneEach strPutChar] }
+  (listBuilder "str.pack" (SatisfiesType charListP) (says "the string of a list of characters, built once"))
+
+||| A string is written as io.put_str writes one, and is as many bytes and
+||| scalar values as str.bytes_length and str.length say.
+public export
+strConcat : Op 1 1 0 0
+strConcat =
+  { specializations := [listElement putStrOp.mnemonic strBytesLength.mnemonic (CountedBy strLength.mnemonic) strPutStr] }
+  (listBuilder "str.concat" (SatisfiesType strListP) (says "the concatenation of a list of strings, built once"))
 
 public export
 stringOps : List AnyOp

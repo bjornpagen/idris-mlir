@@ -44,11 +44,13 @@ struct LifetimeOpener<::idr::LifetimeBlockOp> {
 template <>
 struct LifetimeOpener<::idr::LifetimeStackOp> {
   static constexpr ::idr::Opener opener = ::idr::Opener::OnStack;
+  static constexpr ::idr::Packed packed = ::idr::Packed::FromStack;
 };
 
 template <>
 struct LifetimeOpener<::idr::LifetimeChainOp> {
   static constexpr ::idr::Opener opener = ::idr::Opener::InChain;
+  static constexpr ::idr::Packed packed = ::idr::Packed::FromChain;
 };
 
 

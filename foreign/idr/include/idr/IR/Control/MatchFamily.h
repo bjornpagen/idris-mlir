@@ -6,7 +6,10 @@
 // regions, the rules ODS cannot state, and a match remade with fewer
 // cases. A key is a tag of idr.data.match or a literal of idr.lit.match,
 // two different things, so each is written over the op, and two keys are
-// one as the op's own equality of keys says (keyEquality).
+// one exactly when they are equal: a tag is its constructor's number, and
+// a literal is its value's one form, since each carrier admits one literal
+// per value (LiteralTypeInterface::isLiteral), so identity is every
+// carrier's equality on keys.
 //
 // A region ends by yielding the match's results, by jumping to an enclosing
 // join point, which the match lets through, or by never ending. That is
@@ -25,28 +28,15 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstdint>
-#include <functional>
 
 namespace idr::control {
 
-// How two keys of a match are one key: a tag by its constructor's number;
-// a literal by its carrier's equality (LiteralTypeInterface::sameLiteral),
-// the one the lowering's test of a key makes at run time, so a key's
-// equality is said once, by its carrier.
-inline std::equal_to<std::int32_t> keyEquality(DataMatchOp) { return {}; }
-inline auto keyEquality(LitMatchOp op) {
-  return [literals = llvm::cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()))](
-             mlir::Attribute a, mlir::Attribute b) { return literals.sameLiteral(a, b); };
-}
-
-// The two members of the match family, each with its keys and its
-// equality of keys.
+// The two members of the match family, each with its keys.
 template <typename Match>
 concept MatchFamily = requires(Match op) {
   op.getCases();
   op.getDefaultRegion();
   op.getCaseRegions();
-  keyEquality(op);
 };
 
 // An empty default region and one per case, the default first.
@@ -55,14 +45,13 @@ inline void addRegions(mlir::OperationState &state, size_t cases) {
     state.addRegion();
 }
 
-// The region of `op` its key `key` takes: its case, else the default. An
-// empty default never runs: the key is then one the match has no region
-// for, which nothing reaches.
+// The region of `op` its key `key` takes: the case of the key equal to it,
+// else the default. An empty default never runs: the key is then one the
+// match has no region for, which nothing reaches.
 template <MatchFamily Match, typename Key>
 mlir::Region *takenRegion(Match op, Key key) {
   auto cases = op.getCases();
-  auto same = keyEquality(op);
-  const auto *it = llvm::find_if(cases, [&](const auto &held) { return same(held, key); });
+  const auto *it = llvm::find(cases, key);
   if (it != cases.end())
     return &op.getCaseRegions()[static_cast<unsigned>(it - cases.begin())];
   mlir::Region &fallback = op.getDefaultRegion();
@@ -115,7 +104,7 @@ void boundsOf(Match op, mlir::Region *taken, llvm::SmallVectorImpl<mlir::Invocat
 // is its one untyped string attribute, a big's is keyed by its integer at
 // its fewest bits, a Double's is never a NaN, which equals nothing, nor
 // negative zero, which equals zero), so two literals are one value exactly
-// when they are one attribute, as the carrier's sameLiteral says too.
+// when they are one attribute.
 inline std::int64_t heldKey(std::int32_t tag) { return tag; }
 inline mlir::Attribute heldKey(mlir::Attribute literal) { return literal; }
 

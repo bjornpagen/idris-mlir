@@ -406,9 +406,11 @@ record Admitted where
 ||| specializes per op (its family's constants, its word op): a case of an
 ||| enum of the specification's, in the namespace its header declares it
 ||| in; an integer; an admitted upstream op's class; no class, where the
-||| member names none (a big op whose word is the value itself); or a
-||| runtime function the lowering calls, by the helper's row of the
-||| runtime's ABI (a show's writer).
+||| member names none (a big op whose word is the value itself); a runtime
+||| function the lowering calls, by the helper's row of the runtime's ABI
+||| (a show's writer); or the runtime function that is the meaning of an
+||| op of the dialect, by that op's row (what a builder over a list calls
+||| on one element, which that op does to one).
 public export
 data Constant : Type where
   EnumConstant : CaseRef -> Constant
@@ -416,6 +418,7 @@ data Constant : Type where
   UpstreamClass : Admitted -> Constant
   NoClass : Constant
   HelperConstant : RuntimeHelper -> Constant
+  OpEntry : OpRef -> Constant
 
 ||| A class template of hand C++ in `::idr`, specialized for each op that
 ||| is a member, its members the op's constants: the one carrier of a

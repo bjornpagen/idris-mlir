@@ -18,6 +18,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Nest.h"
 #include "idr/Transforms/Defunctionalize.h"
 
@@ -94,19 +95,26 @@ Attribute Decision::constantOf(Attribute value, const Slot &slot) {
   };
   // A part's fields in their slots, in the order the part holds them: a
   // closure's captures as its function's leading parameters, a constructor's
-  // fields cell by cell along its run.
+  // fields cell by cell along its run; a part that holds no closure has none
+  // to go into.
   auto fieldsOf = [&](const Part &part) {
     SmallVector<Part> out;
-    if (auto closure = dyn_cast<ClosureAttr>(part.value)) {
-      const Signature &sig = signature(graph.id(closure.getCallee()));
-      for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
-        out.push_back(partIn(capture, sig.arguments[i]));
-    } else if (auto con = dyn_cast<ConAttr>(part.value)) {
-      DataType data = con.getData();
-      con.walkFields([&](Attribute field, unsigned i) {
-        out.push_back(partIn(field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))));
-      });
-    }
+    match(
+        closureHoldingOf(part.value),
+        [&](AttrOf<ClosureAttr> held) {
+          ClosureAttr closure = held.get();
+          const Signature &sig = signature(graph.id(closure.getCallee()));
+          for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
+            out.push_back(partIn(capture, sig.arguments[i]));
+        },
+        [&](AttrOf<ConAttr> held) {
+          ConAttr con = held.get();
+          DataType data = con.getData();
+          con.walkFields([&](Attribute field, unsigned i) {
+            out.push_back(partIn(field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))));
+          });
+        },
+        [](HoldsNoClosure) {});
     return out;
   };
   // The parts in post-order. Each part's converted form is pushed once its
@@ -128,34 +136,43 @@ Attribute Decision::constantOf(Attribute value, const Slot &slot) {
         return Descend::Into;
       },
       [&](const Part &part) {
-        Attribute result;
-        // A constant closure holds no index terms, so its label binds none
-        // its family does not determine: a closure at terms folds to no
-        // constant.
-        if (auto closure = dyn_cast<ClosureAttr>(part.value)) {
-          auto fields = ArrayRef<Attribute>(done).take_back(closure.getCaptures().size());
-          DataType family = familyOf(*part.slot).at;
-          result = ConAttr::get(ctx, family.refinedTo(tagOf(*part.slot, closure.getCallee()), {}),
-                                ArrayAttr::get(ctx, fields));
-          done.truncate(done.size() - fields.size());
-        } else {
-          // A run is rebuilt cell by cell, each cell its own fields, so it
-          // stays one run in the converted family.
-          auto con = cast<ConAttr>(part.value);
-          size_t held = 0;
-          for (unsigned cell = 0; cell < con.getRunLength(); ++cell)
-            held += con.getCell(cell).size();
-          ArrayRef<Attribute> fields = ArrayRef<Attribute>(done).take_back(held);
-          SmallVector<ArrayAttr> cells;
-          for (unsigned cell = 0; cell < con.getRunLength(); ++cell) {
-            size_t width = con.getCell(cell).size();
-            cells.push_back(ArrayAttr::get(ctx, fields.take_front(width)));
-            fields = fields.drop_front(width);
-          }
-          result = ConAttr::getRun(ctx, cast<DataType>(replacer.replace(con.getData())),
-                                   static_cast<unsigned>(con.getSpine()), cells);
-          done.truncate(done.size() - held);
-        }
+        Attribute result = match(
+            closureHoldingOf(part.value),
+            // A constant closure holds no index terms, so its label binds
+            // none its family does not determine: a closure at terms folds
+            // to no constant.
+            [&](AttrOf<ClosureAttr> held) -> Attribute {
+              ClosureAttr closure = held.get();
+              auto fields = ArrayRef<Attribute>(done).take_back(closure.getCaptures().size());
+              DataType family = familyOf(*part.slot).at;
+              Attribute label =
+                  ConAttr::get(ctx, family.refinedTo(tagOf(*part.slot, closure.getCallee()), {}),
+                               ArrayAttr::get(ctx, fields));
+              done.truncate(done.size() - fields.size());
+              return label;
+            },
+            // A run is rebuilt cell by cell, each cell its own fields, so it
+            // stays one run in the converted family.
+            [&](AttrOf<ConAttr> held) -> Attribute {
+              ConAttr con = held.get();
+              size_t width = 0;
+              for (unsigned cell = 0; cell < con.getRunLength(); ++cell)
+                width += con.getCell(cell).size();
+              ArrayRef<Attribute> fields = ArrayRef<Attribute>(done).take_back(width);
+              SmallVector<ArrayAttr> cells;
+              for (unsigned cell = 0; cell < con.getRunLength(); ++cell) {
+                size_t cellWidth = con.getCell(cell).size();
+                cells.push_back(ArrayAttr::get(ctx, fields.take_front(cellWidth)));
+                fields = fields.drop_front(cellWidth);
+              }
+              Attribute run = ConAttr::getRun(ctx, cast<DataType>(replacer.replace(con.getData())),
+                                              static_cast<unsigned>(con.getSpine()), cells);
+              done.truncate(done.size() - width);
+              return run;
+            },
+            // A part that holds no closure is itself, as `enter` leaves one
+            // it does not go into.
+            [&](HoldsNoClosure) -> Attribute { return part.value; });
         converted[std::pair(part.value, part.in)] = result;
         done.push_back(result);
       });

@@ -111,7 +111,7 @@ closureAttr = MkAttrDef
           AlwaysWritten "its captures, the function's leading parameters, each a constant" ]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]
   , typed = Untyped
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]]
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]]
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []

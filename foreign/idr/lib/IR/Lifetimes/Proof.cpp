@@ -122,12 +122,15 @@ LogicalResult State::proof(Operation &user) {
 // Whether each cell `user` puts into `lifetime`, put again and again, is
 // taken into one of the lifetime's own: the box its cell becomes is an
 // operand of an op that states the lifetime for what it makes, or is
-// carried on by a merge.
+// carried on by a merge. The put says what cell it puts there
+// (LifetimePutOpInterface); bytes put as no cell, a room's, are kept by
+// nothing.
 bool State::keptHere(Operation &user, Value lifetime) {
-  auto cell = dyn_cast<CellArenaOp>(&user);
+  auto put = dyn_cast<LifetimePutOpInterface>(&user);
+  TypedValue<CellType> cell = put ? put.getPutCell() : nullptr;
   if (!cell)
     return false;
-  for (Operation *init : cell.getCell().getUsers())
+  for (Operation *init : cell.getUsers())
     for (Value box : init->getResults())
       if (freedBy(box.getType(), Release::Scoped) &&
           llvm::none_of(box.getUsers(), [&](Operation *next) {

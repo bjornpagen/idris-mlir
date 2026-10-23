@@ -37,45 +37,44 @@ namespace {
 // yet pushed; or opened, its fields done before it is popped again.
 enum class Visit : std::uint8_t { Met, Opened };
 
-// Whether `part` is a constant that may hold a closure, whose answer is
-// stored: a string, an integer or a Double is no constant of ours, and
-// holds none.
-bool mayHoldClosure(Attribute part) {
-  auto constant = dyn_cast<ConstantAttrInterface>(part);
-  return constant && constant.mayHoldClosure();
-}
-
 } // namespace
 
+// How a part holds closures is its own answer (closureHoldingOf); a closure
+// and a constructor have theirs stored, and a part that holds none, a big
+// or no constant of ours (a string, an integer, a Double), is never stored.
 bool ClosureParts::answer(Attribute part) const {
-  return mayHoldClosure(part) && known.find(part)->second;
+  return match(
+      closureHoldingOf(part), [](HoldsNoClosure) { return false; },
+      [&](OneOf<AttrOf<ClosureAttr>, AttrOf<ConAttr>> auto) { return known.find(part)->second; });
 }
 
-// A part that may hold a closure and is no constructor is a closure, which
-// holds itself.
+// A closure holds itself; a constructor is answered once its fields are.
 bool ClosureParts::holds(Attribute part) {
   footprint::Vector<std::pair<Attribute, Visit>> work{{part, Visit::Met}};
   while (!work.empty()) {
     auto [at, visit] = work.back();
-    if (!mayHoldClosure(at) || known.contains(at)) {
-      work.pop_back();
-      continue;
-    }
-    auto con = dyn_cast<ConAttr>(at);
-    if (!con) {
-      known[at] = true;
-      work.pop_back();
-      continue;
-    }
-    if (visit == Visit::Met) {
-      work.back().second = Visit::Opened;
-      con.walkFields([&](Attribute field, unsigned) { work.push_back({field, Visit::Met}); });
-      continue;
-    }
-    bool found = false;
-    con.walkFields([&](Attribute field, unsigned) { found = found || answer(field); });
-    known[at] = found;
-    work.pop_back();
+    match(
+        closureHoldingOf(at), [&](HoldsNoClosure) { work.pop_back(); },
+        [&](AttrOf<ClosureAttr>) {
+          known[at] = true;
+          work.pop_back();
+        },
+        [&](AttrOf<ConAttr> held) {
+          if (known.contains(at)) {
+            work.pop_back();
+            return;
+          }
+          ConAttr con = held.get();
+          if (visit == Visit::Met) {
+            work.back().second = Visit::Opened;
+            con.walkFields([&](Attribute field, unsigned) { work.push_back({field, Visit::Met}); });
+            return;
+          }
+          bool found = false;
+          con.walkFields([&](Attribute field, unsigned) { found = found || answer(field); });
+          known[at] = found;
+          work.pop_back();
+        });
   }
   return answer(part);
 }
@@ -253,39 +252,45 @@ void Reading::expand(Attribute part, Value at, Type carrier) {
 }
 
 // One part's statements, its own parts pushed to come next, the first on
-// top, and a suspension's link beneath them, after its captures.
+// top, and a suspension's link beneath them, after its captures. A part
+// that holds no closure has no statements, and `holds` has said so first.
 void Reading::expandOne(const Expansion &next, footprint::Vector<Pending> &work) {
   if (!holding.holds(next.part))
     return;
-  if (auto closure = dyn_cast<ClosureAttr>(next.part)) {
-    Node at = nodeOf(next.at);
-    if (!expanded.insert({next.part, at}).second)
-      return;
-    FlatSymbolRefAttr symbol = closure.getCallee();
-    Label label = out.points.labelOf(symbol);
-    out.statements.sources.push_back({at, label});
-    if (auto lazy = dyn_cast<LazyType>(next.carrier))
-      work.push_back(Statements::Linked{out.points.result(label, 0),
-                                        out.points.of(FlowAnchor::forcedOf(lazy)), Link::Unify});
-    FuncOp fn = out.points.function(symbol);
-    ArrayAttr captures = closure.getCaptures();
-    for (auto index = static_cast<unsigned>(captures.size()); index-- > 0;)
-      work.push_back(Expansion{captures[index], out.points.parameter(label, index),
-                               unrestricted(fn.getArgumentTypes()[index])});
-    return;
-  }
-  auto con = cast<ConAttr>(next.part);
-  if (!laid.insert(con).second)
-    return;
-  DataType data = con.getData();
-  Tag tag = con.getTag();
-  ArrayRef<Type> fields = data.ctor(tag).fields;
-  footprint::Vector<Expansion> parts;
-  con.walkFields([&](Attribute field, unsigned i) {
-    parts.push_back({field, FlowAnchor::fieldOf(data, tag, i), unrestricted(fields[i])});
-  });
-  for (Expansion &part : llvm::reverse(parts))
-    work.push_back(std::move(part));
+  match(
+      closureHoldingOf(next.part),
+      [&](AttrOf<ClosureAttr> held) {
+        Node at = nodeOf(next.at);
+        if (!expanded.insert({next.part, at}).second)
+          return;
+        ClosureAttr closure = held.get();
+        FlatSymbolRefAttr symbol = closure.getCallee();
+        Label label = out.points.labelOf(symbol);
+        out.statements.sources.push_back({at, label});
+        if (auto lazy = dyn_cast<LazyType>(next.carrier))
+          work.push_back(Statements::Linked{out.points.result(label, 0),
+                                            out.points.of(FlowAnchor::forcedOf(lazy)), Link::Unify});
+        FuncOp fn = out.points.function(symbol);
+        ArrayAttr captures = closure.getCaptures();
+        for (auto index = static_cast<unsigned>(captures.size()); index-- > 0;)
+          work.push_back(Expansion{captures[index], out.points.parameter(label, index),
+                                   unrestricted(fn.getArgumentTypes()[index])});
+      },
+      [&](AttrOf<ConAttr> held) {
+        ConAttr con = held.get();
+        if (!laid.insert(con).second)
+          return;
+        DataType data = con.getData();
+        Tag tag = con.getTag();
+        ArrayRef<Type> fields = data.ctor(tag).fields;
+        footprint::Vector<Expansion> parts;
+        con.walkFields([&](Attribute field, unsigned i) {
+          parts.push_back({field, FlowAnchor::fieldOf(data, tag, i), unrestricted(fields[i])});
+        });
+        for (Expansion &part : llvm::reverse(parts))
+          work.push_back(std::move(part));
+      },
+      [](HoldsNoClosure) {});
 }
 
 } // namespace

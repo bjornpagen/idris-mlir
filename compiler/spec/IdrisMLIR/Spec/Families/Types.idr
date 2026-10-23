@@ -268,7 +268,7 @@ conAttr = MkAttrDef
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax
   , typed = Untyped
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]]
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"
   , storage = HandStorage

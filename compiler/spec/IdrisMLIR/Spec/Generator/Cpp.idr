@@ -354,6 +354,8 @@ constantMember _ (n, UpstreamClass a) = "using " ++ identText n ++ " = " ++ admi
 constantMember _ (n, NoClass) = "using " ++ identText n ++ " = void;"
 constantMember _ (n, HelperConstant h) =
   "static constexpr const ::idr::runtime::Function &" ++ identText n ++ " = ::idr::runtime::helper::" ++ identText h.name ++ ";"
+constantMember _ (n, OpEntry m) =
+  "static constexpr const ::idr::runtime::Function &" ++ identText n ++ " = ::idr::runtime::Abi<::idr::" ++ opRefClass m ++ ">::entry;"
 
 ||| A declaration a template's constant names beyond the dialect's own
 ||| classes and enums, which the template's includer declares first: an
@@ -374,6 +376,7 @@ namedBy (IntConstant _) = [FixedWidth]
 namedBy (UpstreamClass _) = [AdmittedClass]
 namedBy NoClass = []
 namedBy (HelperConstant _) = [RuntimeRow]
+namedBy (OpEntry _) = [RuntimeRow]
 
 ||| The header that declares what is named.
 namedHeader : Named -> String

@@ -102,11 +102,26 @@ def Idr_OpensLifetimeOpInterface : OpInterface<"OpensLifetimeOpInterface"> {
   ];
 }
 
+def Idr_PerLevelOpInterface : OpInterface<"PerLevelOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"what the package of the lifetime this op binds holds: a stack's mark, or a chain", "::idr::Packed", "getPacked", (ins), [{}], [{ return ::idr::packedOfOp($_op); }]>
+  ];
+}
+
+def Idr_DerivesLifetimeOpInterface : OpInterface<"DerivesLifetimeOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the lifetime the lifetime this op gives is derived from, whose extent it has", "::mlir::Value", "getDerivedFrom", (ins), [{}], [{ return ::idr::derivedFromOfOp($_op); }]>
+  ];
+}
+
 def Idr_LifetimePutOpInterface : OpInterface<"LifetimePutOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [
     InterfaceMethod<"the lifetime this op puts into", "::mlir::Value", "getPutLifetime", (ins)>,
-    InterfaceMethod<"the bytes this op puts there, as the module's layouts lay them out", "std::uint64_t", "getPutBytes", (ins "const ::idr::Layouts &":$layouts)>
+    InterfaceMethod<"the bytes this op puts there, as the module's layouts lay them out", "std::uint64_t", "getPutBytes", (ins "const ::idr::Layouts &":$layouts)>,
+    InterfaceMethod<"the cell this op puts there; null for a put of bytes and no cell", "::mlir::TypedValue<::idr::CellType>", "getPutCell", (ins), [{}], [{ return ::idr::putsNoCell($_op); }]>
   ];
 }
 
@@ -190,19 +205,25 @@ def Idr_LastAxisFoldOpInterface : OpInterface<"LastAxisFoldOpInterface"> {
 def Idr_LiteralTypeInterface : TypeInterface<"LiteralTypeInterface"> {
   let cppNamespace = "::idr";
   let methods = [
-    InterfaceMethod<"whether the attribute is a literal of this type", "bool", "isLiteral", (ins "::mlir::Attribute":$literal)>,
+    InterfaceMethod<"whether the attribute is a literal of this type, the one literal of its value, so two literals are one value exactly when they are one attribute", "bool", "isLiteral", (ins "::mlir::Attribute":$literal)>,
     InterfaceMethod<"reads a literal of this type", "::mlir::ParseResult", "parseLiteral", (ins "::mlir::AsmParser &":$parser, "::mlir::Attribute &":$literal)>,
-    InterfaceMethod<"whether two literals of this type are the same value", "bool", "sameLiteral", (ins "::mlir::Attribute":$a, "::mlir::Attribute":$b), [{}], [{ return ::idr::literalsIdentical($_type, a, b); }]>,
     InterfaceMethod<"the condition that `held`, a value of this type as a literal match reads it, is the literal `key`, built where `builder` stands", "::mlir::Value", "buildKeyTest", (ins "::mlir::OpBuilder &":$builder, "::mlir::Location":$loc, "::mlir::Value":$held, "::mlir::Attribute":$key)>
+  ];
+}
+
+def Idr_CrashSiteOpInterface : OpInterface<"CrashSiteOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the place in the source its crash is at", "::idr::SiteAttr", "getSite", (ins)>
   ];
 }
 
 def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
   let cppNamespace = "::idr";
+  let baseInterfaces = [Idr_CrashSiteOpInterface];
   let methods = [
     InterfaceMethod<"the operand the guard guards, its first, which it gives as its result", "::mlir::Value", "getGuarded", (ins), [{}], [{ return ::idr::guardedOperand($_op); }]>,
     InterfaceMethod<"the cause its crash names", "::idr::CrashCause", "getCause", (ins)>,
-    InterfaceMethod<"the place in the source its crash is at", "::idr::SiteAttr", "getSite", (ins)>,
     StaticInterfaceMethod<"whether its condition holds, fails, or is unknown on its operands' intervals and the constants ops hold of them", "::idr::numeric::Known", "decide", (ins "::llvm::ArrayRef<::mlir::ConstantIntRanges>":$ranges, "::llvm::ArrayRef<::mlir::Attribute>":$constants)>
   ];
 }
@@ -229,7 +250,7 @@ def Idr_ConstantAttrInterface : AttrInterface<"ConstantAttrInterface"> {
     InterfaceMethod<"whether idr.constant holds this value at `type`", "bool", "isBuildableAt", (ins "::mlir::Type":$type)>,
     InterfaceMethod<"how this value, held at `held`, is laid out as static data", "::idr::StaticForm", "getStaticForm", (ins "::mlir::Type":$held)>,
     InterfaceMethod<"that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big has none", "::mlir::LogicalResult", "verifyParts", (ins "::mlir::Operation *":$holder, "::mlir::SymbolTableCollection &":$symbols, "::mlir::Type":$type, "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>":$part)>,
-    InterfaceMethod<"whether this value may hold a closure: a closure is one, a constructor may hold one in a field, a literal holds none", "bool", "mayHoldClosure", (ins)>
+    InterfaceMethod<"how this value holds closures: a closure is one, a constructor holds those of its fields, a big holds none", "::idr::ClosureHolding", "getClosureHolding", (ins)>
   ];
 }
 

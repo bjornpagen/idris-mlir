@@ -156,10 +156,10 @@ exitOp = MkOp
   , mnemonic = "io.exit"
   , ins = [single "status" i64]
   , outs = []
-  , attrs = [attr "site" (OurAttr (SomeAttr siteAttr))]
+  , attrs = [siteSlot]
   , regions = []
   , traits = [Terminator]
-  , interfaces = []
+  , interfaces = [Implements crashSiteInterface []]
   , effects =
       Executes [OnState Read IO, OnState Write IO, OnState Write Exit, OnState Write Crash] []
         Covered Untouched
