@@ -531,9 +531,10 @@ assemble t root =
 ||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,
 ||| `unsafeCreateWorld` and `unsafeDestroyWorld` mean:
-|||   root w = main w
-||| since an `IO` is its one field, the action on the world. It returns the
-||| `IORes` of `main`'s result and the last world, so the world is used
+|||   root w = case main of MkIO action => action w
+||| since `main`'s value is `IO`'s, a family carried whole, whose one
+||| constructor holds the action on the world (`Terms.runIO`). It returns
+||| the `IORes` of `main`'s result and the last world, so the world is used
 ||| exactly once. `%MkWorld` never appears. Nothing when an instance was
 ||| rejected (`rejections`).
 export
@@ -550,30 +551,31 @@ translateIOProgram fc main = do
   written <- dispatched !getState
   updateState { table $= \t => merged t written }
   let owner = show main
-  let notIO = reject fc owner ProgramShape "main must have type IO ()"
+  let mustBeIO = "main must have type IO ()"
   -- Main was requested first, so requesting it again reads the signature
   -- every call of it holds.
   sig <- mainInstance fc main
-  let FunT (MkBinder world WorldT) res@(DataT _ _) = sig.callee.result
-    | _ => notIO
-  -- An action takes no argument but the world, which its value is applied
-  -- to; a `main` that takes one is no `IO ()`.
+  -- Its value is `IO`'s, read at that shape off the type Idris checked it
+  -- at, which its signature holds.
+  mainIO <- ioAt fc owner (\_ => reject fc owner ProgramShape mustBeIO) sig.result
+  -- The root calls main with no argument; a `main` that takes one is no
+  -- `IO ()`.
   let Yes noArgument = decEq (Runtimes sig.kinds) 0
-    | No _ => notIO
+    | No _ => reject fc owner ProgramShape mustBeIO
   st <- getState
   -- The root is code of no module, at the generated location: the world is
-  -- its parameter, and main's value its action. A binder is known by its
+  -- its parameter, which main's action is run on. A binder is known by its
   -- name over its own span, and this one has none, so it is no Idris
   -- binder's whatever it is called.
   let loc = noLoc
   let body : Term 1
-      body = App loc (MkBinder world WorldT) res (Call loc sig.callee Nothing [] (rewrite noArgument in [])) (Var loc FZ)
+      body = runIO loc mainIO (Call loc sig.callee Nothing [] (rewrite noArgument in [])) FZ
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`. It
   -- has no loop of its own; what main does is main's, which the passes find
   -- through the call.
-  let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] res)
+  let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.gives)
                    (MkExtents [[]] []) [shown "world"] body loc Acyclic
   pure (Just (assemble st.table root))

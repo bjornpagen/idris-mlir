@@ -728,33 +728,42 @@ foundAs found n = do
   defs <- get Ctxt
   pure ((\(i, _) => Data.SortedMap.Dependent.lookup i found) =<< !(lookupCtxtExactI n (gamma defs)))
 
+||| The operands of every binder a type in normal form shows: one at each
+||| binder of nonzero quantity, as a hook takes them (`Operands`).
+operandsOf : {0 vs : Scope} -> Term vs -> (n : Nat ** k : Nat ** Operands n k)
+operandsOf (Bind _ _ (Pi _ rig _ _) sc) =
+  let (n ** k ** ops) = operandsOf sc in
+  case use rig of
+    Erased => (S n ** k ** NoOperand ops)
+    Used _ => (S n ** S k ** Operand ops)
+operandsOf _ = (0 ** 0 ** NoParameter)
+
 ||| A library function a row names (a natural's test, its operation on
-||| integers), read against its definition: the parameters its calls are
-||| translated at, its case tree's, and the values among them at run time,
-||| as its type in normal form shows, `count` of them, as many as the row's
-||| lowering gives it (`CheckedLibrary`); else why it is not the function
-||| the row's hook calls.
+||| integers), read against its definition: every binder its type in
+||| normal form shows, and the values among them at run time, `count` of
+||| them, as many as the row's lowering gives it (`CheckedLibrary`). What a
+||| function takes at run time is its type's, which no clause changes; its
+||| case tree's parameters are as many as its clauses take, which
+||| eta-reduction changes (`compareInteger = compare` takes none), and its
+||| calls read them where they are made (`Terms.libraryCall`). Else why it
+||| is not the function the row's hook calls.
 checkedLibrary : {auto c : Ref Ctxt Defs} -> Frozen -> FoundBefore -> (count : Nat) -> LibraryFunction ->
                  Core (Either String (CheckedLibrary count))
 checkedLibrary fz found count lib = do
   Just (_ ** u) <- foundAs found lib.name
     | Nothing => pure (Left notDefinition)
-  let Just m = u.matched
+  -- Its calls are translated through its clauses, as a definition's are.
+  let Just _ = u.matched
     | Nothing => pure (Left notDefinition)
   normal <- (.value) <$> host.normaliseTypes fz u.type
-  pure (checkedAt (length m.args) normal)
+  let (_ ** k ** ops) = operandsOf normal
+  pure $ case decEq k count of
+    Yes Refl => Right (MkCheckedLibrary lib ops)
+    No _ => Left ("the registry names the library function " ++ show lib.named ++ ", of " ++ show k ++
+                  " values at run time, where its hook gives it " ++ show count)
   where
     notDefinition : String
     notDefinition = "the registry names the library function " ++ show lib.named ++ ", which is not a definition"
-
-    checkedAt : (params : Nat) -> ClosedTerm -> Either String (CheckedLibrary count)
-    checkedAt params normal = case operandsUpTo params normal of
-      Nothing => Left ("the registry names the library function " ++ show lib.named ++
-                       ", whose calls take arguments its type does not show")
-      Just (k ** ops) => case decEq k count of
-        Yes Refl => Right (MkCheckedLibrary lib ops)
-        No _ => Left ("the registry names the library function " ++ show lib.named ++ ", of " ++ show k ++
-                      " values at run time, where its hook gives it " ++ show count)
 
 ||| A row read against its definition's type (`rowOf`), each library
 ||| function it calls read against that function's definition

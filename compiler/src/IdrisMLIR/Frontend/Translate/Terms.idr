@@ -179,14 +179,18 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
                                     (\ren, ns => k' (ren . Free {k = 2}) (ns :< ren (Bound {k = 2} (FS FZ)))))
                               ::: []))
 
-||| A linear array's cell taken apart, by its one constructor, into the
-||| array it holds; the body is built over the array, with the renaming of
-||| the scope outside. Every operation of a linear array runs on that
-||| array and builds the cell again, so the cell is rebuilt in place by
-||| the rule that rebuilds every cell of a type whose values are.
-opened : {0 m : Nat} -> Loc -> Con 1 -> Fin m -> ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
-opened loc writing x k =
-  Case loc writing.id.family x (Exhaustive (MkAlt writing [shown "elements"] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
+||| A value of a family of one constructor of one field taken apart, by
+||| that constructor, into its field, which the alternative names `name`;
+||| the body is built over the field, with the renaming of the scope
+||| outside. A linear array's cell is taken apart so into the array it
+||| holds: every operation of a linear array runs on that array and builds
+||| the cell again, so the cell is rebuilt in place by the rule that
+||| rebuilds every cell of a type whose values are. An `IO` value is taken
+||| apart so into its action (`runIO`).
+opened : {0 m : Nat} -> Loc -> (name : Shown) -> Con 1 -> Fin m ->
+         ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
+opened loc name c x k =
+  Case loc c.id.family x (Exhaustive (MkAlt c [name] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
 
 ||| Each term bound by a `let` at the quantity of the parameter it is given
 ||| for, left to right, and the body built over the variables that hold
@@ -206,6 +210,131 @@ bindArguments loc bs ts k = go id bs ts k
     go ren (b :: bs') (t :: ts') k' =
       Let loc (shown "argument") (OfValue b.quantity) (rename ren t)
           (go (FS . ren) bs' ts' (\ren', vs => k' (ren' . FS) (ren' FZ :: vs)))
+
+------------------------------------------------------------------------------
+-- IO
+------------------------------------------------------------------------------
+
+%prefix_record_projections off
+
+||| `IO` at a type, as Idris declares it (`MkIO : (1 fn : PrimIO a) -> IO
+||| a`): a family carried whole like every other, whose one constructor
+||| (`io`) has one field, the action on the world, which takes the world at
+||| `world` and gives `gives` (the `IORes` of the type and the next world);
+||| and the field's Idris type, the `PrimIO`, which names that `IORes`. A
+||| value of it is made by applying the constructor to an action, and run
+||| by taking it apart into the action, applied to the world (`runIO`). How
+||| the family is laid out, a one-field collapse included, is the
+||| dialect's.
+public export
+record IOAt where
+  constructor MkIOAt
+  io : Con 1
+  world : Uses
+  gives : Ty
+  0 holds : (Data.Vect.head io.fields).type = FunT (MkBinder world WorldT) gives
+  primIO : ClosedTerm
+
+%prefix_record_projections on
+
+||| What an action takes the world at and what it gives, with its type the
+||| function of the world to that.
+partsOf : ActionType t -> (world : Uses ** gives : Ty ** t = FunT (MkBinder world WorldT) gives)
+partsOf (OnWorld world gives) = (world ** gives ** Refl)
+
+||| A type read at `IO`'s shape (`IOAt`) where a hook or the program's root
+||| first reads it: the family it names, its one constructor of one field
+||| (`Choices.onlyCon`), and that field an action on the world
+||| (`actionType`). Each is a declaration whose shape the family's
+||| identity does not carry, so a type of another shape is refused there,
+||| by `refused`, told what the type is.
+export
+ioAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+       FC -> String -> (refused : {0 r : Type} -> String -> Front r) -> ClosedTerm -> Front IOAt
+ioAt fc owner refused ty = do
+  Just (df, _) <- dataFamilyOf fc owner ty
+    | Nothing => do
+        written <- showTT ty
+        refused ("a value of type " ++ written ++ ", which is no data type")
+  only <- onlyCon 1 refused df
+  let io = only.single
+  let Just action = actionType (Data.Vect.head io.fields).type
+    | Nothing => refused ("a value of " ++ keyText df.key ++ ", whose field holds no action on the world")
+  let (world ** gives ** holds) = partsOf action
+  pure (MkIOAt io world gives holds (Data.Vect.head only.fieldTypes))
+
+||| An `IO` value run on the world `w` of its scope, as `unsafePerformIO`
+||| and every bind run one: the value, bound once, taken apart by `IO`'s
+||| constructor into the action its field holds, and the action applied to
+||| the world, giving what the action gives.
+export
+runIO : {0 m : Nat} -> Loc -> IOAt -> (value : Term m) -> (w : Fin m) -> Term m
+runIO loc a value w =
+  Let loc (shown "io") (OfValue Once) value
+      (opened loc (shown "action") a.io FZ (\ren, action =>
+         App loc (MkBinder a.world WorldT) a.gives (Var loc action) (Var loc (ren (FS w)))))
+
+------------------------------------------------------------------------------
+-- A library function a hook calls
+------------------------------------------------------------------------------
+
+||| A library function's operands (`CheckedLibrary`), every binder its type
+||| shows, read against the kinds of its case tree's parameters, which come
+||| first and which its calls are translated at, `given` values among them:
+||| its case tree takes every value its type shows, so a call gives them
+||| all (`TreeTakesAll`); or its clauses take fewer (`compareInteger =
+||| compare` takes none), so the call gives back a function, applied to the
+||| values of the binders after them (`AppliedPast`, the operands of those
+||| binders, at least one). The two are the problem's: Idris's clauses fix
+||| how many parameters a case tree takes, which eta-reduction changes and
+||| the type does not.
+data TreeOperands : (count : Nat) -> (given : Nat) -> Type where
+  TreeTakesAll : {0 count, given : Nat} -> (0 _ : given = count) -> TreeOperands count given
+  AppliedPast : {0 count, given : Nat} -> {past : Nat} -> {0 applied : Nat} -> Operands (S past) applied ->
+                (0 _ : given + applied = count) -> TreeOperands count given
+
+||| The operands read against the kinds of the case tree's parameters: a
+||| value at each operand among them, nothing at run time elsewhere, so the
+||| kinds bind at run time as many values as those operands are; nothing
+||| where a kind is a compile-time argument the hook cannot give (a type,
+||| an implementation, a form, a choice), or where the kinds outrun the
+||| binders, which no case tree Idris builds from its type's binders does.
+||| The evidence is erased: reading the kinds builds no proof at run time.
+treeOperands : {params : Nat} -> {0 count : Nat} -> Operands params count -> (ks : List PKind) ->
+               Maybe (TreeOperands count (Runtimes ks))
+treeOperands NoParameter [] = Just (TreeTakesAll Refl)
+treeOperands {params = S n} ops@(Operand _) [] = Just (AppliedPast {past = n} ops Refl)
+treeOperands {params = S n} ops@(NoOperand _) [] = Just (AppliedPast {past = n} ops Refl)
+treeOperands {params = S n} (Operand ops) (ValueParam _ _ _ :: ks) = case treeOperands {params = n} ops ks of
+  Just (TreeTakesAll same) => Just (TreeTakesAll (cong S same))
+  Just (AppliedPast after same) => Just (AppliedPast after (cong S same))
+  Nothing => Nothing
+treeOperands {params = S n} (NoOperand ops) (ErasedParam :: ks) = treeOperands {params = n} ops ks
+treeOperands {params = S n} (NoOperand ops) (IndexParam _ :: ks) = treeOperands {params = n} ops ks
+treeOperands _ _ = Nothing
+
+||| A call of a function whose case tree takes the first `g` of the values
+||| given, its value a function of the `j` after them, which it is applied
+||| to, each at its binder, to what gives `result`: every value bound
+||| first, in order, so each is evaluated before the call, as an argument
+||| is before the function it is given to.
+calledThenApplied : {0 m, j, count : Nat} -> {g, arity : Nat} -> Loc -> Callee arity -> (indices : List ITerm) ->
+                    (0 _ : g = arity) -> (given : Vect g Binder) -> (past : Vect j Binder) -> (0 _ : g + j = count) ->
+                    (result : Ty) -> Vect count (Term m) -> Term m
+calledThenApplied {g} loc callee is same given past adds result ts =
+  bindArguments loc (given ++ past) (replace {p = \c => Vect c (Term m)} (sym adds) ts) body
+  where
+    -- The function applied to each value in turn, at the type of the
+    -- function of the values after it.
+    applyEach : {0 i, q : Nat} -> Term q -> Vect i Binder -> Vect i (Term q) -> Term q
+    applyEach f [] [] = f
+    applyEach f (b :: bs) (y :: ys) = applyEach (App loc b (foldr FunT result bs) f y) bs ys
+
+    body : {0 q : Nat} -> (Fin m -> Fin q) -> Vect (g + j) (Fin q) -> Term q
+    body _ vs =
+      let (gv, pv) = Data.Vect.splitAt g vs in
+      applyEach (Call loc callee Nothing is (replace {p = \c => Vect c (Term q)} same (map (Var loc) gv)))
+                past (map (Var loc) pv)
 
 ||| The compile-time value a parameter's kind gives, where a projection
 ||| reads its arguments: a type, an implementation, or nothing known.
@@ -1852,7 +1981,9 @@ mutual
       -- A call of a monomorphic library function a hook of the callee
       -- names, which the boundary read against its definition
       -- (`CheckedLibrary`): it takes `count` values at run time, as many as
-      -- the hook gives it, so the call is saturated.
+      -- the hook gives it and its type shows. Its calls are translated at
+      -- its case tree's parameters, as every call of a definition is, and
+      -- the values its clauses do not take are applied to what it gives.
       libraryCall : {count : Nat} -> FC -> Loc -> CheckedLibrary count -> Front ({0 m : Nat} -> Vect count (Term m) -> Term m)
       libraryCall {count} fc loc checked = do
         let lib = checked.library
@@ -1867,18 +1998,32 @@ mutual
         called <- atCall fc ctx.owner vals sig
         -- Which of its parameters exist at run time is its own signature's,
         -- keyed by no static argument and classified apart from the call's
-        -- kinds, so it is read there, once, against the row's operands: a
-        -- value at each, nothing at run time elsewhere, which is the
-        -- `count` values the hook gives it, by type. A type, an
-        -- implementation, a form or a choice among them is a compile-time
-        -- argument the hook cannot give.
-        let Just (Element _ saturated) = valuesAt checked.operands called.kinds
+        -- kinds, so it is read there, once, against the row's operands at
+        -- its case tree's parameters, the first of them (`treeOperands`). A
+        -- type, an implementation, a form or a choice among them is a
+        -- compile-time argument the hook cannot give.
+        let Just atTree = treeOperands checked.operands called.kinds
           | Nothing => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
         -- Its runtime arguments are all a call gives it, so no index
         -- parameter of it is given a term it is linked to.
         is <- callIndices called.kinds vals
-        let mk = recount (sym saturated) (recount called.sameCount (MkMaker (\ys => Call loc sig.callee Nothing is ys)))
-        pure {f = Front} (\ns => mk.make ns)
+        case atTree of
+          TreeTakesAll saturated => do
+            let mk = recount (sym saturated) (recount called.sameCount (MkMaker (\ys => Call loc sig.callee Nothing is ys)))
+            pure {f = Front} (\ns => mk.make ns)
+          -- The binders its type shows past its case tree's parameters are
+          -- its result's, read at the call as each runtime parameter is,
+          -- against the row's operands there: the call's value is applied
+          -- to the values they take.
+          AppliedPast {past} after given => do
+            (pastKinds, final) <- classifyCall fc ctx.owner (show lib.named) (S past) called.result
+                                                 (the ArgValues (replicate (S past) Nothing))
+            let Just (Element _ applied) = valuesAt after (toList pastKinds)
+              | Nothing => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
+            result <- coreType fc ctx.owner ValueType final
+            pure {f = Front} (\ns => calledThenApplied loc sig.callee is called.sameCount (runtimeBinders called.kinds)
+                                       (runtimeBinders (toList pastKinds))
+                                       (trans (cong (Runtimes called.kinds +) applied) given) result ns)
         where
           -- The kinds as the row's operands read them: a runtime value at
           -- each operand, an erased or index parameter at each binder of
@@ -1947,8 +2092,9 @@ mutual
       asFields (Param _ :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
       asFields (ErasedArg :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
 
-      -- A constructor application: the fields, or for a type with one
-      -- runtime field the field itself, since such a value is its field's.
+      -- A constructor application: a value of its family, of its fields,
+      -- however few; how a family of one field is laid out is the
+      -- dialect's.
       constructor : FC -> Loc -> Defined -> ClosedTerm -> Nat -> List (Arg vars nv) -> Front (Term nv)
       constructor fc loc d ty arity xs = do
         let def = d.def
@@ -2160,7 +2306,7 @@ mutual
           let r = minus (length ds) (rank vTy)
               xa = MkArrayType (Data.Vect.fromList ds) e
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i, v] =>
-                  opened loc writing l (\ren', x =>
+                  opened loc (shown "elements") writing l (\ren', x =>
                     apart loc iSnoc r (ren' i) (\ren'', cs =>
                       ConApp loc writing []
                         [Tensor loc (Insert xa (TensorT ds e) (Var loc (ren'' x)) (Var loc (ren'' (ren' v))) (map (Var loc) cs))]))))
@@ -2244,7 +2390,7 @@ mutual
           res <- (.single) <$> onlyAt fc 2 resTy
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i] =>
-                  opened loc writing l (\ren', x =>
+                  opened loc (shown "elements") writing l (\ren', x =>
                     apart loc iSnoc r (ren' i) (\ren'', cs =>
                       ReadBack loc (cellAfter r ds e) (Var loc (ren'' x)) (map (Var loc) cs)
                         (ConApp loc res [] [ Var loc (Bound {k = 2} FZ)
@@ -2264,7 +2410,7 @@ mutual
           s <- snocCons fc (Data.Vect.index 0 only.fieldTypes)
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l] =>
-                  opened loc writing l (\ren', x =>
+                  opened loc (shown "elements") writing l (\ren', x =>
                     ExtentsBack {k = r} loc (Var loc x)
                       (ConApp loc res []
                          [ snocValue loc s (toList (map (\j => Var loc (Bound (weaken j))) (Data.Vect.allFins r)))
@@ -2279,19 +2425,23 @@ mutual
           axis <- axisOf (length ds) (lastAxis (TensorT ds e) vTy)
           fill <- fillOf (minus (length ds) (S (finToNat axis))) vTy
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [k, v, l] =>
-                  opened loc writing l (\ren', x =>
+                  opened loc (shown "elements") writing l (\ren', x =>
                     ConApp loc grown []
                       [Tensor loc (Concat xa (alongAxis axis xa) ga axis
                          (Var loc x) (copies xa axis fill (Var loc x) (Var loc (ren' k)) (Var loc (ren' v))))])))
-        (ATabulateIO, [eTy, _], [_, FunT ib@(MkBinder _ idxTy) stepAction@(FunT wb@(MkBinder _ WorldT) step@(DataT _ _))],
-         [eIdris, actIdris]) => do
-          FunT rb@(MkBinder _ WorldT) done@(DataT _ _) <- pure rt
-            | _ => unshaped fc "the array language's world-ordered tabulation, whose result is no action"
-          -- The step's and the result's `IORes`, read off the Idris types
-          -- the action and the result give after their arguments.
-          (idxIdris, actionIdris) <- runtimeArrow fc actIdris
-          stepCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc actionIdris))
-          doneCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc resTy))
+        -- The step at each index and the tabulation are `IO` values, each
+        -- read at `IO`'s shape (`ioAt`): the tabulation is `IO`'s
+        -- constructor applied to its action, which runs the step's action
+        -- at each index on the world before it. The step's and the
+        -- result's `IORes` are read off the Idris types of their actions.
+        (ATabulateIO, [eTy, _], [_, FunT ib stepIO], [eIdris, actIdris]) => do
+          (idxIdris, stepIdris) <- runtimeArrow fc actIdris
+          stepAt <- ioAt fc ctx.owner (\why => unshaped fc ("the array language's world-ordered tabulation, given " ++ why))
+                         stepIdris
+          doneAt <- ioAt fc ctx.owner (\why => unshaped fc ("the array language's world-ordered tabulation, giving " ++ why))
+                         resTy
+          stepCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc stepAt.primIO))
+          doneCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc doneAt.primIO))
           let arrTy = (Data.Vect.index 0 doneCon.fields).type
           a <- theElement
           eSnoc <- snocCons fc eIdris
@@ -2300,14 +2450,15 @@ mutual
           cellsFixed fc arrTy r
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [e, act] =>
                   apart loc eSnoc r e (\ren', ds =>
-                                Lam noLoc (shown "world") rb done
-                                  (TabulateIO loc arrTy (map (Var loc . FS) (fromList ds)) (Var loc FZ)
-                                     (App loc wb step
-                                          (App loc ib stepAction (Var loc (Free {k = S (length ds)} (FS (ren' act))))
-                                                   (snocValue loc iSnoc
-                                                      (map (Var loc . Bound . weaken) (toList (Data.Vect.allFins (length ds))))))
-                                          (Var loc (Bound (last {n = length ds}))))
-                                     stepCon doneCon))))
+                    ConApp loc doneAt.io []
+                      [Lam noLoc (shown "world") (MkBinder doneAt.world WorldT) doneAt.gives
+                         (TabulateIO loc arrTy (map (Var loc . FS) (fromList ds)) (Var loc FZ)
+                            (runIO loc stepAt
+                               (App loc ib stepIO (Var loc (Free {k = S (length ds)} (FS (ren' act))))
+                                    (snocValue loc iSnoc
+                                       (map (Var loc . Bound . weaken) (toList (Data.Vect.allFins (length ds))))))
+                               (Bound (last {n = length ds})))
+                            stepCon doneCon)])))
         _ => unshaped fc "the array language's function, at operand types it does not have"
         where
           -- The constructor of a linear array's cell, read off the family
