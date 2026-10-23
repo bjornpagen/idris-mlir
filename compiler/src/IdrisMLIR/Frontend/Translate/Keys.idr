@@ -74,32 +74,38 @@ typedBlock (CaseBlock parent k) = Just (fromMaybe (plainOrigin parent) (typedBlo
 typedBlock (WithBlock parent k) = Just (fromMaybe (plainOrigin parent) (typedBlock parent) ++ ".with" ++ show k)
 typedBlock _ = Nothing
 
-||| The definition's printed name, which a key starts with: Idris's full
+||| A definition's printed name, which a key starts with: Idris's full
 ||| name (`plainOrigin`), and for a case, with or nested block its
 ||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A case or with
-||| block's is read off its name, which Idris keeps; a nested block's was
-||| found where the program was read, from what `main` reaches
-||| (`Read.blockNames`). The translation meets only blocks read from what
-||| `main` reaches, each because a definition read refers to it, so a block
-||| with no name is the compiler's error.
-keyOrigin : Name -> Front String
-keyOrigin n = do
+||| block's is read off its name, which Idris keeps; a nested block's is
+||| what the walk over what `main` reaches calls it (`Nature.called`). A
+||| nested block no walk reaches is no part of the compiled program, so no
+||| key starts with its name; every definition is called by the walk's
+||| name for it where a walk entered it, and by its own where none did, so
+||| no case is left without a name.
+keyOrigin : Defined -> String
+keyOrigin d =
+  let full = fullname d.def in
+  case typedBlock full of
+    Just o => o
+    Nothing => case d.nature.called of
+      NamedByWalk o => o
+      NotWalked => plainOrigin full
+
+||| The printed name a key starts with for the block a name names
+||| (`keyOrigin`): a case or with block's read off its name, which Idris
+||| keeps, with no search; a nested block's its definition's, as it was
+||| read. A block is named inside another name too (a pattern variable's
+||| parent, a display name's inner name), and whether the context defines
+||| that name is the compiled modules' to say, a fact of the input: a
+||| name they define as nothing is a definition they miss, refused as a
+||| missing definition is (`lookupDef`).
+blockOrigin : {auto s : Ref TState TS} -> Name -> Front String
+blockOrigin n = do
   full <- fullName n
-  -- A case or with block names its parent and its ordinal under it, which
-  -- Idris keeps: its name is read off it, with no search.
   let Nothing = typedBlock full
     | Just o => pure o
-  let Just _ = blockOf full
-    | Nothing => pure (plainOrigin full)
-  -- A block no definition has is one no definition can refer to.
-  Just d <- defined full
-    | Nothing => unreferenced full
-  let Just o = lookup (addressOf d.placement) (!reading).blockNames
-    | Nothing => unreferenced full
-  pure o
-  where
-    unreferenced : Name -> Front String
-    unreferenced full = internal EmptyFC ("no definition read from what main reaches refers to the block " ++ show full)
+  keyOrigin <$> lookupDef EmptyFC (show full) full
 
 ------------------------------------------------------------------------------
 -- What a term is read beside
@@ -924,11 +930,11 @@ counted s = show (length s) ++ ":" ++ s
 mutual
   ||| A name by its structure, as Idris's `==` tells names apart: a `DN` by
   ||| its inner name alone, and a block (case, with, nested) by the name of
-  ||| its place in the definition that holds it (`keyOrigin`), never by the
+  ||| its place in the definition that holds it (`blockOrigin`), never by the
   ||| counter Idris numbered it with, so an unrelated edit does not move it.
   nameIdentity : {auto s : Ref TState TS} -> Name -> Front String
   nameIdentity n = case blockOf n of
-    Just _ => ("K" ++) . counted <$> keyOrigin n
+    Just _ => ("K" ++) . counted <$> blockOrigin n
     Nothing => structural n
     where
       structural : Name -> Front String
@@ -1076,18 +1082,20 @@ instanceAt fc what head originOf term given = do
 ||| The instance of a definition at its compile-time arguments
 ||| (`instanceAt`), and the definition's address, which heads its link.
 ||| The definition is the one the frozen context gives the name the
-||| request names; a name it defines as nothing is a definition the
-||| compiled modules miss.
+||| request names, as it was read, resolved once: its address is the
+||| entry's, and its key starts with its printed name (`keyOrigin`); a
+||| name the context defines as nothing is a definition the compiled
+||| modules miss.
 export
 instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Address, Instance a)
 instanceKey fc owner n term given = do
   full <- fullNames n
-  ctx <- frozenContext
-  let DefinedAs i resolved _ defines = definitionIn ctx full
-    | NotDefined _ => reject fc owner CompiledModule ("missing definition " ++ show full)
+  r <- reading
+  ReadAs i resolved defines d <- core (readOf r full)
+    | NoDefinition _ => reject fc owner CompiledModule ("missing definition " ++ show full)
   let address = definedAddress i resolved defines
-  (address,) <$> instanceAt fc (show full) (ADefinition address) (keyOrigin full) term given
+  (address,) <$> instanceAt fc (show full) (ADefinition address) (pure (keyOrigin d)) term given
 
 ||| The instance of a member at a use's types (`AtUse uses`) at its
 ||| compile-time arguments (`instanceAt`): the form's type, the form, the

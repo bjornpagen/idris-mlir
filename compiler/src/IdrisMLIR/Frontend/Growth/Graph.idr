@@ -307,20 +307,20 @@ constructorArity n = do
 -- type's, and arguments that are positions of the data it describes; every
 -- other definition writes its signature and case tree.
 kindOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         Address -> Defined -> Front (List Nat, Front (Reading, List Nat))
-kindOf a d = case (d.matched, definition d.def) of
-  (Just m, _) => pure ([length m.args], plain)
-  (Nothing, TCon n _ _ _ _ cons _) => do
+         Address -> Defined -> Front (List Nat, Front (NodeReading, List Nat))
+kindOf a d = case (d.matched, definition d.def, d.nature.asTypeConstructor) of
+  (Just m, _, _) => pure ([length m.args], plain)
+  (Nothing, TCon n _ _ _ _ cons _, ATypeConstructor facts) => do
     let cs = fromMaybe [] cons
     arities <- traverse constructorArity cs
+    let js = represented facts
     pure (n :: length cs :: (arities >>= id), do
-            js <- represented d
             fs <- fieldSites a d.def cs js
             rd <- readingOf a d
             pure ({ sites $= (fs ++) } rd, js))
   _ => pure ([], plain)
   where
-    plain : Front (Reading, List Nat)
+    plain : Front (NodeReading, List Nat)
     plain = (, []) <$> readingOf a d
 
 -- The definition a site enters, when it names one: a call or a build. A
@@ -343,7 +343,7 @@ callee (Keeps _ _) = Nothing
 -- fields, with the definitions its sites name, to enter next. A name that
 -- no definition of the context has is no place, and is not entered.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       Address -> Defined -> Front (Reading, List Nat) -> Entered -> Front (Entered, List Name)
+       Address -> Defined -> Front (NodeReading, List Nat) -> Entered -> Front (Entered, List Name)
 keep a d reading r = do
   (rd, js) <- reading
   fs <- fieldsOf d

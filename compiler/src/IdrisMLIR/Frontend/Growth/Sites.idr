@@ -581,14 +581,15 @@ data ArgumentText : Type where
 -- What a type builds
 ------------------------------------------------------------------------------
 
-||| The type constructor the boundary read at an address, if one is there.
-typeConstructorAt : Address -> Front (Maybe Defined)
+||| The facts of the type constructor the boundary read at an address, which
+||| its nature holds, if one is there.
+typeConstructorAt : Address -> Front (Maybe TyConFacts)
 typeConstructorAt a = do
   Just d <- definitionRead a
     | Nothing => pure Nothing
-  pure (case definition d.def of
-          TCon {} => Just d
-          _ => Nothing)
+  pure (case d.nature.asTypeConstructor of
+          ATypeConstructor facts => Just facts
+          NoTypeConstructor => Nothing)
 
 mutual
   ||| A template with every child at a type constructor's position read by
@@ -599,9 +600,9 @@ mutual
   ||| height read here bounds the key's.
   eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Template -> Front Template
   eraseIn (Head (Just a) cs) = do
-    Just tc <- typeConstructorAt a
+    Just facts <- typeConstructorAt a
       | Nothing => Head (Just a) <$> eraseAll cs
-    Head (Just a) <$> erasedAt (!(tyConFacts tc)).roles 0 cs
+    Head (Just a) <$> erasedAt facts.roles 0 cs
   eraseIn (Head Nothing cs) = Head Nothing <$> eraseAll cs
   eraseIn (Choice t ls) = Choice <$> eraseIn t <*> eraseAll ls
   eraseIn (Opaque a cs) = Opaque a <$> eraseAll cs
@@ -633,9 +634,9 @@ mutual
 ||| represents; none for a head that is no type constructor.
 built : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Address -> List Template -> Front (List Site)
 built at fc a cs = do
-  Just tc <- typeConstructorAt a
+  Just facts <- typeConstructorAt a
     | Nothing => pure []
-  let args = map argument (mapMaybe (\j => (j,) <$> getAt j cs) !(represented tc))
+  let args = map argument (mapMaybe (\j => (j,) <$> getAt j cs) (represented facts))
   pure [siteAt at fc (Builds a) args]
   where
     -- A part of a type already read, with no term of its own to root.
@@ -1279,7 +1280,7 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
       let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
       h <- holedAt env written
       form <- solved h.key
-      FixedNow <- fixing ty form
+      FixedNow _ <- fixing ty form
         | ChosenAtRunTime _ => pure []
       shaped <- solved (close env written)
       memberAt at ps env fc k form !(packings at ps.made fc h shaped) written
@@ -2208,8 +2209,11 @@ conStands ps v r cd con args = do
         | Nothing => pure []
       Just tc <- defined tn
         | Nothing => pure []
-      facts <- tyConFacts tc
-      pure (paramLayout cd.def facts.params facts.roles ty)
+      -- A head the context defines as no type constructor lays out no
+      -- parameter, as one it defines as nothing does.
+      pure (case tc.nature.asTypeConstructor of
+              ATypeConstructor facts => paramLayout cd.def facts.params facts.roles ty
+              NoTypeConstructor => [])
 
     -- Runtime field b: of a shape not matched yet, the part at that
     -- field, one match deeper; of anything else, a runtime value.
@@ -2602,8 +2606,8 @@ nodeSites writer within d (values, made) = do
 ||| is split by the type constructor at the head of each family's value
 ||| (`Heads`), and read at those heads (`sitesOf`).
 public export
-record Reading where
-  constructor MkReading
+record NodeReading where
+  constructor MkNodeReading
   sites : List Site
   families : List Nat
 
@@ -2621,10 +2625,10 @@ atNode a heads = do
 ||| A definition as its node with no heads reads it, from the definition
 ||| the walk holds.
 export
-readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> Front Reading
+readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> Front NodeReading
 readingOf a d = do
   (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 [] []))
-  pure (MkReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
+  pure (MkNodeReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat
     family (i, Just AFamily) = Just i

@@ -702,13 +702,13 @@ mutual
         impl <- solved (closeWritten fc env val)
         if not !(runtimeDependent impl)
           then do
-            FixedNow <- fixing known impl
+            FixedNow _ <- fixing known impl
               | ChosenAtRunTime _ => runtimeLet q loc known
             body (BoundHere impl Nothing :: env)
           else do
             Just (shape, values) <- holed ph w acc ctx env fc val
               | Nothing => runtimeLet q loc known
-            FixedNow <- fixing known shape
+            FixedNow _ <- fixing known shape
               | ChosenAtRunTime _ => runtimeLet q loc known
             held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack fc ctx.owner loc !(valuesOf values)
@@ -832,13 +832,13 @@ mutual
         impl <- solved (closeWritten bfc env a.written)
         if not !(runtimeDependent impl)
           then do
-            FixedNow <- fixing known impl
+            FixedNow _ <- fixing known impl
               | ChosenAtRunTime _ => asValue q loc
             spine ph w acc ctx (BoundHere impl Nothing :: env) ex afc sc (map overBinder rest)
           else do
             Just (shape, values) <- a.held
               | Nothing => asValue q loc
-            FixedNow <- fixing known shape
+            FixedNow _ <- fixing known shape
               | ChosenAtRunTime _ => asValue q loc
             held <- coreType bfc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack bfc ctx.owner loc !(valuesOf values)
@@ -1227,7 +1227,7 @@ mutual
         if not !(implementationType aty') || isJust (variableOf a) then value giver impl aty' a else do
           Just (form, found) <- walked
             | Nothing => value giver impl aty' a
-          FixedNow <- fixing aty' form
+          FixedNow _ <- fixing aty' form
             | ChosenAtRunTime _ => value giver impl aty' a
           pure (Just (form, found))
 
@@ -1378,7 +1378,7 @@ mutual
     impl <- solved (closeWritten fc env written)
     if not !(runtimeDependent impl)
       then do
-        FixedNow <- fixing ct.type impl
+        FixedNow _ <- fixing ct.type impl
           | ChosenAtRunTime _ => pure Nothing
         con <- memberBare fc ctx.owner ct !(implementationOf impl)
         pure (Just (ConApp loc con [] []))
@@ -1386,7 +1386,7 @@ mutual
         Just (shape, values) <- holed ph w acc ctx env fc written
           | Nothing => pure Nothing
         form <- implementationOf shape
-        FixedNow <- fixing ct.type form
+        FixedNow _ <- fixing ct.type form
           | ChosenAtRunTime _ => pure Nothing
         held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
         con <- memberHolding fc ctx.owner ct form (MkHoles (map fst values) (MkBinder Many held))
@@ -1690,6 +1690,22 @@ mutual
       operandBinders fc NoParameter [] = pure []
       operandBinders fc (NoOperand ops) (_ :: ks) = operandBinders fc ops ks
       operandBinders fc (Operand ops) (kind :: ks) = (::) <$> operandBinder fc kind <*> operandBinders fc ops ks
+
+      -- The Idris type of an operand, as the call's classification reads
+      -- its parameter in this scope: a value's, a choice's, or that of the
+      -- values an implementation closes over, held as one (`packedType`).
+      operandType : FC -> PKind -> Front ClosedTerm
+      operandType fc (ValueParam _ _ t) = pure t
+      operandType fc (ChoiceParam _ ct) = pure ct.type
+      operandType fc (DictParam _ (Just hs)) = packedType hs.types
+      operandType fc _ = compileTimeOperand fc
+
+      -- The Idris types of a row's operands, in order, one per binder
+      -- (`operandBinders`).
+      operandTypes : FC -> Operands n k -> Vect n PKind -> Front (Vect k ClosedTerm)
+      operandTypes fc NoParameter [] = pure []
+      operandTypes fc (NoOperand ops) (_ :: ks) = operandTypes fc ops ks
+      operandTypes fc (Operand ops) (kind :: ks) = (::) <$> operandType fc kind <*> operandTypes fc ops ks
 
       -- The value a call gives at an operand, at position `j` of a callee
       -- whose member places are `places`, as its classification reads the
@@ -2025,10 +2041,11 @@ mutual
 
       -- What an IO primitive gives besides the next world, as many values
       -- as its action gives: for none, the unit its `IORes` holds, the one
-      -- constructor of its value's type; for one, that value.
-      gives : {0 count : Nat} -> FC -> IOAction i count -> Con 2 -> Front (IOGives count)
+      -- constructor of its value's type, read off the family the `IORes`
+      -- field's Idris type names; for one, that value.
+      gives : {0 count : Nat} -> FC -> IOAction i count -> Only 2 -> Front (IOGives count)
       gives fc a res = case actionGives a of
-        GivesNone => GivesUnit <$> onlyCon fc 0 (unshaped fc) (Data.Vect.index 0 res.fields).type
+        GivesNone => GivesUnit . (.single) <$> onlyAt fc 0 (Data.Vect.index 0 res.fieldTypes)
         GivesOne => pure GivesValue
 
       -- The type arguments of a call, in order.
@@ -2042,21 +2059,48 @@ mutual
       runtimeType (ValueParam _ _ t) = Just t
       runtimeType _ = Nothing
 
+      -- The data family a type the call reads names, as `coreType` reads
+      -- it (`dataFamilyOf`): what the call's hook takes its values apart
+      -- by, held, so no family is looked up by its identity.
+      familyAt : FC -> ClosedTerm -> Front DataFamily
+      familyAt fc ty = do
+        Just (df, _) <- dataFamilyOf fc ctx.owner ty
+          | Nothing => do
+              written <- showTT ty
+              unshaped fc ("the array language's function, given a value of type " ++ written ++ ", which is no data type")
+        pure df
+
+      -- The one constructor of the data family a type the call reads names
+      -- (`Choices.onlyCon`), with its fields' Idris types.
+      onlyAt : FC -> (k : Nat) -> ClosedTerm -> Front (Only k)
+      onlyAt fc k ty = familyAt fc ty >>= onlyCon k (unshaped fc)
+
+      -- What a function type takes at run time first and gives after it,
+      -- as Idris types, every binder before it a placeholder: a binder of
+      -- quantity 0 is no argument at run time, as `coreType` reads a
+      -- function type.
+      runtimeArrow : FC -> ClosedTerm -> Front (ClosedTerm, ClosedTerm)
+      runtimeArrow fc ty = normaliseClosed ty >>= arrow
+        where
+          arrow : {vs : Scope} -> TT vs -> Front (ClosedTerm, ClosedTerm)
+          arrow (Bind _ _ (Pi _ rig _ a) sc) = case use rig of
+            Erased => arrow sc
+            Used _ => pure (closedOver a, closedOver sc)
+          arrow other = do
+            written <- showTT (closedOver other)
+            unshaped fc ("the array language's function, given a value of type " ++ written ++ " for a function")
+
       -- The constructors of a snoc list of naturals (`Extents`, `Index`),
       -- in tag order, the order the library declares them in: the empty
-      -- one and the snoc of the rest and the natural.
-      snocCons : FC -> Ty -> Front Snocs
-      snocCons fc (DataT inst _) = do
-        st <- getState
-        -- A family's identity is minted by its registration, which writes
-        -- it in the table this reads, whose type does not say so.
-        let Just decl = familyOf inst st
-          | Nothing => internal fc ("extents or coordinates of an undeclared type " ++ show inst)
-        let [(0 ** lin), (2 ** snoc)] = decl.cons
-          | _ => unshaped fc ("the array language's extents or coordinates of " ++ show inst ++
+      -- one and the snoc of the rest and the natural, read off the family
+      -- its Idris type names.
+      snocCons : FC -> ClosedTerm -> Front Snocs
+      snocCons fc ty = do
+        df <- familyAt fc ty
+        let [(0 ** lin), (2 ** snoc)] = (dataDeclared df).cons
+          | _ => unshaped fc ("the array language's extents or coordinates of " ++ keyText df.key ++
                               ", which is not a snoc list of naturals")
         pure (MkSnocs lin snoc)
-      snocCons fc t = unshaped fc ("the array language's extents or coordinates of type " ++ show t)
 
       -- Does a new array of this type hold a dynamic dimension past its
       -- first `r` axes, in its cells? A tabulation is given the extents of
@@ -2078,20 +2122,22 @@ mutual
       -- (`bs`) are as the call's classification reads its parameters and
       -- whose values are of the types `vs` (`boundTypes`): a function an
       -- operand gives is applied at its value's own type, the one `Emit`
-      -- gives the variable it is bound to.
-      arrayTerm : {0 count : Nat} -> FC -> Loc -> ArrayPrim -> Ty -> Vect count Binder -> Vect count Ty -> List Ty ->
-                  List ClosedTerm -> Front (Maker count)
-      arrayTerm fc loc g rt bs vs typeArgs idrisTypes = case (g, map (.type) bs, vs) of
-        (AShape, [xTy], _) => do
+      -- gives the variable it is bound to. The operands' Idris types (`ts`)
+      -- and the result's (`resTy`) name the families the hook takes values
+      -- of apart or builds.
+      arrayTerm : {0 count : Nat} -> FC -> Loc -> ArrayPrim -> Ty -> (resTy : ClosedTerm) -> Vect count Binder ->
+                  Vect count Ty -> (ts : Vect count ClosedTerm) -> List Ty -> List ClosedTerm -> Front (Maker count)
+      arrayTerm fc loc g rt resTy bs vs ts typeArgs idrisTypes = case (g, map (.type) bs, vs, ts) of
+        (AShape, [xTy], _, _) => do
           a <- theElement
-          s <- snocCons fc rt
+          s <- snocCons fc resTy
           (rx ** xa) <- arrayOf xTy
           let r = minus rx (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [x] =>
                   snocValue loc s (map (\j => Tensor loc (Extent xa j (Var loc x))) (take r (toList (Data.Vect.allFins rx))))))
-        (ATabulate, [eTy, _], [_, FunT ib@(MkBinder _ idxTy) bTy]) => do
-          eSnoc <- snocCons fc eTy
-          iSnoc <- snocCons fc idxTy
+        (ATabulate, [eTy, _], [_, FunT ib@(MkBinder _ idxTy) bTy], [eIdris, fIdris]) => do
+          eSnoc <- snocCons fc eIdris
+          iSnoc <- snocCons fc (fst !(runtimeArrow fc fIdris))
           let r = minus (rank rt) (rank bTy)
           cellsFixed fc rt r
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [e, f] =>
@@ -2099,16 +2145,16 @@ mutual
                               Tabulate loc rt (map (Var loc) (fromList ds))
                                 (App loc ib bTy (Var loc (Free {k = length ds} (ren' f)))
                                          (snocValue loc iSnoc (map (Var loc . Bound) (toList (Data.Vect.allFins (length ds)))))))))
-        (AIndex, [xTy, iTy], _) => do
-          iSnoc <- snocCons fc iTy
+        (AIndex, [xTy, iTy], _, [_, iIdris]) => do
+          iSnoc <- snocCons fc iIdris
           (rx ** xa) <- arrayOf xTy
           let r = minus rx (rank rt)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [x, i] =>
                   apart loc iSnoc r i (\ren', cs => Tensor loc (Extract xa rt (Var loc (ren' x)) (map (Var loc) cs)))))
-        (AUpdate, [xTy, iTy, vTy], _) => insert xTy iTy vTy bs
-        (AWrite, [lTy, iTy, vTy], _) => do
-          (writing, ds, e) <- cellOf lTy
-          iSnoc <- snocCons fc iTy
+        (AUpdate, [xTy, iTy, vTy], _, [_, iIdris, _]) => insert xTy iIdris vTy bs
+        (AWrite, [lTy, iTy, vTy], _, [lIdris, iIdris, _]) => do
+          (writing, ds, e) <- cellOf lIdris
+          iSnoc <- snocCons fc iIdris
           let r = minus (length ds) (rank vTy)
               xa = MkArrayType (Data.Vect.fromList ds) e
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i, v] =>
@@ -2116,11 +2162,11 @@ mutual
                     apart loc iSnoc r (ren' i) (\ren'', cs =>
                       ConApp loc writing []
                         [Tensor loc (Insert xa (TensorT ds e) (Var loc (ren'' x)) (Var loc (ren'' (ren' v))) (map (Var loc) cs))]))))
-        (AFoldLast, [_, zTy, xTy], [FunT ab (FunT eb out), _, _]) => reduce FoldLast ab eb out zTy xTy bs
-        (AScanLast, [_, zTy, xTy], [FunT ab (FunT eb out), _, _]) => reduce ScanLast ab eb out zTy xTy bs
-        (AReshape, [eTy, xTy], _) => do
+        (AFoldLast, [_, zTy, xTy], [FunT ab (FunT eb out), _, _], _) => reduce FoldLast ab eb out zTy xTy bs
+        (AScanLast, [_, zTy, xTy], [FunT ab (FunT eb out), _, _], _) => reduce ScanLast ab eb out zTy xTy bs
+        (AReshape, [eTy, xTy], _, [eIdris, _]) => do
           a <- theElement
-          eSnoc <- snocCons fc eTy
+          eSnoc <- snocCons fc eIdris
           (_ ** xa) <- arrayOf xTy
           let r = minus (rank rt) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [e, x] =>
@@ -2129,9 +2175,9 @@ mutual
         -- cells hold: an empty frame has no cell to read them from, so the
         -- array is flattened and expanded to the frame's extents and then
         -- the given ones.
-        (AMerge, [eTy, xTy], _) => do
+        (AMerge, [eTy, xTy], _, [eIdris, _]) => do
           a <- theElement
-          eSnoc <- snocCons fc eTy
+          eSnoc <- snocCons fc eIdris
           cellAxes <- cellRank
           (rx ** xa) <- arrayOf xTy
           let frame = minus (minus rx (rank a)) cellAxes
@@ -2142,32 +2188,32 @@ mutual
                                    ++ map (Var loc) es)))))
         -- A transpose swaps its axis with the one after it, so its array
         -- has an axis past the one it names.
-        (ATranspose, [xTy], _) => do
+        (ATranspose, [xTy], _, _) => do
           a <- theElement
           (S rx ** xa) <- arrayOf xTy
             | (Z ** _) => unshaped fc "the array language's transpose, of an array of no axis"
           axis <- axisOf rx (minus (lastAxis xTy a) 1)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [x] => Tensor loc (Transpose xa rt axis (Var loc x))))
-        (ATake, [_, xTy], _) => do
+        (ATake, [_, xTy], _, _) => do
           a <- theElement
           (rx ** xa) <- arrayOf xTy
           ra <- ofRank rx rt
           axis <- axisOf rx (lastAxis xTy a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [k, x] => Tensor loc (Take xa ra axis (Var loc k) (Var loc x))))
-        (ADrop, [_, xTy], _) => do
+        (ADrop, [_, xTy], _, _) => do
           a <- theElement
           (rx ** xa) <- arrayOf xTy
           ra <- ofRank rx rt
           axis <- axisOf rx (lastAxis xTy a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [k, x] => Tensor loc (Drop xa ra axis (Var loc k) (Var loc x))))
-        (AConcat, [xTy, yTy], _) => do
+        (AConcat, [xTy, yTy], _, _) => do
           a <- theElement
           (rx ** xa) <- arrayOf xTy
           ya <- ofRank rx yTy
           ra <- ofRank rx rt
           axis <- axisOf rx (lastAxis xTy a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [x, y] => Tensor loc (Concat xa ya ra axis (Var loc x) (Var loc y))))
-        (APad, [_, _, vTy, xTy], _) => do
+        (APad, [_, _, vTy, xTy], _, _) => do
           (rx ** xa) <- arrayOf xTy
           ra <- ofRank rx rt
           axis <- axisOf rx (lastAxis xTy vTy)
@@ -2177,9 +2223,9 @@ mutual
                   Tensor loc (Concat front front ra axis
                     (Tensor loc (Concat front xa front axis (copies xa axis fill (Var loc x) (Var loc lo) (Var loc v)) (Var loc x)))
                     (copies xa axis fill (Var loc x) (Var loc hi) (Var loc v)))))
-        (AWithArray, [eTy, vTy, _], [_, _, FunT lb@(MkBinder _ lTy) kr]) => do
-          (writing, ds, e) <- cellOf lTy
-          eSnoc <- snocCons fc eTy
+        (AWithArray, [eTy, vTy, _], [_, _, FunT lb@(MkBinder _ lTy) kr], [eIdris, _, kIdris]) => do
+          (writing, ds, e) <- cellOf (fst !(runtimeArrow fc kIdris))
+          eSnoc <- snocCons fc eIdris
           let r = minus (length ds) (rank vTy)
           fill <- fillOf (minus (length ds) r) vTy
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [ex, v, k] =>
@@ -2189,11 +2235,11 @@ mutual
         -- The element is read at the type of the held array's cells and
         -- given at the element's, which may fix extents the cells leave to
         -- their values.
-        (ARead, [lTy, iTy], _) => do
-          (writing, ds, e) <- cellOf lTy
+        (ARead, [lTy, iTy], _, [lIdris, iIdris]) => do
+          (writing, ds, e) <- cellOf lIdris
           a <- theElement
-          iSnoc <- snocCons fc iTy
-          res <- onlyCon fc 2 (unshaped fc) rt
+          iSnoc <- snocCons fc iIdris
+          res <- (.single) <$> onlyAt fc 2 resTy
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i] =>
                   opened loc writing l (\ren', x =>
@@ -2204,15 +2250,16 @@ mutual
         -- A thaw hands the continuation the array itself in a writable
         -- cell: whether writing it needs a copy first is bufferization's to
         -- decide, which sees whether anything reads the array after.
-        (AThaw, [_, _], [_, FunT lb@(MkBinder _ lTy) kr]) => do
-          (writing, _, _) <- cellOf lTy
+        (AThaw, [_, _], [_, FunT lb@(MkBinder _ lTy) kr], [_, kIdris]) => do
+          (writing, _, _) <- cellOf (fst !(runtimeArrow fc kIdris))
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [x, k] =>
                   App loc lb kr (Var loc k) (ConApp loc writing [] [Var loc x])))
-        (ALShape, [lTy], _) => do
-          (writing, ds, _) <- cellOf lTy
-          res <- onlyCon fc 2 (unshaped fc) rt
+        (ALShape, [lTy], _, [lIdris]) => do
+          (writing, ds, _) <- cellOf lIdris
+          only <- onlyAt fc 2 resTy
+          let res = only.single
           a <- theElement
-          s <- snocCons fc (Data.Vect.index 0 res.fields).type
+          s <- snocCons fc (Data.Vect.index 0 only.fieldTypes)
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l] =>
                   opened loc writing l (\ren', x =>
@@ -2222,9 +2269,9 @@ mutual
                          , ConApp loc writing [] [Var loc (Bound (last {n = r}))]]))))
         -- The grown array fills a cell of the result's type, as long on the
         -- last axis as the result's shape says.
-        (AGrow, [_, vTy, lTy], _) => do
-          (writing, ds, e) <- cellOf lTy
-          (grown, gds, _) <- cellOf rt
+        (AGrow, [_, vTy, lTy], _, [_, _, lIdris]) => do
+          (writing, ds, e) <- cellOf lIdris
+          (grown, gds, _) <- cellOf resTy
           let xa = MkArrayType (Data.Vect.fromList ds) e
           ga <- ofRank (length ds) (TensorT gds e)
           axis <- axisOf (length ds) (lastAxis (TensorT ds e) vTy)
@@ -2234,15 +2281,19 @@ mutual
                     ConApp loc grown []
                       [Tensor loc (Concat xa (alongAxis axis xa) ga axis
                          (Var loc x) (copies xa axis fill (Var loc x) (Var loc (ren' k)) (Var loc (ren' v))))])))
-        (ATabulateIO, [eTy, _], [_, FunT ib@(MkBinder _ idxTy) stepAction@(FunT wb@(MkBinder _ WorldT) step@(DataT _ _))]) => do
+        (ATabulateIO, [eTy, _], [_, FunT ib@(MkBinder _ idxTy) stepAction@(FunT wb@(MkBinder _ WorldT) step@(DataT _ _))],
+         [eIdris, actIdris]) => do
           FunT rb@(MkBinder _ WorldT) done@(DataT _ _) <- pure rt
             | _ => unshaped fc "the array language's world-ordered tabulation, whose result is no action"
-          stepCon <- onlyCon fc 2 (unshaped fc) step
-          doneCon <- onlyCon fc 2 (unshaped fc) done
+          -- The step's and the result's `IORes`, read off the Idris types
+          -- the action and the result give after their arguments.
+          (idxIdris, actionIdris) <- runtimeArrow fc actIdris
+          stepCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc actionIdris))
+          doneCon <- (.single) <$> onlyAt fc 2 (snd !(runtimeArrow fc resTy))
           let arrTy = (Data.Vect.index 0 doneCon.fields).type
           a <- theElement
-          eSnoc <- snocCons fc eTy
-          iSnoc <- snocCons fc idxTy
+          eSnoc <- snocCons fc eIdris
+          iSnoc <- snocCons fc idxIdris
           let r = minus (rank arrTy) (rank a)
           cellsFixed fc arrTy r
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [e, act] =>
@@ -2257,11 +2308,12 @@ mutual
                                      stepCon doneCon))))
         _ => unshaped fc "the array language's function, at operand types it does not have"
         where
-          -- The constructor of a linear array's cell, and the dimensions
-          -- and element of the array it holds.
-          cellOf : Ty -> Front (Con 1, List Dim, Ty)
+          -- The constructor of a linear array's cell, read off the family
+          -- its Idris type names, and the dimensions and element of the
+          -- array it holds.
+          cellOf : ClosedTerm -> Front (Con 1, List Dim, Ty)
           cellOf t = do
-            c <- onlyCon fc 1 (unshaped fc) t
+            c <- (.single) <$> onlyAt fc 1 t
             case (Data.Vect.head c.fields).type of
               TensorT ds e => pure (c, ds, e)
               held => unshaped fc ("the array language's linear array, whose cell holds a value of type " ++ show held)
@@ -2374,9 +2426,9 @@ mutual
                                          (map (Var loc . Bound) (drop (S (finToNat a)) (toList (Data.Vect.allFins (length es))))))
             in Tabulate loc (arrayTy (alongAxis a xa)) (Data.Vect.fromList es) body
 
-          insert : Ty -> Ty -> Ty -> Vect 3 Binder -> Front (Maker 3)
-          insert xTy iTy vTy three = do
-            iSnoc <- snocCons fc iTy
+          insert : Ty -> ClosedTerm -> Ty -> Vect 3 Binder -> Front (Maker 3)
+          insert xTy iIdris vTy three = do
+            iSnoc <- snocCons fc iIdris
             (rx ** xa) <- arrayOf xTy
             let r = minus rx (rank vTy)
             pure $ MkMaker (\ys => bindArguments loc three ys (\ren, [x, i, v] =>
@@ -2401,51 +2453,53 @@ mutual
       -- in this scope: the operands' binders (`bs`) and the types their
       -- values are bound at (`vs`, `boundTypes`), the call's kinds and the
       -- Core type of its result (`rt`), read once, where the call is
-      -- classified.
+      -- classified; and the Idris types of the result (`resTy`) and of the
+      -- operands (`ts`), which name the families a hook takes apart or
+      -- builds.
       maker : {k : Nat} -> FC -> Loc -> Maybe Shown -> (bs : Vect k Binder) -> (vs : Vect k Ty) -> Vect n PKind -> (rt : Ty) ->
-              Lowering CheckedLibrary k -> Front (Maker k)
-      maker fc loc lowered bs vs kinds rt (NatPrimitive p) = pure (MkMaker (\ns => PrimApp loc p lowered ns))
-      maker fc loc lowered bs vs kinds rt (NatClamped p) =
+              (resTy : ClosedTerm) -> (ts : Vect k ClosedTerm) -> Lowering CheckedLibrary k -> Front (Maker k)
+      maker fc loc lowered bs vs kinds rt resTy ts (NatPrimitive p) = pure (MkMaker (\ns => PrimApp loc p lowered ns))
+      maker fc loc lowered bs vs kinds rt resTy ts (NatClamped p) =
         pure (MkMaker (\ns => PrimApp loc (Op natFromBig (NatT IOpaque) made) lowered
                                 [PrimApp loc p lowered (map (\n => PrimApp loc (Op natToBig BigT made) lowered [n]) ns)]))
-      maker fc loc lowered bs vs kinds rt (NatTested test lib) = do
+      maker fc loc lowered bs vs kinds rt resTy ts (NatTested test lib) = do
         toBool <- libraryCall fc loc lib
         pure (MkMaker (\ns => toBool [PrimApp loc test lowered ns]))
-      maker fc loc lowered bs vs kinds rt (NatOnIntegers lib) = do
+      maker fc loc lowered bs vs kinds rt resTy ts (NatOnIntegers lib) = do
         f <- libraryCall fc loc lib
         pure (MkMaker (\ns => f (map (\n => PrimApp loc (Op natToBig BigT made) lowered [n]) ns)))
       -- A string built once from the list the definition's type takes.
-      maker fc loc lowered bs vs kinds rt (Builder p fits) =
+      maker fc loc lowered bs vs kinds rt resTy ts (Builder p fits) =
         pure (MkMaker (\ys => PrimApp loc (replace {p = Prim} fits (Op p.op rt made)) lowered ys))
       -- A function of the array language: the tensor operations of its
       -- sequential meaning, over its operands bound once each in order. A
       -- rank is read from the types of the operands and the result, never
       -- from the order of the implicits.
-      maker fc loc lowered bs vs kinds rt (ArrayOperation g) = do
+      maker fc loc lowered bs vs kinds rt resTy ts (ArrayOperation g) = do
         typeArgs <- traverse (\t => coreType fc ctx.owner ValueType !(normaliseClosed t)) (typeParams (toList kinds))
-        arrayTerm fc loc g rt bs vs typeArgs (mapMaybe runtimeType (toList kinds))
-      maker fc loc lowered bs vs kinds rt IdentityOnLast = pure (MkMaker (\ys => Data.Vect.last ys))
+        arrayTerm fc loc g rt resTy bs vs ts typeArgs (mapMaybe runtimeType (toList kinds))
+      maker fc loc lowered bs vs kinds rt resTy ts IdentityOnLast = pure (MkMaker (\ys => Data.Vect.last ys))
       -- A pure primitive on the operands and then the literals the call
       -- does not supply, of the call's result type, read in this scope: a
       -- result an erased argument indexes (the bound of a numeral a
       -- natural becomes) is typed at the term the call gives it.
-      maker fc loc lowered bs vs kinds rt (PureOperation p lits fits) =
+      maker fc loc lowered bs vs kinds rt resTy ts (PureOperation p lits fits) =
         pure (MkMaker (\ys => PrimApp loc (replace {p = Prim} (sym fits) (Op p.op rt made)) lowered
                                 (ys ++ map (Literal loc) (fromList lits))))
-      maker fc loc lowered bs vs kinds rt (IOOperation lits a) = do
-        res <- onlyCon fc 2 (unshaped fc) rt
+      maker fc loc lowered bs vs kinds rt resTy ts (IOOperation lits a) = do
+        res <- onlyAt fc 2 resTy
         what <- gives fc a res
-        pure (MkMaker (\ys => Effect loc a what (Data.Vect.init ys ++ map (Literal loc) (fromList lits)) (Data.Vect.last ys) res))
+        pure (MkMaker (\ys => Effect loc a what (Data.Vect.init ys ++ map (Literal loc) (fromList lits)) (Data.Vect.last ys) res.single))
       -- An array access, IO in the world's order, giving the `IORes` of the
       -- call's result type, at the rank its row read off its operands.
-      maker fc loc lowered bs vs kinds rt (AccessOperation access rank) = do
-        res <- onlyCon fc 2 (unshaped fc) rt
+      maker fc loc lowered bs vs kinds rt resTy ts (AccessOperation access rank) = do
+        res <- onlyAt fc 2 resTy
         what <- gives fc (Accesses access rank) res
-        pure (MkMaker (\ys => Effect loc (Accesses access rank) what (Data.Vect.init ys) (Data.Vect.last ys) res))
+        pure (MkMaker (\ys => Effect loc (Accesses access rank) what (Data.Vect.init ys) (Data.Vect.last ys) res.single))
       -- A foreign definition's primitive on the operands and then the
       -- literals the call does not supply: a handle's test for null is a
       -- comparison with the null handle.
-      maker fc loc lowered bs vs kinds rt (PrimOperation lits p) =
+      maker fc loc lowered bs vs kinds rt resTy ts (PrimOperation lits p) =
         pure (MkMaker (\ys => PrimApp loc p lowered (ys ++ map (Literal loc) (fromList lits))))
 
       -- A call of a definition a hook lowers, by its row (`Resolve.Lowered`):
@@ -2462,14 +2516,16 @@ mutual
         rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
         MkSupplied values missing together <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
         bs <- operandBinders fc ops kinds
-        mk <- maker {k = count} fc loc lowered bs (boundTypes values missing together bs) kinds rt (IOOperation lits a)
+        ts <- operandTypes fc ops kinds
+        mk <- maker {k = count} fc loc lowered bs (boundTypes values missing together bs) kinds rt resTy ts (IOOperation lits a)
         completed loc arity xs (MkSupplied values missing together) mk rt resTy
       lowerCall fc loc lowered (MkLowered {arity} {count} ops low) d ty xs = do
         (kinds, resTy) <- classifyCall fc ctx.owner (show (fullname d.def)) arity ty (argValues (take arity xs))
         MkSupplied values missing together <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
         rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
         bs <- operandBinders fc ops kinds
-        mk <- maker {k = count} fc loc lowered bs (boundTypes values missing together bs) kinds rt low
+        ts <- operandTypes fc ops kinds
+        mk <- maker {k = count} fc loc lowered bs (boundTypes values missing together bs) kinds rt resTy ts low
         completed loc arity xs (MkSupplied values missing together) mk rt resTy
 
       -- A call of a definition the registry's hooks lower, whatever

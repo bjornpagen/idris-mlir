@@ -75,39 +75,60 @@ import Decidable.Equality
 -- Members
 ------------------------------------------------------------------------------
 
-||| The one constructor of a data type (`Res`, `IORes`, a pair, the unit),
-||| of `k` fields. Each is a declaration of Idris's or of a trusted
-||| library's, whose shape the declaration states and its family's
-||| identity does not carry; a hook, or the frontend's packing, is where
-||| the frontend first reads it at that shape, so one of another shape is
-||| refused there, by its reader's refusal (`refused`).
+%prefix_record_projections off
+
+||| The one constructor of a data family, with each of its fields' Idris
+||| type at the family's instance, in order (`ArgKind`), which a reader of
+||| a value of it reads a field's own family off (`Types.dataFamilyOf`).
+public export
+record Only (k : Nat) where
+  constructor MkOnly
+  single : Con k
+  fieldTypes : Vect k ClosedTerm
+
+%prefix_record_projections on
+
+||| The Idris types of a constructor's runtime fields at its family's
+||| instance, in order, one per field.
+fieldTypesOf : (as : List ArgKind) -> Vect (fieldCount as) ClosedTerm
+fieldTypesOf [] = []
+fieldTypesOf (Param _ :: as) = fieldTypesOf as
+fieldTypesOf (ErasedArg :: as) = fieldTypesOf as
+fieldTypesOf (Field _ _ t :: as) = t :: fieldTypesOf as
+
+||| The one constructor of a data family (`Res`, `IORes`, a pair, the
+||| unit), of `k` fields, read off the family its reader holds, so no
+||| family is looked up by its identity. Each is a declaration of Idris's
+||| or of a trusted library's, whose shape the declaration states and its
+||| family's identity does not carry; a hook, or the frontend's packing, is
+||| where the frontend first reads it at that shape, so one of another
+||| shape is refused there, by its reader's refusal (`refused`).
 export
-onlyCon : {auto s : Ref TState TS} -> FC -> (k : Nat) -> (refused : String -> Front (Con k)) -> Ty -> Front (Con k)
-onlyCon fc k refused (DataT inst _) = do
-  st <- getState
-  -- A family's identity is minted by its registration, which writes it
-  -- in the table this reads, whose type does not say so.
-  let Just decl = familyOf inst st
-    | Nothing => internal fc ("a value of an undeclared type " ++ show inst)
-  let [(k' ** con)] = decl.cons
-    | _ => refused ("a value of " ++ keyText decl.key ++ ", which has not one constructor")
-  let Yes Refl = decEq k' k
-    | No _ => refused ("a value of " ++ keyText decl.key ++ ", whose constructor has " ++ show k' ++ " fields, not " ++ show k)
-  pure con
-onlyCon fc k refused t = refused ("a value of type " ++ show t ++ ", which is no data type")
+onlyCon : (k : Nat) -> (refused : String -> Front (Only k)) -> DataFamily -> Front (Only k)
+onlyCon k refused df = do
+  let [layout] = toList df.layouts
+    | _ => refused ("a value of " ++ keyText df.key ++ ", which has not one constructor")
+  let Yes same = decEq (fieldCount layout.args) k
+    | No _ => refused ("a value of " ++ keyText df.key ++ ", whose constructor has " ++ show (fieldCount layout.args) ++
+                       " fields, not " ++ show k)
+  pure (MkOnly (replace {p = Con} same layout.con)
+               (replace {p = \n => Vect n ClosedTerm} same (fieldTypesOf layout.args)))
 
 ||| The pair that holds values of these types as one (`packedType`), the
 ||| first and the rest.
 pairOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          FC -> String -> ClosedTerm -> List1 ClosedTerm -> Front (Con 2)
 pairOf fc owner t rest = do
-  -- The pair Idris's `%pair` names, applied, is a data type's, whose Core
-  -- type `coreType` reads from the type, which says nothing of
+  -- The pair Idris's `%pair` names, applied, is a data type's, whose
+  -- family `dataFamilyOf` reads from the type, which says nothing of
   -- `packedType`: the packing is where the frontend first reads it, so a
   -- pair of another shape is refused, as the compiled module it is.
-  DataT inst _ <- coreType fc owner ValueType !(normaliseClosed !(packedType (t ::: forget rest)))
-    | other => reject fc owner CompiledModule ("values held as one in a value of type " ++ show other ++ ", which is no pair")
-  onlyCon fc 2 (reject fc owner CompiledModule) (DataT inst [])
+  packed <- packedType (t ::: forget rest)
+  Just (df, _) <- dataFamilyOf fc owner packed
+    | Nothing => do
+        written <- showTT packed
+        reject fc owner CompiledModule ("values held as one in a value of type " ++ written ++ ", which is no pair")
+  (.single) <$> onlyCon 2 (reject fc owner CompiledModule) df
 
 ||| The values an implementation closes over as the one value its parameter
 ||| holds (`packedType`): the value itself, or a pair of the first and the

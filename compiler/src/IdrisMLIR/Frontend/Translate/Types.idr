@@ -207,34 +207,33 @@ signatureExtents kinds result = MkExtents <$> params kinds <*> namedAxes result
 ||| Does the rest of a function's type need an erased binder's form: is
 ||| the binder a shape that the rest, with `formProbe` for it, puts in a
 ||| form (`TypeConstructors.formRead`), the type constructors' forms as
-||| they were read with the program (`Read.tyCons`)?
+||| they were read with the program, each in its own nature
+||| (`TypeConstructors.natureFacts`)?
 export
 formNeeded : (kind : ClosedTerm) -> (ClosedTerm -> ClosedTerm) -> Front Bool
 formNeeded kind rest = do
   r <- reading
   probed <- fullTerm !(normaliseClosed (rest formProbe))
-  core (formRead r r.tyCons start (sizeAccessible start) [] kind isFormProbe [probed])
+  core (formRead r natureFacts start (sizeAccessible start) [] kind isFormProbe [probed])
 
-||| What the translation reads of a type constructor's definition
-||| (`TyConFacts`), read once with the program (`Read.tyCons`,
-||| `TypeConstructors`). Every type constructor read has them, so a
-||| definition without them is none, which no caller asks of: each asks of
-||| the definition a type constructor's name heads.
+||| The type constructor a name in a type constructor's place names, as it
+||| was read, with its facts (`TyConFacts`), which its nature holds: a name
+||| the context defines as no type constructor, where a term the compiled
+||| modules hold puts one, is the compiled module's error, refused as a
+||| missing definition is (`lookupDef`).
 export
-tyConFacts : Defined -> Front TyConFacts
-tyConFacts tc = do
-  r <- reading
-  -- The facts are a table the type constructors' addresses key, read for
-  -- every type constructor read, which the table's type does not say.
-  let Just facts = lookup (addressOf tc.placement) r.tyCons
-    | Nothing => internal (location tc.def) ("the facts of " ++ show (fullname tc.def) ++ ", which is no type constructor")
-  pure facts
+lookupTyCon : {auto s : Ref TState TS} -> FC -> String -> Name -> Front (Defined, TyConFacts)
+lookupTyCon fc owner n = do
+  tc <- lookupDef fc owner n
+  case tc.nature.asTypeConstructor of
+    ATypeConstructor facts => pure (tc, facts)
+    NoTypeConstructor => reject fc owner CompiledModule (show (fullname tc.def) ++ " is not a type constructor")
 
 ||| The positions of a type constructor's arguments the growth check
-||| watches (`watched`), read with its other facts (`tyConFacts`).
+||| watches (`watched`), read off its facts.
 export
-represented : Defined -> Front (List Nat)
-represented tc = positionsOf watched . (.roles) <$> tyConFacts tc
+represented : TyConFacts -> List Nat
+represented facts = positionsOf watched facts.roles
 
 ||| The roles of a type constructor's arguments; nothing for a name that
 ||| is no type constructor.
@@ -242,9 +241,9 @@ rolesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           String -> Name -> Front (Maybe (List Role))
 rolesOf owner n = do
   tc <- lookupDef EmptyFC owner n
-  case definition tc.def of
-    TCon {} => pure (Just (!(tyConFacts tc)).roles)
-    _ => pure Nothing
+  pure (case tc.nature.asTypeConstructor of
+          ATypeConstructor facts => Just facts.roles
+          NoTypeConstructor => Nothing)
 
 ||| Does a type mention what the test picks other than as an index of an
 ||| inductive family? Indices exist at compile time only, so a type that
@@ -611,9 +610,12 @@ sortOfType tm = case getFn tm of
   Ref _ (TyCon _) n => do
     Just tc <- defined n
       | Nothing => pure SOpaque
-    case (!(tyConFacts tc)).natness of
-      Chain => pure SNat
-      _ => pure SOpaque
+    -- A head the context defines as no type constructor is no natural.
+    pure (case tc.nature.asTypeConstructor of
+            ATypeConstructor facts => case facts.natness of
+              Chain => SNat
+              _ => SOpaque
+            NoTypeConstructor => SOpaque)
   _ => pure SOpaque
 
 ||| The levels a term or a type names, each once.
@@ -677,6 +679,20 @@ unlinkedCount (Param _ :: as) = unlinkedCount as
 unlinkedCount (ErasedArg :: as) = unlinkedCount as
 unlinkedCount (Field _ _ _ :: as) = cong S (unlinkedCount as)
 
+||| The choice a type in a runtime position is the type of, as an
+||| implementation's (`implementationType`), keyed by the type constructor
+||| at the head of its closed normal form, an interface's or the pair's;
+||| nothing for a type that is no implementation's, or a form no type
+||| constructor heads, which keys no choice and is read as any type is. The
+||| one reading of where a value is an implementation's rather than a
+||| data value (`coreTypeIn`, `dataFamilyOf`).
+implementationChoice : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                       Given vars -> TT vars -> Front (Maybe ChoiceType)
+implementationChoice g tm = do
+  True <- implementationType tm
+    | False => pure Nothing
+  choiceHead <$> normaliseClosed (close g tm)
+
 ||| What the walk of a constructor's type finds: its arguments' kinds, the
 ||| position and type of each of its quantity-0 arguments in order (its
 ||| candidate binders, each given its stand-in where it is bound), and the
@@ -730,12 +746,7 @@ mutual
   -- An implementation in a runtime position is a value of its type's
   -- choice: which of the implementations the program fixes it is.
   coreTypeIn chain acc g fc owner rule tm = do
-    True <- implementationType tm
-      | False => dataTypeIn chain acc g fc owner rule tm
-    -- The choice is keyed by the type constructor at the head of the
-    -- closed type's normal form, an interface's or the pair's; a form no
-    -- type constructor heads keys no choice, and is read as any type is.
-    Just ct <- choiceHead <$> normaliseClosed (close g tm)
+    Just ct <- implementationChoice g tm
       | Nothing => dataTypeIn chain acc g fc owner rule tm
     choice <- choiceFamily fc owner ct
     pure (DataT choice.family [])
@@ -746,7 +757,7 @@ mutual
                {cat : Category} -> Given vars -> FC -> String -> Rule cat -> TT vars -> Front Ty
   dataTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
-      tc <- lookupDef fc owner n
+      (tc, facts) <- lookupTyCon fc owner n
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
@@ -754,7 +765,7 @@ mutual
       -- Idris's `Nat`, a chain of successors, is a natural. A family of
       -- the same shape whose constructors take an erased index (`Fin`,
       -- `Elem`) is a family: the dialect lays it out as a number.
-      case (!(tyConFacts tc)).natness of
+      case facts.natness of
        Chain => pure (NatT IOpaque)
        _ => if hs.wordType
          then pure (IntT UInt64)
@@ -802,10 +813,9 @@ mutual
              (chain : Registering) -> (0 _ : Descending chain) ->
              FC -> String -> Name -> List ClosedTerm -> Front (Registration chain.links, Ty)
   familyIn chain (Access rec) fc owner tcon args0 = do
-    tc <- lookupDef fc owner tcon
+    (tc, facts) <- lookupTyCon fc owner tcon
     let def = tc.def
     let tname = show (fullname def)
-    facts <- tyConFacts tc
     let params = facts.params
     let roles = facts.roles
     let positions = [0 .. length args0]
@@ -1009,15 +1019,31 @@ dataOf fc owner ty = do
   tm <- normaliseClosed ty
   case getFnArgs tm of
     (Ref _ (TyCon _) n, args) => do
-      tc <- lookupDef fc owner n
+      (tc, facts) <- lookupTyCon fc owner n
       let hs = namedHooks tc.registered
-      case (!(tyConFacts tc)).natness of
+      case facts.natness of
         Chain => pure Nothing
         _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
                args' <- traverse (normaliseClosed . close none) args
                (found, t) <- familyIn (MkRegistering b []) (started b) fc owner n args'
                pure (Just (wholeAtStart found, t))
     _ => pure Nothing
+
+||| The data family a closed type's Core type is, as `coreType` reads it,
+||| with the type of its values at its index terms: the family the
+||| registration made (`familyIn`), whole, which the reader of its
+||| constructors holds, so that none looks a family up by its identity;
+||| nothing where the Core type is no data family: an implementation's,
+||| which is a choice (`implementationChoice`), or a type `dataOf` reads as
+||| none.
+export
+dataFamilyOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               FC -> String -> ClosedTerm -> Front (Maybe (DataFamily, Ty))
+dataFamilyOf fc owner ty = do
+  tm <- normaliseClosed ty
+  Nothing <- implementationChoice none tm
+    | Just _ => pure Nothing
+  dataOf fc owner tm
 
 ||| The binder of a position of a closed type at the quantity its value is
 ||| used at (`coreBinderIn`). A position of quantity 0 binds no runtime

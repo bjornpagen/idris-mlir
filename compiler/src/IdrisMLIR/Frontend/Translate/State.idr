@@ -740,7 +740,7 @@ data Natness = NotNat     -- not Nat-like
              | Chain      -- Nat-like, every constructor argument at run time: a shape is a chain of S
 
 ||| What the argument at a position of a type constructor is to a data
-||| instance of it, decided once per position (`Types.tyConFacts`):
+||| instance of it, decided once per position (`TypeConstructors`):
 |||
 ||| - `Keyed`: a type parameter a value represents, which keys the instance
 |||   whole, its own indices erased;
@@ -920,6 +920,37 @@ record ExitTypes where
   actionGives : ClosedTerm
   valueWorld : Uses
 
+||| What the translation reads of a definition as a type constructor: a
+||| type constructor's facts (`TyConFacts`), found once from every
+||| definition read (`TypeConstructors`), or none, for any other
+||| definition. A reader of a type constructor matches here, so no reader
+||| holds a type constructor without its facts.
+public export
+data AsTypeConstructor = ATypeConstructor TyConFacts | NoTypeConstructor
+
+||| What the walk that names blocks over what `main` reaches calls a
+||| definition (`Boundary.blockNamesOf`): a nested block by its place under
+||| the definition that refers to it first, which an unrelated edit does
+||| not move, and any other definition it entered by its own name; or
+||| nothing, for a definition no walk entered. A nested block no walk
+||| reaches is no part of the compiled program: a local definition is a
+||| function, and eager evaluation runs nothing of one no call reaches.
+public export
+data WalkedName = NamedByWalk String | NotWalked
+
+||| What follows of a definition from the whole program's definitions,
+||| found once from all of them, before any phase reads one
+||| (`TypeConstructors.readWhole`): its facts as a type constructor, what
+||| the walk that names blocks calls it, and what Idris proved of its
+||| loops, the component it is proved to end in or, with no proof, that it
+||| may diverge, by its own name.
+public export
+record Nature where
+  constructor MkNature
+  asTypeConstructor : AsTypeConstructor
+  called : WalkedName
+  termination : Termination
+
 ||| A definition of the frozen context as the translation reads it, each
 ||| part read once (`Boundary`): its place, the definition, its type as the
 ||| context's accessor reads it, its body when it matches (`Matched`),
@@ -930,9 +961,12 @@ record ExitTypes where
 ||| with (`ExitTypes`), where its values are members of a choice
 ||| (`MemberPlaces`), and the binders of its type in normal form, the
 ||| normal form the member table is read off, each with what the
-||| definition takes there (`Closed.argumentAt`) and its type (`Binders`).
+||| definition takes there (`Closed.argumentAt`) and its type (`Binders`);
+||| and what the whole program's definitions say of it (`facts`), which
+||| only all of them read can give: nothing while they are being read
+||| (`()`), its `Nature` once they are.
 public export
-record Defined where
+record DefinitionRead (facts : Type) where
   constructor MkDefined
   placement : Placement
   def : GlobalDef
@@ -944,18 +978,31 @@ record Defined where
   exitTypes : Maybe ExitTypes
   places : MemberPlaces
   binders : Binders ArgumentAt []
+  nature : facts
+
+||| A definition as every phase after the boundary reads it: with what the
+||| whole program's definitions say of it (`Nature`).
+public export
+Defined : Type
+Defined = DefinitionRead Nature
+
+||| A definition given what the whole program's definitions say of it.
+export
+withNature : facts' -> DefinitionRead facts -> DefinitionRead facts'
+withNature n d =
+  MkDefined d.placement d.def d.type d.matched d.ends d.registered d.loweredBy d.exitTypes d.places d.binders n
 
 ||| What a definition takes at each binder of its type in normal form, in
 ||| order (`binders`).
 public export
-(.taken) : Defined -> List ArgumentAt
+(.taken) : DefinitionRead facts -> List ArgumentAt
 (.taken) d = readOfEach d.binders
 
 ||| Where a definition's values are members of a choice (`MemberPlaces`),
 ||| read once at the boundary: the lookup the translation and the growth
 ||| check read it by, with `givenAt` and `givesAfter`.
 export
-memberPlaces : Defined -> MemberPlaces
+memberPlaces : DefinitionRead facts -> MemberPlaces
 memberPlaces d = d.places
 
 ||| The type a member at a use is applied as by, `{0 t : Type} -> (f : t)
@@ -990,59 +1037,79 @@ applicationOver t f u =
 ||| interfaces the program loaded, by full name, Idris's own table of them,
 ||| since nothing the translation does declares one (an implementation is
 ||| a value of one of these types, or of a pair of or a function to such
-||| values, `Boundary.implementationHolding`); and what follows from the
-||| definitions alone, found once from them: each type constructor's facts
-||| (`TypeConstructors`), the component of the call graph each definition
-||| whose loops Idris proved to end is proved in (`Recursion`; one with no
-||| proof may diverge, `terminationOf`), and what each case, with and
-||| nested block is called, `<parent>.case<k>` (`Boundary`), each by its
-||| address. Nothing the translation does changes it.
+||| values, `Boundary.implementationHolding`). Each definition holds what
+||| the whole program's definitions say of it (`facts`): nothing while
+||| they are being read, and its `Nature` once they all are (`Read`).
+||| Nothing the translation does changes it.
 public export
-record Read where
-  constructor MkRead
+record Reading (facts : Type) where
+  constructor MkReading
   frozen : Frozen
-  definitions : SortedMap Int Defined
+  definitions : SortedMap Int (DefinitionRead facts)
   application : Application
   interfaces : SortedSet Name
-  tyCons : SortedMap Address TyConFacts
-  loops : SortedMap Address ComponentId
-  blockNames : SortedMap Address String
 
-||| What Idris proved of a definition's loops: that they end, in the
-||| component the proof is of, or, with no proof, that they may diverge, by
-||| the definition's own name. Total: a definition with no proof is one
-||| that may diverge, whatever left it unproved.
+||| What every phase after the boundary reads of the program: each
+||| definition with its `Nature`.
+public export
+Read : Type
+Read = Reading Nature
+
+||| What follows of a definition from the whole program's definitions,
+||| read off what was found from all of them, each by address: the type
+||| constructors' facts, a table that holds a type constructor's and no
+||| other's (`TypeConstructors`); what the walk that names blocks calls each
+||| definition it entered (`Boundary.blockNamesOf`); and the component each
+||| definition whose loops Idris proved to end is proved in (`Recursion`),
+||| one with no proof one that may diverge, whatever left it unproved.
 export
-terminationOf : Read -> Defined -> Termination
-terminationOf r d = case lookup (addressOf d.placement) r.loops of
-  Just component => Terminates component
-  Nothing => MayDiverge (shown (show (fullname d.def)) ::: [])
+natureFrom : (tyCons : SortedMap Address TyConFacts) -> (called : SortedMap Address String) ->
+             (proved : SortedMap Address ComponentId) -> DefinitionRead () -> Nature
+natureFrom tyCons called proved d =
+  let a = addressOf d.placement in
+  MkNature (maybe NoTypeConstructor ATypeConstructor (lookup a tyCons))
+           (maybe NotWalked NamedByWalk (lookup a called))
+           (maybe (MayDiverge (shown (show (fullname d.def)) ::: [])) Terminates (lookup a proved))
+
+||| The reading with every definition given what the whole program's
+||| definitions say of it (`nature`).
+export
+natured : (DefinitionRead () -> Nature) -> Reading () -> Read
+natured nature r =
+  MkReading r.frozen (map (\d => withNature (nature d) d) r.definitions) r.application r.interfaces
 
 ||| What was read of a name: the definition at the entry the frozen context
-||| resolves it to; no definition, for a name the context defines as
-||| nothing (a probe's, a binder's); or an entry the reading missed, which
-||| only the compiler's error leaves, since every definition the
-||| translation can meet is read.
+||| resolves it to, with the entry and the evidence that the name resolves
+||| there and that the context defines it, so that a reader that also needs
+||| the entry's address resolves the name once (`Definitions.definedAddress`);
+||| or no definition, for a name the context defines as nothing (a probe's,
+||| a binder's).
 public export
-data ReadOf = ReadAs Defined | NoDefinition | Missed
+data ReadOf : Frozen -> Name -> Type -> Type where
+  ReadAs : {0 ctx : Frozen} -> {0 n : Name} -> {0 facts : Type} -> {0 g : GlobalDef} -> (i : Int) ->
+           (0 _ : Resolves ctx n i) -> (0 _ : Defines ctx n g) -> DefinitionRead facts -> ReadOf ctx n facts
+  NoDefinition : {0 ctx : Frozen} -> {0 n : Name} -> {0 facts : Type} ->
+                 (0 _ : (g : GlobalDef) -> Not (Defines ctx n g)) -> ReadOf ctx n facts
 
-||| What was read of a name (`ReadOf`).
+||| What was read of a name (`ReadOf`). Every definition a phase can meet
+||| was read from what `main` reaches, so an entry the context defines and
+||| the reading missed is the compiler's error.
 export
-readOf : Read -> Name -> ReadOf
+readOf : (r : Reading facts) -> (n : Name) -> Core (ReadOf r.frozen n facts)
 readOf r n = case definitionIn r.frozen n of
-  NotDefined _ => NoDefinition
-  DefinedAs i _ _ _ => maybe Missed ReadAs (lookup i r.definitions)
+  NotDefined none => pure (NoDefinition none)
+  DefinedAs i resolved _ defines => case lookup i r.definitions of
+    Just d => pure (ReadAs i resolved defines d)
+    Nothing => throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn r.frozen n)))
 
 ||| The definition a name names, as it was read (`readOf`); nothing for a
-||| name the context defines as nothing, a probe's among them. Every
-||| definition a phase can meet was read from what `main` reaches, so one
-||| the context defines and the reading missed is the compiler's error.
+||| name the context defines as nothing, a probe's among them.
 export
-definedIn : Read -> Name -> Core (Maybe Defined)
-definedIn r n = case readOf r n of
-  ReadAs d => pure (Just d)
-  NoDefinition => pure Nothing
-  Missed => throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn r.frozen n)))
+definedIn : Reading facts -> Name -> Core (Maybe (DefinitionRead facts))
+definedIn r n = do
+  ReadAs _ _ _ d <- readOf r n
+    | NoDefinition _ => pure Nothing
+  pure (Just d)
 
 %prefix_record_projections on
 
@@ -1204,12 +1271,6 @@ requestedBefore = lookupFact (.instances)
 export
 declaredIn : Facts -> FamilyId -> Maybe Family
 declaredIn t fam = (dataDeclared <$> lookup fam t.dataFamilies) <|> (choiceDeclared <$> lookup fam t.choices)
-
-||| A family registered, by its identity, as Emit declares it, as the step
-||| being run reads it (`lookupFact`).
-export
-familyOf : FamilyId -> TS -> Maybe Family
-familyOf fam st = (dataDeclared <$> lookupFact (.dataFamilies) fam st) <|> (choiceDeclared <$> lookupFact (.choices) fam st)
 
 ||| The state with what the step being run has derived changed by `f`: the
 ||| one write of the instance table's facts a step makes.

@@ -164,7 +164,7 @@ translateDefinition p n m counted = do
   let body = tied loc p.signature.callee.params (allFins (Runtimes p.signature.kinds)) ties
                   (tiedExits loc p.signature.callee.result exits (length (telescopeOf p.signature.kinds)) p.signature.callee.params tree')
   -- What Idris proved of its loops, read with the program (`Recursion`).
-  termination <- (\r => terminationOf r d) <$> reading
+  let termination = d.nature.termination
   extents <- signatureExtents p.signature.kinds p.signature.result
   updateState (derive { fns $= insert p.inst (MkTFn p.key standing (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
                                                       extents names body loc termination) })

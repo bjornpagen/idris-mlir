@@ -183,15 +183,16 @@ capOf addr j = do
       -- type to read a cap from here; only an instance shows it.
       Just (a, rest) <- parameterAt j ty
         | Nothing => pure Nothing
-      -- `tyConFacts`' `natness` is the one reading of whether a shape is a
-      -- run of successors, read as a data instance reads its type; a type
-      -- that is no type constructor applied is no `Nat`-like one. A chain is
-      -- no interface's type, so no call passes an implementation at j, and
-      -- `staticsOver`'s kind, decided with no argument a dictionary, is
-      -- `classify`'s at every call.
+      -- A type constructor's `natness` is the one reading of whether a
+      -- shape is a run of successors, read as a data instance reads its
+      -- type (`Types.lookupTyCon`); a type that is no type constructor
+      -- applied is no `Nat`-like one. A chain is no interface's type, so no
+      -- call passes an implementation at j, and `staticsOver`'s kind,
+      -- decided with no argument a dictionary, is `classify`'s at every
+      -- call.
       a' <- normaliseClosed a
       natness <- case getFnArgs a' of
-        (Ref _ (TyCon _) tn, _) => (.natness) <$> tyConFacts !(lookupDef EmptyFC owner tn)
+        (Ref _ (TyCon _) tn, _) => (.natness) . snd <$> lookupTyCon EmptyFC owner tn
         _ => pure NotNat
       case natness of
         Chain => capFrom j <$> capTemplate (rest (markerAt j []))
