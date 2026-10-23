@@ -1187,9 +1187,10 @@ applicationOver t f u =
                 (Local EmptyFC Nothing 1 (Later First))))
 
 ||| What the checker made of a metavariable a term the boundary read names,
-||| read once, after the freeze, by the entry `i` the term gives it in the
-||| frozen context `fz`, the name Host's `Solve` unfolds
-||| (`Boundary.readProgram`): a solution, the definition at that entry, of
+||| at the entry `i` the term gives it, the name Host's `Solve` unfolds:
+||| read once, before the freeze, with the definitions, and held of the
+||| frozen context `fz`, which keeps what was read (`Host.keptAt`,
+||| `Boundary.readProgram`): a solution, the definition at that entry, of
 ||| no arguments and one leaf, which is the solution, held with the entry's
 ||| placement, which a walk enters before it walks the solution, and with
 ||| the premises `Solve` states of such a definition, at quantity 0; or a
