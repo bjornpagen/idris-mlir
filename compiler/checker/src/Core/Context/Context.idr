@@ -410,6 +410,11 @@ record Context where
     nextEntry : Int
     -- Map from full name to its position in the context
     resolvedAs : NameMap Int
+    -- The names given a position with nothing defined there yet, by
+    -- position: a declaration's name while its type is checked, which the
+    -- blocks in that type are named by, is known only here until its
+    -- definition holds it. It rolls back with `resolvedAs`.
+    undefinedNames : IntMap Name
     -- Map from usernames to all the possible names in all namespaces
     possibles : UserNameMap (List PossibleName)
     -- Reference to the actual content, indexed by Int. Its size is the

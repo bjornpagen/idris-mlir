@@ -60,6 +60,7 @@ initCtxtS ids s
             { firstEntry = 0
             , nextEntry = 0
             , resolvedAs = empty
+            , undefinedNames = empty
             , possibles = empty
             , content = aref
             , branchDepth = 0
@@ -105,6 +106,7 @@ newEntry n ctxt
          coreLift (claimSlot idx (content ctxt))
          pure (idx, { nextEntry := idx + 1,
                       resolvedAs $= insert n idx,
+                      undefinedNames $= insert idx n,
                       possibles $= addPossible n idx
                     } ctxt)
 
@@ -146,16 +148,19 @@ getNameID n ctxt = lookup n (resolvedAs ctxt)
 
 -- Add the name to the context, or update the existing entry if it's already
 -- there.
--- If we're not at the top level, add it to the staging area
+-- If we're not at the top level, add it to the staging area.
+-- Either way the position is defined from here on: its name is its
+-- definition's, no longer one of the undefined names.
 export
 addCtxt : Name -> GlobalDef -> Context -> Core (Int, Context)
 addCtxt n val ctxt_in
     = if branchDepth ctxt_in == 0
          then do (idx, ctxt) <- getPosition n ctxt_in
                  setEntry ctxt idx (Decoded val)
-                 pure (idx, ctxt)
+                 pure (idx, { undefinedNames $= delete idx } ctxt)
          else do (idx, ctxt) <- getPosition n ctxt_in
-                 pure (idx, { staging $= insert idx (Decoded val) } ctxt)
+                 pure (idx, { staging $= insert idx (Decoded val),
+                              undefinedNames $= delete idx } ctxt)
 
 export
 addEntry : Name -> ContextEntry -> Context -> Core (Int, Context)
@@ -163,9 +168,10 @@ addEntry n entry ctxt_in
     = if branchDepth ctxt_in == 0
          then do (idx, ctxt) <- getPosition n ctxt_in
                  setEntry ctxt idx entry
-                 pure (idx, ctxt)
+                 pure (idx, { undefinedNames $= delete idx } ctxt)
          else do (idx, ctxt) <- getPosition n ctxt_in
-                 pure (idx, { staging $= insert idx entry } ctxt)
+                 pure (idx, { staging $= insert idx entry,
+                              undefinedNames $= delete idx } ctxt)
 
 returnDef : Bool -> Int -> GlobalDef -> Maybe (Int, GlobalDef)
 returnDef False idx def = Just (idx, def)
@@ -371,12 +377,17 @@ indexedName gam n = maybe n Resolved (getNameID n gam)
 
 export
 HasNames Name where
+  -- A position's full name is the name it was given while nothing is
+  -- defined there (a declaration whose type is being checked), and else its
+  -- definition's. A position the context never gave, as metadata may hold,
+  -- stays as it is.
   full gam (Resolved i)
-      = do Just gdef <- lookupCtxtExact (Resolved i) gam
-                  -- May occasionally happen when working with metadata.
-                  -- It's harmless, so just silently return the resolved name.
-                | Nothing => pure (Resolved i)
-           pure (fullname gdef)
+      = case lookup i (undefinedNames gam) of
+             Just n => pure n
+             Nothing =>
+               do Just gdef <- lookupCtxtExact (Resolved i) gam
+                       | Nothing => pure (Resolved i)
+                  pure (fullname gdef)
   full gam n = pure n
 
   resolved gam n = pure (indexedName gam n)

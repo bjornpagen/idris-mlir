@@ -501,7 +501,11 @@ record PairParts (vars : Scope) where
 -- The parts are arguments, at the multiplicity a constructor's argument
 -- has, and the right one is checked first, as an application whose
 -- argument types are unknown checks them, so that the left one has more to
--- resolve its names with.
+-- resolve its names with. A part's type is the implicit argument the value
+-- reading's constructor takes for it (`MkPair`'s `{0 a, b : Type}`), made as
+-- an application makes one: in a type that binds its unsolved implicits,
+-- one nothing solves, as the type of a part that is itself bound
+-- implicitly (`(a, b) = (c, d)`), is bound as an argument of the type.
 pairParts : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
@@ -524,7 +528,11 @@ pairParts rig elabinfo nest env fc l r
     partType root
         = do nm <- genName (known root)
              u <- uniVar fc
-             metaVar fc erased env nm (TType fc u)
+             let ty = TType fc u
+             meta <- metaVar fc erased env nm ty
+             when (bindingVars elabinfo) $ update EST $
+               addBindIfUnsolved nm fc erased Implicit env meta ty
+             pure meta
 
 -- The type reading of elaborated parts: each part a type, and the whole
 -- the pair type over them.

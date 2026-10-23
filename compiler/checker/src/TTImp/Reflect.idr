@@ -13,6 +13,11 @@ import Libraries.Data.WithDefault
 
 %default covering
 
+||| The depth base's reflected syntax holds for a search written `%search`,
+||| as the language's parser writes that syntax.
+writtenSearchDepth : Nat
+writtenSearchDepth = 50
+
 export
 Reify BindMode where
   reify defs val@(NDCon _ n _ _ args)
@@ -555,10 +560,14 @@ mutual
              f' <- reflect fc defs lhs env f
              a' <- reflect fc defs lhs env a
              appCon fc defs (reflectionttimp KIWithApp) [fc', f', a']
-    -- The reflected form holds a depth this compiler's search does not
-    -- have, and any number would be invented, so the script is refused.
+    -- A quoted search is the term its syntax writes in the language, with
+    -- the depth the language gives `%search`. This checker's search has no
+    -- depth, and reading a script's search drops the one it holds, so the
+    -- depth is only what a script sees of the term it quoted.
     reflect fc defs lhs env (ISearch tfc)
-        = throw (GenericMsg tfc "A search has no depth to give a script")
+        = do fc' <- reflect fc defs lhs env tfc
+             d' <- reflect fc defs lhs env writtenSearchDepth
+             appCon fc defs (reflectionttimp KISearch) [fc', d']
     reflect fc defs lhs env (IAlternative tfc t as)
         = do fc' <- reflect fc defs lhs env tfc
              t' <- reflect fc defs lhs env t
