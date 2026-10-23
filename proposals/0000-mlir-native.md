@@ -2544,6 +2544,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   under D131), which shrinks what stays untied but never empties it.
   Rejected: no tie on a call's result with an axis unstated, which drops
   the stated axes' facts.
+- **C269** (2026-10-23; L07x's handoff, under C87 and AGENTS.md's "a
+  linear binder does not imply unique heap ownership"; for the owner's
+  review). The uniqueness test's shared region takes its value at `many`
+  uses: the runtime shares the cell there, so each field read is of a
+  value others reach too and its count rises by `count.dup`, which C87
+  admits only of a value used many. The unique region keeps `once`. The
+  program's quantity is kept: the test consumes the once owner once, and
+  its shared region's argument is a new value whose sharing the test
+  established. Declared in the specification (the op's region argument
+  and its type compatibility); a cast by `lin.cast`, which declares no
+  consumption, is rejected.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
