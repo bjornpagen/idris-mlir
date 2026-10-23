@@ -2322,6 +2322,20 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   join only where that region calls it only as a run's head; otherwise it
   stays a function, its call a proper tail call and contify free to find
   it, where it would have named a function the program no longer defines.
+- **C262** (2026-10-23; L18x's finding, under C239 and D30). No cast
+  follows a call. A function's result axes are `?` whatever their term,
+  a literal included, its size kept in `#idr.extents` (a constant entry
+  where it is known), and the function verifier refuses a static result
+  axis, so the type a call gives is the type its slot takes and Emit's
+  `fit` never puts a `tensor.cast` or a re-packing reindex after one: a
+  cast between ranked types is not free here (an array's words are its
+  cell and one word per dynamic size, `memref.cast` lowering re-packs
+  them), so a cast after a tail call would take it out of tail position
+  silently. A caller reads a callee's known result size from its
+  extents; a return of a static value casts before the return. C239's
+  "static where that term is a literal" holds for inputs only, amended
+  here. And `idr.array.tie_shape`, which carries a tail freely, keeps its
+  operand's type by its definition.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
