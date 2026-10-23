@@ -44,8 +44,17 @@ processParams {vars} {c} {m} {u} nest env fc ps ds
          let pty_raw = mkParamTy ps
          pty_imp <- bindTypeNames fc [] (toList vars) (IBindHere fc (PI erased) pty_raw)
          log "declare.param" 10 $ "Checking " ++ show pty_imp
+         -- The block's types are checked at a position of their own in the
+         -- context, as a declaration's type is checked at its name's: a
+         -- block made in them (an `if` in a parameter's type is a case
+         -- block) is named by the full name of the position it is made at,
+         -- and a module must be able to write that name. The block has no
+         -- name in the source, so its position is given a machine name in
+         -- the current namespace, which nothing a user writes can name and
+         -- where nothing is ever defined.
+         pidx <- resolveName !(genName (known KIParameters))
          u <- uniVar fc
-         pty <- checkTerm (-1) InType []
+         pty <- checkTerm pidx InType []
                           nest env pty_imp (gType fc u)
          let (vs ** (prf, env', nest')) = extend env Refl nest pty
          logEnv "declare.param" 5 "Param env" env'
