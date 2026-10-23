@@ -605,3 +605,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   fix is its own code, with a `tests/checker-*` check (L17, after
   C271); INT reruns `tools/bootstrap.sh idris` for 115, 116 and L06i's
   patches.
+- C272 (F-F2), after L16ej and L16ek: an index the instance key erases
+  becomes an index parameter of the instance (`Types.idr:361`'s
+  `eraseIndices`, Instances, Keys), each call passing its term (Terms);
+  reproducer `/private/tmp/l16ei/repro/compose-index`. From L16ei:
+  Emit's `fitting` (`Tensors.idr:163-166`) passes two tensors of equal
+  dimensions with no comparison of their element types.
