@@ -2353,6 +2353,18 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   writes a result's constant extent entries (C239's "the frontend writes
   extents" covers Emit). A tie states what it ties before the call, an
   axis nothing states computed from the index terms the call is given.
+- **C263** (2026-10-23; L16dy's and L16eb's evidence, under C217 and
+  AGENTS.md's monomorphic rule). A parameter whose type's result is a
+  universe (`Type`, `Type -> Type`, any `... -> Type`) is a type parameter,
+  keyed at compile time as `Type` is, whatever its quantity: never a
+  function choice and never a run-time value, so an interface over a
+  higher-kinded parameter Idris binds at ω compiles. A type case on such
+  a parameter at ω compiles too: in every instance the type is known, so
+  the tree's choice is fixed, and the alternative is selected from the
+  type's head as a fixed implementation's is (the matching constructor's,
+  else the default, else the missing case's crash). This widens what
+  compiles toward the language, where a type at ω was refused as a
+  run-time type; it changes no program's meaning.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
