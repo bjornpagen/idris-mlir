@@ -96,10 +96,16 @@ OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor) {
   return {};
 }
 
-// Each dimension: a static one's size, a dynamic one's operand.
+// Each dimension: a static one's size, a dynamic one's operand. Upstream
+// reifies the shapes of shaped results alone, one entry each, and checks
+// that count when it asks: a graded buffer is no shaped value to it, so a
+// tie of one has no entry, where one read from its carrier would be an
+// entry too many.
 LogicalResult ArrayTieShapeOp::reifyResultShapes(OpBuilder &b,
                                                  ReifiedRankedShapedTypeDims &shapes) {
-  auto type = cast<ShapedType>(getType());
+  auto type = dyn_cast<ShapedType>(getType());
+  if (!type)
+    return success();
   SmallVector<OpFoldResult> dims;
   unsigned next = 0;
   for (int64_t size : type.getShape())
@@ -110,10 +116,13 @@ LogicalResult ArrayTieShapeOp::reifyResultShapes(OpBuilder &b,
 }
 
 // The result's dimension is its size, and is the operand's: so two arrays
-// tied to one size have one dimension, wherever each came from.
+// tied to one size have one dimension, wherever each came from. Value
+// bounds asks a dimension only of a shaped value, here the tie's one
+// result, so its type is shaped: a graded tie is never asked, and its
+// operand, of the same type, is shaped with it.
 void ArrayTieShapeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
                                                  ValueBoundsConstraintSet &cstr) {
-  auto type = cast<ShapedType>(getType());
+  auto type = cast<ShapedType>(value.getType());
   auto at = static_cast<unsigned>(dim);
   if (type.isDynamicDim(at))
     cstr.bound(value)[dim] == OpFoldResult(getDims()[type.getDynamicDimIndex(at)]);
