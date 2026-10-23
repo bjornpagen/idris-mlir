@@ -47,6 +47,7 @@ import Data.List1
 import Data.Maybe
 import Data.Nat
 import Data.SnocList
+import Data.SortedSet
 import Data.String
 import Data.Vect
 import Decidable.Equality
@@ -731,11 +732,14 @@ Applicative Collected where
   pure _ = Collect [<]
   Collect a <*> Collect b = Collect (a ++ b)
 
+||| A visit that only reads, collecting the callees it meets.
+collecting : Visit Collected n n
+collecting = MkVisit (\_ => Collect [<]) (\fn => Collect [< fn]) Unmoved
+
 ||| Every callee a term calls, in the order its calls are written, each as
 ||| often as it is called.
-export
-calleesOf : TermAt js n -> List FnId
-calleesOf t = (visitTerm (the (Visit Collected n n) (MkVisit (\_ => Collect [<]) (\fn => Collect [< fn]) Unmoved)) t).callees <>> []
+calleesIn : TermAt js n -> SnocList FnId
+calleesIn t = (visitTerm collecting t).callees
 
 ------------------------------------------------------------------------------
 -- The base functor and its folds
@@ -1180,36 +1184,16 @@ worldUses (OnWorld w _) = w
 actionResult : ActionType t -> Ty
 actionResult (OnWorld _ g) = g
 
-||| A continuation the program as written makes, as its uses are written in
-||| a term of scope `n`, which becomes one of scope `m` without it: a
-||| variable applied to `k` arguments (a `let` of a lambda of `k`
-||| parameters), the one variable `without` takes out; a call of a local
-||| definition of `k` parameters, by the callee every call of it holds; or
-||| such a call whose result is an action, applied to the world, which is
-||| the action's call saturated with the world, its `k` arguments and the
-||| world the join point's.
-public export
-data Continuation : (n, m, k : Nat) -> Type where
-  Applying : (without : Fin n -> Maybe (Fin m)) -> Continuation n m k
-  Calling : Callee k -> Continuation n n k
-  Running : (c : Callee k) -> (0 _ : ActionType c.result) -> Continuation n n (S k)
+||| The visit of a position no tail of a term reaches, for a `let`'s
+||| variable, which `without` takes out of the scope: such a position may
+||| not hold it, which would make it a value and no join point.
+awayFrom : (without : Fin n -> Maybe (Fin m)) -> Visit Maybe n m
+awayFrom without = MkVisit without (\_ => Just ()) Unmoved
 
-||| The continuation under a binder of `j` variables: the binder's own are
+||| A `let`'s variable under a binder of `j` variables: the binder's own are
 ||| none of it.
-underCont : {j : Nat} -> Continuation n m k -> Continuation (Under j n) (Under j m) k
-underCont (Applying without) = Applying (\x => case splitUnder {k = j} x of
-                                               Left i => Just (Bound {n = m} i)
-                                               Right y => Free {k = j} <$> without y)
-underCont (Calling c) = Calling c
-underCont (Running c a) = Running c a
-
-||| A position no tail of the term reaches, visited for a use of the
-||| continuation, which such a position may not hold: it would be the
-||| continuation as a value, or a call that returns.
-awayFrom : Continuation n m k -> Visit Maybe n m
-awayFrom (Applying without) = MkVisit without (\_ => Just ()) Unmoved
-awayFrom (Calling c) = MkVisit Just (\fn => if fn == c.fn then Nothing else Just ()) Unmoved
-awayFrom (Running c _) = MkVisit Just (\fn => if fn == c.fn then Nothing else Just ()) Unmoved
+withoutUnder : {j : Nat} -> (without : Fin n -> Maybe (Fin m)) -> Fin (Under j n) -> Maybe (Fin (Under j m))
+withoutUnder without = (underVisit {k = j} (awayFrom without)).var
 
 ||| The head of an application and its arguments, the first first.
 headOf : TermAt [] n -> List (TermAt [] n) -> (TermAt [] n, List (TermAt [] n))
@@ -1222,164 +1206,120 @@ throughTies : TermAt [] n -> List (Nat, Stated (TermAt [] n)) -> (TermAt [] n, L
 throughTies (Tie _ _ x ds) stated = throughTies x (ds ++ stated)
 throughTies x stated = (x, stated)
 
-||| What the head of a tail is to a continuation: a use of it, which is a
-||| jump where it is saturated and its arguments hold no use (nothing
+||| What the head of a tail is to a `let`'s variable: a use of it, which is
+||| a jump where it is saturated and its arguments hold no use (nothing
 ||| otherwise); or no use, and the tail is visited as any other term.
 data HeadOf : (k : Nat) -> (js : List Nat) -> (m : Nat) -> Type where
   UseOf : Maybe (TermAt (k :: js) m) -> HeadOf k js m
   NoUse : HeadOf k js m
 
-||| A call at a tail, to a continuation: a use where it calls the local
-||| definition with all its parameters.
-callHead : {k, arity : Nat} -> Continuation n m k -> Loc -> Callee arity -> List ITerm -> Vect arity (TermAt [] n) ->
-           HeadOf k js m
-callHead c@(Calling target) l callee is as =
-  if callee.fn == target.fn
-     -- Every call of a callee holds the one signature its function is made
-     -- with, so its arity is the continuation's: the check says to the
-     -- types what the identity says already.
-     then UseOf (case decEq arity k of
-                   Yes Refl => Jump l Here is <$> visitVect (awayFrom c) as
-                   No _ => Nothing)
-     else NoUse
-callHead _ _ _ _ _ = NoUse
-
-||| An application at a tail, to a continuation: a use where it applies the
-||| `let`'s variable, or where it applies a call of the local definition
-||| whose result is an action to the world, which is that call saturated
-||| with the world.
-appHead : {k : Nat} -> Continuation n m k -> Loc -> TermAt [] n -> TermAt [] n -> HeadOf k js m
-appHead c@(Applying without) l f x = case headOf f [x] of
+||| An application at a tail, to a `let`'s variable: a use where it applies
+||| the variable.
+appHead : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> Loc -> TermAt [] n -> TermAt [] n -> HeadOf k js m
+appHead without l f x = case headOf f [x] of
   (Var _ v, args) => case without v of
-    Nothing => UseOf (toVect k args >>= \as => Jump l Here [] <$> visitVect (awayFrom c) as)
+    Nothing => UseOf (toVect k args >>= \as => Jump l Here [] <$> visitVect (awayFrom without) as)
     Just _ => NoUse
   _ => NoUse
-appHead {k = S j} c@(Running target _) l f x = case headOf f [x] of
-  (Call {arity} _ callee _ is as, [world]) =>
-    if callee.fn == target.fn
-       then UseOf (case decEq arity j of
-                     Yes Refl => Jump l Here is <$> (snoc <$> visitVect (awayFrom c) as <*> visitTerm (awayFrom c) world)
-                     No _ => Nothing)
-       else NoUse
-  _ => NoUse
-appHead (Calling _) _ _ _ = NoUse
-
-||| The head of a tie's operand at a tail, to a continuation: a call, read
-||| as it is at a tail, since a tie gives its array on with no work. Only a
-||| call's value is tied there, by what its callee's signature fixes, which
-||| the callee's region states again (`tiedExits`); any other operand is
-||| no tail.
-tiedHead : {k : Nat} -> Continuation n m k -> TermAt [] n -> HeadOf k js m
-tiedHead c (Call {arity} l callee _ is as) = callHead {arity} c l callee is as
-tiedHead c _ = NoUse
 
 mutual
-  ||| The term with each use of the continuation a jump to it, the
-  ||| outermost join point its tails see, those they saw already after it:
-  ||| each use a tail position's head of a saturated application (a call of
-  ||| the callee, the variable applied to `k` arguments, or the action a
-  ||| call gives applied to the world) whose arguments hold no use, read
-  ||| through the ties around it. Nothing where a use is anywhere else,
-  ||| which makes the continuation a value and no join point. The test reads
-  ||| the term alone, total, with no budget.
-  export
-  jumpsTo : {k : Nat} -> Continuation n m k -> TermAt js n -> Maybe (TermAt (k :: js) m)
-  jumpsTo c (Var l x) = Var l <$> (awayFrom c).var x
-  jumpsTo c (Literal l x) = pure (Literal l x)
-  jumpsTo c (PrimApp l p stands as) = PrimApp l p stands <$> visitVect (awayFrom c) as
-  jumpsTo c (Effect l p gives as w res) =
-    (\as', w' => Effect l p gives as' w' res) <$> visitVect (awayFrom c) as <*> visitTerm (awayFrom c) w
-  jumpsTo c (Call {arity} l callee stands is as) = case callHead {arity} c l callee is as of
+  ||| The term with each use of a `let`'s variable, which `without` takes
+  ||| out of the scope, a jump to its join point, the outermost join point
+  ||| its tails see, those they saw already after it: each use the head of
+  ||| an application of the variable to `k` arguments at a tail position,
+  ||| whose arguments hold no use. Nothing where a use is anywhere else,
+  ||| which makes the variable a value and no join point. The test reads the
+  ||| term alone, total, with no budget.
+  jumpsTo : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> TermAt js n -> Maybe (TermAt (k :: js) m)
+  jumpsTo w (Var l x) = Var l <$> (awayFrom w).var x
+  jumpsTo w (Literal l x) = pure (Literal l x)
+  jumpsTo w (PrimApp l p stands as) = PrimApp l p stands <$> visitVect (awayFrom w) as
+  jumpsTo w (Effect l p gives as world res) =
+    (\as', world' => Effect l p gives as' world' res) <$> visitVect (awayFrom w) as <*> visitTerm (awayFrom w) world
+  jumpsTo w (Call l callee stands is as) = Call l callee stands is <$> visitVect (awayFrom w) as
+  jumpsTo w (ConApp l con bs as) = ConApp l con bs <$> visitVect (awayFrom w) as
+  jumpsTo w (Let l x b v body) = Let l x b <$> visitTerm (awayFrom w) v <*> jumpsTo (withoutUnder {j = 1} w) body
+  jumpsTo w (Case l fam x arms) = Case l fam <$> (awayFrom w).var x <*> jumpsArms w arms
+  jumpsTo w (CaseLit l x arms) = CaseLit l <$> (awayFrom w).var x <*> jumpsLitArms w arms
+  jumpsTo w (CaseNat l x arms) = CaseNat l <$> (awayFrom w).var x <*> jumpsNatArms w arms
+  jumpsTo w (Lam l x b r body) = Lam l x b r <$> visitTerm (underVisit {k = 1} (awayFrom w)) body
+  jumpsTo w (App l a r f x) = case appHead w l f x of
     UseOf jump => jump
-    NoUse => Call l callee stands is <$> ((awayFrom c).call callee.fn *> visitVect (awayFrom c) as)
-  jumpsTo c (ConApp l con bs as) = ConApp l con bs <$> visitVect (awayFrom c) as
-  jumpsTo c (Let l x b v body) = Let l x b <$> visitTerm (awayFrom c) v <*> jumpsTo (underCont {j = 1} c) body
-  jumpsTo c (Case l fam x arms) = Case l fam <$> (awayFrom c).var x <*> jumpsArms c arms
-  jumpsTo c (CaseLit l x arms) = CaseLit l <$> (awayFrom c).var x <*> jumpsLitArms c arms
-  jumpsTo c (CaseNat l x arms) = CaseNat l <$> (awayFrom c).var x <*> jumpsNatArms c arms
-  jumpsTo c (Lam l x b r body) = Lam l x b r <$> visitTerm (underVisit {k = 1} (awayFrom c)) body
-  jumpsTo c (App l a r f x) = case appHead c l f x of
-    UseOf jump => jump
-    NoUse => App l a r <$> visitTerm (awayFrom c) f <*> visitTerm (awayFrom c) x
-  jumpsTo c (Suspend l t body) = Suspend l t <$> visitTerm (awayFrom c) body
-  jumpsTo c (Resume l t e) = Resume l t <$> visitTerm (awayFrom c) e
-  jumpsTo c (Unreachable l) = pure (Unreachable l)
-  jumpsTo c (Assume l a b body) = Assume l a b <$> jumpsTo c body
-  jumpsTo c (Crash l m) = pure (Crash l m)
-  jumpsTo c (CrashWith l m) = CrashWith l <$> visitTerm (awayFrom c) m
-  jumpsTo c (NewWorld l) = pure (NewWorld l)
-  jumpsTo c (Tensor l op) = Tensor l <$> visitOp (awayFrom c) op
-  jumpsTo c (Tabulate {k = j} l ty es body) =
-    Tabulate l ty <$> visitVect (awayFrom c) es <*> visitTerm (underVisit {k = j} (awayFrom c)) body
-  jumpsTo c (TabulateIO {k = j} l ty es w body step done) =
-    (\es', w', body' => TabulateIO l ty es' w' body' step done)
-      <$> visitVect (awayFrom c) es <*> visitTerm (awayFrom c) w <*> visitTerm (underVisit {k = S j} (awayFrom c)) body
-  jumpsTo c (Reduce l red acc el ty a j z x body) =
-    Reduce l red acc el ty a j <$> visitTerm (awayFrom c) z <*> visitTerm (awayFrom c) x
-                               <*> visitTerm (underVisit {k = 2} (awayFrom c)) body
-  -- A tie gives its array on with no work, so a use inside the ties at a
-  -- tail is at the tail. What they state of the call's value is stated
-  -- where the join point's region gives that value (`tiedExits`), over its
-  -- parameters, which the jump's arguments are; here it states nothing
-  -- more, and holds no use.
-  jumpsTo c (Tie l t x ds) = case throughTies x ds of
-    (inner, stated) => case tiedHead c inner of
-      UseOf jump => const <$> jump <*> visitStated (awayFrom c) stated
-      NoUse => Tie l t <$> visitTerm (awayFrom c) x <*> visitStated (awayFrom c) ds
-  jumpsTo c (ReadBack l e x cs body) =
-    ReadBack l e <$> visitTerm (awayFrom c) x <*> visitAll (awayFrom c) cs <*> jumpsTo (underCont {j = 2} c) body
-  jumpsTo c (ExtentsBack {k = j} l x body) =
-    ExtentsBack l <$> visitTerm (awayFrom c) x <*> jumpsTo (underCont {j = S j} c) body
+    NoUse => App l a r <$> visitTerm (awayFrom w) f <*> visitTerm (awayFrom w) x
+  jumpsTo w (Suspend l t body) = Suspend l t <$> visitTerm (awayFrom w) body
+  jumpsTo w (Resume l t e) = Resume l t <$> visitTerm (awayFrom w) e
+  jumpsTo w (Unreachable l) = pure (Unreachable l)
+  jumpsTo w (Assume l a b body) = Assume l a b <$> jumpsTo w body
+  jumpsTo w (Crash l m) = pure (Crash l m)
+  jumpsTo w (CrashWith l m) = CrashWith l <$> visitTerm (awayFrom w) m
+  jumpsTo w (NewWorld l) = pure (NewWorld l)
+  jumpsTo w (Tensor l op) = Tensor l <$> visitOp (awayFrom w) op
+  jumpsTo w (Tabulate {k = j} l ty es body) =
+    Tabulate l ty <$> visitVect (awayFrom w) es <*> visitTerm (underVisit {k = j} (awayFrom w)) body
+  jumpsTo w (TabulateIO {k = j} l ty es world body step done) =
+    (\es', world', body' => TabulateIO l ty es' world' body' step done)
+      <$> visitVect (awayFrom w) es <*> visitTerm (awayFrom w) world <*> visitTerm (underVisit {k = S j} (awayFrom w)) body
+  jumpsTo w (Reduce l red acc el ty a j z x body) =
+    Reduce l red acc el ty a j <$> visitTerm (awayFrom w) z <*> visitTerm (awayFrom w) x
+                               <*> visitTerm (underVisit {k = 2} (awayFrom w)) body
+  -- Only an application of the variable is a use at a tail: when a `let`
+  -- is read, a tie wraps only a call's value, which is no use of it.
+  jumpsTo w (Tie l t x ds) = Tie l t <$> visitTerm (awayFrom w) x <*> visitStated (awayFrom w) ds
+  jumpsTo w (ReadBack l e x cs body) =
+    ReadBack l e <$> visitTerm (awayFrom w) x <*> visitAll (awayFrom w) cs <*> jumpsTo (withoutUnder {j = 2} w) body
+  jumpsTo w (ExtentsBack {k = j} l x body) =
+    ExtentsBack l <$> visitTerm (awayFrom w) x <*> jumpsTo (withoutUnder {j = S j} w) body
   -- A join op's regions and body are tails of the op; the join points they
-  -- see gain the continuation's, outermost.
-  jumpsTo c (Join {nonEmpty} l InBody targets body) =
-    (\targets', body' => Join {nonEmpty} l InBody targets' body') <$> jumpsTargets c targets <*> jumpsTo c body
-  jumpsTo c (Join {nonEmpty} l InEveryRegion targets body) =
-    (\targets', body' => Join {nonEmpty} l InEveryRegion targets' body') <$> jumpsTargets c targets <*> jumpsTo c body
-  jumpsTo c (Jump l e terms as) = Jump l (There e) terms <$> visitVect (awayFrom c) as
+  -- see gain the variable's, outermost.
+  jumpsTo w (Join {nonEmpty} l InBody targets body) =
+    (\targets', body' => Join {nonEmpty} l InBody targets' body') <$> jumpsTargets w targets <*> jumpsTo w body
+  jumpsTo w (Join {nonEmpty} l InEveryRegion targets body) =
+    (\targets', body' => Join {nonEmpty} l InEveryRegion targets' body') <$> jumpsTargets w targets <*> jumpsTo w body
+  jumpsTo w (Jump l e terms as) = Jump l (There e) terms <$> visitVect (awayFrom w) as
 
-  jumpsArms : {k : Nat} -> Continuation n m k -> CaseArmsOf (AltAt js n) (TermAt js n) ->
+  jumpsArms : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> CaseArmsOf (AltAt js n) (TermAt js n) ->
               Maybe (CaseArmsOf (AltAt (k :: js) m) (TermAt (k :: js) m))
-  jumpsArms c (Defaulted alts d) = Defaulted <$> jumpsAlts c alts <*> jumpsTo c d
-  jumpsArms c (Exhaustive (alt ::: alts)) = (\a, as => Exhaustive (a ::: as)) <$> jumpsAlt c alt <*> jumpsAlts c alts
+  jumpsArms w (Defaulted alts d) = Defaulted <$> jumpsAlts w alts <*> jumpsTo w d
+  jumpsArms w (Exhaustive (alt ::: alts)) = (\a, as => Exhaustive (a ::: as)) <$> jumpsAlt w alt <*> jumpsAlts w alts
 
-  jumpsAlt : {k : Nat} -> Continuation n m k -> AltAt js n -> Maybe (AltAt (k :: js) m)
-  jumpsAlt c (MkAlt {k = j} con fs body) = MkAlt con fs <$> jumpsTo (underCont {j} c) body
+  jumpsAlt : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> AltAt js n -> Maybe (AltAt (k :: js) m)
+  jumpsAlt w (MkAlt {k = j} con fs body) = MkAlt con fs <$> jumpsTo (withoutUnder {j} w) body
 
-  jumpsAlts : {k : Nat} -> Continuation n m k -> List (AltAt js n) -> Maybe (List (AltAt (k :: js) m))
-  jumpsAlts c [] = pure []
-  jumpsAlts c (alt :: alts) = (::) <$> jumpsAlt c alt <*> jumpsAlts c alts
+  jumpsAlts : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> List (AltAt js n) -> Maybe (List (AltAt (k :: js) m))
+  jumpsAlts w [] = pure []
+  jumpsAlts w (alt :: alts) = (::) <$> jumpsAlt w alt <*> jumpsAlts w alts
 
-  jumpsLits : {k : Nat} -> Continuation n m k -> List (kt, TermAt js n) -> Maybe (List (kt, TermAt (k :: js) m))
-  jumpsLits c [] = pure []
-  jumpsLits c ((kv, t) :: rest) = (\t', rest' => (kv, t') :: rest') <$> jumpsTo c t <*> jumpsLits c rest
+  jumpsLits : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> List (kt, TermAt js n) -> Maybe (List (kt, TermAt (k :: js) m))
+  jumpsLits w [] = pure []
+  jumpsLits w ((kv, t) :: rest) = (\t', rest' => (kv, t') :: rest') <$> jumpsTo w t <*> jumpsLits w rest
 
-  jumpsKeyed : {k : Nat} -> Continuation n m k -> LitArmsOf kt (TermAt js n) -> Maybe (LitArmsOf kt (TermAt (k :: js) m))
-  jumpsKeyed c (LitDefault ((kv, t) ::: alts) d) =
-    (\t', alts', d' => LitDefault ((kv, t') ::: alts') d') <$> jumpsTo c t <*> jumpsLits c alts <*> jumpsTo c d
-  jumpsKeyed c (LitNoDefault ((kv, t) ::: alts)) =
-    (\t', alts' => LitNoDefault ((kv, t') ::: alts')) <$> jumpsTo c t <*> jumpsLits c alts
+  jumpsKeyed : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> LitArmsOf kt (TermAt js n) ->
+               Maybe (LitArmsOf kt (TermAt (k :: js) m))
+  jumpsKeyed w (LitDefault ((kv, t) ::: alts) d) =
+    (\t', alts', d' => LitDefault ((kv, t') ::: alts') d') <$> jumpsTo w t <*> jumpsLits w alts <*> jumpsTo w d
+  jumpsKeyed w (LitNoDefault ((kv, t) ::: alts)) =
+    (\t', alts' => LitNoDefault ((kv, t') ::: alts')) <$> jumpsTo w t <*> jumpsLits w alts
 
-  jumpsLitArms : {k : Nat} -> Continuation n m k -> LitMatch (TermAt js n) -> Maybe (LitMatch (TermAt (k :: js) m))
-  jumpsLitArms c (OnlyDefault d) = OnlyDefault <$> jumpsTo c d
-  jumpsLitArms c (OnInts t arms) = OnInts t <$> jumpsKeyed c arms
-  jumpsLitArms c (OnChars arms) = OnChars <$> jumpsKeyed c arms
-  jumpsLitArms c (OnStrings arms) = OnStrings <$> jumpsKeyed c arms
-  jumpsLitArms c (OnBigs arms) = OnBigs <$> jumpsKeyed c arms
+  jumpsLitArms : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> LitMatch (TermAt js n) -> Maybe (LitMatch (TermAt (k :: js) m))
+  jumpsLitArms w (OnlyDefault d) = OnlyDefault <$> jumpsTo w d
+  jumpsLitArms w (OnInts t arms) = OnInts t <$> jumpsKeyed w arms
+  jumpsLitArms w (OnChars arms) = OnChars <$> jumpsKeyed w arms
+  jumpsLitArms w (OnStrings arms) = OnStrings <$> jumpsKeyed w arms
+  jumpsLitArms w (OnBigs arms) = OnBigs <$> jumpsKeyed w arms
 
-  jumpsNatArms : {k : Nat} -> Continuation n m k -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
+  jumpsNatArms : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
                  Maybe (NatArmsOf (TermAt (k :: js) m) (TermAt (k :: js) (Under 1 m)))
-  jumpsNatArms c (OnlyZero z) = OnlyZero <$> jumpsTo c z
-  jumpsNatArms c (OnlySucc p s) = OnlySucc p <$> jumpsTo (underCont {j = 1} c) s
-  jumpsNatArms c (Both z p s) = (\z', s' => Both z' p s') <$> jumpsTo c z <*> jumpsTo (underCont {j = 1} c) s
+  jumpsNatArms w (OnlyZero z) = OnlyZero <$> jumpsTo w z
+  jumpsNatArms w (OnlySucc p s) = OnlySucc p <$> jumpsTo (withoutUnder {j = 1} w) s
+  jumpsNatArms w (Both z p s) = (\z', s' => Both z' p s') <$> jumpsTo w z <*> jumpsTo (withoutUnder {j = 1} w) s
 
-  jumpsTargets : {k : Nat} -> Continuation n m k -> All (Target s n) ts -> Maybe (All (Target (k :: s) m) ts)
-  jumpsTargets c [] = pure []
-  jumpsTargets c (t :: rest) = (::) <$> jumpsTarget c t <*> jumpsTargets c rest
+  jumpsTargets : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> All (Target s n) ts -> Maybe (All (Target (k :: s) m) ts)
+  jumpsTargets w [] = pure []
+  jumpsTargets w (t :: rest) = (::) <$> jumpsTarget w t <*> jumpsTargets w rest
 
-  jumpsTarget : {k : Nat} -> Continuation n m k -> Target s n j -> Maybe (Target (k :: s) m j)
-  jumpsTarget c (MkTarget {k = j} l code sorts names params body) =
-    MkTarget {k = j} l code sorts names params <$> jumpsTo (underCont {j} c) body
+  jumpsTarget : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> Target s n j -> Maybe (Target (k :: s) m j)
+  jumpsTarget w (MkTarget {k = j} l code sorts names params body) =
+    MkTarget {k = j} l code sorts names params <$> jumpsTo (withoutUnder {j} w) body
 
 ||| The lambdas a term starts with, outermost first, each its name and
 ||| binder, and the body under them, the innermost one's parameter
@@ -1408,7 +1348,7 @@ inOrder v = case splitUnder {k} v of
 export
 letOf : Loc -> Shown -> Binder -> Term n -> Term (Under 1 n) -> Term n
 letOf l x b v body = case lambdas v of
-  MkLambdas {k = S j} ps inner => case jumpsTo {k = S j} (Applying dropped) body of
+  MkLambdas {k = S j} ps inner => case jumpsTo {k = S j} dropped body of
     Just body' => Join l InBody [MkTarget l Surrounding [] (map fst ps) (map snd ps) (rename (inOrder {k = S j}) inner)] body'
     Nothing => Let l x (Checked b) v body
   MkLambdas {k = Z} _ _ => Let l x (Checked b) v body
@@ -1416,6 +1356,129 @@ letOf l x b v body = case lambdas v of
     dropped : Fin (S n) -> Maybe (Fin n)
     dropped FZ = Nothing
     dropped (FS y) = Just y
+
+------------------------------------------------------------------------------
+-- What a body calls at its tails
+------------------------------------------------------------------------------
+
+||| The head of a tail, the one reading of it every reader of a body's
+||| tails makes: a call, read through the ties around it, with what they
+||| state, since a tie gives its array on with no work and a call's value is
+||| tied by what its callee's signature fixes, which the region the call
+||| may become states again (`tiedExits`); a call applied to the world, the
+||| action the call gives run on it, read bare, since what a tie around it
+||| would state of the action's value no region states again; or no call.
+data TailHead : Nat -> Type where
+  CallHead : {arity : Nat} -> Loc -> Callee arity -> (indices : List ITerm) -> Vect arity (Term n) ->
+             (stated : List (Nat, Stated (Term n))) -> TailHead n
+  RunHead : {arity : Nat} -> Loc -> Callee arity -> (indices : List ITerm) -> Vect arity (Term n) ->
+            (world : Term n) -> TailHead n
+  NoHead : TailHead n
+
+||| A tail's head (`TailHead`).
+tailHead : TermAt js n -> TailHead n
+tailHead (Call l c _ is as) = CallHead l c is as []
+tailHead (App l _ _ (Call _ c _ is as) w) = RunHead l c is as w
+tailHead (Tie _ _ x ds) = case throughTies x ds of
+  (Call l c _ is as, stated) => CallHead l c is as stated
+  _ => NoHead
+tailHead _ = NoHead
+
+%prefix_record_projections off
+
+||| What a body calls, read once: every callee, in the order its calls are
+||| written, each as often as it is called; each one called at a tail's head
+||| (`TailHead`), as a call or as a call applied to the world; and each one
+||| called anywhere else. A local definition every call of which in a body
+||| is a head of one of those forms is a join point there, jumped to by that
+||| form (`Programs`). Its projections are postfix only.
+public export
+record BodyCalls where
+  constructor MkBodyCalls
+  written : SnocList FnId
+  asCalls : SortedSet FnId
+  asRuns : SortedSet FnId
+  elsewhere : SortedSet FnId
+
+%prefix_record_projections on
+
+Semigroup BodyCalls where
+  a <+> b = MkBodyCalls (a.written ++ b.written) (SortedSet.union a.asCalls b.asCalls) (SortedSet.union a.asRuns b.asRuns)
+                    (SortedSet.union a.elsewhere b.elsewhere)
+
+Monoid BodyCalls where
+  neutral = MkBodyCalls [<] SortedSet.empty SortedSet.empty SortedSet.empty
+
+||| The calls of a slot no tail reaches, every one elsewhere.
+awayCalls : SnocList FnId -> BodyCalls
+awayCalls cs = MkBodyCalls cs SortedSet.empty SortedSet.empty (SortedSet.fromList (cs <>> []))
+
+||| What a tail that is no `let`, match, assumption, read or join op calls,
+||| by its head: the callee its head calls, as a call or as a call applied
+||| to the world, then every other call in it, elsewhere, in the order they
+||| are written, which puts the head's first.
+atTail : TermAt js n -> BodyCalls
+atTail t = case tailHead t of
+  CallHead _ c _ as stated =>
+    MkBodyCalls [< c.fn] (SortedSet.singleton c.fn) SortedSet.empty SortedSet.empty
+      <+> awayCalls ((visitVect collecting as).callees ++ (visitStated collecting stated).callees)
+  RunHead _ c _ as w =>
+    MkBodyCalls [< c.fn] SortedSet.empty (SortedSet.singleton c.fn) SortedSet.empty
+      <+> awayCalls ((visitVect collecting as).callees ++ calleesIn w)
+  NoHead => awayCalls (calleesIn t)
+
+mutual
+  ||| What a body calls (`BodyCalls`), in one walk of its tails: through a
+  ||| `let`'s body, a match's arms, an assumption, a read's body and a join
+  ||| op's regions and body, the tails a jump may be written at; each other
+  ||| tail by its head (`atTail`); and every call in a slot no tail reaches,
+  ||| elsewhere.
+  export
+  callsOf : TermAt js n -> BodyCalls
+  callsOf (Let _ _ _ v body) = awayCalls (calleesIn v) <+> callsOf body
+  callsOf (Case _ _ _ arms) = callsArms arms
+  callsOf (CaseLit _ _ arms) = callsLitArms arms
+  callsOf (CaseNat _ _ arms) = callsNatArms arms
+  callsOf (Assume _ _ _ body) = callsOf body
+  callsOf (ReadBack _ _ x cs body) = awayCalls (calleesIn x ++ (visitAll collecting cs).callees) <+> callsOf body
+  callsOf (ExtentsBack _ x body) = awayCalls (calleesIn x) <+> callsOf body
+  callsOf (Join _ _ targets body) = callsTargets targets <+> callsOf body
+  callsOf t = atTail t
+
+  callsArms : CaseArmsOf (AltAt js n) (TermAt js n) -> BodyCalls
+  callsArms (Defaulted alts d) = callsAlts alts <+> callsOf d
+  callsArms (Exhaustive (alt ::: alts)) = callsAlt alt <+> callsAlts alts
+
+  callsAlt : AltAt js n -> BodyCalls
+  callsAlt (MkAlt _ _ body) = callsOf body
+
+  callsAlts : List (AltAt js n) -> BodyCalls
+  callsAlts [] = neutral
+  callsAlts (alt :: alts) = callsAlt alt <+> callsAlts alts
+
+  callsLits : List (kt, TermAt js n) -> BodyCalls
+  callsLits [] = neutral
+  callsLits ((_, t) :: rest) = callsOf t <+> callsLits rest
+
+  callsKeyed : LitArmsOf kt (TermAt js n) -> BodyCalls
+  callsKeyed (LitDefault ((_, t) ::: alts) d) = callsOf t <+> callsLits alts <+> callsOf d
+  callsKeyed (LitNoDefault ((_, t) ::: alts)) = callsOf t <+> callsLits alts
+
+  callsLitArms : LitMatch (TermAt js n) -> BodyCalls
+  callsLitArms (OnlyDefault d) = callsOf d
+  callsLitArms (OnInts _ arms) = callsKeyed arms
+  callsLitArms (OnChars arms) = callsKeyed arms
+  callsLitArms (OnStrings arms) = callsKeyed arms
+  callsLitArms (OnBigs arms) = callsKeyed arms
+
+  callsNatArms : NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> BodyCalls
+  callsNatArms (OnlyZero z) = callsOf z
+  callsNatArms (OnlySucc _ s) = callsOf s
+  callsNatArms (Both z _ s) = callsOf z <+> callsOf s
+
+  callsTargets : All (Target s n) ts -> BodyCalls
+  callsTargets [] = neutral
+  callsTargets (MkTarget _ _ _ _ _ body :: rest) = callsOf body <+> callsTargets rest
 
 ------------------------------------------------------------------------------
 -- The tails that give a term's value
@@ -1671,12 +1734,6 @@ pointArity : LocalJoin -> Nat
 pointArity (MkLocalJoin f ByCall) = f.arity
 pointArity (MkLocalJoin f (ByRun _)) = S f.arity
 
-||| A local join's calls as the uses of a continuation (`jumpsTo`).
-export
-continuationOf : (m : LocalJoin) -> Continuation n n (pointArity m)
-continuationOf (MkLocalJoin f ByCall) = Calling f.callee
-continuationOf (MkLocalJoin f (ByRun a)) = Running f.callee a
-
 ||| A local join's region's body before the calls of local joins in it are
 ||| jumps: its body, or its action run on the world (`ranOn`).
 export
@@ -1692,6 +1749,156 @@ regionAt : (q : Nat) -> (m : LocalJoin) -> TermAt s (pointArity m) -> Target s r
 regionAt q (MkLocalJoin f ByCall) body = regionOf q f f.paramNames f.callee.params body
 regionAt q (MkLocalJoin f (ByRun a)) body =
   regionOf q f (snoc f.paramNames (shown "world")) (snoc f.callee.params (MkBinder (worldUses a) WorldT)) body
+
+||| The join points in scope once each of the local joins `ms` has one, in
+||| order, each outside those before it.
+public export
+stacked : List LocalJoin -> List Nat -> List Nat
+stacked [] js = js
+stacked (m :: ms) js = stacked ms (pointArity m :: js)
+
+||| Those of `g` stacked over the join points around a join op and the op's
+||| own, which the op's body sees, are those of `g` stacked over the ones
+||| around it, then the op's own.
+0 stackedOver : (g : List LocalJoin) -> (js, ts : List Nat) -> stacked g (js ++ ts) = stacked g js ++ ts
+stackedOver [] js ts = Refl
+stackedOver (m :: ms) js ts = stackedOver ms (pointArity m :: js) ts
+
+||| A join point in scope, once those of `g` are stacked outside it.
+pastAll : {0 js : List Nat} -> (g : List LocalJoin) -> Elem k js -> Elem k (stacked g js)
+pastAll [] e = e
+pastAll {js} (m :: ms) e = pastAll {js = pointArity m :: js} ms (There e)
+
+||| The evidence that a call of `fn` on `arity` arguments calls `f`: its
+||| identity and its arity compared together, so a call that differs in
+||| either calls some other function. Every call of a function holds the
+||| one signature the function is made with, so a call that names `f` has
+||| its arity; the comparison says so to the types, since a function's
+||| identity does not carry its arity.
+callOf : (arity : Nat) -> FnId -> (f : TFn) -> Maybe (arity = f.arity)
+callOf arity fn f = case (fn == f.callee.fn, decEq arity f.arity) of
+  (True, Yes same) => Just same
+  _ => Nothing
+
+||| The join point, among `stacked g js`, of the member of `g` whose calls
+||| jump to it that a call of `fn` on `arity` arguments calls, if one is.
+calledPoint : {0 js : List Nat} -> (g : List LocalJoin) -> (arity : Nat) -> FnId -> Maybe (Elem arity (stacked g js))
+calledPoint [] arity fn = Nothing
+calledPoint {js} (MkLocalJoin f ByCall :: ms) arity fn = case callOf arity fn f of
+  Just Refl => Just (pastAll {js = f.arity :: js} ms Here)
+  Nothing => calledPoint {js = f.arity :: js} ms arity fn
+calledPoint {js} (MkLocalJoin f (ByRun _) :: ms) arity fn = calledPoint {js = S f.arity :: js} ms arity fn
+
+||| The join point, among `stacked g js`, of the member of `g` whose calls
+||| run its action that a call of `fn` on `arity` arguments applied to the
+||| world calls, if one is: its parameters, then the world.
+runPoint : {0 js : List Nat} -> (g : List LocalJoin) -> (arity : Nat) -> FnId -> Maybe (Elem (S arity) (stacked g js))
+runPoint [] arity fn = Nothing
+runPoint {js} (MkLocalJoin f ByCall :: ms) arity fn = runPoint {js = f.arity :: js} ms arity fn
+runPoint {js} (MkLocalJoin f (ByRun _) :: ms) arity fn = case callOf arity fn f of
+  Just Refl => Just (pastAll {js = S f.arity :: js} ms Here)
+  Nothing => runPoint {js = S f.arity :: js} ms arity fn
+
+||| A tail's head as a jump to the member of `g` it calls in the form that
+||| member's calls jump to it by, which takes the place of the ties around a
+||| call, since the member's region states what they did (`tiedExits`);
+||| else the tail as it is (`asIs`).
+jumpOr : {0 js : List Nat} -> (g : List LocalJoin) -> TailHead n -> TermAt (stacked g js) n -> TermAt (stacked g js) n
+jumpOr {js} g (CallHead {arity} l c is as _) asIs = case calledPoint {js} g arity c.fn of
+  Just e => Jump l e is as
+  Nothing => asIs
+jumpOr {js} g (RunHead {arity} l c is as w) asIs = case runPoint {js} g arity c.fn of
+  Just e => Jump l e is (snoc as w)
+  Nothing => asIs
+jumpOr g NoHead asIs = asIs
+
+mutual
+  ||| The term with each tail's head that calls a member of `g`, in the form
+  ||| the member's calls jump to it by, a jump to its join point among
+  ||| `stacked g js`, its tails read as `callsOf` reads them; every other
+  ||| tail and every inner slot as it was, since an inner slot sees no join
+  ||| point. Which local definitions are members is decided before, once
+  ||| per body, from what it calls where (`callsOf`); this writes that
+  ||| decision, and fails nowhere.
+  export
+  joinsIn : (g : List LocalJoin) -> TermAt js n -> TermAt (stacked g js) n
+  joinsIn g (Var l x) = Var l x
+  joinsIn g (Literal l x) = Literal l x
+  joinsIn g (PrimApp l p stands as) = PrimApp l p stands as
+  joinsIn g (Effect l p gives as w res) = Effect l p gives as w res
+  joinsIn {js} g t@(Call l c stands is as) = jumpOr {js} g (tailHead t) (Call l c stands is as)
+  joinsIn g (ConApp l con bs as) = ConApp l con bs as
+  joinsIn g (Let l x b v body) = Let l x b v (joinsIn g body)
+  joinsIn g (Case l fam x arms) = Case l fam x (joinsArms g arms)
+  joinsIn g (CaseLit l x arms) = CaseLit l x (joinsLitArms g arms)
+  joinsIn g (CaseNat l x arms) = CaseNat l x (joinsNatArms g arms)
+  joinsIn g (Lam l x b r body) = Lam l x b r body
+  joinsIn {js} g t@(App l a r f x) = jumpOr {js} g (tailHead t) (App l a r f x)
+  joinsIn g (Suspend l ty body) = Suspend l ty body
+  joinsIn g (Resume l ty e) = Resume l ty e
+  joinsIn g (Unreachable l) = Unreachable l
+  joinsIn g (Assume l a b body) = Assume l a b (joinsIn g body)
+  joinsIn g (Crash l m) = Crash l m
+  joinsIn g (CrashWith l m) = CrashWith l m
+  joinsIn g (NewWorld l) = NewWorld l
+  joinsIn g (Tensor l op) = Tensor l op
+  joinsIn g (Tabulate {k} l ty es body) = Tabulate {k} l ty es body
+  joinsIn g (TabulateIO {k} l ty es w body step done) = TabulateIO {k} l ty es w body step done
+  joinsIn g (Reduce l red acc el ty a j z x body) = Reduce l red acc el ty a j z x body
+  joinsIn {js} g t@(Tie l ty x ds) = jumpOr {js} g (tailHead t) (Tie l ty x ds)
+  joinsIn g (ReadBack l e x cs body) = ReadBack l e x cs (joinsIn g body)
+  joinsIn g (ExtentsBack {k} l x body) = ExtentsBack {k} l x (joinsIn g body)
+  -- A join op's regions and body are tails of the op. Its body, and an
+  -- `idr.loop`'s regions, see the op's own join points after those around
+  -- it, and those of `g` stack outside the ones around it.
+  joinsIn {js} {n} g (Join {ts} {nonEmpty} l InBody targets body) =
+    Join {nonEmpty} l InBody (joinsTargets g targets)
+         (replace {p = \s => TermAt s n} (stackedOver g js ts) (joinsIn g body))
+  joinsIn {js} {n} g (Join {ts} {nonEmpty} l InEveryRegion targets body) =
+    Join {nonEmpty} l InEveryRegion
+         (replace {p = \s => All (Target s n) ts} (stackedOver g js ts) (joinsTargets g targets))
+         (replace {p = \s => TermAt s n} (stackedOver g js ts) (joinsIn g body))
+  joinsIn g (Jump l e terms as) = Jump l (pastAll g e) terms as
+
+  joinsArms : (g : List LocalJoin) -> CaseArmsOf (AltAt js n) (TermAt js n) ->
+              CaseArmsOf (AltAt (stacked g js) n) (TermAt (stacked g js) n)
+  joinsArms g (Defaulted alts d) = Defaulted (joinsAlts g alts) (joinsIn g d)
+  joinsArms g (Exhaustive (alt ::: alts)) = Exhaustive (joinsAlt g alt ::: joinsAlts g alts)
+
+  joinsAlt : (g : List LocalJoin) -> AltAt js n -> AltAt (stacked g js) n
+  joinsAlt g (MkAlt {k} con fs body) = MkAlt {k} con fs (joinsIn g body)
+
+  joinsAlts : (g : List LocalJoin) -> List (AltAt js n) -> List (AltAt (stacked g js) n)
+  joinsAlts g [] = []
+  joinsAlts g (alt :: alts) = joinsAlt g alt :: joinsAlts g alts
+
+  joinsLits : (g : List LocalJoin) -> List (kt, TermAt js n) -> List (kt, TermAt (stacked g js) n)
+  joinsLits g [] = []
+  joinsLits g ((kv, t) :: rest) = (kv, joinsIn g t) :: joinsLits g rest
+
+  joinsKeyed : (g : List LocalJoin) -> LitArmsOf kt (TermAt js n) -> LitArmsOf kt (TermAt (stacked g js) n)
+  joinsKeyed g (LitDefault ((kv, t) ::: alts) d) = LitDefault ((kv, joinsIn g t) ::: joinsLits g alts) (joinsIn g d)
+  joinsKeyed g (LitNoDefault ((kv, t) ::: alts)) = LitNoDefault ((kv, joinsIn g t) ::: joinsLits g alts)
+
+  joinsLitArms : (g : List LocalJoin) -> LitMatch (TermAt js n) -> LitMatch (TermAt (stacked g js) n)
+  joinsLitArms g (OnlyDefault d) = OnlyDefault (joinsIn g d)
+  joinsLitArms g (OnInts t arms) = OnInts t (joinsKeyed g arms)
+  joinsLitArms g (OnChars arms) = OnChars (joinsKeyed g arms)
+  joinsLitArms g (OnStrings arms) = OnStrings (joinsKeyed g arms)
+  joinsLitArms g (OnBigs arms) = OnBigs (joinsKeyed g arms)
+
+  joinsNatArms : (g : List LocalJoin) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
+                 NatArmsOf (TermAt (stacked g js) n) (TermAt (stacked g js) (Under 1 n))
+  joinsNatArms g (OnlyZero z) = OnlyZero (joinsIn g z)
+  joinsNatArms g (OnlySucc p s) = OnlySucc p (joinsIn g s)
+  joinsNatArms g (Both z p s) = Both (joinsIn g z) p (joinsIn g s)
+
+  joinsTargets : (g : List LocalJoin) -> All (Target s n) ts -> All (Target (stacked g s) n) ts
+  joinsTargets g [] = []
+  joinsTargets g (t :: rest) = joinsTarget g t :: joinsTargets g rest
+
+  joinsTarget : (g : List LocalJoin) -> Target s n k -> Target (stacked g s) n k
+  joinsTarget g (MkTarget {k} l code sorts names params body) = MkTarget {k} l code sorts names params (joinsIn g body)
 
 ||| What Idris proved of a function's loops once the join regions of the
 ||| local definitions it holds are part of it: a loop of one that is not
