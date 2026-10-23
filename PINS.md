@@ -1567,3 +1567,26 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/111-coverage-nested-empty-type; nothing sent (Idris
   takes no tool-written contribution)
 - status (2026-10-23): carried
+
+## do-local-definition-scope
+
+- symptom: the stock Idris's desugaring of a `do` block leaves the names
+  a bind, a let or a local block of the block binds out of the names a
+  later local declaration's type must not bind as implicits, which a
+  lambda, `let ... in` and a local block put there, so a typed local
+  definition whose type names a local definition of the same block, `let
+  v : Vect (length xs) Nat` after `let xs : List Nat`, binds that name as
+  a fresh implicit and is refused (`length ?xs` ambiguous); a do-bound
+  or let-bound name that is also a global's draws a false warning of an
+  implicit binding (the frontend: `Growth/Graph`'s `build`, its
+  `position` typed by `length slots`, and its warning for `entered`)
+- sites: every do block the stock host checks: stage 0 and the libraries
+- workaround: `upstream/112-do-local-definition-scope/idris.patch`:
+  `expandDo` adds a bound name, a let-bound name and the names a local
+  block defines to those names, as the lambda, `let ... in` and the local
+  block it translates to do; checked by
+  tests/upstream-do-local-definition-scope
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/112-do-local-definition-scope; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-23): carried

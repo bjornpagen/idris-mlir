@@ -1,0 +1,39 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/112-do-local-definition-scope, carried: the stock Idris's
+# desugaring of a do block left the names its statements bind out of the
+# names a later local declaration's type must not bind as implicits, which
+# `let ... in` and a lambda put there, so a local definition named in a
+# later local definition's type in the same do block was bound as a fresh
+# implicit there. With the patch Local.idr's definitions check; a do-bound
+# name in such a type is still the bound value, so Bound.idr is refused
+# for the mismatch it has; and Shadow.idr's do-bound and let-bound names,
+# which shadow globals, are warned of as implicits no more.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/112-do-local-definition-scope
+cp "$dir/Local.idr" "$dir/Bound.idr" "$dir/Shadow.idr" "$work/"
+if (cd "$work" && pinned_idris --check Local.idr) > "$work/Local.out" 2>&1; then
+  say "Local: a do block's local definitions are in scope in its later local types"
+elif grep -q 'length ?xs' "$work/Local.out"; then
+  say "Local: still reproduces: a local definition in a later local type is bound as an implicit"
+else
+  say "Local: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Local.out"
+fi
+if (cd "$work" && pinned_idris --check Bound.idr) > "$work/Bound.out" 2>&1; then
+  say "Bound: a vector of the wrong length is accepted for a do-bound length"
+elif [ "$(grep -c 'Mismatch between: S ?len and n' "$work/Bound.out")" -eq 2 ]; then
+  say "Bound: refused: a do-bound name in a local type is the bound value"
+else
+  say "Bound: refused otherwise"
+  show "$work/Bound.out"
+fi
+if ! (cd "$work" && pinned_idris --check Shadow.idr) > "$work/Shadow.out" 2>&1; then
+  say "Shadow: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Shadow.out"
+elif grep -q 'shadowing' "$work/Shadow.out"; then
+  say "Shadow: still warns that a do-bound name is bound as an implicit"
+else
+  say "Shadow: checked, with no implicit binding warned of"
+fi

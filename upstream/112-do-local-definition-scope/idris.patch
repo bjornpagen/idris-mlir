@@ -1,0 +1,41 @@
+diff --git a/src/Idris/Desugar.idr b/src/Idris/Desugar.idr
+index b3b9252..43c044e 100644
+--- a/src/Idris/Desugar.idr
++++ b/src/Idris/Desugar.idr
+@@ -762,7 +762,10 @@ mutual
+            whenJust (isConcreteFC nameFC) $ \nfc => addSemanticDecorations [(nfc, Bound, Just n)]
+            ty' <- maybe (pure $ Implicit (virtualiseFC fc) False)
+                         (\ty => desugarDo side ps ns ty) ty
+-           rest' <- expandDo side ps topfc ns rest
++           -- `x <- v; e` is `v >>= \x => e`, so `x` is bound in `e` as a
++           -- lambda binds it: a type in `e` refers to it, never binds it as
++           -- an implicit
++           rest' <- expandDo side (n :: ps) topfc ns rest
+            pure $ bindFun fc ns tm'
+                 $ ILam nameFC rig Explicit (Just n) ty' rest'
+   expandDo side ps topfc ns (DoBindPat fc pat ty exp alts :: rest)
+@@ -788,7 +791,8 @@ mutual
+       = do b <- newRef Bang (initBangs ns)
+            tm' <- desugarB side ps tm
+            ty' <- desugarDo side ps ns ty
+-           rest' <- expandDo side ps topfc ns rest
++           -- `let x = v; e` is `let x = v in e`, which binds `x` in `e`
++           rest' <- expandDo side (n :: ps) topfc ns rest
+            whenJust (isConcreteFC lhsFC) $ \nfc =>
+              addSemanticDecorations [(nfc, Bound, Just n)]
+            let bind = ILet fc lhsFC rig n ty' tm' rest'
+@@ -809,9 +813,12 @@ mutual
+                     ICase fc [] tm' ty'
+                        (PatClause fc bpat rest'
+                                   :: alts')
++  -- The names a local block defines are bound in its own declarations and
++  -- in the rest of the block, as in `let decls in e` (PLocal)
+   expandDo side ps topfc ns (DoLetLocal fc decls :: rest)
+-      = do decls' <- traverse (desugarDecl ps) decls
+-           rest' <- expandDo side ps topfc ns rest
++      = do let ps' = definedIn (map val decls) ++ ps
++           decls' <- traverse (desugarDecl ps') decls
++           rest' <- expandDo side ps' topfc ns rest
+            pure $ ILocal fc (concat decls') rest'
+   expandDo side ps topfc ns (DoRewrite fc rule :: rest)
+       = do rule' <- desugarDo side ps ns rule

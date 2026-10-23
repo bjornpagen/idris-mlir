@@ -1,0 +1,3 @@
+Local: a do block's local definitions are in scope in its later local types
+Bound: refused: a do-bound name in a local type is the bound value
+Shadow: checked, with no implicit binding warned of
