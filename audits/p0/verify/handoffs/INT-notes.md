@@ -271,3 +271,16 @@ handoff lists its own wiring.
   driver forwarding it, Compile.cpp:58): nbody's refusal was that, and
   INT-22 reruns the fixture sweep with the flag before F-R2 to F-R4 are
   worked as frontend refusals.
+
+## INT-22 (2026-10-23, export of 545578b3; build/int22/)
+- The fixture sweep as the harness runs it (--no-prelude, each fixture's
+  own packages, from a copy as copyFixture makes): 427 runs, 328 programs,
+  80 refused, 19 failed. Only nbody was INT-21's missing flag; F-R5's
+  other four were real (fixed by L19q). F-F1 fixed by L16ek's Terms
+  (uncommitted, lands with L16ej and L16eg), F-F2 is C272, F-R1 L16eg's
+  (lands with them), F-R2 to F-R4 queued for L16, F-R6 the test's (fixed).
+  N-1 (four near neighbours with no packages file) fixed. HEAD's frontend
+  failed at MLIR/Bytecode.idr, fixed in 9690d2aa.
+- Seven fixtures expected to compile test where our checker departs from
+  stock, each by its comment (where upstream's compiler departs from its
+  own language, we keep the language).
