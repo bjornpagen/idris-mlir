@@ -2635,6 +2635,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   re-inference of results after a grade changes is one function
   (`families::takenTypes`), which `Ownership/Exclusive.cpp` and
   `InPlace/UniqueResults.cpp` ask too.
+- **C279** (2026-10-23; L19w's and L19n's stops, under AGENTS.md's one
+  place the target is decided and "a test that names a pass"). Every
+  module is given the build's target where it enters the pipeline,
+  by `idr-target`'s one rule: a module that names no target takes the
+  build's, one that names another is refused `OtherTarget`. Every slice
+  `buildPipeline` makes runs `idr-target` first, whatever stage it starts
+  at, so `--idr-pipeline` and its slices are what the driver runs, and
+  the driver's own `addPass` goes. The driver runs the same rule on a
+  lowered module, so `moduleKindOf`'s second target check (a lowered
+  module naming none refused) goes: a module the pipeline lowered always
+  names its target, and a hand-written one is the build's, as a handoff
+  module is. No test names `--idr-target` or writes a target into its
+  module, and no option prints the whole target.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
