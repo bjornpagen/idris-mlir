@@ -727,3 +727,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   `Local.h` and `ExclusivityGraph` read a memo field's emptied-place edge
   where they look for a taken-over cell (L08); memo's `getYieldTargets`
   in the specification.
+- From L04w: `DataType::layoutMatch` has no reader left (its definition in
+  `Types.cpp`, its declaration in `Spec/Families/Types.idr:207`: delete
+  both after L07v releases the specification); `Layouts::fieldsAt` should
+  set each field at the binders it determines, so field types match the
+  stored layout, and then `fieldsAt` and `tagsLaidOut` go private in
+  `Layout.h` (L04); `tests/reindex-builds-told-apart` is the first dialect
+  test through the lowered stage in opt: if those steps need the module's
+  target, its RUN line passes the driver's own target, never a pass (L19).
