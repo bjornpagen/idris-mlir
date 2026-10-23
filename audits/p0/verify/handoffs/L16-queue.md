@@ -499,3 +499,15 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   Bufferization and SCF); `audits/bugs.md`'s entries rechecked.
 - The coordinator: strike `audits/p0/design/idris-linear-check.md` §5
   when L06h returns.
+- From recheck 5's §6 report, waiting: N1, the tail decider's climb
+  (`inTailPosition`, D30 and C20 delete it; 17 files re-decide through
+  `tail::decide`, four ask it of ops that are not calls) and N2, the
+  cycle rule written in four places (`ProgramGraph.h:139-141`,
+  `Components.h:76-82`, `Effects/Component.cpp:116`,
+  `Optimize/Settle.cpp:186-191`), after L10z; N10, the array externs'
+  hand enum (`Registry/Entry.idr:210-213`) and hand case
+  (`Terms.idr:2306-2320`), each row naming the specification's op
+  (C6 as replaced), after L16eg, L16ee and round 3-A; N4, N5, N6's
+  frontend half and N7, in L16ee's files; N6's checker half (a nested
+  block's parent a typed name, `Core/Name.idr:43`) with its frontend
+  reader.
