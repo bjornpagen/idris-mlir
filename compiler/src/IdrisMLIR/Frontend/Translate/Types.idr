@@ -272,8 +272,8 @@ outsideIndices picks owner = within
       -- an erased one's are refused where the binder is read
       -- (`coreTypeIn`), and a binder of a polymorphic function's type
       -- (`{0 f : Type -> Type} -> f Int -> f Int`) is its choice's,
-      -- keyed by the type whole, one representation for whatever type a
-      -- use gives it.
+      -- keyed by the type that binds it (`choiceFamily`), one
+      -- representation for whatever type a use gives it.
       within (Bind _ _ (Pi _ rig _ a) sc) = do
         inA <- case use rig of
                  Erased => pure False
@@ -481,15 +481,26 @@ explicitBinders : TT vs -> TT vs
 explicitBinders (Bind fc x (Pi pfc rig _ a) sc) = Bind fc x (Pi pfc rig Explicit a) (explicitBinders sc)
 explicitBinders tm = tm
 
+||| A type as a key holds it whole (`argumentKey` at `Keyed`), compared as
+||| a type argument is (`canonicalTypeArg`): the one reading every key of
+||| a type is made by, a data instance's arguments, an interface's and a
+||| function type's.
+typeKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> String -> ClosedTerm -> Front ClosedTerm
+typeKey fc owner t = argumentKey fc owner Keyed !(canonicalTypeArg t)
+
 ||| The choice of a type, as `choiceType` read it (`ChoiceType`): the
 ||| closed sum of the implementations of an interface type, or of the
 ||| polymorphic functions of a function type, that the program fixes as
 ||| runtime values (`Choice`), one constructor each, which the translation
 ||| adds as it finds them (`Choices.memberBare`). An interface's is keyed
 ||| as a family of the type constructor at its arguments would be, each
-||| argument whole; a function type's by the type itself, its binders
-||| explicit. It is not the interface's record: which implementation or
-||| function a value is, not its methods, is what a dispatch on it reads.
+||| argument as a key holds a type (`typeKey`); a function type's by the
+||| type itself, its binders explicit, held as a key holds any type, so the
+||| indices of its families key nothing: one function type is one choice
+||| wherever it is read, as one data type is one family, whatever index a
+||| place gives it. It is not the interface's record: which implementation
+||| or function a value is, not its methods, is what a dispatch on it
+||| reads.
 export
 choiceFamily : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> ChoiceType -> Front Choice
@@ -497,12 +508,12 @@ choiceFamily fc owner ct = keyedBy ct.keying
   where
     keyedBy : KeyedBy -> Front Choice
     keyedBy ByItself = do
-      let canonical = explicitBinders ct.type
-      (written, key) <- functionKey canonical
-      registeredChoice (OfFunction written) key canonical !(toLoc fc)
+      keyed <- typeKey fc owner (explicitBinders ct.type)
+      (written, key) <- functionKey keyed
+      registeredChoice (OfFunction written) key keyed !(toLoc fc)
     keyedBy (ByHead n args) = do
       iface <- lookupDef fc owner n
-      keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
+      keyed <- traverse (\a => Just <$> typeKey fc owner a) args
       (_, found) <- instanceKey fc owner (fullname iface.def) id keyed
       registeredChoice (OfInterface found.link) found.key ct.type !(toLoc (location iface.def))
 
@@ -702,20 +713,16 @@ implementationChoice g tm = do
   choiceHead <$> normaliseClosed (close g tm)
 
 ||| Does a constructor's field type, closed over the walk's stand-ins for
-||| the constructor's arguments before it (`walk`), name one of them where
-||| the key of the field's representation reads it? A data value's or an
-||| implementation's key holds its families with their indices erased
-||| (`argumentKey`), so only a mention outside them counts
-||| (`erasedOutsideIndices`). A polymorphic function's field is its choice,
-||| keyed by its type whole (`choiceFamily`), indices and all, so its type
-||| naming another argument anywhere (an earlier field's stand-in, an erased
-||| argument's marker) is a different choice for each value that argument
-||| takes: any mention counts.
+||| the constructor's arguments before it (`walk`: an earlier field's is an
+||| erased value, an erased argument's its marker), name one of them
+||| outside the indices of its families? Every key of a type holds it with
+||| its indices erased (`argumentKey`), a data value's family and a
+||| polymorphic function's choice alike, and a construction site keys the
+||| field's type at the values it gives those arguments: a mention only as
+||| an index keys one representation whatever the argument is, and any
+||| other one per value it takes, which no key the walk makes can be.
 namesAnother : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front Bool
-namesAnother cname t = do
-  True <- polymorphicType t
-    | False => erasedOutsideIndices cname t
-  pure (mentions standIn t)
+namesAnother = outsideIndices (\t => mentions standIn t)
   where
     standIn : TT vs -> Bool
     standIn (Erased _ _) = True
@@ -763,19 +770,25 @@ mutual
     -- it could take: refused here, where the binder is, whether it is a
     -- runtime argument (`(b : Bool) -> if b then Int else String`) or an
     -- erased one (`{0 b : Bool} -> List (if b then Int else String)`).
-    -- Every binder of the rest is decided where it is bound, so this asks
-    -- only about this one (`outsideIndices`). One read only as an index
+    -- Every binder is decided where it is bound, the ones passed and the
+    -- ones of the rest, so this asks only about this one: the rest is read
+    -- with this binder standing as what no value is (`unknownPart`, as a
+    -- callee's type is asked whether it reduces on a runtime parameter,
+    -- `Instances.needsShape`), and an erased part the rest has of its own
+    -- (a binder passed, a type a caller gave none) is no dependence on it,
+    -- refused where it is read as a type. One read only as an index
     -- (`{0 n : Nat} -> Vect n Int`) is no dependence.
+    let dependence = outsideIndices mentionsUnknown owner (close (give unknownPart g) sc)
     let g' = give (Erased bfc Placeholder) g
     case use rig of
       Erased => do
-        when !(erasedOutsideIndices owner (close g' sc)) $
-          reject fc owner rule "a type that depends on an erased argument"
+        when !dependence $
+          reject fc owner rule ("a type that depends on an erased argument: " ++ !(showTT (close g tm)))
         coreTypeIn chain acc g' fc owner rule sc
       Used q => do
         arg <- coreBinderIn chain acc g fc owner rule q a
-        when !(erasedOutsideIndices owner (close g' sc)) $
-          reject fc owner rule "a function type that depends on its argument"
+        when !dependence $
+          reject fc owner rule ("a function type that depends on its argument: " ++ !(showTT (close g tm)))
         rt <- coreTypeIn chain acc g' fc owner rule sc
         -- A closure's type is one for every extent its values are made at.
         pure (FunT ({ type $= dynamicDims } arg) (dynamicDims rt))
@@ -1003,14 +1016,16 @@ mutual
         let g' = give (Erased bfc Placeholder) g
         a' <- normaliseClosed (close g a)
         -- The field's type is closed over what the walk gives the
-        -- constructor's arguments before it: each earlier field stands as
-        -- an erased value, each erased argument as its marker. A field's
-        -- type that names an earlier field's value outside the indices of
-        -- its families (`MkT : (b : Bool) -> (if b then Int else String)
-        -- -> T`) has a representation per value of that field, and is
-        -- refused. The type's own binders are its own (a polymorphic
-        -- function's type parameters, a closure's argument), read where
-        -- they are bound (`coreTypeIn`), never as another field.
+        -- constructor's arguments before it. One that names another of
+        -- them outside the indices of its families (`MkT : (b : Bool) ->
+        -- (if b then Int else String) -> T`, or an erased type argument
+        -- a value is made of) has a representation per value of it, and
+        -- is refused; one that names it only as an index has one, whether
+        -- the field is a data value or a polymorphic function
+        -- (`namesAnother`). The type's own binders are its own (a
+        -- polymorphic function's type parameters, a closure's argument),
+        -- read where they are bound (`coreTypeIn`), never as another
+        -- argument.
         when !(namesAnother cname a') $ do
           reject dfc cname DependentField ("a field type that depends on another argument of its constructor: " ++
                                            !(showTT a'))

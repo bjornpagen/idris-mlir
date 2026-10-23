@@ -92,7 +92,11 @@ firstForbidden (r :: rs) = do
 ||| `%search`, written as a term, is elaborated away: the checked term
 ||| holds the implementation or proof the search found, and nothing of the
 ||| search reaches run time (quoted, `(%search)` is base's `ISearch`, a
-||| value of the quoted syntax like any other).
+||| value of the quoted syntax like any other). `%syntactic`, a flag of
+||| `with`, is elaborated away as `%search` is: it changes how `with`
+||| abstracts its scrutinee over the goal, by the scrutinee's syntax
+||| rather than its value, and the checked term holds the with block that
+||| abstraction made; nothing of the flag reaches run time.
 ||| The use is not a second copy of any of those.
 discharged : KwPragma -> Bool
 discharged KwDefault = True
@@ -100,6 +104,7 @@ discharged KwHide = True
 discharged KwUnhide = True
 discharged KwLogging = True
 discharged KwSearch = True
+discharged KwSyntactic = True
 discharged _ = False
 
 ||| A user module's imports, as the session read them (`importsRead`), and

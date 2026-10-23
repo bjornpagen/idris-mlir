@@ -1181,8 +1181,9 @@ applicationKey fc uses term given =
   instanceAt fc "a member at a use" AnApplication (pure ("$idris-mlir.application." ++ show uses)) term given
 
 ||| A polymorphic function type as its choice is keyed (`ChoiceKey`): the
-||| type written out, which is its identity, and its key, the type printed
-||| as a function's choice prints, which labels the choice's family. No
+||| type as a key holds a type (`Types.choiceFamily`, its indices erased)
+||| written out, which is its identity, and its key, the type printed as a
+||| function's choice prints, which labels the choice's family. No
 ||| definition is a function type, so its key's origin names the kind of
 ||| choice; a print that drops part of the type carries the hash of the
 ||| whole, as an instance's symbol does.
