@@ -5,9 +5,8 @@
 // same tie given none is the error, which its inference reports.
 !Once = !idr.graded<once, counted, memref<?xi64>>
 idr.program @ties root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @sized(%x: !Once, %n: index) -> !Once {
     %y = idr.array.tie_shape %x dims(%n) : !Once -> !Once
@@ -19,9 +18,8 @@ idr.program @ties root(@main) stage(graded) {
 
 !Once = !idr.graded<once, counted, memref<?xi64>>
 idr.program @ties root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @unsized(%x: !Once, %n: index) -> !Once {
     // expected-error @below {{}}

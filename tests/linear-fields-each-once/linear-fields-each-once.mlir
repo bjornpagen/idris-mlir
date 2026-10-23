@@ -11,9 +11,8 @@
 !Cell = !idr.data<#Row @Cell>
 !Once = !idr.graded<once, counted, !Cell>
 idr.program @fields root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @both(%x: !Once) -> i64 {
     %a = idr.data.field %x[0] : !Once -> i64
@@ -32,9 +31,8 @@ idr.program @fields root(@main) stage(graded) {
 !Cell = !idr.data<#Row @Cell>
 !Once = !idr.graded<once, counted, !Cell>
 idr.program @fields root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @again(%x: !Once) -> i64 {
     %a = idr.data.field %x[0] : !Once -> i64

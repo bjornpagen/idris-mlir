@@ -11,9 +11,8 @@
 // module that is refused differs from one that verifies by its way out
 // alone, so the refusal is the loan's.
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @size(%v: memref<?xi64>) -> i64 {
     %n = idr.lifetime -> i64 {
@@ -33,9 +32,8 @@ idr.program @loans root(@main) stage(graded) {
 // Given out of the region that binds its lifetime: the opener's result is
 // the alias, outside that region.
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @leaks(%v: memref<?xi64>) -> memref<?xi64> {
     // expected-error @below {{}}
@@ -54,9 +52,8 @@ idr.program @loans root(@main) stage(graded) {
 // Returned from the function, lent under this activation's lifetime, whose
 // region is the function's body.
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @gives(%v: memref<?xi64>) -> memref<?xi64> {
     %l = idr.activation
@@ -71,9 +68,8 @@ idr.program @loans root(@main) stage(graded) {
 
 // Stored as the value a write puts into a buffer of buffers.
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @stores(%v: memref<?xi64>, %outer: memref<1xmemref<?xi64>>) {
     idr.lifetime {
@@ -95,9 +91,8 @@ idr.program @loans root(@main) stage(graded) {
 // position, which counting would then own.
 !Owned = !idr.graded<once, counted, memref<?xi64>>
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @adopts(%v: memref<?xi64>) -> !Owned {
     %r = idr.lifetime -> !Owned {

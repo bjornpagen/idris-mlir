@@ -6,9 +6,8 @@
 // whose result moves a dynamic axis to another place, with as many sizes
 // as either type has dynamic axes, is the error.
 idr.program @ties root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @same(%x: tensor<?x4xi64>, %n: index) -> i64 {
     %y = idr.array.tie_shape %x dims(%n) : tensor<?x4xi64> -> tensor<?x4xi64>
@@ -20,9 +19,8 @@ idr.program @ties root(@main) stage(higher) {
 // -----
 
 idr.program @ties root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @other(%x: tensor<?x4xi64>, %n: index) -> i64 {
     // expected-error @below {{}}

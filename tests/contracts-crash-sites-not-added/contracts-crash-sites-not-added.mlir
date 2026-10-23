@@ -5,8 +5,7 @@
 // rows again so the module verifies, so that only the relation catches it.
 idr.program @contracts root(@main) stage(first) {
   // expected-error @+1 {{contract crash-sites-not-added broken by}}
-  idr.func @main() -> i64 {
-    %c = arith.constant 7 : i64
-    return %c : i64
+  idr.func <{row = []}> @main() {
+    return
   }
 }

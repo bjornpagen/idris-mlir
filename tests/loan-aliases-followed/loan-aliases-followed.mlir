@@ -7,9 +7,8 @@
 // refused at the op that gives it out, with a note at the loan. The slice
 // takes the whole tensor, so the module means the same at every size.
 idr.program @loans root(@main) stage(first) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @length(%v: tensor<?xi64>) -> i64 {
     %n = idr.lifetime -> i64 {
@@ -29,9 +28,8 @@ idr.program @loans root(@main) stage(first) {
 // -----
 
 idr.program @loans root(@main) stage(first) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @leaks(%v: tensor<?xi64>) -> tensor<?xi64> {
     // expected-error @below {{}}

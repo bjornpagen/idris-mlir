@@ -9,7 +9,10 @@
 // and its copy's, which has lost the mark, does not: a property of @wind
 // is one of every copy of it, and the copy is reported at its location, a
 // name alone, which points nowhere in this file.
-idr.program @rows root(@spin) stage(first) {
+idr.program @rows root(@main) stage(first) {
+  idr.func <{row = []}> @main() {
+    idr.return
+  }
   idr.func <{row = ["divergence"]}> @spin(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 0>} {
     %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)

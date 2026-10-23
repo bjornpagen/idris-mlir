@@ -8,9 +8,8 @@
 // alias, verifies. The two modules differ by what the op of ours does with
 // the alias alone, so the refusal is the constructor's.
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @size(%v: memref<?xi64>) -> i64 {
     %n = idr.lifetime -> i64 {
@@ -35,9 +34,8 @@ idr.program @loans root(@main) stage(graded) {
   }>
 !Box = !idr.data<#Box @MkBox>
 idr.program @loans root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @boxes(%v: memref<?xi64>) -> !Box {
     %r = idr.lifetime -> !Box {

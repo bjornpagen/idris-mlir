@@ -6,9 +6,8 @@
 // and no size verifies; the same tie given one size is the error, which
 // its inference reports.
 idr.program @ties root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @none(%x: tensor<4xi64>, %n: index) -> i64 {
     %y = idr.array.tie_shape %x dims() : tensor<4xi64> -> tensor<4xi64>
@@ -20,9 +19,8 @@ idr.program @ties root(@main) stage(higher) {
 // -----
 
 idr.program @ties root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @stale(%x: tensor<4xi64>, %n: index) -> i64 {
     // expected-error @below {{}}

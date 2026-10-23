@@ -11,9 +11,8 @@
 !Ref = memref<i64, #idr.mutable>
 !Once = !idr.graded<once, i64>
 idr.program @accesses root(@main) stage(first) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @forwards(%r: !Ref, %x: i64) -> i64 {
     idr.array.set %r[], %x : !Ref, i64
@@ -65,8 +64,7 @@ idr.program @accesses root(@main) stage(first) {
 // expected-error @below {{expected writes-forwarded: }}
 // expected-error @below {{expected overwrites-dropped: }}
 idr.program @counted root(@main) stage(owned) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
 }

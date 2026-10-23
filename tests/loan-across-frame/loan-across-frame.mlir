@@ -10,10 +10,12 @@
 // @g is called twice, so it stays a function; it makes the buffer @f takes
 // and drops the one @f gives back.
 idr.program @loans root(@main) stage(first) {
-  idr.func @main() -> i64 {
+  idr.func @main() {
     %n = arith.constant 3 : i64
     %r = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> i64
-    idr.return %r : i64
+    %text = idr.str.show_sint %r : (i64) -> !idr.str
+    idr.io.put_str %text : (!idr.str) -> ()
+    idr.return
   }
   idr.func @f(%keep: memref<4xi64>, %n: i64) -> (memref<4xi64>, i64) {
     %c0 = arith.constant 0 : index

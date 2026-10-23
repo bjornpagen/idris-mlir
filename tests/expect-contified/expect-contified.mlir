@@ -17,10 +17,12 @@ idr.program @still root(@main) stage(first) {
     %s = arith.addi %r, %n : i64
     return %s : i64
   }
-  idr.func @main() -> i64 {
+  idr.func @main() {
     %c = arith.constant 7 : i64
     %r = idr.call @loop(%c) <{tail_kind = nontail}> : (i64) -> i64
-    return %r : i64
+    %text = idr.str.show_sint %r : (i64) -> !idr.str
+    idr.io.put_str %text : (!idr.str) -> ()
+    return
   }
 }
 
@@ -36,9 +38,11 @@ idr.program @leaf root(@main) stage(first) {
     %s = arith.addi %n, %n : i64
     return %s : i64
   }
-  idr.func @main() -> i64 {
+  idr.func @main() {
     %c = arith.constant 7 : i64
     %r = idr.call @loop(%c) <{tail_kind = nontail}> : (i64) -> i64
-    return %r : i64
+    %text = idr.str.show_sint %r : (i64) -> !idr.str
+    idr.io.put_str %text : (!idr.str) -> ()
+    return
   }
 }

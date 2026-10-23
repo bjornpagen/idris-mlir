@@ -23,7 +23,10 @@
   }>
 !V4 = !idr.data<#Vect[4]>
 !Vn = !idr.data<#Vect[v0]>
-idr.program @calls root(@jumps) stage(higher) {
+idr.program @calls root(@main) stage(higher) {
+  idr.func @main() {
+    idr.return
+  }
   idr.func @next(%n: i64) -> i64 {
     %one = arith.constant 1 : i64
     %m = arith.addi %n, %one : i64

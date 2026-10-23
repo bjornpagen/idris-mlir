@@ -5,9 +5,8 @@
 // the test pass that breaks linear-kept on purpose, leaving a module that
 // verifies, so that only the relation can catch it.
 idr.program @contracts root(@main) stage(first) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 7 : i64
-    return %c : i64
+  idr.func @main() {
+    return
   }
   // expected-error @+1 {{contract linear-kept broken by}}
   idr.func @give(%x: !idr.graded<once, i64>) -> !idr.graded<once, i64> {

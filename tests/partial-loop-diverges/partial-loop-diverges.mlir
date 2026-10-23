@@ -30,13 +30,12 @@ idr.program @inlined root(@main) stage(first) {
     }
     return %r : i64
   }
-  idr.func @main() -> i64 attributes {terminates = #idr.terminates<component 0>} {
+  idr.func @main() attributes {terminates = #idr.terminates<component 0>} {
     %even = arith.constant 98 : i64
     %odd = arith.constant 27 : i64
     %a = idr.call @collatz(%even) <{tail_kind = nontail}> : (i64) -> i64
     %b = idr.call @collatz(%odd) <{tail_kind = nontail}> : (i64) -> i64
-    %z = arith.constant 0 : i64
-    return %z : i64
+    return
   }
 }
 
@@ -56,10 +55,9 @@ idr.program @contified root(@main) stage(first) {
     }
     return %r : i64
   }
-  idr.func @main() -> i64 attributes {terminates = #idr.terminates<component 0>} {
+  idr.func @main() attributes {terminates = #idr.terminates<component 0>} {
     %even = arith.constant 98 : i64
     %a = idr.call @countdown(%even) <{tail_kind = nontail}> : (i64) -> i64
-    %z = arith.constant 0 : i64
-    return %z : i64
+    return
   }
 }

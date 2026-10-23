@@ -20,7 +20,10 @@
 !Token = !idr.graded<once, counted unique deep, !idr.reuse_token<{!Cons}>>
 !Shared = !idr.graded<once, counted, !idr.reuse_token<{!Cons}>>
 !Cell = !idr.cell<!Cons>
-idr.program @counting root(@quiet) stage(owned) {
+idr.program @counting root(@main) stage(owned) {
+  idr.func @main() {
+    idr.return
+  }
   idr.func @quiet(%x: i64) -> i64 {
     idr.return %x : i64
   }

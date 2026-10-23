@@ -10,9 +10,8 @@
 // expected-error @+1 {{contract quantities-kept broken by}}
 module {
   idr.program @contracts root(@main) stage(first) {
-    idr.func @main() -> i64 {
-      %c = arith.constant 7 : i64
-      return %c : i64
+    idr.func @main() {
+      return
     }
     idr.func @keep(%x: !idr.graded<once, i64> loc(fused<#idr.binder<@keep, 0>>["x"]),
                    %n: i64 loc(fused<#idr.binder<@keep, 1>>["n"])) -> !idr.graded<once, i64> {

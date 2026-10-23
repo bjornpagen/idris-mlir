@@ -6,9 +6,8 @@
 // may be static, as a specialized copy's is, and the program verifies; a
 // result whose type holds an axis static is the error.
 idr.program @results root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @known(%x: tensor<4xi64>) -> tensor<?xi64> attributes {extents = #idr.extents<[result 0 axis 0 = 4]>} {
     %y = tensor.cast %x : tensor<4xi64> to tensor<?xi64>
@@ -19,9 +18,8 @@ idr.program @results root(@main) stage(higher) {
 // -----
 
 idr.program @results root(@main) stage(higher) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   // expected-error @below {{}}
   idr.func @static(%x: tensor<4xi64>) -> tensor<4xi64> {

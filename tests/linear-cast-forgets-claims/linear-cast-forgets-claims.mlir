@@ -10,9 +10,8 @@
 !Cell = !idr.data<#Row @Cell>
 !Claimed = !idr.graded<once, counted unique self, !Cell>
 idr.program @casts root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @forgets(%x: !Claimed) -> !Cell {
     %y = idr.lin.cast %x : !Claimed -> !Cell
@@ -29,9 +28,8 @@ idr.program @casts root(@main) stage(graded) {
 !Cell = !idr.data<#Row @Cell>
 !Claimed = !idr.graded<once, counted unique self, !Cell>
 idr.program @casts root(@main) stage(graded) {
-  idr.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    idr.return %c : i64
+  idr.func @main() {
+    idr.return
   }
   idr.func @raises(%x: !Cell) -> !Claimed {
     // expected-error @below {{}}
