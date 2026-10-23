@@ -22,11 +22,11 @@ namespace {
 // The operating system of a target of ours, as Idris's Scheme backends
 // spell it for base: macOS is "darwin", Linux "unix". Every target entry
 // is one of the two (CMakeLists.txt), and idr-target writes the entry's
-// triple over whatever a module held, so a module the compiler compiles
-// names one of them. A triple of any other system reaches here only in a
-// module written by hand for idris-mlir-opt that skips idr-target: like a
-// module that names no target, it has no operating system of ours to fold
-// to.
+// triple on a module that names none and refuses one that names another,
+// so a module the compiler compiles names one of them. A triple of any
+// other system reaches here only in a module written by hand for
+// idris-mlir-opt that skips idr-target: like a module that names no
+// target, it has no operating system of ours to fold to.
 std::optional<StringRef> osName(const llvm::Triple &triple) {
   if (triple.isMacOSX())
     return StringRef("darwin");
