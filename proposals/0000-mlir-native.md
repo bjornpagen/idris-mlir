@@ -2615,6 +2615,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   against the refinements as before. Rejected: opening every binder such
   a cast targets, with conversions before calls, which keeps the
   inconsistency and pays at every call.
+- **C277** (2026-10-23; L18v's open items, under C267 and the grade's
+  rule that a claim is an optimization; for the owner's review). Holds
+  only go down, by one order. A copy keyed to a weaker parameter hold
+  whose parameter its result gives back (the gives-back facts the
+  analyses already keep, read, not recomputed) has its result keyed to
+  that hold too, so its callers read the key's results as the copy will
+  give them. A lowered operand at a call of a member of the caller's own
+  component lowers the member's parameter hold by the same rule as a
+  result, rather than keying a copy inside a component the redirect has
+  not finished; the order is finite, so it ends.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
