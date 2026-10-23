@@ -382,7 +382,8 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
 --  * No constructors
 --  * Every constructor of the family has a return type which conflicts with
 --    the given constructor's type, or an argument of a type which is empty
---    in the same way (Core.Coverage.isEmpty)
+--    in the same way, as it is or under what the other arguments' types
+--    hold of it (Core.Coverage.isEmpty)
 hasEmptyPat : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               Defs -> Env Term vars -> Term vars -> Core Bool
