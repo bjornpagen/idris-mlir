@@ -25,6 +25,7 @@ import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Frontend.Translate.Boundary
+import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Registry.Primitives
 
@@ -143,7 +144,8 @@ entryPoint fileSite = do
   entry <- internUserName programEntry
   found <- lookupCtxtName (UN entry) (gamma defs)
   here <- (::) <$> getNS <*> getNestedNS
-  visible <- keepIf (visibleFrom here) (map (\(_, _, def) => def) found)
+  -- Core's monad is a named implementation, so it is given by name.
+  visible <- keepIf @{Monad.CORE} (visibleFrom here) (map (\(_, _, def) => def) found)
   pure $ case visible of
     [def] => Right def
     [] => Left (refused "the program defines no main")
@@ -235,7 +237,9 @@ program loaded mainFile mainChecked timing mlirPath = do
     t1 <- core now
     core (checkReachable fc [main])
     t2 <- core now
-    admitted <- core (checkGrowth fc main)
+    -- The growth check starts from main as the reading holds it.
+    mainRead <- (.entry) <$> reading
+    admitted <- core (checkGrowth fc mainRead)
     t3 <- core now
     let checked = [("checks", t1 - t0), ("reachable", t2 - t1), ("growth", t3 - t2)]
     -- A program whose growth is refused is not translated: no potential, no

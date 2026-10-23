@@ -73,7 +73,7 @@ record ReadAt (b : Built) (pot : Vect b.graph.size Nat) (f : Fin b.graph.size) w
   boundRead : Nat
   0 isBound : boundRead = bound b.graph pot f
 
-readAt : {b : Built} -> Tables b pot -> (f : Fin b.graph.size) -> ReadAt b pot f
+readAt : {b : Built} -> {0 pot : Vect b.graph.size Nat} -> Tables b pot -> (f : Fin b.graph.size) -> ReadAt b pot f
 readAt ts f =
   let Element spot isSpot = entryAt f ts.spotsHeld
       Element p isPotential = entryAt f ts.potentialsHeld
@@ -86,7 +86,7 @@ readAt ts f =
 ||| definition's static arguments against. A member at a use is checked
 ||| by its link alone, and a field's, a choice's and the held values'
 ||| positions bound what reads of them write, never a request.
-boundsOf : (b : Built) -> Tables b pot -> SortedMap Position Nat
+boundsOf : (b : Built) -> {0 pot : Vect b.graph.size Nat} -> Tables b pot -> SortedMap Position Nat
 boundsOf b ts = foldl at empty b.firsts
   where
     at : SortedMap Position Nat -> Fin b.graph.size -> SortedMap Position Nat
@@ -113,8 +113,12 @@ raiseList Z x (h :: hs) = maximum h x :: hs
 raiseList (S i) x [] = 0 :: raiseList i x []
 raiseList (S i) x (h :: hs) = h :: raiseList i x hs
 
+-- A height is within itself.
+0 withinSelf : {n : Nat} -> LTE n n
+withinSelf = reflexive
+
 0 raisedHere : (i, x : Nat) -> (hs : List Nat) -> LTE x (parameterHeight (raiseList i x hs) i)
-raisedHere Z x [] = reflexive {rel = LTE}
+raisedHere Z x [] = withinSelf
 raisedHere Z x (h :: hs) = maximumRightUpperBound h x
 raisedHere (S i) x [] = raisedHere i x []
 raisedHere (S i) x (h :: hs) = raisedHere i x hs
@@ -122,8 +126,8 @@ raisedHere (S i) x (h :: hs) = raisedHere i x hs
 0 raisedKeeps : (i, x : Nat) -> (hs : List Nat) -> (j : Nat) -> LTE (parameterHeight hs j) (parameterHeight (raiseList i x hs) j)
 raisedKeeps i x [] j = LTEZero
 raisedKeeps Z x (h :: hs) Z = maximumLeftUpperBound h x
-raisedKeeps Z x (h :: hs) (S j) = reflexive {rel = LTE}
-raisedKeeps (S i) x (h :: hs) Z = reflexive {rel = LTE}
+raisedKeeps Z x (h :: hs) (S j) = withinSelf
+raisedKeeps (S i) x (h :: hs) Z = withinSelf
 raisedKeeps (S i) x (h :: hs) (S j) = raisedKeeps i x hs j
 
 ||| What the universe heads a request at a holder of positions by: a
@@ -212,13 +216,13 @@ heightsKeep g k i x j ((h, hs) :: rest) =
         Right (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
-                     reflexive {rel = LTE})
+                     withinSelf)
     Right (_, raised) =>
       case lookView (decideHead k h) hs hs (heightsIn rest k) (heightsIn (raiseAt g i x rest) k) of
         Left (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
-                     reflexive {rel = LTE})
+                     withinSelf)
         Right (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
@@ -264,7 +268,8 @@ record Placing (b : Built) (pot : Vect b.graph.size Nat) (fs : List (Fin b.graph
   table : List (Head, List Nat)
   0 placed : All (\f => PlacedIn table (bound b.graph pot f) (index f b.position)) fs
 
-0 keptAll : (r : Raised table h spot) -> All (\f => PlacedIn table (bound g pot f) (index f position)) fs ->
+0 keptAll : {0 g : Graph} -> {0 pot : Vect g.size Nat} -> {0 position : Vect g.size Spot} -> {0 fs : List (Fin g.size)} ->
+            (r : Raised table h spot) -> All (\f => PlacedIn table (bound g pot f) (index f position)) fs ->
             All (\f => PlacedIn r.raised (bound g pot f) (index f position)) fs
 keptAll r [] = []
 keptAll r (p :: ps) = r.kept _ _ p :: keptAll r ps
@@ -281,10 +286,12 @@ placedAsHeld r isSpot isBound =
 heightsFrom : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot -> (fs : List (Fin b.graph.size)) -> Placing b pot fs
 heightsFrom b pot ts [] = MkPlacing [] []
 heightsFrom b pot ts (f :: fs) =
-  let MkPlacing table placed = heightsFrom b pot ts fs
-      MkReadAt spot isSpot h isBound = readAt ts f
-      r = raiseFor spot h table in
-  MkPlacing r.raised (placedAsHeld r isSpot isBound :: keptAll r placed)
+  -- Read by projection: a pattern let over these records is a case whose
+  -- scrutinee's type names the positions read, which no case infers.
+  let rest = heightsFrom b pot ts fs
+      here = readAt ts f
+      r = raiseFor here.spotRead here.boundRead rest.table in
+  MkPlacing r.raised (placedAsHeld r here.isSpot here.isBound :: keptAll r rest.placed)
 
 ||| Each head's heights by parameter, over every position first met.
 heightsOf : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot -> Placing b pot b.firsts
@@ -304,12 +311,16 @@ positionWithin placing el spotted = replace {p = PlacedIn placing.table (bound b
 ||| and breadth, the base of the tower its keys' measures stay within. No
 ||| size is computed: the worklist decides each link's sizes against these
 ||| heights (`Proof.Requests.within`).
-sizesOf : (b : Built) -> Placing b pot b.firsts -> Bounds
+sizesOf : (b : Built) -> {0 pot : Vect b.graph.size Nat} -> Placing b pot b.firsts -> Bounds
 sizesOf b placing = MkBounds (heightsIn placing.table) b.arity b.heaviest b.breadth
 
 ------------------------------------------------------------------------------
 -- Names and places
 ------------------------------------------------------------------------------
+
+||| A definition's name as a message prints it.
+definitionName : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front String
+definitionName def = nameKey <$> fullNames (fullname def)
 
 ||| The definition at an address of the graph, and its name as a message
 ||| prints it. Every address of the graph is a definition's (`addressOf`).
@@ -317,7 +328,7 @@ graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Front (GlobalDef,
 graphDefinition fc a = do
   Just def <- core (definitionAt a)
     | Nothing => internal fc "the growth graph names an address no definition has"
-  pure (def, nameKey !(fullNames (fullname def)))
+  (def,) <$> definitionName def
 
 ||| A definition's i-th parameter, by the name its source gives it
 ||| (`parameterNames`), or its number past the binders its type shows: a
@@ -503,7 +514,7 @@ refuseCycle fc main b ring growth = do
   x <- subjectAt fc asDrawn.sourceRead spot
   text <- case wrote of
     FromArgument site argument => do
-      (_, within) <- graphDefinition fc site.within
+      within <- definitionName site.within
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
@@ -527,9 +538,9 @@ refuseCycle fc main b ring growth = do
     spotOf : Fin b.graph.size -> Spot
     spotOf p = index p b.position
 
-||| What wrote an arc nothing bounds: a site's argument, or an
-||| implementation's field.
-data UnmeasuredBy = ArgumentWrote Sites.Site | FieldWrote Address
+||| What wrote an arc nothing bounds: a site's argument, or a field of the
+||| definition that gives a dictionary, as it was read.
+data UnmeasuredBy = ArgumentWrote Sites.Site | FieldWrote GlobalDef
 
 0 unmeasuredInfinite : IsFinite Unmeasured -> Void
 unmeasuredInfinite ItIsFinite impossible
@@ -558,19 +569,17 @@ refuseOpaque fc main b a stuck = do
   let MkArc src to _ = arc b.graph a
   let spot = index src b.position
   let target = index to b.position
-  -- A field's writer is the implementation, which writes it in its own
-  -- text.
-  let (writer, home) = the (Address, Address) $ case unmeasuredBy b a (stuckLabel stuck) of
-        ArgumentWrote site => (site.writer, site.within)
+  -- A field's writer is the definition that gives the dictionary, which
+  -- writes it in its own text.
+  let (writer, home) = the (GlobalDef, GlobalDef) $ case unmeasuredBy b a (stuckLabel stuck) of
+        ArgumentWrote site => (site.writerDef, site.within)
         FieldWrote j => (j, j)
   ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
   through <- case throughOf (fst (index a b.drawing)) (trans (cong (.label) (b.drawnAs a)) (stuckLabel stuck)) of
     StuckRecursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
-    AppliedFamily j => do
-      (writerDef, _) <- graphDefinition fc writer
-      ("its type family " ++) <$> parameter j writerDef
+    AppliedFamily j => ("its type family " ++) <$> parameter j writer
   targetName <- holderText fc target
-  (_, homeName) <- graphDefinition fc home
+  homeName <- definitionName home
   x <- subjectAt fc (fst (index a b.drawing)).sourceRead spot
   reject place.at place.owner Polymorphism
          (homeName ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
@@ -591,17 +600,18 @@ refuse fc main b (Unbounded a stuck) = refuseOpaque fc main b a stuck
 ------------------------------------------------------------------------------
 
 ||| The growth check, between what the program reaches and its
-||| translation: the graph of its static positions, built and checked.
-||| Admitted, it writes each position's bound and each definition's
-||| sizes, which the translation's worklist descends within. Refused, it
-||| reports each cause of a type grown without bound once, and the
-||| program is not translated: with no potential there is no bound to
-||| translate within. Not admitted always leaves a rejection recorded,
-||| or throws.
+||| translation: the graph of its static positions from main, as the
+||| reading holds it, built and checked. Admitted, it writes each
+||| position's bound and each definition's sizes, which the translation's
+||| worklist descends within. Refused, it reports each cause of a type
+||| grown without bound once, and the program is not translated: with no
+||| potential there is no bound to translate within. Not admitted always
+||| leaves a rejection recorded, or throws.
 export
-checkGrowth : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> (main : Name) -> Core Bool
-checkGrowth fc main = do
-  Just b <- noting (build main)
+checkGrowth : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> (mainRead : Defined) -> Core Bool
+checkGrowth fc mainRead = do
+  let main = fullname mainRead.def
+  Just b <- noting (build mainRead)
     | Nothing => pure False
   case check b.graph of
     Bounded pot _ => do

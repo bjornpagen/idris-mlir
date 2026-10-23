@@ -130,6 +130,12 @@ import Decidable.Equality
 -- tell the two apart.
 %hide Libraries.Data.List.Thin.Refl
 
+-- A value with the evidence that it is that value, so that a match on it
+-- refines what the evidence says: the predicate stated once, which
+-- unification cannot read off `Refl` alone.
+inspected : (x : a) -> Subset a (\v => x = v)
+inspected x = Element x Refl
+
 ------------------------------------------------------------------------------
 -- The frozen context
 ------------------------------------------------------------------------------
@@ -529,7 +535,7 @@ believed : {0 vs : Scope} -> (m : Mode) -> {0 stand : Values Substitute vs} -> (
            (args : List (Arg m stand)) -> Subset (List Template) (AllReadAs m stand (termsOf args)) ->
            Maybe (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
 believed (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) fc n a at def defines [x1, x2, x3] (Element [ra, rb, rv] read) =
-  case (Element (definition def) Refl, mentionedAmong [Force x1.value, Force x2.value, Force x3.value]) of
+  case (inspected (definition def), mentionedAmong [Force x1.value, Force x2.value, Force x3.value]) of
     (Element (Builtin BelieveMe) belief, Mentioned) =>
       Just (Element (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv]) (SBelieved at defines belief read))
     _ => Nothing
@@ -715,7 +721,11 @@ mutual
                            (CallStays {vars = termsOf parts.back} at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen m.inContext n
       | Nothing => pure stays
-    let written := nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
+    -- A local definition, never a let binding: the evidence below states
+    -- the template itself, and a let-bound name does not unfold in a
+    -- type, where a definition does.
+    let written : Template
+        written = nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
     outcome <- callRead m w acc d n placement def defines (map (\x => Force x.value) args) written
     pure (case outcome of
             AsWritten => stays
@@ -857,9 +867,11 @@ mutual
     pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
   applied (MkMode (OfSite stands) kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
-    -- Bound transparently: the evidence below is indexed by the template
-    -- itself, so its name must stand for it in types.
-    let written := nodeOf kp (Head (Just a) rs.fst)
+    -- A local definition, never a let binding: the evidence below is
+    -- indexed by the template itself, and a let-bound name does not unfold
+    -- in a type, where a definition does.
+    let written : Template
+        written = nodeOf kp (Head (Just a) rs.fst)
     let folded = the (Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) (termsOf args)))
                      (Element written (SKept at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen ctx n
@@ -889,10 +901,10 @@ mutual
   callRead : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              (a : Address) -> (n : Name) -> Placement -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
              (terms : List ClosedTerm) -> (written : Template) -> Front (CallRead m a n terms written)
-  callRead m w acc@(Access rec) a n placement def defines terms written = case Element (definition def) Refl of
+  callRead m w acc@(Access rec) a n placement def defines terms written = case inspected (definition def) of
     Element (PMDef _ pargs body) isDef => do
       tree <- caseTreeOf body
-      case Element (bindParams pargs terms) Refl of
+      case inspected (bindParams pargs terms) of
         Element Nothing short => do
           Just t <- given m w acc placement a terms !(typeOfDefinition def) pargs tree.fst written
             | Nothing => pure AsWritten
@@ -937,7 +949,7 @@ mutual
   given (MkMode wh EveryNode cl ctx) w acc@(Access rec) placement a terms ty pargs tree written = do
     arities <- binderArities ty
     let lacking := formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
-    case Element (bindParams pargs (terms ++ map substituted lacking)) Refl of
+    case inspected (bindParams pargs (terms ++ map substituted lacking)) of
       Element Nothing _ => pure Nothing
       Element (Just (env, extras)) bound => case enter placement w of
         Nothing => pure (Just (Element (Opaque a (map substituteTemplate lacking)) GivenAgain))
@@ -964,13 +976,13 @@ mutual
                (self : Address) -> (args : List ClosedTerm) -> (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
                List ClosedTerm -> Front (Maybe (Subset Template (Structural m self args env tree)))
   structural m w acc self args env (Case idx p ty alts) extras =
-    case Element (bareMarker (standsOf m) (valueAt env idx p)) Refl of
+    case inspected (bareMarker (standsOf m) (valueAt env idx p)) of
       Element Nothing _ => pure Nothing
       Element (Just (j, path)) marked => do
         let Just arms = natArms m.inContext j path env alts
           | Nothing => pure Nothing
         arms' <- traverse normalisedArm arms
-        case Element (recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S (length path)) args idx arms') Refl of
+        case inspected (recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S (length path)) args idx arms') of
           Element Nothing _ => pure Nothing
           Element (Just (bases, kids)) shaped => do
             leaves <- readAll (unfolding m) w acc [] bases
@@ -1004,7 +1016,7 @@ mutual
   walk m w acc self written env (Unmatched _) extras = pure (Element (Just written) UUnmatched)
   walk m w acc self written env Impossible extras = pure (Element Nothing UImpossible)
   walk m w acc self written env (Case idx p ty alts) extras =
-    case Element (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) Refl of
+    case inspected (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) of
       Element (Constructed h c sargs _ _) found =>
         (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env h c sargs alts extras
       Element (Literal k _) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
@@ -1038,7 +1050,7 @@ mutual
            Front (Subset (Maybe Template) (TakenBy m self written env h name sargs alts extras))
   chosen m w acc self written env h c sargs (ConCase con tag cargs sc :: alts) extras =
     case compareEntries m.inContext c con of
-      BothAt same => case Element (bindEach cargs sargs) Refl of
+      BothAt same => case inspected (bindEach cargs sargs) of
         Element (Just bound) binds =>
           (\r => Element r.fst (TakesThis same binds r.snd)) <$> walk m w acc self written (extend bound env) sc extras
         -- Essential: the evaluator's walk of the tree is stuck where a

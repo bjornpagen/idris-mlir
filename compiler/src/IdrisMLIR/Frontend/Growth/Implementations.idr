@@ -55,13 +55,15 @@ data Field : Type where
   Plain : Template -> Root -> Field
 
 ||| What a definition that gives a dictionary holds, over its own
-||| parameters: the constructor the dictionary is built with, its own for a
-||| constructor and the one an implementation's body reduces to, which is
-||| what a reduction of the dictionary to its head reaches; and its fields,
-||| in that constructor's order.
+||| parameters: the definition itself, as it was read, which a message
+||| about what its fields write names; the constructor the dictionary is
+||| built with, its own for a constructor and the one an implementation's
+||| body reduces to, which is what a reduction of the dictionary to its
+||| head reaches; and its fields, in that constructor's order.
 public export
 record Fields where
   constructor MkFields
+  givenBy : GlobalDef
   builtBy : Address
   inOrder : List Field
 
@@ -249,7 +251,7 @@ implementationFields d args body = do
   Just cd <- defined con
     | Nothing => pure Nothing
   fs <- fieldsAlong owner !(normaliseClosed cd.type) cargs
-  pure (Just (MkFields (addressOf cd.placement) fs))
+  pure (Just (MkFields d.def (addressOf cd.placement) fs))
 
 ||| The fields of a definition, over its parameters. An
 ||| implementation, a definition with one right-hand side whose type is an
@@ -265,7 +267,7 @@ fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Fr
 fieldsOf d = case (definition d.def, d.matched) of
     (DCon _ arity _, _) => do
       ty <- normaliseClosed d.type
-      Just . MkFields (addressOf d.placement) <$> arguments arity 0 ty
+      Just . MkFields d.def (addressOf d.placement) <$> arguments arity 0 ty
     (PMDef {}, Just m) => do
       True <- implementationType d.type
         | False => pure Nothing

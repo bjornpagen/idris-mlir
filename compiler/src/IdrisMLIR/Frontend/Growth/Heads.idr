@@ -61,6 +61,7 @@ import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
+import Core.TT
 import Libraries.Data.List.Finite
 
 import Control.Relation
@@ -706,8 +707,8 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
 
     fromSite : Site -> List Equation
     fromSite s = case s.reach of
-      Calls t => map (passes (parameterSlot t) s) (splitters s)
-      Builds _ => []
+      Calls t _ => map (passes (parameterSlot t) s) (splitters s)
+      Builds _ _ => []
       Dispatches t r k => [Through s.writer s.params r t k (splitters s)]
       Applies => map (passes applicationSlot s) (splitters s)
       Makes k@(InterfaceHead _) => map (passes (const (choiceSlot k)) s) (splitters s)
@@ -768,7 +769,7 @@ candidates ds v eqs = fromList (eqs >>= yield)
 -- listing is below the round's start, and otherwise it is the start.
 data Change : (left, start : Nat) -> Type where
   Grew : (0 _ : LT left start) -> Change left start
-  Kept : (0 _ : left = start) -> Change left start
+  Stayed : (0 _ : left = start) -> Change left start
 
 -- The seen list after a round's candidates, and whether it grew.
 record Drained (0 u : List Entry) (0 room0 : Nat) where
@@ -785,14 +786,14 @@ inside complete (x :: xs) = complete x :: inside complete xs
 -- that grew.
 grown : Drained u r' -> (0 _ : LT r' r) -> Drained u r
 grown (MkDrained seen nd (Grew below)) lt = MkDrained seen nd (Grew (transitive below (lteSuccLeft lt)))
-grown (MkDrained seen nd (Kept same)) lt = MkDrained seen nd (Grew (rewrite same in lt))
+grown (MkDrained seen nd (Stayed same)) lt = MkDrained seen nd (Grew (rewrite same in lt))
 
 -- Keeps each candidate the seen list does not hold yet, and leaves less
 -- room for each one kept.
 drain : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
         (seen : List Entry) -> (0 nd : NoDup seen) -> (candidates : List Entry) ->
         Drained u (minus (length u) (length seen))
-drain complete seen nd [] = MkDrained seen nd (Kept Refl)
+drain complete seen nd [] = MkDrained seen nd (Stayed Refl)
 drain complete seen nd (x :: xs) = case isNew x seen of
   Yes _ => drain complete seen nd xs
   No out => grown (drain complete (x :: seen) (out :: nd) xs) (room (out :: nd) (inside complete (x :: seen)))
@@ -807,7 +808,7 @@ round : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
 round complete ds eqs seen nd (Access rec) =
   case drain complete seen nd (Prelude.toList (candidates ds (viewOf seen) eqs)) of
     MkDrained seen' nd' (Grew below) => round complete ds eqs seen' nd' (rec _ below)
-    MkDrained seen' _ (Kept _) => seen'
+    MkDrained seen' _ (Stayed _) => seen'
 
 -- The listing is a variable here: written out, the checker would reduce
 -- it, and it holds 4 * 256^24 entries.
@@ -878,13 +879,22 @@ appliedWhere (Closed _) _ = NoHeading
 appliedWhere Computed _ = NoHeading
 appliedWhere (Evaluable _) _ = NoHeading
 
+-- What a use of a parameter reaches: nothing at a family, which no
+-- member is, and otherwise what its landing gives. The test is written
+-- once, as a function of its own: an `if` is a case function of its own
+-- wherever it is written, so a proof could not unify the one here with
+-- one in its own statement.
+unlessFamily : (family : Bool) -> Headings -> Headings
+unlessFamily True _ = NoHeading
+unlessFamily False h = h
+
 -- What a use of the writer's parameter i, applied, reaches at a node: a
 -- family applied, nothing, since beta applies it and no implementation
 -- is; a dictionary, what it can be where values not all closed land at
 -- it.
 usedApplied : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Nat -> Headings
 usedApplied fl families w ps landing i =
-  if elem i families then NoHeading else appliedWhere (landing i) (dictionaryAt fl w ps i)
+  unlessFamily (elem i families) (appliedWhere (landing i) (dictionaryAt fl w ps i))
 
 -- How the growth theorem's model reads the writer's own parameters at a
 -- node: a dictionary parameter by what it can be, and one applied as its
@@ -920,7 +930,7 @@ AppliedRoots c rs = (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Ele
                     ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (rs (Applied i d ts')))
 
 -- A reading that reaches nothing either way reaches nothing.
-0 eitherNothing : (b : Bool) -> {0 h : Headings} -> h = NoHeading -> (if b then NoHeading else h) = NoHeading
+0 eitherNothing : (b : Bool) -> {0 h : Headings} -> h = NoHeading -> unlessFamily b h = NoHeading
 eitherNothing True _ = Refl
 eitherNothing False none = none
 
@@ -930,7 +940,7 @@ eitherNothing False none = none
               (i : Nat) -> (l : Landing) -> c i = l -> appliedWhere l (dictionaryAt fl w ps i) = NoHeading ->
               usedApplied fl families w ps c i = NoHeading
 nothingAt fl families w ps c i l landed none =
-  trans (cong (\x => if elem i families then NoHeading else appliedWhere x (dictionaryAt fl w ps i)) landed)
+  trans (cong (\x => unlessFamily (elem i families) (appliedWhere x (dictionaryAt fl w ps i))) landed)
         (eitherNothing (elem i families) none)
 
 ||| The roots of a use of the writer's parameter applied, as `roots` reads
@@ -1447,9 +1457,9 @@ reaches fl v s = from s.reach
         map (filling x) r.fillings
 
     from : Reach -> List (Reached ())
-    from (Calls t) = let placed = atOwnPositions s.arguments in
-                     map (\hs => MkReached (Entering (MkVisit t hs) ()) placed Called) (combinations (passed placed empty))
-    from (Builds t) = [MkReached (Entering (MkVisit t []) ()) (atOwnPositions s.arguments) Called]
+    from (Calls t _) = let placed = atOwnPositions s.arguments in
+                       map (\hs => MkReached (Entering (MkVisit t hs) ()) placed Called) (combinations (passed placed empty))
+    from (Builds t _) = [MkReached (Entering (MkVisit t []) ()) (atOwnPositions s.arguments) Called]
     -- A dispatch through a dictionary with no head runs what its leaves
     -- give, which reach beside it.
     from (Dispatches t r k) = headsIn (rootsAt r t) >>= through k
@@ -1463,11 +1473,11 @@ reaches fl v s = from s.reach
     -- each chain to a field the running program may have chosen, none
     -- where every root holds that field fixed, as no translation then
     -- rebuilds it.
-    from (Repacks x path@(k ::: ks)) = case pathAmong path (heldAt x.position) of
+    from (Repacks x path) = case pathAmong path (heldAt x.position) of
       -- Essential: at a path the writer's chain held a value for, the
       -- dictionary holds the member a held arm put in, which reduces, so
       -- no match there is stuck, and a chain holds each stuck path once.
       Proof.Growth.Yes _ => []
       Proof.Growth.No fresh =>
-        chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) k ks
+        chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) path.head path.tail
           >>= rebuiltAt x path (heldAt x.position) fresh

@@ -112,32 +112,27 @@ fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
 fieldTypes _ _ _ _ = pure []
 
 ||| The sites a type constructor's fields write: each runtime field of each
-||| of its constructors, constructors in their declared order and fields in
-||| binder order, read over the type's represented arguments (`represented`,
-||| which the caller has read). The type is each site's writer, since its
-||| markers are the type's arguments; the constructor is where the site is
-||| written, its `within` and its location, for the message that names it.
-||| The field types go to the site walk as they are: it reads each type
-||| constructor they apply as its key does, so reading them here too would
-||| be a second reading.
+||| of its constructors, as the boundary read them (`ConstructorAt`, which
+||| the type's facts hold), constructors in their declared order and fields
+||| in binder order, read over the type's represented arguments
+||| (`represented`, which the caller has read). The type, at its address
+||| and as it was read, is each site's writer, since its markers are the
+||| type's arguments; the constructor is where the site is written, its
+||| `within` and its location, for the message that names it. The field
+||| types go to the site walk as they are: it reads each type constructor
+||| they apply as its key does, so reading them here too would be a second
+||| reading.
 export
 fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (t : Address) -> GlobalDef -> (constructors : List Name) -> (represented : List Nat) -> Front (List Site)
-fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
+             (t : Address) -> Defined -> (constructors : List ConstructorAt) -> (represented : List Nat) -> Front (List Site)
+fieldSites t td cons rs = (>>= id) <$> traverse constructorSites cons
   where
-    -- One constructor's sites, as the boundary read it. Its address is its
-    -- placement, so a constructor found without an address cannot happen.
-    -- A type's constructor names carry no proof of their entries: one the
-    -- context does not hold is the compiler's error.
-    constructorSites : Name -> Front (List Site)
-    constructorSites cn = do
-      Just cd <- defined cn
-        | Nothing => internal (location tdef)
-                       ("the context does not hold " ++ show cn ++ ", a constructor of " ++ show (fullname tdef))
+    constructorSites : ConstructorAt -> Front (List Site)
+    constructorSites con = do
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
-      ty <- normaliseClosed cd.type
+      ty <- normaliseClosed con.read.type
       let bound = bindings rs (returned none 0 ty)
       fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) ty
-      (>>= id) <$> traverse (\ft => map (\st => { fc := location cd.def } st) <$> sitesIn t (addressOf cd.placement) (map snd bound) ft)
+      (>>= id) <$> traverse (\ft => map (\st => { fc := location con.read.def } st) <$> sitesIn t td con.read.def (map snd bound) ft)
                             fts

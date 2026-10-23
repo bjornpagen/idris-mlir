@@ -113,7 +113,8 @@ chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
 ||| value of a list a dictionary argument holds among them; an
 ||| implementation's method field, which placed the implementation's
 ||| parameter, the arc's source, among the method function's (a leading
-||| arc); an implementation's field k, whose template it is; or the values
+||| arc); field k of the definition that gives a dictionary, as it was
+||| read, whose template it is; or the values
 ||| a dictionary's place holds, the arc's source, written on as their
 ||| packing says: into the pairs that hold a list of several, at most the
 ||| held count of them (`heldPackings`), or into the list another place is
@@ -122,7 +123,7 @@ chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
 public export
 data Wrote = FromArgument Sites.Site Argument
            | ThroughMethod
-           | InField Address Nat Template
+           | InField GlobalDef Nat Template
            | PacksHeld Packing
 
 ||| What made an arc, with the template the arc is drawn from: a leading
@@ -290,54 +291,49 @@ record Entered where
 -- began (`w0`), which leaves fewer to enter.
 data Pending : (w0, w : Walked) -> Type where
   Idle : Pending w0 w
-  Queued : (0 _ : Smaller w w0) -> SnocList Name -> Pending w0 w
+  Queued : (0 _ : Smaller w w0) -> SnocList Defined -> Pending w0 w
 
-queued : Pending w0 w -> SnocList Name
+queued : Pending w0 w -> SnocList Defined
 queued Idle = [<]
 queued (Queued _ next) = next
 
--- The arguments of a constructor a type lists: what a link's argument index
--- runs below. A name the context holds as no constructor has none to count.
-constructorArity : Name -> Front (List Nat)
-constructorArity n = do
-  Just d <- defined n
-    | Nothing => pure []
-  pure $ case definition d.def of
-    DCon _ k _ => [k]
-    _ => []
+-- The arguments each constructor of a type takes, in the type's order:
+-- what a link's argument index runs below.
+arities : List ConstructorAt -> List Nat
+arities [] = []
+arities (con :: cons) = con.arity :: arities cons
 
 -- What a definition's kind gives the walk: the counts its links' indices run
 -- below, and how its reading (its sites and families) and its represented
 -- arguments are read. The one switch on the kind, and the problem's: a
 -- type constructor alone has constructors, whose fields are sites of the
 -- type's, and arguments that are positions of the data it describes; every
--- other definition writes its signature and case tree.
+-- other definition writes its signature and case tree. A type
+-- constructor's constructors are those the boundary read with its facts.
 kindOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         Address -> Defined -> Front (List Nat, Front (NodeReading, List Nat))
+         Address -> Defined -> (List Nat, Front (NodeReading, List Nat))
 kindOf a d = case (d.matched, definition d.def, d.nature.asTypeConstructor) of
-  (Just m, _, _) => pure ([length m.args], plain)
-  (Nothing, TCon n _ _ _ _ cons _, ATypeConstructor facts) => do
-    let cs = fromMaybe [] cons
-    arities <- traverse constructorArity cs
-    let js = represented facts
-    pure (n :: length cs :: (arities >>= id), do
-            fs <- fieldSites a d.def cs js
-            rd <- readingOf a d
-            pure ({ sites $= (fs ++) } rd, js))
-  _ => pure ([], plain)
+  (Just m, _, _) => ([length m.args], plain)
+  (Nothing, TCon n _ _ _ _ _ _, ATypeConstructor facts) =>
+    let js = represented facts in
+    (n :: length facts.constructors :: arities facts.constructors, do
+       fs <- fieldSites a d facts.constructors js
+       rd <- readingOf a d
+       pure ({ sites $= (fs ++) } rd, js))
+  _ => ([], plain)
   where
     plain : Front (NodeReading, List Nat)
     plain = (, []) <$> readingOf a d
 
--- The definition a site enters, when it names one: a call or a build. A
--- dispatch reaches the method functions of the implementations its
--- dictionary can be, which the walk enters where each implementation is
--- written, since its body applies them; an application at a use, and a
--- choice, are no definition; a dictionary rebuilt is the writer's own,
--- entered already; and a binding's place is the writer's.
-callee : Reach -> Maybe Address
-callee (Calls b) = Just b
-callee (Builds b) = Just b
+-- The definition a site enters, as the boundary read it, when it names
+-- one: a call or a build. A dispatch reaches the method functions of the
+-- implementations its dictionary can be, which the walk enters where each
+-- implementation is written, since its body applies them; an application
+-- at a use, and a choice, are no definition; a dictionary rebuilt is the
+-- writer's own, entered already; and a binding's place is the writer's.
+callee : Reach -> Maybe Defined
+callee (Calls _ d) = Just d
+callee (Builds _ d) = Just d
 callee (Dispatches _ _ _) = Nothing
 callee Applies = Nothing
 callee (Makes _) = Nothing
@@ -346,52 +342,51 @@ callee (Keeps _ _) = Nothing
 
 -- A definition entered: itself as the boundary read it, with its sites,
 -- by its address, its families, its represented arguments as positions
--- of its node with no heads, and its
--- fields, with the definitions its sites name, to enter next. A name that
--- no definition of the context has is no place, and is not entered.
+-- of its node with no heads, and its fields, with the definitions its
+-- sites name, as their sites hold them, to enter next.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       Address -> Defined -> Front (NodeReading, List Nat) -> Entered -> Front (Entered, List Name)
+       Address -> Defined -> Front (NodeReading, List Nat) -> Entered -> Front (Entered, List Defined)
 keep a d reading r = do
   (rd, js) <- reading
   fs <- fieldsOf d
-  defs <- getDefs
   let ss = rd.sites
   pure ( { sites $= insert a (d, ss)
          , families $= insert a rd.families
          , datas $= (map (OfParameter (OfNode (MkNode a []))) js ++)
          , fields $= maybe id (insert a) fs } r
-       , mapMaybe (nameAt (gamma defs)) (mapMaybe (callee . (.reach)) ss) )
+       , mapMaybe (callee . (.reach)) ss )
 
 -- Walks the definitions reachable from main, breadth first, each entered
 -- into the walk (`Walk`) once: the walk is the set of those, and the next
 -- level is not empty only if one was entered in this one, so each level
--- starts with fewer definitions left to enter than the last. A definition
--- the checks refused is entered and measured, since it is still requested,
--- but has no sites and reaches nothing: the translation leaves it out, and
--- what only it reaches. Its fields are left out too, so that no dispatch
--- reaches a method function through it, and it has no family to be read
--- at.
+-- starts with fewer definitions left to enter than the last. Each is
+-- walked as the boundary read it, main as the reading holds it and every
+-- other as the site that names it holds it, so none is looked up. A
+-- definition the checks refused is entered and measured, since it is
+-- still requested, but has no sites and reaches nothing: the translation
+-- leaves it out, and what only it reaches. Its fields are left out too,
+-- so that no dispatch reaches a method function through it, and it has
+-- no family to be read at.
 level : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         SortedSet Address -> (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
-        Entered -> List Name -> Pending w0 w -> Front Entered
+        Entered -> List Defined -> Pending w0 w -> Front Entered
 level refused w0 acc@(Access rec) w p r [] Idle = pure r
 level refused w0 acc@(Access rec) w p r [] (Queued lt next) =
   level refused w (rec w lt) w (noMore w) r (next <>> []) Idle
-level refused w0 acc@(Access rec) w p r (n :: rest) pending = do
+level refused w0 acc@(Access rec) w p r (d :: rest) pending = do
   -- What tells definitions apart is their place in the context, as the
-  -- boundary read each; a name no definition has is never entered.
-  Just d <- defined n
-    | Nothing => level refused w0 acc w p r rest pending
+  -- boundary read each.
   let a = addressOf d.placement
   -- Entered already: walked once.
   let Just (Element w1 q) = enter d.placement w
     | Nothing => level refused w0 acc w p r rest pending
-  (counts, reading) <- kindOf a d
+  let (counts, reading) = kindOf a d
   let measured = { breadth $= \b => foldl (\m, k => max m (S k)) b counts } r
-  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a (d, []) } measured), the (List Name) []) else keep a d reading measured
+  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a (d, []) } measured), the (List Defined) []) else keep a d reading measured
   level refused w0 acc w1 (thenNoMore (fewer q) p) r' rest (Queued (fewerThen q p) (queued pending <>< next))
 
-definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front Entered
+-- The definitions' walk from main, as the reading holds it.
+definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Defined) -> Front Entered
 definitions main = do
   refused <- (.refused) <$> getState
   level refused start (sizeAccessible start) start (noMore start) (MkEntered empty empty [] empty 0) [main] Idle
@@ -573,11 +568,16 @@ amongAll ps (q :: qs) = case (pathAmong q ps, amongAll ps qs) of
   (Proof.Growth.Yes e, Just (Element () es)) => Just (Element () (e :: es))
   _ => Nothing
 
+-- No more paths than the program has, as the machine compares their
+-- counts.
+fewerPaths : (held, ps : List (List1 Nat)) -> Bool
+fewerPaths held ps = length held <= length ps
+
 -- Every head's paths among the program's, and no more of them than it
 -- has: the erased evidence, or nothing.
 withinPaths : (ps : List (List1 Nat)) -> (hs : List (Nat, Headed)) -> Maybe (Subset () (\_ => All (\e => HeldAmong ps (snd e)) hs))
 withinPaths ps [] = Just (Element () [])
-withinPaths ps ((_, h) :: hs) = case (amongAll ps h.held, choose (length h.held <= length ps), withinPaths ps hs) of
+withinPaths ps ((_, h) :: hs) = case (amongAll ps h.held, choose (fewerPaths h.held ps), withinPaths ps hs) of
   (Just (Element () inPs), Left short, Just (Element () rest)) => Just (Element () ((inPs, Proof.Growth.lteSo short) :: rest))
   _ => Nothing
 
@@ -1317,14 +1317,15 @@ mutual
                   (i : Nat) -> (b : Bool) -> (j == i) = b ->
                   readIf b (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) = Just (Closed k) ->
                   Elem (i, p) ((j, q) :: ws) -> (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
-  tableReadAt held j q ws i True _ eq Here = case intoClosed (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) eq of
+  -- At `Here` the parameter read is the entry's own, j.
+  tableReadAt held j q ws _ True _ eq Here = case intoClosed (fromMaybe Open (entryAt q held).fst) (landedAt held ws j) eq of
     ((x ** (here, le)), _) => (x ** (heldEntry held q (fromMaybeClosed (entryAt q held).fst here), le))
   tableReadAt held j q ws i True _ eq (There el) = case intoClosed (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) eq of
     (_, rest) => case listedRead held ws el of
       (m ** later) => case rest m later of
         (y ** (Refl, le)) => case tableRead held ws i later el of
           (k' ** (atP, le')) => (k' ** (atP, transitive le' le))
-  tableReadAt held j q ws i False same eq Here = absurd (trans (sym (soToEq (equalSelf i))) same)
+  tableReadAt held j q ws _ False same eq Here = absurd (trans (sym (soToEq (equalSelf j))) same)
   tableReadAt held j q ws i False _ eq (There el) = tableRead held ws i eq el
 
 ||| A site's landing read off the held table reads the table.
@@ -1491,20 +1492,20 @@ landedBy (PacksHeld _) = Open
 0 LandsAs : Wrote -> Template -> Type
 LandsAs wr t = (k : Nat) -> landedBy wr = Closed k -> (selfBounded t = True, height t = k)
 
--- An argument lands as its template says.
-0 argumentLands : (x : Argument) -> LandsAs (FromArgument s x) x.template
-argumentLands x k eq = closedBy x.root (beta x.template) (selfBounded x.template) x.term x.template eq
+-- An argument lands as its template says. The site is given: what an
+-- argument lands as is the argument's alone, so no type names the site.
+0 argumentLands : (s : Sites.Site) -> (x : Argument) -> LandsAs (FromArgument s x) x.template
+argumentLands s x k eq = closedBy x.root (beta x.template) (selfBounded x.template) x.term x.template eq
 
--- A leading arc's marker, a field's template and a held value land as no
--- closed value.
-0 methodLands : LandsAs ThroughMethod t
-methodLands k Refl impossible
+0 openNotClosedLanding : Open = Closed k -> Void
+openNotClosedLanding Refl impossible
 
-0 fieldLands : LandsAs (InField j f r) t
-fieldLands k Refl impossible
-
-0 heldLands : LandsAs (PacksHeld p) t
-heldLands k Refl impossible
+-- A writing that lands as values no closed reading bounds, as a leading
+-- arc's marker, a field's template and a held value do, says nothing of
+-- its template: no closed value lands. What wrote it and its template are
+-- given, since such a landing names neither.
+0 openLands : (wr : Wrote) -> landedBy wr = Open -> (t : Template) -> LandsAs wr t
+openLands wr landed t k closed = void (openNotClosedLanding (trans (sym landed) closed))
 
 -- What one template wrote, before its writer's families are read where
 -- they land: where its writer reads each of its parameters, the template
@@ -1580,7 +1581,7 @@ writings : List (Node, List (Sites.Site, Reached Defined)) -> List Written
 writings =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWritten (spotAt w s.params) pl.argument.template (AtNode w s.params) (landsAt callee pl.parameter)
-                          (FromArgument s pl.argument) ArgumentDraws (argumentLands pl.argument) :: acc) []
+                          (FromArgument s pl.argument) ArgumentDraws (argumentLands s pl.argument) :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
 -- writes at M's leading parameters. The parameters of M its `leading`
@@ -1593,7 +1594,7 @@ leadingWritings : SortedMap Address (List Node) -> Leads -> List Written
 leadingWritings nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
     [ MkWritten (spotAt jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly) (OfParameter (OfNode m) q) ThroughMethod (MarkerDraws p)
-                methodLands
+                (openLands ThroughMethod Refl (Template.Var p 0))
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -1615,7 +1616,8 @@ leadingWritings nodes leads =
 fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List Written
 fieldWritings nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField j k t) FieldDraws fieldLands
+    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField fields.givenBy k t) FieldDraws
+                (openLands (InField fields.givenBy k t) Refl t)
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
     numbered : Nat -> List Template -> List (Nat, Template)
@@ -1700,7 +1702,8 @@ heldPackings count (Just pg) places = case pred count of
     written : Nat -> HeldBy -> List Written
     written n place =
       [ MkWritten (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) AtHeld
-                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k) heldLands
+                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k)
+                  (openLands (PacksHeld k) Refl (packingTemplate k))
       | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
       , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
 
@@ -1784,7 +1787,8 @@ heldWritings count pg choices walked =
   where
     fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
     fromHeld place p k b =
-      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k) heldLands
+      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k)
+                     (openLands (PacksHeld k) Refl (packingTemplate k))
 
     -- The place a dictionary of the writer's that holds values as one is
     -- at, at the writer's node.
@@ -1795,7 +1799,7 @@ heldWritings count pg choices walked =
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
       [ MkContribution (spotAt w s.params) x.template (AtNode w s.params) OneValue (FromArgument s x) ArgumentDraws
-                       (argumentLands x)
+                       (argumentLands s x)
       | x <- forget xs ]
     contributions w s (PackedBy h) =
       fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
@@ -1839,12 +1843,12 @@ pairedPlaces ws = SortedSet.toList (foldl (\acc, x => case x.target of
 -- Whether a parameter is among some, as the machine compares naturals.
 amongParameters : (i : Nat) -> (is : List Nat) -> Decided (Elem i is)
 amongParameters i [] = No (\el => absurd el)
-amongParameters i (j :: js) = case choose (i == j) of
-  Left so => Yes (rewrite equalSo so in Here)
-  Right no => case amongParameters i js of
+amongParameters i (j :: js) = case sameNat i j of
+  Proof.Growth.Yes same => Yes (rewrite same in Here)
+  Proof.Growth.No other => case amongParameters i js of
     Yes el => Yes (There el)
     No out => No (\el => case el of
-                           Here => soNotToNotSo no (equalSelf i)
+                           Here => other Refl
                            There e => out e)
 
 -- The parameters of a list not already among some, each once: every one
@@ -2262,7 +2266,12 @@ SiteMet {n} t x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding t (fst x)
 siteRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> {0 t : LandingTable n} -> (held : Indexed t) -> (x : Numbered n) ->
            (0 _ : BoundedBy (landedBy x.written.wrote) (Vect.index x.target t)) -> Subset (Bound.Site n, Wrote) (SiteMet t)
 siteRead fl families held x bounded =
-  let c = readLanding held x.writers
+  -- Local definitions, never let bindings: the site's evidence states the
+  -- landing and the roots themselves, and a let-bound name does not unfold
+  -- in a type, where a definition does.
+  let c : Nat -> Landing
+      c = readLanding held x.writers
+      rts : Template -> List Address
       rts = rootsAt fl families c x.written.writer in
   Element (Bound.MkSite x.target (withClosedFamilies c x.written.template) x.writers rts, x.written.wrote)
           (drawnRead c x.written.draws,
@@ -2416,7 +2425,7 @@ readings fl r = foldlM family plain (SortedMap.toList r.sites)
 
     headed : Address -> Defined -> SortedMap Node (Defined, List Sites.Site) -> List (Nat, Address) ->
              Front (SortedMap Node (Defined, List Sites.Site))
-    headed a d m hs = (\ss => insert (MkNode a hs) (d, ss) m) <$> sitesOf a hs
+    headed a d m hs = (\ss => insert (MkNode a hs) (d, ss) m) <$> sitesOf a d hs
 
     -- Each way of heading a definition's families, read at its
     -- definition: a definition the checks refused was entered with none.
@@ -2542,20 +2551,18 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (s
       pure (MkReached callee (concat placed') via)
     reachedAt w st (Kept b items) = Kept b <$> traverse (heldAt w st) items
 
-||| The growth graph of the program from main: every static position its
-||| reachable nodes have, numbered, with the arcs between them, the caps,
-||| K, and the sizes the worklist's universe needs. It throws only an
-||| internal error, a broken invariant of its own construction or of a
-||| contract it reads, at main's definition.
+||| The growth graph of the program from main, as the reading holds it:
+||| every static position its reachable nodes have, numbered, with the arcs
+||| between them, the caps, K, and the sizes the worklist's universe needs.
+||| It throws only an internal error, a broken invariant of its own
+||| construction or of a contract it reads, at main's definition.
 export
-build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Name) -> Front Built
+build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Defined) -> Front Built
 build main = do
   -- main is where an internal error of the graph is located, and its node,
   -- with no heads, is where the walk over nodes starts.
-  Just mainRead <- defined main
-    | Nothing => internal EmptyFC "the growth graph's main has no definition"
-  let fc = location mainRead.def
-  let root = addressOf mainRead.placement
+  let fc = location main.def
+  let root = addressOf main.placement
   entered <- definitions main
   -- Lists are joined by bind, which is linear: base's `concat` and
   -- `concatMap` on a list fold `++` from the left, so every join copies
@@ -2612,9 +2619,13 @@ build main = do
   -- What lands at each position is joined from every writing there, and a
   -- capped position holds every value of its cap's height: the writings
   -- as written are numbered at their places, and what lands is read off
-  -- that numbering, by the spot a writer reads.
+  -- that numbering, by the spot a writer reads. Each value whose
+  -- definition a type below states is a local definition, never a let
+  -- binding: a let-bound name does not unfold in a type, where a
+  -- definition does.
   let written0 = writtenBy walked0 args0
-  let slots0 = allSlots written0
+  let slots0 : List Spot
+      slots0 = allSlots written0
   let (numbered0, met0) = numberedAll {rest = []} written0
                                       (replace {p = Meeting (length slots0)} (sym (appendNilRightNeutral slots0))
                                                (MkMeeting 0 Refl empty [<]))
@@ -2630,7 +2641,8 @@ build main = do
   -- lands is a writing's. A position is numbered at the place it is first
   -- met, before anything that lands is read, so what lands where is a
   -- table by number, and no site looks a position up.
-  let slots = allSlots written ++ entered.datas
+  let slots : List Spot
+      slots = allSlots written ++ entered.datas
   let position = Vect.fromList slots
   let start : Meeting (length slots) (allSlots written ++ entered.datas)
       start = MkMeeting 0 Refl empty [<]
@@ -2642,8 +2654,10 @@ build main = do
   let caps = map (\p => lookup p capped) position
   -- What lands at each position, and each writing read where its writer
   -- is over it.
-  let landed = map landedPair numbered
-  let table = tableOf done.seen caps nodes leads walked landed
+  let landed : List (LandingAt (length slots))
+      landed = map landedPair numbered
+  let table : LandingTable (length slots)
+      table = tableOf done.seen caps nodes leads walked landed
   let (Element sites sitesDrawn) = sitesRead fl entered.families (indexed table) numbered
                                              (\el => tableBounds done.seen caps nodes leads walked landed (elemMap landedPair el))
   -- Each definition's positions, each field's and each choice's, read off
@@ -2685,7 +2699,8 @@ build main = do
   -- K stands above every template, a capped position's among them, though
   -- no site into one is drawn.
   let beyond = topOf 0 (allOf siteNeeds cappedSites)
-  let arcs = drawn positionsOf fieldPositionsOf choicePositionsOf kept
+  let arcs : List (Drawn (length slots), Wrote)
+      arcs = drawn positionsOf fieldPositionsOf choicePositionsOf kept
   -- A field's template is written into the values of every field read,
   -- and so into requests, as an argument's is.
   pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position firsts

@@ -611,7 +611,9 @@ blockNamesOf r entry = do
 ||| definition is entered into a walk when it is read (`Walk`), and every
 ||| one read leaves fewer to enter, which is why the reading ends; a name
 ||| the context defines as nothing, a probe's or a binder's, is no
-||| definition to read.
+||| definition to read. A type constructor's constructor the context holds
+||| nothing for is passed over here too, and refused once the reading is
+||| frozen, where the type's constructors are read (`constructorsRead`).
 readFrom : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 _ : SizeAccessible w) ->
            SortedMap Int Unfrozen -> List Name -> Core (SortedMap Int Unfrozen)
 readFrom w acc found [] = pure found
@@ -824,6 +826,53 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
         | Left msg => pure (Left msg)
       pure (Right (Just (MkExitTypes aw ag vw)))
 
+||| A type constructor's constructors, each as it was read
+||| (`ConstructorAt`), in the order its declaration lists them; none for a
+||| type declared without them, or for any other definition. A name the
+||| type lists that the frozen context defines as nothing, or as no
+||| constructor, is the compiled module's error, refused here, once, at the
+||| type constructor or else at `fallback`, as the translation refuses a
+||| missing definition, so no reader after meets a type with a constructor
+||| it cannot read.
+constructorsRead : NonEmptyFC -> Reading () -> DefinitionRead () -> Core (Either Refusal (List ConstructorAt))
+constructorsRead fallback r tc = case definition tc.def of
+  TCon _ _ _ _ _ (Just cons) _ => listed cons
+  _ => pure (Right [])
+  where
+    refused : String -> Refusal
+    refused what = MkRefusal (Refusal CompiledModule) (fromMaybe fallback (isNonEmptyFC (location tc.def)))
+                             (show (fullname tc.def) ++ ": " ++ what)
+
+    listed : List Name -> Core (Either Refusal (List ConstructorAt))
+    listed [] = pure (Right [])
+    listed (cn :: rest) = do
+      ReadAs _ _ _ con <- readOf r cn
+        | NoDefinition _ => pure (Left (refused ("missing definition " ++ show cn ++ ", which its type lists as a constructor")))
+      let DCon _ arity _ = definition con.def
+        | _ => pure (Left (refused (show (fullname con.def) ++ " is not a constructor")))
+      Right later <- listed rest
+        | Left refusal => pure (Left refusal)
+      pure (Right (MkConstructorAt con arity :: later))
+
+||| The reading with every definition given its constructors
+||| (`constructorsRead`), the entry as every other; the first refusal stops
+||| it.
+constructed : NonEmptyFC -> Reading () -> Core (Either Refusal (Reading (List ConstructorAt)))
+constructed fallback r = do
+  Right entryCons <- constructorsRead fallback r r.entry
+    | Left refusal => pure (Left refusal)
+  Right ds <- each empty (SortedMap.toList r.definitions)
+    | Left refusal => pure (Left refusal)
+  pure (Right (MkReading r.frozen (withNature entryCons r.entry) ds r.application r.interfaces))
+  where
+    each : SortedMap Int (DefinitionRead (List ConstructorAt)) -> List (Int, DefinitionRead ()) ->
+           Core (Either Refusal (SortedMap Int (DefinitionRead (List ConstructorAt))))
+    each done [] = pure (Right done)
+    each done ((i, d) :: rest) = do
+      Right cons <- constructorsRead fallback r d
+        | Left refusal => pure (Left refusal)
+      each (insert i (withNature cons d) done) rest
+
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
 ||| definition it can meet from the entry and from the pair `%pair` names,
@@ -832,10 +881,13 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
 ||| frozen; then the context frozen, the registry's entries validated
 ||| against it, and each definition's values that are members of a choice,
 ||| its binders with what it takes at each and their types, and the hook
-||| that lowers its calls read off its type in normal form; and what follows from the definitions alone
-||| found once: each type constructor's facts, each definition's loops,
-||| and each block's name. A registry entry or row the loaded definitions
-||| contradict is refused here, once, at its definition or else at
+||| that lowers its calls read off its type in normal form; the entry, as
+||| it was read, found once by its name; each type constructor's
+||| constructors read; and what follows from the definitions alone found
+||| once: each type constructor's facts, each definition's loops, and each
+||| block's name. A registry entry or row the loaded definitions
+||| contradict, and a type constructor whose constructors the context does
+||| not hold, are refused here, once, at their definition or else at
 ||| `fallback`, and nothing after reads the registry's rows but as this
 ||| read them.
 export
@@ -855,14 +907,24 @@ readProgram ifs entry fallback = do
     | Just refusal => pure (Left refusal)
   Right definitions <- frozenAll fz found empty (SortedMap.toList found)
     | Left refusal => pure (Left refusal)
+  -- The entry was read first, from its name: the definition the frozen
+  -- context gives that name, found once here and held by the reading, so
+  -- no phase after looks it up again. The program found it by that name
+  -- in the context before the reading, so a context that defines it as
+  -- nothing is a program with no main, refused as one.
+  ReadAs _ _ _ entryRead <- readIn fz definitions entry
+    | NoDefinition _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback (programEntry ++ ": the program defines no main")))
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before
   -- any definition holds it: none of the three readings reads what the
-  -- others find, and each definition is given all three at once.
-  let fromDefinitions = MkReading fz definitions application ifs
+  -- others find, and each definition is given all three at once. The type
+  -- constructors' facts read their constructors, read first.
+  let fromDefinitions = MkReading fz entryRead definitions application ifs
+  Right withConstructors <- constructed fallback fromDefinitions
+    | Left refusal => pure (Left refusal)
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
-  Right <$> readWhole proved blocks fromDefinitions
+  Right <$> readWhole proved blocks withConstructors
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are

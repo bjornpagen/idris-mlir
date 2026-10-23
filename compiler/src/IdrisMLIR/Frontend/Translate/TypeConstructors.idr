@@ -100,25 +100,35 @@ conBinders con g i (Bind _ _ (Pi _ rig _ a) sc) =
   let (bs, ret) = conBinders con (give (marker i) g) (S i) sc in ((argumentAt con i rig, close g a) :: bs, ret)
 conBinders con g i t = ([], close g t)
 
+||| What the walks over type constructors know of a definition, as the
+||| reading they walk has it: the facts of a type constructor found
+||| already, which the walk does not find again (`foundFacts`), and the
+||| constructors the boundary read of each definition (`readConstructors`,
+||| `Boundary.constructorsRead`): while the facts are found, those the
+||| reading's definitions hold (`typeConstructorsOf`); once they are all
+||| found, those every type constructor's facts hold (`natureFacts`). None
+||| for a type constructor not found yet, whose facts the walk finds
+||| (`formedAt`), and no facts and no constructors for a definition that is
+||| no type constructor.
+public export
+record FactsFound (facts : Type) where
+  constructor MkFactsFound
+  foundFacts : DefinitionRead facts -> Maybe TyConFacts
+  readConstructors : DefinitionRead facts -> List ConstructorAt
+
 ||| The constructors of a type constructor, each read once
-||| (`ConstructorRead`). Nothing when Idris does not know the constructors (a
-||| type declared without them) or one names no definition. What the
-||| translation reads of a type constructor is read from these
-||| (`factsOf`).
-constructorsOf : {0 facts : Type} -> Reading facts -> DefinitionRead facts -> Core (Maybe (List ConstructorRead))
-constructorsOf r tc = case definition tc.def of
-  TCon _ _ _ _ _ (Just cons) _ => do
-    found <- traverse (definedIn r) cons
-    case the (Maybe (List (DefinitionRead facts))) (sequence found) of
-      Just cs => Just <$> traverse read cs
-      Nothing => pure Nothing
-  _ => pure Nothing
+||| (`ConstructorRead`) off what the boundary read of it (`ConstructorAt`),
+||| in the order its declaration lists them: none for a type declared
+||| without them, and for any other definition. What the translation reads
+||| of a type constructor is read from these (`factsOf`).
+constructorsOf : {0 facts : Type} -> Reading facts -> FactsFound facts -> DefinitionRead facts -> Core (List ConstructorRead)
+constructorsOf r known tc = traverse readOne (known.readConstructors tc)
   where
-    read : DefinitionRead facts -> Core ConstructorRead
-    read con = do
-      ty <- fullNamesIn r.frozen <$> normal r con.type
-      let (bs, ret) = conBinders con.def none 0 ty
-      pure (MkConstructorRead con.def ty bs ret)
+    readOne : ConstructorAt -> Core ConstructorRead
+    readOne con = do
+      ty <- fullNamesIn r.frozen <$> normal r con.read.type
+      let (bs, ret) = conBinders con.read.def none 0 ty
+      pure (MkConstructorRead con.read.def ty bs ret)
 
 ||| The parameters of a type constructor: Idris's, and those its own
 ||| reading of the constructors' types misses because a type hides its
@@ -129,16 +139,16 @@ constructorsOf r tc = case definition tc.def of
 ||| constructor, and no earlier position has it too. Such an argument is
 ||| never refined by a match, so reading it as a parameter changes nothing
 ||| Idris proved. Given the constructors' types (`constructorsOf`).
-dataParams : GlobalDef -> Maybe (List ConstructorRead) -> List Nat
+dataParams : GlobalDef -> List ConstructorRead -> List Nat
 dataParams def conTys = case definition def of
   TCon arity params _ _ _ _ _ =>
     let positions : List Nat = iterateN arity S 0
         idris = List.filter (\i => NatSet.elem i params) positions in
     if length idris == arity then idris else
       let found : List Nat = case conTys of
-                    Just ts@(_ :: _) => let sets = map (uniform . (.normalForm)) ts in
-                                        List.filter (\i => all (elem i) sets) positions
-                    _ => [] in
+                    ts@(_ :: _) => let sets = map (uniform . (.normalForm)) ts in
+                                   List.filter (\i => all (elem i) sets) positions
+                    [] => [] in
       List.filter (\i => elem i idris || elem i found) positions
   _ => []
   where
@@ -219,7 +229,7 @@ kinds _ = []
 ||| abstraction over it, `{0 s : Type} -> ST s Int`, is a value of that one
 ||| instance once applied to whatever type. Given its parameters and its
 ||| constructors' types (`constructorsOf`).
-keyedOf : Reading facts -> DefinitionRead facts -> List Nat -> Maybe (List ConstructorRead) -> Core (List Nat)
+keyedOf : Reading facts -> DefinitionRead facts -> List Nat -> List ConstructorRead -> Core (List Nat)
 keyedOf r tc params conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
     -- A record's parameter kinds may be solved metavariables, and a type
@@ -231,8 +241,8 @@ keyedOf r tc params conTys = case definition tc.def of
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) (iterateN arity S 0)
     -- Without its constructors, every type parameter counts.
     pure (case conTys of
-            Just ts@(_ :: _) => filter (\i => any (represents i) ts) types
-            _ => types)
+            ts@(_ :: _) => filter (\i => any (represents i) ts) types
+            [] => types)
   _ => pure []
   where
     -- Does a constructor represent the parameter at position `p` of the
@@ -260,9 +270,11 @@ shorter a b Refl = rewrite sym (plusSuccRightSucc a b) in LTESucc (lteAddRight a
 ||| position, and `PCons : P (a, a) -> P a`, whose index no value holds,
 ||| does not. Such an index is checked by the growth phase, never a key.
 ||| Given the type constructor's parameters, its `Keyed` positions and its
-||| constructors' types (`constructorsOf`).
-heldOf : Reading facts -> DefinitionRead facts -> (params, keys : List Nat) -> List ConstructorRead -> Core (List Nat)
-heldOf r tc ps keys conTys = case definition tc.def of
+||| constructors' types (`constructorsOf`), and what the walk knows of
+||| every other type constructor (`known`).
+heldOf : Reading facts -> FactsFound facts -> DefinitionRead facts -> (params, keys : List Nat) -> List ConstructorRead ->
+         Core (List Nat)
+heldOf r known tc ps keys conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
     ty <- normal r tc.type
     let values = kinds ty
@@ -279,7 +291,7 @@ heldOf r tc ps keys conTys = case definition tc.def of
     keysOf d = do
       Just other <- definedIn r d
         | Nothing => pure []
-      conTys <- constructorsOf r other
+      conTys <- constructorsOf r known other
       keyedOf r other (dataParams other.def conTys) conTys
 
     mutual
@@ -348,12 +360,12 @@ heldOf r tc ps keys conTys = case definition tc.def of
 ||| key keeps what a constructor takes at quantity 0 (`FS`'s index), so a
 ||| chain's values' keys are only their successors: `Nat`, but neither
 ||| `Fin` nor `Elem`, which are `Numeral`s.
-natnessOf : Maybe (List ConstructorRead) -> Natness
-natnessOf (Just cons@(_ :: _)) =
+natnessOf : List ConstructorRead -> Natness
+natnessOf cons@(_ :: _) =
   if not (all (isJust . natRole . (.global)) cons) then NotNat
     else if all (\con => all heldBinder con.taking) cons then Chain
     else Numeral
-natnessOf _ = NotNat
+natnessOf [] = NotNat
 
 ||| The roles of a value array's arguments, its shape and its element, as
 ||| `Shapes.arrayParts` reads them: the shape is its form, and the element
@@ -399,23 +411,17 @@ public export
 Assumed : Type
 Assumed = List (Name, List Nat)
 
-||| The facts of the type constructors found already, by the definition:
-||| while the definitions are read, those of the type constructors found
-||| before this one (`typeConstructorsOf`); once they are all read, every
-||| type constructor's, which its nature holds (`natureFacts`). None for a
-||| type constructor not found yet, whose facts the walk finds
-||| (`formedAt`), and for a definition that is no type constructor.
-public export
-FactsFound : Type -> Type
-FactsFound facts = DefinitionRead facts -> Maybe TyConFacts
-
-||| The facts of every type constructor, once the program is read: each
-||| one's nature holds them.
+||| The facts of every type constructor, once the program is read, and its
+||| constructors among them: each one's nature holds them. A definition
+||| that is no type constructor has neither.
 export
 natureFacts : FactsFound Nature
-natureFacts d = case d.nature.asTypeConstructor of
-  ATypeConstructor facts => Just facts
-  NoTypeConstructor => Nothing
+natureFacts = MkFactsFound held (\d => maybe [] (.constructors) (held d))
+  where
+    held : DefinitionRead Nature -> Maybe TyConFacts
+    held d = case d.nature.asTypeConstructor of
+      ATypeConstructor facts => Just facts
+      NoTypeConstructor => Nothing
 
 mutual
   ||| Does a binder of this kind stand where terms put it in a form: is its
@@ -456,7 +462,7 @@ mutual
     Nothing => do
       Just tc <- definedIn r n
         | Nothing => pure []
-      case known tc of
+      case known.foundFacts tc of
         Just found => pure (positionsOf (== Formed) found.roles)
         Nothing => case enter tc.placement w of
           Just (Element w' less) => formedIn r known w' (rec w' less) assumed tc
@@ -479,9 +485,8 @@ mutual
              (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> DefinitionRead facts -> Core (List Nat)
   formedIn r known w acc assumed tc =
     if (namedHooks tc.registered).valueArray then pure (positionsOf (== Formed) valueArrayRoles) else do
-      Just cons <- constructorsOf r tc
-        | Nothing => pure []
-      rounds r known w acc assumed (fullname tc.def) cons [] (dataParams tc.def (Just cons)) (wellFounded _)
+      cons <- constructorsOf r known tc
+      rounds r known w acc assumed (fullname tc.def) cons [] (dataParams tc.def cons) (wellFounded _)
 
   rounds : Reading facts -> FactsFound facts ->
            (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> List ConstructorRead ->
@@ -524,12 +529,12 @@ mutual
 ||| What the translation reads of a type constructor's definition, from its
 ||| constructors read once (`constructorsOf`): its parameters
 ||| (`dataParams`), the role of each argument (`keyedOf`, `formedIn`,
-||| `heldOf`; a value array's are `valueArrayRoles`), and how it is
-||| `Nat`-like (`natnessOf`). Those of the type constructors found before
-||| it are `known`.
+||| `heldOf`; a value array's are `valueArrayRoles`), how it is `Nat`-like
+||| (`natnessOf`), and the constructors themselves, as the boundary read
+||| them. Those of the type constructors found before it are `known`.
 factsOf : Reading facts -> (known : FactsFound facts) -> DefinitionRead facts -> Core TyConFacts
 factsOf r known tc = do
-  conTys <- constructorsOf r tc
+  conTys <- constructorsOf r known tc
   let ps = dataParams tc.def conTys
   roles <- if (namedHooks tc.registered).valueArray then pure valueArrayRoles else do
              let TCon arity _ _ _ _ _ _ = definition tc.def
@@ -538,9 +543,9 @@ factsOf r known tc = do
              -- The walk starts at this type constructor, entered.
              let w = startAt tc.placement
              forms <- formedIn r known w (sizeAccessible w) [] tc
-             held <- heldOf r tc ps keys (fromMaybe [] conTys)
+             held <- heldOf r known tc ps keys conTys
              pure (map (roleOf keys forms held) (iterateN arity S 0))
-  pure (MkTyConFacts ps roles (natnessOf conTys))
+  pure (MkTyConFacts ps roles (natnessOf conTys) (known.readConstructors tc))
   where
     roleOf : (keys, forms, held : List Nat) -> Nat -> Role
     roleOf keys forms held j =
@@ -551,20 +556,22 @@ factsOf r known tc = do
 
 ||| What the translation reads of every type constructor read from what
 ||| `main` reaches (`factsOf`), by address, each found once, in the order
-||| the table holds them: each reads the facts of those found before it,
-||| and walks to the rest (`formedAt`). The table holds a type
-||| constructor's facts and nothing else.
-typeConstructorsOf : Reading () -> Core (SortedMap Address TyConFacts)
+||| the table holds them, from the constructors the boundary read of each
+||| definition: each reads the facts of those found before it, and walks
+||| to the rest (`formedAt`). The table holds a type constructor's facts
+||| and nothing else.
+typeConstructorsOf : Reading (List ConstructorAt) -> Core (SortedMap Address TyConFacts)
 typeConstructorsOf r = foldlC add empty (values r.definitions)
   where
-    add : SortedMap Address TyConFacts -> DefinitionRead () -> Core (SortedMap Address TyConFacts)
+    add : SortedMap Address TyConFacts -> DefinitionRead (List ConstructorAt) -> Core (SortedMap Address TyConFacts)
     add known d = case definition d.def of
       TCon {} => (\facts => insert (addressOf d.placement) facts known) <$>
-                   factsOf r (\other => lookup (addressOf other.placement) known) d
+                   factsOf r (MkFactsFound (\other => lookup (addressOf other.placement) known) (.nature)) d
       _ => pure known
 
 ||| What every phase after the boundary reads of the program, once every
-||| definition it can meet is read (`Reading ()`): each definition with
+||| definition it can meet is read and each type constructor's
+||| constructors with it (`Boundary.constructorsRead`): each definition with
 ||| what follows of it from all of them (`Nature`), found once: its facts
 ||| as a type constructor, found here (`typeConstructorsOf`), whose table
 ||| holds a type constructor's and no other's; what the walk that names
@@ -573,7 +580,7 @@ typeConstructorsOf r = foldlC add empty (values r.definitions)
 ||| `Recursion.loopsOf`), a definition with no proof one that may diverge.
 export
 readWhole : (proved : SortedMap Address ComponentId) -> (called : SortedMap Address String) ->
-            Reading () -> Core Read
+            Reading (List ConstructorAt) -> Core Read
 readWhole proved called r = do
   facts <- typeConstructorsOf r
   pure (natured (natureFrom facts called proved) r)

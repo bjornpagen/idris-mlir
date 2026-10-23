@@ -272,3 +272,21 @@ built at (`valueTy`), not one re-read off the value. Open:
   `DecEq Double`) and ripples into State, Closed, Cases, Choices,
   Programs, Shapes, Primitives, Recursion, Types and `Emit.idr`.
 - `Terms.boundTypes` defaults silently with `fromMaybe b.type`.
+
+## From L16db (the boundary's facts carried)
+
+Done: `TyConFacts.constructors` (`ConstructorAt`, read at the freeze, a
+constructor the context lacks refused as `CompiledModule`), so
+`Fields.idr`'s internal error and `constructorArity` go; `Reading.entry`,
+so main is passed by its `Defined` and `Calls`/`Builds` carry callees'
+definitions. Open, decided here (the coordinator, 2026-10-23): the
+growth graph's positions (`Node`, `Visit`, `Spot`, `HeldBy`) stay keys,
+and their definitions are carried beside them, numbered once: a `Vect`
+of definitions per position built through `Written` and the numbering,
+the definitions along the visit path for the reachers, the interface's
+name beside `ChoiceHead` from `choiceHeadOf`, and a stuck recursion's
+definition in `Describes`' drawn arc; then `graphDefinition` and
+`Growth.idr`'s last address lookup go. Also: `Types.constructor` reads
+`TyConFacts.constructors`; Sites' `nodeValues` keeps two internal
+errors; R-o2's typed local definitions rest on an Idris behaviour L06d
+is confirming.
