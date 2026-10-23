@@ -281,33 +281,42 @@ data Dependence = Runs | Reduces
 
 ||| How a parameter keys an instance, decided from its binder (its quantity,
 ||| its normalised type and the rest of the type) and what the call knows
-||| of its argument (`Offer`): a type, a type family (a type parameter whose
-||| kind is a function into a universe), a form, an implementation or a
-||| polymorphic function (`compileTimeBinder`), at the quantity its binder
-||| has, an erased value that keys nothing, or a runtime value, at the
-||| quantity its binder has, by how the rest of the type depends on it. The
-||| one place `classify` and `staticsOver` decide it.
+||| of its argument (`Offer`): a type or a type family (a type parameter
+||| whose kind is a function into a universe), whatever its quantity, a
+||| form, an implementation or a polymorphic function
+||| (`compileTimeBinder`), at the quantity its binder has, an erased value
+||| that keys nothing, or a runtime value, at the quantity its binder has,
+||| by how the rest of the type depends on it. The one place `classify` and
+||| `staticsOver` decide it.
 data Keying = Typed | Family | Formed | Implemented Uses | Unkeyed | Runtime Uses Dependence
 
 keyingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            RigCount -> ClosedTerm -> TT [x] -> Offer -> Front Keying
-keyingOf rig a' sc offer = case use rig of
-  Erased =>
-    if isTypeLike a' then pure (case a' of
-                                  Bind _ _ (Pi {}) _ => Family
-                                  _ => Typed) else do
+-- A binder whose type is a universe, after any binders, takes a type or a
+-- type family, whatever its quantity: the program fixes its values, as it
+-- fixes every type's, so it keys the instance as a type does. Idris binds
+-- an interface's parameter at quantity many unless it says 0
+-- (`interface Walk (t : Type -> Type)`), and that `t` is the same type
+-- parameter as an erased one: never a function chosen at run time, and
+-- never a value at run time. A tree that matches on one taken at quantity
+-- many matches on a type every instance knows (`Cases.typeHead`).
+keyingOf rig a' sc offer =
+  if isTypeLike a' then pure (case a' of
+                                Bind _ _ (Pi {}) _ => Family
+                                _ => Typed) else case use rig of
+    Erased =>
       -- An erased shape of the array language that the rest of the type
       -- puts in a form is its form: a tensor's rank is its type, so it
       -- keys the instance, by the rule a data type's parameter is formed
       -- by. Any other erased argument keys nothing.
       pure (if !(formNeeded a' (\x => subst x sc)) then Formed else Unkeyed)
-  Used q => case offer of
-    AnImplementation => pure (Implemented q)
-    AChoice => pure (Implemented q)
-    AValue =>
-      if !(compileTimeBinder rig a')
-         then pure (Implemented q)
-         else pure (Runtime q (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
+    Used q => case offer of
+      AnImplementation => pure (Implemented q)
+      AChoice => pure (Implemented q)
+      AValue =>
+        if !(compileTimeBinder rig a')
+           then pure (Implemented q)
+           else pure (Runtime q (if isJust (shrink sc (Drop Refl)) then Runs else Reduces))
 
 ||| What `staticsOver` reads of a parameter: off a binder the type shows
 ||| over the arguments given, the kind that keys it statically, if any, and

@@ -424,13 +424,21 @@ choiceHead ty = case getFnArgs ty of
   (Ref _ _ n, args) => Just (MkChoiceType ty (ByHead n args))
   _ => Nothing
 
+||| Whether a value of this type (normalised) is a value of the type's
+||| choice wherever it stands, by the one rule the member table is read by
+||| (`Boundary.choiceHolding`): what a place no definition's member table
+||| speaks for holds (a closure's parameter), as the growth check reads it.
+export
+typeHolding : ClosedTerm -> Front Holding
+typeHolding ty = (\r => choiceHolding r.frozen r.interfaces (pairTypeIn r) ty) <$> reading
+
 ||| Where a value of this type (normalised), held at run time, is a value
-||| of the type's choice (`choiceFamily`, `Boundary.choiceHolding`), a
-||| polymorphic function or an implementation, the type as a choice's,
-||| with what keys its choice; nothing for any other.
+||| of the type's choice (`choiceFamily`, `typeHolding`), a polymorphic
+||| function or an implementation, the type as a choice's, with what keys
+||| its choice; nothing for any other.
 export
 choiceType : ClosedTerm -> Front (Maybe ChoiceType)
-choiceType ty = (\r => if isMember (choiceHolding r.frozen r.interfaces (pairTypeIn r) ty) then choiceHead ty else Nothing) <$> reading
+choiceType ty = (\h => if isMember h then choiceHead ty else Nothing) <$> typeHolding ty
 
 ||| Where a value at a place is a member of its type's choice, the type as
 ||| a choice's (`choiceType`): as the member table says (`MemberPlaces`),

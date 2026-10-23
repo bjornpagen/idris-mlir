@@ -626,57 +626,6 @@ applyAtUse ctx env fc loc t form value args = do
       pack fc ctx.owner loc !(valuesOf held)
     useGiven x k = x.translated (expectedBy k)
 
-||| A value applied to arguments, over the Idris type of the value where it
-||| is known: an argument at a binder of quantity 0 is not passed, since
-||| the value takes none there at runtime, and any other is applied. A
-||| polymorphic function held at run time is a value of its type's choice,
-||| whose members each use calls at its own types: applied here, where it
-||| is held, it is a use of it, the member at the use's types
-||| (`applyAtUse`). Past the binders the type shows, an argument is a
-||| runtime value, and a type or an erased value there is refused, naming
-||| the head (`what`). Each application is at the function type the value's
-||| Core type (`core`) is, the type the value is made at, and gives a value
-||| of its result, which the next one applies; its argument is translated
-||| at the parameter's type.
-applyOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> Front String ->
-            Term nv -> (core : Maybe Ty) -> Maybe ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
-applyOver ctx env fc loc what f core _ [] = pure f
-applyOver ctx env fc loc what f core fty (x :: xs) = do
-  ty <- the (Front (Maybe ClosedTerm)) $ case fty of
-          Just t@(Bind _ _ (Pi {}) _) => pure (Just t)
-          Just t => Just <$> normaliseClosed t
-          Nothing => pure Nothing
-  case ty of
-    Just t@(Bind _ _ (Pi _ rig _ _) sc) => do
-      False <- polymorphicType t
-        | True => applyAtUse ctx env fc loc t (known t AChoice) (Just f) (x :: xs)
-      next <- instantiate fc env sc x.written
-      case use rig of
-        Erased => applyOver ctx env fc loc what f core (Just next) xs
-        Used _ => applied (Just next)
-    _ => do
-      when (compileTime env x.written) $ do
-        arg <- showTT (closeWritten fc env x.written)
-        reject fc ctx.owner ValueType
-               (arg ++ " in a runtime position: an argument of " ++ !what ++ ", whose type is not known here")
-      applied Nothing
-  where
-    -- Kept: Idris checked the application, so the value is a function's
-    -- wherever an argument is given, and a Core function type is what a
-    -- runtime binder of its Idris type becomes; but the Core type is a
-    -- `Ty`, which does not say so, read apart from the Idris type it
-    -- comes from, and a value a settled term computes whose term states
-    -- no type (`KnownTypes.Untyped`) has none.
-    applied : Maybe ClosedTerm -> Front (Term nv)
-    applied next = case core of
-      Just (FunT a r) => do
-        v <- x.translated (ExpectedAt a.type)
-        applyOver ctx env fc loc what (App loc a r f v) (Just r) next xs
-      _ => do
-        named <- what
-        internal fc ("an application of " ++ named ++ ", whose Core type " ++ show core ++ " is no function's")
-
 ||| The type of the value a `Delay` suspends, as Idris checked it (`TDelay`
 ||| holds it), at the extents a suspension's type holds: every one dynamic,
 ||| as `coreType` makes a `Lazy` type's.
@@ -921,15 +870,17 @@ mutual
               Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
   applyHead ph w acc ctx env ex afc (Local fc r idx p) args = applyVariable ph w acc ctx env afc fc r idx p args
   -- The argument is bound as what it is: a compile-time value at an erased
-  -- binder; another name for a variable; at a binder of an implementation
-  -- or a polymorphic function (`compileTimeBinder`), its form, with the
-  -- values it closes over bound once; anything else, a runtime value
-  -- bound by a `let`, which the application evaluates first, where the
-  -- `let` translation would move it into a `Delay` the body builds
-  -- (`delayedLets`).
+  -- binder; another name for a variable; at a binder of a type or a type
+  -- family, whatever its quantity, the type, as at an erased one (the
+  -- binder is a type parameter, as `Instances.keyingOf` classifies a
+  -- function's); at a binder of an implementation or a polymorphic
+  -- function (`compileTimeBinder`), its form, with the values it closes
+  -- over bound once; anything else, a runtime value bound by a `let`,
+  -- which the application evaluates first, where the `let` translation
+  -- would move it into a `Delay` the body builds (`delayedLets`).
   applyHead ph w acc ctx env ex afc (Bind bfc x (Lam _ rig _ ty) sc) (a :: rest) =
     case use rig of
-      Erased => spine ph w acc ctx (TypeValue (closeWritten bfc env a.written) :: env) ex afc sc (map overBinder rest)
+      Erased => typeValue
       -- A variable given to a binder of quantity 1 stands for it, used at
       -- most once there as Idris proved; given to one of quantity many it
       -- is bound once, so a variable Idris lets be used once is never used
@@ -937,15 +888,20 @@ mutual
       Used q => case (q, aliased a.written) of
         (Once, Just e) => spine ph w acc ctx (e :: env) ex afc sc (map overBinder rest)
         _ => do
-          fixedHere <- compileTimeBinder rig ty
-          loc <- toLoc (bestFC ctx bfc)
-          if fixedHere then dictionary q loc else asValue q loc
+          known <- closeNormalise bfc env ty
+          if isTypeLike known then typeValue else do
+            fixedHere <- compileTimeBinder rig ty
+            loc <- toLoc (bestFC ctx bfc)
+            if fixedHere then dictionary q loc known else asValue q loc known
     where
+      typeValue : Front (Term nv)
+      typeValue = spine ph w acc ctx (TypeValue (closeWritten bfc env a.written) :: env) ex afc sc (map overBinder rest)
+
       -- The argument as a runtime value, bound by a `let` at the binder's
-      -- quantity: a choice of an implementation among others (`Choices`).
-      asValue : Uses -> Loc -> Front (Term nv)
-      asValue q loc = do
-        known <- closeNormalise bfc env ty
+      -- quantity, of its normalised type (`known`): a choice of an
+      -- implementation among others (`Choices`).
+      asValue : Uses -> Loc -> (known : ClosedTerm) -> Front (Term nv)
+      asValue q loc known = do
         b <- coreBinder (bestFC ctx bfc) ctx.owner ValueType q known
         v <- a.translated (ExpectedAt b.type)
         body <- spine ph w acc ctx (under {k = 1} [Runtime FZ (BothTypes b.type known)] env) ex afc sc (map underLet rest)
@@ -959,20 +915,19 @@ mutual
       -- program chooses, or a definition Idris does not prove ends
       -- computes, is computed when the program runs: a choice, bound as a
       -- value.
-      dictionary : Uses -> Loc -> Front (Term nv)
-      dictionary q loc = do
-        known <- closeNormalise bfc env ty
+      dictionary : Uses -> Loc -> (known : ClosedTerm) -> Front (Term nv)
+      dictionary q loc known = do
         impl <- solved (closeWritten bfc env a.written)
         if not !(runtimeDependent impl)
           then do
             FixedNow _ <- fixing known impl
-              | ChosenAtRunTime _ => asValue q loc
+              | ChosenAtRunTime _ => asValue q loc known
             spine ph w acc ctx (BoundHere impl Nothing :: env) ex afc sc (map overBinder rest)
           else do
             Just (shape, values) <- a.held
-              | Nothing => asValue q loc
+              | Nothing => asValue q loc known
             FixedNow _ <- fixing known shape
-              | ChosenAtRunTime _ => asValue q loc
+              | ChosenAtRunTime _ => asValue q loc known
             held <- coreType bfc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack bfc ctx.owner loc !(valuesOf values)
             body <- spine ph w acc ctx
@@ -986,7 +941,7 @@ mutual
     let fc = bestFC ctx afc
     loc <- toLoc fc
     f <- term ph w acc ctx env Synthesized tm
-    applyOver ctx env fc loc (headName fc env tm) f (termType ctx.depth (scopeOf env) f) (headType env tm) args
+    applyOver ph w acc ctx env fc loc (headName fc env tm) f (termType ctx.depth (scopeOf env) f) (headType env tm) args
 
   ||| A variable applied to its arguments: a runtime value, applied; an
   ||| implementation, as `implementationAt` uses one.
@@ -1015,7 +970,7 @@ mutual
         let at = bestFC ctx afc
         aloc <- toLoc at
         let tm = Local fc r idx p
-        applyOver ctx env at aloc (headName at env tm) (Var loc x) (coreTyOf e) (headType env tm) args
+        applyOver ph w acc ctx env at aloc (headName at env tm) (Var loc x) (coreTyOf e) (headType env tm) args
 
   ||| An implementation or a polymorphic function the environment binds,
   ||| used at runtime: as written, applied to its arguments, it is settled
@@ -1248,10 +1203,11 @@ mutual
       standAt n = markerOf n >>= \k => getAt k stands
 
       -- What the written form has for a variable (`closeWritten`), where a
-      -- stand's marker is: a runtime value's unknown value, its shape, an
+      -- stand's marker is: a runtime value's unknown value, its shape with
+      -- the runtime value where the shape says nothing (`shapeWritten`), an
       -- implementation's form.
       writtenAs : VarInfo kc OfTerm (Fin nv) -> ClosedTerm
-      writtenAs (Shaped _ _ _ s) = s
+      writtenAs (Shaped _ _ _ s) = shapeWritten s
       writtenAs (Static d _ _) = d.form
       writtenAs (BoundHere t _) = t
       writtenAs (TypeValue t) = t
@@ -1520,6 +1476,106 @@ mutual
         v <- pack fc ctx.owner loc !(valuesOf values)
         pure (Just (ConApp loc con [] [v]))
 
+  ||| A runtime argument given at a parameter of Core type `pty`, its Idris
+  ||| type (normalised) with what a value given there holds of the type's
+  ||| choice (`held`, computed only where it is read): a callee's member
+  ||| table says (`givenAt`), and at a parameter no definition's table
+  ||| speaks for, the type itself does (`typeHolding`). A lambda given where
+  ||| a polymorphic function is held is the member of its type's choice it
+  ||| is (`member`): its own binders do not say its type, which the
+  ||| parameter's does; one given delayed where a delayed one is held (a
+  ||| branch of `if`), the member delayed. Any other is translated at the
+  ||| Core type.
+  parameterGiven : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                   Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> (held : Front (Holding, ClosedTerm)) ->
+                   (pty : Ty) -> Arg vars nv -> Front (Term nv)
+  parameterGiven ph w acc ctx env afc loc held pty x = case x.written of
+    Bind _ _ (Lam {}) _ => do
+      (holding, t) <- held
+      Just m <- asMember holding t x.written
+        | Nothing => x.translated (ExpectedAt pty)
+      pure m
+    -- The member's type is the choice the parameter's delayed type holds,
+    -- which its Core type was made of already.
+    TDelay dfc _ _ inner@(Bind _ _ (Lam {}) _) => do
+      (holding, TDelayed _ _ t') <- held
+        | _ => x.translated (ExpectedAt pty)
+      Just m <- asMember holding t' inner
+        | Nothing => x.translated (ExpectedAt pty)
+      dloc <- toLoc (bestFC ctx dfc)
+      delayedTy <- dynamicDims <$> coreType (bestFC ctx dfc) ctx.owner ValueType t'
+      pure (Suspend dloc delayedTy m)
+    _ => x.translated (ExpectedAt pty)
+    where
+      asMember : Holding -> ClosedTerm -> TT vars -> Front (Maybe (Term nv))
+      asMember holding ty lam = do
+        Just ct <- holds holding ty
+          | Nothing => pure Nothing
+        member ph w acc ctx env afc loc ct lam
+
+  ||| A value applied to arguments, over the Idris type of the value where it
+  ||| is known: an argument at a binder of quantity 0 is not passed, since
+  ||| the value takes none there at runtime, and any other is applied, given
+  ||| at its parameter as the parameter's type says (`parameterGiven`), so a
+  ||| lambda given where the type holds a polymorphic function is the member
+  ||| of its choice, as at a definition's parameter. A polymorphic function
+  ||| held at run time is a value of its type's choice, whose members each
+  ||| use calls at its own types: applied here, where it is held, it is a use
+  ||| of it, the member at the use's types (`applyAtUse`). Past the binders
+  ||| the type shows, an argument is a runtime value, translated at its Core
+  ||| type, and a type or an erased value there is refused, naming the head
+  ||| (`what`). Each application is at the function type the value's Core
+  ||| type (`core`) is, the type the value is made at, and gives a value of
+  ||| its result, which the next one applies.
+  applyOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+              (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+              Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> Front String ->
+              Term nv -> (core : Maybe Ty) -> Maybe ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
+  applyOver ph w acc ctx env fc loc what f core _ [] = pure f
+  applyOver ph w acc ctx env fc loc what f core fty (x :: xs) = do
+    ty <- the (Front (Maybe ClosedTerm)) $ case fty of
+            Just t@(Bind _ _ (Pi {}) _) => pure (Just t)
+            Just t => Just <$> normaliseClosed t
+            Nothing => pure Nothing
+    case ty of
+      Just t@(Bind _ _ (Pi _ rig _ a) sc) => do
+        False <- polymorphicType t
+          | True => applyAtUse ctx env fc loc t (known t AChoice) (Just f) (x :: xs)
+        next <- instantiate fc env sc x.written
+        case use rig of
+          Erased => applyOver ph w acc ctx env fc loc what f core (Just next) xs
+          Used _ => applied (parameterGiven ph w acc ctx env fc loc (heldBy a)) (Just next)
+      _ => do
+        when (compileTime env x.written) $ do
+          arg <- showTT (closeWritten fc env x.written)
+          reject fc ctx.owner ValueType
+                 (arg ++ " in a runtime position: an argument of " ++ !what ++ ", whose type is not known here")
+        applied (\pty, y => y.translated (ExpectedAt pty)) Nothing
+    where
+      -- What a closure's parameter of this Idris type holds, as its type
+      -- alone says: no definition's member table speaks for it.
+      heldBy : ClosedTerm -> Front (Holding, ClosedTerm)
+      heldBy a = do
+        a' <- normaliseClosed a
+        pure (!(typeHolding a'), a')
+
+      -- Kept: Idris checked the application, so the value is a function's
+      -- wherever an argument is given, and a Core function type is what a
+      -- runtime binder of its Idris type becomes; but the Core type is a
+      -- `Ty`, which does not say so, read apart from the Idris type it
+      -- comes from, and a value a settled term computes whose term states
+      -- no type (`KnownTypes.Untyped`) has none. The argument is given at
+      -- the parameter's Core type (`give`).
+      applied : (give : Ty -> Arg vars nv -> Front (Term nv)) -> Maybe ClosedTerm -> Front (Term nv)
+      applied give next = case core of
+        Just (FunT a r) => do
+          v <- give a.type x
+          applyOver ph w acc ctx env fc loc what (App loc a r f v) (Just r) next xs
+        _ => do
+          named <- what
+          internal fc ("an application of " ++ named ++ ", whose Core type " ++ show core ++ " is no function's")
+
   ||| A definition applied to its arguments.
   applyRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
              (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
@@ -1622,35 +1678,12 @@ mutual
         pack afc ctx.owner loc !(valuesOf held)
 
       -- A runtime argument, at position `j` of a callee whose member places
-      -- are `places`, its parameter's binder `b` and Idris type `t`. A
-      -- lambda given where a polymorphic function is held is the member of
-      -- its type's choice it is (`member`): its own binders do not say its
-      -- type, which the position does, as the member table says
-      -- (`givenAt`), and where the instance decides, as its type there
-      -- does; one given delayed where a delayed one is held (a branch of
-      -- `if`), the member delayed. Any other is translated at the binder's
-      -- type.
+      -- are `places`, its parameter's binder `b` and Idris type `t`
+      -- (normalised where the parameter was classified): given there as
+      -- the member table says (`givenAt`), and where the instance decides,
+      -- as its type there does (`parameterGiven`).
       valueAt : Loc -> MemberPlaces -> Nat -> Binder -> ClosedTerm -> Arg vars nv -> Front (Term nv)
-      valueAt loc places j b t x = case (x.written, t) of
-        (Bind _ _ (Lam {}) _, _) => do
-          Just m <- asMember t x.written
-            | Nothing => x.translated (ExpectedAt b.type)
-          pure m
-        -- The member's type is the choice the parameter's type holds,
-        -- which its binder was made of already.
-        (TDelay dfc _ _ inner@(Bind _ _ (Lam {}) _), TDelayed _ _ t') => do
-          Just m <- asMember t' inner
-            | Nothing => x.translated (ExpectedAt b.type)
-          dloc <- toLoc (bestFC ctx dfc)
-          held <- dynamicDims <$> coreType (bestFC ctx dfc) ctx.owner ValueType t'
-          pure (Suspend dloc held m)
-        _ => x.translated (ExpectedAt b.type)
-        where
-          asMember : ClosedTerm -> TT vars -> Front (Maybe (Term nv))
-          asMember ty lam = do
-            Just ct <- holds (givenAt j places) ty
-              | Nothing => pure Nothing
-            member ph w acc ctx env afc loc ct lam
+      valueAt loc places j b t x = parameterGiven ph w acc ctx env afc loc (pure (givenAt j places, t)) b.type x
 
       -- The runtime arguments of a call of a callee whose member places
       -- are `places`, one term per parameter that exists at runtime among
@@ -1701,7 +1734,7 @@ mutual
         -- leaves out is a choice, so the missing ones are runtime
         -- parameters, each a closure's.
         if null missing
-           then applyOver ctx env afc loc (show <$> fullName name) value (Just valueTy) (Just resTy) (drop arity xs)
+           then applyOver ph w acc ctx env afc loc (show <$> fullName name) value (Just valueTy) (Just resTy) (drop arity xs)
            else pure value
 
       -- A method or a parent taken from an implementation the call fixes:
@@ -1886,7 +1919,7 @@ mutual
       completed : Loc -> (arity : Nat) -> List (Arg vars nv) -> Supplied k nv -> Maker k -> (valueTy : Ty) -> ClosedTerm ->
                   Front (Term nv)
       completed loc arity xs (MkSupplied given [] together) mk valueTy resTy =
-        applyOver ctx env afc loc (show <$> fullName name) (etaExpand loc [] valueTy (recount together mk) given)
+        applyOver ph w acc ctx env afc loc (show <$> fullName name) (etaExpand loc [] valueTy (recount together mk) given)
                   (Just valueTy) (Just resTy) (drop arity xs)
       completed loc arity xs (MkSupplied given missing@(_ :: _) together) mk valueTy resTy =
         pure (etaExpand loc missing valueTy (recount together mk) given)
@@ -1902,7 +1935,7 @@ mutual
       identity fc loc arity ops d ty xs = case saturation arity xs of
         Saturated now rest => do
           v <- (Data.Vect.index (lastOperand ops) now).translated Synthesized
-          applyOver ctx env fc loc (pure (show name)) v (termType ctx.depth (scopeOf env) v) !(typeAfter ty (toList now)) rest
+          applyOver ph w acc ctx env fc loc (pure (show name)) v (termType ctx.depth (scopeOf env) v) !(typeAfter ty (toList now)) rest
         -- Its value is the last operand, of its parameter's binder's type.
         Short => do
           (kinds, resTy) <- classifyCall fc ctx.owner (show name) arity ty (argValues xs)
@@ -2690,7 +2723,7 @@ mutual
       hooked : FC -> Loc -> Name -> Maybe Shown -> Defined -> ClosedTerm -> Hooks LibraryFunction -> Front (Term nv) ->
                Front (Term nv)
       hooked fc loc full lowered d ty hs otherwise =
-        let constant = \v, t => applyOver ctx env fc loc (pure (show full)) v (Just t) (Just ty) args in
+        let constant = \v, t => applyOver ph w acc ctx env fc loc (pure (show full)) v (Just t) (Just ty) args in
         fromMaybe otherwise $
               map (reject fc ctx.owner Deprecated) hs.deprecated
           <|> map (\row => lowerCall fc loc lowered row d ty args) d.loweredBy

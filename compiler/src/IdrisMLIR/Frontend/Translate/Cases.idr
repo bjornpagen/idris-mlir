@@ -7,6 +7,7 @@
 ||| how the family is laid out is the dialect's.
 module IdrisMLIR.Frontend.Translate.Cases
 
+import Core.Case.CaseBuilder
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
@@ -251,6 +252,20 @@ variableOf _ = Nothing
 missingCase : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
 missingCase ctx loc =
   if ctx.complete then Unreachable loc else Crash loc NoClauseMatched
+
+||| The head a type is matched by, and the types it is applied to, as
+||| Idris's trees name a type's alternative: a type constructor by its
+||| name, a primitive type and `Type` by the names their identifiers spell,
+||| and a function type by `->`'s, applied to its domain and codomain.
+||| Nothing for a term no type heads: an erased value, an index, a proof, a
+||| form.
+typeHead : ClosedTerm -> Front (Maybe (Name, List ClosedTerm))
+typeHead t = case getFnArgs t of
+  (Ref _ (TyCon _) n, args) => (\full => Just (full, args)) <$> fullName n
+  (PrimVal _ (PrT c), []) => pure (Just (knownUN (primTypeKnown c), []))
+  (TType _ _, []) => pure (Just (knownUN KType, []))
+  (Bind fc _ (Pi _ _ _ s) sc, []) => pure (Just (arrowConName, [s, subst (Erased fc Placeholder) sc]))
+  _ => pure Nothing
 
 ||| An arm of a match as its tree gives it: none, one no value takes (Idris
 ||| proved it impossible, or the value's shape rules it out), or one that
@@ -507,12 +522,17 @@ mutual
   tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case lookupVar idx p env of
-      -- Every compile-time variable of a tree's scope is a quantity-0
-      -- binder's (a proof, an index, a type, a form, a constructor's
-      -- parameter), whatever the instance knows of its value, and Idris's
-      -- erasure check lets the compile-time tree match one only where its
-      -- type forces the alternative; its fields are erased too.
-      TypeValue _ => forced alts
+      -- A compile-time variable that stands for a type is keyed by it, so
+      -- every instance knows the type: a match on it (a type case, which
+      -- Idris lets a tree make on a type taken at quantity many) is a
+      -- choice the program fixes, made now by the type's head (`typeHead`),
+      -- as a fixed implementation's is. Any other (a proof, an index, a
+      -- form, an erased value) is a quantity-0 binder's, which Idris's
+      -- erasure check lets the tree match only where its type forces the
+      -- alternative; its fields are erased too.
+      TypeValue t => case !(typeHead t) of
+        Just (head, targs) => byHead head targs alts
+        Nothing => forced alts
       -- A match on an implementation selects its alternative now: a
       -- parameter's whole, or a part an earlier match took out of one.
       Static d hole given => staticCase ctx env cls scrutinee hole given (WholeParameter d.reducesTo) alts
@@ -680,6 +700,21 @@ mutual
           (lhs, rhs) => do
             loc <- toLoc ctx.fc
             pure (Assume loc lhs rhs body)
+
+      -- The alternative of the type head `n` the matched type is, binding
+      -- the types it is applied to (`targs`); else the default. With
+      -- neither, no alternative takes the type: the missing case, as any
+      -- match's.
+      byHead : Name -> List ClosedTerm -> List (CaseAlt vars) -> Front (Term nv)
+      byHead n targs (ConCase con _ args rhs :: rest) = do
+        full <- fullName con
+        if full /= n then byHead n targs rest else do
+          let Yes same = decEq (length targs) (length args)
+            | No _ => reject ctx.fc ctx.owner CompiledModule ("type " ++ show n ++ " binds an unexpected number of arguments")
+          tree ctx (prepend (byVarFrom args TypeValue targs same) env) (afterCon args scrutinee cls) rhs
+      byHead n targs (DefaultCase rhs :: _) = tree ctx env cls rhs
+      byHead n targs (_ :: rest) = byHead n targs rest
+      byHead n targs [] = missingCase ctx <$> toLoc ctx.fc
 
       forced : List (CaseAlt vars) -> Front (Term nv)
       forced [ConCase cn _ args rhs] = do

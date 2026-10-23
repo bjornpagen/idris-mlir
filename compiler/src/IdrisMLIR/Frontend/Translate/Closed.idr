@@ -362,10 +362,27 @@ export
 closeOver : {vars : Scope} -> FC -> ByVar vars ClosedTerm -> TT vars -> ClosedTerm
 closeOver fc values tm = zeta (betaAll (wrapLams fc tm) (reverse (innermostFirst values)))
 
+||| A shaped variable's value as a written term holds it: the constructors
+||| its shape says, and every part the shape does not say the stand-in for
+||| a runtime value (`runtimePart`). A shape keyed where a callee's type
+||| stops needing it was cut there with an erased hole
+||| (`Instances.neededShape`), which the instance's key keeps and reads as
+||| an erased leaf; as the variable's value, that part is a runtime one, as
+||| the hole `skeleton` leaves is. Only the written form reads it so: a
+||| written implementation that holds the value where a value is needed
+||| depends on the variable (`runtimeDependent`), and closes over it, as
+||| one holding a runtime variable does, while the key keeps the cut.
+export
+shapeWritten : ClosedTerm -> ClosedTerm
+shapeWritten (App fc f a) = App fc (shapeWritten f) (shapeWritten a)
+shapeWritten (Erased _ _) = probeTerm ProbeRuntime
+shapeWritten t = t
+
 ||| A term in scope as a closed term, with compile-time values substituted
 ||| and not normalised, so that an implementation keeps its written form. A
 ||| runtime variable becomes the stand-in for a runtime value
-||| (`runtimePart`), which `runtimeDependent` detects.
+||| (`runtimePart`), which `runtimeDependent` detects, and a shaped one its
+||| shape with the stand-in where the shape says nothing (`shapeWritten`).
 export
 closeWritten : {vars : Scope} -> FC -> StandsFor kc sp vars a -> TT vars -> ClosedTerm
 closeWritten fc env tm = closeOver fc (map value env) tm
@@ -375,9 +392,7 @@ closeWritten fc env tm = closeOver fc (map value env) tm
     value (Static d _ _) = d.form
     value (OpenedPart t _ _ _) = t
     value (BoundHere t _) = t
-    -- A shape is what is known of the value at compile time; its holes
-    -- are the runtime parts (`skeleton`).
-    value (Shaped _ _ _ s) = s
+    value (Shaped _ _ _ s) = shapeWritten s
     value (Runtime {}) = probeTerm ProbeRuntime
 
 ||| Does a term mention a part that stands for a runtime value, wherever
