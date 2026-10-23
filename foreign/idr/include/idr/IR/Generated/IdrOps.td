@@ -2525,13 +2525,14 @@ def Idr_CountDupOp : Idr_Op<"count.dup", [
 }
 
 def Idr_CountDropOp : Idr_Op<"count.drop", [
+    Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>
   ]> {
   let summary = "gives up a counted reference, freeing the value with its last";
-  let arguments = (ins Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">:$value);
+  let arguments = (ins Type<And<[Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">.predicate, Type<CPred<"::idr::isUsedMany($_self)">, "a value used any number of times", "::mlir::Type">.predicate]>, "a value its count frees, used any number of times", "::mlir::Type">:$value);
   let results = (outs);
   let assemblyFormat = [{ $value attr-dict `:` type($value) }];
 }
@@ -2554,6 +2555,7 @@ def Idr_CountShareOp : Idr_Op<"count.share", [
 }
 
 def Idr_CountTakeOp : Idr_Op<"count.take", [
+    Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
@@ -2571,6 +2573,7 @@ def Idr_CountTakeOp : Idr_Op<"count.take", [
 }
 
 def Idr_CountUnpackOp : Idr_Op<"count.unpack", [
+    Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
@@ -2592,6 +2595,7 @@ def Idr_CountUnpackOp : Idr_Op<"count.unpack", [
 }
 
 def Idr_CountTakeIntoOp : Idr_Op<"count.take_into", [
+    Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface
   ]> {
@@ -2611,10 +2615,11 @@ def Idr_CountTakeIntoOp : Idr_Op<"count.take_into", [
 
 def Idr_CountMatchUniqueOp : Idr_Op<"count.match_unique", [
     SingleBlock,
+    Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs", "getRegionInvocationBounds", "areTypesCompatible"]>
   ]> {
   let summary = "branches on whether a value holds the only reference to its cell";
   let arguments = (ins Type<CPred<"::idr::isTakeable($_self)">, "a counted value refined to a constructor with a cell", "::mlir::Type">:$value);

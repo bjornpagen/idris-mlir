@@ -1,9 +1,9 @@
-specification 0688d3336bd7d795
-generator 88c375be77ecf00d
-8ebce6e9dd5924e7 foreign/idr/include/idr/IR/Generated/IdrBase.td
+specification fce58cc32f890cb5
+generator 49b31559a9ebc9e4
+a71d2825ad295531 foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 e2c1baf2a98be36d foreign/idr/include/idr/IR/Generated/IdrTypes.td
-59730110ce469656 foreign/idr/include/idr/IR/Generated/IdrOps.td
+3ead318e2b1b942a foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 f8db0fc7099d73fd foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 ff6f48f99a642609 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -22,6 +22,7 @@ d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 200dcab686d2b2f2 foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
 2155f51b3239f66b foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
+9fd13e1e8328772c foreign/idr/include/idr/IR/Generated/Defaults.h.inc
 04c4213dde97376d foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
 10217cbb352453b4 foreign/idr/include/idr/IR/Generated/OpIndex.h.inc
 63b21b4f37b68a54 foreign/idr/include/idr/IR/Generated/Guards.h.inc
@@ -35,7 +36,7 @@ cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 a28a5a3603892fe5 foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 e47fa31130cf71be foreign/idr/include/idr/IR/Generated/Laws.h.inc
-73308af43a4ae7a2 foreign/idr/include/idr/IR/Generated/Hooks.h.inc
+b8f1f3664983583d foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 c0f0155d0efe0af1 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 f38d4637e8b8aa8b foreign/idr/include/idr/IR/Generated/Actions.h.inc

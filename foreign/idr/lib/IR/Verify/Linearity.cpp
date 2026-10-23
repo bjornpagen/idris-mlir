@@ -3,14 +3,15 @@
 // The one linearity rule, after every pass. A value used once by its grade's
 // uses is used at most once on every path, field by field: a field read
 // takes that field alone, as a match binds each field of its scrutinee
-// once; a drop or a take takes the cell alone, which is counting giving the
-// value up after its last use, no use Idris counted; and every other use
-// takes the whole value, every field with it. A value used once by its type
-// (a cell, a destination, a package) is used
-// exactly once on every path that goes on: its one use is what takes it (an
-// init fills the cell, a write fills the destination, an unpack reopens the
-// package), so a path without it leaves memory nothing fills or gives
-// back. Once the program is counted, a value that holds a reference of its
+// once; an op that ends the value's owner (a drop, a take, the fused take,
+// the test of sharing, an unpack) takes the cell alone, which is counting
+// giving the value up after its last use, no use Idris counted; and every
+// other use takes the whole value, every field with it. A value used once
+// by its type (a cell, a destination, a package) is used exactly once on
+// every path that goes on: its one use is what takes it (an init fills the
+// cell, a write fills the destination, an unpack reopens the package), so a
+// path without it leaves memory nothing fills or gives back. Once the
+// program is counted, a value that holds a reference of its
 // own is given up exactly once on every path that goes on. All three are
 // one count: the uses that count, on the worst path, the most over a
 // match's alternatives, the sum over regions that run one after another,
@@ -22,6 +23,7 @@
 // Which regions of an op exclude each other is asked of
 // RegionBranchOpInterface once per op class in one verify.
 
+#include "idr/IR/Counting/Traits.h"
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -339,11 +341,12 @@ private:
 bool anyUse(OpOperand &) { return true; }
 
 // What one use takes of the value it uses. A field read takes the field it
-// reads and no other. A use where the value's cell may become free, a drop
-// or a take (ReuseSourceOpInterface), takes the cell alone: it gives up the
-// reference, and every field with it, or moves each field out as a value of
-// its own, which carries on the uses a read of that field had. Every other
-// use takes the whole value, every field with it.
+// reads and no other. A use that ends the value's owner, as its first
+// operand (EndsOwner: a drop, a take, the fused take, the test of sharing,
+// an unpack), takes the cell alone: it gives up the reference, and every
+// field with it, or moves each field out as a value of its own, which
+// carries on the uses a read of that field had. Every other use takes the
+// whole value, every field with it.
 struct TakesField {
   std::uint64_t index;
 };
@@ -355,7 +358,7 @@ Taken takenBy(OpOperand &use) {
   Operation *user = use.getOwner();
   if (auto read = dyn_cast<DataFieldOp>(user))
     return TakesField{read.getIndex()};
-  if (isa<ReuseSourceOpInterface>(user))
+  if (user->hasTrait<EndsOwner>() && use.getOperandNumber() == 0)
     return TakesCell{};
   return TakesWhole{};
 }
@@ -378,9 +381,10 @@ bool takesAField(OpOperand &use) {
 // field: each field some use reads is counted with the uses that take the
 // whole value, so a field read twice, or read beside a use of the whole, is
 // a second use of it. A value no use reads a field of is counted whole. A
-// use that takes the cell alone is in no count: placement puts it after the
-// value's last use, and once the program is counted the consumption count
-// holds it, beside every other use that gives the value up, to exactly one.
+// use that takes the cell alone is in no count: it ends the owner after the
+// value's last use, where counting or the in-place check puts it, and once
+// the program is counted the consumption count holds it, beside every other
+// use that gives the value up, to exactly one.
 LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
   SmallVector<std::uint64_t, 4> read;
   for (OpOperand &use : value.getUses())

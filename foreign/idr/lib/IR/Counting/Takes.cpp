@@ -230,8 +230,8 @@ void CountMatchUniqueOp::getSuccessorRegions(RegionBranchPoint point,
   regions.emplace_back(getOperation());
 }
 
-// The value is forwarded into the shared region; the unique region's
-// arguments are the op's own, made of the value's cell.
+// The value is forwarded into the shared region, at many uses; the unique
+// region's arguments are the op's own, made of the value's cell.
 OperandRange CountMatchUniqueOp::getEntrySuccessorOperands(RegionSuccessor successor) {
   OperandRange operands = getOperation()->getOperands();
   return successor.getSuccessor() == &getShared() ? operands : operands.take_front(0);
@@ -251,8 +251,24 @@ void CountMatchUniqueOp::getRegionInvocationBounds(ArrayRef<Attribute>,
   bounds.emplace_back(0, 1);
 }
 
+// Essential, two edges on which uses change, the carrier and the hold kept
+// on both. The value enters the shared region at many uses: the runtime
+// found its cell shared, so the test establishes what the uses say, and
+// the owner it is given ends here, once. And the shared region gives a
+// field it read from that value, at many uses, where the op's result is
+// used once, as the field the unique region moved out is: a value any
+// number of uses allow fills a place used once. No other edge widens uses.
+bool CountMatchUniqueOp::areTypesCompatible(Type given, Type received) {
+  if (given == received)
+    return true;
+  if (atUses(given, usesOf(received)) != received)
+    return false;
+  return usesOf(received) == Uses::Once || given == getValue().getType();
+}
+
 // The unique region binds the cell's token, which holds it, and the fields
-// moved out at the types a read gives; the shared region binds the value.
+// moved out at the types a read gives; the shared region binds the value at
+// many uses, the sharing the test found.
 LogicalResult CountMatchUniqueOp::verifyRegions() {
   Type value = getValue().getType();
   SmallVector<Type> unique{graded(Grade{Uses::Once, Hold::counted(Unique::Deep)},
@@ -263,8 +279,9 @@ LogicalResult CountMatchUniqueOp::verifyRegions() {
     return emitOpError("binds in its unique region other than the token that holds the cell "
                        "and the fields of ")
            << value;
-  if (!llvm::equal(getShared().front().getArgumentTypes(), ArrayRef<Type>(value)))
-    return emitOpError("binds in its shared region other than the value ") << value;
+  Type shared = atUses(value, Uses::Many);
+  if (!llvm::equal(getShared().front().getArgumentTypes(), ArrayRef<Type>(shared)))
+    return emitOpError("binds in its shared region other than ") << shared;
   return success();
 }
 

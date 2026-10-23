@@ -90,9 +90,12 @@ struct DupAt {
   unsigned operand;
 };
 
-// A drop of a value at a point: of what supplied it there, when it is a part
-// that took a reference of its own.
-struct DropAt {
+// A value given up at a point, its last use behind it: what supplied it
+// there, when it is a part that took a reference of its own. Its type says
+// how: a value used any number of times is dropped; one used once has one
+// owner, which no drop ends, so it is taken apart, its token freed and its
+// counted fields dropped.
+struct GiveUpAt {
   Where where;
   ValueId value;
 };
@@ -198,6 +201,7 @@ private:
   void useOperands(mlir::Operation *op, State &state, const llvm::SmallBitVector &consumed,
                    const llvm::BitVector *inside);
   void death(ValueId owner, Where where, Death kind, State &state);
+  void giveUp(Where where, ValueId value);
 
   llvm::ArrayRef<std::pair<std::uint32_t, ValueId>> childrenOf(ValueId id) const {
     return llvm::ArrayRef(childRows).slice(childStart[id.index()],
@@ -205,6 +209,10 @@ private:
   }
   void fail(mlir::Operation *at, const llvm::Twine &message) {
     at->emitError("internal error: ") << message;
+    outcome = mlir::failure();
+  }
+  void fail(mlir::Value at, const llvm::Twine &message) {
+    mlir::emitError(at.getLoc(), "internal error: ") << message;
     outcome = mlir::failure();
   }
 
@@ -242,11 +250,11 @@ private:
   llvm::SmallVector<OpWalk, 8> ops;
 
   llvm::SmallVector<DupAt> dups;
-  llvm::SmallVector<DropAt> drops;
+  llvm::SmallVector<GiveUpAt> givesUp;
   llvm::SmallVector<DupSupply> dupSupplies;
   llvm::SmallVector<TakeSupply> takeSupplies;
   llvm::SmallVector<ValueId> elementDups;
-  // What each supplied part became, for the drops of it placed later.
+  // What each supplied part became, for what gives it up later.
   llvm::SmallVector<std::pair<ValueId, mlir::Value>> partValues;
 };
 

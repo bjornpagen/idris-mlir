@@ -11,10 +11,12 @@
 //   - unique: the value held the only reference to its cell, so the op gives
 //     the region the token (unique, never null) and the fields, moved out;
 //     the region drops the fields nothing needs and gives the rest on;
-//   - shared: the value is given to the region, which reads the fields that
-//     live on, takes a reference of its own for each that is a part of the
-//     value (a read that builds a fresh value has its own), and drops the
-//     value.
+//   - shared: the value is given to the region at many uses, as the
+//     runtime found it shared; the region reads the fields that live on,
+//     each a value others reach too, takes a reference of its own for each
+//     that is a part of the value (a read that builds a fresh value has its
+//     own), and drops the value. Each field is given on where the op's
+//     result may be used once, as the field the unique region moved out is.
 // What the token becomes is read off what reuse made of it, one case each:
 // freed (the unique region frees the cell; the shared region has none);
 // recycled into one construction (count.take_into: the unique region
@@ -103,10 +105,11 @@ Taken read(CountTakeIntoOp into) {
 }
 
 // The fields of a counted value that live on, each read from it: the shared
-// region's fields. A part its count frees, which holds no reference while
-// the value does, takes one of its own by a dup; a read that builds a fresh
-// value already holds its own, so it moves on at the type the read gives,
-// its claim kept, as the field the take gave did.
+// region's fields. The value is used many, so each read is too. A part its
+// count frees, which holds no reference while the value does, takes one of
+// its own by a dup; a read that builds a fresh value already holds its own,
+// so it moves on at the type the read gives, its claim kept, as the field
+// the take gave did.
 SmallVector<Value> sharedFields(RewriterBase &rewriter, Location loc, Value owner,
                                 llvm::ArrayRef<unsigned> fields) {
   SmallVector<Value> given;
@@ -167,11 +170,12 @@ void expand(RewriterBase &rewriter, Taken &taken) {
       yields.push_back(unique->getArgument(1 + index));
     YieldOp::create(rewriter, loc, yields);
   }
-  // The shared region: the value given to it; the living fields read from
-  // it, each with a reference of its own, a dup's or the read's; the value
-  // dropped.
+  // The shared region: the value given to it at many uses; the living
+  // fields read from it, each with a reference of its own, a dup's or the
+  // read's; the value dropped.
   {
-    Block *shared = rewriter.createBlock(&match.getShared(), {}, {value.getType()}, {loc});
+    Block *shared = rewriter.createBlock(&match.getShared(), {},
+                                         {atUses(value.getType(), Uses::Many)}, {loc});
     Value owner = shared->getArgument(0);
     SmallVector<Value> fields = sharedFields(rewriter, loc, owner, living);
     CountDropOp::create(rewriter, loc, owner);

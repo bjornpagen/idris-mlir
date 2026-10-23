@@ -1322,17 +1322,53 @@ delegateDecls d = concatMap decl d.methods
            , codeText m.result ++ " " ++ identText fn ++ "("
              ++ joinWith ", " (given ++ map (\p => codeText p.type ++ " " ++ identText p.name) m.params) ++ ");", "" ]
 
+||| Where the dialect's header puts an interface's generated declaration
+||| against the types and attributes: a type's or an attribute's interface
+||| before them, since they implement it; an op's after them, since its
+||| methods name them. mlir-tblgen prints a default's body where it defines
+||| the interface, and the default's qualified call is looked up there, so
+||| the function it calls is declared ahead of the interface: with the hooks
+||| for an op's, in the defaults' own header for the others, which comes
+||| before every generated class.
+public export
+data InterfacePlace = BeforeValues | AfterValues
+
+placeOf : InterfaceSubject -> InterfacePlace
+placeOf OverOps = AfterValues
+placeOf OverTypes = BeforeValues
+placeOf OverAttributes = BeforeValues
+
+||| The functions the defaults of the interfaces at `place` call.
+delegatesAt : InterfacePlace -> List InterfaceDef -> Lines
+delegatesAt place = concatMap at
+  where
+    at : InterfaceDef -> Lines
+    at d = case (place, placeOf d.subject) of
+      (BeforeValues, BeforeValues) => delegateDecls d
+      (AfterValues, AfterValues) => delegateDecls d
+      _ => []
+
+||| The hand functions the defaults of the type and attribute interfaces
+||| call, which the dialect's header includes before those interfaces, so
+||| each signature names only what is declared before every generated
+||| class.
+export
+defaultsHeader : List InterfaceDef -> Lines
+defaultsHeader is =
+  header "Defaults" ["\"mlir/IR/Attributes.h\"", "\"mlir/IR/Types.h\"", "<cstdint>", "<optional>"]
+    (inNamespace "idr" (delegatesAt BeforeValues is))
+
 ||| The declarations of every hand hook the specification names: custom
 ||| directives, predicates, parameter codecs, property hooks and the
-||| functions interface defaults call. Their definitions are hand C++; a
-||| missing one is a link error.
+||| functions the op interfaces' defaults call. Their definitions are hand
+||| C++; a missing one is a link error.
 export
 hooksHeader : List Directive -> List Predicate -> List InterfaceDef -> List AnyTypeDef -> List AnyAttrDef
            -> List AnyOp -> Lines
 hooksHeader ds ps is ts as ops =
   header "Hooks" ["\"mlir/Bytecode/BytecodeImplementation.h\"", "\"mlir/IR/OpImplementation.h\"", "\"llvm/ADT/Hashing.h\"", "<memory>", "<optional>"]
     (inNamespace "idr" (enumReader ++ concatMap directiveDecls ds ++ concatMap predicateDecl ps
-                        ++ concatMap delegateDecls is ++ concatMap textCodecDecls (wiredOf ts as)
+                        ++ delegatesAt AfterValues is ++ concatMap textCodecDecls (wiredOf ts as)
                         ++ concatMap propertyDecls (propertiesOf ops)))
   where
     enumReader : Lines

@@ -6,9 +6,11 @@
 // walk's one state. A value's grade says what there is to place:
 //   - a value freed by its count holds one reference of its own: a
 //     consuming use while a later use still needs it takes a dup, and it is
-//     dropped right after its last use, or at the head of a region that
+//     given up right after its last use, or at the head of a region that
 //     does not need it when a sibling region does; one Idris lets be used
-//     once has one use, so it is moved or dropped, never duplicated;
+//     once has one use and one owner, so it is moved, or, where a read was
+//     its last use, taken apart, which ends its owner, never duplicated or
+//     dropped;
 //   - a view (scoped) holds none and nothing drops it; static data needs
 //     nothing.
 // A region op that enters one of its regions once per run moves what its

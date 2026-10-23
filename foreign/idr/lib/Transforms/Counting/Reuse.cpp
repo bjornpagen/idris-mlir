@@ -81,8 +81,8 @@ std::optional<unsigned> Reuse::indexOf(unsigned bytes) const {
 
 // The bytes of the cell that may become free at `source`, where one may.
 std::optional<unsigned> Reuse::sourceBytes(ReuseSourceOpInterface source) const {
-  if (DataType freed = source.getFreedCellType())
-    return cellBytes(freed);
+  if (DataType emptied = source.getFreedCellType())
+    return cellBytes(emptied);
   return std::nullopt;
 }
 

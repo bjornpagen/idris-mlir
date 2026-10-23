@@ -3,8 +3,9 @@
 // idr-rc-place's rewrite (Placement.h): what the walk decided, made: the
 // takes first, whose parts replace the reads at every later use, then the
 // dups that supply a part while its owner lives, the dups of consuming
-// uses, and the drops, each after what the rewrite put at its point before
-// it; then the dup each element that takes its reference where it is read
+// uses, and what is given up (a drop, or the take of a value used once),
+// each after what the rewrite put at its point before it; then the dup each
+// element that takes its reference where it is read
 // takes there, whose result every use of the element, those just made
 // among them, reads from then on; last, the reads every use of which took
 // its reference elsewhere go.
@@ -38,6 +39,26 @@ bool after(Operation *made, Operation *op) {
   return ancestor && ancestor != made && made->isBeforeInBlock(ancestor);
 }
 
+// A value whose type fixes its constructor, taken apart where the rewriter
+// stands: a cell's by a take, which gives its token, and a value in place
+// by an unpack, which gives none. Either ends the value's owner and moves
+// each field out.
+struct Apart {
+  Operation *made;
+  ValueRange fields;
+  Value token;
+};
+
+Apart takeApart(RewriterBase &rewriter, Location loc, Value whole) {
+  Tag tag = *knownConstructor(whole.getType());
+  if (buildsCell(whole.getType(), tag)) {
+    auto taken = CountTakeOp::create(rewriter, loc, whole);
+    return {taken, taken.getFields(), taken.getToken()};
+  }
+  auto unpacked = CountUnpackOp::create(rewriter, loc, whole);
+  return {unpacked, unpacked.getFields(), Value()};
+}
+
 } // namespace
 
 // What a part is at `at`: what gave it its reference at a point before
@@ -54,6 +75,17 @@ void Placement::apply() {
   // Every op goes right before its point's position, after what the rewrite
   // already put there.
   auto insertAt = [&](const Where &where) { rewriter.setInsertionPoint(where.block, where.next); };
+  // What a take apart leaves that nothing needs: each counted field dropped,
+  // the emptied cell's token freed.
+  auto release = [&](Location loc, ValueRange fields, const llvm::SmallBitVector &left, Value token) {
+    for (unsigned index : left.set_bits())
+      if (Value field = fields[index]; freedBy(field.getType(), Release::Counted)) {
+        CountDropOp::create(rewriter, loc, field);
+        ++dropsPlaced;
+      }
+    if (token)
+      TokenFreeOp::create(rewriter, loc, token);
+  };
   // Takes first: the parts they give replace the views at every later use.
   for (TakeSupply &take : takeSupplies) {
     Value owner = valueOf(take.owner);
@@ -64,20 +96,7 @@ void Placement::apply() {
     llvm::SmallVector<std::pair<Value, ValueId>, 4> wholes{{owner, take.owner}};
     while (!wholes.empty()) {
       auto [whole, wholeId] = wholes.pop_back_val();
-      Tag tag = *knownConstructor(whole.getType());
-      Operation *made;
-      ValueRange fields;
-      Value token;
-      if (buildsCell(whole.getType(), tag)) {
-        auto taken = CountTakeOp::create(rewriter, loc, whole);
-        made = taken;
-        fields = taken.getFields();
-        token = taken.getToken();
-      } else {
-        auto unpacked = CountUnpackOp::create(rewriter, loc, whole);
-        made = unpacked;
-        fields = unpacked.getFields();
-      }
+      auto [made, fields, token] = takeApart(rewriter, loc, whole);
       ++takesPlaced;
       // The fields still in the cell, by position: a field given to a part
       // leaves it, and what is left goes with the cell. MLIR numbers an op's
@@ -113,15 +132,8 @@ void Placement::apply() {
       }
       // The fields nothing needs are dropped, and the emptied cell freed,
       // unless only the end lies ahead.
-      if (take.ahead == Ahead::Allocation) {
-        for (unsigned index : left.set_bits())
-          if (Value field = fields[index]; freedBy(field.getType(), Release::Counted)) {
-            CountDropOp::create(rewriter, loc, field);
-            ++dropsPlaced;
-          }
-        if (token)
-          TokenFreeOp::create(rewriter, loc, token);
-      }
+      if (take.ahead == Ahead::Allocation)
+        release(loc, fields, left, token);
     }
   }
   // Dups that supply a part while its owner lives. The list grows as the
@@ -147,12 +159,24 @@ void Placement::apply() {
     rewriter.modifyOpInPlace(at.user, [&] { operand.set(dup.getResult()); });
     ++dupsPlaced;
   }
-  // Drops, after what the rewrite put at their points: of the value a part
-  // became where it took its reference.
-  for (DropAt &drop : drops) {
-    insertAt(drop.where);
-    Value value = roles[drop.value] == Role::Part ? supplied(drop.value, &*drop.where.next) : valueOf(drop.value);
-    CountDropOp::create(rewriter, value.getLoc(), value);
+  // What is given up, after what the rewrite put at its point, the dups that
+  // supply parts while their owner lives among them: the value a part became
+  // where it took its reference, or the value. One used any number of times
+  // is dropped; one used once is taken apart, as its one owner ends, and
+  // what it leaves released.
+  for (GiveUpAt &given : givesUp) {
+    insertAt(given.where);
+    Value value = roles[given.value] == Role::Part ? supplied(given.value, &*given.where.next)
+                                                   : valueOf(given.value);
+    Location loc = value.getLoc();
+    if (usesOf(value.getType()) == Uses::Once) {
+      Apart apart = takeApart(rewriter, loc, value);
+      ++takesPlaced;
+      release(loc, apart.fields, llvm::SmallBitVector(static_cast<unsigned>(apart.fields.size()), true),
+              apart.token);
+      continue;
+    }
+    CountDropOp::create(rewriter, loc, value);
     ++dropsPlaced;
   }
   // An element takes its reference where it is read: every use of it, the

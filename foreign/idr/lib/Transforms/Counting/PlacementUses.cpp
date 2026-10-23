@@ -3,7 +3,8 @@
 // What idr-rc-place's walk (Placement.h) places at each use and each death
 // of a value: a consuming use of a counted value still needed later takes
 // a dup, a part used while its owner lives reads it, and a value no later
-// use needs dies, dropped where only a read used it last. A dying owner's
+// use needs dies, given up where only a read used it last: dropped, or
+// taken apart where it is used once. A dying owner's
 // parts still needed take their references there, the owner taken apart
 // (drop specialization) or each part given a dup while the owner lives.
 #include "idr/Transforms/Counting/Placement.h"
@@ -109,11 +110,11 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
         break;
       }
       // Its owner is dead here: it holds a reference of its own from here
-      // on, which this use consumes or which is dropped right after it.
+      // on, which this use consumes or which is given up right after it.
       if (!consumes && state.ahead == Ahead::Allocation) {
         if (last)
           fail(op, "a call in tail position reads a part no later use needs");
-        drops.push_back({Where::past(op), id});
+        giveUp(Where::past(op), id);
       }
       used.push_back(id);
       break;
@@ -141,9 +142,25 @@ Way through(Way above, Type type) {
 
 } // namespace
 
+// `value` is given up at `where`, its last use behind it: dropped, or, used
+// once, taken apart (GiveUpAt), which reads the constructor its type fixes.
+// Idris lets a value used once die after reads only where its fields were
+// read, which only a value refined to one constructor can be, or where a
+// case bound it refined and left it unread. A value used once whose type
+// fixes no constructor has no take to end its owner and no drop may: an
+// internal error, never a drop.
+void Placement::giveUp(Where where, ValueId value) {
+  Value given = valueOf(value);
+  Type type = given.getType();
+  if (usesOf(type) == Uses::Once && !isTakeable(type) && !isUnpackable(type))
+    return fail(given, "a value used once dies where no take can end its owner: its type fixes "
+                       "no one constructor a take or an unpack moves the fields of");
+  givesUp.push_back({where, value});
+}
+
 // `owner` dies at `where`: the parts of it still needed take their
 // references (taken apart from it, or each a dup while it lives), and it is
-// dropped, unless only the end lies ahead or its death moved it on.
+// given up, unless only the end lies ahead or its death moved it on.
 void Placement::death(ValueId owner, Where where, Death kind, State &state) {
   Type type = valueOf(owner).getType();
   Way way = kind == Death::Reading ? through(Way::Open, type) : Way::Blocked;
@@ -165,19 +182,19 @@ void Placement::death(ValueId owner, Where where, Death kind, State &state) {
   }
   if (needed.empty()) {
     if (kind == Death::Reading && state.ahead == Ahead::Allocation)
-      drops.push_back({where, owner});
+      giveUp(where, owner);
     return;
   }
   for (ValueId part : needed)
     state.live.reset(part.index());
   if (way == Way::Blocked) {
     // Each part takes a dup while its owner still lives; the owner is then
-    // dropped after them.
+    // given up after them.
     for (ValueId part : needed)
       dupSupplies.push_back({where, part});
     largestDupSupply = std::max(largestDupSupply, static_cast<unsigned>(needed.size()));
     if (kind == Death::Reading && state.ahead == Ahead::Allocation)
-      drops.push_back({where, owner});
+      giveUp(where, owner);
     return;
   }
   takeSupplies.push_back({where, owner, std::move(needed), state.ahead});

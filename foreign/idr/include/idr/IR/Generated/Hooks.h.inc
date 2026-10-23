@@ -206,15 +206,6 @@ bool isMemoState(::mlir::Type value);
 // The default of ErasedBinderOpInterface::getRefinement.
 ::std::optional<::idr::families::RegionRefinement> noRefinement(::mlir::Operation *self, ::mlir::Region & region);
 
-// The default of IndexedTypeInterface::getFreeLevels.
-std::uint32_t freeLevelsOfTerms(::mlir::Type self);
-
-// The default of IndexedTypeInterface::getPositionalMember.
-std::optional<std::uint32_t> noPositionalMember(::mlir::Type self);
-
-// The default of IndexedTypeInterface::scopeHoldsParts.
-bool scopeHoldsEveryPart(::mlir::Type self);
-
 // The default of LifetimePutOpInterface::getPutCell.
 ::mlir::TypedValue<::idr::CellType> putsNoCell(::mlir::Operation *self);
 

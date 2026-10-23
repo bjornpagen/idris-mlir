@@ -76,12 +76,15 @@ class TagSet;
 // classes name, and every type class, whose name is all an attribute's
 // members need where the attribute holds a type (a constant constructor's
 // data type), the types' parameters holding attributes in turn, both lists
-// printed from the specification; then its attributes: the dialect's
+// printed from the specification; the hand functions the attribute and
+// type interfaces' defaults call, which those interfaces call by qualified
+// name where mlir-tblgen defines them; then its attributes: the dialect's
 // helpers and the types' parameters name them. mlir-tblgen writes what it
 // generates from the printed ODS beside this header; the specification's
 // own C++ tables are under Generated/.
 #include "idr/IR/Generated/EnumTraits.h.inc"
 #include "idr/IR/Generated/Storages.h.inc"
+#include "idr/IR/Generated/Defaults.h.inc"
 #include "idr/IR/IdrAttrInterfaces.h.inc"
 #define GET_ATTRDEF_CLASSES
 #include "idr/IR/IdrAttrs.h.inc"
@@ -120,10 +123,12 @@ class TagSet;
 #include "idr/IR/IdrInterfaces.h.inc"
 
 // The traits the ops' meanings give them: the one runtime fold, inline
-// arithmetic, and the ops' own.
+// arithmetic, and the ops' own; and the one the ops that end an owner
+// carry.
 #include "idr/IR/Fold.h"
 #include "idr/IR/Numeric/Trait.h"
 #include "idr/IR/Ops/Traits.h"
+#include "idr/IR/Counting/Traits.h"
 
 #define GET_OP_CLASSES
 #include "idr/IR/IdrOps.h.inc"

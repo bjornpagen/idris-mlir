@@ -364,6 +364,8 @@ def Idr_AdoptsCarrierTrait : NativeOpTrait<"AdoptsCarrier"> { let cppNamespace =
 def Idr_NeverEmptyTrait : NativeOpTrait<"NeverEmpty"> { let cppNamespace = "::idr"; }
 // its result is its first operand's word at run time
 def Idr_NoRuntimeFormTrait : NativeOpTrait<"NoRuntimeForm"> { let cppNamespace = "::idr"; }
+// ends the owner its first operand is: gives up its reference, or moves its fields out
+def Idr_EndsOwnerTrait : NativeOpTrait<"EndsOwner"> { let cppNamespace = "::idr"; }
 def Idr_HeapResource : Resource<"::idr::effects::Heap">;
 def Idr_ContentsResource : Resource<"::idr::effects::Contents">;
 def Idr_CountResource : Resource<"::idr::effects::Count">;

@@ -8,8 +8,10 @@
 ||| the cell's source (`cell.new`, a fresh cell its count frees; a lifetime's
 ||| sources are the lifetime's) and its initialization (`cell.init`). A value
 ||| freed by its count holds one reference, which one use on every path
-||| consumes or gives up (`count.drop`), a use that consumes it while a later
-||| one still needs it taking another (`count.dup`); a view, which its
+||| consumes or gives up. A value used any number of times is given up by
+||| `count.drop`, a use that consumes it while a later one still needs it
+||| taking another (`count.dup`); a value used once has one owner, which
+||| neither duplicates nor drops it: it is taken apart. A view, which its
 ||| lifetime frees, is never duplicated or dropped. A value of a known
 ||| constructor is taken apart where it dies (`count.take`, a cell's, giving
 ||| its token; `count.unpack`, a value in place, giving none); the token is
@@ -18,7 +20,9 @@
 ||| becomes the one run-time test, a match of two regions
 ||| (`count.match_unique`); where its token is recycled once it fuses with the
 ||| recycle (`count.take_into`), and where it is given on elsewhere the shared
-||| path gives the null token (`token.null`). A rebuild the in-place rule
+||| path gives the null token (`token.null`). The ops that end their value's
+||| owner (the drop, the take, the unpack, the fused take, the test) carry one
+||| trait, which the linearity rule reads. A rebuild the in-place rule
 ||| decided before counting is a token its check made, consumed by
 ||| `token.rebuild`.
 |||
@@ -68,14 +72,16 @@ countedValue : Predicate
 countedValue = predicate "isCountedValue" "a value its count frees"
 
 ||| Used any number of times, as Idris proved it: a value a dup may give one
-||| more reference to. A value used once has one owner, and a second
-||| reference to it would make two.
+||| more reference to and a drop may give one up. A value used once has one
+||| owner: a second reference to it would make two, and its one owner ends
+||| by a take, which moves its fields out, never by a drop.
 usedMany : Predicate
 usedMany = predicate "isUsedMany" "a value used any number of times"
 
-||| What a dup takes: a value its count frees, used any number of times.
-duplicable : TypeC
-duplicable = AllOfTypes (SatisfiesType countedValue ::: [SatisfiesType usedMany])
+||| What a dup and a drop take: a value its count frees, used any number of
+||| times.
+countedMany : TypeC
+countedMany = AllOfTypes (SatisfiesType countedValue ::: [SatisfiesType usedMany])
   "a value its count frees, used any number of times"
 
 ||| Freed by its count and refined to one constructor that has a cell: a
@@ -110,6 +116,16 @@ token = SatisfiesType tokenValue
 ||| of its results: two results of two lifetimes keep each its own span.
 outers : Operand
 outers = variadic "outers" (OurType (SomeType lifetimeType))
+
+||| An op that ends the owner its first operand is: it gives up the value's
+||| reference (a drop), or moves its cell into a token and its fields out,
+||| each a value of its own (a take, the fused take, the test of sharing),
+||| or its fields out of a value in place (an unpack). It reads none of the
+||| value's fields, so a field read before it is no second use of that
+||| field, which the linearity rule reads off this trait, naming no op.
+endsOwner : TraitDef
+endsOwner = MkTraitDef "EndsOwner"
+  (brief "ends the owner its first operand is: gives up its reference, or moves its fields out")
 
 --------------------------------------------------------------------------------
 -- The custom directives
@@ -170,7 +186,7 @@ explicit = between First Owned
 ||| alias never enters one.
 public export
 dup : Op 1 1 0 0
-dup = countingOp "count.dup" [single "value" duplicable] [result "result" anyValue] [] []
+dup = countingOp "count.dup" [single "value" countedMany] [result "result" anyValue] [] []
   [OurTrait adoptsCarrier] [Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Read Count (Operands 0), OnValues Write Count (Operands 0)] [NewIdentity 0] Covered Untouched)
   counted VerifiesOp
@@ -179,13 +195,15 @@ dup = countingOp "count.dup" [single "value" duplicable] [result "result" anyVal
   [] WithDefaults []
   (brief "one more reference to a counted value")
 
-||| `count.drop %v : T`, C++ `CountDropOp`: gives up a counted reference,
-||| freeing the value with its last. A value typed unique frees with no
-||| count read.
+||| `count.drop %v : T`, C++ `CountDropOp`: gives up a counted reference of
+||| a value used any number of times, freeing the value with its last; never
+||| one used once, whose one owner a take ends. A value typed unique frees
+||| with no count read.
 public export
 drop : Op 1 0 0 0
-drop = countingOp "count.drop" [single "value" (SatisfiesType countedValue)] [] [] []
-  [] [Implements flowInterface ["getFlowEdges"], Implements reuseSourceInterface ["getFreedCellType", "takeFreedToken"]]
+drop = countingOp "count.drop" [single "value" countedMany] [] [] []
+  [OurTrait endsOwner]
+  [Implements flowInterface ["getFlowEdges"], Implements reuseSourceInterface ["getFreedCellType", "takeFreedToken"]]
   (Executes [OnValues Free Heap (Operands 0)] [Consumes 0, CountsIfShared (Operands 0)] Covered Untouched)
   counted DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
@@ -228,7 +246,7 @@ public export
 take : Op 1 2 0 0
 take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   [result "token" token, results "fields" anyValue] [] []
-  [] [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
+  [OurTrait endsOwner] [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
      , Implements reuseSourceInterface ["getFreedCellType", "takeFreedToken"] ]
   (Executes [] [Consumes 0, CountsIfShared (Operands 0), NewIdentity 0, NewIdentity 1] Covered Untouched)
   explicit DeclarationOnly
@@ -250,7 +268,7 @@ public export
 unpack : Op 2 1 0 0
 unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), outers]
   [results "fields" anyValue] [] []
-  []
+  [OurTrait endsOwner]
   [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
   , Implements statesLifetime statedMethods ]
   (Executes [] [Consumes 0, NewIdentity 0] Covered Untouched)
@@ -270,7 +288,7 @@ public export
 takeInto : Op 1 2 0 0
 takeInto = countingOp "count.take_into" [single "value" (SatisfiesType takeable)]
   [result "cell" cell, results "fields" anyValue] [] []
-  [] []
+  [OurTrait endsOwner] []
   (Executes [OnValues Allocate Heap (Results 0)] [Consumes 0, CountsIfShared (Operands 0), NewIdentity 1] Covered Untouched)
   counted DeclarationOnly
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
@@ -283,25 +301,33 @@ takeInto = countingOp "count.take_into" [single "value" (SatisfiesType takeable)
 
 ||| What the match on uniqueness declares of upstream's control-flow
 ||| interface: both regions entered from the op, each giving the op's
-||| results; the value forwarded into the shared region; the unique region's
-||| arguments the op's own, made from the value.
+||| results; the value forwarded into the shared region at many uses, the
+||| one edge that widens uses, and each field the shared region reads given
+||| where the op's result is used once, as the unique region's field moved
+||| out is (`areTypesCompatible`); the unique region's arguments the op's
+||| own, made from the value.
 uniqueMethods : List Ident
 uniqueMethods =
   [ "getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs"
-  , "getRegionInvocationBounds" ]
+  , "getRegionInvocationBounds", "areTypesCompatible" ]
 
 ||| `count.match_unique %v : T -> (R...) unique {...} shared {...}`, C++
 ||| `CountMatchUniqueOp`: the one run-time test of sharing, for a value whose
 ||| type proves nothing of it, of which exactly one region runs. The unique
 ||| region receives the value's token, unique and never null, and its
-||| fields, moved out; the shared region receives the value itself, reads
-||| the fields it needs, takes a reference to each from it, and drops it.
-||| Never built for a value its type answers.
+||| fields, moved out, at the uses the value gives them. The shared region
+||| receives the value at many uses: the runtime found its cell shared, so
+||| each field it reads is reached by others too, and takes its reference
+||| from the value by a dup, which only a value used many admits; the
+||| region then drops the value. The program's quantity is kept: the test
+||| ends the owner it is given, once, and the shared region's value is a
+||| new one whose sharing the test established. Never built for a value its
+||| type answers.
 public export
 matchUnique : Op 1 1 0 2
 matchUnique = countingOp "count.match_unique" [single "value" (SatisfiesType takeable)]
   [results "results" anyValue] [] [sized "unique" 1, sized "shared" 1]
-  [SingleBlock] [Declares RegionBranch uniqueMethods]
+  [SingleBlock, OurTrait endsOwner] [Declares RegionBranch uniqueMethods]
   (Executes [OnValues Read Count (Operands 0)] [Consumes 0] Recursive Untouched)
   counted VerifiesRegions
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
@@ -494,4 +520,5 @@ declarations =
   , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
   , predicates := [countedValue, usedMany, takeable, unpackable, tokenValue, heldValue]
   , interfaces := [reuseSourceInterface, reuseSinkInterface]
+  , traits := [endsOwner]
   } nothing

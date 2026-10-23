@@ -7,7 +7,8 @@
 // the target's layout and so runs where the program's verifier holds one.
 // The ops, their types, their predicates and their directives are the
 // specification's (Spec.Counting), declared by the generated headers
-// IdrDialect.h includes; their hooks are lib/IR/Counting's.
+// IdrDialect.h includes, with the class of the trait the ops that end an
+// owner carry (Traits.h); their hooks are lib/IR/Counting's.
 #ifndef IDR_IR_COUNTING_COUNTING_H
 #define IDR_IR_COUNTING_COUNTING_H
 

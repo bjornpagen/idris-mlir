@@ -48,8 +48,10 @@ mlir::LogicalResult function(FuncOp fn);
 
 // The one linearity rule of `fn`, after every pass. A value its grade uses
 // once is used at most once on every path, field by field: a field read
-// takes that field alone and any other use the whole value, so reading two
-// fields is no second use, while reading one twice is. The IR's linearity
+// takes that field alone, an op that ends the value's owner (EndsOwner)
+// takes its cell alone and no field, and any other use takes the whole
+// value, so reading two fields is no second use, nor is reading fields and
+// then ending the owner, while reading one twice is. The IR's linearity
 // is affine, as Idris's quantity 1 lets a value go unused on a path that
 // ends the run. A value its type uses once (a cell, a destination, a
 // package) is used exactly once on every path that goes on, at every
