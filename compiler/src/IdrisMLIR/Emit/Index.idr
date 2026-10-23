@@ -97,6 +97,18 @@ litAttr (LDouble d) = FloatAttr d F64Type
 litAttr (LBig n) = Idr (BigAttr n)
 litAttr (LNat n) = Idr (BigAttr n)
 
+||| A value as a function gives it, whether the function is a definition, a
+||| closure's or a suspension's: an array `?` at every axis, whatever its
+||| size, which the function's extents keep where it is known. A cast
+||| between ranked types is work here (an array's words are its cell and
+||| one per dynamic size, and a cast re-packs them), so a call must give
+||| the very type its caller returns, or a cast after a tail call would
+||| take it out of tail position.
+export
+returned : Ty -> Ty
+returned (TensorT ds e) = TensorT (map (const Dynamic) ds) e
+returned t = t
+
 mutual
   ||| The module's type of a Core type, among the families given. A family
   ||| applied is its group's attribute, its member and its index terms; a
@@ -124,16 +136,18 @@ mutual
   -- effects, so an action is a closure of no argument.
   typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType [] (resultsIn a r))
   typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q made x] (resultsIn a r))
-  typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many made r))
+  -- A suspension's value is what its function returns.
+  typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many made (returned r)))
   typeIn a (TensorT ds e) = RankedTensorType ds (typeIn a e)
   -- Every memref the frontend writes is an array written while shared, in
   -- the dialect's memory space for it.
   typeIn a (MemRefT o e) = MemRefType (orderedDims o) (typeIn a e) (Just (Idr MutableAttr))
 
-  ||| The types a result of a type is: none for the world.
+  ||| The types a function's result of a type is (`returned`): none for
+  ||| the world.
   resultsIn : Among -> Ty -> List MlirType
   resultsIn a WorldT = []
-  resultsIn a t = [gradedIn a Many made t]
+  resultsIn a t = [gradedIn a Many made (returned t)]
 
   ||| A value's type: its uses and, for a type that holds references, who
   ||| frees what it holds, wrapped around the type. The bare type is the
@@ -183,6 +197,12 @@ mlirType ix = typeIn (MkAmong ix.families empty)
 export
 gradedType : Index -> Uses -> Hold -> Ty -> MlirType
 gradedType ix = gradedIn (MkAmong ix.families empty)
+
+||| The module's types of a function's result of a Core type, among the
+||| program's families (`returned`): none for the world.
+export
+resultTypes : Index -> Ty -> List MlirType
+resultTypes ix = resultsIn (MkAmong ix.families empty)
 
 ||| A type refined to the constructors given: a family's application known
 ||| to be one of them, under its grade; the tags are part of the data type,

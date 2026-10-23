@@ -530,12 +530,19 @@ reduce : Index -> Loc -> Maybe Binding -> Reduction -> (acc, elem, result : Ty) 
       -> Val -> Val -> (Val -> Val -> E (Maybe Val)) -> E (Maybe Val)
 reduce ix l binder r acc elem rt xa axis z x body = do
   let frame = finToNat axis
+      -- A scan's accumulators: the result's dimensions but the axis it
+      -- scans along.
+      unscanned = let ds = tensorDims rt in take frame ds ++ drop (S frame) ds
   xv <- plainOperand ix l x
   len <- sizeValue l !(sizeAt l xv (frame, Data.Vect.index axis xa.dims))
   init <- case z.type of
+    -- The accumulators at the type the result gives them: a fold's is the
+    -- result's, a scan's the result's but for the axis it scans along,
+    -- which the op asks of them exactly; one made more dynamic, as a
+    -- call's result is, is cast to it.
     TensorT _ _ => case r of
       FoldLast => given ix l rt z
-      ScanLast => plainOperand ix l z
+      ScanLast => given ix l (TensorT unscanned (elementOf rt)) z
     -- An accumulator held in an array of none: of words, the array of its
     -- one element; of one that holds references, a tabulation of no axis
     -- giving it, so that the array is written whole by the op that makes it.
@@ -561,7 +568,7 @@ reduce ix l binder r acc elem rt xa axis z x body = do
     -- axis's, then an accumulator's, each dynamic one the init's along its
     -- axis, or the axis's length.
     (ScanLast, _) => do
-      let (framed, cell) = splitAt frame (toList (withAxes (Data.Vect.fromList (tensorDims z.type))))
+      let (framed, cell) = splitAt frame (toList (withAxes (Data.Vect.fromList unscanned)))
           along = map (sizeAt l init) framed ++ pure (Left len) :: map (sizeAt l init) cell
       sizes <- traverse (\(d, s) => resultSize d (Left <$> (s >>= sizeValue l))) (zip (tensorDims rt) along)
       dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp (fst (mixed sizes)))
@@ -571,25 +578,58 @@ reduce ix l binder r acc elem rt xa axis z x body = do
 -- Ties
 ------------------------------------------------------------------------------
 
-||| The array `v`, of type `tied`, the dynamic dimensions that type gives
-||| it stated equal to the sizes given (`idr.array.tie_shape`): the extent
-||| of another array's axis, exact, or a natural, converted as an extent;
-||| the other dynamic dimensions read from it. Itself when nothing is
-||| stated of a dynamic dimension. The variable `binder` is bound to it.
+||| The type a tie states an array at, of the type `tied` the program holds
+||| of it and the type `own` it is made at: `?` at each axis either leaves
+||| `?`, so an array more static than `tied` where `tied` states a size is
+||| cast to say it, and one more dynamic, as a call's result is, is taken
+||| as it is. Two types of other ranks are left to `fit` to refuse.
+tiedAt : (tied, own : Ty) -> Ty
+tiedAt (TensorT ds e) (TensorT es _) =
+  if length ds == length es then TensorT (zipWith axis ds es) e else TensorT ds e
+  where
+    axis : Dim -> Dim -> Dim
+    axis Dynamic _ = Dynamic
+    axis _ Dynamic = Dynamic
+    axis held _ = held
+tiedAt tied _ = tied
+
+||| The array `v`, which the program holds at type `tied` and the ops
+||| `making` make, with what is known of its dynamic dimensions stated
+||| (`idr.array.tie_shape`), at the type `tiedAt` gives, which the tie
+||| keeps: of each, the size given, the extent of another array's axis,
+||| exact, or a natural, converted as an extent; else the size `tied` fixes
+||| it at, a constant, which is how a call's result, `?` at every axis as
+||| its function returns it, gets back the sizes its callee's type fixes;
+||| else read from it. What is known is made before `making`, so a call
+||| they end in is followed by the tie alone. Itself when nothing is known
+||| of a dynamic dimension. The variable `binder` is bound to it.
 export
-tie : Index -> Loc -> Maybe Binding -> (tied : Ty) -> Val -> List (Nat, Stated Val) -> E Val
-tie ix l binder tied v stated = do
+tie : Index -> Loc -> Maybe Binding -> (tied : Ty) -> Val -> (making : List Statement) -> List (Nat, Stated Val)
+   -> E Val
+tie ix l binder tied v making stated = do
   sizes <- SortedMap.fromList <$> traverse (\(a, s) => (a,) <$> size s) stated
-  let ds = tensorDims tied
-      dynamic = filter (\(_, d) => d == Dynamic) (toList (withAxes (Data.Vect.fromList ds)))
-  if all (\(j, _) => isNothing (lookup j sizes)) dynamic then pure v else do
-    xv <- plainOperand ix l v
-    dims <- traverse (\(j, d) => case lookup j sizes of
-                        Just s => pure s
-                        Nothing => sizeValue l !(sizeAt l xv (j, d))) dynamic
+  let stating = tiedAt tied v.type
+      held = toList (withAxes (Data.Vect.fromList (tensorDims tied)))
+  -- Each axis the tie leaves dynamic, with what is known of it.
+  known <- traverse (\(_, (j, d)) => (j,) <$> sequence (knownAt sizes j d))
+                    (filter (\(own, _) => own == Dynamic) (zip (tensorDims stating) held))
+  traverse_ append making
+  u <- fit ix l (Just stating) v
+  if all (\(_, k) => isNothing k) known then pure u else do
+    xv <- plainOperand ix l u
+    dims <- traverse (\(j, k) => maybe (sizeAt l xv (j, Dynamic) >>= sizeValue l) pure k) known
     r <- mlirValueAt (madeAt binder l Many) xv.type (Idr.arrayTieShapeOp xv dims)
-    pure (val r.name v.type Many made)
+    pure (val r.name u.type Many made)
   where
     size : Stated Val -> E Value
     size (SameAs n) = coordinate ix l n
     size (Natural n) = extent ix l n
+
+    -- What is known of axis `j` of the array, where it is dynamic, which
+    -- `tied` holds at `d`: the size stated, else the size `d` fixes.
+    knownAt : SortedMap Nat Value -> Nat -> Dim -> Maybe (E Value)
+    knownAt sizes j d = case lookup j sizes of
+      Just s => Just (pure s)
+      Nothing => case d of
+        Static n => Just (indexConst l (cast n))
+        Dynamic => Nothing

@@ -118,12 +118,6 @@ present = filter (\v => case v.type of
                           WorldT => False
                           _ => True)
 
-||| The types of the module a result of type `t` is: none for the world.
-export
-resultTypes : Index -> Ty -> List MlirType
-resultTypes ix WorldT = []
-resultTypes ix t = [gradedType ix Many made t]
-
 ||| What a layer's operands give, left to right: the next is written only
 ||| when the one before it returns, so that nothing follows a value that
 ||| never does (its region has ended in a terminator).
@@ -186,6 +180,16 @@ fields ix l sc (b :: bs) (a :: as) = (::) <$> operand1 ix l sc (Just b) a <*> fi
 export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Many)
+
+||| A function's body, its value of type `t` as the function returns it
+||| (`returned`): the body is written for that type, so a call at its tail
+||| gives the type its slot takes and nothing stands between the call and
+||| the return; a value of a more static type is cast before the return.
+export
+returning : Index -> Loc -> Ty -> (Wanted -> E (Maybe Val)) -> E (Maybe Val)
+returning ix l t body =
+  let r = returned t in
+  plain ix l (body (expecting (Just r))) >>= traverse (fit ix l (Just r))
 
 ||| The values a region or a function gives: none for the world.
 given : Index -> Maybe Val -> List Value
@@ -559,7 +563,12 @@ alg ix (EffectF l p gives as world res) sc w = do
 -- A call holds its callee's signature, one argument per binder: it passes
 -- its callee's index parameters their terms here and its arguments at the
 -- callee's binders with those terms substituted, so its operand and result
--- types are the callee's signature at the call. Where it stands in its
+-- types are the callee's signature at the call, its result as the callee
+-- returns it (`returned`), the type every tail of its caller is written
+-- for, so a call at a tail is never cast. A slot that is no tail and that
+-- Idris's type gives a static axis (a `let`'s binder, a static input of
+-- another call) takes the result cast to it, after the call and never
+-- between the call and a return. Where it stands in its
 -- function is decided once, by the one definition of tail position, when
 -- the program is first order: the frontend writes every call `nontail`,
 -- which promises nothing, and the source states no other. A call the
@@ -568,7 +577,7 @@ alg ix (CallF l f stands is as) sc w = do
   let slots = map (\b => Just (MkBinder b.quantity (substTy is b.type))) f.params
   Just vs <- operands ix l (offTail sc) (zip slots as)
     | Nothing => pure Nothing
-  let rt = substTy is f.result
+  let rt = returned (substTy is f.result)
       args = map (operand ix) (present (toList vs))
       indexArgs = Just (indexArgsOf ix is)
       callee = SymbolRefAttr (MkSymbolRef f.symbol [])
@@ -722,16 +731,13 @@ alg ix (LamF l name b held body) sc w = do
   -- A lambda of the world, an action, binds no value for it.
   (args, r, ops) <- case param of
     WorldT => do
-      (r, ops) <- collect $
-        plain ix l (body.result (bind [World] (offTail sc)) (expecting (Just result)))
-          >>= traverse (fit ix l (Just result))
+      (r, ops) <- collect $ returning ix l result (body.result (bind [World] (offTail sc)))
       pure (Prelude.Nil, r, ops)
     _ => do
       (p, arg) <- freshVal ix param b.quantity
       (r, ops) <- collect $ do
         inner <- coerce ix l b.quantity !(fit ix l (Just (typeOf b)) p)
-        plain ix l (body.result (bind [Whole inner] (offTail sc)) (expecting (Just result)))
-          >>= traverse (fit ix l (Just result))
+        returning ix l result (body.result (bind [Whole inner] (offTail sc)))
       st <- get
       put ({ nextBinder $= S } st)
       pure ([MkArgument arg (Binder name (Spanned l) st.ownerSymbol st.nextBinder)], r, ops)
@@ -740,7 +746,8 @@ alg ix (LamF l name b held body) sc w = do
   Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) result) captures
                    (Idr.fnClosureOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 -- An application applies its head at the function type it holds, the one
--- the head's own type gives.
+-- the head's own type gives, and gives the value as the closure's
+-- function returns it (`returned`).
 alg ix (AppF l a r f x) sc w = do
   Just fv <- plain ix l (f.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
@@ -754,23 +761,23 @@ alg ix (AppF l a r f x) sc w = do
     [] => do
       statement l (Idr.fnApplyOp (operand ix fv) xs [])
       pure (Just worldVal)
-    _ => Just <$> fitted {binder = w.binder} ix l w.type r (\t => Idr.fnApplyOp (operand ix fv) xs [t])
+    _ => Just <$> fitted {binder = w.binder} ix l w.type (returned r) (\t => Idr.fnApplyOp (operand ix fv) xs [t])
 alg ix (SuspendF l delayed body) sc w = do
   let t = case w.type of
             Just (LazyT r) => r
             _ => delayed
-  (r, ops) <- collect (plain ix l (body.result (offTail sc) (expecting (Just t)))
-                       >>= traverse (fit ix l (Just t)))
+  (r, ops) <- collect (returning ix l t (body.result (offTail sc)))
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
                    (Idr.lazySuspendOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 -- A force gives the value its suspension holds, of the type the force
--- holds, the one its operand's own type gives.
+-- holds, the one its operand's own type gives, as the suspension's
+-- function returns it (`returned`).
 alg ix (ResumeF l r e) sc w = do
   Just ev <- plain ix l (e.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
-  Just <$> fitted {binder = w.binder} ix l w.type r (Idr.lazyForceOp (operand ix ev))
+  Just <$> fitted {binder = w.binder} ix l w.type (returned r) (Idr.lazyForceOp (operand ix ev))
 -- The array language: each operand bound once, in order, by the frontend,
 -- an array at the type the operation holds of it; each body a region of
 -- the array op Emit.Tensors writes.
@@ -790,12 +797,21 @@ alg ix (ReduceF l r acc el rt xa axis z x body) sc w = do
     | Nothing => pure Nothing
   reduce ix l w.binder r acc el rt xa axis zv xv
          (\a, e => plain ix l (body.result (bind [Whole a, Whole e] (offTail sc)) (expecting (Just acc))))
+-- A tie takes its array as it is made, which a call's result is at the
+-- tail of a function or of a join point's region, and keeps its type
+-- (`tie`). What it states reads the arguments of the call it ties, which
+-- are bound before the call, so it is made before the array is, and
+-- nothing but the tie stands between a call and its tail.
 alg ix (TieF l t x ds) sc w = do
-  Just xv <- (operand1 ix l (offTail sc) (Just (MkBinder Many t)) x).written
-    | Nothing => pure Nothing
   Just dims <- statedAll ds
     | Nothing => pure Nothing
-  Just <$> tie ix l w.binder t xv dims
+  (res, ops) <- collect (operand1 ix l (offTail sc) Nothing x).written
+  case res of
+    Just xv => Just <$> tie ix l w.binder t xv ops dims
+    -- An array never made has ended its region in a terminator.
+    Nothing => do
+      traverse_ append ops
+      pure Nothing
   where
     -- Each statement a natural.
     natural : Sub Em [] nv -> E (Maybe Val)
