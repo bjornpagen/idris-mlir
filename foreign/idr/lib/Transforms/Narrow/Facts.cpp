@@ -73,7 +73,7 @@ bool borrowed(Value value) { return freedBy(value.getType(), Release::Scoped); }
 
 namespace {
 
-// The small `value` is given as, where it is one (given): a small cast
+// The small `value` is given as, where it is one (heldAs): a small cast
 // into a linear position or shared as a value its count frees, each an op
 // whose result carries its operand.
 std::optional<Value> givenSmall(Value value) {
@@ -138,14 +138,6 @@ Value small(OpBuilder &b, Location loc, Type type, Value word) {
   return BigSmallOp::create(b, loc, held, word);
 }
 
-Value given(OpBuilder &b, Location loc, Value small, Type type) {
-  if (small.getType() == type)
-    return small;
-  if (usesOf(type) != Uses::Many)
-    return heldAs(b, loc, small, type);
-  return CountShareOp::create(b, loc, type, small);
-}
-
 Value WordRewriter::standIn(Location loc, Type type, Value word) {
   Value made = small(*this, loc, type, word);
   smalls.emplace_back(made, type);
@@ -167,7 +159,7 @@ void giveSmalls(WordRewriter &rewriter) {
     for (OpOperand *use : takers) {
       Operation *user = use->getOwner();
       rewriter.setInsertionPoint(user);
-      Value held = given(rewriter, user->getLoc(), made, type);
+      Value held = heldAs(rewriter, user->getLoc(), made, type);
       rewriter.modifyOpInPlace(user, [&] { use->set(held); });
     }
   }

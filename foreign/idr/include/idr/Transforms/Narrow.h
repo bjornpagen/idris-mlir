@@ -65,7 +65,7 @@ bool borrowed(mlir::Value value);
 // once, the big cast out of its linear position, which moves what it holds
 // to the value the cast makes, since a value used once reaches a primitive
 // only through a cast to many, or the small a big given where a value its
-// count frees was asked is (given); and what the use did with the big's
+// count frees was asked is (heldAs); and what the use did with the big's
 // reference, by counting's one rule, which moves none on from a small.
 struct Replaced {
   mlir::Value read;
@@ -253,15 +253,10 @@ mlir::Value word(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value);
 
 // The small of `word`, a word that fits, as a value of the carrier of
 // `type`: a word with no cell, so its type is static data's, which nothing
-// frees and no count writes, read in place at any hold.
+// frees and no count writes, read in place at any hold. A use that asks for
+// the big it stands for is given it at the big's type by heldAs, which
+// stands static data only where a hold that claims nothing is asked.
 mlir::Value small(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type, mlir::Value word);
-
-// `small` as a use asks for a value of `type`, the type of the big it
-// stands for: itself at its own type; cast into a linear position where
-// `type` is used once; given by a share where `type` is freed by its count,
-// a word with no cell holding nothing the count it is given frees. Static
-// data stands only where a hold that claims nothing is asked.
-mlir::Value given(mlir::OpBuilder &b, mlir::Location loc, mlir::Value small, mlir::Type type);
 
 // What is decided: the values of the webs the joints carry, before the
 // rewrite (decideJoints); the results of each op made its word op, which

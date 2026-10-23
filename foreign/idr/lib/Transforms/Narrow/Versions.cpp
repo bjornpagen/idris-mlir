@@ -162,7 +162,7 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
   // A small, given as the natural the loop takes, which keeps the range
   // the mask proved.
-  Value start = given(rewriter, loc, small(rewriter, loc, nat, masked), nat);
+  Value start = heldAs(rewriter, loc, small(rewriter, loc, nat, masked), nat);
   // The copy starts from the word, so the natural it was read from gives up
   // the reference the loop would have taken.
   giveUp(rewriter, loc, held);

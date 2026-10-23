@@ -18,10 +18,11 @@
 // A graded tensor is tensor-like where its value is a tensor, by its own
 // models, and its buffer keeps its grade: One-Shot bufferizes a linear
 // array's wrapper and every signature that carries one itself, and a copy
-// of one is an alloc_tensor of its value with the grade put back. A field
-// of a cell holds its buffer from the frontend on, which crosses into the
-// tensor world through upstream's to_buffer and to_tensor, so no type of
-// the program is retyped after the analysis.
+// of one is an alloc_tensor of its value given at its uses, claiming what
+// the allocation's type states. A field of a cell holds its buffer from the
+// frontend on, which crosses into the tensor world through upstream's
+// to_buffer and to_tensor, so no type of the program is retyped after the
+// analysis.
 //
 // On the buffers, a read of an element that holds references, whose place
 // the next write to the buffer overwrites, is the element's update
@@ -299,9 +300,15 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
                                         const BufferizationOptions &) {
       return idr::bufferize::cellType(type);
     };
-    // A graded tensor's copy is a copy of its value at its grade; one with
-    // undefined contents, a new value of its shape at its grade, its
-    // dynamic sizes read off the value.
+    // A graded tensor's copy is a copy of its value, and one with undefined
+    // contents a new value of its shape, its dynamic sizes read off the
+    // value: the tensor alloc_tensor makes, given at the uses Idris proved
+    // of the value whose place it takes. It claims what its type states of
+    // its sharing. Upstream's op makes a builtin tensor, which claims
+    // nothing, and declares no edge by which the grade's rule would know it
+    // fresh, so a value that claims more is given a copy that claims
+    // nothing, its grade lowered there: a cast forgets a claim, and never
+    // makes one.
     options.tensorAllocationFn = [](OpBuilder &b, Location loc, Value value, bool copy,
                                     const BufferizationOptions &) -> FailureOr<Value> {
       auto tensor = cast<RankedTensorType>(idr::unrestricted(value.getType()));
@@ -310,7 +317,8 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
       if (!copy)
         sizes = decomposeMixedValues(tensor::getMixedSizes(b, loc, plain)).second;
       auto made = AllocTensorOp::create(b, loc, tensor, sizes, copy ? plain : Value());
-      return idr::heldAs(b, loc, made.getResult(), value.getType());
+      Type given = idr::atUses(tensor, idr::usesOf(value.getType()));
+      return idr::heldAs(b, loc, made.getResult(), given);
     };
     options.allocationFn = allocate;
     options.memCpyFn = copyInto;
