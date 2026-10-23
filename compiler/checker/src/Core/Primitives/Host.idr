@@ -8,6 +8,10 @@
 ||| definition; and some primitives are declared partial, defined on values
 ||| a test the host's types cannot carry picks out. Each fact below is one
 ||| primitive's (or one comparison's), with the reason both hosts keep it.
+||| Beside them stand the two exponents of what a primitive can give past
+||| its arguments' sizes, a fixed width's and the widest, which
+||| `Idris.Host` bounds the evaluator's table by; they are held here, by
+||| name, so that two to either is computed in no type outside this module.
 ||| The checker's other trusts, of its evaluator and its context, are
 ||| `Idris.Host`'s; that module imports this one, which imports nothing of
 ||| the checker, so `Core.Primitives` reaches these facts too.
@@ -77,6 +81,45 @@ export
 0 shiftRightDescends : (k : Nat) ->
                        Nat.LT (integerToNat (prim__shr_Integer (natToInteger (S k)) 32)) (S k)
 shiftRightDescends _ = trusted
+
+------------------------------------------------------------------------------
+-- How wide a primitive's value is
+------------------------------------------------------------------------------
+
+-- The type checker computes naturals in unary, so a type that held two to
+-- 64 or to 1024 would build that number wherever the type is normalised or
+-- compared, past what any machine holds. Each exponent is exported by name
+-- alone: it unfolds nowhere outside this module, so two to it is stuck in
+-- every type there, and a proof compares two such powers by their
+-- exponents, through the facts stated below, where the exponents are the
+-- small numbers they are. A program computes either as any other number.
+-- The facts name the exponents in full: unqualified, a name in argument
+-- position of a type is bound as a fresh implicit, and each fact would
+-- hold of any number.
+
+||| 64: no fixed-width integer of either host is wider than 64 bits, so none
+||| wraps to a value at or past two to it.
+export
+widthExponent : Nat
+widthExponent = 64
+
+||| 1024: neither a character's code nor a finite double's integer part
+||| reaches two to it on either host, a double's largest finite value being
+||| below 2^1024. It is the widest exponent a primitive's bound names.
+export
+widestExponent : Nat
+widestExponent = 1024
+
+||| A fixed width's exponent is at most the widest.
+export
+0 widthWithinWidest : LTE Host.widthExponent Host.widestExponent
+widthWithinWidest = lteAddRight {m = 960} 64
+
+||| Every exponent up to 1024 is at most the widest: a double's text's
+||| length among them.
+export
+0 withinWidest : (e : Nat) -> LTE e 1024 -> LTE e Host.widestExponent
+withinWidest e le = le
 
 ------------------------------------------------------------------------------
 -- Partial primitives

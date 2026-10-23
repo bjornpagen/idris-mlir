@@ -3121,7 +3121,10 @@ data SizeBound : Nat -> Type where
   TwoToThe : SizeBound arity -> SizeBound arity
 
 ||| What a bound comes to at its arguments' sizes. Two to a size is past
-||| what any machine holds, so a bound is read in proofs and never computed.
+||| what any machine holds, so a bound is read in proofs and never computed;
+||| the constant exponents a bound names are held by name
+||| (`Core.Primitives.Host.widthExponent`, `widestExponent`), so two to one
+||| is stuck in every type here and a proof compares it by its exponent.
 public export
 0 atSizes : SizeBound arity -> Vect arity Nat -> Nat
 atSizes (AtMost k) ss = k
@@ -3130,11 +3133,11 @@ atSizes (Summed a b) ss = atSizes a ss + atSizes b ss
 atSizes (Multiplied a b) ss = atSizes a ss * atSizes b ss
 atSizes (TwoToThe a) ss = power 2 (atSizes a ss)
 
-||| 2^64: no fixed-width integer, whose widest width is 64 bits, wraps to
-||| a value past it, and no double's text is that long.
+||| 2^64, by its exponent: no fixed-width integer, whose widest width is 64
+||| bits, wraps to a value past it, and no double's text is that long.
 public export
 fixedWidth : SizeBound arity
-fixedWidth = TwoToThe (AtMost 64)
+fixedWidth = TwoToThe (AtMost widthExponent)
 
 ||| The longest text of a double on the hosts that run this compiler: a
 ||| sign, 17 digits, a point and an exponent such as `e-308`, 24 characters
@@ -3209,7 +3212,7 @@ boundOf DoubleSqrt = AtMost doubleText
 boundOf DoubleFloor = AtMost doubleText
 boundOf DoubleCeiling = AtMost doubleText
 boundOf (Cast _ IntegerType) =
-  Summed (TwoToThe (Multiplied (AtMost 4) (ArgumentSize FZ))) (TwoToThe (AtMost 1024))
+  Summed (TwoToThe (Multiplied (AtMost 4) (ArgumentSize FZ))) (TwoToThe (AtMost widestExponent))
 boundOf (Cast _ StringType) = Summed (ArgumentSize FZ) (AtMost 1)
 boundOf (Cast _ CharType) = AtMost 0
 boundOf (Cast _ DoubleType) = AtMost doubleText
