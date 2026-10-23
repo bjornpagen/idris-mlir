@@ -20,12 +20,15 @@
 // simplification runs, and what is left of a force after it (a call of a
 // known label, a cell forced in one case) is the e-graph's.
 //
-// The exchange reads a memoized label's captures as fields of the cell, so
-// it takes the cell refined to the label's state, as its dispatch's case
+// The exchange moves a memoized label's captures out of the cell's fields,
+// so it takes the cell refined to the label's state, as its dispatch's case
 // binds it: the captures are at the label's binders, the state the
-// refinement's. Its steps, idr.memo.take and idr.memo.store, are the same
-// exchange for a pass that cannot keep its region.
+// refinement's. Each capture leaves its field empty and holds the field's
+// reference, so its hold is its own and never the cell's (Closures.h).
+// Its steps, idr.memo.take and idr.memo.store, are the same exchange for a
+// pass that cannot keep its region.
 
+#include "idr/IR/Closures.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Fold.h"
@@ -80,20 +83,13 @@ Type forcedAt(DataType cell) {
   return cell.determinedFields(cell.memo()->forced())->front();
 }
 
-// Each capture of the label `cell` is refined to, at the type a read of
-// its field gives; failure where the refinement determines no binders to
-// read them at.
-LogicalResult capturesOf(Type cell, SmallVectorImpl<Type> &captures) {
-  DataType data = dataTypeOf(cell);
-  for (unsigned i = 0, n = static_cast<unsigned>(data.ctor(*data.singleTag()).fields.size()); i < n;
-       ++i) {
-    std::optional<Type> read = fieldReadType(cell, i);
-    if (!read)
-      return failure();
-    captures.push_back(*read);
-  }
-  return success();
-}
+// Whether captures typed `bound` are the ones an exchange moves out as
+// `made` (capturesMovedOut): one per field, each at its field's carrier and
+// uses, at any hold. A capture holds the reference its field held, so its
+// hold is what a pass proves of it (a claim exclusivity writes) or learns
+// of where what it holds lives, never what the cell is held at: a view of
+// the cell (borrowing's) or a claim on it says that of the cell alone.
+bool standAsCaptures(TypeRange made, TypeRange bound) { return sameCarriers(made, bound); }
 
 // What an exchange does with capture `index` of the cell it holds: the
 // capture moves out of its field of the label's state into `capture`, with
@@ -122,6 +118,23 @@ void movedOut(Exchange op, unsigned index, Value capture, FlowEdges &edges) {
 bool idr::isMemoState(Type type) {
   DataType data = dataTypeOf(type);
   return data && data.memo() && data.singleTag();
+}
+
+// Each field as the cell's memory holds it, re-packed as any read of it
+// is: read from the cell's carrier at its bare grade, so counted and
+// claiming nothing whatever the cell is held at, but its own cells
+// unshared where the re-pack builds them; at the field's own uses.
+std::optional<SmallVector<Type>> idr::capturesMovedOut(Type cell) {
+  DataType data = dataTypeOf(cell);
+  ArrayRef<Type> fields = data.ctor(*data.singleTag()).fields;
+  SmallVector<Type> captures;
+  for (auto [index, field] : llvm::enumerate(fields)) {
+    std::optional<Type> read = fieldReadType(data, static_cast<unsigned>(index));
+    if (!read)
+      return std::nullopt;
+    captures.push_back(atUses(*read, usesOf(field)));
+  }
+  return captures;
 }
 
 //===----------------------------------------------------------------------===//
@@ -297,18 +310,19 @@ DataType MemoRunOp::getDataType() { return dataTypeOf(getCell().getType()); }
 Tag MemoRunOp::getTag() { return *getDataType().singleTag(); }
 
 // The cell is refined to a label that memoizes; the region binds that
-// label's captures, each as a read of its field gives it.
+// label's captures as the exchange moves them out, each at its own hold.
 LogicalResult MemoRunOp::verify() {
   if (failed(memoizes(*this, getDataType())))
     return failure();
-  SmallVector<Type> captures;
-  if (failed(capturesOf(getCell().getType(), captures)))
+  std::optional<SmallVector<Type>> captures = capturesMovedOut(getCell().getType());
+  if (!captures)
     return emitOpError("exchanges ") << getCell().getType()
                                      << ", whose refinement gives its label no binders";
   Block &body = getRegion().front();
-  if (!llvm::equal(body.getArgumentTypes(), captures))
-    return emitOpError("binds captures ") << body.getArgumentTypes() << " where its label holds "
-                                          << TypeRange(captures);
+  if (!standAsCaptures(*captures, body.getArgumentTypes()))
+    return emitOpError("binds captures ")
+           << body.getArgumentTypes() << " where its label's fields move out as "
+           << TypeRange(*captures) << ", at any hold";
   return success();
 }
 
@@ -329,16 +343,19 @@ LogicalResult MemoRunOp::verifyRegions() {
 }
 
 // The exchange as its steps, for a pass that cannot keep the region: the
-// captures taken out of the cell, the region's code in place on them, and
-// its value stored into the cell, a step of its own that a continuation can
-// begin with; the op's results are what the region yields after the value.
+// captures taken out of the cell, each at the type the region binds it, so
+// at the hold counting and exclusivity gave it, the region's code in place
+// on them, and its value stored into the cell, a step of its own that a
+// continuation can begin with; the op's results are what the region
+// yields after the value.
 void MemoRunOp::split(RewriterBase &rewriter) {
   Block &body = getRegion().front();
   auto end = cast<MemoYieldOp>(body.getTerminator());
   Value value = end.getValue();
   SmallVector<Value> results(end.getResults());
   rewriter.setInsertionPoint(getOperation());
-  auto taken = MemoTakeOp::create(rewriter, getLoc(), getCell());
+  auto taken =
+      MemoTakeOp::create(rewriter, getLoc(), TypeRange(body.getArgumentTypes()), getCell());
   rewriter.inlineBlockBefore(&body, getOperation(), taken.getCaptures());
   rewriter.setInsertionPoint(getOperation());
   MemoStoreOp::create(rewriter, end.getLoc(), getCell(), value);
@@ -402,17 +419,19 @@ Tag MemoTakeOp::getTag() { return *getDataType().singleTag(); }
 DataType MemoStoreOp::getDataType() { return dataTypeOf(getCell().getType()); }
 Tag MemoStoreOp::getTag() { return *getDataType().singleTag(); }
 
-// The captures, inferred from the cell: each as a read of its field gives
-// it, as the region of the exchange binds it.
+// The captures, inferred from the cell: each as the exchange moves it out,
+// as the region of the exchange binds it.
 LogicalResult MemoTakeOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   Type cell = adaptor.getCell().getType();
   if (!isMemoState(cell))
     return emitOptionalError(location, "takes the captures of ", cell,
                              ", which is no memo cell refined to one state");
-  if (failed(capturesOf(cell, inferred)))
+  std::optional<SmallVector<Type>> captures = capturesMovedOut(cell);
+  if (!captures)
     return emitOptionalError(location, "takes the captures of ", cell,
                              ", whose refinement gives its label no binders");
+  llvm::append_range(inferred, *captures);
   return success();
 }
 

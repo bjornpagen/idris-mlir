@@ -16,6 +16,7 @@
 // the exchange is then a call on its own cycle. Its calls take their tail
 // facts with every other call once the program is first order.
 
+#include "idr/IR/Closures.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
@@ -24,9 +25,10 @@
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Joins.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -90,9 +92,10 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
         out.push_back(DataFieldOp::create(b, loc, cell, i));
       return out;
     };
+    // The crash ends the program: it is the case's terminator, the last op
+    // of its block.
     if (tag == memo->running()) {
       CrashCauseOp::create(b, loc, CrashCause::SuspensionForcedItself, siteOf(program.getLoc()));
-      ub::UnreachableOp::create(b, loc);
       continue;
     }
     if (tag == memo->forced()) {
@@ -130,13 +133,13 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
     case Mode::Memoized: {
       // The exchange moves the captures out of the cell, runs the label on
       // them, and moves the value into the cell, which it also gives. Each
-      // capture is bound as a read of its field gives it.
+      // capture is bound as the exchange moves it out of its field, with
+      // the reference the field held.
       auto exchange = MemoRunOp::create(b, at_, TypeRange(value), cell);
-      SmallVector<Type> captures;
-      for (unsigned i = 0; i < fields; ++i)
-        captures.push_back(*fieldReadType(cell.getType(), i));
-      Block *body = b.createBlock(&exchange.getRegion(), {}, captures,
-                                  SmallVector<Location>(captures.size(), at_));
+      std::optional<SmallVector<Type>> captures = capturesMovedOut(cell.getType());
+      assert(captures && "a case binds its cell at a level for every binder, which determine them");
+      Block *body = b.createBlock(&exchange.getRegion(), {}, *captures,
+                                  SmallVector<Location>(captures->size(), at_));
       Value computed = call(body->getArguments());
       MemoYieldOp::create(b, at_, computed, ValueRange{computed});
       b.setInsertionPointAfter(exchange);
