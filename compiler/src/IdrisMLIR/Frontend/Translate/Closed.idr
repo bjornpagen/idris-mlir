@@ -55,25 +55,22 @@ TTBinder = Core.TT.Binder.Binder
 
 ||| What is known of a runtime variable's type: its Core type and its
 ||| closed Idris type, which says which arguments a function-typed value
-||| takes at runtime; its Core type alone (a suspension's value, whose
-||| Idris type the match on it does not show); or neither (a value a
-||| settled term computes, which no type of the scope gives).
+||| takes at runtime. Every runtime variable has both: a binder's are read
+||| where it is bound, a field's off its family's layout, and a value a
+||| settled term binds is of the Idris type the implementation that holds it
+||| gives it.
 public export
-data KnownTypes = BothTypes Ty ClosedTerm | CoreTypeOnly Ty | Untyped
+data KnownTypes = BothTypes Ty ClosedTerm
 
-||| The Core type of a runtime variable, where it is known (`KnownTypes`).
+||| The Core type of a runtime variable (`KnownTypes`).
 export
-coreOf : KnownTypes -> Maybe Ty
-coreOf (BothTypes t _) = Just t
-coreOf (CoreTypeOnly t) = Just t
-coreOf Untyped = Nothing
+coreOf : KnownTypes -> Ty
+coreOf (BothTypes t _) = t
 
-||| The closed Idris type of a runtime variable, where it is known
-||| (`KnownTypes`).
+||| The closed Idris type of a runtime variable (`KnownTypes`).
 export
-idrisOf : KnownTypes -> Maybe ClosedTerm
-idrisOf (BothTypes _ i) = Just i
-idrisOf _ = Nothing
+idrisOf : KnownTypes -> ClosedTerm
+idrisOf (BothTypes _ i) = i
 
 ||| Where a variable's entry stands: in a case tree's scope, every
 ||| implementation of which is a parameter's or a part a compile-time match
@@ -204,64 +201,6 @@ natRole def = case mapMaybe role (flags def) of
     role (ConType ZERO) = Just Zero
     role (ConType SUCC) = Just Succ
     role _ = Nothing
-
-||| One entry per variable of a scope, the innermost first, so that every
-||| variable the scope holds has its entry and no other has one.
-public export
-data ByVar : Scope -> Type -> Type where
-  Nil : ByVar [] a
-  (::) : a -> ByVar vs a -> ByVar (v :: vs) a
-
-export
-Functor (ByVar vs) where
-  map f [] = []
-  map f (x :: xs) = f x :: map f xs
-
-||| The entries, the innermost first.
-export
-innermostFirst : ByVar vs a -> List a
-innermostFirst [] = []
-innermostFirst (x :: xs) = x :: innermostFirst xs
-
-||| The entry of a variable, which its scope says is there.
-export
-lookupVar : (idx : Nat) -> (0 _ : IsVar n idx vs) -> ByVar vs a -> a
-lookupVar Z _ (x :: _) = x
-lookupVar (S i) p (_ :: xs) = lookupVar i (dropLater p) xs
-lookupVar _ First [] impossible
-lookupVar _ (Later _) [] impossible
-
-||| Each entry made by an effect, in scope order.
-export
-traverseByVar : Applicative f => (a -> f b) -> ByVar vs a -> f (ByVar vs b)
-traverseByVar g [] = pure []
-traverseByVar g (x :: xs) = (::) <$> g x <*> traverseByVar g xs
-
-||| Two entries of each variable, made one.
-export
-zipByVar : (a -> b -> c) -> ByVar vs a -> ByVar vs b -> ByVar vs c
-zipByVar f [] [] = []
-zipByVar f (x :: xs) (y :: ys) = f x y :: zipByVar f xs ys
-
-||| The entries of inner variables put in front of a scope's.
-export
-prepend : ByVar as a -> ByVar vs a -> ByVar (as ++ vs) a
-prepend [] xs = xs
-prepend (y :: ys) xs = y :: prepend ys xs
-
-||| One entry per name, each made from the element of a list as long.
-export
-byVarFrom : (vs : Scope) -> (f : a -> b) -> (xs : List a) -> (0 _ : length xs = length vs) -> ByVar vs b
-byVarFrom [] f [] _ = []
-byVarFrom (_ :: vs) f (x :: xs) same = f x :: byVarFrom vs f xs (injective {f = S} same)
-byVarFrom [] f (_ :: _) Refl impossible
-byVarFrom (_ :: _) f [] Refl impossible
-
-||| The same entry for every name.
-export
-everyVar : (vs : Scope) -> a -> ByVar vs a
-everyVar [] x = []
-everyVar (_ :: vs) x = x :: everyVar vs x
 
 ||| What each variable of a scope stands for, in an instance of `kc`
 ||| parameters, in a scope of the kind `sp` says.
@@ -618,40 +557,37 @@ oneLeaf d = case d.matched of
   Nothing => Nothing
 
 ||| The definition a case, with or nested block belongs to, through every
-||| block between: a case or with block's parent is its full name, which
-||| Idris keeps; a nested function's parent is its place in the context.
-||| Idris's numbers in a nested name are those of the session that
-||| elaborated it, so the parents of a loaded one can lead anywhere, even
-||| back to a name passed already: the walk enters each parent once
-||| (`Walk`), and stops at a name whose parent it has entered.
+||| block between, as it was read (`Defined`): a case or with block's
+||| parent is its full name, which Idris keeps; a nested function's parent
+||| is its place in the context. Idris's numbers in a nested name are those
+||| of the session that elaborated it, so the parents of a loaded one can
+||| lead anywhere, even back to a definition passed already: the walk
+||| enters each parent once (`Walk`), and stops at a definition whose
+||| parent it has entered, or whose parent the context defines as nothing.
 export
-rootOf : Name -> Front Name
-rootOf n = climb start (sizeAccessible start) n
+rootOf : Defined -> Front Defined
+rootOf d = climb start (sizeAccessible start) d
   where
     mutual
       -- The accessibility proof is erased, and every clause matches its one
       -- constructor: no alternative is chosen by it.
-      climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Name -> Front Name
-      climb w (Access rec) m@(NS _ (CaseBlock outer _)) = parent w rec m outer
-      climb w (Access rec) m@(NS _ (WithBlock outer _)) = parent w rec m outer
-      climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
-        -- A negative parent is no place, which Idris's bare `Int` allows.
-        let Just placement = placementOf outer
-          | Nothing => pure m
-        -- Entered already: the parents led back to it.
-        case enter placement w of
-          Nothing => pure m
-          Just (Element w' less) => climb w' (rec w' less) !(fullName (Resolved outer))
-      climb w (Access _) m = pure m
+      climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Defined -> Front Defined
+      climb w (Access rec) m = case fullname m.def of
+        NS _ (CaseBlock outer _) => parent w rec m outer
+        NS _ (WithBlock outer _) => parent w rec m outer
+        NS _ (Nested (outer, _) _) => parent w rec m (Resolved outer)
+        _ => pure m
 
-      -- A block's parent, entered once, as a nested function's is.
-      parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Name -> Name -> Front Name
+      -- A block's parent, as it was read, entered once: entered already,
+      -- the parents led back to it.
+      parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Defined -> Name ->
+               Front Defined
       parent w rec m outer = do
-        Just d <- defined outer
+        Just o <- defined outer
           | Nothing => pure m
-        case enter d.placement w of
+        case enter o.placement w of
           Nothing => pure m
-          Just (Element w' less) => climb w' (rec w' less) outer
+          Just (Element w' less) => climb w' (rec w' less) o
 
 ||| Did Idris prove that every call of a definition ends? Its termination
 ||| check's verdict, read once at the boundary (`Defined.ends`), which
@@ -661,9 +597,9 @@ rootOf n = climb start (sizeAccessible start) n
 ||| when that definition does too.
 endsOf : Defined -> Front Ends
 endsOf d = do
-  owner <- defined !(rootOf (fullname d.def))
-  pure (case (d.ends, map (.ends) owner) of
-          (ProvedToEnd, Just NotProvedToEnd) => NotProvedToEnd
+  owner <- rootOf d
+  pure (case (d.ends, owner.ends) of
+          (ProvedToEnd, NotProvedToEnd) => NotProvedToEnd
           (own, _) => own)
 
 ||| The definitions a term refers to, each once, in the order first met.

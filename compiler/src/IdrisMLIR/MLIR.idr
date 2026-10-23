@@ -145,8 +145,7 @@ mutual
   typeText F64Type = "f64"
   typeText IndexType = "index"
   typeText NoneType = "none"
-  -- No text attribute holds one, so this is never read.
-  typeText MlirType.TokenType = "none"
+  typeText MlirType.TokenType = "token"
   typeText (RankedTensorType ds e) = fastConcat ("tensor<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])

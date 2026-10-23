@@ -537,7 +537,7 @@ refuseCycle fc main b ring growth = do
 
 ||| What wrote an arc nothing bounds: a site's argument, or a field of the
 ||| definition that gives a dictionary, as it was read.
-data UnmeasuredBy = ArgumentWrote Sites.Site | FieldWrote GlobalDef
+data UnmeasuredBy = ArgumentWrote State.Site | FieldWrote GlobalDef
 
 0 unmeasuredInfinite : IsFinite Unmeasured -> Void
 unmeasuredInfinite ItIsFinite impossible
@@ -615,7 +615,7 @@ checkGrowth fc mainRead = do
     Bounded pot _ => do
       let ts = tablesOf b pot
       updateState { bounds := boundsOf b ts, sizes := sizesOf b (heightsOf b pot ts),
-                    growth := MkGrowthModel b.graph b.model }
+                    growth := siteTable b }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

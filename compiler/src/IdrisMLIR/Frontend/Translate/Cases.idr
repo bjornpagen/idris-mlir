@@ -230,18 +230,6 @@ fieldNames (v :: vs) (Field _ _ _ :: as) same = binderName v :: fieldNames vs as
 fieldNames [] (_ :: _) Refl impossible
 fieldNames (_ :: _) [] Refl impossible
 
-||| What a runtime variable's binder says of it, beside its Core type
-||| (`Terms.coreTyOf`): its Idris type, the shape of its value, and the
-||| variable.
-idrisTypeOf : VarInfo kc sp a -> Maybe ClosedTerm
-idrisTypeOf (Runtime _ t) = idrisOf t
-idrisTypeOf (Shaped _ _ t _) = Just t
-idrisTypeOf _ = Nothing
-
-shapeOf : VarInfo kc sp a -> Maybe ClosedTerm
-shapeOf (Shaped _ _ _ s) = Just s
-shapeOf _ = Nothing
-
 variableOf : VarInfo kc sp a -> Maybe a
 variableOf (Runtime x _) = Just x
 variableOf (Shaped x _ _ _) = Just x
@@ -370,37 +358,61 @@ conName : CaseAlt vars -> Maybe Name
 conName (ConCase cn _ _ _) = Just cn
 conName _ = Nothing
 
-||| Every constructor of the type a match's constructors build.
+||| The constructors of a type (`matched`, closed and normalised), as its
+||| type constructor declares them and the boundary read them
+||| (`TyConFacts.constructors`), in tag order: what a default after a match
+||| on a value of the type stands for. A type declared without constructors
+||| has none. Idris's tree matches constructors only on a value of a type
+||| constructor's type: a type of any other head is the compiled module's,
+||| refused where the match is read.
 export
-siblings : List (CaseAlt vars) -> Front (List Name)
-siblings alts = case mapMaybe conName alts of
-  [] => pure []
-  (cn :: _) => do
-    Just d <- defined cn
-      | Nothing => pure []
-    let Just tn = built d.type
-      | Nothing => pure []
-    Just td <- defined tn
-      | Nothing => pure []
-    case definition td.def of
-      TCon _ _ _ _ _ (Just cons) _ => pure cons
-      _ => pure []
-  where
-    built : TT vs -> Maybe Name
-    built (Bind _ _ (Pi {}) sc) = built sc
-    built tm = case getFnArgs tm of
-      (Ref _ (TyCon _) tn, _) => Just tn
-      _ => Nothing
+matchedConstructors : {auto s : Ref TState TS} -> FC -> (owner : String) -> (matched : ClosedTerm) ->
+                      Front (List ConstructorAt)
+matchedConstructors fc owner matched = case getFn matched of
+  Ref _ (TyCon _) tn => do
+    (_, facts) <- lookupTyCon fc owner tn
+    pure (case facts.constructors of
+            NoneDeclared => []
+            DeclaredAs listed => listed)
+  _ => do
+    written <- showTT matched
+    reject fc owner CompiledModule ("a match on the constructors of a value of type " ++ written ++
+                                    ", which is no type constructor's")
 
-||| Does a match name every constructor of the type? Then its default, which
-||| Idris's tree keeps for the clauses after a complete split, stands for
-||| no value: it is not translated, and the match has none.
+||| Does a match name every constructor of its type, each by its tag (`tags`:
+||| a constructor's place in its type's list, the boundary's
+||| `ConstructorAt.tag` and a family's layout's), the tag Idris's tree names
+||| it by? Then its default, which Idris's tree keeps for the clauses after
+||| a complete split, stands for no value: it is not translated, and the
+||| match has none.
 export
-coversAll : List (CaseAlt vars) -> Front Bool
-coversAll alts = do
-  named <- SortedSet.fromList <$> traverse fullName (mapMaybe conName alts)
-  every <- traverse fullName !(siblings alts)
-  pure (not (null every) && all (\c => contains c named) every)
+namesEvery : (tags : List Nat) -> List (CaseAlt vars) -> Bool
+namesEvery tags alts = all (\t => contains (cast t) named) tags
+  where
+    tagOf : CaseAlt vars -> Maybe Int
+    tagOf (ConCase _ t _ _) = Just t
+    tagOf _ = Nothing
+
+    named : SortedSet Int
+    named = SortedSet.fromList (mapMaybe tagOf alts)
+
+||| Does a match on a natural name both its constructors: its zero and its
+||| successor, the two Idris makes a `Nat`-like type of (`natRole`)?
+namesBothRoles : List (CaseAlt vars) -> Front Bool
+namesBothRoles alts = do
+  roles <- traverse roleOf (mapMaybe conName alts)
+  pure (any isZero roles && any isSucc roles)
+  where
+    roleOf : Name -> Front (Maybe NatRole)
+    roleOf cn = (>>= \d => natRole d.def) <$> defined cn
+
+    isZero : Maybe NatRole -> Bool
+    isZero (Just Zero) = True
+    isZero _ = False
+
+    isSucc : Maybe NatRole -> Bool
+    isSucc (Just Succ) = True
+    isSucc _ = False
 
 ||| Does a match name the constructor the value's shape, if known, says it
 ||| was built with? Then its default stands for no value the match sees, and
@@ -537,10 +549,10 @@ mutual
       -- parameter's whole, or a part an earlier match took out of one.
       Static d hole given => staticCase ctx env cls scrutinee hole given (WholeParameter d.reducesTo) alts
       OpenedPart t hole given opened => staticCase ctx env cls scrutinee hole given (TakenOut t opened) alts
-      v@(Runtime i t) => case coreOf t of
-        Just WorldT => world alts
-        _ => runtime loc v i
-      v@(Shaped i _ _ _) => runtime loc v i
+      Runtime i t => case coreOf t of
+        WorldT => world alts
+        core => runtime loc i core (idrisOf t) Nothing
+      Shaped i core ity shape => runtime loc i core ity (Just shape)
     where
       scrutinee : Var vars
       scrutinee = MkVar p
@@ -566,41 +578,28 @@ mutual
           a :: as => CaseLit loc i <$> litMatch ctx.fc ctx.owner a as d
           [] => pure (maybe (Unreachable loc) (CaseLit loc i . OnlyDefault) d)
 
-      -- The Idris type of the value matched: its binder's, or, where its
-      -- binder gives none (a suspension's value, a value a settled term
-      -- computes), the type Idris's tree gives the value it matches, which
-      -- every match carries.
-      valueType : VarInfo kc OfTree (Fin nv) -> Front ClosedTerm
-      valueType v = maybe (normaliseClosed (closeWritten ctx.fc env scTy)) pure (idrisTypeOf v)
-
-      -- The data instance a match's constructors are of, at the value's
-      -- type. The Core type names it when it is a declaration the
-      -- constructor belongs to; where the value's binder gives no Core
-      -- type, or gives one that names no family of this constructor, the
-      -- Idris type names it: the value's own, or, where its binder gives
-      -- none (a suspension's value, a value a settled term computes), the
-      -- type Idris's tree gives the value it matches, which every match
-      -- carries.
-      instanceOf : VarInfo kc OfTree (Fin nv) -> Defined -> Front DataFamily
-      instanceOf v con = do
+      -- The data instance a match on constructors is on, read off the
+      -- matched value's types, its binder's, which every runtime value has:
+      -- the family its Core type names, where it is one the constructor
+      -- `con` belongs to; else the one its Idris type names (`ity`), where
+      -- the Core type names a choice (an implementation's value, which no
+      -- constructor of Idris's builds) or a type the registry represents
+      -- itself. Essential: a type the registry gives a representation of its
+      -- own (a value array, abstract, which only the functions the registry
+      -- knows open, their bodies not translated; an ordered array or a
+      -- machine word likewise) is no family, so a match on its constructor
+      -- is the registry's mismatch.
+      instanceOf : Ty -> ClosedTerm -> Defined -> Front DataFamily
+      instanceOf core ity con = do
         st <- getState
         let cn = fullname con.def
-        -- The Core type may name a choice, which has no constructor of
-        -- Idris's, or be a type the registry represents itself, which is no
-        -- family: the Idris type is read then, which names the
-        -- constructor's family, or is one the registry represents.
-        let fromCore = case coreTyOf v of
-                         Just (DataT d _) => lookupFact (.dataFamilies) d st >>= \df => df <$ constructorIn df con
+        let fromCore = case core of
+                         DataT d _ => lookupFact (.dataFamilies) d st >>= \df => df <$ constructorIn df con
                          _ => Nothing
         case fromCore of
           Just df => pure df
           Nothing => do
-            ity' <- normaliseClosed (maybe (closeWritten ctx.fc env scTy) id (idrisTypeOf v))
-            -- A constructor's type that names no family is one the
-            -- registry gives a representation of its own: a value array,
-            -- abstract, which only the functions the registry knows open,
-            -- their bodies not translated; an ordered array or a machine
-            -- word likewise.
+            ity' <- normaliseClosed ity
             Just (df, _) <- dataOf ctx.fc ctx.owner ity'
               | Nothing => do
                   Just _ <- arrayView ity'
@@ -611,23 +610,25 @@ mutual
                          ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
             pure df
 
-      -- A match on a runtime value's constructors, the first `cn`.
-      constructors : Loc -> VarInfo kc OfTree (Fin nv) -> Fin nv -> (cn : Name) -> (as : List (CaseAlt vars)) ->
+      -- A match on the constructors of a runtime value of Core type `core`
+      -- and Idris type `ity`, its shape where known, the first `cn`: one on
+      -- a natural names every constructor where it names its zero and its
+      -- successor, the two Idris makes a `Nat`-like type of; one on a
+      -- family where it names each of the family's constructors, by tag
+      -- (`namesEvery`).
+      constructors : Loc -> Fin nv -> Ty -> ClosedTerm -> Maybe ClosedTerm -> (cn : Name) -> (as : List (CaseAlt vars)) ->
                      (0 _ : OfKind ConAlts as) -> Front (Term nv)
-      constructors loc v i cn as cons = do
+      constructors loc i core ity shape cn as cons = do
         con <- lookupDef ctx.fc ctx.owner cn
-        let shape = shapeOf v
-        case (natRole con.def, coreTyOf v) of
+        case (natRole con.def, core) of
           -- A value of Idris's `Nat` is a natural: a match on its
           -- constructors is a match on zero. A family of the same shape
           -- (`Fin`, `Elem`) is a family like any other, laid out as a
           -- number by the dialect.
-          (Just _, Just (NatT _)) => do
-            ity <- valueType v
-            natCase ctx env cls scrutinee shape loc i ity as cons
+          (Just _, NatT _) => natCase ctx env cls scrutinee shape loc i ity !(namesBothRoles as) as cons
           _ => do
-            df <- instanceOf v con
-            every <- coversAll as
+            df <- instanceOf core ity con
+            let every = namesEvery (map (\l => l.con.tag) (toList df.layouts)) as
             built <- builtNamed shape as
             (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df as cons
             -- The constructors a tree with no default leaves out are one
@@ -645,23 +646,23 @@ mutual
       -- one form, `Delay x`, so its match chooses nothing: it is the
       -- force, whose value `x` binds, then the alternative's tree, whose
       -- first variable is the value's type, erased.
-      runtime : Loc -> VarInfo kc OfTree (Fin nv) -> Fin nv -> Front (Term nv)
-      runtime loc v i = routed alts (route alts)
+      runtime : Loc -> Fin nv -> (core : Ty) -> (ity : ClosedTerm) -> (shape : Maybe ClosedTerm) -> Front (Term nv)
+      runtime loc i core ity shape = routed alts (route alts)
         where
-          -- The value a suspension holds: of the Idris type its `Lazy` type
-          -- holds, and of the Core type its suspension's holds, which its
-          -- binder states, or else that Idris type's, every extent dynamic
-          -- as a suspension's value has it. Idris's tree matches a
-          -- suspension's form on a value of a suspension's type only: one
-          -- of another is refused, as the compiled module it is.
+          -- The value a suspension holds: of the Idris type the value's
+          -- `Lazy` type holds, and of the Core type its suspension's holds,
+          -- which its binder states, or else that Idris type's, every
+          -- extent dynamic as a suspension's value has it. Idris's tree
+          -- matches a suspension's form on a value of a suspension's type
+          -- only: one of another is refused, as the compiled module it is.
           forcedTypes : Front (Ty, ClosedTerm)
           forcedTypes = do
-            TDelayed _ _ ity <- valueType v
+            TDelayed _ _ inner <- pure ity
               | _ => reject ctx.fc ctx.owner CompiledModule "a match on a suspension's form of a value of no suspension type"
-            t <- case coreTyOf v of
-                   Just (LazyT t) => pure t
-                   _ => dynamicDims <$> coreType ctx.fc ctx.owner ValueType ity
-            pure (t, ity)
+            t <- case core of
+                   LazyT t => pure t
+                   _ => dynamicDims <$> coreType ctx.fc ctx.owner ValueType inner
+            pure (t, inner)
 
           -- The first alternative that matches a suspension.
           firstDelay : (as : List (CaseAlt vars)) -> (0 _ : DelayIn as) -> Front (Term nv)
@@ -677,7 +678,7 @@ mutual
 
           routed : (as : List (CaseAlt vars)) -> Route as -> Front (Term nv)
           routed as (OnSuspension d) = firstDelay as d
-          routed as (OnConstructors cn cons) = constructors loc v i cn as cons
+          routed as (OnConstructors cn cons) = constructors loc i core ity shape cn as cons
           routed as (OnConstants consts) = literals loc i as consts
 
       -- The alternative of a match on an erased proof of an equality
@@ -735,14 +736,14 @@ mutual
           altName (DelayCase {}) = pure "Delay"
           altName (DefaultCase _) = pure "the default"
 
-  ||| A match on a `Nat`-like value: zero, or a successor binding the
-  ||| predecessor. The default stands for whichever the tree leaves out.
+  ||| A match on a `Nat`-like value, of the type it is on (`ity`), naming
+  ||| every constructor of it or not (`every`): zero, or a successor binding
+  ||| the predecessor. The default stands for whichever the tree leaves out.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-            Maybe ClosedTerm -> Loc -> Fin nv -> ClosedTerm ->
+            Maybe ClosedTerm -> Loc -> Fin nv -> ClosedTerm -> (every : Bool) ->
             (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) -> Front (Term nv)
-  natCase ctx env cls scrutinee shape loc x ity alts cons = do
-    every <- coversAll alts
+  natCase ctx env cls scrutinee shape loc x ity every alts cons = do
     built <- builtNamed shape alts
     (z, s, d) <- natAlternatives ctx env cls scrutinee shape ity (every || built) loc x alts cons
     -- Where the tree has no arm for zero or a successor, the default runs,
@@ -986,7 +987,8 @@ mutual
         sig <- request ctx.fc ctx.owner ctx.request.instantiates
                        (replace {p = \n => Vect n PKind} (trans (sym ctx.counts) ctx.request.classifiesAll) kinds)
         loc <- toLoc ctx.fc
-        value <- computedAt ctx ctx.fc t hole
+        -- The field is computed at its type's Core type, a choice's.
+        value <- computedAt ctx ctx.fc (ExpectedAt !(coreType ctx.fc ctx.owner ValueType fieldType)) t hole
         let levels = ownLevels (length (telescopeOf r.signature.kinds))
         body <- case given.holding of
           Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS parameter (Var loc FZ) sig.kinds

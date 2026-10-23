@@ -68,173 +68,6 @@ import Data.String
 %hide IdrisMLIR.Frontend.Translate.Readings.close
 %hide IdrisMLIR.Frontend.Translate.Readings.Constructed
 
-||| Where a site's writer reads its parameters: all its own; or, in the
-||| walk of a member's application at a use, its own below `from` and from
-||| there on the positions of the application the use gives, parameter
-||| `from + j` its position j (`Translate.State.AtUse`). The two ranges are
-||| the coordinates of one scope, the writer's parameters first.
-public export
-data Parameters = OwnOnly | UseFrom Nat
-
-||| What a parameter of a writer is, read as a site's `Parameters` say.
-public export
-data ParameterOf = WritersOwn Nat | UsesPosition Nat
-
-export
-parameterOf : Parameters -> Nat -> ParameterOf
-parameterOf OwnOnly i = WritersOwn i
-parameterOf (UseFrom from) i = if i < from then WritersOwn i else UsesPosition (minus i from)
-
-||| A dictionary of the writer's that holds values as one: its dictionary
-||| parameter i, or one its text binds (`BoundPlace`). What it holds is
-||| bounded at its place's held positions.
-public export
-data OwnHolder = OwnParameter Nat | OwnBinding BoundPlace
-
-Eq OwnHolder where
-  OwnParameter i == OwnParameter j = i == j
-  OwnBinding a == OwnBinding b = a == b
-  _ == _ = False
-
-||| What a message shows an argument by (below).
-export
-data ArgumentText : Type
-
-||| One value of a list of values a dictionary holds as one, the list its
-||| receiver is given (`Closed.packedType`).
-public export
-data HeldItem : Type
-
-||| How an argument's template was written: off a term, at its kind, as its
-||| target is given it (`asGiven`) over that term's one reading (`rooted`),
-||| so what the site writes is that reading's template wherever the target
-||| is given it as written; or off no term, a part of a type already read,
-||| or a choice's member the walk names itself.
-public export
-data WrittenAs : Static -> Maybe ClosedTerm -> Maybe ChoiceHead -> Template -> Root -> Type where
-  OffTerm : (r : SiteReading k t) -> WrittenAs k (Just t) given (asGiven given (r.template, root)) root
-  NoTerm : WrittenAs k Nothing given w root
-
-||| What a site wrote off a term is that term's reading's template, as its
-||| target is given it, the equation the reading lemma at the site is
-||| carried through (`Proof.Covers.siteWritesRead`).
-export
-0 writtenReading : WrittenAs k (Just t) given w root -> (r : SiteReading k t ** w = asGiven given (r.template, root))
-writtenReading (OffTerm r) = (r ** Refl)
-
-||| One argument a site writes, whole: the target's parameter it is at (of
-||| a dispatched method, its own, in the order its field's lambdas take
-||| them), its kind, the template written there, with the definition of
-||| each recursion it holds as the reading met it, and its root, with what
-||| its kind's reader read at each address the root names, where the
-||| reading met the name (`HeadsRead`: of a family's, the type constructor,
-||| which the flow carries beside each heading it is given; of any other
-||| kind's, nothing), as its kind's one reading gives them (`rooted`) and as
-||| the target is given it (`asGiven`), the closed term it was read off,
-||| over the writer's markers and the site's stand-ins (none for a part of
-||| a type already read),
-||| those stand-ins, which a reading of the term again reads it with, the
-||| choice a dictionary the running program chooses there is a member of
-||| (its binder's type's), which a reading again reads it with too, the
-||| lists of values a dictionary there holds as one, each a list an
-||| instance may give the target with it (none where it holds none, and
-||| for every other kind), and what a message shows it by. Only a refusal
-||| prints that, and most arguments are in none, so it is read where a
-||| message is made (`showArgument`). How the template was written is kept
-||| beside it (`WrittenAs`).
-public export
-record Argument where
-  constructor MkArgument
-  position : Nat
-  kind : Static
-  template : Template
-  recursionsRead : All RecursionDef (recursions template)
-  root : Root
-  rootHeads : HeadsRead kind (rootAddresses root)
-  term : Maybe ClosedTerm
-  stands : List StandIn
-  memberOf : Maybe ChoiceHead
-  0 writtenAs : WrittenAs kind term memberOf template root
-  holds : List (List1 HeldItem)
-  shown : ArgumentText
-
-||| One value of a list a dictionary holds as one, as the place that gives
-||| the list writes it: a value of a type the walk knows, read as a type
-||| argument is, each reading of it an evaluation gives (`Graph.evaluated`);
-||| the one value a dictionary of the writer's holds (its parameter, or one
-||| its text binds), its values packed into one, as the translation holds a
-||| variable that holds values (`Terms.holed`); each value the writer's
-||| dictionary parameter holds, as itself, which a request that keeps the
-||| parameter as it was given passes on (`Cases.heldHere`); or each value a
-||| member of a choice holds, which a dispatch on a value of the choice puts
-||| in that value's place (`Choices.heldMember`). A value is no list: no
-||| list is held inside another but as the one value its type packs.
-data HeldItem : Type where
-  OfType : List1 Argument -> HeldItem
-  PackedBy : OwnHolder -> HeldItem
-  EachOf : Nat -> HeldItem
-  MembersOf : ChoiceHead -> HeldItem
-
-||| What a site reaches: a definition it calls (a function, an
-||| implementation, a projection, a constructor holding dictionaries) or a
-||| type constructor it builds, each at its address with what the boundary
-||| read of it, which the walk that enters it reads, so that nothing finds
-||| it again by address; method `k` of a dictionary, which the template
-||| is, with that dictionary's root, the application of a compile-time form
-||| at a use, which no definition is (`Translate.State.AtUse`), at the
-||| form's type (0), the form (1) and the use's static arguments (2 on), or
-||| the choice of a head, a member of which it makes, its one argument,
-||| with what a message reads of the head (`HeadRead`). Or
-||| the writer itself again, where its tree takes apart a field of its
-||| dictionary parameter at a path of fields, which the running program may
-||| have chosen (`Translate.Cases.heldHere`): the dictionary rebuilt with
-||| that field a value it holds, and each member the field's choice has
-||| there in turn (`Translate.Choices.heldDispatch`). The parameter's own
-||| argument is held apart, since the node it is read at rebuilds it
-||| (`Heads.reaches`); the site's arguments are the writer's other static
-||| ones, each as it is, a dictionary with the values it was given. The
-||| values a dictionary argument holds as one are the argument's own
-||| (`Argument.holds`), written where the argument lands. Or the place a
-||| `let` or a lambda's argument binds a dictionary that closes over values
-||| at, which keeps the list of them it holds as one (`Terms.letIn`): no
-||| callee is given it, and every use of the dictionary reads its values
-||| there (`PackedBy`).
-public export
-data Reach : Type where
-  Calls : Address -> Defined -> Reach
-  Builds : Address -> Defined -> Reach
-  Dispatches : Template -> Root -> Nat -> Reach
-  Applies : Reach
-  Makes : (k : ChoiceHead) -> HeadRead k -> Reach
-  Repacks : Argument -> List1 Nat -> Reach
-  Keeps : BoundPlace -> List1 HeldItem -> Reach
-
-||| One site: who wrote it, by address and as it was read (whose parameters
-||| the templates' `Var`s are, as `params` reads them, and whose type names
-||| them), the definition whose text holds it, as it was read, what it
-||| reaches, the argument written at each static position of the target,
-||| and where it is.
-public export
-record Site where
-  constructor MkSite
-  writer : Address
-  writerDef : GlobalDef
-  params : Parameters
-  within : GlobalDef
-  reach : Reach
-  arguments : List Argument
-  fc : FC
-
-||| A site as the walk makes it: where in its writer's text it was made,
-||| and the site. A writer's sites are the tree these grow
-||| (`Place.grownFrom`), each at its place, so the place is read off the
-||| tree, never off the site.
-public export
-record Made where
-  constructor MkMade
-  place : Place
-  site : Site
-
 ||| Sites made, as the tree of the writer's text grows them.
 grownOf : List Made -> Grown Site
 grownOf ms = grownFrom (map (\m => (m.place, m.site)) ms)
@@ -534,20 +367,22 @@ named names stands t = replacing (mapMaybe nameFor (keys (getRefs (UN Underscore
 ||| A written argument as a message shows it: each variable by the name it
 ||| was bound with, whatever a match made of it since, and each solved
 ||| metavariable as its solution. A name stands as the text it prints as,
-||| which is no machine name, so that the solving's quotation keeps it.
-display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (names : List Name) -> Pats -> Env vs -> TT vs -> Front String
-display names ps env t = do
-  shown <- traverseByVar shownAs env
-  showTT (named names ps.made !(solved (closeOver EmptyFC shown t)))
+||| which is no machine name, so that the solving's quotation keeps it. The
+||| stand-ins are those the walk had made where it wrote the term.
+display : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (names : List Name) -> List StandIn -> ByVar vs Name -> TT vs ->
+          Front String
+display names stands bound t = do
+  shown <- traverseByVar shownAs bound
+  showTT (named names stands !(solved (closeOver EmptyFC shown t)))
   where
     -- The text a name prints as becomes an identifier here, where the
     -- message is made.
-    shownAs : Standing -> Front ClosedTerm
-    shownAs (_, x, _) = (\i => Ref EmptyFC Bound (UN (Basic i))) <$> core (intern (show x))
+    shownAs : Name -> Front ClosedTerm
+    shownAs x = (\i => Ref EmptyFC Bound (UN (Basic i))) <$> core (intern (show x))
 
 ||| A site of the writer's, at its own location when it has none, made at
 ||| a place of its text.
-siteAt : At -> Place -> FC -> Reach -> List Argument -> Made
+siteAt : At -> Place -> FC -> SiteReach -> List Argument -> Made
 siteAt at place fc reach args = MkMade place (MkSite at.writer at.writerDef at.params at.within reach args (if isEmptyFC fc then at.loc else fc))
 
 ||| The name a head is shown by: its definition's, as the boundary read
@@ -591,22 +426,6 @@ mutual
   renderAll names (t :: ts) held heads =
     (::) <$> render names t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
          <*> renderAll names ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
-
-||| What a message shows an argument by, read where a message is made
-||| (`showArgument`): a template, each marker by the writer's name for its
-||| parameter, with the definition of each recursion it holds and each head
-||| it names, which name the rest; a closed term; a term as written, in its
-||| scope; or one of the writer's parameters. It holds the definitions the
-||| names come from, never a computation: the sites are kept, and a
-||| computation kept with them is one the pipeline's closure analysis cannot
-||| tell from any other of its type, those that read the translation's
-||| state among them.
-data ArgumentText : Type where
-  TemplateText : (writer : GlobalDef) -> (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) ->
-                 ArgumentText
-  TermText : ClosedTerm -> ArgumentText
-  WrittenText : {vs : Scope} -> (writer : GlobalDef) -> Pats -> Env vs -> TT vs -> ArgumentText
-  ParameterText : (writer : GlobalDef) -> Nat -> ArgumentText
 
 ------------------------------------------------------------------------------
 -- What a type builds
@@ -1164,14 +983,14 @@ argument at ps env fc g k = do
   memberOf <- case k of
     ADictionary => Just <$> choiceAt g.binder
     _ => pure Nothing
-  x <- readArgument ps.made g.position k memberOf v (WrittenText at.writerDef ps env g.offer.arg.written)
+  x <- readArgument ps.made g.position k memberOf v (WrittenText at.writerDef ps.made (map (\(_, x, _) => x) env) g.offer.arg.written)
   (lists, sites) <- beside
   pure ({ holds := lists } x, sites)
 
 ||| A site reaching a target at the static arguments of those given, with
 ||| the sites of the types its type arguments build.
 callSite : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-           At -> Pats -> Env vs -> FC -> Reach -> List (Given vs) -> Front (List Made)
+           At -> Pats -> Env vs -> FC -> SiteReach -> List (Given vs) -> Front (List Made)
 callSite at ps env fc reach gs = do
   ws <- traverse (\(g, k) => argument at ps env fc g k) (mapMaybe static gs)
   pure (siteAt at ps.place fc reach (map fst ws) :: (ws >>= snd))
@@ -1193,7 +1012,7 @@ memberAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} 
            At -> Pats -> Env vs -> FC -> (k : ChoiceHead) -> HeadRead k -> (d : ClosedTerm) ->
            (packed : (List (List1 HeldItem), List Made)) -> TT vs -> Front (List Made)
 memberAt at ps env fc k named d (lists, packed) written = do
-  x <- readArgument ps.made 0 ADictionary Nothing d (WrittenText at.writerDef ps env written)
+  x <- readArgument ps.made 0 ADictionary Nothing d (WrittenText at.writerDef ps.made (map (\(_, x, _) => x) env) written)
   pure (siteAt at ps.place fc (Makes k named) [{ holds := lists } x] :: packed)
 
 ||| A lambda where the member table says a member stands: the member of its
@@ -1217,19 +1036,13 @@ lambdaAt at ps env fc lam = do
     Nothing => pure ([], [])
   memberAt at ps env fc ArrowHead ArrowRead d packed lam
 
-||| What a value of a type in normal form, over the writer's markers, is:
-||| a member of its type's choice, no member, or what only an instance
-||| decides (`Boundary.choiceHolding`, the decision the translation makes at
-||| each instance, where an undecided head is no member). Over markers an
-||| undecided head is a value an instance puts in, so the walk takes the
-||| value both ways.
-holdingOf : ClosedTerm -> Front Holding
-holdingOf normal = (\r => choiceHolding r.frozen r.interfaces (pairTypeIn r) normal) <$> reading
-
-||| What a value of a type the instance decides is (`holdingOf`), the type
-||| the site's arguments give, delayed or not, normalised.
+||| What a value of a type the instance decides is, the type the site's
+||| arguments give, delayed or not, normalised: a member of its type's
+||| choice, no member, or what only an instance decides, by the one rule the
+||| translation reads (`Types.typeHolding`). Over markers an undecided head
+||| is a value an instance puts in, so the walk takes the value both ways.
 holdingAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front Holding
-holdingAt ty = holdingOf !(normaliseClosed (undelayed ty))
+holdingAt ty = typeHolding !(normaliseClosed (undelayed ty))
 
 ||| The arguments a use gives a member of type `ty`, the term `member`: one
 ||| at each binder the type shows, and at each lambda the member takes its
@@ -1344,7 +1157,7 @@ definitionMember at ps env fc d reference after args = case givesAfter (length a
     AMember => made !after
     ByInstance => do
       ty <- after
-      case !(holdingOf ty) of
+      case !(typeHolding ty) of
         NoMember => pure []
         _ => made ty
   where
@@ -1592,7 +1405,7 @@ constructed at ps env fc a d positions args = do
     ([], BuildsData) => pure []
     _ => do
       others <- traverse (\(g, k) => readArgument ps.made g.position k Nothing g.offer.value
-                                       (WrittenText at.writerDef ps env g.offer.arg.written))
+                                       (WrittenText at.writerDef ps.made (map (\(_, x, _) => x) env) g.offer.arg.written))
                          (mapMaybe other gs)
       pure (siteAt at ps.place fc (Calls a d) (map (snd . fst) dictionaries ++ others) :: (dictionaries >>= snd))
   result <- builds at ps fc rest
@@ -2331,6 +2144,39 @@ conName : CaseAlt vs -> Maybe Name
 conName (ConCase cn _ _ _) = Just cn
 conName _ = Nothing
 
+||| The constructors a match on data constructors is among: those the type
+||| constructor its first constructor builds declares, in tag order, as the
+||| boundary read them (`Cases.matchedConstructors`). A match on no
+||| constructor (literals, a suspension's form) is among none, and so is
+||| one whose constructor the context does not hold, which Idris's tree
+||| never names.
+matchedAmong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List (CaseAlt vs) -> Front (List ConstructorAt)
+matchedAmong at alts = case mapMaybe conName alts of
+  [] => pure []
+  (cn :: _) => do
+    Just (_, d) <- definitionOf cn
+      | Nothing => pure []
+    case definition d.def of
+      DCon {} => do
+        -- The type as written may hide binders behind a definition (`a -@
+        -- b`); its normal form shows each one, and what it builds. One that
+        -- builds anything but a type constructor's value is the compiled
+        -- module's, refused there as its whole type.
+        ty <- normaliseClosed d.type
+        matchedConstructors at.loc at.owner (fromMaybe ty (builtBy ty))
+      -- Essential: a match on a type (a type case) names type
+      -- constructors, which no declaration lists together, so its default
+      -- stands for every type the alternatives leave out.
+      _ => pure []
+  where
+    -- What a constructor's type builds, after its binders, where a
+    -- reference heads it: closed, since a reference needs no scope.
+    builtBy : TT ws -> Maybe ClosedTerm
+    builtBy (Bind _ _ (Pi {}) sc) = builtBy sc
+    builtBy t = case getFn t of
+      Ref rfc nt n => Just (Ref rfc nt n)
+      _ => Nothing
+
 ||| Where a tree takes apart a field of the writer's own dictionary
 ||| parameter, one field deep or more, the running program may have chosen
 ||| that field (`Translate.Cases.heldHere`): the writer is requested again,
@@ -2381,7 +2227,11 @@ mutual
     r <- the (Front (List ClosedTerm)) $ case v of
       (_, _, Just ty) => typeArgs <$> normaliseClosed ty
       (_, _, Nothing) => pure []
-    every <- coversAll alts
+    -- A match on constructors that names each of its type's, by tag, has
+    -- a default that stands for no value (`Cases.namesEvery`).
+    every <- the (Front Bool) $ case !(matchedAmong at alts) of
+      [] => pure False
+      cons => pure (namesEvery (map (.tag) cons) alts)
     here <- repacked at ps.place (fst v)
     (here ++) <$> alternatives at ps env v r every alts 0 alts
     where
@@ -2435,13 +2285,18 @@ mutual
               At -> Pats -> Env vs -> Standing -> List ClosedTerm -> List (CaseAlt vs) -> CaseTree vs ->
               Front (List Made)
   defaulted at ps env (Pattern p, _, _) r alts rhs = do
-    named <- traverse fullNames (mapMaybe conName alts)
-    every <- traverse fullNames !(siblings alts)
-    case filter (\cn => not (elem cn named)) every of
+    let named = mapMaybe tagOf alts
+    every <- matchedAmong at alts
+    case map (\c => fullname c.read.def) (filter (\c => not (elem (cast c.tag) named)) every) of
       -- Matched on no constructor (literals), the default is one clause.
       [] => tree at ps env rhs
       others => expand at ps env p r others rhs
   defaulted at ps env _ r alts rhs = tree at ps env rhs
+
+  -- The tag an alternative names its constructor by.
+  tagOf : CaseAlt ws -> Maybe Int
+  tagOf (ConCase _ t _ _) = Just t
+  tagOf _ = Nothing
 
   ||| A default walked once per constructor it stands for, with the shape
   ||| matched to it, each a step below the default named by that
@@ -2506,7 +2361,7 @@ export
 showArgument : {auto c : Ref Ctxt Defs} -> ArgumentText -> Front String
 showArgument (TemplateText def t held heads) = render !(parameterNames def) t held heads
 showArgument (TermText t) = showTT t
-showArgument (WrittenText def ps env t) = display !(parameterNames def) ps env t
+showArgument (WrittenText def stands names t) = display !(parameterNames def) stands names t
 showArgument (ParameterText def i) = (\names => parameterName names i) <$> parameterNames def
 
 ||| What a parameter of the definition stands for, by its kind and its value

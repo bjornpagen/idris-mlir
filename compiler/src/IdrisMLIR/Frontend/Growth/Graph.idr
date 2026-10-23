@@ -84,23 +84,6 @@ import Decidable.Equality
 
 %default total
 
-||| How the values a dictionary's place holds are written on: as they are,
-||| or as one of the chains of pairs a list of two up to `upTo + 1` values
-||| packs to (`Proof.Held.pairChainsUpTo`), with the evidence it is one of
-||| them. A writing of held values on writes the chain its packing names
-||| and nothing else (`packingTemplate`).
-public export
-data Packing : Type where
-  AsTheyAre : Packing
-  Chained : (pairAt : Address) -> (upTo : Nat) -> (chain : Template) ->
-            (0 listed : Elem chain (pairChainsUpTo pairAt upTo)) -> Packing
-
-||| The template a packing writes.
-public export
-packingTemplate : Packing -> Template
-packingTemplate AsTheyAre = Template.Var 0 0
-packingTemplate (Chained _ _ chain _) = chain
-
 ||| The packings of a list of several held values, one for each length up
 ||| to the held count, each with the evidence it is one of the chains.
 chainsUpTo : (pairAt : Address) -> (upTo : Nat) -> List Packing
@@ -109,35 +92,6 @@ chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
     go : (ts : List Template) -> (0 inside : {t : Template} -> Elem t ts -> Elem t (pairChainsUpTo a m)) -> List Packing
     go [] _ = []
     go (t :: ts) inside = Chained a m t (inside Here) :: go ts (\e => inside (There e))
-
-||| A site of a node's reading, numbered once among every reading's sites
-||| (`numberedReadings`): its number, which names it wherever what it wrote
-||| is read, and the site.
-public export
-record Entry (k : Nat) where
-  constructor MkEntry
-  number : Fin k
-  site : Sites.Site
-
-||| What made an arc: the entry whose site wrote it and the argument whose
-||| template gave it, a value of a list a dictionary argument holds among
-||| them; an
-||| implementation's method field, which placed the implementation's
-||| parameter, the arc's source, among the method function's (a leading
-||| arc); field k of the definition that gives a dictionary, as it was
-||| read, whose template it is, with the definitions of the recursions it
-||| holds; or the values
-||| a dictionary's place holds, the arc's source, written on as their
-||| packing says: into the pairs that hold a list of several, at most the
-||| held count of them (`heldPackings`), or into the list another place is
-||| given, as they are or as the one value a list of several packs to
-||| (`heldWritings`).
-public export
-data Wrote : (entries : Nat) -> Type where
-  FromArgument : Entry k -> Argument -> Wrote k
-  ThroughMethod : Wrote k
-  InField : GlobalDef -> Nat -> TemplateRead -> Wrote k
-  PacksHeld : Packing -> Wrote k
 
 ||| What made an arc, with the template the arc is drawn from: a leading
 ||| arc passes its parameter on unchanged, so it draws a marker, and a held
@@ -370,7 +324,7 @@ record Built where
 -- entered.
 record Entered where
   constructor MkEntered
-  sites : SortedMap Address (Defined, Grown Sites.Site)
+  sites : SortedMap Address (Defined, Grown State.Site)
   families : SortedMap Address (List Nat)
   datas : List (spot : Spot ** SpotRead spot)
   fields : SortedMap Address Fields
@@ -426,7 +380,7 @@ kindOf a d = case (d.matched, definition d.def, d.nature.asTypeConstructor) of
 -- implementation is written, since its body applies them; an application
 -- at a use, and a choice, are no definition; a dictionary rebuilt is the
 -- writer's own, entered already; and a binding's place is the writer's.
-callee : Reach -> Maybe Defined
+callee : SiteReach -> Maybe Defined
 callee (Calls _ d) = Just d
 callee (Builds _ d) = Just d
 callee (Dispatches _ _ _) = Nothing
@@ -772,10 +726,10 @@ nodesFromMain ps b out root rootDef = let 0 names = addresses in nodesFrom names
 -- one fold over every node's reading and every implementation's fields: a
 -- list of every index, joined first by `concatMap`, which folds `++` from
 -- the left, would be copied again at each join.
-headBound : SortedMap Address Fields -> List (List Sites.Site) -> Nat
+headBound : SortedMap Address Fields -> List (List State.Site) -> Nat
 headBound fs ss = S (foldl (\m, f => foldl placedIn m f.inOrder) (foldl (foldl written) 0 ss) (values fs))
   where
-    written : Nat -> Sites.Site -> Nat
+    written : Nat -> State.Site -> Nat
     written m s = foldl (\m', x => max m' x.position) m s.arguments
 
     placedIn : Nat -> Implementations.Field -> Nat
@@ -1769,14 +1723,14 @@ record Counted where
   member : Nat
   paths : SortedSet (List1 Nat)
 
-countedIn : List (List Sites.Site) -> Counted
+countedIn : List (List State.Site) -> Counted
 countedIn = foldl (foldl counted) (MkCounted 0 0 empty)
   where
     -- The longest list an argument of a site holds.
     longest : List Argument -> Nat
     longest = foldl (\m, x => foldl (\m', l => max m' (length (forget l))) m x.holds) 0
 
-    counted : Counted -> Sites.Site -> Counted
+    counted : Counted -> State.Site -> Counted
     counted c s = case s.reach of
       Makes _ _ => { member $= max (longest s.arguments) } c
       Repacks _ path => { paths $= insert path } c
@@ -1932,7 +1886,7 @@ heldWritings count pg choices walked =
     -- The place a dictionary of the writer's that holds values as one is
     -- at, at the writer's node, with what a message reads of it, the
     -- writer as its site read it.
-    ownPlace : Node -> Sites.Site -> OwnHolder -> (place : HeldBy ** PlaceRead place)
+    ownPlace : Node -> State.Site -> OwnHolder -> (place : HeldBy ** PlaceRead place)
     ownPlace w s (OwnParameter i) = ((writerPlace w s.params i).fst ** writerRead s.writerDef w s.params i)
     ownPlace w s (OwnBinding b) = (ByBinding w b ** BoundIn s.writerDef)
 
@@ -2613,20 +2567,20 @@ headAddresses = map (\(i, h) => (i, h.fst))
 -- for, whose flow equation already carries that head: so these are every
 -- node the walk can meet, which the walk checks (`Unheaded`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           Flow -> Entered -> Front (SortedMap Node (Defined, Grown Sites.Site))
+           Flow -> Entered -> Front (SortedMap Node (Defined, Grown State.Site))
 readings fl r = foldlM family plain (SortedMap.toList r.sites)
   where
-    plain : SortedMap Node (Defined, Grown Sites.Site)
+    plain : SortedMap Node (Defined, Grown State.Site)
     plain = SortedMap.fromList (map (\(a, entry) => (MkNode a [], entry)) (SortedMap.toList r.sites))
 
-    headed : Address -> Defined -> SortedMap Node (Defined, Grown Sites.Site) -> List (Nat, (h : Address ** TypeConstructorAt h)) ->
-             Front (SortedMap Node (Defined, Grown Sites.Site))
+    headed : Address -> Defined -> SortedMap Node (Defined, Grown State.Site) -> List (Nat, (h : Address ** TypeConstructorAt h)) ->
+             Front (SortedMap Node (Defined, Grown State.Site))
     headed a d m hs = (\t => insert (MkNode a (headAddresses hs)) (d, t) m) <$> sitesOf a d hs
 
     -- Each way of heading a definition's families, read at its
     -- definition.
-    family : SortedMap Node (Defined, Grown Sites.Site) -> (Address, Defined, Grown Sites.Site) ->
-             Front (SortedMap Node (Defined, Grown Sites.Site))
+    family : SortedMap Node (Defined, Grown State.Site) -> (Address, Defined, Grown State.Site) ->
+             Front (SortedMap Node (Defined, Grown State.Site))
     family m (a, d, _) = foldlM (headed a d) m (familyHeads fl a (fromMaybe [] (lookup a r.families)))
 
 -- A visit's reading: the definition its node is read at, and what its
@@ -2707,7 +2661,7 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(en, e) => (e
       read <- readArgument x.stands x.position x.kind x.memberOf !(normaliseClosed (givenFamilies given tm)) x.shown
       pure (if selfBounded read.template then Just read else Nothing)
 
-    evaluate : Node -> Sites.Site -> Argument -> Front (List Argument)
+    evaluate : Node -> State.Site -> Argument -> Front (List Argument)
     evaluate w st x = case (x.term, applyingIn x.template) of
       (Just tm, fs@(_ :: _)) => case traverse (\i => (i,) <$> evaluable (landingAt (spotAt w st.params i))) (nub fs) of
         Nothing => pure [x]
@@ -2719,7 +2673,7 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(en, e) => (e
     -- A value of a type a list holds, each of its readings evaluated. A
     -- reading no choice of values gives stays as it was written, as an
     -- argument's does where its families are given no closed values.
-    heldAt : Node -> Sites.Site -> HeldItem -> Front HeldItem
+    heldAt : Node -> State.Site -> HeldItem -> Front HeldItem
     heldAt w st (OfType xs) = do
       reads <- traverse (evaluate w st) xs
       pure (OfType (case concat (forget reads) of
@@ -2727,7 +2681,7 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(en, e) => (e
                       y :: ys => y ::: ys))
     heldAt w st item = pure item
 
-    reachedAt : Node -> Sites.Site -> Reached Defined -> Front (Reached Defined)
+    reachedAt : Node -> State.Site -> Reached Defined -> Front (Reached Defined)
     reachedAt w st (MkReached callee placed via) = do
       placed' <- traverse (\pl => do
                              holds <- traverse (traverse (heldAt w st)) pl.argument.holds
@@ -2775,48 +2729,17 @@ record NumberedReadings where
   entries : Nat
   trees : SortedMap Node (Defined, Grown (Entry entries))
 
-numberedReadings : SortedMap Node (Defined, Grown Sites.Site) -> NumberedReadings
+numberedReadings : SortedMap Node (Defined, Grown State.Site) -> NumberedReadings
 numberedReadings reads =
   let rs = SortedMap.toList reads in
   MkNumberedReadings (readingsSize rs)
                      (SortedMap.fromList (relabelReadings rs (zipWith MkEntry (numbersFrom 0 (readingsSize rs) Refl) (readingsVect rs))))
 
-||| A site of the model an argument of a numbered entry wrote: the site, the
-||| entry and the argument, how the graph kept it, the entry's number, and
-||| the site's membership among the model's sites, which every lemma the
-||| graph keeps of a site reads.
+||| The site table the graph keeps (`State.SiteTable`): its graph and
+||| model, and the entries, trees and kept sites the graph was drawn with.
 public export
-record DrawnFrom (b : Built) (e : Fin b.entries) where
-  constructor MkDrawnFrom
-  site : Bound.Site b.graph.size
-  entry : Entry b.entries
-  argument : Argument
-  0 written : Elem (site, FromArgument entry argument) b.kept
-  0 numbered : entry.number = e
-  0 member : Elem site b.model.sites
-
--- A kept site is one of the model's.
-0 keptMember : (b : Built) -> {x : (Bound.Site b.graph.size, Wrote b.entries)} -> Elem x b.kept -> Elem (Builtin.fst x) b.model.sites
-keptMember b el = replace {p = Elem (Builtin.fst x)} (sym b.keptSites) (elemMap Builtin.fst el)
-
-||| What a numbered entry's arguments are in the model: every site of it an
-||| argument of the entry wrote, in the order the graph kept them, each
-||| with its membership. A capped position keeps none, and neither does a
-||| reading no visit reached.
-export
-0 membersOf : (b : Built) -> (e : Fin b.entries) -> List (DrawnFrom b e)
-membersOf b e = among b.kept (keptMember b) id
-  where
-    among : (ks : List (Bound.Site b.graph.size, Wrote b.entries)) ->
-            (inSites : {x : (Bound.Site b.graph.size, Wrote b.entries)} -> Elem x ks -> Elem (Builtin.fst x) b.model.sites) ->
-            (inKept : {x : (Bound.Site b.graph.size, Wrote b.entries)} -> Elem x ks -> Elem x b.kept) -> List (DrawnFrom b e)
-    among [] _ _ = []
-    among ((s, FromArgument en x) :: ks) inSites inKept =
-      let rest = among ks (\el => inSites (There el)) (\el => inKept (There el)) in
-      case decEq en.number e of
-        Yes same => MkDrawnFrom s en x (inKept Here) same (inSites Here) :: rest
-        No _ => rest
-    among (_ :: ks) inSites inKept = among ks (\el => inSites (There el)) (\el => inKept (There el))
+siteTable : Built -> SiteTable
+siteTable b = MkSiteTable b.graph b.model b.entries b.trees b.kept b.keptSites
 
 ||| The growth graph of the program from main, as the reading holds it:
 ||| every static position its reachable nodes have, numbered, with the arcs

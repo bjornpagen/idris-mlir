@@ -11,8 +11,10 @@
 ||| This module and the files under `Registry/` are the only code that names
 ||| an Idris definition: one file per category (`Primitives`, Idris's backend
 ||| contract; `Recognized`, the privileged knowledge) and the library table
-||| (`Libraries`). Everything else asks with a `Key` and matches on the
-||| `Hook` it gets back.
+||| (`Libraries`). Everything else asks what the registry says of a
+||| definition at the entry the definition's name resolves to in the
+||| context (`Frontend.Resolve`), or of a spelling by its text, and matches
+||| on the `Hook` it gets back.
 module IdrisMLIR.Registry
 
 import public IdrisMLIR.Registry.Entry
@@ -37,49 +39,28 @@ export
 entries : List AnyEntry
 entries = primitives ++ recognized ++ map Kinded faster
 
-||| The hooks of each definition the registry names, by its qualified name,
-||| in the entries' order: the definitions' keys indexed once, since every
-||| definition the compiler reaches and every call it translates asks.
-defHooks : SortedMap (List String, String) (Hooks QName)
-defHooks = foldl add empty entries
+||| The hooks of each spelling the registry forbids in source, by its text,
+||| which is what the source gives: indexed once, since every identifier a
+||| user module spells asks. A definition's hooks are found by the entry
+||| its name resolves to in the context (`Frontend.Resolve.readRegistry`),
+||| never by a name printed to text.
+spellings : SortedMap String (Hooks QName)
+spellings = foldl add empty entries
   where
-    add : SortedMap (List String, String) (Hooks QName) -> AnyEntry -> SortedMap (List String, String) (Hooks QName)
+    add : SortedMap String (Hooks QName) -> AnyEntry -> SortedMap String (Hooks QName)
     add m (Kinded e) = case e.key of
-      Def q => insert (q.space, q.name) (withHook (fromMaybe noHooks (lookup (q.space, q.name) m)) e.hook) m
+      Spelling s => insert s (withHook (fromMaybe noHooks (lookup s m)) e.hook) m
       _ => m
 
-||| The hooks of a key: those of every entry that has it.
+||| The hooks of a spelling in source: those of every entry that has it.
 export
-hooks : Key -> Hooks QName
-hooks (Def q) = fromMaybe noHooks (lookup (q.space, q.name) defHooks)
-hooks k = foldl (\hs, e => withHook hs e.entry.hook) noHooks (filter (\e => e.entry.key == k) entries)
+spellingHooks : String -> Hooks QName
+spellingHooks s = fromMaybe noHooks (lookup s spellings)
 
 ||| Does a definition's spec list declare an entry's spec?
 export
 declares : AnyEntry -> List String -> Bool
 declares e specs = any (\s => Foreign s == e.entry.key) (mapMaybe parseSpec specs)
-
-||| The name an entry's definition has, when it names one.
-declaredAt : AnyEntry -> Maybe QName
-declaredAt e = fst <$> site e
-
-||| What the registry makes of a `%foreign` definition, by the specs Idris
-||| recorded for it: `Nothing` if it declares no entry's spec; the entry's
-||| hook if it is the definition the entry names; otherwise the entry and
-||| its mismatch.
-export
-foreignHook : QName -> List String -> Maybe (Either (AnyEntry, Mismatch) (Hooks QName))
-foreignHook q specs = do
-  -- Two entries may declare one spec at two names (Chez names one
-  -- bytevector operation for a deprecated Int spelling and for Bits8, and
-  -- base one C function for a file's size and for its poll): the entry
-  -- declared at this name wins.
-  e <- case find (\e => declares e specs && declaredAt e == Just q) entries of
-         Just e => Just e
-         Nothing => find (\e => declares e specs) entries
-  pure (case site e of
-          Just (declared, _) => if declared == q then Right (withHook noHooks e.entry.hook) else Left (e, DeclaredBy q)
-          Nothing => Right (withHook noHooks e.entry.hook))
 
 ||| Is a definition of this origin admitted, by the hooks of its name, or
 ||| for a case or with block its parent's: its library admits every

@@ -11,7 +11,9 @@ import Core.TT
 import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Definitions
+import IdrisMLIR.Frontend.Translate.Place
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
@@ -19,6 +21,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Held
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry.Libraries
@@ -29,7 +32,10 @@ import IdrisMLIR.Types
 
 import Data.Fin
 import Data.List
+import Data.List.Elem
+import Data.List.Quantifiers
 import Data.List1
+import Data.Nat
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedMap.Dependent
@@ -222,6 +228,18 @@ data PKind = TypeParam ClosedTerm
 ||| is the value of.
 public export
 data KeyedAs = AsType | AsDictionary (Maybe Holes) | AsForm | AsShape Uses
+
+||| The kinds no static argument keys: a runtime value whose shape keys
+||| nothing, a choice the running program makes (which implementation runs
+||| is the value's), an erased value, and an index parameter. A request
+||| writes nothing of its argument at one of these into its link, and puts
+||| nothing in for it: its instance's binder decides what it is.
+public export
+data KeysNothing : PKind -> Type where
+  UnshapedValue : KeysNothing (ValueParam b Nothing t)
+  ChoiceKeysNothing : KeysNothing (ChoiceParam b c)
+  ErasedKeysNothing : KeysNothing ErasedParam
+  IndexKeysNothing : KeysNothing (IndexParam s)
 
 ||| An instance's telescope: the sorts of its index parameters, in order,
 ||| the levels `0 .. p-1` of its body's scope.
@@ -506,8 +524,10 @@ appliedArity (AtUse uses) = 2 + uses
 ||| form, at the kind it was read as (`KeyedAs`), the implementation with
 ||| the values it closes over and the value it was fixed at, and the shape
 ||| at the quantity it was read with; where nothing keys it, whatever the
-||| parameter's binder decides. So the value an instance holds for a
-||| parameter its key names is the form the key writes there.
+||| parameter's binder decides, a kind that keys nothing (`KeysNothing`). So
+||| the value an instance holds for a parameter its key names is the form
+||| the key writes there, and at every other parameter it holds no static
+||| value.
 public export
 data AtKey : Maybe (KeyedAs, StaticReading) -> PKind -> Type where
   TypeAtKey : {0 r : StaticReading} -> AtKey (Just (AsType, r)) (TypeParam r.form)
@@ -516,7 +536,7 @@ data AtKey : Maybe (KeyedAs, StaticReading) -> PKind -> Type where
   FormAtKey : {0 r : StaticReading} -> AtKey (Just (AsForm, r)) (FormParam r.form)
   ShapeAtKey : {0 r : StaticReading} -> {0 q : Uses} -> {0 t : Ty} -> {0 idrisType : ClosedTerm} ->
                AtKey (Just (AsShape q, r)) (ValueParam (MkBinder q t) (Just r.form) idrisType)
-  NoKey : {0 k : PKind} -> AtKey Nothing k
+  NoKey : {0 k : PKind} -> (0 _ : KeysNothing k) -> AtKey Nothing k
 
 ||| What a request keys its instance's next parameter by, and what it keys
 ||| those after it by: past the arguments the request gives, nothing.
@@ -888,6 +908,65 @@ public export
 readOfEach : Binders a vs -> List a
 readOfEach (ShowsNoMore _) = []
 readOfEach (ShowsBinder r _ rest) = r :: readOfEach rest
+
+namespace ByVar
+  ||| One entry per variable of a scope, the innermost first, so that every
+  ||| variable the scope holds has its entry and no other has one.
+  public export
+  data ByVar : Scope -> Type -> Type where
+    Nil : ByVar [] a
+    (::) : a -> ByVar vs a -> ByVar (v :: vs) a
+
+export
+Functor (ByVar vs) where
+  map f [] = []
+  map f (x :: xs) = f x :: map f xs
+
+||| The entries, the innermost first.
+export
+innermostFirst : ByVar vs a -> List a
+innermostFirst [] = []
+innermostFirst (x :: xs) = x :: innermostFirst xs
+
+||| The entry of a variable, which its scope says is there.
+export
+lookupVar : (idx : Nat) -> (0 _ : IsVar n idx vs) -> ByVar vs a -> a
+lookupVar Z _ (x :: _) = x
+lookupVar (S i) p (_ :: xs) = lookupVar i (dropLater p) xs
+lookupVar _ First [] impossible
+lookupVar _ (Later _) [] impossible
+
+||| Each entry made by an effect, in scope order.
+export
+traverseByVar : Applicative f => (a -> f b) -> ByVar vs a -> f (ByVar vs b)
+traverseByVar g [] = pure []
+traverseByVar g (x :: xs) = (::) <$> g x <*> traverseByVar g xs
+
+||| Two entries of each variable, made one.
+export
+zipByVar : (a -> b -> c) -> ByVar vs a -> ByVar vs b -> ByVar vs c
+zipByVar f [] [] = []
+zipByVar f (x :: xs) (y :: ys) = f x y :: zipByVar f xs ys
+
+||| The entries of inner variables put in front of a scope's.
+export
+prepend : ByVar as a -> ByVar vs a -> ByVar (as ++ vs) a
+prepend [] xs = xs
+prepend (y :: ys) xs = y :: prepend ys xs
+
+||| One entry per name, each made from the element of a list as long.
+export
+byVarFrom : (vs : Scope) -> (f : a -> b) -> (xs : List a) -> (0 _ : length xs = length vs) -> ByVar vs b
+byVarFrom [] f [] _ = []
+byVarFrom (_ :: vs) f (x :: xs) same = f x :: byVarFrom vs f xs (injective {f = S} same)
+byVarFrom [] f (_ :: _) Refl impossible
+byVarFrom (_ :: _) f [] Refl impossible
+
+||| The same entry for every name.
+export
+everyVar : (vs : Scope) -> a -> ByVar vs a
+everyVar [] x = []
+everyVar (_ :: vs) x = x :: everyVar vs x
 
 ||| The role of the argument at a position: past the type constructor's
 ||| arguments, none is there to key anything.
@@ -1380,6 +1459,398 @@ definedIn r n = do
 
 %prefix_record_projections on
 
+------------------------------------------------------------------------------
+-- The growth model's sites
+------------------------------------------------------------------------------
+
+-- The site table's records are read by their fields as `.site`, `.fc` and
+-- kin, a field named as a variable every walk binds (`fc`, `site`) is no
+-- prefix function beside it.
+%prefix_record_projections off
+
+||| A head at an entry the frozen context defines: what the boundary read of
+||| the definition the context gives the name the head is called by
+||| (`Errors.defined`), which every reader of the head reads, a type
+||| constructor's facts and a constructor's tag among it, at the address the
+||| context gives that name. One read, which whatever holds the head holds
+||| once.
+public export
+record HeadDefinedAt (a : Address) where
+  constructor MkHeadDefinedAt
+  0 frozenIn : Frozen
+  0 calledBy : Name
+  defined : Defined
+  0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a
+
+||| The definition a site's reading met a head at, by the head's address,
+||| the one the reading's frozen context gives the name the head is called
+||| by (`HeadDefinedAt`); or, at an entry the context defines nothing at,
+||| that entry, which a message shows the head by. Two cases the host's
+||| context has: an entry made with a definition, and one made without.
+public export
+data HeadDef : Address -> Type where
+  HeadDefined : {0 a : Address} -> HeadDefinedAt a -> HeadDef a
+  HeadUndefined : {0 a : Address} -> (0 frozenIn : Frozen) -> (0 calledBy : Name) -> (entry : Int) ->
+                  (0 resolved : getNameID calledBy (gamma (defsOf frozenIn)) = Just entry) ->
+                  (0 none : (d : GlobalDef) -> Not (Defines frozenIn calledBy d)) ->
+                  (0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a) -> HeadDef a
+
+||| A template with the definition of each recursion it holds and of each
+||| head it names, as its reading met them: what a site writes at a static
+||| argument, and every part of it the growth graph draws from.
+public export
+record TemplateRead where
+  constructor MkTemplateRead
+  template : Template
+  recursionsRead : All RecursionDef (recursions template)
+  headsRead : All HeadDef (namedHeads template)
+
+||| The templates of some read, in order.
+public export
+templatesOf : List TemplateRead -> List Template
+templatesOf [] = []
+templatesOf (r :: rs) = r.template :: templatesOf rs
+
+||| Templates read hold each one's recursions, in order.
+public export
+allRead : (rs : List TemplateRead) -> All RecursionDef (recursionsIn (templatesOf rs))
+allRead [] = []
+allRead (r :: rs) = allJoined r.recursionsRead (allRead rs)
+
+||| Templates read name each one's heads, in order.
+public export
+allHeads : (rs : List TemplateRead) -> All HeadDef (namedHeadsIn (templatesOf rs))
+allHeads [] = []
+allHeads (r :: rs) = allJoined r.headsRead (allHeads rs)
+
+||| Each of some templates with the definitions of the recursions it holds
+||| and the heads it names, read off those of the list.
+public export
+eachRead : (ts : List Template) -> All RecursionDef (recursionsIn ts) -> All HeadDef (namedHeadsIn ts) -> List TemplateRead
+eachRead [] _ _ = []
+eachRead (t :: ts) held heads =
+  MkTemplateRead t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+    :: eachRead ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
+
+||| A site's static argument read: the mode it is read in, the context of
+||| which is the one every normal form and definition of the reading is
+||| over, the form its reading reads, how it was read off the term in that
+||| context and the evidence that the contraction it was read by left no
+||| redex it contracts (`contractingFor`), the template it reads as with
+||| what that says of the form, and what the site writes there, the
+||| template with a form's extents as its key holds them, with the
+||| definition of each recursion that holds and of each head it names, read
+||| where the reading met it.
+public export
+record SiteReading (k : Readings.Static) (t : ClosedTerm) where
+  constructor MkSiteReading
+  0 mode : Readings.Mode
+  form : ClosedTerm
+  0 formFrom : FormFrom k mode.inContext t form
+  0 maximal : EtaNormal (contractingFor mode) form
+  read : Template
+  0 describes : ReadAs mode [] form read
+  template : Template
+  0 formed : KeyForm read template
+  recursionsRead : All RecursionDef (recursions template)
+  headsRead : All HeadDef (namedHeads template)
+
+||| Where a site's writer reads its parameters: all its own; or, in the
+||| walk of a member's application at a use, its own below `from` and from
+||| there on the positions of the application the use gives, parameter
+||| `from + j` its position j (`AtUse`). The two ranges are
+||| the coordinates of one scope, the writer's parameters first.
+public export
+data Parameters = OwnOnly | UseFrom Nat
+
+||| What a parameter of a writer is, read as a site's `Parameters` say.
+public export
+data ParameterOf = WritersOwn Nat | UsesPosition Nat
+
+export
+parameterOf : Parameters -> Nat -> ParameterOf
+parameterOf OwnOnly i = WritersOwn i
+parameterOf (UseFrom from) i = if i < from then WritersOwn i else UsesPosition (minus i from)
+
+||| A dictionary of the writer's that holds values as one: its dictionary
+||| parameter i, or one its text binds (`BoundPlace`). What it holds is
+||| bounded at its place's held positions.
+public export
+data OwnHolder = OwnParameter Nat | OwnBinding BoundPlace
+
+export
+Eq OwnHolder where
+  OwnParameter i == OwnParameter j = i == j
+  OwnBinding a == OwnBinding b = a == b
+  _ == _ = False
+
+||| What a message shows an argument by (below).
+public export
+data ArgumentText : Type
+
+||| One value of a list of values a dictionary holds as one, the list its
+||| receiver is given (`Closed.packedType`).
+public export
+data HeldItem : Type
+
+||| How an argument's template was written: off a term, at its kind, as its
+||| target is given it (`asGiven`) over that term's one reading (`Template.rooted`),
+||| so what the site writes is that reading's template wherever the target
+||| is given it as written; or off no term, a part of a type already read,
+||| or a choice's member the walk names itself.
+public export
+data WrittenAs : Static -> Maybe ClosedTerm -> Maybe ChoiceHead -> Template -> Root -> Type where
+  OffTerm : (r : SiteReading k t) -> WrittenAs k (Just t) given (asGiven given (r.template, root)) root
+  NoTerm : WrittenAs k Nothing given w root
+
+||| What a site wrote off a term is that term's reading's template, as its
+||| target is given it, the equation the reading lemma at the site is
+||| carried through (`Proof.Covers.siteWritesRead`).
+export
+0 writtenReading : WrittenAs k (Just t) given w root -> (r : SiteReading k t ** w = asGiven given (r.template, root))
+writtenReading (OffTerm r) = (r ** Refl)
+
+||| One argument a site writes, whole: the target's parameter it is at (of
+||| a dispatched method, its own, in the order its field's lambdas take
+||| them), its kind, the template written there, with the definition of
+||| each recursion it holds as the reading met it, and its root, with what
+||| its kind's reader read at each address the root names, where the
+||| reading met the name (`HeadsRead`: of a family's, the type constructor,
+||| which the flow carries beside each heading it is given; of any other
+||| kind's, nothing), as its kind's one reading gives them (`Template.rooted`) and as
+||| the target is given it (`asGiven`), the closed term it was read off,
+||| over the writer's markers and the site's stand-ins (none for a part of
+||| a type already read),
+||| those stand-ins, which a reading of the term again reads it with, the
+||| choice a dictionary the running program chooses there is a member of
+||| (its binder's type's), which a reading again reads it with too, the
+||| lists of values a dictionary there holds as one, each a list an
+||| instance may give the target with it (none where it holds none, and
+||| for every other kind), and what a message shows it by. Only a refusal
+||| prints that, and most arguments are in none, so it is read where a
+||| message is made (`Sites.showArgument`). How the template was written is kept
+||| beside it (`WrittenAs`).
+public export
+record Argument where
+  constructor MkArgument
+  position : Nat
+  kind : Static
+  template : Template
+  recursionsRead : All RecursionDef (recursions template)
+  root : Root
+  rootHeads : HeadsRead kind (rootAddresses root)
+  term : Maybe ClosedTerm
+  stands : List StandIn
+  memberOf : Maybe ChoiceHead
+  0 writtenAs : WrittenAs kind term memberOf template root
+  holds : List (List1 HeldItem)
+  shown : ArgumentText
+
+||| One value of a list a dictionary holds as one, as the place that gives
+||| the list writes it: a value of a type the walk knows, read as a type
+||| argument is, each reading of it an evaluation gives (`Graph.evaluated`);
+||| the one value a dictionary of the writer's holds (its parameter, or one
+||| its text binds), its values packed into one, as the translation holds a
+||| variable that holds values (`Terms.holed`); each value the writer's
+||| dictionary parameter holds, as itself, which a request that keeps the
+||| parameter as it was given passes on (`Cases.heldHere`); or each value a
+||| member of a choice holds, which a dispatch on a value of the choice puts
+||| in that value's place (`Choices.heldMember`). A value is no list: no
+||| list is held inside another but as the one value its type packs.
+data HeldItem : Type where
+  OfType : List1 Argument -> HeldItem
+  PackedBy : OwnHolder -> HeldItem
+  EachOf : Nat -> HeldItem
+  MembersOf : ChoiceHead -> HeldItem
+
+||| What a site reaches: a definition it calls (a function, an
+||| implementation, a projection, a constructor holding dictionaries) or a
+||| type constructor it builds, each at its address with what the boundary
+||| read of it, which the walk that enters it reads, so that nothing finds
+||| it again by address; method `k` of a dictionary, which the template
+||| is, with that dictionary's root, the application of a compile-time form
+||| at a use, which no definition is (`AtUse`), at the
+||| form's type (0), the form (1) and the use's static arguments (2 on), or
+||| the choice of a head, a member of which it makes, its one argument,
+||| with what a message reads of the head (`HeadRead`). Or
+||| the writer itself again, where its tree takes apart a field of its
+||| dictionary parameter at a path of fields, which the running program may
+||| have chosen (`Translate.Cases.heldHere`): the dictionary rebuilt with
+||| that field a value it holds, and each member the field's choice has
+||| there in turn (`Translate.Choices.heldDispatch`). The parameter's own
+||| argument is held apart, since the node it is read at rebuilds it
+||| (`Heads.reaches`); the site's arguments are the writer's other static
+||| ones, each as it is, a dictionary with the values it was given. The
+||| values a dictionary argument holds as one are the argument's own
+||| (`Argument.holds`), written where the argument lands. Or the place a
+||| `let` or a lambda's argument binds a dictionary that closes over values
+||| at, which keeps the list of them it holds as one (`Terms.letIn`): no
+||| callee is given it, and every use of the dictionary reads its values
+||| there (`PackedBy`).
+public export
+data SiteReach : Type where
+  Calls : Address -> Defined -> SiteReach
+  Builds : Address -> Defined -> SiteReach
+  Dispatches : Template -> Root -> Nat -> SiteReach
+  Applies : SiteReach
+  Makes : (k : ChoiceHead) -> HeadRead k -> SiteReach
+  Repacks : Argument -> List1 Nat -> SiteReach
+  Keeps : BoundPlace -> List1 HeldItem -> SiteReach
+
+||| One site: who wrote it, by address and as it was read (whose parameters
+||| the templates' `Var`s are, as `params` reads them, and whose type names
+||| them), the definition whose text holds it, as it was read, what it
+||| reaches, the argument written at each static position of the target,
+||| and where it is.
+public export
+record Site where
+  constructor MkSite
+  writer : Address
+  writerDef : GlobalDef
+  params : Parameters
+  within : GlobalDef
+  reach : SiteReach
+  arguments : List Argument
+  fc : FC
+
+||| A site as the walk makes it: where in its writer's text it was made,
+||| and the site. A writer's sites are the tree these grow
+||| (`Place.grownFrom`), each at its place, so the place is read off the
+||| tree, never off the site.
+public export
+record Made where
+  constructor MkMade
+  place : Place
+  site : Site
+
+||| What a message shows an argument by, read where a message is made
+||| (`Sites.showArgument`): a template, each marker by the writer's name for its
+||| parameter, with the definition of each recursion it holds and each head
+||| it names, which name the rest; a closed term; a term as written, in its
+||| scope, with the stand-ins the walk had made and the name each variable
+||| of the scope was bound with; or one of the writer's parameters. It holds the definitions the
+||| names come from, never a computation: the sites are kept, and a
+||| computation kept with them is one the pipeline's closure analysis cannot
+||| tell from any other of its type, those that read the translation's
+||| state among them.
+data ArgumentText : Type where
+  TemplateText : (writer : GlobalDef) -> (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) ->
+                 ArgumentText
+  TermText : ClosedTerm -> ArgumentText
+  WrittenText : {vs : Scope} -> (writer : GlobalDef) -> (stands : List StandIn) -> (names : ByVar vs Name) ->
+                Core.TT.Term.Term vs -> ArgumentText
+  ParameterText : (writer : GlobalDef) -> Nat -> ArgumentText
+
+||| How the values a dictionary's place holds are written on: as they are,
+||| or as one of the chains of pairs a list of two up to `upTo + 1` values
+||| packs to (`Proof.Held.pairChainsUpTo`), with the evidence it is one of
+||| them. A writing of held values on writes the chain its packing names
+||| and nothing else (`packingTemplate`).
+public export
+data Packing : Type where
+  AsTheyAre : Packing
+  Chained : (pairAt : Address) -> (upTo : Nat) -> (chain : Template) ->
+            (0 listed : Elem chain (pairChainsUpTo pairAt upTo)) -> Packing
+
+||| The template a packing writes.
+public export
+packingTemplate : Packing -> Template
+packingTemplate AsTheyAre = Template.Var 0 0
+packingTemplate (Chained _ _ chain _) = chain
+
+||| A site of a node's reading, numbered once among every reading's sites
+||| (`Graph.numberedReadings`): its number, which names it wherever what it wrote
+||| is read, and the site.
+public export
+record Entry (k : Nat) where
+  constructor MkEntry
+  number : Fin k
+  site : Site
+
+||| What made an arc: the entry whose site wrote it and the argument whose
+||| template gave it, a value of a list a dictionary argument holds among
+||| them; an
+||| implementation's method field, which placed the implementation's
+||| parameter, the arc's source, among the method function's (a leading
+||| arc); field k of the definition that gives a dictionary, as it was
+||| read, whose template it is, with the definitions of the recursions it
+||| holds; or the values
+||| a dictionary's place holds, the arc's source, written on as their
+||| packing says: into the pairs that hold a list of several, at most the
+||| held count of them (`Graph.heldPackings`), or into the list another place is
+||| given, as they are or as the one value a list of several packs to
+||| (`Graph.heldWritings`).
+public export
+data Wrote : (entries : Nat) -> Type where
+  FromArgument : Entry k -> Argument -> Wrote k
+  ThroughMethod : Wrote k
+  InField : GlobalDef -> Nat -> TemplateRead -> Wrote k
+  PacksHeld : Packing -> Wrote k
+
+||| The growth model's site table, written once by the growth check
+||| (`Growth.checkGrowth`) before the translation: the graph and the growth
+||| theorem's model it was drawn from, whose sites are every place the
+||| program writes a static argument at; how many sites every node's
+||| reading holds, numbered once; each node's reading, by the node, the
+||| definition it is read at and the tree of its text its sites grow, each
+||| site the entry its number made it (`Entry`); and the model's sites,
+||| each with what wrote it, so that an entry's membership among the
+||| model's sites is read off them (`membersOf`). Until the growth check
+||| writes it, the table of the graph with no position, which has no site.
+public export
+record SiteTable where
+  constructor MkSiteTable
+  0 graph : Graph
+  0 model : Model graph
+  entries : Nat
+  trees : SortedMap Node (Defined, Grown (Entry entries))
+  0 kept : List (Bound.Site graph.size, Wrote entries)
+  0 keptSites : model.sites = map Builtin.fst kept
+
+||| The table of the graph with no position: no site, and no entry.
+export
+noSites : SiteTable
+noSites = MkSiteTable (MkGraph 0 [] 0 []) (MkModel [] (\_, _ => []) (\_ => []) (\_ => Nothing) (\_ => []) 0) 0 empty [] Refl
+
+||| A site of the model an argument of a numbered entry wrote: the site, the
+||| entry and the argument, how the graph kept it, the entry's number, and
+||| the site's membership among the model's sites, which every lemma the
+||| graph keeps of a site reads.
+public export
+record DrawnFrom (t : SiteTable) (e : Fin t.entries) where
+  constructor MkDrawnFrom
+  site : Bound.Site t.graph.size
+  entry : Entry t.entries
+  argument : Argument
+  0 written : Elem (site, FromArgument entry argument) t.kept
+  0 numbered : entry.number = e
+  0 member : Elem site t.model.sites
+
+-- A kept site is one of the model's.
+0 keptMember : (t : SiteTable) -> {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x t.kept -> Elem (Builtin.fst x) t.model.sites
+keptMember t el = replace {p = Elem (Builtin.fst x)} (sym t.keptSites) (elemMap Builtin.fst el)
+
+||| What a numbered entry's arguments are in the model: every site of it an
+||| argument of the entry wrote, in the order the graph kept them, each
+||| with its membership. A capped position keeps none, and neither does a
+||| reading no visit reached.
+export
+0 membersOf : (t : SiteTable) -> (e : Fin t.entries) -> List (DrawnFrom t e)
+membersOf t e = among t.kept (keptMember t) id
+  where
+    among : (ks : List (Bound.Site t.graph.size, Wrote t.entries)) ->
+            (inSites : {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x ks -> Elem (Builtin.fst x) t.model.sites) ->
+            (inKept : {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x ks -> Elem x t.kept) -> List (DrawnFrom t e)
+    among [] _ _ = []
+    among ((s, FromArgument en x) :: ks) inSites inKept =
+      let rest = among ks (\el => inSites (There el)) (\el => inKept (There el)) in
+      case decEq en.number e of
+        Yes same => MkDrawnFrom s en x (inKept Here) same (inSites Here) :: rest
+        No _ => rest
+    among (_ :: ks) inSites inKept = among ks (\el => inSites (There el)) (\el => inKept (There el))
+
+%prefix_record_projections on
+
 ||| What the translation derives of the program, each fact by its
 ||| content: the data family instances (`DataFamily`, which holds its
 ||| constructors' layouts), each by its link and by its identity, numbered
@@ -1466,16 +1937,6 @@ merged t d =
     over : SortedMap k v -> SortedMap k v -> SortedMap k v
     over step table = insertFrom (SortedMap.toList step) table
 
-||| The growth check's graph and the growth theorem's model it was drawn
-||| from (`Growth.checkGrowth`), whose sites are the table of every place
-||| the program writes a static argument at: what the proof that the
-||| worklist ends states each request's argument against.
-public export
-record GrowthModel where
-  constructor MkGrowthModel
-  graph : Graph
-  model : Model graph
-
 public export
 record TS where
   constructor MkTS
@@ -1522,11 +1983,12 @@ record TS where
   ||| universe the worklist descends in (`Proof.Requests.Bounds`).
   ||| Nothing is within it until the growth check writes it.
   sizes : Bounds
-  ||| The growth check's graph and model (`GrowthModel`), written by the
-  ||| growth check once, before the translation, beside the bounds it
-  ||| derives from them. Until then the model of the graph with no
-  ||| position, which has no site, so no request can name a site in it.
-  0 growth : GrowthModel
+  ||| The growth model's site table (`SiteTable`), written by the growth
+  ||| check once, before the translation, beside the bounds it derives from
+  ||| its graph: what the proof that the worklist ends states each request's
+  ||| argument against. Until then the table with no site (`noSites`), so
+  ||| no request can name a site in it.
+  growth : SiteTable
 
 export
 initState : Read -> Modules -> NonEmptyFC -> TS
@@ -1536,7 +1998,7 @@ initState r loaded fc = MkTS
   , moduleFC = fc, rejected = [<], refused = empty
   , spelled = empty, modules = loaded, bounds = empty
   , sizes = MkBounds (const []) 0 0 0
-  , growth = MkGrowthModel (MkGraph 0 [] 0 []) (MkModel [] (\_, _ => []) (\_ => []) (\_ => Nothing) (\_ => []) 0) }
+  , growth = noSites }
 
 ||| A fact of the instance table as the step being run reads it: what the
 ||| step derived, which supersedes the table's, else what the table holds.

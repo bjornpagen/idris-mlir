@@ -29,6 +29,7 @@ import Data.Fin
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.SortedMap
 import Data.String
 import Decidable.Equality
 
@@ -132,35 +133,21 @@ data Rejection = Refused Refusal | ByIdris Error
 -- Hooks
 ------------------------------------------------------------------------------
 
-||| The hooks of a definition, by its full name: looked up once, where the
-||| definition is read (`Translate.Boundary`), and read from what was read
-||| after (`Registered`).
-export
-hooksOf : Name -> Hooks QName
-hooksOf n = hooks (Def (qname n))
-
 ||| Why the registry gives a `%foreign` definition no hooks: no entry
 ||| declares one of its specs, or the entry that declares one names another
-||| definition.
+||| definition (`foreignHooksAt`).
 public export
-data ForeignMiss = NoEntry | DeclaredElsewhere AnyEntry Mismatch
-
-||| What the registry makes of a `%foreign` definition, by its full name and
-||| the specs Idris recorded for it: its hooks, or why it gives none.
-export
-foreignHooks : Name -> List String -> Either ForeignMiss (Hooks QName)
-foreignHooks n specs = case foreignHook (qname n) specs of
-  Just (Right hs) => Right hs
-  Just (Left (e, m)) => Left (DeclaredElsewhere e m)
-  Nothing => Left NoEntry
+data ForeignMiss = NoEntry | DeclaredElsewhere AnyEntry
 
 ||| The refusal of a `%foreign` definition the registry gives no hooks, at
 ||| the site that reaches it: a shape mismatch when another definition
 ||| declares an entry's spec, or an escape hatch when no entry names a spec
-||| (`owner` reaches it, `via` the path that does).
+||| (`owner` reaches it, `via` the path that does). The message names the
+||| definition as the registry writes names.
 export
 foreignRefusal : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> ForeignMiss -> Refusal
-foreignRefusal site owner via n (DeclaredElsewhere e m) = MkRefusal (Refusal HookShape) site (show n ++ ": " ++ mismatch e m)
+foreignRefusal site owner via n (DeclaredElsewhere e) =
+  MkRefusal (Refusal HookShape) site (show n ++ ": " ++ mismatch e (DeclaredBy (qname n)))
 foreignRefusal site owner via n NoEntry = MkRefusal (Refusal EscapeHatch) site (owner ++ ": %foreign " ++ show n ++ via)
 
 %prefix_record_projections off
@@ -268,41 +255,93 @@ shapeOf tm = spine tm []
 
 %prefix_record_projections off
 
-||| An entry the validation resolves (`site`): the entry, the definition
-||| the registry names, as the registry writes it, for a message, and as
-||| the context names it, interned once where the program is read, before
-||| the context is frozen, and what the validation checks there.
+||| An entry resolved against the context (`site`): the entry, the
+||| definition the registry names, as the registry writes it, for a
+||| message, and the context's entry for that name, which the context gives
+||| a name it holds (nothing for one the program loads no definition of,
+||| such as a module it does not import); and what the validation checks
+||| there.
 public export
 record RegistrySite where
   constructor MkRegistrySite
   entry : AnyEntry
   named : QName
-  name : Name
+  at : Maybe Int
   expected : SiteCheck
+
+||| The registry against the loaded context, each entry's name resolved
+||| once (`readRegistry`): every entry's site, which the validation checks,
+||| and the hooks of every definition an entry is keyed by, by the entry
+||| its name resolves to, the key the reading's own tables use, so no
+||| reader prints a name to find what the registry says of it.
+export
+record RegistryRead where
+  constructor MkRegistryRead
+  sites : List RegistrySite
+  byEntry : SortedMap Int (Hooks QName)
 
 %prefix_record_projections on
 
-||| Every entry the validation resolves, the name of its definition interned
-||| once (`toName`): read where the program is read, before the context is
-||| frozen, so the validation reads the frozen context alone.
+||| The registry read against the context once, where the program is read,
+||| before any definition is: each entry's name interned (`toName`), so it
+||| is the context's own name, and resolved to the context's entry; and the
+||| hooks of each definition an entry is keyed by gathered at that entry,
+||| in the entries' order, an earlier entry's hook of a kind kept.
 export
-registrySites : {auto c : Ref Ctxt Defs} -> Core (List RegistrySite)
-registrySites = traverse named (mapMaybe (\e => (e,) <$> site e) entries)
+readRegistry : {auto c : Ref Ctxt Defs} -> Core RegistryRead
+readRegistry = do
+  sites <- traverse resolved (mapMaybe (\e => (e,) <$> site e) entries)
+  pure (MkRegistryRead sites (foldl gathered empty sites))
   where
-    named : (AnyEntry, QName, SiteCheck) -> Core RegistrySite
-    named (e, q, expected) = (\n => MkRegistrySite e q n expected) <$> toName q
+    resolved : (AnyEntry, QName, SiteCheck) -> Core RegistrySite
+    resolved (e, q, expected) = do
+      n <- toName q
+      defs <- get Ctxt
+      pure (MkRegistrySite e q (getNameID n (gamma defs)) expected)
 
-||| Every entry, resolved against the frozen context once per compilation,
-||| before anything uses the registry, each type normalised in it. An entry
-||| whose module the program does not load is not checked; one whose
-||| definition is present must be what the entry expects. There is no
-||| fallback: a mismatch stops the compilation. A test of the validation
-||| gives it a program whose own module defines a keyed name at another
-||| shape. The first entry that does not validate is refused where its
-||| definition is, or, when the definition is missing, at `fallback`.
+    -- An entry keyed by a definition resolves where its key names: the
+    -- site of a key `Def q` is `q`.
+    gathered : SortedMap Int (Hooks QName) -> RegistrySite -> SortedMap Int (Hooks QName)
+    gathered m s = case (s.entry.entry.key, s.at) of
+      (Def _, Just i) => insert i (withHook (fromMaybe noHooks (lookup i m)) s.entry.entry.hook) m
+      _ => m
+
+||| The hooks of the definition at an entry of the context, as the registry
+||| was read (`RegistryRead`): none where no entry names it.
 export
-validate : Frozen -> List RegistrySite -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
-validate frozen sites fallback = check sites
+hooksAt : RegistryRead -> Int -> Hooks QName
+hooksAt r i = fromMaybe noHooks (lookup i r.byEntry)
+
+||| What the registry makes of the `%foreign` definition at an entry of the
+||| context, by the specs Idris recorded for it: the hooks of the entry
+||| that declares one of them there, or why there is none.
+export
+foreignHooksAt : RegistryRead -> Int -> List String -> Either ForeignMiss (Hooks QName)
+foreignHooksAt r i specs =
+  -- Two entries may declare one spec at two definitions (Chez names one
+  -- bytevector operation for a deprecated Int spelling and for Bits8, and
+  -- base one C function for a file's size and for its poll): the entry
+  -- declared at this one wins.
+  case find (\s => declares s.entry specs && s.at == Just i) r.sites of
+    Just s => Right (withHook noHooks s.entry.entry.hook)
+    Nothing => Left (maybe NoEntry (\s => DeclaredElsewhere s.entry) (find (\s => declares s.entry specs) r.sites))
+
+||| Every entry, at the definition it resolved to (`readRegistry`) in the
+||| frozen context, once per compilation, before anything uses the
+||| registry. An entry whose module the program does not load is not
+||| checked; one whose definition is present must be what the entry
+||| expects, its type in the normal form the reading reads every
+||| definition's type in (`normaliseTypes`): there a type alias is the type
+||| it stands for, whatever its visibility, as base's private
+||| `FileTimePtr` is `AnyPtr`, so an entry states what the definition's
+||| type is, not how its module spells it. There is no fallback: a
+||| mismatch stops the compilation. A test of the validation gives it a
+||| program whose own module defines a keyed name at another shape. The
+||| first entry that does not validate is refused where its definition is,
+||| or, when the definition is missing, at `fallback`.
+export
+validate : Frozen -> RegistryRead -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
+validate frozen registry fallback = check registry.sites
   where
     wrong : FC -> QName -> String -> Refusal
     wrong loc q msg = MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
@@ -310,14 +349,20 @@ validate frozen sites fallback = check sites
     loaded : List (List String)
     loaded = map (\l => modulePath l.ident) (defsOf frozen).allImported
 
+    -- An entry whose definition the context does not hold: missing when
+    -- its module is loaded, and otherwise not the program's to check.
+    absent : RegistrySite -> Lazy (Core (Maybe Refusal)) -> Core (Maybe Refusal)
+    absent s rest = if inModules loaded s.named then pure (Just (wrong EmptyFC s.named (mismatch s.entry Missing))) else rest
+
     check : List RegistrySite -> Core (Maybe Refusal)
     check [] = pure Nothing
     check (s :: ss) = do
       let e = s.entry
       let q = s.named
-      let DefinedAs _ _ def _ = definitionIn frozen s.name
-        | NotDefined _ => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
-                          else check ss
+      let Just i = s.at
+        | Nothing => absent s (check ss)
+      let DefinedAs _ _ def _ = definitionIn frozen (Resolved i)
+        | NotDefined _ => absent s (check ss)
       let declared = case (e.entry.key, definition def) of
                        (Foreign _, ForeignDef _ specs) => declares e specs
                        (Foreign _, _) => False
@@ -326,7 +371,7 @@ validate frozen sites fallback = check sites
       -- the one the entry expects.
       let unlike : Shape -> Core (Maybe Shape)
           unlike shape = do
-            ty <- fullNamesIn frozen . (.value) <$> host.normalise frozen (!(readTypeOf def)).fst
+            ty <- fullNamesIn frozen . (.value) <$> host.normaliseTypes frozen (!(readTypeOf def)).fst
             let found = shapeOf ty
             pure (if conforms shape found then Nothing else Just found)
       if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else

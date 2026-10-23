@@ -1814,3 +1814,97 @@ data HeldAs : Frozen -> Static -> ClosedTerm -> ClosedTerm -> Type where
   HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : Unshaped w) ->
                (0 r : Reduct OfNormaliseTypes ctx u) -> (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) ->
                HeldAs ctx AShape u held
+
+
+------------------------------------------------------------------------------
+-- What a site writes
+------------------------------------------------------------------------------
+
+mutual
+  ||| A template a shape's form rewrites as its key holds it: each `:<` of its
+  ||| spine with its extent the leaf an erased extent is, each leaf of a
+  ||| choice so, anything else as read.
+  public export
+  data KeyForm : Template -> Template -> Type where
+    AsRead : KeyForm t t
+    ExtentErased : KeyForm rest rest' -> KeyForm (Head (Just a) [e, rest, x]) (Head (Just a) [e, rest', Leaf 1])
+    LeavesFormed : AllKeyForm ls ls' -> KeyForm (Choice s ls) (Choice s ls')
+
+  public export
+  data AllKeyForm : List Template -> List Template -> Type where
+    NoneFormed : AllKeyForm [] []
+    EachFormed : KeyForm t t' -> AllKeyForm ts ts' -> AllKeyForm (t :: ts) (t' :: ts')
+
+------------------------------------------------------------------------------
+
+||| What a type's root reader read of the type constructor at the head of
+||| the type's form, at the address the root names: its name, made full as
+||| Idris makes it, and the arity the host's normal form applies it by
+||| (`Template.formRoot`). The reference states both, so no reader asks the context
+||| what it defines the name as: what heads a family is a type constructor
+||| by what was read of it (`Sites.nodeValues`).
+public export
+data TypeConstructorAt : Address -> Type where
+  NamedTypeConstructor : {0 a : Address} -> Name -> (arity : Nat) -> TypeConstructorAt a
+
+||| The implementations an instance that fixes a dictionary can make it.
+public export
+fixedAddresses : FixedRoot -> List Address
+fixedAddresses (BuiltBy a) = [a]
+fixedAddresses (GivenBy js) = js
+
+||| The definitions a root names: the one it is rooted at; for a dictionary
+||| the running program chooses, only the implementations an instance that
+||| fixes it after all makes it; the implementations a definition's leaves
+||| give; and none for the writer's own parameter, whose head is the
+||| node's, or for what roots nothing. Each is a heading the flow is given
+||| where the root is read (`Heads.byRoot`, `Heads.byFamily`), and what a
+||| reading of a type holds of its root is what it read at each of them
+||| (`Template.TypeRootRead`).
+public export
+rootAddresses : Root -> List Address
+rootAddresses (Rooted j) = [j]
+rootAddresses (Chosen AtRunTimeAlways) = []
+rootAddresses (Chosen (FixedAt f)) = fixedAddresses f
+rootAddresses (Gives ms) = forget ms
+rootAddresses (Parameter _ _) = []
+rootAddresses (ParameterField _ _) = []
+rootAddresses Unrooted = []
+
+||| What a site's reading read of the definitions an argument's root names,
+||| by the argument's kind: a family's, the type constructor at the head of
+||| its form (`Template.formRoot`), which a node's reading of the family needs
+||| (`Sites.nodeValues`); any other kind's, nothing. A dictionary's root
+||| names the implementations it can be, which the flow and the split key
+||| by their addresses alone; a type's heads no family; and a form's and a
+||| shape's names nothing. Indexed by the kind, so that a family's head is
+||| a type constructor by what was read of it, and nothing is carried
+||| beside a head no reader asks of.
+public export
+data HeadsRead : Readings.Static -> List Address -> Type where
+  TypeHeads : HeadsRead AType rs
+  FamilyHeads : All TypeConstructorAt rs -> HeadsRead AFamily rs
+  DictionaryHeads : HeadsRead ADictionary rs
+  FormHeads : HeadsRead AForm []
+  ShapeHeads : HeadsRead AShape []
+
+||| What a message reads of a choice's head, beside the head (a key, as the
+||| growth graph holds it): the name of the type constructor an
+||| implementation's choice is headed by, as the type that heads it names
+||| it; nothing of the arrow, or of the head only an instance shows.
+public export
+data HeadRead : ChoiceHead -> Type where
+  InterfaceNamed : Name -> HeadRead (InterfaceHead a)
+  ArrowRead : HeadRead ArrowHead
+  UnshownRead : HeadRead UnshownHead
+
+||| A dictionary read as a callee is given it (`Template.rooted`), where its
+||| binder's type is a choice's, of head `k`: where its root says the
+||| running program chooses it, a member of that choice, which every
+||| dispatch the translation makes on it reads whole, or, where an instance
+||| fixes it after all, what is written; any other as it is written, and
+||| so is every argument that is no dictionary.
+public export
+asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
+asGiven (Just k) (t, Chosen _) = Choice (Leaf 1) [t, Member k]
+asGiven _ (t, _) = t

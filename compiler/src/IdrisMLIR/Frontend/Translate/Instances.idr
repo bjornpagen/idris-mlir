@@ -94,28 +94,31 @@ public export
 ArgValues : Type
 ArgValues = List (Maybe ArgValue)
 
-||| What a parameter is supplied with where a callee's type is classified:
-||| what a call knows of the argument it gives there, whose binder decides
-||| how it is read (`FromCall`, nothing for an argument the call leaves
-||| out); or a requested instance's static argument, read once where it was
-||| requested (`Template.staticReading`), which keys the instance and is put
-||| in at its reading's form as it is, so nothing of it is read again: a
-||| type, a form, a runtime value's shape at the quantity it was read with,
-||| or an implementation with the values it closes over, fixed as its kind
-||| holds it (`FixedDictionary`), which carries its reading.
+||| What a request supplies a parameter of its instance with, where the
+||| instance's type is classified: a static argument it read once where it
+||| was requested (`Template.staticReading`), which keys the instance and
+||| is put in at its reading's form as it is, so nothing of it is read
+||| again: a type, a form, a runtime value's shape at the quantity it was
+||| read with, or an implementation with the values it closes over, fixed
+||| as its kind holds it (`FixedDictionary`), which carries its reading; or,
+||| at a parameter whose kind keys nothing (`State.KeysNothing`), no static
+||| value, with what the request knows of the argument (a choice of an
+||| implementation, or a value), which the instance's binder decides as a
+||| kind that keys nothing. What a call offers its callee's parameters is
+||| no supply: a call keys nothing (`classifyCall`).
 public export
-data Supply = FromCall (Maybe ArgValue)
+data Supply = Keyless Offer
             | FromType StaticReading
             | FromForm StaticReading
             | FromShape Uses StaticReading
             | FromDictionary (Maybe Holes) FixedDictionary
 
 ||| What a supplied argument keys its instance by: a requested static
-||| argument's reading, at the kind it was read as; nothing for an argument
-||| a call offers.
+||| argument's reading, at the kind it was read as; nothing where the kind
+||| keys nothing.
 public export
 keyOf : Supply -> Maybe (KeyedAs, StaticReading)
-keyOf (FromCall _) = Nothing
+keyOf (Keyless _) = Nothing
 keyOf (FromType r) = Just (AsType, r)
 keyOf (FromForm r) = Just (AsForm, r)
 keyOf (FromShape q r) = Just (AsShape q, r)
@@ -128,11 +131,11 @@ keysOf [] = []
 keysOf (a :: as) = keyOf a :: keysOf as
 
 ||| What the next parameter is supplied with, and what those after it are:
-||| past the arguments supplied, nothing a call offers.
+||| past the arguments supplied, no static value.
 public export
 nextSupplied : List Supply -> (Supply, List Supply)
 nextSupplied (a :: as) = (a, as)
-nextSupplied [] = (FromCall Nothing, [])
+nextSupplied [] = (Keyless AValue, [])
 
 ||| A request's parameter as its instance is supplied with it, by the kind
 ||| the call classified it as: each static argument read once, as an
@@ -147,22 +150,23 @@ nextSupplied [] = (FromCall Nothing, [])
 ||| that split the node are the families, those the graph splits a callee
 ||| by (`Sites`). An implementation that is a function (`() -> Eq a`) and a
 ||| family that is a lambda have no root and split nothing: cases the
-||| problem has. A kind that keys nothing is offered as what the call knows
-||| of it, and the instance's binder decides it. An implementation's kind
-||| holds its reading already (`FixedDictionary`), read where it was fixed,
-||| so nothing reads it again.
+||| problem has. A kind that keys nothing is supplied with no static value,
+||| with what the request knows of it, and the instance's binder decides
+||| it. An implementation's kind holds its reading already
+||| (`FixedDictionary`), read where it was fixed, so nothing reads it
+||| again.
 supplying : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> PKind -> Front Supply
 supplying (TypeParam t) = FromType <$> staticReading AType t
 supplying (DictParam d holes) = pure (FromDictionary holes d)
 supplying (FormParam f) = FromForm <$> staticReading AForm f
 supplying (ValueParam b (Just shape) _) = FromShape b.quantity <$> staticReading AShape shape
-supplying (ValueParam _ Nothing _) = pure (FromCall Nothing)
+supplying (ValueParam _ Nothing _) = pure (Keyless AValue)
 -- A choice keys nothing: which implementation runs is the value's, and the
 -- interface type it is a choice of follows from the static arguments
 -- before it, which key the dispatch.
-supplying (ChoiceParam _ t) = pure (FromCall (Just (known t.type AChoice)))
-supplying ErasedParam = pure (FromCall Nothing)
-supplying (IndexParam _) = pure (FromCall Nothing)
+supplying (ChoiceParam _ _) = pure (Keyless AChoice)
+supplying ErasedParam = pure (Keyless AValue)
+supplying (IndexParam _) = pure (Keyless AValue)
 
 ||| A request read: what it supplies each of the instance's parameters with
 ||| (`supplying`), each static argument read once, and the instance those
@@ -448,162 +452,159 @@ admitted fc owner request (S k) ty = do
                                       !(showTT ty))
   pure (Admits bfc rig a sc)
 
-||| Walks a callee's type, as the instance admits it, over what each
-||| parameter is supplied with: which are type parameters or
-||| implementations, which are erased, which are index parameters, which
-||| are runtime (and their types). A static argument a request read is put
-||| in at its reading's form as the request classified it, and read no
-||| further; only what a call offers is read here. Each index parameter
-||| stands in the rest of the type as its own level (`marker`), the next
-||| one `level`, so the types read in the callee's scope.
-classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity ->
-             (supplied : List Supply) -> Front (ClassifiedFrom arity supplied)
-classifyAt fc owner request level Z (AllAdmitted ty) _ = pure (MkClassifiedFrom [] ty [])
-classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
-  step <- parameter (fst (nextSupplied supplied))
-  admittedRest <- admitted fc owner request k step.restType
-  more <- classifyAt fc owner request step.nextLevel k admittedRest (snd (nextSupplied supplied))
-  pure (MkClassifiedFrom (step.kind :: more.kinds) more.rest (followed supplied step.atKey more.atKey))
+||| A runtime parameter's Core type, read off its binder's normalised type,
+||| which may not depend on another argument.
+runtimeTypeOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> String -> ClosedTerm -> Front Ty
+runtimeTypeOf fc owner a' = do
+  when !(erasedOutsideIndices owner a') $ do
+    reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
+  coreType fc owner ValueType a'
+
+||| A parameter classified at what is known of its argument, before any
+||| request keys it: a kind that keys nothing (`KeysNothing`), with the
+||| evidence; or a kind an offered value keys (a type, a form, an
+||| implementation fixed now, a shape), which only a value offered there
+||| gives. Each with the next index parameter's level and the rest of the
+||| type after what stands for the parameter. A request supplies no value
+||| at a parameter whose kind keys nothing, so there it meets the first
+||| alone.
+data Offered : Maybe ArgValue -> Type where
+  OfferedKeyless : {0 offered : Maybe ArgValue} -> (kind : PKind) -> (0 _ : KeysNothing kind) -> (next : Nat) ->
+                   (restType : ClosedTerm) -> Offered offered
+  OfferedKeyed : {0 v : ArgValue} -> (kind : PKind) -> (next : Nat) -> (restType : ClosedTerm) -> Offered (Just v)
+
+||| A parameter's binder, as the instance admits it (`Admits`), classified
+||| at what a call or a request knows of its argument (`offer`) and the
+||| value offered there (`given`), by the binder, which decides how it keys
+||| the instance. Each index parameter stands in the rest of the type as its
+||| own level (`marker`), the next one `level`.
+offeredAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+            FC -> String -> (level : Nat) -> (bfc : FC) -> RigCount -> (binderType : ClosedTerm) -> (sc : TT [x]) ->
+            Offer -> (given : Maybe ArgValue) -> Front (Offered given)
+offeredAt fc owner level bfc rig a sc offer given = do
+  a' <- normaliseClosed a
+  case !(keyingOf rig a' sc offer) of
+    Typed => typed given
+    -- A family keys its instance as any type does; only the growth
+    -- check reads what heads its value.
+    Family => typed given
+    Formed => formed given
+    -- An erased binder an index of a runtime parameter's type or of
+    -- the result reads, and nothing a value is made of, is an index
+    -- parameter, its level standing for it in the rest of the type;
+    -- any other is absent.
+    Unkeyed => do
+      rest <- normaliseClosed (subst (marker level) sc)
+      case !(occurrenceOf owner level rest) of
+        IndexOnly => do
+          sort <- sortOfType a'
+          pure (OfferedKeyless (IndexParam sort) IndexKeysNothing (S level) rest)
+        _ => pure (OfferedKeyless ErasedParam ErasedKeysNothing level (subst (Erased bfc Placeholder) sc))
+    -- An implementation the call leaves out is given when the call's
+    -- value, a closure, is applied: a run-time choice.
+    Implemented q => case given of
+      Nothing => chosen q a'
+      Just v => case v.offer of
+        AChoice => chosen q a'
+        _ => do
+          written <- v.written
+          implemented q a' v written
+    Runtime q dependence => runtime q dependence a' given
   where
-    -- A runtime parameter's Core type, read off its binder's normalised
-    -- type, which may not depend on another argument.
-    runtimeType : ClosedTerm -> Front Ty
-    runtimeType a' = do
-      when !(erasedOutsideIndices owner a') $ do
-        reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-      coreType fc owner ValueType a'
+    -- A type or a form no value is offered for: the call's value is a
+    -- function that takes a type, held at run time. Where the program
+    -- fixes such a function (an argument, a `let`, an applied lambda),
+    -- its form is taken and never translated, and where it is held at
+    -- run time it is a member of its type's choice (`Terms.member`), so
+    -- no call of it is classified there; what reaches here is one no
+    -- compile-time reduction fixes, which would be a closure whose type
+    -- the next binder chooses where it is applied.
+    leftOut : String -> Front (Offered given')
+    leftOut what =
+      reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
+                                 !(showTT a))
 
-    -- A static argument put in at its value, as a request read it: the
-    -- rest of the type has the value for the parameter, normalised, and
-    -- the next index parameter the same level.
-    keyedAt : {0 given : Supply} -> (kind : PKind) -> (0 _ : AtKey (keyOf given) kind) -> ClosedTerm ->
-              Front (Stepped given)
-    keyedAt kind atKey value = (\restType => MkStepped kind level restType atKey) <$> normaliseClosed (subst value sc)
+    -- A type, normalised, keys the instance.
+    typed : (given' : Maybe ArgValue) -> Front (Offered given')
+    typed Nothing = leftOut "type"
+    typed (Just v) = do
+      val <- v.normalised
+      OfferedKeyed (TypeParam val) level <$> normaliseClosed (subst val sc)
 
-    -- What a call offers is read by the parameter's binder, which decides
-    -- how it keys the instance; nothing a request read keys it.
-    offered : (given : Maybe ArgValue) -> Front (Stepped (FromCall given))
-    offered given = do
-      a' <- normaliseClosed a
-      case !(keyingOf rig a' sc (maybe AValue (.offer) given)) of
-        Typed => typed
-        -- A family keys its instance as any type does; only the growth
-        -- check reads what heads its value.
-        Family => typed
-        Formed => do
-          let Just v = given
-            | Nothing => leftOut "shape"
-          form <- formOf <$> spineOf fc owner !(v.normalised)
-          unkeyedAt (FormParam form) level !(normaliseClosed (subst form sc))
-        -- An erased binder an index of a runtime parameter's type or of
-        -- the result reads, and nothing a value is made of, is an index
-        -- parameter, its level standing for it in the rest of the type;
-        -- any other is absent.
-        Unkeyed => do
-          rest <- normaliseClosed (subst (marker level) sc)
-          case !(occurrenceOf owner level rest) of
-            IndexOnly => do
-              sort <- sortOfType a'
-              unkeyedAt (IndexParam sort) (S level) rest
-            _ => unkeyedAt ErasedParam level (subst (Erased bfc Placeholder) sc)
-        -- An implementation the call leaves out is given when the call's
-        -- value, a closure, is applied: a run-time choice.
-        Implemented q => do
-          let Just v = given
-            | Nothing => chosen q a'
-          case v.offer of
-            AChoice => chosen q a'
-            _ => do
-              written <- v.written
-              implemented q a' v written
-        Runtime q dependence => do
-          t <- runtimeType a'
-          -- The rest of the type may have to reduce on the parameter's value
-          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
-          -- in Data.SortedMap, where `delType` reduces on the constructors of
-          -- `n`). Then the argument's shape, the constructors it is built
-          -- with as written, everything else erased (`S _`), stands for the
-          -- parameter in the type and keys the instance, so that the type
-          -- reduces at each one as it does at each call; only as much of it
-          -- as the type needs (`neededShape`), so that a recursion that
-          -- builds its argument deeper below what the type looks at stays in
-          -- one instance. The shape is read off the argument as written; it
-          -- is computed only for a closed argument, one that mentions no
-          -- runtime value, that the type is stuck without (`argumentShape`),
-          -- by normalising it as the type itself is normalised. An argument
-          -- that mentions a runtime value is any computation, which the
-          -- compiler must not run. An argument with no constructor at its
-          -- head, written or reduced to, has no shape, and a parameter the
-          -- type does not mention, or mentions only as an index
-          -- (`Vect n Int`), keys nothing, so a function on naturals has one
-          -- instance.
-          shape <- case (dependence, given) of
-            (Reduces, Just arg) => do
-              Just found <- argumentShape owner (\x => subst x sc) arg
-                | Nothing => pure Nothing
-              neededShape owner (\x => subst x sc) found
-            _ => pure Nothing
-          let value = fromMaybe (Erased bfc Placeholder) shape
-          unkeyedAt (ValueParam (MkBinder q t) shape a') level !(normaliseClosed (subst value sc))
+    -- An erased shape of the array language the rest of the type puts in
+    -- a form keys the instance by its form.
+    formed : (given' : Maybe ArgValue) -> Front (Offered given')
+    formed Nothing = leftOut "shape"
+    formed (Just v) = do
+      form <- formOf <$> spineOf fc owner !(v.normalised)
+      OfferedKeyed (FormParam form) level <$> normaliseClosed (subst form sc)
+
+    -- A choice of an implementation or a polymorphic function of the
+    -- parameter's type (`choiceType`), a value at run time, which the
+    -- call dispatches on. Which member it is no type after it can
+    -- read. Essential: a function on values that the running program
+    -- chooses, whose result is an implementation, is a value of a
+    -- function type that takes no type: a closure, a runtime value
+    -- like any other, whose uses apply it, each result a choice.
+    chosen : Uses -> ClosedTerm -> Front (Offered given')
+    chosen q a' = do
+      Just ct <- choiceType a'
+        | Nothing => do
+            b <- coreBinder fc owner ValueType q a'
+            OfferedKeyless (ValueParam b Nothing a') UnshapedValue level <$> normaliseClosed (subst (Erased bfc Placeholder) sc)
+      choice <- choiceFamily fc owner ct
+      OfferedKeyless (ChoiceParam (MkBinder q (DataT choice.family [])) ct) ChoiceKeysNothing level
+        <$> normaliseClosed (subst (Erased bfc Placeholder) sc)
+
+    -- A runtime value, whose shape keys the instance where a value is
+    -- offered and the rest of the type reduces on it.
+    runtime : Uses -> Dependence -> ClosedTerm -> (given' : Maybe ArgValue) -> Front (Offered given')
+    runtime q dependence a' given' = do
+      t <- runtimeTypeOf fc owner a'
+      -- The rest of the type may have to reduce on the parameter's value
+      -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
+      -- in Data.SortedMap, where `delType` reduces on the constructors of
+      -- `n`). Then the argument's shape, the constructors it is built
+      -- with as written, everything else erased (`S _`), stands for the
+      -- parameter in the type and keys the instance, so that the type
+      -- reduces at each one as it does at each call; only as much of it
+      -- as the type needs (`neededShape`), so that a recursion that
+      -- builds its argument deeper below what the type looks at stays in
+      -- one instance. The shape is read off the argument as written; it
+      -- is computed only for a closed argument, one that mentions no
+      -- runtime value, that the type is stuck without (`argumentShape`),
+      -- by normalising it as the type itself is normalised. An argument
+      -- that mentions a runtime value is any computation, which the
+      -- compiler must not run. An argument with no constructor at its
+      -- head, written or reduced to, has no shape, and a parameter the
+      -- type does not mention, or mentions only as an index
+      -- (`Vect n Int`), keys nothing, so a function on naturals has one
+      -- instance.
+      case given' of
+        Just arg => case dependence of
+          Reduces => do
+            Just found <- argumentShape owner (\x => subst x sc) arg
+              | Nothing => unshaped t
+            Just shape <- neededShape owner (\x => subst x sc) found
+              | Nothing => unshaped t
+            OfferedKeyed (ValueParam (MkBinder q t) (Just shape) a') level <$> normaliseClosed (subst shape sc)
+          Runs => unshaped t
+        Nothing => unshaped t
       where
-        -- A kind the binder decides at what a call offers, which no static
-        -- argument a request read keys. No step here reads what the call
-        -- offered to key the instance, so each holds at whatever it offered
-        -- (`call`), and the matches on `given` above meet each at the value
-        -- they refine it to.
-        unkeyedAt : {0 call : Maybe ArgValue} -> PKind -> (next : Nat) -> ClosedTerm -> Front (Stepped (FromCall call))
-        unkeyedAt kind next restType = pure (MkStepped kind next restType NoKey)
+        unshaped : Ty -> Front (Offered given'')
+        unshaped t =
+          OfferedKeyless (ValueParam (MkBinder q t) Nothing a') UnshapedValue level <$> normaliseClosed (subst (Erased bfc Placeholder) sc)
 
-        -- A type or a form the call leaves out: the call's value is a
-        -- function that takes a type, held at run time. Where the program
-        -- fixes such a function (an argument, a `let`, an applied lambda),
-        -- its form is taken and never translated, and where it is held at
-        -- run time it is a member of its type's choice (`Terms.member`), so
-        -- no call of it is classified there; what reaches here is one no
-        -- compile-time reduction fixes, which would be a closure whose type
-        -- the next binder chooses where it is applied.
-        leftOut : {0 call : Maybe ArgValue} -> String -> Front (Stepped (FromCall call))
-        leftOut what =
-          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
-                                     !(showTT a))
+    -- An implementation known now keys the instance, with the value it
+    -- was fixed at, which its kind holds.
+    static : {0 v : ArgValue} -> FixedDictionary -> Maybe Holes -> Front (Offered (Just v))
+    static d holes = OfferedKeyed (DictParam d holes) level <$> normaliseClosed (subst d.form sc)
 
-        -- A type, normalised, keys the instance.
-        typed : {0 call : Maybe ArgValue} -> Front (Stepped (FromCall call))
-        typed = do
-          let Just v = given
-            | Nothing => leftOut "type"
-          val <- v.normalised
-          unkeyedAt (TypeParam val) level !(normaliseClosed (subst val sc))
-
-        -- An implementation known now keys the instance, with the value it
-        -- was fixed at, which its kind holds.
-        static : {0 call : Maybe ArgValue} -> FixedDictionary -> Maybe Holes -> Front (Stepped (FromCall call))
-        static d holes = unkeyedAt (DictParam d holes) level !(normaliseClosed (subst d.form sc))
-
-        -- A choice of an implementation or a polymorphic function of the
-        -- parameter's type (`choiceType`), a value at run time, which the
-        -- call dispatches on. Which member it is no type after it can
-        -- read. Essential: a function on values that the running program
-        -- chooses, whose result is an implementation, is a value of a
-        -- function type that takes no type: a closure, a runtime value
-        -- like any other, whose uses apply it, each result a choice.
-        chosen : {0 call : Maybe ArgValue} -> Uses -> ClosedTerm -> Front (Stepped (FromCall call))
-        chosen q a' = do
-          Just ct <- choiceType a'
-            | Nothing => do
-                b <- coreBinder fc owner ValueType q a'
-                unkeyedAt (ValueParam b Nothing a') level !(normaliseClosed (subst (Erased bfc Placeholder) sc))
-          choice <- choiceFamily fc owner ct
-          unkeyedAt (ChoiceParam (MkBinder q (DataT choice.family [])) ct) level
-                    !(normaliseClosed (subst (Erased bfc Placeholder) sc))
-
-        -- An implementation given as written, at a parameter of an
-        -- interface's type, or a polymorphic function, at a parameter of
-        -- its type.
-        implemented : {0 call : Maybe ArgValue} -> Uses -> ClosedTerm -> ArgValue -> ClosedTerm ->
-                      Front (Stepped (FromCall call))
-        implemented q a' v written = do
+    -- An implementation given as written, at a parameter of an
+    -- interface's type, or a polymorphic function, at a parameter of
+    -- its type.
+    implemented : Uses -> ClosedTerm -> (v : ArgValue) -> ClosedTerm -> Front (Offered (Just v))
+    implemented q a' v written = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
           -- dependent pair), which Idris resolved at every value: constant
@@ -655,6 +656,32 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
               static (MkFixedDictionary key d.asStatic d.ofDictionary fixed) (Just (MkHoles tys (MkBinder Many held)))
 
+||| Walks an instance's type, as it admits it, over what its request
+||| supplies each parameter with: which are type parameters or
+||| implementations, which are erased, which are index parameters, which
+||| are runtime (and their types). A static argument the request read is
+||| put in at its reading's form as the request classified it, and read no
+||| further; a parameter whose kind keys nothing is read by its binder at no
+||| value (`offeredAt`), so its kind keys nothing (`NoKey`). Each index
+||| parameter stands in the rest of the type as its own level (`marker`),
+||| the next one `level`, so the types read in the instance's scope.
+classifyAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity ->
+             (supplied : List Supply) -> Front (ClassifiedFrom arity supplied)
+classifyAt fc owner request level Z (AllAdmitted ty) _ = pure (MkClassifiedFrom [] ty [])
+classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
+  step <- parameter (fst (nextSupplied supplied))
+  admittedRest <- admitted fc owner request k step.restType
+  more <- classifyAt fc owner request step.nextLevel k admittedRest (snd (nextSupplied supplied))
+  pure (MkClassifiedFrom (step.kind :: more.kinds) more.rest (followed supplied step.atKey more.atKey))
+  where
+    -- A static argument put in at its value, as a request read it: the
+    -- rest of the type has the value for the parameter, normalised, and
+    -- the next index parameter the same level.
+    keyedAt : {0 given : Supply} -> (kind : PKind) -> (0 _ : AtKey (keyOf given) kind) -> ClosedTerm ->
+              Front (Stepped given)
+    keyedAt kind atKey value = (\restType => MkStepped kind level restType atKey) <$> normaliseClosed (subst value sc)
+
     -- The parameter the binder binds, what stands for it in the rest of the
     -- type, and the rest of the type after it. A static argument a request
     -- read is put in at its reading's form, the form that keys the
@@ -662,16 +689,39 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
     -- implementation with the values it closes over, a runtime value's
     -- shape at the quantity it was read with, whose binder only the
     -- instance's own type gives. Nothing of the argument is read again: an
-    -- implementation keeps the value it was fixed at.
+    -- implementation keeps the value it was fixed at. Where its kind keys
+    -- nothing, no value is offered, and the binder decides a kind that
+    -- keys nothing.
     parameter : (given : Supply) -> Front (Stepped given)
     parameter (FromType r) = keyedAt (TypeParam r.form) TypeAtKey r.form
     parameter (FromDictionary holes d) = keyedAt (DictParam (atReading d) holes) DictionaryAtKey d.asStatic.form
     parameter (FromForm r) = keyedAt (FormParam r.form) FormAtKey r.form
     parameter (FromShape q r) = do
       a' <- normaliseClosed a
-      t <- runtimeType a'
+      t <- runtimeTypeOf fc owner a'
       keyedAt (ValueParam (MkBinder q t) (Just r.form) a') ShapeAtKey r.form
-    parameter (FromCall given) = offered given
+    parameter (Keyless offer) = do
+      OfferedKeyless kind keysNothing next restType <- offeredAt fc owner level bfc rig a sc offer Nothing
+      pure (MkStepped kind next restType (NoKey keysNothing))
+
+||| Walks a callee's type, as a call admits it, over what the call offers
+||| each parameter (`offeredAt`), what it knows of the argument it gives
+||| there, nothing past its arguments: one kind per parameter of the arity
+||| it is classified at, and the type after them. A call keys nothing; what
+||| keys an instance is its request's reading of these (`supplying`).
+classifyOffered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                  FC -> String -> (request : String) -> (level : Nat) -> (arity : Nat) -> Admitted arity -> ArgValues ->
+                  Front (Vect arity PKind, ClosedTerm)
+classifyOffered fc owner request level Z (AllAdmitted ty) _ = pure ([], ty)
+classifyOffered fc owner request level (S k) (Admits bfc rig a sc) vals = do
+  let (given, vals') = nextStatic vals
+  (kind, next, restType) <- stepOf <$> offeredAt fc owner level bfc rig a sc (maybe AValue (.offer) given) given
+  (kinds, rest) <- classifyOffered fc owner request next k !(admitted fc owner request k restType) vals'
+  pure (kind :: kinds, rest)
+  where
+    stepOf : Offered given' -> (PKind, Nat, ClosedTerm)
+    stepOf (OfferedKeyless kind _ next restType) = (kind, next, restType)
+    stepOf (OfferedKeyed kind next restType) = (kind, next, restType)
 
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
@@ -763,14 +813,14 @@ classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues ->
                Front (Classified arity)
 classifyCall fc owner request arity ty vals = do
-  classified <- classifyAt fc owner request 0 arity !(admitted fc owner request arity ty) (map FromCall vals)
-  case telescopeOf (vectList classified.kinds) of
-    [] => pure (classified.kinds, classified.rest)
+  (kinds, rest) <- classifyOffered fc owner request 0 arity !(admitted fc owner request arity ty) vals
+  case telescopeOf (vectList kinds) of
+    [] => pure (kinds, rest)
     _ => do
-      forms <- indexForms (vectList classified.kinds) vals
-      kinds <- traverse (inScope forms) classified.kinds
-      res' <- normaliseClosed (atLevels forms classified.rest)
-      pure (kinds, res')
+      forms <- indexForms (vectList kinds) vals
+      kinds' <- traverse (inScope forms) kinds
+      res' <- normaliseClosed (atLevels forms rest)
+      pure (kinds', res')
   where
     inScope : List (Maybe ClosedTerm) -> PKind -> Front PKind
     inScope forms (ValueParam b shape idrisType) = do
@@ -788,8 +838,7 @@ classifyKeys : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (Vect arity PKind)
 classifyKeys fc owner request arity ty vals = do
   admittedType <- admitted fc owner request arity ty
-  classified <- classifyAt fc owner request 0 arity admittedType (map FromCall vals)
-  pure classified.kinds
+  fst <$> classifyOffered fc owner request 0 arity admittedType vals
 
 ||| A requested instance's signature as a call reads it, in the call's
 ||| scope (`inCaller`).

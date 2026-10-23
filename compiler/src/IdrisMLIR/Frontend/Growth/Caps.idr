@@ -132,8 +132,9 @@ mutual
 --    so there is no cap. Where the occurrence is only an index, that costs
 --    precision, never soundness.
 --
--- So every key `classify` makes at j is, as `closedHeight AShape` reads it,
--- at most `capFrom j` of the template high. The worklist's bound check is
+-- So every key `classify` makes at j is, as an instance's reading of a
+-- shape reads it (`Template.readInstance`), at most `capFrom j` of the
+-- template high (`Template.cappedKeyHeight`). The worklist's bound check is
 -- the run-time witness of this statement.
 capFrom : (j : Nat) -> Template -> Maybe Nat
 capFrom j t = S <$> deepest j t
@@ -161,10 +162,10 @@ parameterAt (S j) ty = do
 
 ||| The cap of a definition's parameter j (the j-th binder of its type,
 ||| erased ones counted), the definition as the boundary read it: the most
-||| a key of j can hold of its argument's shape, as the height
-||| `closedHeight AShape` reads, for a parameter keyed by the shape of a
-||| chain whose matches the type inspects to a fixed depth. Nothing for
-||| every other parameter. Whether j is keyed by its shape is
+||| a key of j can hold of its argument's shape, as the height an
+||| instance's reading of the shape reads (`Template.readInstance`), for a
+||| parameter keyed by the shape of a chain whose matches the type inspects
+||| to a fixed depth. Nothing for every other parameter. Whether j is keyed by its shape is
 ||| `staticsOver`'s to say, the one reading of `classify`'s decisions, over
 ||| markers for every parameter as a definition's own sites give them.
 export

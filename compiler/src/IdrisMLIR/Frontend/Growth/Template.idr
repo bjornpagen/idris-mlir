@@ -188,33 +188,6 @@ inFrozen ctx n = case definitionIn ctx n of
   NotDefined _ => Nothing
   DefinedAs i r d defines => Just (MkInFrozen (placeOf ctx i r defines) d defines)
 
-||| A head at an entry the frozen context defines: what the boundary read of
-||| the definition the context gives the name the head is called by
-||| (`Errors.defined`), which every reader of the head reads, a type
-||| constructor's facts and a constructor's tag among it, at the address the
-||| context gives that name. One read, which whatever holds the head holds
-||| once.
-public export
-record HeadDefinedAt (a : Address) where
-  constructor MkHeadDefinedAt
-  0 frozenIn : Frozen
-  0 calledBy : Name
-  defined : Defined
-  0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a
-
-||| The definition a site's reading met a head at, by the head's address,
-||| the one the reading's frozen context gives the name the head is called
-||| by (`HeadDefinedAt`); or, at an entry the context defines nothing at,
-||| that entry, which a message shows the head by. Two cases the host's
-||| context has: an entry made with a definition, and one made without.
-public export
-data HeadDef : Address -> Type where
-  HeadDefined : {0 a : Address} -> HeadDefinedAt a -> HeadDef a
-  HeadUndefined : {0 a : Address} -> (0 frozenIn : Frozen) -> (0 calledBy : Name) -> (entry : Int) ->
-                  (0 resolved : getNameID calledBy (gamma (defsOf frozenIn)) = Just entry) ->
-                  (0 none : (d : GlobalDef) -> Not (Defines frozenIn calledBy d)) ->
-                  (0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a) -> HeadDef a
-
 -- What the boundary read at the entry a name resolves to: the one read of
 -- that entry (`State.readEntry`), which `Errors.defined` reads a name by.
 readDefined : (ctx : Frozen) -> (n : Name) -> (i : Int) -> (0 _ : Resolves ctx n i) -> Front Defined
@@ -264,16 +237,6 @@ definedHead ctx n with (definitionAddress (gamma (defsOf ctx)) n) proof found
   _ | Just a = case definitionIn ctx n of
     NotDefined _ => pure Nothing
     DefinedAs i resolved _ _ => (\d => Just (a ** MkHeadDefinedAt ctx n d found)) <$> readDefined ctx n i resolved
-
-||| What a type's root reader read of the type constructor at the head of
-||| the type's form, at the address the root names: its name, made full as
-||| Idris makes it, and the arity the host's normal form applies it by
-||| (`formRoot`). The reference states both, so no reader asks the context
-||| what it defines the name as: what heads a family is a type constructor
-||| by what was read of it (`Sites.nodeValues`).
-public export
-data TypeConstructorAt : Address -> Type where
-  NamedTypeConstructor : {0 a : Address} -> Name -> (arity : Nat) -> TypeConstructorAt a
 
 ------------------------------------------------------------------------------
 -- The markers
@@ -387,22 +350,6 @@ lambdaNoNode NodePVar impossible
 lambdaNoNode NodePLet impossible
 lambdaNoNode NodePVTy impossible
 
-mutual
-  ||| A template a shape's form rewrites as its key holds it: each `:<` of its
-  ||| spine with its extent the leaf an erased extent is, each leaf of a
-  ||| choice so, anything else as read.
-  public export
-  data KeyForm : Template -> Template -> Type where
-    AsRead : KeyForm t t
-    ExtentErased : KeyForm rest rest' -> KeyForm (Head (Just a) [e, rest, x]) (Head (Just a) [e, rest', Leaf 1])
-    LeavesFormed : AllKeyForm ls ls' -> KeyForm (Choice s ls) (Choice s ls')
-
-  public export
-  data AllKeyForm : List Template -> List Template -> Type where
-    NoneFormed : AllKeyForm [] []
-    EachFormed : KeyForm t t' -> AllKeyForm ts ts' -> AllKeyForm (t :: ts) (t' :: ts')
-
-------------------------------------------------------------------------------
 -- The readings
 ------------------------------------------------------------------------------
 
@@ -438,43 +385,6 @@ record MaybeReading (w : Whose) (says : Maybe Template -> Type) where
   0 described : says template
   recursionsRead : HeldDefs RecursionDef w (maybeRecursions template)
   headsRead : HeldDefs HeadDef w (maybeNamedHeads template)
-
-||| A template with the definition of each recursion it holds and of each
-||| head it names, as its reading met them: what a site writes at a static
-||| argument, and every part of it the growth graph draws from.
-public export
-record TemplateRead where
-  constructor MkTemplateRead
-  template : Template
-  recursionsRead : All RecursionDef (recursions template)
-  headsRead : All HeadDef (namedHeads template)
-
-||| The templates of some read, in order.
-public export
-templatesOf : List TemplateRead -> List Template
-templatesOf [] = []
-templatesOf (r :: rs) = r.template :: templatesOf rs
-
-||| Templates read hold each one's recursions, in order.
-public export
-allRead : (rs : List TemplateRead) -> All RecursionDef (recursionsIn (templatesOf rs))
-allRead [] = []
-allRead (r :: rs) = allJoined r.recursionsRead (allRead rs)
-
-||| Templates read name each one's heads, in order.
-public export
-allHeads : (rs : List TemplateRead) -> All HeadDef (namedHeadsIn (templatesOf rs))
-allHeads [] = []
-allHeads (r :: rs) = allJoined r.headsRead (allHeads rs)
-
-||| Each of some templates with the definitions of the recursions it holds
-||| and the heads it names, read off those of the list.
-public export
-eachRead : (ts : List Template) -> All RecursionDef (recursionsIn ts) -> All HeadDef (namedHeadsIn ts) -> List TemplateRead
-eachRead [] _ _ = []
-eachRead (t :: ts) held heads =
-  MkTemplateRead t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
-    :: eachRead ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
 
 -- A node over children (`nodeOf`) holds its children's recursions, or
 -- none in a skeleton's hole.
@@ -1660,29 +1570,6 @@ dictionaryForm ctx t = do
        let c = contracted s.fst in
        pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary s.snd c.etaSteps) c.etaNormal)
 
-||| A site's static argument read: the mode it is read in, the context of
-||| which is the one every normal form and definition of the reading is
-||| over, the form its reading reads, how it was read off the term in that
-||| context and the evidence that the contraction it was read by left no
-||| redex it contracts (`contractingFor`), the template it reads as with
-||| what that says of the form, and what the site writes there, the
-||| template with a form's extents as its key holds them, with the
-||| definition of each recursion that holds and of each head it names, read
-||| where the reading met it.
-public export
-record SiteReading (k : Readings.Static) (t : ClosedTerm) where
-  constructor MkSiteReading
-  0 mode : Mode
-  form : ClosedTerm
-  0 formFrom : FormFrom k mode.inContext t form
-  0 maximal : EtaNormal (contractingFor mode) form
-  read : Template
-  0 describes : ReadAs mode [] form read
-  template : Template
-  0 formed : KeyForm read template
-  recursionsRead : All RecursionDef (recursions template)
-  headsRead : All HeadDef (namedHeads template)
-
 ||| A term of a site's read off its normal form, in the context its mode
 ||| reads.
 normalSite : {auto c : Ref Ctxt Defs} -> {0 k : Readings.Static} -> (stands : List StandIn) -> (kp : Keeping) -> (cl : Calling) ->
@@ -2034,30 +1921,6 @@ mutual
 -- Roots and requests
 ------------------------------------------------------------------------------
 
-||| The implementations an instance that fixes a dictionary can make it.
-public export
-fixedAddresses : FixedRoot -> List Address
-fixedAddresses (BuiltBy a) = [a]
-fixedAddresses (GivenBy js) = js
-
-||| The definitions a root names: the one it is rooted at; for a dictionary
-||| the running program chooses, only the implementations an instance that
-||| fixes it after all makes it; the implementations a definition's leaves
-||| give; and none for the writer's own parameter, whose head is the
-||| node's, or for what roots nothing. Each is a heading the flow is given
-||| where the root is read (`Heads.byRoot`, `Heads.byFamily`), and what a
-||| reading of a type holds of its root is what it read at each of them
-||| (`TypeRootRead`).
-public export
-rootAddresses : Root -> List Address
-rootAddresses (Rooted j) = [j]
-rootAddresses (Chosen AtRunTimeAlways) = []
-rootAddresses (Chosen (FixedAt f)) = fixedAddresses f
-rootAddresses (Gives ms) = forget ms
-rootAddresses (Parameter _ _) = []
-rootAddresses (ParameterField _ _) = []
-rootAddresses Unrooted = []
-
 ||| A type's root, with what a reading of whose term it is holds of the type
 ||| constructor it names (`formRoot`).
 public export
@@ -2073,23 +1936,6 @@ TypeRoot = (r : Root ** All TypeConstructorAt (rootAddresses r))
 -- What a site's reading read of a type's root.
 siteRoot : TypeRootRead (OfSite stands) -> TypeRoot
 siteRoot (r ** held) = (r ** siteHolds held)
-
-||| What a site's reading read of the definitions an argument's root names,
-||| by the argument's kind: a family's, the type constructor at the head of
-||| its form (`formRoot`), which a node's reading of the family needs
-||| (`Sites.nodeValues`); any other kind's, nothing. A dictionary's root
-||| names the implementations it can be, which the flow and the split key
-||| by their addresses alone; a type's heads no family; and a form's and a
-||| shape's names nothing. Indexed by the kind, so that a family's head is
-||| a type constructor by what was read of it, and nothing is carried
-||| beside a head no reader asks of.
-public export
-data HeadsRead : Readings.Static -> List Address -> Type where
-  TypeHeads : HeadsRead AType rs
-  FamilyHeads : All TypeConstructorAt rs -> HeadsRead AFamily rs
-  DictionaryHeads : HeadsRead ADictionary rs
-  FormHeads : HeadsRead AForm []
-  ShapeHeads : HeadsRead AShape []
 
 ||| An argument's root, with what its kind's reader read of the definitions
 ||| it names.
@@ -2476,7 +2322,7 @@ dictionaryHeads r = (r ** DictionaryHeads)
 ||| shape split nothing. The one reading of a site's argument and of a
 ||| request's, so the graph and the requests split a definition by the same
 ||| heads; the reading itself comes back with the root, so that what a site
-||| writes is known to be its template (`Sites.WrittenAs`). A family's root
+||| writes is known to be its template (`State.WrittenAs`). A family's root
 ||| comes with the type constructor at each address it names, read where
 ||| the reader met the name (`HeadsRead`), which the flow carries beside the
 ||| heading it is.
@@ -2487,16 +2333,6 @@ rooted stands AFamily t = map (typeHeadsAs (\_ => FamilyHeads)) <$> typeReading 
 rooted stands AForm t = (, unrootedAt AForm) <$> siteReading stands AForm t
 rooted stands AShape t = (, unrootedAt AShape) <$> siteReading stands AShape t
 rooted stands ADictionary t = map dictionaryHeads <$> dictionaryRooted stands t
-
-||| What a message reads of a choice's head, beside the head (a key, as the
-||| growth graph holds it): the name of the type constructor an
-||| implementation's choice is headed by, as the type that heads it names
-||| it; nothing of the arrow, or of the head only an instance shows.
-public export
-data HeadRead : ChoiceHead -> Type where
-  InterfaceNamed : Name -> HeadRead (InterfaceHead a)
-  ArrowRead : HeadRead ArrowHead
-  UnshownRead : HeadRead UnshownHead
 
 ||| The head of a choice's type (`ChoiceHead`), its normal form, with what a
 ||| message reads of it (`HeadRead`): the arrow of a function type, the
@@ -2535,17 +2371,6 @@ choiceDefOf ty = case getFn ty of
     interfaceAt ctx n with (definitionAddress (gamma (defsOf ctx)) n) proof found
       _ | Just a = (\h => (InterfaceHead a ** [h])) <$> headOf ctx n found (definitionIn ctx n)
       _ | Nothing = pure (UnshownHead ** [])
-
-||| A dictionary read as a callee is given it (`rooted`), where its
-||| binder's type is a choice's, of head `k`: where its root says the
-||| running program chooses it, a member of that choice, which every
-||| dispatch the translation makes on it reads whole, or, where an instance
-||| fixes it after all, what is written; any other as it is written, and
-||| so is every argument that is no dictionary.
-public export
-asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
-asGiven (Just k) (t, Chosen _) = Choice (Leaf 1) [t, Member k]
-asGiven _ (t, _) = t
 
 ||| A dictionary read as a callee is given it (`asGiven`) holds the
 ||| recursions it holds as written: a member beside it holds none.

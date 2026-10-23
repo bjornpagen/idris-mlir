@@ -82,10 +82,14 @@ firstForbidden (r :: rs) = do
     Just (_, rule) => pure (Just (r, rule))
     Nothing => firstForbidden rs
 
-||| The hooks of a definition's name, as they were read with it
-||| (`Registered`); a name the context defines as nothing has none.
-nameHooksOf : Name -> Front (Hooks LibraryFunction)
-nameHooksOf n = maybe noHooks (\d => namedHooks d.registered) <$> defined n
+||| Is a definition a totality assertion, as the registry was read with it
+||| (`Registered`)? A name the context defines as nothing is no definition
+||| the registry can trust.
+assertion : Name -> Front Bool
+assertion n = do
+  Just d <- defined n
+    | Nothing => pure False
+  pure (namedHooks d.registered).totalityAssertion
 
 ------------------------------------------------------------------------------
 -- Imports and pragmas, as the checked module keeps them
@@ -191,7 +195,7 @@ checkSpelled ident path = do
       updateState { spelled $= insert (ident, UN (Basic i)) }
     ||| An escape hatch in the source: a spelling the registry forbids.
     spelled : Located RawToken -> String -> Front ()
-    spelled tok n = case (hooks (Spelling n)).forbidden of
+    spelled tok n = case (spellingHooks n).forbidden of
       Just (_, rule) => do
         found n
         refuse (at tok) (show ident) rule ("the escape hatch " ++ n)
@@ -424,8 +428,8 @@ checkReachable fc roots = do
         ByName _ => pure ()
       -- A trusted module admits only some of its definitions, and a block
       -- Idris made of one with it.
-      root <- rootOf full
-      when (trusted && not (admits origin !(nameHooksOf root))) $
+      root <- rootOf d
+      when (trusted && not (admits origin (namedHooks root.registered))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
       refs <- traverse fullNames !(core (refsOf nameHooks def))
       -- User code may not use what the registry forbids, nor forge a world.
@@ -445,7 +449,7 @@ checkReachable fc roots = do
       -- nothing it reaches is the program's. A user's is walked, since a
       -- proof it forges is a bound the compiler would trust.
       refs' <- if trusted
-                 then keepIf (\r => if (!(nameHooksOf r)).totalityAssertion then pure False else not <$> core (proofOnly r)) refs
+                 then keepIf (\r => if !(assertion r) then pure False else not <$> core (proofOnly r)) refs
                  else pure refs
       pure (map (\r => MkReach r here (if trusted then Library placement else User)) refs')
 

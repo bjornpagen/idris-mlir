@@ -288,15 +288,17 @@ verdictOf i def = case definition def of
     endsBy IsTerminating = ProvedToEnd
     endsBy _ = NotProvedToEnd
 
-||| What the registry makes of a definition (`Registered`): the hooks of
-||| its name, and a foreign definition's by its specs, each library
-||| function they name interned once, where it enters the compiler.
-registeredOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Registered
-registeredOf def = do
-  own <- interned (hooksOf (fullname def))
+||| What the registry makes of the definition at entry `i` (`Registered`):
+||| the hooks the registry, read once against the context, gives that entry
+||| (`Resolve.hooksAt`), and a foreign definition's by its specs, each
+||| library function they name interned once, where it enters the
+||| compiler.
+registeredOf : {auto c : Ref Ctxt Defs} -> RegistryRead -> Int -> GlobalDef -> Core Registered
+registeredOf registry i def = do
+  own <- interned (hooksAt registry i)
   case definition def of
     ForeignDef _ specs => BySpecs own <$> Interfaces.traverse @{%search} @{Applicative.CORE} interned
-                                                            (foreignHooks (fullname def) specs)
+                                                            (foreignHooksAt registry i specs)
     _ => pure (ByName own)
   where
     interned : Hooks QName -> Core (Hooks LibraryFunction)
@@ -308,13 +310,13 @@ registeredOf def = do
 ||| kept with the evidence of the body it was decoded from (`BodyRead`),
 ||| its clauses' patterns and its one clause; whether it ends
 ||| (`verdictOf`); and what the registry makes of it.
-readDefinition : {auto c : Ref Ctxt Defs} -> (i : Int) -> Placement -> (def : GlobalDef) -> (0 _ : LiveEntry i def) ->
-                 Core (Unfrozen i)
-readDefinition i p def live = do
+readDefinition : {auto c : Ref Ctxt Defs} -> RegistryRead -> (i : Int) -> Placement -> (def : GlobalDef) ->
+                 (0 _ : LiveEntry i def) -> Core (Unfrozen i)
+readDefinition registry i p def live = do
   ends <- verdictOf i def
   ty <- (.fst) <$> readTypeOf def
   Element m decoded <- bodyOf (definition def)
-  pure (MkUnfrozen p def live ty m decoded ends !(registeredOf def))
+  pure (MkUnfrozen p def live ty m decoded ends !(registeredOf registry i def))
   where
     bodyOf : (defn : Def) -> Core (Subset (Maybe Matched) (BodyRead defn))
     bodyOf (PMDef _ args body) = do
@@ -428,14 +430,19 @@ takesStatic fz ifs pt rig a = eitherHolds typeLike (case use rig of
 ||| (`Types.choiceFamily`), which function it is, so no polymorphic value
 ||| exists at run time either. A function on values whose result is an
 ||| implementation (`{y : Nat} -> Show (Tag y)`) takes neither: its type is
-||| an implementation's already (`implementationHolding`).
+||| an implementation's already (`implementationHolding`). A type whose
+||| result is a universe (`Type -> Type`) is a type family's, which a binder
+||| takes as a type parameter whatever its quantity (`Instances.keyingOf`):
+||| what it gives is a type, never a function value, so it is none.
 export
 polymorphicHolding : Frozen -> (interfaces : SortedSet Name) -> (pairType : Maybe Address) -> Term vs -> Holding
-polymorphicHolding fz ifs pt (Bind _ _ (Pi _ rig _ a) sc) =
-  eitherHolds (takesStatic fz ifs pt rig a) (polymorphicHolding fz ifs pt sc)
-polymorphicHolding fz ifs pt ty = case headed ty of
-  Undecided => ByInstance
-  _ => NoMember
+polymorphicHolding fz ifs pt ty = if isTypeLike ty then NoMember else binders ty
+  where
+    binders : Term ws -> Holding
+    binders (Bind _ _ (Pi _ rig _ a) sc) = eitherHolds (takesStatic fz ifs pt rig a) (binders sc)
+    binders t = case headed t of
+      Undecided => ByInstance
+      _ => NoMember
 
 ||| Is a value of this type (normalised), held at run time, a value of the
 ||| type's choice (`Types.choiceFamily`): a polymorphic function, or an
@@ -459,12 +466,18 @@ placesOf fz ifs pt normal = fst (go normal)
     taken (TDelayed _ _ inner) = choiceHolding fz ifs pt inner
     taken a = choiceHolding fz ifs pt a
 
+    -- Every type a type family's type gives after some of its arguments is
+    -- a type family's too, never a polymorphic function's
+    -- (`polymorphicHolding`).
+    family : Bool
+    family = isTypeLike normal
+
     -- The places of a type, with what the type is as a polymorphic
     -- function's, which the type one binder out is when it is one.
     go : Term vs -> (MemberPlaces, Holding)
     go (Bind _ _ (Pi _ rig _ a) sc) =
       let (rest, after) = go sc
-          here = eitherHolds (takesStatic fz ifs pt rig a) after in
+          here = if family then NoMember else eitherHolds (takesStatic fz ifs pt rig a) after in
       (MkMemberPlaces (taken a :: rest.given) (here ::: forget rest.gives), here)
     go t = (MkMemberPlaces [] (implementationHolding fz ifs pt t ::: []), polymorphicHolding fz ifs pt t)
 
@@ -671,22 +684,22 @@ record Met where
 ||| noted, as every metavariable is, wherever a term names it, read or not,
 ||| and refused once the context is frozen, where its solution is told
 ||| (`solutionAt`).
-readFrom : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 _ : SizeAccessible w) ->
+readFrom : {auto c : Ref Ctxt Defs} -> RegistryRead -> (w : Walked) -> (0 _ : SizeAccessible w) ->
            Met -> List Referent -> Core Met
-readFrom w acc met [] = pure met
-readFrom w acc@(Access rec) met (r :: rs) = do
+readFrom registry w acc met [] = pure met
+readFrom registry w acc@(Access rec) met (r :: rs) = do
   let met' = noted r
   Just (LiveAt i def live) <- readLive (referentName r)
-    | Nothing => readFrom w acc met' rs
+    | Nothing => readFrom registry w acc met' rs
   -- A negative entry is no place, which Idris's bare `Int` allows.
   let Just p = placementOf i
-    | Nothing => readFrom w acc met' rs
+    | Nothing => readFrom registry w acc met' rs
   case enter p w of
     -- Read already.
-    Nothing => readFrom w acc met' rs
+    Nothing => readFrom registry w acc met' rs
     Just (Element w' less) => do
-      d <- readDefinition i p def live
-      readFrom w' (rec w' less) ({ found $= Data.SortedMap.Dependent.insert i d } met') (referred d ++ rs)
+      d <- readDefinition registry i p def live
+      readFrom registry w' (rec w' less) ({ found $= Data.SortedMap.Dependent.insert i d } met') (referred d ++ rs)
   where
     noted : Referent -> Met
     noted (AMeta shownAs j) = { metavariables $= insert j shownAs } met
@@ -1103,14 +1116,16 @@ readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entr
 readProgram ifs entry fallback = do
   defs <- get Ctxt
   let pair = maybe [] (\ns => map ARef [pairType ns, fstName ns, sndName ns]) (pairnames (options defs))
-  met <- readFrom start (sizeAccessible start) (MkMet Data.SortedMap.Dependent.empty empty) (ARef entry :: pair)
-  -- The registry's entries the validation resolves, each definition's name
-  -- interned while the context may still be written.
-  sites <- registrySites
+  -- The registry read against the context once, before any definition is
+  -- read: each entry's name interned and resolved while the context may
+  -- still be written, so a definition read finds what the registry says
+  -- of it by the entry it is at.
+  registry <- readRegistry
+  met <- readFrom registry start (sizeAccessible start) (MkMet Data.SortedMap.Dependent.empty empty) (ARef entry :: pair)
   -- The context changes no more: frozen here, every normaliser reads it as
   -- frozen.
   fz <- host.freezeContext
-  Nothing <- validate fz sites fallback
+  Nothing <- validate fz registry fallback
     | Just refusal => pure (Left refusal)
   -- The pair's names resolved once, before any definition is read off its
   -- type: a pair of implementations is told by the pair type's address.

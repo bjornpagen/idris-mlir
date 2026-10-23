@@ -1036,7 +1036,7 @@ listedChain pa (S m) Here = (S m ** Refl)
 listedChain pa (S m) (There el) = listedChain pa m el
 
 ||| Every chain a holder's pairs are given draws measured arcs only: what
-||| a writing of held values in pairs writes (`Graph.packingTemplate`).
+||| a writing of held values in pairs writes (`State.packingTemplate`).
 export
 0 listedMeasured : (pa : Address) -> (m : Nat) -> Elem t (pairChainsUpTo pa m) -> DrawsMeasured t
 listedMeasured pa m el = case listedChain pa m el of

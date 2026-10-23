@@ -307,7 +307,7 @@ data Bearing = WithTypeConstructors | AddressesOnly
 
 -- What a set of headings carries beside one: in the flow's solution, the
 -- type constructor at a family's head, by the name and arity its reader
--- read (`Template.TypeConstructorAt`); nothing beside an implementation,
+-- read (`Readings.TypeConstructorAt`); nothing beside an implementation,
 -- which the flow and the split key by its address alone, whatever the set
 -- bears; nothing of no head, or of the running program's; and nothing
 -- beside a family's head by its address alone. Indexed by the kind and the
@@ -737,7 +737,7 @@ methodAt ds j k = case lookup j ds.holding of
 -- it is a method's; and through any other field, each method function its
 -- slot holds as a value, as the implementation field it is, which is what
 -- a constructor rebuilt from an implementation holds there
--- (`Sites.Repacks`). A dictionary a field holds, and a function that is no
+-- (`State.Repacks`). A dictionary a field holds, and a function that is no
 -- implementation's field, run no method of their own: a dispatch on the
 -- dictionary is a dispatch of its own, and the function's body is code
 -- where it is written.
@@ -1516,7 +1516,7 @@ Ord Holder where
 ||| writer's text, at the writer's node, where a `let` or a lambda's
 ||| argument binds a dictionary that closes over values
 ||| (`Place.BoundPlace`). Each holds the lists its givers give it
-||| (`Sites.HeldItem`), a binding the one list of what it closes over. A
+||| (`State.HeldItem`), a binding the one list of what it closes over. A
 ||| field holds what its dictionary holds, which its dictionary's place
 ||| bounds, so no list is given at one; it is where a rebuilt constructor's
 ||| field lands.
@@ -1890,7 +1890,7 @@ reaches fl v s = from s.reach
       MkReached (Entering target s.writerDef) (atOwnPositions s.arguments ++ [dictionary]) Called ::
         map (filling x) r.fillings
 
-    from : Reach -> List (Reached GlobalDef)
+    from : SiteReach -> List (Reached GlobalDef)
     from (Calls t d) = let placed = atOwnPositions s.arguments in
                        map (\hs => MkReached (Entering (MkVisit t hs) d.def) placed Called) (combinations (passed placed Data.SortedMap.empty))
     from (Builds t d) = [MkReached (Entering (MkVisit t []) d.def) (atOwnPositions s.arguments) Called]
