@@ -40,7 +40,7 @@ inline Facts decideTails(FuncOp fn) {
   for (mlir::Operation *source : tail::sourcesOf(fn))
     if (auto call = llvm::dyn_cast<CallOp>(source))
       call.setTailKind(TailKind::tail);
-  return llvm::any_of(had, [](const std::pair<CallOp, TailKind> &was) {
+  return llvm::any_of(had, [](std::pair<CallOp, TailKind> was) {
            return was.first.getTailKind() != was.second;
          })
              ? Facts::Changed

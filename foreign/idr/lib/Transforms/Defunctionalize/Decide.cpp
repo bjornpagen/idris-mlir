@@ -101,7 +101,7 @@ void Decision::note(ArrayRef<Slot> slots, ArrayRef<Type> types) {
       continue;
     families.push_back(Family{*slot, DataType(), DataType(), Dispatcher{}});
     // A suspension's forced value is a slot of its own.
-    match(
+    idr::match(
         labelCarrierOf(*slot), [](const carrying::Closure &) {},
         [&](const carrying::Suspension &suspension) {
           LazyType lazy = suspension.type.get();
@@ -278,7 +278,7 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   // cell's indices, the index terms its key's carrier names, which every
   // slot of the key holds.
   for (Family &family : d.families) {
-    LogicalResult defined = match(
+    LogicalResult defined = idr::match(
         labelCarrierOf(family.key), [](const carrying::Closure &) { return success(); },
         [&](const carrying::Suspension &) -> LogicalResult {
           FailureOr<FuncOp> force = d.defineForce(family);

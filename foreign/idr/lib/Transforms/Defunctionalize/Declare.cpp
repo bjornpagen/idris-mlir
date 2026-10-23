@@ -56,7 +56,7 @@ namespace {
 // The arguments a label of `carrier` is called with besides its captures,
 // as the carrier answers: a closure's inputs, or none for a suspension.
 unsigned arity(const LabelCarrier &carrier) {
-  return match(carrier, [](const OneOf<carrying::Closure, carrying::Suspension> auto &labels) {
+  return idr::match(carrier, [](const OneOf<carrying::Closure, carrying::Suspension> auto &labels) {
     return labels.arity();
   });
 }
@@ -72,7 +72,7 @@ StringAttr nameOf(MLIRContext *ctx, const Key &key) {
   for (auto [at, word] : llvm::enumerate(words))
     llvm::support::endian::write64le(bytes.data() + 8 * at, word);
   llvm::XXH128_hash_t digest = llvm::xxh3_128bits(bytes);
-  llvm::SmallString<40> name(match(
+  llvm::SmallString<40> name(idr::match(
       labelCarrierOf(key), [](const carrying::Closure &) -> llvm::StringRef { return "fn."; },
       [](const carrying::Suspension &) -> llvm::StringRef { return "lazy."; }));
   llvm::raw_svector_ostream os(name);
@@ -172,7 +172,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
           }
           // A memo family's two states follow its labels: the unforced,
           // which holds nothing, and the forced, which holds the value.
-          match(
+          idr::match(
               carrier, [](const carrying::Closure &) {},
               [&](const carrying::Suspension &suspension) {
                 LazyType lazy = suspension.type.get();
@@ -284,7 +284,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
               // names at the family's places.
               FunctionType type = fn.getFunctionType();
               unsigned n = type.getNumInputs() - arity(carrier);
-              Type own = match(
+              Type own = idr::match(
                   carrier,
                   [&](const carrying::Closure &) -> Type {
                     return FnType::get(ctx, type.getInputs().drop_front(n), type.getResults());
@@ -298,7 +298,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
               if (IndexBindersAttr bound = fn.getBindersAttr())
                 binders = bound.getSorts();
               families::LabelDecl decl{label.getAttr(), label, binders, terms, fields};
-              match(
+              idr::match(
                   carrier, [&](const carrying::Closure &) { decls.push_back(decl); },
                   [&](const carrying::Suspension &) {
                     memos.push_back({atoms[graph.id(label)].contains(effects::Atom::io)
@@ -308,7 +308,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
                   });
             }
             StringAttr name = nameOf(ctx, k);
-            return match(
+            return idr::match(
                 carrier,
                 [&](const carrying::Closure &) -> families::Member {
                   return families::ClosuresMember{name, indices, decls};

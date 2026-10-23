@@ -323,7 +323,7 @@ std::optional<ClassId> Function::known(const Constant &value, Type type) {
     return forest.find(classOfNode(*found));
   if (nodes.size() >= budget)
     return std::nullopt;
-  return classOfNode(make(std::move(node), factsOf(value)));
+  return classOfNode(make(std::move(node), detail::factsOf(value)));
 }
 
 bool Function::placeable(const Facts &facts, Type type) const {
