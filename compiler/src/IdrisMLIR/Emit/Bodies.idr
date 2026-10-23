@@ -500,19 +500,34 @@ inCodeOf (LocalCode d) act = do
 sortsOf : TargetF f s nv k -> List Sort
 sortsOf (MkTargetF _ _ sorts _ _ _) = sorts
 
+||| What begins each join region of an `idr.loop`, a region that may run
+||| again: `idr.may_loop`, the divergence of a region repeated for ever,
+||| unless Idris proved that every loop through the function stays in the
+||| one component it names, whose calls decrease. A function with no loop
+||| of its own (`Acyclic`) has no proof for a loop it holds.
+repeats : Loc -> E ()
+repeats l = do
+  t <- gets (.termination)
+  case t of
+    Terminates _ => pure ()
+    Acyclic => statement l Idr.mayLoopOp
+    MayDiverge _ => statement l Idr.mayLoopOp
+
 ||| A join op, by its member's builder: its body, a region entered once,
 ||| which begins with one token per join point and sees them after those
 ||| around the op; and a region per join point, which gets its tokens (a
 ||| loop's every region begins with them; a join's begin with none) and
-||| sees the join points its member lets it see (`regionTokens`), binds its
-||| erased binders at the next levels and its parameters as its arguments,
-||| and is code of the definition it is. They rejoin at the op's results as
-||| a match's cases do.
+||| sees the join points its member lets it see (`regionTokens`), begins
+||| with what its member says of a region that runs again (`begins`: a
+||| join's none, a loop's `repeats`), binds its erased binders at the next
+||| levels and its parameters as its arguments, and is code of the
+||| definition it is. They rejoin at the op's results as a match's cases
+||| do.
 joined : {0 js, s, ts : List Nat} -> {0 nv : Nat} ->
          Index -> Loc -> Scope js nv -> Wanted -> (MlirAttr -> MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
-      -> (regionTokens : E (All Reach s, List Argument))
+      -> (regionTokens : E (All Reach s, List Argument)) -> (begins : Loc -> E ())
       -> All (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
-joined ix l sc w member regionTokens targets body = do
+joined ix l sc w member regionTokens begins targets body = do
   (own, tokens) <- reaching l (length sc.telescope) targets
   (res, ops) <- collect (plain ix l (body.result (MkScope sc.vars sc.telescope (sc.targets ++ own))
                                                 ({ binder := Nothing } w)))
@@ -525,8 +540,10 @@ joined ix l sc w member regionTokens targets body = do
     region (MkTargetF {k} tl code sorts given params rbody) = do
       (reach, tokens) <- regionTokens
       (vals, args) <- parametersOf ix tl given params
-      (res, ops) <- collect $ inCodeOf code $
-        plain ix tl (rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w))
+      (res, ops) <- collect $ do
+        begins tl
+        inCodeOf code $
+          plain ix tl (rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w))
       pure (MkCase 0 (MkArm (tokens ++ args) res ops))
 
     regionsOf : All (TargetF (Sub Em) s nv) ts' -> E (List Case)
@@ -899,14 +916,16 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
       (rest, final) <- readExtents j (S a) ({ name := Bound n 1 } arr)
       pure (Whole (val (Bound n 0) (NatT IOpaque) Many made) :: rest, final)
 -- The join points the program as written makes: an `idr.join`, whose
--- regions see only the join points around it, or an `idr.loop`, whose
--- every region begins with its tokens, so its regions may jump among
--- themselves.
+-- regions see only the join points around it, so each runs at most once;
+-- or an `idr.loop`, whose every region begins with its tokens, so its
+-- regions may jump among themselves, each one saying whether it may
+-- repeat for ever (`repeats`).
 alg ix (JoinF l InBody targets body) sc w =
-  joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (pure (sc.targets, [])) targets body
+  joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (pure (sc.targets, [])) (\_ => pure ())
+         targets body
 alg ix (JoinF l InEveryRegion targets body) sc w =
   joined ix l sc w (\bs, d, rs, results => Idr.loopOp bs [] d rs results)
-         (mapFst (\own => sc.targets ++ own) <$> reaching l (length sc.telescope) targets) targets body
+         (mapFst (\own => sc.targets ++ own) <$> reaching l (length sc.telescope) targets) repeats targets body
 -- A jump passes its join point's parameters their arguments, at the types
 -- its region binds them at with its erased binders given the jump's
 -- terms, and ends its region: control goes on in the region its token
