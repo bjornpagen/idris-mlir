@@ -2582,6 +2582,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   stays refused as `unsupported` (`tests/pragma-transform`). The rules an
   implementation's methods generate are not pragmas and go with what
   reads them.
+- **C272** (2026-10-23; L16ei's F-F2, under AGENTS.md's lossless rule
+  and D48). An index the instance key erases is an index parameter of the
+  instance, and each call passes its term, so a closure's type keeps the
+  index its caller names (`summed = sum . toList` at `Vect n`: `(.)`'s
+  instance takes `n` as an index parameter, and the call passes `v0`).
+  Rejected: erasing a closure type's indices, which loses what the type
+  states, lays closure arguments out as at unknown indices, and needs
+  opaque-to-level reindexes inside lambdas the scope rule refuses.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
