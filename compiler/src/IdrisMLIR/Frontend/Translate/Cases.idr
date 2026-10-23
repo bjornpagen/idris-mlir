@@ -94,30 +94,15 @@ mutual
 ||| value.
 data Step = Argument Nat Nat | DelayedType | DelayedValue
 
-||| A constructor a compile-time match found an implementation built with:
-||| the constructor, its arguments as the reduction gave them, the one a
-||| part the match bound is, and that part's type, its binder's in the
-||| constructor's type closed over the arguments before it.
-record Opened where
-  constructor MkOpened
-  con : Name
-  args : List ClosedTerm
-  at : Nat
-  partType : ClosedTerm
-
 ||| Where a variable of a case tree's scope stands in every clause of its
 ||| definition: one of the definition's parameters, then the step each
 ||| match that bound it took, outermost first. A tree's matches bind the
 ||| same parts for every clause, so a variable's place is the tree's, and
-||| each leaf reads it in its own clause. A part a compile-time match took
-||| out of a parameter's implementation also keeps the constructor each
-||| such match on the way found (`opened`, outermost first), so the
-||| implementation is rebuilt around the part with nothing reduced again.
+||| each leaf reads it in its own clause.
 record Place where
   constructor MkPlace
   parameter : Nat
   steps : SnocList Step
-  opened : SnocList Opened
 
 ||| A definition's clauses, each its places as the case builder read them,
 ||| read once with the definition, by the index a leaf of its tree names;
@@ -136,7 +121,7 @@ clauses args pats = MkClauses (map patternsOf pats) (rooted 0 args)
   where
     rooted : Nat -> (vs : Scope) -> ByVar vs Place
     rooted i [] = []
-    rooted i (_ :: vs) = MkPlace i [<] [<] :: rooted (S i) vs
+    rooted i (_ :: vs) = MkPlace i [<] :: rooted (S i) vs
 
 -- Lists of equal successor lengths have tails of equal lengths.
 0 tailsAgree : {0 m, n : Nat} -> S m = S n -> m = n
@@ -161,26 +146,6 @@ withArgs part args (MkVar {varIdx} prf) (MkClauses pats ps) =
 afterCon : (args : List Name) -> Var vars -> Clauses vars -> Clauses (Scope.addInner vars args)
 afterCon args = let k = length args in withArgs (\j, at => { steps $= (:< Argument j k) } at) args
 
-||| The clauses inside a compile-time match's alternative of the
-||| constructor an implementation was found built with, applied to `cargs`:
-||| as `afterCon`, each argument's place also keeping that constructor and
-||| the argument's type, one of `typed` per argument.
-afterOpen : (con : Name) -> (cargs : List ClosedTerm) -> (args : List Name) -> (typed : List (p, ClosedTerm)) ->
-            (0 _ : length typed = length args) -> Var vars -> Clauses vars -> Clauses (Scope.addInner vars args)
-afterOpen con cargs args typed same (MkVar {varIdx} prf) (MkClauses pats ps) =
-  MkClauses pats (bound (lookupVar varIdx prf ps) 0 args typed same ps)
-  where
-    -- Argument `j` and those after it, of the place `at`, each with its
-    -- type.
-    bound : Place -> Nat -> (as : List Name) -> (ts : List (p, ClosedTerm)) -> (0 _ : length ts = length as) ->
-            ByVar vs Place -> ByVar (Scope.addInner vs as) Place
-    bound at j [] [] _ rest = rest
-    bound at j (_ :: as) ((_, ty) :: ts) same' rest =
-      { steps $= (:< Argument j (length args)), opened $= (:< MkOpened con cargs j ty) } at
-        :: bound at (S j) as ts (tailsAgree same') rest
-    bound at j [] (_ :: _) Refl _ impossible
-    bound at j (_ :: _) [] Refl _ impossible
-
 ||| The clauses inside a match on a suspension, which binds its type and
 ||| its value in front of the scope.
 afterDelay : Var vars -> Clauses vars -> Clauses (Scope.addInner vars [ty, arg])
@@ -191,7 +156,7 @@ afterDelay (MkVar {varIdx} prf) (MkClauses pats ps) =
 ||| The binders a clause names the part at a place by; none where the
 ||| clause does not take the place apart as the tree did.
 namesAt : List Pattern -> Place -> List Name
-namesAt pats (MkPlace i steps _) = maybe [] (.names) (getAt i pats >>= follow (steps <>> []))
+namesAt pats (MkPlace i steps) = maybe [] (.names) (getAt i pats >>= follow (steps <>> []))
   where
     follow : List Step -> Pattern -> Maybe Pattern
     follow [] p = Just p
@@ -508,6 +473,20 @@ route (DefaultCase _ :: rest) = case route rest of
   OnConstructors cn _ => OnConstructors cn AtDefault
   OnConstants _ => OnConstants AtDefault
 
+||| Where an implementation a compile-time match takes apart stands: the
+||| whole implementation a parameter of the instance is given, or a part
+||| earlier matches took out of one, with the constructors they found it
+||| inside (`Opened`, the innermost first). Essential: a part is put back
+||| into its parameter's implementation where no reduction reaches it
+||| (`heldHere`), and the whole has nothing to be put back into.
+data Taken = WholeParameter | TakenOut (List1 Opened)
+
+||| The constructors a match found the implementation inside, the
+||| innermost first: none around a parameter's whole implementation.
+openedOf : Taken -> List Opened
+openedOf WholeParameter = []
+openedOf (TakenOut opened) = forget opened
+
 mutual
   ||| A case tree over its scope's variables, and where they stand in the
   ||| definition's clauses (`Clauses`). Each leaf's term starts a path of its
@@ -533,8 +512,10 @@ mutual
       -- erasure check lets the compile-time tree match one only where its
       -- type forces the alternative; its fields are erased too.
       TypeValue _ => forced alts
-      -- A match on an implementation selects its alternative now.
-      Static t hole given => staticCase ctx env cls scrutinee t hole given alts
+      -- A match on an implementation selects its alternative now: a
+      -- parameter's whole, or a part an earlier match took out of one.
+      Static t hole given => staticCase ctx env cls scrutinee t hole given WholeParameter alts
+      Part t hole given opened => staticCase ctx env cls scrutinee t hole given (TakenOut opened) alts
       v@(Runtime i t) => case coreOf t of
         Just WorldT => world alts
         _ => runtime loc v i
@@ -799,58 +780,73 @@ mutual
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DelayCase {} :: _) _ impossible
 
   ||| A match on a compile-time value: the implementation is reduced to its
-  ||| constructor, and the alternative's variables stand for its arguments.
-  ||| An argument that mentions the runtime value the implementation closes
-  ||| over closes over it too, and every argument is of the parameter the
-  ||| implementation is (`given`). A field no compile-time reduction reaches
-  ||| is computed where the match reaches it (`heldHere`).
+  ||| constructor, and the alternative's variables stand for its arguments,
+  ||| each a part taken out of it (`Taken`). An argument that mentions the
+  ||| runtime value the implementation closes over closes over it too, and
+  ||| every argument is of the parameter the implementation is (`given`). A
+  ||| part no compile-time reduction reaches is computed where the match
+  ||| reaches it (`heldHere`).
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-               ClosedTerm -> Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) ->
+               ClosedTerm -> Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) -> Taken ->
                List (CaseAlt vars) -> Front (Term nv)
-  staticCase ctx env cls scrutinee t hole given alts = do
-    -- No parameter is such a form: an implementation is a parameter's form
-    -- only where the program fixes it now, its head the constructor
-    -- (`Closed.fixing`); one the running program chooses is passed as a
-    -- choice (`Instances.classify`) and translated as the computation it is
-    -- (`Terms.memberHere`), so each member a dispatch fixes reduces. A
-    -- field of a fixed implementation that the running program chooses is
-    -- a value the parameter holds, and an instance given one is split by
-    -- the members of its choice (`Choices.heldDispatch`), so its tree takes
-    -- apart the member. What reaches here stuck is a field of a fixed
-    -- implementation that no compile-time reduction reaches: one a
-    -- definition Idris does not prove ends computes, or one computed from
-    -- the values the implementation closes over.
+  staticCase ctx env cls scrutinee t hole given taken alts = do
+    -- An implementation is a parameter's form only where the program fixes
+    -- it now, its head the constructor (`Closed.fixedAt`); one the running
+    -- program chooses is passed as a choice (`Instances.classify`) and
+    -- translated as the computation it is (`Terms.memberHere`), so each
+    -- member a dispatch fixes reduces. A field of a fixed implementation
+    -- that the running program chooses is a value the parameter holds, and
+    -- an instance given one is split by the members of its choice
+    -- (`Choices.heldDispatch`), so its tree takes apart the member. What
+    -- reaches here stuck is a part of a fixed implementation that no
+    -- compile-time reduction reaches: one a definition Idris does not prove
+    -- ends computes, or one computed from the values the implementation
+    -- closes over.
     Built cn cargs <- whnf t
-      | Stuck on => heldHere on
+      | Stuck on => case taken of
+          TakenOut opened => heldHere opened on
+          -- Kept: the classification keys a parameter by an implementation
+          -- only where its reading's form reduces (`Closed.fixedAt`, off
+          -- the reduct `Template.dictionaryReading` keeps, the reduction
+          -- made again here), but the parameter's kind holds the form and
+          -- not that reduct, and a dispatch's arm is given a member's form
+          -- no such decision was made on, so its being stuck is no state
+          -- the types rule out.
+          WholeParameter => internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
     cn <- fullName cn
     con <- lookupDef ctx.fc ctx.owner cn
-    pick cn cargs (typedParts none con.binders cargs) alts
+    pick cn cargs (typedParts cn cargs 0 none con.binders cargs) alts
     where
-      info : ArgumentAt -> ClosedTerm -> VarInfo kc OfTree (Fin nv)
-      info (RuntimeValue _) v = Static v (if mentionsHole v then hole else Nothing) given
-      info _ v = TypeValue v
+      -- What a constructor's argument stands for: a runtime value of it, a
+      -- part taken out of the implementation, with the constructor it was
+      -- found built with (`o`) inside those the matches before found.
+      info : Opened -> ArgumentAt -> ClosedTerm -> VarInfo kc OfTree (Fin nv)
+      info o (RuntimeValue _) v = Part v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken)
+      info _ _ v = TypeValue v
 
-      -- Each argument of the constructor, as many as its type shows
-      -- binders and the reduction gave arguments: what its variable
-      -- stands for, and its type, its binder's closed over the arguments
-      -- before it.
-      typedParts : Given ws -> Binders ArgumentAt ws -> List ClosedTerm -> List (VarInfo kc OfTree (Fin nv), ClosedTerm)
-      typedParts g (ShowsBinder at ty rest) (v :: vs) = (info at v, close g ty) :: typedParts (give v g) rest vs
-      typedParts _ _ _ = []
+      -- Each argument of the constructor `cn`, applied to `cargs`, as many
+      -- as its type shows binders and the reduction gave arguments, the
+      -- next at position `j`: what its variable stands for, and its type,
+      -- its binder's closed over the arguments before it.
+      typedParts : Name -> List ClosedTerm -> (j : Nat) -> Given ws -> Binders ArgumentAt ws -> List ClosedTerm ->
+                   List (VarInfo kc OfTree (Fin nv), ClosedTerm)
+      typedParts cn cargs j g (ShowsBinder at ty rest) (v :: vs) =
+        let partType = close g ty in
+        (info (MkOpened cn cargs j partType) at v, partType) :: typedParts cn cargs (S j) (give v g) rest vs
+      typedParts _ _ _ _ _ _ = []
 
       -- The alternative of the constructor `cn` the implementation was
-      -- found built with, applied to `cargs`, which each place it binds
-      -- keeps with its type (`afterOpen`); else the default. With
-      -- neither, no alternative takes the value: the missing case, as any
-      -- match's.
+      -- found built with, applied to `cargs`, whose parts each place it
+      -- binds stands for (`typed`); else the default. With neither, no
+      -- alternative takes the value: the missing case, as any match's.
       pick : Name -> List ClosedTerm -> List (VarInfo kc OfTree (Fin nv), ClosedTerm) -> List (CaseAlt vars) -> Front (Term nv)
       pick cn cargs typed (ConCase con _ args rhs :: rest) = do
         full <- fullName con
         if full /= cn then pick cn cargs typed rest else do
           let Yes same = decEq (length typed) (length args)
             | No _ => reject ctx.fc ctx.owner CompiledModule ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
-          tree ctx (prepend (byVarFrom args fst typed same) env) (afterOpen cn cargs args typed same scrutinee cls) rhs
+          tree ctx (prepend (byVarFrom args fst typed same) env) (afterCon args scrutinee cls) rhs
       pick cn cargs typed (DefaultCase rhs :: _) = tree ctx env cls rhs
       pick cn cargs typed (_ :: rest) = pick cn cargs typed rest
       pick cn cargs typed [] = missingCase ctx <$> toLoc ctx.fc
@@ -869,22 +865,18 @@ mutual
 
       -- A parameter's implementation with the part a match took out of it
       -- a value it holds, marker `m`: rebuilt around the part from the
-      -- constructors the compile-time matches on the way found (`inner`,
-      -- the one the part is an argument of, and those `outer` to it), the
-      -- innermost first, with nothing reduced again; and the part's type.
-      holding : (m : Nat) -> (inner : Opened) -> (outer : SnocList Opened) -> Front (ClosedTerm, ClosedTerm)
-      holding m inner outer = do
+      -- constructors the compile-time matches on the way found, the
+      -- innermost first (the one the part is an argument of, then those
+      -- outer to it), with nothing reduced again; and the part's type.
+      holding : (m : Nat) -> List1 Opened -> Front (ClosedTerm, ClosedTerm)
+      holding m (inner ::: outer) = do
         ty <- normaliseClosed inner.partType
         part <- rebuilt inner.con inner.at (holeMarker m) inner.args
         (, ty) <$> around part outer
         where
-          around : ClosedTerm -> SnocList Opened -> Front ClosedTerm
-          around part [<] = pure part
-          around part (fs :< f) = rebuilt f.con f.at part f.args >>= \p => around p fs
-
-      -- Where the matched variable stands in the clauses.
-      placeOf : Var vars -> Place
-      placeOf (MkVar {varIdx} prf) = lookupVar varIdx prf cls.places
+          around : ClosedTerm -> List Opened -> Front ClosedTerm
+          around part [] = pure part
+          around part (f :: fs) = rebuilt f.con f.at part f.args >>= \p => around p fs
 
       -- The variable that holds the value of parameter `i` at run time, as
       -- the tree's scope binds it: the parameter itself, at its own place,
@@ -895,7 +887,7 @@ mutual
         where
           go : List (Place, VarInfo kc OfTree (Fin nv)) -> Maybe (Fin nv)
           go [] = Nothing
-          go ((MkPlace j [<] _, v) :: rest) = if i == j then valueOf v else go rest
+          go ((MkPlace j [<], v) :: rest) = if i == j then valueOf v else go rest
           go (_ :: rest) = go rest
 
           valueOf : VarInfo kc OfTree (Fin nv) -> Maybe (Fin nv)
@@ -930,23 +922,17 @@ mutual
       -- tested values, which that instance tests again. A field that is no
       -- implementation is never taken apart, and is refused as it is. The
       -- parameter the implementation is of, its position among the
-      -- instance's and the values it holds, is the entry's (`given`).
-      heldHere : StuckOn -> Front (Term nv)
-      heldHere on = do
-        let place = placeOf scrutinee
+      -- instance's and the values it holds, is the entry's (`given`), and
+      -- so are the constructors the matches on the way found (`opened`).
+      heldHere : List1 Opened -> StuckOn -> Front (Term nv)
+      heldHere opened on = do
         let r = ctx.request
         let own = replace {p = \n => Vect n PKind} ctx.counts (Data.Vect.fromList ctx.request.signature.kinds)
         let position = given.position
         let parameter = finToNat position
         let held = map snd given.holding
-        -- The part is where the compile-time matches on the way took it
-        -- out of the parameter's implementation. With none, it would be
-        -- the implementation itself, whose head `Closed.fixing` makes a
-        -- constructor, which the kind does not carry.
-        let (outer :< inner) = place.opened
-          | [<] => internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
         let count = maybe 0 (length . forget . (.types)) held
-        (form', fieldType) <- holding count inner outer
+        (form', fieldType) <- holding count opened
         Just _ <- choiceType fieldType
           | Nothing => reject ctx.fc ctx.owner RuntimeClosure
                             ("an implementation's field no compile-time reduction reaches, matched where the " ++

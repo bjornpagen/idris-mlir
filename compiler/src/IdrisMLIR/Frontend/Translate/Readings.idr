@@ -3,8 +3,9 @@
 ||| The readings an instance is keyed by, and the relations they are built
 ||| of: the kinds of static argument, the markers a reading reads, how a
 ||| term is read (`ReadAs`, over a `Mode`), how a reading's form was read
-||| off its term (`FormFrom`), its root (`Root`), and an instance's
-||| reading of a static argument (`InstanceReading`). They are relations
+||| off its term (`FormFrom`), its root (`Root`), an instance's reading
+||| of a static argument (`InstanceReading`), and what a request holds of
+||| the site's term it reads (`HeldAs`). They are relations
 ||| and the pure functions their types name, and run none of the
 ||| frontend's computation, so they sit below the translation's state,
 ||| whose readings cache and requests hold an instance's reading beside the
@@ -1297,3 +1298,53 @@ splitting (Chosen _) = Nothing
 splitting (Gives _) = Nothing
 splitting (Parameter _ _) = Nothing
 splitting Unrooted = Nothing
+
+------------------------------------------------------------------------------
+-- What a request holds of a site's term
+------------------------------------------------------------------------------
+
+||| The kinds a request holds whole: every kind but a shape, whose request
+||| holds its skeleton.
+public export
+data WholeKind : Static -> Type where
+  WholeType : WholeKind AType
+  WholeFamily : WholeKind AFamily
+  WholeDictionary : WholeKind ADictionary
+  WholeForm : WholeKind AForm
+
+||| A shape cut where a callee's type stops needing it
+||| (`Instances.neededShape`, by `Closed.cutShape`): the shape whole, one
+||| erased hole where the cut is, or a constructor's application each part
+||| of which is cut so, rebuilt at its constructor's location. A cut keeps
+||| no node the shape does not, and an instance reads its hole as one leaf
+||| (`Proof.Covers.erasedReadAs`), which the site's node is written over
+||| (`Proof.Bound.AtCut`).
+public export
+data NeededCut : ClosedTerm -> ClosedTerm -> Type where
+  NeedsWhole : NeededCut s s
+  NeedsNone : NeededCut s (Erased fc Impossible)
+  NeedsBelow : NeededCut f f' -> NeededCut a a' -> NeededCut (App fc f a) (App fc' f' a')
+
+||| What a request holds of the term an instance writes at a static
+||| argument of kind k, which the instance's reading reads: at a shape, the
+||| skeleton (`SkeletonOf`, as `Instances.argumentShape` keys it) of the
+||| term as written, its unknowns solved as every written form is
+||| (`Solved`, the one solving), where a data constructor heads it, else of
+||| the host's normal form of it, cut where the callee's type stops needing
+||| it (`NeededCut`); at any other kind, the term itself. The solving is
+||| carried, not assumed away: a term whose unknowns the normaliser solves
+||| has the solution's skeleton, which the term's own cuts to a hole. A
+||| skeleton's hole stands for the node it cut, which the site's reading of
+||| a shape reads as a hole too (`nodeOf Skeleton`), so no rule takes a
+||| hole to the node a reading of the whole term would read there. This is
+||| the evidence a request carries with the site it reads: the site's
+||| term, with the requesting instance's values put in, holds as the
+||| request's argument.
+public export
+data HeldAs : Frozen -> Static -> ClosedTerm -> ClosedTerm -> Type where
+  HeldWhole : WholeKind k -> HeldAs ctx k u u
+  HeldWritten : (0 _ : Solved ctx u w) -> (0 _ : SkeletonOf w shape) -> (0 _ : NeededCut shape held) ->
+                HeldAs ctx AShape u held
+  HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : (s : ClosedTerm) -> Not (SkeletonOf w s)) ->
+               (0 r : Reduct OfNormaliseTypes ctx u) -> (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) ->
+               HeldAs ctx AShape u held

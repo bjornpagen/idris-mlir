@@ -94,6 +94,18 @@ record GivenParameter (kc : Nat) (a : Type) where
   position : Fin kc
   holding : Maybe (a, Holes)
 
+||| A constructor a compile-time match found an implementation built with:
+||| the constructor, its arguments as the reduction gave them, the one a
+||| part the match bound is, and that part's type, its binder's in the
+||| constructor's type closed over the arguments before it.
+public export
+record Opened where
+  constructor MkOpened
+  con : Name
+  args : List ClosedTerm
+  at : Nat
+  partType : ClosedTerm
+
 %prefix_record_projections on
 
 export
@@ -120,11 +132,19 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| value of that shape can. Its Idris type is the one before the shape.
   Shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo kc sp a
   TypeValue : ClosedTerm -> VarInfo kc sp a
-  ||| An implementation the instance is given: a parameter's, or a part a
-  ||| compile-time match took out of one, with the parameter it is of
+  ||| An implementation the instance is given, with the parameter it is of
   ||| (`GivenParameter`), built where the parameters are bound
-  ||| (`Programs.runtimeParams`).
+  ||| (`Programs.runtimeParams`): in a case tree's scope the parameter's
+  ||| own, in a term's that or a part a match took out of it (`Part`,
+  ||| which a term only uses).
   Static : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
+  ||| A part a compile-time match took out of an implementation the
+  ||| instance is given (`Cases.staticCase`), with the parameter it is of
+  ||| and the constructor each match on the way found it built with
+  ||| (`Opened`), the innermost first, so that a part no reduction reaches
+  ||| is put back into the implementation with nothing reduced again
+  ||| (`Cases.heldHere`). Only a case tree takes an implementation apart.
+  Part : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> VarInfo kc OfTree a
   ||| An implementation a term binds: a `let` of one, or one a lambda
   ||| applied there takes. No case tree's scope holds one.
   BoundHere : ClosedTerm -> Maybe (a, Holes) -> VarInfo kc OfTerm a
@@ -135,6 +155,7 @@ Functor (VarInfo kc sp) where
   map f (Shaped x t i sh) = Shaped (f x) t i sh
   map f (TypeValue t) = TypeValue t
   map f (Static t h p) = Static t (map (\(x, hs) => (f x, hs)) h) (map f p)
+  map f (Part t h p o) = Part t (map (\(x, hs) => (f x, hs)) h) (map f p) o
   map f (BoundHere t h) = BoundHere t (map (\(x, hs) => (f x, hs)) h)
 
 -- An entry's implementation and a term's (`implementationOf` below) are
@@ -146,16 +167,20 @@ namespace VarInfo
   export
   implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
   implementationOf (Static t h _) = Just (t, h)
+  implementationOf (Part t h _ _) = Just (t, h)
   implementationOf (BoundHere t h) = Just (t, h)
   implementationOf _ = Nothing
 
-||| A case tree's entry as a term's scope holds it, at a leaf.
+||| A case tree's entry as a term's scope holds it, at a leaf: a part of an
+||| implementation the instance is given, which no term takes apart, as an
+||| implementation of its parameter.
 export
 asTermEntry : VarInfo kc OfTree a -> VarInfo kc OfTerm a
 asTermEntry (Runtime x t) = Runtime x t
 asTermEntry (Shaped x t i sh) = Shaped x t i sh
 asTermEntry (TypeValue t) = TypeValue t
 asTermEntry (Static t h p) = Static t h p
+asTermEntry (Part t h p _) = Static t h p
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
@@ -346,6 +371,7 @@ closeWritten fc env tm = closeOver fc (map value env) tm
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t _ _) = t
+    value (Part t _ _ _) = t
     value (BoundHere t _) = t
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
@@ -700,19 +726,6 @@ expandClosed tm = either (const Nothing) Just <$> normalisedBy host.normalise tm
 -- Reduction to a head
 ------------------------------------------------------------------------------
 
-||| What a reduction is stuck on.
-public export
-data StuckOn
-  = ||| A runtime value: one an implementation closes over, a part of one
-    ||| its shape does not say, or a runtime variable.
-    OnRuntime ClosedTerm
-  | ||| A definition Idris does not prove ends, which Idris's normaliser
-    ||| would run.
-    OnPartial Name
-  | ||| A value that is no constructor application: a literal, a type, a
-    ||| function, a definition applied to fewer arguments than it takes.
-    OnValue ClosedTerm
-
 ||| What a compile-time value is at its head: a constructor applied to its
 ||| arguments, or the part its reduction is stuck on.
 public export
@@ -1028,14 +1041,6 @@ export
 whnf : ClosedTerm -> Front (Head ClosedTerm)
 whnf tm = map (\a => Force a.written) <$> reduce asWritten start (sizeAccessible start) [] tm []
 
-||| What an implementation the program fixes now reduces to at its head: an
-||| interface's constructor applied to its fields, which a tree that matches
-||| on the implementation takes apart at compile time; or a value of a
-||| function type, a lambda or a definition applied to fewer arguments than
-||| it takes, which each use applies in place.
-public export
-data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction ClosedTerm
-
 ||| Whether an implementation the program writes is one implementation now,
 ||| with the value it reduced to (`FixedNow`), so that a reader of the value
 ||| does not reduce it again, or one the running program chooses, with what
@@ -1043,29 +1048,25 @@ data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction Closed
 public export
 data Fixing = FixedNow FixedValue | ChosenAtRunTime StuckOn
 
-||| Whether an implementation of a type (normalised) is one the program
-||| fixes now. Of an interface's own type, it is when its head reduces to
-||| the interface's constructor, so a tree that matches on it takes the
-||| constructor apart. Of a function type (a constraint over a value, a
-||| polymorphic function), it is when it reduces to a value, a lambda or a
-||| definition applied to fewer arguments than it takes, which evaluating
-||| does nothing to, so each use may apply it in place. One stuck on a
+||| What an implementation's form reduces to at its head, whatever type it
+||| is given at: an interface's constructor applied to its fields; a value,
+||| a lambda or a definition applied to fewer arguments than it takes, which
+||| evaluating does nothing to; or what the reduction is stuck on: a
 ||| runtime value, even deep inside, where the reduction reports the
-||| definition it could not unfold (`ifThenElse` on a comparison of one),
-||| on a value no compile-time reduction passes, or on a definition Idris
-||| does not prove ends, is computed when the program runs, its value
-||| chosen among the members its computation fixes.
+||| definition it could not unfold (`ifThenElse` on a comparison of one), a
+||| value no compile-time reduction passes, or a definition Idris does not
+||| prove ends. A dictionary's reading reads it once (`DictionaryReading`).
 export
-fixing : (type, form : ClosedTerm) -> Front Fixing
-fixing type form = do
+reducedOf : ClosedTerm -> Front HeadReduct
+reducedOf form = do
   reduced <- whnf form
-  case (type, reduced) of
-    (_, Built n fields) => pure (FixedNow (FixedConstructor n fields))
-    (Bind _ _ (Pi {}) _, Stuck (OnValue v)) => do
+  case reduced of
+    Built n fields => pure (ReducesTo (FixedConstructor n fields))
+    Stuck (OnValue v) => do
       True <- aValue v
-        | False => pure (ChosenAtRunTime (OnValue v))
-      pure (FixedNow (FixedFunction v))
-    (_, Stuck on) => pure (ChosenAtRunTime on)
+        | False => pure (StuckAt (OnValue v))
+      pure (ReducesTo (FixedFunction v))
+    Stuck on => pure (StuckAt on)
   where
     aValue : ClosedTerm -> Front Bool
     aValue (Bind _ _ (Lam {}) _) = pure True
@@ -1077,6 +1078,29 @@ fixing type form = do
                 Just m => length args < length m.args
                 Nothing => False)
       _ => pure False
+
+||| Whether an implementation of a type (normalised) is one the program
+||| fixes now, decided off what its form reduces to (`reducedOf`). Of an
+||| interface's own type, it is when its head reduces to the interface's
+||| constructor, so a tree that matches on it takes the constructor apart.
+||| Of a function type (a constraint over a value, a polymorphic function),
+||| it is when it reduces to a value, which each use may apply in place; a
+||| value at a type that is no function's says nothing of which
+||| implementation it is. One stuck is computed when the program runs, its
+||| value chosen among the members its computation fixes.
+export
+fixedAt : (type : ClosedTerm) -> HeadReduct -> Fixing
+fixedAt _ (ReducesTo v@(FixedConstructor _ _)) = FixedNow v
+fixedAt (Bind _ _ (Pi {}) _) (ReducesTo v@(FixedFunction _)) = FixedNow v
+fixedAt _ (ReducesTo (FixedFunction v)) = ChosenAtRunTime (OnValue v)
+fixedAt _ (StuckAt on) = ChosenAtRunTime on
+
+||| Whether an implementation of a type (normalised) is one the program
+||| fixes now (`fixedAt`), its form reduced here (`reducedOf`), where no
+||| reading of it keeps what it reduces to.
+export
+fixing : (type, form : ClosedTerm) -> Front Fixing
+fixing type form = fixedAt type <$> reducedOf form
 
 ||| A projection applied to arguments, when it applies to all of them: the
 ||| field it takes from the constructor its record reduces to, applied to
@@ -1243,7 +1267,7 @@ mutual
   ||| does not say, is `hole`. Its body is public, and the spine is read
   ||| with its evidence (`Proof.Reading.spineOf`, which gathers the
   ||| arguments as `getFnArgs` does), so a proof sees what a cut keeps
-  ||| (`Template.cutShapeNeeded`).
+  ||| (`cutShapeNeeded`).
   public export
   cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
   cutShape hole Z _ = hole
@@ -1256,6 +1280,50 @@ mutual
   cutSpine : ClosedTerm -> Nat -> {0 tm : ClosedTerm} -> SpineOf tm -> ClosedTerm
   cutSpine hole d (MkSpineOf con@(Ref fc (DataCon _ _) _) args _) = foldl (App fc) con (map (cutShape hole d) args)
   cutSpine hole d (MkSpineOf _ _ _) = hole
+
+-- Rebuilding over a spine one argument longer is the spine before it,
+-- rebuilt, applied to the last argument's image.
+0 rebuiltSnoc : (fc : FC) -> (g : ClosedTerm -> ClosedTerm) -> (h : ClosedTerm) -> (pre : List ClosedTerm) -> (a : ClosedTerm) ->
+                foldl (App fc) h (map g (pre ++ [a])) = App fc (foldl (App fc) h (map g pre)) (g a)
+rebuiltSnoc fc g h pre a = rewrite mapAppend g pre [a] in foldlAppend (App fc) h (map g pre) [g a]
+
+mutual
+  ||| The cut `Instances.neededShape` keeps (`cutShape`, with an erased
+  ||| hole) is a cut of the shape (`Readings.NeededCut`): at no depth left,
+  ||| the hole; else the spine's head, a data constructor rebuilt over its
+  ||| arguments each cut one level shallower, or any other head, the hole.
+  export
+  0 cutShapeNeeded : (d : Nat) -> (tm : ClosedTerm) -> NeededCut tm (cutShape (Erased EmptyFC Impossible) d tm)
+  cutShapeNeeded Z tm = NeedsNone
+  cutShapeNeeded (S d) tm = cutSpineNeeded d (spineOf tm)
+
+  0 cutSpineNeeded : (d : Nat) -> {0 tm : ClosedTerm} -> (sp : SpineOf tm) ->
+                     NeededCut tm (cutSpine (Erased EmptyFC Impossible) d sp)
+  cutSpineNeeded d (MkSpineOf (Ref fc (DataCon tag arity) n) args sp) = rebuiltNeeded d sp
+  cutSpineNeeded d (MkSpineOf (Local _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ Bound _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ Func _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ (TyCon _) _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Meta _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Bind _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (App _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (As _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TDelayed _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TDelay _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TForce _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (PrimVal _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Erased _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TType _ _) _ _) = NeedsNone
+
+  -- A spine whose arguments are each cut, rebuilt over its head at one
+  -- location: the last argument applied last, so the rebuilt term is the
+  -- spine before it rebuilt, applied to its cut.
+  0 rebuiltNeeded : (d : Nat) -> {0 fc : FC} -> {0 h : ClosedTerm} -> Spine t h args ->
+                    NeededCut t (foldl (App fc) h (map (cutShape (Erased EmptyFC Impossible) d) args))
+  rebuiltNeeded d Host.Head = NeedsWhole
+  rebuiltNeeded d {fc} {h} (Host.Applied {a} {args = pre} sp) =
+    rewrite rebuiltSnoc fc (cutShape (Erased EmptyFC Impossible) d) h pre a in
+    NeedsBelow (rebuiltNeeded d sp) (cutShapeNeeded d a)
 
 ||| What a shape leaves unknown of a runtime value, where a type is asked
 ||| whether it needs it: a reference to a definition that does not exist,
@@ -1796,6 +1864,7 @@ closeNormalise fc env tm = do
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t _ _) = t
+    value (Part t _ _ _) = t
     value (BoundHere t _) = t
     value (Shaped _ _ _ s) = s
     value (Runtime {}) = runtimeVariable

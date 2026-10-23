@@ -569,24 +569,28 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
                                 then maybe (pure True) runtimeDependent !(expandClosed written)
                                 else pure False
           -- An implementation that needs no runtime value keys the
-          -- instance when the program fixes it now (`fixing`): one a
-          -- definition Idris does not prove ends computes, or one stuck on
-          -- a value no compile-time reduction passes, is computed at run
-          -- time, a choice like any other.
+          -- instance when the program fixes it now, decided off what its
+          -- reading's form reduces to, which the reading keeps
+          -- (`Template.dictionaryReading`, `fixedAt`): one a definition
+          -- Idris does not prove ends computes, or one stuck on a value no
+          -- compile-time reduction passes, is computed at run time, a
+          -- choice like any other.
           if not dependent
             then do
-              FixedNow _ <- fixing a' val
+              d <- dictionaryReading val
+              let FixedNow _ = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
               static val Nothing
             else do
               -- One that still needs a runtime value to say which it is is
               -- chosen at run time, among those the program fixes, unless
-              -- its form says which it is whatever the values (`fixing`):
+              -- its form says which it is whatever the values (`fixedAt`):
               -- then only the values are passed.
               Just (shape, tys) <- v.holed
                 | Nothing => chosen q a'
               key <- implementationOf shape
-              FixedNow _ <- fixing a' key
+              d <- dictionaryReading key
+              let FixedNow _ = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
               static key (Just (MkHoles tys (MkBinder Many held)))

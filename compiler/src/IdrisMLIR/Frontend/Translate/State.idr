@@ -15,7 +15,9 @@ import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Forms
+import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Families.Group
@@ -366,6 +368,46 @@ record StaticReading where
   0 isHeight : height = readingHeight reading
   head : Maybe Address
   0 isHead : head = splitting reading.root
+
+||| What a reduction to a head is stuck on.
+public export
+data StuckOn
+  = ||| A runtime value: one an implementation closes over, a part of one
+    ||| its shape does not say, or a runtime variable.
+    OnRuntime ClosedTerm
+  | ||| A definition Idris does not prove ends, which Idris's normaliser
+    ||| would run.
+    OnPartial Name
+  | ||| A value that is no constructor application: a literal, a type, a
+    ||| function, a definition applied to fewer arguments than it takes.
+    OnValue ClosedTerm
+
+||| What an implementation the program fixes now reduces to at its head: an
+||| interface's constructor applied to its fields, which a tree that matches
+||| on the implementation takes apart at compile time; or a value of a
+||| function type, a lambda or a definition applied to fewer arguments than
+||| it takes, which each use applies in place.
+public export
+data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction ClosedTerm
+
+||| What an implementation's form reduces to at its head, whatever type it
+||| is given at (`Closed.reducedOf`): a value the program fixes, or what the
+||| reduction is stuck on. Whether a function value is fixed is its type's
+||| to say, read where it is given (`Closed.fixedAt`).
+public export
+data HeadReduct = ReducesTo FixedValue | StuckAt StuckOn
+
+||| A dictionary's static argument as an instance's reading reads it
+||| (`StaticReading`), with what the reading's form reduces to at its head
+||| (`HeadReduct`), found once where it was read: whether the program fixes
+||| the dictionary is decided from it at each parameter it is given at
+||| (`Closed.fixedAt`), and nothing reduces the form again.
+public export
+record DictionaryReading where
+  constructor MkDictionaryReading
+  asStatic : StaticReading
+  0 ofDictionary : asStatic.readKind = ADictionary
+  reduct : HeadReduct
 
 %prefix_record_projections off
 ||| What a pattern-matching definition's body is to the translation, read
@@ -1132,7 +1174,8 @@ definedIn r n = do
 ||| static argument a request has given, read (`StaticReading`), by its
 ||| kind and as a link writes it (`Keys.write`), which tells two arguments
 ||| apart as Idris's `==` does, so an argument read for one request is read
-||| for every other.
+||| for every other: a dictionary with what its form reduces to
+||| (`DictionaryReading`), every other kind by itself.
 |||
 ||| The instance table is these facts as the worklist has merged them
 ||| (`merged`); a step's derivation is these facts as the step made or
@@ -1154,11 +1197,12 @@ record Facts where
   dispatchesOn : SortedMap FamilyId (List Dispatch)
   dispatchArms : SortedMap FnId (SortedMap Nat DispatchArm)
   readings : SortedMap (Static, Written Form) StaticReading
+  dictionaries : SortedMap (Written Form) DictionaryReading
 
 ||| No fact.
 export
 noFacts : Facts
-noFacts = MkFacts empty 0 empty [<] empty [<] empty empty empty empty empty empty empty empty
+noFacts = MkFacts empty 0 empty [<] empty [<] empty empty empty empty empty empty empty empty empty
 
 ||| What one step of the translation derived (`Programs.step`): the facts it
 ||| made or changed, among them its instance's function, by its identity,
@@ -1190,12 +1234,22 @@ merged t d =
           (over f.instances t.instances)
           (t.fnOrder ++ f.fnOrder) (over f.fns t.fns) (over f.named t.named) (over f.keyLinks t.keyLinks)
           (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatchesOn t.dispatchesOn)
-          (over f.dispatchArms t.dispatchArms) (over f.readings t.readings)
+          (over f.dispatchArms t.dispatchArms) (over f.readings t.readings) (over f.dictionaries t.dictionaries)
   where
     -- The step's entries over the table's, the step's kept where both
     -- hold a key.
     over : SortedMap k v -> SortedMap k v -> SortedMap k v
     over step table = insertFrom (SortedMap.toList step) table
+
+||| The growth check's graph and the growth theorem's model it was drawn
+||| from (`Growth.checkGrowth`), whose sites are the table of every place
+||| the program writes a static argument at: what the proof that the
+||| worklist ends states each request's argument against.
+public export
+record GrowthModel where
+  constructor MkGrowthModel
+  graph : Graph
+  model : Model graph
 
 public export
 record TS where
@@ -1243,6 +1297,11 @@ record TS where
   ||| universe the worklist descends in (`Proof.Requests.Bounds`).
   ||| Nothing is within it until the growth check writes it.
   sizes : Bounds
+  ||| The growth check's graph and model (`GrowthModel`), written by the
+  ||| growth check once, before the translation, beside the bounds it
+  ||| derives from them. Until then the model of the graph with no
+  ||| position, which has no site, so no request can name a site in it.
+  0 growth : GrowthModel
 
 export
 initState : Read -> Modules -> NonEmptyFC -> TS
@@ -1251,7 +1310,8 @@ initState r loaded fc = MkTS
   , table = noFacts, derived = startingFrom noFacts
   , moduleFC = fc, rejected = [<], refused = empty
   , spelled = empty, modules = loaded, bounds = empty
-  , sizes = MkBounds (const []) 0 0 0 }
+  , sizes = MkBounds (const []) 0 0 0
+  , growth = MkGrowthModel (MkGraph 0 [] 0 []) (MkModel [] (\_, _ => []) (\_ => []) (\_ => Nothing) (\_ => []) 0) }
 
 ||| A fact of the instance table as the step being run reads it: what the
 ||| step derived, which supersedes the table's, else what the table holds.

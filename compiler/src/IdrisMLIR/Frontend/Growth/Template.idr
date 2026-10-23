@@ -1916,17 +1916,46 @@ readInstance ctx AShape t = do
       pure (MkInstanceReading c.etaForm (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.fst r.snd Unrooted)
     _ => normalInstance ctx noRoot t
 
+-- What the translation keeps of an instance's reading: the reading itself,
+-- at quantity 0, and what it reads of it, each the reading's by type.
+keptReading : InstanceReading ctx k t -> StaticReading
+keptReading r = MkStaticReading r r.form Refl (readingHeight r) Refl (splitting r.root) Refl
+
+||| A dictionary given as a request's static argument, as the translation
+||| keeps it (`State.DictionaryReading`): its reading (`readInstance`), and
+||| what the reading's form reduces to at its head (`Closed.reducedOf`),
+||| reduced once here, so that whether the program fixes it is decided off
+||| that at each parameter it is given at (`Closed.fixedAt`) and the form
+||| is reduced nowhere else. Read once, by its written key, as every static
+||| argument is (`staticReading`).
+export
+dictionaryReading : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front DictionaryReading
+dictionaryReading t = do
+  writer <- writerOf [t]
+  let written = writtenOf writer t
+  case lookupFact (.dictionaries) written !(getState) of
+    Just d => pure d
+    Nothing => do
+      ctx <- frozenContext
+      r <- readInstance ctx ADictionary t
+      reduct <- reducedOf r.form
+      let here = MkDictionaryReading (keptReading r) Refl reduct
+      updateState (derive { dictionaries $= insert written here })
+      pure here
+
 ||| A request's static argument at its kind, as the translation keeps it:
 ||| the reading itself (`readInstance`), kept at quantity 0 beside what the
 ||| translation reads of it, the form its link writes, its height and the
 ||| head that splits its node, each the reading's by type
-||| (`State.StaticReading`). The same argument is given to many requests,
+||| (`State.StaticReading`); a dictionary's with what its form reduces to
+||| (`dictionaryReading`). The same argument is given to many requests,
 ||| so it is read once, by its kind and its written key, and a step's
 ||| readings are merged into the instance table with the rest of what it
 ||| derived; a later request given it holds the reading read the first
 ||| time, never another.
 export
 staticReading : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Readings.Static -> ClosedTerm -> Front StaticReading
+staticReading ADictionary t = (.asStatic) <$> dictionaryReading t
 staticReading kind t = do
   writer <- writerOf [t]
   let written = writtenOf writer t
@@ -1935,7 +1964,7 @@ staticReading kind t = do
     Nothing => do
       ctx <- frozenContext
       r <- readInstance ctx kind t
-      let here = MkStaticReading r r.form Refl (readingHeight r) Refl (splitting r.root) Refl
+      let here = keptReading r
       updateState (derive { readings $= insert (kind, written) here })
       pure here
 
@@ -2442,96 +2471,6 @@ MarkersHold {g} m s ctx stands bs vs =
   (x : Var ns) -> (i, d : Nat) -> walkMarker stands (replacedAt bs x) = Just (Template.Var i d) ->
   (u : Template) -> ReadAs (InstanceMode ctx) [] (Var.index vs x) u ->
   (p : Fin g.size ** v : Template ** u' : Template ** (Elem (i, p) s.writers, InV m p v, Sub d v u', Reread u' u))
-
-||| The kinds a request holds whole: every kind but a shape, whose request
-||| holds its skeleton.
-public export
-data WholeKind : Readings.Static -> Type where
-  WholeType : WholeKind AType
-  WholeFamily : WholeKind AFamily
-  WholeDictionary : WholeKind ADictionary
-  WholeForm : WholeKind AForm
-
-||| A shape cut where a callee's type stops needing it
-||| (`Instances.neededShape`, by `Closed.cutShape`): the shape whole, one
-||| erased hole where the cut is, or a constructor's application each part
-||| of which is cut so, rebuilt at its constructor's location. A cut keeps
-||| no node the shape does not, and an instance reads its hole as one leaf
-||| (`Proof.Covers.erasedReadAs`), which the site's node is written over
-||| (`Proof.Bound.AtCut`).
-public export
-data NeededCut : ClosedTerm -> ClosedTerm -> Type where
-  NeedsWhole : NeededCut s s
-  NeedsNone : NeededCut s (Erased fc Impossible)
-  NeedsBelow : NeededCut f f' -> NeededCut a a' -> NeededCut (App fc f a) (App fc' f' a')
-
--- Rebuilding over a spine one argument longer is the spine before it,
--- rebuilt, applied to the last argument's image.
-0 rebuiltSnoc : (fc : FC) -> (g : ClosedTerm -> ClosedTerm) -> (h : ClosedTerm) -> (pre : List ClosedTerm) -> (a : ClosedTerm) ->
-                foldl (App fc) h (map g (pre ++ [a])) = App fc (foldl (App fc) h (map g pre)) (g a)
-rebuiltSnoc fc g h pre a = rewrite mapAppend g pre [a] in foldlAppend (App fc) h (map g pre) [g a]
-
-mutual
-  ||| The cut `Instances.neededShape` keeps (`Closed.cutShape`, with an
-  ||| erased hole) is a cut of the shape: at no depth left, the hole; else
-  ||| the spine's head, a data constructor rebuilt over its arguments each
-  ||| cut one level shallower, or any other head, the hole.
-  export
-  0 cutShapeNeeded : (d : Nat) -> (tm : ClosedTerm) -> NeededCut tm (cutShape (Erased EmptyFC Impossible) d tm)
-  cutShapeNeeded Z tm = NeedsNone
-  cutShapeNeeded (S d) tm = cutSpineNeeded d (spineOf tm)
-
-  0 cutSpineNeeded : (d : Nat) -> {0 tm : ClosedTerm} -> (sp : SpineOf tm) ->
-                     NeededCut tm (cutSpine (Erased EmptyFC Impossible) d sp)
-  cutSpineNeeded d (MkSpineOf (Ref fc (DataCon tag arity) n) args sp) = rebuiltNeeded d sp
-  cutSpineNeeded d (MkSpineOf (Local _ _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Ref _ Bound _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Ref _ Func _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Ref _ (TyCon _) _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Meta _ _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Bind _ _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (App _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (As _ _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (TDelayed _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (TDelay _ _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (TForce _ _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (PrimVal _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (Erased _ _) _ _) = NeedsNone
-  cutSpineNeeded d (MkSpineOf (TType _ _) _ _) = NeedsNone
-
-  -- A spine whose arguments are each cut, rebuilt over its head at one
-  -- location: the last argument applied last, so the rebuilt term is the
-  -- spine before it rebuilt, applied to its cut.
-  0 rebuiltNeeded : (d : Nat) -> {0 fc : FC} -> {0 h : ClosedTerm} -> Spine t h args ->
-                    NeededCut t (foldl (App fc) h (map (cutShape (Erased EmptyFC Impossible) d) args))
-  rebuiltNeeded d Host.Head = NeedsWhole
-  rebuiltNeeded d {fc} {h} (Host.Applied {a} {args = pre} sp) =
-    rewrite rebuiltSnoc fc (cutShape (Erased EmptyFC Impossible) d) h pre a in
-    NeedsBelow (rebuiltNeeded d sp) (cutShapeNeeded d a)
-
-||| What a request holds of the term an instance writes at a static
-||| argument of kind k, which the instance's reading reads: at a shape, the
-||| skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape` keys it)
-||| of the term as written, its unknowns solved as every written form is
-||| (`Readings.Solved`, the one solving), where a data constructor heads it,
-||| else of the host's normal form of it, cut where the callee's type stops
-||| needing it (`NeededCut`); at any other kind, the term itself. The
-||| solving is carried, not assumed away: a term whose unknowns the
-||| normaliser solves has the solution's skeleton, which the term's own
-||| cuts to a hole. A skeleton's hole stands for the node it cut, which the
-||| site's reading of a shape reads as a hole too (`Readings.nodeOf
-||| Skeleton`), so no rule takes a hole to the node a reading of the whole
-||| term would read there. This is the evidence a request carries with the
-||| site it reads (the translation's site table): the site's term, with the
-||| requesting instance's values put in, holds as the request's argument.
-public export
-data HeldAs : Frozen -> Readings.Static -> ClosedTerm -> ClosedTerm -> Type where
-  HeldWhole : WholeKind k -> HeldAs ctx k u u
-  HeldWritten : (0 _ : Solved ctx u w) -> (0 _ : SkeletonOf w shape) -> (0 _ : NeededCut shape held) ->
-                HeldAs ctx AShape u held
-  HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : (s : ClosedTerm) -> Not (SkeletonOf w s)) ->
-               (0 r : Reduct OfNormaliseTypes ctx u) -> (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) ->
-               HeldAs ctx AShape u held
 
 ||| The reading lemma, as the growth proof states it: at markers fresh for
 ||| the frozen context and apart (`Proof.Markers.Markers`), put in by values
