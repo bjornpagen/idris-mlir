@@ -360,6 +360,8 @@ coordinator, 2026-10-23):
 
 ## For L17 (from L17at)
 
+- Done (7cd45299, 9dfe3bee): the block's types are checked at a position
+  of their own, `KparamBlock`. The item as it was:
 - A `parameters` block's type is checked under index `-1`
   (`ProcessParams.idr:48`), which the context never gives out, so a case
   block in such a type would be named `Resolved (-1)` and fail at the TTC
