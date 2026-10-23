@@ -130,13 +130,19 @@ LogicalResult ArrayFoldLastOp::generateScalarImplementation(OpBuilder &b, Locati
 }
 
 // A tensor result is its destination with the last accumulators written at
-// the frame's indices; every accumulator is first what its destination
-// holds there, then what the step before gave, which the yield moves in.
+// the frame's indices; on buffers the fold writes its destinations in
+// place and gives nothing. Every accumulator is first what its destination
+// holds there, then what the step before gave, which the yield moves in:
+// it is taken out of its destination with the reference its place held,
+// the place left empty until the yield moves the next one back, as its
+// loops' take declares. So the accumulator holds a reference of its own,
+// which its region moves on or gives up, never a view of the destination.
 void ArrayFoldLastOp::getFlowEdges(FlowEdges &edges) {
-  for (auto [init, result] : llvm::zip_equal(getInitsMutable(), getResults()))
-    edges.flow(FlowSource::of(init), FlowPlace::of(result));
-  for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
+  destinationEdges(*this, edges);
+  for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators())) {
     edges.flow(FlowSource::partOf(init, elementsOf(init)), atIndex(accumulator));
+    edges.overwrite(init, elementsOf(init));
+  }
 }
 
 ValueRange ArrayFoldLastOp::getYieldTargets() {
@@ -262,16 +268,21 @@ LogicalResult ArrayScanLastOp::generateScalarImplementation(OpBuilder &b, Locati
   return success();
 }
 
-// A tensor result is its destination with every accumulator written; an
-// accumulator is a copy of what an input or the result holds, which keep
-// theirs.
+// A tensor result is its destination with every accumulator written; on
+// buffers the scan writes its destinations in place and gives nothing. An
+// accumulator is a copy of what an input holds at the frame's index for
+// the first step, else of what the step before wrote, which keep theirs:
+// the copy holds references of its own, as its loops' copy declares, which
+// its region moves on or gives up, never a view of the array it was read
+// from.
 void ArrayScanLastOp::getFlowEdges(FlowEdges &edges) {
-  for (auto [out, result] : llvm::zip_equal(getOutsMutable(), getResults()))
-    edges.flow(FlowSource::of(out), FlowPlace::of(result));
-  for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
+  destinationEdges(*this, edges);
+  for (auto [init, target, accumulator] :
+       llvm::zip_equal(getInits(), getYieldTargets(), getAccumulators())) {
     edges.flow(FlowSource::partOf(init, elementsOf(init)), atIndex(accumulator));
-  for (auto [out, accumulator] : llvm::zip_equal(getYieldTargets(), getAccumulators()))
-    edges.flow(FlowSource::partOf(out, elementsOf(out)), atIndex(accumulator));
+    edges.flow(FlowSource::partOf(target, elementsOf(target)), atIndex(accumulator));
+    edges.fresh(accumulator);
+  }
 }
 
 ValueRange ArrayScanLastOp::getYieldTargets() {

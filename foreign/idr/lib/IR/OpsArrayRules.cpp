@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The rules the ops on arrays share, each said once (idr/IR/Arrays.h): what
-// an array holds at an index and where an element moves; what memory an
-// element's place, empty while it is rebuilt, may not see touched; and what
-// a region of the generating set must end in and bind, which destinations
-// it places into, and its domain, bounds and iterator types.
+// an array holds at an index, where an element moves and where a generating
+// op's destinations go; what memory an element's place, empty while it is
+// rebuilt, may not see touched; and what a region of the generating set must
+// end in and bind, which destinations it places into, and its domain, bounds
+// and iterator types.
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Effects/Classify.h"
@@ -50,6 +51,11 @@ FlowPlace atIndex(Value value) {
   if (isa<ShapedType>(value.getType()))
     return FlowPlace::partOf(value, elementsOf(value));
   return FlowPlace::of(value);
+}
+
+void destinationEdges(DestinationStyleOpInterface op, FlowEdges &edges) {
+  for (OpResult result : op->getResults())
+    edges.flow(FlowSource::of(*op.getTiedOpOperand(result)), FlowPlace::of(result));
 }
 
 bool onContents(const effects::Effect &each) {

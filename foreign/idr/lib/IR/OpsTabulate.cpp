@@ -77,11 +77,9 @@ LogicalResult ArrayTabulateOp::generateScalarImplementation(OpBuilder &b, Locati
 }
 
 // A tensor result is its destination with each element moved in at its
-// index by the yield.
-void ArrayTabulateOp::getFlowEdges(FlowEdges &edges) {
-  for (auto [out, array] : llvm::zip_equal(getOutsMutable(), getArrays()))
-    edges.flow(FlowSource::of(out), FlowPlace::of(array));
-}
+// index by the yield; on buffers the tabulation writes its destinations in
+// place and gives nothing.
+void ArrayTabulateOp::getFlowEdges(FlowEdges &edges) { destinationEdges(*this, edges); }
 
 ValueRange ArrayTabulateOp::getYieldTargets() {
   return hasPureTensorSemantics() ? ValueRange(getArrays()) : ValueRange(getOuts());

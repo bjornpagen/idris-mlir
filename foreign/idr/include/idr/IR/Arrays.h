@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The rules the ops on arrays share, each said once: what an array holds at
-// an index, where an element moves, what memory an element's update may not
-// touch, what a region of the generating set must end in and bind, and the
-// bounds of the indices it binds (lib/IR/OpsArrayRules.cpp defines them);
+// an index, where an element moves, where a generating op's destinations
+// go, what memory an element's update may not touch, what a region of the
+// generating set must end in and bind, and the bounds of the indices it
+// binds (lib/IR/OpsArrayRules.cpp defines them);
 // how a step of a generating op on buffers moves what it reads and gives
 // (lib/IR/OpsArrayMovements.cpp); and two accesses of one element made one:
 // a read and a write made its update, the skeleton rule on mutable memory
@@ -59,6 +60,14 @@ FlowAnchor elementsOf(mlir::Value array);
 // the op or its region makes where it moves to.
 FlowSource atIndex(mlir::OpOperand &use);
 FlowPlace atIndex(mlir::Value value);
+
+// What a generating op does with its destinations: on tensors each result
+// is its destination written, which the op takes over with its reference;
+// on buffers it gives nothing and writes each destination in place, whose
+// holder keeps it. Upstream's tie of a result to its destination says both,
+// a result per destination on tensors and none on buffers, so no edge
+// names a result bufferization left empty.
+void destinationEdges(mlir::DestinationStyleOpInterface op, FlowEdges &edges);
 
 // Whether an effect may reach memory written in place: a read, a write or
 // a release on contents or on a state above it. An allocation names a
