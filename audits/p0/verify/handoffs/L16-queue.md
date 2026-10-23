@@ -293,3 +293,13 @@ is confirming.
 - (L16df, by reading) `Types.familyIn`/`constructor` re-read a type's
   constructors from `TCon` and test `DCon` again with two refusals, the
   fact `TyConFacts.constructors` now holds: read it there.
+
+## From L16de (INT-16's errors in Instances to Programs)
+
+- `Cases.tailsAgree` and `Programs.predecessors` prove one lemma twice:
+  keep one, where both can import it.
+- `Errors.getState`, `updateState` and `toLoc` are polymorphic over the
+  monad (`RunsCore m`), so a bind after one is ambiguous wherever
+  `Core.Core`'s own bind is imported; Choices hides Core's bind, as
+  upstream's parser does. If INT-17 meets the same ambiguity in other
+  Front-only modules, the same hide there.
