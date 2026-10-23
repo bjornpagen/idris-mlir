@@ -402,7 +402,11 @@ void emitEnum(const Enum &used, llvm::raw_ostream &os) {
     std::string qualified = qualifiedCase(info, c);
     os << "  " << qualified << " == " << qualified << " = True\n";
   }
-  os << "  _ == _ = False\n\n";
+  // Two different cases are unequal; an enum of one case has no such pair,
+  // and a clause for it would be unreachable.
+  if (cases.size() > 1)
+    os << "  _ == _ = False\n";
+  os << "\n";
   // Each case shows as its ODS string, the one way a value of it reads.
   os << "export\nShow " << name << " where\n";
   for (const EnumCase &c : cases)
@@ -1390,8 +1394,10 @@ struct Vocabulary {
   std::vector<std::string> omitted;
   std::string ops;
   Enums enums;
-  // The modules the builders' guards name their causes from, each once.
-  std::vector<std::string> causeModules;
+  // The modules the builders' guards import, each once: those they name
+  // their causes from, then those `caseAt`, by which they write a cause,
+  // needs, as each guard's record gives them.
+  std::vector<std::string> guardImports;
 };
 
 // The upstream ops the specification admits, each by upstream's own record
@@ -1440,9 +1446,11 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
     for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
-      std::string causeModule = guard->getValueAsString("causeModule").str();
-      if (!llvm::is_contained(v.causeModules, causeModule))
-        v.causeModules.push_back(std::move(causeModule));
+      std::vector<StringRef> imports = guard->getValueAsListOfStrings("caseImports");
+      imports.insert(imports.begin(), guard->getValueAsString("causeModule"));
+      for (StringRef module : imports)
+        if (!llvm::is_contained(v.guardImports, module))
+          v.guardImports.push_back(module.str());
     }
     emitOp(v.enums, u, op, *admitted, opsOs);
   }
@@ -1554,9 +1562,7 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
      << syntaxModuleName << "\n";
   // A guarded builder writes its cause as a case of the specification's
   // closed set of causes, by `caseAt`.
-  if (!v.causeModules.empty())
-    os << "import IdrisMLIR.Spec.Core.Enums\n";
-  for (const std::string &module : v.causeModules)
+  for (const std::string &module : v.guardImports)
     os << "import " << module << "\n";
   os << "\nimport Data.List\n\n%default total\n\n";
   section(os, "Attributes", spelledAttributes(v));

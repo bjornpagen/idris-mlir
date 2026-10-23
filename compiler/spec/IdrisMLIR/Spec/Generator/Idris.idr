@@ -123,6 +123,17 @@ export
 caseValue : ImportedEnum -> Nat -> String
 caseValue e k = "(caseAt " ++ enumSet e ++ " " ++ decimal k ++ ")"
 
+||| What a module that writes a case by `caseAt` imports: the module that
+||| declares it, and those of the names its type check reduces, since Idris
+||| loads a module's definitions only where it is imported or re-exported:
+||| `Fin`, whose literal the position is, and `forget`, by which the check
+||| counts the set's cases to hold the position one of them. Both printers
+||| of builders read it, this one directly and idris-mlir-tblgen from the
+||| guard's admitted record, so neither restates what `caseAt` needs.
+export
+caseImports : List String
+caseImports = ["IdrisMLIR.Spec.Core.Enums", "Data.Fin", "Data.List1"]
+
 ||| What a builder takes for an attribute: the attribute, as made; or, for
 ||| an enum property, its case, typed, which the builder encodes as the
 ||| property's storage holds it, so no caller spells a width or a number.
@@ -315,21 +326,22 @@ propertyHomes (SomeOp op) =
       AsAttribute => []
 
 ||| The builders of every op the frontend writes, as one module. A partial
-||| op's builder gives `Guarded`, which the frontend declares with its ops.
+||| op's builder gives `Guarded`, which the frontend declares with its ops,
+||| and writes its guards' causes by `caseAt`, so the module imports what
+||| that names; `enumAttr` names the closed set and its positions.
 export
 buildersModule : List AnyOp -> Lines
 buildersModule ops =
   let writtenOps = filter written ops
+      homes = [ "IdrisMLIR.MLIR", "IdrisMLIR.Spec.Core.Dialect", "IdrisMLIR.Spec.Core.Enums" ]
+              ++ concatMap propertyHomes writtenOps ++ caseImports
   in banner (map (\l => "-- " ++ l))
      ++ barComment ["The idr dialect's ops the frontend writes, one builder each, printed"
                    , "from the dialect's specification."]
-     ++ [ "module IdrisMLIR.Dialect.Idr", ""
-        , "import IdrisMLIR.MLIR"
-        , "import IdrisMLIR.Spec.Core.Dialect"
-        , "import IdrisMLIR.Spec.Core.Enums" ]
-     ++ map ("import " ++) (once [] (concatMap propertyHomes writtenOps))
+     ++ [ "module IdrisMLIR.Dialect.Idr", "" ]
+     ++ map ("import " ++) (once [] homes)
      ++ [ ""
-        , "import Data.Fin", "import Data.List", ""
+        , "import Data.List", ""
         , "%default total", "" ]
      ++ barComment [ "A case of a closed set as an enum property holds it, and as a guard's"
                    , "check names its cause: its position, at the width every enum of the"
