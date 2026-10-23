@@ -580,3 +580,10 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   inside), which the same region rule would move (counting, measured at
   qualification); a fixture of a once parameter passed into a loop body,
   graded to owned, verifier clean.
+- From L09x (C65): after L16ei marks Emit's loops (`Bodies.idr` about
+  907-908, `mayLoopOp` first in each join region unless the definition is
+  `Terminates c`), L02 deletes the function-entry divergence seed
+  (`Fold.cpp:33-41`) and its doc lines (`Analysis/Effects.h:15-17`,
+  `Func.h:80-81`); then the specification's `Functions/Termination.idr:3-4`
+  and `TerminatesAttr`'s description (after L04x). L19s adds `may-diverge`
+  for `tests/partial-loop-diverges`.
