@@ -18,16 +18,20 @@
 // facts, so the contracts on the largest module cost a record per function.
 // What a function's row may do is the verifier's to hold to its body after
 // every pass; a row widens where a pass adds effects (counting, the arrays'
-// buffers), so no relation holds a row to the one before.
+// buffers), so no relation holds a row to the one before. What no
+// function's body shows, the divergence of a cycle of several functions,
+// is a relation of the module after the pass alone.
 
 #include "idr/Transforms/Contracts.h"
 
+#include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Expect.h"
 
@@ -54,7 +58,12 @@ namespace {
 
 // The relations checked after a pass, in the order they are checked; the
 // name of each is its error's and the test pass's option's.
-enum class Relation : std::uint8_t { QuantitiesKept, LinearKept, CrashSitesNotAdded };
+enum class Relation : std::uint8_t {
+  QuantitiesKept,
+  LinearKept,
+  CrashSitesNotAdded,
+  CycleDivergenceKept
+};
 
 struct RelationRow {
   Relation relation;
@@ -71,6 +80,8 @@ constexpr RelationRow relations[] = {
     {Relation::LinearKept, "linear-kept", "give a linear result back unrestricted"},
     {Relation::CrashSitesNotAdded, "crash-sites-not-added",
      "make every function that could not crash crash"},
+    {Relation::CycleDivergenceKept, "cycle-divergence-kept",
+     "drop divergence from every member of one cycle Idris did not prove, and from their calls"},
 };
 
 constexpr llvm::StringLiteral nameOf(Relation relation) {
@@ -168,6 +179,38 @@ bool crashSitesNotAdded(StringRef pass, SymbolTable &symbols, ArrayRef<Kept> kep
   return held;
 }
 
+// cycle-divergence-kept: every member of a cycle of the program Idris did
+// not prove together holds the cycle's divergence. A function's check reads
+// its body, where a cycle of several shows only through the calls' copies
+// of the other members' rows, so members that all dropped it together pass
+// every check. The writer's own addCycles runs over the rows the module
+// holds, so the rule is read from its one place, and a member whose row it
+// grows lost what its cycle adds. A cycle of one is its function's check's,
+// which reads the self call, and the verifier runs before the contracts.
+// The program graph, which holds the cycles, indexes a first-order program
+// of ours alone.
+bool cycleDivergenceKept(StringRef pass, ModuleOp module, AnalysisManager &analyses) {
+  ProgramOp program = expect::firstOrderProgram(module);
+  if (!program)
+    return true;
+  const auto &graph = analyses.nest(program).getAnalysis<solver::ProgramGraph>();
+  IndexVector<solver::FunctionId, effects::Row> withCycles = graph.table(effects::Row{});
+  for (solver::FunctionId f : graph.functions())
+    withCycles[f] = graph.op(f).getRow();
+  rows::detail::addCycles(graph, withCycles);
+  bool held = true;
+  for (solver::FunctionId f : graph.functions()) {
+    FuncOp fn = graph.op(f);
+    if (fn.getRow() == withCycles[f])
+      continue;
+    broken(fn.getLoc(), Relation::CycleDivergenceKept, pass)
+        << ": @" << fn.getSymName()
+        << " lies on a cycle Idris did not prove, and its row lacks divergence";
+    held = false;
+  }
+  return held;
+}
+
 // linear-kept, broken: every function no symbol use names gives back each
 // of its linear results unrestricted, its one use the cast to many at the
 // return. No call sees the new type; the root is no such function, since
@@ -233,6 +276,59 @@ void tradeIdentities(ProgramOp program) {
   }
 }
 
+// What a member of the cycle `cycle` does by its own ops and by the
+// functions outside the cycle it calls: a call of a member is read as
+// nothing, any other call by its own copy of its callee's row, as the
+// function's check reads it. The fold still reads a call of the function
+// itself as the cycle of one it closes.
+struct OutsideCycle {
+  const solver::ProgramGraph &graph;
+  solver::SccId cycle;
+  rows::CallCopies copies;
+
+  void call(CallOp call, rows::Fold &fold, rows::Runs runs) {
+    if (graph.sccOf(graph.id(call.getCalleeAttr())) != cycle)
+      copies.call(call, fold, runs);
+  }
+  rows::Read other(Operation *, rows::Fold &, rows::Runs) { return rows::Read::ByDeclaration; }
+};
+
+static_assert(rows::CallReader<OutsideCycle>);
+
+// cycle-divergence-kept, broken: the first cycle, callees first, that Idris
+// did not prove together and whose members may run forever by the cycle
+// alone loses its divergence, from every member's row and from every call
+// of a member. Each member's body then derives none and each call holds
+// its callee's row, so every function's check holds, a caller's outside
+// the cycle too, whose row now says more than its body does; only the
+// program's cycles show what was dropped. A cycle with a member that may
+// run forever by itself (a loop, a call of itself, a call outside the
+// cycle that may) is passed over: that member's check would refuse the
+// dropped row before any relation ran.
+void dropCycleDivergence(ProgramOp program, const solver::ProgramGraph &graph) {
+  constexpr effects::Row divergence{effects::Atom::divergence};
+  for (solver::SccId component : graph.sccCount().ids()) {
+    if (!graph.onCycle(component))
+      continue;
+    auto members = llvm::map_range(graph.members(component),
+                                   [&](solver::FunctionId f) { return graph.op(f); });
+    if (rows::provedTogether(members))
+      continue;
+    OutsideCycle reader{graph, component, {}};
+    if (llvm::any_of(members, [&](FuncOp fn) {
+          return rows::derive(fn, reader).atoms.contains(effects::Atom::divergence);
+        }))
+      continue;
+    for (FuncOp fn : members)
+      fn.setRow(fn.getRow() - divergence);
+    program.walk([&](CallOp call) {
+      if (graph.sccOf(graph.id(call.getCalleeAttr())) == component)
+        call.setRow(call.getRow() - divergence);
+    });
+    return;
+  }
+}
+
 // An option whose parser reads a relation.
 template <class Opt>
 concept RelationOption = requires(Opt &option) {
@@ -278,6 +374,8 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
       return unrestrictResults(program);
     case Relation::CrashSitesNotAdded:
       return addCrashSites(program, getAnalysis<solver::ProgramGraph>());
+    case Relation::CycleDivergenceKept:
+      return dropCycleDivergence(program, getAnalysis<solver::ProgramGraph>());
     }
   }
 };
@@ -321,6 +419,7 @@ void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   }
   held = linearKept(name, kept) && held;
   held = crashSitesNotAdded(name, symbols, kept) && held;
+  held = cycleDivergenceKept(name, module, analyses) && held;
   if (!held)
     signalPassFailure(pass);
 }

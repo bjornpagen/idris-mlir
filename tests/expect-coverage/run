@@ -9,20 +9,27 @@
 #     prose. A self-check is the exception: it holds an answer of the
 #     compiler to a second derivation of it, which only a defect makes
 #     disagree;
-#   - a test states it of what the compiler made (an mlir.expect line, or
-#     a harness check that asks idr-expect), since a property no test
-#     states holds the compiler to nothing. A universal property is
-#     stated by the contracts, of every compilation.
+#   - a test states it of what the compiler made, since a property no test
+#     states holds the compiler to nothing: an mlir.expect line; a
+#     fixture's RUN line that runs the compiler's pipeline and asks
+#     idr-expect after it, expecting what it asks to hold; or a request of
+#     idr-expect the harness makes itself, a line of its Idris that is no
+#     comment. A RUN line that asks of the module as written, which no
+#     pass made, or that expects what it asks to fail states nothing, and
+#     a property stated by no test names each fixture that asks it so. A
+#     universal property is stated by the contracts, of every compilation.
 # The names and roles are the rows of the one table of them
 # (ExpectProperties.inc), printed from its records. The rule is
 # `expect_coverage ROOT`, run on the repository and on the planted trees
-# (Planted.idr): witness/ holds
-# a table of a property no fixture makes fail, one a fixture names only in
-# its prose and in a RUN line that states it, one whose name only begins
-# another's that fails, and one no test states; near-miss/ holds a table
-# whose every property has its failing fixture and its statement, a
-# self-check with no failing fixture, and a universal property no test
-# states.
+# (Planted.idr): witness/ holds a table of a property no fixture makes
+# fail, one a fixture names only in its prose and in a RUN line that asks
+# it of the module as written, one whose name only begins another's that
+# fails, one no test states, one a fixture asks only of the module as
+# written, and one a fixture asks only of the pipeline's module expecting
+# it to fail; near-miss/ holds a table whose every property has its
+# failing fixture and its statement (an mlir.expect line, a RUN line after
+# the pipeline, the harness's own request), a self-check with no failing
+# fixture, and a universal property no test states.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 table=foreign/idr/include/idr/Transforms/ExpectProperties.inc
 
@@ -35,18 +42,35 @@ rows() {
          print NR "\t" role "\t" name }' "$1"
 }
 
-# stated NAME: a test states NAME, in the tree at the current directory:
-# a property of an mlir.expect line, or of a harness check's request of
-# idr-expect.
+# asks NAME: a line of standard input names the property NAME as a request
+# does, whole, between the separators of a request's list.
+asks() {
+  grep -qE "(^|[ :,=])$1(=|,|[ \"']|\$)"
+}
+
+# compiled FIXTURE...: the RUN lines of FIXTURE that ask idr-expect of what
+# the compiler made: the compiler's pipeline runs first, and the run
+# expects what it asks to hold, so it is not negated.
+compiled() {
+  grep -h '^// RUN:.*idr-pipeline.*idr-expect' "$@" 2> /dev/null |
+    grep -vE '^// RUN:[[:space:]]+not[[:space:]]'
+}
+
+# stated NAME: a test states NAME of what the compiler made, in the tree
+# at the current directory: a property of an mlir.expect line, of a
+# fixture's RUN line after the pipeline, or of a request of idr-expect the
+# harness's Idris makes, a line no comment holds.
 stated() {
   { grep -hv '^#' tests/*/mlir.expect 2> /dev/null
-    grep -h 'idr-expect' harness/lib/*.sh 2> /dev/null; } |
-    grep -qE "(^|[ :,=])$1(=|,|[ \"']|\$)"
+    compiled tests/*/*.mlir
+    grep -hvE '^[[:space:]]*(--|[|]{3})' harness/*.idr 2> /dev/null | grep 'idr-expect'; } |
+    asks "$1"
 }
 
 # expect_coverage ROOT: each property of ROOT's table with no fixture of
 # ROOT where it fails, `path:line: what`, and each fixture that names it
-# otherwise, `path: what`; and each no test of ROOT states.
+# otherwise, `path: what`; and each no test of ROOT states, and each
+# fixture that asks it of no module the compiler made.
 expect_coverage() (
   cd "$1" || exit 1
   [ -f "$table" ] || exit 0
@@ -61,6 +85,10 @@ expect_coverage() (
     fi
     if [ "$role" != UNIVERSAL ] && ! stated "$name"; then
       printf '%s:%s: %s is stated by no test\n' "$table" "$n" "$name"
+      for fixture in tests/*/*.mlir; do
+        [ -f "$fixture" ] && grep '^// RUN:.*idr-expect' "$fixture" | asks "$name" &&
+          printf '%s: asks %s, but states it of no module the compiler made\n' "$fixture" "$name"
+      done
     fi
   done
 )

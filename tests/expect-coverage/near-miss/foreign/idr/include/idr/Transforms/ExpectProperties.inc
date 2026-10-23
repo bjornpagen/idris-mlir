@@ -3,3 +3,5 @@
 IDR_EXPECT_PROPERTY("failing", Roots, failing)
 IDR_EXPECT_SELF_CHECK("checks-itself", Nothing, checksItself)
 IDR_EXPECT_UNIVERSAL("everywhere", Functions, everywhere)
+IDR_EXPECT_PROPERTY("piped", Roots, piped)
+IDR_EXPECT_PROPERTY("harnessed", Roots, harnessed)

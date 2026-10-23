@@ -8,13 +8,15 @@
 // module or on its idr.program it records, per function, the facts the
 // relations read (each parameter's and result's uses, whether its row may
 // crash), never a copy of the module; after the pass it checks the
-// relations no correct pass breaks between that record and the module,
-// failing the pass and naming it when one is broken. A pass on each
-// function is checked as the group its nest runs on the program. When the
-// pipeline ends, the promises: no recursion of the program grows the
-// native stack. idris-mlir-opt and idris-mlir install it under
-// --idr-contracts, which the tests give; no compilation otherwise pays for
-// it.
+// relations no correct pass breaks between that record and the module, and
+// what the module after it holds alone (every cycle of calls Idris did not
+// prove holds its divergence in each member's row, which no function's
+// check can see), failing the pass and naming it when one is broken. A
+// pass on each function is checked as the group its nest runs on the
+// program. When the pipeline ends, the promises: no recursion of the
+// program grows the native stack. idris-mlir-opt and idris-mlir install it
+// under --idr-contracts, which the tests give; no compilation otherwise
+// pays for it.
 #ifndef IDR_TRANSFORMS_CONTRACTS_H
 #define IDR_TRANSFORMS_CONTRACTS_H
 
