@@ -2882,9 +2882,15 @@ mutual
   putInMappedAdd o sz rest vs (Ref fc Func n) _ = MRef ()
   putInMappedAdd o sz rest vs (Ref fc (DataCon tag arity) n) _ = MRef ()
   putInMappedAdd o sz rest vs (Ref fc (TyCon arity) n) _ = MRef ()
+  -- The unknown's equation is stated: its arguments do not fix the lemma's
+  -- implicits (the name reaches it only through `replaces`, which
+  -- unification cannot invert), and a rewrite by an equation with holes
+  -- matches nothing; the stated right side, a constructor, fixes them.
   putInMappedAdd {x} {old} {vars} o sz rest vs (Meta fc m k args) none =
-    rewrite mkLocalsUnknown {vars} {fc} {k} {args} o (Add x old rest)
-                            (noneAt (Add x old rest) (fst (orFalse (replaces (Add x old rest) m) none))) in
+    rewrite the (mkLocals {vars} o (Add x old rest) (Meta fc m k args)
+                   = Meta fc m k (mkLocalsTerms {vars} o (Add x old rest) args))
+                (mkLocalsUnknown {vars} {fc} {k} {args} o (Add x old rest)
+                                 (noneAt (Add x old rest) (fst (orFalse (replaces (Add x old rest) m) none)))) in
     MMeta (noneAt (Add x old rest) (fst (orFalse (replaces (Add x old rest) m) none)))
           (putInMappedAddAll o sz rest vs args (snd (orFalse (replaces (Add x old rest) m) none)))
   putInMappedAdd {x} {old} o@(MkSizeOf _ _) sz rest vs (Bind fc y b sc) none =
