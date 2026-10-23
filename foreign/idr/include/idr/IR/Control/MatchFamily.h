@@ -5,7 +5,8 @@
 // upstream's control-flow interfaces read off them, the bounds of their
 // regions, the rules ODS cannot state, and a match remade with fewer
 // cases. A key is a tag of idr.data.match or a literal of idr.lit.match,
-// two different things, so each is written over the op.
+// two different things, so each is written over the op, and two keys are
+// one as the op's own equality of keys says (keyEquality).
 //
 // A region ends by yielding the match's results, by jumping to an enclosing
 // join point, which the match lets through, or by never ending. That is
@@ -20,19 +21,31 @@
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <type_traits>
+#include <cstdint>
+#include <functional>
 
 namespace idr::control {
 
-// The two members of the match family, each with its key.
+// How two keys of a match are one key: a tag by its constructor's number;
+// a literal by its carrier's equality (LiteralTypeInterface::sameLiteral),
+// the one the lowering's test of a key makes at run time, so a key's
+// equality is said once, by its carrier.
+inline std::equal_to<std::int32_t> keyEquality(DataMatchOp) { return {}; }
+inline auto keyEquality(LitMatchOp op) {
+  return [literals = llvm::cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()))](
+             mlir::Attribute a, mlir::Attribute b) { return literals.sameLiteral(a, b); };
+}
+
+// The two members of the match family, each with its keys and its
+// equality of keys.
 template <typename Match>
 concept MatchFamily = requires(Match op) {
   op.getCases();
   op.getDefaultRegion();
   op.getCaseRegions();
+  keyEquality(op);
 };
 
 // An empty default region and one per case, the default first.
@@ -47,7 +60,8 @@ inline void addRegions(mlir::OperationState &state, size_t cases) {
 template <MatchFamily Match, typename Key>
 mlir::Region *takenRegion(Match op, Key key) {
   auto cases = op.getCases();
-  const auto *it = llvm::find(cases, key);
+  auto same = keyEquality(op);
+  const auto *it = llvm::find_if(cases, [&](const auto &held) { return same(held, key); });
   if (it != cases.end())
     return &op.getCaseRegions()[static_cast<unsigned>(it - cases.begin())];
   mlir::Region &fallback = op.getDefaultRegion();
@@ -94,16 +108,21 @@ void boundsOf(Match op, mlir::Region *taken, llvm::SmallVectorImpl<mlir::Invocat
 }
 
 // One key per case region, each once. ODS ties no key to a case region, so
-// the two lists are held to one length here. And the match states one
-// lifetime per scoped value it makes.
+// the two lists are held to one length here. Two keys are compared pairwise
+// by the match's equality of keys, which need not be identity (a Double's
+// zeros) and so has no hash; a literal match's keys are known literals of
+// its carrier before they are compared. And the match states one lifetime
+// per scoped value it makes.
 template <MatchFamily Match>
 mlir::LogicalResult verifyKeys(Match op) {
-  if (op.getCases().size() != op.getCaseRegions().size())
+  auto cases = op.getCases();
+  if (cases.size() != op.getCaseRegions().size())
     return op.emitOpError("expects one key per case region");
-  llvm::SmallDenseSet<std::decay_t<decltype(*op.getCases().begin())>> seen;
-  for (auto key : op.getCases())
-    if (!seen.insert(key).second)
-      return op.emitOpError("has two cases for one key");
+  auto same = keyEquality(op);
+  for (unsigned at = 1, n = static_cast<unsigned>(cases.size()); at < n; ++at)
+    for (unsigned before = 0; before < at; ++before)
+      if (same(cases[before], cases[at]))
+        return op.emitOpError("has two cases for one key");
   return lifetimes::verifyOuters(op, 0);
 }
 

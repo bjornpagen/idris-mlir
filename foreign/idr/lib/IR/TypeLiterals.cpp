@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The literals of the scalar types of ours, the integer a big's literal is
-// as a key, how an Integer and a natural are read as numbers, and the names
-// the printer gives a value of each.
+// The literals of the scalar types of ours and the test a literal match
+// makes of each, the integer a big's literal is as a key, how an Integer
+// and a natural are read as numbers, and the names the printer gives a
+// value of each.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
@@ -28,6 +29,13 @@ ParseResult StrType::parseLiteral(AsmParser &parser, Attribute &literal) const {
     return failure();
   literal = parser.getBuilder().getStringAttr(bytes);
   return success();
+}
+
+// A string is its key where the runtime's comparison of the two is equal,
+// the string read in place at its grade, the key a constant at that type.
+Value StrType::buildKeyTest(OpBuilder &builder, Location loc, Value held, Attribute key) const {
+  Value literal = ConstantOp::create(builder, loc, held.getType(), key);
+  return StrCmpOp::create(builder, loc, held, literal, CmpPredicate::eq);
 }
 
 bool BigType::isLiteral(Attribute literal) const { return isa<BigAttr>(literal); }
@@ -56,6 +64,25 @@ bool NatType::isLiteral(Attribute literal) const {
 
 ParseResult NatType::parseLiteral(AsmParser &parser, Attribute &literal) const {
   return BigType::get(getContext()).parseLiteral(parser, literal);
+}
+
+namespace {
+
+// An Integer or a natural is its key where the runtime's comparison of the
+// two is equal, the value read in place at its grade, the key a constant at
+// that type.
+Value bigKeyTest(OpBuilder &builder, Location loc, Value held, Attribute key) {
+  Value literal = ConstantOp::create(builder, loc, held.getType(), key);
+  return BigCmpOp::create(builder, loc, held, literal, CmpPredicate::eq);
+}
+
+} // namespace
+
+Value BigType::buildKeyTest(OpBuilder &builder, Location loc, Value held, Attribute key) const {
+  return bigKeyTest(builder, loc, held, key);
+}
+Value NatType::buildKeyTest(OpBuilder &builder, Location loc, Value held, Attribute key) const {
+  return bigKeyTest(builder, loc, held, key);
 }
 
 // A big's literal, as a key of a literal match or a constant, is its

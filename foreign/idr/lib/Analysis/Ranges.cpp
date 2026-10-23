@@ -197,11 +197,11 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
       FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, counted);
       if (failed(solved))
         continue;
+      // A function returns through idr.return alone, whose parent is the
+      // function; a yield ends a region of an op inside it.
       std::span<IntegerValueRange> out = returns[f];
-      fn.getBody().walk([&](Operation *op) {
-        if (!op->hasTrait<OpTrait::ReturnLike>() || isa<RegionBranchTerminatorOpInterface>(op))
-          return;
-        for (auto [into, operand] : llvm::zip_equal(out, op->getOperands()))
+      fn.getBody().walk([&](ReturnOp ret) {
+        for (auto [into, operand] : llvm::zip_equal(out, ret->getOperands()))
           if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
             joinInto(into, IntegerValueRange(*range));
       });

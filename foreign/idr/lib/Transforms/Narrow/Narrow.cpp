@@ -132,6 +132,9 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // readers now read its word, the program's poison among them), these
     // ops and no other. What made a big says, through its interface or its
     // trait; the integer read out of a big is the one op `word` writes.
+    // Essential, three things with no meaning in common: a constant is no
+    // conversion, and a trait over the ops that make a big of a word and the
+    // one that reads the word back would restate the interface's members.
     footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
       if (!op)

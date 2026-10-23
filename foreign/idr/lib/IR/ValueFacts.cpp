@@ -5,10 +5,13 @@
 // declares, printed into its class, so no answer is written here; the
 // builtin types a value may have answer as external models, attached when
 // the dialect registers its types, with the literals of the builtin integers
-// and of f64. The free functions are the one way a reader asks (Grades.h).
+// and of f64 and the test a literal match makes of each. The free functions
+// are the one way a reader asks (Grades.h).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
 
 using namespace mlir;
 using namespace idr;
@@ -68,6 +71,13 @@ struct IntegerLiterals : LiteralTypeInterface::ExternalModel<IntegerLiterals, In
         integer, value.isNegative() ? value.sextOrTrunc(width) : value.zextOrTrunc(width));
     return success();
   }
+
+  // A word is its key where the two are one integer: arith's equality of
+  // the plain word and the key's constant.
+  Value buildKeyTest(Type, OpBuilder &builder, Location loc, Value held, Attribute key) const {
+    Value literal = arith::ConstantOp::create(builder, loc, cast<TypedAttr>(key));
+    return arith::CmpIOp::create(builder, loc, arith::CmpIPredicate::eq, held, literal);
+  }
 };
 
 // A literal of f64 is a Double a literal match compares by IEEE's equality,
@@ -97,6 +107,13 @@ struct DoubleLiterals : LiteralTypeInterface::ExternalModel<DoubleLiterals, Floa
   bool sameLiteral(Type, Attribute a, Attribute b) const {
     return cast<FloatAttr>(a).getValue().compare(cast<FloatAttr>(b).getValue()) ==
            APFloat::cmpEqual;
+  }
+
+  // The same equality at run time: arith's ordered comparison of the plain
+  // Double and the key's constant, under which no key is a NaN.
+  Value buildKeyTest(Type, OpBuilder &builder, Location loc, Value held, Attribute key) const {
+    Value literal = arith::ConstantOp::create(builder, loc, cast<TypedAttr>(key));
+    return arith::CmpFOp::create(builder, loc, arith::CmpFPredicate::OEQ, held, literal);
   }
 };
 

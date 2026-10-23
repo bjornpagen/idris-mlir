@@ -162,41 +162,28 @@ void switchOnWord(RewriterBase &rewriter, LitMatchOp op, Value word) {
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
-// Each carrier's keys are tested with its own equality. Essential: the
-// equality of a word, a double, a string and a big are four ops. A word the
-// target's index holds is switched on, and one wider is tested key by key;
-// a double is tested by ordered equality, under which no key is NaN; a
-// natural is a big at run time.
+// Each carrier's keys are tested with its own equality, the test its type
+// builds (LiteralTypeInterface::buildKeyTest). The scrutinee is held once:
+// a value that holds no reference (a word, a double) as its plain value,
+// which arith compares; one that holds references (a string, a big, a
+// natural) read in place at its grade, which a cast would claim or forget.
+// Essential, the two ways a value is read. A word the target's index holds
+// is switched on, scf.index_switch taking an index; any other carrier is
+// tested key by key.
 void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
   Location loc = op.getLoc();
   Value scrutinee = op.getScrutinee();
   Type carrier = unrestricted(scrutinee.getType());
   rewriter.setInsertionPoint(op);
+  Value held = holdsReferences(carrier) ? scrutinee : heldAs(rewriter, loc, scrutinee, carrier);
   if (auto word = dyn_cast<IntegerType>(carrier)) {
-    Value held = heldAs(rewriter, loc, scrutinee, carrier);
     llvm::TypeSize index = DataLayout::closest(op).getTypeSizeInBits(rewriter.getIndexType());
     if (word.getWidth() <= index.getFixedValue())
       return switchOnWord(rewriter, op, held);
-    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
-      Value literal = arith::ConstantOp::create(rewriter, at, cast<TypedAttr>(key));
-      return arith::CmpIOp::create(rewriter, at, arith::CmpIPredicate::eq, held, literal);
-    });
   }
-  if (isa<Float64Type>(carrier)) {
-    Value held = heldAs(rewriter, loc, scrutinee, carrier);
-    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
-      Value literal = arith::ConstantOp::create(rewriter, at, cast<TypedAttr>(key));
-      return arith::CmpFOp::create(rewriter, at, arith::CmpFPredicate::OEQ, held, literal);
-    });
-  }
-  if (isa<StrType>(carrier))
-    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
-      Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
-      return StrCmpOp::create(rewriter, at, scrutinee, literal, CmpPredicate::eq);
-    });
-  lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
-    Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
-    return BigCmpOp::create(rewriter, at, scrutinee, literal, CmpPredicate::eq);
+  auto literals = cast<LiteralTypeInterface>(carrier);
+  lowerChain(rewriter, op, [&](Location at, Attribute key) {
+    return literals.buildKeyTest(rewriter, at, held, key);
   });
 }
 
