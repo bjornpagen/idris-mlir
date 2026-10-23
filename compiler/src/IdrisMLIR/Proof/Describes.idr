@@ -520,7 +520,7 @@ drawnHas {ds = _ :: _} (There el) = let (d ** (inD, same)) = drawnHas el in (d *
 -- An own arc of a site the graph is drawn from is the graph's.
 0 ownInGraph : {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
                {cps : ChoiceHead -> List (Fin n)} -> {ss : List (Site n, tag)} -> {s : Site n} -> {x : tag} ->
-               Elem (s, x) ss -> Elem a (ownArcs s) -> Elem a (map arcOf (drawn ps fps cps ss))
+               Elem (s, x) ss -> Elem a (ownArcs s) -> Elem a (map Describes.arcOf (drawn ps fps cps ss))
 ownInGraph {a} inSs el = case drawnHas (replace {p = Elem a} (sym (ownDrawnArcs s)) el) of
   (d ** (inD, same)) =>
     replace {p = \b => Elem b (map arcOf (drawn ps fps cps ss))} same
@@ -529,7 +529,7 @@ ownInGraph {a} inSs el = case drawnHas (replace {p = Elem a} (sym (ownDrawnArcs 
 -- A projected arc of a site the graph is drawn from is the graph's.
 0 projectedInGraph : {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
                      {cps : ChoiceHead -> List (Fin n)} -> {ss : List (Site n, tag)} -> {s : Site n} -> {x : tag} ->
-                     Elem (s, x) ss -> Elem a (projectedArcs ps fps cps s) -> Elem a (map arcOf (drawn ps fps cps ss))
+                     Elem (s, x) ss -> Elem a (projectedArcs ps fps cps s) -> Elem a (map Describes.arcOf (drawn ps fps cps ss))
 projectedInGraph {a} inSs el = case drawnHas (replace {p = Elem a} (sym (projectedDrawnArcs ps fps cps s)) el) of
   (d ** (inD, same)) =>
     replace {p = \b => Elem b (map arcOf (drawn ps fps cps ss))} same
@@ -979,7 +979,7 @@ ownDrawnOf inModel a el = case taggedSite inModel of
 
 -- A site's template's height is among what K stands above. The site is
 -- matched here, so the list it heads is its own, a height alone.
-0 heightNeeded : {ss : List (Site n, tag)} -> Elem (s, x) ss -> Elem (height s.template) (allOf siteNeeds ss)
+0 heightNeeded : {ss : List (Site n, tag)} -> Elem (s, x) ss -> Elem (height s.template) (allOf Describes.siteNeeds ss)
 heightNeeded Here = Here
 heightNeeded {ss = y :: _} (There el) = elemAppendRight (siteNeeds y) (heightNeeded el)
 
@@ -998,7 +998,7 @@ describes ps fps cps positionOf held beyond caps ss uncapped fe = sitesCovered s
   where
     -- K stands above every site's template.
     0 needed : (s : Site n) -> (x : tag) -> Elem (s, x) ss ->
-               LTE (height s.template) (topOf beyond (allOf siteNeeds ss))
+               LTE (height s.template) (topOf beyond (allOf Describes.siteNeeds ss))
     needed s x here = aboveAll beyond (allOf siteNeeds ss) (heightNeeded here)
 
     0 sitesCovered : (rest : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) rest ->

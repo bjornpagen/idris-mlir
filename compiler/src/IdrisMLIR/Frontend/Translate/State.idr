@@ -19,6 +19,7 @@ import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
@@ -1028,28 +1029,42 @@ record DefinitionRead (facts : Type) where
 ||| A constructor of a type constructor, as the boundary read it once every
 ||| definition was read (`Boundary.readProgram`): the definition its type
 ||| constructor lists, read from what `main` reaches, which Idris made a
-||| constructor, and the arguments Idris gives it, which every match on it
-||| binds. A type constructor that lists a name the context defines as
-||| nothing, or as no constructor, is refused there, as the compiled module
-||| it is, so no reader of a type constructor's constructors meets one.
+||| constructor, its tag, and the arguments Idris gives it, which every
+||| match on it binds. Idris tags a type's constructors in the order its
+||| declaration lists them, from 0, and a match or an application reads a
+||| constructor at its tag. A type constructor that lists a name the
+||| context defines as nothing, or as no constructor, or a constructor at
+||| another place than its tag, is refused there, as the compiled module it
+||| is, so no reader of a type constructor's constructors meets one, and a
+||| constructor's tag is its place in its type's list.
 public export
 record ConstructorAt where
   constructor MkConstructorAt
   read : DefinitionRead ()
+  tag : Nat
   arity : Nat
+
+||| A type constructor's constructors, as its declaration gives them: none
+||| declared (`data T : Type`, never given any), so that what its values
+||| are no reader knows; or declared, each as the boundary read it, in the
+||| order the declaration lists them (`ConstructorAt`), none for an empty
+||| type, which has no values. The two are the problem's: Idris records
+||| the first as no list at all, the second as a list.
+public export
+data Constructors = NoneDeclared | DeclaredAs (List ConstructorAt)
 
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters, the role of the argument at each position (`Role`), the
 ||| first first, what its values are as numbers go, and its constructors as
-||| the boundary read them, in the order its declaration lists them, which
-||| every reader of a value of the type reads (`ConstructorAt`).
+||| the boundary read them (`Constructors`), which every reader of a value
+||| of the type reads.
 public export
 record TyConFacts where
   constructor MkTyConFacts
   params : List Nat
   roles : List Role
   natness : Natness
-  constructors : List ConstructorAt
+  constructors : Constructors
 
 ||| What the translation reads of a definition as a type constructor: a
 ||| type constructor's facts (`TyConFacts`), found once from every

@@ -826,38 +826,46 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
         | Left msg => pure (Left msg)
       pure (Right (Just (MkExitTypes aw ag vw)))
 
-||| A type constructor's constructors, each as it was read
-||| (`ConstructorAt`), in the order its declaration lists them; none for a
-||| type declared without them, or for any other definition. A name the
+||| A type constructor's constructors (`Constructors`): none declared, for
+||| a type declared without them; or each as it was read
+||| (`ConstructorAt`), in the order its declaration lists them, none for
+||| any other definition, which has no constructors to read. A name the
 ||| type lists that the frozen context defines as nothing, or as no
-||| constructor, is the compiled module's error, refused here, once, at the
-||| type constructor or else at `fallback`, as the translation refuses a
-||| missing definition, so no reader after meets a type with a constructor
-||| it cannot read.
-constructorsRead : NonEmptyFC -> Reading () -> DefinitionRead () -> Core (Either Refusal (List ConstructorAt))
+||| constructor, or a constructor whose tag is not its place in the list,
+||| is the compiled module's error, refused here, once, at the type
+||| constructor or else at `fallback`, as the translation refuses a missing
+||| definition, so no reader after meets a type with a constructor it
+||| cannot read, or one it reads at another tag than Idris gave it.
+constructorsRead : NonEmptyFC -> Reading () -> DefinitionRead () -> Core (Either Refusal Constructors)
 constructorsRead fallback r tc = case definition tc.def of
-  TCon _ _ _ _ _ (Just cons) _ => listed cons
-  _ => pure (Right [])
+  TCon _ _ _ _ _ (Just cons) _ => map DeclaredAs <$> listed 0 cons
+  TCon _ _ _ _ _ Nothing _ => pure (Right NoneDeclared)
+  _ => pure (Right (DeclaredAs []))
   where
     refused : String -> Refusal
     refused what = MkRefusal (Refusal CompiledModule) (fromMaybe fallback (isNonEmptyFC (location tc.def)))
                              (show (fullname tc.def) ++ ": " ++ what)
 
-    listed : List Name -> Core (Either Refusal (List ConstructorAt))
-    listed [] = pure (Right [])
-    listed (cn :: rest) = do
+    -- Idris tags a type's constructors in the order its declaration lists
+    -- them, from 0, and every reader reads a constructor at its tag.
+    listed : (place : Nat) -> List Name -> Core (Either Refusal (List ConstructorAt))
+    listed place [] = pure (Right [])
+    listed place (cn :: rest) = do
       ReadAs _ _ _ con <- readOf r cn
         | NoDefinition _ => pure (Left (refused ("missing definition " ++ show cn ++ ", which its type lists as a constructor")))
-      let DCon _ arity _ = definition con.def
+      let DCon tag arity _ = definition con.def
         | _ => pure (Left (refused (show (fullname con.def) ++ " is not a constructor")))
-      Right later <- listed rest
+      let True = tag == cast place
+        | False => pure (Left (refused (show (fullname con.def) ++ " has the tag " ++ show tag ++
+                                        ", but its type lists it at " ++ show place)))
+      Right later <- listed (S place) rest
         | Left refusal => pure (Left refusal)
-      pure (Right (MkConstructorAt con arity :: later))
+      pure (Right (MkConstructorAt con place arity :: later))
 
 ||| The reading with every definition given its constructors
 ||| (`constructorsRead`), the entry as every other; the first refusal stops
 ||| it.
-constructed : NonEmptyFC -> Reading () -> Core (Either Refusal (Reading (List ConstructorAt)))
+constructed : NonEmptyFC -> Reading () -> Core (Either Refusal (Reading Constructors))
 constructed fallback r = do
   Right entryCons <- constructorsRead fallback r r.entry
     | Left refusal => pure (Left refusal)
@@ -865,8 +873,8 @@ constructed fallback r = do
     | Left refusal => pure (Left refusal)
   pure (Right (MkReading r.frozen (withNature entryCons r.entry) ds r.application r.interfaces))
   where
-    each : SortedMap Int (DefinitionRead (List ConstructorAt)) -> List (Int, DefinitionRead ()) ->
-           Core (Either Refusal (SortedMap Int (DefinitionRead (List ConstructorAt))))
+    each : SortedMap Int (DefinitionRead Constructors) -> List (Int, DefinitionRead ()) ->
+           Core (Either Refusal (SortedMap Int (DefinitionRead Constructors)))
     each done [] = pure (Right done)
     each done ((i, d) :: rest) = do
       Right cons <- constructorsRead fallback r d

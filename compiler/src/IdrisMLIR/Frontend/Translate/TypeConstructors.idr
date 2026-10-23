@@ -114,7 +114,7 @@ public export
 record FactsFound (facts : Type) where
   constructor MkFactsFound
   foundFacts : DefinitionRead facts -> Maybe TyConFacts
-  readConstructors : DefinitionRead facts -> List ConstructorAt
+  readConstructors : DefinitionRead facts -> Constructors
 
 ||| The constructors of a type constructor, each read once
 ||| (`ConstructorRead`) off what the boundary read of it (`ConstructorAt`),
@@ -122,7 +122,9 @@ record FactsFound (facts : Type) where
 ||| without them, and for any other definition. What the translation reads
 ||| of a type constructor is read from these (`factsOf`).
 constructorsOf : {0 facts : Type} -> Reading facts -> FactsFound facts -> DefinitionRead facts -> Core (List ConstructorRead)
-constructorsOf r known tc = traverse readOne (known.readConstructors tc)
+constructorsOf r known tc = case known.readConstructors tc of
+    NoneDeclared => pure []
+    DeclaredAs cons => traverse readOne cons
   where
     readOne : ConstructorAt -> Core ConstructorRead
     readOne con = do
@@ -416,7 +418,7 @@ Assumed = List (Name, List Nat)
 ||| that is no type constructor has neither.
 export
 natureFacts : FactsFound Nature
-natureFacts = MkFactsFound held (\d => maybe [] (.constructors) (held d))
+natureFacts = MkFactsFound held (\d => maybe (DeclaredAs []) (.constructors) (held d))
   where
     held : DefinitionRead Nature -> Maybe TyConFacts
     held d = case d.nature.asTypeConstructor of
@@ -560,10 +562,10 @@ factsOf r known tc = do
 ||| definition: each reads the facts of those found before it, and walks
 ||| to the rest (`formedAt`). The table holds a type constructor's facts
 ||| and nothing else.
-typeConstructorsOf : Reading (List ConstructorAt) -> Core (SortedMap Address TyConFacts)
+typeConstructorsOf : Reading Constructors -> Core (SortedMap Address TyConFacts)
 typeConstructorsOf r = foldlC add empty (values r.definitions)
   where
-    add : SortedMap Address TyConFacts -> DefinitionRead (List ConstructorAt) -> Core (SortedMap Address TyConFacts)
+    add : SortedMap Address TyConFacts -> DefinitionRead Constructors -> Core (SortedMap Address TyConFacts)
     add known d = case definition d.def of
       TCon {} => (\facts => insert (addressOf d.placement) facts known) <$>
                    factsOf r (MkFactsFound (\other => lookup (addressOf other.placement) known) (.nature)) d
@@ -580,7 +582,7 @@ typeConstructorsOf r = foldlC add empty (values r.definitions)
 ||| `Recursion.loopsOf`), a definition with no proof one that may diverge.
 export
 readWhole : (proved : SortedMap Address ComponentId) -> (called : SortedMap Address String) ->
-            Reading (List ConstructorAt) -> Core Read
+            Reading Constructors -> Core Read
 readWhole proved called r = do
   facts <- typeConstructorsOf r
   pure (natured (natureFrom facts called proved) r)

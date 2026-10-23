@@ -329,21 +329,26 @@ arities (con :: cons) = con.arity :: arities cons
 -- type constructor alone has constructors, whose fields are sites of the
 -- type's, and arguments that are positions of the data it describes; every
 -- other definition writes its signature and case tree. A type
--- constructor's constructors are those the boundary read with its facts.
+-- constructor's constructors are those the boundary read with its facts;
+-- one declared without them has none whose fields write anything.
 kindOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          Address -> Defined -> (List Nat, Front (NodeReading, List Nat))
 kindOf a d = case (d.matched, definition d.def, d.nature.asTypeConstructor) of
   (Just m, _, _) => ([length m.args], plain)
-  (Nothing, TCon n _ _ _ _ _ _, ATypeConstructor facts) =>
-    let js = represented facts in
-    (n :: length facts.constructors :: arities facts.constructors, do
-       fs <- fieldSites a d facts.constructors js
-       rd <- readingOf a d
-       pure ({ sites $= (fs ++) } rd, js))
+  (Nothing, TCon n _ _ _ _ _ _, ATypeConstructor facts) => case facts.constructors of
+    NoneDeclared => ([n, 0], typed facts [])
+    DeclaredAs cons => (n :: length cons :: arities cons, typed facts cons)
   _ => ([], plain)
   where
     plain : Front (NodeReading, List Nat)
     plain = (, []) <$> readingOf a d
+
+    typed : TyConFacts -> List ConstructorAt -> Front (NodeReading, List Nat)
+    typed facts cons = do
+      let js = represented facts
+      fs <- fieldSites a d cons js
+      rd <- readingOf a d
+      pure ({ sites $= (fs ++) } rd, js)
 
 -- The definition a site enters, as the boundary read it, when it names
 -- one: a call or a build. A dispatch reaches the method functions of the
@@ -1815,10 +1820,10 @@ choicePlaces given k = filter (\c => c.fst == k || c.fst == UnshownHead) given
 -- with what a message reads of its head, as the place that made the
 -- member read it.
 heldChoices : List (Node, List (Sites.Site, Reached Defined)) -> List (c : ChoiceHead ** HeadRead c)
-heldChoices walked = values (eachPlaced (\acc, _, _, callee, pl => case (callee, pl.argument.holds) of
-                                            (Making k named, _ :: _) => insert k (k ** named) acc
-                                            _ => acc)
-                                         empty walked)
+heldChoices walked = Data.SortedMap.values (eachPlaced (\acc, _, _, callee, pl => case (callee, pl.argument.holds) of
+                                                            (Making k named, _ :: _) => insert k (k ** named) acc
+                                                            _ => acc)
+                                                         empty walked)
 
 ||| What every place that gives a dictionary a list of values writes at the
 ||| held positions of the place the dictionary lands at (`calleePlace`):

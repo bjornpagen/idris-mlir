@@ -848,20 +848,18 @@ mutual
           boundsHold fc what address statics
           inside <- core (sizedWithin fc what chain.sizes found.link)
           -- Essential: a type declared without its constructors (`data T :
-          -- Type`, never given any) has no values to lay out. Its facts
-          -- hold its constructors as none, as an empty type's are, so its
-          -- declaration says which it is.
-          case definition def of
-            TCon _ _ _ _ _ Nothing _ => reject fc owner DataType (tname ++ " has no known constructors")
-            _ => pure ()
-          let cons = facts.constructors
+          -- Type`, never given any) has no values to lay out, where an
+          -- empty type's are laid out as none.
+          cons <- case facts.constructors of
+                    NoneDeclared => reject fc owner DataType (tname ++ " has no known constructors")
+                    DeclaredAs listed => pure listed
           loc <- toLoc (location def)
           -- The facts hold a role for each of the type constructor's
           -- arguments, so its indices are the positions whose role the key
           -- does not hold.
           sorts <- indexSorts tc (positionsOf (not . inKey) roles)
           -- Each constructor is read at its place in the type's list, which
-          -- is its tag (`constructor`), so the layouts are in tag order.
+          -- is its tag (`ConstructorAt`), so the layouts are in tag order.
           layouts <- traverse (\(place, con) =>
                                  constructor (MkRegistering chain.sizes ((found.link, fam) :: chain.links))
                                              (rec (found.link :: linksOf chain.links)
@@ -869,7 +867,7 @@ mutual
                                                           inside.member))
                                              fc owner fam place found.link args params roles con)
                               (Data.Zippable.zip (allFins (length cons)) (Data.Vect.fromList cons))
-          promise <- promised tname (namedHooks tc.registered).sumShape (toList (map layoutCon layouts))
+          promise <- promised tname (namedHooks tc.registered).sumShape (Prelude.toList (map layoutCon layouts))
           let df = MkDataFamily fam found.key promise sorts layouts loc
           updateState (derive { familiesAt $= insert found.link df, dataFamilies $= insert fam df
                               , familyOrder $= (:< fam) })
@@ -915,17 +913,6 @@ mutual
   constructor chain acc fc owner fam place link targs ps roles con = do
     let def = con.read.def
     let cname = show (fullname def)
-    -- Idris tags a type's constructors in the order its declaration lists
-    -- them, from 0, and a match or an application reads a constructor's
-    -- layout at its tag: one listed at another place than its tag is
-    -- refused, as the compiled module it is. The boundary read the
-    -- definition as a constructor, so a tag is what it carries.
-    case definition def of
-      DCon tag _ _ =>
-        unless (tag == cast (finToNat place)) $
-          reject fc owner CompiledModule (cname ++ " has the tag " ++ show tag ++ ", but its type lists it at " ++
-                                          show (finToNat place))
-      _ => pure ()
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,

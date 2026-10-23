@@ -414,11 +414,9 @@ joinPassage : {0 v, w : Weight} -> Passage v -> Passage w -> Passage (join v w)
 joinPassage (ByComputation c) (ByComputation _) = ByComputation c
 joinPassage (ByComputation c) (ByHeads _ _) = ByComputation c
 joinPassage (ByHeads _ _) (ByComputation c) = ByComputation c
-joinPassage (ByHeads g l) (ByHeads g' l') = kept (g + l' <= g' + l)
-  where
-    kept : (later : Bool) -> Passage (if later then Finite g' l' else Finite g l)
-    kept True = ByHeads g' l'
-    kept False = ByHeads g l
+joinPassage (ByHeads g l) (ByHeads g' l') with (g + l' <= g' + l)
+  _ | True = ByHeads g' l'
+  _ | False = ByHeads g l
 
 -- What passes on a weight joined into a list of them (`insertJoin`).
 insertPassage : {0 w : Weight} -> {0 acc : List (Nat, Weight)} -> (i : Nat) -> Passage w -> Passages acc ->
@@ -440,7 +438,7 @@ settledPassage : {0 w : Weight} -> Passage w -> Passage (settled w)
 settledPassage (ByHeads g l) = ByHeads (minus g l) (minus l g)
 settledPassage (ByComputation c) = ByComputation c
 
-settledPassages : {0 xs : List (Nat, Weight)} -> Passages xs -> Passages (map settledEntry xs)
+settledPassages : {0 xs : List (Nat, Weight)} -> Passages xs -> Passages (map Template.settledEntry xs)
 settledPassages NonePassed = NonePassed
 settledPassages (PassedOn i p ps) = PassedOn i (settledPassage p) (settledPassages ps)
 
