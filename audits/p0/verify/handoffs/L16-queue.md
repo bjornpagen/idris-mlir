@@ -418,3 +418,9 @@ L17ay settles whether Readings' marker names change):
   folded by `match` is AGENTS.md's form. `Conversion/Lower/Statics.cpp:46,
   103` reads a crash site by the attribute name `"site"`: a site interface
   the op families that carry one implement, then a typed walk.
+- Unit F: `Conversion/Strings.cpp:172, 188` picks four runtime functions
+  per element by `is_same_v<OpT, StrPackOp>`, facts the specification
+  should declare in a generated per-op table (as `ShownOutput` is).
+- Unit A: `IR/Lifetimes/Ops.cpp`'s `extentOf` (forget, reserve) and
+  `packedOf` (unpack, opener) each test two op classes; `Proof.cpp`'s
+  `keptHere` tests for `CellArenaOp`: interface methods.
