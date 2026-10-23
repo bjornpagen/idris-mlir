@@ -664,3 +664,22 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   would let exclusivity follow the owner into the given-back value without
   the loan's view, L08's `rootOf`). L07v holds the once-only consumption's
   other readers, the literal match's leak and `big.small`'s type.
+- For the owner, after the sources question (L14u's finding): idr-constants
+  (SummarizedConstantPropagation over upstream's dataflow) and the e-graph
+  both fold the same ops by two routes, each round, and drift (NaN, fixed;
+  math.sqrt folded by one and left by the other; the byte budget binding
+  one). Only idr-constants carries constants a finished callee returns
+  (the summaries), joins on live paths (region results, block arguments,
+  loop-invariant values), our hand folds and multi-result ops; only the
+  e-graph rewrites, shares, reasons by intervals, chooses by cost and
+  places static data. (A) one folder: the e-graph takes idr-constants'
+  duties (callee constants beside gives-back, live-path joins as region
+  rules, hand folds as meanings) and idr-constants goes; (B) idr-constants
+  folds only the specification's lists, two propagators kept. An engine
+  choice: the owner's.
+- From L14u: counting (`FlowOps.cpp`) marks a building reindex's result
+  fresh, as a building field read is; `Open.cpp`'s `openedAgainst` gives
+  the open type the tail's hold, so a function with one tail giving an
+  unclaimed cell and another building from words cannot share one open
+  type (L18); `tests/open-copy-keeps-refined-index` can hold words again
+  (L19).
