@@ -205,9 +205,9 @@ heldAt clause cls env = case getAt clause cls.patterns of
 argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo kc sp a) ->
             (vs : Scope) -> (as : List ArgKind) -> (0 _ : length as = length vs) -> List ClosedTerm -> StandsFor kc sp vs a
 argsBound field [] [] _ _ = []
-argsBound field (_ :: vs) (a :: as) same ss =
+argsBound field (_ :: vs) (arg :: as) same ss =
   let (s, ss') = next ss in
-  bound a s :: argsBound field vs as (tailsAgree same) ss'
+  bound arg s :: argsBound field vs as (tailsAgree same) ss'
   where
     -- The shape of an argument and those of the arguments after it; none
     -- once the shape gives no more.
@@ -661,25 +661,6 @@ mutual
           routed as (OnConstructors cn cons) = constructors loc v i cn as cons
           routed as (OnConstants consts) = literals loc i as consts
 
-      forced : List (CaseAlt vars) -> Front (Term nv)
-      forced [ConCase cn _ args rhs] = do
-        body <- tree ctx (prepend (everyVar args (TypeValue (Erased ctx.fc Placeholder))) env)
-                     (afterCon args scrutinee cls) rhs
-        assumed body
-      forced [DefaultCase rhs] = tree ctx env cls rhs
-      forced _ = do
-        cons <- traverse altName alts
-        reject ctx.fc ctx.owner Match
-               ("a match on `" ++ show name ++ "`, which is erased (quantity 0, or an index or proof " ++
-                "with no runtime value), between " ++ joinBy ", " cons ++ ": only a runtime value can " ++
-                "choose an alternative; match on the runtime value that determines it instead")
-        where
-          altName : CaseAlt vars -> Front String
-          altName (ConCase cn _ _ _) = show <$> fullName cn
-          altName (ConstCase c _) = pure (show c)
-          altName (DelayCase {}) = pure "Delay"
-          altName (DefaultCase _) = pure "the default"
-
       -- The alternative of a match on an erased proof of an equality
       -- (`Refl`: `replace` and `rewrite` are such matches) holds where the
       -- proof's two sides are equal, on Idris's word alone: its body is the
@@ -700,6 +681,25 @@ mutual
           (lhs, rhs) => do
             loc <- toLoc ctx.fc
             pure (Assume loc lhs rhs body)
+
+      forced : List (CaseAlt vars) -> Front (Term nv)
+      forced [ConCase cn _ args rhs] = do
+        body <- tree ctx (prepend (everyVar args (TypeValue (Erased ctx.fc Placeholder))) env)
+                     (afterCon args scrutinee cls) rhs
+        assumed body
+      forced [DefaultCase rhs] = tree ctx env cls rhs
+      forced _ = do
+        cons <- traverse altName alts
+        reject ctx.fc ctx.owner Match
+               ("a match on `" ++ show name ++ "`, which is erased (quantity 0, or an index or proof " ++
+                "with no runtime value), between " ++ joinBy ", " cons ++ ": only a runtime value can " ++
+                "choose an alternative; match on the runtime value that determines it instead")
+        where
+          altName : CaseAlt vars -> Front String
+          altName (ConCase cn _ _ _) = show <$> fullName cn
+          altName (ConstCase c _) = pure (show c)
+          altName (DelayCase {}) = pure "Delay"
+          altName (DefaultCase _) = pure "the default"
 
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
@@ -890,14 +890,14 @@ mutual
       parameterValue : Nat -> Maybe (Fin nv)
       parameterValue i = go (innermostFirst (zipByVar (,) cls.places env))
         where
+          valueOf : VarInfo kc OfTree (Fin nv) -> Maybe (Fin nv)
+          valueOf (Static _ (Just (x, _)) _) = Just x
+          valueOf v = variableOf v
+
           go : List (Place, VarInfo kc OfTree (Fin nv)) -> Maybe (Fin nv)
           go [] = Nothing
           go ((MkPlace j [<], v) :: rest) = if i == j then valueOf v else go rest
           go (_ :: rest) = go rest
-
-          valueOf : VarInfo kc OfTree (Fin nv) -> Maybe (Fin nv)
-          valueOf (Static _ (Just (x, _)) _) = Just x
-          valueOf v = variableOf v
 
       -- An instance's runtime arguments, one per parameter of its kinds
       -- that exists at run time, in order, each this instance's parameter
@@ -1002,16 +1002,16 @@ mutual
     let Yes bound = decEq (length info.args) (length args)
       | No _ => reject ctx.fc ctx.owner CompiledModule
                        ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
-    -- The alternative binds the constructor's fields, as many as the
-    -- layout's arguments hold, each named as the tree names its argument.
-    let k = fieldCount info.args
     dead <- excludedBy shape (fullname def)
     -- Each field is of its type in scope (`fieldsAt`), the constructor's
     -- binders at the levels its region binds them at, as `Emit` reads it,
     -- and the region's terms stand that many levels deeper.
     let infos = argsBound (fieldAt (fieldsAt ctx.depth info.con)) args info.args bound (shapeArgs shape)
     alt <- if dead then pure Nothing else do
-      body <- tree ({ depth $= (+ length info.con.binders) } ctx) (under {k} infos env) (afterCon args scrutinee cls) rhs
+      -- The alternative binds the constructor's fields, as many as the
+      -- layout's arguments hold, each named as the tree names its argument.
+      body <- tree ({ depth $= (+ length info.con.binders) } ctx) (under {k = fieldCount info.args} infos env)
+                   (afterCon args scrutinee cls) rhs
       pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
     (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df rest (nextCon cons)
     pure (insert (finToNat cid.index) others, maybe alts (:: alts) alt, fallback)

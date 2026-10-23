@@ -538,23 +538,62 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
           let value = fromMaybe (Erased bfc Placeholder) shape
           unkeyedAt (ValueParam (MkBinder q t) shape a') level !(normaliseClosed (subst value sc))
       where
-        -- A kind the binder decides at what the call offers, which no
-        -- static argument a request read keys.
-        unkeyedAt : PKind -> (next : Nat) -> ClosedTerm -> Front (Stepped (FromCall given))
+        -- A kind the binder decides at what a call offers, which no static
+        -- argument a request read keys. No step here reads what the call
+        -- offered to key the instance, so each holds at whatever it offered
+        -- (`call`), and the matches on `given` above meet each at the value
+        -- they refine it to.
+        unkeyedAt : {0 call : Maybe ArgValue} -> PKind -> (next : Nat) -> ClosedTerm -> Front (Stepped (FromCall call))
         unkeyedAt kind next restType = pure (MkStepped kind next restType NoKey)
 
+        -- A type or a form the call leaves out: the call's value is a
+        -- function that takes a type, held at run time. Where the program
+        -- fixes such a function (an argument, a `let`, an applied lambda),
+        -- its form is taken and never translated, and where it is held at
+        -- run time it is a member of its type's choice (`Terms.member`), so
+        -- no call of it is classified there; what reaches here is one no
+        -- compile-time reduction fixes, which would be a closure whose type
+        -- the next binder chooses where it is applied.
+        leftOut : {0 call : Maybe ArgValue} -> String -> Front (Stepped (FromCall call))
+        leftOut what =
+          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
+                                     !(showTT a))
+
         -- A type, normalised, keys the instance.
-        typed : Front (Stepped (FromCall given))
+        typed : {0 call : Maybe ArgValue} -> Front (Stepped (FromCall call))
         typed = do
           let Just v = given
             | Nothing => leftOut "type"
           val <- v.normalised
           unkeyedAt (TypeParam val) level !(normaliseClosed (subst val sc))
 
+        -- An implementation known now keys the instance, with the value it
+        -- was fixed at, which its kind holds.
+        static : {0 call : Maybe ArgValue} -> FixedDictionary -> Maybe Holes -> Front (Stepped (FromCall call))
+        static d holes = unkeyedAt (DictParam d holes) level !(normaliseClosed (subst d.form sc))
+
+        -- A choice of an implementation or a polymorphic function of the
+        -- parameter's type (`choiceType`), a value at run time, which the
+        -- call dispatches on. Which member it is no type after it can
+        -- read. Essential: a function on values that the running program
+        -- chooses, whose result is an implementation, is a value of a
+        -- function type that takes no type: a closure, a runtime value
+        -- like any other, whose uses apply it, each result a choice.
+        chosen : {0 call : Maybe ArgValue} -> Uses -> ClosedTerm -> Front (Stepped (FromCall call))
+        chosen q a' = do
+          Just ct <- choiceType a'
+            | Nothing => do
+                b <- coreBinder fc owner ValueType q a'
+                unkeyedAt (ValueParam b Nothing a') level !(normaliseClosed (subst (Erased bfc Placeholder) sc))
+          choice <- choiceFamily fc owner ct
+          unkeyedAt (ChoiceParam (MkBinder q (DataT choice.family [])) ct) level
+                    !(normaliseClosed (subst (Erased bfc Placeholder) sc))
+
         -- An implementation given as written, at a parameter of an
         -- interface's type, or a polymorphic function, at a parameter of
         -- its type.
-        implemented : Uses -> ClosedTerm -> ArgValue -> ClosedTerm -> Front (Stepped (FromCall given))
+        implemented : {0 call : Maybe ArgValue} -> Uses -> ClosedTerm -> ArgValue -> ClosedTerm ->
+                      Front (Stepped (FromCall call))
         implemented q a' v written = do
           -- An implementation can be a function of a runtime value
           -- (`{y : a} -> Show (p y)`, applied to the first component of a
@@ -606,41 +645,6 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
                 | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
               static (MkFixedDictionary key d.asStatic d.ofDictionary fixed) (Just (MkHoles tys (MkBinder Many held)))
-
-        -- An implementation known now keys the instance, with the value it
-        -- was fixed at, which its kind holds.
-        static : FixedDictionary -> Maybe Holes -> Front (Stepped (FromCall given))
-        static d holes = unkeyedAt (DictParam d holes) level !(normaliseClosed (subst d.form sc))
-
-        -- A choice of an implementation or a polymorphic function of the
-        -- parameter's type (`choiceType`), a value at run time, which the
-        -- call dispatches on. Which member it is no type after it can
-        -- read. Essential: a function on values that the running program
-        -- chooses, whose result is an implementation, is a value of a
-        -- function type that takes no type: a closure, a runtime value
-        -- like any other, whose uses apply it, each result a choice.
-        chosen : Uses -> ClosedTerm -> Front (Stepped (FromCall given))
-        chosen q a' = do
-          Just ct <- choiceType a'
-            | Nothing => do
-                b <- coreBinder fc owner ValueType q a'
-                unkeyedAt (ValueParam b Nothing a') level !(normaliseClosed (subst (Erased bfc Placeholder) sc))
-          choice <- choiceFamily fc owner ct
-          unkeyedAt (ChoiceParam (MkBinder q (DataT choice.family [])) ct) level
-                    !(normaliseClosed (subst (Erased bfc Placeholder) sc))
-
-        -- A type or a form the call leaves out: the call's value is a
-        -- function that takes a type, held at run time. Where the program
-        -- fixes such a function (an argument, a `let`, an applied lambda),
-        -- its form is taken and never translated, and where it is held at
-        -- run time it is a member of its type's choice (`Terms.member`), so
-        -- no call of it is classified there; what reaches here is one no
-        -- compile-time reduction fixes, which would be a closure whose type
-        -- the next binder chooses where it is applied.
-        leftOut : String -> Front (Stepped (FromCall given))
-        leftOut what =
-          reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time, at a parameter of type " ++
-                                     !(showTT a))
 
     -- The parameter the binder binds, what stands for it in the rest of the
     -- type, and the rest of the type after it. A static argument a request
@@ -809,6 +813,24 @@ instanceSig fc owner what requesting = do
                       (MkCallee (InstanceOf requesting.link) requesting.symbol (runtimeBinders (vectList classified.kinds)) result)
         ** MkSignedAt (vectListLength classified.kinds) classified.atKey)
 
+||| A new instance recorded at its signature, read once (`instanceSig`):
+||| in the instance table, in the order first requested, and as a request
+||| the worklist takes, with what its request keyed each parameter by and
+||| that each is put in at it, the site that requested it, the definition
+||| whose translation did, and the positions at which the worklist checks
+||| its static arguments against the growth check's bounds (`boundedAt`).
+export
+recordRequest : {auto s : Ref TState TS} ->
+                FC -> (owner : String) -> (what : Instantiates) -> (requesting : Requesting) -> (sig : InstanceSig) ->
+                SignedAt what (keysOf requesting.supplied) sig -> Front ()
+recordRequest fc owner what requesting sig signed = do
+  let inst = InstanceOf requesting.link
+  updateState (derive { instances $= insert inst sig })
+  updateState (derive { fnOrder $= (:< inst) })
+  updateState { derived->requested $= (:< MkRequest what sig signed.classifiesAll (keysOf requesting.supplied) signed.atKey
+                                                   requesting.key fc (shown owner) requesting.link
+                                                   (boundedAt requesting.link.head requesting.supplied)) }
+
 ||| Requests a function instance, for parameters classified as the call
 ||| gives them, and returns its signature (`InstanceSig`), which holds its
 ||| identity. A new instance's signature is read here, once: what it
@@ -831,21 +853,3 @@ request fc owner what kinds = do
   (sig ** signed) <- instanceSig fc owner what requesting
   recordRequest fc owner what requesting sig signed
   pure sig
-
-||| A new instance recorded at its signature, read once (`instanceSig`):
-||| in the instance table, in the order first requested, and as a request
-||| the worklist takes, with what its request keyed each parameter by and
-||| that each is put in at it, the site that requested it, the definition
-||| whose translation did, and the positions at which the worklist checks
-||| its static arguments against the growth check's bounds (`boundedAt`).
-export
-recordRequest : {auto s : Ref TState TS} ->
-                FC -> (owner : String) -> (what : Instantiates) -> (requesting : Requesting) -> (sig : InstanceSig) ->
-                SignedAt what (keysOf requesting.supplied) sig -> Front ()
-recordRequest fc owner what requesting sig signed = do
-  let inst = InstanceOf requesting.link
-  updateState (derive { instances $= insert inst sig })
-  updateState (derive { fnOrder $= (:< inst) })
-  updateState { derived->requested $= (:< MkRequest what sig signed.classifiesAll (keysOf requesting.supplied) signed.atKey
-                                                   requesting.key fc (shown owner) requesting.link
-                                                   (boundedAt requesting.link.head requesting.supplied)) }

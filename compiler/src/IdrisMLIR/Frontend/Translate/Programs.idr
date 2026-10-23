@@ -21,6 +21,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Translate.TypeConstructors
+import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
@@ -35,6 +36,7 @@ import Control.WellFounded
 import Data.Fin
 import Data.List
 import Data.List.Quantifiers
+import Data.List1
 import Data.Nat
 import Data.SnocList
 import Data.SortedMap
@@ -47,6 +49,16 @@ import Decidable.Equality
 -- A scope here is always a term's, the checker's: where a rule is decided
 -- is no question this module asks.
 %hide IdrisMLIR.Spec.Core.Rules.Scope
+
+-- Every do block here binds in `Front`, never in `Core`: Core's own bind,
+-- beside the interface's, would make each bind an ambiguity, elaborated
+-- once per candidate with all of the block after it inside.
+%hide Core.Core.(>>=)
+%hide Core.Core.(>>)
+
+||| Equal successors have equal predecessors.
+predecessors : {0 m, n : Nat} -> S m = S n -> m = n
+predecessors Refl = Refl
 
 ||| The name of the next parameter, and the names after it: a parameter
 ||| past the names a type gives is `x`.
@@ -94,10 +106,6 @@ runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same (_ :: at)
               :: map (map FS) env)
 runtimeParams level xs [] (_ :: _) Refl _ impossible
 runtimeParams level xs (_ :: _) [] Refl _ impossible
-
-||| Equal successors have equal predecessors.
-predecessors : {0 m, n : Nat} -> S m = S n -> m = n
-predecessors Refl = Refl
 
 ||| The names a type gives its parameters.
 parameterNames : TT vs -> List Name
@@ -177,7 +185,7 @@ translateDefinition p n m counted = do
     -- parameter order: the parameter, of its binder's type, as its
     -- dimensions are stated, which the body uses in its place. The
     -- parameters are the body's variables, parameter `i` being `i`.
-    tied : Loc -> Vect r Binder -> Vect r (Fin n) -> List (Fin r, List (Nat, Witness r)) -> Term n -> Term n
+    tied : Loc -> Vect r Binder -> Vect r (Fin q) -> List (Fin r, List (Nat, Witness r)) -> Term q -> Term q
     tied loc params vs [] body = body
     tied loc params vs ((x, axes) :: rest) body =
       let p = Data.Vect.index x vs in
@@ -304,17 +312,10 @@ named f = concatMap (\(_ ** c) => concatMap (families . (.type)) (toList c.field
 groupsOf : List Family -> List FamilyGroup
 groupsOf fs =
   let edges = the (SortedMap FamilyId (List FamilyId)) (fromList (map (\f => (f.id, named f)) fs))
-      start = the (SortedMap FamilyId (SortedSet FamilyId))
-                  (fromList (map (\f => (f.id, fromList (fromMaybe [] (lookup f.id edges)))) fs))
-      reach = rounds (length fs) edges start
-      reaches = \a, b => maybe False (contains b) (lookup a reach)
-      together = \a, b => a == b || (reaches a b && reaches b a)
-      grouped = foldl (\gs, f => if any (\g => together (head g).id f.id) gs then gs else gs ++ [f ::: []]) [] fs
-      filled = map (\g => case filter (\f => together (head g).id f.id) fs of
-                             (x :: xs) => x ::: xs
-                             [] => g) grouped
-      size = \g => maybe 0 (length . SortedSet.toList) (lookup (head g).id reach)
-  in sortBy (\a, b => compare (size a) (size b)) filled
+      oneStep = the (SortedMap FamilyId (SortedSet FamilyId))
+                    (fromList (map (\f => (f.id, fromList (fromMaybe [] (lookup f.id edges)))) fs))
+      reach = rounds (length fs) edges oneStep
+  in sortBy (\a, b => compare (reachCount reach a) (reachCount reach b)) (map (filled reach) (foldl (grouped reach) [] fs))
   where
     step : SortedMap FamilyId (List FamilyId) -> SortedMap FamilyId (SortedSet FamilyId)
         -> SortedMap FamilyId (SortedSet FamilyId)
@@ -323,6 +324,30 @@ groupsOf fs =
           -> SortedMap FamilyId (SortedSet FamilyId)
     rounds Z edges r = r
     rounds (S k) edges r = rounds k edges (step edges r)
+
+    -- Two families of one group, by what each reaches: the same family, or
+    -- each reaching the other.
+    together : SortedMap FamilyId (SortedSet FamilyId) -> FamilyId -> FamilyId -> Bool
+    together reach a b = a == b || (reaches a b && reaches b a)
+      where
+        reaches : FamilyId -> FamilyId -> Bool
+        reaches x y = maybe False (contains y) (lookup x reach)
+
+    -- The groups found so far with the next family: as they are when one
+    -- holds a family it is together with, else with a group of its own
+    -- after them.
+    grouped : SortedMap FamilyId (SortedSet FamilyId) -> List FamilyGroup -> Family -> List FamilyGroup
+    grouped reach gs f = if any (\g => together reach g.head.id f.id) gs then gs else gs ++ [f ::: []]
+
+    -- A group holding every family together with its first.
+    filled : SortedMap FamilyId (SortedSet FamilyId) -> FamilyGroup -> FamilyGroup
+    filled reach g = case filter (\f => together reach g.head.id f.id) fs of
+      (x :: xs) => x ::: xs
+      [] => g
+
+    -- How many families a group's first reaches.
+    reachCount : SortedMap FamilyId (SortedSet FamilyId) -> FamilyGroup -> Nat
+    reachCount reach g = maybe 0 (length . SortedSet.toList) (lookup g.head.id reach)
 
 ------------------------------------------------------------------------------
 -- The join points of local definitions
@@ -384,6 +409,11 @@ stacked (m :: ms) js = stacked ms (pointArity m :: js)
 stackedNonEmpty [] = Data.List.IsNonEmpty
 stackedNonEmpty (m :: ms) = stackedNonEmpty ms
 
+||| A group of one local join at least has as many join points.
+0 groupStacked : (ms : List LocalJoin) -> Data.List.NonEmpty ms -> Data.List.NonEmpty (stacked ms [])
+groupStacked (m :: ms) Data.List.IsNonEmpty = stackedNonEmpty {k = pointArity m} {js = []} ms
+groupStacked [] Data.List.IsNonEmpty impossible
+
 ||| A term with every call of each local join of `ms` a jump to its join
 ||| point. Every call of one is a tail call wherever it is written
 ||| (`joinLocals` found it so), so none fails: one that did would be a
@@ -406,25 +436,32 @@ regionsIn q bodyOf (m :: ms) acc = do
   b <- bodyOf m
   regionsIn q bodyOf ms (regionAt q m b :: acc)
 
-||| A function with the local joins it reaches as the join points of one op
-||| around its body, every call of one a jump to it, and what Idris proved
-||| of their loops part of what it proved of the function's.
+||| A function with a group of local joins it reaches, one at least, as the
+||| join points of one op around its body, every call of one a jump to it,
+||| and what Idris proved of their loops part of what it proved of the
+||| function's.
+joinedBy : FC -> SortedMap FnId (List FnId) -> (group : List LocalJoin) -> (0 ne : Data.List.NonEmpty group) -> TFn ->
+           Front TFn
+joinedBy fc calls group ne f = do
+  body <- throughAll fc group f.body
+  let q = length f.telescope
+  withJoins <- the (Front (Term f.arity)) $ case tokenScope calls group of
+    InBody => do
+      targets <- regionsIn q (\g => pure (regionBody g)) group []
+      pure (Join {nonEmpty = groupStacked group ne} f.loc InBody targets body)
+    InEveryRegion => do
+      targets <- regionsIn q (\g => throughAll fc group (regionBody g)) group []
+      pure (Join {nonEmpty = groupStacked group ne} f.loc InEveryRegion targets body)
+  pure (MkTFn f.key f.standing f.telescope f.arity f.callee f.extents f.paramNames withJoins f.loc
+              (withRegions f.termination (map (.definition) group)))
+
+||| A function with the local joins it reaches, if any, as the join points
+||| of one op around its body (`joinedBy`).
 joined : FC -> SortedMap FnId (List FnId) -> List LocalJoin -> TFn -> Front TFn
 joined fc calls members f =
   case reached calls members (wellFounded (length members)) (fromMaybe [] (lookup f.callee.fn calls)) [<] of
     [] => pure f
-    group@(m :: ms) => do
-      body <- throughAll fc group f.body
-      let q = length f.telescope
-      withJoins <- the (Front (Term f.arity)) $ case tokenScope calls group of
-        InBody => do
-          targets <- regionsIn q (\g => pure (regionBody g)) group []
-          pure (Join {nonEmpty = stackedNonEmpty {k = pointArity m} {js = []} ms} f.loc InBody targets body)
-        InEveryRegion => do
-          targets <- regionsIn q (\g => throughAll fc group (regionBody g)) group []
-          pure (Join {nonEmpty = stackedNonEmpty {k = pointArity m} {js = []} ms} f.loc InEveryRegion targets body)
-      pure (MkTFn f.key f.standing f.telescope f.arity f.callee f.extents f.paramNames withJoins f.loc
-                  (withRegions f.termination (map (.definition) group)))
+    (m :: ms) => joinedBy fc calls (m :: ms) Data.List.IsNonEmpty f
 
 ||| The local joins among `ms` whose calls run their actions.
 runsOf : List LocalJoin -> List LocalJoin

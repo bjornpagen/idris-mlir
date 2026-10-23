@@ -72,6 +72,12 @@ import Decidable.Equality
 
 %default total
 
+-- Every do block here binds in `Front`, never in `Core`: Core's own bind,
+-- beside the interface's, would make each bind an ambiguity, elaborated
+-- once per candidate with all of the block after it inside.
+%hide Core.Core.(>>=)
+%hide Core.Core.(>>)
+
 ------------------------------------------------------------------------------
 -- Members
 ------------------------------------------------------------------------------
@@ -145,6 +151,20 @@ pack fc owner loc (first ::: rest) = packed first rest
       pair <- pairOf fc owner t (map fst (p ::: ps))
       pure (ConApp loc pair [] [v, !(packed p ps)])
 
+||| The values one variable holds as one, the first of type `t` and the
+||| rest of the types after it (`takenApart`): each pair taken apart into
+||| its first value and the variable holding the rest, which is taken apart
+||| by the types left, one fewer.
+apartFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {0 n : Nat} ->
+            FC -> String -> Loc -> (t : ClosedTerm) -> (ts : List ClosedTerm) -> Fin n ->
+            ({0 p : Nat} -> (Fin n -> Fin p) -> Vect (S (length ts)) (Fin p) -> Front (Term p)) -> Front (Term n)
+apartFrom fc owner loc t [] x k = k id [x]
+apartFrom fc owner loc t (u :: us) x k = do
+  pair <- pairOf fc owner t (u ::: us)
+  body <- apartFrom fc owner loc u us (Bound {k = 2} (FS FZ))
+            (\ren, vs => k (ren . Free {k = 2}) (ren (Bound {k = 2} FZ) :: vs))
+  pure (Case loc pair.id.family x (Exhaustive (MkAlt pair [shown "value", shown "rest"] body ::: [])))
+
 ||| The values one variable holds as one (`pack`), of these types, taken
 ||| apart by the pairs that hold them: the body built over each value's
 ||| variable, one per type, in order, with the renaming of the scope
@@ -153,12 +173,7 @@ export
 takenApart : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {0 n : Nat} ->
              FC -> String -> Loc -> (types : List1 ClosedTerm) -> Fin n ->
              ({0 p : Nat} -> (Fin n -> Fin p) -> Vect (length (forget types)) (Fin p) -> Front (Term p)) -> Front (Term n)
-takenApart fc owner loc (t ::: []) x k = k id [x]
-takenApart fc owner loc (t ::: (u :: us)) x k = do
-  pair <- pairOf fc owner t (u ::: us)
-  body <- takenApart fc owner loc (u ::: us) (Bound {k = 2} (FS FZ))
-            (\ren, vs => k (ren . Free {k = 2}) (ren (Bound {k = 2} FZ) :: vs))
-  pure (Case loc pair.id.family x (Exhaustive (MkAlt pair [shown "value", shown "rest"] body ::: [])))
+takenApart fc owner loc (t ::: ts) x k = apartFrom fc owner loc t ts x k
 
 ||| A list without its element at a place.
 without : Nat -> List a -> List a
@@ -291,7 +306,8 @@ mutual
   ||| choices, by its signature: the callee's own instance when they hold
   ||| none, requested; else what the instance's own signature makes it, a
   ||| dispatch on its first choice, each of whose arms holds one fewer
-  ||| (`dispatchOn`). The callee is a definition, or a member at a use
+  ||| (`dispatchOn`): each arm is given that count (`givenArm`), so it falls
+  ||| at every dispatch. The callee is a definition, or a member at a use
   ||| (`AtUse`), the member the choice it dispatches on.
   export
   calleeAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -331,32 +347,42 @@ mutual
     updateState (derive { instances $= insert inst sig, fnOrder $= (:< inst)
                         , dispatchesOn $= insert choice.family
                                             (d :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
-    armsFor d 0 (choice.members <>> [])
+    armsFor rest d 0 (choice.members <>> [])
     pure sig
 
-  ||| The arms of a dispatch for the members given, the first at position
-  ||| `i`.
+  ||| The arms of a dispatch on a choice its parameter takes, for the
+  ||| members given, the first at position `i`, each reaching its callee at
+  ||| the `rest` choices after the one dispatched on (`givenArm`).
   armsFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            Dispatch -> (i : Nat) -> List ChoiceMember -> Front ()
-  armsFor d i [] = pure ()
-  armsFor d i (m :: ms) = do
-    armAt d i m
-    armsFor d (S i) ms
-
-  ||| The arm of a dispatch for its choice's member at position `i`, by the
-  ||| signature of what it calls: for a choice its parameter takes, the
-  ||| callee at that member, requested, or dispatched on its next choice;
-  ||| for one an implementation it is given holds, the callee with that
-  ||| field fixed to the member, requested (`heldMember`).
-  armAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          Dispatch -> (i : Nat) -> ChoiceMember -> Front ()
-  armAt d i m = do
-    arm <- case d.chosen of
-      Given rest _ _ => calleeAt rest d.site d.owner d.callee (givenInstead (memberKind m) d)
-      HeldIn holder hs j => do
-        kind <- heldMember d.site d.owner (finToNat j) holder hs m
-        request d.site d.owner d.callee (givenInstead kind d)
+            (rest : Nat) -> Dispatch -> (i : Nat) -> List ChoiceMember -> Front ()
+  armsFor rest d i [] = pure ()
+  armsFor rest d i (m :: ms) = do
+    arm <- givenArm rest d m
     updateState (withArm d.inst i (MkDispatchArm m arm))
+    armsFor rest d (S i) ms
+
+  ||| What the arm of a dispatch on a choice its parameter takes calls for a
+  ||| member: the callee at that member, at kinds that hold the `rest`
+  ||| choices after the one dispatched on, requested, or dispatched on its
+  ||| next choice.
+  givenArm : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             (rest : Nat) -> Dispatch -> ChoiceMember -> Front InstanceSig
+  givenArm rest d m = calleeAt rest d.site d.owner d.callee (givenInstead (memberKind m) d)
+
+||| The arm of a dispatch for its choice's member at position `i`, by the
+||| signature of what it calls: for a choice its parameter takes, the
+||| callee at that member, at the count of choices the dispatch left
+||| (`givenArm`); for one an implementation it is given holds, the callee
+||| with that field fixed to the member, requested (`heldMember`).
+armAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+        Dispatch -> (i : Nat) -> ChoiceMember -> Front ()
+armAt d i m = do
+  arm <- case d.chosen of
+    Given rest _ _ => givenArm rest d m
+    HeldIn holder hs j => do
+      kind <- heldMember d.site d.owner (finToNat j) holder hs m
+      request d.site d.owner d.callee (givenInstead kind d)
+  updateState (withArm d.inst i (MkDispatchArm m arm))
 
 ------------------------------------------------------------------------------
 -- Choices an implementation holds
@@ -519,31 +545,7 @@ passed loc choice field (x :: xs) =
 ||| dispatch is never called. It has no loop of its own: what its arms do
 ||| is theirs.
 dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch -> Front ()
-dispatcher d = do
-  let kinds = d.signature.kinds
-  loc <- toLoc d.site
-  st <- getState
-  -- Each arm holds its member, written when the later of the two was
-  -- made, so the match is read off the arms alone.
-  let numbered = maybe [] SortedMap.toList (lookupFact (.dispatchArms) d.inst st)
-  let choice = d.choice
-  let indices = ownLevels (length (telescopeOf kinds))
-  let params = List.allFins (Runtimes kinds)
-  body <- case d.chosen of
-    Given _ _ _ => do
-      arms <- traverse (arm loc indices choice params) numbered
-      pure (matching loc choice arms)
-    HeldIn _ hs j =>
-      -- The values are taken apart one per type, and the place is a
-      -- position among the types.
-      takenApart d.site d.owner loc hs.types choice $ \ren, values => do
-        let typed = Data.Zippable.zip (Data.Vect.fromList (forget hs.types)) values
-        let chosen = snd (Data.Vect.index j typed)
-        arms <- traverse (heldArm loc indices choice params ren (without (finToNat j) (toList typed))) numbered
-        pure (matching loc chosen arms)
-  extents <- signatureExtents kinds d.signature.result
-  updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) d.signature.callee
-                                                    extents (map (const (shown "x")) d.signature.callee.params) body loc Acyclic) })
+dispatcher d = asFunction d.signature d.choice
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
     matching loc x [] = Unreachable loc
@@ -570,7 +572,7 @@ dispatcher d = do
       case a.member.con of
         Bare con => MkAlt con [] <$> calling loc inst indices (passed {k = 0} loc choice Nothing params)
         Capturing _ con =>
-          MkAlt con [shown "held"] <$> calling loc inst indices (passed {k = 1} loc choice (Just (Bound FZ)) params)
+          MkAlt con [shown "held"] <$> calling loc inst indices (passed {k = 1} loc choice (Just (Bound {k = 1} FZ)) params)
 
     -- The callee's instance at a member, given the dispatch's parameters,
     -- the implementation's parameter the values given, held as one, or
@@ -596,6 +598,34 @@ dispatcher d = do
                     called loc inst indices held params (ren' . Free {k = 1} . ren)
                            (map (\(ty, y) => (ty, ren' (Free {k = 1} y))) others ++ zip (forget h.types) (toList own))
           pure (MkAlt con [shown "held"] body)
+
+    -- The function at the dispatch's signature, taken apart once, so that
+    -- its kinds are those its callee and its choice are typed by: the
+    -- callee's parameters, at run time, are the dispatch's.
+    asFunction : (sig : InstanceSig) -> Fin (Runtimes sig.kinds) -> Front ()
+    asFunction (MkInstanceSig kinds result callee) choice = do
+      loc <- toLoc d.site
+      st <- getState
+      -- Each arm holds its member, written when the later of the two was
+      -- made, so the match is read off the arms alone.
+      let numbered = maybe [] SortedMap.toList (lookupFact (.dispatchArms) d.inst st)
+      let indices = ownLevels (length (telescopeOf kinds))
+      let params = List.allFins (Runtimes kinds)
+      body <- case d.chosen of
+        Given _ _ _ => do
+          arms <- traverse (arm loc indices choice params) numbered
+          pure (matching loc choice arms)
+        HeldIn _ hs j =>
+          -- The values are taken apart one per type, and the place is a
+          -- position among the types.
+          takenApart d.site d.owner loc hs.types choice $ \ren, values => do
+            let typed = Data.Zippable.zip (Data.Vect.fromList (forget hs.types)) values
+            let chosen = snd (Data.Vect.index j typed)
+            arms <- traverse (heldArm loc indices choice params ren (without (finToNat j) (toList typed))) numbered
+            pure (matching loc chosen arms)
+      extents <- signatureExtents kinds result
+      updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) callee
+                                                        extents (map (const (shown "x")) callee.params) body loc Acyclic) })
 
 ||| Dispatches in the order of their identities.
 byInstance : Dispatch -> Dispatch -> Ordering
