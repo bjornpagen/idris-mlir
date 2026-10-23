@@ -717,3 +717,13 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   rule must read the resource tree (what the update may not touch: other
   heap contents) rather than refuse counting's own work (L12 with L01's
   effect vocabulary, after the specification frees).
+- From L18w: where an opened result's hold is weaker than the claim a
+  caller's type makes, the cast back asserts (no cast raises a claim): a
+  claim is an optimization and a weaker one always sound, so the caller's
+  uses of the result are re-graded down to the open hold where the call
+  stands (the specializer's opening edits the callee and every call, L18);
+  `Open.cpp`'s grade helper restates the reindex verifier's rule (fold
+  into C275's function, L04w); `referenceAt`'s memo exception can go (L07);
+  `Local.h` and `ExclusivityGraph` read a memo field's emptied-place edge
+  where they look for a taken-over cell (L08); memo's `getYieldTargets`
+  in the specification.
