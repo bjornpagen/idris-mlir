@@ -2455,6 +2455,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   Graded stage strengthens holds, and whether a value's hold may change
   under its users before it, decide whether the graph places the
   constant at a static hold or leaves it (the queue's L14y).
+- **C265** (2026-10-23; L18y's handoff, under D129 and D30). A tail
+  call's result layouts agree from the Graded stage on, a stage fact of
+  the specification's table (`StageTailLayouts = LayoutsPending |
+  LayoutsAgree`, pending at Higher and First, agreeing from Graded), and
+  L10z's re-pack check holds where they agree. Within First the decider
+  still stops at a re-pack (the call is `nontail` there), and idr-optimize's
+  specializer redirects it to the copy D129 keys, which makes it a tail;
+  a pass after it that loses a tail to a re-pack is caught at Graded's
+  first verification, an internal error. Checking from First, where
+  defunctionalization decides the facts, refused every program with such
+  a tail before the specializer ran.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
