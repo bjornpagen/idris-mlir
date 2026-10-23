@@ -66,7 +66,7 @@
 |||   induction at such a name is proved from its address alone
 |||   (`undefinedCovers`);
 ||| - the lemma at its statement, for a kind read off the host's normal
-|||   form, over what a request holds (`Template.HeldAs`), which at such a
+|||   form, over what a request holds (`Readings.HeldAs`), which at such a
 |||   kind is the term whole (`normalHeldWhole`);
 ||| - at a match, the evidence through putting values in: what the site's
 |||   reader read a scrutinee as, a constructor applied or a literal, the
@@ -83,7 +83,7 @@
 |||   cuts, may contract to a constructor applied, which the site keeps,
 |||   while every constructor the request keeps the site keeps. A hole only
 |||   the request cuts, and a hole the callee's type cuts below
-|||   (`Template.NeededCut`, `Template.cutShapeNeeded`), is written under
+|||   (`Readings.NeededCut`, `Closed.cutShapeNeeded`), is written under
 |||   the site's node (`Proof.Bound.AtCut`);
 ||| - at a shape, what an instance makes of what a request holds: a cut
 |||   skeleton holds no redex, so the instance's contraction keeps it
@@ -93,7 +93,7 @@
 |||   cuts does (`neededHoleReadAs`); every probe's name is one the host
 |||   speaks of (`Walk.probeNamed`), and a name the context does not
 |||   resolve has no place (`Walk.unresolvedUnplaced`). The request's
-|||   solving is the site's (`Closed.solving`, carried by `Template.HeldAs`).
+|||   solving is the site's (`Closed.solving`, carried by `Readings.HeldAs`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
@@ -132,14 +132,14 @@
 |||   putting values in commuting with the normaliser's steps);
 ||| - a shape: the lemma reads what the request holds, the skeleton of the
 |||   term with the values put in, cut where the callee's type stops
-|||   needing it (`Template.HeldAs`), against the site's skeleton
+|||   needing it (`Readings.HeldAs`), against the site's skeleton
 |||   (`Readings.nodeOf Skeleton`); its induction is a node at a time over
 |||   the request's skeleton (`Readings.SkeletonOf`): a constructor both
 |||   keep writes itself (`AtHead`), a node both cut a hole one high
 |||   (`AtLeaf`), a marker the value put in for which is itself a skeleton
 |||   (`skeletonFixed`) what the markers hold (`markerWrites`), and one the
 |||   request cuts a hole within it (`AtCut`, as `contractedSkeleton` and
-|||   `Template.cutShapeNeeded` place every such hole). `Closed.skeleton`
+|||   `Closed.cutShapeNeeded` place every such hole). `Closed.skeleton`
 |||   returns the evidence (`Closed.Skeletal`). What the induction still
 |||   lacks: the translation's argument as the site's term with the
 |||   requesting instance's values put in, which only the site table gives
@@ -1418,7 +1418,7 @@ landedWrites ls same wr =
 ||| families land (`Graph.SiteLanding`), which is its reading's template as
 ||| the target is given it (`Sites.writtenReading`), and the lemma gives
 ||| what it writes at the instance's reading of what the request holds of
-||| the site's term (`Template.HeldAs`), which giving it to the target
+||| the site's term (`Readings.HeldAs`), which giving it to the target
 ||| (`asGivenWrites`) and that reading keep (`landedWrites`).
 export
 0 siteWritesRead : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {c : Nat -> Landing} -> (s : SiteOf m p) ->
