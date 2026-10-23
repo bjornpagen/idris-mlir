@@ -45,7 +45,8 @@
 ||| when their full names agree (`fullNameSameEntry`), that its entries are
 ||| at non-negative indices, so that every name it defines has a place
 ||| (`definedPlaced`), and that none of its definitions names one of the
-||| frontend's probes (`probesFresh`); and that
+||| frontend's probes (`probesFresh`) and it resolves none
+||| (`probesUnresolved`); and that
 ||| what the evaluator's table of primitives computes stays within a bound
 ||| that grows with its arguments' sizes (`computedWithin`). What the hosts
 ||| that run this compiler give their primitives is trusted in
@@ -98,9 +99,9 @@ import Libraries.Data.WithDefault
 -- and to a term's reducts and its normal form (`reachesNormalForm`); of
 -- the context, which `Core` actions build, to the full names its entries
 -- hold (`oneEntryPerName`, `fullNameUnresolved`), to the indices they are
--- at (`entryPlaced`) and to the names its definitions hold
--- (`probesFresh`); and to what the table of primitives computes
--- (`computedWithin`).
+-- at (`entryPlaced`), to the names its definitions hold (`probesFresh`)
+-- and to the names it resolves (`probesUnresolved`); and to what the
+-- table of primitives computes (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -3074,6 +3075,15 @@ data AllProbeNamed : Bounds ns -> Type where
 export
 0 probesFresh : AllProbeNamed bs -> FreshIn ctx bs
 probesFresh _ = trusted
+
+||| No name of the frontend's probes resolves in a frozen context. A probe's
+||| name is no resolved name, so Idris's lookup reads it from the context's
+||| map of names, which gains a name only where the context makes an entry
+||| for it: a name the elaborator defined or a TTC held, never a probe's,
+||| for the reason `probesFresh` is trusted. So this is trusted too.
+export
+0 probesUnresolved : {0 ctx : Frozen} -> ProbeNamed n -> getNameID n (gamma (defsOf ctx)) = Nothing
+probesUnresolved _ = trusted
 
 -- A normaliser's normal form of a closed term, on the frozen context
 -- alone: its definitions record, and its own reference as the context the
