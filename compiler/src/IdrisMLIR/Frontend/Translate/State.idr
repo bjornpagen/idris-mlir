@@ -1066,16 +1066,16 @@ givesAfter : Nat -> MemberPlaces -> Holding
 givesAfter k ps = fromMaybe (beyond ps) (getAt k (forget ps.gives))
 
 ||| What Idris's types say of the `believe_me` an exit's body gives its
-||| action any result by (`Hook.Exits`), read once at the boundary: the
-||| action it is given is an action on the world, which it takes at
-||| `actionWorld` and gives an `IORes` of `actionGives`, read with the
-||| definition's variables as placeholders; and the value it gives is an
-||| action on the world too, taking it at `valueWorld`.
+||| action any result by (`Hook.Exits`), read once at the boundary, with
+||| the definition's variables as placeholders: the value it gives is an
+||| action on the world, taking it at `valueWorld`. The action it is given
+||| is one too, which the boundary checks; what that action gives is read
+||| at each instance, off the argument the instance passes
+||| (`Terms.exitAction`), since a placeholder stands for a type only the
+||| instance fixes.
 public export
 record ExitTypes where
   constructor MkExitTypes
-  actionWorld : Uses
-  actionGives : ClosedTerm
   valueWorld : Uses
 
 ||| A definition of the frozen context as the translation reads it, each

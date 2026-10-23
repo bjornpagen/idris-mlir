@@ -897,13 +897,13 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
     read : List (ws : Scope ** (Name, Term ws, Term ws)) -> Core (Either String (Maybe ExitTypes))
     read [] = pure (Right Nothing)
     read ((ws ** (_, a, b)) :: rest) = do
-      Just (aw, ag) <- actionOf ws a
+      Just _ <- actionOf ws a
         | Nothing => pure (Left noAction)
       Just (vw, _) <- actionOf ws b
         | Nothing => pure (Left noAction)
       Right _ <- read rest
         | Left msg => pure (Left msg)
-      pure (Right (Just (MkExitTypes aw ag vw)))
+      pure (Right (Just (MkExitTypes vw)))
 
 ||| A type constructor's constructors (`Constructors`): none declared, for
 ||| a type declared without them; or each as it was read

@@ -650,6 +650,7 @@ mutual
   levelsOfTerm : ITerm -> List Nat
   levelsOfTerm (IVar k) = [k]
   levelsOfTerm (ISucc t _) = levelsOfTerm t
+  levelsOfTerm (ISum ps _) = sumLevels ps
   levelsOfTerm (ICon _ _ as) = levelsOfTerms as
   levelsOfTerm (IType t) = levelsOfTy t
   levelsOfTerm _ = []
@@ -673,6 +674,7 @@ mutual
   relevelTerm : (Nat -> Maybe Nat) -> ITerm -> ITerm
   relevelTerm f (IVar k) = maybe IOpaque IVar (f k)
   relevelTerm f (ISucc t k) = succ (relevelTerm f t) k
+  relevelTerm f (ISum ps k) = relevelSum f ps k
   relevelTerm f (ICon g c as) = ICon g c (relevelTerms f as)
   relevelTerm f (IType t) = IType (relevelTy f t)
   relevelTerm f t = t

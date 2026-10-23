@@ -20,6 +20,8 @@ import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Runtime.Clocks
 import IdrisMLIR.Spec.Ops.Platform
 
+import Data.List1
+import Data.SortedMap
 import Data.String
 import Data.Vect
 
@@ -106,17 +108,22 @@ mutual
   ||| What is known of an erased index, in the scope it is written in: a
   ||| natural as a number; a level of the scope's telescope of erased
   ||| binders (a function's index parameters, then each enclosing case's
-  ||| constructor binders, outermost first); a term plus a constant; a
-  ||| literal of a scalar sort, or a type; a constructor of a family member
-  ||| applied to its binders and then its fields, in declaration order; or
-  ||| nothing, an index outside the language, which refines nothing. Only
-  ||| normal forms are built (`succ`, `iCon`): no successor of a number or
-  ||| of a successor, and a numeral family's constructors read as numbers.
+  ||| constructor binders, outermost first); a term plus a constant; a sum
+  ||| of levels plus a count, each level once with how often it occurs, in
+  ||| ascending order of level, two occurrences at least in all (what base's
+  ||| `plus` on naturals computes); a literal of a scalar sort, or a type; a
+  ||| constructor of a family member applied to its binders and then its
+  ||| fields, in declaration order; or nothing, an index outside the
+  ||| language, which refines nothing. Only normal forms are built (`succ`,
+  ||| `sumOf`, `iCon`): no successor of a number or of a successor, no sum
+  ||| of one level once, and a numeral family's constructors read as
+  ||| numbers.
   public export
   data ITerm
     = INat Nat
     | IVar Nat
     | ISucc ITerm Nat
+    | ISum (List1 (Nat, Nat)) Nat
     | ILit Lit
     | IType Ty
     | ICon FamilyId Nat (List ITerm)
@@ -183,7 +190,58 @@ succ : ITerm -> Nat -> ITerm
 succ t Z = t
 succ (INat a) k = INat (a + k)
 succ (ISucc t a) k = ISucc t (a + k)
+succ (ISum ps a) k = ISum ps (a + k)
 succ t k = ISucc t k
+
+||| A natural index term as levels, each with how often it occurs, plus a
+||| count, where it is one: a number, a level, a level plus a count, or a
+||| sum; nothing for any other term, which no sum holds.
+export
+linearOf : ITerm -> Maybe (List (Nat, Nat), Nat)
+linearOf (INat n) = Just ([], n)
+linearOf (IVar l) = Just ([(l, 1)], 0)
+linearOf (ISucc t k) = (\(ps, c) => (ps, c + k)) <$> linearOf t
+linearOf (ISum ps c) = Just (forget ps, c)
+linearOf _ = Nothing
+
+||| Levels, each with how often it occurs, plus a count, in normal form:
+||| each level once, in ascending order, a level that occurs no time left
+||| out; no level a number, one level once that level plus the count
+||| (`succ`), and any other a sum.
+export
+sumOf : List (Nat, Nat) -> Nat -> ITerm
+sumOf ps c = case filter (\(_, m) => m > 0) (SortedMap.toList (foldl (\acc, (l, m) => insertWith (+) l m acc) empty ps)) of
+  [] => INat c
+  [(l, 1)] => succ (IVar l) c
+  (p :: more) => ISum (p ::: more) c
+
+||| The levels a sum names, in ascending order.
+export
+sumLevels : List1 (Nat, Nat) -> List Nat
+sumLevels ps = map fst (forget ps)
+
+||| A sum with each level renamed by `f`, in normal form, since renamed
+||| levels may meet or change order; outside the language where `f` drops
+||| one.
+export
+relevelSum : (Nat -> Maybe Nat) -> List1 (Nat, Nat) -> Nat -> ITerm
+relevelSum f ps k = maybe IOpaque (\qs => sumOf qs k) (traverse (\(l, m) => map (\l' => (l', m)) (f l)) (forget ps))
+
+||| The sum of two natural index terms, in normal form; outside the
+||| language where either is no sum of levels and a count.
+export
+plusTerm : ITerm -> ITerm -> ITerm
+plusTerm a b = case (linearOf a, linearOf b) of
+  (Just (pa, ca), Just (pb, cb)) => sumOf (pa ++ pb) (ca + cb)
+  _ => IOpaque
+
+||| A natural index term `m` times over, in normal form; outside the
+||| language where it is no sum of levels and a count.
+export
+scaledTerm : Nat -> ITerm -> ITerm
+scaledTerm m t = case linearOf t of
+  Just (ps, c) => sumOf (map (\(l, n) => (l, m * n)) ps) (m * c)
+  Nothing => IOpaque
 
 ||| Whether two uses are one: the quantities a binder can hold.
 export
@@ -197,6 +255,7 @@ mutual
   sameTerm (INat a) (INat b) = a == b
   sameTerm (IVar a) (IVar b) = a == b
   sameTerm (ISucc t a) (ISucc u b) = a == b && sameTerm t u
+  sameTerm (ISum ps a) (ISum qs b) = a == b && forget ps == forget qs
   sameTerm (ILit a) (ILit b) = sameLit a b
   sameTerm (IType a) (IType b) = sameTy a b
   sameTerm (ICon f c as) (ICon g d bs) = f == g && c == d && sameTerms as bs
@@ -281,6 +340,11 @@ mutual
   termText (INat n) = show n
   termText (IVar k) = "v" ++ show k
   termText (ISucc t k) = termText t ++ " + " ++ show k
+  termText (ISum ps k) = joinBy " + " (map partText (forget ps)) ++ (if k == 0 then "" else " + " ++ show k)
+    where
+      partText : (Nat, Nat) -> String
+      partText (l, 1) = "v" ++ show l
+      partText (l, m) = show m ++ "*v" ++ show l
   termText (ILit l) = "lit"
   termText (IType t) = "type " ++ tyText t
   termText (ICon f c as) = show f ++ "@" ++ show c ++ "(" ++ joinBy ", " (termsText as) ++ ")"

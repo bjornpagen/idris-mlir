@@ -2037,28 +2037,39 @@ mutual
         if wrapper then exiting else pure Nothing
 
       -- The exit's `believe_me`, on the action: the action applied to the
-      -- world, after which nothing runs, each at the type the boundary read
-      -- off Idris's types (`ExitTypes`). The action is bound at its type,
-      -- an action on the world giving an `IORes` of `actionGives`, so the
-      -- variable that applies it is of the type it is applied at. The
-      -- exit's value is a lambda of the world, which never returns: its
-      -- result is the one its position expects where that is an action on
-      -- the world, as Idris's elaborator checked it there, and else the
-      -- action's own, which a value that never returns may be given.
+      -- world, after which nothing runs. The action is the last value the
+      -- call passes, bound at the type this instance gives it, an action on
+      -- the world, so the variable that applies it is of the type it is
+      -- applied at; the boundary read only its shape (`ExitTypes`), since
+      -- what it gives may name a type only the instance fixes. The exit's
+      -- value is a lambda of the world, which never returns: its result is
+      -- the one its position expects where that is an action on the world,
+      -- as Idris's elaborator checked it there, and else the action's own,
+      -- which a value that never returns may be given.
       exitAction : ExitTypes -> FC -> Loc -> Nat -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       exitAction exit fc loc arity ty xs = do
         (found, resTy) <- classifyCall fc ctx.owner (show name) arity ty (argValues (take arity xs))
         let kinds = toList found
         given <- arguments loc (memberPlaces d) kinds (take arity xs)
-        acted <- coreType fc ctx.owner ValueType exit.actionGives
-        let actionWorld = MkBinder exit.actionWorld WorldT
-            action = FunT actionWorld acted
+        let binders = runtimeBinders kinds
+        (actionWorld, acted) <- actionOf binders
+        let action = FunT actionWorld acted
             (valueWorld, result) = case (drop arity xs, ex) of
                                      ([], ExpectedAt (FunT b@(MkBinder _ WorldT) r)) => (b, r)
                                      _ => (MkBinder exit.valueWorld WorldT, acted)
-        mk <- exits actionWorld acted action valueWorld result (runtimeBinders kinds)
+        mk <- exits actionWorld acted action valueWorld result binders
         finish loc kinds arity xs given mk (FunT valueWorld result) resTy
         where
+          -- What the action takes the world at and gives, off its binder at
+          -- this instance. Essential: the boundary read the action's shape
+          -- with the definition's variables as placeholders, which an
+          -- instance's types may still contradict.
+          actionOf : Vect r Binder -> Front (Binder, Ty)
+          actionOf [] = unshaped fc "the registry names an exit whose action the definition does not take"
+          actionOf bs@(_ :: _) = case (last bs).type of
+            FunT w@(MkBinder _ WorldT) r => pure (w, r)
+            _ => unshaped fc "the registry names an exit whose believe_me does not give an action on the world any result"
+
           exits : (actionWorld : Binder) -> (acted, action : Ty) -> (valueWorld : Binder) -> (result : Ty) ->
                   Vect r Binder -> Front (Maker r)
           exits actionWorld acted action valueWorld result [] =

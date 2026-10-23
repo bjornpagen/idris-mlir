@@ -203,6 +203,9 @@ mutual
   nodeIn a (INat n) = [TermNodeNatural (cast n)]
   nodeIn a (IVar k) = [TermNodeLevel k]
   nodeIn a (ISucc t k) = TermNodeSuccessor k :: nodeIn a t
+  -- A sum, its count and how many levels it holds, then each level after
+  -- how often it occurs, in ascending order of level.
+  nodeIn a (ISum ps k) = TermNodeSum k (length (toList ps)) :: (toList ps >>= \(l, m) => [TermNodeMultiple m, TermNodeLevel l])
   nodeIn a (ILit l) = [TermNodeLiteral (litAttr l)]
   nodeIn a (IType t) = [TermNodeLiteral (TypeAttr (typeIn a t))]
   nodeIn a (ICon f c args) = case lookup f a.members of

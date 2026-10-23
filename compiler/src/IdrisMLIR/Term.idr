@@ -496,6 +496,8 @@ mutual
   moveTerm : Nat -> ITerm -> ITerm
   moveTerm q (IVar k) = IVar (k + q)
   moveTerm q (ISucc t k) = ISucc (moveTerm q t) k
+  -- Every level moves by as many, so their order and the normal form stay.
+  moveTerm q (ISum ps k) = ISum (map (\(l, m) => (l + q, m)) ps) k
   moveTerm q (ICon f c as) = ICon f c (moveTerms q as)
   moveTerm q (IType t) = IType (moveTy q t)
   moveTerm q t = t
@@ -522,6 +524,7 @@ mutual
   substitute : List ITerm -> ITerm -> ITerm
   substitute bs (IVar k) = fromMaybe IOpaque (getAt k bs)
   substitute bs (ISucc t k) = succ (substitute bs t) k
+  substitute bs (ISum ps k) = foldl plusTerm (INat k) (map (\(l, m) => scaledTerm m (fromMaybe IOpaque (getAt l bs))) (forget ps))
   substitute bs (ICon f c as) = ICon f c (substituteAll bs as)
   substitute bs (IType t) = IType (substTy bs t)
   substitute bs t = t
