@@ -511,3 +511,13 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   frontend half and N7, in L16ee's files; N6's checker half (a nested
   block's parent a typed name, `Core/Name.idr:43`) with its frontend
   reader.
+- From round 3-B, after round 3-A's typed lifetime predicates:
+  `lifetimes::kindOf` takes `TypedValue<LifetimeType>` (`Lifetimes/Kind.cpp`,
+  `Lifetimes.h`, `Lifetimes/Proof.cpp:39-40`, an opener's body argument
+  typed through `RunsOnceAfter`), and `Lower/Lifetimes.cpp`'s callers pass
+  typed values; `Expect`'s `idsOf` cast goes once `ExpectArguments.h`'s
+  `Functions` resolves per numbering (L19); `FamilyVerify`'s `groupOf`
+  cast goes once `Sort` holds a typed group per kind (`Terms.h`, the
+  generated `Wire.cpp.inc`). From L11y: `Target.cpp` overwrites a
+  module's `#llvm.target` silently (L21: a hand-written module carrying
+  another target is refused `unsupported`, or the overwrite says why).
