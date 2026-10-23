@@ -21,6 +21,7 @@
 module IdrisMLIR.Proof.Requests
 
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Widest
 
 import public Data.Fin
 import Data.Fin.Properties
@@ -406,9 +407,9 @@ decideAddress : (a, b : Vect k (Fin 256)) -> Decided (a = b)
 decideAddress [] [] = Yes Refl
 decideAddress (x :: xs) (y :: ys) = case samePosition x y of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => case decideAddress xs ys of
+  Yes here => case decideAddress xs ys of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => Yes Refl
+    Yes rest => Yes (rewrite here in rewrite rest in Refl)
 
 ||| Two addresses are one: their bytes compare equal.
 export
@@ -423,7 +424,7 @@ export
 decideHead : (h, h' : Head) -> Decided (h = h')
 decideHead (ADefinition a) (ADefinition b) = case decideAddress a b of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => Yes Refl
+  Yes same => Yes (cong ADefinition same)
 decideHead AnApplication AnApplication = Yes Refl
 decideHead (ADefinition _) AnApplication = No (\case Refl impossible)
 decideHead AnApplication (ADefinition _) = No (\case Refl impossible)
@@ -434,7 +435,7 @@ sameMaybe : ((x, y : a) -> Decided (x = y)) -> (m, m' : Maybe a) -> Decided (m =
 sameMaybe same Nothing Nothing = Yes Refl
 sameMaybe same (Just x) (Just y) = case same x y of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => Yes Refl
+  Yes here => Yes (cong Just here)
 sameMaybe same Nothing (Just _) = No (\case Refl impossible)
 sameMaybe same (Just _) Nothing = No (\case Refl impossible)
 
@@ -444,25 +445,25 @@ sameList : ((x, y : a) -> Decided (x = y)) -> (xs, ys : List a) -> Decided (xs =
 sameList same [] [] = Yes Refl
 sameList same (x :: xs) (y :: ys) = case same x y of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => case sameList same xs ys of
+  Yes here => case sameList same xs ys of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => Yes Refl
+    Yes rest => Yes (rewrite here in rewrite rest in Refl)
 sameList same [] (_ :: _) = No (\case Refl impossible)
 sameList same (_ :: _) [] = No (\case Refl impossible)
 
 sameToken : DecEq form => (t, u : Token form) -> Decided (t = u)
 sameToken (Node f m k) (Node g m' k') = case sameForm f g of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => case sameMaybe decideAddress m m' of
+  Yes forms => case sameMaybe decideAddress m m' of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => case sameNat k k' of
+    Yes names => case sameNat k k' of
       No ne => No (\Refl => ne Refl)
-      Yes Refl => Yes Refl
+      Yes counts => Yes (rewrite forms in rewrite names in rewrite counts in Refl)
 sameToken (Number f k) (Number g k') = case sameForm f g of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => case sameNat k k' of
+  Yes forms => case sameNat k k' of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => Yes Refl
+    Yes counts => Yes (rewrite forms in rewrite counts in Refl)
 sameToken (Node _ _ _) (Number _ _) = No (\case Refl impossible)
 sameToken (Number _ _) (Node _ _ _) = No (\case Refl impossible)
 
@@ -479,17 +480,18 @@ sameWritten (MkWritten s ts p b) (MkWritten t us q c) = case sameNat s t of
 sameLink : DecEq form => (x, y : Link form) -> Decided (x = y)
 sameLink (MkLink d as) (MkLink e bs) = case decideHead d e of
   No ne => No (\Refl => ne Refl)
-  Yes Refl => case sameList (sameMaybe sameWritten) as bs of
+  Yes heads => case sameList (sameMaybe sameWritten) as bs of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => Yes Refl
+    Yes args => Yes (rewrite heads in rewrite args in Refl)
 
 ||| Links are equal as `sameLink` decides, by the machine's comparisons:
 ||| what a short list of links, such as the fields the passes learn, is
-||| searched by.
+||| searched by. `Dec` holds its proof at run time, so the equality is
+||| carried there by `replace`, whose rule is erased.
 export
 DecEq form => DecEq (Link form) where
   decEq x y = case sameLink x y of
-    Yes Refl => Yes Refl
+    Yes same => Yes (replace {p = \z => x = z} same Refl)
     No ne => No (\eq => void (ne eq))
 
 ------------------------------------------------------------------------------
@@ -767,10 +769,12 @@ fitsWithin size arity height heaviest =
 ||| once one primitive computes it from literals that measure at most x:
 ||| chosen above every primitive's bound at x (`Idris.Host.boundOf`), whose
 ||| largest are a cast to Integer's 2^(4x) and 2^1024, a shift's x * 2^x and
-||| a fixed width's 2^64, and above x, which `believe_me` gives back.
+||| a fixed width's 2^64, and above x, which `believe_me` gives back. The
+||| exponent 1024 is held behind its name (`Proof.Widest.widestExponent`),
+||| so no type here holds 2^1024 as a number the type checker would build.
 public export
 grown : Nat -> Nat
-grown x = S (power 2 (4 * x) * (x + 2) + power 2 1024)
+grown x = S (power 2 (4 * x) * (x + 2) + power 2 widestExponent)
 
 ||| What n computations, each over what the one before made, make of
 ||| literals that measure at most x.
@@ -802,7 +806,7 @@ timesAtLeastOne c one = replace {p = \z => LTE z (k * c)} (multOneLeftNeutral c)
 export
 0 grownMono : {x, y : Nat} -> LTE x y -> LTE (grown x) (grown y)
 grownMono le =
-  LTESucc (plusLteMonotoneRight (power 2 1024) _ _
+  LTESucc (plusLteMonotoneRight (power 2 widestExponent) _ _
              (timesMono (powerMono (timesLte 4 le)) (plusLteMonotoneRight 2 x y le)))
 
 ||| A computation is above what it computes from.
@@ -819,7 +823,7 @@ export
 powerBelowGrown x =
   lteSuccRight (transitive {y = power 2 (4 * x) * (x + 2)}
                   (replace {p = LTE (power 2 (4 * x))} (multCommutative (x + 2) (power 2 (4 * x)))
-                           (timesAtLeastOne (power 2 (4 * x)) (rewrite plusCommutative x 2 in LTESucc LTEZero)))
+                           (timesAtLeastOne {k = x + 2} (power 2 (4 * x)) (replace {p = LTE 1} (plusCommutative 2 x) (LTESucc LTEZero))))
                   (lteAddRight (power 2 (4 * x) * (x + 2))))
 
 ||| The tower is above its base.
@@ -872,9 +876,12 @@ sizesAt b n d = map (weightAt b) (padded n (b.heightAt d))
 -- the size is built.
 powerClimb : (size, acc, r, j : Nat) -> (0 _ : acc = power 2 j) -> Decided (LTE size (power 2 (r + j)))
 powerClimb size acc r j eq = case choose (size <= acc) of
-  Left fits => Yes (transitive (lteSo fits) (rewrite eq in powerMono (rewrite plusCommutative r j in lteAddRight j)))
+  Left fits =>
+    Yes (transitive {y = acc} (lteSo fits)
+           (replace {p = \z => LTE z (power 2 (r + j))} (sym eq)
+                    (powerMono {a = j} {b = r + j} (replace {p = LTE j} (plusCommutative j r) (lteAddRight j)))))
   Right over => case r of
-    Z => No (\le => notLteSo over (rewrite eq in le))
+    Z => No (\le => notLteSo over (replace {p = LTE size} (sym eq) le))
     S r' => replace {p = \t => Decided (LTE size (power 2 t))} (sym (plusSuccRightSucc r' j))
               (powerClimb size (acc + acc) r' (S j)
                           (rewrite eq in sym (cong (power 2 j +) (plusZeroRightNeutral (power 2 j)))))
@@ -894,18 +901,23 @@ data Towered : (size, top : Nat) -> Type where
 -- doubling up to the size, so every number built is below the size.
 towerClimb : (size, base, r, k, x : Nat) -> (0 _ : x = steps k base) -> Towered size (steps (r + k) base)
 towerClimb size base r k x eq = case choose (size <= x) of
-  Left fits => Reached (transitive (lteSo fits) (rewrite eq in stepsMore k r))
+  Left fits =>
+    Reached (transitive {y = x} (lteSo fits)
+               (replace {p = \z => LTE z (steps (r + k) base)} (sym eq) (stepsMore {x = base} k r)))
   Right over => case r of
     Z => Short x eq
     S r' => case powerFits size (4 * x) of
-      Yes below => Reached (transitive below (transitive (powerBelowGrown x) (grownMono (rewrite eq in stepsMore k r'))))
+      Yes below =>
+        Reached (transitive below
+                   (transitive (powerBelowGrown x)
+                      (grownMono (replace {p = \z => LTE z (steps (r' + k) base)} (sym eq) (stepsMore {x = base} k r')))))
       No _ => replace {p = \t => Towered size (steps t base)} (sym (plusSuccRightSucc r' k))
                 (towerClimb size base r' (S k) (grown x) (cong grown eq))
 
 -- A tree at least one high may weigh at least its heaviest token.
 0 heaviestWithin : (a, h, e : Nat) -> LTE e (sizeWithin a (S h) e)
 heaviestWithin a h e =
-  transitive {y = 2 * S h + e} (rewrite plusCommutative (2 * S h) e in lteAddRight e)
+  transitive {y = 2 * S h + e} (replace {p = LTE e} (plusCommutative e (2 * S h)) (lteAddRight e))
              (replace {p = LTE (2 * S h + e)} (multCommutative (nodesWithin (S (pred a)) (S h)) (2 * S h + e))
                       (timesAtLeastOne (2 * S h + e) (LTESucc LTEZero)))
 
@@ -1027,7 +1039,7 @@ export
 elemLink : DecEq form => (l : Link form) -> (ls : List (Link form)) -> Decided (Elem l ls)
 elemLink l [] = No absurd
 elemLink l (k :: ks) = case sameLink l k of
-  Yes Refl => Yes Here
+  Yes same => Yes (rewrite same in Here)
   No other => case elemLink l ks of
     Yes e => Yes (There e)
     No ne => No (neitherHereNorThere other ne)

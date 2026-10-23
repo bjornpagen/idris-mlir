@@ -35,7 +35,8 @@
 ||| looked up once numbered; that is where a position becomes a `Fin`. The
 ||| numbering comes before anything that lands is read: what lands at each
 ||| position is a table by number (`LandingTable`), which every site's
-||| reading reads and every proof of what lands there reads too.
+||| reading reads, through a tree over it made once (`Indexed`), and every
+||| proof of what lands there reads too.
 module IdrisMLIR.Frontend.Growth.Graph
 
 import Core.Context
@@ -49,6 +50,7 @@ import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Fields
 import IdrisMLIR.Frontend.Growth.Caps
+import IdrisMLIR.Frontend.Growth.Indexed
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
@@ -393,27 +395,28 @@ definitions main = do
 
 -- Two visits, as the machine compares their parts: the definition's
 -- address by its bytes, then each head by its parameter, its root's
--- address and the paths it held.
+-- address and the paths it held. The evidence is erased, so each equality
+-- is rebuilt from the parts' by rewriting, never matched.
 decideVisit : (x, y : Visit) -> Decided (x = y)
 decideVisit (MkVisit d hs) (MkVisit d' hs') = case decideAddress d d' of
   Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-  Proof.Growth.Yes Refl => case sameList decideHead hs hs' of
+  Proof.Growth.Yes defs => case sameList decideHead hs hs' of
     Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-    Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+    Proof.Growth.Yes heads => Proof.Growth.Yes (rewrite defs in rewrite heads in Refl)
   where
     decideHeaded : (h, h' : Headed) -> Decided (h = h')
     decideHeaded (MkHeaded a s) (MkHeaded b s') = case decideAddress a b of
       Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-      Proof.Growth.Yes Refl => case sameList samePath s s' of
+      Proof.Growth.Yes roots => case sameList samePath s s' of
         Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-        Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+        Proof.Growth.Yes paths => Proof.Growth.Yes (rewrite roots in rewrite paths in Refl)
 
     decideHead : (h, h' : (Nat, Headed)) -> Decided (h = h')
     decideHead (i, a) (j, b) = case sameNat i j of
       Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-      Proof.Growth.Yes Refl => case decideHeaded a b of
+      Proof.Growth.Yes params => case decideHeaded a b of
         Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-        Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+        Proof.Growth.Yes headed => Proof.Growth.Yes (rewrite params in rewrite headed in Refl)
 
 -- A visit not yet in a list, with the erased proof.
 data IsNew : Visit -> List Visit -> Type where
@@ -821,11 +824,6 @@ record PlacedNumber (n : Nat) where
   place : Nat
   0 counts : finToNat number = place
 
--- A place counted out as a number below n counts back to it.
-0 countedTo : (j : Nat) -> (0 prf : LT j n) -> finToNat (natToFinLT j {prf}) = j
-countedTo Z (LTESucc _) = Refl
-countedTo (S k) (LTESucc p) = cong S (countedTo k p)
-
 ||| What a writing lands as, at its position.
 record LandingAt (n : Nat) where
   constructor MkLandingAt
@@ -1209,36 +1207,63 @@ openedClosed (Just _ :: caps) (l :: ls) (FS p) eq = openedClosed caps ls p eq
 0 computedNotClosed : Not (Just Computed = Just (Closed k))
 computedNotClosed Refl impossible
 
-||| A value that computes, at each of some positions.
+-- An entry marked as computing where its position is among those that
+-- compute, else kept.
+markedIf : Bool -> Maybe Landing -> Maybe Landing
+markedIf True _ = Just Computed
+markedIf False l = l
+
+-- The entries from position c on, each marked where its number is among
+-- those that compute.
+markedFrom : Nat -> SortedSet Nat -> Vect k (Maybe Landing) -> Vect k (Maybe Landing)
+markedFrom c s [] = []
+markedFrom c s (l :: ls) = markedIf (contains c s) l :: markedFrom (S c) s ls
+
+||| A value that computes, at each of some positions: their numbers made a
+||| set once, and the table walked once, each position marked where its
+||| number is in the set, so no position costs a walk to it.
 computedAt : List (Fin n) -> LandingTable n -> LandingTable n
-computedAt [] t = t
-computedAt (x :: xs) t = computedAt xs (replaceAt x (Just Computed) t)
+computedAt xs t = markedFrom 0 (SortedSet.fromList (map finToNat xs)) t
+
+-- A mark leaves no closed value that was not there.
+0 markedClosed : (b : Bool) -> markedIf b l = Just (Closed k) -> l = Just (Closed k)
+markedClosed True eq = void (computedNotClosed eq)
+markedClosed False eq = eq
+
+0 markedFromClosed : (c : Nat) -> (s : SortedSet Nat) -> (t : Vect j (Maybe Landing)) -> (p : Fin j) ->
+                     Vect.index p (markedFrom c s t) = Just (Closed k) -> Vect.index p t = Just (Closed k)
+markedFromClosed c s [] p eq = absurd p
+markedFromClosed c s (l :: ls) FZ eq = markedClosed (contains c s) eq
+markedFromClosed c s (l :: ls) (FS p) eq = markedFromClosed (S c) s ls p eq
 
 -- Where only closed values land after, they landed there before.
 0 computedClosed : (xs : List (Fin n)) -> (t : LandingTable n) -> (p : Fin n) ->
                    Vect.index p (computedAt xs t) = Just (Closed k) -> Vect.index p t = Just (Closed k)
-computedClosed [] t p eq = eq
-computedClosed (x :: xs) t p eq = case decEq p x of
-  Yes Refl => void (computedNotClosed (trans (sym (replaceAtSameIndex t p (Just Computed)))
-                                             (computedClosed xs (replaceAt p (Just Computed) t) p eq)))
-  No ne => trans (sym (replaceAtDiffIndexPreserves t p x ne (Just Computed))) (computedClosed xs (replaceAt x (Just Computed) t) p eq)
+computedClosed xs t p eq = markedFromClosed 0 (SortedSet.fromList (map finToNat xs)) t p eq
 
 -- A parameter read at a position nothing landed at reads no closed value.
 readIf : Bool -> Landing -> Maybe Landing -> Maybe Landing
 readIf True l rest = landInto l rest
 readIf False _ rest = rest
 
-||| What lands where a writer reads parameter i, off the table: what landed
-||| at each position its writers list i at, joined, a position nothing
-||| landed at no closed value; nothing where none is listed.
-readAt : LandingTable n -> List (Nat, Fin n) -> Nat -> Maybe Landing
-readAt t [] i = Nothing
-readAt t ((j, p) :: ws) i = readIf (j == i) (fromMaybe Open (Vect.index p t)) (readAt t ws i)
+-- What the held table gives at a position is the table's entry there.
+0 heldEntry : {0 t : LandingTable n} -> {0 e : Maybe Landing} -> (held : Indexed t) -> (q : Fin n) ->
+              (entryAt q held).fst = e -> Vect.index q t = e
+heldEntry held q same = trans (sym (entryAt q held).snd) same
 
-||| What lands where a writer reads each parameter, off the table; nothing
-||| listed is no closed value.
-readLanding : LandingTable n -> List (Nat, Fin n) -> Nat -> Landing
-readLanding t ws i = fromMaybe Open (readAt t ws i)
+||| What lands where a writer reads parameter i, off the table held as a
+||| tree (`Indexed`), so that a position costs the tree's depth rather than
+||| a walk to it: what landed at each position its writers list i at,
+||| joined, a position nothing landed at no closed value; nothing where
+||| none is listed.
+landedAt : {0 t : LandingTable n} -> Indexed t -> List (Nat, Fin n) -> Nat -> Maybe Landing
+landedAt held [] i = Nothing
+landedAt held ((j, p) :: ws) i = readIf (j == i) (fromMaybe Open (entryAt p held).fst) (landedAt held ws i)
+
+||| What lands where a writer reads each parameter, off the held table;
+||| nothing listed is no closed value.
+readLanding : {0 t : LandingTable n} -> Indexed t -> List (Nat, Fin n) -> Nat -> Landing
+readLanding held ws i = fromMaybe Open (landedAt held ws i)
 
 -- A landing read as closed values was read so off a closed entry.
 0 fromMaybeClosed : (m : Maybe Landing) -> fromMaybe Open m = Closed x -> m = Just (Closed x)
@@ -1251,48 +1276,52 @@ landedJust l Nothing = (l ** Refl)
 landedJust l (Just o) = (joinLanding l o ** Refl)
 
 -- A parameter its writers list here is read.
-0 listedHere : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (p : Fin n) -> (b : Bool) -> b = True ->
-               (m : Landing ** readIf b (fromMaybe Open (Vect.index p t)) (readAt t ws i) = Just m)
-listedHere t ws i p True _ = landedJust (fromMaybe Open (Vect.index p t)) (readAt t ws i)
-listedHere t ws i p False no = absurd no
+0 listedHere : {0 t : LandingTable n} -> (held : Indexed t) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (p : Fin n) ->
+               (b : Bool) -> b = True ->
+               (m : Landing ** readIf b (fromMaybe Open (entryAt p held).fst) (landedAt held ws i) = Just m)
+listedHere held ws i p True _ = landedJust (fromMaybe Open (entryAt p held).fst) (landedAt held ws i)
+listedHere held ws i p False no = absurd no
 
 -- A parameter read below is read here too.
-0 listedLater : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (q : Fin n) -> (b : Bool) ->
-                (m : Landing ** readAt t ws i = Just m) ->
-                (m : Landing ** readIf b (fromMaybe Open (Vect.index q t)) (readAt t ws i) = Just m)
-listedLater t ws i q True _ = landedJust (fromMaybe Open (Vect.index q t)) (readAt t ws i)
-listedLater t ws i q False later = later
+0 listedLater : {0 t : LandingTable n} -> (held : Indexed t) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (q : Fin n) ->
+                (b : Bool) -> (m : Landing ** landedAt held ws i = Just m) ->
+                (m : Landing ** readIf b (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) = Just m)
+listedLater held ws i q True _ = landedJust (fromMaybe Open (entryAt q held).fst) (landedAt held ws i)
+listedLater held ws i q False later = later
 
 -- A parameter its writers list is read.
-0 listedRead : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> Elem (i, p) ws -> (m : Landing ** readAt t ws i = Just m)
-listedRead t ((i, p) :: ws) Here = listedHere t ws i p (i == i) (soToEq (equalSelf i))
-listedRead {i} t ((j, q) :: ws) (There el) = listedLater t ws i q (j == i) (listedRead t ws el)
+0 listedRead : {0 t : LandingTable n} -> (held : Indexed t) -> (ws : List (Nat, Fin n)) -> Elem (i, p) ws ->
+               (m : Landing ** landedAt held ws i = Just m)
+listedRead held ((i, p) :: ws) Here = listedHere held ws i p (i == i) (soToEq (equalSelf i))
+listedRead {i} held ((j, q) :: ws) (There el) = listedLater held ws i q (j == i) (listedRead held ws el)
 
 mutual
   -- What a site reads off the table: a parameter read as closed values no
   -- higher than k is read at positions where closed values no higher than
   -- k landed.
-  0 tableRead : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> readAt t ws i = Just (Closed k) ->
+  0 tableRead : {0 t : LandingTable n} -> (held : Indexed t) -> (ws : List (Nat, Fin n)) -> (i : Nat) ->
+                landedAt held ws i = Just (Closed k) ->
                 Elem (i, p) ws -> (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
-  tableRead t [] i eq el = absurd el
-  tableRead t ((j, q) :: ws) i eq el = tableReadAt t j q ws i (j == i) Refl eq el
+  tableRead held [] i eq el = absurd el
+  tableRead held ((j, q) :: ws) i eq el = tableReadAt held j q ws i (j == i) Refl eq el
 
-  0 tableReadAt : (t : LandingTable n) -> (j : Nat) -> (q : Fin n) -> (ws : List (Nat, Fin n)) -> (i : Nat) ->
-                  (b : Bool) -> (j == i) = b -> readIf b (fromMaybe Open (Vect.index q t)) (readAt t ws i) = Just (Closed k) ->
+  0 tableReadAt : {0 t : LandingTable n} -> (held : Indexed t) -> (j : Nat) -> (q : Fin n) -> (ws : List (Nat, Fin n)) ->
+                  (i : Nat) -> (b : Bool) -> (j == i) = b ->
+                  readIf b (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) = Just (Closed k) ->
                   Elem (i, p) ((j, q) :: ws) -> (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
-  tableReadAt t j q ws i True _ eq Here = case intoClosed (fromMaybe Open (Vect.index q t)) (readAt t ws i) eq of
-    ((x ** (here, le)), _) => (x ** (fromMaybeClosed (Vect.index q t) here, le))
-  tableReadAt t j q ws i True _ eq (There el) = case intoClosed (fromMaybe Open (Vect.index q t)) (readAt t ws i) eq of
-    (_, rest) => case listedRead t ws el of
+  tableReadAt held j q ws i True _ eq Here = case intoClosed (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) eq of
+    ((x ** (here, le)), _) => (x ** (heldEntry held q (fromMaybeClosed (entryAt q held).fst here), le))
+  tableReadAt held j q ws i True _ eq (There el) = case intoClosed (fromMaybe Open (entryAt q held).fst) (landedAt held ws i) eq of
+    (_, rest) => case listedRead held ws el of
       (m ** later) => case rest m later of
-        (y ** (Refl, le)) => case tableRead t ws i later el of
+        (y ** (Refl, le)) => case tableRead held ws i later el of
           (k' ** (atP, le')) => (k' ** (atP, transitive le' le))
-  tableReadAt t j q ws i False same eq Here = absurd (trans (sym (soToEq (equalSelf i))) same)
-  tableReadAt t j q ws i False _ eq (There el) = tableRead t ws i eq el
+  tableReadAt held j q ws i False same eq Here = absurd (trans (sym (soToEq (equalSelf i))) same)
+  tableReadAt held j q ws i False _ eq (There el) = tableRead held ws i eq el
 
-||| A site's landing read off the table reads it.
-0 landingReads : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> ReadsTable t ws (readLanding t ws)
-landingReads t ws i k read p el = tableRead t ws i (fromMaybeClosed (readAt t ws i) read) el
+||| A site's landing read off the held table reads the table.
+0 landingReads : {0 t : LandingTable n} -> (held : Indexed t) -> (ws : List (Nat, Fin n)) -> ReadsTable t ws (readLanding held ws)
+landingReads held ws i k read p el = tableRead held ws i (fromMaybeClosed (landedAt held ws i) read) el
 
 -- Where each numbered position carries a family's value on, keyed by the
 -- source's number and by the target's: from each position of the writer
@@ -1384,6 +1413,16 @@ computes (Just Computed) = True
 computes (Just (Evaluable _)) = True
 computes _ = False
 
+-- The positions, from i on, of a table's last entries where a value that
+-- computes lands, ascending, in one pass: each position's number is the
+-- counter, made a `Fin` by `natToFinLT`, the identity at run time, where
+-- base's `findIndices` maps `FS` over every position found after each.
+computingFrom : (i : Nat) -> Vect r (Maybe Landing) -> (0 _ : i + r = n) -> List (Fin n)
+computingFrom i [] _ = []
+computingFrom i (l :: ls) eq =
+  let rest = computingFrom (S i) ls (trans (plusSuccRightSucc i _) eq) in
+  if computes l then natToFinLT i {prf = runBelow i eq} :: rest else rest
+
 -- Where a computing value is carried on to from where one lands: every
 -- position that carries a family's value on from there, since a family
 -- whose value can be one there may compute when it is applied, wherever
@@ -1393,7 +1432,7 @@ computes _ = False
 -- applies it. With no computing value written there is nothing to carry.
 carriedTo : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
             List (Node, List (Sites.Site, Reached)) -> LandingTable n -> List (Fin n)
-carriedTo number nodes leads walked t = case findIndices computes t of
+carriedTo number nodes leads walked t = case computingFrom 0 t Refl of
   [] => []
   seeds@(_ :: _) =>
     let cs = carried number nodes leads walked
@@ -2129,26 +2168,30 @@ allSlots (x :: xs) = slotsOf x ++ allSlots xs
 
 -- The numbering at place `place` of `n`, with `rest` still to meet: where
 -- each position met so far was first met, and those first meetings in
--- order. A position is numbered by the place it is first met at, so
--- meeting it again finds that number, and no number is looked for that
--- was not given.
+-- order, each with the position it numbers, so that what a number stands
+-- for is read off the meeting rather than looked up again. A position is
+-- numbered by the place it is first met at, so meeting it again finds
+-- that number, and no number is looked for that was not given.
 record Meeting (n : Nat) (rest : List Spot) where
   constructor MkMeeting
   place : Nat
   0 left : place + length rest = n
   seen : SortedMap Spot (PlacedNumber n)
-  firsts : SnocList (Fin n)
+  firsts : SnocList (Fin n, Spot)
 
 -- Position x, met at the next place: the number it was first met at, or,
 -- met for the first time, this place's, each with the place it counts to.
+-- The place is a counter carried with its bound (`left`), and
+-- `natToFinLT` makes it a number at no cost: base's identity pass makes it
+-- the identity on the stock host, and idris-mlir writes it as a numeral.
 meet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Spot) -> Meeting n (x :: rest) -> (PlacedNumber n, Meeting n rest)
 meet x (MkMeeting j left seen firsts) =
   let 0 next = trans (plusSuccRightSucc j (length rest)) left in
   case lookup x seen of
     Just f => (f, MkMeeting (S j) next seen firsts)
     -- Essential: a position's first meeting is the one that numbers it.
-    Nothing => let f = MkPlacedNumber (natToFinLT j {prf = runBelow j left}) j (countedTo j (runBelow j left)) in
-               (f, MkMeeting (S j) next (insert x f seen) (firsts :< f.number))
+    Nothing => let f = MkPlacedNumber (natToFinLT j {prf = runBelow j left}) j (finToNatLT j {prf = runBelow j left}) in
+               (f, MkMeeting (S j) next (insert x f seen) (firsts :< (f.number, x)))
 
 -- Positions met at the next places, in order.
 meetAll : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Spot) -> Meeting n (xs ++ rest) -> (List (Fin n), Meeting n rest)
@@ -2228,15 +2271,15 @@ SiteDrawn x = DrawnBy (snd x) (fst x).template
 SiteMet {n} t x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding t (fst x), TargetBounded t (fst x))
 
 -- A numbered writing read where its writer is, as a site of the model: its
--- template read where the table says each of its writer's parameters
--- lands (`readLanding`), its roots read at the same landing (`rootsAt`);
--- its writers every parameter its template names, so every one its
--- reading weighs or lands closed; and, its own landing bounded by what
--- lands at its target, its template bounded there too.
-siteRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> (t : LandingTable n) -> (x : Numbered n) ->
+-- template read where the table, held as a tree, says each of its writer's
+-- parameters lands (`readLanding`), its roots read at the same landing
+-- (`rootsAt`); its writers every parameter its template names, so every
+-- one its reading weighs or lands closed; and, its own landing bounded by
+-- what lands at its target, its template bounded there too.
+siteRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> {0 t : LandingTable n} -> (held : Indexed t) -> (x : Numbered n) ->
            (0 _ : BoundedBy (landedBy x.written.wrote) (Vect.index x.target t)) -> Subset (Bound.Site n, Wrote) (SiteMet t)
-siteRead fl families t x bounded =
-  let c = readLanding t x.writers
+siteRead fl families held x bounded =
+  let c = readLanding held x.writers
       rts = rootsAt fl families c x.written.writer in
   Element (Bound.MkSite x.target (withClosedFamilies c x.written.template) x.writers rts, x.written.wrote)
           (drawnRead c x.written.draws,
@@ -2245,7 +2288,7 @@ siteRead fl families t x bounded =
                          (\i, el => x.named (landedFamiliesNamed c x.written.template el))
                          (rootsApplied fl families c x.written.writer)
                          (rootsRecorded fl families c x.written.writer)
-                         (landingReads t x.writers),
+                         (landingReads held x.writers),
            \k, atTarget => case bounded k atTarget of
              (k' ** (closed, le)) => case x.written.landsAs k' closed of
                (sb, high) => case closedSelfBounded c x.written.template sb of
@@ -2253,13 +2296,13 @@ siteRead fl families t x bounded =
 
 -- Numbered writings read as sites, in order, each bounded by the table at
 -- its target.
-sitesRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> (t : LandingTable n) -> (xs : List (Numbered n)) ->
+sitesRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> {0 t : LandingTable n} -> (held : Indexed t) -> (xs : List (Numbered n)) ->
             (0 _ : {x : Numbered n} -> Elem x xs -> BoundedBy (landedBy x.written.wrote) (Vect.index x.target t)) ->
             Subset (List (Bound.Site n, Wrote)) (All (SiteMet t))
-sitesRead fl families t [] _ = Element [] []
-sitesRead fl families t (x :: xs) bounds =
-  let (Element here made) = siteRead fl families t x (bounds Here)
-      (Element later madeLater) = sitesRead fl families t xs (\el => bounds (There el)) in
+sitesRead fl families held [] _ = Element [] []
+sitesRead fl families held (x :: xs) bounds =
+  let (Element here made) = siteRead fl families held x (bounds Here)
+      (Element later madeLater) = sitesRead fl families held xs (\el => bounds (There el)) in
   Element (here :: later) (made :: madeLater)
 
 0 allFirst : All p (x :: xs) -> p x
@@ -2545,7 +2588,8 @@ build main = do
                                       (replace {p = Meeting (length slots0)} (sym (appendNilRightNeutral slots0))
                                                (MkMeeting 0 Refl empty [<]))
   let table0 = tableOf met0.seen (map (\p => lookup p capped) (Vect.fromList slots0)) nodes leads walked0 (map landedPair numbered0)
-  let landing0 = \spot => maybe Open (\p => fromMaybe Open (Vect.index p.number table0)) (lookup spot met0.seen)
+  let held0 = indexed table0
+  let landing0 = \spot => maybe Open (\p => fromMaybe Open (entryAt p.number held0).fst) (lookup spot met0.seen)
   -- What a family given only closed values computes, evaluated at each.
   walked <- evaluated landing0 walked0
   let written = writtenBy walked (writings walked)
@@ -2562,31 +2606,32 @@ build main = do
   let (numbered, met) = numberedAll {rest = entered.datas} written start
   let (_, done) = meetAll {rest = []} entered.datas
                           (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral entered.datas)) met)
-  let firsts = done.firsts <>> []
+  let firstMet = done.firsts <>> []
+  let firsts = map fst firstMet
   let caps = map (\p => lookup p capped) position
   -- What lands at each position, and each writing read where its writer
   -- is over it.
   let landed = map landedPair numbered
   let table = tableOf done.seen caps nodes leads walked landed
-  let (Element sites sitesDrawn) = sitesRead fl entered.families table numbered
+  let (Element sites sitesDrawn) = sitesRead fl entered.families (indexed table) numbered
                                              (\el => tableBounds done.seen caps nodes leads walked landed (elemMap landedPair el))
   -- Each definition's positions, each field's and each choice's, read off
-  -- the first meetings themselves.
+  -- the first meetings themselves, each with the position it numbers.
   let byDefinitionAt = the (SortedMap Address (List (Fin (length slots))))
-                           (foldr (\f => case Vect.index f position of
-                                           OfParameter (OfNode node) _ => insertWith (++) node.definition [f]
-                                           _ => id)
-                                  empty firsts)
+                           (foldr (\(f, spot) => case spot of
+                                                    OfParameter (OfNode node) _ => insertWith (++) node.definition [f]
+                                                    _ => id)
+                                  empty firstMet)
   let byFieldAt = the (SortedMap (Address, Nat) (List (Fin (length slots))))
-                      (foldr (\f => case Vect.index f position of
-                                      OfField j k => insertWith (++) (j, k) [f]
-                                      _ => id)
-                             empty firsts)
+                      (foldr (\(f, spot) => case spot of
+                                               OfField j k => insertWith (++) (j, k) [f]
+                                               _ => id)
+                             empty firstMet)
   let byChoiceAt = the (SortedMap ChoiceHead (List (Fin (length slots))))
-                       (foldr (\f => case Vect.index f position of
-                                       OfChoice k => insertWith (++) k [f]
-                                       _ => id)
-                              empty firsts)
+                       (foldr (\(f, spot) => case spot of
+                                                OfChoice k => insertWith (++) k [f]
+                                                _ => id)
+                              empty firstMet)
   let positionsOf : Address -> List (Fin (length slots))
       positionsOf a = fromMaybe [] (lookup a byDefinitionAt)
   let fieldPositionsOf : Address -> Nat -> List (Fin (length slots))

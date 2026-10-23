@@ -69,6 +69,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Describes
         , IdrisMLIR.Proof.Generations
         , IdrisMLIR.Proof.Forms
+        , IdrisMLIR.Proof.Widest
         , IdrisMLIR.Proof.Requests
         , IdrisMLIR.Proof.Reading
         , IdrisMLIR.Proof.Sizes
@@ -101,6 +102,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Growth.Heads
         , IdrisMLIR.Frontend.Growth.Fields
         , IdrisMLIR.Frontend.Growth.Caps
+        , IdrisMLIR.Frontend.Growth.Indexed
         , IdrisMLIR.Frontend.Growth.Graph
         , IdrisMLIR.Frontend.Growth
         , IdrisMLIR.Frontend.Program

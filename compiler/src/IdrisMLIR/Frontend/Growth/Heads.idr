@@ -172,7 +172,9 @@ ownSlot w ps i = case parameterOf ps i of
 -- each byte's whole value.
 sameBytes : (a, b : Address) -> Dec (a = b)
 sameBytes a b = case decideAddress a b of
-  Proof.Growth.Yes Refl => Yes Refl
+  -- `Dec` holds its proof at run time: the erased equality is carried
+  -- there by `replace`, whose rule is erased.
+  Proof.Growth.Yes same => Yes (replace {p = \z => a = z} same Refl)
   Proof.Growth.No ne => No (\eq => void (ne eq))
 
 sameKind : (i, j : Fin 4) -> Dec (i = j)
@@ -1073,16 +1075,16 @@ export
 samePath : (p, q : List1 Nat) -> Decided (p = q)
 samePath (k ::: ks) (k' ::: ks') = case sameNat k k' of
   Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-  Proof.Growth.Yes Refl => case sameList sameNat ks ks' of
+  Proof.Growth.Yes firsts => case sameList sameNat ks ks' of
     Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
-    Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
+    Proof.Growth.Yes rests => Proof.Growth.Yes (rewrite firsts in rewrite rests in Refl)
 
 ||| Whether a path of fields is among some, as the machine compares them.
 export
 pathAmong : (p : List1 Nat) -> (ps : List (List1 Nat)) -> Decided (Elem p ps)
 pathAmong p [] = Proof.Growth.No (\case _ impossible)
 pathAmong p (q :: qs) = case samePath p q of
-  Proof.Growth.Yes Refl => Proof.Growth.Yes Here
+  Proof.Growth.Yes same => Proof.Growth.Yes (rewrite same in Here)
   Proof.Growth.No ne => case pathAmong p qs of
     Proof.Growth.Yes e => Proof.Growth.Yes (There e)
     Proof.Growth.No out => Proof.Growth.No (\case Here => ne Refl; There e => out e)

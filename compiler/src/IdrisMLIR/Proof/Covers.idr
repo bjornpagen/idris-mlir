@@ -30,8 +30,11 @@
 ||| - contraction is maximal: an eta-normal term contracts to itself
 |||   (`etaNormalFixed`);
 ||| - the reading lemma's induction, stated per node (`NodeCovers`), and
-|||   proved at the root of a kind read off the host's normal form, whose
-|||   instance form holds no redex (`coversAtRoot`), at a marker
+|||   the lemma at its statement for a kind read off the host's normal form
+|||   from the induction at the site's normal form (`readingFromNormal`,
+|||   `coversAtRoot`): that normal form with the values put in reduces to
+|||   the instance's (`normalisedPutIn`), whose form holds no redex; the
+|||   induction proved at a marker
 |||   (`markerWrites`), at a constant, a universe and an erased part, which
 |||   the host's steps only move (`atConstant`, `atUniverse`, `atErased`),
 |||   at a closed run the site reads as its leaf (`runCovers`), at a data
@@ -46,20 +49,24 @@
 |||   arguments whose name names no type, which the host's steps only move,
 |||   at whatever location (`unnamedTypeReduces`, `atNamedType`); a head
 |||   that drops what it is applied to, met alone (`dropsAlone`); and no
-|||   `let` where the evaluation runs everything (`noLetWhereRun`).
+|||   `let` where the evaluation runs everything (`noLetWhereRun`);
+||| - at a match, the host's half: an alternative the trace passes by is one
+|||   the host misses (`passedMisses`), and a data constructor at another
+|||   entry than an alternative of its tag leaves the host's walk stuck
+|||   (`sharedTagStuck`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
-||| - from the site's term to its form: `coversAtRoot` asks `NodeCovers` of
-|||   the site's term, whose instance the values are put into, while the
-|||   site's reading is of its form, the host's normal form of the term
-|||   contracted. Relating them needs the instance's normal form reached
-|||   from the site's normal form with the values put in (the host's
-|||   `substitutes` carries the site's steps through putting the values in,
-|||   and `reachesNormalForm` the rest), and then contraction carried
-|||   through putting values in, which no relation here states; and the
-|||   site's normality (`readNoShapeStep`) as a premise of `NodeCovers` at
-|||   each node, which the lemmas above take;
+||| - from the site's normal form to its form: the lemma asks the induction
+|||   at the site's normal form (`coversAtRoot`), while the site's reading
+|||   reads its contraction, so the induction over that reading meets, at
+|||   each redex the site contracted, a lambda of the normal form whose
+|||   body applies the contracted term to its variable. That is the binder
+|||   below, with the variable read as the argument the contraction drops;
+|||   and the site's normality (`readNoShapeStep`) as a premise of
+|||   `NodeCovers` at each node, which the lemmas above take. The site's
+|||   term naming no unknown by a marker's name is `readingFromNormal`'s
+|||   premise, a fact of the walk's terms no module states;
 ||| - under a binder: `NodeCovers` states closed terms only; a lambda's or
 |||   a function type's body is read in a scope the instance's values are
 |||   put in under (`putIn` at an outer scope) with its variable read as an
@@ -70,13 +77,20 @@
 |||   `Unfolds`): the instance's evaluation of the call with the values put
 |||   in either takes no `Unfold` step, leaving the call as written, or
 |||   takes the one whose `Chooses` walks the same alternatives the trace
-|||   took, which needs the frontend's `scrutineeOf` related to the host's
-|||   `Scrutinised`, `Picks` and `Misses` through `putIn` (each alternative
-|||   the trace passes by `TakenBy`'s `PassesThis`, `TagShared` or
-|||   `LiteralPasses` a `Misses`, each it takes a `Matches`), and the
-|||   instance's normal form of the leaf related to the site's reading of
-|||   it (`Idris.Host.reachesNormalForm` with putting values in commuting
-|||   with the normaliser's steps);
+|||   took. The host's half of each alternative the trace passes or is
+|||   stuck at is above; what is left is the frontend's: `scrutineeOf`'s
+|||   `Constructed h c sargs` giving `HeadedAs h c sargs` of the term it
+|||   read, through its dots (`Idris.Host.Shows`) and through `putIn`;
+|||   a literal's alternatives, which `Readings.TakesLiteral` passes and
+|||   takes by the syntax of the constants (`LiteralPasses`, `LiteralThis`)
+|||   where the host compares them by the evaluator's equality
+|||   (`Idris.Host.OtherConstant`, `ByConstant`), so two doubles equal but
+|||   spelt apart, or a NaN, take apart; the trace's `ArityDiffers`, a stuck
+|||   walk only where an entry's constructor has the tag the alternative
+|||   names, which the host does not state; each alternative it takes a
+|||   `Matches`; and the instance's normal form of the leaf related to the
+|||   site's reading of it (`Idris.Host.reachesNormalForm` with putting
+|||   values in commuting with the normaliser's steps);
 ||| - a name the context gives no address (`SNoDefinition`): the induction
 |||   there is proved from the context defining the name as nothing
 |||   (`undefinedCovers`), which follows from every defined name having an
@@ -87,18 +101,36 @@
 |||   of a lookup after an insert, so the host carries the fact where it
 |||   reads them), and `Walk.placementIn` and
 |||   `Definitions.definitionAddress` giving an address to a name resolved
-|||   to such an entry; a site's skeleton, which cuts the part to a leaf,
-|||   is not covered by it;
+|||   to such an entry;
+||| - a shape: the lemma states an instance's reading of the site's term
+|||   with the values put in, but a request holds the skeleton of that term
+|||   (`Instances.argumentShape`, `Closed.skeleton`), and the instance
+|||   reads every node of what it is given. Where the site's skeleton cuts
+|||   a node to one leaf (`Readings.nodeOf Skeleton`: an applied call, a
+|||   type constructor applied), the instance reads the node whole, and no
+|||   `Writes` takes a leaf to a node above parts, so the statement is
+|||   false at a shape until it is over the skeleton the request holds,
+|||   which the translation's site table (C222) gives it: there the cut
+|||   node is a hole, read as one leaf (`AtLeaf`), and a marker the
+|||   skeleton cuts is `AtCut`;
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
 |||   (`Template.solvedIn`), which the holes evaluation may still step (a
 |||   definition that always reduces, a lambda applied), so neither
 |||   `reachesNormalForm`, which needs a `Reduct`, nor one normal form per
-|||   term relates the instance's form to the site's with the values put
-|||   in; and a dictionary over runtime values is the implementation the
-|||   frontend's own reduction finds (`FromImplementation`), which no
-|||   relation of the host's states.
+|||   term relates the instance's form to the site's. Read as written,
+|||   both forms are contractions of their terms with no step between, so
+|||   what they need is an induction of their own over terms the host has
+|||   not normalised (`NodeCovers` asks an irreducible reduct) and
+|||   contraction carried through putting values in, the contraction of
+|||   the term with the values put in against the site's contraction with
+|||   them put in, which no relation here states; `solvedIn` keeps the
+|||   term as `Closed.solved` does, so normalising it there alone would
+|||   make the growth check's key differ from the translation's; and a
+|||   dictionary over runtime values is the implementation the frontend's
+|||   own reduction finds (`FromImplementation`), which no relation of the
+|||   host's states.
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
@@ -1229,28 +1261,77 @@ normalOnly TypeReadNormal (FromImplementation _) impossible
 normalOnly FamilyReadNormal (FromImplementation _) impossible
 normalOnly FormReadNormal (FromImplementation _) impossible
 
--- The induction at the root, at a form read off the host's normal form.
+||| The site's normal form with an instance's values put in reduces to the
+||| instance's normal form, by that normaliser's steps: the host carries
+||| the site's steps through putting the values in (`Idris.Host.substitutes`),
+||| and so the instance's term reaches the site's normal form with them put
+||| in, which goes on to the instance's normal form
+||| (`Idris.Host.reachesNormalForm`). This is `Idris.Host.normalisesThrough`
+||| as the induction puts values in, at no binder (`Idris.Host.putInAtTop`).
+export
+0 normalisedPutIn : {0 nf : NormalForm} -> {ctx : Frozen} -> {ns : Scope} -> {0 u : ClosedTerm} ->
+                    (bs : Bounds ns) -> (vs : SubstEnv ns []) -> FreshIn ctx bs -> mentions UnknownOnly bs u = False ->
+                    (site : Reduct nf ctx u) -> (inst : Reduct nf ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u)) ->
+                    Reduces (evaluationOf nf) ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs site.value) inst.value
+normalisedPutIn bs vs fresh none site inst =
+  replace {p = \x => Reduces (evaluationOf nf) ctx x inst.value} (putInAtTop (mkSizeOf ns) bs vs site.value)
+    (reachesNormalForm inst
+       (replace {p = \x => Reduces (evaluationOf nf) ctx x (substs (mkSizeOf ns) vs (refsToLocals bs site.value))}
+                (putInAtTop (mkSizeOf ns) bs vs u)
+                (substitutes bs vs fresh none site.steps)))
+
+-- The induction at the site's normal form gives the root, at a form read
+-- off the host's normal form of the site's term with the values put in.
 0 formCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} -> {ns : Scope} ->
-               {bs : Bounds ns} -> {vs : SubstEnv ns []} -> ReadOffNormal k ->
-               NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs u t ->
+               {bs : Bounds ns} -> {vs : SubstEnv ns []} -> {0 k : Readings.Static} -> {0 t : Template} ->
+               {0 u, form : ClosedTerm} -> ReadOffNormal k -> FreshIn ctx bs -> mentions UnknownOnly bs u = False ->
+               (site : Reduct OfNormaliseTypes ctx u) -> NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs site.value t ->
                FormFrom k ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) form -> EtaNormal EveryRedex form ->
                (r : Template) -> ReadAs (InstanceMode ctx) [] form r -> Writes m s t r
-formCovers nk covers from maximal r read = case normalOnly nk from of
-  (nr ** Refl) => covers nr.reduct.steps nr.reduct.normal nr.contraction maximal r read
+formCovers nk fresh none site covers from maximal r read = case normalOnly nk from of
+  (nr ** Refl) => covers (normalisedPutIn bs vs fresh none site nr.reduct) nr.reduct.normal nr.contraction maximal r read
 
-||| The reading lemma at the root, from its induction (`NodeCovers`), for
-||| a kind read off the host's normal form: the instance's form is that
-||| normal form of the site's term with the values put in, contracted, and
-||| it holds no redex (`Readings.InstanceReading`'s `maximal`), so the
-||| induction's premises are the instance reading's own. A dictionary and
-||| a shape a constructor heads are read as written, which no normal form
-||| relates to the site's: theirs is a separate obligation.
+||| The reading lemma at the root, from its induction (`NodeCovers`) at the
+||| site's normal form, for a kind read off the host's normal form: the
+||| instance's form is the normal form of the site's term with the values
+||| put in, contracted, holding no redex (`Readings.InstanceReading`'s
+||| `maximal`), and the site's normal form with the values put in reduces
+||| to that normal form (`normalisedPutIn`), so the induction's premises
+||| are the instance reading's own. The induction is owed at the site's
+||| normal form, not its term: what is left of the step from the site's
+||| term to its form is from that normal form to its contraction, the form
+||| the site's reading reads. A dictionary and a shape a constructor heads
+||| are read as written, which no normal form relates to the site's:
+||| theirs is a separate obligation.
 export
 0 coversAtRoot : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} -> {ns : Scope} ->
-                 {bs : Bounds ns} -> {vs : SubstEnv ns []} -> ReadOffNormal k ->
-                 NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs u t ->
+                 {bs : Bounds ns} -> {vs : SubstEnv ns []} -> {0 k : Readings.Static} -> {0 t : Template} ->
+                 {0 u : ClosedTerm} -> ReadOffNormal k -> FreshIn ctx bs -> mentions UnknownOnly bs u = False ->
+                 (site : Reduct OfNormaliseTypes ctx u) -> NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs site.value t ->
                  (inst : InstanceReading ctx k (putIn SizeOf.zero (mkSizeOf ns) bs vs u)) -> Writes m s t inst.template
-coversAtRoot nk covers inst = formCovers nk covers inst.formFrom inst.maximal inst.template inst.describes
+coversAtRoot nk fresh none site covers inst =
+  formCovers nk fresh none site covers inst.formFrom inst.maximal inst.template inst.describes
+
+||| The normal form a site's reading of a kind read off it was read off.
+public export
+0 siteNormal : ReadOffNormal k -> (r : SiteReading k t) -> Reduct OfNormaliseTypes r.mode.inContext t
+siteNormal nk r = (normalOnly nk r.formFrom).fst.reduct
+
+||| The reading lemma, as the growth proof states it, for a kind read off
+||| the host's normal form, from its induction at the site's normal form
+||| (`coversAtRoot`) for every set of markers and the values put in for
+||| them: the markers are fresh for the context (`Proof.Markers.Markers`),
+||| and the site's term names no unknown by a marker's name, a fact of the
+||| walk's terms no module states yet, so it is this lemma's premise.
+export
+0 readingFromNormal : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 stands : List StandIn} ->
+                      {0 k : Readings.Static} -> {0 t : ClosedTerm} -> (nk : ReadOffNormal k) -> (r : SiteReading k t) ->
+                      ({0 ns : Scope} -> (mk : Markers r.mode.inContext ns) -> mentions UnknownOnly mk.bounds t = False) ->
+                      ({0 ns : Scope} -> (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
+                       MarkersHold m s r.mode.inContext stands mk.bounds vs ->
+                       NodeCovers m s (evaluationOf OfNormaliseTypes) r.mode.inContext mk.bounds vs (siteNormal nk r).value r.template) ->
+                      ReadingCovers m s stands k t r
+readingFromNormal nk r none covers mk vs held inst = coversAtRoot nk mk.fresh (none mk) (siteNormal nk r) (covers mk vs held) inst
 
 ||| What an instance writes under a site's reading, the template written at
 ||| a node, it writes under the template the graph's site holds, that
@@ -1826,3 +1907,62 @@ piReduces (Then r r') = case piReduces r of
       (fc' ** pfc' ** p'' ** ty'' ** sc'' ** (same, piThen pr pr', Then tr tr', Then sr sr'))
 piReduces (Contract st) = void (piNoStep st)
 piReduces (ABind (APi pr tr) sr) = (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr))
+
+------------------------------------------------------------------------------
+-- Alternatives a match passes and is stuck at, as the host takes them
+------------------------------------------------------------------------------
+
+||| A term a constructor heads, as a match meets it: a data constructor of
+||| its tag, or a type constructor, applied to its fields.
+public export
+data HeadedAs : ConstructorHead -> Name -> List (Term vs) -> Term vs -> Type where
+  DataHeaded : Spine s (Ref rfc (DataCon tag arity) c) fields -> HeadedAs (DataHead tag) c fields s
+  FamilyHeaded : Spine s (Ref rfc (TyCon arity) c) fields -> HeadedAs FamilyHead c fields s
+
+||| An alternative a match passes by (`Readings.TakenBy`'s `PassesThis`),
+||| at another entry than the constructor it meets and missed as the host
+||| misses it (`Readings.Missed`), is one the host's step misses there
+||| (`Idris.Host.Misses`): a data constructor of another tag, a type
+||| constructor at another entry. Putting values in keeps the miss
+||| (`Idris.Host.mappedMisses`).
+export
+0 passedMisses : HeadedAs h c fields s -> Not (SameEntry ctx c con) -> Missed h tag -> Misses ctx s (ConCase con tag cargs sc)
+passedMisses (DataHeaded sp) _ (TagDiffers differs) = OtherTag sp (\same => differs (sym same))
+passedMisses (FamilyHeaded sp) other EntryDiffers = OtherFamily sp other
+
+0 dataNotFamily : the (Term vs) (Ref fc (DataCon t a) n) = Ref fc' (TyCon a') n' -> Void
+dataNotFamily Refl impossible
+
+-- No alternative of a data constructor's tag, at another entry, matches
+-- it: a constructor's alternative asks its entry, and no other alternative
+-- of a constructor's name matches a data constructor.
+0 sharedNotMatched : {0 ev : Evaluation} -> Spine s (Ref rfc (DataCon tag arity) c) fields -> Not (SameEntry ctx c con) ->
+                     Matches ev ctx env s (ConCase con tag cargs sc) v -> Void
+sharedNotMatched sp other (ByConstructor sp' same _ _) = case refSpines sp sp' of
+  (Refl, _) => other same
+sharedNotMatched sp other (ByFamily sp' _ _ _) = dataNotFamily (fst (refSpines sp sp'))
+sharedNotMatched sp other (ByPrimitiveType _ _) = constantNotRef sp
+sharedNotMatched sp other (ByUniverse _ _) = universeNotRef sp
+sharedNotMatched sp other (ByArrow _ _) = bindNotRef sp
+
+-- Nor does one miss it: a data constructor is missed only by another tag.
+0 sharedNotMissed : Spine s (Ref rfc (DataCon tag arity) c) fields -> Misses ctx s (ConCase con tag cargs sc) -> Void
+sharedNotMissed sp (OtherTag sp' differs) = case refSpines sp sp' of
+  (Refl, _) => differs Refl
+sharedNotMissed sp (OtherFamily sp' _) = dataNotFamily (fst (refSpines sp sp'))
+sharedNotMissed sp (OtherPrimitiveType _) = constantNotRef sp
+sharedNotMissed sp PrimitiveFields = constantNotRef sp
+sharedNotMissed sp (NotTheUniverse _) = universeNotRef sp
+sharedNotMissed sp UniverseFields = universeNotRef sp
+sharedNotMissed sp (NotTheArrow _) = bindNotRef sp
+sharedNotMissed sp (ArrowFields _) = bindNotRef sp
+
+||| A data constructor at another entry than an alternative of its tag
+||| (`Readings.TakenBy`'s `TagShared`) is neither matched nor missed there
+||| by the host, so the host picks no alternative from there on: its walk
+||| of the tree is stuck, and every instance leaves the call as written.
+export
+0 sharedTagStuck : {0 ev : Evaluation} -> HeadedAs (DataHead tag) c fields s -> Not (SameEntry ctx c con) ->
+                   Picks ev ctx env s (ConCase con tag cargs sc :: alts) v -> Void
+sharedTagStuck (DataHeaded sp) other (Takes matched) = sharedNotMatched sp other matched
+sharedTagStuck (DataHeaded sp) other (Skips missed _) = sharedNotMissed sp missed

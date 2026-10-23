@@ -2629,7 +2629,11 @@ MarkersHold {g} m s ctx stands bs vs =
 ||| induction on the site's reading, the host's reduction inverted at each
 ||| head it keeps (`Proof.Inversion`), carried through putting the values
 ||| in (`Idris.Host.Mapped`, `Idris.Host.mappedReduces`) and through
-||| contraction (`Proof.Reading`).
+||| contraction (`Proof.Reading`). At a shape the instance read here is of
+||| the term with the values put in, while a request holds that term's
+||| skeleton (`Instances.argumentShape`); where the site's skeleton cuts a
+||| node the instance would read whole, the statement holds only of the
+||| skeleton, which the translation's site table is to give it.
 public export
 0 ReadingCovers : {g : Graph} -> (m : Model g) -> Bound.Site g.size -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) ->
                   SiteReading k t -> Type
