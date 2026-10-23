@@ -5093,6 +5093,32 @@ attribute until the write-back (recommended: one meaning, nothing on the
 hot path, nothing static paid at run time; the most work). A constructor
 applied to constants is a node in all three, and a match on one a rule.
 
+**Next, after the one above** (L16da's evidence, 2026-10-23; C257's stop,
+to be raised alone in turn). The translation settles a dictionary or a
+polymorphic function applied to closed arguments by normalising it with
+the host's `normaliseHoles` (`Terms.lambdasApplied`), which contracts
+every redex at every depth and unfolds solved metavariables
+(`Core/Normalise/Eval.idr:123`, `574-577`), so the member is emitted
+with the caller's lambdas inlined into its body, and its normal form
+keeps neither the member's written structure nor which subterms are the
+caller's; a field reached through `Closed.projected` is a host normal
+form, no definition's text. The growth model walks the member as
+written, binding its arguments (`Sites.applyHead`), and C257 needs the
+two walks to visit one structure. The choice: (A) the translation walks
+the written member with its arguments bound, as the model does: a
+closure argument is bound once by a `let` instead of inlined at each
+use, which changes the emitted MLIR and leaves that inlining to the C++
+pipeline (specialization, defunctionalization, the inliner), keys still
+read through the host's normaliser (D68); (B) the model walks the host's
+normal forms, as the translation does, so a site is a place in a normal
+form rather than in the code, against D46's "the growth proof covers the
+code"; (C) the requests made inside a settled member keep the run-time
+re-check and the rest are carried by type, leaving C222 and D46's
+deletion of the re-check partly undone. Recommended: A (Idris does
+types and MLIR does programs; eager evaluation binds an argument once;
+the proof stays over the code); its cost is code the C++ pipeline must
+now inline, measured at qualification.
+
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
 approval (settled, below).
