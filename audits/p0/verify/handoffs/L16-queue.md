@@ -599,3 +599,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
 - From L19r: the root rule (`Program.cpp`'s `verifyRegions`) has no test
   of its own: a program whose root takes an argument, and one whose root
   gives an `i64`, each refused by its message (L19).
+- From L19v: the checker (`compiler/checker`, our code) has the same
+  `checkUpdate` as patch 116 fixes in the stock Idris
+  (`TTImp/Elab/Record.idr` 277-281, `checkUpdateDelayed` 256-261): its
+  fix is its own code, with a `tests/checker-*` check (L17, after
+  C271); INT reruns `tools/bootstrap.sh idris` for 115, 116 and L06i's
+  patches.
