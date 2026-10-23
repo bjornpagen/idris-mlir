@@ -1205,7 +1205,7 @@ data Solution : Frozen -> Int -> Type where
              {0 leaf : Int} -> (solution : ClosedTerm) -> (placement : Placement) ->
              (0 defines : Defines fz (Resolved i) d) -> (0 _ : definition d = PMDef info [] body) ->
              (0 _ : TreeOf body (STerm leaf solution)) ->
-             (0 _ : placement = placementAt i (resolvedPlaced resolvedItself defines)) -> Solution fz i
+             (0 _ : placement = placementAt i (resolvedPlaced Host.resolvedItself defines)) -> Solution fz i
   Unsolved : {0 fz : Frozen} -> {0 i : Int} -> {0 d : GlobalDef} -> {0 locals : Nat} -> {0 flags : HoleFlags} ->
              (0 _ : Defines fz (Resolved i) d) -> (0 _ : definition d = Hole locals flags) -> Solution fz i
 
@@ -1215,7 +1215,7 @@ data Solution : Frozen -> Int -> Type where
 export
 solutionPlacement : {i : Int} -> Solution fz i -> Placement
 solutionPlacement (SolvedAs _ placement _ _ _ _) = placement
-solutionPlacement (Unsolved defines _) = placementAt i (resolvedPlaced resolvedItself defines)
+solutionPlacement (Unsolved defines _) = placementAt i (resolvedPlaced Host.resolvedItself defines)
 
 ||| The solution of each metavariable a term the boundary read names, by
 ||| its entry in the frozen context, each read at that entry (`Solution`).
