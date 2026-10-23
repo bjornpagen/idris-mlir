@@ -159,11 +159,15 @@ void ArrayUpdateOp::getRegionInvocationBounds(ArrayRef<Attribute>,
   bounds.emplace_back(1, 1);
 }
 
-// The element moves out of its place into the region, whose end moves the
-// rebuilt one back in.
+// The element moves out of its place into the region with the reference
+// its place held, the place left empty until the region's end moves the
+// rebuilt one back in, as the take a split update becomes declares. So the
+// element holds a reference of its own, which its region moves on or gives
+// up, never a view of the array.
 void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::partOf(getArray(), elementsOf(getArray())),
              FlowPlace::of(getRegion().front().getArgument(0)));
+  edges.overwrite(getArray(), elementsOf(getArray()));
 }
 
 ValueRange ArrayUpdateOp::getYieldTargets() { return getODSOperands(0); }
@@ -173,7 +177,7 @@ MutableOperandRange ArrayUpdateYieldOp::getMutableSuccessorOperands(RegionSucces
   return getOutsMutable();
 }
 
-// The rebuilt element moves back into its place.
+// The rebuilt element moves back into the place its update emptied.
 void ArrayUpdateYieldOp::getFlowEdges(FlowEdges &edges) {
   auto update = cast<ArrayUpdateOp>((*this)->getParentOp());
   edges.flow(FlowSource::of(getElementMutable()),
