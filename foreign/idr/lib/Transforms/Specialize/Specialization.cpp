@@ -16,7 +16,8 @@
 // carries into its body, and a static hold makes counting count nothing of
 // what the parameter holds. A result the key opens is given open by every
 // tail of the copy: what the copy builds where its index is known it still
-// builds in place, and casts at the end of each tail.
+// builds in place, and casts at the end of each tail, at the grade the
+// cast gives, shared down to the grade the key asks where it claims less.
 
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Grades.h"

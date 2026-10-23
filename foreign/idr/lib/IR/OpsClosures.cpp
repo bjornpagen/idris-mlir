@@ -35,6 +35,8 @@
 
 #include "mlir/IR/PatternMatch.h"
 
+#include <concepts>
+
 using namespace mlir;
 using namespace idr;
 
@@ -91,6 +93,26 @@ LogicalResult capturesOf(Type cell, SmallVectorImpl<Type> &captures) {
     captures.push_back(*read);
   }
   return success();
+}
+
+// What an exchange does with capture `index` of the cell it holds: the
+// capture moves out of its field of the label's state into `capture`, with
+// the reference the field held, and the field holds nothing from then on,
+// the cell running until its value moves in; the cell itself is only read,
+// its reference kept by whoever holds it. A part moved out of a value left
+// alive is a part of a value read whose place the op empties, as an array's
+// take moves an element out of its slot.
+template <class Exchange>
+  requires requires(Exchange op) {
+    { op.getCell() } -> std::convertible_to<Value>;
+    { op.getDataType() } -> std::same_as<DataType>;
+    { op.getTag() } -> std::same_as<Tag>;
+  }
+void movedOut(Exchange op, unsigned index, Value capture, FlowEdges &edges) {
+  Value cell = op.getCell();
+  FlowAnchor field = FlowAnchor::fieldOf(op.getDataType(), op.getTag(), index);
+  edges.flow(FlowSource::partOf(cell, field), FlowPlace::of(capture));
+  edges.overwrite(cell, field);
 }
 
 } // namespace
@@ -365,15 +387,10 @@ void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
 }
 
 // Each capture moves out of its field of the label's state into the
-// region, with the reference the state held: taken out of the cell, which
-// is running from then on and no longer holds it, so what the capture
-// holds is the field's alone. The cell itself keeps its reference.
+// region (movedOut).
 void MemoRunOp::getFlowEdges(FlowEdges &edges) {
-  DataType memo = getDataType();
   for (BlockArgument capture : getRegion().front().getArguments())
-    edges.flow(FlowSource::partOf(getCellMutable(),
-                                 FlowAnchor::fieldOf(memo, getTag(), capture.getArgNumber())),
-               FlowPlace::of(Value(capture)));
+    movedOut(*this, capture.getArgNumber(), capture, edges);
 }
 
 //===----------------------------------------------------------------------===//
@@ -412,18 +429,19 @@ LogicalResult MemoStoreOp::verify() {
   return success();
 }
 
-// Each capture moves out of its field, as the exchange's region binds it.
+// Each capture moves out of its field, as the exchange's region binds it
+// (movedOut).
 void MemoTakeOp::getFlowEdges(FlowEdges &edges) {
-  DataType memo = getDataType();
   for (OpResult capture : getCaptures())
-    edges.flow(FlowSource::partOf(getCellMutable(),
-                                 FlowAnchor::fieldOf(memo, getTag(), capture.getResultNumber())),
-               FlowPlace::of(Value(capture)));
+    movedOut(*this, capture.getResultNumber(), capture, edges);
 }
 
 // The value moves into the one forced state of every cell of the family,
-// as the exchange's yield moves it.
+// as the exchange's yield moves it. The state held nothing: the take left
+// the cell running, with no value yet, so the store fills it and releases
+// nothing, as a put-back fills the place a take left.
 void MemoStoreOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowSource::of(getValueMutable()),
-             FlowPlace::partOf(getCell(), FlowAnchor::memoStateOf(getDataType().unrefined())));
+  FlowAnchor forced = FlowAnchor::memoStateOf(getDataType().unrefined());
+  edges.flow(FlowSource::of(getValueMutable()), FlowPlace::partOf(getCell(), forced));
+  edges.fill(getCell(), forced);
 }

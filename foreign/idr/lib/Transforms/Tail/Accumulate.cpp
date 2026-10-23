@@ -154,7 +154,8 @@ Value identityAt(RewriterBase &rewriter, Location loc, const Combination &by, Ty
 // precede (they only compute, on every path). Each call among them ends no
 // tail where it now stands, before the match whose region gave its value
 // on, and calls no self call (mayLead), so it holds no context: an
-// ordinary call.
+// ordinary call. Where that value then takes the match's place, the block's
+// tails are read again (exitWhenDecided).
 Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
   return idr::match(
       site.by,
@@ -265,10 +266,15 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
 // value: once an operand decides, the answer is decided, and the rest of
 // the recursion, which only computes, is skipped. idr-tail-loops makes the
 // loop. Where the operand's type already says which constructor it is,
-// that decides here: the call stays, a tail call, or goes. The combination
-// was a tail of the function with no re-pack on the way, and the call
-// gives what it gave, in its place or from the region whose end gives the
-// match that replaces it, so the call is a tail call.
+// that decides here: the call stays, a tail call, or goes.
+//
+// The combination was a tail of the function with no re-pack on the way,
+// so its block ends a tail, and the edit changes only what that block
+// gives: the self call where it stays, from its place or from the region
+// of the match that replaces the combination; or, where the operand
+// absorbs, the operand itself, which a call moved out of the other region
+// may give. Each call the block's tails reach takes the fact its place
+// gives it, read down from that block once the edit is made.
 void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
                      const ShortCircuit &circuit) {
   for (const Site &site : plan.sites)
@@ -277,15 +283,14 @@ void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
         [&](const Combined &combined) {
           CallOp call = combined.call;
           Operation *at = combined.combine;
+          Block *end = at->getBlock();
           Location loc = at->getLoc();
           Value other = otherOf(rewriter, combined, at);
           std::optional<Tag> known = statedConstructor(other);
           if (known == circuit.absorbing) {
             rewriter.replaceOp(at, other);
             rewriter.eraseOp(call);
-            return;
-          }
-          if (known == circuit.identity) {
+          } else if (known == circuit.identity) {
             rewriter.moveOpBefore(call, at);
             rewriter.replaceOp(at, call->getResults());
           } else {
@@ -297,7 +302,9 @@ void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
                 });
             rewriter.replaceOp(at, decided);
           }
-          call.setTailKind(TailKind::tail);
+          for (const Tail &each : tailsOf(*end))
+            if (auto reached = dyn_cast<CallOp>(each.source))
+              reached.setTailKind(each.repack ? withContext(reached) : TailKind::tail);
         });
 }
 

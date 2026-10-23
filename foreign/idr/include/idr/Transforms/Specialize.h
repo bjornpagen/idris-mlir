@@ -233,20 +233,22 @@ mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // `fn` returning `results`, which differ from its own results only where
 // one opens: every tail of it gives that result at the open type, what it
-// gave there cast to it once, and each call in it takes the tail fact its
-// place now gives it.
+// gave there cast to it once at the grade that cast gives and shared down
+// to the open type's claim where it claims less, and each call in it takes
+// the tail fact its place now gives it.
 void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 
 // The one rule for a result a tail of its function gives at a layout the
 // function's own type cannot agree with, in the function or in a copy whose
-// classes would close it: the function's result is marked open in its own
-// type, at the hold that tail gives, its tails give it open, and every call
-// of it takes the open type and casts it back after itself. Decided once for
-// each function the program held when the schedule takes it up, between
-// waves, for `starters`, each a member a turn of the coming wave starts: its
-// callers outside its component wait on it, and a caller of its component
-// that loses a tail to the cast is decided again in turn. Every copy keeps
-// the mark its owner's type gives it.
+// classes would close it, whatever closed them: the function's result is
+// marked open in its own type, at the weakest hold its tails give, so each
+// tail fits it, one that claims more through a share; its tails give it
+// open, and every call of it takes the open type and casts it back after
+// itself. Decided once for each function the program held when the
+// schedule takes it up, between waves, for `starters`, each a member a turn
+// of the coming wave starts: its callers outside its component wait on it,
+// and a caller of its component that loses a tail to the cast is decided
+// again in turn. Every copy keeps the mark its owner's type gives it.
 void openResults(optimize::Schedule &schedule, llvm::ArrayRef<FunctionId> starters);
 
 // The arena of one run: every pattern and key it made, freed with it.

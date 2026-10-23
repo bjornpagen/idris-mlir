@@ -20,6 +20,8 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
+
 #define GEN_PASS_DEF_IDRREDIRECT
 #include "idr/IR/Generated/PassDialects.h.inc"
 
@@ -115,6 +117,30 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
   return IndexArgsAttr::get(ctx, kept, count);
 }
 
+// What a call of the copy `made` is, the node a granted key names (none
+// for one the table has not made yet), passes, from the key's signature
+// `type` and the operands the key would pass, which become those it
+// passes: each but those at the parameters the node says its copy no
+// longer takes, which dropUnread erased when the copy's component became
+// final. A copy not final yet takes them all; a call of it made now loses
+// them with its callers' when it is.
+FunctionType passing(const Node *made, FunctionType type, SmallVectorImpl<Value> &operands) {
+  if (!made || made->unread.none())
+    return type;
+  assert(made->unread.size() == operands.size() &&
+         "a copy's unread parameters are positions of its key's signature");
+  SmallVector<Type> inputs;
+  SmallVector<Value> kept;
+  for (unsigned position = 0, end = static_cast<unsigned>(operands.size()); position < end;
+       ++position)
+    if (!made->unread.test(position)) {
+      inputs.push_back(type.getInput(position));
+      kept.push_back(operands[position]);
+    }
+  operands.assign(kept.begin(), kept.end());
+  return FunctionType::get(type.getContext(), inputs, type.getResults());
+}
+
 // Each call of `fn` in walk order: its want decided, its key requested,
 // and the call made a call of the granted copy. How many calls it
 // redirected; a failure is an internal error, emitted.
@@ -204,19 +230,22 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
     FuncOp ownerFn = schedule.readable(self, owner).fn;
     FunctionType type = typeOf(grant, ownerFn, **want, nodes.forms());
     FlatSymbolRefAttr target = grant.asked.name;
+    const Node *made = nodes.known(grant.asked.key);
     redirected += idr::match(
         **want,
         [&](const PatternWant &pattern) {
           return support::perform<SpecializeCloneAction>(call, [&] {
             SmallVector<Value> operands =
                 operandsOf(rewriter, call, pattern, *grant.key, grant.sources, ownerFn);
-            redirect(rewriter, call, target, type, call.getIndexArgsAttr(), operands);
+            FunctionType passed = passing(made, type, operands);
+            redirect(rewriter, call, target, passed, call.getIndexArgsAttr(), operands);
           });
         },
         [&](const SignatureWant &copy) {
           return support::perform<SpecializeCloneAction>(call, [&] {
             SmallVector<Value> operands(call.getArgs());
-            redirect(rewriter, call, target, type,
+            FunctionType passed = passing(made, type, operands);
+            redirect(rewriter, call, target, passed,
                      keptArgs(fn.getContext(), call.getIndexArgsAttr(), copy.key->indices), operands);
           });
         },
@@ -226,7 +255,9 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
             for (unsigned later = at + 1; later < count; ++later)
               if (!erased.test(later) && dispatch->isAncestor(calls[later]))
                 erased.set(later);
-            redirect(rewriter, call, target, type, raise);
+            RaiseWant kept = raise;
+            FunctionType passed = passing(made, type, kept.operands);
+            redirect(rewriter, call, target, passed, kept);
           });
         });
   }

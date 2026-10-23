@@ -20,9 +20,13 @@
 //
 // Every caller outside the component is waiting, not taken up: a function
 // is taken up only once every component it calls into is final. So the
-// calls of a member are its component's and those its callers' rows list,
-// and each loses its operands at the dropped positions here, between
-// waves, where no turn runs.
+// calls of a member are its component's, those its callers' rows list, and
+// those of the functions that wait on it, where a requester's call of a
+// copy it asked for stands, which no row lists until the requester is
+// final; each loses its operands at the dropped positions here, between
+// waves, where no turn runs. A call of a copy made after, by a requester
+// that asks the copy's key once it is final, is given the key's parameters
+// and leaves out those the copy's node says went.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/OptimizeScheduler.h"
@@ -109,10 +113,11 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       }
   }
 
-  // The calls of each member that loses a parameter, in its component and
-  // in its callers, lose their operands first, every member's before any
-  // parameter goes: an unread parameter's last uses are operands at the
-  // dropped positions of its component's calls.
+  // The calls of each member that loses a parameter, in its component, in
+  // its callers and in the functions that wait on it, lose their operands
+  // first, every member's before any parameter goes: an unread parameter's
+  // last uses are operands at the dropped positions of its component's
+  // calls.
   SmallVector<llvm::BitVector> unread;
   SmallVector<SmallVector<CallOp>> narrowed(fns.size());
   for (auto [at, fn] : llvm::enumerate(fns)) {
@@ -135,9 +140,20 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     };
     for (FuncOp member : fns)
       narrow(member);
+    // Every other holder of a call of it, each once: its callers, and each
+    // function that waits on it, a requester whose call names the copy it
+    // asked for among them, which no caller's list holds.
+    SmallVector<FunctionId> holders;
+    auto hold = [&](FunctionId holder) {
+      if (!llvm::is_contained(ids, holder) && !llvm::is_contained(holders, holder))
+        holders.push_back(holder);
+    };
     for (FunctionId caller : schedule.callersOf(ids[at]))
-      if (!llvm::is_contained(ids, caller))
-        narrow(schedule.function(caller));
+      hold(caller);
+    for (FunctionId waiter : schedule.members[ids[at].index()].waiters)
+      hold(waiter);
+    for (FunctionId holder : holders)
+      narrow(schedule.function(holder));
   }
   // The parameters go, with what the signature states of them, then each
   // call takes its callee's statements again; and the binding times the
@@ -148,6 +164,10 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     (void)fn.eraseArguments(bits);
     for (CallOp call : calls)
       call.copyCallee(fn);
+    // A copy's key is asked again after it is final, by a requester taken
+    // up later, whose call it gives the key's parameters: the copy's node
+    // keeps which of them went, so that call leaves them out.
+    schedule.nodes->dropped(id, bits);
     idr::match(
         schedule.members[id.index()].phase,
         [&](Done &done) {

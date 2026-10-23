@@ -15,6 +15,7 @@
 
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/xxhash.h"
 
@@ -80,6 +81,11 @@ struct Node {
   // function's and stand in its cycles wherever the copy's origin is.
   llvm::SmallVector<families::Term> own{};
   llvm::SmallVector<FunctionId, 1> cycles{};
+  // The parameters of its key's signature its copy no longer takes, by
+  // position: those dropUnread erased when its component became final,
+  // nothing reading them; none before. A call made of the copy after leaves
+  // out the operands its key would pass there.
+  llvm::BitVector unread{};
 };
 
 // The consumer forms raising has met: each a detached function, interned
@@ -193,6 +199,11 @@ public:
   mlir::LogicalResult build(Node &node);
   // The node, built, was numbered by the schedule as `id`.
   void place(Node &node, FunctionId id);
+  // As `fn`'s component becomes final, between waves: where `fn` is a
+  // node, its copy lost the parameters at `unread`, which its node keeps
+  // for every call of it made after. Once per node: a component becomes
+  // final once.
+  void dropped(FunctionId fn, const llvm::BitVector &unread);
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.
   void writeCopies();

@@ -35,6 +35,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include <cassert>
+
 using namespace mlir;
 
 namespace idr::specialize {
@@ -436,6 +438,16 @@ LogicalResult Nodes::build(Node &node) {
 void Nodes::place(Node &node, FunctionId id) {
   node.phase = Placed{id};
   state->placeAt(id, node);
+}
+
+// A function the program held is no node: no key names it, so no call of
+// it is made from a key, and its callers lost their operands with it.
+void Nodes::dropped(FunctionId fn, const llvm::BitVector &unread) {
+  Node *node = state->placedAt(fn);
+  if (!node)
+    return;
+  assert(node->unread.empty() && "a copy's component becomes final once");
+  node->unread = unread;
 }
 
 // Every copy's function says what it is, none included: a function the
