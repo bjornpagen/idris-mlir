@@ -78,3 +78,9 @@ The generator emits the right signatures; the frontend's calls are wrong:
 - `arrayScanLastOp`: wrong order and no `outs` group, `Tensors.idr:549`.
 - `Linalg.transposeOp` takes a region (`Tensors.idr:415`, `SyntaxSamples.idr:267`),
   once L12 admits `Linalg_YieldOp` from `Higher`.
+
+## From L16ch (C254 as built)
+
+- The `LandingTable` is a `Vect` updated once per writing, writings ×
+  positions to build. Build it in one pass instead (the writings grouped by
+  position, then the table made once), keeping `closedLandsOf`'s proof.
