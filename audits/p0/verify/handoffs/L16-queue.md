@@ -705,3 +705,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   (L07); a reindex's builds is asked by its verifier and its flow apart,
   the flow's call possibly making types on a worker (one `builds()` on the
   op, beside `fieldReadBuilds`, L04).
+- From L06i: our checker needs 117's and 118's fixes as its own code
+  (`checkCaseDelayed`, `TTImp/Elab/Case.idr:653-656, 662-665`; `unifyHole`,
+  `Core/Unify.idr:936-944`, pruning restricted to a clause's pattern
+  variables because of its `bindUnsolved`), so the runner builds under
+  idris-mlir too (L17, after L17bc); INT reinstalls the stock Idris with
+  96 and 104 to 118.
