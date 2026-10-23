@@ -2316,6 +2316,12 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   checked by MLIR's symbol table, not by an Idris type, until calls are
   typed by their functions. *C240 amended in place*: a passing binder
   emitted as anything else is unrepresentable, not an internal error.
+  *Sharpened* (L16dk's evidence, 2026-10-23): the decision reads each
+  local in every region it is rewritten in, a run region included, so a
+  world-applied local called inside another local's run region becomes a
+  join only where that region calls it only as a run's head; otherwise it
+  stays a function, its call a proper tail call and contify free to find
+  it, where it would have named a function the program no longer defines.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
