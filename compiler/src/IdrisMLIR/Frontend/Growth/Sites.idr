@@ -39,6 +39,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Translate.Place
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
@@ -78,24 +79,6 @@ export
 parameterOf : Parameters -> Nat -> ParameterOf
 parameterOf OwnOnly i = WritersOwn i
 parameterOf (UseFrom from) i = if i < from then WritersOwn i else UsesPosition (minus i from)
-
-||| Where in its writer's text a dictionary a `let` or a lambda's argument
-||| binds is: the part the walk went into at each step down to the binder,
-||| the innermost first (`Pats.place`). No two binders of a writer's text
-||| are at one place, so each such dictionary that closes over values has a
-||| place of its own, which holds those values as one (`Heads.ByBinding`).
-public export
-record BoundPlace where
-  constructor MkBoundPlace
-  place : List Nat
-
-export
-Eq BoundPlace where
-  x == y = x.place == y.place
-
-export
-Ord BoundPlace where
-  compare x y = compare x.place y.place
 
 ||| A dictionary of the writer's that holds values as one: its dictionary
 ||| parameter i, or one its text binds (`BoundPlace`). What it holds is
@@ -324,22 +307,21 @@ offerOf _ _ = AValue
 ------------------------------------------------------------------------------
 
 ||| The stand-ins made on the walk's path so far, the next one's number, and
-||| where the walk is in the writer's text: the part it went into at each
-||| step, the innermost first. A term or a tree with more than one part the
-||| walk goes into sends it into each by its own number, and each walk of
-||| one part (as code, as a static value, at a use, as a computed field)
-||| into its own too, so that no two binders the walk meets are at one
-||| place (`BoundPlace`).
+||| where the walk is in the writer's text (`Place`): the step it took at
+||| each node from the writer's root, each walk of one term (as code, as a
+||| static value, at a use, as a computed field) a step with its own mode,
+||| so that no two binders the walk meets are at one place (`BoundPlace`).
 public export
 record Pats where
   constructor MkPats
   next : Nat
   made : List StandIn
-  place : List Nat
+  place : Place
 
-||| The walk gone into part k of where it is.
-inPart : Nat -> Pats -> Pats
-inPart k ps = { place $= (k ::) } ps
+||| The walk gone one step down from where it is, with the stand-ins it
+||| has made.
+entering : PlaceStep -> Pats -> Pats
+entering s ps = { place $= into s } ps
 
 ||| A fresh stand-in for the part of parameter `i` that matches reached
 ||| along `path`, the parameter's field first.
@@ -1835,7 +1817,7 @@ mutual
   term ph w acc at ps env tm@(App _ f a) = do
     Nothing <- closedRun tm
       | Just _ => pure []
-    spine ph w acc at ps env f [argOf ph w acc at (inPart 0 ps) env a]
+    spine ph w acc at (entering AppFunction ps) env f [argOf ph w acc at ps env a]
   -- A lambda: its binders and body as code. Where it is a member, the
   -- place it stands says so (`atMember`, `resultMember`).
   term ph w acc at ps env (Bind fc x (Lam _ rig _ ty) sc) = lambdaBinder ph w acc at ps env x rig ty sc
@@ -1847,27 +1829,27 @@ mutual
   -- bound may be applied at a use (`implementationAt`), so its use's walk
   -- is made here, where it is a subterm (`useOf`).
   term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = case use rig of
-    Erased => term ph w acc at ps ((Erased, x, Nothing) :: env) sc
+    Erased => term ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) sc
     Used _ => do
       let typed = close env ty
       vty <- normaliseClosed typed
       if !(compileTimeBinder rig vty)
         then do
           known <- knownAt at ps env val
-          here <- static ph w acc at (inPart 0 ps) env val
-          used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at (inPart 1 ps) env vty val)
+          here <- static ph w acc at (entering (BinderValue StaticWalk) ps) env val
+          used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at (entering (BinderValue UseWalk) ps) env vty val)
           held <- heldBy at ps.made (getLoc val) known
-          body <- term ph w acc at (inPart 2 ps) ((Holds known, x, Just typed) :: env) sc
+          body <- term ph w acc at (entering BinderScope ps) ((Holds known, x, Just typed) :: env) sc
           pure (here ++ used ++ held ++ body)
         else do
-          value <- term ph w acc at (inPart 0 ps) env val
-          here <- readType ph w acc at (inPart 1 ps) env ty
-          body <- term ph w acc at (inPart 2 ps) ((Runtime, x, Just typed) :: env) sc
+          value <- term ph w acc at (entering (BinderValue CodeWalk) ps) env val
+          here <- readType ph w acc at (entering BinderType ps) env ty
+          body <- term ph w acc at (entering BinderScope ps) ((Runtime, x, Just typed) :: env) sc
           pure (value ++ here ++ body)
   term ph w acc at ps env (Meta fc n i margs) = entered ph w acc at ps env fc n i margs []
-  term ph w acc at ps env (As _ _ _ pat) = term ph w acc at ps env pat
-  term ph w acc at ps env (TDelay _ _ _ arg) = term ph w acc at ps env arg
-  term ph w acc at ps env (TForce _ _ arg) = term ph w acc at ps env arg
+  term ph w acc at ps env (As _ _ _ pat) = term ph w acc at (entering PatternOfAs ps) env pat
+  term ph w acc at ps env (TDelay _ _ _ arg) = term ph w acc at (entering DelayValue ps) env arg
+  term ph w acc at ps env (TForce _ _ arg) = term ph w acc at (entering ForcedValue ps) env arg
   -- A type, a constant or an erased value is no call.
   term ph w acc at ps env (Bind _ _ _ _) = pure []
   term ph w acc at ps env (TDelayed _ _ _) = pure []
@@ -1881,10 +1863,10 @@ mutual
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  At -> Pats -> Env vs -> (x : Name) -> RigCount -> TT vs -> TT (x :: vs) -> Front (List Site)
   lambdaBinder ph w acc at ps env x rig ty sc = case use rig of
-    Erased => lambdaScope ph w acc at (inPart 1 ps) ((Erased, x, Nothing) :: env) sc
+    Erased => lambdaScope ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) sc
     Used _ => do
-      here <- readType ph w acc at (inPart 0 ps) env ty
-      (here ++) <$> lambdaScope ph w acc at (inPart 1 ps) ((Runtime, x, Just (close env ty)) :: env) sc
+      here <- readType ph w acc at (entering BinderType ps) env ty
+      (here ++) <$> lambdaScope ph w acc at (entering BinderScope ps) ((Runtime, x, Just (close env ty)) :: env) sc
 
   ||| A lambda's scope. A lambda directly under another is one value with
   ||| it, a member only as the whole is one, so its binder is walked as the
@@ -1905,24 +1887,24 @@ mutual
   static ph w acc at ps env tm@(App _ f a) = do
     Nothing <- closedRun tm
       | Just _ => pure []
-    staticSpine ph w acc at ps env f [argOf ph w acc at (inPart 0 ps) env a]
+    staticSpine ph w acc at (entering AppFunction ps) env f [argOf ph w acc at ps env a]
   static ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) = do
-    here <- static ph w acc at (inPart 0 ps) env ty
-    (here ++) <$> static ph w acc at (inPart 1 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    here <- static ph w acc at (entering BinderType ps) env ty
+    (here ++) <$> static ph w acc at (entering BinderScope ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Pi _ rig _ ty) sc) = do
-    here <- static ph w acc at (inPart 0 ps) env ty
-    (here ++) <$> static ph w acc at (inPart 1 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    here <- static ph w acc at (entering BinderType ps) env ty
+    (here ++) <$> static ph w acc at (entering BinderScope ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = do
-    value <- static ph w acc at (inPart 0 ps) env val
-    here <- static ph w acc at (inPart 1 ps) env ty
-    body <- static ph w acc at (inPart 2 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    value <- static ph w acc at (entering (BinderValue StaticWalk) ps) env val
+    here <- static ph w acc at (entering BinderType ps) env ty
+    body <- static ph w acc at (entering BinderScope ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
     pure (value ++ here ++ body)
   static ph w acc at ps env (Meta fc n i margs) = staticEntered ph w acc at ps env fc n i margs []
-  static ph w acc at ps env (As _ _ _ pat) = static ph w acc at ps env pat
-  static ph w acc at ps env (TDelayed _ _ t) = static ph w acc at ps env t
+  static ph w acc at ps env (As _ _ _ pat) = static ph w acc at (entering PatternOfAs ps) env pat
+  static ph w acc at ps env (TDelayed _ _ t) = static ph w acc at (entering LazyOf ps) env t
   static ph w acc at ps env (TDelay _ _ t a) =
-    (++) <$> static ph w acc at (inPart 0 ps) env t <*> static ph w acc at (inPart 1 ps) env a
-  static ph w acc at ps env (TForce _ _ a) = static ph w acc at ps env a
+    (++) <$> static ph w acc at (entering DelayType ps) env t <*> static ph w acc at (entering DelayValue ps) env a
+  static ph w acc at ps env (TForce _ _ a) = static ph w acc at (entering ForcedValue ps) env a
   -- A variable, a pattern's binder, a constant or an erased value writes
   -- nothing.
   static ph w acc at ps env (Local _ _ _ _) = pure []
@@ -1939,13 +1921,16 @@ mutual
     here <- static ph w acc at ps env ty
     (here ++) <$> builds at ps.made (getLoc ty) (close env ty)
 
-  ||| An argument where it is a subterm of the application.
+  ||| The argument of the application the walk is at, where it is a
+  ||| subterm of it: each of its walks a step into it in its own mode.
   argOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> TT vs -> Arg vs
   argOf ph w acc at ps env a =
-    MkArg a (term ph w acc at (inPart 0 ps) env a) (static ph w acc at (inPart 1 ps) env a)
-          (\ty => useOf ph w acc at (inPart 2 ps) env ty a) (computedField ph w acc at (inPart 3 ps) env a)
+    MkArg a (term ph w acc at (entering (AppArgument CodeWalk) ps) env a)
+          (static ph w acc at (entering (AppArgument StaticWalk) ps) env a)
+          (\ty => useOf ph w acc at (entering (AppArgument UseWalk) ps) env ty a)
+          (computedField ph w acc at (entering (AppArgument ComputedWalk) ps) env a)
 
   ||| A dictionary's field as a match that finds it stuck computes it where
   ||| the match reaches it (`Translate.Terms.computedAt`): written, settled
@@ -1975,35 +1960,35 @@ mutual
   useOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> (ty : ClosedTerm) -> TT vs -> Front (List Site)
-  useOf ph w acc at ps env ty (TDelay _ _ _ t) = useOf ph w acc at ps env ty t
+  useOf ph w acc at ps env ty (TDelay _ _ _ t) = useOf ph w acc at (entering DelayValue ps) env ty t
   useOf ph w acc at ps env ty (Bind _ x (Let _ rig _ vty) sc) = case use rig of
-    Erased => useOf ph w acc at ps ((Erased, x, Nothing) :: env) ty sc
-    Used _ => useOf ph w acc at ps ((Runtime, x, Just (close env vty)) :: env) ty sc
+    Erased => useOf ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) ty sc
+    Used _ => useOf ph w acc at (entering BinderScope ps) ((Runtime, x, Just (close env vty)) :: env) ty sc
   useOf ph w acc at ps env ty t = do
     args <- useArguments at ty t
     spine ph w acc ({ params := UseFrom at.arity } at) ps env t args
 
   ||| An application's spine as code, its arguments collected where each is
-  ||| a subterm, down to its head.
+  ||| a subterm, down to its head; the walk is at the node it reads, each
+  ||| function of an application a step below it.
   spine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> TT vs -> List (Arg vs) -> Front (List Site)
   spine ph w acc at ps env (App _ f a) args =
-    spine ph w acc at ps env f (argOf ph w acc at (inPart (length args) ps) env a :: args)
+    spine ph w acc at (entering AppFunction ps) env f (argOf ph w acc at ps env a :: args)
   spine ph w acc at ps env (Ref fc _ n) args = applyRef at ps env fc n args
-  spine ph w acc at ps env tm args = applyHead ph w acc at (inPart (length args) ps) env tm args
+  spine ph w acc at ps env tm args = applyHead ph w acc at ps env tm args
 
   ||| An application's spine in a type or a static argument.
   staticSpine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                 (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                 At -> Pats -> Env vs -> TT vs -> List (Arg vs) -> Front (List Site)
   staticSpine ph w acc at ps env (App _ f a) args =
-    staticSpine ph w acc at ps env f (argOf ph w acc at (inPart (length args) ps) env a :: args)
+    staticSpine ph w acc at (entering AppFunction ps) env f (argOf ph w acc at ps env a :: args)
   staticSpine ph w acc at ps env (Ref fc _ n) args = staticRef at ps env fc n args
-  staticSpine ph w acc at ps env (Meta fc n i margs) args =
-    staticEntered ph w acc at (inPart (length args) ps) env fc n i margs args
+  staticSpine ph w acc at ps env (Meta fc n i margs) args = staticEntered ph w acc at ps env fc n i margs args
   staticSpine ph w acc at ps env tm args = do
-    here <- static ph w acc at (inPart (length args) ps) env tm
+    here <- static ph w acc at ps env tm
     (here ++) <$> statics args
 
   ||| A head that is no definition, applied as code: a variable; a lambda,
@@ -2036,11 +2021,11 @@ mutual
                 pure ((Holds known, x, Just (close env ty)), !(Force a.asStatic) ++ used ++ held)
               else do
                 value <- Force a.asCode
-                here <- readType ph w acc at (inPart 0 ps) env ty
+                here <- readType ph w acc at (entering BinderType ps) env ty
                 pure ((Runtime, x, Just (close env ty)), value ++ here)
-    (own ++) <$> spine ph w acc at (inPart 1 ps) (entry :: env) sc (map overBinder rest)
+    (own ++) <$> spine ph w acc at (entering BinderScope ps) (entry :: env) sc (map overBinder rest)
   applyHead ph w acc at ps env (Meta fc n i margs) args = entered ph w acc at ps env fc n i margs args
-  applyHead ph w acc at ps env (As _ _ _ pat) args = spine ph w acc at ps env pat args
+  applyHead ph w acc at ps env (As _ _ _ pat) args = spine ph w acc at (entering PatternOfAs ps) env pat args
   applyHead ph w acc at ps env tm args = do
     here <- term ph w acc at ps env tm
     (here ++) <$> overType at ps env fc Nothing args
@@ -2092,11 +2077,11 @@ mutual
                   useAt at ps env fc nty form args)
     (computed, (ws ** (env', body))) <- settledAt env fc d args
     here <- traverse (\a => Force a.asCode) computed
-    ((used ++ (here >>= id)) ++) <$> term next start (sizeAccessible start) at (inPart 0 ps) env' body
+    ((used ++ (here >>= id)) ++) <$> term next start (sizeAccessible start) at (entering SettledForm ps) env' body
   implementationAt (Written next) at ps env fc Nothing d args = do
     (computed, (ws ** (env', body))) <- settledAt env fc d args
     here <- traverse (\a => Force a.asCode) computed
-    ((here >>= id) ++) <$> term next start (sizeAccessible start) at (inPart 0 ps) env' body
+    ((here >>= id) ++) <$> term next start (sizeAccessible start) at (entering SettledForm ps) env' body
 
   ||| A metavariable applied as code, as the solution the type checker gave
   ||| it, entered once on the path: met again, its solution is being walked.
@@ -2111,7 +2096,7 @@ mutual
       | Nothing => pure []
     Just tm <- solution fc n margs
       | Nothing => pure []
-    spine ph w' (rec w' less) at ps env tm args
+    spine ph w' (rec w' less) at (entering MetaSolution ps) env tm args
 
   ||| A metavariable applied in a type or a static argument, likewise.
   staticEntered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
@@ -2125,7 +2110,7 @@ mutual
       | Nothing => pure []
     Just tm <- solution fc n margs
       | Nothing => pure []
-    staticSpine ph w' (rec w' less) at ps env tm args
+    staticSpine ph w' (rec w' less) at (entering MetaSolution ps) env tm args
 
 ||| A leaf at the writer's result: where its leaves give a member of a
 ||| type, a lambda there, under its `let`s, is that member
@@ -2284,12 +2269,14 @@ repacked at (Holds (Own i (k :: ks))) = do
 repacked at _ = pure []
 
 mutual
-  ||| A case tree: each leaf's term as code, from a path of its own, with
-  ||| what the matches above it made of the scope.
+  ||| A case tree: each leaf's term, as code and as the member the
+  ||| definition's result is at a use, each a walk of its own, with what the
+  ||| matches above it made of the scope.
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
          At -> Pats -> Env vs -> CaseTree vs -> Front (List Site)
   tree at ps env (STerm _ tm) =
-    (++) <$> resultMember at (inPart 0 ps) env tm <*> term asWritten start (sizeAccessible start) at (inPart 1 ps) env tm
+    (++) <$> resultMember at (entering (LeafTerm UseWalk) ps) env tm
+         <*> term asWritten start (sizeAccessible start) at (entering (LeafTerm CodeWalk) ps) env tm
   tree at ps env (Unmatched _) = pure []
   tree at ps env Impossible = pure []
   -- The scrutinee's type is its variable's: a case tree loaded from a TTC
@@ -2301,7 +2288,7 @@ mutual
       (_, _, Nothing) => pure []
     every <- coversAll alts
     here <- repacked at (fst v)
-    (here ++) <$> alternatives at ps env v r every alts alts
+    (here ++) <$> alternatives at ps env v r every alts 0 alts
     where
       -- The arguments of the type constructor a type is.
       typeArgs : ClosedTerm -> List ClosedTerm
@@ -2309,21 +2296,20 @@ mutual
         (Ref _ (TyCon _) _, as) => as
         _ => []
 
-  ||| A match's alternatives, the first walked as the first part of where
-  ||| the walk is and the rest as the second, so that each is a part of its
-  ||| own.
+  ||| A match's alternatives from the one at position `k` on, each walked a
+  ||| step below the match, by its position.
   alternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                  At -> Pats -> Env vs -> Standing -> List ClosedTerm -> Bool -> List (CaseAlt vs) ->
-                 List (CaseAlt vs) -> Front (List Site)
-  alternatives at ps env v r every alts [] = pure []
-  alternatives at ps env v r every alts (ConCase cn tag args rhs :: rest) = do
+                 (k : Nat) -> List (CaseAlt vs) -> Front (List Site)
+  alternatives at ps env v r every alts k [] = pure []
+  alternatives at ps env v r every alts k (ConCase cn tag args rhs :: rest) = do
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (_, cd) => do
-        (bound, con, ps') <- conStands (inPart 0 ps) (fst v) r cd (Ref EmptyFC (DataCon tag (length args)) cn) args
+        (bound, con, ps') <- conStands (entering (CaseAlternative k) ps) (fst v) r cd (Ref EmptyFC (DataCon tag (length args)) cn) args
         tree at ps' (prepend bound (matchedAs (fst v) con env)) rhs
       -- Idris's tree names only constructors the context holds.
       Nothing => pure []
-    (here ++) <$> alternatives at (inPart 1 ps) env v r every alts rest
+    (here ++) <$> alternatives at ps env v r every alts (S k) rest
     where
       -- A shape not matched yet is the constructor from now on; a dictionary
       -- keeps its marker, so that its root stays the writer's head.
@@ -2331,17 +2317,17 @@ mutual
       matchedAs (Pattern p) con env = rebound p con env
       matchedAs _ _ env = env
   -- A default after a complete split stands for no value.
-  alternatives at ps env v r every alts (DefaultCase rhs :: rest) = do
-    here <- if every then pure [] else defaulted at (inPart 0 ps) env v r alts rhs
-    (here ++) <$> alternatives at (inPart 1 ps) env v r every alts rest
-  alternatives at ps env v r every alts (ConstCase _ rhs :: rest) =
-    (++) <$> tree at (inPart 0 ps) env rhs <*> alternatives at (inPart 1 ps) env v r every alts rest
+  alternatives at ps env v r every alts k (DefaultCase rhs :: rest) = do
+    here <- if every then pure [] else defaulted at (entering (CaseAlternative k) ps) env v r alts rhs
+    (here ++) <$> alternatives at ps env v r every alts (S k) rest
+  alternatives at ps env v r every alts k (ConstCase _ rhs :: rest) =
+    (++) <$> tree at (entering (CaseAlternative k) ps) env rhs <*> alternatives at ps env v r every alts (S k) rest
   -- A suspension has one form: its alternative binds the value's type,
   -- erased, and the value forced, which stands as the scrutinee does, at
   -- the type the suspension's is of.
-  alternatives at ps env v r every alts (DelayCase ty arg rhs :: rest) =
-    (++) <$> tree at (inPart 0 ps) ((Erased, ty, Nothing) :: (fst v, arg, forced (snd (snd v))) :: env) rhs
-         <*> alternatives at (inPart 1 ps) env v r every alts rest
+  alternatives at ps env v r every alts k (DelayCase ty arg rhs :: rest) =
+    (++) <$> tree at (entering (CaseAlternative k) ps) ((Erased, ty, Nothing) :: (fst v, arg, forced (snd (snd v))) :: env) rhs
+         <*> alternatives at ps env v r every alts (S k) rest
     where
       forced : Maybe ClosedTerm -> Maybe ClosedTerm
       forced (Just (TDelayed _ _ t)) = Just t
@@ -2363,7 +2349,8 @@ mutual
   defaulted at ps env _ r alts rhs = tree at ps env rhs
 
   ||| A default walked once per constructor it stands for, with the shape
-  ||| matched to it.
+  ||| matched to it, each a step below the default named by that
+  ||| constructor.
   expand : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> StandIn -> List ClosedTerm -> List Name -> CaseTree vs ->
            Front (List Site)
@@ -2372,12 +2359,12 @@ mutual
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (_, cd) => case definition cd.def of
         DCon tag arity _ => do
-          (_, con, ps') <- conStands (inPart 0 ps) (Pattern p) r cd (Ref EmptyFC (DataCon tag arity) cn) (piNames cd.type)
+          (_, con, ps') <- conStands (entering (Expansion cn) ps) (Pattern p) r cd (Ref EmptyFC (DataCon tag arity) cn) (piNames cd.type)
           tree at ps' (rebound p con env) rhs
         _ => pure []
       -- A type's constructors are constructors the context holds.
       Nothing => pure []
-    (here ++) <$> expand at (inPart 1 ps) env p r cns rhs
+    (here ++) <$> expand at ps env p r cns rhs
 
 ------------------------------------------------------------------------------
 -- A definition's sites
@@ -2451,14 +2438,16 @@ standFor Nothing rig _ v ps = (byQuantity (use rig), ps)
 ||| The definition's parameters, off its type, each standing as its kind
 ||| and its value at the node say, with the sites its runtime binders'
 ||| types and its result type write: the types the translation reads off a
-||| callee's signature. The signature is the first part of the definition,
-||| the type at binder i its part i; its tree is the second (`nodeSites`).
+||| callee's signature. The walk is at the binder `here` of the type as it
+||| shows it, each binder's type a step into the binder and the binders
+||| after it a step into its scope, as the type's own constructors are.
 signature : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            At -> List (Maybe Static, ClosedTerm) -> (i : Nat) -> ClosedTerm -> Pats -> Front (List Site, Pats, List Standing)
-signature at [] i ty ps = (, ps, []) <$> readClosed at (inPart i (inPart 0 ps)) ty
-signature at ((k, v) :: ks) i ty ps = do
+            At -> List (Maybe Static, ClosedTerm) -> (i : Nat) -> (here : Place) -> ClosedTerm -> Pats ->
+            Front (List Site, Pats, List Standing)
+signature at [] i here ty ps = (, ps, []) <$> readClosed at ({ place := here } ps) ty
+signature at ((k, v) :: ks) i here ty ps = do
   Bind _ x (Pi _ rig _ a) sc <- showingBinder ty
-    | ty' => (, ps, []) <$> readClosed at (inPart i (inPart 0 ps)) ty'
+    | ty' => (, ps, []) <$> readClosed at ({ place := here } ps) ty'
   parameter x rig a sc
   where
     runtime : Stand -> Bool
@@ -2469,9 +2458,9 @@ signature at ((k, v) :: ks) i ty ps = do
     parameter : Name -> RigCount -> ClosedTerm -> TT [x] -> Front (List Site, Pats, List Standing)
     parameter x rig a sc = do
       let (st, ps') = standFor k rig i v ps
-      here <- if runtime st then readClosed at (inPart i (inPart 0 ps)) a else pure []
-      (rest, ps'', params) <- signature at ks (S i) (subst (termOf st) sc) ps'
-      pure (here ++ rest, ps'', (st, x, Just a) :: params)
+      own <- if runtime st then readClosed at ({ place := into BinderType here } ps) a else pure []
+      (rest, ps'', params) <- signature at ks (S i) (into BinderScope here) (subst (termOf st) sc) ps'
+      pure (own ++ rest, ps'', (st, x, Just a) :: params)
 
 ||| The case tree's scope, one variable per parameter, the first first, each
 ||| standing as the signature made it. The scope has one variable per binder
@@ -2580,14 +2569,14 @@ nodeSites writer within d (values, made) = do
   (kinds', result) <- staticsOver (show (fullname d.def)) (arityOf d) d.type (map (\v => Just (v, AValue)) values)
   let kinds = toList (map staticOf kinds')
   at <- atDefinition writer within d kinds <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
-  (sig, ps, params) <- signature at (zip kinds values) 0 d.type made
+  (sig, ps, params) <- signature at (zip kinds values) 0 (into DefinitionType made.place) d.type made
   body <- the (Front (List Site)) $ case d.matched of
     Just m => do
       st <- getState
       if contains at.writer st.refused || answersFor d.registered then pure [] else
         case dictionaryProjection kinds m.tree of
           Just p => (\site => [site]) <$> projectionSite at ps (zip kinds params) p
-          Nothing => tree at (inPart 1 ps) (envOf m.args params) m.tree
+          Nothing => tree at (entering DefinitionTree ps) (envOf m.args params) m.tree
     Nothing => pure []
   pure (kinds, sig ++ body)
   where
@@ -2620,14 +2609,14 @@ atNode : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 atNode a heads = do
   Just d <- definitionRead a
     | Nothing => pure ([], [])
-  nodeSites a a d !(nodeValues (arityOf d) heads 0 d.type (MkPats 0 [] []))
+  nodeSites a a d !(nodeValues (arityOf d) heads 0 d.type (MkPats 0 [] [<]))
 
 ||| A definition as its node with no heads reads it, from the definition
 ||| the walk holds.
 export
 readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> Front NodeReading
 readingOf a d = do
-  (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 [] []))
+  (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 [] [<]))
   pure (MkNodeReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat
@@ -2649,4 +2638,4 @@ sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 sitesIn writer within stands tm = do
   Just at <- writerAt writer within
     | Nothing => pure []
-  readClosed at (MkPats (length stands) stands []) tm
+  readClosed at (MkPats (length stands) stands [<]) tm

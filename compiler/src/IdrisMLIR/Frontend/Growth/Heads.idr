@@ -53,6 +53,7 @@ import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Place
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
@@ -1165,7 +1166,7 @@ Ord Holder where
 ||| constructor, a choice, where its members are, or the place in a
 ||| writer's text, at the writer's node, where a `let` or a lambda's
 ||| argument binds a dictionary that closes over values
-||| (`Sites.BoundPlace`). Each holds the lists its givers give it
+||| (`Place.BoundPlace`). Each holds the lists its givers give it
 ||| (`Sites.HeldItem`), a binding the one list of what it closes over. A
 ||| field holds what its dictionary holds, which its dictionary's place
 ||| bounds, so no list is given at one; it is where a rebuilt constructor's
