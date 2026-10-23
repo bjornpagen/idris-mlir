@@ -842,6 +842,8 @@ mutual
               {newvars, vars : _} ->
               FC -> UnifyInfo -> Env Term vars ->
               (metaname : Name) -> (metaref : Int) ->
+              -- The hole's definition, as the caller found it
+              (hdef : GlobalDef) ->
               (margs : List (Closure vars)) ->
               (margs' : List (Closure vars)) ->
               List (Var newvars) ->
@@ -850,10 +852,8 @@ mutual
               (soln : Term newvars) -> -- Solution with shrunk environment
               (solnf : NF vars) ->
               Core (Maybe UnifyResult)
-  solveHole loc mode env mname mref margs margs' locs submv solfull stm solnf
-      = do defs <- get Ctxt
-           ust <- get UST
-           empty <- clearDefs defs
+  solveHole loc mode env mname mref hdef margs margs' locs submv solfull stm solnf
+      = do ust <- get UST
            -- if the terms are the same, this isn't a solution
            -- but they are already unifying, so just return
            if solutionHeadSame solnf || inNoSolve mref (noSolve ust)
@@ -863,9 +863,7 @@ mutual
                    -- the meantime look out for cycles when normalising (which
                    -- is cheap enough because we only need to look out for
                    -- metavariables)
-                   do Just hdef <- lookupCtxtExact (Resolved mref) (gamma defs)
-                           | Nothing => throw (InternalError ("Can't happen: Lost hole " ++ show mname))
-                      progress <- tryInstantiate loc mode env mname mref (length margs) hdef (toList locs) solfull stm
+                   do progress <- tryInstantiate loc mode env mname mref (length margs) hdef (toList locs) solfull stm
                       pure $ toMaybe progress (solvedHole mref)
     where
       inNoSolve : Int -> IntMap () -> Bool
@@ -928,7 +926,7 @@ mutual
 
                      let solveOrElsePostpone : Term newvars -> Core UnifyResult
                          solveOrElsePostpone stm = do
-                           mbResult <- solveHole fc mode env mname mref
+                           mbResult <- solveHole fc mode env mname mref hdef
                                                  margs margs' locs submv
                                                  tm stm tmnf
                            flip fromMaybe (pure <$> mbResult) $

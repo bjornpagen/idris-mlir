@@ -1434,7 +1434,10 @@ mutual
              PrimDecls n => pure [IPragma fc [] (PrimDeclsPragma n)]
              CGAction cg dir => pure [IPragma fc [] (CGActionPragma cg dir)]
              Names n ns => pure [IPragma fc [] (NamesPragma n ns)]
-             StartExpr _ => pure [IPragma fc [] StartExprPragma]
+             -- `%start` names the expression a REPL session runs first;
+             -- this compiler runs no REPL, so the pragma has nothing to
+             -- name and is refused where it is written.
+             StartExpr _ => throw (GenericMsg fc "unsupported: the pragma %start names an expression for a REPL session to run, and this compiler runs no REPL")
              Overloadable n => pure [IPragma fc [] (OverloadablePragma n)]
              Extension e => pure [IPragma fc [] (ExtensionPragma e)]
              DefaultTotality tot => pure [IPragma fc [] (DefaultTotalityPragma tot)]
@@ -1496,7 +1499,6 @@ interpretPragma _ _ _ (PrimNamePragma n) = setFromName n
 interpretPragma _ _ _ (PrimDeclsPragma n) = setFromDecls n
 interpretPragma _ _ _ (CGActionPragma cg dir) = addDirective cg dir
 interpretPragma fc _ _ (NamesPragma n ns) = addNameDirective fc n ns
-interpretPragma _ _ _ StartExprPragma = throw (InternalError "%start not implemented") -- TODO!
 interpretPragma fc _ _ (OverloadablePragma n) = setNameFlag fc n Overloadable
 interpretPragma _ _ _ (ExtensionPragma e) = setExtension e
 interpretPragma _ _ _ (DefaultTotalityPragma tot) = setDefaultTotalityOption tot

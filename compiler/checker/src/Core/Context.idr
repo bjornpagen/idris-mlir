@@ -19,6 +19,7 @@ import Libraries.Text.PrettyPrint.Prettyprinter
 
 import Idris.Syntax.Pragmas
 
+import Control.Monad.Identity
 import Data.DPair
 import Data.Either
 import Data.List1
@@ -65,7 +66,7 @@ initCtxtS ids s
             , content = aref
             , branchDepth = 0
             , staging = empty
-            , visibleNS = [partialEvalNS]
+            , visibleNS = []
             , allPublic = False
             , inlineOnly = False
             , hidden = empty
@@ -547,32 +548,17 @@ HasNames Pat where
 -- from a stored one: a live term is read as it is, and a stored one is
 -- decoded where the reader rebuilt or embedded the live one.
 
--- A stored term decoded; one `freeze` never made is no term, which only
--- a fault in this compiler makes.
-storedIn : SizeOf vars -> Root vars -> Core (Term (vars ++ outer))
-storedIn s r
-    = case decodeWithin s r of
-           Just tm => pure tm
-           Nothing => throw (InternalError "A stored term is not a term of its arena")
-
-stored : SizeOf vars -> Root vars -> Core (Term vars)
-stored s r
-    = case Stored.decode s r of
-           Just tm => pure tm
-           Nothing => throw (InternalError "A stored term is not a term of its arena")
-
-storedHeadOf : Root vars -> Core ResultHead
-storedHeadOf r
-    = case storedHead r of
-           Just h => pure h
-           Nothing => throw (InternalError "A stored term is not a term of its arena")
+-- A stored case tree decoded, each term in the scope of the variables its
+-- alternatives bind.
+decodedTree : {args : Scope} -> CaseTree' Root args -> CaseTree args
+decodedTree roots = runIdentity (traverseTree (\s, r => Id (Stored.decode s r)) (mkSizeOf args) roots)
 
 ||| A definition's type, as `readTypeOf` reads it: the live type it holds,
 ||| or the term its stored type decodes to.
 export
 data TypeOf : GlobalDef -> ClosedTerm -> Type where
   LiveTypeOf : (0 _ : type d = LiveType ty) -> TypeOf d ty
-  StoredTypeOf : (0 _ : type d = StoredType r) -> (0 _ : Stored.decode SizeOf.zero r = Just ty) -> TypeOf d ty
+  StoredTypeOf : (0 _ : type d = StoredType r) -> TypeOf d (Stored.decode SizeOf.zero r)
 
 ||| A pattern-matching definition's case tree, as `readTreeOf` reads it
 ||| from the definition's body: the live tree it holds, or the tree its
@@ -580,11 +566,7 @@ data TypeOf : GlobalDef -> ClosedTerm -> Type where
 export
 data TreeOf : Body args -> CaseTree args -> Type where
   LiveTreeOf : TreeOf (LiveBody tree pats clauses) tree
-  StoredTreeOf : (0 _ : traverseTree Stored.decode (mkSizeOf args) roots = Just tree) ->
-                 TreeOf (StoredBody roots pats clauses) tree
-
-0 justOnce : Just x = Just y -> x = y
-justOnce Refl = Refl
+  StoredTreeOf : TreeOf (StoredBody roots pats clauses) (decodedTree roots)
 
 0 liveOnce : LiveType t = LiveType t' -> t = t'
 liveOnce Refl = Refl
@@ -595,28 +577,22 @@ storedOnce Refl = Refl
 0 liveNotStored : LiveType t = StoredType r -> Void
 liveNotStored Refl impossible
 
-0 decodedOnce : r = r' -> Stored.decode SizeOf.zero r = Just ty -> Stored.decode SizeOf.zero r' = Just ty' -> ty = ty'
-decodedOnce Refl decoded decoded' = justOnce (trans (sym decoded) decoded')
-
 ||| A definition has one type: what it holds is one form, and decoding is a
 ||| function.
 export
 0 typeOnce : TypeOf d ty -> TypeOf d ty' -> ty = ty'
 typeOnce (LiveTypeOf held) (LiveTypeOf held') = liveOnce (trans (sym held) held')
-typeOnce (LiveTypeOf held) (StoredTypeOf held' _) = void (liveNotStored (trans (sym held) held'))
-typeOnce (StoredTypeOf held _) (LiveTypeOf held') = void (liveNotStored (trans (sym held') held))
-typeOnce (StoredTypeOf held decoded) (StoredTypeOf held' decoded')
-    = decodedOnce (storedOnce (trans (sym held) held')) decoded decoded'
+typeOnce (LiveTypeOf held) (StoredTypeOf held') = void (liveNotStored (trans (sym held) held'))
+typeOnce (StoredTypeOf held) (LiveTypeOf held') = void (liveNotStored (trans (sym held') held))
+typeOnce (StoredTypeOf held) (StoredTypeOf held')
+    = cong (Stored.decode SizeOf.zero) (storedOnce (trans (sym held) held'))
 
 ||| A body has one case tree: what it holds is one form, and decoding is a
 ||| function.
 export
 0 treeOnce : TreeOf body tree -> TreeOf body tree' -> tree = tree'
 treeOnce LiveTreeOf LiveTreeOf = Refl
-treeOnce (StoredTreeOf decoded) (StoredTreeOf decoded') = justOnce (trans (sym decoded) decoded')
-
--- A stored root `freeze` made decodes; one that does not is the internal
--- error `stored` raises, raised here as there.
+treeOnce StoredTreeOf StoredTreeOf = Refl
 
 ||| A definition's type, with what it was read from: every reader of a
 ||| definition's type reads it here. Total, so that a total program reads
@@ -625,9 +601,7 @@ export total
 readTypeOf : (d : GlobalDef) -> Core (Subset ClosedTerm (TypeOf d))
 readTypeOf d with (type d) proof held
   readTypeOf d | LiveType ty = pure (Element ty (LiveTypeOf held))
-  readTypeOf d | StoredType r with (Stored.decode zero r) proof decoded
-    readTypeOf d | StoredType r | Just ty = pure (Element ty (StoredTypeOf held decoded))
-    readTypeOf d | StoredType r | Nothing = throw (InternalError "A stored term is not a term of its arena")
+  readTypeOf d | StoredType r = pure (Element (Stored.decode zero r) (StoredTypeOf held))
 
 ||| A definition's type.
 export
@@ -641,7 +615,7 @@ typeHead : GlobalDef -> Core ResultHead
 typeHead gdef
     = case type gdef of
            LiveType ty => pure (resultHead ty)
-           StoredType r => storedHeadOf r
+           StoredType r => pure (storedHead r)
 
 ||| A pattern-matching definition's case tree, with what it was read from:
 ||| every reader of a definition's case tree reads it here. Total, so that
@@ -649,9 +623,7 @@ typeHead gdef
 export total
 readTreeOf : {args : Scope} -> (body : Body args) -> Core (Subset (CaseTree args) (TreeOf body))
 readTreeOf (LiveBody tree _ _) = pure (Element tree LiveTreeOf)
-readTreeOf (StoredBody roots _ _) with (traverseTree Stored.decode (mkSizeOf args) roots) proof decoded
-  readTreeOf (StoredBody roots _ _) | Just tree = pure (Element tree (StoredTreeOf decoded))
-  readTreeOf (StoredBody roots _ _) | Nothing = throw (InternalError "A stored term is not a term of its arena")
+readTreeOf (StoredBody roots _ _) = pure (Element (decodedTree roots) StoredTreeOf)
 
 ||| A pattern-matching definition's case tree.
 export
@@ -663,7 +635,8 @@ treeOf body = (.fst) <$> readTreeOf body
 export
 clausePatsOf : Body args -> Core (List (List Pat))
 clausePatsOf (LiveBody _ ps _) = pure ps
-clausePatsOf (StoredBody _ ps _) = traverse (traversePats @{Applicative.CORE} (stored zero)) ps
+clausePatsOf (StoredBody _ ps _)
+    = pure (map (\p => runIdentity (traversePats (Id . Stored.decode zero) p)) ps)
 
 -- The size of a scope a variable is bound beyond.
 tailSize : SizeOf (x :: vs) -> SizeOf vs
@@ -683,16 +656,14 @@ traverseEnv g s (b :: env)
 export
 clausesOf : Body args -> Core (List (vs : Scope ** (Env Term vs, Term vs, Term vs)))
 clausesOf (LiveBody _ _ cs) = pure cs
-clausesOf (StoredBody _ _ cs) = traverse decodeClause cs
+clausesOf (StoredBody _ _ cs) = pure (map decodeClause cs)
   where
     decodeClause : (vs : Scope ** (Env Root vs, Root vs, Root vs)) ->
-                   Core (vs : Scope ** (Env Term vs, Term vs, Term vs))
+                   (vs : Scope ** (Env Term vs, Term vs, Term vs))
     decodeClause (vs ** (env, lhs, rhs))
-        = do let s = mkSizeOf vs
-             env' <- traverseEnv @{Applicative.CORE} stored s env
-             lhs' <- stored s lhs
-             rhs' <- stored s rhs
-             pure (vs ** (env', lhs', rhs'))
+        = let s = mkSizeOf vs in
+              (vs ** (runIdentity (traverseEnv (\s', r => Id (Stored.decode s' r)) s env),
+                      Stored.decode s lhs, Stored.decode s rhs))
 
 ||| What a walk of a definition's case tree makes of a leaf it reaches: its
 ||| right-hand side as a term, in the scope of the tree's variables and of
@@ -711,7 +682,10 @@ liveHead : {0 vs : Scope} -> Term vs -> Core ResultHead
 liveHead tm = pure (resultHead tm)
 
 storedLeaf : {vs : Scope} -> {0 outer : Scope} -> Root vs -> Core (Term (vs ++ outer))
-storedLeaf r = storedIn (mkSizeOf vs) r
+storedLeaf r = pure (decodeWithin (mkSizeOf vs) r)
+
+storedLeafHead : {0 vs : Scope} -> Root vs -> Core ResultHead
+storedLeafHead r = pure (storedHead r)
 
 ||| A pattern-matching definition's case tree, given to a walk that reads
 ||| it: a live tree's leaf is its term, embedded in the walk's scope where
@@ -720,7 +694,7 @@ storedLeaf r = storedIn (mkSizeOf vs) r
 export
 walkTree : Body args -> ({0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core r) -> Core r
 walkTree (LiveBody ct _ _) k = k (MkLeaves liveLeaf liveHead) ct
-walkTree (StoredBody ct _ _) k = k (MkLeaves storedLeaf storedHeadOf) ct
+walkTree (StoredBody ct _ _) k = k (MkLeaves storedLeaf storedLeafHead) ct
 
 -- What freezing a pattern-matching definition gives, each term a place in
 -- its arena; and the same, each place made a root of the arena.
@@ -733,18 +707,19 @@ frozenBody : ClosedTerm -> (args : Scope) -> CaseTree args -> List (List Pat) ->
              List (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
              Freeze (FrozenBody Pos args)
 frozenBody ty args ct ps cs
-    = do tyAt <- freeze ty
-         ctAt <- traverseTree (\_ => freeze) (mkSizeOf args) ct
-         psAt <- traverse (traversePats freeze) ps
+    = do tyAt <- freeze zero ty
+         ctAt <- traverseTree freeze (mkSizeOf args) ct
+         psAt <- traverse (traversePats (freeze zero)) ps
          csAt <- traverse frozenClause cs
          pure (tyAt, ctAt, psAt, csAt)
   where
     frozenClause : (vs : Scope ** (Env Term vs, Term vs, Term vs)) ->
                    Freeze (vs : Scope ** (Env Pos vs, Pos vs, Pos vs))
     frozenClause (vs ** (env, lhs, rhs))
-        = do env' <- traverseEnv (\_ => freeze) (mkSizeOf vs) env
-             lhs' <- freeze lhs
-             rhs' <- freeze rhs
+        = do let s = mkSizeOf vs
+             env' <- traverseEnv freeze s env
+             lhs' <- freeze s lhs
+             rhs' <- freeze s rhs
              pure (vs ** (env', lhs', rhs'))
 
 rootedBody : (a : Arena) -> (args : Scope) -> FrozenBody Pos args -> Maybe (FrozenBody Root args)
@@ -763,18 +738,17 @@ rootedBody a args (tyAt, ctAt, psAt, csAt)
              rhs' <- rootAt a rhs
              pure (vs ** (env', lhs', rhs'))
 
--- A sealed freezing; one that is not sealed (a child that is not among
--- the nodes made before it, or a place outside its arena) only a fault in
--- this compiler makes.
-sealed : Freeze x -> Core (Arena, x)
-sealed job
-    = case seal job of
+-- A definition's terms frozen, sealed into their arena and made its roots:
+-- the one place what a read of a stored term relies on is decided
+-- (`seal`, `rootAt`). Freezing lays all of it, so only a fault in this
+-- compiler fails here; it is decided rather than proved because the
+-- arena's columns are `mlir-array`'s arrays, of which a type knows nothing
+-- element by element.
+sealedRoots : Freeze x -> (Arena -> x -> Maybe y) -> Core y
+sealedRoots job root
+    = case seal job >>= (\(a, x) => root a x) of
            Just r => pure r
-           Nothing => throw (InternalError "A frozen node's child is not a node of its arena")
-
-rooted : Maybe x -> Core x
-rooted (Just x) = pure x
-rooted Nothing = throw (InternalError "A frozen term is not a term of its arena")
+           Nothing => throw (InternalError "A frozen definition's terms are not laid as its arena holds them")
 
 -- A definition with its terms stored: its type, and a pattern-matching
 -- definition's case tree, clause patterns and clauses with their
@@ -789,12 +763,10 @@ freezeDef gdef
                 do ct <- treeOf body
                    ps <- clausePatsOf body
                    cs <- clausesOf body
-                   (a, places) <- sealed (frozenBody ty args ct ps cs)
-                   (ty', ct', ps', cs') <- rooted (rootedBody a args places)
+                   (ty', ct', ps', cs') <- sealedRoots (frozenBody ty args ct ps cs) (\a => rootedBody a args)
                    pure ({ type := StoredType ty',
                            definition := PMDef pi args (StoredBody ct' ps' cs') } gdef)
-              _ => do (a, tyAt) <- sealed (freeze ty)
-                      ty' <- rooted (rootAt a tyAt)
+              _ => do ty' <- sealedRoots (freeze zero ty) rootAt
                       pure ({ type := StoredType ty' } gdef)
 
 

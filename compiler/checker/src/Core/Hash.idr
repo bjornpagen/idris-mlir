@@ -5,7 +5,6 @@ module Core.Hash
 import Core.Case.CaseTree
 import Core.Core
 import Core.TT
-import Core.TT.Stored
 
 import Data.List1
 import Data.Vect
@@ -287,39 +286,6 @@ mutual
         = h `hashWithSalt` 3 `hashWithSalt` (show x) `hashWithSalt` y
     hashWithSalt h (DefaultCase x)
         = h `hashWithSalt` 4 `hashWithSalt` x
-
--- A stored definition hashes by its content, as the live one it was frozen
--- from does: each stored term as the term it decodes to, so a hash never
--- depends on where a node sits in its arena or on what it shares. One
--- that does not decode `freeze` never made, and only a fault in this
--- compiler makes.
-
-storedFault : Core a
-storedFault = throw (InternalError "A stored term is not a term of its arena")
-
-||| A stored term's hash: its decoded term's.
-export
-hashRoot : {vars : _} -> Int -> Root vars -> Core Int
-hashRoot h r
-    = case decode (mkSizeOf vars) r of
-           Just tm => pure (hashWithSalt h tm)
-           Nothing => storedFault
-
-||| A stored case tree's hash: its decoded tree's.
-export
-hashStoredTree : {vars : _} -> Int -> CaseTree' Root vars -> Core Int
-hashStoredTree h ct
-    = case traverseTree decode (mkSizeOf vars) ct of
-           Just tree => pure (hashWithSalt h tree)
-           Nothing => storedFault
-
-||| A stored clause pattern's hash: its decoded pattern's.
-export
-hashStoredPat : Int -> Pat' (Root []) -> Core Int
-hashStoredPat h p
-    = case traversePat (decode zero) p of
-           Just pat => pure (hashWithSalt h pat)
-           Nothing => storedFault
 
 export
 Hashable PrimType where

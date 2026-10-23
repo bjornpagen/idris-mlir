@@ -261,7 +261,6 @@ public export
 stems : List Entry
 stems =
   [ ("K_", "_")
-  , ("K_PE", "_PE")
   , ("K__", "__")
   , ("K__con", "__con")
   , ("K__infixTupleSection", "__infixTupleSection")

@@ -263,10 +263,6 @@ mainNS : Namespace
 mainNS = nsOf [known KMain]
 
 export
-partialEvalNS : Namespace
-partialEvalNS = nsOf [known K_PE]
-
-export
 builtinNS : Namespace
 builtinNS = nsOf [known KBuiltin]
 

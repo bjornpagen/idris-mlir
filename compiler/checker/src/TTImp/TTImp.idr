@@ -552,7 +552,6 @@ mutual
        PrimDeclsPragma : Name -> Pragma
        CGActionPragma : String -> String -> Pragma
        NamesPragma : Name -> List String -> Pragma
-       StartExprPragma : Pragma
        OverloadablePragma : Name -> Pragma
        ExtensionPragma : LangExt -> Pragma
        DefaultTotalityPragma : TotalReq -> Pragma

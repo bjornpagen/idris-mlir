@@ -80,21 +80,24 @@ the same profile as any other.
   tree for its back ends, with erasure, `%transform`s and `%spec`
   specialisation applied (`mkRunTime`, `compileRunTime`, `Core.Transform`'s
   use in elaboration, `TTImp.PartialEval`, the case builder's `RunTime`
-  phase and its `-Xcase-tree-opt` heuristics), and the TTC dropped it. The
+  phase and its `-Xcase-tree-opt` heuristics), and the TTC dropped it; the
+  namespace `TTImp.PartialEval` named its specialisations in
+  (`partialEvalNS`), which every context made visible, went with it. The
   frontend translates the compile-time tree, so none is built: a `PMDef`
   holds that tree and, per clause, the patterns the case builder read, and
   references are what that tree refers to (`refersTo`). The `%transform`
   and `%spec` pragmas are still read, as hints this compiler need not
   apply; a case block is no longer marked for inlining by the run-time
   tree's shape.
-- **Counts, state and options nothing needs.** The search timer, never
-  started and checked at every unfolding, with `%search_timeout`;
-  `%foreign_impl`, stored and read by nothing; `--debug-elab-check`, a
-  second conversion check behind a flag; the elaborator's `delayDepth`,
-  counted and read by nothing; `processTTImpFile` with the raw TTImp parser
-  (`TTImp.Parser`), which nothing called; and the counts that decided
-  whether a program elaborates, `%ambiguity_depth` and
-  `%auto_implicit_depth` with every depth of the automatic search (below).
+- **Counts, state and options nothing needs**, all gone: the search
+  timer, never started and checked at every unfolding, with
+  `%search_timeout`; `%foreign_impl`, stored and read by nothing;
+  `--debug-elab-check`, a second conversion check behind a flag; the
+  elaborator's `delayDepth`, counted and read by nothing;
+  `processTTImpFile` with the raw TTImp parser (`TTImp.Parser`), which
+  nothing called; and the counts that decided whether a program
+  elaborates, `%ambiguity_depth` and `%auto_implicit_depth` with every
+  depth of the automatic search (below).
   The parser no longer knows a removed pragma, so a module that writes one
   is refused where it writes it.
 - **Windows's path grammar.** `Libraries.Utils.Path` read every path with
@@ -193,8 +196,10 @@ checker, the next section says what replaced upstream's assertions.
   with `Libraries.Decidable.Equality`, which only they used. Where a proof
   retyped a term, the term is built at the type it needs: `isVar` finds a
   variable by `==` (`isNVar`, whose one use forgot the name, is gone);
-  `IsDefined` hides the name of the variable it found; `extendEnv` renames the type's top variable to the
-  pattern's, which has the same name (`compat`); and the case builder
+  `IsDefined` hides the name of the variable it found; `extendEnv` reads
+  the type's scope in the pattern's, its top variable labelled with the
+  pattern's name (`compat`), since a variable is its position and its name
+  a label; and the case builder
   groups clauses by comparing constructor names and tags, and constants
   as upstream's semi-decision did (never two doubles, and primitive types
   as `primTypeEq` relates them). `substName` compares.
@@ -204,6 +209,22 @@ checker, the next section says what replaced upstream's assertions.
   `trimStart`, `trimSpace`, `parseNatural` and `parseSigned`
   (`Libraries.Utils.String`), which see the characters and give base's
   results.
+- A `with` clause's function is over the part of the environment its
+  value, the value's type and the outer environment mention, closed under
+  the binders of what they mention (`Core.Env`: `cover`, `closed`): each
+  term is covered by the part of its scope it mentions and thinned into
+  the whole part, and the part's environment is built as the part is, so
+  nothing is strengthened into it and the function's type binds that
+  environment as built (`bindReq`). Upstream strengthened the value, its
+  type, the environment and each binder of it in turn, each able to fail
+  ("With abstraction failure #1" to "#4"), and left the value's type out
+  of the part, so a type that mentions more than its value could fail.
+- Solving a hole uses the definition its caller found and checked to be a
+  hole (`solveHole`), where upstream looked it up again and threw an
+  internal error if it was not there.
+- `%start` names the expression a REPL session runs first; this compiler
+  runs no REPL, so the pragma is refused, as unsupported, where it is
+  written. Upstream threw an internal error ("%start not implemented").
 
 ### Total where the frontend calls it
 
@@ -245,8 +266,8 @@ so that every recursive call is on a part of its argument:
   decoder, splits it into limbs by a `covering` recursion, which ends by
   the primitive shift's behaviour, a fact no type here states.) A
   decoded
-  definition is resolved by `resolveGlobalDef`, which the instances'
-  `resolved` are and which looks up no definition, and a name is looked up
+  definition is resolved by `storeDecoded`, which looks up no
+  definition, and a name is looked up
   by turning it into its index once (`lookupContextEntry`), where upstream's
   `lookupCtxtExactI` called itself on the index it found and
   `lookupCtxtExact` repeated it. So `decode` and `lookupCtxtExact` are
@@ -464,6 +485,14 @@ known only when the checker runs.
   decodes only the right-hand side it reaches. Definitions name one
   another by interned name, never by position, so nothing is shared across
   definitions and no table grows under a read. A TTC still holds trees.
+  What a read relies on (a child is a node of the arena, a node's slots
+  are its own and its parts', its bound bounds its locals, a root's
+  locations are in the column and its scope holds its locals) is decided
+  once, where the columns are made (`seal`, `rootAt`), and carried,
+  erased, by the arena and each root, so decoding a stored term, and
+  reading what its type computes, check nothing and cannot fail. Freezing
+  lays all of it; it is decided there rather than proved only because a
+  type knows nothing of an `mlir-array` array element by element.
 - The parser makes a flat parse tree (`Idris.Syntax.Tree`): a node for
   each form of the syntax it parses, made in the parse's state, so a
   branch that fails drops its nodes; children before parents, each node
@@ -520,7 +549,7 @@ known only when the checker runs.
   it is when written; upstream wrote it into the array it had read before,
   where a write after a growth was lost and the definition decoded again
   on the next lookup. Resolving a decoded definition's names looks up no
-  other definition (`resolveGlobalDef`), so decoding one never decodes
+  other definition (`storeDecoded`), so decoding one never decodes
   another.
 - `normaliseTypes` (`Core.Normalise`, the evaluator's `evalTypes`) is the
   normal form this compiler's translator gives a type. It unfolds, besides

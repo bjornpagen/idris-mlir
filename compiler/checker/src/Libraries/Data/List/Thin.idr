@@ -44,3 +44,28 @@ fromNatSet ns xs =
               if i `elem` ns
                  then (xs' ** Drop th)
                  else (x :: xs' ** Keep th)
+
+||| One thinning after another.
+export
+chain : Thin xs ys -> Thin ys zs -> Thin xs zs
+chain p Refl = p
+chain p (Drop q) = Drop (chain p q)
+chain Refl (Keep q) = Keep q
+chain (Drop p) (Keep q) = Drop (chain p q)
+chain (Keep p) (Keep q) = Keep (chain p q)
+
+||| The least thinning that keeps what each of two keeps, and how each sits
+||| in it.
+export
+keepBoth : {zs : List a} -> Thin xs zs -> Thin ys zs ->
+           (us : List a ** (Thin us zs, Thin xs us, Thin ys us))
+keepBoth Refl q = (zs ** (Refl, Refl, q))
+keepBoth p Refl = (zs ** (Refl, p, Refl))
+keepBoth {zs = _ :: _} (Drop p) (Drop q)
+    = let (us ** (u, l, r)) = keepBoth p q in (us ** (Drop u, l, r))
+keepBoth {zs = z :: _} (Drop p) (Keep q)
+    = let (us ** (u, l, r)) = keepBoth p q in (z :: us ** (Keep u, Drop l, Keep r))
+keepBoth {zs = z :: _} (Keep p) (Drop q)
+    = let (us ** (u, l, r)) = keepBoth p q in (z :: us ** (Keep u, Keep l, Drop r))
+keepBoth {zs = z :: _} (Keep p) (Keep q)
+    = let (us ** (u, l, r)) = keepBoth p q in (z :: us ** (Keep u, Keep l, Keep r))

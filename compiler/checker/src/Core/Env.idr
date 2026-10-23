@@ -238,41 +238,127 @@ findUsedLocs : {vars : _} ->
                Env Term vars -> Term vars -> VarSet vars
 findUsedLocs env tm = closeUsed env (usedIn VarSet.empty tm)
 
-mkShrinkSub : {n : _} ->
-              (vars : _) -> VarSet (n :: vars) ->
-              (newvars ** Thin newvars (n :: vars))
-mkShrinkSub [] els
-    = if first `VarSet.elem` els
-         then (_ ** Keep Refl)
-         else (_ ** Drop Refl)
-mkShrinkSub (x :: xs) els
-    = let (_ ** subRest) = mkShrinkSub xs (VarSet.dropFirst els) in
-      if first `VarSet.elem` els
-        then (_ ** Keep subRest)
-        else (_ ** Drop subRest)
+------------------------------------------------------------------------------
+-- What a term needs of its scope
+------------------------------------------------------------------------------
 
-mkShrink : {vars : _} ->
-           VarSet vars ->
-           (newvars ** Thin newvars vars)
-mkShrink {vars = []} xs = (_ ** Refl)
-mkShrink {vars = v :: vs} xs = mkShrinkSub _ xs
+||| A term over the part of its scope it mentions: that part, as the
+||| thinning that keeps it, and the term over it. A term covered so is read
+||| in any scope that keeps that part by thinning it there, which cannot
+||| fail, where strengthening a term into a smaller scope can.
+public export
+Covered : Scoped -> Scoped
+Covered t vars = (kept : Scope ** (Thin kept vars, t kept))
 
--- Find the smallest subset of the environment which is needed to type check
--- the given term
+-- The thinning that keeps only the variable at `idx`, and its name.
+onlyAt : (vars : Scope) -> (idx : Nat) -> (0 _ : IsVar n idx vars) ->
+         (x : Name ** Thin [x] vars)
+onlyAt (x :: xs) Z _ = (x ** Keep none)
+onlyAt (_ :: xs) (S k) p = let (x ** th) = onlyAt xs k (dropLater p) in (x ** Drop th)
+onlyAt [] _ First impossible
+onlyAt [] _ (Later _) impossible
+
+-- A scope's cover, from below its binder: what it keeps beyond the bound
+-- variable, and the scope over that and the bound variable.
+popped : {vars : Scope} -> Covered Term (x :: vars) ->
+         (kept : Scope ** (Thin kept vars, Term (x :: kept)))
+popped (_ ** (Refl, sc)) = (vars ** (Refl, sc))
+popped (kept ** (Drop th, sc)) = (kept ** (th, thin sc (Drop Refl)))
+popped ((_ :: kept) ** (Keep th, sc)) = (kept ** (th, sc))
+
+-- Two parts of one node over what either mentions.
+pairUp : {vars : Scope} -> Covered Term vars -> Covered Term vars ->
+         (kept : Scope ** (Thin kept vars, Term kept, Term kept))
+pairUp (_ ** (tha, a)) (_ ** (thb, b))
+    = let (u ** (thu, l, r)) = keepBoth tha thb in (u ** (thu, thin a l, thin b r))
+
+mutual
+  coverPi : {vars : Scope} -> PiInfo (Term vars) ->
+            (kept : Scope ** (Thin kept vars, PiInfo (Term kept)))
+  coverPi Implicit = ([] ** (none, Implicit))
+  coverPi Explicit = ([] ** (none, Explicit))
+  coverPi AutoImplicit = ([] ** (none, AutoImplicit))
+  coverPi (DefImplicit t) = let (k ** (th, t')) = cover t in (k ** (th, DefImplicit t'))
+
+  coverPiTy : {vars : Scope} -> PiInfo (Term vars) -> Term vars ->
+              (kept : Scope ** (Thin kept vars, PiInfo (Term kept), Term kept))
+  coverPiTy p ty
+      = let (_ ** (thp, p')) = coverPi p
+            (_ ** (tht, ty')) = cover ty
+            (u ** (thu, l, r)) = keepBoth thp tht in
+            (u ** (thu, map (\t => thin t l) p', thin ty' r))
+
+  ||| A binder over the part of its scope its terms mention.
+  export
+  coverBinder : {vars : Scope} -> Binder (Term vars) ->
+                (kept : Scope ** (Thin kept vars, Binder (Term kept)))
+  coverBinder (Lam fc c p ty)
+      = let (k ** (th, p', ty')) = coverPiTy p ty in (k ** (th, Lam fc c p' ty'))
+  coverBinder (Let fc c val ty)
+      = let (k ** (th, val', ty')) = pairUp (cover val) (cover ty) in (k ** (th, Let fc c val' ty'))
+  coverBinder (Pi fc c p ty)
+      = let (k ** (th, p', ty')) = coverPiTy p ty in (k ** (th, Pi fc c p' ty'))
+  coverBinder (PVar fc c p ty)
+      = let (k ** (th, p', ty')) = coverPiTy p ty in (k ** (th, PVar fc c p' ty'))
+  coverBinder (PLet fc c val ty)
+      = let (k ** (th, val', ty')) = pairUp (cover val) (cover ty) in (k ** (th, PLet fc c val' ty'))
+  coverBinder (PVTy fc c ty)
+      = let (k ** (th, ty')) = cover ty in (k ** (th, PVTy fc c ty'))
+
+  coverAll : {vars : Scope} -> List (Term vars) ->
+             (kept : Scope ** (Thin kept vars, List (Term kept)))
+  coverAll [] = ([] ** (none, []))
+  coverAll (t :: ts)
+      = let (_ ** (tht, t')) = cover t
+            (_ ** (thts, ts')) = coverAll ts
+            (u ** (thu, l, r)) = keepBoth tht thts in
+            (u ** (thu, thin t' l :: map (\x => thin x r) ts'))
+
+  ||| A term over the part of its scope it mentions.
+  export
+  cover : {vars : Scope} -> Term vars -> Covered Term vars
+  cover (Local fc r idx p)
+      = let (x ** th) = onlyAt vars idx p in ([x] ** (th, Local fc r Z First))
+  cover (Ref fc nt n) = ([] ** (none, Ref fc nt n))
+  cover (Meta fc n i args)
+      = let (k ** (th, args')) = coverAll args in (k ** (th, Meta fc n i args'))
+  cover (Bind fc x b sc)
+      = let (_ ** (thb, b')) = coverBinder b
+            (_ ** (ths, sc')) = popped (cover sc)
+            (u ** (thu, l, r)) = keepBoth thb ths in
+            (u ** (thu, Bind fc x (map (\t => thin t l) b') (thin sc' (Keep r))))
+  cover (App fc f a)
+      = let (k ** (th, f', a')) = pairUp (cover f) (cover a) in (k ** (th, App fc f' a'))
+  cover (As fc s a p)
+      = let (k ** (th, a', p')) = pairUp (cover a) (cover p) in (k ** (th, As fc s a' p'))
+  cover (TDelayed fc r t)
+      = let (k ** (th, t')) = cover t in (k ** (th, TDelayed fc r t'))
+  cover (TDelay fc r ty t)
+      = let (k ** (th, ty', t')) = pairUp (cover ty) (cover t) in (k ** (th, TDelay fc r ty' t'))
+  cover (TForce fc r t)
+      = let (k ** (th, t')) = cover t in (k ** (th, TForce fc r t'))
+  cover (PrimVal fc c) = ([] ** (none, PrimVal fc c))
+  cover (Erased fc Placeholder) = ([] ** (none, Erased fc Placeholder))
+  cover (Erased fc Impossible) = ([] ** (none, Erased fc Impossible))
+  cover (Erased fc (Dotted t))
+      = let (k ** (th, t')) = cover t in (k ** (th, Erased fc (Dotted t')))
+  cover (TType fc u) = ([] ** (none, TType fc u))
+
+||| A part of an environment's variables, closed under their binders: each
+||| variable kept, with its binder over the variables kept before it, which
+||| keep what that binder mentions. The environment of the part is built as
+||| the part is, never strengthened into it.
 export
-findSubEnv : {vars : _} ->
-             Env Term vars -> Term vars ->
-             (vars' : Scope ** Thin vars' vars)
-findSubEnv env tm = mkShrink (findUsedLocs env tm)
-
-export
-shrinkEnv : Env Term vars -> Thin newvars vars -> Maybe (Env Term newvars)
-shrinkEnv env Refl = Just env
-shrinkEnv (b :: env) (Drop p) = shrinkEnv env p
-shrinkEnv (b :: env) (Keep p)
-    = do env' <- shrinkEnv env p
-         b' <- shrinkBinder b p
-         pure (b' :: env')
+closed : {vars : Scope} -> Env Term vars -> Thin kept vars ->
+         (us : Scope ** (Thin us vars, Thin kept us, Env Term us))
+closed env Refl = (vars ** (Refl, Refl, env))
+closed (b :: env) (Drop th)
+    = let (us ** (u, e, env')) = closed env th in (us ** (Drop u, e, env'))
+closed {vars = x :: _} (b :: env) (Keep th)
+    = let (_ ** (thb, b')) = coverBinder b
+          (_ ** (thm, l, r)) = keepBoth th thb
+          (us ** (u, e, env')) = closed env thm in
+          (x :: us ** (Keep u, Keep (chain l e), map (\t => thin t (chain r e)) b' :: env'))
 
 export
 mkEnvOnto : FC -> (xs : List Name) -> Env Term ys -> Env Term (xs ++ ys)

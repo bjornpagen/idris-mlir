@@ -103,21 +103,26 @@ bindNotReq {vs = n :: _} fc i (b :: env) (Drop p) ns tm
    = bindNotReq fc i env p ((plicit b, n) :: ns)
        (Bind fc _ (Pi (binderLoc b) (multiplicity b) Explicit (binderType b)) tm)
 
+||| The required part of an environment bound over a term in it: each
+||| variable `sub` keeps, its binder from the environment of that part
+||| (`env`, which holds a binder only for each kept variable), bound as an
+||| explicit argument down to where `sub` keeps every variable left, where
+||| the rest is abstracted as it is. Its names, with their plicity, and the
+||| names of the arguments that are not lets.
 export
-bindReq : {vs : _} ->
-          FC -> Env Term vs -> (sub : Thin pre vs) ->
+bindReq : {pre : _} ->
+          FC -> Env Term pre -> (sub : Thin pre vs) ->
           List (PiInfo RawImp, Name) ->
-          Term pre -> Maybe (List (PiInfo RawImp, Name), List Name, ClosedTerm)
-bindReq {vs} fc env Refl ns tm
-    = pure (ns, notLets [] _ env, abstractEnvType fc env tm)
+          Term pre -> (List (PiInfo RawImp, Name), List Name, ClosedTerm)
+bindReq {pre} fc env Refl ns tm
+    = (ns, notLets [] _ env, abstractEnvType fc env tm)
   where
     notLets : List Name -> (vars : Scope) -> Env Term vars -> List Name
     notLets acc [] _ = acc
     notLets acc (v :: vs) (b :: env) = if isLet b then notLets acc vs env
                                        else notLets (v :: acc) vs env
-bindReq {vs = n :: _} fc (b :: env) (Keep p) ns tm
-    = do b' <- shrinkBinder b p
-         bindReq fc env p ((plicit b, n) :: ns)
-            (Bind fc _ (Pi (binderLoc b) (multiplicity b) Explicit (binderType b')) tm)
-bindReq fc (b :: env) (Drop p) ns tm
+bindReq {pre = n :: _} fc (b :: env) (Keep p) ns tm
+    = bindReq fc env p ((plicit b, n) :: ns)
+         (Bind fc _ (Pi (binderLoc b) (multiplicity b) Explicit (binderType b)) tm)
+bindReq fc env (Drop p) ns tm
     = bindReq fc env p ns tm
