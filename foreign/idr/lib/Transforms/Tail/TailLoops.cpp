@@ -12,10 +12,11 @@
 // self tail call left a call is `musttail` at the lowering and grows no
 // stack either. So the loop is an action a debug counter may skip.
 //
-// Whether the loop may run forever is its function's derived row, which
-// the loop leaves as it was: an unused loop of code Idris did not prove to
-// end stays, as eager evaluation keeps it, by the row and no mark of its
-// own.
+// Whether the loop may run forever is what Idris proved of the function:
+// a loop of code it did not prove to end begins its join region with
+// idr.may_loop, whose divergence the function's derived row holds as its
+// self tail calls' cycle did, and which goes with the loop wherever it is
+// inlined or copied, so an unused one stays, as eager evaluation keeps it.
 //
 // The pass reads its own function and nothing else, and changes nothing
 // outside it.

@@ -9,9 +9,11 @@
 
 #include "idr/IR/Families/Substitute.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Transforms/Effects.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <cassert>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -139,8 +141,13 @@ unsigned scopeDepth(Region *region) {
   return depth;
 }
 
+Ending endingOf(ArrayRef<FuncOp> functions) {
+  assert(!functions.empty() && "a group's members are the code of one function at least");
+  return rows::writer::provedTogether(functions) ? Ending::Ends : Ending::MayNotEnd;
+}
+
 Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Member> members,
-            ArrayRef<Edge> edges) {
+            ArrayRef<Edge> edges, Ending ending) {
   unsigned count = static_cast<unsigned>(members.size());
   unsigned scope = scopeDepth(rewriter.getInsertionBlock()->getParent());
   std::optional<footprint::Vector<unsigned>> depths = depthsOf(count, edges);
@@ -185,6 +192,13 @@ Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Me
       Builder::place(group.targets, m, op, static_cast<unsigned>(index));
       Region &into = op->getRegion(static_cast<unsigned>(index) + 1);
       moveMember(rewriter, members[m], into, depths ? 0 : tokens, scope);
+      // A loop that may not end says so where each region it repeats
+      // begins; a join's regions run at most once, and say nothing.
+      if (!depths && ending == Ending::MayNotEnd) {
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(&into.front());
+        MayLoopOp::create(rewriter, loc);
+      }
     }
     group.body = body;
     rewriter.setInsertionPointToEnd(body);
@@ -222,11 +236,11 @@ void jumpAll(RewriterBase &rewriter, const Targets &targets, ArrayRef<Site> site
 } // namespace
 
 Operation *wrap(RewriterBase &rewriter, Operation *place, ArrayRef<Member> members,
-                ArrayRef<Site> sites) {
+                ArrayRef<Site> sites, Ending ending) {
   OpBuilder::InsertionGuard guard(rewriter);
   footprint::Vector<Edge> edges = edgesOf(members, sites);
   rewriter.setInsertionPoint(place);
-  Group group = build(rewriter, place->getLoc(), place->getResultTypes(), members, edges);
+  Group group = build(rewriter, place->getLoc(), place->getResultTypes(), members, edges, ending);
   rewriter.replaceAllUsesWith(place->getResults(), group.outermost->getResults());
   rewriter.moveOpBefore(place, group.body, group.body->end());
   rewriter.setInsertionPointToEnd(group.body);
@@ -253,7 +267,8 @@ LoopOp loopSelf(RewriterBase &rewriter, FuncOp fn, ArrayRef<Site> calls) {
   footprint::Vector<Edge> edges(calls.size(), Edge{0, 0});
   Member member{&moved, binders, /*firstLevel=*/0};
   rewriter.setInsertionPointToEnd(entry);
-  Group group = build(rewriter, fn.getLoc(), fn.getFunctionType().getResults(), member, edges);
+  Group group = build(rewriter, fn.getLoc(), fn.getFunctionType().getResults(), member, edges,
+                      endingOf(fn));
   // The body enters with the parameters and the function's own index
   // variables.
   IndexArgsAttr levels =

@@ -265,6 +265,12 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
           edges.push_back(idr::joins::Edge{*from, *target + shift});
       });
     };
+    // Whether the loop the group makes may not end: what Idris proved of the
+    // members it moves in, read before they are erased.
+    SmallVector<idr::FuncOp> memberFns;
+    for (FunctionId fn : members)
+      memberFns.push_back(graph.op(fn));
+    idr::joins::Ending ending = idr::joins::endingOf(memberFns);
     Operation *unit = idr::match(
         nodes[place], [&](Root) -> Operation * { return program; },
         [&](Function host) -> Operation * { return graph.op(host.fn); },
@@ -288,7 +294,7 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
                                                 SmallVector<Location>(h.getNumArguments(), h.getLoc()));
             rewriter.setInsertionPointToStart(entry);
             idr::joins::Group group =
-                idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges);
+                idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges, ending);
             rewriter.setInsertionPointToEnd(group.body);
             // Each binder is a level, and a level is a 32-bit number.
             auto own = static_cast<std::uint32_t>(h.getBinders().getSorts().size());
@@ -313,7 +319,7 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
               sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i), 0);
             sites.push_back(idr::joins::Site{call, *memberOf[graph.id(call.getCalleeAttr())],
                                              call.getArgs(), call.getIndexArgsAttr()});
-            Operation *outer = idr::joins::wrap(rewriter, call, regions, sites);
+            Operation *outer = idr::joins::wrap(rewriter, call, regions, sites, ending);
             for (Region &region : outer->getRegions())
               decideMoved(region);
           });

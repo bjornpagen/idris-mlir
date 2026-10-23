@@ -48,7 +48,7 @@ Value sweep(RewriterBase &rewriter, Location loc, Value extent) {
   }
   joins::Member member{&turn, IndexBindersAttr::get(rewriter.getContext(), {}), 0};
   joins::Edge back{0, 0};
-  joins::Group group = joins::build(rewriter, loc, TypeRange(), member, back);
+  joins::Group group = joins::build(rewriter, loc, TypeRange(), member, back, joins::Ending::Ends);
   Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
   JumpOp::create(rewriter, loc, group.targets.tokenFor(0, group.body->getParent()),
                  ValueRange(zero), IndexArgsAttr());

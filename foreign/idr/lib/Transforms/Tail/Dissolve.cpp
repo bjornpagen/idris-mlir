@@ -151,9 +151,18 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   }
 
   // Each join region's code into its function, which changes through its
-  // handle; the body in the op's place.
+  // handle; the body in the op's place. A region of a loop Idris did not
+  // prove to end begins with idr.may_loop: as a function it repeats through
+  // tail calls, a cycle of calls whose divergence the writer of rows reads
+  // off its functions' termination, so the function claims none of its
+  // owner's proof, and the mark, which only a loop holds, goes.
   for (Lifted &to : lifted) {
     Block &block = to.region->front();
+    if (!block.getOps<MayLoopOp>().empty()) {
+      to.fn.removeTerminatesAttr();
+      for (MayLoopOp mark : llvm::make_early_inc_range(block.getOps<MayLoopOp>()))
+        rewriter.eraseOp(mark);
+    }
     Block *entry = &to.fn.getBody().front();
     Operation *end = block.getTerminator();
     entry->getOperations().splice(entry->end(), block.getOperations(), block.begin(),

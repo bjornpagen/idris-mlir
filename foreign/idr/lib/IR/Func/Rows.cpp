@@ -153,17 +153,12 @@ rows::Check::Check(FuncOp fn)
     untouched = listed.asArrayRef();
 }
 
-// Idris's proof is read before the body: the row of a function it did not
-// prove holds divergence before any op adds to it.
+// The row holds what the body's ops do and nothing before them: a loop that
+// may not end says so by its own op, idr.may_loop, which every pass that
+// moves the loop moves with it, so the divergence it adds is blamed on it
+// like any other effect.
 LogicalResult rows::Check::enter(Operation *op, Region &region) {
-  (void)derivation.enter(op, region);
-  if (op != fn.getOperation())
-    return success();
-  if (effects::Row missing = derivation.state().sofar().atoms - row; !missing.empty())
-    return fn.emitOpError("holds effects<")
-           << spell(row) << ">, which lack " << spell(missing)
-           << ": Idris did not prove its loops end";
-  return success();
+  return derivation.enter(op, region);
 }
 
 LogicalResult rows::Check::check(Operation *op) {

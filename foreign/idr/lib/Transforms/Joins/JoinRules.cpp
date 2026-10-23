@@ -217,7 +217,10 @@ void egraph::DeadJoinResults::rewrite(JoinPointsOpInterface op, const Rewrite &c
 
 // An idr.loop whose join regions never jump to its own op repeats nothing:
 // it is an idr.join, its join regions' tokens dropped. No token is scoped,
-// so it states the same lifetimes in the same order.
+// so it states the same lifetimes in the same order. What it said of its
+// repetition, idr.may_loop where its code was not proved to end, goes: a
+// region that runs at most once diverges only by what it holds, which says
+// so itself.
 std::optional<Edit> egraph::LoopToJoin::decide(LoopOp op, const OperandFacts &) {
   if (llvm::any_of(op.getJoinRegions(), [&](Region &region) {
         return llvm::any_of(op.getTokens(region),
@@ -240,6 +243,9 @@ void egraph::LoopToJoin::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewri
   unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
   for (Region &region : llvm::drop_begin(join->getRegions()))
     region.front().eraseArguments(0, targets);
+  for (Region &region : join->getRegions())
+    for (MayLoopOp mark : llvm::make_early_inc_range(region.front().getOps<MayLoopOp>()))
+      rewriter.eraseOp(mark);
   rewriter.replaceOp(op, join->getResults());
 }
 

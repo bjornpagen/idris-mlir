@@ -189,8 +189,10 @@ void egraph::CaseOfCase::rewrite(DataMatchOp consumer, const Rewrite &chosen,
                            llvm::map_to_vector(from.getArguments(),
                                                [](Value arg) { return arg.getLoc(); }));
   rewriter.setInsertionPoint(consumer);
+  // Only the producer's arms jump to the cases, and no case to a case: the
+  // group repeats nothing, so it ends as its code does.
   joins::Group group = joins::build(rewriter, consumer.getLoc(), consumer->getResultTypes(),
-                                    members, {});
+                                    members, {}, joins::Ending::Ends);
   // The join regions bind what the consumer's regions bound, and give its
   // results: they live where the consumer said.
   rewriter.modifyOpInPlace(group.outermost, [&] {

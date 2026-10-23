@@ -4,24 +4,28 @@
 //
 // Every join point is made here, whoever finds it: contification, which
 // moves a function that always returns to one continuation into its
-// caller; the tail passes, which make a self tail call a back jump; and the
-// e-graph's case-of-case, which shares a consumer's cases between the arms
-// of the match it consumes. The shape follows from the jumps alone: a
-// group whose jump graph has a cycle is one idr.loop, whose regions repeat;
-// any other is idr.joins nested from the members jumped to inward, the
-// members of one depth sharing one flat idr.join, so no join region names a
-// token its own op defines and none repeats.
+// caller; the tail passes, which make a self tail call a back jump; the
+// arrays' loops, a turn per index of a finite domain; and the e-graph's
+// case-of-case, which shares a consumer's cases between the arms of the
+// match it consumes. The shape follows from the jumps alone: a group whose
+// jump graph has a cycle is one idr.loop, whose regions repeat; any other
+// is idr.joins nested from the members jumped to inward, the members of one
+// depth sharing one flat idr.join, so no join region names a token its own
+// op defines and none repeats.
 //
 // Tail position is a precondition of a jump, never a fact the jump holds: a
 // site is an op whose results its block's terminator passes on unchanged to
 // the place the group goes, which the finder established. The construction
 // reads nothing else and decides nothing else: it never fails, and a
 // precondition broken is a verifier error after the pass, an internal one.
-// Whether a loop it makes may run forever is its function's row's to say,
-// from Idris's proof, so nothing of the group marks it. A group states no
-// lifetime: a finder that moves scoped values into one restates its
-// `outers` after, one lifetime per scoped result and then per scoped
-// parameter of each region, in order (lifetimes::restateOuters).
+// Whether a loop it makes may run forever is the finder's to say, from what
+// Idris proved of the code it moves in (Ending): a loop that may begins each
+// join region with idr.may_loop, whose divergence the row derived from the
+// ops then holds wherever the loop goes, inlined, contified or copied, and
+// which keeps it from being deleted as unused, since eager evaluation runs
+// it. A group states no lifetime: a finder that moves scoped values into
+// one restates its `outers` after, one lifetime per scoped result and then
+// per scoped parameter of each region, in order (lifetimes::restateOuters).
 //
 //===----------------------------------------------------------------------===//
 
@@ -34,6 +38,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
 
 namespace idr::joins {
 
@@ -56,6 +62,20 @@ struct Edge {
   unsigned from;
   unsigned to;
 };
+
+// Whether the group's repetition, where its jumps form a cycle, is known to
+// end: Idris proved together every function whose code its members are
+// (endingOf), the pass that made it bounds its turns, or no member jumps to
+// a member, so nothing repeats; or it may run forever, and each join region
+// of the loop the group makes begins with idr.may_loop.
+enum class Ending : std::uint8_t { Ends, MayNotEnd };
+
+// The ending of a group whose members are the code of `functions`, one at
+// least: Idris's one proof that a cycle of ours ends, every function on it
+// proved in one and the same component of its own, the proof the writer of
+// rows reads of a cycle of calls (rows::writer::provedTogether). A cycle of
+// calls that becomes a cycle of jumps keeps the divergence it had.
+Ending endingOf(llvm::ArrayRef<FuncOp> functions);
 
 // An op that becomes a jump to member `target`: the last op of its block
 // before a terminator that passes on exactly its results. The jump passes
@@ -94,9 +114,10 @@ struct Group {
 
 // Builds at the rewriter's insertion point the group of `members` with the
 // jump graph `edges`, its results of types `results`; the members' regions
-// are moved in, their terminators made the group's.
+// are moved in, their terminators made the group's. A loop whose repetition
+// may not end (`ending`) holds idr.may_loop at each join region's entry.
 Group build(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::TypeRange results,
-            llvm::ArrayRef<Member> members, llvm::ArrayRef<Edge> edges);
+            llvm::ArrayRef<Member> members, llvm::ArrayRef<Edge> edges, Ending ending);
 
 // The index variables the scopes around `region` bind: each op that binds
 // them says how many in its region (ErasedBinderOpInterface). A member's
@@ -109,13 +130,15 @@ JumpOp jumpAt(mlir::RewriterBase &rewriter, const Site &site, mlir::Value token)
 
 // The group of `members` around `place`, whose results become the group's:
 // the body runs `place` and yields what it gives, and each site, in the
-// body or in a member, becomes a jump. Returns the outermost op.
+// body or in a member, becomes a jump; `ending` as `build` reads it.
+// Returns the outermost op.
 mlir::Operation *wrap(mlir::RewriterBase &rewriter, mlir::Operation *place,
-                      llvm::ArrayRef<Member> members, llvm::ArrayRef<Site> sites);
+                      llvm::ArrayRef<Member> members, llvm::ArrayRef<Site> sites, Ending ending);
 
 // `fn` with self tail calls `calls` as one idr.loop: the function's body
 // jumps into its one join region, which holds the old body, each self tail
-// call a jump back, passing the call's erased arguments as its terms.
+// call a jump back, passing the call's erased arguments as its terms. The
+// loop may run forever where Idris did not prove `fn` ends.
 LoopOp loopSelf(mlir::RewriterBase &rewriter, FuncOp fn, llvm::ArrayRef<Site> calls);
 
 } // namespace idr::joins

@@ -6,6 +6,7 @@
 #ifndef IDR_CONVERSION_MATCHES_H
 #define IDR_CONVERSION_MATCHES_H
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -31,8 +32,9 @@ void populateMatchPatterns(mlir::RewritePatternSet &patterns);
 // idr.yield that ends a join point's region take the converted types of
 // their results, parameters and arguments, one value becoming its
 // components, beside upstream's structural conversion of scf; each is
-// legal once its types are. A join point's op drops the lifetime it
-// states, which nothing lowered reads.
+// legal once its types are, and idr.may_loop, which has none, is legal. A
+// join point's op drops the lifetime it states, which nothing lowered
+// reads.
 void populateJoinTypeConversions(const mlir::TypeConverter &converter,
                                  mlir::RewritePatternSet &patterns,
                                  mlir::ConversionTarget &target);
@@ -42,21 +44,31 @@ void populateJoinTypeConversions(const mlir::TypeConverter &converter,
 // scf.index_switch and scf.if leaves in place, is a branch by then: each
 // region's blocks move into the function, each jump a cf.br to its join
 // region's entry, each yield a cf.br to what follows the op. An
-// irreducible group lowers as any other, with no run-time selector. The
-// conversion is the same for every function, so it is made once, before
-// any function is lowered, and every function's lowering reads it,
-// unwritten, from whichever worker runs it.
+// irreducible group lowers as any other, with no run-time selector. First,
+// in a function that holds a loop that may not end, whose row withholds
+// `mustprogress` on its account, each idr.loop nothing in which may keep
+// from ending (no idr.may_loop, its own or a nested loop's, and no call
+// LLVM is not told returns) is told it makes progress, on each jump back,
+// which the branch it becomes carries as upstream's loop annotation;
+// idr.may_loop goes with its loop, its divergence in the function's row,
+// which LLVM was told before. The conversion is the same
+// for every function, so it is made once, before any function is lowered,
+// and every function's lowering reads it, unwritten, from whichever worker
+// runs it.
 struct ControlFlowLowering {
   explicit ControlFlowLowering(mlir::MLIRContext &context);
 
-  // Upstream's own target for scf, with the join points' ops illegal
-  // beside scf's.
+  // Upstream's own target for scf, with the join points' ops and
+  // idr.may_loop illegal beside scf's.
   mlir::ConversionTarget target;
   // Upstream's scf patterns and the join points'.
   mlir::FrozenRewritePatternSet patterns;
+  // What a jump back into a loop that makes progress carries: upstream's
+  // loop annotation, `mustProgress`, under its own name.
+  mlir::DictionaryAttr progresses;
 };
 
-// Applies phase 3 to `root`.
+// Applies phase 3 to `root`, a function.
 mlir::LogicalResult lowerControlFlow(mlir::Operation *root, const ControlFlowLowering &lowering);
 
 } // namespace idr::conversion

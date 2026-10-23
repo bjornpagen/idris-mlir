@@ -23,7 +23,10 @@
 // regions may do. idr.join defines its tokens in the body alone, so no join
 // region can name its own op's targets: none repeats, and none diverges.
 // idr.loop begins every region with the same N tokens, so a join region may
-// jump to itself or to a sibling: its regions repeat, as a loop's do.
+// jump to itself or to a sibling: its regions repeat, as a loop's do, and
+// where Idris did not prove they end each begins with idr.may_loop, the
+// divergence of the repetition, an op of the loop's own that goes wherever
+// the loop does.
 //
 // A jump nested in a match reaches its join point through upstream's early
 // exit: every op between the jump and its target lets it through
