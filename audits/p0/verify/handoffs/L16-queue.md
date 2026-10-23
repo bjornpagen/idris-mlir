@@ -92,3 +92,33 @@ The generator emits the right signatures; the frontend's calls are wrong:
 - `libraryCall` compares the row's arity evidence with `Instances`' own
   count, which carries no evidence: the request's arity should come as the
   `Vect` length C249 gave it, so the two are one by type.
+
+## From L16ck (the type facts for Cases' internal errors)
+
+Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
+1. `Closed.idr`: delete `argumentsOfNormal`, now unused.
+2. `Driver.idr`: `built` returns the main checked file and passes it to
+   `program`; the checker's `ModTree.buildMain` and `Host.buildMain`
+   return the `mainttc` they reload (L17).
+3. `Driver.refusing`: `moduleRefusals (\m => fromMaybe Project (lookup m homes)) loaded`
+   replaces `refusalOf` and the `sites` pass; then `Errors.siteModule` goes.
+4. `Cases.idr:940`: `Closed.VarInfo.Static` carries the parameter's `Fin k`
+   position and holes, built by `Programs.runtimeParams`; Terms' local
+   implementations get their own constructor.
+5. `Cases.idr:946`: `PKind.DictParam` holds the constructor and arguments
+   (`Instances` 145/590/631, `Choices`, `Terms`, `Programs`, `State.AtKey`).
+6. `Cases.idr:1014`: `Term.Family` keeps `Vect n ConLayout`, `ConId`
+   indexed by `n`, `familyIn` returning the `Family`; `Facts.cons` and the
+   lookup at `Terms.idr:1929` go.
+7. `Shapes.idr:294`: `InstanceSig` gains `binders : Binders () []` built at
+   `Instances.idr:784`; `sizedTelescope` takes the signature (callers
+   `Terms.idr:1630`, `Programs.idr:141,155`).
+8. The checker: resolved references give `Keys.idr:1022` an `Address`;
+   each FC names its module (`Errors.idr:356`); imports arrive located
+   (`Profile.idr:127`) (L17).
+9. `Program.idr:82`: `Emit.emit` returns its own failures apart from the
+   writer's I/O failure.
+- Not done: the split of `Defined` (`Types.idr:230`, `Keys.idr:96`):
+  `Defined` and `Read` parametrised by the whole-program facts
+  (`Read = Reading Nature`); it needs a ruling on a nested block no walk
+  names.
