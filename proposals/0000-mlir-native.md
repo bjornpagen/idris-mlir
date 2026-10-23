@@ -1857,6 +1857,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   reads go. The grade keeps its shape (D88, D90); C's scoped memory
   space is not built, and is open to a later ruling on evidence that the
   check is where escapes are missed.
+- **D125** (2026-10-22; the owner; §4's question on 0011's O5, L17's
+  evidence). "B": O5 is the flat parse tree and its decoder to `PTerm`
+  (C216's first half), and nothing more. Names are resolved where Idris
+  resolves them, during elaboration against the typed environment, and
+  Desugar keeps its bound-name set as it reads it now. Resolution as R1's
+  interval join comes with a later stage, not P0's, that moves Desugar
+  onto the parse tree's tables, so the join has a reader when it is
+  built (0011 §4.5 records it). O5's bar is parse alone: identical TTCs,
+  parsing no slower than 0010's A0. So O5 needs no part of 0015's
+  library, and P0 builds neither the join, nor a row per clause for its
+  pattern variables, nor fields carrying binders into Desugar.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -4798,10 +4809,10 @@ C137.
   before parents, ids shared where the grammar shares a subtree), and a
   decoder gives `PTerm` to Desugar, Resugar and the printer, so the
   parser is converted entirely and nothing reads it half and half.
-  Resolution as R1's interval join waits on §4's fourth question: Idris
-  resolves names during elaboration, against the typed environment, and
-  the only scope over syntax is Desugar's bound-name set, which needs
-  each clause's pattern variables after operators are regrouped by the
+  Resolution as R1's interval join is not P0's (D125): Idris resolves
+  names during elaboration, against the typed environment, and the only
+  scope over syntax is Desugar's bound-name set, which needs each
+  clause's pattern variables after operators are regrouped by the
   fixities in force, so a join over the parse tree has no reader unless
   Desugar reads the columns.
 - **C217** (2026-10-22; L16's eighth pass; extends C213). A polymorphic
@@ -4977,24 +4988,7 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, to be raised alone next (L17's evidence, 2026-10-22). 0011's O5 asks for name resolution as R1's interval join
-over the flat parse tree, but Idris resolves names during elaboration,
-against the typed environment (`TTImp/Elab/App.idr:54`); the only scope
-over syntax is Desugar's set of bound names, read once, in
-`bindTypeNames`, and it needs each clause's pattern variables, found on
-the desugared left side after operators are regrouped by the fixities in
-force there. The choice: (A) Desugar reads the columns, and its bound
-set becomes the join plus a row per clause for its pattern variables,
-rewriting Desugar's 1,500 lines, so the join has a real reader; (B) O5
-is the flat parse tree and its decoder only, resolution waiting for the
-stage that moves Desugar onto tables, and O5's speed bar becomes parse
-alone (recommended by L17); (C) the join covers only the binders the
-syntax shows, carried into Desugar on new fields, which holds the set in
-two places. Meanwhile the parse tree and decoder land (C216), common to
-all three.
-
-**Next, after the one above** (recheck 3's finding, 2026-10-22; to be
-raised alone in turn). D98 and AGENTS.md say an op's fold is its
+**Open**: one, raised alone (recheck 3's finding, 2026-10-22). D98 and AGENTS.md say an op's fold is its
 meaning, which the e-graph reads. C205 and C218 narrowed that without
 the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
 `Engine.h`, `Rules.cpp`), because a fold returns an attribute and
@@ -5086,6 +5080,9 @@ Also settled, not on F's list:
 - **Suspected bugs** (§8): folded into the cutover with their causes
   and reproduced in its qualification (C8, D56).
 - **D45's mechanisms**: settled by D53, D54 and D55.
+- **The cutover's later questions**: a held buffer's storage by D122,
+  the e-graph's form by D123, lending an array to upstream's ops by
+  D124, 0011's O5 by D125.
 - **The execution's shape** (§7): settled by D56, one whole cutover
   built at its end.
 - **Equality saturation** (G's DP-25): reopened by D57; narrow (D106),
@@ -5737,7 +5734,7 @@ beside the S-stages:
 - F8 (S5): D50, D48, and 0011's O2, which is the Emit of the new dialect.
 - F9 (S6, S7): R1 and R2 in `libs/mlir-relational`, then O3 (the
   translation as semi-naive evaluation over the instance table) and O8;
-  O1 and O5 with the fork.
+  O1 and O5 (the flat parse tree, D125) with the checker.
 Their bars are their proposals', ratios measured natively once `make
 self` holds; R1's (bumbledb's Rust engine) and R2's (Soufflé) depend on
 engines outside the toolchain. 0011's O6 and O7 come in with what they

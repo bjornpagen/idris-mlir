@@ -21,10 +21,9 @@ engine and Soufflé, are ratios measured once `make self` holds, on
 engines outside the toolchain (C136). R4 comes into P0 only as far as
 0011's O7 consumes it, a union-find, which is the checker's own and not
 this library's (D69, D107). The rest (layer 3 here, R5's saturation
-offered to tactics, R6) is not P0's and stays **AFTER-SELF**. 0011's O5
-and O8 need only R1 (0011 §8, D12), and whether O5's resolution is
-layer 1's join is P0 §4's open question (C216). Every decision is
-taken.
+offered to tactics, R6) is not P0's and stays **AFTER-SELF**. 0011's O8
+needs only R1 (0011 §8, D12), and O5 none: its resolution is not layer
+1's join in P0 (P0's D125). Every decision is taken.
 
 The library is Idris in `libs/` (D4), compiled by this compiler. It takes
 over §4.5 of bumbledb's port proposal
@@ -77,7 +76,7 @@ last text at 484d6403) are named "the cutover's".
   and runs under the stock Idris on Chez as well as under idris-mlir,
   forever: which compiler a bootstrap uses as stage 0 is a build choice,
   never a reason to stop building on Chez. Code the stock host runs
-  reaches no `libs/` `%extern`. So the layers that O3, O5, O7 and O8 use
+  reaches no `libs/` `%extern`. So the layers that O3, O7 and O8 use
   are plain-Idris definitions over base, with bodies, linear where that
   helps. idris-mlir may replace one with a runtime op through the
   registry's `Faster` hook (`compiler/src/IdrisMLIR/Registry/Entry.idr`,
@@ -135,8 +134,9 @@ Every consumer is Idris (D6).
   - O3, the first consumer: Translate as semi-naive evaluation over the
     instance table, reachability as its query, within the growth check's
     bounds (layer 2; 0011 §4.8).
-  - O5: name resolution as an Allen "during" join with a max-depth fold
-    (layer 1; 0011 §4.4), whose form is P0 §4's open question (C216).
+  - Later, not P0's: name resolution as an Allen "during" join with a
+    max-depth fold (layer 1; 0011 §4.4), with the stage that moves
+    Desugar onto the parse tree's tables (0011 §4.5; P0's D125).
   - O7: the elaborator's constraint store and postponement (layer 2),
     with meta-to-meta unification on the checker's own union-find, not
     layer 3's (P0's D107).

@@ -26,8 +26,8 @@ of `make self` that does not fit the owner's machine.
 The interned names and the stored terms' columns are 0010's (its A0, in
 C183's form); this proposal builds the rest of the frontend's state as
 tables on them. O3, Translate's instance fixpoint, is 0015's first
-consumer (R1 and R2 come before it); O5's join, O7's constraint store
-and O8's laws are 0015's too.
+consumer (R1 and R2 come before it); O7's constraint store and O8's
+laws are 0015's too.
 
 **Sources** (under `sources/`): `notes/flattened-data/columnar.md` §3,
 §6, §8, §9 (Zig's `MultiArrayList`, AST, ZIR and InternPool;
@@ -234,25 +234,29 @@ is its hardest case (0013 §2.7).
 O5 lands in two halves (P0's C216). The flat parse tree lands first,
 whole: the parser emits its columns (§3), and a decoder gives `PTerm` to
 Desugar, Resugar and the printer, so the parser is converted entirely
-and nothing reads it half and half. Resolution as R1's interval join
-waits on P0 §4's question to the owner, still open, which this
-proposal does not settle: Idris resolves names during elaboration,
+and nothing reads it half and half. That is all of O5 (P0's D125).
+Names stay resolved where Idris resolves them: during elaboration,
 against the typed environment (`TTImp/Elab/App.idr:54`), and the only
 scope over syntax is Desugar's set of bound names, which needs each
 clause's pattern variables after operators are regrouped by the fixities
 in force, so a join over the parse tree has no reader unless Desugar
-reads the columns.
+reads the columns. Resolution as R1's interval join comes with the later
+stage that moves Desugar onto the tables (§4.5), not P0's.
 
-What O5 proposed for resolution, and what the question weighs: a
-reference resolves to the deepest binder of its name whose interval
+What O5 proposed for resolution, kept for that stage: a reference
+resolves to the deepest binder of its name whose interval
 contains it, an Allen "during" join with a max-depth fold, on 0015's
 layer 1 (bumbledb's `src/allen.rs` the reference). That it beats a scope
-stack is *conjecture*, measured at O5, whose threshold a sequential
-resolution over the same tables meets if the join does not. De Bruijn
+stack is *conjecture*, to be measured at that stage, whose threshold a
+sequential resolution over the same tables meets if the join does not. De Bruijn
 indices follow from a binder-depth scan. Imports are a join of references
 against export tables.
 
 ### 4.5 Desugaring
+A later stage, not P0's and not one of §8's (P0's D125): Desugar reads
+the parse tree's columns, its bound-name set becomes §4.4's join plus a
+row per clause for its pattern variables, and name resolution moves onto
+the join with it.
 `do`, `where`, records and implicit insertion are masked maps over the
 kind column. A node that expands into k nodes is count, exclusive scan,
 scatter: Elsman's expansion, O(M) work for M outputs (*read* through
@@ -405,7 +409,7 @@ byte-identical outputs on every target.
 | O2 | P0 (D44), §7's F8 | 0010's A0 | the Emit of the new dialect, written once over the Core table (C136): the core, datatypes and ops tables; lambdas lifted by interval queries; names from slice hashes; an instance as a row with its symbol as a print column (`TS.symbols` its check); operands as result positions; D48's families, each written once; the root as one id; each function's bytes by a size scan and a scatter | the cutover's checks (D56), with no earlier bytes to match, since today's writer emits the dialect O2 replaces (C136); emission ≥ 5× faster than O0; peak memory not above O0's |
 | O3 | P0 (D44), §7's F9 | 0015's R1 and R2 in plain Idris (O3 is R3) | Translate as semi-naive over the instance table keyed by `Link`; reachable as its query, within the growth check's bounds | identical Core; translate ≥ 3× faster than O0 |
 | O4 | | | moved: the stored terms' columns are 0010's A0, in C183's form | |
-| O5 | P0 (D44), §7's F9, with the checker; two halves (C216) | the checker's parser (D119); for resolution, 0015's R1 and the answer to P0 §4's open question | first, whole, the flat parse tree and its decoder to `PTerm` (C216); then name resolution, its form open (§4.4) | identical TTCs; parse plus resolve no slower than 0010's A0, a bar the open question may change |
+| O5 | P0 (D44), §7's F9, with the checker (C216, D125) | the checker's parser (D119) | the flat parse tree, whole, and its decoder to `PTerm` (C216); name resolution stays the elaborator's, its join a later stage (§4.4, §4.5; D125) | identical TTCs; parsing no slower than 0010's A0 |
 | O6 | P0 (D69) | 0009's plain-Idris layer, its stage 7, which comes into P0 with O6 (D69; D11) | multiplicity checking as a semiring fold; size-change composition as a semiring product (the closure stays `loopsTerminate` until 0015); `calcTerminating`'s triple closure deleted for `loopsTerminate` | identical totality and multiplicity verdicts, and identical totality messages, on base and the corpus |
 | O7 | P0 (D69) | 0015's R2; the checker's own union-find, which is R4's part in P0 (D107) | the constraint store and postponement on 0015's layer 2; meta-to-meta unification on the checker's own union-find, in Idris | 0010 A2's targets; identical TTCs |
 | O8 | P0 (D44), §7's F9 | 0015's R1 | the laws of §5 as queries on every compilation | a seeded violation of each law caught by name; under 5% of the frontend's wall at O0 |
@@ -487,10 +491,10 @@ D3.
   deletes the elaborator's triple closure for `loopsTerminate` (0013
   D13). Its kernels reach the checker only through 0009's plain-Idris
   layer (§1), which comes into P0 with O6 (P0's D69).
-- D12. O3, O5's join, O7's constraint store and O8 are built on 0015's
+- D12. O3, O7's constraint store and O8 are built on 0015's
   plain-Idris layer, which P0 builds as R1 and R2 (P0's D44); O3 is its
-  first consumer. Whether O5's resolution is the join is P0 §4's open
-  question (§4.4, C216). O7's meta-to-meta unification is the checker's
+  first consumer. O5's resolution is not the join in P0 (§4.4, P0's
+  D125). O7's meta-to-meta unification is the checker's
   own union-find (D107).
 - D13. The law queries run on every compilation, never in test builds
   alone, under 5% of the frontend's wall at O0. Reason: a check off in
