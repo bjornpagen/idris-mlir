@@ -188,7 +188,6 @@ private:
   void finishBlock(BlockWalk &walk);
   State finishOp(OpWalk &walk);
   void enterTerminator(mlir::Operation *terminator, State &state);
-  llvm::SmallBitVector consumedBy(mlir::Operation *op);
   State successorState(const mlir::RegionSuccessor &successor, mlir::Operation *terminator);
   OpWalk *frameOf(mlir::Operation *op);
   bool aliveAt(ValueId owner, mlir::Operation *op, const State &state) const;

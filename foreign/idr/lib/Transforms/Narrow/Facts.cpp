@@ -3,7 +3,8 @@
 // The facts of one function the word rewrite reads: its values numbered by
 // the body's one numbering, the steps of the rewrite recorded in its order,
 // each value's bounds read off the solve once, and the webs its joints
-// carry; and the words and bigs that stand for each other.
+// carry; the words and bigs that stand for each other; and how a big whose
+// place a word takes in a use is read and gives its reference up.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -63,13 +64,19 @@ Bounds boundsOf(const Ranges::Solved &analysis, Value value) {
   return ranges::boundsOf(*range);
 }
 
-// The grade says whether a big holds a reference of its own: freed by its
-// count. Static data, which its type says is static, holds none.
-bool owned(Value value) { return freedBy(value.getType(), Release::Counted); }
-
 // A view holds references and none of its own: freed when its lifetime
 // ends.
 bool borrowed(Value value) { return freedBy(value.getType(), Release::Scoped); }
+
+Replaced replace(OpBuilder &b, Location loc, OpOperand &use) {
+  Value big = use.get();
+  return {heldAs(b, loc, big, atUses(big.getType(), Uses::Many)), referenceAt(use)};
+}
+
+void giveUp(OpBuilder &b, Location loc, const Replaced &replaced) {
+  if (replaced.reference == Reference::MovedOn)
+    CountDropOp::create(b, loc, replaced.read);
+}
 
 Value word(OpBuilder &b, Location loc, Value value) {
   Type i64 = b.getI64Type();

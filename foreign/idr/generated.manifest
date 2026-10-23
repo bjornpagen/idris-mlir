@@ -1,9 +1,9 @@
-specification fce58cc32f890cb5
+specification 1d8d635ae2bdb88d
 generator 49b31559a9ebc9e4
 a71d2825ad295531 foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 e2c1baf2a98be36d foreign/idr/include/idr/IR/Generated/IdrTypes.td
-3ead318e2b1b942a foreign/idr/include/idr/IR/Generated/IdrOps.td
+aa4a32842758394a foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 f8db0fc7099d73fd foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 ff6f48f99a642609 foreign/idr/include/idr/IR/Generated/IdrPasses.td

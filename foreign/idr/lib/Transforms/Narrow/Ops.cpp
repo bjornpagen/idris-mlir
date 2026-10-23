@@ -7,7 +7,6 @@
 // joint, met as the walk enters it, before anything its regions hold.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Generated/Actions.h.inc"
@@ -23,6 +22,7 @@
 // The word op of each big op that names one: BigToWord.
 #include "idr/IR/Generated/BigToWord.h.inc"
 
+#include <cassert>
 #include <type_traits>
 
 using namespace mlir;
@@ -100,20 +100,21 @@ void replaceBig(RewriterBase &rewriter, Operation *op, Value word) {
   rewriter.replaceOp(op, big(rewriter, op->getLoc(), result.getType(), word));
 }
 
-// The word of what the big op `op` computes, on the words of its operands:
-// the word op it names (BigToWord) applied to them and, where it names
-// one, to its constant after them; the word itself where it names no op. A
-// sum, difference or product carries no wrap, and none unsigned when
-// nothing is negative; a comparison is its predicate on words, signed; a
-// conversion to an integer narrower than the word truncates; the larger of
-// a value that is not negative and 0 is the value.
+// The word of what the big op `op` computes, on the words of its operands,
+// each read from what `read` holds for it: the word op it names
+// (BigToWord) applied to them and, where it names one, to its constant
+// after them; the word itself where it names no op. A sum, difference or
+// product carries no wrap, and none unsigned when nothing is negative; a
+// comparison is its predicate on words, signed; a conversion to an integer
+// narrower than the word truncates; the larger of a value that is not
+// negative and 0 is the value.
 template <typename OpT>
-Value wordOf(RewriterBase &rewriter, OpT op, Sign sign) {
+Value wordOf(RewriterBase &rewriter, OpT op, llvm::ArrayRef<Replaced> read, Sign sign) {
   using Word = typename BigToWord<OpT>::Op;
   Location loc = op.getLoc();
   SmallVector<Value> words;
-  for (Value operand : op->getOperands())
-    words.push_back(word(rewriter, loc, operand));
+  for (const Replaced &operand : read)
+    words.push_back(word(rewriter, loc, operand.read));
   auto constant = [&](int64_t value) {
     return arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(value));
   };
@@ -144,7 +145,7 @@ Value wordOf(RewriterBase &rewriter, OpT op, Sign sign) {
 
 // A big op whose word op the ODS names (BigToWord), when every big it
 // takes and gives fits. What it took over the word takes nothing of, so
-// the big it took drops its reference there.
+// the big it took gives its reference up there.
 template <typename OpT>
 struct NarrowArith : OpRewritePattern<OpT> {
   using OpRewritePattern<OpT>::OpRewritePattern;
@@ -156,10 +157,11 @@ struct NarrowArith : OpRewritePattern<OpT> {
         return false;
       rewriter.setInsertionPoint(op);
       Location loc = op.getLoc();
-      Value made = wordOf(rewriter, op, signOf(rewriter.facts, ids));
-      for (OpOperand &operand : op->getOpOperands())
-        if (effects::consumes(operand) && owned(operand.get()))
-          CountDropOp::create(rewriter, loc, operand.get());
+      SmallVector<Replaced> bigs = llvm::map_to_vector(
+          op->getOpOperands(), [&](OpOperand &operand) { return replace(rewriter, loc, operand); });
+      Value made = wordOf(rewriter, op, bigs, signOf(rewriter.facts, ids));
+      for (const Replaced &big : bigs)
+        giveUp(rewriter, loc, big);
       if (isCarriedAsBig(op->getResult(0).getType()))
         replaceBig(rewriter, op.getOperation(), made);
       else
@@ -169,28 +171,29 @@ struct NarrowArith : OpRewritePattern<OpT> {
   }
 };
 
-// A guard's result is its guarded operand, so the guard of a big that fits
-// guards its word, and its result is the big of the checked word. The
-// guard took the big's reference; the word takes none, so the big drops
-// it.
+// A guard's result is its guarded operand, its first, so the guard of a big
+// that fits guards its word, and its result is the big of the checked word.
+// The guard took the big's reference; the word takes none, so the big gives
+// it up.
 struct NarrowGuard : OpInterfaceRewritePattern<GuardOpInterface> {
   using OpInterfaceRewritePattern::OpInterfaceRewritePattern;
 
   LogicalResult matchAndRewrite(GuardOpInterface guard, PatternRewriter &base) const override {
     WordRewriter &rewriter = at(base);
-    Value guarded = guard.getGuarded();
     Operation *op = guard.getOperation();
+    OpOperand &guarded = op->getOpOperand(0);
+    assert(guarded.get() == guard.getGuarded() && "a guard's guarded value is its first operand");
     return narrowed(rewriter, op, Takes::Words, [&](llvm::ArrayRef<ValueId> ids) {
-      if (!isCarriedAsBig(guarded.getType()) || !allFit(rewriter.facts, ids))
+      if (!isCarriedAsBig(guarded.get().getType()) || !allFit(rewriter.facts, ids))
         return false;
       rewriter.setInsertionPoint(op);
       Location loc = op->getLoc();
-      Value value = word(rewriter, loc, guarded);
+      Replaced big = replace(rewriter, loc, guarded);
+      Value value = word(rewriter, loc, big.read);
       Operation *checked = rewriter.clone(*op);
       checked->setOperand(0, value);
       checked->getResult(0).setType(value.getType());
-      if (owned(guarded))
-        CountDropOp::create(rewriter, loc, guarded);
+      giveUp(rewriter, loc, big);
       replaceBig(rewriter, op, checked->getResult(0));
       return true;
     });
@@ -233,10 +236,12 @@ struct NarrowCount : OpRewritePattern<OpT> {
 // the value its default binds, the scrutinee none of the keys, fits a
 // small: the scrutinee is then a word wherever the match reads it. Its
 // keys become words, and its default binds the word, whose uses read the
-// big of it, which holds no reference. The match reads its scrutinee in
-// place and takes nothing of it. The bound asked is the default's binding,
-// a value of the joint the walk numbered, as the rewrite enters the joint
-// before any op of its regions is rewritten.
+// big of it, which holds no reference. The match forwards its scrutinee
+// into its default's binding, which moves a counted big's reference on, and
+// the word it then matches takes nothing of it, so the big gives it up
+// before the match. The bound asked is the default's binding, a value of
+// the joint the walk numbered, as the rewrite enters the joint before any
+// op of its regions is rewritten.
 struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -265,7 +270,10 @@ struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
       outers.pop_back();
     bool done = support::perform<NarrowWordAction>(match, [&] {
       rewriter.setInsertionPoint(match);
-      Value small = word(rewriter, match.getLoc(), scrutinee);
+      Location loc = match.getLoc();
+      Replaced big = replace(rewriter, loc, match.getScrutineeMutable());
+      Value small = word(rewriter, loc, big.read);
+      giveUp(rewriter, loc, big);
       rewriter.modifyOpInPlace(match, [&] {
         match.getScrutineeMutable().set(small);
         match.setCasesAttr(rewriter.getArrayAttr(keys));

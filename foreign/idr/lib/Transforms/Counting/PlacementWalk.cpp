@@ -14,7 +14,7 @@
 // costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
 
-#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -79,53 +79,6 @@ State Placement::successorState(const RegionSuccessor &successor, Operation *ter
     return State{llvm::BitVector(count.value()), Ahead::Allocation};
   }
   return *entry;
-}
-
-// The operands `op` consumes: a return's move to the caller, a terminator's
-// forwarded ones to its successors, a region op's entry operands into the
-// regions they enter, a counted operand an op gives back as its result (a
-// cast, a share, a loan, whose result then holds the reference); any other
-// operand consumes as its op declares. A move on takes a reference over
-// only from an operand its hold says is counted: a view moved on holds
-// none, and what receives it is a view too, so forwarding one into a
-// region and yielding it out consumes nothing.
-llvm::SmallBitVector Placement::consumedBy(Operation *op) {
-  llvm::SmallBitVector consumed(op->getNumOperands());
-  auto moves = [&](unsigned at) {
-    if (freedBy(op->getOperand(at).getType(), Release::Counted))
-      consumed.set(at);
-  };
-  auto mark = [&](OperandRange forwarded) {
-    if (forwarded.empty())
-      return;
-    unsigned first = forwarded.getBeginOperandIndex();
-    for (unsigned at = first, end = first + static_cast<unsigned>(forwarded.size()); at < end; ++at)
-      moves(at);
-  };
-  if (op->hasTrait<OpTrait::IsTerminator>() && leavesOf(op) == Leaves::Frame) {
-    for (unsigned at = 0, end = op->getNumOperands(); at < end; ++at)
-      moves(at);
-    return consumed;
-  }
-  if (auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(op)) {
-    llvm::SmallVector<Attribute> constants(op->getNumOperands());
-    llvm::SmallVector<RegionSuccessor> successors;
-    terminator.getSuccessorRegions(constants, successors);
-    for (const RegionSuccessor &successor : successors)
-      mark(terminator.getSuccessorOperands(successor));
-  }
-  if (auto branch = dyn_cast<RegionBranchOpInterface>(op)) {
-    llvm::SmallVector<RegionSuccessor> entries;
-    branch.getSuccessorRegions(RegionBranchPoint::parent(), entries);
-    for (const RegionSuccessor &entry : entries)
-      mark(branch.getEntrySuccessorOperands(entry));
-  }
-  if (givesOperandBack(op) && freedBy(op->getOperand(0).getType(), Release::Counted))
-    consumed.set(0);
-  for (OpOperand &operand : op->getOpOperands())
-    if (!consumed.test(operand.getOperandNumber()) && effects::consumes(operand))
-      consumed.set(operand.getOperandNumber());
-  return consumed;
 }
 
 // Whether a counted value still holds its reference at `op`: some later use
@@ -194,7 +147,7 @@ void Placement::stepBlock(BlockWalk &walk) {
   State &state = walk.state;
   if (op->hasTrait<OpTrait::IsTerminator>()) {
     enterTerminator(op, state);
-    llvm::SmallBitVector consumed = consumedBy(op);
+    llvm::SmallBitVector consumed = movedOn(op);
     operandDeaths(op, consumed, state, nullptr, nullptr);
     useOperands(op, state, consumed, nullptr);
     return;
@@ -218,7 +171,7 @@ void Placement::stepBlock(BlockWalk &walk) {
   for (Value result : op->getResults())
     state.live.reset(idOf(result).index());
   if (op->getNumRegions() == 0) {
-    llvm::SmallBitVector consumed = consumedBy(op);
+    llvm::SmallBitVector consumed = movedOn(op);
     operandDeaths(op, consumed, state, nullptr, nullptr);
     useOperands(op, state, consumed, nullptr);
     return;
@@ -258,7 +211,7 @@ void Placement::stepOp(OpWalk &walk) {
   // The op's own operands, read or moved as it begins: a value its regions
   // need is live into it already.
   llvm::BitVector inside = state.live;
-  llvm::SmallBitVector consumed = consumedBy(finished.op);
+  llvm::SmallBitVector consumed = movedOn(finished.op);
   operandDeaths(finished.op, consumed, state, &inside, &finished.after);
   useOperands(finished.op, state, consumed, &inside);
 }

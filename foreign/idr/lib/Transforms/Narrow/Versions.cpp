@@ -118,19 +118,22 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Ranges::Solv
 // else { the loop }. On the first path the mask changes nothing, and shows
 // the analysis the bound that a descending argument keeps. Both versions
 // are copies, which the walk that versions does not visit, so a loop is
-// versioned once.
+// versioned once. The natural is read where the loop took it: a natural
+// used once leaves its linear position first, and the loop that still
+// takes it gets it back in one.
 void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Location loc = loop.getLoc();
   MLIRContext *ctx = loop.getContext();
   Value init = loop.getInits()[index];
   Type nat = init.getType();
   rewriter.setInsertionPoint(loop);
+  Replaced held = replace(rewriter, loc, loop.getInitsMutable()[index]);
   APInt max(64, static_cast<uint64_t>(IDRIS_RT_SMALL_MAX), /*isSigned=*/true);
   // The bound is static data, as a constant's type says; the natural is
-  // read in place at any hold, so the comparison takes nothing of it.
-  Value bound = ConstantOp::create(rewriter, loc, atHold(nat, Hold::staticData()),
+  // read in place, so the comparison takes nothing of it.
+  Value bound = ConstantOp::create(rewriter, loc, atHold(held.read.getType(), Hold::staticData()),
                                    BigAttr::get(ctx, max));
-  Value small = BigCmpOp::create(rewriter, loc, init, bound, CmpPredicate::lte);
+  Value small = BigCmpOp::create(rewriter, loc, held.read, bound, CmpPredicate::lte);
   // The branch gives back the results something reads. A result nothing
   // reads is what the loop's condition forwards on the path not taken
   // (poison): left unread in each copy, it stays that, which the owned
@@ -153,21 +156,22 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   };
 
   rewriter.setInsertionPointToStart(branch.thenBlock());
-  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), init);
+  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), held.read);
   Value mask =
       arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(IDRIS_RT_SMALL_MAX));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
   Value start = BigSmallOp::create(rewriter, loc, nat, masked);
-  // The copy starts from the word, so the natural it was read from drops
+  // The copy starts from the word, so the natural it was read from gives up
   // the reference the loop would have taken.
-  if (owned(init))
-    CountDropOp::create(rewriter, loc, init);
+  giveUp(rewriter, loc, held);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
   yield(given(copy));
 
   rewriter.setInsertionPointToStart(branch.elseBlock());
+  Value back = heldAs(rewriter, loc, held.read, nat);
   Operation *otherwise = rewriter.clone(*loop);
+  rewriter.modifyOpInPlace(otherwise, [&] { otherwise->setOperand(index, back); });
   yield(given(otherwise));
   for (auto [at, result] : llvm::zip_equal(read, branch.getResults()))
     rewriter.replaceAllUsesWith(loop->getResult(at), result);

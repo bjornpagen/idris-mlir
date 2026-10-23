@@ -5,14 +5,23 @@
 // each op that exists from counting's first step to exclusivity states
 // where what it holds, takes or gives goes. A value is followed whole, or
 // into and out of a field of another. The ops reuse and the expansion
-// make, after every marking has read the program, state nothing.
+// make, after every marking has read the program, state nothing; the fused
+// take ends its owner, as its trait says. And the one rule placement and
+// the linearity rule read of what any op does with a counted operand's
+// reference, from what the op declares (Counting.h).
 
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Flow.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -37,6 +46,9 @@ void CellRecycleOp::getFlowEdges(FlowEdges &edges) {
   edges.release(getTokenMutable());
   edges.fresh(getCell());
 }
+
+// The token's emptied cell is freed here: the token gives its reference up.
+void TokenFreeOp::getFlowEdges(FlowEdges &edges) { edges.release(getTokenMutable()); }
 
 // The value is its cell, so the init takes the cell over and the value is
 // new exactly when the cell was; each field given moves into its field of
@@ -98,4 +110,55 @@ void OwnAdoptOp::getFlowEdges(FlowEdges &edges) { edges.fresh(getResult()); }
 void OwnGiveOp::getFlowEdges(FlowEdges &edges) {
   edges.release(getValueMutable());
   edges.flow(FlowSource::of(getValue()), FlowPlace::of(getResult()));
+}
+
+//===----------------------------------------------------------------------===//
+// What an op does with a counted operand's reference
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// The use an edge moves on whole or gives up: the source of a flow that is
+// the use itself, or the use a release gives up. A part moved out of a use
+// is no move of the use, and every other edge moves none.
+std::optional<OpOperand *> movedBy(const FlowEdges::Edge &edge) {
+  using Moved = std::optional<OpOperand *>;
+  return match(
+      edge.move,
+      [](const FlowEdges::Flow &flow) -> Moved {
+        return match(
+            flow.from.at, [](const FlowSource::Taken &taken) -> Moved { return taken.use; },
+            [](const OneOf<FlowSource::Whole, FlowSource::Part, FlowSource::Parameter,
+                           FlowSource::Result> auto &) -> Moved { return std::nullopt; });
+      },
+      [](const FlowEdges::Release &release) -> Moved { return release.use; },
+      [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh, FlowEdges::Overwrite,
+                     FlowEdges::Fill, FlowEdges::Constant, FlowEdges::Dispatch> auto &) -> Moved {
+        return std::nullopt;
+      });
+}
+
+} // namespace
+
+llvm::SmallBitVector idr::movedOn(Operation *op) {
+  llvm::SmallBitVector moved(op->getNumOperands());
+  if (op->getNumOperands() != 0 &&
+      (op->hasTrait<EndsOwner>() || op->hasTrait<RunsOnceGivingBack>()))
+    moved.set(0);
+  FlowEdges edges;
+  flowEdgesOf(op, edges);
+  for (const FlowEdges::Edge &edge : edges.edges())
+    if (std::optional<OpOperand *> use = movedBy(edge)) {
+      assert((*use)->getOwner() == op && "an op's edges move only its own uses");
+      moved.set((*use)->getOperandNumber());
+    }
+  for (OpOperand &use : op->getOpOperands())
+    if (!freedBy(use.get().getType(), Release::Counted))
+      moved.reset(use.getOperandNumber());
+  return moved;
+}
+
+Reference idr::referenceAt(OpOperand &use) {
+  return movedOn(use.getOwner()).test(use.getOperandNumber()) ? Reference::MovedOn
+                                                              : Reference::Kept;
 }

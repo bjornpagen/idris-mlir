@@ -11,8 +11,11 @@
 // every path that goes on: its one use is what takes it (an init fills the
 // cell, a write fills the destination, an unpack reopens the package), so a
 // path without it leaves memory nothing fills or gives back. Once the
-// program is counted, a value that holds a reference of its
-// own is given up exactly once on every path that goes on. All three are
+// program is counted, a value that holds a reference of its own moves it
+// on exactly once on every path that goes on, by the one rule counting
+// places by (referenceAt): given up, handed on whole (a yield, a jump, a
+// match's entering operand, a cast, a call, a constructor's field), its
+// owner ended, or lent and given back. All three are
 // one count: the uses that count, on the worst path, the most over a
 // match's alternatives, the sum over regions that run one after another,
 // twice for a region that runs again. A path that ends the run (a crash,
@@ -23,8 +26,8 @@
 // Which regions of an op exclude each other is asked of
 // RegionBranchOpInterface once per op class in one verify.
 
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Counting/Traits.h"
-#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
@@ -53,9 +56,9 @@ namespace {
 
 // What a value is held to: at most one use on every path (a value its grade
 // uses once, of each field); exactly one use on every path that goes on (a
-// value its type uses once); or exactly one giving up of its reference on
-// every path that goes on, the uses that do not consume it not counting (a
-// counted value).
+// value its type uses once); or exactly one use that moves its reference on
+// on every path that goes on, the uses that keep it not counting (a counted
+// value).
 enum class Obligation : std::uint8_t { UsedAtMostOnce, UsedExactlyOnce, ConsumedExactlyOnce };
 
 // Whether `obligation` holds a value to its uses, or to the giving up of its
@@ -383,8 +386,8 @@ bool takesAField(OpOperand &use) {
 // a second use of it. A value no use reads a field of is counted whole. A
 // use that takes the cell alone is in no count: it ends the owner after the
 // value's last use, where counting or the in-place check puts it, and once
-// the program is counted the consumption count holds it, beside every other
-// use that gives the value up, to exactly one.
+// the program is counted the count of the uses that move the reference on
+// holds it, beside every other such use, to exactly one.
 LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
   SmallVector<std::uint64_t, 4> read;
   for (OpOperand &use : value.getUses())
@@ -433,15 +436,15 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
     if (lifetimes::loanOf(value))
       return success();
     // A part read with no reference of its own is given up with its owner,
-    // whose one consumption counts for it: a use giving it up is a second.
+    // whose one move counts for it: a use moving it on is a second.
     if (ownership::ownerOfPart(value)) {
       for (OpOperand &use : value.getUses())
-        if (effects::consumes(use))
-          return use.getOwner()->emitOpError("gives up a part that its owner gives up");
+        if (referenceAt(use) == Reference::MovedOn)
+          return use.getOwner()->emitOpError("moves on a part that its owner gives up");
       return success();
     }
     return Count(value, Obligation::ConsumedExactlyOnce, exclusivity,
-                 [](OpOperand &use) { return effects::consumes(use); })
+                 [](OpOperand &use) { return referenceAt(use) == Reference::MovedOn; })
         .check();
   };
   WalkResult walked = fn->walk<WalkOrder::PreOrder>([&](Operation *op) {

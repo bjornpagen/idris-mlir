@@ -40,18 +40,20 @@ void narrowResult(RewriterBase &rewriter, OpResult result) {
 }
 
 // Passes the word of `operand` instead of the big. The operands narrowed
-// here are consumed where they are passed (a loop's start, a yield), so a
-// big that held a reference drops it there: counting ran before, and the
-// word takes nothing. A big made of a word holds no count, so passing its
-// word drops nothing.
+// here are forwarded where they are passed (a loop's start, a yield), which
+// moves a counted big's reference on, so the big gives it up there:
+// counting ran before, and the word takes nothing. A big made of a word
+// holds no count, so passing its word gives nothing up.
 void passWord(RewriterBase &rewriter, OpOperand &operand) {
   Operation *owner = operand.getOwner();
+  Location loc = owner->getLoc();
   rewriter.setInsertionPoint(owner);
   Value value = operand.get();
-  Value made = word(rewriter, owner->getLoc(), value);
+  Replaced big = replace(rewriter, loc, operand);
+  Value made = word(rewriter, loc, big.read);
+  if (!value.getDefiningOp<BigSmallOp>())
+    giveUp(rewriter, loc, big);
   rewriter.modifyOpInPlace(owner, [&] { operand.set(made); });
-  if (owned(value) && !value.getDefiningOp<BigSmallOp>())
-    CountDropOp::create(rewriter, owner->getLoc(), value);
 }
 
 bool carries(const Facts &facts, const Decisions &decided, const Carry &carry) {

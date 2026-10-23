@@ -16,6 +16,7 @@
 
 #include "idr/Analysis/Ranges.h"
 #include "idr/Analysis/Solver/Extraction.h"
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ranges.h"
 #include "idr/Support/Footprint.h"
@@ -56,11 +57,32 @@ namespace idr::narrow {
 // program (the owned stage), where every value that holds references is
 // graded.
 ranges::Bounds boundsOf(const Ranges::Solved &analysis, mlir::Value value);
-// Whether the big `value` holds a reference of its own, which a word
-// taking its place in a consuming use leaves it to drop: its grade says.
-bool owned(mlir::Value value);
 // Whether `value` is a view: it holds references, and none of its own.
 bool borrowed(mlir::Value value);
+
+// A big a word takes the place of in a use, held where its word is read:
+// `read`, what the word is read from, the big itself, or, for a big used
+// once, the big cast out of its linear position, which moves what it holds
+// to the value the cast makes, since a value used once reaches a primitive
+// only through a cast to many; and what the use did with the big's
+// reference, by counting's one rule.
+struct Replaced {
+  mlir::Value read;
+  Reference reference;
+};
+
+// The big `use` gives, held where the builder stands for a word to take its
+// place in `use`.
+Replaced replace(mlir::OpBuilder &b, mlir::Location loc, mlir::OpOperand &use);
+
+// Where the builder stands, once the word of `replaced` is read: a use that
+// moved the big's reference on leaves it to the big, since the word in its
+// place takes nothing of it, so the big gives it up there, as placement
+// gives up a value whose last use is behind it, by a drop of what the word
+// was read from, used many. A big has no constructor a take could take
+// apart, so a big used once is given up as the value its cast made. A use
+// that kept the reference leaves nothing to give up.
+void giveUp(mlir::OpBuilder &b, mlir::Location loc, const Replaced &replaced);
 
 // The versioning of each scf.while whose natural only descends, under
 // `analysis`; adds the loops versioned to `versioned`.

@@ -32,10 +32,13 @@
 // it, whose constructor a force may change, or below which a buffer stands
 // between it and the part, gives each part a dup while it still lives. A
 // part still needed after a region op takes its reference before the op,
-// so no region supplies it on only one of its paths. A view a lifetime
-// frees is never consumed: borrowing made it a view only where nothing
-// takes it over, so a consuming use of one is that promise broken, an
-// internal error.
+// so no region supplies it on only one of its paths. A part that took a
+// reference of its own is placed as a counted value from then on: a part
+// read from it is a view of it while it lives, and where it dies with such
+// a part still needed, that part takes its reference from it, as from an
+// owner. A view a lifetime frees holds no reference of its own, so no use
+// moves one on and nothing is placed for it. Which uses move a reference
+// on is the one rule the linearity rule reads too (Counting.h).
 //
 // An element read out of memory is a part of its buffer too, where nothing
 // may overwrite it while it, or a part read from it, is in use: no op that

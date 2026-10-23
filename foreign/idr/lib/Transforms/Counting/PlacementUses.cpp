@@ -60,16 +60,29 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
 }
 
 // Each operand of `op`, against what is live after it: a consuming use of a
-// counted value still needed later takes a dup; a use of a part while its
-// owner lives reads it, and a consuming one takes a dup of it; a part used
-// after its owner died has taken a reference of its own, and is placed as a
-// counted value from then on; a lent value's owner lives past the call, so
-// a consuming use of it takes a dup and nothing else is placed. Last, a
-// point before an op that may acquire memory has an allocation ahead.
+// counted value still needed later takes a dup; a use of a part while what
+// it was read from still holds it reads it, and a consuming one takes a dup
+// of it; a part used where nothing it was read from lives any more holds a
+// reference of its own, and is placed as a counted value from then on,
+// dying at its last use as one does; a lent value's owner lives past the
+// call, so a consuming use of it takes a dup and nothing else is placed.
+// Last, a point before an op that may acquire memory has an allocation
+// ahead.
 void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVector &consumed,
                             const llvm::BitVector *inside) {
   // A call nothing may follow, past which no drop can be placed.
   CallOp last = lastActOf(op);
+  // Whether a value `part` was read from holds it at `op`, up the chain of
+  // what each was read from to its owner: one that lives there, the owner
+  // or a part that took a reference of its own, keeps the memory the part
+  // reads, so the part is a view of it there.
+  auto held = [&](ValueId part) {
+    for (std::optional<ValueId> from = readFromOf[part]; from;
+         from = roles[*from] == Role::Part ? readFromOf[*from] : std::nullopt)
+      if (aliveAt(*from, op, state))
+        return true;
+    return false;
+  };
   llvm::SmallVector<ValueId, 4> used;
   for (OpOperand &operand : op->getOpOperands()) {
     ValueId id = idOf(operand.get());
@@ -78,16 +91,13 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
     bool needed = state.live.test(id.index()) || llvm::is_contained(used, id) ||
                   (inside && inside->test(id.index()) && consumes);
     switch (roles[id]) {
+    // A view holds no reference of its own, so the rule moves none on.
     case Role::Untouched:
+    case Role::Scoped:
       break;
     case Role::Lent:
       if (consumes)
         dups.push_back({op, index});
-      break;
-    case Role::Scoped:
-      if (consumes)
-        fail(op, "a view its lifetime frees is taken over, though borrowing made it a view only "
-                 "where nothing takes it over");
       break;
     case Role::Owned:
       if (consumes && needed)
@@ -95,7 +105,6 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
       used.push_back(id);
       break;
     case Role::Part: {
-      ValueId owner = *ownerOf[id];
       if (state.live.test(id.index()) || llvm::is_contained(used, id)) {
         // Owned from here on: placed as a counted value.
         if (consumes && needed)
@@ -103,19 +112,27 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
         used.push_back(id);
         break;
       }
-      if (aliveAt(owner, op, state)) {
-        // A part of a living owner: a use that consumes it takes a dup.
+      if (held(id)) {
+        // A view of what holds it: a use that consumes it takes a dup.
         if (consumes)
           dups.push_back({op, index});
         break;
       }
-      // Its owner is dead here: it holds a reference of its own from here
-      // on, which this use consumes or which is given up right after it.
-      if (!consumes && state.ahead == Ahead::Allocation) {
-        if (last)
-          fail(op, "a call in tail position reads a part no later use needs");
-        giveUp(Where::past(op), id);
-      }
+      // Nothing it was read from lives here: it holds a reference of its own
+      // from here on, and this is its last use, so it dies here as a counted
+      // value does, moved on by a use that consumes it or given up right
+      // after one that reads it, and the parts read from it that are still
+      // needed take their references from it first. Given up alone, a part
+      // read from it would read memory its giving up may free.
+      bool moves = llvm::any_of(op->getOpOperands(), [&](OpOperand &other) {
+        return other.get() == operand.get() && consumed.test(other.getOperandNumber());
+      });
+      if (moves)
+        death(id, Where::before(op), Death::Consuming, state);
+      else if (last && state.ahead == Ahead::Allocation)
+        fail(op, "a call in tail position reads a part no later use needs");
+      else
+        death(id, Where::past(op), Death::Reading, state);
       used.push_back(id);
       break;
     }

@@ -2680,7 +2680,8 @@ def Idr_CellRecycleOp : Idr_Op<"cell.recycle", [
 
 def Idr_TokenFreeOp : Idr_Op<"token.free", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "frees the emptied cell a token holds";
   let arguments = (ins Type<CPred<"::idr::isTokenValue($_self)">, "a reuse token, used once", "::mlir::Type">:$token);

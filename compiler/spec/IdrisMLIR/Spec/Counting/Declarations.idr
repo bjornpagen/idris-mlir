@@ -22,7 +22,8 @@
 ||| recycle (`count.take_into`), and where it is given on elsewhere the shared
 ||| path gives the null token (`token.null`). The ops that end their value's
 ||| owner (the drop, the take, the unpack, the fused take, the test) carry one
-||| trait, which the linearity rule reads. A rebuild the in-place rule
+||| trait, which the linearity rule and counting's rule of what an op does
+||| with a reference read. A rebuild the in-place rule
 ||| decided before counting is a token its check made, consumed by
 ||| `token.rebuild`.
 |||
@@ -122,7 +123,10 @@ outers = variadic "outers" (OurType (SomeType lifetimeType))
 ||| each a value of its own (a take, the fused take, the test of sharing),
 ||| or its fields out of a value in place (an unpack). It reads none of the
 ||| value's fields, so a field read before it is no second use of that
-||| field, which the linearity rule reads off this trait, naming no op.
+||| field, which the linearity rule reads off this trait, naming no op; and
+||| it moves the value's reference on, which counting's one rule of what an
+||| op does with a reference reads off it too, the fused take's among them,
+||| which states no flow.
 endsOwner : TraitDef
 endsOwner = MkTraitDef "EndsOwner"
   (brief "ends the owner its first operand is: gives up its reference, or moves its fields out")
@@ -414,11 +418,13 @@ cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" ce
 
 ||| `token.free %t : !idr.reuse_token<…>`, C++ `TokenFreeOp`: frees the
 ||| emptied cell a token holds: with no test where the type proves it holds
-||| one, a test for null where it may not.
+||| one, a test for null where it may not. The token gives its reference up
+||| here, which its flow states, as placement's takes free their tokens
+||| while the markings still read the program.
 public export
 tokenFree : Op 1 0 0 0
 tokenFree = countingOp "token.free" [single "token" token] [] [] []
-  [] []
+  [] [Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Free Heap (Operands 0)] [Consumes 0] Covered Untouched)
   counted DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
