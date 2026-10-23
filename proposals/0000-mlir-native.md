@@ -2258,6 +2258,28 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   site walk cannot follow it and this stops for a ruling; and if the
   proof needs the normaliser idempotent beyond D68's statement, that new
   trust is the owner's.
+- **C258** (2026-10-22; L16cv's finding, under C256). An instance's link
+  is keyed by everything the instance's code depends on. A held
+  dictionary's holes (the types of the runtime values it closes over and
+  the binder that holds them) are part of its written argument wherever
+  its written form does not already fix them, so two requests that differ
+  only in their holes are two links, never one cache entry whose
+  signature belongs to whichever came first; the cache keeps the
+  `SignedAt` and gives it back on both paths, and a call's per-position
+  data is tied to it by type (C256's E). The holes count toward the
+  argument's size, and the growth model reads them as the translation
+  does (`Sites`' `holedAt`), so the run-time re-check never sees a key
+  the model did not bound. Symbol text follows the link; tests check
+  behaviour, not symbols. A program whose holes grow without bound along
+  a chain needs unboundedly many instances and is refused as
+  megamorphic, where today it would share one.
+- **C259** (2026-10-22; L16cv's finding, under C256). A choice's member is
+  registered with its dictionary reading, the reduct the one
+  classification found, so a dispatch arm's member, a held member and
+  `heldHere`'s rebuilt form are fixed by type, matched on that kept
+  reduct, and never reduced again; a member whose form does not reduce
+  cannot be registered, so no arm meets one, and Cases' whole-parameter
+  internal error and its second reduction go.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
