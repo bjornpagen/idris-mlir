@@ -640,3 +640,10 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   `Forces.cpp`, `Settle.cpp`, or give it a reader), and
   `Termination.idr:3-4` and `TerminatesAttr`'s description take L02x's
   text (in its handoff, 8123ffde's lane).
+- P-1 (INT-21, L17bb's reading), after L07w releases the specification:
+  `compiler/spec/spec.ipkg` becomes a library (its modules, no `main`,
+  no `executable`), which `make self-spec` installs, and a separate
+  `specgen.ipkg` depends on `idris-mlir-spec` with `main =
+  IdrisMLIR.Spec.Generator.Main` and `executable = specgen`, built by the
+  stock Idris; under self-host the driver compiles specgen as any program
+  (L03 with INT's Makefile).
