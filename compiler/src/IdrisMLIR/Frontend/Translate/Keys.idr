@@ -773,15 +773,22 @@ mutual
   passingTrees w AutoImplicit = []
   passingTrees w (DefImplicit t) = [keyTree w t]
 
+-- A reference's node is the same over every scope, so the two lemmas below
+-- state it over the closed one: a statement over a scope its claim never
+-- reads would leave that scope for every caller to solve, and none can.
+-- Over any other scope it holds by reduction.
+
 ||| A bound reference marking runtime value i is one node, weighing its
 ||| marker's token.
 export
-0 markerNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Just i -> keyTree w (Ref fc Bound n) = KeyNode (S i + 0) []
+0 markerNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Just i ->
+               keyTree {vs = []} w (Ref fc Bound n) = KeyNode (S i + 0) []
 markerNode w fc n found = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) found
 
 ||| A bound reference marking no runtime value is one node of weight one.
 export
-0 unmarkedNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Nothing -> keyTree w (Ref fc Bound n) = KeyNode 1 []
+0 unmarkedNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Nothing ->
+                 keyTree {vs = []} w (Ref fc Bound n) = KeyNode 1 []
 unmarkedNode w fc n none = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) none
 
 -- A leaf charges its own weight.

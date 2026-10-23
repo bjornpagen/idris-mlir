@@ -1155,71 +1155,13 @@ shapeHead tm = case getFnArgs tm of
 
 ||| A term's skeleton, decided: the skeleton, with the evidence that it is
 ||| the term's (`Readings.SkeletonOf`), or the evidence that the term has
-||| none, no data constructor heading it. A proof of what a request holds
-||| of a shape reads the evidence, and an argument cut to a hole carries
-||| the refutation `Readings.ArgumentCutAt` asks.
+||| none, no data constructor heading it (`Readings.Unshaped`). A proof of
+||| what a request holds of a shape reads the evidence, and an argument cut
+||| to a hole carries the second (`Readings.ArgumentCutAt`).
 public export
 data Skeletal : ClosedTerm -> Type where
   HasSkeleton : (shape : ClosedTerm) -> (0 _ : SkeletonOf t shape) -> Skeletal t
-  NoSkeleton : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf t s)) -> Skeletal t
-
--- Only a data constructor and an application have a skeleton: every other
--- node is neither of `SkeletonOf`'s two forms.
-0 localUnshaped : SkeletonOf (Local fc l i p) s -> Void
-localUnshaped SkeletonHead impossible
-localUnshaped (SkeletonApplied _ _) impossible
-
-0 boundUnshaped : SkeletonOf (Ref fc Bound n) s -> Void
-boundUnshaped SkeletonHead impossible
-boundUnshaped (SkeletonApplied _ _) impossible
-
-0 funcUnshaped : SkeletonOf (Ref fc Func n) s -> Void
-funcUnshaped SkeletonHead impossible
-funcUnshaped (SkeletonApplied _ _) impossible
-
-0 familyUnshaped : SkeletonOf (Ref fc (TyCon arity) n) s -> Void
-familyUnshaped SkeletonHead impossible
-familyUnshaped (SkeletonApplied _ _) impossible
-
-0 metaUnshaped : SkeletonOf (Meta fc n i args) s -> Void
-metaUnshaped SkeletonHead impossible
-metaUnshaped (SkeletonApplied _ _) impossible
-
-0 bindUnshaped : SkeletonOf (Bind fc x b sc) s -> Void
-bindUnshaped SkeletonHead impossible
-bindUnshaped (SkeletonApplied _ _) impossible
-
-0 asUnshaped : SkeletonOf (As fc side a p) s -> Void
-asUnshaped SkeletonHead impossible
-asUnshaped (SkeletonApplied _ _) impossible
-
-0 delayedUnshaped : SkeletonOf (TDelayed fc r t) s -> Void
-delayedUnshaped SkeletonHead impossible
-delayedUnshaped (SkeletonApplied _ _) impossible
-
-0 delayUnshaped : SkeletonOf (TDelay fc r ty a) s -> Void
-delayUnshaped SkeletonHead impossible
-delayUnshaped (SkeletonApplied _ _) impossible
-
-0 forceUnshaped : SkeletonOf (TForce fc r t) s -> Void
-forceUnshaped SkeletonHead impossible
-forceUnshaped (SkeletonApplied _ _) impossible
-
-0 constantUnshaped : SkeletonOf (PrimVal fc c) s -> Void
-constantUnshaped SkeletonHead impossible
-constantUnshaped (SkeletonApplied _ _) impossible
-
-0 erasedUnshaped : SkeletonOf (Erased fc why) s -> Void
-erasedUnshaped SkeletonHead impossible
-erasedUnshaped (SkeletonApplied _ _) impossible
-
-0 universeUnshaped : SkeletonOf (TType fc u) s -> Void
-universeUnshaped SkeletonHead impossible
-universeUnshaped (SkeletonApplied _ _) impossible
-
--- An application whose function has no skeleton has none.
-0 appliedUnshaped : ((s : ClosedTerm) -> Not (SkeletonOf f s)) -> SkeletonOf (App fc f a) s -> Void
-appliedUnshaped none (SkeletonApplied sf _) = none _ sf
+  NoSkeleton : (0 _ : Unshaped t) -> Skeletal t
 
 ||| The shape of a term as written: the constructors it is built with,
 ||| everything else erased, and nothing when its head is no constructor
@@ -1234,20 +1176,20 @@ skeleton (App fc f a) = case skeleton f of
   HasSkeleton f' sf => case skeleton a of
     HasSkeleton a' sa => HasSkeleton (App fc f' a') (SkeletonApplied sf (ArgumentKept sa))
     NoSkeleton none => HasSkeleton (App fc f' (probeTerm ProbeRuntime)) (SkeletonApplied sf (ArgumentCutAt none))
-  NoSkeleton none => NoSkeleton (\_ => appliedUnshaped none)
-skeleton (Local fc l i p) = NoSkeleton (\_ => localUnshaped)
-skeleton (Ref fc Bound n) = NoSkeleton (\_ => boundUnshaped)
-skeleton (Ref fc Func n) = NoSkeleton (\_ => funcUnshaped)
-skeleton (Ref fc (TyCon arity) n) = NoSkeleton (\_ => familyUnshaped)
-skeleton (Meta fc n i args) = NoSkeleton (\_ => metaUnshaped)
-skeleton (Bind fc x b sc) = NoSkeleton (\_ => bindUnshaped)
-skeleton (As fc side a p) = NoSkeleton (\_ => asUnshaped)
-skeleton (TDelayed fc r t) = NoSkeleton (\_ => delayedUnshaped)
-skeleton (TDelay fc r ty a) = NoSkeleton (\_ => delayUnshaped)
-skeleton (TForce fc r t) = NoSkeleton (\_ => forceUnshaped)
-skeleton (PrimVal fc c) = NoSkeleton (\_ => constantUnshaped)
-skeleton (Erased fc why) = NoSkeleton (\_ => erasedUnshaped)
-skeleton (TType fc u) = NoSkeleton (\_ => universeUnshaped)
+  NoSkeleton none => NoSkeleton (UnshapedApplied none)
+skeleton (Local fc l i p) = NoSkeleton UnshapedLocal
+skeleton (Ref fc Bound n) = NoSkeleton UnshapedBound
+skeleton (Ref fc Func n) = NoSkeleton UnshapedFunction
+skeleton (Ref fc (TyCon arity) n) = NoSkeleton UnshapedFamily
+skeleton (Meta fc n i args) = NoSkeleton UnshapedMeta
+skeleton (Bind fc x b sc) = NoSkeleton UnshapedBinder
+skeleton (As fc side a p) = NoSkeleton UnshapedAs
+skeleton (TDelayed fc r t) = NoSkeleton UnshapedDelayed
+skeleton (TDelay fc r ty a) = NoSkeleton UnshapedDelay
+skeleton (TForce fc r t) = NoSkeleton UnshapedForce
+skeleton (PrimVal fc c) = NoSkeleton UnshapedConstant
+skeleton (Erased fc why) = NoSkeleton UnshapedErased
+skeleton (TType fc u) = NoSkeleton UnshapedUniverse
 
 ||| A runtime value of a type with what its shape says, if anything.
 export

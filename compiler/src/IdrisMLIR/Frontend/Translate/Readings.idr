@@ -178,10 +178,10 @@ mentions p tm = mentioned (mentioning (\t => asMention (p t)) tm)
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
 ||| elaborated term (the implementation for the inner pair of a triple).
 export
-hasMeta : TT vars -> Bool
+hasMeta : Term vars -> Bool
 hasMeta = mentions metaTerm
   where
-    metaTerm : TT vs -> Bool
+    metaTerm : Term vs -> Bool
     metaTerm (Meta {}) = True
     metaTerm _ = False
 
@@ -531,14 +531,37 @@ referenceOf ctx stands Func n = maybe RuntimePart AtDefinition (definitionAddres
 public export
 data Keeping = EveryNode | Skeleton
 
+||| A term no data constructor heads, which has no skeleton: an application
+||| of a term that has none, or a node that is neither a data constructor
+||| nor an application. It is stated by the term's structure, as
+||| `Closed.skeleton` finds it, not as the absence of a skeleton, so that a
+||| skeleton can hold it where it cuts an argument (`ArgumentCutAt`) and
+||| stay strictly positive; the absence it means is `unshapedNone`.
+public export
+data Unshaped : ClosedTerm -> Type where
+  UnshapedApplied : Unshaped f -> Unshaped (App fc f a)
+  UnshapedLocal : {0 p : IsVar x i []} -> Unshaped (Local fc l i p)
+  UnshapedBound : Unshaped (Ref fc Bound n)
+  UnshapedFunction : Unshaped (Ref fc Func n)
+  UnshapedFamily : Unshaped (Ref fc (TyCon arity) n)
+  UnshapedMeta : Unshaped (Meta fc n i args)
+  UnshapedBinder : Unshaped (Bind fc x b sc)
+  UnshapedAs : Unshaped (As fc side a p)
+  UnshapedDelayed : Unshaped (TDelayed fc r t)
+  UnshapedDelay : Unshaped (TDelay fc r ty a)
+  UnshapedForce : Unshaped (TForce fc r t)
+  UnshapedConstant : Unshaped (PrimVal fc c)
+  UnshapedErased : Unshaped (Erased fc why)
+  UnshapedUniverse : Unshaped (TType fc u)
+
 mutual
   ||| A term's skeleton, as a shape's key holds it (`Closed.skeleton`): the
   ||| data constructor that heads it, applied to each argument's own
-  ||| skeleton, every argument that has none (no data constructor heads it)
-  ||| cut to one hole, the runtime probe. A hole stands for the node it cut,
-  ||| as a site's reading of a shape reads a part that is no data
-  ||| constructor as one hole (`nodeOf Skeleton`). Only a term a data
-  ||| constructor heads has a skeleton.
+  ||| skeleton, every argument that has none (`Unshaped`) cut to one hole,
+  ||| the runtime probe. A hole stands for the node it cut, as a site's
+  ||| reading of a shape reads a part that is no data constructor as one
+  ||| hole (`nodeOf Skeleton`). Only a term a data constructor heads has a
+  ||| skeleton.
   public export
   data SkeletonOf : ClosedTerm -> ClosedTerm -> Type where
     SkeletonHead : SkeletonOf (Ref fc (DataCon tag arity) n) (Ref fc (DataCon tag arity) n)
@@ -549,7 +572,40 @@ mutual
   public export
   data ArgumentCut : ClosedTerm -> ClosedTerm -> Type where
     ArgumentKept : SkeletonOf a a' -> ArgumentCut a a'
-    ArgumentCutAt : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf a s)) -> ArgumentCut a (probeTerm ProbeRuntime)
+    ArgumentCutAt : (0 _ : Unshaped a) -> ArgumentCut a (probeTerm ProbeRuntime)
+
+||| A term no data constructor heads has no skeleton: neither of
+||| `SkeletonOf`'s forms is a node `Unshaped` holds of, and an application
+||| has one only where its function has.
+export
+0 unshapedNone : Unshaped t -> SkeletonOf t s -> Void
+unshapedNone (UnshapedApplied u) (SkeletonApplied sf _) = unshapedNone u sf
+unshapedNone UnshapedLocal SkeletonHead impossible
+unshapedNone UnshapedLocal (SkeletonApplied _ _) impossible
+unshapedNone UnshapedBound SkeletonHead impossible
+unshapedNone UnshapedBound (SkeletonApplied _ _) impossible
+unshapedNone UnshapedFunction SkeletonHead impossible
+unshapedNone UnshapedFunction (SkeletonApplied _ _) impossible
+unshapedNone UnshapedFamily SkeletonHead impossible
+unshapedNone UnshapedFamily (SkeletonApplied _ _) impossible
+unshapedNone UnshapedMeta SkeletonHead impossible
+unshapedNone UnshapedMeta (SkeletonApplied _ _) impossible
+unshapedNone UnshapedBinder SkeletonHead impossible
+unshapedNone UnshapedBinder (SkeletonApplied _ _) impossible
+unshapedNone UnshapedAs SkeletonHead impossible
+unshapedNone UnshapedAs (SkeletonApplied _ _) impossible
+unshapedNone UnshapedDelayed SkeletonHead impossible
+unshapedNone UnshapedDelayed (SkeletonApplied _ _) impossible
+unshapedNone UnshapedDelay SkeletonHead impossible
+unshapedNone UnshapedDelay (SkeletonApplied _ _) impossible
+unshapedNone UnshapedForce SkeletonHead impossible
+unshapedNone UnshapedForce (SkeletonApplied _ _) impossible
+unshapedNone UnshapedConstant SkeletonHead impossible
+unshapedNone UnshapedConstant (SkeletonApplied _ _) impossible
+unshapedNone UnshapedErased SkeletonHead impossible
+unshapedNone UnshapedErased (SkeletonApplied _ _) impossible
+unshapedNone UnshapedUniverse SkeletonHead impossible
+unshapedNone UnshapedUniverse (SkeletonApplied _ _) impossible
 
 ||| What a reading does with a definition left applied: keep it as
 ||| written, as a written key holds it and as an instance's term is the
@@ -685,7 +741,7 @@ data Scrutinee : ClosedTerm -> Type where
   Constructed : (h : ConstructorHead) -> (c : Name) -> (sargs : List ClosedTerm) ->
                 {0 u : ClosedTerm} -> (0 _ : Shows s u) -> (0 _ : HeadedAs h c sargs u) -> Scrutinee s
   Literal : (k : Constant) -> {0 fc : FC} -> (0 _ : Shows s (PrimVal fc k)) -> Scrutinee s
-  Suspended : (dty, da : ClosedTerm) -> {0 fc : FC} -> {0 r : LazyReason} -> (0 _ : Shows s (TDelay fc r dty da)) -> Scrutinee s
+  Suspended : (dty, da : ClosedTerm) -> {0 fc : FC} -> {0 r : Delaying} -> (0 _ : Shows s (TDelay fc r dty da)) -> Scrutinee s
   Matched : Nat -> List Nat -> Scrutinee s
   OnFormal : Nat -> Nat -> Scrutinee s
   AtRuntime : Scrutinee s
@@ -1087,7 +1143,7 @@ mutual
   public export
   data Structural : Mode -> (self : Address) -> (args : List ClosedTerm) -> Values ClosedTerm vs -> CaseTree vs ->
                     Template -> Type where
-    Raised : (0 _ : bareMarker (standsOf m) (valueAt env idx p) = Just (j, path)) ->
+    Raised : {0 path : List Nat} -> (0 _ : bareMarker (standsOf m) (valueAt env idx p) = Just (j, path)) ->
              (0 _ : recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S (length path)) args idx arms =
                     Just (bases, kids)) ->
              AllReadAs (unfolding m) [] bases leaves -> AllReadAs (unfolding m) [] kids children ->
@@ -1345,6 +1401,6 @@ data HeldAs : Frozen -> Static -> ClosedTerm -> ClosedTerm -> Type where
   HeldWhole : WholeKind k -> HeldAs ctx k u u
   HeldWritten : (0 _ : Solved ctx u w) -> (0 _ : SkeletonOf w shape) -> (0 _ : NeededCut shape held) ->
                 HeldAs ctx AShape u held
-  HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : (s : ClosedTerm) -> Not (SkeletonOf w s)) ->
+  HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : Unshaped w) ->
                (0 r : Reduct OfNormaliseTypes ctx u) -> (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) ->
                HeldAs ctx AShape u held

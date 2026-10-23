@@ -34,16 +34,6 @@ import Data.Nat
 public export
 data Contracting = EveryRedex | CallsKept Context
 
--- The head a term applies, with the spine it applies it by, which no
--- reader keeps: `getFn`'s answer with its evidence.
-data SpineOf : Term vs -> Type where
-  HeadIs : (h : Term vs) -> (0 args : List (Term vs)) -> (0 _ : Spine t h args) -> SpineOf t
-
-headIn : (t : Term vs) -> SpineOf t
-headIn (App fc f a) = case headIn f of
-  HeadIs h args s => HeadIs h (args ++ [a]) (Host.Applied s)
-headIn t = HeadIs t [] Host.Head
-
 ||| A call whose redex a site's contraction keeps: one of a definition the
 ||| context holds, by the spine that applies it.
 public export
@@ -70,9 +60,9 @@ keptCall ctx n headed with (definitionAddress ctx n) proof found
 export
 keptAround : (how : Contracting) -> (g : Term vs) -> RedexKept how g
 keptAround EveryRedex g = ContractedAway
-keptAround (CallsKept ctx) g = case headIn g of
-  HeadIs (Ref _ Func n) _ headed => keptCall ctx n headed
-  HeadIs _ _ _ => ContractedAway
+keptAround (CallsKept ctx) g = case spineOf g of
+  MkSpineOf (Ref _ Func n) _ headed => keptCall ctx n headed
+  MkSpineOf _ _ _ => ContractedAway
 
 ------------------------------------------------------------------------------
 -- What a term mentions, and what dropping a variable gives

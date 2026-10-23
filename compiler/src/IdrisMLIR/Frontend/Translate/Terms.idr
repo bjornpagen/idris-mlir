@@ -434,7 +434,7 @@ argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.wri
 ||| What a call gives each parameter of its callee that exists at run
 ||| time, among those its arguments reach, in order: the term the argument
 ||| at that position gives at that parameter's kind.
-givenTo : (ks : List PKind) -> (args : List (PKind -> Front (Term nv))) ->
+givenTo : {0 nv : Nat} -> (ks : List PKind) -> (args : List (PKind -> Front (Term nv))) ->
           Front (Vect (Runtimes (take (length args) ks)) (Term nv))
 givenTo [] [] = pure []
 givenTo [] (_ :: _) = pure []
@@ -1271,7 +1271,7 @@ mutual
           loc <- toLoc afc
           found <- traverse (\(_, (v, hs, _)) => do
                                held <- packedType hs.types
-                               pure (Just v, held, pure (Var loc v))) used
+                               pure (Just v, held, pure {f = Front} (Var loc v))) used
           pure (Just (impl', found))
         where
           isMarker : Nat -> TT vs -> Bool
@@ -1291,31 +1291,6 @@ mutual
           fill j ((k, (_, hs, form)) :: rest) t = do
             projections <- unpacked hs.types (foundMarker j)
             fill (S j) rest (substName (markerName k) (fillHoles projections form) t)
-
-      -- What a definition that gives an implementation is applied to,
-      -- and anything else.
-      headed : ClosedTerm -> ClosedTerm -> List (ClosedTerm, Lazy (Front (Maybe (ClosedTerm, Found nv)))) ->
-               Front (Maybe (ClosedTerm, Found nv))
-      -- A variable that holds an implementation that closes over values
-      -- holds them as one value: its markers become that value's
-      -- projections.
-      headed impl (Ref _ Bound n) [] = case standAt n >>= implementationOf of
-        Just (t, Just (v, hs)) => do
-          loc <- toLoc (bestFC ctx afc)
-          projections <- unpacked hs.types (foundMarker 0)
-          held <- packedType hs.types
-          pure (Just (fillHoles projections t, [(Just v, held, pure (Var loc v))]))
-        _ => closedOver impl
-      headed impl (Ref _ Bound _) _ = closedOver impl
-      headed impl (Ref rfc nt n) args = do
-        d <- lookupDef rfc ctx.owner n
-        True <- gives d
-          | False => closedOver impl
-        Just (vs, found) <- parts d.placement impl d.type args
-          | Nothing => pure Nothing
-        pure (Just (foldl (App rfc) (Ref rfc nt n) vs, found))
-      headed impl lam@(Bind _ _ (Lam {}) _) [] = captured lam
-      headed impl _ _ = closedOver impl
 
       -- A lambda: a function it gives (a polymorphic one, a constraint over
       -- a value), which closes over the runtime values of the scope it
@@ -1359,6 +1334,31 @@ mutual
                   held <- packedType hs.types
                   pure (Just (v, held, fillHoles projections form))
                 _ => pure Nothing
+
+      -- What a definition that gives an implementation is applied to,
+      -- and anything else.
+      headed : ClosedTerm -> ClosedTerm -> List (ClosedTerm, Lazy (Front (Maybe (ClosedTerm, Found nv)))) ->
+               Front (Maybe (ClosedTerm, Found nv))
+      -- A variable that holds an implementation that closes over values
+      -- holds them as one value: its markers become that value's
+      -- projections.
+      headed impl (Ref _ Bound n) [] = case standAt n >>= implementationOf of
+        Just (t, Just (v, hs)) => do
+          loc <- toLoc (bestFC ctx afc)
+          projections <- unpacked hs.types (foundMarker 0)
+          held <- packedType hs.types
+          pure (Just (fillHoles projections t, [(Just v, held, pure (Var loc v))]))
+        _ => closedOver impl
+      headed impl (Ref _ Bound _) _ = closedOver impl
+      headed impl (Ref rfc nt n) args = do
+        d <- lookupDef rfc ctx.owner n
+        True <- gives d
+          | False => closedOver impl
+        Just (vs, found) <- parts d.placement impl d.type args
+          | Nothing => pure Nothing
+        pure (Just (foldl (App rfc) (Ref rfc nt n) vs, found))
+      headed impl lam@(Bind _ _ (Lam {}) _) [] = captured lam
+      headed impl _ _ = closedOver impl
 
       -- An implementation's spine, each argument with its own walk
       -- suspended where it is a subterm.
@@ -1452,6 +1452,20 @@ mutual
           -- meets it, so it is refused here, as the compiled module it is.
           _ => reject fc ctx.owner CompiledModule ("a reference to the unfinished definition " ++ show full)
     where
+      -- A definition's type after arguments, each substituted where the
+      -- rest mentions it; unknown once the type shows no more binders.
+      typeAfter : ClosedTerm -> List (Arg vars nv) -> Front (Maybe ClosedTerm)
+      typeAfter ty [] = pure (Just ty)
+      typeAfter ty (x :: xs) = do
+        ty' <- case ty of
+                 Bind _ _ (Pi {}) _ => pure ty
+                 _ => normaliseClosed ty
+        case ty' of
+          Bind _ _ (Pi {}) sc => do
+            next <- instantiate afc env sc x.written
+            typeAfter next xs
+          _ => pure Nothing
+
       -- The member of its type's choice an implementation or a
       -- polymorphic function fixed here is (`member`), where the
       -- definition applied to the arguments gives one in a runtime
@@ -1469,20 +1483,6 @@ mutual
             | Nothing => pure Nothing
           member ph w acc ctx env afc loc ct (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
 
-      -- A definition's type after arguments, each substituted where the
-      -- rest mentions it; unknown once the type shows no more binders.
-      typeAfter : ClosedTerm -> List (Arg vars nv) -> Front (Maybe ClosedTerm)
-      typeAfter ty [] = pure (Just ty)
-      typeAfter ty (x :: xs) = do
-        ty' <- case ty of
-                 Bind _ _ (Pi {}) _ => pure ty
-                 _ => normaliseClosed ty
-        case ty' of
-          Bind _ _ (Pi {}) sc => do
-            next <- instantiate afc env sc x.written
-            typeAfter next xs
-          _ => pure Nothing
-
       -- The values an implementation given as an argument closes over, as
       -- one value (`packedType`).
       heldValue : Loc -> Arg vars nv -> Front (Term nv)
@@ -1493,31 +1493,6 @@ mutual
         Just (_, held) <- x.held
           | Nothing => internal afc "the values an implementation closes over are gone"
         pack afc ctx.owner loc !(valuesOf held)
-
-      -- The runtime arguments of a call of a callee whose member places
-      -- are `places`, one term per parameter that exists at runtime among
-      -- those the arguments given reach, as many as its type says:
-      -- nothing for a type, an implementation or an argument of quantity
-      -- 0. An implementation that closes over runtime values passes them,
-      -- as one value (`packedType`); a choice of one is its value.
-      arguments : Loc -> MemberPlaces -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
-                  Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
-      arguments loc places = from 0
-        where
-          -- From the parameter at position `j`.
-          from : Nat -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
-                 Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
-          from j [] [] = pure []
-          from j [] (_ :: _) = pure []
-          from j (_ :: _) [] = pure []
-          from j (ValueParam b _ t :: ks) (x :: xs) = (::) <$> valueAt loc places j b t x <*> from (S j) ks xs
-          from j (k@(ChoiceParam {}) :: ks) (x :: xs) = (::) <$> x.translated (expectedBy k) <*> from (S j) ks xs
-          from j (DictParam _ (Just _) :: ks) (x :: xs) = (::) <$> heldValue loc x <*> from (S j) ks xs
-          from j (DictParam _ Nothing :: ks) (_ :: xs) = from (S j) ks xs
-          from j (TypeParam _ :: ks) (_ :: xs) = from (S j) ks xs
-          from j (ErasedParam :: ks) (_ :: xs) = from (S j) ks xs
-          from j (IndexParam _ :: ks) (_ :: xs) = from (S j) ks xs
-          from j (FormParam _ :: ks) (_ :: xs) = from (S j) ks xs
 
       -- A runtime argument, at position `j` of a callee whose member places
       -- are `places`, its parameter's binder `b` and Idris type `t`. A
@@ -1549,6 +1524,31 @@ mutual
             Just ct <- holds (givenAt j places) ty
               | Nothing => pure Nothing
             member ph w acc ctx env afc loc ct lam
+
+      -- The runtime arguments of a call of a callee whose member places
+      -- are `places`, one term per parameter that exists at runtime among
+      -- those the arguments given reach, as many as its type says:
+      -- nothing for a type, an implementation or an argument of quantity
+      -- 0. An implementation that closes over runtime values passes them,
+      -- as one value (`packedType`); a choice of one is its value.
+      arguments : Loc -> MemberPlaces -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
+                  Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
+      arguments loc places = from 0
+        where
+          -- From the parameter at position `j`.
+          from : Nat -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
+                 Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
+          from j [] [] = pure []
+          from j [] (_ :: _) = pure []
+          from j (_ :: _) [] = pure []
+          from j (ValueParam b _ t :: ks) (x :: xs) = (::) <$> valueAt loc places j b t x <*> from (S j) ks xs
+          from j (k@(ChoiceParam {}) :: ks) (x :: xs) = (::) <$> x.translated (expectedBy k) <*> from (S j) ks xs
+          from j (DictParam _ (Just _) :: ks) (x :: xs) = (::) <$> heldValue loc x <*> from (S j) ks xs
+          from j (DictParam _ Nothing :: ks) (_ :: xs) = from (S j) ks xs
+          from j (TypeParam _ :: ks) (_ :: xs) = from (S j) ks xs
+          from j (ErasedParam :: ks) (_ :: xs) = from (S j) ks xs
+          from j (IndexParam _ :: ks) (_ :: xs) = from (S j) ks xs
+          from j (FormParam _ :: ks) (_ :: xs) = from (S j) ks xs
 
       argValues : List (Arg vars nv) -> ArgValues
       argValues = map (argValueIn env afc)
@@ -1880,7 +1880,7 @@ mutual
         -- parameter of it is given a term it is linked to.
         is <- callIndices called.kinds vals
         let mk = recount (sym saturated) (recount called.sameCount (MkMaker (\ys => Call loc sig.callee Nothing is ys)))
-        pure (\ns => mk.make ns)
+        pure {f = Front} (\ns => mk.make ns)
         where
           -- The kinds as the row's operands read them: a runtime value at
           -- each operand, an erased or index parameter at each binder of
@@ -1923,6 +1923,31 @@ mutual
           successor : {0 m : Nat} -> Term m -> Term m
           successor (Literal _ (LNat k)) = Literal loc (LNat (k + 1))
           successor y = PrimApp loc (Op bigAdd (NatT IOpaque) made) Nothing [y, Literal loc (LNat 1)]
+
+      -- How a field's value is read: as the classification read the value
+      -- at its position, or as the layout's binder holds it.
+      fieldRead : Binder -> ClosedTerm -> List PKind -> (Binder, Maybe ClosedTerm, ClosedTerm)
+      fieldRead b t (ValueParam b' shape t' :: _) = (b', shape, t')
+      fieldRead b t _ = (b, Nothing, t)
+
+      -- A constructor's kinds, one per argument its layout lists, the
+      -- layout's fields the values at run time and nothing else: the
+      -- registration read the constructor's fields once, so the call gives
+      -- as many runtime arguments as it has fields, by type, and the
+      -- classification says only how each field's value is read. A field
+      -- it read as a value is that value, in the call's scope; an
+      -- implementation the constructor holds is its field's binder, its
+      -- value the argument translated, a member of its choice where the
+      -- site fixes the implementation. An argument that is no field exists
+      -- only at compile time.
+      asFields : (as : List ArgKind) -> List PKind -> (fs : List PKind ** Runtimes fs = fieldCount as)
+      asFields [] _ = ([] ** Refl)
+      asFields (Field _ b t :: as) ks =
+        let (b', shape, t') = fieldRead b t ks
+            (fs ** same) = asFields as (drop 1 ks) in
+        (ValueParam b' shape t' :: fs ** cong S same)
+      asFields (Param _ :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
+      asFields (ErasedArg :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
 
       -- A constructor application: the fields, or for a type with one
       -- runtime field the field itself, since such a value is its field's.
@@ -1968,31 +1993,6 @@ mutual
             let con = info.con
             links <- binderTerms con.binders (argValues (take arity xs))
             finish loc fields arity xs given (recount counted (MkMaker (\ys => ConApp loc con links ys))) (conType con links) resTy
-
-      -- A constructor's kinds, one per argument its layout lists, the
-      -- layout's fields the values at run time and nothing else: the
-      -- registration read the constructor's fields once, so the call gives
-      -- as many runtime arguments as it has fields, by type, and the
-      -- classification says only how each field's value is read. A field
-      -- it read as a value is that value, in the call's scope; an
-      -- implementation the constructor holds is its field's binder, its
-      -- value the argument translated, a member of its choice where the
-      -- site fixes the implementation. An argument that is no field exists
-      -- only at compile time.
-      asFields : (as : List ArgKind) -> List PKind -> (fs : List PKind ** Runtimes fs = fieldCount as)
-      asFields [] _ = ([] ** Refl)
-      asFields (Field _ b t :: as) ks =
-        let (b', shape, t') = fieldRead b t ks
-            (fs ** same) = asFields as (drop 1 ks) in
-        (ValueParam b' shape t' :: fs ** cong S same)
-      asFields (Param _ :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
-      asFields (ErasedArg :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
-
-      -- How a field's value is read: as the classification read the value
-      -- at its position, or as the layout's binder holds it.
-      fieldRead : Binder -> ClosedTerm -> List PKind -> (Binder, Maybe ClosedTerm, ClosedTerm)
-      fieldRead b t (ValueParam b' shape t' :: _) = (b', shape, t')
-      fieldRead b t _ = (b, Nothing, t)
 
       primitive : FC -> Loc -> Name -> (arity : Nat) -> PrimFn arity -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       primitive fc loc n arity op ty xs = case op of
@@ -2043,15 +2043,6 @@ mutual
           | Nothing => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
         call fc loc target lowered m xs
 
-      -- What an IO primitive gives besides the next world, as many values
-      -- as its action gives: for none, the unit its `IORes` holds, the one
-      -- constructor of its value's type, read off the family the `IORes`
-      -- field's Idris type names; for one, that value.
-      gives : {0 count : Nat} -> FC -> IOAction i count -> Only 2 -> Front (IOGives count)
-      gives fc a res = case actionGives a of
-        GivesNone => GivesUnit . (.single) <$> onlyAt fc 0 (Data.Vect.index 0 res.fieldTypes)
-        GivesOne => pure GivesValue
-
       -- The type arguments of a call, in order.
       typeParams : List PKind -> List ClosedTerm
       typeParams (TypeParam t :: ks) = t :: typeParams ks
@@ -2078,6 +2069,15 @@ mutual
       -- (`Choices.onlyCon`), with its fields' Idris types.
       onlyAt : FC -> (k : Nat) -> ClosedTerm -> Front (Only k)
       onlyAt fc k ty = familyAt fc ty >>= onlyCon k (unshaped fc)
+
+      -- What an IO primitive gives besides the next world, as many values
+      -- as its action gives: for none, the unit its `IORes` holds, the one
+      -- constructor of its value's type, read off the family the `IORes`
+      -- field's Idris type names; for one, that value.
+      gives : {0 count : Nat} -> FC -> IOAction i count -> Only 2 -> Front (IOGives count)
+      gives fc a res = case actionGives a of
+        GivesNone => GivesUnit . (.single) <$> onlyAt fc 0 (Data.Vect.index 0 res.fieldTypes)
+        GivesOne => pure GivesValue
 
       -- What a function type takes at run time first and gives after it,
       -- as Idris types, every binder before it a placeholder: a binder of
@@ -2269,7 +2269,7 @@ mutual
                   opened loc writing l (\ren', x =>
                     ExtentsBack {k = r} loc (Var loc x)
                       (ConApp loc res []
-                         [ snocValue loc s (toList (map (\j => Var loc (Bound (weaken j))) (allFins r)))
+                         [ snocValue loc s (toList (map (\j => Var loc (Bound (weaken j))) (Data.Vect.allFins r)))
                          , ConApp loc writing [] [Var loc (Bound (last {n = r}))]]))))
         -- The grown array fills a cell of the result's type, as long on the
         -- last axis as the result's shape says.
@@ -2515,13 +2515,13 @@ mutual
       lowerCall : FC -> Loc -> Maybe Shown -> Lowered CheckedLibrary -> Defined -> ClosedTerm -> List (Arg vars nv) ->
                   Front (Term nv)
       lowerCall fc loc lowered (MkLowered {arity} ops IdentityOnLast) d ty xs = identity fc loc arity ops d ty xs
-      lowerCall fc loc lowered (MkLowered {arity} {count} ops (IOOperation lits a)) d ty xs = do
+      lowerCall fc loc lowered (MkLowered {arity} {count = S k} ops (IOOperation lits a)) d ty xs = do
         (kinds, resTy) <- classifyCall fc ctx.owner (show (fullname d.def)) arity ty (argValues (take arity xs))
         rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
         MkSupplied values missing together <- operandsGiven fc loc (memberPlaces d) ops kinds 0 xs
         bs <- operandBinders fc ops kinds
         ts <- operandTypes fc ops kinds
-        mk <- maker {k = count} fc loc lowered bs (boundTypes values missing together bs) kinds rt resTy ts (IOOperation lits a)
+        mk <- maker {k = S k} fc loc lowered bs (boundTypes values missing together bs) kinds rt resTy ts (IOOperation lits a)
         completed loc arity xs (MkSupplied values missing together) mk rt resTy
       lowerCall fc loc lowered (MkLowered {arity} {count} ops low) d ty xs = do
         (kinds, resTy) <- classifyCall fc ctx.owner (show (fullname d.def)) arity ty (argValues (take arity xs))

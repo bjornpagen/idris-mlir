@@ -67,7 +67,7 @@ export
 atLevels : List (Maybe ClosedTerm) -> {vars : _} -> TT vars -> TT vars
 atLevels given = mapTerm at
   where
-    at : {vs : _} -> Term vs -> Term vs
+    at : {vs : _} -> TT vs -> TT vs
     at t = case binderOf t of
       Just j => maybe (Erased EmptyFC Placeholder) embedClosed (join (getAt j given))
       Nothing => t
@@ -580,7 +580,7 @@ boundsHold : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 boundsHold fc what t statics = do
   st <- getState
   for_ (mapMaybe (\(j, a) => (j,) <$> a) (zip (iterateN (length statics) S 0) statics)) $ \(j, r) =>
-    heightWithin fc what st.bounds (MkNode t [], j) r.height
+    core (heightWithin fc what st.bounds (MkNode t [], j) r.height)
 
 ||| Where an erased binder occurs in the rest of a function's type, given
 ||| as the binder's stand-in (`marker k`): nowhere a value is passed (in no
@@ -589,11 +589,11 @@ boundsHold fc what t statics = do
 ||| it. Only the second makes the binder an index parameter: one only a
 ||| proof reads is no binder, and one a representation reads is no index.
 public export
-data Occurrence = Unpassed | IndexOnly | Represented
+data ErasedOccurrence = Unpassed | IndexOnly | Represented
 
 export
 occurrenceOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               String -> (k : Nat) -> (rest : ClosedTerm) -> Front Occurrence
+               String -> (k : Nat) -> (rest : ClosedTerm) -> Front ErasedOccurrence
 occurrenceOf owner k rest = do
   represented <- outsideIndices (mentionsMarker k) owner rest
   pure (if represented then Represented else if passed rest then IndexOnly else Unpassed)
@@ -622,7 +622,7 @@ sortOfType tm = case getFn tm of
             NoTypeConstructor => SOpaque)
   _ => pure SOpaque
 
-||| The levels a term or a type names, each once.
+-- The levels a term or a type names, each once.
 mutual
   levelsOfTerm : ITerm -> List Nat
   levelsOfTerm (IVar k) = [k]
@@ -644,8 +644,8 @@ mutual
   levelsOfTy (MemRefT _ a) = levelsOfTy a
   levelsOfTy _ = []
 
-||| A term or a type with its levels renamed by `f`: a level `f` drops is
-||| outside the language there.
+-- A term or a type with its levels renamed by `f`: a level `f` drops is
+-- outside the language there.
 mutual
   relevelTerm : (Nat -> Maybe Nat) -> ITerm -> ITerm
   relevelTerm f (IVar k) = maybe IOpaque IVar (f k)
@@ -677,7 +677,7 @@ unlinked ErasedArg = ErasedArg
 unlinked (Field i b t) = Field i ({ type $= relevelTy (const Nothing) } b) t
 
 -- The layout's arguments have as many fields as the walk's.
-0 unlinkedCount : (as : List ArgKind) -> fieldCount (map unlinked as) = fieldCount as
+0 unlinkedCount : (as : List ArgKind) -> fieldCount (map Translate.Types.unlinked as) = fieldCount as
 unlinkedCount [] = Refl
 unlinkedCount (Param _ :: as) = unlinkedCount as
 unlinkedCount (ErasedArg :: as) = unlinkedCount as
@@ -701,8 +701,8 @@ implementationChoice g tm = do
 ||| position and type of each of its quantity-0 arguments in order (its
 ||| candidate binders, each given its stand-in where it is bound), and the
 ||| type it returns, under those stand-ins.
-record Walked where
-  constructor MkWalked
+record ConstructorWalk where
+  constructor MkConstructorWalk
   kinds : List ArgKind
   erasedTypes : List (Nat, ClosedTerm)
   returns : ClosedTerm
@@ -846,7 +846,7 @@ mutual
           updateState (derive { nextFamily $= S })
           let what = keyText found.key ++ ", registered,"
           boundsHold fc what address statics
-          inside <- sizedWithin fc what chain.sizes found.link
+          inside <- core (sizedWithin fc what chain.sizes found.link)
           TCon arity _ _ _ _ datacons _ <- pure (definition def)
             | _ => reject fc owner ValueType (tname ++ " is not a data type")
           let Just datacons = datacons
@@ -945,10 +945,9 @@ mutual
                         (map snd (filter (\(k, _) => elem k kept) (zip [0 .. length walked.erasedTypes] walked.erasedTypes)))
     let fields = map (\b => { type $= relevelTy renumber } b) fields0
         equation = relevelTerms renumber equation0
-        unlinkedKinds = map unlinked walked.kinds
         con = MkCon (MkConId fam place) (shortName (fullname def)) binders equation
                     (replace {p = \n => Vect n Binder} (sym (unlinkedCount walked.kinds)) fields) loc
-    pure (MkConLayout unlinkedKinds (fullname def) con)
+    pure (MkConLayout (map unlinked walked.kinds) (fullname def) con)
     where
       findIndex' : Nat -> List Nat -> Maybe Nat
       findIndex' k ks = finToNat <$> findIndex (== k) ks
@@ -961,7 +960,7 @@ mutual
   walk : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          (chain : Registering) -> (0 _ : Descending chain) -> (con : GlobalDef) ->
          String -> FC -> List ClosedTerm -> (at, i, e : Nat) -> List (Maybe Nat) ->
-         Given vs -> TT vs -> Front Walked
+         Given vs -> TT vs -> Front ConstructorWalk
   walk chain acc con cname dfc targs at i e (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
     let v = fromMaybe (Erased bfc Placeholder) (getAt p targs)
     w <- walk chain acc con cname dfc targs (S at) i e ls (give v g) sc
@@ -979,7 +978,7 @@ mutual
       _ => do
         w <- walk chain acc con cname dfc targs (S at) i (S e) ls (give (marker e) g) sc
         pure ({ kinds $= (ErasedArg ::), erasedTypes $= ((at, close g a) ::) } w)
-  walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkWalked [] [] (close g t))
+  walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkConstructorWalk [] [] (close g t))
 
   ||| The binder of a position of this type at this quantity: the Core type
   ||| at the quantity Idris gave the position.
