@@ -125,10 +125,10 @@ data Within : Template -> Template -> Type where
   InChild : Elem c cs -> Within c u -> Within (Head a cs) u
   InChoice : Elem c cs -> Within c u -> Within (Choice s cs) u
 
-||| A template that holds no marker of its writer: no variable, field,
-||| member of a choice or applied family. What every instance writes there is no
-||| higher than it (`unmarkedWrites`).
 mutual
+  ||| A template that holds no marker of its writer: no variable, field,
+  ||| member of a choice or applied family. What every instance writes there is no
+  ||| higher than it (`unmarkedWrites`).
   public export
   data Unmarked : Template -> Type where
     UnmarkedHead : AllUnmarked ts -> Unmarked (Head a ts)
@@ -183,28 +183,31 @@ Uninhabited (Unmarked (Member k)) where
 -- Beta of a family's value
 ------------------------------------------------------------------------------
 
-||| What beta makes of a family's meaning at its arguments' values: each
-||| argument of the value (`Formal j`) the j-th of them, and an argument
-||| applied to closed arguments as many as it takes, beta of that
-||| argument's own meaning at them. An argument applied to what holds
-||| another computes from it, and the reading says so (`Computing`), so no
-||| rule states it.
-mutual
-  public export
-  data Instantiates : List Template -> Template -> Template -> Type where
-    IFormal : (j : Fin (length ws)) -> Instantiates ws (Formal (finToNat j) k) (index' ws j)
-    IApplied : (j : Fin (length ws)) -> Within (index' ws j) body -> Instantiates as body w ->
-               Instantiates ws (Head Nothing (Formal (finToNat j) k :: as)) w
-    IHead : AllInstantiate ws ts us -> Instantiates ws (Head a ts) (Head a us)
-    IOpaque : AllInstantiate ws ts us -> Instantiates ws (Opaque a ts) (Opaque a us)
-    ILeaf : Instantiates ws (Leaf h) (Leaf h)
-    IToken : Instantiates ws (Token n) (Token n)
-    IChosen : Elem x ls -> Instantiates ws x w -> Instantiates ws (Choice c ls) w
+-- Each family of lists below keeps its `Nil` and `(::)` in a namespace of
+-- its own, so that list syntax builds every one of them, chosen by type.
+namespace Instantiating
+  mutual
+    ||| What beta makes of a family's meaning at its arguments' values: each
+    ||| argument of the value (`Formal j`) the j-th of them, and an argument
+    ||| applied to closed arguments as many as it takes, beta of that
+    ||| argument's own meaning at them. An argument applied to what holds
+    ||| another computes from it, and the reading says so (`Computing`), so no
+    ||| rule states it.
+    public export
+    data Instantiates : List Template -> Template -> Template -> Type where
+      IFormal : (j : Fin (length ws)) -> Instantiates ws (Formal (finToNat j) k) (index' ws j)
+      IApplied : (j : Fin (length ws)) -> Within (index' ws j) body -> Instantiates as body w ->
+                 Instantiates ws (Head Nothing (Formal (finToNat j) k :: as)) w
+      IHead : AllInstantiate ws ts us -> Instantiates ws (Head a ts) (Head a us)
+      IOpaque : AllInstantiate ws ts us -> Instantiates ws (Opaque a ts) (Opaque a us)
+      ILeaf : Instantiates ws (Leaf h) (Leaf h)
+      IToken : Instantiates ws (Token n) (Token n)
+      IChosen : Elem x ls -> Instantiates ws x w -> Instantiates ws (Choice c ls) w
 
-  public export
-  data AllInstantiate : List Template -> List Template -> List Template -> Type where
-    Nil : AllInstantiate ws [] []
-    (::) : Instantiates ws t u -> AllInstantiate ws ts us -> AllInstantiate ws (t :: ts) (u :: us)
+    public export
+    data AllInstantiate : List Template -> List Template -> List Template -> Type where
+      Nil : AllInstantiate ws [] []
+      (::) : Instantiates ws t u -> AllInstantiate ws ts us -> AllInstantiate ws (t :: ts) (u :: us)
 
 ------------------------------------------------------------------------------
 -- Holes renumbered, constants computed
@@ -262,15 +265,15 @@ speltBelow [] = LTEZero
 speltBelow (Refl :: rest) = leafAbove (speltBelow rest)
   where
     leafAbove : LTE t 1 -> LTE (maximum 1 t) 1
-    leafAbove {t = Z} _ = lteRefl
-    leafAbove {t = S Z} _ = lteRefl
+    leafAbove {t = Z} _ = reflexive
+    leafAbove {t = S Z} _ = reflexive
     leafAbove {t = S (S _)} (LTESucc le) = absurd le
 
 ||| A constant is no higher than two.
 export
 0 constantHeight : ConstantForm w -> LTE (height w) 2
-constantHeight CountedForm = lteSuccRight lteRefl
-constantHeight LeafForm = lteSuccRight lteRefl
+constantHeight CountedForm = lteSuccRight reflexive
+constantHeight LeafForm = lteSuccRight reflexive
 constantHeight (SpeltForm leaves) = LTESucc (speltBelow leaves)
 
 ||| What a successor applied to a value makes a run one longer of: a run of
@@ -396,88 +399,105 @@ record Lands (g : Graph) (m : Model g) (p : Fin g.size) (k : Nat) where
   uncapped : index p g.caps = Nothing
   under : (s : Site g.size) -> Elem s m.sites -> s.target = p -> (Unmarked s.template, LTE (height s.template) k)
 
-mutual
-  ||| V: the values each position can receive, the least family closed
-  ||| under the sites.
-  public export
-  data InV : {g : Graph} -> (m : Model g) -> Fin g.size -> Template -> Type where
-    ||| A site writes what an instance makes of its template.
-    Reduced : (s : Site g.size) -> Elem s m.sites -> Writes m s s.template w -> InV m s.target w
-    ||| A capped position holds every value of the cap's height a chain's
-    ||| shape can be: no node with more than one child, no token.
-    Capped : index p g.caps = Just c -> LTE (height v) c -> LTE (arity v) 1 -> LTE (heaviest v) 0 -> InV m p v
+-- A constructor that reads a field of its graph, model or site, or a
+-- position of the graph, before anything states their types binds them
+-- first, in that order, each typed by the one before: a field read of a
+-- variable no type yet fixes has no one projection to elaborate to, and a
+-- name bound without its type is bound outermost, before the graph its
+-- type would name. Here and in `Carries` and `Covering`.
+namespace Writing
+  mutual
+    ||| V: the values each position can receive, the least family closed
+    ||| under the sites.
+    public export
+    data InV : {g : Graph} -> (m : Model g) -> Fin g.size -> Template -> Type where
+      ||| A site writes what an instance makes of its template.
+      Reduced : {0 g : Graph} -> {0 m : Model g} ->
+                (s : Site g.size) -> Elem s m.sites -> Writes m s s.template w -> InV m s.target w
+      ||| A capped position holds every value of the cap's height a chain's
+      ||| shape can be: no node with more than one child, no token.
+      Capped : {0 g : Graph} -> {0 m : Model g} -> {0 p : Fin g.size} ->
+               index p g.caps = Just c -> LTE (height v) c -> LTE (arity v) 1 -> LTE (heaviest v) 0 -> InV m p v
 
-  ||| What an instance writes where a site's template reads.
-  public export
-  data Writes : {g : Graph} -> (m : Model g) -> Site g.size -> Template -> Template -> Type where
-    ||| A marker: a part, d deep, of a value its position received, read
-    ||| where the marker stands.
-    AtVar : Elem (i, p) s.writers -> InV m p v -> Sub d v u -> Reread u w -> Writes m s (Var i d) w
-    AtHead : AllWrite m s ts ws -> Writes m s (Head a ts) (Head a ws)
-    ||| A recursion stuck on what its arguments hold: the call as written,
-    ||| which is all an instance leaves there; one that reduces at an
-    ||| instance computes what no arc bounds, and its arcs say so.
-    AtOpaque : AllWrite m s ts ws -> Writes m s (Opaque a ts) (Head (Just a) ws)
-    AtLeaf : Writes m s (Leaf h) (Leaf h)
-    ||| A builtin applied to the writer's markers, beside the call as
-    ||| written: the constant it computes from what the instance writes at
-    ||| its arguments, at an instance whose values are constants, measuring
-    ||| no more than one computation grows the most they measure.
-    AtComputed : AllWrite m s ts ws -> ConstantForm w -> LTE (measureOf w) (grown (measuresOf ws)) ->
-                 Writes m s (Choice c [Head (Just a) ts, Leaf 2]) w
-    ||| A head of one child over what writes a run: the run one longer, as
-    ||| an instance's closed run of successors reads.
-    AtRun : Writes m s t v -> RunOf v h -> Writes m s (Head a [t]) (Leaf (S h))
-    ||| A closed run a site reads as its leaf, which an instance reads node
-    ||| by node: the same run, as high (`RunRead`). One term of an
-    ||| instance's has two readings there, as a value put in for a marker
-    ||| does (`Reread`).
-    AtRunRead : RunRead h w -> Writes m s (Leaf h) w
-    ||| A part a shape's key cuts: a hole one high, where the instance
-    ||| wrote a part at least that high.
-    AtCut : Writes m s t v -> LTE 1 (height v) -> Writes m s t (Leaf 1)
-    AtToken : Writes m s (Token k) (Token k)
-    ||| An argument of a family's value: one leaf of height 1, whatever
-    ||| place and arity the instance numbers it by, since an instance's
-    ||| lambdas number their variables by the binders around them and by
-    ||| the types the instance's values give them.
-    AtFormal : Writes m s (Formal j k) (Formal j' k')
-    Chosen : Elem x ls -> Writes m s x w -> Writes m s (Choice c ls) w
-    ||| A lambda the site keeps, which the instance contracts: what the
-    ||| instance's reading of the lambda's body would be, its last argument
-    ||| gone (`DropsLast`), where the body writes that reading.
-    AtContracted : Elem body ts -> Writes m s body v -> DropsLast v w -> Writes m s (Head Nothing ts) w
-    Beta : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
-           Instantiates ws body w -> Writes m s (Applied i d ts) w
-    GivenPart : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m s (Applied i d ts) w
-    MemberOf : Elem j (s.roots (Applied i d ts)) -> Arguments m j 0 as ->
-               Writes m s (Applied i d ts) (Head (Just j) as)
-    ||| A family whose position only closed values no higher than k land
-    ||| at, applied: beta of a value landed there, a value of V.
-    Landed : Lands g m p k -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
-             Instantiates ws body w -> Writes m s (raise k (Head Nothing ts)) w
-    LandedMember : Lands g m p k -> InV m p v -> Sub d v f -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
-    AtField : Elem j (s.roots r) -> Elem p (m.fieldPositions j k) -> InV m p w -> Writes m s (Field k r) w
-    ||| A member of the choice, as a place that makes one made it, its holes
-    ||| renumbered as the reader holds it.
-    AtMember : Elem p (m.choicePositions k) -> InV m p v -> Renumbered m.heldCount v w -> Writes m s (Member k) w
-    ||| A hole where a site reads a member of the choice: one node, no
-    ||| higher than a member made there, numbered within the held count.
-    AtHeldHole : Elem p (m.choicePositions k) -> InV m p v -> LTE 1 (height v) -> LTE n m.heldCount ->
-                 Writes m s (Member k) (Token n)
+    ||| What an instance writes where a site's template reads.
+    public export
+    data Writes : {g : Graph} -> (m : Model g) -> Site g.size -> Template -> Template -> Type where
+      ||| A marker: a part, d deep, of a value its position received, read
+      ||| where the marker stands.
+      AtVar : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+              Elem (i, p) s.writers -> InV m p v -> Sub d v u -> Reread u w -> Writes m s (Var i d) w
+      AtHead : AllWrite m s ts ws -> Writes m s (Head a ts) (Head a ws)
+      ||| A recursion stuck on what its arguments hold: the call as written,
+      ||| which is all an instance leaves there; one that reduces at an
+      ||| instance computes what no arc bounds, and its arcs say so.
+      AtOpaque : AllWrite m s ts ws -> Writes m s (Opaque a ts) (Head (Just a) ws)
+      AtLeaf : Writes m s (Leaf h) (Leaf h)
+      ||| A builtin applied to the writer's markers, beside the call as
+      ||| written: the constant it computes from what the instance writes at
+      ||| its arguments, at an instance whose values are constants, measuring
+      ||| no more than one computation grows the most they measure.
+      AtComputed : AllWrite m s ts ws -> ConstantForm w -> LTE (measureOf w) (grown (measuresOf ws)) ->
+                   Writes m s (Choice c [Head (Just a) ts, Leaf 2]) w
+      ||| A head of one child over what writes a run: the run one longer, as
+      ||| an instance's closed run of successors reads.
+      AtRun : Writes m s t v -> RunOf v h -> Writes m s (Head a [t]) (Leaf (S h))
+      ||| A closed run a site reads as its leaf, which an instance reads node
+      ||| by node: the same run, as high (`RunRead`). One term of an
+      ||| instance's has two readings there, as a value put in for a marker
+      ||| does (`Reread`).
+      AtRunRead : RunRead h w -> Writes m s (Leaf h) w
+      ||| A part a shape's key cuts: a hole one high, where the instance
+      ||| wrote a part at least that high.
+      AtCut : Writes m s t v -> LTE 1 (height v) -> Writes m s t (Leaf 1)
+      AtToken : Writes m s (Token k) (Token k)
+      ||| An argument of a family's value: one leaf of height 1, whatever
+      ||| place and arity the instance numbers it by, since an instance's
+      ||| lambdas number their variables by the binders around them and by
+      ||| the types the instance's values give them.
+      AtFormal : Writes m s (Formal j k) (Formal j' k')
+      Chosen : Elem x ls -> Writes m s x w -> Writes m s (Choice c ls) w
+      ||| A lambda the site keeps, which the instance contracts: what the
+      ||| instance's reading of the lambda's body would be, its last argument
+      ||| gone (`DropsLast`), where the body writes that reading.
+      AtContracted : Elem body ts -> Writes m s body v -> DropsLast v w -> Writes m s (Head Nothing ts) w
+      Beta : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+             Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
+             Instantiates ws body w -> Writes m s (Applied i d ts) w
+      GivenPart : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+                  Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m s (Applied i d ts) w
+      MemberOf : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+                 Elem j (s.roots (Applied i d ts)) -> Arguments m j 0 as ->
+                 Writes m s (Applied i d ts) (Head (Just j) as)
+      ||| A family whose position only closed values no higher than k land
+      ||| at, applied: beta of a value landed there, a value of V.
+      Landed : Lands g m p k -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
+               Instantiates ws body w -> Writes m s (raise k (Head Nothing ts)) w
+      LandedMember : Lands g m p k -> InV m p v -> Sub d v f -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
+      AtField : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+                Elem j (s.roots r) -> Elem p (m.fieldPositions j k) -> InV m p w -> Writes m s (Field k r) w
+      ||| A member of the choice, as a place that makes one made it, its holes
+      ||| renumbered as the reader holds it.
+      AtMember : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+                 Elem p (m.choicePositions k) -> InV m p v -> Renumbered m.heldCount v w -> Writes m s (Member k) w
+      ||| A hole where a site reads a member of the choice: one node, no
+      ||| higher than a member made there, numbered within the held count.
+      AtHeldHole : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
+                   Elem p (m.choicePositions k) -> InV m p v -> LTE 1 (height v) -> LTE n m.heldCount ->
+                   Writes m s (Member k) (Token n)
 
-  public export
-  data AllWrite : {g : Graph} -> (m : Model g) -> Site g.size -> List Template -> List Template -> Type where
-    Nil : AllWrite m s [] []
-    (::) : Writes m s t w -> AllWrite m s ts ws -> AllWrite m s (t :: ts) (w :: ws)
+    public export
+    data AllWrite : {g : Graph} -> (m : Model g) -> Site g.size -> List Template -> List Template -> Type where
+      Nil : AllWrite m s [] []
+      (::) : Writes m s t w -> AllWrite m s ts ws -> AllWrite m s (t :: ts) (w :: ws)
 
-  ||| An implementation's arguments from parameter q on, each a value a
-  ||| position of one of its nodes received at that parameter.
-  public export
-  data Arguments : {g : Graph} -> (m : Model g) -> Address -> Nat -> List Template -> Type where
-    Ended : Arguments m j q []
-    Given : (p : Fin g.size) -> Elem p (m.positionsOf j) -> m.positionOf p = Just (ADefinition j, q) -> InV m p a ->
-            Arguments m j (S q) as -> Arguments m j q (a :: as)
+    ||| An implementation's arguments from parameter q on, each a value a
+    ||| position of one of its nodes received at that parameter.
+    public export
+    data Arguments : {g : Graph} -> (m : Model g) -> Address -> Nat -> List Template -> Type where
+      Ended : Arguments m j q []
+      Given : {0 g : Graph} -> {0 m : Model g} ->
+              (p : Fin g.size) -> Elem p (m.positionsOf j) -> m.positionOf p = Just (ADefinition j, q) -> InV m p a ->
+              Arguments m j (S q) as -> Arguments m j q (a :: as)
 
 ------------------------------------------------------------------------------
 -- What the graph says of a site
@@ -487,37 +507,44 @@ mutual
 ||| target, where it sits e deep: its weight is at least e - d.
 public export
 data Carries : (g : Graph) -> Fin g.size -> (d, e : Nat) -> Fin g.size -> Type where
-  MkCarries : Elem (MkArc p q (Measured gain loss)) g.arcs -> LTE (e + loss) (d + gain) -> Carries g p d e q
+  MkCarries : {0 g : Graph} -> {0 p, q : Fin g.size} ->
+              Elem (MkArc p q (Measured gain loss)) g.arcs -> LTE (e + loss) (d + gain) -> Carries g p d e q
 
-mutual
-  ||| What the graph says of a part of a site's template e deep.
-  public export
-  data CoveredAt : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> Template -> Type where
-    CVar : ((p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target) -> CoveredAt m s e (Var i d)
-    CHead : AllCovered m s (S e) ts -> CoveredAt m s e (Head a ts)
-    COpaque : AllCovered m s (S e) ts -> CoveredAt m s e (Opaque a ts)
-    CLeaf : CoveredAt m s e (Leaf h)
-    CToken : CoveredAt m s e (Token k)
-    CFormal : CoveredAt m s e (Formal j k)
-    CChoice : AllCovered m s e ls -> CoveredAt m s e (Choice c ls)
-    CApplied : ((p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts) s.target, AllUnmarked ts)) ->
-               ((j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
-                Carries g p' 0 (S e) s.target) ->
-               CoveredAt m s e (Applied i d ts)
-    ||| A family that computes from what it is given writes nothing any
-    ||| rule states, so the graph says of it only that no position of the
-    ||| writer's reads it.
-    CComputing : ((p : Fin g.size) -> Elem (i, p) s.writers -> Void) -> CoveredAt m s e (Computing i d ts)
-    CField : ((j : Address) -> Elem j (s.roots r) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
-              Carries g p 0 e s.target) ->
-             CoveredAt m s e (Field k r)
-    CMember : ((p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target) ->
-              CoveredAt m s e (Member k)
+namespace Covering
+  mutual
+    ||| What the graph says of a part of a site's template e deep.
+    public export
+    data CoveredAt : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> Template -> Type where
+      CVar : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+             ((p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target) -> CoveredAt m s e (Var i d)
+      CHead : AllCovered m s (S e) ts -> CoveredAt m s e (Head a ts)
+      COpaque : AllCovered m s (S e) ts -> CoveredAt m s e (Opaque a ts)
+      CLeaf : CoveredAt m s e (Leaf h)
+      CToken : CoveredAt m s e (Token k)
+      CFormal : CoveredAt m s e (Formal j k)
+      CChoice : AllCovered m s e ls -> CoveredAt m s e (Choice c ls)
+      CApplied : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+                 ((p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts) s.target, AllUnmarked ts)) ->
+                 ((j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
+                  Carries g p' 0 (S e) s.target) ->
+                 CoveredAt m s e (Applied i d ts)
+      ||| A family that computes from what it is given writes nothing any
+      ||| rule states, so the graph says of it only that no position of the
+      ||| writer's reads it.
+      CComputing : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+                   ((p : Fin g.size) -> Elem (i, p) s.writers -> Void) -> CoveredAt m s e (Computing i d ts)
+      CField : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+               ((j : Address) -> Elem j (s.roots r) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
+                Carries g p 0 e s.target) ->
+               CoveredAt m s e (Field k r)
+      CMember : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+                ((p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target) ->
+                CoveredAt m s e (Member k)
 
-  public export
-  data AllCovered : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> List Template -> Type where
-    Nil : AllCovered m s e []
-    (::) : CoveredAt m s e t -> AllCovered m s e ts -> AllCovered m s e (t :: ts)
+    public export
+    data AllCovered : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> List Template -> Type where
+      Nil : AllCovered m s e []
+      (::) : CoveredAt m s e t -> AllCovered m s e ts -> AllCovered m s e (t :: ts)
 
 ||| What the graph says of a site: its target is uncapped, K is at least its
 ||| template's own height, and it covers the template.
@@ -806,9 +833,11 @@ mutual
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
   unmarkedWrites u AtLeaf = reflexive
   unmarkedWrites u (AtRunRead run) = rewrite runReadHeight run in reflexive
-  unmarkedWrites u (AtComputed {ts} _ form _) = transitive (constantHeight form) (computedTall ts)
-  unmarkedWrites u (AtRun x run) = case unmarkedHead u of
-    (ut :: _) => runAbove run (unmarkedWrites ut x)
+  -- Heights forget a head's address and a choice's skeleton, so no
+  -- unification recovers them: they are given.
+  unmarkedWrites u (AtComputed {c} {a} {ts} _ form _) = transitive (constantHeight form) (computedTall {c} {a = Just a} ts)
+  unmarkedWrites u (AtRun {a} x run) = case unmarkedHead u of
+    (ut :: _) => runAbove {a} run (unmarkedWrites ut x)
   unmarkedWrites u (AtCut x one) = transitive one (unmarkedWrites u x)
   unmarkedWrites u AtToken = reflexive
   unmarkedWrites u AtFormal = reflexive
@@ -912,7 +941,8 @@ partBelow {g} {pot} {p} bv sub = transitive (subHeight sub) (transitive bv (boun
 ------------------------------------------------------------------------------
 
 export
-0 coveredVar : CoveredAt m s e (Var i d) -> (p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target
+0 coveredVar : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
+               CoveredAt m s e (Var i d) -> (p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target
 coveredVar (CVar c) = c
 
 export
@@ -928,20 +958,20 @@ export
 coveredChoice (CChoice cs) = cs
 
 export
-0 coveredApplied : CoveredAt m s e (Applied i d ts) ->
+0 coveredApplied : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> CoveredAt m s e (Applied i d ts) ->
                    ( (p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts) s.target, AllUnmarked ts)
                    , (j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                      Carries g p' 0 (S e) s.target )
 coveredApplied (CApplied c arcs) = (c, arcs)
 
 export
-0 coveredField : CoveredAt m s e (Field k r) ->
+0 coveredField : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> CoveredAt m s e (Field k r) ->
                  (j : Address) -> Elem j (s.roots r) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
                  Carries g p 0 e s.target
 coveredField (CField arcs) = arcs
 
 export
-0 coveredMember : CoveredAt m s e (Member k) ->
+0 coveredMember : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> CoveredAt m s e (Member k) ->
                   (p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target
 coveredMember (CMember arcs) = arcs
 
@@ -993,8 +1023,8 @@ mutual
   writtenAt ds fe AtLeaf cov hp = hp
   -- A run read node by node is as high as its leaf.
   writtenAt ds fe (AtRunRead run) cov hp = rewrite runReadHeight run in hp
-  writtenAt {e} ds fe (AtComputed {ts} _ form _) cov hp =
-    transitive (plusLteMonotoneRight e _ _ (transitive (constantHeight form) (computedTall ts))) hp
+  writtenAt {e} ds fe (AtComputed {c} {a} {ts} _ form _) cov hp =
+    transitive (plusLteMonotoneRight e _ _ (transitive (constantHeight form) (computedTall {c} {a = Just a} ts))) hp
   -- A run one longer than its child writes, carried as the head's child is.
   writtenAt {e} ds fe (AtRun {t} {v} {h} x run) cov hp = case coveredHead cov of
     (c :: _) =>

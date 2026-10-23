@@ -46,9 +46,12 @@ import IdrisMLIR.Proof.Markers
 ||| in for the parameters (`Idris.Host.substitutesMarkers`), and the marked
 ||| term names no unknown by them (`closedNoUnknown`), which the host's
 ||| substitution lemma asks of the steps it carries the arguments through.
+||| J's body and its leaf are over J's parameters, so they are bound after
+||| the parameters' scope.
 export
 0 rootedReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> {0 t, built : ClosedTerm} ->
-                  {0 args : List ClosedTerm} -> {ns : Scope} ->
+                  {0 args : List ClosedTerm} -> {ns : Scope} -> {0 info : PMDefInfo} -> {0 body : Body ns} ->
+                  {0 i : Int} -> {0 rhs : Term ns} -> {0 fc : FC} ->
                   (mk : Markers ctx ns) ->
                   Spine t (Ref rfc Func j) args -> Defines ctx j d -> Admits ctx ev.unfolding d ->
                   definition d = PMDef info ns body -> Evaluates ev.running info ByName ->
@@ -69,12 +72,17 @@ rootedReduces mk spine defines admits isDef evaluates tree same steps =
 ||| constructor's arguments bound to the alternative's names. The
 ||| projection's tree is the checker's (`Frontend.Translate.Closed.projectionOf`
 ||| reads it so), and the entry is the one the record's constructor and the
-||| alternative's name resolve to.
+||| alternative's name resolve to; the alternative is the constructor's, so
+||| it carries the constructor's tag. The scrutinee's type and the leaf are
+||| over the projection's parameters, the leaf past the alternative's names
+||| too, so both are bound after those scopes.
 export
 0 projectedField : {0 ev : Evaluation} -> {0 ctx : Frozen} -> {pns : Scope} -> {0 env : SubstEnv pns []} ->
-                   {0 p : IsVar nm idx pns} ->
+                   {0 nm : Name} -> {0 idx : Nat} -> {0 p : IsVar nm idx pns} -> {0 ty : Term pns} ->
+                   {0 cargs : List Name} -> {0 i : Int} -> {0 leaf : Term (Scope.addInner pns cargs)} ->
+                   {0 fields : List ClosedTerm} ->
                    Spine (Var.index env (MkVar p)) (Ref cfc (DataCon tag arity) h) fields ->
                    SameEntry ctx h cn -> (fsame : length fields = length cargs) ->
-                   Chooses ev ctx env (Case idx p ty [ConCase cn ctag cargs (STerm i leaf)])
+                   Chooses ev ctx env (Case idx p ty [ConCase cn tag cargs (STerm i leaf)])
                      (substs (mkSizeOf (Scope.addInner pns cargs)) (bindFields fields cargs fsame env) (embed {outer = []} leaf))
 projectedField spine entry fsame = ByCase (AsItIs Itself) (Takes (ByConstructor spine entry fsame ToLeaf))

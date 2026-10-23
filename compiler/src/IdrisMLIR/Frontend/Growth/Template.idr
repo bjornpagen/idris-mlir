@@ -73,7 +73,6 @@ import Core.Core
 import Core.TT
 import Idris.Host
 import Libraries.Data.List.SizeOf
-import Libraries.Data.List.Thin
 
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Closed
@@ -121,10 +120,15 @@ import Decidable.Equality
 %hide Idris.Host.Computes
 %hide Idris.Host.AType
 %hide Idris.Host.delayed
-%hide IdrisMLIR.Proof.Bound.Chosen
-%hide IdrisMLIR.Proof.Bound.Beta
+%hide IdrisMLIR.Proof.Bound.Writing.Chosen
+%hide IdrisMLIR.Proof.Bound.Writing.Beta
 %hide IdrisMLIR.Proof.Bound.RunZero
 %hide IdrisMLIR.Proof.Inversion.Inert
+-- The checker's thinnings name their identity `Refl`, which its terms'
+-- module exports with them; here `Refl` is always equality's, and a pair
+-- of a value and its evidence (`Element x Refl`) leaves nothing else to
+-- tell the two apart.
+%hide Libraries.Data.List.Thin.Refl
 
 ------------------------------------------------------------------------------
 -- The frozen context
@@ -177,7 +181,7 @@ inFrozen ctx n = case definitionIn ctx n of
 ||| The definition at an address of the frozen context: nothing at bytes no
 ||| entry has.
 atAddress : (ctx : Frozen) -> Address -> Maybe GlobalDef
-atAddress ctx a = (.def) <$> (nameAt (gamma (defsOf ctx)) a >>= inFrozen ctx)
+atAddress ctx a = nameAt (gamma (defsOf ctx)) a >>= (\n => (.def) <$> inFrozen ctx n)
 
 ||| The definition the boundary read at an address (`Errors.defined`), by
 ||| the name the frozen context gives the entry there: nothing at bytes no
@@ -302,19 +306,20 @@ lambdaNoNode NodePVar impossible
 lambdaNoNode NodePLet impossible
 lambdaNoNode NodePVTy impossible
 
-||| A template a shape's form rewrites as its key holds it: each `:<` of its
-||| spine with its extent the leaf an erased extent is, each leaf of a
-||| choice so, anything else as read.
-public export
-data KeyForm : Template -> Template -> Type where
-  AsRead : KeyForm t t
-  ExtentErased : KeyForm rest rest' -> KeyForm (Head (Just a) [e, rest, x]) (Head (Just a) [e, rest', Leaf 1])
-  LeavesFormed : AllKeyForm ls ls' -> KeyForm (Choice s ls) (Choice s ls')
+mutual
+  ||| A template a shape's form rewrites as its key holds it: each `:<` of its
+  ||| spine with its extent the leaf an erased extent is, each leaf of a
+  ||| choice so, anything else as read.
+  public export
+  data KeyForm : Template -> Template -> Type where
+    AsRead : KeyForm t t
+    ExtentErased : KeyForm rest rest' -> KeyForm (Head (Just a) [e, rest, x]) (Head (Just a) [e, rest', Leaf 1])
+    LeavesFormed : AllKeyForm ls ls' -> KeyForm (Choice s ls) (Choice s ls')
 
-public export
-data AllKeyForm : List Template -> List Template -> Type where
-  NoneFormed : AllKeyForm [] []
-  EachFormed : KeyForm t t' -> AllKeyForm ts ts' -> AllKeyForm (t :: ts) (t' :: ts')
+  public export
+  data AllKeyForm : List Template -> List Template -> Type where
+    NoneFormed : AllKeyForm [] []
+    EachFormed : KeyForm t t' -> AllKeyForm ts ts' -> AllKeyForm (t :: ts) (t' :: ts')
 
 ------------------------------------------------------------------------------
 -- The readings
@@ -330,18 +335,20 @@ record Arg {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) where
   reading : Lazy (Front (Subset Template (ReadAs m stand term)))
 
 ||| The terms of some arguments.
-termsOf : List (Arg m stand) -> List (TT vs)
+termsOf : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} -> List (Arg m stand) -> List (TT vs)
 termsOf [] = []
 termsOf (a :: as) = a.term :: termsOf as
 
 -- The closed terms a call's unfolding walks are its arguments as written,
 -- each variable by its substitute.
-0 closedTerms : (args : List (Arg m stand)) -> map (\x => Force x.value) args = map (closeBy Readings.substituted stand) (termsOf args)
+0 closedTerms : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} ->
+                (args : List (Arg m stand)) -> map (\x => Force x.value) args = map (closeBy Readings.substituted stand) (termsOf args)
 closedTerms [] = Refl
 closedTerms (a :: as) = cong2 (::) a.closedAs (closedTerms as)
 
 ||| The arguments' readings, in order.
-readings : (args : List (Arg m stand)) -> Front (Subset (List Template) (AllReadAs m stand (termsOf args)))
+readings : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} ->
+           (args : List (Arg m stand)) -> Front (Subset (List Template) (AllReadAs m stand (termsOf args)))
 readings [] = pure (Element [] [])
 readings (a :: as) = do
   r <- Force a.reading
@@ -501,12 +508,14 @@ partedBefore k xs = cutAt (minus (length xs) k) xs
     cutAt (S j) [] = MkParted [] [] Refl
     cutAt (S j) (y :: ys) = let MkParted f b p = cutAt j ys in MkParted (y :: f) b (cong (y ::) p)
 
-0 termsJoined : (xs, ys : List (Arg m stand)) -> termsOf (xs ++ ys) = termsOf xs ++ termsOf ys
+0 termsJoined : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} ->
+                (xs, ys : List (Arg m stand)) -> termsOf (xs ++ ys) = termsOf xs ++ termsOf ys
 termsJoined [] ys = Refl
 termsJoined (x :: xs) ys = cong (x.term ::) (termsJoined xs ys)
 
 -- The terms of a cut list are the terms of its parts.
-0 partedTerms : (p : Parted args) -> termsOf args = termsOf p.front ++ termsOf p.back
+0 partedTerms : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} -> {0 args : List (Arg m stand)} ->
+                (p : Parted args) -> termsOf args = termsOf p.front ++ termsOf p.back
 partedTerms (MkParted f b joined) = rewrite sym joined in termsJoined f b
 
 ||| `believe_me` applied to its two types and a value in a site's type, its
@@ -623,13 +632,16 @@ mutual
                 (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
                 (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
                 Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
-  lambdaSpine m@(MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc [] =
+  -- The site's mode is written out where it is used: the alternatives
+  -- below are case blocks, which see a name bound by an as pattern as a
+  -- variable apart from the mode it matched.
+  lambdaSpine (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc [] =
     case contracted (Bind fc x (Lam lfc rig info ty) sc) of
-      MkContracted g steps _ => case keptAround (contractingFor m) g of
-        ContractedAway => plainLambda m w acc stand fc x lfc rig info ty sc []
+      MkContracted g steps _ => case keptAround (contractingFor (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx)) g of
+        ContractedAway => plainLambda (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc []
         KeptAround => do
-          Just r <- chainLambda m w acc stand 0 fc x lfc rig info ty sc
-            | Nothing => plainLambda m w acc stand fc x lfc rig info ty sc []
+          Just r <- chainLambda (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand 0 fc x lfc rig info ty sc
+            | Nothing => plainLambda (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc []
           pure (Element (keptChain r.address r.own r.unfolded) (SEta steps r.chain))
   lambdaSpine m w acc stand fc x lfc rig info ty sc args = plainLambda m w acc stand fc x lfc rig info ty sc args
 
@@ -703,7 +715,7 @@ mutual
                            (CallStays {vars = termsOf parts.back} at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen m.inContext n
       | Nothing => pure stays
-    let written = nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
+    let written := nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
     outcome <- callRead m w acc d n placement def defines (map (\x => Force x.value) args) written
     pure (case outcome of
             AsWritten => stays
@@ -801,9 +813,11 @@ mutual
                  (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
                  (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
                  Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
-  ofDefinition m@(MkMode (OfSite stands) EveryNode cl ctx) w acc stand fc n a at args = do
+  ofDefinition (MkMode (OfSite stands) EveryNode cl ctx) w acc stand fc n a at args = do
+    -- The mode written out, not named by an as pattern: the alternative
+    -- below is a case block, which would see that name apart from it.
     Just (k, projected, extras) <- projectedRecord n args
-      | Nothing => call m w acc stand fc n a at args
+      | Nothing => call (MkMode (OfSite stands) EveryNode cl ctx) w acc stand fc n a at args
     matched <- Force projected.reading
     rs <- readings args
     es <- readings extras
@@ -843,7 +857,9 @@ mutual
     pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
   applied (MkMode (OfSite stands) kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
-    let written = nodeOf kp (Head (Just a) rs.fst)
+    -- Bound transparently: the evidence below is indexed by the template
+    -- itself, so its name must stand for it in types.
+    let written := nodeOf kp (Head (Just a) rs.fst)
     let folded = the (Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) (termsOf args)))
                      (Element written (SKept at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen ctx n
@@ -916,15 +932,17 @@ mutual
           (tree : CaseTree pargs) -> (written : Template) ->
           Front (Maybe (Subset Template (GivenUnfolds m a written terms pargs tree)))
   given (MkMode _ Skeleton _ _) w acc placement a terms ty pargs tree written = pure Nothing
-  given m@(MkMode _ EveryNode _ _) w acc@(Access rec) placement a terms ty pargs tree written = do
+  -- The mode written out where the walk is given it, inside case blocks,
+  -- which would see a name bound by an as pattern apart from it.
+  given (MkMode wh EveryNode cl ctx) w acc@(Access rec) placement a terms ty pargs tree written = do
     arities <- binderArities ty
-    let lacking = formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
+    let lacking := formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
     case Element (bindParams pargs (terms ++ map substituted lacking)) Refl of
       Element Nothing _ => pure Nothing
       Element (Just (env, extras)) bound => case enter placement w of
         Nothing => pure (Just (Element (Opaque a (map substituteTemplate lacking)) GivenAgain))
         Just (Element w' less) => do
-          Element (Just t) walked <- walk m w' (rec w' less) a written env tree extras
+          Element (Just t) walked <- walk (MkMode wh EveryNode cl ctx) w' (rec w' less) a written env tree extras
             | Element Nothing _ => pure Nothing
           pure (Just (Element t (GivenWalked bound walked)))
 
@@ -1115,13 +1133,16 @@ mutual
   ||| leaf of a choice so. A form's height is then the key's, whatever
   ||| extents are written, so that a key and the bound on it are read alike.
   formedReading : {auto c : Ref Ctxt Defs} -> (t : Template) -> Front (Subset Template (KeyForm t))
-  formedReading t@(Head (Just a) [e, rest, x]) = do
+  -- The template written out where it is read as itself: the alternatives
+  -- are case blocks, which would see a name bound by an as pattern apart
+  -- from the template it matched.
+  formedReading (Head (Just a) [e, rest, x]) = do
     ctx <- frozenContext
     let Just def = atAddress ctx a
-      | Nothing => pure (Element t AsRead)
+      | Nothing => pure (Element (Head (Just a) [e, rest, x]) AsRead)
     case definition def of
       DCon 1 _ _ => (\r => Element (Head (Just a) [e, r.fst, Leaf 1]) (ExtentErased r.snd)) <$> formedReading rest
-      _ => pure (Element t AsRead)
+      _ => pure (Element (Head (Just a) [e, rest, x]) AsRead)
   formedReading (Choice s ls) = (\r => Element (Choice s r.fst) (LeavesFormed r.snd)) <$> formedReadings ls
   formedReading t = pure (Element t AsRead)
 
@@ -1141,14 +1162,6 @@ formedTemplate t = (.fst) <$> formedReading t
 -- A static argument read
 ------------------------------------------------------------------------------
 
-||| A term with its unknowns' solutions put in, as `Closed.solved` gives it,
-||| with the host's steps that reach it: none where it has no unknown.
-solvedIn : (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (Reduces (evaluationOf OfNormaliseHoles) ctx t))
-solvedIn ctx t =
-  if hasMeta t
-     then (\r => Element r.value r.steps) <$> core (host.normaliseHoles ctx t)
-     else pure (Element t (reducesToItself t))
-
 ||| A dictionary's form, as `classify` keys it, how it was read off the
 ||| term, and the evidence its contraction gives that no redex is left in
 ||| it (`Contraction.EtaNormal`): every reading of a dictionary contracts every
@@ -1163,7 +1176,7 @@ record DictionaryForm (ctx : Frozen) (t : ClosedTerm) where
 ||| implementation it stands for where it depends on a runtime value.
 dictionaryForm : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (DictionaryForm ctx t)
 dictionaryForm ctx t = do
-  s <- solvedIn ctx t
+  s <- solving ctx t
   if !(runtimeDependent s.fst)
      then do
        impl <- implementationOf s.fst
@@ -1171,7 +1184,7 @@ dictionaryForm ctx t = do
        pure (MkDictionaryForm c.etaForm (FromImplementation c.etaSteps) c.etaNormal)
      else
        let c = contracted s.fst in
-       pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal)
+       pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal)
 
 ||| A site's static argument read: the mode it is read in, the context of
 ||| which is the one every normal form and definition of the reading is
@@ -1235,13 +1248,13 @@ siteReading stands ADictionary t = do
   pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form d.formFrom d.maximal r.fst r.snd r.fst AsRead)
 siteReading stands AShape t = do
   ctx <- frozenContext
-  s <- solvedIn ctx t
+  s <- solving ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
       pure (MkSiteReading (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
-                          (FromWritten WrittenShape (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal r.fst r.snd r.fst AsRead)
+                          (FromWritten WrittenShape (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal r.fst r.snd r.fst AsRead)
     _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside ctx) t
 
 ||| What a site writes at a static argument (`siteReading`).
@@ -1895,12 +1908,12 @@ readInstance ctx ADictionary t = do
   root <- dictionaryRoot t
   pure (MkInstanceReading d.form d.formFrom d.maximal r.fst r.snd root)
 readInstance ctx AShape t = do
-  s <- solvedIn ctx t
+  s <- solving ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (InstanceMode ctx) c.etaForm
-      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal r.fst r.snd Unrooted)
+      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal r.fst r.snd Unrooted)
     _ => normalInstance ctx noRoot t
 
 ||| A request's static argument at its kind, as the translation keeps it:
@@ -1955,7 +1968,7 @@ lteOfEq Refl le = le
 lteToEq Refl le = le
 
 0 underOne : (n : Nat) -> LTE (n + 0) (S n)
-underOne n = lteSuccRight (lteOfEq (plusZeroRightNeutral n) lteRefl)
+underOne n = lteSuccRight (lteOfEq (plusZeroRightNeutral n) reflexive)
 
 0 elemLeft : Elem x xs -> Elem x (xs ++ ys)
 elemLeft Here = Here
@@ -2025,11 +2038,11 @@ allTall ((t ** (el, wi)) :: rest) = maxLub (transitive wi.high (tallestAt el)) (
 
 0 allWide : All (InSome ts) cs -> LTE (keyWidest cs) (maximum 1 (widest ts))
 allWide [] = LTEZero
-allWide ((t ** (el, wi)) :: rest) = maxLub (transitive wi.wide (maxMono lteRefl (widestAt el))) (allWide rest)
+allWide ((t ** (el, wi)) :: rest) = maxLub (transitive wi.wide (maxMono reflexive (widestAt el))) (allWide rest)
 
 0 allHeavy : All (InSome ts) cs -> LTE (keyHeaviestOf cs) (maximum 1 (heaviestOf ts))
 allHeavy [] = LTEZero
-allHeavy ((t ** (el, wi)) :: rest) = maxLub (transitive wi.heavy (maxMono lteRefl (heaviestAt el))) (allHeavy rest)
+allHeavy ((t ** (el, wi)) :: rest) = maxLub (transitive wi.heavy (maxMono reflexive (heaviestAt el))) (allHeavy rest)
 
 -- A node of the key within a head of the template: each child within one
 -- of the head's children, no more children, its own symbol no heavier.
@@ -2039,7 +2052,7 @@ allHeavy ((t ** (el, wi)) :: rest) = maxLub (transitive wi.heavy (maxMono lteRef
 nodeWithin inside many heavy =
   MkEnclosed (LTESucc (allTall inside))
            (maxLub (transitive many (transitive (maximumLeftUpperBound _ _) (maximumRightUpperBound 1 _)))
-                   (transitive (allWide inside) (maxMono lteRefl (maximumRightUpperBound _ _))))
+                   (transitive (allWide inside) (maxMono reflexive (maximumRightUpperBound _ _))))
            (maxLub heavy (allHeavy inside))
 
 -- Key trees each within its template, in order.
@@ -2067,14 +2080,14 @@ ontoLength cs ps = trans (lengthOnto cs ks) (cong (+ length cs) (pairwiseLength 
 oneNode t high = MkEnclosed high LTEZero (maximumLeftUpperBound 1 (heaviest t))
 
 0 substituteOwn : (s : Substitute) -> Enclosed (KeyNode 1 []) (substituteTemplate s)
-substituteOwn (FormalArgument j k) = oneNode (Formal j k) lteRefl
-substituteOwn Placeholding = oneNode (Leaf 1) lteRefl
+substituteOwn (FormalArgument j k) = oneNode (Formal j k) reflexive
+substituteOwn Placeholding = oneNode (Leaf 1) reflexive
 
 0 tokenOwn : (n : Nat) -> Enclosed (KeyNode n []) (Token n)
-tokenOwn n = MkEnclosed lteRefl LTEZero (maxLub (maximumRightUpperBound 1 n) LTEZero)
+tokenOwn n = MkEnclosed reflexive LTEZero (maxLub (maximumRightUpperBound 1 n) LTEZero)
 
 0 holeOwn : (i : Nat) -> Enclosed (KeyNode (S i + 0) []) (Token (S i))
-holeOwn i = MkEnclosed lteRefl LTEZero (LTESucc (lteOfEq (plusZeroRightNeutral i) lteRefl))
+holeOwn i = MkEnclosed reflexive LTEZero (LTESucc (lteOfEq (plusZeroRightNeutral i) reflexive))
 
 -- A key's node read with another head, the same node.
 0 headChanged : {k, k' : KeyTree} -> k = k' -> Enclosed (appliedTo k' ks) t -> Enclosed (appliedTo k ks) t
@@ -2090,7 +2103,7 @@ partWithin {x} {own} {ks = k :: ks'} {ts = u :: us} w (Paired first rest) =
   replace {p = \kt => Enclosed kt (Head Nothing (own :: u :: us))} (sym (appliedNode x [] (k :: ks'))) $
     nodeWithin (allOnto [] (pairwiseIn (Paired first rest) (\_, el => There el)))
                (lteOfEq (ontoLength [] (Paired first rest)) (LTESucc (underOne (length us))))
-               (transitive (maximumLeftUpperBound x 0) (transitive w.heavy (maxMono lteRefl (maximumLeftUpperBound _ _))))
+               (transitive (maximumLeftUpperBound x 0) (transitive w.heavy (maxMono reflexive (maximumLeftUpperBound _ _))))
 
 -- A node with parts of its own, applied: one head over its parts and its
 -- arguments, as the key writes it.
@@ -2100,7 +2113,7 @@ partWithin {x} {own} {ks = k :: ks'} {ts = u :: us} w (Paired first rest) =
                   Enclosed (appliedTo (KeyNode x own) ks) (Head a (ownT ++ ts))
 splicedWithin {x} {own} {ownT} {ks} {ts} {a} inOwn many one ps =
   replace {p = \kt => Enclosed kt (Head a (ownT ++ ts))} (sym (appliedNode x own ks)) $
-    nodeWithin (allOnto (widen inOwn (\_, el => elemLeft el)) (pairwiseIn ps (\_, el => elemRight ownT el)))
+    nodeWithin (allOnto (widen inOwn (\_, el => elemLeft {ys = ts} el)) (pairwiseIn ps (\_, el => elemRight {ys = ts} ownT el)))
                (lteOfEq (ontoLength own ps)
                   (lteOfEq (plusCommutative (length ts) (length own))
                      (lteToEq (sym (lengthJoin ownT ts)) (plusLteMonotoneRight (length ts) (length own) (length ownT) many))))
@@ -2108,7 +2121,7 @@ splicedWithin {x} {own} {ownT} {ks} {ts} {a} inOwn many one ps =
 
 0 glyphsIn : (cs : List Char) -> ((t : Template) -> Elem t (spelt cs) -> Elem t big) -> All (InSome big) (glyphTrees cs)
 glyphsIn [] inc = []
-glyphsIn (_ :: cs) inc = (Leaf 1 ** (inc (Leaf 1) Here, oneNode (Leaf 1) lteRefl)) :: glyphsIn cs (\t, el => inc t (There el))
+glyphsIn (_ :: cs) inc = (Leaf 1 ** (inc (Leaf 1) Here, oneNode (Leaf 1) reflexive)) :: glyphsIn cs (\t, el => inc t (There el))
 
 0 glyphsLength : (cs : List Char) -> length (glyphTrees cs) = length (spelt cs)
 glyphsLength [] = Refl
@@ -2116,15 +2129,15 @@ glyphsLength (_ :: cs) = cong S (glyphsLength cs)
 
 0 spellWithin : (cs : List Char) -> {ks : List KeyTree} -> {ts : List Template} -> Pairwise ks ts ->
                 Enclosed (appliedTo (KeyNode 1 (glyphTrees cs)) ks) (Head Nothing (spelt cs ++ ts))
-spellWithin cs ps = splicedWithin (glyphsIn cs (\_, el => el)) (lteOfEq (glyphsLength cs) lteRefl) lteRefl ps
+spellWithin cs ps = splicedWithin {ownT = spelt cs} (glyphsIn cs (\_, el => el)) (lteOfEq (glyphsLength cs) reflexive) reflexive ps
 
 0 constantWithin : (c : Constant) -> {ks : List KeyTree} -> {ts : List Template} -> Pairwise ks ts ->
                    Enclosed (appliedTo (constantTree c) ks) (appliedConstant c ts)
 constantWithin (Str x) ps = spellWithin (unpack x) ps
 constantWithin (Db x) ps = spellWithin (unpack (show x)) ps
-constantWithin (Ch x) ps = partWithin (oneNode (Leaf 1) lteRefl) ps
-constantWithin (PrT x) ps = partWithin (oneNode (Leaf 1) lteRefl) ps
-constantWithin WorldVal ps = partWithin (oneNode (Leaf 1) lteRefl) ps
+constantWithin (Ch x) ps = partWithin (oneNode (Leaf 1) reflexive) ps
+constantWithin (PrT x) ps = partWithin (oneNode (Leaf 1) reflexive) ps
+constantWithin WorldVal ps = partWithin (oneNode (Leaf 1) reflexive) ps
 constantWithin (I x) ps = partWithin (tokenOwn _) ps
 constantWithin (I8 x) ps = partWithin (tokenOwn _) ps
 constantWithin (I16 x) ps = partWithin (tokenOwn _) ps
@@ -2139,12 +2152,12 @@ constantWithin (B64 x) ps = partWithin (tokenOwn _) ps
 -- A run of n successors is n + 1 high, every node of it with one child
 -- at most, every symbol of it weighing one.
 0 runWithin : (w : Writer) -> Run u n -> Enclosed (keyTree w u) (Leaf (S n))
-runWithin w RunZero = MkEnclosed lteRefl LTEZero lteRefl
+runWithin w RunZero = MkEnclosed reflexive LTEZero reflexive
 runWithin w (RunSucc r) =
   let rec = runWithin w r in
   MkEnclosed (LTESucc (maxLub rec.high LTEZero))
-           (maxLub lteRefl (maxLub rec.wide LTEZero))
-           (maxLub lteRefl (maxLub rec.heavy LTEZero))
+           (maxLub reflexive (maxLub rec.wide LTEZero))
+           (maxLub reflexive (maxLub rec.heavy LTEZero))
 
 -- A node's own children, each within one of its own templates, no more of
 -- them.
@@ -2167,42 +2180,45 @@ mutual
 
   0 spineWithin : (w : Writer) -> SpineAs (InstanceMode ctx) env f as t -> Enclosed (appliedTo (keyTree w f) (keyTrees w as)) t
   spineWithin w (SApp s) = spineWithin w s
-  spineWithin w (SDot {r} ru rs) = splicedWithin [(r ** (Here, readWithin w ru))] lteRefl lteRefl (allWithin w rs)
-  spineWithin w (SPlaceholder rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
-  spineWithin w (SImpossible rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
+  spineWithin w (SDot {r} ru rs) = splicedWithin {ownT = [r]} [(r ** (Here, readWithin w ru))] reflexive reflexive (allWithin w rs)
+  spineWithin w (SPlaceholder rs) = partWithin (oneNode (Leaf 1) reflexive) (allWithin w rs)
+  spineWithin w (SImpossible rs) = partWithin (oneNode (Leaf 1) reflexive) (allWithin w rs)
   spineWithin {env} w (SLocal {idx} {p} rs) = partWithin (substituteOwn (valueAt env idx p)) (allWithin w rs)
-  spineWithin w (SMeta ms rs) =
-    let pms = allWithin w ms in
-    splicedWithin (pairwiseIn pms (\_, el => el)) (lteOfEq (pairwiseLength pms) lteRefl) lteRefl (allWithin w rs)
-  spineWithin w (SUniverse rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
+  spineWithin w (SMeta {ms = own} dms rs) =
+    let pms = allWithin w dms in
+    splicedWithin {ownT = own} (pairwiseIn pms (\_, el => el)) (lteOfEq (pairwiseLength pms) reflexive) reflexive (allWithin w rs)
+  spineWithin w (SUniverse rs) = partWithin (oneNode (Leaf 1) reflexive) (allWithin w rs)
   spineWithin w (SConstant {c} rs) = constantWithin c (allWithin w rs)
   spineWithin w (SLambda {ps} {t} {s} pa rt rsc rs) =
     let o = passingWithin w pa in
-    splicedWithin ((s ** (elemRight ps (There Here), readWithin w rsc)) :: widen o.inside (\_, el => elemLeft el))
+    splicedWithin {ownT = ps ++ [t, s]}
+                  ((s ** (elemRight {ys = [t, s]} ps (There Here), readWithin w rsc)) ::
+                   widen o.inside (\_, el => elemLeft {ys = [t, s]} el))
                   (lteToEq (sym (lengthJoin ps [t, s]))
                      (lteToEq (plusCommutative 2 (length ps)) (lteSuccRight (LTESucc o.many))))
-                  lteRefl (allWithin w rs)
+                  reflexive (allWithin w rs)
   spineWithin w (SBinder {ps} {s} ba rsc rs) =
     let o = binderWithin w ba in
-    splicedWithin ((s ** (elemRight ps Here, readWithin w rsc)) :: widen o.inside (\_, el => elemLeft el))
+    splicedWithin {ownT = ps ++ [s]}
+                  ((s ** (elemRight {ys = [s]} ps Here, readWithin w rsc)) :: widen o.inside (\_, el => elemLeft {ys = [s]} el))
                   (lteToEq (sym (lengthJoin ps [s])) (lteToEq (plusCommutative 1 (length ps)) (LTESucc o.many)))
-                  lteRefl (allWithin w rs)
-  spineWithin w (SDelayed {t} ru rs) = splicedWithin [(t ** (Here, readWithin w ru))] lteRefl lteRefl (allWithin w rs)
+                  reflexive (allWithin w rs)
+  spineWithin w (SDelayed {t} ru rs) = splicedWithin {ownT = [t]} [(t ** (Here, readWithin w ru))] reflexive reflexive (allWithin w rs)
   spineWithin w (SDelay {t} {v} rty ra rs) =
-    splicedWithin [(t ** (Here, readWithin w rty)), (v ** (There Here, readWithin w ra))] lteRefl lteRefl (allWithin w rs)
-  spineWithin w (SForce {t} ru rs) = splicedWithin [(t ** (Here, readWithin w ru))] lteRefl lteRefl (allWithin w rs)
+    splicedWithin {ownT = [t, v]} [(t ** (Here, readWithin w rty)), (v ** (There Here, readWithin w ra))] reflexive reflexive (allWithin w rs)
+  spineWithin w (SForce {t} ru rs) = splicedWithin {ownT = [t]} [(t ** (Here, readWithin w ru))] reflexive reflexive (allWithin w rs)
   spineWithin w (SAs {t} {v} ra rp rs) =
-    splicedWithin [(t ** (Here, readWithin w ra)), (v ** (There Here, readWithin w rp))] lteRefl lteRefl (allWithin w rs)
+    splicedWithin {ownT = [t, v]} [(t ** (Here, readWithin w ra)), (v ** (There Here, readWithin w rp))] reflexive reflexive (allWithin w rs)
   spineWithin w (SHole {fc} {n} {i} found rs) =
     headChanged (markerNode w fc n found) (partWithin (holeOwn i) (allWithin w rs))
   spineWithin w (SFormal {fc} {n} {j} {k} none _ rs) =
-    headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Formal j k) lteRefl) (allWithin w rs))
+    headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Formal j k) reflexive) (allWithin w rs))
   spineWithin w (SPart {fc} {n} none _ rs) =
-    headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs))
-  spineWithin w (SNoDefinition _ rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
-  spineWithin w (SData _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
-  spineWithin w (STypeCon _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
-  spineWithin w (SKept _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
+    headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Leaf 1) reflexive) (allWithin w rs))
+  spineWithin w (SNoDefinition _ rs) = partWithin (oneNode (Leaf 1) reflexive) (allWithin w rs)
+  spineWithin w (SData _ rs) = splicedWithin {ownT = []} [] LTEZero reflexive (allWithin w rs)
+  spineWithin w (STypeCon _ rs) = splicedWithin {ownT = []} [] LTEZero reflexive (allWithin w rs)
+  spineWithin w (SKept _ rs) = splicedWithin {ownT = []} [] LTEZero reflexive (allWithin w rs)
   -- A site's markers and unfoldings: no instance's term holds them.
   spineWithin w (SMarker _ _) impossible
   spineWithin w (SBeside _ _ _) impossible
@@ -2216,22 +2232,22 @@ mutual
   passingWithin w PImplicit = MkOwn [] LTEZero
   passingWithin w PExplicit = MkOwn [] LTEZero
   passingWithin w PAuto = MkOwn [] LTEZero
-  passingWithin w (PDefault {r} rd) = MkOwn [(r ** (Here, readWithin w rd))] lteRefl
+  passingWithin w (PDefault {r} rd) = MkOwn [(r ** (Here, readWithin w rd))] reflexive
 
   0 binderWithin : (w : Writer) -> BinderAs (InstanceMode ctx) env b ps -> Own (binderTrees w b) ps
   binderWithin w (BLet {tv} {t} rv rt) =
-    MkOwn [(tv ** (Here, readWithin w rv)), (t ** (There Here, readWithin w rt))] lteRefl
+    MkOwn [(tv ** (Here, readWithin w rv)), (t ** (There Here, readWithin w rt))] reflexive
   binderWithin w (BPi {ps} {t} pa rt) =
     let o = passingWithin w pa in
-    MkOwn ((t ** (elemRight ps Here, readWithin w rt)) :: widen o.inside (\_, el => elemLeft el))
+    MkOwn ((t ** (elemRight {ys = [t]} ps Here, readWithin w rt)) :: widen o.inside (\_, el => elemLeft {ys = [t]} el))
           (lteToEq (sym (lengthJoin ps [t])) (lteToEq (plusCommutative 1 (length ps)) (LTESucc o.many)))
   binderWithin w (BPVar {ps} {t} pa rt) =
     let o = passingWithin w pa in
-    MkOwn ((t ** (elemRight ps Here, readWithin w rt)) :: widen o.inside (\_, el => elemLeft el))
+    MkOwn ((t ** (elemRight {ys = [t]} ps Here, readWithin w rt)) :: widen o.inside (\_, el => elemLeft {ys = [t]} el))
           (lteToEq (sym (lengthJoin ps [t])) (lteToEq (plusCommutative 1 (length ps)) (LTESucc o.many)))
   binderWithin w (BPLet {tv} {t} rv rt) =
-    MkOwn [(tv ** (Here, readWithin w rv)), (t ** (There Here, readWithin w rt))] lteRefl
-  binderWithin w (BPVTy {t} rt) = MkOwn [(t ** (Here, readWithin w rt))] lteRefl
+    MkOwn [(tv ** (Here, readWithin w rv)), (t ** (There Here, readWithin w rt))] reflexive
+  binderWithin w (BPVTy {t} rt) = MkOwn [(t ** (Here, readWithin w rt))] reflexive
 
 0 maxOnePred : (a : Nat) -> pred (maximum 1 a) = pred a
 maxOnePred Z = Refl
@@ -2303,23 +2319,23 @@ mutual
   ||| cap, which is the cap's argument (`Caps.capFrom`).
   export
   0 chainReads : ChainShape cx u h -> ReadAs (InstanceMode ctx) env u t -> CapRead t h
-  chainReads c (ARun {n} r) = replace {p = CapRead (Leaf (S n))} (sym (runShaped r c)) (MkCapRead lteRefl LTEZero LTEZero)
+  chainReads c (ARun {n} r) = replace {p = CapRead (Leaf (S n))} (sym (runShaped r c)) (MkCapRead reflexive LTEZero LTEZero)
   chainReads c (ASpine s) = chainSpine c s
 
   0 chainSpine : ChainShape cx u h -> SpineAs (InstanceMode ctx) env u [] t -> CapRead t h
-  chainSpine ChainEnd (SData _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine ChainEnd (SData _ []) = MkCapRead reflexive LTEZero LTEZero
   chainSpine (ChainStep c) (SApp (SData _ (r :: []))) =
     let inner = chainReads c r in
     MkCapRead (LTESucc (maxLub inner.high LTEZero))
-              (maxLub lteRefl (maxLub inner.narrow LTEZero))
+              (maxLub reflexive (maxLub inner.narrow LTEZero))
               (maxLub inner.light LTEZero)
-  chainSpine ChainCut (SImpossible []) = MkCapRead lteRefl LTEZero LTEZero
-  chainSpine ChainErased (SPlaceholder []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine ChainCut (SImpossible []) = MkCapRead reflexive LTEZero LTEZero
+  chainSpine ChainErased (SPlaceholder []) = MkCapRead reflexive LTEZero LTEZero
   chainSpine (ChainUnsaid none) (SHole found _) = void (nothingNotJust (trans (sym none) found))
-  chainSpine (ChainUnsaid none) (SFormal _ _ []) = MkCapRead lteRefl LTEZero LTEZero
-  chainSpine (ChainUnsaid none) (SPart _ _ []) = MkCapRead lteRefl LTEZero LTEZero
-  chainSpine (ChainUnknown _) (SNoDefinition _ []) = MkCapRead lteRefl LTEZero LTEZero
-  chainSpine (ChainUnknown _) (SKept _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnsaid none) (SFormal _ _ []) = MkCapRead reflexive LTEZero LTEZero
+  chainSpine (ChainUnsaid none) (SPart _ _ []) = MkCapRead reflexive LTEZero LTEZero
+  chainSpine (ChainUnknown _) (SNoDefinition _ []) = MkCapRead reflexive LTEZero LTEZero
+  chainSpine (ChainUnknown _) (SKept _ []) = MkCapRead reflexive LTEZero LTEZero
 
 ||| A chain's shape reduces only to a chain's shape as high: a constructor
 ||| and a bound name are inert (`Proof.Inversion.inertAlone`,
@@ -2389,7 +2405,7 @@ public export
 cappedDerivation b w p cap cut r =
   let held = chainReads (shapeForm cut.chain r.formFrom) r.describes in
   MkArgumentDerivation p r.template (Capped cap (transitive held.high cut.short) held.narrow held.light)
-    (keyedWithin w r lteRefl lteRefl lteRefl)
+    (keyedWithin w r reflexive reflexive reflexive)
 
 ||| A capped request's argument placed in the universe at its parameter's
 ||| height h, where its position's bound is within h, which every
@@ -2494,22 +2510,27 @@ mutual
 
 ||| What a request holds of the term an instance writes at a static
 ||| argument of kind k, which the instance's reading reads: at a shape, the
-||| term's skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape`
-||| keys it), of the term as written where a data constructor heads it,
+||| skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape` keys it)
+||| of the term as written, its unknowns solved as every written form is
+||| (`Closed.Solved`, the one solving), where a data constructor heads it,
 ||| else of the host's normal form of it, cut where the callee's type stops
-||| needing it (`NeededCut`); at any other kind, the term itself. A
-||| skeleton's hole stands for the node it cut, which the site's reading of
-||| a shape reads as a hole too (`Readings.nodeOf Skeleton`), so no rule
-||| takes a hole to the node a reading of the whole term would read there.
-||| This is the evidence a request carries with the site it reads (the
-||| translation's site table): the site's term, with the requesting
-||| instance's values put in, holds as the request's argument.
+||| needing it (`NeededCut`); at any other kind, the term itself. The
+||| solving is carried, not assumed away: a term whose unknowns the
+||| normaliser solves has the solution's skeleton, which the term's own
+||| cuts to a hole. A skeleton's hole stands for the node it cut, which the
+||| site's reading of a shape reads as a hole too (`Readings.nodeOf
+||| Skeleton`), so no rule takes a hole to the node a reading of the whole
+||| term would read there. This is the evidence a request carries with the
+||| site it reads (the translation's site table): the site's term, with the
+||| requesting instance's values put in, holds as the request's argument.
 public export
 data HeldAs : Frozen -> Readings.Static -> ClosedTerm -> ClosedTerm -> Type where
   HeldWhole : WholeKind k -> HeldAs ctx k u u
-  HeldWritten : (0 _ : SkeletonOf u shape) -> (0 _ : NeededCut shape held) -> HeldAs ctx AShape u held
-  HeldNormal : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf u s)) -> (0 r : Reduct OfNormaliseTypes ctx u) ->
-               (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) -> HeldAs ctx AShape u held
+  HeldWritten : (0 _ : Solved ctx u w) -> (0 _ : SkeletonOf w shape) -> (0 _ : NeededCut shape held) ->
+                HeldAs ctx AShape u held
+  HeldNormal : (0 _ : Solved ctx u w) -> (0 _ : (s : ClosedTerm) -> Not (SkeletonOf w s)) ->
+               (0 r : Reduct OfNormaliseTypes ctx u) -> (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) ->
+               HeldAs ctx AShape u held
 
 ||| The reading lemma, as the growth proof states it: at markers fresh for
 ||| the frozen context and apart (`Proof.Markers.Markers`), put in by values

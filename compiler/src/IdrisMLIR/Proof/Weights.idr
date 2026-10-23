@@ -25,6 +25,11 @@
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Weights
 
+-- A step's growth (`Proof.Requests.grown`) names the host's widest
+-- exponent, which the proofs below meet when they unfold it; a name is
+-- visible only to a module that imports the module defining it.
+import Core.Primitives.Host
+
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
@@ -512,23 +517,25 @@ mutual
   0 unmarkedLight : Based m w -> Unmarked t -> Writes m s t u -> LTE (arity t) w -> LTE (heaviest t) w ->
                     Light w (height t) u
   unmarkedLight ms um (AtVar _ _ _ _) _ _ = absurd um
-  unmarkedLight ms um (AtHead xs) wide heavy =
-    LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove _ _))
+  -- A tower of a known height reduces to its step's sum, from which no
+  -- unifier reads the height back: each tower below is named whole.
+  unmarkedLight {w} ms um (AtHead {ts} xs) wide heavy =
+    LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove (S (tallest ts)) w))
               (unmarkedAllLight ms (unmarkedHead um) xs (maxRight wide) heavy)
-  unmarkedLight ms um (AtOpaque xs) wide heavy =
-    LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove _ _))
+  unmarkedLight {w} ms um (AtOpaque {ts} xs) wide heavy =
+    LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove (S (tallest ts)) w))
               (unmarkedAllLight ms (unmarkedOpaque um) xs (maxRight wide) heavy)
   unmarkedLight ms um AtLeaf _ _ = LightLeaf
   unmarkedLight ms um (AtRunRead run) _ _ = runLight ms.one run
-  unmarkedLight ms um (AtComputed {ts} {ws} xs form meas) wide heavy = case unmarkedChoice um of
+  unmarkedLight {w} ms um (AtComputed {ts} {ws} xs form meas) wide heavy = case unmarkedChoice um of
     (UnmarkedHead us :: _) =>
       constantLight form
         (transitive meas
            (transitive (grownMono (allMeasures (unmarkedAllLight ms us xs (maxRight (maxLeft wide)) (maxLeft heavy))))
-                       (stepsMono (maximumLeftUpperBound (S (tallest ts)) _))))
+                       (stepsMono {x = w} (maximumLeftUpperBound (S (tallest ts)) (maximum 2 0)))))
   unmarkedLight ms um (AtRun _ _) _ _ = LightLeaf
   unmarkedLight ms um (AtCut _ _) _ _ = LightLeaf
-  unmarkedLight ms um AtToken _ heavy = LightToken (transitive heavy (stepsAbove _ _))
+  unmarkedLight {w} ms um AtToken _ heavy = LightToken (transitive heavy (stepsAbove 1 w))
   unmarkedLight ms um AtFormal _ _ = LightFormal
   unmarkedLight ms um (Chosen el x) wide heavy =
     lightMore (tallestAbove el)
@@ -620,15 +627,20 @@ mutual
                    (replace {p = \z => LTE z (g.constant + index s.target pot)} (plusSuccRightSucc (tallest ts) e) hp))
   lightAt ms ds fe AtLeaf _ _ _ _ = LightLeaf
   lightAt ms ds fe (AtRunRead run) _ _ _ _ = runLight ms.one run
-  lightAt {g} {pot} {s} {e} {w} ms ds fe (AtComputed {ts} {ws} xs form meas) cov wide heavy hp = case coveredChoice cov of
-    (c :: _) =>
-      constantLight form
-        (transitive meas
-           (replace {p = \y => LTE (grown (measuresOf ws)) (steps y w)} (computedBudget hp (computedTall ts))
-              (grownMono (allMeasures
-                 (allLightWritten ms ds fe xs (coveredHead c) (maxRight (maxLeft wide)) (maxLeft heavy)
-                    (replace {p = \z => LTE z (g.constant + index s.target pot)} (plusSuccRightSucc (tallest ts) e)
-                             (transitive (plusLteMonotoneRight e _ _ (maximumLeftUpperBound (S (tallest ts)) _)) hp)))))))
+  -- The call's choice and head are named for `computedTall`, which no
+  -- height determines; the choice's height is named whole, as a tower's.
+  lightAt {g} {pot} {s} {e} {w} ms ds fe (AtComputed {c = choice} {a} {ts} {ws} xs form meas) cov wide heavy hp =
+    case coveredChoice cov of
+      (c :: _) =>
+        constantLight form
+          (transitive meas
+             (replace {p = \y => LTE (grown (measuresOf ws)) (steps y w)}
+                      (computedBudget hp (computedTall {c = choice} {a = Just a} ts))
+                (grownMono (allMeasures
+                   (allLightWritten ms ds fe xs (coveredHead c) (maxRight (maxLeft wide)) (maxLeft heavy)
+                      (replace {p = \z => LTE z (g.constant + index s.target pot)} (plusSuccRightSucc (tallest ts) e)
+                               (transitive (plusLteMonotoneRight e _ _ (maximumLeftUpperBound (S (tallest ts)) (maximum 2 0)))
+                                           hp)))))))
   lightAt ms ds fe (AtRun _ _) _ _ _ _ = LightLeaf
   lightAt ms ds fe (AtCut _ _) _ _ _ _ = LightLeaf
   lightAt ms ds fe AtToken _ _ heavy _ = LightToken (transitive heavy (stepsAbove _ _))

@@ -84,7 +84,16 @@
 |||   while every constructor the request keeps the site keeps. A hole only
 |||   the request cuts, and a hole the callee's type cuts below
 |||   (`Template.NeededCut`, `Template.cutShapeNeeded`), is written under
-|||   the site's node (`Proof.Bound.AtCut`).
+|||   the site's node (`Proof.Bound.AtCut`);
+||| - at a shape, what an instance makes of what a request holds: a cut
+|||   skeleton holds no redex, so the instance's contraction keeps it
+|||   (`skeletonNormal`, `neededNormal`, `heldContracted`); the hole a
+|||   skeleton cuts reads as one leaf where the context gives the runtime
+|||   probe's name no address (`holeReadAs`), and the hole a callee's type
+|||   cuts does (`neededHoleReadAs`); every probe's name is one the host
+|||   speaks of (`Walk.probeNamed`), and a name the context does not
+|||   resolve has no place (`Walk.unresolvedUnplaced`). The request's
+|||   solving is the site's (`Closed.solving`, carried by `Template.HeldAs`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
@@ -135,22 +144,35 @@
 |||   lacks: the translation's argument as the site's term with the
 |||   requesting instance's values put in, which only the site table gives
 |||   (the translation's requests are made in its term walk, which reads no
-|||   site); the two solvers agreeing, the translation's (`Closed.solved`,
-|||   which every argument as written has been through) and the site's
-|||   (`Template.solvedIn`, the host's); contraction carried through
-|||   putting values in, the site's contraction with the values put in
-|||   against the instance's contraction of the term with them put in; the
-|||   hole a skeleton cuts read as one leaf (`SNoDefinition`), which needs
-|||   the context to give the runtime probe's name no place
-|||   (`Definitions.definitionAddress`), a fact of the session's name table
-|||   no module states; and where the request reads the normal form
-|||   (`HeldNormal`), the translation's normal form (`Closed.closeNormalise`,
-|||   of the argument with its runtime parts cut) related to the host's
-|||   normal form of the argument as written;
+|||   site); solving through putting values in: the site's term and the
+|||   request's are solved by one function (`Closed.solving`), which says
+|||   which of no unknown or the holes normaliser's normal form each is, but
+|||   the request's term is the site's with values put in, whose own
+|||   unknowns or redexes the site's solving never met, so relating the two
+|||   needs the site's solved form with the values put in to reach the
+|||   request's (`Idris.Host.reachesNormalForm` at the holes normaliser) and
+|||   a reading that does not see the locations a step moves; and the
+|||   instance's own solving of what the request holds, which an instance
+|||   reading keeps only as steps (`Readings.FormFrom`'s `ReadOff`), not as
+|||   the solving that says a skeleton, holding no unknown, is itself. The
+|||   hole a skeleton cuts reads as one leaf (`holeReadAs`) once the host
+|||   states that no probe's name resolves in a frozen context and the
+|||   definitions' module carries that to an address. Where the request
+|||   reads the normal form (`HeldNormal`), the translation's normal form
+|||   (`Closed.closeNormalise`) is not the host's normal form of the
+|||   argument as written: it normalises the argument with every
+|||   computation on a runtime variable cut to a hole first (`cutRuntime`),
+|||   which also cuts one in an erased position, where the shape is still
+|||   read (`runtimeDependent` is false), and a function matching only its
+|||   other arguments then gives a hole where the host's normal form has its
+|||   constructor. The relation to prove instead is a cut, the translation's
+|||   skeleton cut at least where the host's is (`CutFrom`), which needs
+|||   `cutRuntime` to carry evidence that its result is the term with
+|||   subterms cut and normalisation to keep that order;
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
-|||   (`Template.solvedIn`), which the holes evaluation may still step (a
+|||   (`Closed.NoUnknown`), which the holes evaluation may still step (a
 |||   definition that always reduces, a lambda applied), so neither
 |||   `reachesNormalForm`, which needs a `Reduct`, nor one normal form per
 |||   term relates the instance's form to the site's. Read as written,
@@ -159,9 +181,12 @@
 |||   not normalised (`NodeCovers` asks an irreducible reduct) and
 |||   contraction carried through putting values in, the contraction of
 |||   the term with the values put in against the site's contraction with
-|||   them put in, which no relation here states; `solvedIn` keeps the
-|||   term as `Closed.solved` does, so normalising it there alone would
-|||   make the growth check's key differ from the translation's; and a
+|||   them put in, which no relation here states (at a shape the instance
+|||   contracts nothing, `heldContracted`, but the site's contraction of a
+|||   term holding the writer's markers, where the instance's values are
+|||   lambdas, is still to relate); the one solving (`Closed.solving`) keeps
+|||   such a term as written, so normalising it there alone would make the
+|||   growth check's key differ from the translation's; and a
 |||   dictionary over runtime values is the implementation the frontend's
 |||   own reduction finds (`FromImplementation`), which no relation of the
 |||   host's states.
@@ -646,7 +671,7 @@ computedMeasured op cs computed = transitive (snd (constantMeasured c)) (compute
 ||| leaf of.
 export
 0 asGivenWrites : (k : Maybe ChoiceHead) -> (root : Root) -> Writes m s t w -> Writes m s (asGiven k (t, root)) w
-asGivenWrites (Just k) (Readings.Chosen _) wr = Bound.Chosen Here wr
+asGivenWrites (Just k) (Readings.Chosen _) wr = Bound.Writing.Chosen Here wr
 asGivenWrites (Just k) (Rooted _) wr = wr
 asGivenWrites (Just k) (Gives _) wr = wr
 asGivenWrites (Just k) (Parameter _ _) wr = wr
@@ -850,7 +875,7 @@ data AppliedWrites : {g : Graph} -> Model g -> Bound.Site g.size -> (i, d : Nat)
                   (l : Landing) -> c i = l -> (b : Template.Beta) ->
                   Reaches s.template (landedAs l b i d (allWithClosed c ts)).template ->
                   AppliedWrites m s i d ts (allWithClosed c ts) w -> Writes m s (landedAs l b i d (allWithClosed c ts)).template w
-appliedLanded ls Open isOpen Template.Inert r (ByBeta wrote inV sub within aw inst) = Bound.Beta wrote inV sub within aw inst
+appliedLanded ls Open isOpen Template.Inert r (ByBeta wrote inV sub within aw inst) = Bound.Writing.Beta wrote inV sub within aw inst
 appliedLanded ls Open isOpen Template.Inert r (ByPart wrote inV sub within) = GivenPart wrote inV sub within
 appliedLanded {i} {d} {ts} {c} ls Open isOpen Template.Inert r (ByMember {j} rooted args) =
   MemberOf (snd (ls.appliedRoots i d ts j rooted) (allWithClosed c ts)) args
@@ -897,11 +922,11 @@ mutual
   closedWrites ls r (AtCut wr high) = AtCut (closedWrites ls r wr) high
   closedWrites ls r AtToken = AtToken
   closedWrites ls r AtFormal = AtFormal
-  closedWrites {c} ls r (Bound.Chosen el wr) =
-    Bound.Chosen (closedElem {c} el) (closedWrites ls (reachedBelow r (ReachesLeaf (closedElem {c} el) ReachesItself)) wr)
+  closedWrites {c} ls r (Bound.Writing.Chosen el wr) =
+    Bound.Writing.Chosen (closedElem {c} el) (closedWrites ls (reachedBelow r (ReachesLeaf (closedElem {c} el) ReachesItself)) wr)
   closedWrites {c} ls r (AtContracted el wr drops) =
     AtContracted (closedElem {c} el) (closedWrites ls (reachedBelow r (ReachesChild (closedElem {c} el) ReachesItself)) wr) drops
-  closedWrites {c} ls r (Bound.Beta {i} {d} {ts} wrote inV sub within aw inst) =
+  closedWrites {c} ls r (Bound.Writing.Beta {i} {d} {ts} wrote inV sub within aw inst) =
     appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r
                   (ByBeta wrote inV sub within
                      (allClosedWrites ls (\el => reachedBelow r (landedArgument {i} {d} (c i) (argumentsBeta c (allWithClosed c ts)) el)) aw)
@@ -1356,12 +1381,12 @@ siteNormal nk r = (normalOnly nk r.formFrom).fst.reduct
 export
 0 normalHeldWhole : ReadOffNormal k -> HeldAs ctx k u held -> held = u
 normalHeldWhole _ (HeldWhole _) = Refl
-normalHeldWhole TypeReadNormal (HeldWritten _ _) impossible
-normalHeldWhole TypeReadNormal (HeldNormal _ _ _ _) impossible
-normalHeldWhole FamilyReadNormal (HeldWritten _ _) impossible
-normalHeldWhole FamilyReadNormal (HeldNormal _ _ _ _) impossible
-normalHeldWhole FormReadNormal (HeldWritten _ _) impossible
-normalHeldWhole FormReadNormal (HeldNormal _ _ _ _) impossible
+normalHeldWhole TypeReadNormal (HeldWritten _ _ _) impossible
+normalHeldWhole TypeReadNormal (HeldNormal _ _ _ _ _) impossible
+normalHeldWhole FamilyReadNormal (HeldWritten _ _ _) impossible
+normalHeldWhole FamilyReadNormal (HeldNormal _ _ _ _ _) impossible
+normalHeldWhole FormReadNormal (HeldWritten _ _ _) impossible
+normalHeldWhole FormReadNormal (HeldNormal _ _ _ _ _) impossible
 
 ||| The reading lemma, as the growth proof states it, for a kind read off
 ||| the host's normal form, from its induction at the site's normal form
@@ -2205,3 +2230,52 @@ mutual
   contractedCut {v} (ArgumentCutAt _) c = case skeleton v of
     HasSkeleton s' sk' => (s' ** (ArgumentKept sk', CutToHole))
     NoSkeleton none => (_ ** (ArgumentCutAt none, CutNothing))
+
+mutual
+  ||| A skeleton holds no redex any contraction contracts: its nodes are
+  ||| constructors applied and holes, each a reference, and none a lambda.
+  export
+  0 skeletonNormal : {0 how : Contracting} -> SkeletonOf a s -> EtaNormal how s
+  skeletonNormal SkeletonHead = NormalRef
+  skeletonNormal (SkeletonApplied f x) = NormalApp (skeletonNormal f) (cutNormal x)
+
+  0 cutNormal : {0 how : Contracting} -> ArgumentCut a s -> EtaNormal how s
+  cutNormal (ArgumentKept sk) = skeletonNormal sk
+  cutNormal (ArgumentCutAt _) = replace {p = \x => EtaNormal how x} (sym runtimeProbeTerm) NormalRef
+
+||| A shape cut where a callee's type stops needing it keeps every node it
+||| does not cut to a hole, so it holds no redex the shape does not.
+export
+0 neededNormal : {0 how : Contracting} -> EtaNormal how s -> NeededCut s held -> EtaNormal how held
+neededNormal n NeedsWhole = n
+neededNormal _ NeedsNone = NormalImpossible
+neededNormal (NormalApp nf na) (NeedsBelow cf ca) = NormalApp (neededNormal nf cf) (neededNormal na ca)
+
+||| What a request holds of a shape is its own contraction: a skeleton cut
+||| holds no lambda, so the instance's contraction of it, which contracts
+||| every redex, keeps it as it is (`etaNormalFixed`). Contraction carries
+||| through to what a shape's request holds with nothing left to relate.
+export
+0 heldContracted : SkeletonOf w shape -> NeededCut shape held -> EtaContracts held v -> v = held
+heldContracted sk cut c = etaNormalFixed (neededNormal (skeletonNormal sk) cut) c
+
+||| The hole a skeleton cuts reads as one leaf wherever an instance reads it,
+||| in a context that gives the runtime probe's name no address: a function
+||| the context gives no address is read as a part over its arguments
+||| (`undefinedRead`), and the hole is applied to none. The address fact is
+||| the host's statement that no probe's name resolves
+||| (`Walk.probeNamed`, `Walk.unresolvedUnplaced`), carried to an address
+||| by the definitions' module.
+export
+0 holeReadAs : {0 ctx : Frozen} -> {0 vs : Scope} -> {0 env : Values Substitute vs} -> {0 r : Template} ->
+               AddressedAs (InstanceMode ctx) (probeName ProbeRuntime) Nothing ->
+               ReadAs (InstanceMode ctx) env (probeTerm ProbeRuntime) r -> r = Leaf 1
+holeReadAs none read =
+  case undefinedRead none Host.Head (replace {p = \x => ReadAs (InstanceMode ctx) env x r} runtimeProbeTerm read) of
+    (_ ** (same, [])) => same
+
+||| The hole a callee's type cuts a shape to reads as one leaf too: it is
+||| an erased part no dot holds (`erasedReadAs`).
+export
+0 neededHoleReadAs : ReadAs (InstanceMode ctx) env (Erased fc Impossible) r -> r = Leaf 1
+neededHoleReadAs read = erasedReadAs IsImpossible read

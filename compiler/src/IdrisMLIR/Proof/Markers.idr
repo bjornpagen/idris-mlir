@@ -22,6 +22,11 @@ import Core.TT
 import Idris.Host
 import Libraries.Data.List.SizeOf
 
+-- Nothing here names a length's constructors, but the proofs unfold the
+-- sizes' public definitions (`range` and `varAt` over `SizeOf`, which
+-- holds a `HasLength`), and Idris unfolds only what an import loads.
+import Data.List.HasLength
+
 %default total
 
 ||| The walk's markers for a scope's variables: the bounds that turn each
@@ -67,19 +72,21 @@ orBoth Refl Refl = Refl
 
 -- A local, with the markers put in for the scope's variables: a local
 -- below the binders or past the scope, or a marker, which is a bound
--- reference, never an unknown.
+-- reference, never an unknown. The local's location and kind are given to
+-- the substitution lemmas: their equations name a local of their own, which
+-- is the goal's only once given as the goal's.
 0 markedLocal : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) ->
                 (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
                 mentions UnknownOnly bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)) = False
 markedLocal o sz bs p = case range (size o) (size sz) i of
-  InFirst lt => localUnnamed (substBelow o sz (markersOf {vars} fc bs) p lt)
+  InFirst lt => localUnnamed (substBelow {fc = lfc} {r} o sz (markersOf {vars} fc bs) p lt)
   InSecond j eq lt =>
     let (w ** wj) = varAt sz j lt in
-    rewrite substMiddle o sz (markersOf {vars} fc bs) p w (trans eq (cong (size o +) (sym wj))) in
+    rewrite substMiddle {fc = lfc} {r} o sz (markersOf {vars} fc bs) p w (trans eq (cong (size o +) (sym wj))) in
     rewrite the (weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w))
                 (trans (cong (weakenNs o) (markerNamed bs w)) weakenRef) in
     Refl
-  PastBoth k eq => localUnnamed (substPast o sz (markersOf {vars} fc bs) p k eq)
+  PastBoth k eq => localUnnamed (substPast {fc = lfc} {r} o sz (markersOf {vars} fc bs) p k eq)
 
 mutual
   ||| A term over a scope, under binders, with the markers put in for the

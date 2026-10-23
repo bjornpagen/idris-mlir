@@ -38,6 +38,10 @@ import Data.SnocList
 import Data.SortedSet
 import Data.Vect
 
+-- A rule's scope (where a refusal is made) is named as the checker's
+-- scope of variables is; here every `Scope` is the checker's.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
+
 %default total
 
 ||| Idris's terms and binders; `Term` and `Binder` are Core's own.
@@ -133,14 +137,17 @@ Functor (VarInfo kc sp) where
   map f (Static t h p) = Static t (map (\(x, hs) => (f x, hs)) h) (map f p)
   map f (BoundHere t h) = BoundHere t (map (\(x, hs) => (f x, hs)) h)
 
-||| An implementation's entry, given or bound by a term, as a term uses
-||| either: its form, and the values it closes over where it closes over
-||| any; nothing for an entry of any other kind.
-export
-implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
-implementationOf (Static t h _) = Just (t, h)
-implementationOf (BoundHere t h) = Just (t, h)
-implementationOf _ = Nothing
+-- An entry's implementation and a term's (`implementationOf` below) are
+-- read by one name, told apart by what they read.
+namespace VarInfo
+  ||| An implementation's entry, given or bound by a term, as a term uses
+  ||| either: its form, and the values it closes over where it closes over
+  ||| any; nothing for an entry of any other kind.
+  export
+  implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
+  implementationOf (Static t h _) = Just (t, h)
+  implementationOf (BoundHere t h) = Just (t, h)
+  implementationOf _ = Nothing
 
 ||| A case tree's entry as a term's scope holds it, at a leaf.
 export
@@ -373,11 +380,40 @@ export
 lambdasApplied : ClosedTerm -> Front ClosedTerm
 lambdasApplied tm = (.value) <$> core (host.normaliseHoles !frozenContext tm)
 
+||| How a term's unknowns were solved, kept whole: it holds none, and is
+||| itself; or it holds one, and is the normal form the normaliser that
+||| applies lambdas and fills in solutions gives, with that normaliser's
+||| steps and the evidence that it takes none further. The translation's
+||| argument as written and a growth reading's term are solved by the one
+||| function that gives this (`solving`), so a proof relating the two holds
+||| which case each is in rather than relating two solvers.
+public export
+data Solved : Frozen -> ClosedTerm -> ClosedTerm -> Type where
+  NoUnknown : (0 _ : hasMeta t = False) -> Solved ctx t t
+  SolvedBy : (0 _ : hasMeta t = True) -> (0 r : Reduct OfNormaliseHoles ctx t) -> Solved ctx t r.value
+
+||| The steps a solving took: none where the term holds no unknown.
+export
+0 solvedSteps : Solved ctx t s -> Reduces (evaluationOf OfNormaliseHoles) ctx t s
+solvedSteps (NoUnknown {t} _) = reducesToItself t
+solvedSteps (SolvedBy _ r) = r.steps
+
+||| A term with its unknowns' solutions put in, in a frozen context, with
+||| how (`Solved`): the one solving every reader of a written form takes.
+export
+solving : (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (Solved ctx t))
+solving ctx t with (hasMeta t) proof unknown
+  _ | True = (\r => Element r.value (SolvedBy unknown r)) <$> core (host.normaliseHoles ctx t)
+  _ | False = pure (Element t (NoUnknown unknown))
+
 ||| A written form with the solutions of its metavariables filled in, and
-||| nothing else evaluated when it has none.
+||| nothing else evaluated when it has none (`solving`, in the frozen
+||| context).
 export
 solved : ClosedTerm -> Front ClosedTerm
-solved tm = if hasMeta tm then lambdasApplied tm else pure tm
+solved tm = do
+  ctx <- frozenContext
+  (.fst) <$> solving ctx tm
 
 ||| A metavariable applied to its arguments, as the solution the type checker
 ||| gave it, which Idris's evaluator and its compilers follow too. Idris
@@ -575,29 +611,30 @@ export
 rootOf : Name -> Front Name
 rootOf n = climb start (sizeAccessible start) n
   where
-    -- The accessibility proof is erased, and every clause matches its one
-    -- constructor: no alternative is chosen by it.
-    climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Name -> Front Name
-    climb w (Access rec) m@(NS _ (CaseBlock outer _)) = parent w rec m outer
-    climb w (Access rec) m@(NS _ (WithBlock outer _)) = parent w rec m outer
-    climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
-      -- A negative parent is no place, which Idris's bare `Int` allows.
-      let Just placement = placementOf outer
-        | Nothing => pure m
-      -- Entered already: the parents led back to it.
-      case enter placement w of
-        Nothing => pure m
-        Just (Element w' less) => climb w' (rec w' less) !(fullName (Resolved outer))
-    climb w (Access _) m = pure m
+    mutual
+      -- The accessibility proof is erased, and every clause matches its one
+      -- constructor: no alternative is chosen by it.
+      climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Name -> Front Name
+      climb w (Access rec) m@(NS _ (CaseBlock outer _)) = parent w rec m outer
+      climb w (Access rec) m@(NS _ (WithBlock outer _)) = parent w rec m outer
+      climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
+        -- A negative parent is no place, which Idris's bare `Int` allows.
+        let Just placement = placementOf outer
+          | Nothing => pure m
+        -- Entered already: the parents led back to it.
+        case enter placement w of
+          Nothing => pure m
+          Just (Element w' less) => climb w' (rec w' less) !(fullName (Resolved outer))
+      climb w (Access _) m = pure m
 
-    -- A block's parent, entered once, as a nested function's is.
-    parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Name -> Name -> Front Name
-    parent w rec m outer = do
-      Just d <- defined outer
-        | Nothing => pure m
-      case enter d.placement w of
-        Nothing => pure m
-        Just (Element w' less) => climb w' (rec w' less) outer
+      -- A block's parent, entered once, as a nested function's is.
+      parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Name -> Name -> Front Name
+      parent w rec m outer = do
+        Just d <- defined outer
+          | Nothing => pure m
+        case enter d.placement w of
+          Nothing => pure m
+          Just (Element w' less) => climb w' (rec w' less) outer
 
 ||| Did Idris prove that every call of a definition ends? Its termination
 ||| check's verdict, read once at the boundary (`Defined.ends`), which
@@ -753,32 +790,24 @@ record Part where
   value : Lazy (Front (Head Part))
   implemented : Lazy (Front ClosedTerm)
 
-||| What each variable of a scope stands for.
-data Parts : Scope -> Type where
-  Nil : Parts []
-  (::) : Part -> Parts vs -> Parts (v :: vs)
+-- What each variable of a scope stands for is one part per variable, the
+-- innermost first (`ByVar vs Part`), read at a variable by `lookupVar`.
 
-||| The part a variable stands for, which its scope says is there.
-partAt : Parts vs -> (idx : Nat) -> (0 _ : IsVar n idx vs) -> Part
-partAt (p :: _) Z _ = p
-partAt (_ :: ps) (S i) v = partAt ps i (dropLater v)
-partAt [] _ First impossible
-partAt [] _ (Later _) impossible
+-- A scope's size, one entry per variable.
+scopeSize : ByVar vs a -> SizeOf vs
+scopeSize [] = zero
+scopeSize (_ :: ps) = suc (scopeSize ps)
 
-sizeOfParts : Parts vs -> SizeOf vs
-sizeOfParts [] = zero
-sizeOfParts (_ :: ps) = suc (sizeOfParts ps)
-
-substEnv : Parts vs -> SubstEnv vs []
+substEnv : ByVar vs Part -> SubstEnv vs []
 substEnv [] = []
 substEnv (p :: ps) = p.written :: substEnv ps
 
 ||| A term with what each of its variables stands for, as written.
-close : Parts vs -> TT vs -> ClosedTerm
-close {vs} env tm = substs (sizeOfParts env) (substEnv env) (rewrite appendNilRightNeutral vs in tm)
+close : ByVar vs Part -> TT vs -> ClosedTerm
+close {vs} env tm = substs (scopeSize env) (substEnv env) (rewrite appendNilRightNeutral vs in tm)
 
 ||| A term applied to parts, as written.
-whole : Parts vs -> TT vs -> List Part -> ClosedTerm
+whole : ByVar vs Part -> TT vs -> List Part -> ClosedTerm
 whole env tm args = applyAll (close env tm) args
   where
     applyAll : ClosedTerm -> List Part -> ClosedTerm
@@ -788,7 +817,7 @@ whole env tm args = applyAll (close env tm) args
 ||| The parameters of a definition, the first argument first, from the
 ||| parts it is applied to, and the parts past them: nothing when it is
 ||| applied to fewer.
-params : (vs : Scope) -> List Part -> Maybe (Parts vs, List Part)
+params : (vs : Scope) -> List Part -> Maybe (ByVar vs Part, List Part)
 params [] args = Just ([], args)
 params (_ :: vs) (a :: args) = map (\(env, rest) => (a :: env, rest)) (params vs args)
 params (_ :: _) [] = Nothing
@@ -800,7 +829,7 @@ project : Projection -> List Part -> Front (Maybe (Part, List Part))
 project pr args = case params pr.params args of
   Nothing => pure Nothing
   Just (env, extras) => do
-    Built built fields <- (partAt env pr.matched pr.isParam).value
+    Built built fields <- (lookupVar pr.matched pr.isParam env).value
       | Stuck _ => pure Nothing
     let Just field = getAt pr.field fields
       | Nothing => pure Nothing
@@ -866,12 +895,12 @@ mutual
   ||| on trust (`Host`): Idris's theory is not strongly normalising, so no
   ||| measure of the term bounds it.
   reduce : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Parts vs -> TT vs -> List Part -> Front (Head Part)
+           ByVar vs Part -> TT vs -> List Part -> Front (Head Part)
   reduce ph w acc env (App _ f a) args = reduce ph w acc env f (partOf ph w acc env a :: args)
   reduce ph w acc env (Bind _ _ (Lam {}) sc) (a :: args) = reduce ph w acc (a :: env) sc args
   reduce ph w acc env tm@(Bind _ _ (Lam {}) _) [] = pure (Stuck (OnValue (close env tm)))
   reduce ph w acc env (Bind _ _ (Let _ _ v _) sc) args = reduce ph w acc (partOf ph w acc env v :: env) sc args
-  reduce ph w acc env (Local _ _ idx v) args = applied ph w acc (partAt env idx v) args
+  reduce ph w acc env (Local _ _ idx v) args = applied ph w acc (lookupVar idx v env) args
   reduce ph w acc env (Ref _ (DataCon _ _) n) args = pure (Built n args)
   reduce ph w acc env tm@(Ref _ (TyCon _) _) args = pure (Stuck (OnValue (whole env tm args)))
   reduce ph w acc env tm@(Ref _ Bound _) args = pure (Stuck (OnRuntime (whole env tm args)))
@@ -883,7 +912,7 @@ mutual
 
   ||| A part met on the path.
   partOf : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Parts vs -> TT vs -> Part
+           ByVar vs Part -> TT vs -> Part
   partOf ph w acc env a = MkPart (close env a) (reduce ph w acc env a []) (implementing ph w acc env a [])
 
   ||| A definition applied to parts. A reference to a definition that does
@@ -980,12 +1009,12 @@ mutual
   ||| The implementation a term stands for (`implementationOf`), with what
   ||| each of its variables stands for, applied to parts.
   implementing : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Parts vs -> TT vs -> List Part -> Front ClosedTerm
+                 ByVar vs Part -> TT vs -> List Part -> Front ClosedTerm
   implementing ph w acc env (App _ f a) args = implementing ph w acc env f (partOf ph w acc env a :: args)
   implementing ph w acc env (Bind _ _ (Lam {}) sc) (a :: args) = implementing ph w acc (a :: env) sc args
   implementing ph w acc env (Bind _ _ (Let _ _ v _) sc) args =
     implementing ph w acc (partOf ph w acc env v :: env) sc args
-  implementing ph w acc env (Local _ _ idx v) args = implementationApplied ph w acc (partAt env idx v) args
+  implementing ph w acc env (Local _ _ idx v) args = implementationApplied ph w acc (lookupVar idx v env) args
   implementing ph w acc env tm@(Ref fc _ n) args = do
     Just (field, extras) <- projectedPart n args
       | Nothing => foldl (App fc) (close env tm) <$> implementations args

@@ -15,6 +15,7 @@
 module IdrisMLIR.Frontend.Walk
 
 import Core.Context
+import Idris.Host
 
 import public IdrisMLIR.Proof.Requests
 
@@ -359,6 +360,39 @@ probeTerm p@(ProbeFieldPath _ _) = Ref EmptyFC Bound (probeName p)
 export
 0 runtimeProbeTerm : probeTerm {vs} ProbeRuntime = Ref EmptyFC Func (probeName ProbeRuntime)
 runtimeProbeTerm = Refl
+
+-- A name nested around a probe's, along a path, is a probe's name.
+0 alongNamed : (path : List Nat) -> ProbeNamed n -> ProbeNamed (along path n)
+alongNamed [] named = named
+alongNamed (k :: ks) named = NamedNested (alongNamed ks named)
+
+||| Every probe's name is one the host's statements about the frontend's
+||| probes speak of (`Idris.Host.ProbeNamed`): each family's identifier is
+||| one of the probes' (`Core.Name.Known.isProbe`), as a machine name or a
+||| user's, nested as `probeName` nests it. `probeName` is exported without
+||| its body, so this is stated where it is made.
+export
+0 probeNamed : (p : Probe) -> ProbeNamed (probeName p)
+probeNamed (ProbeBinder i) = NamedMachine {k = KProbeBinder} {i = cast i} Refl
+probeNamed (ProbeHole i) = NamedNested (NamedUser {k = KProbeHole} Refl)
+probeNamed (ProbeHoleFound i) = NamedNested (NamedUser {k = KProbeHoleFound} Refl)
+probeNamed ProbeUnknown = NamedMachine {k = KProbeUnknown} {i = 0} Refl
+probeNamed ProbeRuntime = NamedMachine {k = KProbeRuntime} {i = 0} Refl
+probeNamed (ProbeRuntimeAt p) = NamedMachine {k = KProbeRuntimeAt} {i = cast p} Refl
+probeNamed (ProbeStandIn j) = NamedMachine {k = KProbeField} {i = cast j} Refl
+probeNamed (ProbePattern j) = NamedNested (NamedUser {k = KProbePattern} Refl)
+probeNamed ProbeForm = NamedMachine {k = KProbeForm} {i = 0} Refl
+probeNamed (ProbeAxis i _) = NamedMachine {k = KProbeAxis} {i = cast i} Refl
+probeNamed (ProbeAxisAt j) = NamedMachine {k = KProbeAxisAt} {i = cast j} Refl
+probeNamed (ProbeSize i) = NamedMachine {k = KProbeSize} {i = cast i} Refl
+probeNamed (ProbePart i path) = NamedNested (alongNamed path (NamedUser {k = KProbeVar} Refl))
+probeNamed (ProbeFormal j a) = NamedNested (NamedUser {k = KProbeFormal} Refl)
+probeNamed (ProbeFieldPath i (j ::: js)) = NamedNested (alongNamed (j :: js) (NamedUser {k = KProbeField} Refl))
+
+||| A name the context does not resolve has no place there.
+export
+0 unresolvedUnplaced : {0 ctx : Context} -> {0 n : Name} -> getNameID n ctx = Nothing -> placementIn ctx n = Nothing
+unresolvedUnplaced none = cong (\found => found >>= placementOf) none
 
 ||| The probe a term is (`probeTerm`'s inverse): a reference to a probe's
 ||| name, or an axis's two references; nothing for any other term.

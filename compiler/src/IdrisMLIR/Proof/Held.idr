@@ -134,12 +134,12 @@ shuffle p w l o =
 
 0 predBelow : (m : Nat) -> LTE (pred m) m
 predBelow Z = LTEZero
-predBelow (S m) = lteSuccRight lteRefl
+predBelow (S m) = lteSuccRight reflexive
 
 -- What a chain holds is at most what it started with, a value for each
 -- path it held one for, and every value a member brought.
 0 heldBelow : (n : Nat) -> (s : List HeldStep) -> LTE (heldAfter n s) (n + length (heldPaths s) + sumOf (owns s))
-heldBelow n [] = lteToEq (sym (trans (plusZeroRightNeutral (n + 0)) (plusZeroRightNeutral n))) lteRefl
+heldBelow n [] = lteToEq (sym (trans (plusZeroRightNeutral (n + 0)) (plusZeroRightNeutral n))) reflexive
 heldBelow n (HeldAt p :: s) =
   lteToEq (cong (\x => x + sumOf (owns s)) (plusSuccRightSucc n (length (heldPaths s)))) (heldBelow (S n) s)
 heldBelow n (PutIn own :: s) =
@@ -339,7 +339,7 @@ export
                  HeldInstance before cb -> Gives k c -> HeldInstance after ca ->
                  heldGiven cb + (c + heldGiven ca) = 1 -> LTE 1 c ->
                  Alone (alwaysIn before + alwaysIn after) (length before + length after) (bringing c)
-aloneWritten ib g ia total one = case oneOfThree (heldGiven cb) c (heldGiven ca) total one of
+aloneWritten ib g ia givenOne one = case oneOfThree (heldGiven cb) c (heldGiven ca) givenOne one of
   (none, Refl, none') => rewrite noneGiven ib none in rewrite noneGiven ia none' in NoneBeside
 
 ||| A list an instance gives two values or more: each value one of its

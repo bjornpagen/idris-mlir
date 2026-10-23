@@ -126,7 +126,8 @@ wrapped le = plusLteMonotone le widthBelow
 -- character or the world, and any fixed width its argument wrapped.
 0 castWithin : (from, to : PrimType) -> (x : Nat) -> Nat.LTE (resultBound (Cast from to) [x]) (Room x)
 castWithin from IntegerType x = plusLteMonotone (powerBelow x) reflexive
-castWithin from StringType x = inFirst {x} (rewrite plusCommutative x 1 in succBelow x)
+castWithin from StringType x =
+  inFirst {x} (replace {p = \z => Nat.LTE z (power 2 (4 * x) * (x + 2))} (plusCommutative 1 x) (succBelow x))
 castWithin from CharType x = LTEZero
 castWithin from DoubleType x = inSecond textBelow
 castWithin from WorldType x = LTEZero

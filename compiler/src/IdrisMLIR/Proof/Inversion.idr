@@ -52,15 +52,19 @@ import Data.List.Quantifiers
 ------------------------------------------------------------------------------
 
 ||| A term headed by a reference has one such head and one list of
-||| arguments: a spine reaches its head through applications alone.
+||| arguments: a spine reaches its head through applications alone. Both
+||| spines are over the term's scope, named so the recursion is over it too,
+||| and the arguments before the last are equal by the recursion, so the
+||| last one, the same term's, is appended to both.
 export
-0 refSpines : Spine t (Ref fc nt n) args -> Spine t (Ref fc' nt' n') args' ->
+0 refSpines : {0 vars : Scope} -> {0 t : Term vars} ->
+              Spine t (Ref fc nt n) args -> Spine t (Ref fc' nt' n') args' ->
               (Ref fc nt n = Ref fc' nt' n', args = args')
 refSpines Head Head = (Refl, Refl)
 refSpines Head (Applied _) impossible
 refSpines (Applied _) Head impossible
-refSpines (Applied s) (Applied s') = case refSpines s s' of
-  (Refl, Refl) => (Refl, Refl)
+refSpines (Applied {a} s) (Applied s') =
+  (fst (refSpines {vars} s s'), cong (\xs => xs ++ [a]) (snd (refSpines {vars} s s')))
 
 -- A spine headed by a reference never passes through any node but an
 -- application: each of these is a head of its own.
@@ -269,12 +273,14 @@ export
 headOnly Head _ = Refl
 headOnly (Applied {args = xs} _) eq = void (snocNotNil xs eq)
 
-||| A spine of one argument is its head applied to it.
+||| A spine of one argument is its head applied to it: the arguments before
+||| the last are none, so the function is the head, and the last is the one
+||| argument. Both facts are used as the equations they are.
 export
 0 oneApplied : Spine t h args -> args = [x] -> (fc : FC ** t = App fc h x)
 oneApplied Head eq = void (nilNotCons eq)
 oneApplied (Applied {fc} {a} {args = xs} s) eq = case snocOne xs eq of
-  (Refl, Refl) => (fc ** cong (\g => App fc g a) (headOnly s Refl))
+  (none, last) => (fc ** trans (cong (\g => App fc g a) (headOnly s none)) (cong (App fc h) last))
 
 ||| What an inert head alone reduces to: itself, at some location.
 export
@@ -337,15 +343,20 @@ splitElem (_ :: xs) (There e) = case splitElem xs e of
   Left l => Left (There l)
   Right r => Right r
 
+-- The one element of a list of one.
+0 onlyElem : Elem x [y] -> x = y
+onlyElem Here = Refl
+onlyElem (There e) = absurd e
+
 -- A step in an argument of a spine is a step of the term, under the
--- applications that apply the head to the arguments.
+-- applications that apply the head to the arguments: in the function, or
+-- in the last argument, which the element is.
 0 liftedRedex : {0 ev : Evaluation} -> {0 ctx : Frozen} ->
                 Spine u h args -> Elem a args -> Redex ev ctx a -> Redex ev ctx u
 liftedRedex Head el r = absurd el
 liftedRedex (Applied {args = xs} s) el r = case splitElem xs el of
   Left inFunction => InFunction (liftedRedex s inFunction r)
-  Right Here => InArgument r
-  Right (There e) => absurd e
+  Right last => InArgument (replace {p = Redex ev ctx} (onlyElem last) r)
 
 ||| An argument of a normal form is normal.
 export
