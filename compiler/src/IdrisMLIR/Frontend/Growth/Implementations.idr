@@ -35,6 +35,20 @@ import Data.Vect
 
 %default total
 
+||| Where a method function M takes one of the implementation's parameters,
+||| which the method's field passes M as itself: the implementation's
+||| parameter, M's parameter it lands at, and the kind that keys M's
+||| parameter there, as the field's reading of M's type over what the field
+||| passes read it (`staticsOver`), or none where it keys none. A dispatch
+||| through the field keys M at that parameter by the one set of its kind
+||| the flow found (`Heads.reaches`).
+public export
+record Leading where
+  constructor MkLeading
+  fromImplementation : Nat
+  atMethod : Nat
+  kind : Maybe Static
+
 ||| One field of a dictionary, over the parameters of the definition that
 ||| gives it (`Var i 0` is its parameter i), each template with the
 ||| definition of each recursion it holds, as its reading met it. A
@@ -48,17 +62,17 @@ data Field : Type where
   -- an eta-wrapped method field: its method function m, as the boundary read it once (`HeadDefinedAt`), the
   -- templates of the static arguments the field passes it, and where each argument lands in m. own: for each of
   -- the method's own arguments (the field's lambdas, in order), its parameter index in m; leading: for each
-  -- implementation parameter p, its index in m. Its template is m's head over those (`methodTemplate`), and its
-  -- root is m, by construction.
+  -- implementation parameter p passed as itself, its index in m and the kind of m's parameter there (`Leading`).
+  -- Its template is m's head over those (`methodTemplate`), and its root is m, by construction.
   Method : (m : Address) -> (function : HeadDefinedAt m) -> (arguments : List TemplateRead) -> (own : List Nat) ->
-           (leading : List (Nat, Nat)) -> Field
+           (leading : List Leading) -> Field
   -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot, the
   -- head of the choice its type is, and that type over the constructor's arguments (`Var c 0` its argument c): a
   -- match takes it apart, and finds a member of that choice where the running program chose it, holding it at that
   -- type until then.
-  Dictionary : TemplateRead -> SiteRoot -> ChoiceHead -> (type : TemplateRead) -> Field
+  Dictionary : TemplateRead -> Root -> ChoiceHead -> (type : TemplateRead) -> Field
   -- any other field: a type, a hand-built dictionary's lambda, with its dictionaryRoot
-  Plain : TemplateRead -> SiteRoot -> Field
+  Plain : TemplateRead -> Root -> Field
 
 ||| What a definition that gives a dictionary holds, over its own
 ||| parameters: the definition itself, as it was read, which a message
@@ -95,11 +109,10 @@ methodTemplate : (m : Address) -> HeadDefinedAt m -> List TemplateRead -> Templa
 methodTemplate m function ts = MkTemplateRead (Head (Just m) (templatesOf ts)) (allRead ts) (HeadDefined function :: allHeads ts)
 
 ||| What every field gives the flow, method or not: its template and its
-||| root, with the definition at each address the root names. A method
-||| field's root is its function.
+||| root. A method field's root is its function.
 export
-fieldRead : Field -> (TemplateRead, SiteRoot)
-fieldRead (Method m function ts _ _) = (methodTemplate m function ts, (Rooted m ** [DefinedThere function.defined.def]))
+fieldRead : Field -> (TemplateRead, Root)
+fieldRead (Method m function ts _ _) = (methodTemplate m function ts, Rooted m)
 fieldRead (Dictionary t r _ _) = (t, r)
 fieldRead (Plain t r) = (t, r)
 
@@ -183,13 +196,15 @@ etaWrapper th k body = case getFnArgs body of
     onePlace _ = Nothing
 
 ||| Where M takes each implementation parameter the field passes it as
-||| itself: its marker, which stands for the parameter in the field.
-leadingOf : List Passed -> List (Nat, Nat)
+||| itself (its marker, which stands for the parameter in the field), with
+||| the kind of M's parameter there, as the field's reading of M's type
+||| read it, each passed argument beside it.
+leadingOf : List (Passed, Maybe Static) -> List Leading
 leadingOf passed = mapMaybe at (zip (iterateN (length passed) S 0) passed)
   where
-    at : (Nat, Passed) -> Maybe (Nat, Nat)
-    at (j, Fixed (Ref _ Bound n)) = case Template.markerOf n of
-      Just (p, []) => Just (p, j)
+    at : (Nat, Passed, Maybe Static) -> Maybe Leading
+    at (j, Fixed (Ref _ Bound n), k) = case Template.markerOf n of
+      Just (p, []) => Just (MkLeading p j k)
       _ => Nothing
     at _ = Nothing
 
@@ -197,23 +212,25 @@ leadingOf passed = mapMaybe at (zip (iterateN (length passed) S 0) passed)
 ||| function a dispatch through the field calls, `M`'s head over the static
 ||| arguments the field passes it (`staticsOver` over `M`'s type, each own
 ||| argument an erased placeholder), and where `M` takes the dispatch's
-||| arguments and the implementation's parameters. Any other field, a
+||| arguments and the implementation's parameters, the latter each with the
+||| kind that reading gives `M`'s parameter there. Any other field, a
 ||| lambda written by hand, or one whose function the context does not
 ||| hold, is plain, and names no method function.
 methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> ClosedTerm -> Front Field
 methodField owner field = do
   let Just (m, passed, own) = etaWrapper Refl 0 field
-    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) unrooted)
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) Unrooted)
   ctx <- frozenContext
   -- The method function, read once: its address and what the boundary
   -- read of it, the head of what the field writes.
   Just (am ** function) <- definedHead ctx m
-    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) unrooted)
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) Unrooted)
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) function.defined.type (map (\x => Just (x, AValue)) xs)
-  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map staticOf kinds)) xs))
-  pure (Method am function ts own (leadingOf passed))
+  let statics = toList (map staticOf kinds)
+  ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip statics xs))
+  pure (Method am function ts own (leadingOf (zip passed statics)))
   where
     value : Passed -> ClosedTerm
     value (Own _) = Erased EmptyFC Placeholder
@@ -242,12 +259,12 @@ fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -
           (owner : String) -> Binding -> (ty : TT vs) -> ClosedTerm -> Front Field
 fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
-  r <- siteRoot <$> dictionaryRoot (OfSite []) a
+  r <- dictionaryRoot a
   (head ** member) <- choiceDefOf ty
-  Dictionary (givenRead (Just head) member t r.fst) r head <$> typeOverArguments ty
+  Dictionary (givenRead (Just head) member t r) r head <$> typeOverArguments ty
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
-  r <- siteRoot <$> dictionaryRoot (OfSite []) a
+  r <- dictionaryRoot a
   pure (Plain t r)
 fieldOf owner Wrapped ty a = methodField owner a
 
@@ -308,7 +325,7 @@ fieldsOf d = case (definition d.def, d.matched) of
     arguments Z j _ = pure []
     arguments (S n) j (Bind _ _ (Pi _ rig _ a) sc) = do
       here <- case !(bindingOf rig a) of
-        Reads ADictionary => Dictionary (MkTemplateRead (Var j 0) [] []) (Parameter j 0 ** []) <$> choiceHeadOf a <*> typeOverArguments a
-        _ => pure (Plain (MkTemplateRead (Var j 0) [] []) (Parameter j 0 ** []))
+        Reads ADictionary => Dictionary (MkTemplateRead (Var j 0) [] []) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
+        _ => pure (Plain (MkTemplateRead (Var j 0) [] []) (Parameter j 0))
       (here ::) <$> arguments n (S j) sc
-    arguments (S n) j _ = pure (map (\q => Plain (MkTemplateRead (Var q 0) [] []) (Parameter q 0 ** [])) (iterateN (S n) S j))
+    arguments (S n) j _ = pure (map (\q => Plain (MkTemplateRead (Var q 0) [] []) (Parameter q 0)) (iterateN (S n) S j))

@@ -123,12 +123,12 @@ writtenReading (OffTerm r) = (r ** Refl)
 ||| them), its kind, the template written there, with the definition of
 ||| each recursion it holds as the reading met it, and its root, with what
 ||| its kind's reader read at each address the root names, where the
-||| reading met the name (`HeadsRead`: a type constructor for a type's or a
-||| family's, a definition for a dictionary's), which the flow carries
-||| beside each heading it is given, as its kind's one reading gives them
-||| (`rooted`) and as the target is given it (`asGiven`), the closed term it
-||| was read off, over the writer's markers and the site's stand-ins (none
-||| for a part of a type already read),
+||| reading met the name (`HeadsRead`: of a family's, the type constructor,
+||| which the flow carries beside each heading it is given; of any other
+||| kind's, nothing), as its kind's one reading gives them (`rooted`) and as
+||| the target is given it (`asGiven`), the closed term it was read off,
+||| over the writer's markers and the site's stand-ins (none for a part of
+||| a type already read),
 ||| those stand-ins, which a reading of the term again reads it with, the
 ||| choice a dictionary the running program chooses there is a member of
 ||| (its binder's type's), which a reading again reads it with too, the
@@ -176,10 +176,9 @@ data HeldItem : Type where
 ||| type constructor it builds, each at its address with what the boundary
 ||| read of it, which the walk that enters it reads, so that nothing finds
 ||| it again by address; method `k` of a dictionary, which the template
-||| is, with that dictionary's root and what was read of the definitions it
-||| names, the application of a compile-time form at a use, which no
-||| definition is (`Translate.State.AtUse`), at the form's type (0), the
-||| form (1) and the use's static arguments (2 on), or
+||| is, with that dictionary's root, the application of a compile-time form
+||| at a use, which no definition is (`Translate.State.AtUse`), at the
+||| form's type (0), the form (1) and the use's static arguments (2 on), or
 ||| the choice of a head, a member of which it makes, its one argument,
 ||| with what a message reads of the head (`HeadRead`). Or
 ||| the writer itself again, where its tree takes apart a field of its
@@ -200,7 +199,7 @@ public export
 data Reach : Type where
   Calls : Address -> Defined -> Reach
   Builds : Address -> Defined -> Reach
-  Dispatches : Template -> SiteRoot -> Nat -> Reach
+  Dispatches : Template -> Root -> Nat -> Reach
   Applies : Reach
   Makes : (k : ChoiceHead) -> HeadRead k -> Reach
   Repacks : Argument -> List1 Nat -> Reach
@@ -670,7 +669,7 @@ built at fc a h cs = case h of
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, TemplateRead) -> Argument
     argument (j, t) =
-      MkArgument j AType t.template t.recursionsRead Unrooted (TypeHeads []) Nothing [] Nothing NoTerm []
+      MkArgument j AType t.template t.recursionsRead Unrooted TypeHeads Nothing [] Nothing NoTerm []
                  (TemplateText at.writerDef t.template t.recursionsRead t.headsRead)
 
 mutual
@@ -1450,7 +1449,7 @@ useAt at ps env fc t form args = do
 heldApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> List (Arg vs) -> Front (List Site)
 heldApplication at ps env fc t args =
-  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) (DictionaryHeads []) Nothing [] (Just ArrowHead) NoTerm []
+  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) DictionaryHeads Nothing [] (Just ArrowHead) NoTerm []
                                     (TemplateText at.writerDef (Member ArrowHead) [] []))
         args
 
@@ -1606,7 +1605,7 @@ dispatch at ps env fc p dict rest extras = do
   -- type names the term it reads.
   written <- solved !(holed env dict.offer.arg.written)
   (r, root) <- dictionaryRooted ps.made written
-  tm <- (\head => asGiven (Just head) (r.template, root.fst)) <$> choiceAt dict.binder
+  tm <- (\head => asGiven (Just head) (r.template, root)) <$> choiceAt dict.binder
   -- The method's own arguments are those its type shows binders for; any
   -- past them applies its result.
   positions <- argumentsIn rest

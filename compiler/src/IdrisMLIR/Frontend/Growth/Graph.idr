@@ -754,7 +754,7 @@ headBound fs ss = S (foldl (\m, f => foldl placedIn m f.inOrder) (foldl (foldl w
     written m s = foldl (\m', x => max m' x.position) m s.arguments
 
     placedIn : Nat -> Implementations.Field -> Nat
-    placedIn m (Method _ _ _ own leading) = foldl max (foldl (\m', (_, q) => max m' q) m leading) own
+    placedIn m (Method _ _ _ own leading) = foldl max (foldl (\m', l => max m' l.atMethod) m leading) own
     placedIn m (Dictionary _ _ _ _) = m
     placedIn m (Plain _ _) = m
 
@@ -857,7 +857,7 @@ record Lead where
   constructor MkLead
   methodRead : GlobalDef
   jRead : GlobalDef
-  placing : List (Nat, Nat)
+  placing : List Leading
 
 -- Each method function's node a dispatch reached through implementation
 -- J's method field k, with what it reached there, once however many
@@ -1445,8 +1445,9 @@ carried number nodes leads walked =
                          foldl (\acc', i => carry (spotAt w s.params i) (landsAt callee pl.parameter) acc') acc (familiesIn pl.argument.template))
                       (MkCarrying empty empty) walked in
   foldl (\acc, ((callee, j, _), l) =>
-           foldl (\acc', (p, q) => foldl (\acc'', x => carry (OfParameter (OfNode x) p) (OfParameter (OfNode callee) q) acc'') acc'
-                                          (fromMaybe [] (lookup j nodes)))
+           foldl (\acc', lp => foldl (\acc'', x => carry (OfParameter (OfNode x) lp.fromImplementation)
+                                                         (OfParameter (OfNode callee) lp.atMethod) acc'')
+                                     acc' (fromMaybe [] (lookup j nodes)))
                  acc l.placing)
         cs (SortedMap.toList leads)
   where
@@ -1696,16 +1697,16 @@ leadingWritings nodes leads =
     [ MkWritten (spotAt jn OwnOnly) (writerSpotRead l.jRead jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly)
                 (OfParameter (OfNode m) q) (ParameterSpot (NodeParameter l.methodRead)) ThroughMethod (MarkerDraws p)
                 (openLands ThroughMethod Refl (Template.Var p 0))
-    | jn <- fromMaybe [] (lookup j nodes), agrees m l.placing jn, (p, q) <- l.placing ]
+    | jn <- fromMaybe [] (lookup j nodes), agrees m l.placing jn, MkLeading p q _ <- l.placing ]
   where
     -- Two heads at a parameter agree: none on either side, or one
     -- implementation on both. A dictionary without a root has no head.
-    agreesAt : Node -> Node -> (Nat, Nat) -> Bool
-    agreesAt m jn (p, q) = case sameMaybe decideAddress (lookup p jn.heads) (lookup q m.heads) of
+    agreesAt : Node -> Node -> Leading -> Bool
+    agreesAt m jn lp = case sameMaybe decideAddress (lookup lp.fromImplementation jn.heads) (lookup lp.atMethod m.heads) of
       Proof.Growth.Yes _ => True
       Proof.Growth.No _ => False
 
-    agrees : Node -> List (Nat, Nat) -> Node -> Bool
+    agrees : Node -> List Leading -> Node -> Bool
     agrees m leading jn = all (agreesAt m jn) leading
 
 -- What each implementation's fields write at their positions: at each
