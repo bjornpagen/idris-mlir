@@ -13,10 +13,13 @@
 ||| the checker, so `Core.Primitives` reaches these facts too.
 module Core.Primitives.Host
 
+import Data.Nat
+
 %default total
 
 -- The trust, at quantity 0, so it costs nothing when the checker runs. It
--- is applied only to the comparisons below, whose truth is the host's.
+-- is applied only to the comparisons and the shift below, whose truth is
+-- the host's.
 0 trusted : a
 trusted = believe_me ()
 
@@ -58,6 +61,22 @@ charEqualitySound _ _ _ = trusted
 export
 0 stringEqualitySound : (x, y : String) -> (x == y) = True -> x = y
 stringEqualitySound _ _ _ = trusted
+
+------------------------------------------------------------------------------
+-- Shifts
+------------------------------------------------------------------------------
+
+-- An integer is shifted right by `prim__shr_Integer`: Chez's `ash` by the
+-- negated amount, and idris-mlir's runtime's `idris_rt_big_shr`, an
+-- arithmetic shift of a small integer's word or of a big integer's limbs.
+-- Each gives the floor of the integer over 2^amount, so a positive integer
+-- shifted right by 32 is not negative, which `integerToNat` keeps whole,
+-- and is smaller than the integer. Writing an integer's limbs to a TTC
+-- recurses on this.
+export
+0 shiftRightDescends : (k : Nat) ->
+                       Nat.LT (integerToNat (prim__shr_Integer (natToInteger (S k)) 32)) (S k)
+shiftRightDescends _ = trusted
 
 ------------------------------------------------------------------------------
 -- Partial primitives

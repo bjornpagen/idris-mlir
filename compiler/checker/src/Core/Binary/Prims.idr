@@ -4,7 +4,9 @@ module Core.Binary.Prims
 
 import Core.Context.Context
 import Core.Core
+import Core.Primitives.Host
 
+import Control.WellFounded
 import Data.Buffer
 import Data.DPair
 import Data.List.Elem
@@ -412,15 +414,17 @@ count : List.Elem.Elem x xs -> Int
 count Here = 0
 count (There p) = 1 + count p
 
--- Covering, not total: each step shifts a limb off, which reaches 0 or -1,
--- a fact of the primitive shift that no type here can state.
-toLimbs : Integer -> List Int
-toLimbs x
-    = if x == 0
-         then []
-         else if x == -1 then [-1]
-              else fromInteger (prim__and_Integer x 0xffffffff) ::
-                   toLimbs (prim__shr_Integer x 32)
+-- An integer is written as its sign and its magnitude's limbs: 32 bits
+-- each, least significant first, the last never zero, so zero has none.
+-- Each step shifts a limb off a positive magnitude, which the host makes
+-- smaller (`shiftRightDescends`), so the recursion is on the magnitude's
+-- accessibility, erased.
+total
+toLimbs : (n : Nat) -> (0 _ : Accessible Nat.LT n) -> List Int
+toLimbs Z _ = []
+toLimbs n@(S k) (Access rec)
+    = fromInteger (prim__and_Integer (natToInteger n) 0xffffffff) ::
+      toLimbs (integerToNat (prim__shr_Integer (natToInteger n) 32)) (rec _ (shiftRightDescends k))
 
 fromLimbs : List Int -> Integer
 fromLimbs [] = 0
@@ -431,9 +435,9 @@ TTC Integer where
   toBuf val
     = if val < 0
          then do tag 0
-                 toBuf (toLimbs (-val))
+                 toBuf (toLimbs (integerToNat (-val)) (wellFounded _))
          else do tag 1
-                 toBuf (toLimbs val)
+                 toBuf (toLimbs (integerToNat val) (wellFounded _))
   fromBuf
     = do val <- getTag
          case val of
