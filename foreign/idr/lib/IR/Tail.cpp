@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Tail position: the one definition, the call's own check of its fact,
-// its function's, and the one reading of whether an op is a tail call.
-// Tail position modulo a context is Tail/Context.cpp's.
+// its function's, and the one reading of the fact a call holds. Tail
+// position modulo a context is Tail/Context.cpp's.
 
 #include "idr/IR/Tail.h"
 
@@ -13,6 +13,7 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 
 // What each stage of a program implies: whether every call's tail fact is
 // the decider's.
@@ -234,16 +235,23 @@ CallOp tailCallOf(Operation *op) {
 
 CallOp lastActOf(Operation *op) {
   auto call = dyn_cast<CallOp>(op);
-  if (!call)
-    return CallOp();
-  switch (call.getTailKind()) {
+  return call && !returnsToCaller(call.getTailKind()) ? call : CallOp();
+}
+
+CallOp contextCallOf(Operation *op) {
+  auto call = dyn_cast<CallOp>(op);
+  return call && call.getTailKind() == TailKind::modulo_context ? call : CallOp();
+}
+
+bool returnsToCaller(TailKind kind) {
+  switch (kind) {
   case TailKind::nontail:
-    return CallOp();
+    return true;
   case TailKind::tail:
   case TailKind::modulo_context:
-    return call;
+    return false;
   }
-  return CallOp();
+  llvm_unreachable("a tail kind of no case");
 }
 
 } // namespace idr

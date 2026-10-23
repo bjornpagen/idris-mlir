@@ -106,19 +106,19 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type
 
 // A view is no value, so once each call gives a view where its callee asks
 // one, the call's lowering reads what passes from its own operands' kinds
-// alone.
+// alone. An operand whose type is not its parameter's is a lifetime the
+// call's own rule passes as it (lifetimes::passesAs), and that rule passes
+// a lifetime of another type only where a view is asked: the parameter is
+// the view of the lifetime given, as the inliner makes it.
 void viewsWhereAsked(ProgramOp program, const solver::ProgramGraph &graph) {
-  MLIRContext *ctx = program.getContext();
-  Type view = LifetimeType::get(ctx, LifetimeKind::view());
   program.walk([&](CallOp call) {
     FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
     OpBuilder b(call);
     for (auto [operand, param] : llvm::zip_equal(call->getOpOperands(), callee.getArgumentTypes())) {
-      auto given = dyn_cast<LifetimeType>(operand.get().getType());
-      auto asked = dyn_cast<LifetimeType>(param);
-      if (!given || !asked || !asked.getKind().isView() || given.getKind().isView())
+      Type given = operand.get().getType();
+      if (given == param || !lifetimes::passesAs(given, param))
         continue;
-      operand.set(LifetimeForgetOp::create(b, call.getLoc(), view, operand.get()));
+      operand.set(LifetimeForgetOp::create(b, call.getLoc(), param, operand.get()));
     }
   });
 }

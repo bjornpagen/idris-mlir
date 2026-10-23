@@ -174,6 +174,20 @@ CallOp tailCallOf(mlir::Operation *op);
 // it, or a lifetime's region closed after it.
 CallOp lastActOf(mlir::Operation *op);
 
+// `op` as a self call modulo a context: the call, when its fact is
+// `modulo_context`, whose one result fills a hole in cells its context
+// builds before it; null for any other op, and for a call that is `tail`
+// or `nontail`. The one reading of which calls idr-trmc executes the
+// context of, and of whether a pass left one where none may stand.
+CallOp contextCallOf(mlir::Operation *op);
+
+// Whether a call whose fact is `kind` returns to its caller, which goes on
+// after it (`nontail`), rather than being its caller's last act. The one
+// meaning of the kind for what may follow a call: lastActOf asks it of a
+// call, and a reader of a kind held apart from its call asks it of the
+// kind, as a row of the program graph holds one with no call op.
+bool returnsToCaller(TailKind kind);
+
 } // namespace idr
 
 #endif // IDR_IR_TAIL_H

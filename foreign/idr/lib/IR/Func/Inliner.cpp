@@ -64,13 +64,14 @@ struct IdrInlinerInterface : DialectInlinerInterface {
   // was in tail position; anywhere else it is an ordinary call. Upstream
   // calls this while the body still ends in the callee's return, so the one
   // decider reads each held call's place in the body, and the replaced
-  // call's own fact, the decider's answer at its place, says the rest.
+  // call's own fact, the decider's answer at its place, says the rest. Of
+  // the dialect's calls, only idr.call names a function upstream resolves.
   void processInlinedCallBlocks(Operation *call,
                                 iterator_range<Region::iterator> inlined) const final {
-    TailKind replaced = cast<CallOp>(call).getTailKind();
+    CallOp replaced = tailCallOf(cast<CallOp>(call));
     for (Block &block : inlined)
       block.walk([&](CallOp held) {
-        held.setTailKind(replaced == TailKind::tail ? tail::decide(held) : TailKind::nontail);
+        held.setTailKind(replaced ? tail::decide(held) : TailKind::nontail);
       });
   }
 

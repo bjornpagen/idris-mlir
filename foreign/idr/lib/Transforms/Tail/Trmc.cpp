@@ -106,7 +106,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
     for (FuncOp fn : program.getOps<FuncOp>()) {
       Plan plan{fn, {}, {}};
       fn.walk([&](CallOp call) {
-        if (call.getTailKind() != TailKind::modulo_context)
+        if (!contextCallOf(call))
           return;
         std::optional<Context> context = contextOf(call);
         if (!context) {
@@ -161,10 +161,9 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       // a context is left.
       LogicalResult kinds = success();
       auto settle = [&](CallOp call) {
-        TailKind kind = decide(call);
-        if (kind == TailKind::modulo_context)
+        call.setTailKind(decide(call));
+        if (contextCallOf(call))
           kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
-        call.setTailKind(kind);
       };
       fn.walk(settle);
       clone.walk(settle);
