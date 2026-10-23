@@ -57,13 +57,20 @@ export
 placementAt : (i : Int) -> (0 _ : (i < 0) = False) -> Placement
 placementAt i _ = MkPlacement i (bitsOf i)
 
+-- The test of `placementOf`, written once as a function of its own: an
+-- `if` is a case function of its own wherever it is written, so a proof
+-- could not unify the one in `placementOf` with one in its own statement.
+placedUnless : (negative : Bool) -> Int -> Maybe Placement
+placedUnless True _ = Nothing
+placedUnless False i = Just (MkPlacement i (bitsOf i))
+
 ||| The placement of a context index (`placementAt`). A negative index is
 ||| no place: Idris's terms carry a bare `Int` (`Resolved`, a nested name's
 ||| parent), which the type does not keep from being negative, so that
 ||| case is the problem's, not this type's.
 export
 placementOf : Int -> Maybe Placement
-placementOf i = if i < 0 then Nothing else Just (MkPlacement i (bitsOf i))
+placementOf i = placedUnless (i < 0) i
 
 ||| The placement of a name the context holds; nothing for one it does not.
 export
@@ -72,9 +79,7 @@ placementIn ctx n = getNameID n ctx >>= placementOf
 
 -- A non-negative index is placed, at itself.
 0 placedAt : (i : Int) -> (i < 0) = False -> placementOf i = Just (MkPlacement i (bitsOf i))
-placedAt i nonNegative =
-  replace {p = \lt => (if lt then Nothing else Just (MkPlacement i (bitsOf i))) = Just (MkPlacement i (bitsOf i))}
-          (sym nonNegative) Refl
+placedAt i nonNegative = cong (\negative => placedUnless negative i) nonNegative
 
 ||| A name the context resolves to an entry that is not negative has a
 ||| placement: what the host knows of the entries it reads, from entry 0
