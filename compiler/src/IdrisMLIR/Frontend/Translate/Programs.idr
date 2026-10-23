@@ -132,7 +132,7 @@ translateDefinition p sig n m counted = do
                    MissingCases _ => False
                    _ => True
   let (names, env) = runtimeParams 0 (parameterNames ty) m.args sig.kinds counted
-  tree' <- tree (MkCtx owner fc complete sig.result (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
+  tree' <- tree (MkCtx owner fc complete sig.result sig.callee.result (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -200,7 +200,7 @@ translateApplication p sig uses counted = do
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result ByInstance p) env sig.result
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result sig.callee.result ByInstance p) env sig.result
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
   extents <- signatureExtents sig.kinds sig.result
@@ -516,7 +516,7 @@ translateIOProgram fc main = do
   -- Main was requested first, so requesting it again reads the signature
   -- every call of it holds.
   sig <- mainInstance fc main
-  let FunT (MkBinder _ WorldT) res@(DataT _ _) = sig.callee.result
+  let FunT (MkBinder world WorldT) res@(DataT _ _) = sig.callee.result
     | _ => notIO
   -- An action takes no argument but the world, which its value is applied
   -- to; a `main` that takes one is no `IO ()`.
@@ -529,7 +529,7 @@ translateIOProgram fc main = do
   -- binder's whatever it is called.
   let loc = noLoc
   let body : Term 1
-      body = App loc (Call loc sig.callee Nothing [] (rewrite noArgument in [])) (Var loc FZ)
+      body = App loc (MkBinder world WorldT) res (Call loc sig.callee Nothing [] (rewrite noArgument in [])) (Var loc FZ)
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole

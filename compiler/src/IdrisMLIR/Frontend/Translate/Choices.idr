@@ -48,6 +48,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
@@ -482,17 +483,26 @@ dispatcher d = do
 
     -- What an arm calls, given the dispatch's parameters in order, as many
     -- as its signature takes: its index parameters are the dispatch's
-    -- levels, so its binders read in the dispatch's scope.
-    calling : {0 q : Nat} -> Loc -> InstanceSig -> List ITerm -> List (Term q) -> Term q
-    calling loc target indices = applyMaker loc (MkMaker (\ys => Call loc target.callee Nothing indices ys)) target.callee.params
+    -- levels, so its binders and its result read in the dispatch's scope.
+    -- Kept: the arm passes the parameters the dispatch has, and its
+    -- callee, the member's instance, takes those its own signature
+    -- classifies, two readings of one type that nothing ties to one count,
+    -- so a parameter left past every function type its result shows is
+    -- the second reading disagreeing with the first.
+    calling : {0 q : Nat} -> Loc -> InstanceSig -> List ITerm -> List (Term q) -> Front (Term q)
+    calling loc target indices xs =
+      case applyMaker loc (MkMaker (\ys => Call loc target.callee Nothing indices ys)) target.callee.params
+                      (substTy indices target.callee.result) xs of
+        Just t => pure t
+        Nothing => internal d.site "a dispatch's arm passing its member's instance more than its type takes"
 
     arm : Loc -> List ITerm -> Fin n -> List (Fin n) -> (Nat, DispatchArm) -> Front (Alt n)
     arm loc indices choice params (_, a) = do
       let inst = a.target
       case a.member.con of
-        Bare con => pure (MkAlt con [] (calling loc inst indices (passed {k = 0} loc choice Nothing params)))
+        Bare con => MkAlt con [] <$> calling loc inst indices (passed {k = 0} loc choice Nothing params)
         Capturing _ con =>
-          pure (MkAlt con [shown "held"] (calling loc inst indices (passed {k = 1} loc choice (Just (Bound FZ)) params)))
+          MkAlt con [shown "held"] <$> calling loc inst indices (passed {k = 1} loc choice (Just (Bound FZ)) params)
 
     -- The callee's instance at a member, given the dispatch's parameters,
     -- the implementation's parameter the values given, held as one, or
@@ -503,7 +513,7 @@ dispatcher d = do
       packed <- case values of
                   [] => pure []
                   (v :: vs) => (:: []) <$> pack d.site d.owner loc (map (\(ty, y) => (ty, Var loc y)) (v ::: vs))
-      pure (calling loc inst indices (concatMap (\y => if y == held then packed else [Var loc (ren y)]) params))
+      calling loc inst indices (concatMap (\y => if y == held then packed else [Var loc (ren y)]) params)
 
     -- The arm for a member of a choice an implementation holds: the values
     -- left, then the member's own, taken apart from its field.

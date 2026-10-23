@@ -248,13 +248,9 @@ fieldNames (v :: vs) (Field _ _ _ :: as) same = binderName v :: fieldNames vs as
 fieldNames [] (_ :: _) Refl impossible
 fieldNames (_ :: _) [] Refl impossible
 
-||| What a runtime variable's binder says of it: its Core type, its Idris
-||| type, the shape of its value, and the variable.
-coreTyOf : VarInfo a -> Maybe Ty
-coreTyOf (Runtime _ t) = coreOf t
-coreTyOf (Shaped _ t _ _) = Just t
-coreTyOf _ = Nothing
-
+||| What a runtime variable's binder says of it, beside its Core type
+||| (`Terms.coreTyOf`): its Idris type, the shape of its value, and the
+||| variable.
 idrisTypeOf : VarInfo a -> Maybe ClosedTerm
 idrisTypeOf (Runtime _ t) = idrisOf t
 idrisTypeOf (Shaped _ _ t _) = Just t
@@ -550,6 +546,13 @@ mutual
           a :: as => CaseLit loc i <$> litMatch ctx.fc ctx.owner a as d
           [] => pure (maybe (Unreachable loc) (CaseLit loc i . OnlyDefault) d)
 
+      -- The Idris type of the value matched: its binder's, or, where its
+      -- binder gives none (a suspension's value, a value a settled term
+      -- computes), the type Idris's tree gives the value it matches, which
+      -- every match carries.
+      valueType : VarInfo (Fin nv) -> Front ClosedTerm
+      valueType v = maybe (normaliseClosed (closeWritten ctx.fc env scTy)) pure (idrisTypeOf v)
+
       -- The data instance a match's constructors are of, at the value's
       -- type. The Core type names it when it is a declaration the
       -- constructor belongs to; a value of a type with one runtime field
@@ -599,7 +602,9 @@ mutual
           -- constructors is a match on zero. A family of the same shape
           -- (`Fin`, `Elem`) is a family like any other, laid out as a
           -- number by the dialect.
-          (Just _, Just (NatT _)) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) as cons
+          (Just _, Just (NatT _)) => do
+            ity <- valueType v
+            natCase ctx env cls scrutinee shape loc i ity as cons
           _ => do
             inst <- instanceOf v con
             every <- coversAll as
@@ -625,16 +630,28 @@ mutual
       runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Front (Term nv)
       runtime loc v i = routed alts (route alts)
         where
+          -- The value a suspension holds: of the Idris type its `Lazy` type
+          -- holds, and of the Core type its suspension's holds, which its
+          -- binder states, or else that Idris type's, every extent dynamic
+          -- as a suspension's value has it. Idris's tree matches a
+          -- suspension's form on a value of a suspension's type only: one
+          -- of another is refused, as the compiled module it is.
+          forcedTypes : Front (Ty, ClosedTerm)
+          forcedTypes = do
+            TDelayed _ _ ity <- valueType v
+              | _ => reject ctx.fc ctx.owner CompiledModule "a match on a suspension's form of a value of no suspension type"
+            t <- case coreTyOf v of
+                   Just (LazyT t) => pure t
+                   _ => dynamicDims <$> coreType ctx.fc ctx.owner ValueType ity
+            pure (t, ity)
+
           -- The first alternative that matches a suspension.
           firstDelay : (as : List (CaseAlt vars)) -> (0 _ : DelayIn as) -> Front (Term nv)
           firstDelay (DelayCase ty arg rhs :: _) _ = do
-            let value = case (coreTyOf v, idrisTypeOf v) of
-                          (Just (LazyT t), Just (TDelayed _ _ ity)) => Runtime FZ (BothTypes t ity)
-                          (Just (LazyT t), _) => Runtime FZ (CoreTypeOnly t)
-                          _ => Runtime FZ Untyped
-            body <- tree ctx (under {k = 1} {new = [ty, arg]} [TypeValue (Erased ctx.fc Placeholder), value] env)
+            (t, ity) <- forcedTypes
+            body <- tree ctx (under {k = 1} {new = [ty, arg]} [TypeValue (Erased ctx.fc Placeholder), Runtime FZ (BothTypes t ity)] env)
                          (afterDelay scrutinee cls) rhs
-            pure (Let loc (binderName arg) (OfValue Many) (Resume loc (Var loc i)) body)
+            pure (Let loc (binderName arg) (OfValue Many) (Resume loc t (Var loc i)) body)
           firstDelay (ConCase _ _ _ _ :: rest) d = firstDelay rest (pastCon d)
           firstDelay (ConstCase _ _ :: rest) d = firstDelay rest (pastConst d)
           firstDelay (DefaultCase _ :: rest) d = firstDelay rest (pastDefault d)
@@ -689,7 +706,7 @@ mutual
   ||| predecessor. The default stands for whichever the tree leaves out.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
-            Maybe ClosedTerm -> Loc -> Fin nv -> Maybe ClosedTerm ->
+            Maybe ClosedTerm -> Loc -> Fin nv -> ClosedTerm ->
             (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) -> Front (Term nv)
   natCase ctx env cls scrutinee shape loc x ity alts cons = do
     every <- coversAll alts
@@ -712,7 +729,7 @@ mutual
   ||| type (`ity`).
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
-                    Maybe ClosedTerm -> Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
+                    Maybe ClosedTerm -> ClosedTerm -> Bool -> Loc -> Fin nv ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (Arm (Term nv), Arm (Shown, Term (Under 1 nv)), Arm (Term nv))
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] _ = pure (Absent, Absent, Absent)
@@ -735,10 +752,9 @@ mutual
           | No _ => reject ctx.fc ctx.owner CompiledModule
                            ("the successor " ++ show cn ++ " binds another number of arguments than it takes")
         let predInfo : VarInfo (Fin (Under 1 nv))
-            predInfo = case (predecessor (shapeArgs shape) taken, ity) of
-                         (Just p, Just t) => shaped FZ (NatT IOpaque) t p
-                         (_, Just t) => Runtime FZ (BothTypes (NatT IOpaque) t)
-                         (_, Nothing) => Runtime FZ (CoreTypeOnly (NatT IOpaque))
+            predInfo = case predecessor (shapeArgs shape) taken of
+                         Just p => shaped FZ (NatT IOpaque) ity p
+                         Nothing => Runtime FZ (BothTypes (NatT IOpaque) ity)
         let infos = byVarFrom args (\a => case a of
                                          RuntimeValue _ => predInfo
                                          _ => TypeValue (Erased ctx.fc Placeholder)) taken counted

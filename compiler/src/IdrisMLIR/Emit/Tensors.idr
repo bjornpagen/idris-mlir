@@ -182,9 +182,14 @@ fit ix l slot v = case fitting slot v.type v.refinement of
     let v' = { type := t, refinement := AnyConstructor } v
     r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
     pure ({ name := r.name } v')
-  -- The core term holds the type of what each slot takes, not a proof that
-  -- what fills the slot has it: that needs values typed by their scope,
-  -- which the translation does not build.
+  -- Kept: the core term holds the type each slot takes, and each form the
+  -- type of the value it gives (`Term.termType`), but no proof that the two
+  -- agree but for the extents and index terms a cast or a reindex fixes. A
+  -- term is not indexed by its type: a `let` of a value the translation
+  -- binds (`OfValue`), a field of a value taken apart and a value a
+  -- settled term computes are typed by what makes them, not by a binder of
+  -- the scope, so what makes a value and what holds it are two readings
+  -- of one Idris type.
   Mismatch what expected =>
     internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
 

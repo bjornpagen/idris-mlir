@@ -274,10 +274,10 @@ mutual
   names from k (Case _ _ x arms) = namesVar from k x || armsName from k arms
   names from k (CaseLit _ x arms) = namesVar from k x || litArmsName from k arms
   names from k (CaseNat _ x arms) = namesVar from k x || natArmsName from k arms
-  names from k (Lam _ _ _ body) = names (S from) k body
-  names from k (App _ f x) = names from k f || names from k x
+  names from k (Lam _ _ _ _ body) = names (S from) k body
+  names from k (App _ _ _ f x) = names from k f || names from k x
   names from k (Suspend _ _ body) = names from k body
-  names from k (Resume _ e) = names from k e
+  names from k (Resume _ _ e) = names from k e
   names from k (Unreachable _) = False
   names from k (Assume _ _ _ body) = names from k body
   names from k (Crash _ _) = False
@@ -682,48 +682,39 @@ alg ix (CaseNatF l x arms) sc w = case arms of
 -- suspension of one, each over the values its body uses from where it is
 -- written and its scope's levels: the body is written first, as a region,
 -- and the function made of it. A suspension of a value is that value
--- held, `idr.lazy.delay %v`. A lambda's parameter and result are at the types
--- the context expects of them, and a suspension's value at the type the
--- context expects of it, else the one the term holds: a closure's type
--- holds the extents its values are made at dynamic.
-alg ix (LamF l name b body) sc w = do
+-- held, `idr.lazy.delay %v`. A lambda's parameter and result are at the
+-- types the context expects of them, and a suspension's value at the type
+-- the context expects of it, else the ones the term holds: a closure's
+-- type holds the extents its values are made at dynamic.
+alg ix (LamF l name b held body) sc w = do
   let (param, result) = case w.type of
-                          Just (FunT a r) => (typeOf a, Just r)
-                          _ => (typeOf b, Nothing)
+                          Just (FunT a r) => (typeOf a, r)
+                          _ => (typeOf b, held)
   -- A lambda of the world, an action, binds no value for it.
   (args, r, ops) <- case param of
     WorldT => do
       (r, ops) <- collect $
-        plain ix l (body.result (bind [World] (offTail sc)) (expecting result))
-          >>= traverse (fit ix l result)
+        plain ix l (body.result (bind [World] (offTail sc)) (expecting (Just result)))
+          >>= traverse (fit ix l (Just result))
       pure ([], r, ops)
     _ => do
       (p, arg) <- freshVal ix param b.quantity
       (r, ops) <- collect $ do
         inner <- coerce ix l b.quantity !(fit ix l (Just (typeOf b)) p)
-        plain ix l (body.result (bind [Whole inner] (offTail sc)) (expecting result))
-          >>= traverse (fit ix l result)
+        plain ix l (body.result (bind [Whole inner] (offTail sc)) (expecting (Just result)))
+          >>= traverse (fit ix l (Just result))
       st <- get
       put ({ nextBinder $= S } st)
       pure ([MkArgument arg (Binder name (Spanned l) st.ownerSymbol st.nextBinder)], r, ops)
-  -- The term holds no lambda's result type: the translation knows it only
-  -- where it knows what type the lambda is expected at, which a lambda
-  -- Idris wrote does not say. One whose body never returns, where nothing
-  -- expects a function, leaves none.
-  Just t <- pure (result <|> map (.type) r)
-    | Nothing => internal "the result type of a lambda whose body never returns"
   ops' <- epilogue ix l r ops
-  (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
-  Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
+  (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix result)
+  Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) result) captures
                    (Idr.fnClosureOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
-alg ix (AppF l f x) sc w = do
+-- An application applies its head at the function type it holds, the one
+-- the head's own type gives.
+alg ix (AppF l a r f x) sc w = do
   Just fv <- plain ix l (f.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
-  -- The term holds no application's function type: the translation does
-  -- not know it where it applies a value whose Idris type it does not
-  -- know, past the binders the type shows.
-  FunT a r <- pure fv.type
-    | t => internal ("an application of a value of type " ++ show t)
   Just v <- x.result (offTail sc) (expecting (Just (typeOf a)))
     | Nothing => pure Nothing
   -- An action is applied to the world, which is no value: it takes none.
@@ -745,13 +736,11 @@ alg ix (SuspendF l delayed body) sc w = do
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
                    (Idr.lazySuspendOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
-alg ix (ResumeF l e) sc w = do
+-- A force gives the value its suspension holds, of the type the force
+-- holds, the one its operand's own type gives.
+alg ix (ResumeF l r e) sc w = do
   Just ev <- plain ix l (e.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
-  -- The term holds no force's suspension type: the translation does not
-  -- know it where it forces a value whose Idris type it does not know.
-  LazyT r <- pure ev.type
-    | t => internal ("a force of a value of type " ++ show t)
   Just <$> fitted {binder = w.binder} ix l w.type r (Idr.lazyForceOp (operand ix ev))
 -- The array language: each operand bound once, in order, by the frontend,
 -- an array at the type the operation holds of it; each body a region of

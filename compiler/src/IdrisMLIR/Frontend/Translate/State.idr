@@ -219,13 +219,16 @@ recount Refl mk = mk
 
 ||| Eta-expands a known head applied to too few arguments over its missing
 ||| runtime parameters, one closure each, as the curried type of the
-||| result requires: `\x => .. => head(args ++ xs)`.
+||| result requires: `\x => .. => head(args ++ xs)`, the head's value of
+||| type `valueTy`, so each closure gives a closure over the parameters after
+||| its own, or that value (`closureType`).
 export
-etaExpand : {0 nv : Nat} -> {0 g : Nat} -> Loc -> Vect k Binder -> Maker (g + k) -> Vect g (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
-etaExpand loc [] mk given = (recount (sym (plusZeroRightNeutral g)) mk).make given
-etaExpand loc {k = S k'} (b :: rest) mk given =
-  IdrisMLIR.Term.Lam loc (shown "x") (closureBinder b)
-      (etaExpand loc rest (recount (plusSuccRightSucc g k') mk)
+etaExpand : {0 nv : Nat} -> {0 g : Nat} -> Loc -> Vect k Binder -> (valueTy : Ty) -> Maker (g + k) ->
+            Vect g (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
+etaExpand loc [] valueTy mk given = (recount (sym (plusZeroRightNeutral g)) mk).make given
+etaExpand loc {k = S k'} (b :: rest) valueTy mk given =
+  IdrisMLIR.Term.Lam loc (shown "x") (closureBinder b) (closureType rest valueTy)
+      (etaExpand loc rest valueTy (recount (plusSuccRightSucc g k') mk)
                  (snoc (map (weakenUnder 1) given) (IdrisMLIR.Term.Var loc FZ)))
 
 %prefix_record_projections off
@@ -262,17 +265,27 @@ saturation (S n) (x :: xs) = case saturation n xs of
   Short => Short
 
 ||| A call's value made from the runtime arguments given, in order, by
-||| what the function applied is: as many as its maker takes saturate it,
-||| and the rest apply its value; with fewer, one closure per missing
+||| what the function applied is, its value of type `valueTy`: as many as its
+||| maker takes saturate it, and each one after applies its value at the
+||| function type `valueTy` shows for it; with fewer, one closure per missing
 ||| parameter completes it (`etaExpand`), as a call below its arity is.
 ||| The binders are its parameters', in the scope the value is made in.
+||| Nothing where an argument is left past every function type `valueTy`
+||| shows, which a value of that type does not take.
 export
-applyMaker : {0 nv : Nat} -> Loc -> Maker r -> Vect r Binder -> List (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
-applyMaker loc mk bs ns = go [] bs mk ns
+applyMaker : {0 nv : Nat} -> Loc -> Maker r -> Vect r Binder -> (valueTy : Ty) -> List (IdrisMLIR.Term.Term nv) ->
+             Maybe (IdrisMLIR.Term.Term nv)
+applyMaker loc mk bs valueTy ns = go [] bs mk ns
   where
-    go : {0 g : Nat} -> Vect g (IdrisMLIR.Term.Term nv) -> Vect k Binder -> Maker (g + k) -> List (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
-    go given [] mk' rest = foldl (IdrisMLIR.Term.App loc) ((recount (sym (plusZeroRightNeutral g)) mk').make given) rest
-    go given bs'@(_ :: _) mk' [] = etaExpand loc bs' mk' given
+    applying : IdrisMLIR.Term.Term nv -> Ty -> List (IdrisMLIR.Term.Term nv) -> Maybe (IdrisMLIR.Term.Term nv)
+    applying f t [] = Just f
+    applying f (FunT a r) (x :: xs) = applying (IdrisMLIR.Term.App loc a r f x) r xs
+    applying f _ (_ :: _) = Nothing
+
+    go : {0 g : Nat} -> Vect g (IdrisMLIR.Term.Term nv) -> Vect k Binder -> Maker (g + k) -> List (IdrisMLIR.Term.Term nv) ->
+         Maybe (IdrisMLIR.Term.Term nv)
+    go given [] mk' rest = applying ((recount (sym (plusZeroRightNeutral g)) mk').make given) valueTy rest
+    go given bs'@(_ :: _) mk' [] = Just (etaExpand loc bs' valueTy mk' given)
     go given {k = S k'} (_ :: bs') mk' (n :: rest) = go (snoc given n) bs' (recount (plusSuccRightSucc g k') mk') rest
 
 ||| An instance's signature, read once where the instance is first

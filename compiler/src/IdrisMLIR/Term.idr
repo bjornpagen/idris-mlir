@@ -344,13 +344,19 @@ mutual
     ||| there, where the value is not zero.
     CaseNat : Loc -> Fin n -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> TermAt js n
     ||| A lambda; its body binds the parameter (`Bound 0`), named as Idris
-    ||| named it.
-    Lam : Loc -> (name : Shown) -> Binder -> TermAt [] (Under 1 n) -> TermAt js n
-    App : Loc -> TermAt [] n -> TermAt [] n -> TermAt js n
+    ||| named it, and gives a value of `result`: the closure is of the
+    ||| function type from the binder to it, the type the position the
+    ||| lambda is written at expects of it, as Idris checked it there.
+    Lam : Loc -> (name : Shown) -> Binder -> (result : Ty) -> TermAt [] (Under 1 n) -> TermAt js n
+    ||| An application of a function from `param` to `result`, the type its
+    ||| head gives, to an argument at `param`.
+    App : Loc -> (param : Binder) -> (result : Ty) -> TermAt [] n -> TermAt [] n -> TermAt js n
     ||| A suspended computation, of the type `value` Idris checked it at
     ||| (`TDelay` holds it), at the extents a suspension's type holds.
     Suspend : Loc -> (value : Ty) -> TermAt [] n -> TermAt js n
-    Resume : Loc -> TermAt [] n -> TermAt js n
+    ||| A force of a suspension of a value of type `value`, the type its
+    ||| operand gives.
+    Resume : Loc -> (value : Ty) -> TermAt [] n -> TermAt js n
     ||| A term Idris proved never runs: a match with no possible arm.
     Unreachable : Loc -> TermAt js n
     ||| A region in which an erased equality Idris proved holds, its two
@@ -603,10 +609,11 @@ mutual
   visitTerm v (Case l fam x arms) = Case l fam <$> v.var x <*> visitArms v arms
   visitTerm v (CaseLit l x arms) = CaseLit l <$> v.var x <*> visitLitArms v arms
   visitTerm v (CaseNat l x arms) = CaseNat l <$> v.var x <*> visitNatArms v arms
-  visitTerm v (Lam l x b body) = Lam l x (movedBinder v.levels b) <$> visitTerm (underVisit {k = 1} v) body
-  visitTerm v (App l f x) = App l <$> visitTerm v f <*> visitTerm v x
+  visitTerm v (Lam l x b r body) =
+    Lam l x (movedBinder v.levels b) (movedTy v.levels r) <$> visitTerm (underVisit {k = 1} v) body
+  visitTerm v (App l a r f x) = App l (movedBinder v.levels a) (movedTy v.levels r) <$> visitTerm v f <*> visitTerm v x
   visitTerm v (Suspend l t body) = Suspend l (movedTy v.levels t) <$> visitTerm v body
-  visitTerm v (Resume l e) = Resume l <$> visitTerm v e
+  visitTerm v (Resume l t e) = Resume l (movedTy v.levels t) <$> visitTerm v e
   visitTerm v (Unreachable l) = pure (Unreachable l)
   visitTerm v (Assume l a b body) = Assume l (moved v.levels a) (moved v.levels b) <$> visitTerm v body
   visitTerm v (Crash l m) = pure (Crash l m)
@@ -748,10 +755,10 @@ mutual
     CaseF : Loc -> FamilyId -> Fin n -> CaseArmsOf (AltF f js n) (f js n) -> TermF f js n
     CaseLitF : Loc -> Fin n -> LitMatch (f js n) -> TermF f js n
     CaseNatF : Loc -> Fin n -> NatArmsOf (f js n) (f js (Under 1 n)) -> TermF f js n
-    LamF : Loc -> Shown -> Binder -> f [] (Under 1 n) -> TermF f js n
-    AppF : Loc -> f [] n -> f [] n -> TermF f js n
+    LamF : Loc -> Shown -> Binder -> Ty -> f [] (Under 1 n) -> TermF f js n
+    AppF : Loc -> Binder -> Ty -> f [] n -> f [] n -> TermF f js n
     SuspendF : Loc -> Ty -> f [] n -> TermF f js n
-    ResumeF : Loc -> f [] n -> TermF f js n
+    ResumeF : Loc -> Ty -> f [] n -> TermF f js n
     UnreachableF : Loc -> TermF f js n
     AssumeF : Loc -> ITerm -> ITerm -> f js n -> TermF f js n
     CrashF : Loc -> Cause -> TermF f js n
@@ -820,10 +827,10 @@ hmap h (CaseNatF l x arms) = CaseNatF l x (armsMap arms)
     armsMap (OnlyZero z) = OnlyZero (h z)
     armsMap (OnlySucc p s) = OnlySucc p (h s)
     armsMap (Both z p s) = Both (h z) p (h s)
-hmap h (LamF l x b body) = LamF l x b (h body)
-hmap h (AppF l f x) = AppF l (h f) (h x)
+hmap h (LamF l x b r body) = LamF l x b r (h body)
+hmap h (AppF l a r f x) = AppF l a r (h f) (h x)
 hmap h (SuspendF l t body) = SuspendF l t (h body)
-hmap h (ResumeF l e) = ResumeF l (h e)
+hmap h (ResumeF l t e) = ResumeF l t (h e)
 hmap h (UnreachableF l) = UnreachableF l
 hmap h (AssumeF l a b body) = AssumeF l a b (h body)
 hmap h (CrashF l m) = CrashF l m
@@ -860,10 +867,10 @@ mutual
   para alg (Case l fam x arms) = alg (CaseF l fam x (paraArms alg arms))
   para alg (CaseLit l x arms) = alg (CaseLitF l x (paraLitArms alg arms))
   para alg (CaseNat l x arms) = alg (CaseNatF l x (paraNatArms alg arms))
-  para alg (Lam l x b body) = alg (LamF l x b (sub alg body))
-  para alg (App l f x) = alg (AppF l (sub alg f) (sub alg x))
+  para alg (Lam l x b r body) = alg (LamF l x b r (sub alg body))
+  para alg (App l a r f x) = alg (AppF l a r (sub alg f) (sub alg x))
   para alg (Suspend l t body) = alg (SuspendF l t (sub alg body))
-  para alg (Resume l e) = alg (ResumeF l (sub alg e))
+  para alg (Resume l t e) = alg (ResumeF l t (sub alg e))
   para alg (Unreachable l) = alg (UnreachableF l)
   para alg (Assume l a b body) = alg (AssumeF l a b (sub alg body))
   para alg (Crash l m) = alg (CrashF l m)
@@ -965,6 +972,135 @@ cata : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> 
 cata alg = para (\layer => alg (hmap (.result) layer))
 
 ------------------------------------------------------------------------------
+-- The type of a term's value
+------------------------------------------------------------------------------
+
+||| The type of a constructor application's value: its family at the index
+||| terms its equation gives, its binders substituted.
+export
+conType : Con k -> List ITerm -> Ty
+conType c bs = DataT c.id.family (substituteAll bs c.equation)
+
+||| The type of a closure that takes `bs` and then gives a value of
+||| `valueTy`: one type for every extent its values are made at, so every
+||| dimension in it is dynamic, as a closure's binder and result are.
+export
+closureType : Vect k Binder -> Ty -> Ty
+closureType bs valueTy = dynamicDims (foldr FunT valueTy bs)
+
+||| What is known of the types of a scope's variables: the type each one is
+||| bound at, where its binder states one.
+public export
+ScopeTypes : Nat -> Type
+ScopeTypes n = Fin n -> Maybe Ty
+
+||| A scope's types under a binder of `k` variables, the binder's own
+||| first.
+underTypes : {k : Nat} -> Vect k (Maybe Ty) -> ScopeTypes n -> ScopeTypes (Under k n)
+underTypes own outer v = case splitUnder {k} v of
+  Left i => index i own
+  Right y => outer y
+
+||| The type of a literal's value, as its constant is made.
+literalType : Lit -> Ty
+literalType (LInt t _) = IntT t
+literalType (LChar _) = CharT
+literalType (LDouble _) = DoubleT
+literalType (LStr _) = StrT
+literalType (LBig _) = BigT
+literalType (LNat n) = NatT (INat (integerToNat n))
+
+||| The type an array operation gives, which it holds.
+opType : TensorOp t -> Ty
+opType (Extent _ _ _) = NatT IOpaque
+opType (Extract _ rt _ _) = rt
+opType (Insert _ rt _ _ _) = rt
+opType (Take _ ra _ _ _) = arrayTy ra
+opType (Drop _ ra _ _ _) = arrayTy ra
+opType (Concat _ _ ra _ _ _) = arrayTy ra
+opType (Transpose _ rt _ _) = rt
+opType (Reshape _ rt _ _) = rt
+
+mutual
+  ||| The type of a term's value, read off the term in a scope whose
+  ||| variables' types `scope` gives: the type each form holds of what it
+  ||| gives (a call its callee's result at the call's index terms, a
+  ||| constructor its family's, a lambda its closure's, an application its
+  ||| function's result, a force its suspension's value, an array op its
+  ||| result), a `let`'s its body's, and a match's or a join op's the first
+  ||| of its arms (its join regions, then its body) whose type is known, as
+  ||| the op's results are the first arm's that returns. What a field of a value taken apart is
+  ||| bound at depends on the telescope the match stands in, which the term
+  ||| does not hold, so it is not read here. Nothing for a term that never
+  ||| returns (a crash, a jump, an unreachable arm), and for a primitive or
+  ||| an IO primitive, whose value's type its op makes.
+  export
+  termType : ScopeTypes n -> TermAt js n -> Maybe Ty
+  termType scope (Var _ x) = scope x
+  termType scope (Literal _ lit) = Just (literalType lit)
+  termType scope (PrimApp _ (Op _ r _) _ _) = Just r
+  termType scope (PrimApp _ _ _ _) = Nothing
+  termType scope (Effect _ _ _ _ _ _) = Nothing
+  termType scope (Call _ c _ is _) = Just (substTy is c.result)
+  termType scope (ConApp _ c bs _) = Just (conType c bs)
+  termType scope (Let _ _ (Checked b) _ body) = termType (underTypes {k = 1} [Just b.type] scope) body
+  termType scope (Let _ _ (OfValue _) v body) = termType (underTypes {k = 1} [termType scope v] scope) body
+  termType scope (Case _ _ _ arms) = armsType scope arms
+  termType scope (CaseLit _ _ arms) = litArmsType scope arms
+  termType scope (CaseNat _ _ (OnlyZero z)) = termType scope z
+  termType scope (CaseNat _ _ (OnlySucc _ s)) = termType (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
+  termType scope (CaseNat _ _ (Both z _ s)) =
+    termType scope z <|> termType (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
+  termType scope (Lam _ _ b r _) = Just (FunT b r)
+  termType scope (App _ _ r _ _) = Just r
+  termType scope (Suspend _ t _) = Just (LazyT t)
+  termType scope (Resume _ t _) = Just t
+  termType scope (Unreachable _) = Nothing
+  termType scope (Assume _ _ _ body) = termType scope body
+  termType scope (Crash _ _) = Nothing
+  termType scope (CrashWith _ _) = Nothing
+  termType scope (NewWorld _) = Just WorldT
+  termType scope (Tensor _ op) = Just (opType op)
+  termType scope (Tabulate _ t _ _) = Just t
+  termType scope (TabulateIO _ _ _ _ _ _ _) = Nothing
+  termType scope (Reduce _ _ _ _ t _ _ _ _ _) = Just t
+  termType scope (Tie _ t _ _) = Just t
+  termType scope (ReadBack _ e _ _ body) = termType (underTypes {k = 2} [Just e, Nothing] scope) body
+  termType scope (ExtentsBack {k} _ _ body) =
+    termType (underTypes {k = S k} (snoc (replicate k (Just (NatT IOpaque))) Nothing) scope) body
+  termType scope (Join _ _ targets body) = targetsType scope targets <|> termType scope body
+  termType scope (Jump _ _ _ _) = Nothing
+
+  altsType : ScopeTypes n -> List (AltAt js n) -> Maybe Ty
+  altsType scope [] = Nothing
+  altsType scope (MkAlt {k} _ _ body :: alts) =
+    termType (underTypes {k} (replicate k Nothing) scope) body <|> altsType scope alts
+
+  armsType : ScopeTypes n -> CaseArmsOf (AltAt js n) (TermAt js n) -> Maybe Ty
+  armsType scope (Defaulted alts d) = altsType scope alts <|> termType scope d
+  armsType scope (Exhaustive alts) = altsType scope (forget alts)
+
+  keyedType : ScopeTypes n -> List (kt, TermAt js n) -> Maybe Ty
+  keyedType scope [] = Nothing
+  keyedType scope ((_, t) :: rest) = termType scope t <|> keyedType scope rest
+
+  litArmsType : ScopeTypes n -> LitMatch (TermAt js n) -> Maybe Ty
+  litArmsType scope (OnlyDefault d) = termType scope d
+  litArmsType scope (OnInts _ (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
+  litArmsType scope (OnInts _ (LitNoDefault alts)) = keyedType scope (forget alts)
+  litArmsType scope (OnChars (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
+  litArmsType scope (OnChars (LitNoDefault alts)) = keyedType scope (forget alts)
+  litArmsType scope (OnStrings (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
+  litArmsType scope (OnStrings (LitNoDefault alts)) = keyedType scope (forget alts)
+  litArmsType scope (OnBigs (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
+  litArmsType scope (OnBigs (LitNoDefault alts)) = keyedType scope (forget alts)
+
+  targetsType : ScopeTypes n -> All (Target s n) ts -> Maybe Ty
+  targetsType scope [] = Nothing
+  targetsType scope (MkTarget {k} _ _ _ _ params body :: rest) =
+    termType (underTypes {k} (map (Just . (.type)) params) scope) body <|> targetsType scope rest
+
+------------------------------------------------------------------------------
 -- Join points the program as written makes
 ------------------------------------------------------------------------------
 
@@ -979,6 +1115,14 @@ export
 actionType : (t : Ty) -> Maybe (ActionType t)
 actionType (FunT (MkBinder q WorldT) r) = Just (OnWorld q r)
 actionType _ = Nothing
+
+||| The quantity an action takes the world at.
+worldUses : ActionType t -> Uses
+worldUses (OnWorld w _) = w
+
+||| What an action gives, of the world it takes.
+actionResult : ActionType t -> Ty
+actionResult (OnWorld _ g) = g
 
 ||| A continuation the program as written makes, as its uses are written in
 ||| a term of scope `n`, which becomes one of scope `m` without it: a
@@ -1013,7 +1157,7 @@ awayFrom (Running c _) = MkVisit Just (\fn => if fn == c.fn then Nothing else Ju
 
 ||| The head of an application and its arguments, the first first.
 headOf : TermAt [] n -> List (TermAt [] n) -> (TermAt [] n, List (TermAt [] n))
-headOf (App _ f x) args = headOf f (x :: args)
+headOf (App _ _ _ f x) args = headOf f (x :: args)
 headOf h args = (h, args)
 
 ||| A tie's operand inside every tie around it, and what each of those ties
@@ -1097,12 +1241,12 @@ mutual
   jumpsTo c (Case l fam x arms) = Case l fam <$> (awayFrom c).var x <*> jumpsArms c arms
   jumpsTo c (CaseLit l x arms) = CaseLit l <$> (awayFrom c).var x <*> jumpsLitArms c arms
   jumpsTo c (CaseNat l x arms) = CaseNat l <$> (awayFrom c).var x <*> jumpsNatArms c arms
-  jumpsTo c (Lam l x b body) = Lam l x b <$> visitTerm (underVisit {k = 1} (awayFrom c)) body
-  jumpsTo c (App l f x) = case appHead c l f x of
+  jumpsTo c (Lam l x b r body) = Lam l x b r <$> visitTerm (underVisit {k = 1} (awayFrom c)) body
+  jumpsTo c (App l a r f x) = case appHead c l f x of
     UseOf jump => jump
-    NoUse => App l <$> visitTerm (awayFrom c) f <*> visitTerm (awayFrom c) x
+    NoUse => App l a r <$> visitTerm (awayFrom c) f <*> visitTerm (awayFrom c) x
   jumpsTo c (Suspend l t body) = Suspend l t <$> visitTerm (awayFrom c) body
-  jumpsTo c (Resume l e) = Resume l <$> visitTerm (awayFrom c) e
+  jumpsTo c (Resume l t e) = Resume l t <$> visitTerm (awayFrom c) e
   jumpsTo c (Unreachable l) = pure (Unreachable l)
   jumpsTo c (Assume l a b body) = Assume l a b <$> jumpsTo c body
   jumpsTo c (Crash l m) = pure (Crash l m)
@@ -1188,7 +1332,7 @@ data Lambdas : Nat -> Type where
   MkLambdas : {k : Nat} -> Vect k (Shown, Binder) -> Term (Under k n) -> Lambdas n
 
 lambdas : Term n -> Lambdas n
-lambdas (Lam l x b body) = case lambdas body of
+lambdas (Lam l x b _ body) = case lambdas body of
   MkLambdas {k} ps inner => MkLambdas ((x, b) :: ps) (replace {p = Term} (sym (plusSuccRightSucc k n)) inner)
 lambdas t = MkLambdas [] t
 
@@ -1250,10 +1394,10 @@ mutual
   overTails at o e (Effect l pr gives as w res) = at o e (Effect l pr gives as w res)
   overTails at o e (Call l c stands is as) = at o e (Call l c stands is as)
   overTails at o e (ConApp l c bs as) = at o e (ConApp l c bs as)
-  overTails at o e (Lam l x b body) = at o e (Lam l x b body)
-  overTails at o e (App l f x) = at o e (App l f x)
+  overTails at o e (Lam l x b r body) = at o e (Lam l x b r body)
+  overTails at o e (App l a r f x) = at o e (App l a r f x)
   overTails at o e (Suspend l t body) = at o e (Suspend l t body)
-  overTails at o e (Resume l x) = at o e (Resume l x)
+  overTails at o e (Resume l t x) = at o e (Resume l t x)
   overTails at o e (NewWorld l) = at o e (NewWorld l)
   overTails at o e (Tensor l op) = at o e (Tensor l op)
   overTails at o e (Tabulate l ty es body) = at o e (Tabulate l ty es body)
@@ -1312,18 +1456,19 @@ mutual
   overTargets at e (MkTarget {k} l code sorts names params body :: rest) =
     MkTarget {k} l code sorts names params (overTails at UnderJoin (Free {k} . e) body) :: overTargets at e rest
 
-||| An action's value run on the world `w` of its scope, at a tail: a
-||| lambda of the world, outside every join op, is its body with its world
-||| `w`, so a tail of that body that applies a call to the world is that
-||| call saturated; any other action is applied to the world. A lambda's
-||| body sees no join point, so it stands for a tail only where none is in
-||| scope; inside a join op the lambda is applied as any action is.
-running : Loc -> Fin n -> AtTail n
-running l w Outermost e (Lam _ _ (MkBinder _ WorldT) body) =
+||| An action's value, of the action type `a`, run on the world `w` of its
+||| scope, at a tail: a lambda of the world, outside every join op, is its
+||| body with its world `w`, so a tail of that body that applies a call to
+||| the world is that call saturated; any other action is applied to the
+||| world, at the action's type. A lambda's body sees no join point, so it
+||| stands for a tail only where none is in scope; inside a join op the
+||| lambda is applied as any action is.
+running : Loc -> ActionType t -> Fin n -> AtTail n
+running l a w Outermost e (Lam _ _ (MkBinder _ WorldT) _ body) =
   rename (\v => case splitUnder {k = 1} v of
                   Left _ => e w
                   Right y => y) body
-running l w _ e t = App l t (Var l (e w))
+running l a w _ e t = App l (MkBinder (worldUses a) WorldT) (actionResult a) t (Var l (e w))
 
 ||| What a function's signature fixes of its result's dynamic dimensions
 ||| (`ds`, over its parameters), stated of the value at a tail, of the
@@ -1408,12 +1553,8 @@ regionOf q f names params body =
 ||| its parameters and then the world, each tail that gives the action run
 ||| on the world (`running`), so a tail that applied a call to the world is
 ||| that call saturated with it.
-ranOn : (f : TFn) -> (0 _ : ActionType f.callee.result) -> Term (S f.arity)
-ranOn f _ = overTails (running f.loc last) Outermost id (rename weaken f.body)
-
-||| The quantity an action takes the world at.
-worldUses : ActionType t -> Uses
-worldUses (OnWorld w _) = w
+ranOn : (f : TFn) -> ActionType f.callee.result -> Term (S f.arity)
+ranOn f a = overTails (running f.loc a last) Outermost id (rename weaken f.body)
 
 ||| How every call of a local definition, in every function that reaches
 ||| it, jumps to it: a tail call of it with its parameters, its region its

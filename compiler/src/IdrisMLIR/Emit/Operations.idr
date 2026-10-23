@@ -412,12 +412,6 @@ prim binder stands ix l (ArrayLength _) [a] = do
 -- Constructors
 ------------------------------------------------------------------------------
 
-||| The type of a constructor's value, its binders given: its family at its
-||| equation, the binders substituted.
-export
-conType : Con k -> List ITerm -> Ty
-conType c bs = DataT c.id.family (substituteAll bs c.equation)
-
 ||| The values a constructor's fields take: each at its field's quantity,
 ||| an array as its buffer (`bufferization.to_buffer`), since a cell holds
 ||| no tensor; none for the world, which is no value of the module.
