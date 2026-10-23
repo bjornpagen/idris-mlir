@@ -236,22 +236,31 @@ private:
           !idr::ownership::covers(body.nodes[at].typed, body.claims[at]))
         change(value, idr::ownership::claiming(value.getType(), body.claims[at]));
     };
+    // A call's results are its callee's again where the callee's changed.
+    auto recall = [&](idr::CallOp call) {
+      FunctionId callee = graph.id(call.getCalleeAttr());
+      if (resultsChanged[callee] == Touched::No)
+        return;
+      llvm::SmallVector<Type> before(call->getResultTypes());
+      call.copyCallee(graph.op(callee));
+      for (auto [result, type] : llvm::zip_equal(call->getResults(), before)) {
+        Type now = result.getType();
+        result.setType(type);
+        change(result, now);
+      }
+    };
     runs[f].from = changed.size();
     fn->walk<WalkOrder::PreOrder>([&](Block *block) {
       for (BlockArgument arg : block->getArguments())
         raise(arg);
+      // The block's calls, a typed range over its ops in their order, each
+      // met as the walk reaches it.
+      auto calls = block->getOps<idr::CallOp>();
+      auto nextCall = calls.begin();
       for (Operation &op : *block) {
-        if (auto call = dyn_cast<idr::CallOp>(&op)) {
-          FunctionId callee = graph.id(call.getCalleeAttr());
-          if (resultsChanged[callee] == Touched::No)
-            continue;
-          llvm::SmallVector<Type> before(call->getResultTypes());
-          call.copyCallee(graph.op(callee));
-          for (auto [result, type] : llvm::zip_equal(call->getResults(), before)) {
-            Type now = result.getType();
-            result.setType(type);
-            change(result, now);
-          }
+        if (nextCall != calls.end() && (*nextCall).getOperation() == &op) {
+          recall(*nextCall);
+          ++nextCall;
         } else if (op.hasTrait<idr::SameValue>()) {
           // A result kept as its operand, where its claim is kept, claims
           // what its operand now does; one copied keeps its own grade.
@@ -306,9 +315,8 @@ private:
       Value shared = idr::CountShareOp::create(builder, user->getLoc(), before, use->get());
       use->set(shared);
     }
-    idr::ownership::shareIntoPositions(graph.op(f), [&](idr::CallOp call) {
-      return graph.op(graph.id(call.getCalleeAttr()));
-    });
+    idr::ownership::shareIntoPositions(
+        graph.op(f), [&](FlatSymbolRefAttr callee) { return graph.op(graph.id(callee)); });
     // An op of upstream's reads only the bare carrier: a holder now graded
     // past it is lent to that op where the claim is written.
     (void)idr::lifetimes::lendReads(graph.op(f), f, graph, idr::lifetimes::Holders::Graded);

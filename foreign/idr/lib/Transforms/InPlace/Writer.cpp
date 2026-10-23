@@ -126,13 +126,13 @@ LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
         }
       rewriteSites(versions.sites[fn], walk);
     }
-  auto calleeOf = [&](CallOp call) {
-    return symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
+  auto calleeOf = [&](FlatSymbolRefAttr callee) {
+    return symbols.lookup<FuncOp>(callee.getAttr());
   };
   for (FunctionId fn : functions)
     if (touched.test(fn))
       for (FuncOp op : ops[fn])
-        op.walk([&](CallOp call) { call.copyCallee(calleeOf(call)); });
+        op.walk([&](CallOp call) { call.copyCallee(calleeOf(call.getCalleeAttr())); });
   // The copies join the program graph, every version's row what its calls
   // now name. Each version's id is kept, in the order of `ops`: the
   // original's own, then each copy's as the editor gives it.

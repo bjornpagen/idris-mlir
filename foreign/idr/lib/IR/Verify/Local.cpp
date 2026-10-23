@@ -10,7 +10,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
 
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
@@ -58,6 +57,37 @@ bool copies(const FlowEdges &edges, OpOperand &use) {
 
 bool claimsDeep(Value value) { return claims(value.getType(), Unique::Deep); }
 
+// Whether `edges` say a callee gives `value`: brought back whole from a
+// result of a function by name, which the call's symbol-use verifier holds
+// to that result's type, or a result of a call whose callee is a value,
+// which runs the labels its closure holds and is held to the closure's
+// type.
+bool givenByCallee(const FlowEdges &edges, Value value) {
+  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move,
+        [&](const FlowEdges::Flow &flow) {
+          bool returned = match(
+              flow.from.at, [](const FlowSource::Result &) { return true; },
+              [](const OneOf<FlowSource::Taken, FlowSource::Whole, FlowSource::Part,
+                             FlowSource::Parameter> auto &) { return false; });
+          bool intoValue = match(
+              flow.to.at, [&](const FlowSource::Whole &into) { return into.value == value; },
+              [](const OneOf<FlowPlace::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
+                return false;
+              });
+          return returned && intoValue;
+        },
+        [&](const FlowEdges::Dispatch &dispatch) {
+          return llvm::is_contained(dispatch.call->getResults(), value);
+        },
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh, FlowEdges::Release,
+                       FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant> auto &) {
+          return false;
+        });
+  });
+}
+
 } // namespace
 
 LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
@@ -99,9 +129,6 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
              << use.getOperandNumber() << " of type " << use.get().getType()
              << ", which claims that nothing else reaches what it holds";
 
-  // A call's results are its callee's, held by its symbol-use verifier.
-  if (isa<CallOpInterface>(op))
-    return success();
   // An inferred result is its op's inference, which its verifier holds it
   // to; only a result its op admits at a claim beyond the inference (a
   // cell's init, at any grade) is the rule's.
@@ -115,10 +142,11 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
     return inferred.empty() || !claims(inferred[result.getResultNumber()], Unique::Deep);
   };
 
-  // Each value the op makes typed unique deep, from the terms its edges give.
+  // Each value the op makes typed unique deep, from the terms its edges give;
+  // a value a callee gives is its callee's.
   llvm::SmallVector<Value, 4> judged;
   for (OpResult result : op->getResults())
-    if (claimsDeep(result) && beyondInference(result))
+    if (claimsDeep(result) && beyondInference(result) && !givenByCallee(edges, result))
       judged.push_back(result);
   for (Region &region : op->getRegions())
     if (!region.empty())

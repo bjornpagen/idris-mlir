@@ -7,6 +7,7 @@
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Meets.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/IR/Flow.h"
 #include "idr/Support/Match.h"
@@ -15,6 +16,8 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <cassert>
+#include <optional>
 
 using namespace mlir;
 
@@ -33,6 +36,41 @@ OpOperand *operandOf(Operation *op, Value value) {
     if (operand.get() == value)
       return &operand;
   return nullptr;
+}
+
+// The parameter of a function by name that `use`'s op moves it into, with
+// its reference, as the op's edges say: a call's argument's.
+std::optional<FlowSource::Parameter> parameterOf(OpOperand &use) {
+  auto declared = dyn_cast<FlowOpInterface>(use.getOwner());
+  if (!declared)
+    return std::nullopt;
+  FlowEdges edges;
+  declared.getFlowEdges(edges);
+  std::optional<FlowSource::Parameter> into;
+  ownership::forEachSignatureMove(
+      edges,
+      [&](OpOperand &moved, const FlowSource::Parameter &parameter) {
+        if (&moved == &use)
+          into = parameter;
+      },
+      [](OpOperand &, const FlowSource::Result &) {});
+  return into;
+}
+
+// The use `edges` move into parameter `index` of `function`: the argument a
+// call passes there, which holds a reference wherever a requirement reaches
+// the parameter.
+OpOperand &argumentAt(const FlowEdges &edges, FlatSymbolRefAttr function, unsigned index) {
+  OpOperand *argument = nullptr;
+  ownership::forEachSignatureMove(
+      edges,
+      [&](OpOperand &moved, const FlowSource::Parameter &parameter) {
+        if (parameter.function == function && parameter.index == index)
+          argument = &moved;
+      },
+      [](OpOperand &, const FlowSource::Result &) {});
+  assert(argument && "a requirement reaches only a parameter that holds a reference");
+  return *argument;
 }
 
 } // namespace
@@ -81,8 +119,8 @@ bool Chains::borrowedBefore(OpOperand &use, Operation *requirer) const {
           work.push_back(&next);
       continue;
     }
-    auto call = dyn_cast<CallOp>(owner);
-    if (!call || keeps.test(graph.id(call.getCalleeAttr()), at->getOperandNumber()) ||
+    std::optional<FlowSource::Parameter> into = parameterOf(*at);
+    if (!into || keeps.test(graph.id(into->function), into->index) ||
         ownership::runsAfter(owner, requirer))
       return false;
   }
@@ -148,18 +186,6 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
     next.push_back({*same, asks, &op->getOpOperand(0)});
     return;
   }
-  if (auto call = dyn_cast<CallOp>(op)) {
-    unsigned result = cast<OpResult>(value).getResultNumber();
-    demands.push_back({call, *callAt[values.at(call->getResult(0))], result, asks});
-    const Need &need = summaries.of(graph.id(call.getCalleeAttr()), result, asks);
-    if (!need) {
-      ends.push_back(cause(call, Why::ReturnShared));
-      return;
-    }
-    for (auto [param, strength] : *need)
-      next.push_back({call.getArgOperands()[param], strength, &call->getOpOperand(param)});
-    return;
-  }
   if (isa<RegionBranchOpInterface>(op))
     return;
   auto declared = dyn_cast<FlowOpInterface>(op);
@@ -205,7 +231,8 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                       ends.push_back(cause(op, Why::Shared));
                     });
               },
-              // The value whole: moved, moved out of a part, or copied.
+              // The value whole: moved, moved out of a part, given back by
+              // a callee, or copied.
               [&](const FlowSource::Whole &) {
                 explained = true;
                 match(
@@ -223,8 +250,25 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                                            : operandOf(op, whole);
                       next.push_back({whole, of, use});
                     },
-                    [&](const OneOf<FlowSource::Whole, FlowSource::Parameter,
-                                    FlowSource::Result> auto &) {
+                    // A callee's result: what the callee's version must give
+                    // back, and what its summary asks of the arguments the
+                    // call moves into its parameters. Only a call brings a
+                    // value back from a function's result.
+                    [&](const FlowSource::Result &returned) {
+                      demands.push_back({cast<CallOp>(op), *callAt[values.at(op->getResult(0))],
+                                         returned.index, asks});
+                      const Need &need =
+                          summaries.of(graph.id(returned.function), returned.index, asks);
+                      if (!need) {
+                        ends.push_back(cause(op, Why::ReturnShared));
+                        return;
+                      }
+                      for (auto [param, strength] : *need) {
+                        OpOperand &argument = argumentAt(edges, returned.function, param);
+                        next.push_back({argument.get(), strength, &argument});
+                      }
+                    },
+                    [&](const OneOf<FlowSource::Whole, FlowSource::Parameter> auto &) {
                       ends.push_back(cause(op, Why::Shared));
                     });
               },

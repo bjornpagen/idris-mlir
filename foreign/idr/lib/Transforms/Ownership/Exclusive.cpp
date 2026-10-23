@@ -180,8 +180,8 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
           call.setCalleeAttr(FlatSymbolRefAttr::get(target.getSymNameAttr()));
           call.copyCallee(target);
         });
-        idr::ownership::shareIntoPositions(op, [&](idr::CallOp call) {
-          return symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr());
+        idr::ownership::shareIntoPositions(op, [&](FlatSymbolRefAttr callee) {
+          return symbols.lookup<idr::FuncOp>(callee.getAttr());
         });
       }
 

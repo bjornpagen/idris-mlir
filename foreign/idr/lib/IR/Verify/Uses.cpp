@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A value's structural source (sourceOf), the values seen through the
-// positions their grades put them in, and, by them and upstream's buffer
-// views, which constructor has a cell, what a use does with a reference in
-// the owned stage, and what a view was read from: shared by the verifier
-// and the ownership passes, so each has one meaning.
+// A value's structural source (sourceOf) and each op's answer to it
+// (ValueSourceOpInterface), the values seen through the positions their
+// grades put them in, and, by them and upstream's buffer views, which
+// constructor has a cell, what a use does with a reference in the owned
+// stage, and what a view was read from: shared by the verifier and the
+// ownership passes, so each has one meaning.
 
 #include "idr/IR/Effects/Classify.h"
 #include "idr/IR/Effects/Consumption.h"
@@ -16,9 +17,11 @@
 #include "idr/Support/Match.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <cstdint>
 #include <optional>
 
@@ -51,36 +54,63 @@ SmallVector<Value, 4> idr::linearPositions(Value value) {
 
 Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
 
-// An op says it keeps its operand's value (Idr_SameValue); a field read
-// takes its operand refined to one constructor, which its type names; a
-// match enters each of its regions with the operands that enter it refined
-// (a data match its scrutinee first, then what it forwards; a literal match
-// its scrutinee, in its default alone), each argument the same value as the
-// operand that enters it, at a type that says more; a loan's view is the
-// value it lends, and the owner it gives back is that value.
+// A value is what the op that makes it says: an op that keeps its
+// operand's value gives it on as its result (Idr_SameValue), and an op that
+// makes a value that is another, or a field of one, answers for each value
+// it makes (ValueSourceOpInterface). Anything else is made here: a
+// function's parameter, and every value of an op that says neither.
 Source idr::sourceOf(Value value) {
-  if (auto result = dyn_cast<OpResult>(value)) {
-    Operation *op = result.getOwner();
-    if (op->hasTrait<SameValue>())
-      return Same{op->getOperand(0)};
-    if (auto loan = dyn_cast<LendOp>(op); loan && result == loan.getReturned())
-      return Same{loan.getOwner()};
-    if (auto read = dyn_cast<DataFieldOp>(op))
-      if (std::optional<Tag> tag = dataTypeOf(read.getValue().getType()).singleTag())
-        return Field{read.getValue(), *tag, static_cast<unsigned>(read.getIndex())};
-    return Made{};
-  }
-  auto arg = cast<BlockArgument>(value);
-  Operation *parent = arg.getOwner()->getParentOp();
-  if (auto loan = dyn_cast<LendOp>(parent); loan && arg == loan.getView())
-    return Same{loan.getOwner()};
-  if (isa<MatchOpInterface>(parent) && arg.getOwner()->isEntryBlock()) {
-    OperandRange entering = cast<RegionBranchOpInterface>(parent).getEntrySuccessorOperands(
-        RegionSuccessor(arg.getParentRegion()));
-    return Same{entering[arg.getArgNumber()]};
-  }
+  auto result = dyn_cast<OpResult>(value);
+  Operation *op =
+      result ? result.getOwner() : cast<BlockArgument>(value).getOwner()->getParentOp();
+  if (result && op->hasTrait<SameValue>())
+    return Same{op->getOperand(0)};
+  if (auto sourced = dyn_cast_if_present<ValueSourceOpInterface>(op))
+    return sourced.getValueSource(value);
   return Made{};
 }
+
+//===----------------------------------------------------------------------===//
+// What each op makes its values of
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// A match enters each of its regions with the operands that enter it
+// refined, as upstream's region branch interface says (a data match its
+// scrutinee first, then what it forwards; a literal match its scrutinee, in
+// its default alone): each argument is the operand that enters it, at a
+// type that says more. A result is what a region yields, made here.
+template <class Match>
+Source enteredAs(Match match, Value made) {
+  auto arg = dyn_cast<BlockArgument>(made);
+  if (!arg)
+    return idr::Made{};
+  OperandRange entering = match.getEntrySuccessorOperands(RegionSuccessor(arg.getParentRegion()));
+  return idr::Same{entering[arg.getArgNumber()]};
+}
+
+} // namespace
+
+// A loan's view is the value it lends, and the owner it gives back is that
+// value; its lifetime and what its region yields are made here.
+Source idr::LendOp::getValueSource(Value made) {
+  if (made == getReturned() || made == getView())
+    return idr::Same{getOwner()};
+  return idr::Made{};
+}
+
+// A field read takes its operand refined to one constructor, which its
+// operand's constraint holds and its type names (getTag): its one result is
+// that constructor's field.
+Source idr::DataFieldOp::getValueSource(Value made) {
+  assert(made == getResult() && "a field read makes one value");
+  return idr::Field{getValue(), getTag(), static_cast<unsigned>(getIndex())};
+}
+
+Source idr::DataMatchOp::getValueSource(Value made) { return enteredAs(*this, made); }
+
+Source idr::LitMatchOp::getValueSource(Value made) { return enteredAs(*this, made); }
 
 // What counting and linearity make of an array changes which value names
 // it, not which cell it is.

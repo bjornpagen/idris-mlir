@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.data.match, and what both matches take: its rules, its builder, the
 // region it takes for a known constructor, the edges upstream's
-// control-flow interfaces read off it, the equation each case assumes, and
-// the lifetimes it states for the scoped values it makes. What it shares
-// with idr.lit.match is idr/IR/Control/MatchFamily.h; idr.lit.match is
-// Control/LiteralMatch.cpp.
+// control-flow interfaces read off it, what each region knows of its
+// scrutinee, the equation each case assumes, and the lifetimes it states
+// for the scoped values it makes. What it shares with idr.lit.match is
+// idr/IR/Control/MatchFamily.h; idr.lit.match is Control/LiteralMatch.cpp.
 //
 // A match is a region per case, from the frontend to the lowering. Each
 // region of idr.data.match binds the scrutinee refined: a case to its
@@ -161,6 +161,12 @@ DataType DataMatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()
 
 // The refined scrutinee a region that runs binds first.
 BlockArgument DataMatchOp::getRefined(Region &region) { return region.getArgument(0); }
+
+// Every region binds the scrutinee refined, its type the constructors that
+// reach the region: a case's, or the default's every one no case holds.
+CaseScrutinee DataMatchOp::getRegionScrutinee(Region &region) {
+  return case_scrutinee::Bound{getRefined(region)};
+}
 
 // The scrutinee and the forwarded values, which enter every region; the
 // lifetimes the match states, its last operands, enter none.

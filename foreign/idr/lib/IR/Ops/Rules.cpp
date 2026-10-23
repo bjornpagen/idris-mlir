@@ -9,16 +9,19 @@
 #include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
-// An append is never empty where either part is not, which only its parts
-// tell: essential, the one builder whose answer is its operands'. The walk
-// enters the append that makes `str`, and below it only an append whose
-// one use is the append it was reached from, so what it walks is a tree,
-// each op entered once with nothing remembered of it. A shared append
+// A string is never empty where the op that makes it says so (NeverEmpty),
+// where it is a constant whose text is not (upstream's constant matcher),
+// or where it is an append either of whose parts is never empty, which only
+// its parts tell: essential, the one builder whose answer is its operands'.
+// The walk enters the append that makes `str`, and below it only an append
+// whose one use is the append it was reached from, so what it walks is a
+// tree, each op entered once with nothing remembered of it. A shared append
 // below the first is judged by its builder alone, an append, so a
 // never-empty part under it goes unseen. A string's tree is as large as
 // the program's text makes it.
@@ -32,13 +35,12 @@ bool idr::neverEmpty(Value str) {
       continue;
     if (def->hasTrait<NeverEmpty>())
       return true;
-    if (auto constant = dyn_cast<ConstantOp>(def)) {
-      auto text = dyn_cast<StringAttr>(constant.getValue());
-      if (text && !text.getValue().empty())
+    if (StringAttr text; matchPattern(def, m_Constant(&text))) {
+      if (!text.getValue().empty())
         return true;
       continue;
     }
-    auto append = dyn_cast<StrAppendOp>(def);
+    auto append = next.getDefiningOp<StrAppendOp>();
     if (!append || (next != str && !next.hasOneUse()))
       continue;
     work.push_back(append.getLhs());

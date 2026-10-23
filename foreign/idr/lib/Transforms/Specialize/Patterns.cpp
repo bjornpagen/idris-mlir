@@ -26,13 +26,22 @@ namespace idr::specialize::detail {
 namespace {
 
 // A constant the copy builds again as it was built here: the value of an
-// op the dialect materializes.
+// op the dialect materializes, which upstream's constant matcher reads off
+// any op that says it is constant.
 std::optional<Attribute> constantOf(Value value) {
   Attribute known;
-  Operation *def = value.getDefiningOp();
-  if (!def || !def->hasTrait<OpTrait::ConstantLike>() || !matchPattern(value, m_Constant(&known)))
+  if (!matchPattern(value, m_Constant(&known)))
     return std::nullopt;
   return known;
+}
+
+// The op that builds `value` as a part of a shape: its constructor, or a
+// change of its grade (a linear position it entered or left); none for any
+// other value.
+Operation *shapeStep(Value value) {
+  if (auto con = value.getDefiningOp<DataConOp>())
+    return con;
+  return throughLinear(value) != value ? value.getDefiningOp() : nullptr;
 }
 
 // The constructor that built `value`, through the ops that only change its
@@ -127,9 +136,8 @@ bool usedOnce(Value value) {
   SmallVector<Value> work{value};
   while (!work.empty()) {
     Value at = work.pop_back_val();
-    Operation *def = at.getDefiningOp();
-    bool builds = def && (isa<DataConOp>(def) || throughLinear(at) != at);
-    if (!builds)
+    Operation *def = shapeStep(at);
+    if (!def)
       continue;
     if (!at.hasOneUse())
       return false;
@@ -150,8 +158,7 @@ void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
     for (auto [at, value] : llvm::enumerate(batch)) {
       if (llvm::is_contained(batch.take_front(at), value))
         continue;
-      Operation *def = value.getDefiningOp();
-      if (def && (isa<DataConOp>(def) || throughLinear(value) != value) && def->use_empty())
+      if (Operation *def = shapeStep(value); def && def->use_empty())
         dead.push_back(def);
     }
   };

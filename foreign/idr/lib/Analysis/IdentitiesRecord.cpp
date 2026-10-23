@@ -18,10 +18,11 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/Matchers.h"
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 using namespace mlir;
 
@@ -31,10 +32,9 @@ namespace idr::identities {
 // family member whose layout is the same, so the bits of one are the bits
 // of the other (Fin n and Fin (S n) after their indices are erased).
 Represents representation(Type a, Type b) {
-  Type left = unrestricted(a), right = unrestricted(b);
-  if (left == right)
+  if (unrestricted(a) == unrestricted(b))
     return Represents::Alike;
-  auto l = dyn_cast<DataType>(left), r = dyn_cast<DataType>(right);
+  DataType l = dataTypeOf(a), r = dataTypeOf(b);
   if (l && r && l.getGroup() == r.getGroup() && l.getMember() == r.getMember() &&
       l.layout() == r.layout())
     return Represents::Alike;
@@ -56,29 +56,30 @@ namespace {
 // one value, its tag; any other constant is its literal.
 Known knownOf(Attribute constant, Type type) {
   auto con = dyn_cast<ConAttr>(constant);
-  auto data = dyn_cast<DataType>(unrestricted(type));
+  DataType data = dataTypeOf(type);
   if (con && data && data.ctor(con.getTag()).fields.empty())
     return KnownTag{con.getTag()};
   return KnownLiteral{constant};
 }
 
 // What `region` of `match` says of the scrutinee where it runs, where it
-// says one thing: a case of a literal match its literal; a region of a data
-// match the constructor its binding is refined to, where one is left.
+// says one thing, as the match answers for the region: the literal a
+// literal match's case equals; the constructor the value a region binds the
+// scrutinee as is refined to, where one is left (a literal match's default
+// binds it at its own type, which leaves none).
 std::optional<Known> knownIn(MatchOpInterface match, Region &region) {
-  if (auto literal = dyn_cast<LitMatchOp>(match.getOperation())) {
-    if (&region == &match.getDefaultRegion())
-      return std::nullopt;
-    return KnownLiteral{literal.getCases()[match.caseOf(region)]};
-  }
-  if (region.front().getNumArguments() == 0)
-    return std::nullopt;
-  auto refined = dyn_cast<DataType>(unrestricted(region.front().getArgument(0).getType()));
-  if (!refined)
-    return std::nullopt;
-  if (std::optional<Tag> tag = refined.singleTag())
-    return KnownTag{*tag};
-  return std::nullopt;
+  return idr::match(
+      match.getRegionScrutinee(region),
+      [](const case_scrutinee::Equals &equal) -> std::optional<Known> {
+        return KnownLiteral{equal.literal};
+      },
+      [](const case_scrutinee::Bound &bound) -> std::optional<Known> {
+        DataType refined = dataTypeOf(bound.value.getType());
+        std::optional<Tag> tag = refined ? refined.singleTag() : std::nullopt;
+        if (!tag)
+          return std::nullopt;
+        return KnownTag{*tag};
+      });
 }
 
 template <solver::FunctionNames N>
@@ -100,7 +101,7 @@ private:
   }
   Range framesAt(Operation *at);
   Build ofResult(OpResult result);
-  std::uint32_t sideOf(Operation *match);
+  std::uint32_t sideOf(MatchOpInterface match);
 
   const N &names;
   FuncOp fn;
@@ -132,46 +133,58 @@ Range Reader<N>::framesAt(Operation *at) {
 // A match's regions, read once at its first result: each that yields to
 // the match is an arm with its values; one that ends otherwise (a crash,
 // a jump out of it) never gives the match its results; an empty default
-// region never runs.
+// region never runs. A yield returns to its parent, the match, as
+// upstream's ReturnLike says; a jump is a region branch's terminator too,
+// but leaves for an enclosing join point, with that point's parameters.
 template <solver::FunctionNames N>
-std::uint32_t Reader<N>::sideOf(Operation *match) {
-  if (match == lastMatch)
+std::uint32_t Reader<N>::sideOf(MatchOpInterface match) {
+  if (match.getOperation() == lastMatch)
     return lastSide;
   Range arms{static_cast<std::uint32_t>(out.arms.size()), 0};
   for (Region &region : match->getRegions()) {
     if (region.empty())
       continue;
     Operation *end = region.front().getTerminator();
-    if (isa<RegionBranchTerminatorOpInterface>(end))
+    if (end->hasTrait<OpTrait::ReturnLike>())
       out.arms.push_back(Yields{push(end->getOperands()), framesAt(end)});
     else
       out.arms.push_back(NeverReturns{});
   }
   arms.count = static_cast<std::uint32_t>(out.arms.size()) - arms.first;
-  lastMatch = match;
+  lastMatch = match.getOperation();
   lastSide = static_cast<std::uint32_t>(out.sides.size());
   out.sides.push_back(arms);
   return lastSide;
 }
 
+// The function a call names, where its callee is a name and not a value
+// (an application runs whatever its closure holds).
+FlatSymbolRefAttr calleeNamed(CallOpInterface call) {
+  return dyn_cast_if_present<FlatSymbolRefAttr>(
+      dyn_cast_if_present<SymbolRefAttr>(call.getCallableForCallee()));
+}
+
 // What a result is built of, where idr::sourceOf found it made here: the
 // closed set of constructs this question reads, each through MLIR's
-// dispatch for it: a call, a match, an op's structure, a constant. Each
-// alternative of a structure is one of the record's builds, as the op
-// answered it, so no op is named and nothing it said is derived again.
+// dispatch for it: a call by name (upstream's call interface, whose every
+// argument a callee may give back, a word among them), a match, an op's
+// structure, a constant. Each alternative of a structure is one of the
+// record's builds, as the op answered it, so no op is named and nothing it
+// said is derived again.
 template <solver::FunctionNames N>
 Build Reader<N>::ofResult(OpResult result) {
   Operation *op = result.getOwner();
-  if (auto call = dyn_cast<CallOp>(op)) {
-    auto at = static_cast<std::uint32_t>(out.calls.size());
-    if (result.getResultNumber() == 0)
-      out.calls.push_back({names.id(call.getCalleeAttr()), push(call.getArgs())});
-    else
-      at -= 1;
-    return build::Result{at, result.getResultNumber(), result.getType()};
-  }
-  if (isa<MatchOpInterface>(op))
-    return build::Join{sideOf(op), result.getResultNumber()};
+  if (auto call = dyn_cast<CallOpInterface>(op))
+    if (FlatSymbolRefAttr callee = calleeNamed(call)) {
+      auto at = static_cast<std::uint32_t>(out.calls.size());
+      if (result.getResultNumber() == 0)
+        out.calls.push_back({names.id(callee), push(call.getArgOperands())});
+      else
+        at -= 1;
+      return build::Result{at, result.getResultNumber(), result.getType()};
+    }
+  if (auto match = dyn_cast<MatchOpInterface>(op))
+    return build::Join{sideOf(match), result.getResultNumber()};
   if (auto structured = dyn_cast<StructureOpInterface>(op))
     return match(
         structured.getStructure(),
@@ -213,15 +226,15 @@ Build Reader<N>::buildOf(Value value) {
       });
 }
 
-// Every return of the function, with the case regions around it. A body
-// whose only end is a crash has none, and gives back anything.
+// The function's return: the terminator of its body's one block, where it
+// returns to the function's caller (upstream's ReturnLike), which stands
+// under no case region and so has no frames. A body that ends the run
+// instead (a crash) has none, and gives back anything.
 template <solver::FunctionNames N>
 void Reader<N>::readReturns() {
-  fn.getBody().walk([&](Operation *op) {
-    if (!op->hasTrait<OpTrait::ReturnLike>() || isa<RegionBranchTerminatorOpInterface>(op))
-      return;
-    out.returns.push_back({push(op->getOperands()), framesAt(op)});
-  });
+  Operation *end = fn.getBody().front().getTerminator();
+  if (end->hasTrait<OpTrait::ReturnLike>())
+    out.returns.push_back({push(end->getOperands()), Range{}});
 }
 
 } // namespace

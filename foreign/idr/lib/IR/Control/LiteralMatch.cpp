@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr.lit.match: its rules, its builder, the region a constant takes, the
-// edges upstream's control-flow interfaces read off it, and the lifetimes
-// it states. What it shares with idr.data.match is
-// idr/IR/Control/MatchFamily.h.
+// edges upstream's control-flow interfaces read off it, what each region
+// knows of its scrutinee, and the lifetimes it states. What it shares
+// with idr.data.match is idr/IR/Control/MatchFamily.h.
 //
 // Its scrutinee is a word, a char, a double, a string, a big integer or a
 // natural, read in place and never taken apart: a case binds nothing, since
@@ -25,16 +25,17 @@ using namespace mlir;
 using namespace idr;
 using namespace idr::control;
 
-// Keys are literals of the scrutinee's type, as the type says. A case binds
-// nothing, since in it the scrutinee equals its literal; the default binds
-// the scrutinee, none of the keys, at its own type.
+// Keys are literals of the scrutinee's type, as the type says, and only
+// then compared by its equality, which reads a literal of its own. A case
+// binds nothing, since in it the scrutinee equals its literal; the default
+// binds the scrutinee, none of the keys, at its own type.
 LogicalResult LitMatchOp::verify() {
-  if (failed(verifyKeys(*this)))
-    return failure();
   auto literals = cast<LiteralTypeInterface>(unrestricted(getScrutinee().getType()));
   for (Attribute key : getCases())
     if (!literals.isLiteral(key))
       return emitOpError("has a key ") << key << " that is not a literal of " << literals;
+  if (failed(verifyKeys(*this)))
+    return failure();
   for (Region &region : getCaseRegions())
     if (region.getNumArguments())
       return emitOpError("region #") << region.getRegionNumber()
@@ -59,6 +60,14 @@ unsigned LitMatchOp::getNumCases() { return static_cast<unsigned>(getCaseRegions
 Region &LitMatchOp::getCaseRegion(unsigned index) { return getCaseRegions()[index]; }
 
 unsigned LitMatchOp::caseOf(Region &region) { return region.getRegionNumber() - 1; }
+
+// A case binds nothing, and in it the scrutinee equals the case's literal;
+// the default binds the scrutinee at its own type, none of the keys.
+CaseScrutinee LitMatchOp::getRegionScrutinee(Region &region) {
+  if (&region == &getDefaultRegion())
+    return case_scrutinee::Bound{region.getArgument(0)};
+  return case_scrutinee::Equals{getCases()[caseOf(region)]};
+}
 
 // The cases kept by their keys, and the default, which a literal match
 // always has: the scrutinee it binds is none of fewer keys still.
@@ -102,10 +111,12 @@ ValueRange LitMatchOp::getSuccessorInputs(RegionSuccessor successor) {
 
 namespace {
 
-// The region a constant scrutinee takes: its key's, or the default's for a
-// literal that is no key. A constant that is no literal of the scrutinee's
-// type (a double's NaN or negative zero, which no key is) is found by no
-// key here, so every region may run: the lowering's comparison decides it.
+// The region a constant scrutinee takes: the case whose key its carrier
+// calls the same literal (takenRegion, by sameLiteral), or the default's
+// for a literal that is no key. Only a literal is looked up: a constant
+// that is none (a double's NaN or negative zero, or a constant of no value
+// of the type, a poison's) is found by no key here, so every region may
+// run, and the lowering's comparison decides it.
 Region *takenBy(LitMatchOp op, Attribute value) {
   auto literals = cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()));
   return value && literals.isLiteral(value) ? takenRegion(op, value) : nullptr;

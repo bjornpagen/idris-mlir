@@ -21,6 +21,7 @@
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Solver/Schedule.h"
 #include "idr/IR/Flow.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
@@ -81,9 +82,12 @@ public:
     owners.assign(count, noLocal);
     fn.walk([&](Operation *op) { readOp(op); });
     readForwards();
-    if (auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator())) {
+    // The body's one block ends in a return, which gives its operands back,
+    // or in an op that ends the run.
+    Operation *end = fn.getBody().front().getTerminator();
+    if (end->hasTrait<OpTrait::ReturnLike>()) {
       body.returns = Returns::Yes;
-      for (Value operand : ret.getOperands())
+      for (Value operand : end->getOperands())
         body.returned.push_back(local(operand));
     }
     lay(std::move(numbering).finish());
@@ -97,16 +101,6 @@ private:
     forwardedValues(op, [&](OpOperand &operand, Value input) {
       forwards.push_back({local(operand.get()), local(input), input});
     });
-    if (auto call = dyn_cast<CallOp>(op)) {
-      FunctionId callee = graph.id(call.getCalleeAttr());
-      for (OpResult result : call->getResults()) {
-        Local at = local(result);
-        roles[at] = Role::Called;
-        owners[at] = static_cast<Local>(body.calls.size());
-        body.calls.push_back({callee, result.getResultNumber()});
-      }
-      return;
-    }
     // A position that keeps its operand's value gives it its operand's
     // claim where it flows on linearly; a result used again is copied, and
     // claims what its own grade says, which may forget what its operand
@@ -135,6 +129,7 @@ private:
         inferred[local(result)] = Inferred::Yes;
     FlowEdges edges;
     declared.getFlowEdges(edges);
+    readCalled(op, edges);
     ownership::forEachTerm(
         edges,
         [&](Value target, const Term<Value> &term) {
@@ -152,6 +147,37 @@ private:
           if (!infers && raisable(target.getType()) && ownership::flowsLinearly(target))
             roles[at] = Role::Raised;
         });
+  }
+
+  // Each value of `op` brought back from a result of a function by name, a
+  // call's result as the call's edges say, claims what the solve of its
+  // callee's component derived for that result.
+  void readCalled(Operation *op, const FlowEdges &edges) {
+    auto called = [&](const FlowSource::Result &returned, Value into) {
+      if (!madeBy(into, op))
+        return;
+      Local at = local(into);
+      roles[at] = Role::Called;
+      owners[at] = static_cast<Local>(body.calls.size());
+      body.calls.push_back({graph.id(returned.function), returned.index});
+    };
+    for (const FlowEdges::Edge &edge : edges.edges())
+      match(
+          edge.move,
+          [&](const FlowEdges::Flow &flow) {
+            match(
+                flow.from.at,
+                [&](const FlowSource::Result &returned) {
+                  match(
+                      flow.to.at,
+                      [&](const FlowSource::Whole &into) { called(returned, into.value); },
+                      [](const OneOf<FlowPlace::Part, FlowSource::Parameter,
+                                     FlowSource::Result> auto &) {});
+                },
+                [](const OneOf<FlowSource::Taken, FlowSource::Whole, FlowSource::Part,
+                               FlowSource::Parameter> auto &) {});
+          },
+          [](const ownership::NoFlow auto &) {});
   }
 
   // Each input takes what each operand forwarded into it holds, and is

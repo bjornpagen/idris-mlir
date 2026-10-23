@@ -15,12 +15,15 @@
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cassert>
 #include <concepts>
+#include <type_traits>
 #include <utility>
 
 namespace idr::ownership {
@@ -39,23 +42,65 @@ inline void shareInto(mlir::RewriterBase &rewriter, mlir::OpOperand &use, mlir::
   rewriter.modifyOpInPlace(owner, [&] { use.set(shared); });
 }
 
-// Every position of `fn` met: each call's arguments with its callee's
-// parameters (`calleeOf` names the callee), the return's operands with the
-// function's results, and each value a region branch or a jump forwards
-// with the input it becomes. Found first and met after, as a meeting adds a
-// use.
+// Each use `edges` move whole, with its reference, into a slot of a
+// function's signature, a parameter or a result of a function by name, with
+// that slot: a call's argument, which the call moves into its callee's
+// parameter, and a return's operand, which it moves into its own function's
+// result. A capture moves only its labels into its label's parameter and
+// its reference into its closure's cell, so it is neither.
+template <typename OnParameter, typename OnResult>
+  requires std::invocable<OnParameter &, mlir::OpOperand &, const FlowSource::Parameter &> &&
+           std::invocable<OnResult &, mlir::OpOperand &, const FlowSource::Result &>
+void forEachSignatureMove(const FlowEdges &edges, OnParameter &&onParameter,
+                          OnResult &&onResult) {
+  for (const FlowEdges::Edge &edge : edges.edges()) {
+    if (!edge.carries(Carrier::Reference))
+      continue;
+    idr::match(
+        edge.move,
+        [&](const FlowEdges::Flow &flow) {
+          idr::match(
+              flow.from.at,
+              [&](const FlowSource::Taken &taken) {
+                idr::match(
+                    flow.to.at,
+                    [&](const FlowSource::Parameter &parameter) {
+                      onParameter(*taken.use, parameter);
+                    },
+                    [&](const FlowSource::Result &result) { onResult(*taken.use, result); },
+                    [](const OneOf<FlowSource::Whole, FlowPlace::Part> auto &) {});
+              },
+              [](const NotTaken auto &) {});
+        },
+        [](const NoFlow auto &) {});
+  }
+}
+
+// Every position of `fn` met: each use an op's flow edges move into a slot
+// of a function's signature (forEachSignatureMove), with the slot's type, a
+// parameter's of the function `calleeOf` names and a result's of `fn`; and
+// each value a region branch or a jump forwards with the input it becomes.
+// Found first and met after, as a meeting adds a use.
 template <typename CalleeOf>
-  requires std::is_invocable_r_v<FuncOp, CalleeOf &, CallOp>
+  requires std::is_invocable_r_v<FuncOp, CalleeOf &, mlir::FlatSymbolRefAttr>
 void shareIntoPositions(FuncOp fn, CalleeOf &&calleeOf) {
   llvm::SmallVector<std::pair<mlir::OpOperand *, mlir::Type>> positions;
+  FlowEdges edges;
   fn.walk([&](mlir::Operation *op) {
-    if (auto call = llvm::dyn_cast<CallOp>(op)) {
-      FuncOp callee = calleeOf(call);
-      for (auto [use, type] : llvm::zip(call.getArgOperandsMutable(), callee.getArgumentTypes()))
-        positions.emplace_back(&use, type);
-    } else if (auto ret = llvm::dyn_cast<ReturnOp>(op)) {
-      for (auto [use, type] : llvm::zip(ret->getOpOperands(), fn.getResultTypes()))
-        positions.emplace_back(&use, type);
+    if (auto declared = llvm::dyn_cast<FlowOpInterface>(op)) {
+      edges.clear();
+      declared.getFlowEdges(edges);
+      forEachSignatureMove(
+          edges,
+          [&](mlir::OpOperand &use, const FlowSource::Parameter &parameter) {
+            positions.emplace_back(
+                &use, calleeOf(parameter.function).getArgumentTypes()[parameter.index]);
+          },
+          [&](mlir::OpOperand &use, const FlowSource::Result &result) {
+            assert(result.function.getAttr() == fn.getSymNameAttr() &&
+                   "a return moves into its own function's results");
+            positions.emplace_back(&use, fn.getResultTypes()[result.index]);
+          });
     }
     forwardedValues(op, [&](mlir::OpOperand &operand, mlir::Value input) {
       positions.emplace_back(&operand, input.getType());

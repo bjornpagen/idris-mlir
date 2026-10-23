@@ -11,6 +11,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 
+#include <concepts>
+
 using namespace mlir;
 using namespace idr;
 
@@ -47,31 +49,49 @@ void idr::printCtorRef(OpAsmPrinter &printer, Operation *, Type type, IntegerAtt
   printer.printSymbolName(dataTypeOf(type).ctor(Tag{static_cast<uint32_t>(tag.getInt())}).label);
 }
 
+namespace {
+
+// `user` read as the one class of op the chain allows at a step, where it
+// is one that `fits` the step; none where it is another op, or none.
+template <typename Op, typename Fits>
+  requires std::predicate<Fits &, Op>
+Op stepAs(Operation *user, Fits &&fits) {
+  auto op = dyn_cast_if_present<Op>(user);
+  return op && fits(op) ? op : Op();
+}
+
+} // namespace
+
+// The chain is its steps in their order, each read as its own class: a
+// linear position entered and left at once, a field of a value of a family
+// that is no closure sum (one is dispatched on itself, below), a linear
+// position left, then the dispatch.
 std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
   // The only user of `v`, if it has one.
   auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
-  auto isClosures = [](Value v) {
-    DataType data = dataTypeOf(v.getType());
-    return data && data.closures();
+  auto entering = [](LinCastOp cast) { return cast.getDirection() == QuantityChange::Enter; };
+  auto leaving = [](LinCastOp cast) { return cast.getDirection() == QuantityChange::Leave; };
+  auto ofNoClosureSum = [](DataFieldOp field) {
+    DataType data = dataTypeOf(field.getValue().getType());
+    return !data || !data.closures();
   };
   Elimination e;
   Value value = use.get();
   Operation *user = use.getOwner();
-  if (auto enter = dyn_cast<LinCastOp>(user); enter && enter.getDirection() == QuantityChange::Enter) {
-    auto exit = dyn_cast_or_null<LinCastOp>(next(enter.getResult()));
-    if (!exit || exit.getDirection() != QuantityChange::Leave)
+  if (LinCastOp enter = stepAs<LinCastOp>(user, entering)) {
+    LinCastOp exit = stepAs<LinCastOp>(next(enter.getResult()), leaving);
+    if (!exit)
       return std::nullopt;
     e.passed = {enter, exit};
     user = next(value = exit.getResult());
   }
-  if (auto field = dyn_cast_or_null<DataFieldOp>(user); field && !isClosures(field.getValue())) {
+  if (DataFieldOp field = stepAs<DataFieldOp>(user, ofNoClosureSum)) {
     e.field = field;
     user = next(value = field.getResult());
   }
-  if (auto linear = dyn_cast_or_null<LinCastOp>(user);
-      linear && linear.getDirection() == QuantityChange::Leave) {
-    e.use = linear;
-    user = next(value = linear.getResult());
+  if (LinCastOp leave = stepAs<LinCastOp>(user, leaving)) {
+    e.use = leave;
+    user = next(value = leave.getResult());
   }
   // The dispatch takes the value apart and does nothing else with it, which
   // its op declares (EliminatesOperand: a match, a field read, a string's

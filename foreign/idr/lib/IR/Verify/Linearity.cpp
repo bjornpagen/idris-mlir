@@ -112,16 +112,18 @@ private:
 };
 
 // Whether the last op of `block` ends the run: a terminator with no
-// successor that returns to no op, is no return and breaks to no join
-// point (a crash, an exit, an unreachable). A jump to a join point goes on,
-// to the join point's region, which its op counts after it.
+// successor that returns to no op and breaks to no join point (a crash, an
+// exit, an unreachable). A return returns to its function's caller, and
+// upstream's ReturnLike makes it a region branch's terminator too. A jump
+// to a join point goes on, to the join point's region, which its op counts
+// after it.
 bool endsRun(Block &block) {
   if (block.empty())
     return false;
   Operation &last = block.back();
   return last.hasTrait<OpTrait::IsTerminator>() && last.getNumSuccessors() == 0 &&
          !isa<RegionBranchTerminatorOpInterface>(last) &&
-         !last.hasTrait<OpTrait::ReturnLike>() && !isa<HasBreakingControlFlowOpInterface>(last);
+         !isa<HasBreakingControlFlowOpInterface>(last);
 }
 
 // Whether region `index` of `op` may run more than once per run of `op`:
