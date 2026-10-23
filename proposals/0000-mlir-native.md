@@ -1881,6 +1881,21 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   specification declares. Measured at HEAD by L06c: 94,405 lines of C++
   in `foreign/idr`, 1,011 `isa`/`dyn_cast`/`cast` sites, 27 ladders of
   three or more tests of one subject.
+- **D127** (2026-10-23; the owner; §4's question on folds, recheck 3's
+  finding). "yes. the compiler MUST compute constant strings, doubles,
+  and big integers at compile time. obviously." Option C: the e-graph
+  holds a string, a `Double` and a big integer as values of its own
+  (bytes, an `APFloat`, the runtime's limbs), computed by the runtime's
+  own functions through `Fold.h`'s conversions made generic over the
+  domain, as the numeric template already is, the op's fold its
+  attribute instance; no attribute is made until the write-back
+  materializes the extracted winner. A fold the specification marks
+  `NeverFolded` (a C library function whose last digit is each
+  library's) stays unfolded, and so does a result IEEE does not fix (a
+  NaN). D98's "an op's fold is its meaning, which the e-graph reads"
+  holds as written; C205 and C218 are amended so the graph reads that
+  meaning without making attributes. The lowering's comment that the
+  optimizer folded what folds becomes true.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -5152,38 +5167,7 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, raised alone (recheck 3's finding, 2026-10-22; the
-coordinator's reading of the tree, the same day). D98 and AGENTS.md say
-an op's fold is its meaning, which the e-graph reads. C205 and C218
-narrowed that without the owner: the e-graph asks no fold
-(`lib/Transforms/EGraph/Nodes.cpp`, `Engine.h`, `Rules.cpp`), because a
-fold returns an attribute and AGENTS.md also says no attribute is made on
-a worker's hot path; it reads inline arithmetic through the one numeric
-template, and knows a string, a `Double`, a big integer or a data constant
-only where an input op already holds one. The folds of those exist, one
-generic fold through the runtime's own functions (`IR/Fold.h`, the
-`RuntimeFolds` trait on 45 ops), but no pass calls them: greedy rewriting
-is gone (D98), the e-graph asks none, and the lowering turns folding off
-(`Conversion/Lower.cpp:226`, whose comment says the optimizer folded what
-folds, which holds only of integers). So `"a" ++ "b"` or `sqrt 2.0` is
-computed on every run, a fact known statically paid at run time. The
-choice: (A) keep C218 as it stands, D98 amended: those constants are
-never folded, their folds deleted as dead and Lower's comment corrected;
-programs pay at run time; (B) the e-graph calls the folds, making each
-constant's attribute as it rewrites, which D98's text asks and the
-hot-path rule forbids: every intermediate constant the graph explores is
-uniqued in the context under its lock (where workers once queued,
-98c6315c) and kept for the whole compile; (C) the e-graph holds those
-constants in value domains of its own (bytes, an `APFloat`, a big as the
-runtime's limbs), computed by the same runtime functions through
-`Fold.h`'s conversions made generic over the domain, as the numeric
-template already is, the op's fold its attribute instance, with no
-attribute until the write-back (recommended: one meaning, nothing on the
-hot path, nothing static paid at run time; the most work). A constructor
-applied to constants is a node in all three, and a match on one a rule.
-
-**Next, after the one above** (L16da's evidence, 2026-10-23; C257's stop,
-to be raised alone in turn). The translation settles a dictionary or a
+**Open**: one, raised alone (L16da's evidence, 2026-10-23; C257's stop). The translation settles a dictionary or a
 polymorphic function applied to closed arguments by normalising it with
 the host's `normaliseHoles` (`Terms.lambdasApplied`), which contracts
 every redex at every depth and unfolds solved metavariables
@@ -5305,7 +5289,8 @@ Also settled, not on F's list:
 - **D45's mechanisms**: settled by D53, D54 and D55.
 - **The cutover's later questions**: a held buffer's storage by D122,
   the e-graph's form by D123, lending an array to upstream's ops by
-  D124, 0011's O5 by D125.
+  D124, 0011's O5 by D125, the C++'s type dispatch by D126, constant
+  folding by D127.
 - **The execution's shape** (§7): settled by D56, one whole cutover
   built at its end.
 - **Equality saturation** (G's DP-25): reopened by D57; narrow (D106),
