@@ -284,3 +284,12 @@ handoff lists its own wiring.
 - Seven fixtures expected to compile test where our checker departs from
   stock, each by its comment (where upstream's compiler departs from its
   own language, we keep the language).
+
+## INT-23 (2026-10-23, export of 512a33fe; build/int23/)
+- C++ typecheck: past the shared header; INT-21's nine roots of ours
+  cleared; 22 old-toolchain roots stand (the typecheck LLVM at the pin
+  with the carried patches), one new sibling (Specialize/Open.cpp:119,
+  PropagateControlFlowBreak, patch 65). Four new roots of ours: Decide and
+  Declare's unqualified match, Tails.h's non-const getter, Nodes.cpp's
+  hidden factsOf (fixed by the coordinator), Loans.cpp:116's const
+  Dispatch (L07v). specgen check and knowngen check pass.
