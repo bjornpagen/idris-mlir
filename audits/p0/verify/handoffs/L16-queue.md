@@ -527,3 +527,17 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   dialect's assembly format, after round 3-A); `SyntaxSamples`' op sample
   refining `List[0]` to `@Nil` writes a refinement the length decides,
   which the reader drops: write the canonical form.
+- D130 and D131 (2026-10-23), after round 3-A lands its regeneration:
+  one families lane (L04) for the specification and the C++ of both: the
+  data type's layout mark (`!idr.data<#Vect[4] open>`: the DataType
+  parameter, its storage, syntax and bytecode, `classify` and
+  `layoutMatch` reading it, refinement and index identity ignoring it,
+  substitution keeping it, the specializer's `openResult` marking instead
+  of making indices opaque), and the Nat sum term (`Spec/Families/Terms.idr`
+  and its C++ storage, printing, bytecode, unification, substitution
+  normalizing sums, the scope rule reading a sum as refining nothing of
+  its parts); then C265's one-line gate in `Tail.cpp`; then C267's rule in
+  the specializer (no closed copy whose tail callee cannot agree). After
+  L16ee: the frontend's `indexTerm` reads base's `plus` on `Nat` by
+  identity as a sum (`Translate/Types.idr`), and L18y's test with the two
+  properties L19 adds (`tail-calls`, `results-as-given`).
