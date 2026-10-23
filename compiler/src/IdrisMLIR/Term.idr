@@ -1016,6 +1016,35 @@ underTypes own outer v = case splitUnder {k} v of
   Left i => index i own
   Right y => outer y
 
+||| The types of a function's own scope, its parameters `params`: each its
+||| binder's.
+paramScope : Vect k Binder -> ScopeTypes k
+paramScope params i = Just (Data.Vect.index i params).type
+
+||| A scope's types under the alternative of a match for the constructor
+||| `c`, at telescope depth `dp`: each field's, as the match binds it
+||| (`fieldsAt`).
+altTypes : (dp : Nat) -> {k : Nat} -> Con k -> ScopeTypes n -> ScopeTypes (Under k n)
+altTypes dp c = underTypes {k} (map (Just . (.type)) (fieldsAt dp c))
+
+||| A scope's types under a successor's arm: its predecessor, a natural.
+predTypes : ScopeTypes n -> ScopeTypes (Under 1 n)
+predTypes = underTypes {k = 1} [Just (NatT IOpaque)]
+
+||| A scope's types under a read of a linear array's cell: the element, of
+||| type `e`, and the array given back, whose type no term states.
+readTypes : Ty -> ScopeTypes n -> ScopeTypes (Under 2 n)
+readTypes e = underTypes {k = 2} [Just e, Nothing]
+
+||| A scope's types under a read of a linear array's `k` extents: each a
+||| natural, then the array given back.
+extentsTypes : (k : Nat) -> ScopeTypes n -> ScopeTypes (Under (S k) n)
+extentsTypes k = underTypes {k = S k} (snoc (replicate k (Just (NatT IOpaque))) Nothing)
+
+||| A scope's types under a join region's parameters: each its binder's.
+paramTypes : {k : Nat} -> Vect k Binder -> ScopeTypes n -> ScopeTypes (Under k n)
+paramTypes params = underTypes {k} (map (Just . (.type)) params)
+
 ||| The type of a literal's value, as its constant is made.
 literalType : Lit -> Ty
 literalType (LInt t _) = IntT t
@@ -1058,14 +1087,12 @@ mutual
   termType dp scope (Effect _ _ _ _ _ _) = Nothing
   termType dp scope (Call _ c _ is _) = Just (substTy is c.result)
   termType dp scope (ConApp _ c bs _) = Just (conType c bs)
-  termType dp scope (Let _ _ (Checked b) _ body) = termType dp (underTypes {k = 1} [Just b.type] scope) body
-  termType dp scope (Let _ _ (OfValue _) v body) = termType dp (underTypes {k = 1} [termType dp scope v] scope) body
+  termType dp scope (Let _ _ b v body) = termType dp (letTypes dp scope b v) body
   termType dp scope (Case _ _ _ arms) = armsType dp scope arms
   termType dp scope (CaseLit _ _ arms) = litArmsType dp scope arms
   termType dp scope (CaseNat _ _ (OnlyZero z)) = termType dp scope z
-  termType dp scope (CaseNat _ _ (OnlySucc _ s)) = termType dp (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
-  termType dp scope (CaseNat _ _ (Both z _ s)) =
-    termType dp scope z <|> termType dp (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
+  termType dp scope (CaseNat _ _ (OnlySucc _ s)) = termType dp (predTypes scope) s
+  termType dp scope (CaseNat _ _ (Both z _ s)) = termType dp scope z <|> termType dp (predTypes scope) s
   termType dp scope (Lam _ _ b r _) = Just (FunT b r)
   termType dp scope (App _ _ r _ _) = Just r
   termType dp scope (Suspend _ t _) = Just (LazyT t)
@@ -1080,17 +1107,21 @@ mutual
   termType dp scope (TabulateIO _ _ _ _ _ _ _) = Nothing
   termType dp scope (Reduce _ _ _ _ t _ _ _ _ _) = Just t
   termType dp scope (Tie _ t _ _) = Just t
-  termType dp scope (ReadBack _ e _ _ body) = termType dp (underTypes {k = 2} [Just e, Nothing] scope) body
-  termType dp scope (ExtentsBack {k} _ _ body) =
-    termType dp (underTypes {k = S k} (snoc (replicate k (Just (NatT IOpaque))) Nothing) scope) body
+  termType dp scope (ReadBack _ e _ _ body) = termType dp (readTypes e scope) body
+  termType dp scope (ExtentsBack {k} _ _ body) = termType dp (extentsTypes k scope) body
   termType dp scope (Join _ _ targets body) = targetsType dp scope targets <|> termType dp scope body
   termType dp scope (Jump _ _ _ _) = Nothing
+
+  ||| A scope's types under a `let`: its binder's type where it states one,
+  ||| else the one its value's term states.
+  letTypes : (dp : Nat) -> ScopeTypes n -> LetBinder -> TermAt [] n -> ScopeTypes (Under 1 n)
+  letTypes dp scope (Checked b) _ = underTypes {k = 1} [Just b.type] scope
+  letTypes dp scope (OfValue _) v = underTypes {k = 1} [termType dp scope v] scope
 
   altsType : (dp : Nat) -> ScopeTypes n -> List (AltAt js n) -> Maybe Ty
   altsType dp scope [] = Nothing
   altsType dp scope (MkAlt {k} c _ body :: alts) =
-    termType (dp + length c.binders) (underTypes {k} (map (Just . (.type)) (fieldsAt dp c)) scope) body
-      <|> altsType dp scope alts
+    termType (dp + length c.binders) (altTypes dp c scope) body <|> altsType dp scope alts
 
   armsType : (dp : Nat) -> ScopeTypes n -> CaseArmsOf (AltAt js n) (TermAt js n) -> Maybe Ty
   armsType dp scope (Defaulted alts d) = altsType dp scope alts <|> termType dp scope d
@@ -1114,8 +1145,7 @@ mutual
   targetsType : (dp : Nat) -> ScopeTypes n -> All (Target s n) ts -> Maybe Ty
   targetsType dp scope [] = Nothing
   targetsType dp scope (MkTarget {k} _ _ sorts _ params body :: rest) =
-    termType (dp + length sorts) (underTypes {k} (map (Just . (.type)) params) scope) body
-      <|> targetsType dp scope rest
+    termType (dp + length sorts) (paramTypes params scope) body <|> targetsType dp scope rest
 
 ------------------------------------------------------------------------------
 -- Join points the program as written makes
@@ -1391,119 +1421,143 @@ data Around : List Nat -> Type where
 
 ||| What is made of a tail that gives a term's value, in the scope `p` the
 ||| binders between the term and the tail make of the term's `n`, which the
-||| embedding takes there: the tail, which holds no tail of its own, and
-||| the term it becomes.
+||| embedding takes there, at telescope depth `dp`, with what is known of
+||| the types of its variables, which `termType` reads the tail's type off:
+||| the tail, which holds no tail of its own, and the term it becomes.
 public export
 AtTail : Nat -> Type
-AtTail n = {0 js : List Nat} -> {0 p : Nat} -> Around js -> (Fin n -> Fin p) -> TermAt [] p -> TermAt js p
+AtTail n = {0 js : List Nat} -> {0 p : Nat} -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p ->
+           TermAt [] p -> TermAt js p
 
 mutual
   ||| The term with each of its tails that gives its value made over by
   ||| `at`: through a `let`'s body, a match's arms, an assumption, a read's
-  ||| body and a join op's regions and body. A jump gives its join point's
-  ||| value, which that join op's regions make over, and a crash or an
-  ||| unreachable gives none.
+  ||| body and a join op's regions and body, the scope's types and depth
+  ||| under each binder as `termType` reads them. A jump gives its join
+  ||| point's value, which that join op's regions make over, and a crash or
+  ||| an unreachable gives none.
   export
-  overTails : AtTail n -> Around js -> (Fin n -> Fin p) -> TermAt js p -> TermAt js p
-  overTails at o e (Var l x) = at o e (Var l x)
-  overTails at o e (Literal l x) = at o e (Literal l x)
-  overTails at o e (PrimApp l pr stands as) = at o e (PrimApp l pr stands as)
-  overTails at o e (Effect l pr gives as w res) = at o e (Effect l pr gives as w res)
-  overTails at o e (Call l c stands is as) = at o e (Call l c stands is as)
-  overTails at o e (ConApp l c bs as) = at o e (ConApp l c bs as)
-  overTails at o e (Lam l x b r body) = at o e (Lam l x b r body)
-  overTails at o e (App l a r f x) = at o e (App l a r f x)
-  overTails at o e (Suspend l t body) = at o e (Suspend l t body)
-  overTails at o e (Resume l t x) = at o e (Resume l t x)
-  overTails at o e (NewWorld l) = at o e (NewWorld l)
-  overTails at o e (Tensor l op) = at o e (Tensor l op)
-  overTails at o e (Tabulate l ty es body) = at o e (Tabulate l ty es body)
-  overTails at o e (TabulateIO l ty es w body step done) = at o e (TabulateIO l ty es w body step done)
-  overTails at o e (Reduce l red acc el ty a j z x body) = at o e (Reduce l red acc el ty a j z x body)
-  overTails at o e (Tie l t x ds) = at o e (Tie l t x ds)
-  overTails at o e (Let l x b v body) = Let l x b v (overTails at o (Free {k = 1} . e) body)
-  overTails at o e (Case l fam x arms) = Case l fam x (overArms at o e arms)
-  overTails at o e (CaseLit l x arms) = CaseLit l x (overLitArms at o e arms)
-  overTails at o e (CaseNat l x arms) = CaseNat l x (overNatArms at o e arms)
-  overTails at o e (Assume l a b body) = Assume l a b (overTails at o e body)
-  overTails at o e (ReadBack l el x cs body) = ReadBack l el x cs (overTails at o (Free {k = 2} . e) body)
-  overTails at o e (ExtentsBack {k} l x body) = ExtentsBack l x (overTails at o (Free {k = S k} . e) body)
-  overTails at o e (Join {nonEmpty} l scope targets body) =
-    Join {nonEmpty} l scope (overTargets at e targets) (overTails at UnderJoin e body)
-  overTails at o e (Jump l j terms as) = Jump l j terms as
-  overTails at o e (Unreachable l) = Unreachable l
-  overTails at o e (Crash l m) = Crash l m
-  overTails at o e (CrashWith l m) = CrashWith l m
+  overTails : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> TermAt js p -> TermAt js p
+  overTails at o e dp sc (Var l x) = at o e dp sc (Var l x)
+  overTails at o e dp sc (Literal l x) = at o e dp sc (Literal l x)
+  overTails at o e dp sc (PrimApp l pr stands as) = at o e dp sc (PrimApp l pr stands as)
+  overTails at o e dp sc (Effect l pr gives as w res) = at o e dp sc (Effect l pr gives as w res)
+  overTails at o e dp sc (Call l c stands is as) = at o e dp sc (Call l c stands is as)
+  overTails at o e dp sc (ConApp l c bs as) = at o e dp sc (ConApp l c bs as)
+  overTails at o e dp sc (Lam l x b r body) = at o e dp sc (Lam l x b r body)
+  overTails at o e dp sc (App l a r f x) = at o e dp sc (App l a r f x)
+  overTails at o e dp sc (Suspend l t body) = at o e dp sc (Suspend l t body)
+  overTails at o e dp sc (Resume l t x) = at o e dp sc (Resume l t x)
+  overTails at o e dp sc (NewWorld l) = at o e dp sc (NewWorld l)
+  overTails at o e dp sc (Tensor l op) = at o e dp sc (Tensor l op)
+  overTails at o e dp sc (Tabulate l ty es body) = at o e dp sc (Tabulate l ty es body)
+  overTails at o e dp sc (TabulateIO l ty es w body step done) = at o e dp sc (TabulateIO l ty es w body step done)
+  overTails at o e dp sc (Reduce l red acc el ty a j z x body) = at o e dp sc (Reduce l red acc el ty a j z x body)
+  overTails at o e dp sc (Tie l t x ds) = at o e dp sc (Tie l t x ds)
+  overTails at o e dp sc (Let l x b v body) = Let l x b v (overTails at o (Free {k = 1} . e) dp (letTypes dp sc b v) body)
+  overTails at o e dp sc (Case l fam x arms) = Case l fam x (overArms at o e dp sc arms)
+  overTails at o e dp sc (CaseLit l x arms) = CaseLit l x (overLitArms at o e dp sc arms)
+  overTails at o e dp sc (CaseNat l x arms) = CaseNat l x (overNatArms at o e dp sc arms)
+  overTails at o e dp sc (Assume l a b body) = Assume l a b (overTails at o e dp sc body)
+  overTails at o e dp sc (ReadBack l el x cs body) =
+    ReadBack l el x cs (overTails at o (Free {k = 2} . e) dp (readTypes el sc) body)
+  overTails at o e dp sc (ExtentsBack {k} l x body) =
+    ExtentsBack l x (overTails at o (Free {k = S k} . e) dp (extentsTypes k sc) body)
+  overTails at o e dp sc (Join {nonEmpty} l scope targets body) =
+    Join {nonEmpty} l scope (overTargets at e dp sc targets) (overTails at UnderJoin e dp sc body)
+  overTails at o e dp sc (Jump l j terms as) = Jump l j terms as
+  overTails at o e dp sc (Unreachable l) = Unreachable l
+  overTails at o e dp sc (Crash l m) = Crash l m
+  overTails at o e dp sc (CrashWith l m) = CrashWith l m
 
-  overAlt : AtTail n -> Around js -> (Fin n -> Fin p) -> AltAt js p -> AltAt js p
-  overAlt at o e (MkAlt {k} con fs body) = MkAlt con fs (overTails at o (Free {k} . e) body)
+  overAlt : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> AltAt js p -> AltAt js p
+  overAlt at o e dp sc (MkAlt {k} con fs body) =
+    MkAlt con fs (overTails at o (Free {k} . e) (dp + length con.binders) (altTypes dp con sc) body)
 
-  overAlts : AtTail n -> Around js -> (Fin n -> Fin p) -> List (AltAt js p) -> List (AltAt js p)
-  overAlts at o e [] = []
-  overAlts at o e (alt :: alts) = overAlt at o e alt :: overAlts at o e alts
+  overAlts : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> List (AltAt js p) ->
+             List (AltAt js p)
+  overAlts at o e dp sc [] = []
+  overAlts at o e dp sc (alt :: alts) = overAlt at o e dp sc alt :: overAlts at o e dp sc alts
 
-  overArms : AtTail n -> Around js -> (Fin n -> Fin p) -> CaseArmsOf (AltAt js p) (TermAt js p) ->
-             CaseArmsOf (AltAt js p) (TermAt js p)
-  overArms at o e (Defaulted alts d) = Defaulted (overAlts at o e alts) (overTails at o e d)
-  overArms at o e (Exhaustive (alt ::: alts)) = Exhaustive (overAlt at o e alt ::: overAlts at o e alts)
+  overArms : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p ->
+             CaseArmsOf (AltAt js p) (TermAt js p) -> CaseArmsOf (AltAt js p) (TermAt js p)
+  overArms at o e dp sc (Defaulted alts d) = Defaulted (overAlts at o e dp sc alts) (overTails at o e dp sc d)
+  overArms at o e dp sc (Exhaustive (alt ::: alts)) = Exhaustive (overAlt at o e dp sc alt ::: overAlts at o e dp sc alts)
 
-  overLits : AtTail n -> Around js -> (Fin n -> Fin p) -> List (kt, TermAt js p) -> List (kt, TermAt js p)
-  overLits at o e [] = []
-  overLits at o e ((kv, t) :: rest) = (kv, overTails at o e t) :: overLits at o e rest
+  overLits : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> List (kt, TermAt js p) ->
+             List (kt, TermAt js p)
+  overLits at o e dp sc [] = []
+  overLits at o e dp sc ((kv, t) :: rest) = (kv, overTails at o e dp sc t) :: overLits at o e dp sc rest
 
-  overKeyed : AtTail n -> Around js -> (Fin n -> Fin p) -> LitArmsOf kt (TermAt js p) -> LitArmsOf kt (TermAt js p)
-  overKeyed at o e (LitDefault ((kv, t) ::: alts) d) = LitDefault ((kv, overTails at o e t) ::: overLits at o e alts) (overTails at o e d)
-  overKeyed at o e (LitNoDefault ((kv, t) ::: alts)) = LitNoDefault ((kv, overTails at o e t) ::: overLits at o e alts)
+  overKeyed : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> LitArmsOf kt (TermAt js p) ->
+              LitArmsOf kt (TermAt js p)
+  overKeyed at o e dp sc (LitDefault ((kv, t) ::: alts) d) =
+    LitDefault ((kv, overTails at o e dp sc t) ::: overLits at o e dp sc alts) (overTails at o e dp sc d)
+  overKeyed at o e dp sc (LitNoDefault ((kv, t) ::: alts)) =
+    LitNoDefault ((kv, overTails at o e dp sc t) ::: overLits at o e dp sc alts)
 
-  overLitArms : AtTail n -> Around js -> (Fin n -> Fin p) -> LitMatch (TermAt js p) -> LitMatch (TermAt js p)
-  overLitArms at o e (OnlyDefault d) = OnlyDefault (overTails at o e d)
-  overLitArms at o e (OnInts t arms) = OnInts t (overKeyed at o e arms)
-  overLitArms at o e (OnChars arms) = OnChars (overKeyed at o e arms)
-  overLitArms at o e (OnStrings arms) = OnStrings (overKeyed at o e arms)
-  overLitArms at o e (OnBigs arms) = OnBigs (overKeyed at o e arms)
+  overLitArms : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> LitMatch (TermAt js p) ->
+                LitMatch (TermAt js p)
+  overLitArms at o e dp sc (OnlyDefault d) = OnlyDefault (overTails at o e dp sc d)
+  overLitArms at o e dp sc (OnInts t arms) = OnInts t (overKeyed at o e dp sc arms)
+  overLitArms at o e dp sc (OnChars arms) = OnChars (overKeyed at o e dp sc arms)
+  overLitArms at o e dp sc (OnStrings arms) = OnStrings (overKeyed at o e dp sc arms)
+  overLitArms at o e dp sc (OnBigs arms) = OnBigs (overKeyed at o e dp sc arms)
 
-  overNatArms : AtTail n -> Around js -> (Fin n -> Fin p) -> NatArmsOf (TermAt js p) (TermAt js (Under 1 p)) ->
-                NatArmsOf (TermAt js p) (TermAt js (Under 1 p))
-  overNatArms at o e (OnlyZero z) = OnlyZero (overTails at o e z)
-  overNatArms at o e (OnlySucc x s) = OnlySucc x (overTails at o (Free {k = 1} . e) s)
-  overNatArms at o e (Both z x s) = Both (overTails at o e z) x (overTails at o (Free {k = 1} . e) s)
+  overNatArms : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p ->
+                NatArmsOf (TermAt js p) (TermAt js (Under 1 p)) -> NatArmsOf (TermAt js p) (TermAt js (Under 1 p))
+  overNatArms at o e dp sc (OnlyZero z) = OnlyZero (overTails at o e dp sc z)
+  overNatArms at o e dp sc (OnlySucc x s) = OnlySucc x (overTails at o (Free {k = 1} . e) dp (predTypes sc) s)
+  overNatArms at o e dp sc (Both z x s) =
+    Both (overTails at o e dp sc z) x (overTails at o (Free {k = 1} . e) dp (predTypes sc) s)
 
-  overTargets : AtTail n -> (Fin n -> Fin p) -> All (Target s p) ts -> All (Target s p) ts
-  overTargets at e [] = []
-  overTargets at e (MkTarget {k} l code sorts names params body :: rest) =
-    MkTarget {k} l code sorts names params (overTails at UnderJoin (Free {k} . e) body) :: overTargets at e rest
+  overTargets : AtTail n -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> All (Target s p) ts -> All (Target s p) ts
+  overTargets at e dp sc [] = []
+  overTargets at e dp sc (MkTarget {k} l code sorts names params body :: rest) =
+    MkTarget {k} l code sorts names params
+             (overTails at UnderJoin (Free {k} . e) (dp + length sorts) (paramTypes params sc) body)
+      :: overTargets at e dp sc rest
 
-||| An action's value, of the action type `a`, run on the world `w` of its
-||| scope, at a tail: a lambda of the world, outside every join op, is its
-||| body with its world `w`, so a tail of that body that applies a call to
-||| the world is that call saturated; any other action is applied to the
-||| world, at the action's type. A lambda's body sees no join point, so it
-||| stands for a tail only where none is in scope; inside a join op the
-||| lambda is applied as any action is.
+||| An action's value run on the world `w` of its scope, at a tail: a
+||| lambda of the world, outside every join op, is its body with its world
+||| `w`, so a tail of that body that applies a call to the world is that
+||| call saturated; any other action is applied to the world at the
+||| function type its own term states (`termType`), the one its head is
+||| made at, whatever the definition it is the value of declares. A
+||| lambda's body sees no join point, so it stands for a tail only where
+||| none is in scope; inside a join op the lambda is applied as any action
+||| is.
 running : Loc -> ActionType t -> Fin n -> AtTail n
-running l a w Outermost e (Lam _ _ (MkBinder _ WorldT) _ body) =
+running l a w Outermost e dp sc (Lam _ _ (MkBinder _ WorldT) _ body) =
   rename (\v => case splitUnder {k = 1} v of
                   Left _ => e w
                   Right y => y) body
-running l a w _ e t = App l (MkBinder (worldUses a) WorldT) (actionResult a) t (Var l (e w))
+running l a w _ e dp sc t = case termType dp sc t of
+  Just (FunT b@(MkBinder _ WorldT) r) => App l b r t (Var l (e w))
+  -- Of an action's tails, only a variable bound to a value that never
+  -- returns states no type of its own, and nothing applies it when the
+  -- program runs: it is applied at the action type `a` the definition
+  -- declares, the one Idris checked each of its tails at.
+  _ => App l (MkBinder (worldUses a) WorldT) (actionResult a) t (Var l (e w))
 
 ||| What a function's signature fixes of its result's dynamic dimensions
 ||| (`ds`, over its parameters), stated of the value at a tail, of the
 ||| function's result type `ty`: what a call of it states of the value,
 ||| which a join point it becomes states where its region gives it.
 tying : Loc -> Ty -> List (Nat, Stated (Term n)) -> AtTail n
-tying l ty ds _ e t = Tie l ty t (map (\(a, s) => (a, map (rename e) s)) ds)
+tying l ty ds _ e _ _ t = Tie l ty t (map (\(a, s) => (a, map (rename e) s)) ds)
 
-||| A function's body with each tail that gives its value tied (`tying`) to
-||| what its signature fixes of its result's dynamic dimensions, over its
-||| parameters: what each call of it states of the value it gives, stated
-||| where its body gives it, so that a call of it a jump makes to its region
-||| states nothing it did not. Every tail gives a value of the function's
-||| result type `ty`.
+||| A function's body, at telescope depth `dp`, in the scope of its
+||| parameters `params`, with each tail that gives its value tied
+||| (`tying`) to what its signature fixes of its result's dynamic
+||| dimensions, over its parameters: what each call of it states of the
+||| value it gives, stated where its body gives it, so that a call of it a
+||| jump makes to its region states nothing it did not. Every tail gives a
+||| value of the function's result type `ty`.
 export
-tiedExits : Loc -> Ty -> List (Nat, Stated (Term n)) -> Term n -> Term n
-tiedExits l ty [] body = body
-tiedExits l ty ds@(_ :: _) body = overTails (tying l ty ds) Outermost id body
+tiedExits : Loc -> Ty -> List (Nat, Stated (Term n)) -> (dp : Nat) -> Vect n Binder -> Term n -> Term n
+tiedExits l ty [] dp params body = body
+tiedExits l ty ds@(_ :: _) dp params body = overTails (tying l ty ds) Outermost id dp (paramScope params) body
 
 ------------------------------------------------------------------------------
 -- Programs
@@ -1567,11 +1621,13 @@ regionOf q f names params body =
            (runIdentity (visitTerm (MkVisit (\x => Id (Bound {n = r} x)) (\_ => Id ()) (MovedBy q)) body))
 
 ||| A local definition's action run on the world: its body, in the scope of
-||| its parameters and then the world, each tail that gives the action run
-||| on the world (`running`), so a tail that applied a call to the world is
-||| that call saturated with it.
+||| its parameters and then the world, at the depth of its telescope, each
+||| tail that gives the action run on the world (`running`), so a tail that
+||| applied a call to the world is that call saturated with it.
 ranOn : (f : TFn) -> ActionType f.callee.result -> Term (S f.arity)
-ranOn f a = overTails (running f.loc a last) Outermost id (rename weaken f.body)
+ranOn f a =
+  overTails (running f.loc a last) Outermost id (length f.telescope)
+            (paramScope (snoc f.callee.params (MkBinder (worldUses a) WorldT))) (rename weaken f.body)
 
 ||| How every call of a local definition, in every function that reaches
 ||| it, jumps to it: a tail call of it with its parameters, its region its

@@ -252,26 +252,28 @@ sample =
                                  [i64])
                , binding 17 (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
                , binding 18 (Tensor.emptyOp [c4] vec)
-               , binding 19 (Idr.arrayTabulateOp (bound 18 vec)
+               , binding 19 (Idr.arrayTabulateOp [bound 18 vec]
                                  (block [i] [ binding 21 (Arith.indexCastOp i i64)
                                             , stmt (Idr.arrayYieldOp [bound 21 i64]) ]) [vec])
                , binding 22 (Tensor.fromElementsOp [x] scalar)
-               , binding 23 (Idr.arrayFoldLastOp [bound 22 scalar] c4 accumulate [scalar])
+               , binding 23 (Idr.arrayFoldLastOp c4 [bound 22 scalar] accumulate [scalar])
                  -- An array's buffer, as a field holds an array, and the
                  -- array of the buffer, as a read of the field gives it.
                , binding 28 (Bufferization.toBufferOp (bound 19 vec) buffer)
                , binding 29 (Bufferization.toTensorOp {restrict = True} (bound 28 buffer) vec)
-                 -- An array transposed into one of the swapped shape.
+                 -- An array transposed into one of the swapped shape, its
+                 -- body giving the input's element on.
                , binding 30 (Tensor.emptyOp [] grid)
                , binding 31 (Tensor.emptyOp [] flipped)
-               , binding 32 (Linalg.transposeOp (bound 30 grid) (bound 31 flipped) [1, 0] [flipped])
+               , binding 32 (Linalg.transposeOp (bound 30 grid) (bound 31 flipped) [1, 0]
+                                 (block [bound 33 i64, bound 34 i64] [stmt (Linalg.yieldOp [bound 33 i64])]) [flipped])
                  -- A choice on a condition, a region per arm.
-               , binding 33 (Arith.cmpiOp CmpIPredicate.Eq x x (IntegerType 1))
-               , binding 34 (SCF.ifOp (bound 33 (IntegerType 1))
+               , binding 35 (Arith.cmpiOp CmpIPredicate.Eq x x (IntegerType 1))
+               , binding 36 (SCF.ifOp (bound 35 (IntegerType 1))
                                       (block [] [stmt (SCF.yieldOp [x])])
                                       (block [] [stmt (SCF.yieldOp [bound 8 i64])]) [i64])
-               , binding 35 (Idr.callOp {index_args' = Just (Idr (IndexArgsAttr [TermNodeOpaque] 1))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
-               , stmt (Idr.returnOp [bound 35 i64])
+               , binding 37 (Idr.callOp {index_args' = Just (Idr (IndexArgsAttr [TermNodeOpaque] 1))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
+               , stmt (Idr.returnOp [bound 37 i64])
                ]))
   where
     -- A fold's region: the index along its axis and the accumulator, the

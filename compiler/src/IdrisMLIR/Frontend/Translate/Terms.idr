@@ -1829,7 +1829,7 @@ mutual
       -- the hook gives it, so the call is saturated.
       libraryCall : {count : Nat} -> FC -> Loc -> CheckedLibrary count -> Front ({0 m : Nat} -> Vect count (Term m) -> Term m)
       libraryCall {count} fc loc checked = do
-        let lib = checked.function
+        let lib = checked.library
         target <- lookupDef fc ctx.owner lib.name
         let def = target.def
         let Just m = target.matched
@@ -1845,10 +1845,10 @@ mutual
         -- parameter of it is given a term it is linked to.
         is <- callIndices called.kinds vals
         -- Kept: the boundary counted the function's values at run time off
-        -- its type's binders (`CheckedLibrary.operands`), and the
-        -- classification counts them again, from the same binders, in
-        -- kinds that carry no evidence of that count: two readings of one
-        -- type.
+        -- its type's binders (`CheckedLibrary.operands`), and the request's
+        -- signature counts them again, from the same binders, in kinds that
+        -- carry no evidence of that count and none that they are the
+        -- kinds it was requested with: two readings of one type.
         let Yes saturated = decEq count (Runtimes called.kinds)
           | No _ => internal fc ("the library function " ++ show lib.named ++ ", which the boundary read to take " ++
                                  show count ++ " values at run time, classified at " ++ show (Runtimes called.kinds))
@@ -1928,29 +1928,40 @@ mutual
             -- not say every identity it mints has one.
             let Just info = lookupFact (.cons) cid !(getState)
               | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
-            -- Its fields are the call's runtime arguments: an implementation
+            -- Its fields are the call's runtime arguments, as many as its
+            -- layout has, by construction (`asFields`): an implementation
             -- the constructor holds is a field like any other, the value of
             -- its choice the construction site gives.
-            let fields = asFields info.args kinds
+            let (fields ** counted) = asFields info.args kinds
             given <- arguments loc (memberPlaces d) fields (take arity xs)
             let con = info.con
-            -- The layout's fields and the call's runtime arguments are two
-            -- readings of the constructor's type, the registration's and
-            -- the classification's, which nothing ties to one count.
-            let Yes counted = decEq (Runtimes fields) (fieldCount info.args)
-              | No _ => internal fc ("the constructor " ++ show (fullname def) ++ " of " ++ show (fieldCount info.args) ++
-                                     " fields, given " ++ show (Runtimes fields) ++ " runtime arguments")
             links <- binderTerms con.binders (argValues (take arity xs))
             finish loc fields arity xs given (recount counted (MkMaker (\ys => ConApp loc con links ys))) (conType con links) resTy
 
-      -- A constructor's kinds with each implementation it holds a field:
-      -- the field's binder, its value the argument translated, a member of
-      -- its choice where the site fixes the implementation.
-      asFields : List ArgKind -> List PKind -> List PKind
-      asFields (Field _ b t :: as) (DictParam _ _ :: ks) = ValueParam b Nothing t :: asFields as ks
-      asFields (Field _ b t :: as) (ChoiceParam _ _ :: ks) = ValueParam b Nothing t :: asFields as ks
-      asFields (_ :: as) (k :: ks) = k :: asFields as ks
-      asFields _ ks = ks
+      -- A constructor's kinds, one per argument its layout lists, the
+      -- layout's fields the values at run time and nothing else: the
+      -- registration read the constructor's fields once, so the call gives
+      -- as many runtime arguments as it has fields, by type, and the
+      -- classification says only how each field's value is read. A field
+      -- it read as a value is that value, in the call's scope; an
+      -- implementation the constructor holds is its field's binder, its
+      -- value the argument translated, a member of its choice where the
+      -- site fixes the implementation. An argument that is no field exists
+      -- only at compile time.
+      asFields : (as : List ArgKind) -> List PKind -> (fs : List PKind ** Runtimes fs = fieldCount as)
+      asFields [] _ = ([] ** Refl)
+      asFields (Field _ b t :: as) ks =
+        let (b', shape, t') = fieldRead b t ks
+            (fs ** same) = asFields as (drop 1 ks) in
+        (ValueParam b' shape t' :: fs ** cong S same)
+      asFields (Param _ :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
+      asFields (ErasedArg :: as) ks = let (fs ** same) = asFields as (drop 1 ks) in (ErasedParam :: fs ** same)
+
+      -- How a field's value is read: as the classification read the value
+      -- at its position, or as the layout's binder holds it.
+      fieldRead : Binder -> ClosedTerm -> List PKind -> (Binder, Maybe ClosedTerm, ClosedTerm)
+      fieldRead b t (ValueParam b' shape t' :: _) = (b', shape, t')
+      fieldRead b t _ = (b, Nothing, t)
 
       primitive : FC -> Loc -> Name -> (arity : Nat) -> PrimFn arity -> ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
       primitive fc loc n arity op ty xs = case op of

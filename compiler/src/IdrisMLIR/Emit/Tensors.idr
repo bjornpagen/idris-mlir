@@ -74,7 +74,7 @@ natural ix l i = do
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.
 extent : Index -> Loc -> Val -> E Value
-extent ix l n = mlirValue l IndexType (Idr.natToExtentOp (operand ix !(coerce ix l Many n)))
+extent ix l n = mlirValue l IndexType (const (Idr.natToExtentOp (operand ix !(coerce ix l Many n))))
 
 ||| A value as a plain operand: a linear one is used here.
 plainOperand : Index -> Loc -> Val -> E Value
@@ -220,9 +220,13 @@ region l args body = do
   pure (MkRegion (map (\a => MkArgument a (At l)) args)
                  (ops ++ maybe [] (\vs => [MkStatement Nothing (Idr.arrayYieldOp vs) (At l)]) yielded))
 
+||| A fresh value of type `t`: an argument a region binds.
+freshValue : MlirType -> E Value
+freshValue t = (\n => MkValue (Bound n 0) t) <$> fresh
+
 ||| A fresh `index` value: the coordinate a region binds along one axis.
 freshIndex : E Value
-freshIndex = (\n => MkValue (Bound n 0) IndexType) <$> fresh
+freshIndex = freshValue IndexType
 
 ||| Fresh `index` values, one per axis: the coordinates a region binds.
 indices : (k : Nat) -> E (Vect k Value)
@@ -395,11 +399,13 @@ tensorOp ix l binder (Concat xa ya ra axis x y) = do
                (MkRegion [] (yops ++ [MkStatement Nothing (SCF.yieldOp [fromY]) (At l)])) [t])
         pure (Just [r])
       dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp dest reg [t])
+      fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp [dest] reg [t])
 -- A transpose of words is upstream's `linalg.transpose` into a fresh
--- destination, its permutation given once; of elements that hold
--- references it is a tabulation reading at the swapped coordinates, since
--- no linalg body holds a reference while counting runs.
+-- destination, its permutation given once, its body the one upstream's
+-- builder makes: the input's element and the destination's, the first
+-- given on; of elements that hold references it is a tabulation reading
+-- at the swapped coordinates, since no linalg body holds a reference
+-- while counting runs.
 tensorOp ix l binder (Transpose a rt axis x) = do
   xv <- plainOperand ix l x
   let (before, (_, da), (_, db), rest) = aroundPair axis (withAxes a.dims)
@@ -411,7 +417,12 @@ tensorOp ix l binder (Transpose a rt axis x) = do
   case reaches ix a.element of
     WordsOnly => do
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) [t])
+      let el = mlirType ix a.element
+      input <- freshValue el
+      output <- freshValue el
+      let body = MkRegion [MkArgument input (At l), MkArgument output (At l)]
+                          [MkStatement Nothing (Linalg.yieldOp [input]) (At l)]
+      fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) body [t])
     HoldsReferences => do
       -- The result's coordinates, split at the two axes the transpose
       -- swaps; `x` is read at them swapped back.
@@ -423,7 +434,7 @@ tensorOp ix l binder (Transpose a rt axis x) = do
         e <- readAt ix l Nothing a.element a x (toList lead ++ ib :: ia :: toList trail)
         pure (Just [!(given ix l a.element e)])
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp dest reg [t])
+      fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp [dest] reg [t])
 tensorOp ix l binder (Reshape a rt x extents) = do
   xv <- plainOperand ix l x
   let ds = toList a.dims
@@ -503,17 +514,18 @@ tabulate ix l binder rt extents body = do
   -- The tabulation writes a fresh destination, never one an element was
   -- read from.
   dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp sizes)
-  Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp dest r [t])
+  Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp [dest] r [t])
 
 ||| A reduction of `x`, of type `xa`, along `axis`, the one after the frame
 ||| of `z`, from `z`'s accumulators, left to right in index order:
-||| `idr.array.fold_last` keeping the last accumulators,
-||| `idr.array.scan_last` every one. The frame is the axes `z` has beyond
-||| an accumulator's, as many as the axes before `axis`; the region binds
-||| the frame's indices, the index along the axis and the accumulator,
-||| reads `x`'s element there and gives the next accumulator. An
-||| accumulator of no frame and no axis of its own is held, for the op, in
-||| an array of none. The variable `binder` is bound to the result.
+||| `idr.array.fold_last` keeping the last accumulators in `z`'s place,
+||| `idr.array.scan_last` every one in a destination of its own. The frame
+||| is the axes `z` has beyond an accumulator's, as many as the axes before
+||| `axis`; the region binds the frame's indices, the index along the axis
+||| and the accumulator, reads `x`'s element there and gives the next
+||| accumulator. An accumulator of no frame and no axis of its own is held,
+||| for the op, in an array of none. The variable `binder` is bound to the
+||| result.
 export
 reduce : Index -> Loc -> Maybe Binding -> Reduction -> (acc, elem, result : Ty) -> (xa : ArrayType k) -> (axis : Fin k)
       -> Val -> Val -> (Val -> Val -> E (Maybe Val)) -> E (Maybe Val)
@@ -533,7 +545,7 @@ reduce ix l binder r acc elem rt xa axis z x body = do
       HoldsReferences => do
         reg <- region l [] (Just . (:: []) <$> given ix l t z)
         dest <- mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.emptyOp [])
-        mlirValue l (RankedTensorType [] (mlirType ix t)) (\r => Idr.arrayTabulateOp dest reg [r])
+        mlirValue l (RankedTensorType [] (mlirType ix t)) (\r => Idr.arrayTabulateOp [dest] reg [r])
   ivs <- indices (S frame)
   (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do
@@ -541,11 +553,20 @@ reduce ix l binder r acc elem rt xa axis z x body = do
       | Nothing => pure Nothing
     pure (Just [!(given ix l acc a')])
   case (r, rt) of
-    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.arrayFoldLastOp [init] len reg [t])
+    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.arrayFoldLastOp len [init] reg [t])
     (FoldLast, _) => do
-      held <- mlirValue l init.type (\t => Idr.arrayFoldLastOp [init] len reg [t])
+      held <- mlirValue l init.type (\t => Idr.arrayFoldLastOp len [init] reg [t])
       Just <$> value {binder} ix l rt (Tensor.extractOp held [])
-    (ScanLast, _) => Just <$> value {binder} ix l rt (\t => Idr.arrayScanLastOp [init] len reg [t])
+    -- A scan writes every accumulator into a fresh destination of the
+    -- result's type, which it never reads: the frame's dimensions, the
+    -- axis's, then an accumulator's, each dynamic one the init's along its
+    -- axis, or the axis's length.
+    (ScanLast, _) => do
+      let (framed, cell) = splitAt frame (toList (withAxes (Data.Vect.fromList (tensorDims z.type))))
+          along = map (sizeAt l init) framed ++ pure (Left len) :: map (sizeAt l init) cell
+      sizes <- traverse (\(d, s) => resultSize d (Left <$> (s >>= sizeValue l))) (zip (tensorDims rt) along)
+      dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp (fst (mixed sizes)))
+      Just <$> value {binder} ix l rt (\t => Idr.arrayScanLastOp len [init] [dest] reg [t])
 
 ------------------------------------------------------------------------------
 -- Ties

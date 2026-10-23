@@ -155,7 +155,8 @@ translateDefinition p sig n m counted = do
                (tel, res) <- sizedTelescope ty sig.kinds
                map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes sig.kinds)) w)) <$> resultTies tel res sig.callee.result
              _ => pure []
-  let body = tied loc sig.callee.params (allFins (Runtimes sig.kinds)) ties (tiedExits loc sig.callee.result exits tree')
+  let body = tied loc sig.callee.params (allFins (Runtimes sig.kinds)) ties
+                  (tiedExits loc sig.callee.result exits (length (telescopeOf sig.kinds)) sig.callee.params tree')
   -- What Idris proved of its loops, read with the program (`Recursion`).
   termination <- (\r => terminationOf r d) <$> reading
   extents <- signatureExtents sig.kinds sig.result
