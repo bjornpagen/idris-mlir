@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace idr::families {
 
@@ -26,13 +27,24 @@ public:
   explicit PatternMatch(Narrowing narrowing);
 
   // Whether `instance` is `pattern` under the substitution being built: the
-  // pattern's levels free, the instance's fixed, an opaque index of the
-  // instance open.
+  // pattern's levels free, the instance's fixed, each of its terms read as
+  // readInstance reads it.
   bool match(mlir::Type pattern, mlir::Type instance);
 
   // Whether `count` terms of the pattern are those of the instance under
   // the substitution, which they extend.
   bool terms(llvm::ArrayRef<TermNode> pattern, llvm::ArrayRef<TermNode> instance, std::size_t count);
+
+  // The instance's `count` index terms as the match reads them against the
+  // pattern's, where it reads them otherwise than as written: where
+  // narrowing is allowed (a refinement), each term holding an index Idris
+  // proved and the language cannot write is taken for the pattern's term
+  // there, its levels moved past the instance's `levels`; none where every
+  // term is read as written, as an instance of a pattern reads each.
+  std::optional<llvm::SmallVector<TermNode>> readInstance(llvm::ArrayRef<TermNode> pattern,
+                                                          llvm::ArrayRef<TermNode> instance,
+                                                          std::size_t count,
+                                                          std::uint32_t levels) const;
 
   // Whether the pair being matched may narrow: a data type at the top of a
   // value's type, where narrowing is allowed; one inside another type may

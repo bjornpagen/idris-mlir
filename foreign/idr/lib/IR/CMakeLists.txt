@@ -49,6 +49,7 @@ add_mlir_dialect_library(IdrIR
 	Families/Matching.cpp
 	Families/Members.cpp
 	Families/Refinement.cpp
+	Families/Repacks.cpp
 	Families/Rules.cpp
 	Families/ScopeWalk.cpp
 	Families/Scopes.cpp

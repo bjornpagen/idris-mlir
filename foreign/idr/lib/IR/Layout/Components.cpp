@@ -141,11 +141,38 @@ std::optional<std::pair<T, T>> pairOf(Type from, Type to) {
 
 } // namespace
 
+idr::families::Placed idr::families::placedOf(DataType type) {
+  return Placed{type.getGroup(), type.getMember(), type.getIndices(),
+                type.getMark(),  type.cls(),       type.layout()};
+}
+
+// The same words where the two are one application at one mark,
+// refinements aside; or numbers of one layout, each its layout's word; or
+// two values of one member the layouts lay out as the member at an unknown
+// index, which every cell, frame stack and value in place at an unknown
+// class of it is, an open one among them, at its constructors' own fields,
+// an array field's elements included, so the two share every word they
+// reach. A closed application held in place is its own unfolding, so only
+// that application has its words, and the same application open is none.
+// Reads only the two placements, so a lowering worker asks it of every
+// field it reads.
+idr::LayoutMatch idr::families::layoutMatch(const Placed &from, const Placed &to) {
+  if (from.group != to.group || from.member != to.member)
+    return LayoutMatch::OtherLayout;
+  if (from.indices == to.indices && from.mark == to.mark)
+    return LayoutMatch::SameLayout;
+  if (from.layout != to.layout)
+    return LayoutMatch::OtherLayout;
+  auto unfolded = [](const Placed &placed) {
+    return placed.layout == Layout::InPlace && placed.cls == Class::Closed;
+  };
+  return unfolded(from) || unfolded(to) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
+}
+
 // One type at two grades is the same words; two data types are as their
-// layout facts say; two arrays, upstream's memrefs, are where their
-// elements are and their descriptors' words agree; any other two where
-// their words agree. Makes no type: the lowering asks it of every field it
-// reads.
+// placements say; two arrays, upstream's memrefs, are where their elements
+// are and their descriptors' words agree; any other two where their words
+// agree. Makes no type: the lowering asks it of every field it reads.
 idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
   Type fromValue = unrestricted(from);
   Type toValue = unrestricted(to);
@@ -154,7 +181,7 @@ idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
   DataType fromData = dataTypeOf(fromValue);
   DataType toData = dataTypeOf(toValue);
   if (fromData && toData)
-    return fromData.layoutMatch(toData);
+    return layoutMatch(placedOf(fromData), placedOf(toData));
   if (std::optional<std::pair<MemRefType, MemRefType>> arrays =
           pairOf<MemRefType>(fromValue, toValue);
       arrays && layoutMatch(arrays->first.getElementType(), arrays->second.getElementType()) ==
@@ -162,18 +189,6 @@ idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
     return LayoutMatch::OtherLayout;
   return layout::slotWordsOf(fromValue) == layout::slotWordsOf(toValue) ? LayoutMatch::SameLayout
                                                                        : LayoutMatch::OtherLayout;
-}
-
-idr::families::RepackStep idr::families::repackStep(Type from, Type to) {
-  if (layoutMatch(from, to) == LayoutMatch::SameLayout)
-    return RepackStep::BuildsNothing;
-  if (isa<MemRefType>(unrestricted(to)))
-    return RepackStep::Builds;
-  DataType source = dataTypeOf(from);
-  DataType target = dataTypeOf(to);
-  if (!source || !target || isNumber(source.layout()))
-    return RepackStep::BuildsNothing;
-  return target.layout() == Layout::InPlace ? RepackStep::ByFields : RepackStep::Builds;
 }
 
 namespace idr {

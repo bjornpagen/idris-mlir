@@ -15,7 +15,10 @@
 // successor climbs its index stops at the budget. The budget bounds the
 // classes and never refuses a program: a spent budget leaves a value in its
 // cells. The rule gives the type its words too, the one count of its
-// runtime components every reader takes (SlotPlan.h).
+// runtime components every reader takes (SlotPlan.h); and, keeping no word,
+// the class and layout of an application no type was made for, a field at
+// the terms its holder's substitution writes, which a re-pack's walk asks
+// (classAt).
 //
 // Everything here reads the declarations and the storage of types that
 // exist already, and writes plain arrays: it runs inside a type's
@@ -273,30 +276,52 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
               layout::reachOf(value)};
 }
 
-} // namespace
-
-// An open type is laid out as its member at an unknown index: its class is
-// Unknown, so it takes the layout every Unknown application of its member
-// shares, whatever its indices.
-LayoutFacts classify(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
-                     LayoutMark mark, StorageUniquer::StorageAllocator &allocator) {
-  auto keep = [&](const Laid &laid) {
-    return LayoutFacts{laid.cls,   laid.layout, laid.refs,
-                       laid.reach, laid.bound,  laid.slots.keep(allocator)};
-  };
+// Whether the rule may unfold an application: laid out by its indices, each
+// one closed.
+bool closedAt(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices, LayoutMark mark) {
   size_t count = group.indices(member).size();
-  bool closed = mark == LayoutMark::ByIndices &&
-                llvm::all_of(termsOf(indices, count), [](Term term) { return term.isClosed(); });
+  return mark == LayoutMark::ByIndices &&
+         llvm::all_of(termsOf(indices, count), [](Term term) { return term.isClosed(); });
+}
+
+// The rule's one order of cases. An open type is laid out as its member at
+// an unknown index: its class is Unknown, so it takes the layout every
+// Unknown application of its member shares, whatever its indices.
+Laid laidAt(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices, LayoutMark mark) {
+  bool closed = closedAt(group, member, indices, mark);
   Class cls = closed ? Class::Closed : Class::Unknown;
   if (std::optional<Laid> fixed = fixedLayout(group, member, indices, cls))
-    return keep(*fixed);
+    return std::move(*fixed);
   if (!closed)
-    return keep(atUnknown(group, member));
+    return atUnknown(group, member);
   Application app{group, member, SmallVector<TermNode>(indices)};
   Unfolder unfolder;
   if (std::optional<Laid> unfolded = unfolder.unfold(app))
-    return keep(*unfolded);
-  return keep(atUnknown(group, member));
+    return std::move(*unfolded);
+  return atUnknown(group, member);
+}
+
+} // namespace
+
+LayoutFacts classify(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
+                     LayoutMark mark, StorageUniquer::StorageAllocator &allocator) {
+  Laid laid = laidAt(group, member, indices, mark);
+  return LayoutFacts{laid.cls,   laid.layout, laid.refs,
+                     laid.reach, laid.bound,  laid.slots.keep(allocator)};
+}
+
+// A holder's unfolding settles the one case that runs one: a closed
+// application among its fields that its kind or shape does not fix was
+// unfolded in place within the budget the holder left, meeting no cycle
+// through it, so on its own, with the whole budget and no path above it,
+// it unfolds too. Any other case is the rule's, its words dropped.
+std::pair<Class, Layout> classAt(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
+                                 LayoutMark mark, Unfolding unfolding) {
+  if (unfolding == Unfolding::ByHolder && closedAt(group, member, indices, mark) &&
+      !fixedLayout(group, member, indices, Class::Closed))
+    return {Class::Closed, Layout::InPlace};
+  Laid laid = laidAt(group, member, indices, mark);
+  return {laid.cls, laid.layout};
 }
 
 } // namespace idr::families

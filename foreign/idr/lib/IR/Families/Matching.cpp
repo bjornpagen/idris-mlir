@@ -14,6 +14,7 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -21,6 +22,35 @@ namespace idr::families {
 
 PatternMatch::PatternMatch(Narrowing narrowing)
     : narrowing(narrowing), subst(0, 0, Freedom::Rigid, Freedom::Unknown, Opacity::StaysOpen, Attribute()) {}
+
+// A refinement (a cast, a case's binding) takes the program's word for an
+// index Idris proved and the language cannot write: the term holding it is
+// the pattern's term there, so a cast from `Vect (length xs)` is admitted
+// to `Vect n` and, in a copy that closes `n`, to `Vect 3` alike, its
+// constructors those the term it is taken for leaves possible, and whether
+// a function verifies never changes under a substitution of its levels.
+// The pattern's levels are moved past the instance's, so a pattern level
+// the taken term names is a level of the instance no other term names, and
+// the substitution binds it there. An instance of a pattern (a jump's
+// argument, a call's operand) names only the indices the pattern does, so
+// its terms are read as written, and an opaque one meets only an opaque
+// term or a free level.
+std::optional<SmallVector<TermNode>> PatternMatch::readInstance(ArrayRef<TermNode> pattern,
+                                                               ArrayRef<TermNode> instance,
+                                                               size_t count,
+                                                               uint32_t levels) const {
+  auto opaque = [](const TermNode &node) { return node.kind == TermKind::Opaque; };
+  if (narrowing == Narrowing::Exact || llvm::none_of(instance, opaque))
+    return std::nullopt;
+  SmallVector<TermNode> read;
+  TermWriter write(read);
+  for (auto [own, given] : llvm::zip_equal(termsOf(pattern, count), termsOf(instance, count)))
+    if (llvm::any_of(given.nodes(), opaque))
+      write.copy(own, 0, levels);
+    else
+      write.copy(given);
+  return read;
+}
 
 bool PatternMatch::terms(ArrayRef<TermNode> pattern, ArrayRef<TermNode> instance, size_t count) {
   return unifyAll(subst, instance, pattern, count) == Unified::Consistent;
@@ -89,22 +119,37 @@ bool instanceOf(Type instance, Type pattern) {
 namespace idr {
 
 // A data type matches one of its family and member whose index terms its
-// own instantiate; at the top, where narrowing is allowed, its possible
-// constructors include the instance's, and elsewhere the refinements are
-// one. The caller met two types of one class.
+// own instantiate, as the match reads them; at the top, where narrowing is
+// allowed, its possible constructors include the instance's, and elsewhere
+// the refinements are one. Where the match took a term of the instance on
+// the program's word, the instance holds only the constructors the terms
+// it read leave possible, among its own. The caller met two types of one
+// class.
 bool DataType::matchInstance(Type instance, families::PatternMatch &match) const {
   auto other = cast<DataType>(instance);
-  if (getGroup() != other.getGroup() || getMember() != other.getMember() ||
-      !match.terms(getIndices(), other.getIndices(), getGroup().indices(getMember()).size()))
+  if (getGroup() != other.getGroup() || getMember() != other.getMember())
     return false;
-  if (match.mayNarrow())
+  size_t count = getGroup().indices(getMember()).size();
+  std::optional<SmallVector<families::TermNode>> taken =
+      match.readInstance(getIndices(), other.getIndices(), count, other.freeLevels());
+  if (!match.terms(getIndices(), taken ? ArrayRef<families::TermNode>(*taken) : other.getIndices(),
+                   count))
+    return false;
+  if (!match.mayNarrow())
+    return getRefinement() == other.getRefinement();
+  if (!taken)
     return possibleTags().includes(other.possibleTags());
-  return getRefinement() == other.getRefinement();
+  return llvm::all_of(families::possibleAt(getGroup(), getMember(), *taken), [&](Tag tag) {
+    return !other.possibleTags().contains(tag) || possibleTags().contains(tag);
+  });
 }
 
-// A natural matches where its one index term does.
+// A natural matches where its one index term does, as the match reads it.
 bool NatType::matchInstance(Type instance, families::PatternMatch &match) const {
-  return match.terms(getIndex(), cast<NatType>(instance).getIndex(), 1);
+  ArrayRef<families::TermNode> given = cast<NatType>(instance).getIndex();
+  std::optional<SmallVector<families::TermNode>> taken =
+      match.readInstance(getIndex(), given, 1, families::freeLevelsOf(given));
+  return match.terms(getIndex(), taken ? ArrayRef<families::TermNode>(*taken) : given, 1);
 }
 
 // A grade matches one of the same uses and hold, its carrier matched where

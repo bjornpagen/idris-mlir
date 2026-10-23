@@ -252,9 +252,11 @@ LogicalResult Walk::ownBinders(Operation *op, Region &region, Type operand, Type
 // The refinement maps index terms, and a layout mark is none: a cast whose
 // result is refined further meets its operand through `refines`, which
 // reads the indices alone, so an open value and one laid out as its indices
-// say are one up to the cast; a value that passes on with no op between
-// (a jump's argument, a value forwarded into a region) is compared whole,
-// its mark included, since there nothing converts it.
+// say are one up to the cast, and an operand at an index the language
+// cannot write is admitted to whatever term its result names, a level or,
+// in a copy that closed it, a closed one; a value that passes on with no
+// op between (a jump's argument, a value forwarded into a region) is
+// compared whole, its mark included, since there nothing converts it.
 bool Walk::sameHere(Type a, Type b, Narrowing narrowing) {
   const LevelMap &here = scopes.refinement();
   Type ma = mapLevels(a, here);

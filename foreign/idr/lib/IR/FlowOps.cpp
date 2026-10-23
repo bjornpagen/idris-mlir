@@ -13,7 +13,6 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -146,12 +145,11 @@ void idr::DataTagOp::getFlowEdges(FlowEdges &) {}
 // value: the reference goes on. Essential, two ways to re-pack: one that
 // builds a cell or an array gives a new value besides, holding what its
 // operand held and held by no other value, so its result is fresh, by the
-// one answer the cast's verifier and the lowering's re-pack read, at the
-// field types the layouts lay out; any other keeps the operand's memory.
+// one answer the cast's verifier and the lowering's re-pack read; any
+// other keeps the operand's memory.
 void idr::DataReindexOp::getFlowEdges(FlowEdges &edges) {
   handOn(getValueMutable(), getResult(), edges);
-  auto laidOut = [](DataType type, Tag tag) { return Layouts::fieldsAt(type, tag); };
-  if (families::builds(getValue().getType(), getType(), laidOut))
+  if (families::builds(getValue().getType(), getType()))
     edges.fresh(getResult());
 }
 

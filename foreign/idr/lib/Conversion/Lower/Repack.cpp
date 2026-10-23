@@ -276,10 +276,8 @@ SmallVector<Value> repack(OpBuilder &b, Location loc, const Layouts &layouts, Ru
   Type source = unrestricted(from);
   Type target = unrestricted(to);
   // Whether it builds is the one answer the reindex's verifier reads too,
-  // over the field types the layouts made.
-  if (takes.own == Taken::Borrowed &&
-      families::builds(source, target,
-                       [&](DataType type, Tag tag) { return layouts.fieldTypes(type, tag); })) {
+  // from the two types' stored facts and index terms, making no type.
+  if (takes.own == Taken::Borrowed && families::builds(source, target)) {
     runtime.inc(b, loc, layouts.components(source), values);
     takes = {Taken::Shared, Taken::Shared};
   }

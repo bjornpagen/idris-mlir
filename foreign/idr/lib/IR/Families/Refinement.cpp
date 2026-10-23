@@ -12,7 +12,6 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ranges.h"
 
@@ -48,9 +47,9 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
 // nothing, free or not (a cell taken apart in place, a numeral widened),
 // keeps the operand's hold, its result's memory the operand's, wherever
 // both hold references. Whether it builds is the one answer the lowering's
-// re-pack reads too, here at the field types the layouts lay out, which a
-// verifier may make; a re-pack that works builds nothing where it only
-// takes a cell apart, so whether the cast is free does not decide it.
+// re-pack and the cast's flow read too, from its two types' stored facts
+// and index terms; a re-pack that works builds nothing where it only takes
+// a cell apart, so whether the cast is free does not decide it.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
@@ -61,8 +60,7 @@ LogicalResult DataReindexOp::verify() {
                                  << ", which no refinement of index terms relates";
   if (usesOf(from) != usesOf(to))
     return emitOpError("casts one value, so it keeps its uses; ") << from << " is given as " << to;
-  auto laidOut = [](DataType type, Tag tag) { return Layouts::fieldsAt(type, tag); };
-  if (families::builds(from, to, laidOut)) {
+  if (families::builds(from, to)) {
     if (!freedBy(to, Release::Counted) || !claims(to, Unique::Self))
       return emitOpError("builds a cell or an array, a fresh value, so its result is counted and ")
              << "claimed unique; it gives " << to;

@@ -11,7 +11,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Rules.h"
-#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
@@ -20,27 +19,6 @@
 
 using namespace mlir;
 using namespace idr;
-
-namespace {
-
-// Whether the read of field `index` of constructor `tag` of `data`, whose
-// type there is `field`, re-packs its slot by building.
-bool readBuilds(DataType data, Tag tag, unsigned index, Type field) {
-  auto laidOut = [](DataType type, Tag at) { return Layouts::fieldsAt(type, at); };
-  Type slot = Layouts::fieldsAt(data.unrefined(), tag)[index];
-  return families::builds(slot, field, laidOut);
-}
-
-} // namespace
-
-bool idr::families::fieldReadBuilds(Type container, unsigned index) {
-  auto data = dyn_cast<DataType>(unrestricted(container));
-  if (!data || !data.singleTag())
-    return false;
-  Tag tag = *data.singleTag();
-  std::optional<SmallVector<Type>> fields = data.determinedFields(tag);
-  return fields && index < fields->size() && readBuilds(data, tag, index, (*fields)[index]);
-}
 
 std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   auto data = dyn_cast<DataType>(unrestricted(value));
@@ -63,8 +41,8 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
                         fieldReach(data.ctor(tag).fields[index]));
   // A read whose slot's re-pack builds a cell or an array gives a fresh
   // value, counted and claimed unique whatever the container's hold, so
-  // counting frees it as any fresh value (fieldReadBuilds).
-  if (readBuilds(data, tag, index, field))
+  // counting frees it as any fresh value.
+  if (families::fieldReadBuilds(value, index))
     return atHold(read, Hold::counted(Unique::Self));
   return read;
 }

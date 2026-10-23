@@ -36,7 +36,6 @@
 
 // The kinds of word a runtime component is, which a type's words hold.
 #include "idr/IR/Generated/Words.h.inc"
-#include "idr/Support/Nest.h"
 
 #include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/AsmState.h"
@@ -167,6 +166,21 @@ constexpr unsigned numberBits(Layout layout) {
 LayoutFacts classify(FamilyAttr group, uint32_t member, llvm::ArrayRef<TermNode> indices,
                      LayoutMark mark, mlir::StorageUniquer::StorageAllocator &allocator);
 
+// Whether a closed application's unfolding is the class rule's to run, or
+// one a value in place that holds it already ran: a value unfolded within
+// the budget unfolded every closed application among its fields within
+// what it left and met no cycle through any, so each is in place by its own
+// unfolding unless its kind or shape fixes its layout.
+enum class Unfolding : uint8_t { Run, ByHolder };
+
+// The class and layout the class rule gives member `member` of `group` at
+// `indices`, laid out as `mark` says, keeping no word: classify's, for an
+// application no type was made for, a field at the terms its holder's
+// substitution writes. Makes no type.
+std::pair<Class, Layout> classAt(FamilyAttr group, uint32_t member,
+                                 llvm::ArrayRef<TermNode> indices, LayoutMark mark,
+                                 Unfolding unfolding);
+
 // The constructors of member `member` of `group` its index terms leave
 // possible: each whose equation does not clash with them (unify, with the
 // application's levels and the constructor's binders the unknowns).
@@ -178,79 +192,56 @@ llvm::SmallVector<Tag> possibleAt(FamilyAttr group, uint32_t member,
 mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAttr group,
                                llvm::StringRef label, llvm::SMLoc at);
 
-// Whether a data type narrowed to fewer constructors counts as the same
-// value: where a region binds a refined scrutinee or a cast forgets a
-// refinement, yes; where a jump passes a parameter, no.
+// Which of the two relations a match checks. A refinement, where a region
+// binds a refined scrutinee or a cast forgets a refinement, counts a data
+// type narrowed to fewer constructors as the same value and takes an index
+// the language cannot write for the term the other type names there; an
+// instance, where a jump passes a parameter, does neither.
 enum class Narrowing : uint8_t { Allowed, Exact };
 
-// Whether a value of `from` and one of `to` are the same words at run time
-// (DataType::layoutMatch, which reads each one's layout mark, an array as
-// its elements are): what decides whether a reindex between them is free or
-// re-packs, and so the re-pack's effects. Makes no type.
-LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
+// A member applied to index terms as layoutMatch compares two: its terms
+// and its mark, and the class and layout the class rule gives it. A data
+// type's are its own and those it stored when it was made (placedOf); a
+// field's in a re-pack's walk are the terms its holder's substitution
+// writes and the facts classAt gives them, so no type is made for it.
+struct Placed {
+  FamilyAttr group;
+  uint32_t member;
+  llvm::ArrayRef<TermNode> indices;
+  LayoutMark mark;
+  Class cls;
+  Layout layout;
+};
 
-// What re-packing a value of `from` as one of `to` decides by itself: it
-// builds nothing where the two are the same words, or between two numbers
-// (a numeral widened or narrowed), or where either is no data type and the
-// target no array; it builds into an array and into a value held as a
-// cell; into a value held in place, it builds where re-packing a field of
-// a constructor both leave possible does. Makes no type.
-enum class RepackStep : uint8_t { BuildsNothing, Builds, ByFields };
-RepackStep repackStep(mlir::Type from, mlir::Type to);
+Placed placedOf(DataType type);
+
+// Whether a value of `from` and one of `to` are the same words at run time:
+// two applications by their placements, an array as its elements are, any
+// other two where their words agree. What decides whether a reindex between
+// them is free or re-packs, and so the re-pack's effects. Makes no type.
+LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
+LayoutMatch layoutMatch(const Placed &from, const Placed &to);
 
 // Whether re-packing a value of `from` as one of `to` builds a cell or an
 // array, so the result is a fresh value, counted and claimed unique, where
-// any other reindex's memory is its operand's (repackStep, down the fields
-// of values held in place). `fieldTypes(type, tag)` gives the types the
-// fields of `tag` are laid out at: the layouts' stored ones on a lowering
-// worker, which make no type, or Layouts::fieldsAt where a type may be
-// made. The one answer the reindex's verifier and the lowering's re-pack
-// read. In-place types nest as deep as the program writes them, so the
-// fields are walked on a stack that grows on the heap.
-template <class FieldTypes>
-  requires std::invocable<FieldTypes &, DataType, Tag>
-bool builds(mlir::Type from, mlir::Type to, FieldTypes &&fieldTypes) {
-  using Pair = std::pair<mlir::Type, mlir::Type>;
-  bool built = false;
-  depthFirst(
-      Pair{unrestricted(from), unrestricted(to)},
-      [&](const Pair &pair) {
-        // Only a pair that decides by its fields is gone into: two data
-        // types, the target held in place.
-        auto source = llvm::cast<DataType>(pair.first);
-        auto target = llvm::cast<DataType>(pair.second);
-        llvm::SmallVector<Pair> fields;
-        for (Tag tag : source.possibleTags()) {
-          if (!target.possibleTags().contains(tag))
-            continue;
-          auto sourceFields = fieldTypes(source, tag);
-          auto targetFields = fieldTypes(target, tag);
-          for (auto [a, z] : llvm::zip_equal(sourceFields, targetFields))
-            fields.emplace_back(unrestricted(a), unrestricted(z));
-        }
-        return fields;
-      },
-      [&](const Pair &pair) {
-        if (built)
-          return Descend::Past;
-        RepackStep step = repackStep(pair.first, pair.second);
-        built = step == RepackStep::Builds;
-        return step == RepackStep::ByFields ? Descend::Into : Descend::Past;
-      },
-      [](const Pair &) {});
-  return built;
-}
+// any other reindex's memory is its operand's: decided from what the two
+// types stored when they were made and from their index terms, as the class
+// rule decides a class, down the fields of the values held in place, each
+// at the terms its holder's substitution writes. Makes no type or
+// attribute, so a lowering worker asks it as the reindex's verifier and its
+// flow do: the one answer all of them read.
+bool builds(mlir::Type from, mlir::Type to);
 
 // The value of `numeral`, a constant of a family of numeral shape: the
 // number of its successor's layers, read off its run of cells.
 uint64_t numeralValue(ConAttr numeral);
 
 // Whether reading field `index` of a value of `container`, refined to one
-// constructor, re-packs its slot (the field as the unrefined application's
-// layout lays it out) into the field's type by building a cell or an array
-// (builds), so the read gives a fresh value; false where the container
-// gives no such read. Made where a verifier or a builder asks, since it may
-// make types.
+// constructor, re-packs its slot (the field as the container's layout lays
+// it out) into the field at the constructor's binders the read's type
+// states by building a cell or an array, so the read gives a fresh value;
+// false where the container gives no such read. The same walk as builds,
+// making no type.
 bool fieldReadBuilds(mlir::Type container, unsigned index);
 
 // Whether a value of `type` can reach a closure or a suspension: one the
@@ -263,16 +254,21 @@ ClosureReach closureReach(mlir::Type type);
 // by one substitution (an index a case's equation fixes), at a data type
 // perhaps refined to fewer constructors. What a match's region binds is
 // such a refinement of what enters it. Context-free: every level of
-// `super` may be instantiated, consistently, and an opaque index of
-// `super` stands for any, one of `sub` for none `super` names; the exact
-// substitution is the scope walk's to check. A layout mark is no index:
+// `super` may be instantiated, consistently; an opaque index of `super`
+// stands for any, and a term of `sub` holding one, an index Idris proved
+// and the language cannot write, is taken for `super`'s term there
+// (PatternMatch::readInstance), so a cast from one is admitted to a closed
+// term as to a level and substitution never changes what verifies; the
+// exact substitution is the scope walk's to check. A layout mark is no index:
 // two types that differ in theirs alone refine each other, and whether a
 // value of one is the same words as one of the other is layoutMatch's.
 bool refines(mlir::Type sub, mlir::Type super);
 
 // Whether `instance` is `pattern` with its levels instantiated by one
 // substitution: a jump's argument against its join region's parameter, a
-// call's operand against its callee's. Context-free, as refines is.
+// call's operand against its callee's. Context-free, as refines is, but an
+// opaque index of `instance` is no index `pattern` names: it meets only an
+// opaque term or a free level.
 bool instanceOf(mlir::Type instance, mlir::Type pattern);
 
 // Whose levels an equation's right side names: the binders the region
