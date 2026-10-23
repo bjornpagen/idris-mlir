@@ -11,17 +11,16 @@
 
 #include "idr/Transforms/Tail/Frames.h"
 
-#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Lifetimes/Loans.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
@@ -71,17 +70,18 @@ llvm::SmallVector<Value> withoutLifetimes(llvm::ArrayRef<Value> values) {
       values, [](Value value) { return !isa<LifetimeType>(value.getType()); }));
 }
 
-// A loan costs nothing at run time and a view of one is a function of its
-// operands, so the code reads the holder and lends it again, where an
-// alias handed to the function would be plain data no rule follows. Only
-// static data's loan is read from outside code that frames move: the
-// lifetime pass stands every other loan on a span no call on frames is in,
-// so such code holds every use of that loan's aliases or none. Static data
-// outlives every lifetime, so its loan, made again before the code, stands
-// under the owner's activation, a view, whose place the function's own
-// takes (adoptLifetimes), and an alias of it no view makes (a region chose
-// it, or an op of upstream's gives it as its operand's alias), which cannot
-// be made again, is handed over as it is. Each loan and view is made again
+// The code reads the holder and lends it again, each alias it reads made
+// again of the new loan by the mechanism the lending shares
+// (lifetimes::remakeAlias), where an alias handed to the function would be
+// plain data no rule follows. Only static data's loan is read from outside
+// code that frames move: the lifetime pass stands every other loan where no
+// call that runs on a frame is in its region, so such code holds every use
+// of that loan's aliases or none. Static data outlives every lifetime, so
+// its loan, made again before the code, stands under the owner's
+// activation, a view, whose place the function's own takes
+// (adoptLifetimes), and an alias of it no view makes (a region chose it, or
+// an op of upstream's gives it as its operand's alias), which no view's
+// source names, is handed over as it is. Each loan and view is made again
 // once however many ops read it, in the order the originals were made.
 Operation *lendAgain(Operation *first) {
   Block *block = first->getBlock();
@@ -109,39 +109,31 @@ Operation *lendAgain(Operation *first) {
   if (reads.empty())
     return first;
 
-  OpBuilder b(first);
+  // What an alias of the loan stands on, one view at a time up to the loan,
+  // itself a view of its holder, whose source is the root.
+  auto viewed = [](Value at) -> OpOperand * {
+    auto view = at.getDefiningOp<ViewLikeOpInterface>();
+    if (!view || view.getViewDest() != at)
+      return nullptr;
+    Value source = view.getViewSource();
+    auto found = llvm::find_if(view->getOpOperands(),
+                               [&](OpOperand &operand) { return operand.get() == source; });
+    return found == view->getOpOperands().end() ? nullptr : &*found;
+  };
   IRMapping again;
   Operation *start = first;
   llvm::SmallVector<Operation *, 8> originals;
+  auto onMade = [&](OpOperand &by, Operation *made) {
+    if (start == first)
+      start = made;
+    originals.push_back(by.getOwner());
+  };
   for (OpOperand *read : reads) {
-    Value alias = read->get();
-    if (again.contains(alias))
-      continue;
-    CarrierOp loan = lifetimes::loanOf(alias);
+    CarrierOp loan = lifetimes::loanOf(read->get());
     assert(freedBy(loan.getValue().getType(), Release::Static) &&
-           "the lifetime pass stands every loan but static data's on a span no call on frames "
-           "is in, so no other is read from outside code that frames move");
-    // What the alias stands on, from itself up to the loan.
-    llvm::SmallVector<Operation *, 4> standsOn;
-    for (Value at = alias; at != loan.getResult();) {
-      auto view = at.getDefiningOp<ViewLikeOpInterface>();
-      standsOn.push_back(view.getOperation());
-      at = view.getViewSource();
-    }
-    standsOn.push_back(loan.getOperation());
-    for (Operation *op : llvm::reverse(standsOn)) {
-      if (again.contains(op->getResult(0)))
-        continue;
-      // Whether it may run anywhere is upstream's speculation, which no
-      // effect states: a guarded op has no effect and runs below its guard.
-      assert(effects::whole(op) == effects::EffectSet{} && mlir::isSpeculatable(op) &&
-             "a loan and a view of one have no effect and may run anywhere, so made again they "
-             "mean what they meant");
-      Operation *made = b.clone(*op, again);
-      if (start == first)
-        start = made;
-      originals.push_back(op);
-    }
+           "the lifetime pass stands every loan but static data's where no call that runs on "
+           "a frame is in its region, so no other is read from outside code that frames move");
+    (void)lifetimes::remakeAlias(read->get(), loan.getValue(), first, again, viewed, onMade);
   }
   for (OpOperand *read : reads)
     read->set(again.lookup(read->get()));

@@ -34,7 +34,7 @@
 //
 // A run (the function's body, or a region that runs again) gets one
 // lifetime for its cells and calls: this activation when only slots are
-// stated in it and no call of the function continues on a frame; an opener
+// stated in it and no call of the function runs on a frame; an opener
 // with no memory around the ops that use it when only slots are; a block of
 // the frame when every call puts a bounded amount; the shard's home when
 // the run is the root's body; a cursor otherwise, on the stack of the
@@ -61,17 +61,21 @@
 // Then every tensor or buffer an op of upstream's reads is lent to it
 // (Lend.h): the op takes only the bare carrier, and the passes after this
 // one write grades into what it reads, so each read is made a read of a
-// loan (idr.carrier), which no one counts or grades. A loan of a value a
-// lifetime or a count frees stands on a span: in the innermost block that
-// holds its reads and every use of their aliases, from the first of them
-// there to the last, the aliases found as the verifier's rule of loans
-// finds them, with no call that continues on a frame in it. A scoped
-// value is projected under its own lifetime at each read, on that read's
-// span, which is the read alone, since a value an op of upstream's reads
-// into a value holding references is counted; a counted value is lent
-// under a view lifetime opened at its reads' span, and where no region can
-// hold them, shared into the read, as with no lifetime. Static data is
-// projected under this activation's lifetime.
+// loan (idr.carrier), which no one counts or grades, and no loan changes a
+// count. A loan's stretch is the innermost block that holds its reads and
+// every use of their aliases, from the first of them there to the last,
+// the aliases found as the verifier's rule of loans finds them. A scoped
+// value is projected under its own lifetime at each read, whose stretch is
+// the read alone, since a value an op of upstream's reads into a value
+// holding references is counted, and holds no call that runs on a frame. A
+// counted value's stretch is cut at each op no loan's region may hold (one
+// holding a call that runs on a frame, a call in tail position, a jump
+// out): the reads on each side are lent under a view lifetime opened around
+// them, an alias read past a cut made again there of that side's loan, and
+// the reads inside a cut lent inside it. A read one of whose aliases goes
+// out of the loan is no loan: the holder is shared into it, as with no
+// lifetime, as into a tensor an op of upstream's takes over. Static data
+// is projected under this activation's lifetime.
 #include "idr/Transforms/Lifetimes/Lend.h"
 #include "idr/Transforms/Lifetimes/Plan.h"
 

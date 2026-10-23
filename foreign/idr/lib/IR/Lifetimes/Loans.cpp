@@ -11,14 +11,22 @@
 #include "idr/IR/Lifetimes/Loans.h"
 
 #include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Lifetimes/Rules.h"
 #include "idr/IR/Ownership.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Interfaces/CallInterfaces.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 using namespace mlir;
 using namespace idr;
@@ -69,16 +77,64 @@ CarrierOp idr::lifetimes::loanOf(Value value) {
   return root.getDefiningOp<CarrierOp>();
 }
 
+namespace {
+
+// Whether an op of ours moves what `use` gives it into what it holds or
+// gives, as its flow edges declare: the operand, taken over or read whole,
+// the source of a move into a value the op makes, a part of one or of a
+// value it or its parent holds, or a function's parameter or result; the
+// reference given up at the op; or an argument of a call by value, which
+// moves into a parameter of whatever runs. Each such place holds a
+// reference counting then owns, whatever the operand's uses, so an alias
+// there is someone's. A move of a part of the operand (an element, a
+// field) moves that part and not the operand, and an op of ours that only
+// reads the operand declares no move of it (a view of it among them, whose
+// result the walk follows as an alias): each leaves the use a read. An op
+// of upstream's that holds the flow interface is read by its forwarding,
+// its aliases and its stores instead.
+bool movesInto(OpOperand &use) {
+  Operation *user = use.getOwner();
+  auto declared = dyn_cast<FlowOpInterface>(user);
+  if (!declared || !llvm::isa_and_present<IdrDialect>(user->getDialect()))
+    return false;
+  FlowEdges edges;
+  declared.getFlowEdges(edges);
+  Value given = use.get();
+  auto fromUse = [&](const FlowSource &source) {
+    return match(
+        source.at, [&](const FlowSource::Taken &taken) { return taken.use == &use; },
+        [&](const FlowSource::Whole &whole) { return whole.value == given; },
+        [](const OneOf<FlowSource::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
+          return false;
+        });
+  };
+  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move, [&](const FlowEdges::Flow &flow) { return fromUse(flow.from); },
+        [&](const FlowEdges::Release &release) { return release.use == &use; },
+        [&](const FlowEdges::Dispatch &dispatch) {
+          return llvm::is_contained(dispatch.call.getArgOperands(), given);
+        },
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
+                       FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant> auto &) {
+          return false;
+        });
+  });
+}
+
+} // namespace
+
 // A terminator that forwards an alias to no successor (the walk asks the
 // forwarding first) is its function's return. An op of ours takes a
-// reference over where it consumes the operand, and makes one of its own
-// where its trait says; an op of upstream's stores the value it writes
-// where its effects name the memory and not the value.
+// reference over where it consumes the operand, makes one of its own where
+// its trait says, and holds or gives one where it moves the operand into a
+// place (movesInto); an op of upstream's stores the value it writes where
+// its effects name the memory and not the value.
 lifetimes::LoanUse idr::lifetimes::loanUseOf(OpOperand &use) {
   Operation *user = use.getOwner();
   if (user->hasTrait<OpTrait::ReturnLike>())
     return LoanUse::Returns;
-  if (effects::consumes(use) || user->hasTrait<AdoptsCarrier>())
+  if (effects::consumes(use) || user->hasTrait<AdoptsCarrier>() || movesInto(use))
     return LoanUse::Adopts;
   if (ownership::storedBy(use))
     return LoanUse::Stores;
@@ -88,6 +144,21 @@ lifetimes::LoanUse idr::lifetimes::loanUseOf(OpOperand &use) {
 const bufferization::BufferizationOptions &idr::lifetimes::aliasOptions() {
   static const bufferization::BufferizationOptions options;
   return options;
+}
+
+//===----------------------------------------------------------------------===//
+// An alias made again
+//===----------------------------------------------------------------------===//
+
+void idr::lifetimes::brokenAt(Operation *op, const llvm::Twine &what) {
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  out << "internal error: " << what << "; at " << op->getName() << " (" << op->getLoc() << ")";
+  llvm::reportFatalInternalError(llvm::Twine(text));
+}
+
+bool idr::lifetimes::remakeable(Operation *op) {
+  return effects::whole(op) == effects::EffectSet{} && isSpeculatable(op);
 }
 
 //===----------------------------------------------------------------------===//

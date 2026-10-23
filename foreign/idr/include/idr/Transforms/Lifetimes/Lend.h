@@ -46,22 +46,27 @@ struct Lending {
 // Each of `holders`, values of `fn` (function `self` of `graph`) that ops
 // of upstream's read, given to those ops by who frees it, by a carrier
 // under a lifetime's view (the lifetime itself, or its view where it is of
-// another kind). A scoped holder is projected under its own lifetime and
-// a static one under this activation's (static data outlives every
-// lifetime), a carrier at each read. A scoped holder's carrier stands on
-// its read's span, the stretch holding the read and every use of its
-// aliases, none going out of it and no call in it that continues on a
-// frame, so no alias of it leaves its lifetime or is held by a frame. A
-// counted one is lent under a view lifetime opened at the span of its
-// reads: one for all its reads where one region can hold them, else one
-// per read. Where no region can hold a read (its aliases cross a call in
-// tail position, a call that continues on a frame, or a jump out, go out
-// of the function, into memory, into an op of ours, or on through a region
-// branch), the holder is shared into that read instead, as it would be
-// with no lifetime: a share's result is a value no flow explains, which no
-// pass grades. A tensor an op of upstream's writes is taken over by that
-// op, its result the tensor's next version, so a holder at a grade past
-// its bare one is shared into it.
+// another kind), and no loan changes a count. A scoped holder is projected
+// under its own lifetime and a static one under this activation's (static
+// data outlives every lifetime), a carrier at each read. A scoped holder's
+// carrier stands on its read's stretch, the read and every use of its
+// aliases, none going out of it and no call in it that runs on a frame, so
+// no alias of it leaves its lifetime or is held by a frame. A counted one
+// is lent under view lifetimes opened on the stretch of its reads, the
+// innermost block's ops from the first use of the loan to the last, cut at
+// each op no loan's region may hold (one holding a call that runs on a
+// frame, a call in tail position, a jump out): the reads on each side of
+// the cuts are one loan, a view made on one side and read on another made
+// again on that side of its own loan, and the reads inside a cut are lent
+// again inside it. A read one of whose aliases goes out of the loan (out of
+// the function, into memory, into an op of ours, or on through a region
+// branch) is no loan: the alias takes a reference of its own, so the holder
+// is shared into that read, as it would be with no lifetime, a share's
+// result being a value no flow explains, which no pass grades. A loan read
+// by a cut itself, or with an alias read across a cut that no op can make
+// again, is an internal error naming the op. A tensor an op of upstream's
+// writes is taken over by that op, its result the tensor's next version,
+// so a holder at a grade past its bare one is shared into it.
 Lending lend(FuncOp fn, solver::FunctionId self, const solver::ProgramGraph &graph,
              llvm::ArrayRef<mlir::Value> holders);
 

@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Lending to upstream's ops (Lend.h): each holder an op of upstream's reads
-// given to it as a loan, by who frees the holder. A loan of a holder a
-// lifetime or a count frees stands on a span: the stretch of the innermost
-// block holding its reads and every use of their aliases, from the first of
-// them there to the last, as the walk of a loan's aliases finds them
-// (Lifetimes/Loans.h), with no call in it that continues on a frame. A
-// counted holder's span becomes the loan's own region where a region can
-// hold it, else the holder is shared into the read, which costs a duplicate
-// and a drop and never a meaning; a scoped holder's lies inside its own
-// lifetime. Static data, which nothing frees, is lent at each read.
+// given to it as a loan, by who frees the holder, and no loan changes a
+// count. A counted holder's loan stands on its stretch: the ops of the
+// innermost block holding its reads and every use of their aliases, as the
+// walk of a loan's aliases finds them (Lifetimes/Loans.h), from the first of
+// them there to the last. The stretch is cut at each op there that no
+// loan's region may hold: one holding a call that runs on a frame, after
+// which frames move the code on into a function of its own, where a frame
+// would hold an alias of the loan and a lifetime with no memory has nothing
+// to carry; a call in tail position; a jump out. The reads on each side of
+// the cuts are one loan, under a view lifetime opened around them; a view
+// made on one side and read on another is made again on that side, of that
+// side's own loan, as frames lend static data again (remakeAlias); and the
+// reads inside a cut are lent again inside it. A read one of whose aliases
+// goes out of the loan is no loan: counting gives that alias a reference of
+// its own, so the holder is shared into the read. A scoped holder's loan
+// lies inside its own lifetime, and static data, which nothing frees, is
+// lent at each read.
 
 #include "idr/Transforms/Lifetimes/Lend.h"
 
@@ -21,11 +29,16 @@
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cassert>
+#include <cstdint>
+#include <iterator>
 #include <optional>
+#include <utility>
 
 using namespace mlir;
 using namespace idr;
@@ -68,36 +81,55 @@ Operation *makerOf(Value value) {
   return cast<BlockArgument>(value).getOwner()->getParentOp();
 }
 
-// The span of the reads `reads`: the stretch that holds them and every use
-// of their aliases, or none where no stretch does. None where an alias goes
-// on through a region branch (counting would then give it a reference of
-// its own, and an opener's yield is one, so no alias leaves the region of a
-// lifetime it was lent under) or out of the loan; and none where a call
-// that continues on a frame stands in the stretch, after which frames move
-// the code on into a function of its own, where a frame would hold the
-// alias, a reference of no one's that no rule follows across.
-std::optional<Span> spanOf(ArrayRef<OpOperand *> reads, FunctionId self,
-                           const solver::ProgramGraph &graph) {
-  SmallVector<Operation *, 8> users;
-  enum class Kept : std::uint8_t { InLoan, Out } kept = Kept::InLoan;
+// A loan's walk from its reads: every use of the loan, the reads among
+// them, and every alias it reaches, the walk's own and sized by the loan.
+struct Walked {
+  SmallVector<OpOperand *, 16> uses;
+  llvm::SmallDenseSet<Value, 8> aliases;
+};
+
+Walked walkLoan(ArrayRef<OpOperand *> reads) {
+  Walked walked;
   forEachLoanUse(
-      reads, [](Value) {},
-      [&](OpOperand &use, LoanUse kind) {
-        users.push_back(use.getOwner());
+      reads, [&](Value alias) { walked.aliases.insert(alias); },
+      [&](OpOperand &use, LoanUse) { walked.uses.push_back(&use); });
+  return walked;
+}
+
+// Whether the loan of `read` keeps every alias of it among reads, or one
+// goes out: forwarded on through a region branch (counting would then give
+// it a reference of its own, and an opener's yield is one, so no alias
+// leaves the region of a lifetime it was lent under), returned, stored as
+// the value a write puts into memory, or adopted by an op of ours.
+enum class Kept : std::uint8_t { InLoan, Out };
+
+Kept keptOf(OpOperand *read) {
+  Kept kept = Kept::InLoan;
+  forEachLoanUse(
+      read, [](Value) {},
+      [&](OpOperand &, LoanUse kind) {
         if (kind != LoanUse::Reads)
           kept = Kept::Out;
       });
-  if (kept == Kept::Out)
-    return std::nullopt;
+  return kept;
+}
 
-  // The innermost block holding every use: the function's body holds all.
-  Block *block = users.front()->getBlock();
-  for (Operation *user : users)
-    while (!block->findAncestorOpInBlock(*user))
+// The innermost block holding every one of `uses`: the function's body
+// holds all.
+Block *innermost(ArrayRef<OpOperand *> uses) {
+  Block *block = uses.front()->getOwner()->getBlock();
+  for (OpOperand *use : uses)
+    while (!block->findAncestorOpInBlock(*use->getOwner()))
       block = block->getParentOp()->getBlock();
+  return block;
+}
+
+// The ops of `block`, which holds every one of `uses`, from the first that
+// holds one to the last.
+Span spanIn(Block *block, ArrayRef<OpOperand *> uses) {
   Span span{block, nullptr, nullptr, {}};
-  for (Operation *user : users) {
-    Operation *top = block->findAncestorOpInBlock(*user);
+  for (OpOperand *use : uses) {
+    Operation *top = block->findAncestorOpInBlock(*use->getOwner());
     if (!span.first || top->isBeforeInBlock(span.first))
       span.first = top;
     if (!span.last || span.last->isBeforeInBlock(top))
@@ -108,26 +140,100 @@ std::optional<Span> spanOf(ArrayRef<OpOperand *> reads, FunctionId self,
     if (op == span.last)
       break;
   }
-  auto framed = [&](Operation *op) {
-    auto call = dyn_cast<CallOp>(op);
-    return call && decide::continuesOnFrame(graph, self, call);
-  };
-  if (llvm::any_of(span.held, framed))
-    return std::nullopt;
   return span;
 }
 
-// Whether a loan's own region can hold `span`, lending `holder`: the
-// holder is made outside it, since it outlives the loan; the span ends
-// before its block's terminator, where a region's own end goes; and it
-// holds no call in tail position and no jump out of it, which no region
-// the pass opens holds.
+// Whether `op`, or a call in it, runs on a frame, as the graph decides for
+// a call made in function `self`.
+bool holdsCallOnFrame(Operation *op, FunctionId self, const solver::ProgramGraph &graph) {
+  solver::SccId from = graph.sccOf(self);
+  return op
+      ->walk([&](CallOp call) {
+        return graph.runsOnFrame(from, call) ? WalkResult::interrupt() : WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
+// Whether a loan's region may hold `top`, an op of `block`, with everything
+// in it: no call in it runs on a frame, after which frames move the code on
+// into a function of its own, where a frame would hold an alias of the
+// loan, a reference of no one's that no rule follows across, and a lifetime
+// with no memory has nothing a frame could carry; it is not the block's
+// terminator, before which a region's own end goes; and the rule every
+// region the pass opens keeps holds of it alone. A jump in it goes to a
+// join point around it or outside the block, since a join point's token is
+// bound in its own region, so what holds of each op holds of a stretch.
+bool mayHold(Block &block, Operation *top, FunctionId self, const solver::ProgramGraph &graph) {
+  if (top->hasTrait<OpTrait::IsTerminator>() || holdsCallOnFrame(top, self, graph))
+    return false;
+  SmallVector<Operation *, 16> held;
+  top->walk([&](Operation *nested) { held.push_back(nested); });
+  return decide::regionMayHold(block, top, top, held);
+}
+
+// Whether a loan's region may hold every op of `span`.
+bool mayHoldAll(const Span &span, FunctionId self, const solver::ProgramGraph &graph) {
+  for (Operation *op = span.first;; op = op->getNextNode()) {
+    if (!mayHold(*span.block, op, self, graph))
+      return false;
+    if (op == span.last)
+      return true;
+  }
+}
+
+// Whether a loan's own region can hold `span`, lending `holder`: the holder
+// is made outside it, since it outlives the loan, and the rule every region
+// the pass opens keeps holds of it.
 bool regionHolds(Value holder, const Span &span) {
   if (Operation *maker = span.block->findAncestorOpInBlock(*makerOf(holder));
       maker && !maker->isBeforeInBlock(span.first) && !span.last->isBeforeInBlock(maker))
     return false;
   return !span.last->hasTrait<OpTrait::IsTerminator>() &&
          decide::regionMayHold(*span.block, span.first, span.last, span.held);
+}
+
+// Where an op of a loan's stretch stands among the stretch's cuts, the ops
+// no loan's region may hold, in their order: on the side after the first
+// `cutsBefore` of them, or at the next one itself.
+enum class At : std::uint8_t { Side, Cut };
+
+struct Piece {
+  unsigned cutsBefore;
+  At at;
+  bool operator==(const Piece &) const = default;
+};
+
+Piece pieceOf(ArrayRef<Operation *> cuts, Operation *top) {
+  auto next =
+      llvm::partition_point(cuts, [&](Operation *cut) { return cut->isBeforeInBlock(top); });
+  return {static_cast<unsigned>(next - cuts.begin()),
+          next != cuts.end() && *next == top ? At::Cut : At::Side};
+}
+
+// The op of a region of `cut` that holds `op`, which `cut` holds.
+Operation *directlyIn(Operation *cut, Operation *op) {
+  assert(op != cut && cut->isProperAncestor(op) && "an op inside the cut");
+  while (op->getParentOp() != cut)
+    op = op->getParentOp();
+  return op;
+}
+
+// The operand by which the op that makes `alias` stands on the loan: its
+// one operand that is the holder or an alias of it; null where it reads
+// none or more than one.
+OpOperand *throughLoan(Value alias, Value holder, const llvm::SmallDenseSet<Value, 8> &aliases) {
+  Operation *maker = alias.getDefiningOp();
+  if (!maker)
+    return nullptr;
+  OpOperand *through = nullptr;
+  for (OpOperand &operand : maker->getOpOperands()) {
+    if (operand.get() != holder && !aliases.contains(operand.get()))
+      continue;
+    if (through)
+      return nullptr;
+    through = &operand;
+  }
+  return through;
 }
 
 // The view of `lifetime`, of its extent, which is all a loan reads of it:
@@ -146,8 +252,12 @@ Value lendHere(OpBuilder &b, Location loc, Value holder, Value lifetime) {
   return CarrierOp::create(b, loc, holder, viewOf(b, loc, lifetime)).getResult();
 }
 
-// A view lifetime opened at `span`, and the reads lent under it.
-void openLoan(Value holder, const Span &span, ArrayRef<OpOperand *> reads) {
+// A view lifetime opened at `span`, and the reads lent under it: the span
+// holds no op no loan's region may hold.
+void openLoan(Value holder, const Span &span, ArrayRef<OpOperand *> reads, FunctionId self,
+              const solver::ProgramGraph &graph) {
+  assert(mayHoldAll(span, self, graph) && regionHolds(holder, span) &&
+         "a loan's region holds a side of its stretch, which no cut is in");
   Value lifetime =
       decide::openLifetime(decide::Opening::NoMemory, span.first, span.last, Value());
   OpBuilder b = OpBuilder::atBlockBegin(cast<BlockArgument>(lifetime).getOwner());
@@ -156,9 +266,9 @@ void openLoan(Value holder, const Span &span, ArrayRef<OpOperand *> reads) {
     read->set(lent);
 }
 
-// The holder shared into one read: its reference given up into a value no
-// flow explains, which no pass grades; placement duplicates the holder
-// first where it is used after.
+// The holder shared into one read, as it would be with no lifetime: its
+// reference given up into a value no flow explains, which no pass grades;
+// placement duplicates the holder first where it is used after.
 void share(Value holder, OpOperand &read) {
   Operation *user = read.getOwner();
   OpBuilder b(user);
@@ -166,57 +276,217 @@ void share(Value holder, OpOperand &read) {
       CountShareOp::create(b, user->getLoc(), shared(holder.getType()), holder).getResult());
 }
 
-// A counted holder's reads: one loan for all where a region can hold them,
-// else one per read, else a share into it.
+// What is left to lend of a counted holder: reads of it whose loans lie in
+// one block, a part of the stretch or the whole, each set lent in turn.
+using Parts = SmallVector<SmallVector<OpOperand *, 4>, 4>;
+
+// The reads `given` of a counted holder, none of whose aliases goes out of
+// the loan, lent in the innermost block that holds their loan, the block's
+// stretch cut at each op no loan's region may hold (mayHold): one loan for
+// the whole where nothing cuts it; else one for each side of the cuts, each
+// alias that one side reads of another made again on it (remakeAlias), and
+// the reads inside each cut, by the block of its region they are in, given
+// to `parts` to be lent there. No loan changes a count.
+//
+// A use of the loan by a cut itself, an op whose own region holds what no
+// loan's region may, is an internal error naming the op: no loan's region
+// can hold it and frames do not split it, and no program reaches lending
+// with one, since idr-structure-loops keeps every region that calls as an
+// op of ours, which reads no loan, and frames stop at such an op. So is an
+// alias read across a cut whose op cannot be made again, which no shape the
+// frontend writes reaches.
+void lendPart(Value holder, ArrayRef<OpOperand *> given, FunctionId self,
+              const solver::ProgramGraph &graph, Parts &parts, Lending &made) {
+  Walked loan = walkLoan(given);
+  Block *block = innermost(loan.uses);
+  auto topOf = [&](Operation *op) { return block->findAncestorOpInBlock(*op); };
+  Span stretch = spanIn(block, loan.uses);
+  SmallVector<Operation *, 4> cuts;
+  for (Operation *op = stretch.first;; op = op->getNextNode()) {
+    if (!mayHold(*block, op, self, graph))
+      cuts.push_back(op);
+    if (op == stretch.last)
+      break;
+  }
+  if (cuts.empty()) {
+    openLoan(holder, stretch, given, self, graph);
+    ++made.opened;
+    made.rewritten += static_cast<unsigned>(given.size());
+    return;
+  }
+  auto pieceAt = [&](Operation *op) { return pieceOf(cuts, topOf(op)); };
+
+  // Each use of an alias on another piece than the one it is made on, and
+  // where each side's are made again: before the first op of the side that
+  // holds one.
+  std::size_t sides = cuts.size() + 1;
+  SmallVector<Operation *, 4> sideStart(sides, nullptr);
+  SmallVector<OpOperand *, 8> crossing;
+  for (OpOperand *use : loan.uses) {
+    Operation *user = use->getOwner();
+    Operation *top = topOf(user);
+    Piece here = pieceOf(cuts, top);
+    if (here.at == At::Cut && top == user)
+      lifetimes::brokenAt(user, "a loan is read by an op whose own region holds what no loan's "
+                                "region may, a call that runs on a frame among them, which "
+                                "idr-structure-loops keeps out of every op of upstream's");
+    Value value = use->get();
+    if (value == holder || pieceAt(makerOf(value)) == here)
+      continue;
+    crossing.push_back(use);
+    if (here.at == At::Side) {
+      Operation *&start = sideStart[here.cutsBefore];
+      if (!start || top->isBeforeInBlock(start))
+        start = top;
+    }
+  }
+
+  // Every alias read across a cut made again, before any use is given it,
+  // so each is made again from the originals: on its side, or inside the
+  // cut, before the op of the cut's region that holds the use, where the
+  // cut's own reads are lent. What each side, or each such op, has made
+  // again is kept while this part is lent, sized by what it reads across.
+  SmallVector<OpOperand *, 4> reads(given.begin(), given.end());
+  SmallVector<IRMapping, 4> sideAgain(sides);
+  SmallVector<std::pair<Operation *, IRMapping>, 4> cutAgain;
+  SmallVector<OpOperand *, 8> remade;
+  SmallVector<Operation *, 8> copies;
+  SmallVector<Operation *, 8> originals;
+  SmallVector<std::pair<OpOperand *, Value>, 8> rewired;
+  auto stepOf = [&](Value alias) { return throughLoan(alias, holder, loan.aliases); };
+  // Each op made again that reads the holder is a read of the loan lent
+  // where it now stands.
+  auto onMade = [&](OpOperand &by, Operation *copy) {
+    copies.push_back(copy);
+    if (by.get() == holder)
+      remade.push_back(&copy->getOpOperand(by.getOperandNumber()));
+    if (!llvm::is_contained(originals, by.getOwner()))
+      originals.push_back(by.getOwner());
+  };
+  for (OpOperand *use : crossing) {
+    Operation *top = topOf(use->getOwner());
+    Piece here = pieceOf(cuts, top);
+    Operation *at = nullptr;
+    IRMapping *again = nullptr;
+    if (here.at == At::Side) {
+      at = sideStart[here.cutsBefore];
+      again = &sideAgain[here.cutsBefore];
+    } else {
+      at = directlyIn(top, use->getOwner());
+      auto entry = llvm::find_if(cutAgain, [&](const auto &each) { return each.first == at; });
+      if (entry == cutAgain.end()) {
+        cutAgain.emplace_back(at, IRMapping());
+        entry = std::prev(cutAgain.end());
+      }
+      again = &entry->second;
+    }
+    rewired.emplace_back(use, remakeAlias(use->get(), holder, at, *again, stepOf, onMade));
+  }
+  for (auto [use, value] : rewired)
+    use->set(value);
+
+  // What nothing reads any more goes, an original before what it was made
+  // again from, since a use given what was made again may be an original's,
+  // and each after what stands on it; with it, its read of the holder.
+  auto drop = [&](Operation *op) {
+    if (!op->use_empty())
+      return;
+    auto owned = [&](OpOperand *read) { return read->getOwner() == op; };
+    llvm::erase_if(reads, owned);
+    llvm::erase_if(remade, owned);
+    op->erase();
+  };
+  for (Operation *op : llvm::reverse(originals))
+    drop(op);
+  for (Operation *op : llvm::reverse(copies))
+    drop(op);
+
+  // The reads of each side, one loan each; those inside a cut, by the block
+  // of its region that holds them, a part lent there.
+  llvm::append_range(reads, remade);
+  Parts onSide(sides);
+  SmallVector<std::pair<Block *, SmallVector<OpOperand *, 4>>, 4> inCut;
+  for (OpOperand *read : reads) {
+    Operation *top = topOf(read->getOwner());
+    Piece here = pieceOf(cuts, top);
+    if (here.at == At::Side) {
+      onSide[here.cutsBefore].push_back(read);
+      continue;
+    }
+    Block *inside = directlyIn(top, read->getOwner())->getBlock();
+    auto entry = llvm::find_if(inCut, [&](const auto &each) { return each.first == inside; });
+    if (entry == inCut.end()) {
+      inCut.emplace_back(inside, SmallVector<OpOperand *, 4>{});
+      entry = std::prev(inCut.end());
+    }
+    entry->second.push_back(read);
+  }
+  for (SmallVector<OpOperand *, 4> &side : onSide) {
+    if (side.empty())
+      continue;
+    openLoan(holder, spanIn(block, walkLoan(side).uses), side, self, graph);
+    ++made.opened;
+    made.rewritten += static_cast<unsigned>(side.size());
+  }
+  for (auto &entry : inCut)
+    parts.push_back(std::move(entry.second));
+}
+
+// A counted holder's reads, none of whose aliases goes out of the loan,
+// lent part by part: each part's cuts hold the parts after it, each in a
+// block inside the one before, so the parts end.
 Lending lendCounted(Value holder, ArrayRef<OpOperand *> reads, FunctionId self,
                     const solver::ProgramGraph &graph) {
-  auto region = [&](ArrayRef<OpOperand *> some) -> std::optional<Span> {
-    std::optional<Span> span = spanOf(some, self, graph);
-    if (!span || !regionHolds(holder, *span))
-      return std::nullopt;
-    return span;
-  };
   Lending made;
-  made.rewritten = static_cast<unsigned>(reads.size());
-  if (std::optional<Span> span = region(reads)) {
-    openLoan(holder, *span, reads);
-    made.opened = 1;
-    return made;
-  }
-  for (OpOperand *read : reads) {
-    if (std::optional<Span> span = region(read)) {
-      openLoan(holder, *span, read);
-      ++made.opened;
-    } else {
-      share(holder, *read);
-    }
+  Parts parts;
+  parts.emplace_back(reads.begin(), reads.end());
+  while (!parts.empty()) {
+    SmallVector<OpOperand *, 4> part = parts.pop_back_val();
+    lendPart(holder, part, self, graph, parts, made);
   }
   return made;
 }
 
+// Whether the loan of a scoped holder's read stays where its lifetime
+// keeps it: no alias of it goes out, and no call in its stretch runs on a
+// frame.
+bool keptScoped(OpOperand *read, FunctionId self, const solver::ProgramGraph &graph) {
+  if (keptOf(read) == Kept::Out)
+    return false;
+  Walked walked = walkLoan(read);
+  Span span = spanIn(innermost(walked.uses), walked.uses);
+  for (Operation *op = span.first;; op = op->getNextNode()) {
+    if (holdsCallOnFrame(op, self, graph))
+      return false;
+    if (op == span.last)
+      return true;
+  }
+}
+
 // A scoped holder's reads, each projected under the holder's own lifetime
-// on its span, at the span's start: the read itself, since every alias of
-// it is made after it, in its region. No region is opened, so the span is
-// the whole of what keeps the loan's aliases to the lifetime: none leaves
-// the stretch, so none leaves the lifetime's region, and none outlives a
-// call that continues on a frame, so no frame holds one, and no loan of a
-// scoped holder is lent again from outside the code frames move, whatever
-// the holder lives in (this activation's slots, which the code after such a
-// call no longer has, among them). The decide step counts every holder an
-// op of upstream's reads into a value that holds references, since it
-// counts every value no op states a lifetime for and every operand of an
-// op that declares no flow, so a scoped holder's read gives no alias and
-// its span is the read alone.
+// right before it: every alias of it is made after it, in its region. No
+// region is opened, so the read's stretch is the whole of what keeps the
+// loan's aliases to the lifetime: none leaves the stretch, so none leaves
+// the lifetime's region, and none outlives a call that runs on a frame, so
+// no frame holds one, and no loan of a scoped holder is lent again from
+// outside the code frames move, whatever the holder lives in (this
+// activation's slots, which the code after such a call no longer has,
+// among them). The decide step counts every holder an op of upstream's
+// reads into a value that holds references, since it counts every value
+// no op states a lifetime for and every operand of an op that declares no
+// flow, so a scoped holder's read gives no alias that holds one and its
+// stretch is the read alone.
 void projectScoped(Value holder, ArrayRef<OpOperand *> reads, FunctionId self,
                    const solver::ProgramGraph &graph) {
   Value own = statedLifetime(holder);
   assert(own && "the verifier holds every scoped value to the lifetime it states");
   for (OpOperand *read : reads) {
-    std::optional<Span> span = spanOf(read, self, graph);
-    assert(span && "a scoped holder's read gives no alias: the decide step counts a holder an "
-                   "op of upstream's reads into a value that holds references");
-    OpBuilder b(span->first);
-    read->set(lendHere(b, read->getOwner()->getLoc(), holder, own));
+    assert(keptScoped(read, self, graph) &&
+           "a scoped holder's read gives no alias: the decide step counts a holder an op of "
+           "upstream's reads into a value that holds references");
+    Operation *user = read->getOwner();
+    OpBuilder b(user);
+    read->set(lendHere(b, user->getLoc(), holder, own));
   }
 }
 
@@ -262,9 +532,22 @@ Lending idr::lifetimes::lend(FuncOp fn, FunctionId self, const solver::ProgramGr
       projectStatic(fn, holder, reads);
       made.rewritten += static_cast<unsigned>(reads.size());
       break;
-    case Release::Counted:
-      made += lendCounted(holder, reads, self, graph);
+    case Release::Counted: {
+      // A read one of whose aliases goes out of the loan is no loan: the
+      // alias takes a reference of its own, which counting gives it.
+      SmallVector<OpOperand *, 4> lent;
+      for (OpOperand *read : reads) {
+        if (keptOf(read) == Kept::InLoan) {
+          lent.push_back(read);
+          continue;
+        }
+        share(holder, *read);
+        ++made.rewritten;
+      }
+      if (!lent.empty())
+        made += lendCounted(holder, lent, self, graph);
       break;
+    }
     }
   }
   return made;

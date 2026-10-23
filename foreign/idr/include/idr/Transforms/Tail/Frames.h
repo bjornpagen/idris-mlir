@@ -94,14 +94,14 @@ llvm::SmallVector<mlir::Value> withoutLifetimes(llvm::ArrayRef<mlir::Value> valu
 // The ops of `first`'s block from `first` on, code about to move into a
 // function of its own, made to read no loan from outside it: each loan they
 // read, and each view of one, is made again before them, of its holder
-// under the activation it was lent under, and an original nothing reads
-// any more goes. Every such loan is of static data, since the lifetime pass
-// stands every other on a span no call on frames is in. So the function
-// takes the holder at its grade, and a frame holds the holder, never a
-// loan's alias, which is a reference of no one's that no rule could follow
-// into the function; an alias no view makes cannot be made again and is
-// handed over as it is, static data outliving every lifetime. The op the
-// code now starts at.
+// under the activation it was lent under, by the mechanism the lending
+// shares (lifetimes::remakeAlias), and an original nothing reads any more
+// goes. Every such loan is of static data, since the lifetime pass stands
+// every other where no call that runs on a frame is in its region. So the
+// function takes the holder at its grade, and a frame holds the holder,
+// never a loan's alias, which is a reference of no one's that no rule could
+// follow into the function; an alias no view makes is handed over as it
+// is, static data outliving every lifetime. The op the code now starts at.
 mlir::Operation *lendAgain(mlir::Operation *first);
 
 // A function the pass made, and what a call of it from the function its
