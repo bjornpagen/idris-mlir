@@ -365,3 +365,12 @@ coordinator, 2026-10-23):
   block in such a type would be named `Resolved (-1)` and fail at the TTC
   writer. Base has none; give the block's type a real entry, or name its
   blocks from the block's own name.
+
+## Tests owed (L16ea)
+
+- A fixture beside `closed-double-text` that prints `1.0e309` and divides
+  by a subnormal constant, checking the sign and magnitude a Double's bits
+  carry into the module.
+- `SyntaxSamples` samples of ±inf, NaN and the smallest subnormal beside
+  its `-0.0`, with a check that MLIR reads back those exact bits
+  (`tests/dialect-syntax` only checks that the file parses and reprints).
