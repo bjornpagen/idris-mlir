@@ -259,16 +259,19 @@ mutual
   -- An argument's type is empty, looked into only when it has fewer nodes
   -- than the type it is an argument of: the search's bound, so that a
   -- family whose arguments do not get smaller is not taken apart again.
+  -- The family is written out where it is used, not named by an as-pattern,
+  -- since the case below is a function of its own that sees the name apart
+  -- from what it matched.
   emptyArg : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              Defs -> Env Term vars -> (next : Int) ->
              (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Term vars -> Core Bool
   emptyArg defs env next nodes (Access rec) ty
-      = do argnf@(NTCon {}) <- nf defs env ty
+      = do NTCon nfc nn na nargs <- nf defs env ty
              | _ => pure False
-           argNodes <- termSize <$> quote defs env argnf
+           argNodes <- termSize <$> quote defs env (NTCon nfc nn na nargs)
            case choose (argNodes < nodes) of
-                Left lt => emptyFrom defs env next argnf FamilyApplied argNodes
+                Left lt => emptyFrom defs env next (NTCon nfc nn na nargs) FamilyApplied argNodes
                                      (rec argNodes (ltOpReflectsLT argNodes nodes lt))
                 Right _ => pure False
 
