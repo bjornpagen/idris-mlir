@@ -555,3 +555,20 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   (`Emit/Tensors.idr` about 600-622) states only the axes something
   states and reads nothing from the array; reproducers
   `/tmp/l16ef/repro/successor-axis`, `literal-index`.
+- From L19u: `Tail.h` gains `repackOf(op)` (the op that re-packs a value,
+  read off `CarriesOnOpInterface`), asked by `Expect/Tails.cpp` and by
+  `Tail.cpp`'s private `carryOf`, after L04x's gate; the lowering's
+  re-pack of a value `idr.index.assume` takes in at another layout is
+  seen by no property; `tests/expect-coverage` counts `tail-calls` and
+  `results-as-given` unstated until a program test states them (L18y's,
+  after L04x). From L14y: the guard hooks `decide` and `foldable` as
+  template members over `fold::Where` (`holds` and the interface's method
+  go; the engine holds each guard's decision over its values), and
+  `ConstantAttrInterface::getFoldValue` (a closed sum attached to the
+  builtin string, integer and float attributes) for `heldFacts`, both in
+  the specification after L04x; a literal match on a computed string,
+  Double or big (its lookup reading values, L09); tests for the Double
+  ops and the large-big divisor (L19); and, by reading, a contradiction
+  among Emit's `coerce` (`Emit/Operations.idr:230`, static data where
+  counted is asked with no op between), `Consumer.cpp:305` and the call
+  verifier's equal grades, to confirm.
