@@ -434,3 +434,7 @@ L17ay settles whether Readings' marker names change):
   in a match's cases, since a carrier's equality need not be identity (a
   Double's two zeros); hash the carriers whose `sameLiteral` is identity
   and compare pairwise only the others.
+- Unit G: `Chains::Demand` (`Rule.h`, `Versions.cpp`) holds a `CallOp`
+  only for its result count; holding the count removes Chains' last
+  `cast<CallOp>`. INT should check the tests that read gives-back facts,
+  which the analysis now produces for the first time.
