@@ -2625,6 +2625,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   component lowers the member's parameter hold by the same rule as a
   result, rather than keying a copy inside a component the redirect has
   not finished; the order is finite, so it ends.
+- **C278** (2026-10-23; L18t's open items, under C277). A copy's result
+  is keyed by what may give a lowered parameter back, not only what gives
+  it back on every path: where the parameter reaches the result on some
+  path (a reverse accumulator), the result takes the weaker hold, a sound
+  bound, read from the same analysis's may facts beside its must facts.
+  A copy inside its caller's component lowers its parameter by C277's
+  member rule, as a member does, its key's signature then restated. The
+  re-inference of results after a grade changes is one function
+  (`families::takenTypes`), which `Ownership/Exclusive.cpp` and
+  `InPlace/UniqueResults.cpp` ask too.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
