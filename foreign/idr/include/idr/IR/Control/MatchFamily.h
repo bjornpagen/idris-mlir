@@ -18,6 +18,7 @@
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -107,22 +108,32 @@ void boundsOf(Match op, mlir::Region *taken, llvm::SmallVectorImpl<mlir::Invocat
                         /*ub=*/!region.empty() && (!taken || taken == &region) ? 1 : 0);
 }
 
+// A key as the set of a match's keys holds it. A tag is widened to 64 bits,
+// so that no tag, before its match's verifier bounds it by the family, is
+// one of the two values a hashed set of 32-bit integers reserves. A literal
+// is held as itself: each carrier admits one literal per value (a string's
+// is its one untyped string attribute, a big's is keyed by its integer at
+// its fewest bits, a Double's is never a NaN, which equals nothing, nor
+// negative zero, which equals zero), so two literals are one value exactly
+// when they are one attribute, as the carrier's sameLiteral says too.
+inline std::int64_t heldKey(std::int32_t tag) { return tag; }
+inline mlir::Attribute heldKey(mlir::Attribute literal) { return literal; }
+
 // One key per case region, each once. ODS ties no key to a case region, so
-// the two lists are held to one length here. Two keys are compared pairwise
-// by the match's equality of keys, which need not be identity (a Double's
-// zeros) and so has no hash; a literal match's keys are known literals of
-// its carrier before they are compared. And the match states one lifetime
+// the two lists are held to one length here. A literal match's keys are
+// known literals of its carrier before they get here, each its value's one
+// form, so a key met twice is one the set already holds, and the keys are
+// hashed rather than compared pairwise. And the match states one lifetime
 // per scoped value it makes.
 template <MatchFamily Match>
 mlir::LogicalResult verifyKeys(Match op) {
   auto cases = op.getCases();
   if (cases.size() != op.getCaseRegions().size())
     return op.emitOpError("expects one key per case region");
-  auto same = keyEquality(op);
-  for (unsigned at = 1, n = static_cast<unsigned>(cases.size()); at < n; ++at)
-    for (unsigned before = 0; before < at; ++before)
-      if (same(cases[before], cases[at]))
-        return op.emitOpError("has two cases for one key");
+  footprint::DenseSet<decltype(heldKey(*cases.begin()))> seen;
+  for (const auto &key : cases)
+    if (!seen.insert(heldKey(key)).second)
+      return op.emitOpError("has two cases for one key");
   return lifetimes::verifyOuters(op, 0);
 }
 

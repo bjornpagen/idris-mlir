@@ -255,8 +255,8 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     // call moves into its parameters. Only a call brings a
                     // value back from a function's result.
                     [&](const FlowSource::Result &returned) {
-                      demands.push_back({cast<CallOp>(op), *callAt[values.at(op->getResult(0))],
-                                         returned.index, asks});
+                      demands.push_back({*callAt[values.at(op->getResult(0))],
+                                         op->getNumResults(), returned.index, asks});
                       const Need &need =
                           summaries.of(graph.id(returned.function), returned.index, asks);
                       if (!need) {

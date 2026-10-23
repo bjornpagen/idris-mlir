@@ -122,12 +122,13 @@ TypeGraph::TypeGraph(Operation *module) {
           FamilyAttr group = data.getGroup();
           for (uint32_t tag = 0, n = data.declaredCount(); tag < n; ++tag)
             for (Type field : data.ctor(Tag{tag}).fields) {
-              if (auto self = dyn_cast<SelfType>(unrestricted(field))) {
-                auto member = static_cast<uint32_t>(self.getMember());
+              auto indexed = dyn_cast<IndexedTypeInterface>(unrestricted(field));
+              if (std::optional<uint32_t> member =
+                      indexed ? indexed.getPositionalMember() : std::nullopt) {
                 MLIRContext *context = group.getContext();
                 IndexArgsAttr any = families::opaqueArgs(
-                    context, static_cast<uint32_t>(group.indices(member).size()));
-                to.push_back(insert(Data{DataType::get(context, group, member, any.getTerms())}));
+                    context, static_cast<uint32_t>(group.indices(*member).size()));
+                to.push_back(insert(Data{DataType::get(context, group, *member, any.getTerms())}));
                 continue;
               }
               named(field, to);

@@ -217,9 +217,8 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
 
   // A self call whose result is given unchanged: a tail call, or the call a
   // rejoin's region gives into a hole. The clone's passes the destination on.
-  if (auto call = dyn_cast_or_null<CallOp>(def);
-      call && call.getTailKind() != TailKind::nontail &&
-      call.getCalleeAttr().getAttr() == fn.getSymNameAttr()) {
+  if (CallOp call = def ? lastActOf(def) : CallOp();
+      call && call.getCalleeAttr().getAttr() == fn.getSymNameAttr()) {
     if (!dest)
       return success();
     dropForwarded(terminator, position);

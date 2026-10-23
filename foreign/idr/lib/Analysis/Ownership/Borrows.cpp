@@ -43,6 +43,7 @@
 #include "idr/Analysis/Solver/Mark.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -158,7 +159,7 @@ private:
   // Whether frames split the function at `call`: a call that returns to its
   // caller, of a function on the caller's own cycle.
   bool framed(CallOp call) const {
-    return call.getTailKind() == TailKind::nontail &&
+    return !lastActOf(call) &&
            graph.sccOf(graph.id(call.getCalleeAttr())) == graph.sccOf(*current);
   }
 
@@ -313,8 +314,7 @@ private:
 
   void readCall(CallOp call) {
     FunctionId callee = graph.id(call.getCalleeAttr());
-    Lend lend = call.getTailKind() == TailKind::nontail && !framed(call) ? Lend::AroundCall
-                                                                         : Lend::Nowhere;
+    Lend lend = !lastActOf(call) && !framed(call) ? Lend::AroundCall : Lend::Nowhere;
     for (auto [index, operand] : llvm::enumerate(call->getOpOperands()))
       readArgument(operand, params[callee][index], call, lend);
   }

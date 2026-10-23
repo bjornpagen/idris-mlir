@@ -278,7 +278,7 @@ std::optional<Accumulator> accumulatorOf(FuncOp fn) {
   WalkResult walk = fn.walk([&](CallOp call) {
     if (!isSelfCall(call, fn))
       return WalkResult::advance();
-    if (call.getTailKind() == TailKind::tail) {
+    if (tailCallOf(call)) {
       sites.push_back(call);
       return WalkResult::advance();
     }

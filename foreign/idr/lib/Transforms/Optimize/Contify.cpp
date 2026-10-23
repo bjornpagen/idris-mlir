@@ -159,7 +159,7 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   for (FunctionId self : graph.functions())
     graph.op(self).walk([&](idr::CallOp call) {
       unsigned callee = nodeOf(graph.id(call.getCalleeAttr()));
-      if (call.getTailKind() == idr::TailKind::tail) {
+      if (idr::tailCallOf(call)) {
         succ[nodeOf(self)].push_back(callee);
         return;
       }
@@ -257,7 +257,7 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
     auto sitesIn = [&](Region &region, std::optional<unsigned> from, unsigned shift) {
       region.walk([&](idr::CallOp call) {
         std::optional<unsigned> target = memberOf[graph.id(call.getCalleeAttr())];
-        if (!target || call.getTailKind() != idr::TailKind::tail)
+        if (!target || !idr::tailCallOf(call))
           return;
         sites.push_back(idr::joins::Site{call, *target + shift, call.getArgs(),
                                          call.getIndexArgsAttr()});

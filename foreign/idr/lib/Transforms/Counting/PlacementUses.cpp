@@ -11,6 +11,7 @@
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -47,7 +48,7 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
       fail(op, "a terminator reads a counted value nothing after it needs");
       continue;
     }
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail) {
+    if (lastActOf(op)) {
       fail(op, "a call in tail position reads a counted value no later use needs, so its drop "
                "would follow the call");
       continue;
@@ -66,9 +67,8 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
 // point before an op that may acquire memory has an allocation ahead.
 void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVector &consumed,
                             const llvm::BitVector *inside) {
-  bool tail = false;
-  if (auto call = dyn_cast<CallOp>(op))
-    tail = call.getTailKind() != TailKind::nontail;
+  // A call nothing may follow, past which no drop can be placed.
+  CallOp last = lastActOf(op);
   llvm::SmallVector<ValueId, 4> used;
   for (OpOperand &operand : op->getOpOperands()) {
     ValueId id = idOf(operand.get());
@@ -111,7 +111,7 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
       // Its owner is dead here: it holds a reference of its own from here
       // on, which this use consumes or which is dropped right after it.
       if (!consumes && state.ahead == Ahead::Allocation) {
-        if (tail)
+        if (last)
           fail(op, "a call in tail position reads a part no later use needs");
         drops.push_back({Where::past(op), id});
       }

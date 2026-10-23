@@ -8,6 +8,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Generated/Actions.h.inc"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Match.h"
 #include "idr/Transforms/Narrow.h"
@@ -61,8 +62,8 @@ bool carries(const Facts &facts, const Decisions &decided, const Carry &carry) {
 // passed instead, would be made after the call, which then could not
 // leave its frame, so no web holding it is carried.
 bool givenByTailCall(const Facts &facts, const Pass &pass) {
-  auto call = throughLinear(facts.value(pass.from)).getDefiningOp<CallOp>();
-  return call && call.getTailKind() == TailKind::tail;
+  Operation *source = throughLinear(facts.value(pass.from)).getDefiningOp();
+  return source && tailCallOf(source);
 }
 
 } // namespace

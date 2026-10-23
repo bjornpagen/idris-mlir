@@ -178,11 +178,12 @@ public:
   llvm::SmallVector<Target> targets(mlir::Value value, Asks asks, mlir::OpOperand *use);
 
   // A call result a requirement reached, with its strength: what the
-  // callee's version must give back. The call is also named by its place
-  // among the body's calls (ownership::forEachCall).
+  // callee's version must give back. The call is named by its place among
+  // the body's calls (ownership::forEachCall), and `results` is how many
+  // it gives, so what is asked of each can be kept beside it.
   struct Demand {
-    CallOp call;
     std::uint32_t place;
+    unsigned results;
     unsigned result;
     Asks asks;
   };

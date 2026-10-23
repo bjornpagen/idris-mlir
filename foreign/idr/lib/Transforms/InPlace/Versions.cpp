@@ -112,7 +112,7 @@ private:
     for (const Chains::Demand &demand : reached.demands) {
       auto &asked = version.demands[demand.place];
       if (asked.empty())
-        asked.assign(demand.call->getNumResults(), std::nullopt);
+        asked.assign(demand.results, std::nullopt);
       raise(asked[demand.result], demand.asks);
     }
   }

@@ -35,6 +35,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Joins.h"
@@ -126,8 +127,7 @@ struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
     // its own position: only those jump back.
     llvm::SmallVector<joins::Site> calls;
     fn.walk([&](CallOp call) {
-      if (call.getTailKind() != TailKind::tail ||
-          call.getCalleeAttr().getAttr() != fn.getSymNameAttr())
+      if (!tailCallOf(call) || call.getCalleeAttr().getAttr() != fn.getSymNameAttr())
         return;
       if (llvm::all_of(lifetimes, [&](unsigned position) {
             return call.getArgs()[position] == entry.getArgument(position);

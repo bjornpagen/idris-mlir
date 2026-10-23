@@ -13,6 +13,7 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Transforms/Tail.h"
@@ -134,10 +135,9 @@ public:
   bool isMember(CallOp call) const {
     return !isMade(call) && graph.sccOf(graph.id(call.getCalleeAttr())) == scc;
   }
-  // A call to frame: of a function of the component, and no tail call.
-  bool frames(CallOp call) const {
-    return call.getTailKind() == TailKind::nontail && isMember(call);
-  }
+  // A call to frame: of a function of the component, and one its caller
+  // goes on after.
+  bool frames(CallOp call) const { return !lastActOf(call) && isMember(call); }
 
   // Step 1 on `fn`: every call to frame ends its block in a tail of its
   // function, its rest a function of its own.

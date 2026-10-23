@@ -299,7 +299,7 @@ Read readProgram(Operation *program, const solver::ProgramGraph &graph) {
     for (const FlowEdges::Edge &edge : edges.edges())
       reading.add(op, edge);
     edges.clear();
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail)
+    if (CallOp call = tailCallOf(op))
       reading.tailResults(out.points.labelOf(call.getCalleeAttr()), call);
   });
   return out;
