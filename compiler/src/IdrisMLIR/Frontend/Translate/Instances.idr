@@ -249,12 +249,18 @@ argumentShape : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 argumentShape owner rest arg = do
   written <- arg.written
   case skeleton written of
-    Just shape => pure (Just shape)
-    Nothing =>
+    HasSkeleton shape _ => pure (Just shape)
+    NoSkeleton _ =>
       if !(runtimeDependent written) then pure Nothing else do
         Just _ <- neededShape owner rest (Erased EmptyFC Impossible)
           | Nothing => pure Nothing
-        skeleton <$> arg.normalised
+        -- Essential: a normal form a data constructor does not head (a
+        -- function no compile-time reduction unfolds) says nothing of the
+        -- value's shape, which then keys nothing.
+        normalised <- arg.normalised
+        pure (case skeleton normalised of
+                HasSkeleton shape _ => Just shape
+                NoSkeleton _ => Nothing)
 
 ||| How the rest of a callee's type depends on a runtime parameter: it does
 ||| not mention it (`Runs`), or it does (`Reduces`), and then the argument's
@@ -569,7 +575,7 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
           -- time, a choice like any other.
           if not dependent
             then do
-              FixedNow <- fixing a' val
+              FixedNow _ <- fixing a' val
                 | ChosenAtRunTime _ => chosen q a'
               static val Nothing
             else do
@@ -580,7 +586,7 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
               Just (shape, tys) <- v.holed
                 | Nothing => chosen q a'
               key <- implementationOf shape
-              FixedNow <- fixing a' key
+              FixedNow _ <- fixing a' key
                 | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
               static key (Just (MkHoles tys (MkBinder Many held)))

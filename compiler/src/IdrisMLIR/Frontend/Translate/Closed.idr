@@ -1026,11 +1026,20 @@ export
 whnf : ClosedTerm -> Front (Head ClosedTerm)
 whnf tm = map (\a => Force a.written) <$> reduce asWritten start (sizeAccessible start) [] tm []
 
-||| Whether an implementation the program writes is one implementation now
-||| (`FixedNow`), or one the running program chooses, with what its
-||| reduction is stuck on (`ChosenAtRunTime`).
+||| What an implementation the program fixes now reduces to at its head: an
+||| interface's constructor applied to its fields, which a tree that matches
+||| on the implementation takes apart at compile time; or a value of a
+||| function type, a lambda or a definition applied to fewer arguments than
+||| it takes, which each use applies in place.
 public export
-data Fixing = FixedNow | ChosenAtRunTime StuckOn
+data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction ClosedTerm
+
+||| Whether an implementation the program writes is one implementation now,
+||| with the value it reduced to (`FixedNow`), so that a reader of the value
+||| does not reduce it again, or one the running program chooses, with what
+||| its reduction is stuck on (`ChosenAtRunTime`).
+public export
+data Fixing = FixedNow FixedValue | ChosenAtRunTime StuckOn
 
 ||| Whether an implementation of a type (normalised) is one the program
 ||| fixes now. Of an interface's own type, it is when its head reduces to
@@ -1049,11 +1058,11 @@ fixing : (type, form : ClosedTerm) -> Front Fixing
 fixing type form = do
   reduced <- whnf form
   case (type, reduced) of
-    (_, Built _ _) => pure FixedNow
+    (_, Built n fields) => pure (FixedNow (FixedConstructor n fields))
     (Bind _ _ (Pi {}) _, Stuck (OnValue v)) => do
       True <- aValue v
         | False => pure (ChosenAtRunTime (OnValue v))
-      pure FixedNow
+      pure (FixedNow (FixedFunction v))
     (_, Stuck on) => pure (ChosenAtRunTime on)
   where
     aValue : ClosedTerm -> Front Bool
@@ -1115,17 +1124,101 @@ shapeHead tm = case getFnArgs tm of
   (Ref _ (DataCon _ _) n, args) => Just (n, args)
   _ => Nothing
 
+||| A term's skeleton, decided: the skeleton, with the evidence that it is
+||| the term's (`Readings.SkeletonOf`), or the evidence that the term has
+||| none, no data constructor heading it. A proof of what a request holds
+||| of a shape reads the evidence, and an argument cut to a hole carries
+||| the refutation `Readings.ArgumentCutAt` asks.
+public export
+data Skeletal : ClosedTerm -> Type where
+  HasSkeleton : (shape : ClosedTerm) -> (0 _ : SkeletonOf t shape) -> Skeletal t
+  NoSkeleton : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf t s)) -> Skeletal t
+
+-- Only a data constructor and an application have a skeleton: every other
+-- node is neither of `SkeletonOf`'s two forms.
+0 localUnshaped : SkeletonOf (Local fc l i p) s -> Void
+localUnshaped SkeletonHead impossible
+localUnshaped (SkeletonApplied _ _) impossible
+
+0 boundUnshaped : SkeletonOf (Ref fc Bound n) s -> Void
+boundUnshaped SkeletonHead impossible
+boundUnshaped (SkeletonApplied _ _) impossible
+
+0 funcUnshaped : SkeletonOf (Ref fc Func n) s -> Void
+funcUnshaped SkeletonHead impossible
+funcUnshaped (SkeletonApplied _ _) impossible
+
+0 familyUnshaped : SkeletonOf (Ref fc (TyCon arity) n) s -> Void
+familyUnshaped SkeletonHead impossible
+familyUnshaped (SkeletonApplied _ _) impossible
+
+0 metaUnshaped : SkeletonOf (Meta fc n i args) s -> Void
+metaUnshaped SkeletonHead impossible
+metaUnshaped (SkeletonApplied _ _) impossible
+
+0 bindUnshaped : SkeletonOf (Bind fc x b sc) s -> Void
+bindUnshaped SkeletonHead impossible
+bindUnshaped (SkeletonApplied _ _) impossible
+
+0 asUnshaped : SkeletonOf (As fc side a p) s -> Void
+asUnshaped SkeletonHead impossible
+asUnshaped (SkeletonApplied _ _) impossible
+
+0 delayedUnshaped : SkeletonOf (TDelayed fc r t) s -> Void
+delayedUnshaped SkeletonHead impossible
+delayedUnshaped (SkeletonApplied _ _) impossible
+
+0 delayUnshaped : SkeletonOf (TDelay fc r ty a) s -> Void
+delayUnshaped SkeletonHead impossible
+delayUnshaped (SkeletonApplied _ _) impossible
+
+0 forceUnshaped : SkeletonOf (TForce fc r t) s -> Void
+forceUnshaped SkeletonHead impossible
+forceUnshaped (SkeletonApplied _ _) impossible
+
+0 constantUnshaped : SkeletonOf (PrimVal fc c) s -> Void
+constantUnshaped SkeletonHead impossible
+constantUnshaped (SkeletonApplied _ _) impossible
+
+0 erasedUnshaped : SkeletonOf (Erased fc why) s -> Void
+erasedUnshaped SkeletonHead impossible
+erasedUnshaped (SkeletonApplied _ _) impossible
+
+0 universeUnshaped : SkeletonOf (TType fc u) s -> Void
+universeUnshaped SkeletonHead impossible
+universeUnshaped (SkeletonApplied _ _) impossible
+
+-- An application whose function has no skeleton has none.
+0 appliedUnshaped : ((s : ClosedTerm) -> Not (SkeletonOf f s)) -> SkeletonOf (App fc f a) s -> Void
+appliedUnshaped none (SkeletonApplied sf _) = none _ sf
+
 ||| The shape of a term as written: the constructors it is built with,
-||| everything else erased, and nothing when its head is no constructor.
-||| Nothing is evaluated: a constant, a variable or a call says nothing.
-||| What the shape does not say is a part of a runtime value, so a hole is
-||| the stand-in for one, as a runtime variable is in the written form:
-||| `runtimeDependent` refuses it wherever a value is needed.
+||| everything else erased, and nothing when its head is no constructor
+||| (`Skeletal`). Nothing is evaluated: a constant, a variable or a call
+||| says nothing. What the shape does not say is a part of a runtime value,
+||| so a hole is the stand-in for one, as a runtime variable is in the
+||| written form: `runtimeDependent` refuses it wherever a value is needed.
 export
-skeleton : ClosedTerm -> Maybe ClosedTerm
-skeleton con@(Ref _ (DataCon _ _) _) = Just con
-skeleton (App fc f a) = (\f' => App fc f' (fromMaybe (probeTerm ProbeRuntime) (skeleton a))) <$> skeleton f
-skeleton _ = Nothing
+skeleton : (t : ClosedTerm) -> Skeletal t
+skeleton (Ref fc (DataCon tag arity) n) = HasSkeleton (Ref fc (DataCon tag arity) n) SkeletonHead
+skeleton (App fc f a) = case skeleton f of
+  HasSkeleton f' sf => case skeleton a of
+    HasSkeleton a' sa => HasSkeleton (App fc f' a') (SkeletonApplied sf (ArgumentKept sa))
+    NoSkeleton none => HasSkeleton (App fc f' (probeTerm ProbeRuntime)) (SkeletonApplied sf (ArgumentCutAt none))
+  NoSkeleton none => NoSkeleton (\_ => appliedUnshaped none)
+skeleton (Local fc l i p) = NoSkeleton (\_ => localUnshaped)
+skeleton (Ref fc Bound n) = NoSkeleton (\_ => boundUnshaped)
+skeleton (Ref fc Func n) = NoSkeleton (\_ => funcUnshaped)
+skeleton (Ref fc (TyCon arity) n) = NoSkeleton (\_ => familyUnshaped)
+skeleton (Meta fc n i args) = NoSkeleton (\_ => metaUnshaped)
+skeleton (Bind fc x b sc) = NoSkeleton (\_ => bindUnshaped)
+skeleton (As fc side a p) = NoSkeleton (\_ => asUnshaped)
+skeleton (TDelayed fc r t) = NoSkeleton (\_ => delayedUnshaped)
+skeleton (TDelay fc r ty a) = NoSkeleton (\_ => delayUnshaped)
+skeleton (TForce fc r t) = NoSkeleton (\_ => forceUnshaped)
+skeleton (PrimVal fc c) = NoSkeleton (\_ => constantUnshaped)
+skeleton (Erased fc why) = NoSkeleton (\_ => erasedUnshaped)
+skeleton (TType fc u) = NoSkeleton (\_ => universeUnshaped)
 
 ||| A runtime value of a type with what its shape says, if anything.
 export
@@ -1143,14 +1236,24 @@ shapeDepth tm = maybe Z S (deepest tm)
     deepest (App _ f a) = (\d => max d (shapeDepth a)) <$> deepest f
     deepest _ = Nothing
 
-||| A shape cut at a depth: every part below it, and every part the shape
-||| does not say, is `hole`.
-export
-cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
-cutShape hole Z _ = hole
-cutShape hole (S d) tm = case getFnArgs tm of
-  (con@(Ref fc (DataCon _ _) _), args) => foldl (App fc) con (map (cutShape hole d) args)
-  _ => hole
+mutual
+  ||| A shape cut at a depth: every part below it, and every part the shape
+  ||| does not say, is `hole`. Its body is public, and the spine is read
+  ||| with its evidence (`Proof.Reading.spineOf`, which gathers the
+  ||| arguments as `getFnArgs` does), so a proof sees what a cut keeps
+  ||| (`Template.cutShapeNeeded`).
+  public export
+  cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
+  cutShape hole Z _ = hole
+  cutShape hole (S d) tm = cutSpine hole d (spineOf tm)
+
+  ||| A term's spine cut below its head: a data constructor applied to its
+  ||| arguments each cut one level shallower, rebuilt at the constructor's
+  ||| location; any other head, the hole.
+  public export
+  cutSpine : ClosedTerm -> Nat -> {0 tm : ClosedTerm} -> SpineOf tm -> ClosedTerm
+  cutSpine hole d (MkSpineOf con@(Ref fc (DataCon _ _) _) args _) = foldl (App fc) con (map (cutShape hole d) args)
+  cutSpine hole d (MkSpineOf _ _ _) = hole
 
 ||| What a shape leaves unknown of a runtime value, where a type is asked
 ||| whether it needs it: a reference to a definition that does not exist,

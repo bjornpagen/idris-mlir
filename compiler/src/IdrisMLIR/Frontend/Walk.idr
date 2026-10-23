@@ -351,6 +351,15 @@ probeTerm p@(ProbePart _ _) = Ref EmptyFC Bound (probeName p)
 probeTerm p@(ProbeFormal _ _) = Ref EmptyFC Bound (probeName p)
 probeTerm p@(ProbeFieldPath _ _) = Ref EmptyFC Bound (probeName p)
 
+||| The hole a skeleton cuts (`Readings.SkeletonOf`), stated where it is
+||| made: a reference to a function by the runtime probe's name. `probeTerm`
+||| is exported without its body, so a proof elsewhere sees which term the
+||| hole is only here: a function reference, which no data constructor is,
+||| so no skeleton of it exists, and which a reading takes as one leaf.
+export
+0 runtimeProbeTerm : probeTerm {vs} ProbeRuntime = Ref EmptyFC Func (probeName ProbeRuntime)
+runtimeProbeTerm = Refl
+
 ||| The probe a term is (`probeTerm`'s inverse): a reference to a probe's
 ||| name, or an axis's two references; nothing for any other term.
 export

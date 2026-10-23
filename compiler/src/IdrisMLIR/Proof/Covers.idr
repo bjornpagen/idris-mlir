@@ -67,7 +67,24 @@
 |||   (`undefinedCovers`);
 ||| - the lemma at its statement, for a kind read off the host's normal
 |||   form, over what a request holds (`Template.HeldAs`), which at such a
-|||   kind is the term whole (`normalHeldWhole`).
+|||   kind is the term whole (`normalHeldWhole`);
+||| - at a match, the evidence through putting values in: what the site's
+|||   reader read a scrutinee as, a constructor applied or a literal, the
+|||   host's step meets in every instance's term as its image, headed by
+|||   the same constructor over the images of the fields
+|||   (`constructedPutIn`, `literalPutIn`, from `Idris.Host.putInMapped`,
+|||   `mappedShows` and `mappedSpine`);
+||| - at a shape, what a request's skeleton is: one per term
+|||   (`skeletonsAlike`), its own skeleton (`skeletonFixed`), its holes
+|||   skeletons of nothing (`holeUnshaped`, from `Walk.runtimeProbeTerm`),
+|||   and, against the contraction a site's reading reads, cut at least
+|||   where the contraction's skeleton is (`contractedSkeleton`,
+|||   `CutFrom`): a lambda the term as written holds, which the request
+|||   cuts, may contract to a constructor applied, which the site keeps,
+|||   while every constructor the request keeps the site keeps. A hole only
+|||   the request cuts, and a hole the callee's type cuts below
+|||   (`Template.NeededCut`, `Template.cutShapeNeeded`), is written under
+|||   the site's node (`Proof.Bound.AtCut`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
@@ -96,36 +113,40 @@
 |||   `Unfolds`): the instance's evaluation of the call with the values put
 |||   in either takes no `Unfold` step, leaving the call as written, or
 |||   takes the one whose `Chooses` walks the same alternatives the trace
-|||   took. The host's half of each alternative is above; what is left: the
-|||   scrutinee's evidence carried through putting the values in, which the
-|||   host proves (`putInMapped`, `mappedShows`, `mappedSpine`) but does not
-|||   export, so no proof here can read it; the trace's `ArityDiffers`, a
-|||   stuck walk only where an entry's constructor has the tag the
-|||   alternative names, which the host does not state; each alternative it
+|||   took. The host's half of each alternative is above, and the
+|||   scrutinee's evidence through putting the values in; what is left: the
+|||   trace's `ArityDiffers`, a stuck walk only where an entry's
+|||   constructor has the tag the alternative names, which the host does
+|||   not state; each alternative it
 |||   takes a `Matches`; and the instance's normal form of the leaf related
 |||   to the site's reading of it (`Idris.Host.reachesNormalForm` with
 |||   putting values in commuting with the normaliser's steps);
-||| - a shape: the lemma now reads what the request holds, the skeleton of
-|||   the term with the values put in (`Template.HeldAs`), against the
-|||   site's skeleton (`Readings.nodeOf Skeleton`), and so is no longer
-|||   false there; its induction is a node at a time over the request's
-|||   skeleton (`Readings.SkeletonOf`): a constructor both keep writes
-|||   itself (`AtHead`), a node both cut a hole one high (`AtLeaf`), a
-|||   marker the value put in for which is itself a skeleton what the
-|||   markers hold (`markerWrites`), and one the request cuts a hole within
-|||   it (`AtCut`). It lacks three facts. The request cuts the term as
-|||   written, before its unknowns are solved and it is contracted, the
-|||   site after both, so the two cut at one node only where neither moves
-|||   a constructor: a lambda whose contraction is a constructor applied,
-|||   or an unknown solved as one, is cut by one and kept by the other, so
-|||   the skeleton is to be carried through solving and contraction, or the
-|||   two cut at one point. The runtime probe a cut leaves reads as one leaf
-|||   only as a function no context defines (`SNoDefinition`), but
-|||   `Walk.probeTerm` is exported opaque, so no proof here sees which term
-|||   it is. And the evidence itself, `HeldAs` of the site's term at the
-|||   requesting instance's values, is what the translation's site table
-|||   is to give each request: `Closed.skeleton` returning its
-|||   `SkeletonOf`, `Instances.argumentShape` keeping it with the site;
+||| - a shape: the lemma reads what the request holds, the skeleton of the
+|||   term with the values put in, cut where the callee's type stops
+|||   needing it (`Template.HeldAs`), against the site's skeleton
+|||   (`Readings.nodeOf Skeleton`); its induction is a node at a time over
+|||   the request's skeleton (`Readings.SkeletonOf`): a constructor both
+|||   keep writes itself (`AtHead`), a node both cut a hole one high
+|||   (`AtLeaf`), a marker the value put in for which is itself a skeleton
+|||   (`skeletonFixed`) what the markers hold (`markerWrites`), and one the
+|||   request cuts a hole within it (`AtCut`, as `contractedSkeleton` and
+|||   `Template.cutShapeNeeded` place every such hole). `Closed.skeleton`
+|||   returns the evidence (`Closed.Skeletal`). What the induction still
+|||   lacks: the translation's argument as the site's term with the
+|||   requesting instance's values put in, which only the site table gives
+|||   (the translation's requests are made in its term walk, which reads no
+|||   site); the two solvers agreeing, the translation's (`Closed.solved`,
+|||   which every argument as written has been through) and the site's
+|||   (`Template.solvedIn`, the host's); contraction carried through
+|||   putting values in, the site's contraction with the values put in
+|||   against the instance's contraction of the term with them put in; the
+|||   hole a skeleton cuts read as one leaf (`SNoDefinition`), which needs
+|||   the context to give the runtime probe's name no place
+|||   (`Definitions.definitionAddress`), a fact of the session's name table
+|||   no module states; and where the request reads the normal form
+|||   (`HeldNormal`), the translation's normal form (`Closed.closeNormalise`,
+|||   of the argument with its runtime parts cut) related to the host's
+|||   normal form of the argument as written;
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
@@ -1335,12 +1356,12 @@ siteNormal nk r = (normalOnly nk r.formFrom).fst.reduct
 export
 0 normalHeldWhole : ReadOffNormal k -> HeldAs ctx k u held -> held = u
 normalHeldWhole _ (HeldWhole _) = Refl
-normalHeldWhole TypeReadNormal (HeldWritten _) impossible
-normalHeldWhole TypeReadNormal (HeldNormal _ _ _) impossible
-normalHeldWhole FamilyReadNormal (HeldWritten _) impossible
-normalHeldWhole FamilyReadNormal (HeldNormal _ _ _) impossible
-normalHeldWhole FormReadNormal (HeldWritten _) impossible
-normalHeldWhole FormReadNormal (HeldNormal _ _ _) impossible
+normalHeldWhole TypeReadNormal (HeldWritten _ _) impossible
+normalHeldWhole TypeReadNormal (HeldNormal _ _ _ _) impossible
+normalHeldWhole FamilyReadNormal (HeldWritten _ _) impossible
+normalHeldWhole FamilyReadNormal (HeldNormal _ _ _ _) impossible
+normalHeldWhole FormReadNormal (HeldWritten _ _) impossible
+normalHeldWhole FormReadNormal (HeldNormal _ _ _ _) impossible
 
 ||| The reading lemma, as the growth proof states it, for a kind read off
 ||| the host's normal form, from its induction at the site's normal form
@@ -2042,3 +2063,145 @@ export
                            (Scrutinised ev ctx s u, HeadedAs h n fields u)
 constructedScrutinised {shown} {headed} _ = (AsItIs shown, headed)
 
+
+------------------------------------------------------------------------------
+-- What a match meets, with an instance's values put in
+------------------------------------------------------------------------------
+
+-- No bound replaces a constructor's name, so a map keeps a reference to a
+-- data or a type constructor, and a constant.
+0 constructorImage : Mapped mv bs vals c (Ref fc (DataCon tag arity) n) h' -> h' = Ref fc (DataCon tag arity) n
+constructorImage (MRef _) = Refl
+
+0 typeConstructorImage : Mapped mv bs vals c (Ref fc (TyCon arity) n) h' -> h' = Ref fc (TyCon arity) n
+typeConstructorImage (MRef _) = Refl
+
+0 constantImage : Mapped mv bs vals c (PrimVal fc k) v -> v = PrimVal fc k
+constantImage MPrim = Refl
+
+0 spineHeadedAt : Spine t h args -> h = h' -> Spine t h' args
+spineHeadedAt sp Refl = sp
+
+||| What a constructor heads, mapped, is headed by the same constructor,
+||| its fields the images of the fields (`Idris.Host.mappedSpine`).
+export
+0 headedMapped : Mapped mv bs vals c u u' -> HeadedAs h n fields u ->
+                 (fields' : List (Term ys) ** (HeadedAs h n fields' u', AllMapped mv bs vals c fields fields'))
+headedMapped m (DataHeaded sp) = case mappedSpine m sp of
+  (h' ** (args' ** (sp', mh, margs))) => (args' ** (DataHeaded (spineHeadedAt sp' (constructorImage mh)), margs))
+headedMapped m (FamilyHeaded sp) = case mappedSpine m sp of
+  (h' ** (args' ** (sp', mh, margs))) => (args' ** (FamilyHeaded (spineHeadedAt sp' (typeConstructorImage mh)), margs))
+
+||| What a match on a constructor meets in a site's term
+||| (`Readings.scrutineeOf`'s `Constructed`), the host's step meets in
+||| every instance's term, the site's with the instance's values put in:
+||| the image of what the site's dots show, headed by the same constructor,
+||| its fields the images of the site's (`Idris.Host.putInMapped`,
+||| `Idris.Host.mappedShows`, `headedMapped`). So an alternative the
+||| site's trace passes by that head, or is stuck at, the instance's step
+||| passes or is stuck at too (`passedMisses`, `sharedTagStuck`), and one
+||| it takes, the step takes, over the fields' images.
+export
+0 constructedPutIn : {0 ev : Evaluation} -> {0 ctx : Frozen} -> {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
+                     mentions UnknownOnly bs s = False ->
+                     scrutineeOf c stands s = Constructed h n fields {u} shown headed ->
+                     (u' : ClosedTerm ** (fields' : List ClosedTerm **
+                       (Scrutinised ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs s) u', HeadedAs h n fields' u',
+                        AllMapped KeepsLocals bs vs (size SizeOf.zero) fields fields')))
+constructedPutIn {s} {shown} {headed} bs vs none _ =
+  case mappedShows (putInMapped SizeOf.zero (mkSizeOf ns) bs vs s none) shown of
+    (u' ** (mu, shows')) => case headedMapped mu headed of
+      (fields' ** (headed', mfields)) => (u' ** (fields' ** (AsItIs shows', headed', mfields)))
+
+||| What a match on a literal meets in a site's term (`Readings.scrutineeOf`'s
+||| `Literal`), the host's step meets in every instance's term as it is:
+||| putting values in keeps a constant, through the dots that show it. So
+||| a literal's alternatives are missed and taken at every instance as the
+||| site's trace misses and takes them (`literalPassedMisses`,
+||| `literalTaken`).
+export
+0 literalPutIn : {0 ev : Evaluation} -> {0 ctx : Frozen} -> {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
+                 mentions UnknownOnly bs s = False ->
+                 scrutineeOf c stands s = Literal {fc} k shown ->
+                 Scrutinised ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs s) (PrimVal fc k)
+literalPutIn {s} {shown} bs vs none _ =
+  case mappedShows (putInMapped SizeOf.zero (mkSizeOf ns) bs vs s none) shown of
+    (v ** (mv, shows')) =>
+      AsItIs (replace {p = \x => Shows (putIn SizeOf.zero (mkSizeOf ns) bs vs s) x} (constantImage mv) shows')
+
+------------------------------------------------------------------------------
+-- What a request holds of a shape
+------------------------------------------------------------------------------
+
+-- A function's reference heads no skeleton.
+0 functionUnshaped : SkeletonOf (Ref fc Func n) s -> Void
+functionUnshaped SkeletonHead impossible
+functionUnshaped (SkeletonApplied _ _) impossible
+
+||| The hole a skeleton cuts has no skeleton of its own: it is a function's
+||| reference (`Walk.runtimeProbeTerm`), which no data constructor heads.
+export
+0 holeUnshaped : SkeletonOf (probeTerm ProbeRuntime) s -> Void
+holeUnshaped sk = functionUnshaped (replace {p = \x => SkeletonOf x s} runtimeProbeTerm sk)
+
+mutual
+  ||| A term has one skeleton: `SkeletonOf` is a function of the term.
+  export
+  0 skeletonsAlike : SkeletonOf a s -> SkeletonOf a s' -> s = s'
+  skeletonsAlike SkeletonHead SkeletonHead = Refl
+  skeletonsAlike (SkeletonApplied {fc} f x) (SkeletonApplied f' x') = cong2 (App fc) (skeletonsAlike f f') (cutsAlike x x')
+
+  0 cutsAlike : ArgumentCut a s -> ArgumentCut a s' -> s = s'
+  cutsAlike (ArgumentKept x) (ArgumentKept y) = skeletonsAlike x y
+  cutsAlike (ArgumentKept x) (ArgumentCutAt none) = void (none _ x)
+  cutsAlike (ArgumentCutAt none) (ArgumentKept y) = void (none _ y)
+  cutsAlike (ArgumentCutAt _) (ArgumentCutAt _) = Refl
+
+mutual
+  ||| A skeleton is its own skeleton: its constructors head it as they head
+  ||| the term, and each hole has none (`holeUnshaped`). So where an
+  ||| instance's value put in for a site's marker is a skeleton, as every
+  ||| value a request keyed by a shape holds is, the skeleton of that value
+  ||| is the value itself.
+  export
+  0 skeletonFixed : SkeletonOf a s -> SkeletonOf s s
+  skeletonFixed SkeletonHead = SkeletonHead
+  skeletonFixed (SkeletonApplied f x) = SkeletonApplied (skeletonFixed f) (cutFixed x)
+
+  0 cutFixed : ArgumentCut a s -> ArgumentCut s s
+  cutFixed (ArgumentKept x) = ArgumentKept (skeletonFixed x)
+  cutFixed (ArgumentCutAt _) = ArgumentCutAt (\_ => holeUnshaped)
+
+||| A skeleton cut further than another: the same, a hole where the other
+||| keeps a node, or a constructor's application each part of which is cut
+||| further than the other's. Every node the first keeps, the second keeps.
+public export
+data CutFrom : ClosedTerm -> ClosedTerm -> Type where
+  CutNothing : CutFrom s s
+  CutToHole : CutFrom (probeTerm ProbeRuntime) s
+  CutBelow : CutFrom f f' -> CutFrom a a' -> CutFrom (App fc f a) (App fc f' a')
+
+mutual
+  ||| Contraction keeps every constructor a skeleton keeps: a data
+  ||| constructor heads the contraction of a term it heads, the arguments
+  ||| contracted, while a part the skeleton cuts, a lambda among them, may
+  ||| contract to a term a constructor heads, which the contraction's
+  ||| skeleton keeps. So the skeleton of a term as written is the skeleton
+  ||| of its contraction cut further (`CutFrom`): where a request cuts an
+  ||| argument as written and a site's reading reads it contracted, the two
+  ||| keep one constructor wherever the request keeps one, and a hole only
+  ||| the request cuts lies where the site's reading writes a node, which
+  ||| the hole is written under (`Proof.Bound.AtCut`).
+  export
+  0 contractedSkeleton : SkeletonOf u s -> EtaContracts u v -> (s' : ClosedTerm ** (SkeletonOf v s', CutFrom s s'))
+  contractedSkeleton sk EtaSame = (_ ** (sk, CutNothing))
+  contractedSkeleton (SkeletonApplied sf x) (EtaApp cf ca) = case contractedSkeleton sf cf of
+    (_ ** (sf', ff)) => case contractedCut x ca of
+      (_ ** (x', fa)) => (_ ** (SkeletonApplied sf' x', CutBelow ff fa))
+
+  0 contractedCut : ArgumentCut a s -> EtaContracts a v -> (s' : ClosedTerm ** (ArgumentCut v s', CutFrom s s'))
+  contractedCut (ArgumentKept sk) c = case contractedSkeleton sk c of
+    (s' ** (sk', cf)) => (s' ** (ArgumentKept sk', cf))
+  contractedCut {v} (ArgumentCutAt _) c = case skeleton v of
+    HasSkeleton s' sk' => (s' ** (ArgumentKept sk', CutToHole))
+    NoSkeleton none => (_ ** (ArgumentCutAt none, CutNothing))

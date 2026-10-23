@@ -1703,7 +1703,7 @@ mutual
       Bind _ _ (Pi {}) _ => givesOf <$> leafRoots w acc n (args ++ replicate (lacking def) unknownPart)
       _ => case !(fixing ty (applyTo head args)) of
         ChosenAtRunTime on => Chosen <$> settling on def
-        FixedNow => asRoot <$> fixedAs def
+        FixedNow _ => asRoot <$> fixedAs def
     where
       lacking : GlobalDef -> Nat
       lacking def = case definition def of
@@ -2435,23 +2435,81 @@ data WholeKind : Readings.Static -> Type where
   WholeDictionary : WholeKind ADictionary
   WholeForm : WholeKind AForm
 
+||| A shape cut where a callee's type stops needing it
+||| (`Instances.neededShape`, by `Closed.cutShape`): the shape whole, one
+||| erased hole where the cut is, or a constructor's application each part
+||| of which is cut so, rebuilt at its constructor's location. A cut keeps
+||| no node the shape does not, and an instance reads its hole as one leaf
+||| (`Proof.Covers.erasedReadAs`), which the site's node is written over
+||| (`Proof.Bound.AtCut`).
+public export
+data NeededCut : ClosedTerm -> ClosedTerm -> Type where
+  NeedsWhole : NeededCut s s
+  NeedsNone : NeededCut s (Erased fc Impossible)
+  NeedsBelow : NeededCut f f' -> NeededCut a a' -> NeededCut (App fc f a) (App fc' f' a')
+
+-- Rebuilding over a spine one argument longer is the spine before it,
+-- rebuilt, applied to the last argument's image.
+0 rebuiltSnoc : (fc : FC) -> (g : ClosedTerm -> ClosedTerm) -> (h : ClosedTerm) -> (pre : List ClosedTerm) -> (a : ClosedTerm) ->
+                foldl (App fc) h (map g (pre ++ [a])) = App fc (foldl (App fc) h (map g pre)) (g a)
+rebuiltSnoc fc g h pre a = rewrite mapAppend g pre [a] in foldlAppend (App fc) h (map g pre) [g a]
+
+mutual
+  ||| The cut `Instances.neededShape` keeps (`Closed.cutShape`, with an
+  ||| erased hole) is a cut of the shape: at no depth left, the hole; else
+  ||| the spine's head, a data constructor rebuilt over its arguments each
+  ||| cut one level shallower, or any other head, the hole.
+  export
+  0 cutShapeNeeded : (d : Nat) -> (tm : ClosedTerm) -> NeededCut tm (cutShape (Erased EmptyFC Impossible) d tm)
+  cutShapeNeeded Z tm = NeedsNone
+  cutShapeNeeded (S d) tm = cutSpineNeeded d (spineOf tm)
+
+  0 cutSpineNeeded : (d : Nat) -> {0 tm : ClosedTerm} -> (sp : SpineOf tm) ->
+                     NeededCut tm (cutSpine (Erased EmptyFC Impossible) d sp)
+  cutSpineNeeded d (MkSpineOf (Ref fc (DataCon tag arity) n) args sp) = rebuiltNeeded d sp
+  cutSpineNeeded d (MkSpineOf (Local _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ Bound _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ Func _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Ref _ (TyCon _) _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Meta _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Bind _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (App _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (As _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TDelayed _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TDelay _ _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TForce _ _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (PrimVal _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (Erased _ _) _ _) = NeedsNone
+  cutSpineNeeded d (MkSpineOf (TType _ _) _ _) = NeedsNone
+
+  -- A spine whose arguments are each cut, rebuilt over its head at one
+  -- location: the last argument applied last, so the rebuilt term is the
+  -- spine before it rebuilt, applied to its cut.
+  0 rebuiltNeeded : (d : Nat) -> {0 fc : FC} -> {0 h : ClosedTerm} -> Spine t h args ->
+                    NeededCut t (foldl (App fc) h (map (cutShape (Erased EmptyFC Impossible) d) args))
+  rebuiltNeeded d Host.Head = NeedsWhole
+  rebuiltNeeded d {fc} {h} (Host.Applied {a} {args = pre} sp) =
+    rewrite rebuiltSnoc fc (cutShape (Erased EmptyFC Impossible) d) h pre a in
+    NeedsBelow (rebuiltNeeded d sp) (cutShapeNeeded d a)
+
 ||| What a request holds of the term an instance writes at a static
 ||| argument of kind k, which the instance's reading reads: at a shape, the
 ||| term's skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape`
 ||| keys it), of the term as written where a data constructor heads it,
-||| else of the host's normal form of it; at any other kind, the term
-||| itself. A skeleton's hole stands for the node it cut, which the site's
-||| reading of a shape reads as a hole too (`Readings.nodeOf Skeleton`), so
-||| no rule takes a hole to the node a reading of the whole term would
-||| read there. This is the evidence a request carries with the site it
-||| reads (the translation's site table): the site's term, with the
-||| requesting instance's values put in, holds as the request's argument.
+||| else of the host's normal form of it, cut where the callee's type stops
+||| needing it (`NeededCut`); at any other kind, the term itself. A
+||| skeleton's hole stands for the node it cut, which the site's reading of
+||| a shape reads as a hole too (`Readings.nodeOf Skeleton`), so no rule
+||| takes a hole to the node a reading of the whole term would read there.
+||| This is the evidence a request carries with the site it reads (the
+||| translation's site table): the site's term, with the requesting
+||| instance's values put in, holds as the request's argument.
 public export
 data HeldAs : Frozen -> Readings.Static -> ClosedTerm -> ClosedTerm -> Type where
   HeldWhole : WholeKind k -> HeldAs ctx k u u
-  HeldWritten : (0 _ : SkeletonOf u held) -> HeldAs ctx AShape u held
+  HeldWritten : (0 _ : SkeletonOf u shape) -> (0 _ : NeededCut shape held) -> HeldAs ctx AShape u held
   HeldNormal : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf u s)) -> (0 r : Reduct OfNormaliseTypes ctx u) ->
-               (0 _ : SkeletonOf r.value held) -> HeldAs ctx AShape u held
+               (0 _ : SkeletonOf r.value shape) -> (0 _ : NeededCut shape held) -> HeldAs ctx AShape u held
 
 ||| The reading lemma, as the growth proof states it: at markers fresh for
 ||| the frozen context and apart (`Proof.Markers.Markers`), put in by values
