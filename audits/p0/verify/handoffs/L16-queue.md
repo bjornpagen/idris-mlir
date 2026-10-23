@@ -403,3 +403,12 @@ L17ay settles whether Readings' marker names change):
   polymorphic function's type; with C263 no parameter or lambda reaches
   it, so the rule is dead there: delete it or make it read a universe as a
   type parameter, as `keyingOf` does.
+
+## D126's second round (left by the first units)
+
+- Unit E: `Conversion/Lower/Functions.cpp:76` (DestType, later DataType,
+  on one type) and `:117-118` (LifetimeType on two values);
+  `Analysis/Solver/TypeGraph.cpp:125` (a SelfType test
+  `IndexedTypeInterface::getPositionalMember` answers);
+  `IR/Layout/Components.cpp`'s `wordsOf`, a template fold over the
+  dialect's types, which D126 says is not the form.
