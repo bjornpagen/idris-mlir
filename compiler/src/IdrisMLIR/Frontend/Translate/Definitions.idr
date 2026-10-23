@@ -66,14 +66,3 @@ export
 nameAt : Context -> Address -> Maybe Name
 nameAt ctx a = let i = addressIndex a in
                if i < nextEntry ctx then Just (Resolved i) else Nothing
-
-||| The definition at an address, as the context holds it; nothing at bytes
-||| no entry of the context has. The one reading of a definition by its
-||| address.
-export
-definitionAt : {auto c : Ref Ctxt Defs} -> Address -> Core (Maybe GlobalDef)
-definitionAt a = do
-  defs <- get Ctxt
-  case nameAt (gamma defs) a of
-    Just n => lookupCtxtExact n (gamma defs)
-    Nothing => pure Nothing
