@@ -71,6 +71,8 @@
   "foreign/idr/include/idr/IR/IdrTypes.td",
   "foreign/idr/include/idr/IR/IdrDialect.h",
   "foreign/idr/include/idr/IR/Traits.h",
+  "foreign/idr/include/idr/IR/Interfaces/",
+  "foreign/idr/lib/IR/Interfaces/",
   "foreign/idr/include/idr/Transforms/Passes.td",
   "foreign/idr/include/idr/Transforms/InnerPasses.td",
   "foreign/idr/include/idr/Transforms/Pipeline.h",
