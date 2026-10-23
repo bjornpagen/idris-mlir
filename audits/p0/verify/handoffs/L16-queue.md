@@ -619,3 +619,24 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   translation ("PrimIO.MkIORes: a field type that depends on another
   argument of its constructor", L16); validation compares a row's type
   names as printed text, `inModules` module paths as text.
+- From L18z: a class copy forced by a parameter whose tail gives an
+  index the language cannot express (`Vect (length xs)`) is refused by
+  the scope rule's cast `#Vect[_]` to `#Vect[3]`; openResults covers only
+  the copy its result alone forces, so the rule must open a copy's result
+  wherever its tail cannot match, whatever forced its class (L18);
+  `openTails`: an opened function with a tail that builds words needs the
+  cast to claim `unique self`, which one hold cannot serve beside a
+  passed-through tail before Graded (a decision for the coordinator, with
+  L05's reading of claims); `callersOf` misses an asker's call of a copy,
+  so `dropUnread` would miss narrowing it (L18); by reading, L04x's
+  `open-copy-keeps-refined-index` reindexes a bare type to a graded one
+  the refinement check refuses, and in `sum-index-closed-tail`
+  contification may make `@reverseOnto` a join point of `@later` (L19,
+  the tests). From L02x: `unittests/Rows.cpp`'s model still seeds
+  divergence (`ThePipelineStopsExactly`, `EachMutantOracleIsCaught`: draw
+  per function whether its body holds a marked loop; L15); Termination's
+  `Acyclic` is read like an absent attribute by every reader, a fact held
+  for no reader (delete it from the specification and its writers, Emit,
+  `Forces.cpp`, `Settle.cpp`, or give it a reader), and
+  `Termination.idr:3-4` and `TerminatesAttr`'s description take L02x's
+  text (in its handoff, 8123ffde's lane).
