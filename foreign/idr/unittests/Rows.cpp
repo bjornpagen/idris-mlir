@@ -3,17 +3,24 @@
 // The box of a function's row held to its body between passes: a pass that
 // leaves a row short of what its body does never hands the program on.
 // Each case is a program of functions that call one another, built from a
-// seed: whether Idris proved each function's own loops end, its calls in
-// order, and atoms drawn beyond what its body needs; each row is the least
-// that holds those and every atom of each callee's row, and every call
-// holds its callee's row. Then, for every function and every atom, a pass
-// drops the atom from the function's row, or adds it, every call of the
-// function copying the change as the one writer of rows would, and a pass
-// after it notes that it ran. The pipeline stops between the two exactly
-// when some row then lacks what its body needs: divergence where Idris did
-// not prove the function's loops end, and every atom of the row each of
-// its calls holds. A row that says too much is sound and passes. The
-// judgement is shown failing each oracle planted with a fault.
+// seed: what Idris proved of each function, the loop its body holds after
+// its calls (none, one that ends, or one that may not end and says so by
+// idr.may_loop where its join region begins), its calls in order, and
+// atoms drawn beyond what its body needs. Each row is the least the one
+// writer of rows would write: those atoms, divergence for a loop that may
+// not end, divergence for every member of a cycle of calls Idris did not
+// prove together, and every atom of each callee's row; every call holds
+// its callee's row. Then, for every function and every atom, a pass drops
+// the atom from the function's row, or adds it, every call of the function
+// copying the change as the one writer of rows would, and a pass after it
+// notes that it ran. The pipeline stops between the two exactly when some
+// row then lacks what its body needs: divergence where it holds
+// idr.may_loop, and every atom of the row each of its calls holds. A
+// cycle's divergence is no op's: each member's call of another member
+// holds it, so a member that drops it lacks what that call needs, while a
+// self call holds its own function's row and gives it up with the row. A
+// row that says too much is sound and passes. The judgement is shown
+// failing each oracle planted with a fault.
 
 #include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Func.h"
@@ -26,6 +33,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
@@ -33,13 +41,14 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include "gtest/gtest.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
@@ -50,10 +59,41 @@ namespace {
 // How a pass changes one atom of one function's row.
 enum class Change : std::uint8_t { Drop, Add };
 
+// What Idris proved of a function, as the seed draws it: nothing; its own
+// loops and recursion, in a component of its call graph; or nothing to
+// prove, a pass having made it with no loop of its own.
+enum class Proof : std::uint8_t { Unproved, InComponent, Acyclic };
+
+// The loop a function's body holds after its calls: none; an idr.loop whose
+// join region yields, so nothing repeats; or one whose join region begins
+// with idr.may_loop and jumps back to itself, a loop of code Idris did not
+// prove to end.
+enum class Loop : std::uint8_t { None, Ends, MayNotEnd };
+
+// Whether a cycle of calls is known to end: Idris proved every member in
+// one and the same component of its own, or no call comes back, so nothing
+// repeats; or it may run forever.
+enum class Ending : std::uint8_t { Ends, MayNotEnd };
+
 } // namespace
 
 template <>
 struct idr::EnumTraits<Change> {
+  static constexpr std::size_t count = 2;
+};
+
+template <>
+struct idr::EnumTraits<Proof> {
+  static constexpr std::size_t count = 3;
+};
+
+template <>
+struct idr::EnumTraits<Loop> {
+  static constexpr std::size_t count = 3;
+};
+
+template <>
+struct idr::EnumTraits<Ending> {
   static constexpr std::size_t count = 2;
 };
 
@@ -72,27 +112,100 @@ constexpr EnumArray<Change, Row (*)(Row, Atom)> changes{
      [](Row row, Atom atom) { return row | Row{atom}; }}};
 constexpr EnumArray<Change, const char *> changeNames{{"dropped", "added"}};
 
-// A program, as data: what is known of each function's own loops, the
-// callees of its calls in order, and the atoms drawn into its row beyond
-// what its body needs.
-struct Shape {
-  std::vector<idr::Termination> terminations;
-  std::vector<std::vector<unsigned>> calls;
-  std::vector<Row> extra;
+// What a function's loop adds to its row: divergence where it may not end,
+// which its idr.may_loop declares; a loop that ends adds nothing.
+constexpr EnumArray<Loop, Row> loopAtoms{{Row{}, Row{}, Row{Atom::divergence}}};
+
+// What the one writer of rows joins into the row of each member of a
+// cycle of calls: divergence where the cycle may not end.
+constexpr EnumArray<Ending, Row> cycleAtoms{{Row{}, Row{Atom::divergence}}};
+
+// The cycle of calls a function lies on: the members of its component of
+// the call graph, none where no run of it calls it again; and whether the
+// cycle is known to end.
+struct Cycle {
+  llvm::SmallBitVector members;
+  Ending ending;
 };
 
-// The shape of a seed: two to five functions, each making up to as many
-// calls as the seed allows, each an atom beyond its needs as often as the
-// seed says.
+// A program, as data: what Idris proved of each function, the loop its
+// body holds, the callees of its calls in order, and the atoms drawn into
+// its row beyond what its body needs; then, read off those once, the cycle
+// each function lies on.
+struct Shape {
+  std::vector<idr::Termination> terminations;
+  std::vector<Loop> loops;
+  std::vector<std::vector<unsigned>> calls;
+  std::vector<Row> extra;
+  std::vector<Cycle> cycles;
+};
+
+// The one proof that a cycle of ours ends, as the writer of rows reads it:
+// Idris proved every member in one and the same component of its own.
+Ending endingOf(const std::vector<idr::Termination> &terminations,
+                const llvm::SmallBitVector &members) {
+  return idr::match(
+      terminations[static_cast<unsigned>(members.find_first())],
+      [](idr::Unproved) { return Ending::MayNotEnd; },
+      [](idr::Acyclic) { return Ending::MayNotEnd; },
+      [&](idr::InComponent in) {
+        return llvm::all_of(members.set_bits(),
+                            [&](unsigned member) {
+                              return terminations[member] == idr::Termination{in};
+                            })
+                   ? Ending::Ends
+                   : Ending::MayNotEnd;
+      });
+}
+
+// The cycle each function lies on, from the calls' transitive closure:
+// `reaches[f]` holds every function a run of f calls through one call or
+// more, closed by Warshall's rule, a case having at most five functions.
+// Where f reaches itself, its cycle is every function it reaches that
+// reaches it back; where it does not, nothing repeats.
+std::vector<Cycle> cyclesOf(const std::vector<idr::Termination> &terminations,
+                            const std::vector<std::vector<unsigned>> &calls) {
+  auto functions = static_cast<unsigned>(calls.size());
+  std::vector<llvm::SmallBitVector> reaches(functions, llvm::SmallBitVector(functions));
+  for (unsigned f = 0; f < functions; ++f)
+    for (unsigned callee : calls[f])
+      reaches[f].set(callee);
+  for (unsigned via = 0; via < functions; ++via)
+    for (unsigned f = 0; f < functions; ++f)
+      if (reaches[f].test(via))
+        reaches[f] |= reaches[via];
+  std::vector<Cycle> cycles;
+  for (unsigned f = 0; f < functions; ++f) {
+    llvm::SmallBitVector members(functions);
+    if (reaches[f].test(f))
+      for (unsigned g : reaches[f].set_bits())
+        if (reaches[g].test(f))
+          members.set(g);
+    Ending ending = members.none() ? Ending::Ends : endingOf(terminations, members);
+    cycles.push_back({std::move(members), ending});
+  }
+  return cycles;
+}
+
+// The shape of a seed: two to five functions, each with a proof and a loop
+// as often as the seed's weights say, a proof in a component being in one
+// of as many as the seed allows, one or two, so the members of a cycle are
+// proved together or apart; each making up to as many calls as the seed
+// allows; each an atom beyond its needs as often as the seed says.
 Shape shapeOf(std::uint64_t seed) {
   Draws draws(seed);
   unsigned functions = 2 + draws.below(4);
   unsigned busiest = 1 + draws.below(4);
   unsigned eighths = draws.below(5);
+  unsigned components = 1 + draws.below(2);
+  EnumArray<Proof, unsigned> proofWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
+  EnumArray<Loop, unsigned> loopWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
   Shape shape;
   for (unsigned f = 0; f < functions; ++f) {
-    const idr::Termination known[] = {idr::Unproved{}, idr::InComponent{f}, idr::Acyclic{}};
-    shape.terminations.push_back(known[draws.below(std::size(known))]);
+    EnumArray<Proof, idr::Termination> proofs{
+        {idr::Unproved{}, idr::InComponent{draws.below(components)}, idr::Acyclic{}}};
+    shape.terminations.push_back(proofs[draws.weighted(proofWeights)]);
+    shape.loops.push_back(draws.weighted(loopWeights));
     std::vector<unsigned> callees;
     for (unsigned c = draws.below(busiest); c > 0; --c)
       callees.push_back(draws.below(functions));
@@ -103,34 +216,29 @@ Shape shapeOf(std::uint64_t seed) {
         (void)extra.join({atom});
     shape.extra.push_back(extra);
   }
+  shape.cycles = cyclesOf(shape.terminations, shape.calls);
   return shape;
 }
 
-// What a function's loops add to its row: divergence, unless Idris proved
-// they end or a pass made the function with none.
-Row seedOf(const idr::Termination &termination) {
-  return idr::match(
-      termination, [](idr::Unproved) { return Row{Atom::divergence}; },
-      [](idr::InComponent) { return Row{}; }, [](idr::Acyclic) { return Row{}; });
-}
-
-// The atoms function `f`'s body needs under `rows`: its loops' and every
+// The atoms function `f`'s body needs under `rows`: its loop's, and every
 // atom of each callee's row, which its calls hold.
 Row needs(const Shape &shape, const std::vector<Row> &rows, unsigned f) {
-  Row needed = seedOf(shape.terminations[f]);
+  Row needed = loopAtoms[shape.loops[f]];
   for (unsigned callee : shape.calls[f])
     needed = needed | rows[callee];
   return needed;
 }
 
-// The least rows holding each body's needs and its drawn atoms.
+// The least rows the one writer of rows writes: each holding its body's
+// needs, its drawn atoms and its cycle's, joined until none grows.
 std::vector<Row> leastRows(const Shape &shape) {
-  std::vector<Row> rows(shape.terminations.size());
+  std::vector<Row> rows(shape.loops.size());
   idr::Changed grew = idr::Changed::Yes;
   while (grew == idr::Changed::Yes) {
     grew = idr::Changed::No;
     for (unsigned f = 0; f < rows.size(); ++f)
-      if (rows[f].join(needs(shape, rows, f) | shape.extra[f]) == idr::Changed::Yes)
+      if (rows[f].join(needs(shape, rows, f) | shape.extra[f] |
+                       cycleAtoms[shape.cycles[f].ending]) == idr::Changed::Yes)
         grew = idr::Changed::Yes;
   }
   return rows;
@@ -144,9 +252,15 @@ enum class Verdict : std::uint8_t { Passes, Stops };
 // the judge must say so.
 using Oracle = Verdict (*)(const Shape &, const std::vector<Row> &);
 
+// What a judge takes the body of function `f` to need under `rows`: the
+// box's is `needs`.
+using Needs = Row (*)(const Shape &, const std::vector<Row> &, unsigned);
+
+// The judgement that every row holds what its body needs, by `need`.
+template <Needs need>
 Verdict covers(const Shape &shape, const std::vector<Row> &rows) {
   for (unsigned f = 0; f < rows.size(); ++f)
-    if (!rows[f].includes(needs(shape, rows, f)))
+    if (!rows[f].includes(need(shape, rows, f)))
       return Verdict::Stops;
   return Verdict::Passes;
 }
@@ -160,10 +274,40 @@ idr::TerminatesAttr attributeOf(mlir::MLIRContext &context, const idr::Terminati
       [&](idr::Acyclic acyclic) { return idr::TerminatesAttr::get(&context, acyclic); });
 }
 
+// An idr.loop of one join region, giving nothing, built at `b`'s insertion
+// point: its body jumps into the join region, whose block, empty, is
+// returned with `b` at its end.
+mlir::Block *loopInto(mlir::OpBuilder &b, mlir::Location loc) {
+  mlir::ArrayAttr binders = b.getArrayAttr({idr::IndexBindersAttr::get(b.getContext(), {})});
+  auto loop = idr::LoopOp::create(b, loc, mlir::TypeRange(), mlir::ValueRange(), binders, 1u);
+  mlir::Type token = b.getType<mlir::TokenType>();
+  mlir::Block *body = b.createBlock(&loop.getBody(), {}, {token}, {loc});
+  idr::JumpOp::create(b, loc, body->getArgument(0), mlir::ValueRange(), idr::IndexArgsAttr());
+  return b.createBlock(&loop.getJoinRegions().front(), {}, {token}, {loc});
+}
+
+// Each loop built at `b`'s insertion point, which stays after it: none; a
+// loop whose join region yields; a loop whose join region begins with
+// idr.may_loop and jumps back to itself.
+constexpr EnumArray<Loop, void (*)(mlir::OpBuilder &, mlir::Location)> loopsBuilt{
+    {[](mlir::OpBuilder &, mlir::Location) {},
+     [](mlir::OpBuilder &b, mlir::Location loc) {
+       mlir::OpBuilder::InsertionGuard guard(b);
+       loopInto(b, loc);
+       idr::YieldOp::create(b, loc, mlir::ValueRange());
+     },
+     [](mlir::OpBuilder &b, mlir::Location loc) {
+       mlir::OpBuilder::InsertionGuard guard(b);
+       mlir::Block *again = loopInto(b, loc);
+       idr::MayLoopOp::create(b, loc);
+       idr::JumpOp::create(b, loc, again->getArgument(0), mlir::ValueRange(),
+                           idr::IndexArgsAttr());
+     }}};
+
 // The program of `shape` under `rows`, at the first stage, f0 its root:
 // each function taking and giving nothing, its body its calls, none in
-// tail position, then its return; each call built of its callee, so it
-// holds the callee's row.
+// tail position, then its loop, then its return; each call built of its
+// callee, so it holds the callee's row.
 mlir::OwningOpRef<mlir::ModuleOp> programOf(mlir::MLIRContext &context, const Shape &shape,
                                             const std::vector<Row> &rows) {
   mlir::OpBuilder b(&context);
@@ -188,6 +332,7 @@ mlir::OwningOpRef<mlir::ModuleOp> programOf(mlir::MLIRContext &context, const Sh
     for (unsigned callee : shape.calls[f])
       idr::CallOp::create(b, loc, functions[callee], idr::IndexArgsAttr(), mlir::ValueRange(),
                           idr::TailKind::nontail);
+    loopsBuilt[shape.loops[f]](b, loc);
     idr::ReturnOp::create(b, loc, mlir::ValueRange());
   }
   return module;
@@ -308,28 +453,33 @@ unsigned judge(unsigned limit, Report report) {
 }
 
 TEST(Rows, ThePipelineStopsExactlyWhereARowLacksWhatItsBodyNeeds) {
-  EXPECT_EQ(judge<covers>(10, Report::Each), 0u);
+  EXPECT_EQ(judge<covers<needs>>(10, Report::Each), 0u);
 }
 
-// Idris's proof forgotten: a function it did not prove may drop
+// A loop's mark forgotten: a function whose loop may not end may drop
 // divergence.
-Verdict forgetsLoops(const Shape &shape, const std::vector<Row> &rows) {
-  for (unsigned f = 0; f < rows.size(); ++f) {
-    Row needed;
-    for (unsigned callee : shape.calls[f])
-      needed = needed | rows[callee];
-    if (!rows[f].includes(needed))
-      return Verdict::Stops;
-  }
-  return Verdict::Passes;
+Row forgetsMarks(const Shape &shape, const std::vector<Row> &rows, unsigned f) {
+  Row needed;
+  for (unsigned callee : shape.calls[f])
+    needed = needed | rows[callee];
+  return needed;
 }
 
 // Calls forgotten: a caller may drop what its callees do.
-Verdict forgetsCalls(const Shape &shape, const std::vector<Row> &rows) {
-  for (unsigned f = 0; f < rows.size(); ++f)
-    if (!rows[f].includes(seedOf(shape.terminations[f])))
-      return Verdict::Stops;
-  return Verdict::Passes;
+Row forgetsCalls(const Shape &shape, const std::vector<Row> &, unsigned f) {
+  return loopAtoms[shape.loops[f]];
+}
+
+// A cycle's divergence forgotten: a call of a member of the caller's own
+// cycle, one that may not end, is taken to hold none, so a member may drop
+// it.
+Row forgetsCycles(const Shape &shape, const std::vector<Row> &rows, unsigned f) {
+  const Cycle &cycle = shape.cycles[f];
+  Row needed = loopAtoms[shape.loops[f]];
+  for (unsigned callee : shape.calls[f])
+    needed = needed |
+             (cycle.members.test(callee) ? rows[callee] - cycleAtoms[cycle.ending] : rows[callee]);
+  return needed;
 }
 
 // Equality taken for containment: a row that says too much is refused.
@@ -343,8 +493,9 @@ Verdict wantsExact(const Shape &shape, const std::vector<Row> &rows) {
 // The judgement can fail: each oracle with a planted fault disagrees with
 // the pipeline on some case.
 TEST(Rows, EachMutantOracleIsCaught) {
-  EXPECT_GT(judge<forgetsLoops>(1, Report::None), 0u);
-  EXPECT_GT(judge<forgetsCalls>(1, Report::None), 0u);
+  EXPECT_GT(judge<covers<forgetsMarks>>(1, Report::None), 0u);
+  EXPECT_GT(judge<covers<forgetsCalls>>(1, Report::None), 0u);
+  EXPECT_GT(judge<covers<forgetsCycles>>(1, Report::None), 0u);
   EXPECT_GT(judge<wantsExact>(1, Report::None), 0u);
 }
 
