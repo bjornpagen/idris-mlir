@@ -172,7 +172,8 @@ data HeldItem : Type where
 ||| is, with that dictionary's root, the application of a compile-time
 ||| form at a use, which no definition is (`Translate.State.AtUse`), at the
 ||| form's type (0), the form (1) and the use's static arguments (2 on), or
-||| the choice of a head, a member of which it makes, its one argument. Or
+||| the choice of a head, a member of which it makes, its one argument,
+||| with what a message reads of the head (`HeadRead`). Or
 ||| the writer itself again, where its tree takes apart a field of its
 ||| dictionary parameter at a path of fields, which the running program may
 ||| have chosen (`Translate.Cases.heldHere`): the dictionary rebuilt with
@@ -188,8 +189,14 @@ data HeldItem : Type where
 ||| callee is given it, and every use of the dictionary reads its values
 ||| there (`PackedBy`).
 public export
-data Reach = Calls Address Defined | Builds Address Defined | Dispatches Template Root Nat | Applies | Makes ChoiceHead
-           | Repacks Argument (List1 Nat) | Keeps BoundPlace (List1 HeldItem)
+data Reach : Type where
+  Calls : Address -> Defined -> Reach
+  Builds : Address -> Defined -> Reach
+  Dispatches : Template -> Root -> Nat -> Reach
+  Applies : Reach
+  Makes : (k : ChoiceHead) -> HeadRead k -> Reach
+  Repacks : Argument -> List1 Nat -> Reach
+  Keeps : BoundPlace -> List1 HeldItem -> Reach
 
 ||| One site: who wrote it, by address and as it was read (whose parameters
 ||| the templates' `Var`s are, as `params` reads them, and whose type names
@@ -1138,11 +1145,11 @@ callSite at ps env fc reach gs = do
 ||| as a dictionary argument does (`argument`). What its body requests at a
 ||| use is its use's walk (`useOf`).
 memberAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-           At -> Pats -> Env vs -> FC -> ChoiceHead -> (d : ClosedTerm) ->
+           At -> Pats -> Env vs -> FC -> (k : ChoiceHead) -> HeadRead k -> (d : ClosedTerm) ->
            (packed : (List (List1 HeldItem), List Site)) -> TT vs -> Front (List Site)
-memberAt at ps env fc k d (lists, packed) written = do
+memberAt at ps env fc k named d (lists, packed) written = do
   x <- readArgument ps.made 0 ADictionary Nothing d (WrittenText at.writerDef ps env written)
-  pure (siteAt at fc (Makes k) [{ holds := lists } x] :: packed)
+  pure (siteAt at fc (Makes k named) [{ holds := lists } x] :: packed)
 
 ||| A lambda where the member table says a member stands: the member of its
 ||| type's choice (`Translate.Terms.member`), of a polymorphic function
@@ -1163,7 +1170,7 @@ lambdaAt at ps env fc lam = do
   packed <- case closingsOf h.markers of
     Just closings => held at ps.made fc (map closedItem closings ++ map (ValuesOf . OwnParameter) (ownersIn at.statics h.marked))
     Nothing => pure ([], [])
-  memberAt at ps env fc ArrowHead d packed lam
+  memberAt at ps env fc ArrowHead ArrowRead d packed lam
 
 ||| What a value of a type in normal form, over the writer's markers, is:
 ||| a member of its type's choice, no member, or what only an instance
@@ -1268,14 +1275,14 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
   where
     made : ClosedTerm -> Front (List Site)
     made ty = do
-      k <- choiceHeadOf ty
+      (k ** named) <- choiceReadOf ty
       let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
       h <- holedAt env written
       form <- solved h.key
       FixedNow _ <- fixing ty form
         | ChosenAtRunTime _ => pure []
       shaped <- solved (close env written)
-      memberAt at ps env fc k form !(packings at ps.made fc h shaped) written
+      memberAt at ps env fc k named form !(packings at ps.made fc h shaped) written
 
 ||| What a definition's leaves give at its node, from what the member table
 ||| says it gives after its parameters; where the instance decides, the

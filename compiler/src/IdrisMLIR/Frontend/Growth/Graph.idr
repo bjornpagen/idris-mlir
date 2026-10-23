@@ -205,6 +205,20 @@ record SiteLanding {n : Nat} (t : LandingTable n) (s : Bound.Site n) where
   0 recordRoots : RecordRoots atParameter s.roots
   0 readsTable : ReadsTable t s.writers atParameter
 
+||| What a message reads of what each position of a list of places is
+||| named by (`Heads.SpotRead`), in the places' order, each indexed by its
+||| position, so none is another's.
+public export
+data SpotsRead : Vect n Spot -> Type where
+  NothingPlaced : SpotsRead []
+  PlacedThen : SpotRead s -> SpotsRead ss -> SpotsRead (s :: ss)
+
+||| What a message reads of the position at a place.
+export
+readAtPlace : (f : Fin n) -> SpotsRead ss -> SpotRead (Vect.index f ss)
+readAtPlace FZ (PlacedThen r _) = r
+readAtPlace (FS f) (PlacedThen _ rs) = readAtPlace f rs
+
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
 ||| and the sizes the worklist's universe needs beside the bounds.
@@ -216,6 +230,10 @@ record Built where
   ||| it is first met (`firsts`), and a later meeting of it is a place no
   ||| arc or site names.
   position : Vect graph.size Spot
+  ||| What a message reads of what the position met at each place is
+  ||| named by, as the writing that met it there read it: the definitions
+  ||| a position's key names, carried beside it, numbered with it.
+  positionRead : SpotsRead position
   ||| The places where a position was first met: the positions the arcs
   ||| join, each once.
   firsts : List (Fin graph.size)
@@ -227,9 +245,10 @@ record Built where
   0 drawnAs : (a : Fin (length graph.arcs)) -> arcOf (Vect.index a drawing) = arc graph a
   ||| The most children of any template's node.
   arity : Nat
-  ||| The nodes above each on the walk from main: the node that first
-  ||| reached it, the one that first reached that, and so on up to main.
-  reachers : SortedMap Node (List Node)
+  ||| The definitions of the nodes above each on the walk from main, as
+  ||| the walk read them: the node that first reached it, the one that
+  ||| first reached that, and so on up to main.
+  reachers : SortedMap Node (List GlobalDef)
   ||| Above every reachable definition's parameter count and data type's
   ||| constructor and field counts.
   breadth : Nat
@@ -274,7 +293,8 @@ record Built where
 -- What the definitions' walk found: each definition it entered, by its
 -- address, as the boundary read it, with its sites read with no family
 -- headed; each definition's families, by its address; the represented
--- arguments of every data type it entered, as positions; every
+-- arguments of every data type it entered, as positions, each with what
+-- a message reads of the data type, as the walk read it; every
 -- implementation's fields, by its address; and one more than the most
 -- parameters, constructors or constructor arguments of any definition it
 -- entered.
@@ -282,7 +302,7 @@ record Entered where
   constructor MkEntered
   sites : SortedMap Address (Defined, List Sites.Site)
   families : SortedMap Address (List Nat)
-  datas : List Spot
+  datas : List (spot : Spot ** SpotRead spot)
   fields : SortedMap Address Fields
   breadth : Nat
 
@@ -336,9 +356,14 @@ callee (Calls _ d) = Just d
 callee (Builds _ d) = Just d
 callee (Dispatches _ _ _) = Nothing
 callee Applies = Nothing
-callee (Makes _) = Nothing
+callee (Makes _ _) = Nothing
 callee (Repacks _ _) = Nothing
 callee (Keeps _ _) = Nothing
+
+-- A data type's represented argument j, as a position of its node with
+-- no heads, named by the data type, as the walk read it.
+dataPosition : Address -> Defined -> Nat -> (spot : Spot ** SpotRead spot)
+dataPosition a d j = (OfParameter (OfNode (MkNode a [])) j ** ParameterSpot (NodeParameter d.def))
 
 -- A definition entered: itself as the boundary read it, with its sites,
 -- by its address, its families, its represented arguments as positions
@@ -352,7 +377,7 @@ keep a d reading r = do
   let ss = rd.sites
   pure ( { sites $= insert a (d, ss)
          , families $= insert a rd.families
-         , datas $= (map (OfParameter (OfNode (MkNode a []))) js ++)
+         , datas $= (map (dataPosition a d) js ++)
          , fields $= maybe id (insert a) fs } r
        , mapMaybe (callee . (.reach)) ss )
 
@@ -530,13 +555,14 @@ Room names ps b path = minus (length (Visits names ps b b)) (length path)
 
 -- What the walk has found: every visit entered, once (a run-time set, no
 -- proof: skipping needs none), each with what its sites reach, and each
--- node's reachers, the path its visit was entered below: the node that
--- first reached it, nearest first, back to main.
+-- node's reachers, the definitions along the path its visit was entered
+-- below, as the walk read them: the node that first reached it, nearest
+-- first, back to main.
 record Found where
   constructor MkFound
   entered : SortedSet Visit
   done : SnocList (Visit, List (Sites.Site, Reached Defined))
-  reachers : SortedMap Node (List Node)
+  reachers : SortedMap Node (List GlobalDef)
 
 -- Where the walk over nodes stops, either a broken invariant of the
 -- graph's own construction that would lose a visit's arcs if the visit
@@ -597,61 +623,67 @@ inside names ps b x = case (choose (length x.heads <= b), choose (lowHeads b x.h
 -- self compile's 13,218 nodes (measured). A visit met again off its path
 -- is skipped by the run-time set, which needs no proof.
 mutual
-  -- Enters a visit new to its path from main: its sites' callees are
-  -- walked below it, each new to the longer path, which leaves less room.
+  -- Enters a visit new to its path from main, `above` the definitions of
+  -- the visit and of its path, nearest first, as the walk read them: its
+  -- sites' callees are walked below it, each new to the longer path,
+  -- which leaves less room.
   visit : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
           (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
+          (above : List GlobalDef) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
           (0 acc : Accessible LT (Room names ps b (x :: path))) -> Found -> Either Stray Found
-  visit names ps b out x path nd inU acc found = case out x of
+  visit names ps b out x path above nd inU acc found = case out x of
     Left stray => Left stray
     Right edges =>
-      under names ps b out x path nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
+      under names ps b out x path above nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
             ({ done $= (:< (x, edges)) } found)
     where
       -- The application at a use is no node, nor is a choice, nor a
       -- rebuilt constructor's fields, nor a binding's place, and the walk
-      -- enters nothing there: what each holds, the sites into it bound.
-      calleeVisit : Reached Defined -> Maybe Visit
-      calleeVisit (MkReached (Entering c _) _ _) = Just c
+      -- enters nothing there: what each holds, the sites into it bound. A
+      -- callee is entered with the definition its node is read at.
+      calleeVisit : Reached Defined -> Maybe (Visit, GlobalDef)
+      calleeVisit (MkReached (Entering c d) _ _) = Just (c, d.def)
       calleeVisit (MkReached Applying _ _) = Nothing
-      calleeVisit (MkReached (Making _) _ _) = Nothing
-      calleeVisit (MkReached (Filling _) _ _) = Nothing
+      calleeVisit (MkReached (Making _ _) _ _) = Nothing
+      calleeVisit (MkReached (Filling _ _) _ _) = Nothing
       calleeVisit (Kept _ _) = Nothing
 
   under : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
           (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
+          (above : List GlobalDef) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
-          (0 acc : Accessible LT (Room names ps b (x :: path))) -> List Visit -> Found -> Either Stray Found
-  under names ps b out x path nd inU acc [] found = Right found
-  under names ps b out x path nd inU acc@(Access rec) (c :: cs) found =
-    if contains c found.entered then under names ps b out x path nd inU acc cs found else
+          (0 acc : Accessible LT (Room names ps b (x :: path))) -> List (Visit, GlobalDef) -> Found -> Either Stray Found
+  under names ps b out x path above nd inU acc [] found = Right found
+  under names ps b out x path above nd inU acc@(Access rec) ((c, cd) :: cs) found =
+    if contains c found.entered then under names ps b out x path above nd inU acc cs found else
     case inside names ps b c of
       -- Outside the universe: a head where no site writes one, so that the
       -- visit's arcs would be lost if it were skipped.
       Nothing => Left (Outside c)
       Just (In cIn) => case novel c (x :: path) of
         -- On its own path: entered already, so the set holds it.
-        Nothing => under names ps b out x path nd inU acc cs found
+        Nothing => under names ps b out x path above nd inU acc cs found
         Just (New notIn) =>
-          let found' = { entered $= insert c, reachers $= insert (visitNode c) (map visitNode (x :: path)) } found in
-          case visit names ps b out c (x :: path) (notIn :: nd) (cIn :: inU)
+          let found' = { entered $= insert c, reachers $= insert (visitNode c) above } found in
+          case visit names ps b out c (x :: path) (cd :: above) (notIn :: nd) (cIn :: inU)
                  (rec _ (room (notIn :: nd) (cIn :: inU))) found' of
             Left bad => Left bad
-            Right after => under names ps b out x path nd inU acc cs after
+            Right after => under names ps b out x path above nd inU acc cs after
 
+-- The walk from a root, the root's definition as the reading holds it.
 nodesFrom : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-            (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit -> Either Stray Found
-nodesFrom names ps b out root = case inside names ps b root of
+            (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit -> GlobalDef -> Either Stray Found
+nodesFrom names ps b out root rootDef = case inside names ps b root of
   Nothing => Left (Outside root)
-  Just (In rIn) => visit names ps b out root [] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
+  Just (In rIn) => visit names ps b out root [] [rootDef] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
                      (MkFound (insert root empty) [<] empty)
 
 -- The walk over the real listing, named through an alias on a right-hand
 -- side: a lower-case global written in a type is bound as a new implicit.
 nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit ->
-                Either Stray Found
-nodesFromMain ps b out root = let 0 names = addresses in nodesFrom names ps b out root
+                GlobalDef -> Either Stray Found
+nodesFromMain ps b out root rootDef = let 0 names = addresses in nodesFrom names ps b out root rootDef
 
 -- The bound on a node's heads, b. A head sits at a dictionary parameter of
 -- its definition, by index, where a site's argument lands: a call's
@@ -766,17 +798,27 @@ eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => case e of
                                                    Kept _ _ => acc')
                                                 acc edges)
 
+-- What a dispatch through implementation J's method field k reached: the
+-- method function, as the walk read its node, J as it was read, and where
+-- that field places J's parameters among the method function's.
+record Lead where
+  constructor MkLead
+  methodRead : GlobalDef
+  jRead : GlobalDef
+  placing : List (Nat, Nat)
+
 -- Each method function's node a dispatch reached through implementation
--- J's method field k, with where that field places J's parameters among
--- the method function's, once however many dispatches reach it.
+-- J's method field k, with what it reached there, once however many
+-- dispatches reach it.
 Leads : Type
-Leads = SortedMap (Node, Address, Nat) (List (Nat, Nat))
+Leads = SortedMap (Node, Address, Nat) Lead
 
 leadsOf : List (Node, List (Sites.Site, Reached Defined)) -> Leads
 leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
   where
     lead : Leads -> (Sites.Site, Reached Defined) -> Leads
-    lead m (_, MkReached (Entering callee _) _ (Dispatched j k leading)) = insert (visitNode callee, j, k) leading m
+    lead m (_, MkReached (Entering callee d) _ (Dispatched j jRead k leading)) =
+      insert (visitNode callee, j, k) (MkLead d.def jRead leading) m
     -- Essential: a call, a build, an application and a binding place no
     -- implementation's parameters, and a dispatch reaches a method
     -- function's node.
@@ -1350,10 +1392,10 @@ carried number nodes leads walked =
   let cs = eachPlaced (\acc, w, s, callee, pl =>
                          foldl (\acc', i => carry (spotAt w s.params i) (landsAt callee pl.parameter) acc') acc (familiesIn pl.argument.template))
                       (MkCarrying empty empty) walked in
-  foldl (\acc, ((callee, j, _), pqs) =>
+  foldl (\acc, ((callee, j, _), l) =>
            foldl (\acc', (p, q) => foldl (\acc'', x => carry (OfParameter (OfNode x) p) (OfParameter (OfNode callee) q) acc'') acc'
                                           (fromMaybe [] (lookup j nodes)))
-                 acc pqs)
+                 acc l.placing)
         cs (SortedMap.toList leads)
   where
     add : Fin n -> Fin n -> SortedMap Nat (List (Fin n)) -> SortedMap Nat (List (Fin n))
@@ -1508,19 +1550,24 @@ openNotClosedLanding Refl impossible
 openLands wr landed t k closed = void (openNotClosedLanding (trans (sym landed) closed))
 
 -- What one template wrote, before its writer's families are read where
--- they land: where its writer reads each of its parameters, the template
--- as written, where its writer is (`WriterAt`), the position it lands at,
--- and what wrote it, with the template it draws and what its landing says
--- of the template. What lands at a position is read off these, every
--- writing the model holds among them (`tableOf`), and only then is each
--- read where its writer is (`siteRead`), so no writing lands unseen by the
--- landing it is read at.
+-- they land: where its writer reads each of its parameters, with what a
+-- message reads of what each such position is named by, the template as
+-- written, where its writer is (`WriterAt`), the position it lands at,
+-- with what a message reads of it, and what wrote it, with the template
+-- it draws and what its landing says of the template. What lands at a
+-- position is read off these, every writing the model holds among them
+-- (`tableOf`), and only then is each read where its writer is
+-- (`siteRead`), so no writing lands unseen by the landing it is read at.
+-- What a message reads of each position is numbered with the positions
+-- (`slotsRead`), so no message looks up a definition a position names.
 record Written where
   constructor MkWritten
   reads : Nat -> Spot
+  readsRead : (i : Nat) -> SpotRead (reads i)
   template : Template
   writer : WriterAt
   target : Spot
+  targetRead : SpotRead target
   wrote : Wrote
   0 draws : DrawnBy wrote template
   0 landsAs : LandsAs wrote template
@@ -1580,7 +1627,8 @@ rootsRecorded fl families c AtHeld = \r, j, el => absurd el
 writings : List (Node, List (Sites.Site, Reached Defined)) -> List Written
 writings =
   eachPlaced (\acc, w, s, callee, pl =>
-                MkWritten (spotAt w s.params) pl.argument.template (AtNode w s.params) (landsAt callee pl.parameter)
+                MkWritten (spotAt w s.params) (writerSpotRead s.writerDef w s.params) pl.argument.template (AtNode w s.params)
+                          (landsAt callee pl.parameter) (calleeSpotRead callee pl.parameter)
                           (FromArgument s pl.argument) ArgumentDraws (argumentLands s pl.argument) :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
@@ -1592,10 +1640,11 @@ writings =
 -- of M, so without these M's leading positions would have no writer.
 leadingWritings : SortedMap Address (List Node) -> Leads -> List Written
 leadingWritings nodes leads =
-  SortedMap.toList leads >>= \((m, j, _), leading) =>
-    [ MkWritten (spotAt jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly) (OfParameter (OfNode m) q) ThroughMethod (MarkerDraws p)
+  SortedMap.toList leads >>= \((m, j, _), l) =>
+    [ MkWritten (spotAt jn OwnOnly) (writerSpotRead l.jRead jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly)
+                (OfParameter (OfNode m) q) (ParameterSpot (NodeParameter l.methodRead)) ThroughMethod (MarkerDraws p)
                 (openLands ThroughMethod Refl (Template.Var p 0))
-    | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
+    | jn <- fromMaybe [] (lookup j nodes), agrees m l.placing jn, (p, q) <- l.placing ]
   where
     -- Two heads at a parameter agree: none on either side, or one
     -- implementation on both. A dictionary without a root has no head.
@@ -1616,7 +1665,8 @@ leadingWritings nodes leads =
 fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List Written
 fieldWritings nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField fields.givenBy k t) FieldDraws
+    [ MkWritten (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly) t (AtNode jn OwnOnly)
+                (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t) FieldDraws
                 (openLands (InField fields.givenBy k t) Refl t)
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
@@ -1648,10 +1698,10 @@ countedIn = foldl (foldl counted) (MkCounted 0 0 empty)
 
     counted : Counted -> Sites.Site -> Counted
     counted c s = case s.reach of
-      Makes _ => { member $= max (longest s.arguments) } c
+      Makes _ _ => { member $= max (longest s.arguments) } c
       Repacks _ path => { paths $= insert path } c
-      Calls _ => { packed $= max (longest s.arguments) } c
-      Builds _ => { packed $= max (longest s.arguments) } c
+      Calls _ _ => { packed $= max (longest s.arguments) } c
+      Builds _ _ => { packed $= max (longest s.arguments) } c
       Dispatches _ _ _ => { packed $= max (longest s.arguments) } c
       Applies => { packed $= max (longest s.arguments) } c
       Keeps _ items => { packed $= max (length (forget items)) } c
@@ -1689,7 +1739,7 @@ packedHeld (Just pg) count = chainsUpTo pg.pairAddress (pred count)
 ||| list no longer than the count is one of these: each pair's position is
 ||| bounded by the count above the values' heights, and no arc leaves a
 ||| pair's position for a held one, so none of these is on a cycle.
-heldPackings : (count : Nat) -> Maybe Pairing -> List HeldBy -> List Written
+heldPackings : (count : Nat) -> Maybe Pairing -> List (place : HeldBy ** PlaceRead place) -> List Written
 heldPackings count Nothing _ = []
 heldPackings count (Just pg) places = case pred count of
     -- Essential: a list of fewer than two values is held as itself, in no
@@ -1698,13 +1748,15 @@ heldPackings count (Just pg) places = case pred count of
     S n => places >>= written n
   where
     -- At the pair's first, one value; at its rest, one value or the rest
-    -- of a list of 3 up to n + 2 values, in pairs.
-    written : Nat -> HeldBy -> List Written
-    written n place =
-      [ MkWritten (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) AtHeld
-                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k)
+    -- of a list of 3 up to n + 2 values, in pairs. Each of the pair's
+    -- definitions is the pairing's, as it was read.
+    written : Nat -> (place : HeldBy ** PlaceRead place) -> List Written
+    written n (place ** placeRead) =
+      [ MkWritten (const (OfHeld (MkHeldValues place InPairs))) (\_ => HeldSpot placeRead) (packingTemplate k) AtHeld
+                  (OfParameter (OfNode (MkNode h [])) j) (ParameterSpot (NodeParameter hRead)) (PacksHeld k) (ChainDraws k)
                   (openLands (PacksHeld k) Refl (packingTemplate k))
-      | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
+      | (h, hRead) <- [(pg.pairAddress, pg.pairDefined.def), (pg.firstAddress, pg.firstDefined.def),
+                       (pg.secondAddress, pg.secondDefined.def)]
       , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
 
 -- What a value of a list is to its instances (`Proof.Held.ItemKind`): a
@@ -1719,12 +1771,14 @@ itemKind (EachOf _) = AnyNumber
 itemKind (MembersOf _) = AnyNumber
 
 -- One way a value of a list is written at a held position: where its
--- template reads its variables, the template, where its writer is
--- (`WriterAt`), how many values it brings (`Proof.Held.Brings`), and what
--- wrote it, with the template it draws and what its landing says of it.
+-- template reads its variables, with what a message reads of each such
+-- position, the template, where its writer is (`WriterAt`), how many
+-- values it brings (`Proof.Held.Brings`), and what wrote it, with the
+-- template it draws and what its landing says of it.
 record Contribution where
   constructor MkContribution
   reads : Nat -> Spot
+  readsRead : (i : Nat) -> SpotRead (reads i)
   template : Template
   writer : WriterAt
   brings : Brings
@@ -1751,17 +1805,20 @@ landing firm others b = alone (canBeAlone firm others b) ++ among (canBeAmong fi
 
 -- The choices given lists that a member of choice k is read from: its
 -- own, and the one whose head only an instance shows, which may be k; at
--- that unshown head, every choice (`Heads.membersAt`).
-choicePlaces : List ChoiceHead -> ChoiceHead -> List ChoiceHead
+-- that unshown head, every choice (`Heads.membersAt`). Each with what a
+-- message reads of its head.
+choicePlaces : List (c : ChoiceHead ** HeadRead c) -> ChoiceHead -> List (c : ChoiceHead ** HeadRead c)
 choicePlaces given UnshownHead = given
-choicePlaces given k = filter (\c => c == k || c == UnshownHead) given
+choicePlaces given k = filter (\c => c.fst == k || c.fst == UnshownHead) given
 
--- The choices some member of which is given values to hold.
-heldChoices : List (Node, List (Sites.Site, Reached Defined)) -> List ChoiceHead
-heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => case (callee, pl.argument.holds) of
-                                                     (Making k, _ :: _) => insert k acc
-                                                     _ => acc)
-                                                  empty walked)
+-- The choices some member of which is given values to hold, each once,
+-- with what a message reads of its head, as the place that made the
+-- member read it.
+heldChoices : List (Node, List (Sites.Site, Reached Defined)) -> List (c : ChoiceHead ** HeadRead c)
+heldChoices walked = values (eachPlaced (\acc, _, _, callee, pl => case (callee, pl.argument.holds) of
+                                            (Making k named, _ :: _) => insert k (k ** named) acc
+                                            _ => acc)
+                                         empty walked)
 
 ||| What every place that gives a dictionary a list of values writes at the
 ||| held positions of the place the dictionary lands at (`calleePlace`):
@@ -1779,38 +1836,46 @@ heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => cas
 ||| given list is. The values a dictionary parameter holds, each as
 ||| itself, and those a member holds, come from their places' held
 ||| positions as they are.
-heldWritings : (count : Nat) -> Maybe Pairing -> List ChoiceHead -> List (Node, List (Sites.Site, Reached Defined)) -> List Written
+heldWritings : (count : Nat) -> Maybe Pairing -> List (c : ChoiceHead ** HeadRead c) ->
+               List (Node, List (Sites.Site, Reached Defined)) -> List Written
 heldWritings count pg choices walked =
   eachPlaced (\acc, w, s, callee, pl =>
-                (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter).fst (forget l)) ++ acc) [] walked
+                (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter).fst (calleeRead callee pl.parameter)
+                                                    (forget l)) ++ acc) [] walked
     ++ (walked >>= \(w, edges) => edges >>= \(s, e) => kept w s e)
   where
-    fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
-    fromHeld place p k b =
-      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k)
-                     (openLands (PacksHeld k) Refl (packingTemplate k))
+    fromHeld : (place : HeldBy) -> PlaceRead place -> Packed -> Packing -> Brings -> Contribution
+    fromHeld place placeRead p k b =
+      MkContribution (const (OfHeld (MkHeldValues place p))) (\_ => HeldSpot placeRead) (packingTemplate k) AtHeld b
+                     (PacksHeld k) (ChainDraws k) (openLands (PacksHeld k) Refl (packingTemplate k))
 
     -- The place a dictionary of the writer's that holds values as one is
-    -- at, at the writer's node.
-    ownPlace : Node -> Sites.Site -> OwnHolder -> HeldBy
-    ownPlace w s (OwnParameter i) = (writerPlace w s.params i).fst
-    ownPlace w s (OwnBinding b) = ByBinding w b
+    -- at, at the writer's node, with what a message reads of it, the
+    -- writer as its site read it.
+    ownPlace : Node -> Sites.Site -> OwnHolder -> (place : HeldBy ** PlaceRead place)
+    ownPlace w s (OwnParameter i) = ((writerPlace w s.params i).fst ** writerRead s.writerDef w s.params i)
+    ownPlace w s (OwnBinding b) = (ByBinding w b ** BoundIn s.writerDef)
+
+    -- A value of a list written from the held positions of a place, with
+    -- what a message reads of the place.
+    fromOwn : (place : HeldBy ** PlaceRead place) -> Packed -> Packing -> Brings -> Contribution
+    fromOwn (place ** placeRead) = fromHeld place placeRead
 
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
-      [ MkContribution (spotAt w s.params) x.template (AtNode w s.params) OneValue (FromArgument s x) ArgumentDraws
-                       (argumentLands s x)
+      [ MkContribution (spotAt w s.params) (writerSpotRead s.writerDef w s.params) x.template (AtNode w s.params) OneValue
+                       (FromArgument s x) ArgumentDraws (argumentLands s x)
       | x <- forget xs ]
     contributions w s (PackedBy h) =
-      fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
-        map (\k => fromHeld (ownPlace w s h) InPairs k OneValue) (packedHeld pg count)
+      fromOwn (ownPlace w s h) AsItself AsTheyAre OneValue ::
+        map (\k => fromOwn (ownPlace w s h) InPairs k OneValue) (packedHeld pg count)
     contributions w s (EachOf i) =
-      [ fromHeld (writerPlace w s.params i).fst AsItself AsTheyAre OneValue
-      , fromHeld (writerPlace w s.params i).fst InPairs AsTheyAre SeveralValues ]
+      [ fromHeld (writerPlace w s.params i).fst (writerRead s.writerDef w s.params i) AsItself AsTheyAre OneValue
+      , fromHeld (writerPlace w s.params i).fst (writerRead s.writerDef w s.params i) InPairs AsTheyAre SeveralValues ]
     contributions w s (MembersOf k) =
-      choicePlaces choices k >>= \c =>
-        [ fromHeld (ByChoice c) AsItself AsTheyAre OneValue
-        , fromHeld (ByChoice c) InPairs AsTheyAre SeveralValues ]
+      choicePlaces choices k >>= \(c ** named) =>
+        [ fromHeld (ByChoice c) (ChoiceOfHead named) AsItself AsTheyAre OneValue
+        , fromHeld (ByChoice c) (ChoiceOfHead named) InPairs AsTheyAre SeveralValues ]
 
     -- How many of the values a list is always given are other than one
     -- value of it.
@@ -1820,25 +1885,35 @@ heldWritings count pg choices walked =
       AtMostOne => n
       AnyNumber => n
 
-    listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Written
-    listAt w s place es =
+    listAt : Node -> Sites.Site -> (place : HeldBy) -> PlaceRead place -> List HeldItem -> List Written
+    listAt w s place placeRead es =
       es >>= \e => contributions w s e >>= \c =>
-        map (\p => MkWritten c.reads c.template c.writer (OfHeld (MkHeldValues place p)) c.wrote c.draws c.landsAs)
+        map (\p => MkWritten c.reads c.readsRead c.template c.writer (OfHeld (MkHeldValues place p)) (HeldSpot placeRead)
+                             c.wrote c.draws c.landsAs)
             (landing (besides e (alwaysIn (map itemKind es))) (pred (length es)) c.brings)
 
     -- The list a dictionary the writer binds closes over, written at its
     -- binding's place at the writer's node.
     kept : Node -> Sites.Site -> Reached Defined -> List Written
-    kept w s (Kept b items) = listAt w s (ByBinding w b) (forget items)
+    kept w s (Kept b items) = listAt w s (ByBinding w b) (BoundIn s.writerDef) (forget items)
     kept w s (MkReached _ _ _) = []
 
--- The places whose lists of several values some place writes: the pairs
--- that hold those lists read their positions.
-pairedPlaces : List Written -> List HeldBy
-pairedPlaces ws = SortedSet.toList (foldl (\acc, x => case x.target of
-                                             OfHeld (MkHeldValues place InPairs) => insert place acc
-                                             _ => acc)
-                                          empty ws)
+-- A place whose lists of several values a writing lands at, with what a
+-- message reads of it; nothing for a writing that lands at any other
+-- position, which no pair reads.
+pairedAt : (target : Spot) -> SpotRead target -> Maybe (place : HeldBy ** PlaceRead place)
+pairedAt (OfHeld (MkHeldValues place InPairs)) (HeldSpot placeRead) = Just (place ** placeRead)
+pairedAt (OfHeld (MkHeldValues _ AsItself)) _ = Nothing
+pairedAt (OfParameter _ _) _ = Nothing
+pairedAt (OfField _ _) _ = Nothing
+pairedAt (OfChoice _) _ = Nothing
+
+-- The places whose lists of several values some place writes, each once,
+-- with what a message reads of each: the pairs that hold those lists read
+-- their positions.
+pairedPlaces : List Written -> List (place : HeldBy ** PlaceRead place)
+pairedPlaces ws = values (foldl (\acc, x => maybe acc (\pr => insert pr.fst pr acc) (pairedAt x.target x.targetRead))
+                                empty ws)
 
 -- Whether a parameter is among some, as the machine compares naturals.
 amongParameters : (i : Nat) -> (is : List Nat) -> Decided (Elem i is)
@@ -2153,6 +2228,42 @@ allSlots : List Written -> List Spot
 allSlots [] = []
 allSlots (x :: xs) = slotsOf x ++ allSlots xs
 
+-- What a message reads of each position a writer reads some parameters
+-- at, in order.
+readsAt : (reads : Nat -> Spot) -> ((i : Nat) -> SpotRead (reads i)) -> (is : List Nat) -> All SpotRead (map reads is)
+readsAt reads readsRead [] = []
+readsAt reads readsRead (i :: is) = readsRead i :: readsAt reads readsRead is
+
+-- What a message reads of each position a writing meets, as the writing
+-- read it, at its places (`slotsOf`).
+slotsRead : (x : Written) -> All SpotRead (slotsOf x)
+slotsRead x = x.targetRead :: readsAt x.reads x.readsRead (namedOf x)
+
+-- What is read of one list of places, then of another.
+readsThen : {0 xs, ys : List Spot} -> All SpotRead xs -> All SpotRead ys -> All SpotRead (xs ++ ys)
+readsThen [] later = later
+readsThen (r :: rs) later = r :: readsThen rs later
+
+-- What a message reads of each position some writings meet, at their
+-- places, in order (`allSlots`).
+allSlotsRead : (xs : List Written) -> All SpotRead (allSlots xs)
+allSlotsRead [] = []
+allSlotsRead (x :: xs) = readsThen (slotsRead x) (allSlotsRead xs)
+
+-- A position met with what a message reads of it, as a position.
+placedSpot : (spot : Spot ** SpotRead spot) -> Spot
+placedSpot (spot ** _) = spot
+
+-- What a message reads of each of some positions met with it.
+spotsRead : (ps : List (spot : Spot ** SpotRead spot)) -> All SpotRead (map Graph.placedSpot ps)
+spotsRead [] = []
+spotsRead ((_ ** r) :: ps) = r :: spotsRead ps
+
+-- What is read at each place, numbered as the places are (`Vect.fromList`).
+readAtEach : {0 xs : List Spot} -> All SpotRead xs -> SpotsRead (Vect.fromList xs)
+readAtEach [] = NothingPlaced
+readAtEach (r :: rs) = PlacedThen r (readAtEach rs)
+
 -- The numbering at place `place` of `n`, with `rest` still to meet: where
 -- each position met so far was first met, and those first meetings in
 -- order, each with the position it numbers, so that what a number stands
@@ -2357,8 +2468,8 @@ enteredTargets = eachPlaced entering empty
                SortedMap Spot (Address, Nat, Defined)
     entering acc _ _ callee@(Entering v d) pl = insert (landsAt callee pl.parameter) (v.definition, pl.parameter, d) acc
     entering acc _ _ Applying _ = acc
-    entering acc _ _ (Making _) _ = acc
-    entering acc _ _ (Filling _) _ = acc
+    entering acc _ _ (Making _ _) _ = acc
+    entering acc _ _ (Filling _ _) _ = acc
 
 -- Each of those positions that is capped, with its cap. A cap is asked
 -- once per definition and parameter, since a definition's nodes share its
@@ -2450,8 +2561,8 @@ enteredBy : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.
 enteredBy families reads (MkReached (Entering c ()) placed via) =
   (\(d, _) => MkReached (Entering c d) placed via) <$> visitReading families reads c
 enteredBy families reads (MkReached Applying placed via) = Right (MkReached Applying placed via)
-enteredBy families reads (MkReached (Making k) placed via) = Right (MkReached (Making k) placed via)
-enteredBy families reads (MkReached (Filling con) placed via) = Right (MkReached (Filling con) placed via)
+enteredBy families reads (MkReached (Making k named) placed via) = Right (MkReached (Making k named) placed via)
+enteredBy families reads (MkReached (Filling con def) placed via) = Right (MkReached (Filling con def) placed via)
 enteredBy families reads (Kept b items) = Right (Kept b items)
 
 -- A definition's name, for an internal error to print; its address when
@@ -2583,7 +2694,7 @@ build main = do
       out x = visitReading entered.families reads x >>= \(_, ss) =>
                 traverse (\(s, r) => (s,) <$> enteredBy entered.families reads r) [(s, r) | s <- ss, r <- reaches fl x s]
   let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields readSites) out
-                                  (MkVisit root [])
+                                  (MkVisit root []) main.def
     | Left (Outside x) => do
         n <- nameOf x.definition
         internal fc ("the growth graph met a node split at a parameter no site writes, or holding a path no site re-packs: " ++ n)
@@ -2640,15 +2751,23 @@ build main = do
   -- represented argument of a reachable data type. Every place an argument
   -- lands is a writing's. A position is numbered at the place it is first
   -- met, before anything that lands is read, so what lands where is a
-  -- table by number, and no site looks a position up.
+  -- table by number, and no site looks a position up; what a message
+  -- reads of each position is numbered with it, as the writing or the
+  -- walk that met it there read it, so no message looks up a definition
+  -- a position names.
+  let dataSpots : List Spot
+      dataSpots = map Graph.placedSpot entered.datas
   let slots : List Spot
-      slots = allSlots written ++ entered.datas
-  let position = Vect.fromList slots
-  let start : Meeting (length slots) (allSlots written ++ entered.datas)
+      slots = allSlots written ++ dataSpots
+  let position : Vect (length slots) Spot
+      position = Vect.fromList slots
+  let positionRead : SpotsRead position
+      positionRead = readAtEach (readsThen (allSlotsRead written) (spotsRead entered.datas))
+  let start : Meeting (length slots) (allSlots written ++ dataSpots)
       start = MkMeeting 0 Refl empty [<]
-  let (numbered, met) = numberedAll {rest = entered.datas} written start
-  let (_, done) = meetAll {rest = []} entered.datas
-                          (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral entered.datas)) met)
+  let (numbered, met) = numberedAll {rest = dataSpots} written start
+  let (_, done) = meetAll {rest = []} dataSpots
+                          (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral dataSpots)) met)
   let firstMet = done.firsts <>> []
   let firsts = map fst firstMet
   let caps = map (\p => lookup p capped) position
@@ -2703,7 +2822,7 @@ build main = do
       arcs = drawn positionsOf fieldPositionsOf choicePositionsOf kept
   -- A field's template is written into the values of every field read,
   -- and so into requests, as an argument's is.
-  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position firsts
+  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position positionRead firsts
                 (drawnVect arcs) (drawnIndexed arcs)
                 (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers entered.breadth
                 (foldl (\m, x => max m (Template.heaviest (fst x).template)) count sites)

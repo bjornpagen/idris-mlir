@@ -847,21 +847,28 @@ mutual
           let what = keyText found.key ++ ", registered,"
           boundsHold fc what address statics
           inside <- core (sizedWithin fc what chain.sizes found.link)
-          TCon arity _ _ _ _ datacons _ <- pure (definition def)
-            | _ => reject fc owner ValueType (tname ++ " is not a data type")
-          let Just datacons = datacons
-            | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
+          -- Essential: a type declared without its constructors (`data T :
+          -- Type`, never given any) has no values to lay out. Its facts
+          -- hold its constructors as none, as an empty type's are, so its
+          -- declaration says which it is.
+          case definition def of
+            TCon _ _ _ _ _ Nothing _ => reject fc owner DataType (tname ++ " has no known constructors")
+            _ => pure ()
+          let cons = facts.constructors
           loc <- toLoc (location def)
-          sorts <- indexSorts tc (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
+          -- The facts hold a role for each of the type constructor's
+          -- arguments, so its indices are the positions whose role the key
+          -- does not hold.
+          sorts <- indexSorts tc (positionsOf (not . inKey) roles)
           -- Each constructor is read at its place in the type's list, which
           -- is its tag (`constructor`), so the layouts are in tag order.
-          layouts <- traverse (\(place, dcon) =>
+          layouts <- traverse (\(place, con) =>
                                  constructor (MkRegistering chain.sizes ((found.link, fam) :: chain.links))
                                              (rec (found.link :: linksOf chain.links)
                                                   (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
                                                           inside.member))
-                                             fc owner fam place found.link args params roles dcon)
-                              (Data.Zippable.zip (allFins (length datacons)) (Data.Vect.fromList datacons))
+                                             fc owner fam place found.link args params roles con)
+                              (Data.Zippable.zip (allFins (length cons)) (Data.Vect.fromList cons))
           promise <- promised tname (namedHooks tc.registered).sumShape (toList (map layoutCon layouts))
           let df = MkDataFamily fam found.key promise sorts layouts loc
           updateState (derive { familiesAt $= insert found.link df, dataFamilies $= insert fam df
@@ -893,7 +900,8 @@ mutual
           go g i _ = pure []
 
   ||| A constructor of a family being registered, at its place among its
-  ||| type's constructors, as its layout: its arguments' kinds, its erased
+  ||| type's constructors, as the boundary read it with the type's facts
+  ||| (`ConstructorAt`), as its layout: its arguments' kinds, its erased
   ||| binders (the quantity-0 arguments an index of its result or a field's
   ||| type names, renumbered as levels of its own scope in order), its
   ||| equation (the index terms its result type gives) and its fields. The
@@ -903,32 +911,34 @@ mutual
   constructor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (chain : Registering) -> (0 _ : Descending chain) ->
                 FC -> String -> FamilyId -> {0 tags : Nat} -> Fin tags -> Link Form -> List ClosedTerm -> List Nat ->
-                List Role -> Name -> Front ConLayout
-  constructor chain acc fc owner fam place link targs ps roles dcon = do
-    dc <- lookupDef fc owner dcon
-    let def = dc.def
+                List Role -> ConstructorAt -> Front ConLayout
+  constructor chain acc fc owner fam place link targs ps roles con = do
+    let def = con.read.def
     let cname = show (fullname def)
-    DCon tag arity _ <- pure (definition def)
-      | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
     -- Idris tags a type's constructors in the order its declaration lists
     -- them, from 0, and a match or an application reads a constructor's
     -- layout at its tag: one listed at another place than its tag is
-    -- refused, as the compiled module it is.
-    unless (tag == cast (finToNat place)) $
-      reject fc owner CompiledModule (cname ++ " has the tag " ++ show tag ++ ", but its type lists it at " ++
-                                      show (finToNat place))
+    -- refused, as the compiled module it is. The boundary read the
+    -- definition as a constructor, so a tag is what it carries.
+    case definition def of
+      DCon tag _ _ =>
+        unless (tag == cast (finToNat place)) $
+          reject fc owner CompiledModule (cname ++ " has the tag " ++ show tag ++ ", but its type lists it at " ++
+                                          show (finToNat place))
+      _ => pure ()
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
     -- with the quantity that makes a field linear.
-    ty <- normaliseClosed dc.type
+    ty <- normaliseClosed con.read.type
     let layout = paramLayout def ps roles ty
-    -- Every match binds `arity` arguments: a layout of another length
-    -- would misplace every field after the first difference. Idris gives
-    -- a constructor the arity its type binds, in the module the compiler
-    -- reads when it runs.
-    when (length layout /= arity) $
-      reject (location def) owner CompiledModule (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
+    -- Every match binds as many arguments as the boundary read Idris
+    -- giving the constructor: a layout of another length would misplace
+    -- every field after the first difference. Idris gives a constructor
+    -- the arity its type binds, in the module the compiler reads when it
+    -- runs.
+    when (length layout /= con.arity) $
+      reject (location def) owner CompiledModule (cname ++ " has " ++ show con.arity ++ " arguments, but its type binds " ++
                                                    show (length layout))
     walked <- walk chain acc def cname (location def) targs 0 0 0 layout none ty
     -- The result's index terms, at the family's index positions.

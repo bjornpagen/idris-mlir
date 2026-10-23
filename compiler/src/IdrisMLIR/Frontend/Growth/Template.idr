@@ -1856,18 +1856,36 @@ rooted stands AForm t = (, Unrooted) <$> siteReading stands AForm t
 rooted stands AShape t = (, Unrooted) <$> siteReading stands AShape t
 rooted stands ADictionary t = (,) <$> siteReading stands ADictionary t <*> dictionaryRoot t
 
-||| The head of a choice's type (`ChoiceHead`), its normal form: the arrow
-||| of a function type, the type constructor any other applies; for a type
-||| headed by neither, a variable or a stuck definition, the head only an
-||| instance shows.
+||| What a message reads of a choice's head, beside the head (a key, as the
+||| growth graph holds it): the name of the type constructor an
+||| implementation's choice is headed by, as the type that heads it names
+||| it; nothing of the arrow, or of the head only an instance shows.
+public export
+data HeadRead : ChoiceHead -> Type where
+  InterfaceNamed : Name -> HeadRead (InterfaceHead a)
+  ArrowRead : HeadRead ArrowHead
+  UnshownRead : HeadRead UnshownHead
+
+||| The head of a choice's type (`ChoiceHead`), its normal form, with what a
+||| message reads of it (`HeadRead`): the arrow of a function type, the
+||| type constructor any other applies, by the name it is applied by; for a
+||| type headed by neither, a variable or a stuck definition, the head only
+||| an instance shows.
 export
-choiceHeadOf : TT vs -> Front ChoiceHead
-choiceHeadOf (Bind _ _ (Pi {}) _) = pure ArrowHead
-choiceHeadOf ty = case getFn ty of
+choiceReadOf : TT vs -> Front (k : ChoiceHead ** HeadRead k)
+choiceReadOf (Bind _ _ (Pi {}) _) = pure (ArrowHead ** ArrowRead)
+choiceReadOf ty = case getFn ty of
   Ref _ (TyCon _) n => do
     ctx <- frozenContext
-    pure (maybe UnshownHead InterfaceHead (definitionAddress (gamma (defsOf ctx)) n))
-  _ => pure UnshownHead
+    pure (case definitionAddress (gamma (defsOf ctx)) n of
+            Just a => (InterfaceHead a ** InterfaceNamed n)
+            Nothing => (UnshownHead ** UnshownRead))
+  _ => pure (UnshownHead ** UnshownRead)
+
+||| The head of a choice's type (`choiceReadOf`).
+export
+choiceHeadOf : TT vs -> Front ChoiceHead
+choiceHeadOf ty = (.fst) <$> choiceReadOf ty
 
 ||| A dictionary read as a callee is given it (`rooted`), where its
 ||| binder's type is a choice's, of head `k`: where its root says the

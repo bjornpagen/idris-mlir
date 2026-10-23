@@ -61,6 +61,7 @@ import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
+import Core.Context
 import Core.TT
 import Libraries.Data.List.Finite
 
@@ -477,12 +478,15 @@ dictionariesOf fs = MkDictionaries fs (foldl (\m, (j, f) => numbered j 0 f.inOrd
 
 -- The method function an implementation's field k is, with where the
 -- method's own arguments and the implementation's parameters land among
--- its parameters. Any other field (a superclass dictionary, or one of an
--- interface constructor's own variables) has none.
-methodAt : Dictionaries -> Address -> Nat -> Maybe (Address, List Nat, List (Nat, Nat))
-methodAt ds j k = case fieldAt ds.holding j k of
-  Just (Method m _ own leading) => Just (m, own, leading)
-  _ => Nothing
+-- its parameters, and the implementation as it was read. Any other field
+-- (a superclass dictionary, or one of an interface constructor's own
+-- variables) has none.
+methodAt : Dictionaries -> Address -> Nat -> Maybe (Address, List Nat, List (Nat, Nat), GlobalDef)
+methodAt ds j k = case lookup j ds.holding of
+  Just f => case fieldIn f k of
+    Just (Method m _ own leading) => Just (m, own, leading, f.givenBy)
+    _ => Nothing
+  Nothing => Nothing
 
 -- The method fields a dispatch through field k of j runs: that field when
 -- it is a method's; and through any other field, each method function its
@@ -554,11 +558,11 @@ chains ds v (j :: js) k rest = here ++ chains ds v js k rest
 -- rebuilt, and at the last level a member of the field's choice
 -- (`Member`), which the place that made the member wrote at the choice's
 -- positions. With what each rebuilt constructor's fields then hold, by
--- constructor and field.
+-- constructor, by its address and as it was read, and field.
 record Rebuilt where
   constructor MkRebuilt
   template : Template
-  fillings : List (Address, Nat, Template)
+  fillings : List (Address, GlobalDef, Nat, Template)
 
 -- A level's fields read off its part, the one the path takes the next
 -- level rebuilt, or at the last a member of its choice.
@@ -571,18 +575,18 @@ cellsFrom part l inner c (_ :: fs) = (if c == l.taken then onward inner else Tem
     onward Nothing = Template.Member l.choiceOf
 
 -- A constructor's fields as rebuilt, by number.
-filled : Address -> (c : Nat) -> List Template -> List (Address, Nat, Template)
-filled con c [] = []
-filled con c (t :: ts) = (con, c, t) :: filled con (S c) ts
+filled : Address -> GlobalDef -> (c : Nat) -> List Template -> List (Address, GlobalDef, Nat, Template)
+filled con def c [] = []
+filled con def c (t :: ts) = (con, def, c, t) :: filled con def (S c) ts
 
 mutual
   rebuilt : (part : Template) -> Level -> List Level -> Rebuilt
   rebuilt part l ls =
     let inner = deeper part l ls
         cells = cellsFrom part l inner 0 l.holds.inOrder in
-    MkRebuilt (Template.Head (Just l.holds.builtBy) cells) (filled l.holds.builtBy 0 cells ++ further inner)
+    MkRebuilt (Template.Head (Just l.holds.builtBy) cells) (filled l.holds.builtBy l.holds.builtAs 0 cells ++ further inner)
 
-  further : Maybe Rebuilt -> List (Address, Nat, Template)
+  further : Maybe Rebuilt -> List (Address, GlobalDef, Nat, Template)
   further (Just r) = r.fillings
   further Nothing = []
 
@@ -711,13 +715,13 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       Builds _ _ => []
       Dispatches t r k => [Through s.writer s.params r t k (splitters s)]
       Applies => map (passes applicationSlot s) (splitters s)
-      Makes k@(InterfaceHead _) => map (passes (const (choiceSlot k)) s) (splitters s)
+      Makes k@(InterfaceHead _) _ => map (passes (const (choiceSlot k)) s) (splitters s)
       -- A member whose head only an instance shows may be an
       -- implementation's.
-      Makes UnshownHead => map (passes (const (choiceSlot UnshownHead)) s) (splitters s)
+      Makes UnshownHead _ => map (passes (const (choiceSlot UnshownHead)) s) (splitters s)
       -- A polymorphic function is given as it is, keying nothing, and a
       -- use of it applies each member at the use's own types.
-      Makes ArrowHead => []
+      Makes ArrowHead _ => []
       Repacks x path => [Rebuilds s.writer s.params x.position path]
       -- What a dictionary the writer binds closes over flows nowhere: it
       -- is held at the binding's place alone.
@@ -758,7 +762,7 @@ candidates ds v eqs = fromList (eqs >>= yield)
       (j', k') <- runs ds v j k
       case methodAt ds j' k' of
         Nothing => []
-        Just (m, own', _) => do
+        Just (m, own', _, _) => do
           (how, x) <- xs
           p <- placedAt own' x
           into (parameterSlot m p) (byArgument v (own w ps) how x)
@@ -1299,37 +1303,102 @@ valueSpot (ByBinding _ _) ParameterPlace impossible
 valueSpot (ByBinding _ _) FieldPlace impossible
 valueSpot (ByBinding _ _) ChoicePlace impossible
 
+||| What a message reads of what a dictionary's place is named by, beside
+||| the place, which stays a key: the definition a node's parameter is of,
+||| as the walk read it; nothing of the application at a use, which no
+||| definition is; the implementation or rebuilt constructor a field is of,
+||| as it was read; what is read of a choice's head (`HeadRead`); and the
+||| definition whose text binds a dictionary, as it was read. It is
+||| indexed by the place, so it is never another place's, and a message
+||| reads every definition it names here, never by address.
+public export
+data PlaceRead : HeldBy -> Type where
+  NodeParameter : GlobalDef -> PlaceRead (ByParameter (OfNode node) i)
+  ApplicationParameter : PlaceRead (ByParameter OfApplication i)
+  FieldOf : GlobalDef -> PlaceRead (ByField j k)
+  ChoiceOfHead : HeadRead k -> PlaceRead (ByChoice k)
+  BoundIn : GlobalDef -> PlaceRead (ByBinding node b)
+
+||| What a message reads of what a position is named by, indexed by the
+||| position: a parameter's, a field's and a choice's is their place's
+||| (`valueSpot`), and the values a dictionary's place holds are named by
+||| that place.
+public export
+data SpotRead : Spot -> Type where
+  ParameterSpot : PlaceRead (ByParameter h i) -> SpotRead (OfParameter h i)
+  FieldSpot : PlaceRead (ByField j k) -> SpotRead (OfField j k)
+  ChoiceSpot : PlaceRead (ByChoice k) -> SpotRead (OfChoice k)
+  HeldSpot : PlaceRead b -> SpotRead (OfHeld (MkHeldValues b p))
+
+-- What is read of a dictionary's place that is a position of the graph is
+-- what is read of that position.
+placedRead : (place : HeldBy) -> (0 positioned : Positioned place) -> PlaceRead place -> SpotRead (valueSpot place positioned)
+placedRead (ByParameter h i) _ r = ParameterSpot r
+placedRead (ByField j k) _ r = FieldSpot r
+placedRead (ByChoice k) _ r = ChoiceSpot r
+placedRead (ByBinding _ _) ParameterPlace _ impossible
+placedRead (ByBinding _ _) FieldPlace _ impossible
+placedRead (ByBinding _ _) ChoicePlace _ impossible
+
+-- Where a writer's parameter is, as a site's `Parameters` read it
+-- (`parameterOf`): the writer's node's own, or a position of the
+-- application.
+placeOfParameter : Node -> ParameterOf -> Subset HeldBy Positioned
+placeOfParameter w (WritersOwn j) = Element (ByParameter (OfNode w) j) ParameterPlace
+placeOfParameter w (UsesPosition j) = Element (ByParameter OfApplication j) ParameterPlace
+
+-- What is read of that place, the writer read as `writer`.
+parameterRead : (writer : GlobalDef) -> (w : Node) -> (p : ParameterOf) -> PlaceRead (placeOfParameter w p).fst
+parameterRead writer w (WritersOwn j) = NodeParameter writer
+parameterRead writer w (UsesPosition j) = ApplicationParameter
+
 ||| Where parameter i of a writer is, at its node, as `ps` reads it: the
 ||| node's own, or a position of the application.
 export
 writerPlace : Node -> Parameters -> Nat -> Subset HeldBy Positioned
-writerPlace w ps i = case parameterOf ps i of
-  WritersOwn j => Element (ByParameter (OfNode w) j) ParameterPlace
-  UsesPosition j => Element (ByParameter OfApplication j) ParameterPlace
+writerPlace w ps i = placeOfParameter w (parameterOf ps i)
+
+||| What a message reads of the place of a writer's parameter i
+||| (`writerPlace`), the writer as it was read.
+export
+writerRead : (writer : GlobalDef) -> (w : Node) -> (ps : Parameters) -> (i : Nat) -> PlaceRead (writerPlace w ps i).fst
+writerRead writer w ps i = parameterRead writer w (parameterOf ps i)
 
 ||| The position of parameter i of a writer at its node (`writerPlace`).
 export
 spotAt : Node -> Parameters -> Nat -> Spot
-spotAt w ps i = let Element place positioned = writerPlace w ps i in valueSpot place positioned
+spotAt w ps i = valueSpot (writerPlace w ps i).fst (writerPlace w ps i).snd
+
+||| What a message reads of that position (`spotAt`), the writer as it was
+||| read.
+export
+writerSpotRead : (writer : GlobalDef) -> (w : Node) -> (ps : Parameters) -> (i : Nat) -> SpotRead (spotAt w ps i)
+writerSpotRead writer w ps i = placedRead (writerPlace w ps i).fst (writerPlace w ps i).snd (writerRead writer w ps i)
 
 ||| How a site reached its callee: called or built, its target the callee;
-||| or dispatched through implementation J's method field k, whose leading
-||| placement puts J's parameters among the method function's.
+||| or dispatched through implementation J's method field k, J as it was
+||| read, whose leading placement puts J's parameters among the method
+||| function's.
 public export
 data Via : Type where
   Called : Via
-  Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
+  Dispatched : (j : Address) -> (jRead : GlobalDef) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a visit: a callee's visit, which the walk
 ||| enters, with what the walk knows of the callee (`e`): nothing where a
 ||| site's reading finds it (`reaches`), and the definition its node is
 ||| read at once the walk has read that node (`Graph`); the application at
-||| a use; a choice it makes a member of; or the fields of a constructor a
-||| dictionary is rebuilt with, which no definition's node holds, each a
-||| field's position. A dictionary the writer binds is no callee
+||| a use; a choice it makes a member of, with what a message reads of its
+||| head; or the fields of a constructor a dictionary is rebuilt with, by
+||| its address and as it was read, which no definition's node holds, each
+||| a field's position. A dictionary the writer binds is no callee
 ||| (`Reached`).
 public export
-data Callee e = Entering Visit e | Applying | Making ChoiceHead | Filling Address
+data Callee : Type -> Type where
+  Entering : Visit -> e -> Callee e
+  Applying : Callee e
+  Making : (k : ChoiceHead) -> HeadRead k -> Callee e
+  Filling : Address -> GlobalDef -> Callee e
 
 ||| The place an argument placed at a callee's parameter i is at: that
 ||| parameter of the visit's node or of the application; at a choice, its
@@ -1339,13 +1408,28 @@ export
 calleePlace : Callee e -> Nat -> Subset HeldBy Positioned
 calleePlace (Entering v _) i = Element (ByParameter (OfNode (visitNode v)) i) ParameterPlace
 calleePlace Applying i = Element (ByParameter OfApplication i) ParameterPlace
-calleePlace (Making k) _ = Element (ByChoice k) ChoicePlace
-calleePlace (Filling con) i = Element (ByField con i) FieldPlace
+calleePlace (Making k _) _ = Element (ByChoice k) ChoicePlace
+calleePlace (Filling con _) i = Element (ByField con i) FieldPlace
+
+||| What a message reads of that place (`calleePlace`): what the walk read
+||| of the callee where it entered it, and what the site read of a choice's
+||| head or a rebuilt constructor.
+export
+calleeRead : (c : Callee Defined) -> (i : Nat) -> PlaceRead (calleePlace c i).fst
+calleeRead (Entering v d) i = NodeParameter d.def
+calleeRead Applying i = ApplicationParameter
+calleeRead (Making k named) i = ChoiceOfHead named
+calleeRead (Filling con def) i = FieldOf def
 
 ||| Where an argument placed at a callee's parameter i lands (`calleePlace`).
 export
 landsAt : Callee e -> Nat -> Spot
-landsAt c i = let Element place positioned = calleePlace c i in valueSpot place positioned
+landsAt c i = valueSpot (calleePlace c i).fst (calleePlace c i).snd
+
+||| What a message reads of that position (`landsAt`).
+export
+calleeSpotRead : (c : Callee Defined) -> (i : Nat) -> SpotRead (landsAt c i)
+calleeSpotRead c i = placedRead (calleePlace c i).fst (calleePlace c i).snd (calleeRead c i)
 
 ||| What a site reaches from a node: a callee, with what the walk knows of
 ||| it (`Callee`), each of the site's arguments placed at the parameter it
@@ -1408,10 +1492,10 @@ reaches fl v s = from s.reach
     method : Nat -> Address -> List (Reached ())
     method k j = case methodAt fl.dictionaries j k of
       Nothing => []
-      Just (m, own, leading) =>
+      Just (m, own, leading, jRead) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) [] acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (Entering (MkVisit m hs) ()) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (Entering (MkVisit m hs) ()) placed (Dispatched j jRead k leading)) (combinations (passed placed fromJ))
 
     -- A dispatch through field k of j: each method field it runs (`runs`).
     through : Nat -> Address -> List (Reached ())
@@ -1420,9 +1504,9 @@ reaches fl v s = from s.reach
     -- A field of a rebuilt constructor, as what the dictionary's argument
     -- writes there: the field holds what its dictionary holds, no list of
     -- its own.
-    filling : Argument -> (Address, Nat, Template) -> Reached ()
-    filling x (con, c, t) =
-      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) c]
+    filling : Argument -> (Address, GlobalDef, Nat, Template) -> Reached ()
+    filling x (con, def, c, t) =
+      MkReached (Filling con def) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) c]
                 Called
 
     -- The field the last level takes, as a value held (`Cases.heldHere`):
@@ -1466,7 +1550,7 @@ reaches fl v s = from s.reach
     -- Every use's application is one, split by nothing: what it applies is
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
-    from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]
+    from (Makes k named) = [MkReached (Making k named) (atOwnPositions s.arguments) Called]
     -- A binding's list is held at its place, at the writer's node.
     from (Keeps b items) = [Kept b items]
     -- Where a match finds a field of the dictionary stuck: one request for

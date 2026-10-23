@@ -286,8 +286,6 @@ placedAsHeld r isSpot isBound =
 heightsFrom : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot -> (fs : List (Fin b.graph.size)) -> Placing b pot fs
 heightsFrom b pot ts [] = MkPlacing [] []
 heightsFrom b pot ts (f :: fs) =
-  -- Read by projection: a pattern let over these records is a case whose
-  -- scrutinee's type names the positions read, which no case infers.
   let rest = heightsFrom b pot ts fs
       here = readAt ts f
       r = raiseFor here.spotRead here.boundRead rest.table in
@@ -322,8 +320,13 @@ sizesOf b placing = MkBounds (heightsIn placing.table) b.arity b.heaviest b.brea
 definitionName : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front String
 definitionName def = nameKey <$> fullNames (fullname def)
 
-||| The definition at an address of the graph, and its name as a message
-||| prints it. Every address of the graph is a definition's (`addressOf`).
+||| An interface's name, as the type that heads its choice names it, as a
+||| message prints it.
+interfaceName : {auto c : Ref Ctxt Defs} -> Name -> Front String
+interfaceName n = nameKey <$> fullNames n
+
+||| The definition at a stuck recursion's address, and its name as a
+||| message prints it: a template holds a recursion by its address alone.
 graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Front (GlobalDef, String)
 graphDefinition fc a = do
   Just def <- core (definitionAt a)
@@ -348,10 +351,8 @@ placeOf def = MkPlace (location def) (show (fullname def))
 
 ||| A definition of the program's own source, with where it is; nothing for
 ||| a library's or a generated one.
-userDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 FC -> Address -> Front (Maybe (Loc, GlobalDef))
-userDefinition fc a = do
-  (def, _) <- graphDefinition fc a
+userDefinition : {auto s : Ref TState TS} -> GlobalDef -> Front (Maybe (Loc, GlobalDef))
+userDefinition def = do
   loc <- toLoc (location def)
   pure (case loc.origin of
           User => Just (loc, def)
@@ -368,56 +369,58 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
     place : Loc -> (Maybe String, Maybe Int)
     place l = (locFile l, (.startLine) <$> locSpan l)
 
-||| A dictionary's place, as a message names it: a parameter of what holds
-||| it, by the parameter's name and the holder's, or argument i of the
-||| application at a use; an implementation's field, by the
-||| implementation's name; a choice, by its interface's name, as the
-||| polymorphic functions', or as one whose type only an instance shows; or
-||| a dictionary a definition's text binds, by the definition's name.
-placeText : {auto c : Ref Ctxt Defs} -> FC -> HeldBy -> Front String
-placeText fc (ByParameter (OfNode node) i) = do
-  (def, name) <- graphDefinition fc node.definition
+||| A dictionary's place, as a message names it, by the definitions the
+||| walk read with it (`PlaceRead`): a parameter of what holds it, by the
+||| parameter's name and the holder's, or argument i of the application at
+||| a use; an implementation's field, by the implementation's name; a
+||| choice, by its interface's name, as the polymorphic functions', or as
+||| one whose type only an instance shows; or a dictionary a definition's
+||| text binds, by the definition's name.
+placeText : {auto c : Ref Ctxt Defs} -> (place : HeldBy) -> PlaceRead place -> Front String
+placeText (ByParameter (OfNode _) i) (NodeParameter def) = do
+  name <- definitionName def
   (++ " of " ++ name) <$> parameter i def
-placeText fc (ByParameter OfApplication i) =
+placeText (ByParameter OfApplication i) ApplicationParameter =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
-placeText fc (ByField j k) = (\name => "field " ++ show k ++ " of " ++ name) . snd <$> graphDefinition fc j
-placeText fc (ByChoice (InterfaceHead j)) =
-  (\name => "the implementations of " ++ name ++ " the running program chooses") . snd <$> graphDefinition fc j
-placeText fc (ByChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
-placeText fc (ByChoice UnshownHead) =
+placeText (ByField _ k) (FieldOf def) = (\name => "field " ++ show k ++ " of " ++ name) <$> definitionName def
+placeText (ByChoice (InterfaceHead _)) (ChoiceOfHead (InterfaceNamed n)) =
+  (\name => "the implementations of " ++ name ++ " the running program chooses") <$> interfaceName n
+placeText (ByChoice ArrowHead) (ChoiceOfHead ArrowRead) = pure "the polymorphic functions the running program chooses"
+placeText (ByChoice UnshownHead) (ChoiceOfHead UnshownRead) =
   pure "the members the running program chooses of a choice whose type only an instance shows"
-placeText fc (ByBinding node _) = (\name => "a dictionary bound in " ++ name) . snd <$> graphDefinition fc node.definition
+placeText (ByBinding _ _) (BoundIn def) = (\name => "a dictionary bound in " ++ name) <$> definitionName def
 
 ||| What holds a position, as a message names it: a node's definition, by
 ||| its name; the application at a use, which no name is; an
 ||| implementation's field or a choice, as its place is named; or the
 ||| values a dictionary's place holds, by that place.
-holderText : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front String
-holderText fc (OfParameter (OfNode node) _) = snd <$> graphDefinition fc node.definition
-holderText fc (OfParameter OfApplication _) = pure "the application of a polymorphic function at its use"
-holderText fc (OfField j k) = placeText fc (ByField j k)
-holderText fc (OfChoice k) = placeText fc (ByChoice k)
-holderText fc (OfHeld v) = (\place => "the values " ++ place ++ " holds") <$> placeText fc v.heldBy
+holderText : {auto c : Ref Ctxt Defs} -> (spot : Spot) -> SpotRead spot -> Front String
+holderText (OfParameter (OfNode _) _) (ParameterSpot (NodeParameter def)) = definitionName def
+holderText (OfParameter OfApplication _) (ParameterSpot ApplicationParameter) =
+  pure "the application of a polymorphic function at its use"
+holderText (OfField j k) (FieldSpot r) = placeText (ByField j k) r
+holderText (OfChoice k) (ChoiceSpot r) = placeText (ByChoice k) r
+holderText (OfHeld (MkHeldValues place _)) (HeldSpot r) =
+  (\text => "the values " ++ text ++ " holds") <$> placeText place r
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
 ||| application at a use, or a choice, which no definition is.
-userHolder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> Spot -> Front (Maybe (Loc, GlobalDef))
-userHolder fc (OfParameter (OfNode node) _) = userDefinition fc node.definition
-userHolder fc (OfParameter OfApplication _) = pure Nothing
-userHolder fc (OfField j _) = userDefinition fc j
-userHolder fc (OfChoice _) = pure Nothing
-userHolder fc (OfHeld _) = pure Nothing
+userHolder : {auto s : Ref TState TS} -> (spot : Spot) -> SpotRead spot -> Front (Maybe (Loc, GlobalDef))
+userHolder (OfParameter (OfNode _) _) (ParameterSpot (NodeParameter def)) = userDefinition def
+userHolder (OfParameter OfApplication _) (ParameterSpot ApplicationParameter) = pure Nothing
+userHolder (OfField _ _) (FieldSpot (FieldOf def)) = userDefinition def
+userHolder (OfChoice _) _ = pure Nothing
+userHolder (OfHeld _) _ = pure Nothing
 
 ||| The first user definition among a node's reachers on the walk from
-||| main, nearest first; nothing when main is reached with none.
-reacher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> (reachers : List Node) -> Front (Maybe GlobalDef)
-reacher fc [] = pure Nothing
-reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
+||| main, nearest first, as the walk read them; nothing when main is
+||| reached with none.
+reacher : {auto s : Ref TState TS} -> (reachers : List GlobalDef) -> Front (Maybe GlobalDef)
+reacher [] = pure Nothing
+reacher (d :: ds) = case !(userDefinition d) of
   Just (_, def) => pure (Just def)
-  Nothing => reacher fc ps
+  Nothing => reacher ds
 
 ||| Where a refusal is reported, and which of its candidates is there. Each
 ||| candidate is what holds one of the cause's positions. Of the user
@@ -426,19 +429,20 @@ reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
 ||| program reaches it, at the first candidate: at the first user definition
 ||| among the reachers of the cause's first node, or at main.
 located : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> Name -> Built -> (first : Spot) -> List1 (t, Spot) -> Front (t, Place)
+          FC -> Name -> (b : Built) -> (first : Fin b.graph.size) -> List1 (t, Fin b.graph.size) -> Front (t, Place)
 located fc main b first candidates = do
-  users <- traverse (\(v, h) => map (\(loc, def) => (v, loc, def)) <$> userHolder fc h)
+  users <- traverse (\(v, p) => map (\(loc, def) => (v, loc, def)) <$>
+                                 userHolder (index p b.position) (readAtPlace p b.positionRead))
                     (forget candidates)
   case catMaybes users of
     u :: us => let (v, _, def) = earliest u us in pure (v, placeOf def)
     [] => do
-      above <- reacher fc (reachersOf first)
+      above <- reacher (reachersOf (index first b.position))
       pure (fst (head candidates), maybe (MkPlace fc (show main)) placeOf above)
   where
     -- The application at a use, a field and a choice are reached through
-    -- no node of their own.
-    reachersOf : Spot -> List Node
+    -- no node of their own, and main is reached through none.
+    reachersOf : Spot -> List GlobalDef
     reachersOf (OfParameter (OfNode node) _) = fromMaybe [] (lookup node b.reachers)
     reachersOf _ = []
 
@@ -450,27 +454,27 @@ located fc main b first candidates = do
 ||| whether the arc's writer binds it: the writer's binder; or one its text
 ||| does not bind, an implementation's, named with the implementation; or
 ||| the application's argument.
-subjectAt : {auto c : Ref Ctxt Defs} -> FC -> ArcSource -> Spot -> Front String
-subjectAt fc source (OfParameter (OfNode node) i) = do
-  (def, name) <- graphDefinition fc node.definition
-  case source of
-    WriterBinds => parameter i def
-    WriterProjects => (++ " of " ++ name) <$> parameter i def
-subjectAt fc _ (OfParameter OfApplication i) =
+subjectAt : {auto c : Ref Ctxt Defs} -> ArcSource -> (spot : Spot) -> SpotRead spot -> Front String
+subjectAt WriterBinds (OfParameter (OfNode _) i) (ParameterSpot (NodeParameter def)) = parameter i def
+subjectAt WriterProjects (OfParameter (OfNode _) i) (ParameterSpot (NodeParameter def)) = do
+  name <- definitionName def
+  (++ " of " ++ name) <$> parameter i def
+subjectAt _ (OfParameter OfApplication i) (ParameterSpot ApplicationParameter) =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
-subjectAt fc _ spot@(OfField _ _) = holderText fc spot
-subjectAt fc _ spot@(OfChoice _) = holderText fc spot
-subjectAt fc _ spot@(OfHeld _) = holderText fc spot
+subjectAt _ spot@(OfField _ _) r = holderText spot r
+subjectAt _ spot@(OfChoice _) r = holderText spot r
+subjectAt _ spot@(OfHeld _) r = holderText spot r
 
 ||| Does a position belong to a data type, which grows through its fields
 ||| where a function grows through its calls?
-ofDataType : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front Bool
-ofDataType fc (OfParameter (OfNode node) _) = do
-  (def, _) <- graphDefinition fc node.definition
-  pure (case def.definition of
-          TCon {} => True
-          _ => False)
-ofDataType fc _ = pure False
+ofDataType : (spot : Spot) -> SpotRead spot -> Bool
+ofDataType (OfParameter (OfNode _) _) (ParameterSpot (NodeParameter def)) = case def.definition of
+  TCon {} => True
+  _ => False
+ofDataType (OfParameter OfApplication _) _ = False
+ofDataType (OfField _ _) _ = False
+ofDataType (OfChoice _) _ = False
+ofDataType (OfHeld _) _ = False
 
 ||| A cycle's arcs, each with the position it leaves, in order: the ring its
 ||| certificate holds, at least one arc.
@@ -497,28 +501,26 @@ refuseCycle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> Name -> (b : Built) -> List1 (Fin b.graph.size, Fin (length b.graph.arcs)) ->
               (growth : Nat) -> Front ()
 refuseCycle fc main b ring growth = do
-  (round, place) <- located fc main b (spotOf (fst (head ring)))
-                            (map (\r => (r, spotOf (fst (head r)))) (rotations ring))
+  (round, place) <- located fc main b (fst (head ring)) (map (\r => (r, fst (head r))) (rotations ring))
   let (source, a) = head round
-  let spot = index source b.position
-  sourceName <- holderText fc spot
-  target <- holderText fc (spotOf (arc b.graph a).to)
+  sourceName <- holderAt source
+  target <- holderAt (arc b.graph a).to
   path <- case tail round of
     [] => pure ""
     rest => do
-      names <- traverse (\(p, _) => holderText fc (spotOf p)) rest
+      names <- traverse (\(p, _) => holderAt p) rest
       pure (" through " ++ joinBy " -> " (names ++ [sourceName]))
   let grows = ", growing it by " ++ show growth ++ " each round" ++ path ++
               ", and nothing bounds how far it grows"
   let (asDrawn, wrote) = index a b.drawing
-  x <- subjectAt fc asDrawn.sourceRead spot
+  x <- subjectAt asDrawn.sourceRead (index source b.position) (readAtPlace source b.positionRead)
   text <- case wrote of
     FromArgument site argument => do
       within <- definitionName site.within
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
-      pure (if !(ofDataType fc spot)
+      pure (if ofDataType (index source b.position) (readAtPlace source b.positionRead)
               then sourceName ++ " holds " ++ target ++ " at " ++ shown ++ " in " ++
                    within ++ ", growing " ++ x ++ " by " ++ show growth ++ " each level" ++ path ++
                    ", and nothing bounds how deep its values nest"
@@ -535,8 +537,10 @@ refuseCycle fc main b ring growth = do
     PacksHeld _ => pure (target ++ " packs " ++ x ++ " as one held value" ++ grows)
   reject place.at place.owner Polymorphism text
   where
-    spotOf : Fin b.graph.size -> Spot
-    spotOf p = index p b.position
+    -- What holds a position of the graph, as a message names it, by what
+    -- the walk read with the position.
+    holderAt : Fin b.graph.size -> Front String
+    holderAt p = holderText (index p b.position) (readAtPlace p b.positionRead)
 
 ||| What wrote an arc nothing bounds: a site's argument, or a field of the
 ||| definition that gives a dictionary, as it was read.
@@ -567,20 +571,18 @@ refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> Name -> (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : StuckArc b.graph a) -> Front ()
 refuseOpaque fc main b a stuck = do
   let MkArc src to _ = arc b.graph a
-  let spot = index src b.position
-  let target = index to b.position
   -- A field's writer is the definition that gives the dictionary, which
   -- writes it in its own text.
   let (writer, home) = the (GlobalDef, GlobalDef) $ case unmeasuredBy b a (stuckLabel stuck) of
         ArgumentWrote site => (site.writerDef, site.within)
         FieldWrote j => (j, j)
-  ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
+  ((), place) <- located fc main b src (((), src) ::: [((), to)])
   through <- case throughOf (fst (index a b.drawing)) (trans (cong (.label) (b.drawnAs a)) (stuckLabel stuck)) of
     StuckRecursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
     AppliedFamily j => ("its type family " ++) <$> parameter j writer
-  targetName <- holderText fc target
+  targetName <- holderText (index to b.position) (readAtPlace to b.positionRead)
   homeName <- definitionName home
-  x <- subjectAt fc (fst (index a b.drawing)).sourceRead spot
+  x <- subjectAt (fst (index a b.drawing)).sourceRead (index src b.position) (readAtPlace src b.positionRead)
   reject place.at place.owner Polymorphism
          (homeName ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
           ", and nothing bounds what it computes")

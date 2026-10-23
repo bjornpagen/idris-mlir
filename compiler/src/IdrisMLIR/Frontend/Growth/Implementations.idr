@@ -59,19 +59,27 @@ data Field : Type where
 ||| about what its fields write names; the constructor the dictionary is
 ||| built with, its own for a constructor and the one an implementation's
 ||| body reduces to, which is what a reduction of the dictionary to its
-||| head reaches; and its fields, in that constructor's order.
+||| head reaches, by its address and as it was read, which a message about
+||| a rebuilt dictionary's fields names; and its fields, in that
+||| constructor's order.
 public export
 record Fields where
   constructor MkFields
   givenBy : GlobalDef
   builtBy : Address
+  builtAs : GlobalDef
   inOrder : List Field
+
+||| Field k of a dictionary: nothing when it has fewer fields.
+export
+fieldIn : Fields -> Nat -> Maybe Field
+fieldIn f k = head' (drop k f.inOrder)
 
 ||| Field k of the dictionary the definition at an address gives: nothing
 ||| when it gives none, or fewer fields.
 export
 fieldAt : SortedMap Address Fields -> Address -> Nat -> Maybe Field
-fieldAt fs j k = lookup j fs >>= head' . drop k . (.inOrder)
+fieldAt fs j k = lookup j fs >>= \f => fieldIn f k
 
 ||| What every field gives the flow, method or not: its template and its
 ||| root. A method field's root is its function.
@@ -251,7 +259,7 @@ implementationFields d args body = do
   Just cd <- defined con
     | Nothing => pure Nothing
   fs <- fieldsAlong owner !(normaliseClosed cd.type) cargs
-  pure (Just (MkFields d.def (addressOf cd.placement) fs))
+  pure (Just (MkFields d.def (addressOf cd.placement) cd.def fs))
 
 ||| The fields of a definition, over its parameters. An
 ||| implementation, a definition with one right-hand side whose type is an
@@ -267,7 +275,7 @@ fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Fr
 fieldsOf d = case (definition d.def, d.matched) of
     (DCon _ arity _, _) => do
       ty <- normaliseClosed d.type
-      Just . MkFields d.def (addressOf d.placement) <$> arguments arity 0 ty
+      Just . MkFields d.def (addressOf d.placement) d.def <$> arguments arity 0 ty
     (PMDef {}, Just m) => do
       True <- implementationType d.type
         | False => pure Nothing

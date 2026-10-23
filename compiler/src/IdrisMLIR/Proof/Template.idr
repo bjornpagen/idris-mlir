@@ -200,6 +200,16 @@ mutual
   allSelfBounded [] = True
   allSelfBounded (t :: ts) = selfBounded t && allSelfBounded ts
 
+||| What an applied family's own marker weighs, e heads deep, by whether
+||| its arguments are closed: their height above the marker's own value,
+||| or Stuck. The test is written once, here, so that the weight and what
+||| passes it on (`appliedPassage`) split on one function, which a proof
+||| unifies with both.
+public export
+appliedAt : (closed : Bool) -> (e, d : Nat) -> List Template -> Weight
+appliedAt True e d ts = Finite (e + tallest ts) d
+appliedAt False e d ts = Stuck
+
 ||| How much an applied family grows its own marker, e heads deep. Beta of
 ||| a family no higher than k, applied to arguments no higher than h, is no
 ||| higher than k + h when the family is inert: with closed arguments h is
@@ -208,7 +218,7 @@ mutual
 ||| weight states.
 public export
 appliedWeight : (e, d : Nat) -> List Template -> Weight
-appliedWeight e d ts = if allSelfBounded ts then Finite (e + tallest ts) d else Stuck
+appliedWeight e d ts = appliedAt (allSelfBounded ts) e d ts
 
 mutual
   ||| Each occurrence of a writer's parameter in a template read e heads
@@ -341,11 +351,12 @@ alsoPassedOn (PassedOn i p ps) qs = PassedOn i p (alsoPassedOn ps qs)
 
 -- What passes on an applied family's own marker: heads above its
 -- arguments where they are closed, and otherwise the family, where what
--- beta makes of them is a sum of two heights.
+-- beta makes of them is a sum of two heights. It splits on the weight's
+-- own test (`appliedAt`).
 appliedPassage : (j, e, d : Nat) -> (ts : List Template) -> Passage (appliedWeight e d ts)
 appliedPassage j e d ts = atClosed (allSelfBounded ts)
   where
-    atClosed : (closed : Bool) -> Passage (if closed then Finite (e + tallest ts) d else Stuck)
+    atClosed : (closed : Bool) -> Passage (appliedAt closed e d ts)
     atClosed True = ByHeads (e + tallest ts) d
     atClosed False = ByComputation (AppliedFamily j)
 
