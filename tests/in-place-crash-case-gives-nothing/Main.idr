@@ -34,5 +34,5 @@ main = do
   if n <= 0
     then putStrLn "no list"
     else do
-      let MkBang total = sumL 0 (bump1 (bump1 (build n [])))
-      printLn total
+      let MkBang summed = sumL 0 (bump1 (bump1 (build n [])))
+      printLn summed

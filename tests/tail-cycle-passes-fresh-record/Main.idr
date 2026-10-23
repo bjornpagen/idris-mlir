@@ -11,7 +11,7 @@ import Prelude
 record Acc where
   constructor MkAcc
   count : Int
-  total : Int
+  net : Int
 
 mutual
   ping : Int -> Acc -> Acc

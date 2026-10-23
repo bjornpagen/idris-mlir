@@ -8,7 +8,9 @@ import Linear.List
 -- rejoined: the empty case reaches the construction with no cell, so the
 -- construction rebuilds nothing and headList makes no promise. A caller
 -- may pass it a list it reads again afterwards, and is not refused: the
--- list it reads keeps every value.
+-- list it reads keeps every value. The match's result is bound once
+-- (`let 1`): it consumes the linear parameter, and a let binds at many
+-- unless told otherwise.
 
 build : Int -> LList (!* Int) -@ LList (!* Int)
 build n acc = if n <= 0 then acc else build (n - 1) (MkBang n :: acc)
@@ -19,9 +21,10 @@ sumL acc (MkBang x :: xs) = sumL (acc + x) xs
 
 headList : LList (!* Int) -@ LList (!* Int)
 headList xs =
-  let MkBang h = (case xs of
-                    [] => MkBang 0
-                    (MkBang x :: ys) => let MkBang _ = sumL 0 ys in MkBang x)
+  let 1 r = case xs of
+              [] => MkBang 0
+              (MkBang x :: ys) => let MkBang _ = sumL 0 ys in MkBang x
+      MkBang h = r
   in [MkBang h]
 
 main : IO ()

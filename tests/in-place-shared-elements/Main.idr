@@ -22,5 +22,5 @@ main : IO ()
 main = do
   c <- getChar
   let n = cast (ord c - ord '0')
-  let MkBang total = sumJust 0 (reverse (rep n (Just (n * 10)) []))
-  printLn total
+  let MkBang summed = sumJust 0 (reverse (rep n (Just (n * 10)) []))
+  printLn summed
