@@ -1,0 +1,2 @@
+Catchall: an update of a variable reads its record off the variable's type
+Change: an update that changes its record's index checks

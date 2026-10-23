@@ -55,7 +55,7 @@ uint64_t Numeral::wrapped(const char *p, size_t n) const {
     uint64_t digit = c <= '9' ? static_cast<uint64_t>(c - '0') : static_cast<uint64_t>((c | 0x20) - 'a' + 10);
     value = value * base + digit;
   }
-  return negative ? 0 - value : value;
+  return withSign(value);
 }
 
 // `cast` from String (idris_rt_str_to_int, idris_rt_str_to_double,
@@ -81,7 +81,7 @@ Numeral readNumeral(const char *p, size_t n) {
   Numeral numeral;
   size_t at = 0;
   if (n > 0 && (p[0] == '+' || p[0] == '-')) {
-    numeral.negative = p[0] == '-';
+    numeral.sign = p[0] == '-' ? Sign::Minus : Sign::Plus;
     at = 1;
   }
   if (isWord(p + at, n - at, "inf") || isWord(p + at, n - at, "infinity")) {

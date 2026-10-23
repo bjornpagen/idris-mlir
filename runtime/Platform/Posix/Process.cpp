@@ -35,8 +35,8 @@ const char *environmentEntry(int64_t index) noexcept {
   return environ[index];
 }
 
-bool setEnvironment(const char *name, const char *value, bool overwrite) noexcept {
-  return setenv(name, value, overwrite ? 1 : 0) == 0;
+bool setEnvironment(const char *name, const char *value, WhenSet set) noexcept {
+  return setenv(name, value, static_cast<int>(set)) == 0;
 }
 
 bool unsetEnvironment(const char *name) noexcept { return unsetenv(name) == 0; }

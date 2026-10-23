@@ -105,6 +105,14 @@ statusLine e = case status e of
   Code n => "code " ++ show (finToNat n)
   Raised s => "signal " ++ posixName s
 
+||| The status a run that ends as TEXT says ends with, as `statusLine`
+||| writes it (`runtests --ending-status`); none for text that is no
+||| ending. So a script that tells an ending by its status reads the
+||| status from the specification's table.
+export
+endingStatus : (text : String) -> Maybe String
+endingStatus text = statusLine <$> readEnding text
+
 ------------------------------------------------------------------------------
 -- Verdicts
 ------------------------------------------------------------------------------

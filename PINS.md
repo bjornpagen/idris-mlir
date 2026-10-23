@@ -1655,3 +1655,24 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/115-size-change-as-pattern-doubling; nothing sent
   (Idris takes no tool-written contribution)
 - status (2026-10-23): carried
+
+## record-update-variable-type
+
+- symptom: the stock Idris reads the record a record update names only
+  off the type the update is expected to have, so an update of a variable
+  in a let without a signature waits for the let's type, and is refused
+  ("Can't infer type for this record update") where that type is never
+  found, though the variable's own type names the record (the test
+  runner: `harness/Covers.idr`'s `scanLine`, its update of `st` before a
+  case with a catch-all)
+- sites: every record update the stock host checks: stage 0 and the
+  libraries
+- workaround: `upstream/116-record-update-variable-type/idris.patch`:
+  `checkUpdate` reads the record's name off the variable's type in the
+  environment while the expected type is not yet a type constructor's,
+  and checks the update against the expected type as before; checked by
+  tests/upstream-record-update-variable-type
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/116-record-update-variable-type; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-23): carried

@@ -56,9 +56,9 @@ same exit-255
 same crash
 same memory
 
-# A bitcode file that is neither the archive --prepare-runtime reads nor a
-# runtime it wrote (it carries no prepared marks) is refused, by its name,
-# when a program (Main.idr) is compiled against it.
+# A bitcode file that is no runtime --prepare-runtime wrote (it carries no
+# prepared marks) is refused, by its name, when a program (Main.idr) is
+# compiled against it.
 printf 'int idris_flagless(void) { return 0; }\n' > "$work/flagless.c"
 if ! bounded "$pinned_cc" --target="$("$idris_mlir" --print-target-triple)" -c -emit-llvm \
     "$work/flagless.c" -o "$work/flagless.bc" > "$work/flagless-cc.log" 2>&1; then

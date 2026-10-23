@@ -117,12 +117,12 @@ oneRuleChanged values rule =
 ||| rule, the rules it applies to its operand and to its result where its
 ||| relation holds, each landing on the value it reads, and nothing where
 ||| the relation fails; a call's row, anything.
-ruleChanged : TypedRule i o -> List Changed
+ruleChanged : {0 i, o : Nat} -> TypedRule i o -> List Changed
 ruleChanged (ByType rule values) = oneRuleChanged values rule
 ruleChanged (ByPair rule operandGroup resultGroup) =
   let pair = pairConsequence rule
-  in concatMap (oneRuleChanged (Operands operandGroup)) (operandRules pair)
-     ++ concatMap (oneRuleChanged (Results resultGroup)) (resultRules pair)
+  in concatMap (oneRuleChanged (Operands {o} operandGroup)) (operandRules pair)
+     ++ concatMap (oneRuleChanged (Results {i} resultGroup)) (resultRules pair)
 ruleChanged Summarized = [OperandMemory, OtherMemory]
 
 ||| Memory the runtime's function holds that no value names changes when
@@ -205,8 +205,8 @@ opRows (SomeOp op) = case (callOf op, callsByCase op) of
   (Nothing, Nothing) => []
 
 ||| Every op's rows, in the specification's order.
-rows : List Row
-rows = concatMap opRows declarations.ops
+declaredRows : List Row
+declaredRows = concatMap opRows declarations.ops
 
 ||| A crash's kind, by the name of its ending's type in the runtime, which
 ||| is the specification's name for it: the runtime ends a process through
@@ -487,9 +487,13 @@ memoryOf spec =
         (_, ':' :: after) => dropWhile (== ' ') after
         _ => trimmed
 
+||| How an attribute group's text spells `noreturn`, between its neighbours.
+noreturnSpellings : List String
+noreturnSpellings = [" noreturn ", " noreturn}", "{noreturn ", "{noreturn}"]
+
 noreturnIn : String -> Returning
 noreturnIn text =
-  if any (`isInfixOf` text) [" noreturn ", " noreturn}", "{noreturn ", "{noreturn}"]
+  if any (`isInfixOf` text) noreturnSpellings
      then NeverReturns else MayReturn
 
 attributesOf : Module -> String -> String
@@ -530,7 +534,7 @@ covering
 readingOf : Module -> SortedSet String -> String -> Maybe Reading
 readingOf m opaque symbol = do
   written <- lookup symbol m.defined
-  let seen = SortedSet.toList (reached m symbol)
+  let seen = Prelude.toList (reached m symbol)
   let called = concatMap (\u => fromMaybe [] (lookup u m.edges)) seen
   let text = attributesOf m symbol
   let memory = case memoryIn (unpack text) of
@@ -544,7 +548,7 @@ covering
 readingsOf : Module -> SortedMap String Reading
 readingsOf m =
   let opaque = opaqueOf m in
-  fromList (mapMaybe (\s => map (\r => (s, r)) (readingOf m opaque s)) (nub (map (.symbol) rows)))
+  fromList (mapMaybe (\s => map (\r => (s, r)) (readingOf m opaque s)) (nub (map (.symbol) declaredRows)))
 
 ------------------------------------------------------------------------------
 -- The relations
@@ -698,7 +702,7 @@ wrongReading WritesMemory r row =
 ||| made wrong for the relation; else the first whose function can be read
 ||| wrong; else none.
 plant : SortedMap String Reading -> Relation -> Maybe Planted
-plant readings relation = declaredSide [<] rows <|> readingSide rows
+plant readings relation = declaredSide [<] declaredRows <|> readingSide declaredRows
   where
     declaredSide : SnocList Row -> List Row -> Maybe Planted
     declaredSide _ [] = Nothing
@@ -713,7 +717,7 @@ plant readings relation = declaredSide [<] rows <|> readingSide rows
     readingSide [] = Nothing
     readingSide (row :: after) =
       case lookup row.symbol readings >>= \r => wrongReading relation r row of
-        Just r' => Just (MkPlanted rows (insert row.symbol r' readings) row)
+        Just r' => Just (MkPlanted declaredRows (insert row.symbol r' readings) row)
         Nothing => readingSide after
 
 ||| Why a relation does not name the op of the row made wrong, if it does
@@ -737,13 +741,13 @@ missedBy readings true relation = case plant readings relation of
 ||| under it.
 export covering
 heldLines : (moduleText : String) -> List String
-heldLines text = case rows of
+heldLines text = case declaredRows of
   [] => ["declared: no op calls the runtime"]
   _ =>
     let m = readModule text
         readings = readingsOf m
         absent = filter (\t => isNothing (lookup (endingSymbol t.name) m.defined)) endingTypes
-        true = findingLines rows readings
+        true = findingLines declaredRows readings
         missed = mapMaybe (missedBy readings true) plantedRelations
     in (case absent of
           [] => ["endings: each the specification names ends a process through a function of the runtime"]

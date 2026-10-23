@@ -4,11 +4,12 @@
 // files: the runtime, whose native code idris-mlir links and its folders
 // run, which every program links; and the checked runtime, the same units
 // told to keep a dead cell's memory and end a program that counts it,
-// which tests compile programs with. A compilation joins a runtime read
-// from one of them and from no other archive (idr/Driver/Runtime.h). The
-// list is idris-mlir's own unit, which the build writes whenever an
-// archive is (foreign/idr/RuntimeDigest.cmake); this header needs nothing
-// the driver's library alone is compiled with, so that unit includes it.
+// which tests compile programs with. A compilation joins a runtime
+// prepared from one of them and from no other archive
+// (idr/Driver/Runtime.h). The list is idris-mlir's own unit, which the
+// build writes whenever an archive is (foreign/idr/RuntimeDigest.cmake);
+// this header needs nothing the driver's library alone is compiled with,
+// so that unit includes it.
 #ifndef IDR_DRIVER_BUILTRUNTIME_H
 #define IDR_DRIVER_BUILTRUNTIME_H
 

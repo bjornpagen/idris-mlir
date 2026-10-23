@@ -43,6 +43,7 @@ module Covers
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.Nat
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
@@ -54,6 +55,8 @@ import Harness
 import Lex
 import Reject
 import Serve
+
+import IdrisMLIR.Spec.Core.Rules
 
 %default covering
 
@@ -295,6 +298,20 @@ pairedLine (Both d x) = d.full ++ "\t" ++ homeText d.home ++ "\t" ++ x.type ++ "
 pairedLine (ExportAlone x) = "?\t?\t" ++ x.type ++ "\t" ++ fromMaybe "" x.withImplicits
 pairedLine (DefinitionAlone d) = d.full ++ "\t?\t?\t?"
 
+||| An export paired with its definition, which a module defines: the
+||| module, the definition's full name and the export; nothing for an
+||| export or a definition alone, or a definition :browse places nowhere.
+placed : Paired -> Maybe (String, String, Export)
+placed (Both d x) = case d.home of
+  In home => Just (home, d.full, x)
+  Unplaced => Nothing
+placed _ = Nothing
+
+||| Every export paired with its definition and placed, or nothing when one
+||| is not.
+allPlaced : List Paired -> Maybe (List (String, String, Export))
+allPlaced = traverse placed
+
 ||| The exports with each one's definition, in :browse's order. :browse
 ||| lists the visible definitions whose namespace is MODULE's or within it,
 ||| sorted by full name as Idris orders names: the name, then its
@@ -405,6 +422,12 @@ scanLine st0 line = go defining0 [<] (unpack line) st0
         from (sx :< x) (y :: ys) = x == y && from sx ys
         from [<] (_ :: _) = False
 
+    -- What a `[` outside a string leaves waiting: a family's index terms
+    -- after its label, else nothing.
+    bracketed : Waiting -> Waiting
+    bracketed AfterFamily = InIndices 1
+    bracketed _ = NotWaiting
+
     go : Maybe String -> SnocList Char -> List Char -> Scan -> Scan
     go _ _ [] st = st
     go defining before (c :: rest) st =
@@ -479,15 +502,11 @@ scanLine st0 line = go defining0 [<] (unpack line) st0
                 st' = if family then { label := fromMaybe "" (lookup st.depth st.labels), waiting := AfterFamily } st
                       else { waiting := NotWaiting } st
             in go defining (before :< c) rest ({ depth := pred st'.depth } st')
-          else if c == '[' && isAfterFamily st.waiting then
-            go defining (before :< c) rest ({ waiting := InIndices 1 } st)
+          else if c == '[' then
+            go defining (before :< c) rest ({ waiting := bracketed st.waiting } st)
           else if c /= ' ' && c /= '\t' then
             go defining (before :< c) rest ({ waiting := NotWaiting } st)
           else go defining (before :< c) rest st
-
-    isAfterFamily : Waiting -> Bool
-    isAfterFamily AfterFamily = True
-    isAfterFamily _ = False
 
 ||| Every name the bytecode module PROGRAM holds, read off its text as
 ||| idris-mlir-opt prints it with its locations: each symbol
@@ -819,9 +838,7 @@ escapeHatch e m full type probe = do
     , "main = let 0 probe : (" ++ type ++ ") = " ++ full ++ " in pure ()" ]))
   _ <- bounded e [e.tools.compileSh, "--report=" ++ dir ++ "/report", dir ++ "/Main.idr", "probe"]
                (ToFile (dir ++ "/out")) WithOutput
-  refused <- case ruleNamed "escape hatch" of
-    Just rule => refusedAs rule (InFile "Main.idr") (dir ++ "/report")
-    Nothing => pure False
+  refused <- refusedAs (Refusal EscapeHatch) (InFile "Main.idr") (dir ++ "/report")
   if refused then pure (True, []) else do
     shown <- firstLines 40 [dir ++ "/report", dir ++ "/out"]
     pure (False, (full ++ ": no escape-hatch refusal; the probe's report and output:") :: indented shown)
@@ -834,6 +851,25 @@ escapeHatch e m full type probe = do
 ||| name: outside the language, used as a value its code calls, an escape
 ||| hatch, or missing (with the probe's evidence, when one was asked).
 data Unused = Decided | Called | Hatch | Missing (List String)
+
+||| The exports the program does not use by name, each in the list of what
+||| became of it, a missing one with its probe's evidence.
+record Fates where
+  constructor MkFates
+  decided : List String
+  called : List String
+  hatches : List String
+  missing : List (String, List String)
+
+||| Each export in the list of its fate, in the order given.
+fated : List (String, Unused) -> Fates
+fated = foldr place (MkFates [] [] [] [])
+  where
+    place : (String, Unused) -> Fates -> Fates
+    place (f, Decided) fs = { decided $= (f ::) } fs
+    place (f, Called) fs = { called $= (f ::) } fs
+    place (f, Hatch) fs = { hatches $= (f ::) } fs
+    place (f, Missing ev) fs = { missing $= ((f, ev) ::) } fs
 
 ||| `covers MODULE`: every run-time export of MODULE is used by the program
 ||| whose module, as its frontend wrote it, is the bytecode PROGRAM, and
@@ -850,21 +886,17 @@ coversPrelude e m program fixture = do
       exports <- preludeExports e m
       definitions <- preludeDefinitions e (sort (nub (map (.name) exports)))
       let paired = ownExports m exports definitions
-      if any unpaired paired
-         then do
-           tell e ("prelude " ++ m ++ ": the pinned Idris's exports and definitions do not pair off")
-           tellAll e (indented (take 20 [show n ++ ":" ++ l | (n, l) <- zip [1 .. length paired] (map pairedLine paired), isInfixOf "?" l]))
-         else do
-           let own = [(d.full, x) | Both d x <- paired, d.home == In m]
-           let others = length [() | Both d _ <- paired, d.home /= In m]
-           case own of
-             [] => nothingOwn others
-             _ => judge used own
+      case allPlaced paired of
+        Nothing => do
+          tell e ("prelude " ++ m ++ ": the pinned Idris's exports and definitions do not pair off")
+          tellAll e (indented (take 20 [show n ++ ":" ++ l | (n, l) <- zip [1 .. length paired] (map pairedLine paired), isInfixOf "?" l]))
+        Just pairs => do
+          let own = [(full, x) | (home, full, x) <- pairs, home == m]
+          let others = length [() | (home, _, _) <- pairs, home /= m]
+          case own of
+            [] => nothingOwn others
+            _ => judge used own
   where
-    unpaired : Paired -> Bool
-    unpaired (Both d _) = d.home == Unplaced
-    unpaired _ = True
-
     -- :browse prints the same nothing for a module that exports nothing
     -- (Prelude.Ops declares only fixities) and for one that does not
     -- exist, so the pinned Idris is asked to import it: a module it imports
@@ -910,20 +942,17 @@ coversPrelude e m program fixture = do
                 (hatch, evidence) <- escapeHatch e m full type probe
                 pure (full, if hatch then Hatch else Missing evidence)
               Nothing => pure (full, Missing [])
-      let hatches = [f | (f, Hatch) <- fates]
-      let decided = [f | (f, Decided) <- fates]
-      let missing = [f | (f, Missing _) <- fates]
-      let evidence = concat [ev | (_, Missing ev) <- fates]
-      let usedCount = length byName + length [() | (_, Called) <- fates]
+      let fs = fated fates
+      let usedCount = length byName + length fs.called
       let exported = length own
       let note = " (" ++ show (length compileTime) ++ " compile-time only: " ++ shortNames m compileTime
                  ++ apart "escape hatch, which user code may not write"
-                          "escape hatches, which user code may not write" hatches
+                          "escape hatches, which user code may not write" fs.hatches
                  ++ apart "decided exclusion, which is outside the language this compiler implements"
-                          "decided exclusions, which are outside the language this compiler implements" decided
-      case missing of
+                          "decided exclusions, which are outside the language this compiler implements" fs.decided
+      case fs.missing of
         [] => tell e ("prelude " ++ m ++ ": " ++ show exported ++ " exports, each used" ++ note ++ ")")
         _ => do
           tell e ("prelude " ++ m ++ ": " ++ show exported ++ " exports; " ++ show usedCount ++ " used, these not: "
-                  ++ shortNames m missing ++ note ++ ")")
-          tellAll e evidence
+                  ++ shortNames m (map fst fs.missing) ++ note ++ ")")
+          tellAll e (concatMap snd fs.missing)

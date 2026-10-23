@@ -262,7 +262,12 @@ const char *environment(const char *name) noexcept;
 // environment changes, or null when there is none.
 const char *environmentEntry(int64_t index) noexcept;
 
-bool setEnvironment(const char *name, const char *value, bool overwrite) noexcept;
+// What setting a variable that is already set does: its value stays, or the
+// new one replaces it. Each case is the value setenv's third argument
+// takes for it.
+enum class WhenSet : int { Keep = 0, Replace = 1 };
+
+bool setEnvironment(const char *name, const char *value, WhenSet set) noexcept;
 
 bool unsetEnvironment(const char *name) noexcept;
 

@@ -85,14 +85,15 @@ cl::list<std::string> logActionsTags(
     cl::desc("With -log-actions-to, log only the actions of these tags, as "
              "idris-mlir-opt --idr-action-tags prints them"),
     cl::CommaSeparated);
-// The runtime a compilation reads and links, and the archive
-// --prepare-runtime reads: by default the object the build prepared from
-// the runtime's archive, whose bitcode joins the program, and which every
-// executable's link line names (--print-runtime).
+// The runtime a compilation reads and links, what --prepare-runtime wrote:
+// by default the object the build prepared from the runtime's archive,
+// whose bitcode joins the program, and which every executable's link line
+// names (--print-runtime). With --prepare-runtime, the archive it reads,
+// which has no default.
 cl::opt<std::string> runtimePath("runtime",
                                  cl::desc("The runtime whose bitcode joins the program, and "
-                                          "which executables link: what --prepare-runtime "
-                                          "wrote, or the archive it reads"),
+                                          "which executables link, what --prepare-runtime "
+                                          "wrote; with --prepare-runtime, the archive it reads"),
                                  cl::init(preparedRuntime.str()));
 
 // What an invocation does: compile, by default, or the action of the one
@@ -318,6 +319,9 @@ llvm::Expected<Invocation> idr::driver::readInvocation() {
       return std::move(error);
     if (outputPath.empty())
       return llvm::createStringError("no output file (-o)");
+    // The default is a compilation's, the runtime prepared already.
+    if (!given(std::addressof(runtimePath)))
+      return llvm::createStringError("no archive to prepare (--runtime)");
     return Prepare{outputPath, runtimePath};
   case Action::PrintRuntime:
     return print(Question::Runtime);

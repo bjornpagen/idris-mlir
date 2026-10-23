@@ -42,13 +42,12 @@ inline constexpr llvm::StringLiteral preparedRuntime = IDRIS_MLIR_RUNTIME;
 enum class PassChecks : std::uint8_t { Verifier, Contracts };
 
 // Compile the plan's input into its product: with the runtime at
-// `runtime`, what --prepare-runtime wrote or the archive it reads, whose
-// bitcode joins the program and which an executable links; on a pool of
-// `threads` threads, at least one, which the output bytes do not depend
-// on; with -log-actions-to logging only the actions of `tags`, every one
-// when there are none; checking `checks` after every pass, and the
-// properties a test states of the stages (--idr-expect-at), each where the
-// program is at its stage.
+// `runtime`, what --prepare-runtime wrote, whose bitcode joins the program
+// and which an executable links; on a pool of `threads` threads, at least
+// one, which the output bytes do not depend on; with -log-actions-to
+// logging only the actions of `tags`, every one when there are none;
+// checking `checks` after every pass, and the properties a test states of
+// the stages (--idr-expect-at), each where the program is at its stage.
 struct Compile {
   Plan plan;
   std::string runtime;

@@ -29,6 +29,8 @@ import Sem
 import Serve
 import Universal
 
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Runtime.Endings
 
 %default covering
 

@@ -14,9 +14,13 @@
 . "$root/tools/toolchain.sh"
 runtests=$root/harness/build/exec/runtests
 compile_sh=$root/tools/compile.sh
-# The checked runtime, which every program a test runs links (Harness.idr,
-# compileChecked).
+# The checked runtime, which every program a test runs links: as the
+# archive the build made, which a C program links (link_program), and as
+# what the build prepared from it (--prepare-runtime), which a compilation
+# reads and links (Harness.idr, compileChecked), since a compilation reads
+# no archive.
 checked_runtime=$dev_prefix/runtime/libidris_rt_checked.a
+checked_prepared=$dev_prefix/foreign/idr/idris_rt_checked.o
 # The test's own directory, where its fixture files are: a test runs in
 # it (harness/one.sh), whether its script is its own `run` or its kind's
 # (harness/kinds), so a fixture is named by a path from it (`.`).
@@ -72,7 +76,7 @@ serve() {
   root=$root work=$work llvm_prefix=$llvm_prefix llvm_bin=$llvm_bin pinned_cc=$pinned_cc \
     idris_mlir=$idris_mlir idris_mlir_opt=$idris_mlir_opt idris2=$idris2 idris_prefix=$idris_prefix \
     host_prefix=$host_prefix \
-    compile_sh=$compile_sh checked_runtime=$checked_runtime dev_prefix=$dev_prefix \
+    compile_sh=$compile_sh checked_prepared=$checked_prepared dev_prefix=$dev_prefix \
     runtests=$runtests parameter=$parameter "$runtests" --serve "$serve_dir" "$@" &
   serve_runner=$!
   while IFS='	' read -r serve_cwd serve_in serve_out serve_err; do

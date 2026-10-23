@@ -2,16 +2,16 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A compilation joins a runtime idris-mlir is built with and no other: one
-# read from an archive the build made, by its digest (the runtime, whose
-# native code idris-mlir links and its folders run, or the checked
-# runtime), for the program's CPU. The build's archive, and the runtime
-# the build prepared from it, compile Main.idr, which runs and prints its
-# sum. Each other runtime is refused, and the refusal names the
-# runtime and what differs: a runtime prepared from another archive (its
-# archive's digest), the archive itself of another runtime (the same), and
-# the build's prepared runtime with another CPU or other features recorded
-# (its CPU, its features), planted in its bitcode's flags. A runtime's
-# bitcode is the file beside the prepared object, on every target.
+# prepared from an archive the build made, by its digest (the runtime,
+# whose native code idris-mlir links and its folders run, or the checked
+# runtime), for the program's CPU. The runtime the build prepared compiles
+# Main.idr, which runs and prints its sum. Each other runtime is refused,
+# and the refusal names the runtime and what differs: an archive, the
+# build's own, which only --prepare-runtime reads; a runtime prepared from
+# another archive (its archive's digest); and the build's prepared runtime
+# with another CPU or other features recorded (its CPU, its features),
+# planted in its bitcode's flags. A runtime's bitcode is the file beside
+# the prepared object, on every target.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
@@ -58,7 +58,7 @@ refused() {
 }
 
 program prepared "$runtime"
-program archive "$archive"
+refused archive "$archive" "--prepare-runtime"
 
 # Another archive: one member, compiled with the baseline's flags.
 printf '%s\n' 'int idris_rt_answer(void) { return 42; }' > "$work/other.c"
@@ -79,7 +79,6 @@ if ! bounded "$idris_mlir" --prepare-runtime --runtime="$work/other.a" -o "$work
   exit 0
 fi
 refused "prepared from another archive" "$work/other-rt.o" "archive's digest"
-refused "another archive" "$work/other.a" "archive's digest"
 
 # The build's prepared bitcode, as text, and back with one flag planted.
 if [ ! -f "${runtime%.o}.bc" ]; then

@@ -56,7 +56,7 @@ packages=$(bounded "$planted_front" --prefix "$work/prefix" --libdir)
 compile_with_package() {
   mkdir -p "$work/$1" && cp "$2" "$work/$1/Main.idr" || exit 1
   (cd "$work/$1" && bounded "$planted_compiler" --no-prelude --num-threads="$ncpu" \
-     --package-path "$packages" -p mlir-linear -p "$package" "--runtime=$checked_runtime" \
+     --package-path "$packages" -p mlir-linear -p "$package" "--runtime=$checked_prepared" \
      "--report=$work/$1.report" Main.idr -o build/exec/prog) > "$work/$1.out" 2>&1
   compiled=$?
 }

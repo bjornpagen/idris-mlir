@@ -111,8 +111,9 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/include/idr/TargetEntry.h" CO
 # into one object, native code for every executable's link line, with the
 # same functions as bitcode for inlining in a .bc file beside it on every
 # target, which is the runtime the driver links by default (--runtime names
-# another the build made: the archive itself, or the checked runtime;
-# --print-runtime tells the link line where it is). The driver's options
+# another prepared runtime the build made, the checked one; an archive is
+# only what --prepare-runtime reads; --print-runtime tells the link line
+# where it is). The driver's options
 # read where it is. So do the two other things idris-mlir runs or reads
 # besides its frontend (which is beside it, wherever it is): the pinned
 # clang, which links every program and is the C compiler of this build (the

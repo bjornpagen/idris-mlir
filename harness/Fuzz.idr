@@ -78,6 +78,12 @@ import IdrisMLIR.Spec.Runtime.Endings
 -- The op vocabulary is imported for a guard and its kind; its Sized, a
 -- region's count of blocks, is not an integer type of a width.
 %hide IdrisMLIR.Spec.Core.Op.Sized
+-- Nor is a literal here a law's constant: an integer or a string written
+-- where its type is still to be found would otherwise be the law's, whose
+-- return type is concrete.
+%hide IdrisMLIR.Spec.Core.Op.LawConstant.fromInteger
+%hide IdrisMLIR.Spec.Core.Op.LawConstant.fromString
+%hide IdrisMLIR.Spec.Core.Op.LawConstant.negate
 -- The numeric ops' module is imported for the signedness a width carries;
 -- its Part, a division's quotient or remainder, is not a program's part.
 %hide IdrisMLIR.Spec.Ops.Numeric.Part

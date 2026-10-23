@@ -90,7 +90,7 @@ determinism e given inputs = do
     | Nothing => pure ()
   for_ artifactKinds $ \kind => do
     files <- for built $ \n => artifactFiles (inWork e ("det" ++ show n)) (Named "prog") kind
-    if any null files then tell e (kindName kind ++ ": missing") else do
+    if any isNil files then tell e (kindName kind ++ ": missing") else do
       let names = zipWith (\n, fs => map (stripPrefix' (inWork e ("det" ++ show n) ++ "/")) fs) built files
       let first = fromMaybe [] (head' names)
       same <- for (zip built names) $ \(n, ns) => do

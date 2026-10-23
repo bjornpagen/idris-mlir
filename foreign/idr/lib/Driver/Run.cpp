@@ -226,7 +226,7 @@ mlir::LogicalResult toObjects(mlir::ModuleOp module, llvm::StringRef runtime,
   {
     IDR_ZONE_IN("link runtime", LLVM);
     mlir::TimingScope stage = llvmTiming.nest("link runtime");
-    if (mlir::failed(linkRuntime(*llvmModule, module, runtime, machine)))
+    if (mlir::failed(linkRuntime(*llvmModule, module, runtime)))
       return mlir::failure();
     // The program is whole, so nothing but the process entry the lowering
     // makes is visible outside it; O3 then removes what the entry does not

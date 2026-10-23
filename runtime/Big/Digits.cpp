@@ -101,7 +101,7 @@ extern "C" idris_rt_big idris_rt_big_from_str(const idris_rt_str *s) {
   if (numeral.base == 10 && !numeral.grouped && s->bytes - numeral.digits <= 18)
     return ofInt64(static_cast<int64_t>(numeral.wrapped(p, s->bytes)));
   idris_rt_big magnitude = bigOfDigits(p + numeral.digits, s->bytes - numeral.digits, numeral.base);
-  if (!numeral.negative)
+  if (numeral.sign == rt::numerals::Sign::Plus)
     return magnitude;
   idris_rt_big value = idris_rt_big_neg(magnitude);
   release(magnitude);

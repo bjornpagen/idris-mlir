@@ -22,12 +22,15 @@
 ||| hold). Run from `tests/`, by make, through harness/runs.sh:
 |||
 |||     runtests --plan <results> <idris-mlir> [--suite check|test|test-idr|test-mlir-tools]
-|||              [--list] [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]
+|||              [--kind script|program|reject|fixture] [--list] [--threads N]
+|||              [--only NAMES] [--except NAMES] [--only-file PATH]
 |||     runtests --verdict <results> <test> <directory> <kind> <output> <stderr>
 |||     runtests --tally <results>
 |||
 ||| `--list` prints the names of the runs the options select, and plans
-||| none. `--only` and `--except` take words, each a part of a test's name;
+||| none. `--kind` selects the tests of one kind, as `kindOf` reads it, so
+||| a check over the suite's programs reads them from the suite itself.
+||| `--only` and `--except` take words, each a part of a test's name;
 ||| a run is selected when its name holds one of `--only`'s (or there are
 ||| none) and none of `--except`'s. A new expectation is written by hand: a
 ||| test with no `expected` fails and prints its whole output, which its
@@ -62,6 +65,8 @@
 |||     runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT
 |||     runtests --spec-named <work> <status> WHAT EXPECTED...
 |||     runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME
+|||     runtests --ending-status ENDING  the status a run that ends so ends with,
+|||                                     `code <n>` or `signal <name>` (Facts.idr)
 |||     runtests --lit-fails any|N STATUS STDERR CMD...
 |||                                     how a RUN line's command that is to fail failed
 |||     runtests --reject <test> <report> <output>
@@ -198,6 +203,14 @@ facts Program = MkKindFacts "program" "compiled programs" "test"
 facts Reject = MkKindFacts "reject" "programs refused by one rule" "test"
 facts Fixture = MkKindFacts "fixture" "dialect fixtures" "test-idr"
 
+||| Every kind, in the order a suite's pools run.
+kinds : List Kind
+kinds = [Program, Reject, Fixture, Script]
+
+||| The kind its name names, as `--kind` gives it.
+kindCalled : String -> Maybe Kind
+kindCalled name = find (\k => (facts k).name == name) kinds
+
 ||| The kind of the test in DIR, or why DIR is no test. A `run` script
 ||| decides, since a script may build its program or its module from the
 ||| files beside it; then a `Main.idr`, refused when its first line is the
@@ -276,12 +289,13 @@ runsOf name = case lookup name parameterized of
 -- The options of a plan
 ------------------------------------------------------------------------------
 
-||| What a plan is asked for: the suite (every suite when none), whether
-||| only to list the runs, the threads to run them on, and the words that
-||| select them by name.
+||| What a plan is asked for: the suite (every suite when none), the kind
+||| (every kind when none), whether only to list the runs, the threads to
+||| run them on, and the words that select them by name.
 record Options where
   constructor MkOptions
   suite : Maybe String
+  kind : Maybe Kind
   listing : Bool
   threads : Nat
   only : List String
@@ -289,7 +303,7 @@ record Options where
   onlyFile : Maybe String
 
 defaults : Options
-defaults = MkOptions Nothing False 1 [] [] Nothing
+defaults = MkOptions Nothing Nothing False 1 [] [] Nothing
 
 ||| The options, or the argument that is none. An empty `--only` or
 ||| `--except` (make passes both, often empty) selects by nothing.
@@ -300,6 +314,8 @@ optionsOf = go defaults
     go o [] = Right o
     go o ("--suite" :: s :: rest) =
       if isJust (lookup s suites) then go ({ suite := Just s } o) rest else Left ("unknown suite " ++ s)
+    go o ("--kind" :: k :: rest) =
+      maybe (Left ("unknown kind " ++ k)) (\found => go ({ kind := Just found } o) rest) (kindCalled k)
     go o ("--list" :: rest) = go ({ listing := True } o) rest
     go o ("--threads" :: n :: rest) =
       maybe (Left ("--threads takes a positive number, not " ++ n)) (\k => go ({ threads := k } o) rest) (parsePositive n)
@@ -324,7 +340,7 @@ pools tests suite =
         MkPool (suite ++ ": " ++ (facts kind).title ++ "; " ++ description)
                (filter (\t => t.kind == kind && isHere t.placement) inSuite
                  >>= \t => map (\r => (r, (facts t.kind).name)) (runsOf t.name))
-  in (map poolOf [Program, Reject, Fixture, Script],
+  in (map poolOf kinds,
       filter (not . isHere . (.placement)) inSuite >>= \t => runsOf t.name)
 
 ||| The repository root, IDRIS_MLIR_ROOT, which the Makefile exports to
@@ -340,7 +356,8 @@ repositoryRoot = do
 
 usage : String
 usage = unlines
-  [ "usage: runtests --plan <results> <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
+  [ "usage: runtests --plan <results> <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "]"
+  , "                [--kind " ++ joinBy "|" (map (\k => (facts k).name) kinds) ++ "] [--list]"
   , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
   , "       runtests --verdict <results> <test> <directory> <kind> <output> <stderr> | --tally <results>"
   , "       runtests --serve <dir> compile-program|compile-checked [OPTION]... SOURCE OUTPUT"
@@ -357,7 +374,7 @@ usage = unlines
   , "       runtests --artifact-files|--artifact-file DIR NAME module|objects|executable"
   , "       runtests --artifacts DIR NAME | --no-artifacts DIR | --stage-options FIXTURE | --timing-rows REPORT"
   , "       runtests --idris-lex code|strings FILE | --lit-fails any|N STATUS STDERR CMD..."
-  , "       runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME"
+  , "       runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME | --ending-status ENDING"
   , "       runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT | --spec-named <work> <status> WHAT EXPECTED..."
   , "       runtests --reject <test> <report> <output>"
   , "       runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE"
@@ -384,7 +401,8 @@ plan results args = do
   extra <- maybe (pure []) (\p => words <$> readOrDie p) opts.onlyFile
   let only = extra ++ opts.only
   let chosen = maybe (map fst suites) pure opts.suite
-  let found = map (pools tests) chosen
+  let ofKind = maybe tests (\k => filter (\t => t.kind == k) tests) opts.kind
+  let found = map (pools ofKind) chosen
   let keep = \pool => { runs $= filter (\(run, _) => selects only opts.except run) } pool
   let selected = map keep (concatMap fst found)
   let notHere = filter (selects only opts.except) (concatMap snd found)
@@ -476,6 +494,7 @@ main = do
     ["--no-artifacts", dir] => noArtifactsLine dir >>= putStrLn
     ["--stage-options", fixture] => stageOptions fixture >>= putStr . unlines
     ["--artifact-kinds"] => putStrLn (unwords (map kindName artifactKinds))
+    ["--ending-status", ending] => maybe (die usage) putStrLn (endingStatus ending)
     ["--runtime-fact", devPrefix, name] =>
       runtimeFact devPrefix name >>= either (\line => do putStrLn line; exitFailure) putStrLn
     ["--timing-rows", report] => readOrDie report >>= putStr . unlines . timingRows

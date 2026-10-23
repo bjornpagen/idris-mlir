@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/116-record-update-variable-type, carried: the stock Idris read
+# the record a record update names only off the type the update is
+# expected to have, so an update of a variable whose type the environment
+# holds waited for that type, and was refused when it was never found.
+# With the patch Catchall.idr's update reads the record off its variable
+# and checks; Change.idr's update changes its record's index, and checks
+# with the patch as without it.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/116-record-update-variable-type
+cp "$dir/Catchall.idr" "$dir/Change.idr" "$work/"
+if (cd "$work" && pinned_idris --check Catchall.idr) > "$work/Catchall.out" 2>&1; then
+  say "Catchall: an update of a variable reads its record off the variable's type"
+elif grep -q "Can't infer type for this record update" "$work/Catchall.out"; then
+  say "Catchall: still reproduces: the update waits for a type that is never found"
+else
+  say "Catchall: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Catchall.out"
+fi
+if (cd "$work" && pinned_idris --check Change.idr) > "$work/Change.out" 2>&1; then
+  say "Change: an update that changes its record's index checks"
+else
+  say "Change: the stock Idris refuses a type-changing update"
+  show "$work/Change.out"
+fi

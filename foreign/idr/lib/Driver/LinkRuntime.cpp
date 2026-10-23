@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's bitcode linked into the program's module: the runtime
-// idris-mlir is built with, and no other.
+// The prepared runtime's bitcode linked into the program's module: the
+// runtime idris-mlir is built with, and no other.
 
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -29,13 +28,12 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <variant>
 
 using namespace idr::driver;
 
-// The runtime read from `path` is one idris-mlir is built with: read from
-// an archive the build made, for the program's CPU. Another archive, or a
-// runtime prepared from one or for another CPU, would make a program's
+// The runtime read from `path` is one idris-mlir is built with: prepared
+// from an archive the build made, for the program's CPU. A runtime
+// prepared from another archive or for another CPU would make a program's
 // runtime code other than what the compiler is: it is refused, by what
 // differs.
 static mlir::LogicalResult isBuilt(const Identity &read, llvm::StringRef path,
@@ -64,20 +62,14 @@ static mlir::LogicalResult isBuilt(const Identity &read, llvm::StringRef path,
 }
 
 mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::ModuleOp source,
-                                             llvm::StringRef path,
-                                             const llvm::TargetMachine &machine) {
+                                             llvm::StringRef path) {
   mlir::Location at = mlir::UnknownLoc::get(source.getContext());
-  mlir::FailureOr<std::variant<Archived, Prepared>> read =
-      readRuntime(path, program.getContext(), machine, *source.getContext());
+  mlir::FailureOr<Prepared> read = readPrepared(path, program.getContext(), *source.getContext());
   if (mlir::failed(read))
     return mlir::failure();
-  // Either kind is one module and its identity.
-  Identity identity = idr::match(
-      *read, [](const idr::OneOf<Archived, Prepared> auto &kind) { return kind.identity; });
-  if (mlir::failed(isBuilt(identity, path, at)))
+  if (mlir::failed(isBuilt(read->identity, path, at)))
     return mlir::failure();
-  std::unique_ptr<llvm::Module> runtime = idr::match(
-      *read, [](idr::OneOf<Archived, Prepared> auto &kind) { return std::move(kind.module); });
+  std::unique_ptr<llvm::Module> runtime = std::move(read->module);
   // A body the program joins becomes program code, whose frames code
   // generation sizes and the build checks against the guard: it takes no
   // stack probe, and it would give one to every program function it

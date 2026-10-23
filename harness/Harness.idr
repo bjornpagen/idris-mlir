@@ -11,6 +11,7 @@ module Harness
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.Nat
 import Data.String
 import System
 import System.Clock
@@ -45,7 +46,7 @@ record Tools where
   idrisPrefix : String
   hostPrefix : String
   compileSh : String
-  checkedRuntime : String
+  checkedPrepared : String
   devPrefix : String
   runtests : String
   parameter : String
@@ -66,7 +67,7 @@ toolsOf = do
     | Nothing => die "runtests: no current directory"
   [| MkTools (given "root") (given "work") (pure here) (given "llvm_prefix") (given "llvm_bin")
              (given "pinned_cc") (given "idris_mlir") (given "idris_mlir_opt") (given "idris2")
-             (given "idris_prefix") (given "host_prefix") (given "compile_sh") (given "checked_runtime") (given "dev_prefix")
+             (given "idris_prefix") (given "host_prefix") (given "compile_sh") (given "checked_prepared") (given "dev_prefix")
              (given "runtests") (fromMaybe "" <$> getEnv "parameter") |]
 
 ||| A check's place to run: the tools, the session with the glue that
@@ -567,10 +568,11 @@ compileProgram e options source output = do
 ||| dies keeps its memory marked and is never reused, so a release of a
 ||| dead cell ends the run at the release, and a run that returns from main
 ||| with a cell still live ends as the runtime's internal error naming the
-||| count. `compile_checked`: compileProgram, the program linked with it.
+||| count. `compile_checked`: compileProgram, the program compiled with it
+||| as the build prepared it, and linked with it.
 export
 compileChecked : Env -> (options : List String) -> (source, output : String) -> IO Status
-compileChecked e options = compileProgram e (("--runtime=" ++ e.tools.checkedRuntime) :: options)
+compileChecked e options = compileProgram e (("--runtime=" ++ e.tools.checkedPrepared) :: options)
 
 ||| The compiled program's run on a case: bounded, its standard input from a
 ||| file or none, its outputs in the work directory's NAME.out and NAME.err.
@@ -636,7 +638,7 @@ timingRows text = mapMaybe row (lines text)
     row l = do
       (seconds, rest) <- lastTime (unpack l)
       let (spaces, name) = span (== ' ') rest
-      pure (show (div (length spaces) 2) ++ "\t" ++ seconds ++ "\t" ++ pack name)
+      pure (show (divNatNZ (length spaces) 2 ItIsSucc) ++ "\t" ++ seconds ++ "\t" ++ pack name)
 
 ------------------------------------------------------------------------------
 -- A C++ program over the pinned MLIR

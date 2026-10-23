@@ -32,14 +32,13 @@ extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
   rt::numerals::Numeral numeral = rt::numerals::readNumeral(p, n);
   switch (numeral.kind) {
   case rt::numerals::Numeral::Infinity:
-    return numeral.negative ? -__builtin_inf() : __builtin_inf();
+    return numeral.withSign(__builtin_inf());
   case rt::numerals::Numeral::NaN:
     return __builtin_nan("");
   case rt::numerals::Numeral::Decimal:
     return fromChars(p, n);
   case rt::numerals::Numeral::Integer: {
-    // The integer's magnitude, then its sign as an integer's: 0 - x, which
-    // is 0 for 0, since an integer has no negative zero.
+    // The integer's magnitude, then its sign as an integer's.
     double magnitude;
     if (numeral.base == 10 && !numeral.grouped) {
       magnitude = fromChars(p + numeral.digits, n - numeral.digits);
@@ -49,7 +48,7 @@ extern "C" double idris_rt_str_to_double(const idris_rt_str *s) {
       magnitude = idris_rt_big_to_double(big);
       rt::big::release(big);
     }
-    return numeral.negative ? 0.0 - magnitude : magnitude;
+    return numeral.withSign(magnitude);
   }
   case rt::numerals::Numeral::None:
     break;

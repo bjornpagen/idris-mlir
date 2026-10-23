@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime on the LLVM side: read from the file a compilation names,
-// prepared once for every program (--prepare-runtime), and joined with
-// each program's module, every function of it for the program's CPU.
+// The runtime on the LLVM side: its archive read and prepared once for
+// every program (--prepare-runtime), and what that wrote joined with each
+// program's module, every function of it for the program's CPU.
 #ifndef IDR_DRIVER_RUNTIME_H
 #define IDR_DRIVER_RUNTIME_H
 
@@ -20,7 +20,6 @@
 
 #include <memory>
 #include <string>
-#include <variant>
 
 namespace llvm {
 class LLVMContext;
@@ -52,7 +51,7 @@ inline constexpr llvm::StringLiteral builtSymbol = IDRIS_RT_PROGRAM_BUILT_NAME;
 
 // What a runtime is: the SHA-256 digest of the archive its code was read
 // from, and the CPU its functions take, LLVM's name and features. A
-// compilation joins a runtime read from an archive the build made
+// compilation joins a runtime prepared from an archive the build made
 // (builtArchives) for the program's CPU, and no other (linkRuntime).
 //
 // So a fold computes what the program would: the folders run the
@@ -77,10 +76,9 @@ inline constexpr llvm::StringLiteral preparedArchiveFlag = "idris-rt-prepared-ar
 inline constexpr llvm::StringLiteral preparedCpuFlag = "idris-rt-prepared-cpu";
 inline constexpr llvm::StringLiteral preparedFeaturesFlag = "idris-rt-prepared-features";
 
-// The runtime as one module, for the program's machine, of one of two
-// kinds, read once off the file: the members of the runtime's archive
-// joined, where a symbol two members define is an error; or the bitcode of
-// what --prepare-runtime wrote. Either way every function of it is compiled
+// The runtime archive at `path` as one module, for `machine`, the
+// program's, which --prepare-runtime reads: the members joined, where a
+// symbol two members define is an error. Every function of it is compiled
 // for the program's CPU, as the program's own functions are, and for
 // nothing else: it carries no CPU or features of its own, so it inlines
 // into any program function; but for two kinds, each data the archive
@@ -92,45 +90,48 @@ inline constexpr llvm::StringLiteral preparedFeaturesFlag = "idris-rt-prepared-f
 // error). The archive's other functions must inline into a program
 // function, as the inliner judges it, or reading it fails. Its debug info
 // describes the runtime's C++ sources, not the program: it is most of the
-// archive's bitcode, and every program would carry it, so it goes.
+// archive's bitcode, and every program would carry it, so it goes. Every
+// failure is an error in `context`.
 struct Archived {
   std::unique_ptr<llvm::Module> module;
   // The archive's digest, and the program's CPU, which it was read for.
   Identity identity;
 };
+mlir::FailureOr<Archived> readArchive(llvm::StringRef path, llvm::LLVMContext &llvmContext,
+                                      const llvm::TargetMachine &machine,
+                                      mlir::MLIRContext &context);
+
+// The runtime --prepare-runtime wrote, whose object is at `path`, which a
+// compilation reads: its bitcode, which is the file beside the object on
+// every target and which no link names, and the identity the flags of that
+// bitcode record. A file with no bitcode beside it, or bitcode without the
+// flags, is no runtime --prepare-runtime wrote, an archive among them: an
+// error in `context`, as every failure is.
 struct Prepared {
   std::unique_ptr<llvm::Module> module;
   Identity identity;
 };
-
-// The runtime at `path`, for `machine`, the program's. A file that is not an
-// archive is the prepared runtime's object, whose bitcode is the file beside
-// it on every target, which no link names; bitcode without its identity's
-// flags is neither kind, an error. Every failure is an error in `context`.
-mlir::FailureOr<std::variant<Archived, Prepared>> readRuntime(llvm::StringRef path,
-                                                              llvm::LLVMContext &llvmContext,
-                                                              const llvm::TargetMachine &machine,
-                                                              mlir::MLIRContext &context);
+mlir::FailureOr<Prepared> readPrepared(llvm::StringRef path, llvm::LLVMContext &llvmContext,
+                                       mlir::MLIRContext &context);
 
 // The file beside the prepared runtime's object that holds its bitcode: the
 // object's name with .bc.
 std::string besideObject(llvm::StringRef object);
 
-// The program and the runtime at `path` become one module, linked once with
-// LinkOnlyNeeded: only what the program reaches joins it. The runtime is
-// one idris-mlir is built with (Identity), or the compilation fails,
-// naming what differs. From the prepared runtime the bodies join as
-// they are, available_externally: the optimizer inlines what pays and drops
-// the rest, which the link line resolves in the native half, where every
-// piece of runtime state has its one definition; the archive's bodies are
-// definitions, which compile with the program; a program function past
-// the inlining budget calls them (idr::target::inlineCallerInstructions),
-// all but the bodies the runtime marks always inline.
+// The program and the prepared runtime at `path` become one module, linked
+// once with LinkOnlyNeeded: only what the program reaches joins it. The
+// runtime is one idris-mlir is built with (Identity), or the compilation
+// fails, naming what differs. Its bodies join as they are,
+// available_externally: the optimizer inlines what pays and drops the
+// rest, which the link line resolves in the native half, where every piece
+// of runtime state has its one definition; a program function past the
+// inlining budget calls them (idr::target::inlineCallerInstructions), all
+// but the bodies the runtime marks always inline.
 // No program symbol can be a runtime symbol: every one the lowering names
 // carries the program's prefix, which no C identifier has. Every failure is
 // an error.
 mlir::LogicalResult linkRuntime(llvm::Module &program, mlir::ModuleOp source,
-                                llvm::StringRef path, const llvm::TargetMachine &machine);
+                                llvm::StringRef path);
 
 // --prepare-runtime: the archive's members, joined, read for the program's
 // CPU and optimized as a program is, with everything but the C ABI programs

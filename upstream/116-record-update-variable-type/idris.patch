@@ -1,0 +1,28 @@
+diff --git a/src/TTImp/Elab/Record.idr b/src/TTImp/Elab/Record.idr
+index 7f1694d..53f8cb1 100644
+--- a/src/TTImp/Elab/Record.idr
++++ b/src/TTImp/Elab/Record.idr
+@@ -260,6 +260,22 @@ checkUpdate rig elabinfo nest env fc upds rec expected
+                                 then gnf env exp
+                                 else recty
+                 logGlueNF "elab.record" 5 (show delayed ++ " record type " ++ show rec) env recty'
+-                rcase <- recUpdate rig elabinfo fc nest env upds rec recty'
++                rcase <- recUpdate rig elabinfo fc nest env upds rec !(recordType recty')
+                 log "elab.record" 5 $ "Record update: " ++ show rcase
+                 check rig elabinfo nest env rcase expected
++  where
++    -- The type the record's name is read from: the type the update is
++    -- expected to have, or, while that is not yet known to be a record,
++    -- the type the environment gives the record when it is a variable,
++    -- which names the same record, since an update changes the record's
++    -- parameters at most. Reading the environment checks nothing again.
++    recordType : Glued vars -> Core (Glued vars)
++    recordType ty
++        = do tynf <- getNF ty
++             case (getRecordType env tynf, rec) of
++                  (Nothing, IVar _ n) =>
++                      case defined n env of
++                           Just (MkIsDefined _ p) =>
++                               pure (gnf env (binderType (getBinder p env)))
++                           Nothing => pure ty
++                  _ => pure ty

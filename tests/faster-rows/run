@@ -3,22 +3,33 @@
 # Copyright (c) 2026 Bjorn Pagen
 # A Faster row of the registry is another lowering of a definition whose
 # body is its one meaning: removing one may change speed, never a result.
-# So each program of `sample` is compiled by the shipped frontend and by
-# one built from the same sources with the module of Faster rows replaced
-# by Faster.idr, which holds none, and the two compilations agree: both
-# accept it or both refuse it, and an accepted one ends every case of its
-# test alike (status, stdout and stderr, byte for byte); a refused one is
-# refused by both as its header says (Reject.idr, on each report). That the
-# swap took effect is shown first: the frontend without its rows writes
-# another module for the first program of the sample.
+# So every program the suite compiles is compiled by the shipped frontend
+# and by one built from the same sources with the module of Faster rows
+# replaced by Faster.idr, which holds none, and the two compilations agree:
+# a program test's program is accepted by both and ends every case of its
+# test alike (status, stdout and stderr, byte for byte); a refused program
+# is refused by both as its header says (Reject.idr, on each report), and
+# its accepted neighbour, when it has one, is compared as a program is.
+# The programs are the suite's own, every test the runner plans on this
+# host as a program or a refused program (its `--kind`), so a test added to
+# the suite is compared with no list to change. That the swap took effect
+# is shown last: without its rows, the frontend writes another module for
+# some program.
 #
-# The sample is declared, each program with the rows it reaches, since the
-# test-only frontend is built in the test and every program costs two
-# compilations; its programs are run with their tests' own cases.
-# Debt: the limits are not measured; a build of the frontend on the pinned
-# Idris, mostly from the build's own TTCs, and ten compilations.
-step_limit=1800
-test_limit=3600
+# Each step, a compilation or a run of a case, has the limit each step of
+# the program's own test has. A step of the build without the rows that
+# runs past it, or a run of that build that runs out of memory, gives no
+# result: from the bodies a program may be slower by any amount (a natural
+# counted in unary, where the row computes on its representation, as in
+# the large naturals of nat-sum and nat-parity), which is speed, and is a
+# result only when it ends. A step of the shipped build that does not end
+# agrees with nothing.
+#
+# Debt: the limits are not measured. The run is the planted frontend's
+# build, mostly from the build's own TTCs, then each program of the suite
+# compiled twice and each of its cases run twice, one at a time on the one
+# thread a test has; the whole run has the bound a suite's run has.
+test_limit=14400
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # The frontend keeps its Faster rows in one module, which its registry
@@ -32,49 +43,96 @@ if [ ! -f "$root/compiler/src/$faster_module" ] ||
 fi
 
 # The test-only frontend: the Faster rows' module planted from Faster.idr,
-# which holds none.
+# which holds none. Its build is given longer than a step of a program's
+# test, whose limit (testutils.sh's) every step after it has.
+program_step=$step_limit
+step_limit=1800
 planted_frontend "$faster_module" "$here/Faster.idr" || exit 0
+step_limit=$program_step
 without=$planted_compiler
+
+# How a step that ran past its limit ends (bounded), and how a run that ran
+# out of memory does, by the specification's table of endings.
+past_limit=124
+out_of_memory=$("$runtests" --ending-status out_of_memory)
+out_of_memory=${out_of_memory#code }
+case $out_of_memory in
+  '' | *[!0-9]*)
+    say "the ending out_of_memory: no exit status in the specification's table"
+    exit 0 ;;
+esac
 
 # compile_by COMPILER FIXTURE DEST: FIXTURE's program copied to DEST and
 # compiled there by COMPILER as tools/compile.sh runs idris-mlir, with its
-# packages, linked with the checked runtime, writing its emitted module and
-# its report beside it; its exit status in $compiled_by, its output in
-# DEST.out.
+# packages, against the checked runtime as the build prepared it, writing
+# its emitted module and its report beside it; its exit status in
+# $compiled_by, its output in DEST.out.
 compile_by() {
   cb_packages=$(package_options "$2")
   mkdir -p "$3" && copy_fixture "$2" "$3"
   # shellcheck disable=SC2086 # the packages are words
   (cd "$3" && bounded "$1" --no-prelude --num-threads="$ncpu" $cb_packages \
-     "--runtime=$checked_runtime" "--emitted=$3.emitted.mlirbc" "--report=$3.report" \
-     Main.idr -o build/exec/prog) > "$3.out" 2>&1
+     "--runtime=$checked_prepared" "--emitted=$3.emitted.mlirbc" "--report=$3.report" \
+     Main.idr -o build/exec/prog < /dev/null) > "$3.out" 2>&1
   compiled_by=$?
 }
 
-# compare_program NAME: NAME compiled by both; one line.
+# witness NAME: the swap shown, when the two frontends wrote different
+# modules for tests/NAME.
+witness() {
+  if [ -f "$work/shipped/$1.emitted.mlirbc" ] && [ -f "$work/without/$1.emitted.mlirbc" ] &&
+     ! cmp -s "$work/shipped/$1.emitted.mlirbc" "$work/without/$1.emitted.mlirbc"; then
+    swapped=yes
+  fi
+}
+
+# run_in DIR NAME EXE INPUT: EXE run as run_program runs it, in DIR, where
+# its program was built, so what a program writes stays its own.
+run_in() {
+  cd "$1" || exit 1
+  run_program "$2" "$3" "$4"
+  cd "$here" || exit 1
+}
+
+# compare_program NAME: the program of tests/NAME compiled by both and run
+# by both on each of its cases; a line for each way the two disagree.
 compare_program() {
   compile_by "$idris_mlir" "$root/tests/$1" "$work/shipped/$1"
   shipped_status=$compiled_by
   compile_by "$without" "$root/tests/$1" "$work/without/$1"
-  if [ "$shipped_status" -ne "$compiled_by" ]; then
-    say "program $1: compiled otherwise: exit $shipped_status shipped, $compiled_by without its Faster rows"
-    show "$work/shipped/$1.out" "$work/without/$1.out"
+  without_status=$compiled_by
+  witness "$1"
+  if [ "$without_status" -eq "$past_limit" ] && [ "$shipped_status" -ne "$past_limit" ]; then
     return
   fi
-  if [ "$compiled_by" -ne 0 ]; then
+  if [ "$shipped_status" -ne "$without_status" ]; then
+    say "program $1: compiled otherwise: exit $shipped_status shipped, $without_status without its Faster rows"
+    show "$work/shipped/$1.out" "$work/without/$1.out"
+    agreed=no
+    return
+  fi
+  if [ "$shipped_status" -ne 0 ]; then
     say "program $1: refused by both"
     show "$work/shipped/$1.out"
+    agreed=no
     return
   fi
+  # A program with no cases never ends, and is compiled only.
+  [ -d "$root/tests/$1/cases" ] || return
   pr_differ=
   for pr_case in "$root/tests/$1"/cases/*/; do
     pr_case=${pr_case%/}
     pr_stdin=/dev/null
     [ -f "$pr_case/stdin" ] && pr_stdin=$pr_case/stdin
-    run_program shipped-run "$work/shipped/$1/build/exec/prog" "$pr_stdin"
+    run_in "$work/shipped/$1" shipped-run "$work/shipped/$1/build/exec/prog" "$pr_stdin"
     pr_shipped=$ran
-    run_program without-run "$work/without/$1/build/exec/prog" "$pr_stdin"
-    if [ "$pr_shipped" != "$ran" ] ||
+    run_in "$work/without/$1" without-run "$work/without/$1/build/exec/prog" "$pr_stdin"
+    pr_without=$ran
+    if [ "$pr_shipped" -ne "$pr_without" ] && [ "$pr_shipped" -ne "$past_limit" ] &&
+       { [ "$pr_without" -eq "$past_limit" ] || [ "$pr_without" -eq "$out_of_memory" ]; }; then
+      continue
+    fi
+    if [ "$pr_shipped" -eq "$past_limit" ] || [ "$pr_shipped" -ne "$pr_without" ] ||
        ! cmp -s "$work/shipped-run.out" "$work/without-run.out" ||
        ! cmp -s "$work/shipped-run.err" "$work/without-run.err"; then
       pr_differ="$pr_differ ${pr_case##*/}"
@@ -82,44 +140,61 @@ compare_program() {
   done
   if [ -n "$pr_differ" ]; then
     say "program $1: cases end otherwise:$pr_differ"
-  else
-    say "program $1: compiled alike, every case ending alike"
+    agreed=no
   fi
 }
 
-# compare_reject NAME: NAME, refused by its header's rule, refused so by both.
+# compare_reject NAME: tests/NAME, refused by its header's rule, refused so
+# by both.
 compare_reject() {
-  rj_alike=yes
   for rj_build in shipped without; do
     if [ "$rj_build" = shipped ]; then rj_compiler=$idris_mlir; else rj_compiler=$without; fi
     compile_by "$rj_compiler" "$root/tests/$1" "$work/$rj_build/$1"
+    [ "$rj_build" = without ] && [ "$compiled_by" -eq "$past_limit" ] && continue
     if ! "$runtests" --reject "$root/tests/$1" "$work/$rj_build/$1.report" "$work/$rj_build/$1.out" \
          > "$work/$rj_build-$1.lines"; then
-      rj_alike=no
       say "reject $1: $rj_build, not refused as its header says"
       sed 's/^/  | /' "$work/$rj_build-$1.lines"
+      refused_alike=no
     fi
   done
-  [ "$rj_alike" = yes ] && say "reject $1: refused by both as its header says"
+  witness "$1"
 }
 
-# The swap shown: the first program of the sample compiled by both, whose
-# emitted modules differ.
-first=$(awk '$1 == "program" { print $2; exit }' sample)
-compile_by "$idris_mlir" "$root/tests/$first" "$work/witness/shipped"
-compile_by "$without" "$root/tests/$first" "$work/witness/without"
-if [ -f "$work/witness/shipped.emitted.mlirbc" ] && [ -f "$work/witness/without.emitted.mlirbc" ] &&
-   ! cmp -s "$work/witness/shipped.emitted.mlirbc" "$work/witness/without.emitted.mlirbc"; then
-  say "without its Faster rows, the frontend writes another module for $first"
-else
-  say "without its Faster rows, the frontend writes the same module for $first, or none"
+# The suite's tests of KIND, as the runner plans them on this host: the
+# one list of what the suite compiles.
+listed() {
+  (cd "$root/tests" && "$runtests" --plan "$work/plan" "$idris_mlir" --kind "$1" --list)
+}
+if ! listed program > "$work/programs" || [ ! -s "$work/programs" ]; then
+  say "the suite's programs: none listed"
+  exit 0
 fi
+if ! listed reject > "$work/rejects" || [ ! -s "$work/rejects" ]; then
+  say "the suite's refused programs: none listed"
+  exit 0
+fi
+# A refused program's accepted neighbour is a program the suite compiles.
+while IFS= read -r name <&3; do
+  if [ -d "$root/tests/$name/near" ]; then printf '%s\n' "$name/near"; fi
+done 3< "$work/rejects" >> "$work/programs"
 
-grep -v '^#' sample | while read -r kind name _; do
-  case $kind in
-    program) compare_program "$name" ;;
-    reject) compare_reject "$name" ;;
-    '') ;;
-    *) say "sample: no kind $kind" ;;
-  esac
-done
+swapped=no
+agreed=yes
+while IFS= read -r name <&3; do
+  compare_program "$name"
+done 3< "$work/programs"
+[ "$agreed" = yes ] &&
+  say "every program: compiled alike by both, each case ending alike wherever the build without its rows ends within its limits"
+
+refused_alike=yes
+while IFS= read -r name <&3; do
+  compare_reject "$name"
+done 3< "$work/rejects"
+[ "$refused_alike" = yes ] && say "every refused program: refused by both as its header says"
+
+if [ "$swapped" = yes ]; then
+  say "without its Faster rows, the frontend writes another module for some program of the suite"
+else
+  say "without its Faster rows, the frontend writes the same module for every program of the suite"
+fi

@@ -28,6 +28,7 @@ import Data.Maybe
 import Data.SortedSet
 import Data.String
 import System
+import System.File
 
 import Files
 import Harness
@@ -186,7 +187,7 @@ skipsHold e seed fixture emitted options = do
   lowered <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-target", "--idr-pipeline"]
                         ++ counter ++ options ++ ["-o", inWork e "skipped/lowered.mlir"]) out err
   accepted <- if not (succeeded lowered) then pure lowered else
-    bounded e [e.tools.idrisMlir, inWork e "skipped/lowered.mlir", "--runtime=" ++ e.tools.checkedRuntime,
+    bounded e [e.tools.idrisMlir, inWork e "skipped/lowered.mlir", "--runtime=" ++ e.tools.checkedPrepared,
                "-o", inWork e "skipped/prog"] out err
   if not (succeeded accepted)
      then do

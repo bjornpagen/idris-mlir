@@ -178,6 +178,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 113 | type-implicit-binding-order | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies at the gitlink 89ba32eb |
 | 114 | let-delayed-elaborator-dropped | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies after 107 and 109 at the gitlink 89ba32eb |
 | 115 | size-change-as-pattern-doubling | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies at the gitlink 89ba32eb |
+| 116 | record-update-variable-type | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies at the gitlink 89ba32eb |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -330,7 +331,7 @@ for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
 64 to 77, 79 to 93, 97 and 99, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
 2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
-its gitlink (8d82299, 9.3.2); for Idris: 96 and 104 to 115, applying at its
+its gitlink (8d82299, 9.3.2); for Idris: 96 and 104 to 116, applying at its
 gitlink (89ba32eb) in that order; for Chez: none. No toolchain is built yet with them, on any
 target, and `make build` refuses until one is. That is this repository's
 build, not a precondition for sending anything upstream.

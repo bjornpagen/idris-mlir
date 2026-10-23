@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime read from the file a compilation names, once, into the kind
-// it is: the archive's members, each checked, stripped of what only
-// separate compilation needs and compiled for the program's CPU, linked
-// into one module, with the archive's digest; or prepared bitcode, with
-// the identity --prepare-runtime recorded.
+// The runtime's two readers, one per action, each of the one kind of file
+// its action takes. --prepare-runtime reads an archive: its members, each
+// checked, stripped of what only separate compilation needs and compiled
+// for the program's CPU, linked into one module, with the archive's digest.
+// A compilation reads what --prepare-runtime wrote: its bitcode, with the
+// identity it recorded. The archive is the build's runtime as clang
+// compiled it, the one input of preparing; the prepared runtime is the
+// output, optimized once, whose native half every executable links. So no
+// compilation reads an archive: that would compile the runtime again for
+// every program, a second way to the program the prepared runtime makes.
 
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/Diagnostics.h"
@@ -22,7 +26,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
-#include "llvm/BinaryFormat/Magic.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -51,7 +54,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 using namespace idr::driver;
@@ -262,11 +264,17 @@ static std::string digestOf(llvm::StringRef bytes) {
   return llvm::toHex(llvm::SHA256::hash(llvm::arrayRefFromStringRef(bytes)), /*LowerCase=*/true);
 }
 
-// The archive's members, each prepared, joined into one module.
-static mlir::FailureOr<std::variant<Archived, Prepared>>
-readArchive(llvm::StringRef path, const llvm::MemoryBuffer &buffer, llvm::LLVMContext &llvmContext,
-            const llvm::TargetMachine &machine, mlir::Location at) {
-  mlir::FailureOr<std::vector<Member>> members = readMembers(path, buffer, at);
+mlir::FailureOr<Archived> idr::driver::readArchive(llvm::StringRef path,
+                                                  llvm::LLVMContext &llvmContext,
+                                                  const llvm::TargetMachine &machine,
+                                                  mlir::MLIRContext &context) {
+  mlir::Location at = mlir::UnknownLoc::get(&context);
+  auto buffer = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
+                                            /*RequiresNullTerminator=*/false);
+  if (!buffer)
+    return mlir::emitError(at) << "cannot read runtime " << path << ": "
+                               << buffer.getError().message();
+  mlir::FailureOr<std::vector<Member>> members = readMembers(path, **buffer, at);
   if (mlir::failed(members))
     return mlir::failure();
   auto runtime = std::make_unique<llvm::Module>("idris-mlir-runtime", llvmContext);
@@ -284,29 +292,29 @@ readArchive(llvm::StringRef path, const llvm::MemoryBuffer &buffer, llvm::LLVMCo
       return mlir::emitError(at) << "runtime member " << member.name
                                  << " does not link with the members before it";
   }
-  return std::variant<Archived, Prepared>(
-      Archived{std::move(runtime),
-               Identity{digestOf(buffer.getBuffer()), idr::target::programCpu.name.str(),
-                        idr::target::programCpu.features.str()}});
+  // The debug info of the runtime's C++ sources describes no program, and
+  // is most of the members' bitcode: it goes here, before anything is
+  // prepared, so the prepared runtime carries none for a program to join.
+  llvm::StripDebugInfo(*runtime);
+  return Archived{std::move(runtime),
+                  Identity{digestOf((*buffer)->getBuffer()), idr::target::programCpu.name.str(),
+                           idr::target::programCpu.features.str()}};
 }
 
-// What --prepare-runtime wrote: the object at `path`, which the link
-// line takes, and its bitcode in the file beside it, with the flags of its
-// identity; an object with no file of bitcode beside it, or bitcode without
-// the flags, is neither kind of runtime.
-static mlir::FailureOr<std::variant<Archived, Prepared>>
-readPrepared(llvm::StringRef path, llvm::LLVMContext &llvmContext, mlir::Location at) {
-  auto neither = [&]() -> mlir::InFlightDiagnostic {
+mlir::FailureOr<Prepared> idr::driver::readPrepared(llvm::StringRef path,
+                                                    llvm::LLVMContext &llvmContext,
+                                                    mlir::MLIRContext &context) {
+  mlir::Location at = mlir::UnknownLoc::get(&context);
+  auto notPrepared = [&]() -> mlir::InFlightDiagnostic {
     mlir::InFlightDiagnostic diagnostic = mlir::emitError(at);
-    diagnostic << "runtime " << path
-               << " is neither the archive --prepare-runtime reads nor a runtime it wrote: ";
+    diagnostic << "runtime " << path << " is not one --prepare-runtime wrote: ";
     return diagnostic;
   };
   std::string besidePath = besideObject(path);
   auto beside = llvm::MemoryBuffer::getFile(besidePath, /*IsText=*/false,
                                             /*RequiresNullTerminator=*/false);
   if (!beside)
-    return neither() << "cannot read " << besidePath << ": " << beside.getError().message();
+    return notPrepared() << "cannot read " << besidePath << ": " << beside.getError().message();
   auto module = llvm::parseBitcodeFile((*beside)->getMemBufferRef(), llvmContext);
   if (!module)
     return mlir::emitError(at) << "runtime " << path << ": " << llvm::toString(module.takeError());
@@ -316,31 +324,8 @@ readPrepared(llvm::StringRef path, llvm::LLVMContext &llvmContext, mlir::Locatio
   llvm::MDString *archive = flag(preparedArchiveFlag), *cpu = flag(preparedCpuFlag),
                  *features = flag(preparedFeaturesFlag);
   if (!archive || !cpu || !features)
-    return neither() << "its bitcode records no identity";
+    return notPrepared() << "its bitcode records no identity";
   Identity identity{archive->getString().str(), cpu->getString().str(),
                     features->getString().str()};
-  return std::variant<Archived, Prepared>(Prepared{std::move(*module), std::move(identity)});
-}
-
-mlir::FailureOr<std::variant<Archived, Prepared>>
-idr::driver::readRuntime(llvm::StringRef path, llvm::LLVMContext &llvmContext,
-                         const llvm::TargetMachine &machine, mlir::MLIRContext &context) {
-  mlir::Location at = mlir::UnknownLoc::get(&context);
-  auto buffer = llvm::MemoryBuffer::getFile(path, /*IsText=*/false,
-                                            /*RequiresNullTerminator=*/false);
-  if (!buffer)
-    return mlir::emitError(at) << "cannot read runtime " << path << ": "
-                               << buffer.getError().message();
-  // The file's kind, read off it once: an archive, or what
-  // --prepare-runtime wrote.
-  mlir::FailureOr<std::variant<Archived, Prepared>> runtime =
-      llvm::identify_magic((*buffer)->getBuffer()) == llvm::file_magic::archive
-          ? readArchive(path, **buffer, llvmContext, machine, at)
-          : readPrepared(path, llvmContext, at);
-  if (mlir::failed(runtime))
-    return mlir::failure();
-  idr::match(*runtime, [](idr::OneOf<Archived, Prepared> auto &read) {
-    llvm::StripDebugInfo(*read.module);
-  });
-  return runtime;
+  return Prepared{std::move(*module), std::move(identity)};
 }

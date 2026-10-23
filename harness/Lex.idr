@@ -163,8 +163,8 @@ cppLine state cs = go state [<] cs [<]
     go InCode before ('/' :: '*' :: rest) out = go InBlock (before :< '/' :< '*') rest out
     go InCode before ('"' :: rest) out =
       if rawPrefix before
-         then let (delimiter, open) = break (== '(') rest in
-              case open of
+         then let (delimiter, opening) = break (== '(') rest in
+              case opening of
                 ('(' :: more) => go (InRaw (')' :: delimiter ++ ['"'])) (before :< '"') more out
                 _ => go (InRaw [')', '"']) (before :< '"') rest out
          else go InCode (before :< '"') (pastLiteral '"' rest) (out :< '"' :< '"')

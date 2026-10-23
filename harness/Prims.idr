@@ -397,6 +397,7 @@ computedOf (OurOp (SomeOp op)) = case op.meaning of
 computedOf (AdmittedOp a) = case a.folding of
   NeverFolded => WhereItRuns
   UpstreamFold => WhileCompiling
+  ComputedOnDoubles => WhileCompiling
 computedOf Retyped = WhileCompiling
 
 ||| Of two parts of one computation, where the whole is computed.

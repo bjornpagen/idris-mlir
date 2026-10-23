@@ -11,7 +11,6 @@
 #include "idr/Driver/StackBound.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/Diagnostics.h"
@@ -38,14 +37,13 @@
 #include <string>
 #include <system_error>
 #include <utility>
-#include <variant>
 
 using namespace idr::driver;
 
 // The optimized runtime's symbols, so that a program's object can name each
 // one: a body it did not inline, a global an inlined body reads. Every
 // local one becomes external with hidden visibility; the names are unique,
-// since readRuntime's linker named the members' local symbols apart.
+// since readArchive's linker named the members' local symbols apart.
 static mlir::LogicalResult externalize(llvm::Module &runtime, mlir::Location at) {
   for (llvm::GlobalValue &value : runtime.global_values()) {
     if (value.isDeclaration())
@@ -140,20 +138,11 @@ static mlir::LogicalResult prepareRuntime(const Prepare &invocation, mlir::MLIRC
     return mlir::emitError(at) << llvm::toString(made.takeError());
   llvm::TargetMachine &machine = **made;
   llvm::LLVMContext llvmContext;
-  mlir::FailureOr<std::variant<Archived, Prepared>> runtime =
-      readRuntime(invocation.archive, llvmContext, machine, context);
-  if (mlir::failed(runtime))
+  mlir::FailureOr<Archived> archived =
+      readArchive(invocation.archive, llvmContext, machine, context);
+  if (mlir::failed(archived))
     return mlir::failure();
-  // Only the archive is prepared.
-  return idr::match(
-      *runtime,
-      [&](Archived &archived) {
-        return prepareArchive(archived, machine, invocation.output, context);
-      },
-      [&](const Prepared &) -> mlir::LogicalResult {
-        return mlir::emitError(at) << "runtime " << invocation.archive
-                                   << " is prepared already; --prepare-runtime reads the archive";
-      });
+  return prepareArchive(*archived, machine, invocation.output, context);
 }
 
 int idr::driver::prepare(const Prepare &invocation) {

@@ -605,13 +605,16 @@ printedAs Types = DialectModule
 printedAs Nesting = DialectModule
 printedAs NestingSource = IdrisSource
 
+||| The file what is printed so is printed into.
+printedFile : Printed -> String
+printedFile IdrisSource = "Main.idr"
+printedFile DialectModule = "scale.mlir"
+
 ||| The file a fixture is printed into, by what it is printed as; none for
 ||| a name that is no fixture's.
 export
 sourceFileOf : (name : String) -> Maybe String
-sourceFileOf name = ( => case printedAs f of
-                             IdrisSource => "Main.idr"
-                             DialectModule => "scale.mlir") <$> lookup name fixtures
+sourceFileOf name = printedFile . printedAs <$> lookup name fixtures
 
 ||| `--scale-print <fixture> <factor>`: the fixture at its size times the
 ||| factor, or nothing for a name or factor that is none.

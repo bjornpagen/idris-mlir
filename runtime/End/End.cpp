@@ -54,11 +54,22 @@ public:
   }
 
   // A number's decimal digits, written into this message's own room.
-  IDRIS_RT_BASELINE void unsignedNumber(uint64_t value) noexcept { number(value, false); }
+  IDRIS_RT_BASELINE void unsignedNumber(uint64_t value) noexcept {
+    char *end = digits[numbers] + sizeof digits[numbers];
+    char *at = end;
+    do {
+      *--at = static_cast<char>('0' + value % 10);
+      value /= 10;
+    } while (value != 0);
+    ++numbers;
+    add(at, static_cast<size_t>(end - at));
+  }
+  // A signed number: its minus sign, a piece of its own, then its
+  // magnitude's digits.
   void signedNumber(int64_t value) noexcept {
-    uint64_t magnitude =
-        value < 0 ? 0 - static_cast<uint64_t>(value) : static_cast<uint64_t>(value);
-    number(magnitude, value < 0);
+    if (value < 0)
+      add("-");
+    unsignedNumber(value < 0 ? 0 - static_cast<uint64_t>(value) : static_cast<uint64_t>(value));
   }
 
   // `file:line:col: `, the site's place.
@@ -83,19 +94,6 @@ public:
   }
 
 private:
-  [[gnu::always_inline]] void number(uint64_t value, bool negative) noexcept {
-    char *end = digits[numbers] + sizeof digits[numbers];
-    char *at = end;
-    do {
-      *--at = static_cast<char>('0' + value % 10);
-      value /= 10;
-    } while (value != 0);
-    if (negative)
-      *--at = '-';
-    ++numbers;
-    add(at, static_cast<size_t>(end - at));
-  }
-
   struct Piece {
     const char *bytes;
     size_t length;
@@ -106,9 +104,9 @@ private:
   static constexpr size_t featureBits = 64;
   Piece pieces[2 + 2 * featureBits];
   size_t count = 0;
-  // Room for every number a message holds, each the 20 digits of the largest
-  // and a sign: at most one per feature bit.
-  char digits[featureBits][21];
+  // Room for every number a message holds, each the 20 digits of the
+  // largest: at most one per feature bit.
+  char digits[featureBits][20];
   size_t numbers = 0;
 };
 

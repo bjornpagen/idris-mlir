@@ -49,12 +49,15 @@ extern "C" int64_t idris_rt_io_env_pair(int64_t index) {
 
 // setenv's: sets an environment variable to a value, unless it is set and
 // `overwrite` is 0; 0, or -1 when the name is not one a variable can have.
+// The program's integer is read here, once, into the choice it makes.
 extern "C" int64_t idris_rt_io_env_set(const idris_rt_str *name, const idris_rt_str *value,
                                        int64_t overwrite) {
   rt::io::Scratch nameText;
   rt::io::Scratch valueText;
+  rt::platform::WhenSet set =
+      overwrite != 0 ? rt::platform::WhenSet::Replace : rt::platform::WhenSet::Keep;
   if (rt::platform::setEnvironment(rt::io::cText(nameText, name), rt::io::cText(valueText, value),
-                                   overwrite != 0))
+                                   set))
     return 0;
   rt::io::saveError();
   return -1;

@@ -12,21 +12,27 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/TargetParser/Triple.h"
 
+#include <optional>
+
 using namespace mlir;
 using namespace idr;
 
 namespace {
 
-// The operating system as Idris's Scheme backends spell it: Linux and the
-// BSDs are "unix", Apple's are "darwin", Windows is "windows".
-StringRef osName(const llvm::Triple &triple) {
-  if (triple.isOSDarwin())
-    return "darwin";
-  if (triple.isOSLinux() || triple.isOSFreeBSD() || triple.isOSOpenBSD() || triple.isOSNetBSD())
-    return "unix";
-  if (triple.isOSWindows() || triple.isOSCygMing())
-    return "windows";
-  return "unknown";
+// The operating system of a target of ours, as Idris's Scheme backends
+// spell it for base: macOS is "darwin", Linux "unix". Every target entry
+// is one of the two (CMakeLists.txt), and idr-target writes the entry's
+// triple over whatever a module held, so a module the compiler compiles
+// names one of them. A triple of any other system reaches here only in a
+// module written by hand for idris-mlir-opt that skips idr-target: like a
+// module that names no target, it has no operating system of ours to fold
+// to.
+std::optional<StringRef> osName(const llvm::Triple &triple) {
+  if (triple.isMacOSX())
+    return StringRef("darwin");
+  if (triple.isOSLinux())
+    return StringRef("unix");
+  return std::nullopt;
 }
 
 } // namespace
@@ -39,5 +45,8 @@ OpFoldResult PlatformOsOp::fold(FoldAdaptor) {
       module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
   if (!target)
     return {};
-  return StringAttr::get(getContext(), osName(llvm::Triple(target.getTriple().getValue())));
+  std::optional<StringRef> os = osName(llvm::Triple(target.getTriple().getValue()));
+  if (!os)
+    return {};
+  return StringAttr::get(getContext(), *os);
 }

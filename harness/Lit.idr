@@ -255,11 +255,11 @@ unnamed line later = go (segments line)
     go [] = Nothing
     go ((seg, sep) :: rest) = case commandOf (words seg) of
       Nothing => go rest
-      Just (failing, path) =>
+      Just (fails, path) =>
         let cmd = baseName path
             readsLater = \f => isInfixOf f (concatMap ((" " ++) . fst) rest ++ " " ++ later)
         in if elem cmd ["diff", "cmp", "grep", "test", "ls"]
-              || verdictOf failing cmd
+              || verdictOf fails cmd
               || isInfixOf "-verify-diagnostics" seg
               || asksProperties seg
               || (isInfixOf "2>&1" seg && sep == "|")
@@ -433,7 +433,7 @@ writeBytes path bytes = do
   where
     fill : Buffer -> Int -> List Int -> IO ()
     fill _ _ [] = pure ()
-    fill b i (x :: xs) = do setByte b i x; fill b (i + 1) xs
+    fill b i (x :: xs) = do setBits8 b i (cast x); fill b (i + 1) xs
 
 hex2 : Int -> String
 hex2 n = pack [digit (div n 16), digit (mod n 16)]
@@ -467,9 +467,10 @@ differentialInputs fixture dir = do
 ||| directory, as idris-mlir compiles a module from the stage its program
 ||| is at: the registered pipeline from that stage, which the tool reads
 ||| off the program (--idr-pipeline), then idris-mlir, which takes a module
-||| of the LLVM dialect alone to LLVM as it is, linked with the checked
-||| runtime; COUNTER, MLIR's debug counter over the actions the pipeline's
-||| passes take. The program, or the lines that say why there is none.
+||| of the LLVM dialect alone to LLVM as it is, compiled with the checked
+||| runtime as the build prepared it and linked with it; COUNTER, MLIR's
+||| debug counter over the actions the pipeline's passes take. The program,
+||| or the lines that say why there is none.
 lowered : Env -> (module', name : String) -> (counter : List String) -> IO (Either (List String) String)
 lowered e module' name counter = do
   let dir = inWork e ("differential." ++ name)
@@ -480,10 +481,11 @@ lowered e module' name counter = do
   if not (succeeded lowering)
      then failure log ("differential: " ++ baseName module' ++ " does not lower")
      else do
-       object <- bounded e [e.tools.idrisMlir, "--num-threads=1", "-c", dir ++ "/lowered.mlir", "-o", dir ++ "/prog.o"]
+       object <- bounded e [e.tools.idrisMlir, "--num-threads=1", "--runtime=" ++ e.tools.checkedPrepared, "-c",
+                            dir ++ "/lowered.mlir", "-o", dir ++ "/prog.o"]
                          (ToFile log) WithOutput
        linked <- if succeeded object
-                    then linkProgram e [dir ++ "/prog.o", "-o", dir ++ "/prog", e.tools.checkedRuntime] (ToFile log) WithOutput
+                    then linkProgram e [dir ++ "/prog.o", "-o", dir ++ "/prog", e.tools.checkedPrepared] (ToFile log) WithOutput
                     else pure object
        if succeeded linked then pure (Right (dir ++ "/prog"))
          else failure log ("differential: " ++ baseName module' ++ " does not compile")
