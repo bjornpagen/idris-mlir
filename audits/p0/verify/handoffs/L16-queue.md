@@ -596,3 +596,6 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   installed stock Idris carries 115 (INT, with 116 when L19v lands);
   LinearCheck's updateHoleUsage visits an as name twice and its pattern
   never (no cost; upstream, unacted).
+- From L19r: the root rule (`Program.cpp`'s `verifyRegions`) has no test
+  of its own: a program whose root takes an argument, and one whose root
+  gives an `i64`, each refused by its message (L19).
