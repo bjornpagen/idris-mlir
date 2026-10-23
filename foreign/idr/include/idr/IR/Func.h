@@ -77,8 +77,9 @@ struct Unproved {
 // What `#idr.terminates` holds: a proof, so a function with the attribute
 // cannot claim an empty one; a function without it is unproved.
 using TerminationProof = std::variant<InComponent, Acyclic>;
-// What is known of a function's own loops, the attribute read: what its
-// row's divergence starts from.
+// What is known of a function's own loops, the attribute read: whether a
+// loop a pass makes of its code may not end (joins::endingOf), and whether
+// a cycle of calls through it does (rows::writer::provedTogether).
 using Termination = std::variant<Unproved, InComponent, Acyclic>;
 
 llvm::hash_code hash_value(const TerminationProof &proof);

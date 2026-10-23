@@ -13,8 +13,13 @@
 // instantiation is given: the verifier reads the call's own copy of its
 // callee's row; the writer records the call and joins its callee's row
 // over the program graph's components; the label solve reads a label's
-// run as calls of its labels. The seed is Idris's proof: a function whose
-// loops Idris did not prove end may run forever by itself.
+// run as calls of its labels. The fold starts empty, so every atom of a
+// row is some op's doing, divergence too: a loop Idris did not prove to
+// end begins each region it repeats with idr.may_loop, which goes wherever
+// a pass moves the loop; and the divergence of a cycle of calls Idris did
+// not prove together the writers join into each member's row
+// (rows::writer::provedTogether), from which every call of a member takes
+// it, a self call its own function's.
 //
 // Two refinements keep a row to what a caller can see: an effect on memory
 // the function acquired itself (allocated on the heap or in its frame) is

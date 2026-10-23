@@ -30,15 +30,9 @@ rows::Runs rows::detail::regionRuns(Operation *op, unsigned index) {
   return branch && !branch.isRepetitiveRegion(index) ? Runs::Once : Runs::Repeatedly;
 }
 
-// Idris's proof is the one input of the row that is no op: a function it
-// did not prove may run forever by itself.
 rows::Fold::Fold(FuncOp fn) : fn(fn), parts(fn.getArgumentTypes()) {
   derived.written.resize(parts.writable());
   derived.puts.assign(parts.puttable(), Amount::finite(0));
-  idr::match(
-      fn.getTermination(),
-      [&](Unproved) { join(effects::Row{effects::Atom::divergence}); }, [](InComponent) {},
-      [](Acyclic) {});
 }
 
 const Layouts &rows::Fold::layouts() {
