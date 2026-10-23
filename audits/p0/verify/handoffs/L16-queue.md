@@ -68,3 +68,13 @@ them (2026-10-22). Each item names the type that would carry the fact.
   `Growth/Heads.idr`, `Graph.idr` and `Sites.idr` (`Static`, `Chosen`,
   `markerOf`, `RunZero` and kin).
 - The reading lemma's open steps, named in `Proof/Covers.idr`'s header.
+
+## From L03z (generated builders against the frontend's calls)
+
+The generator emits the right signatures; the frontend's calls are wrong:
+- `natToExtentOp` takes no result type: `Emit/Tensors.idr:77` calls it under `const`.
+- `arrayTabulateOp`'s `outs` is a list: `Tensors.idr:399,427,507,537`, `SyntaxSamples.idr:255`.
+- `arrayFoldLastOp` takes `length` first: `Tensors.idr:545,547`, `SyntaxSamples.idr:259`.
+- `arrayScanLastOp`: wrong order and no `outs` group, `Tensors.idr:549`.
+- `Linalg.transposeOp` takes a region (`Tensors.idr:415`, `SyntaxSamples.idr:267`),
+  once L12 admits `Linalg_YieldOp` from `Higher`.
