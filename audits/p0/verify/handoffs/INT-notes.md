@@ -208,3 +208,19 @@ handoff lists its own wiring.
   sites to L16do; R-y, R-z and the remaining R-u (`atNamedType`,
   `CovG.idr`) to L06f; State's `resolvedItself` qualified; Boundary's
   dependent-map import came with L17ar.
+
+- **INT-19 (2026-10-23, at 0639a573; `build/int19/`).** The checker
+  builds clean, no scratch (208 modules, 634 s). The frontend builds 86 of
+  102 modules from HEAD (one missing import, R-h, fixed after), and with
+  two scratch files all 102, the executable and syntax-samples (526 s,
+  6.1 GiB). The first run of `idris-mlir-front`: prelude installs
+  through it; base is refused by our checker at three roots stock Idris
+  accepts (C-1 a pair's unbound part types, C-2 a quoted `%search`, C-3 an
+  `if` in a type reaching the TTC writer as a resolved name), routed to
+  L17at; with those scratched base installs (136 of 136). On `tests/hello`
+  and nine other fixtures it writes a module holding one refusal: F-1
+  (`main`'s `IO` read as a data family where Programs and Terms still
+  match the erased one-field form bfcc5041 removed) and F-2
+  (`checkedLibrary` reading a point-free function's arity off its case
+  tree), routed to L16dr. Neither `missedEntry` nor the dependent-map
+  ambiguity was met.
