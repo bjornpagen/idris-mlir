@@ -541,3 +541,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   L16ee: the frontend's `indexTerm` reads base's `plus` on `Nat` by
   identity as a sum (`Translate/Types.idr`), and L18y's test with the two
   properties L19 adds (`tail-calls`, `results-as-given`).
+- From L21x, after round 3-A: a refusal rule for a module made for
+  another target (the specification's `Rule`, its phrase, scope and
+  category: a check against the build, which `Runtime`'s scope also is),
+  taken by `idr-target`, `Driver/Run.cpp:118-130` (lowered module) and
+  `Verify/Program.cpp:56-72` (word size), which are internal errors
+  today; `OpsPlatform.cpp:23-28`'s comment says idr-target writes over a
+  module's triple, which it no longer does; `Pipeline.idr:205-211`'s
+  description of idr-target.
