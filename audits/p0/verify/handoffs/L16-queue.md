@@ -342,3 +342,18 @@ coordinator, 2026-10-23):
   (`Template.idr:190, 199`): each carries the name or definition from
   where the address was made, as the positions now do, and `nameAt`'s
   `Maybe` goes with its last reader.
+
+## From L16dl and L16dn (C260, the pair)
+
+- The missing-`%pair` refusal names the module's site, not the packing:
+  `Closed.pairFor`/`packedType`/`unpacked` take the packing's site and its
+  twenty callers pass it (Terms 11, Sites 4, Choices 3, Cases 1,
+  Instances 1).
+- `State.natured` works out the entry's and the pair's `Nature` apart
+  from the map, three lookups each.
+- `Keys.write` is pure and still looks a metavariable's address up; a miss
+  writes nothing, for a term the writer was not built for.
+- For L17: the freeze states, at quantity 0, that an entry
+  `lookupCtxtExactI` read as `def` before it is defined after it as a `d`
+  with `definition d = definition def`, so `readDefinition` keeps the tree
+  evidence it decodes and `solutionAt` reads each tree once.
