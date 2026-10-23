@@ -5110,6 +5110,17 @@ C137.
   decider; before that stage a call's fact promises nothing. The context
   is still read off the program before counting, as C38 asks, and from
   that stage on every fact is the decider's answer, checked both ways.
+  *Sharpened* (2026-10-23, L10x's handoff; recheck 5's N1 read C20 alone):
+  the decider is the one definition of tail position, one downward walk
+  per function (`tail::tailsOf`), with no per-call climb (`inTailPosition`
+  and `decide(CallOp)` go). It runs where the program becomes first order
+  and in each pass whose edit can change a call's position without the
+  pass knowing the new kind (an op that records no position removed or
+  exposed: the e-graph's write-back, inlining, capture drops, raising,
+  narrowing, TRMC, frames), as `decideTails`; a pass that knows the kind
+  it makes writes it (the inliner composes the replaced and the held
+  call's, contification at a non-tail continuation writes `nontail`).
+  The verifier checks both ways against the same walk.
 - **C204** (2026-10-22; L05's finding on L16's sixth pass; amends C113's
   routing of integer keys). A literal match on an integer, a char or a
   double stays `idr.lit.match`, as one on a string, a big or a natural
