@@ -60,12 +60,14 @@ memrefAdmitted =
 
 ||| The transpose the frontend writes, and the parallel ops structured loops
 ||| make of word ops, on tensors and then on buffers, until the lowering.
+||| The yield ends the body of each: the transpose's body too, which the
+||| frontend builds, so it enters with the transpose.
 linalgAdmitted : List Admitted
 linalgAdmitted =
   [ admitAliased Linalg "TransposeOp" "Linalg_TransposeOp" (between Higher Owned) FrontendWrites
   , admitAliased Linalg "GenericOp" "Linalg_GenericOp" (between First Owned) PassesOnly
   , admitNamed Linalg "Linalg_IndexOp" (between First Owned) PassesOnly
-  , admitNamed Linalg "Linalg_YieldOp" (between First Owned) PassesOnly ]
+  , admitNamed Linalg "Linalg_YieldOp" (between Higher Owned) FrontendWrites ]
 
 ||| The loops arrays' passes make and read: `scf.for`, which structured
 ||| loops writes and the ordered loops after narrowing write again, until
