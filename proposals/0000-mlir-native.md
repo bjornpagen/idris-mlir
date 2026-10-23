@@ -2520,6 +2520,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   non-tail call keeps D58's in-place result" holds wherever the closed
   copy can be made. An internal error there would refuse a valid
   program, which acceptance as a property of the program rules out.
+- **C268** (2026-10-23; L16ef's handoff, under C262 and D30; amends
+  C262's second sharpening; for the owner's review). `idr.array.tie_shape`
+  names the axes it ties, and its sizes cover those alone: a tie states
+  what something states of an array, and an axis nothing states stays
+  untied, never read off the array. So nothing but the tie follows a
+  call, a tail stays a tail, and Emit reads no size from an array to tie
+  it (the reads on values that already exist go too). C262's "an axis
+  nothing states computed from the index terms the call is given" is no
+  obligation of Emit, which turns no index term into a run-time size: the
+  frontend may state more axes before the call (successors, and sums
+  under D131), which shrinks what stays untied but never empties it.
+  Rejected: no tie on a call's result with an axis unstated, which drops
+  the stated axes' facts.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
