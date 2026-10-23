@@ -92,7 +92,7 @@ Status: recorded, not carried; nothing goes to idris-lang/Idris2 from
 here. Idris accepts no contribution that arises from generative AI or a
 coding agent, issues, pull requests, commits and comments alike
 (upstream/README.md, **Idris**), and this report was written with one.
-Whether to report the bug upstream is Bjorn's call alone, in his own
-words and from his own understanding; nothing here is drafted for it.
+Whether to report the bug upstream is Bjorn's call alone, in their own
+words and from their own understanding; nothing here is drafted for it.
 The report goes when the Idris pin carries upstream's own fix; the
 checker keeps its own, which `tests/upstream-lazy-case-scrutinee` checks.

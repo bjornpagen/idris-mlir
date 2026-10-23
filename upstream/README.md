@@ -206,17 +206,17 @@ These are not optional.
   fixed in our type checker (compiler/checker) as our own code where the
   checker has it, and patched in the stock Idris (`idris.patch`) where
   what the stock Idris builds meets it. Whether Bjorn
-  reports such a bug is his call, in his own words; nothing is drafted
+  reports such a bug is their call, in their own words; nothing is drafted
   for it, and no agent posts there.
-- **Author.** Bjorn, as an individual, outside any employer: his own
-  name and the public email on his GitHub account, no employer anywhere,
+- **Author.** Bjorn, as an individual, outside any employer: their own
+  name and the public email on their GitHub account, no employer anywhere,
   no Co-authored-by, no @mentions.
 - **Tool use is labelled.** llvm/docs/AIToolPolicy.md: content with
   substantial tool-generated parts is labelled, and the contributor has
   read and understood every line and can answer for it in review. Every
   commit message, pull request body and comment ends with
-  `Assisted-by: Claude Code` as its last line. Bjorn rewrites in his own
-  words whatever he would not have written; his wording is used verbatim.
+  `Assisted-by: Claude Code` as its last line. Bjorn rewrites in their own
+  words whatever they would not have written; their wording is used verbatim.
 - **A human approves every post.** The same policy bans agents that act
   in LLVM's spaces without human approval. An agent never runs
   `gh issue create`, `gh pr create`, `gh pr comment`, `gh issue comment`,
@@ -239,7 +239,7 @@ These are not optional.
 ## Sending
 
 Run this on Bjorn's machine, in a local Claude Code session with `gh`
-logged in as him (`gh auth status`) and git's `user.name`/`user.email`
+logged in as them (`gh auth status`) and git's `user.name`/`user.email`
 set to the name and public email for LLVM commits.
 
 Once:
@@ -260,8 +260,8 @@ after Bjorn says to go on, the next ready row):
 5. `git clang-format origin/main` must change nothing. No local
    `check-mlir`: the pull request's pre-merge CI runs it (**CI decides**).
 6. Show Bjorn each text exactly as it will be posted (issue, PR, comment)
-   and each command. Take his edits verbatim.
-7. On his approval of each command: file the issue; put its number into
+   and each command. Take their edits verbatim.
+7. On their approval of each command: file the issue; put its number into
    the commit (`git commit --amend`); push the branch to `fork`; open the
    PR against `llvm/llvm-project:main`. Post comments the same way.
 8. Stop. Give Bjorn the URLs.

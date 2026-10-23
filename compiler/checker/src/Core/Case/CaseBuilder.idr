@@ -950,6 +950,64 @@ arrange {todo = _ :: _} order cs@(c :: _)
                           (arranged placed <$> cs)
          else inOrder order (keptOrLast (getNPs c)) cs
 
+-- What a tree may assume of a variable a case further up has matched: the
+-- alternative of this constructor was taken, or the default, past these
+-- constructors.
+data Matched = IsCon Name | NoneOf (List Name)
+
+-- The alternatives of a case on the matched variable that can still be
+-- taken: under a constructor's alternative, that constructor's, or else the
+-- default; under the default, all but the matched constructors'. A data or
+-- type constructor is told apart by its name, which is how the evaluator
+-- matches a type constructor.
+total
+taken : Matched -> List (CaseAlt vars) -> List (CaseAlt vars)
+taken (IsCon n) alts
+    = case filter isThat alts of
+           (a :: _) => [a]
+           [] => filter isDefault alts
+  where
+    isThat : CaseAlt vars -> Bool
+    isThat (ConCase n' _ _ _) = n == n'
+    isThat _ = False
+taken (NoneOf ns) alts = filter (not . matchedCon) alts
+  where
+    matchedCon : CaseAlt vars -> Bool
+    matchedCon (ConCase n _ _ _) = n `elem` ns
+    matchedCon _ = False
+
+-- A case none of whose alternatives can be taken, which no evaluation
+-- reaches, keeps its own: every case the builder makes has an alternative.
+total
+agreeing : Matched -> List (CaseAlt vars) -> List (CaseAlt vars)
+agreeing m alts
+    = case taken m alts of
+           [] => alts
+           kept@(_ :: _) => kept
+
+-- A tree whose cases on a variable a case further up has matched keep only
+-- the alternatives that can still be taken (`agreeing`). Evaluation takes
+-- the same alternative of the tree as of the tree it prunes: a default is
+-- taken only for a constructor none of the others is.
+mutual
+  pruneCase : Var vars -> Matched -> CaseTree vars -> CaseTree vars
+  pruneCase v m (Case idx el ty alts)
+      = let alts' = pruneAlts v m alts in
+            Case idx el ty (if MkVar el == v then agreeing m alts' else alts')
+  pruneCase v m t = t
+
+  pruneAlts : Var vars -> Matched -> List (CaseAlt vars) -> List (CaseAlt vars)
+  pruneAlts v m [] = []
+  pruneAlts v m (alt :: alts) = pruneAlt v m alt :: pruneAlts v m alts
+
+  pruneAlt : Var vars -> Matched -> CaseAlt vars -> CaseAlt vars
+  pruneAlt v m (ConCase n t args sc)
+      = ConCase n t args (pruneCase (weakenNs (mkSizeOf args) v) m sc)
+  pruneAlt v m (DelayCase t a sc)
+      = DelayCase t a (pruneCase (weakenNs (mkSizeOf [t, a]) v) m sc)
+  pruneAlt v m (ConstCase c sc) = ConstCase c (pruneCase v m sc)
+  pruneAlt v m (DefaultCase sc) = DefaultCase (pruneCase v m sc)
+
 mutual
   {- 'PatClause' contains a list of patterns still to process (that's the
      "todo") and a right hand side with the variables we know about "vars".
@@ -1004,10 +1062,27 @@ mutual
   caseGroups fc fn phase el ty gs errorCase
       = Case idx el (resolveNames vars ty) <$> altGroups gs
     where
+      -- The constructors this case matches.
+      matched : forall ne. List01 ne (Group todo vars) -> List Name
+      matched [] = []
+      matched (ConGroup cn _ _ :: cs) = cn :: matched cs
+      matched (_ :: cs) = matched cs
+
+      -- The fallthrough tree is copied into every alternative. Each copy is
+      -- reached only with 'el' known to be that alternative's constructor
+      -- (or, for the default, none of the others), so its own cases on 'el'
+      -- keep only the alternatives that can still be taken. Without this a
+      -- function whose clauses alternate between a constructor and a
+      -- wildcard in one argument gets a tree exponential in the number of
+      -- clauses.
       altGroups : forall ne. List01 ne (Group todo vars) -> Core (List (CaseAlt vars))
-      altGroups [] = pure $ toList $ DefaultCase <$> errorCase
+      altGroups [] = pure $ toList $
+          DefaultCase . pruneCase (MkVar el) (NoneOf (matched gs)) <$> errorCase
       altGroups (ConGroup {newargs} cn tag rest :: cs)
-          = do crest <- match fc fn phase rest (map (weakenNs (mkSizeOf newargs)) errorCase)
+          = do let l = mkSizeOf newargs
+               crest <- match fc fn phase rest
+                          (map (pruneCase (weakenNs l (MkVar el)) (IsCon cn) . weakenNs l)
+                               errorCase)
                cs' <- altGroups cs
                pure (ConCase cn tag newargs crest :: cs')
       altGroups (DelayGroup {tyarg} {valarg} rest :: cs)

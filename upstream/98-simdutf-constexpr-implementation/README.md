@@ -66,7 +66,7 @@ with its patches for the runtime's build.
 Status: carried (2026-10-21); not filed. simdutf's `AI_USAGE_POLICY.md`
 requires a human in the loop who has read and reviewed the change and can
 answer for it in review, and encourages disclosing tool assistance: Bjorn
-files it, in his own words, if he chooses to.
+files it, in their own words, if they choose to.
 
 - One pull request, "Make the implementation constructors constexpr",
   from `simdutf.patch`. The body says what it enables (an implementation

@@ -102,9 +102,14 @@ delayOnFailure fc rig env expected pred pri elab
                          pure (dtm, expected)
                     else throw err)
 
--- Make a hole and elaborate it later. The elaborator is given the cell of
--- delayed elaborators and the expected type, if there is one, as
--- delayOnFailure's retry is.
+-- Make a hole and elaborate it later, at the type the hole is given: the
+-- expected type, or, where there is none, a hole for it. The elaborator is
+-- given the cell of delayed elaborators and that type, as delayOnFailure's
+-- retry is, its term evaluated again, since we might know more by then.
+-- Elaborated at a type of its own instead, a case block would be
+-- abstracted over its own scrutinee, which no clause can solve, and nothing
+-- would relate it to the hole's, which the term the hole stands in has
+-- meanwhile fixed.
 export
 delayElab : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
@@ -115,7 +120,7 @@ delayElab : {vars : _} ->
             FC -> RigCount -> Env Term vars ->
             (expected : Maybe (Glued vars)) ->
             (pri : DelayReason) ->
-            (Ref DLY DelayedElabs -> Maybe (Glued vars) -> Core (Term vars, Glued vars)) ->
+            (Ref DLY DelayedElabs -> Glued vars -> Core (Term vars, Glued vars)) ->
             Core (Term vars, Glued vars)
 delayElab {vars} fc rig env exp pri elab
     = do ust <- get UST
@@ -126,13 +131,12 @@ delayElab {vars} fc rig env exp pri elab
          (ci, dtm) <- newDelayed fc linear env nm ty
          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
                       " for") env expected
-         let given = map (const ty) exp
          defs <- get Ctxt
          update DLY
                  ((pri, ci, localHints defs,
                    MkDelayedElab $ \dl =>
                                  mkClosedElab fc env
-                                   (withNoSolve nos (elab dl (map (gnf env) given)))) :: )
+                                   (withNoSolve nos (elab dl (gnf env ty)))) :: )
          pure (dtm, expected)
   where
     mkExpected : Maybe (Glued vars) -> Core (Glued vars)
@@ -245,9 +249,52 @@ Show RetryError where
   show RecoverableErrors = "RecoverableErrors"
   show AllErrors = "AllErrors"
 
+-- The metavariables unsolved at some point: the holes, and the guesses
+-- that wait on constraints.
+record Unsolved where
+  constructor MkUnsolved
+  openHoles : IntMap (FC, Name)
+  openGuesses : IntMap (FC, Name)
+
+unsolvedNow : {auto u : Ref UST UState} -> Core Unsolved
+unsolvedNow
+    = do ust <- get UST
+         pure (MkUnsolved (holes ust) (guesses ust))
+
+-- What a pass learnt of a delayed elaborator that failed recoverably: what
+-- was unsolved when its failing attempt began, and its error.
+record Failed where
+  constructor MkFailed
+  unsolvedThen : Unsolved
+  failure : Error
+
+-- The delayed elaborators that failed recoverably, by their holes.
+Failures : Type
+Failures = IntMap Failed
+
+-- How a delayed elaborator's attempt would end, where that is known without
+-- running it: an attempt that begins with every metavariable unsolved when
+-- its failing attempt began still unsolved knows no more than that one did,
+-- so it fails the same way. Each delayed elaborator may retry delayed
+-- elaborators of its own, so running such a failure again at every level of
+-- a nest, once in each pass, costs time exponential in the nesting before
+-- the same error is reported. Any metavariable solved since, by another
+-- elaborator or by solving constraints between passes, runs it again.
+knownFailure : Failures -> Int -> Unsolved -> Maybe Failed
+knownFailure fs i now
+    = do f <- lookup i fs
+         if stillOpen (openHoles (unsolvedThen f)) (openHoles now)
+               && stillOpen (openGuesses (unsolvedThen f)) (openGuesses now)
+            then Just f
+            else Nothing
+  where
+    stillOpen : IntMap (FC, Name) -> IntMap (FC, Name) -> Bool
+    stillOpen before after = all (\k => isJust (lookup k after)) (keys before)
+
 -- Try all the delayed elaborators. If there's a failure, we want to
 -- show the ambiguity errors first (since that's the likely cause)
--- Return all the ones that need trying again
+-- Return all the ones that need trying again, and what was learnt of those
+-- that failed recoverably
 retryDelayed' : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto m : Ref MD Metadata} ->
@@ -256,15 +303,49 @@ retryDelayed' : {vars : _} ->
                 {auto e : Ref EST (EState vars)} ->
                 RetryError ->
                 (progress : Bool) ->
+                Failures ->
                 DelayedElabs ->
                 DelayedElabs ->
-                Core (Bool, DelayedElabs)
-retryDelayed' errmode p acc [] = pure (p, reverse acc)
-retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
+                Core (Bool, Failures, DelayedElabs)
+retryDelayed' errmode p fs acc [] = pure (p, fs, reverse acc)
+retryDelayed' errmode p fs acc (d@(_, i, hints, elab) :: ds)
     = do defs <- get Ctxt
          Just Delayed <- lookupDefExact (Resolved i) (gamma defs)
-              | _ => retryDelayed' errmode p acc ds
-         handle
+              | _ => retryDelayed' errmode p fs acc ds
+         before <- unsolvedNow
+         case knownFailure fs i before of
+              Just f =>
+                 do logC "elab.retry" 5 $ do pure $ "Not retrying unchanged delayed hole " ++ show !(getFullName (Resolved i))
+                    failed f
+              Nothing => attempt before
+  where
+    better : Error -> Error -> Error
+    better e (GenericMsg {}) = e
+    better (GenericMsg {}) e = e
+    better e _ = e
+
+    -- A recoverable failure is kept, with what was unsolved when its
+    -- attempt began, for a later pass to try again; with all errors, the
+    -- failure is reported, or a more helpful one a later elaborator gives.
+    failed : Failed -> Core (Bool, Failures, DelayedElabs)
+    failed f
+        = do logC "elab" 5 $ do pure $ show errmode ++ ":Error in " ++ show !(getFullName (Resolved i))
+                                       ++ "\n" ++ show (failure f)
+             case errmode of
+               RecoverableErrors =>
+                  if not !(recoverable (failure f))
+                     then throw (failure f)
+                     else retryDelayed' errmode p (insert i f fs) (d :: acc) ds
+               AllErrors =>
+                  -- we've got an error, but see if we get a more
+                  -- helpful one with a later elaborator
+                  handle (do ignore $ retryDelayed' errmode p fs [] ds
+                             throw (failure f))
+                     (\err' => throw (better (failure f) err'))
+
+    attempt : Unsolved -> Core (Bool, Failures, DelayedElabs)
+    attempt before
+        = handle
            (do logC "elab.retry" 5 $ do pure $ "Retrying delayed hole " ++ show !(getFullName (Resolved i))
                -- elab itself might have delays internally, so keep track of them
                put DLY (the DelayedElabs [])
@@ -280,25 +361,8 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
                logTerm "elab.update" 5 ("Resolved delayed hole " ++ show i) tm
                logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
                removeHole i
-               retryDelayed' errmode True acc ds')
-           (\err => do logC "elab" 5 $ do pure $ show errmode ++ ":Error in " ++ show !(getFullName (Resolved i))
-                                              ++ "\n" ++ show err
-                       case errmode of
-                         RecoverableErrors =>
-                            if not !(recoverable err)
-                               then throw err
-                               else retryDelayed' errmode p (d :: acc) ds
-                         AllErrors =>
-                            -- we've got an error, but see if we get a more
-                            -- helpful one with a later elaborator
-                            handle (do ignore $ retryDelayed' errmode p [] ds
-                                       throw err)
-                               (\err' => throw (better err err')))
-  where
-    better : Error -> Error -> Error
-    better e (GenericMsg {}) = e
-    better (GenericMsg {}) e = e
-    better e _ = e
+               retryDelayed' errmode True (delete i fs) acc ds')
+           (\err => failed (MkFailed before err))
 
 export
 retryDelayed : {vars : _} ->
@@ -309,12 +373,15 @@ retryDelayed : {vars : _} ->
                {auto e : Ref EST (EState vars)} ->
                UnifyInfo -> DelayedElabs ->
                Core ()
-retryDelayed mode ds
-    = do (p, ds) <- retryDelayed' RecoverableErrors False [] ds -- try everything again
-         solveConstraints mode Normal -- maybe we can resolve some interfaces now
-         if p
-            then retryDelayed mode ds -- progress, go around again
-            else ignore $ retryDelayed' AllErrors False [] ds -- fail on all errors
+retryDelayed mode ds = go IntMap.empty ds
+  where
+    go : Failures -> DelayedElabs -> Core ()
+    go fs ds
+        = do (p, fs, ds) <- retryDelayed' RecoverableErrors False fs [] ds -- try everything again
+             solveConstraints mode Normal -- maybe we can resolve some interfaces now
+             if p
+                then go fs ds -- progress, go around again
+                else ignore $ retryDelayed' AllErrors False fs [] ds -- fail on all errors
 
 -- Run an elaborator, then all the delayed elaborators arising from it
 export
@@ -332,7 +399,7 @@ runDelays pri elab
          ust <- get UST
          delayed <- get DLY
          log "elab.delay" 2 $ "Rerunning delayed in elaborator"
-         handle (do ignore $ retryDelayed' AllErrors False []
+         handle (do ignore $ retryDelayed' AllErrors False IntMap.empty []
                        (reverse (filter hasPri delayed)))
                 (\err => do put UST ust
                             put DLY olddelayed

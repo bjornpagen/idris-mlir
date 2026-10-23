@@ -68,10 +68,15 @@ When the Idris pin carries upstream's fix for #3418 (the check then passes
 without the patch). Until then our code writes its pattern-matching
 lambdas as Idris allows them, and the bootstrap applies the patch.
 
+Our type checker (compiler/checker) carries the change as its own code, in
+`TTImp.Elab.Delayed.delayElab`, whose elaborator always takes the hole's
+type, which `tests/checker-delayed-case-expected-type` checks; it stays
+when the patch goes.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). Whether Bjorn comments
-on #3418, in his own words, is his call. The patch goes when the pin moves
+on #3418, in their own words, is their call. The patch goes when the pin moves
 past upstream's fix, which `tests/upstream-delayed-case-expected-type`
 shows by passing on an unpatched pin.

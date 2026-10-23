@@ -83,8 +83,8 @@ submission, since nothing reaches the bug.
 
 Status: not filed. simdutf's `AI_USAGE_POLICY.md` requires a human in the
 loop who has read and reviewed the change and can answer for it in review,
-and encourages disclosing tool assistance: Bjorn files it, in his own
-words, if he chooses to.
+and encourages disclosing tool assistance: Bjorn files it, in their own
+words, if they choose to.
 
 - One issue, with simdutf's bug template: the two enumerators, the code
   path above, the processor feature combination that meets it, and

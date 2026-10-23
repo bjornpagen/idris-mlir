@@ -5,8 +5,8 @@
 Status: ready to file, not filed. One pull request to llvm/llvm-project,
 no issue: the pull request carries the reproducer as its unit test.
 
-The author is Bjorn, as an individual, outside any employer: his name and
-the public email of his GitHub account, no employer, no `Co-authored-by`,
+The author is Bjorn, as an individual, outside any employer: their name and
+the public email of their GitHub account, no employer, no `Co-authored-by`,
 no `@` mentions. The last line of the commit message and of the pull
 request body is `Assisted-by: Claude Code` (llvm/docs/AIToolPolicy.md).
 
@@ -34,7 +34,7 @@ with `git apply` and take the message from here, never from the diff.
   `MLIRIRTests` was built for this (upstream/README.md, **CI decides**).
   The body says only what the code does.
 - [ ] Show Bjorn the title, the body and each command; one "yes, post it"
-  per command. Push to his fork, open the pull request against `main`.
+  per command. Push to their fork, open the pull request against `main`.
 - [ ] Read the pre-merge CI (`check-mlir`, which runs `MLIRIRTests`)
   before anything else. A failure that also happens on main without the
   change is reported in the pull request.

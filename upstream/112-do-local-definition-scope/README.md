@@ -134,10 +134,14 @@ the patch; upstream main has the same `expandDo` on 2026-10-23), or when
 nothing of ours meets the shape. Until then the bootstrap applies the
 patch.
 
+Our type checker (compiler/checker) now carries the change as its own code,
+in `Idris.Desugar.expandDo`, which `tests/checker-do-local-definition-scope`
+checks; it stays when the patch goes.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). Whether Bjorn reports
-the bug, in his own words, is his call. The patch goes when the pin moves
+the bug, in their own words, is their call. The patch goes when the pin moves
 past upstream's fix, which `tests/upstream-do-local-definition-scope`
 shows by passing on an unpatched pin.

@@ -125,11 +125,16 @@ When the Idris pin carries an upstream fix (the check then passes without
 the patch), or when nothing of ours meets the shape. Until then the
 bootstrap applies the patch.
 
+Our type checker (compiler/checker) carries the change as its own code, in
+`Core.Coverage.isEmpty`, which `tests/checker-coverage-nested-empty-type`
+checks, and `tests/checker-coverage-nested-empty-type-missing` that it
+still refuses `Missing.idr`'s shape; it stays when the patch goes.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). Whether Bjorn reports
-the bug, in his own words, is his call; upstream has labelled coverage
+the bug, in their own words, is their call; upstream has labelled coverage
 reports of a related shape "expected behaviour" (#402, where a nested
 case splits what one clause does not). The patch goes when the pin moves
 past upstream's fix, which `tests/upstream-coverage-nested-empty-type`

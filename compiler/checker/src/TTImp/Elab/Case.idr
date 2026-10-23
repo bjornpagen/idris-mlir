@@ -165,6 +165,180 @@ bindCaseLocals fc ((n, mn, envns) :: rest) argns rhs
                Nothing => n
                Just n' => n'
 
+-- Whether a variable occurs in a term. Each kind of node a term holds terms
+-- in is walked by a function of its own, so that every recursive call is on
+-- a part of the term it was given.
+mutual
+  total
+  occursPi : Var vs -> PiInfo (Term vs) -> Bool
+  occursPi v (DefImplicit t) = occurs v t
+  occursPi v _ = False
+
+  total
+  occursBinder : Var vs -> Binder (Term vs) -> Bool
+  occursBinder v (Lam _ _ p ty) = occursPi v p || occurs v ty
+  occursBinder v (Let _ _ val ty) = occurs v val || occurs v ty
+  occursBinder v (Pi _ _ p ty) = occursPi v p || occurs v ty
+  occursBinder v (PVar _ _ p ty) = occursPi v p || occurs v ty
+  occursBinder v (PLet _ _ val ty) = occurs v val || occurs v ty
+  occursBinder v (PVTy _ _ ty) = occurs v ty
+
+  total
+  occursIn : Var vs -> List (Term vs) -> Bool
+  occursIn v [] = False
+  occursIn v (t :: ts) = occurs v t || occursIn v ts
+
+  total
+  occurs : Var vs -> Term vs -> Bool
+  occurs v (Local _ _ idx p) = v == MkVar p
+  occurs v (Meta _ _ _ args) = occursIn v args
+  occurs (MkVar v) (Bind _ _ b sc)
+      = occursBinder (MkVar v) b || occurs (MkVar (Later v)) sc
+  occurs v (App _ f a) = occurs v f || occurs v a
+  occurs v (As _ _ n p) = occurs v n || occurs v p
+  occurs v (TDelayed _ _ t) = occurs v t
+  occurs v (TDelay _ _ t a) = occurs v t || occurs v a
+  occurs v (TForce _ _ t) = occurs v t
+  occurs v (Erased _ (Dotted t)) = occurs v t
+  occurs v _ = False
+
+-- Whether a metavariable is unsolved: its definition is still a hole.
+stillHole : {auto c : Ref Ctxt Defs} -> Int -> Core Bool
+stillHole i
+    = do defs <- get Ctxt
+         Just gdef <- lookupCtxtExact (Resolved i) (gamma defs)
+              | Nothing => pure False
+         pure $ case definition gdef of
+                     Hole {} => True
+                     _ => False
+
+-- Whether an unsolved metavariable is applied to a variable: the variable
+-- occurs in its arguments, anywhere in the term.
+mutual
+  heldPi : {auto c : Ref Ctxt Defs} -> Var vs -> PiInfo (Term vs) -> Core Bool
+  heldPi v (DefImplicit t) = inHoleArgs v t
+  heldPi v _ = pure False
+
+  heldBinder : {auto c : Ref Ctxt Defs} -> Var vs -> Binder (Term vs) -> Core Bool
+  heldBinder v (Lam _ _ p ty) = pure (!(heldPi v p) || !(inHoleArgs v ty))
+  heldBinder v (Let _ _ val ty) = pure (!(inHoleArgs v val) || !(inHoleArgs v ty))
+  heldBinder v (Pi _ _ p ty) = pure (!(heldPi v p) || !(inHoleArgs v ty))
+  heldBinder v (PVar _ _ p ty) = pure (!(heldPi v p) || !(inHoleArgs v ty))
+  heldBinder v (PLet _ _ val ty) = pure (!(inHoleArgs v val) || !(inHoleArgs v ty))
+  heldBinder v (PVTy _ _ ty) = inHoleArgs v ty
+
+  heldIn : {auto c : Ref Ctxt Defs} -> Var vs -> List (Term vs) -> Core Bool
+  heldIn v [] = pure False
+  heldIn v (t :: ts) = pure (!(inHoleArgs v t) || !(heldIn v ts))
+
+  inHoleArgs : {auto c : Ref Ctxt Defs} -> Var vs -> Term vs -> Core Bool
+  inHoleArgs v (Meta _ _ i args)
+      = if !(stillHole i)
+           then pure (occursIn v args)
+           else heldIn v args
+  inHoleArgs (MkVar v) (Bind _ _ b sc)
+      = pure (!(heldBinder (MkVar v) b) || !(inHoleArgs (MkVar (Later v)) sc))
+  inHoleArgs v (App _ f a) = pure (!(inHoleArgs v f) || !(inHoleArgs v a))
+  inHoleArgs v (As _ _ n p) = pure (!(inHoleArgs v n) || !(inHoleArgs v p))
+  inHoleArgs v (TDelayed _ _ t) = inHoleArgs v t
+  inHoleArgs v (TDelay _ _ t a) = pure (!(inHoleArgs v t) || !(inHoleArgs v a))
+  inHoleArgs v (TForce _ _ t) = inHoleArgs v t
+  inHoleArgs v _ = pure False
+
+-- A variable replaced by another in the arguments of every unsolved
+-- metavariable, and nowhere else: the same places `inHoleArgs` looks in.
+mutual
+  changeInHolesPi : {auto c : Ref Ctxt Defs} ->
+                    (old : Var vs) -> (new : Var vs) -> PiInfo (Term vs) ->
+                    Core (PiInfo (Term vs))
+  changeInHolesPi old new Implicit = pure Implicit
+  changeInHolesPi old new Explicit = pure Explicit
+  changeInHolesPi old new AutoImplicit = pure AutoImplicit
+  changeInHolesPi old new (DefImplicit t) = DefImplicit <$> changeInHoles old new t
+
+  changeInHolesBinder : {auto c : Ref Ctxt Defs} ->
+                        (old : Var vs) -> (new : Var vs) -> Binder (Term vs) ->
+                        Core (Binder (Term vs))
+  changeInHolesBinder old new (Lam fc r p ty)
+      = Lam fc r <$> changeInHolesPi old new p <*> changeInHoles old new ty
+  changeInHolesBinder old new (Let fc r val ty)
+      = Let fc r <$> changeInHoles old new val <*> changeInHoles old new ty
+  changeInHolesBinder old new (Pi fc r p ty)
+      = Pi fc r <$> changeInHolesPi old new p <*> changeInHoles old new ty
+  changeInHolesBinder old new (PVar fc r p ty)
+      = PVar fc r <$> changeInHolesPi old new p <*> changeInHoles old new ty
+  changeInHolesBinder old new (PLet fc r val ty)
+      = PLet fc r <$> changeInHoles old new val <*> changeInHoles old new ty
+  changeInHolesBinder old new (PVTy fc r ty) = PVTy fc r <$> changeInHoles old new ty
+
+  changeInHolesOf : {auto c : Ref Ctxt Defs} ->
+                    (old : Var vs) -> (new : Var vs) -> List (Term vs) ->
+                    Core (List (Term vs))
+  changeInHolesOf old new [] = pure []
+  changeInHolesOf old new (t :: ts)
+      = (::) <$> changeInHoles old new t <*> changeInHolesOf old new ts
+
+  changeInHoles : {auto c : Ref Ctxt Defs} ->
+                  (old : Var vs) -> (new : Var vs) -> Term vs -> Core (Term vs)
+  changeInHoles old new (Meta fc nm i args)
+      = if !(stillHole i)
+           then pure (Meta fc nm i (changeVars old new args))
+           else Meta fc nm i <$> changeInHolesOf old new args
+  changeInHoles (MkVar old) (MkVar new) (Bind fc x b sc)
+      = Bind fc x <$> changeInHolesBinder (MkVar old) (MkVar new) b
+                  <*> changeInHoles (MkVar (Later old)) (MkVar (Later new)) sc
+  changeInHoles old new (App fc f a)
+      = App fc <$> changeInHoles old new f <*> changeInHoles old new a
+  changeInHoles old new (As fc s n p)
+      = As fc s <$> changeInHoles old new n <*> changeInHoles old new p
+  changeInHoles old new (TDelayed fc r t) = TDelayed fc r <$> changeInHoles old new t
+  changeInHoles old new (TDelay fc r t a)
+      = TDelay fc r <$> changeInHoles old new t <*> changeInHoles old new a
+  changeInHoles old new (TForce fc r t) = TForce fc r <$> changeInHoles old new t
+  changeInHoles old new tm = pure tm
+
+-- A case that splits a variable puts each clause's pattern in its place
+-- throughout the case function's type. A metavariable made outside the
+-- case, applied to that variable, would then stand applied to a
+-- constructor in every clause, where no constraint on it can be solved (it
+-- is outside the pattern fragment): the type the case must have, or an
+-- argument's type that only the case's clauses determine, is never found.
+-- So where an unsolved metavariable after it is applied to the variable,
+-- the case function takes the variable twice: split, and again, at
+-- quantity 0, just inside it and unsplit, which those metavariables are
+-- applied to instead. The second is the same value at every call, so the
+-- function's type, applied, is the one it had; inside a clause the
+-- metavariables see a variable, so the clause can solve them. This is the
+-- type with the variable at the given depth of its telescope taken twice,
+-- and the second's name, where it is.
+splitTwice : {auto c : Ref Ctxt Defs} ->
+             {auto u : Ref UST UState} ->
+             {0 vs : Scope} ->
+             Nat -> Term vs -> Core (Maybe (Term vs, Name))
+splitTwice (S k) (Bind fc x b sc)
+    = do Just (sc', copy) <- splitTwice k sc
+              | Nothing => pure Nothing
+         pure (Just (Bind fc x b sc', copy))
+splitTwice Z (Bind fc x b@(Pi pfc _ _ ty) sc)
+    = if !(inHoleArgs (MkVar First) sc)
+         then do copy <- genVarName (known Kscr)
+                 sc' <- changeInHoles (MkVar (Later First)) (MkVar First)
+                                      (the (Term (copy :: x :: vs)) (weaken sc))
+                 pure (Just (Bind fc x b
+                               (Bind fc copy (Pi pfc erased Explicit (weaken ty)) sc'),
+                             copy))
+         else pure Nothing
+splitTwice _ _ = pure Nothing
+
+-- How a case function takes its scrutinee: as an argument after the
+-- environment's, the scrutinee being no variable of it; as the variable of
+-- the environment it is, split in place; or as that variable taken twice,
+-- split, and just inside it unsplit, under the name given (`splitTwice`).
+data Taking : Scope -> Type where
+     AfterEnv : Taking vs
+     InPlace : Var vs -> Taking vs
+     Twice : Var vs -> (copy : Name) -> Taking vs
+
 export
 caseBlock : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
@@ -183,7 +357,7 @@ caseBlock : {vars : _} ->
             Term vars -> -- checked scrutinee
             Term vars -> -- its type
             RigCount -> -- its multiplicity
-            List ImpClause -> Maybe (Glued vars) ->
+            List ImpClause -> Glued vars ->
             Core (Term vars, Glued vars)
 caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts expected
     = do -- TODO (or to decide): Blodwen allowed ambiguities in the scrutinee
@@ -214,12 +388,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          -- split on that, rather than adding it as a new argument
          let splitOn = findScrutinee env scr
 
-         caseretty_in <- case expected of
-                           Just ty => getTerm ty
-                           _ =>
-                              do nmty <- genName (known KcaseTy)
-                                 u <- uniVar fc
-                                 metaVar fc erased env nmty (TType fc u)
+         caseretty_in <- getTerm expected
 
          u <- uniVar fc
          (caseretty, _) <- bindImplicits fc (implicitMode elabinfo) defs env
@@ -233,6 +402,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          -- big do it. It's the depth of stuck applications - 10 is already
          -- pretty much unreadable!
          casefnty <- normaliseSizeLimit defs 10 Env.empty casefnty
+         (casefnty, taking) <- takenAs splitOn casefnty
          (erasedargs, _) <- findErased casefnty
 
          logEnv "elab.case" 10 "Case env" env
@@ -261,12 +431,9 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
          let caseRef : Term vars = Ref fc Func (Resolved cidx)
 
          let applyEnv = applyToFull fc caseRef env
-         let appTm : Term vars
-                   = maybe (App fc applyEnv scrtm)
-                           (const applyEnv)
-                           splitOn
+         let appTm : Term vars = applyCase taking applyEnv scrtm
 
-         let alts' = map (updateClause casen splitOn nest env) alts
+         let alts' = map (updateClause casen taking nest env) alts
          log "elab.case" 2 $ "Nested: " ++ show (map getNestData (names nest))
          log "elab.case" 2 $ "Generated alts: " ++ show alts'
          logTermNF "elab.case" 2 "Case application" env appTm
@@ -295,6 +462,46 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
 
          pure (appTm, gnf env caseretty)
   where
+    -- Whether a pattern is a variable, which matches without splitting.
+    varPattern : RawImp -> Bool
+    varPattern (Implicit _ _) = True
+    varPattern (IBindVar _ _) = True
+    varPattern (IAs _ _ _ _ p) = varPattern p
+    varPattern _ = False
+
+    -- Whether a clause leaves the variable the case is on as it is.
+    keepsVar : ImpClause -> Bool
+    keepsVar (PatClause _ lhs _) = varPattern lhs
+    keepsVar (WithClause _ lhs _ _ _ _ _) = varPattern lhs
+    keepsVar (ImpossibleClause _ lhs) = varPattern lhs
+
+    -- The case function's type, and how it takes its scrutinee. A variable
+    -- it splits is taken twice where an unsolved metavariable is applied to
+    -- it (`splitTwice`) and every clause splits it. A clause whose pattern
+    -- there is a variable leaves it as it is, so it solves those
+    -- metavariables without the second, and with it could not, since what
+    -- it solves them to may mention its own metavariables, which depend on
+    -- its variable, not on the second.
+    takenAs : Maybe (Var vars) -> ClosedTerm -> Core (ClosedTerm, Taking vars)
+    takenAs Nothing ty = pure (ty, AfterEnv)
+    takenAs (Just v@(MkVar {varIdx = i} _)) ty
+        = if any keepsVar alts
+             then pure (ty, InPlace v)
+             else do Just (ty', copy) <- splitTwice (minus (length vars) (S i)) ty
+                          | Nothing => pure (ty, InPlace v)
+                     pure (ty', Twice v copy)
+
+    -- The case function applied to the environment, and to the scrutinee
+    -- as it takes it: after the environment; in place of its variable; or
+    -- in place of its variable twice.
+    applyCase : Taking vars -> Term vars -> Term vars -> Term vars
+    applyCase AfterEnv applyEnv scrtm = App fc applyEnv scrtm
+    applyCase (InPlace _) applyEnv scrtm = applyEnv
+    applyCase (Twice (MkVar {varIdx = i} _) _) applyEnv scrtm
+        = let (f, args) = getFnArgs applyEnv
+              pos = minus (length vars) (S i) in
+              apply fc f (take (S pos) args ++ drop pos args)
+
     mkLocalEnv : Env Term vs -> Env Term vs
     mkLocalEnv [] = Env.empty
     mkLocalEnv (b :: bs)
@@ -344,12 +551,18 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
         = x :: replace k lhs xs
     replace _ _ xs = xs
 
-    mkSplit : Maybe (Var vs) ->
+    mkSplit : Taking vs ->
               RawImp -> List RawImp ->
               List RawImp
-    mkSplit Nothing lhs args = reverse (lhs :: args)
-    mkSplit (Just (MkVar {varIdx = i} prf)) lhs args
+    mkSplit AfterEnv lhs args = reverse (lhs :: args)
+    mkSplit (InPlace (MkVar {varIdx = i} prf)) lhs args
         = reverse (replace i lhs args)
+    mkSplit (Twice (MkVar {varIdx = i} prf) copy) lhs args
+        -- the second, unsplit, is a pattern variable just inside the split
+        -- one, bound as the environment's variables are
+        = let args' = replace i lhs args in
+              reverse (take i args' ++
+                       IAs fc EmptyFC UseLeft copy (Implicit fc True) :: drop i args')
 
     -- Names used in the pattern we're matching on, so don't bind them
     -- in the generated case block
@@ -373,25 +586,25 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
         = let fc = getFC lhs in
               substNames [] (map (nestLHS fc) (names nest)) lhs
 
-    updateClause : Name -> Maybe (Var vars) ->
+    updateClause : Name -> Taking vars ->
                    NestedNames vars ->
                    Env Term vars -> ImpClause -> ImpClause
-    updateClause casen splitOn nest env (PatClause loc' lhs rhs)
+    updateClause casen taking nest env (PatClause loc' lhs rhs)
         = let (ns, args) = addEnv 0 env (usedIn lhs)
-              args' = mkSplit splitOn lhs args
+              args' = mkSplit taking lhs args
               lhs' = apply (IVar loc' casen) args' in
               PatClause loc' (applyNested nest lhs')
                         (bindCaseLocals loc' (map getNestData (names nest))
                                         ns rhs)
     -- With isn't allowed in a case block but include for completeness
-    updateClause casen splitOn nest env (WithClause loc' lhs rig wval prf flags cs)
+    updateClause casen taking nest env (WithClause loc' lhs rig wval prf flags cs)
         = let (_, args) = addEnv 0 env (usedIn lhs)
-              args' = mkSplit splitOn lhs args
+              args' = mkSplit taking lhs args
               lhs' = apply (IVar loc' casen) args' in
               WithClause loc' (applyNested nest lhs') rig wval prf flags cs
-    updateClause casen splitOn nest env (ImpossibleClause loc' lhs)
+    updateClause casen taking nest env (ImpossibleClause loc' lhs)
         = let (_, args) = addEnv 0 env (usedIn lhs)
-              args' = mkSplit splitOn lhs args
+              args' = mkSplit taking lhs args
               lhs' = apply (IVar loc' casen) args' in
               ImpossibleClause loc' (applyNested nest lhs')
 
@@ -412,7 +625,7 @@ checkCaseDelayed : {vars : _} ->
                    RigCount -> ElabInfo ->
                    NestedNames vars -> Env Term vars ->
                    FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
-                   Maybe (Glued vars) ->
+                   Glued vars ->
                    Core (Term vars, Glued vars)
 checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
       = do scrty_exp <- case scrty_in of
@@ -504,16 +717,14 @@ checkCaseExpected : {vars : _} ->
                     RigCount -> ElabInfo ->
                     NestedNames vars -> Env Term vars ->
                     FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
-                    Maybe (Glued vars) ->
+                    Glued vars ->
                     Core (Term vars, Glued vars)
-checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts Nothing
-    = checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts Nothing
-checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
+checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts expected
     = case !(getNF expected) of
            NDelayed _ r under =>
               checkDelayAt rig elabinfo nest env fc (MkDelaying r ByElaborator)
                            (ICase fc opts scr scrty_in alts) under
-           _ => checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
+           _ => checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts expected
 
 export
 checkCase : {vars : _} ->

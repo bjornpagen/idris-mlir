@@ -5,8 +5,8 @@
 Status: ready to file, not filed. One issue, then one pull request, on
 llvm/llvm-project. GitHub issues and pull requests, not Bugzilla.
 
-The author is Bjorn, as an individual, outside any employer: his name and
-the public email of his GitHub account, no employer, no `Co-authored-by`,
+The author is Bjorn, as an individual, outside any employer: their name and
+the public email of their GitHub account, no employer, no `Co-authored-by`,
 no `@` mentions. The last line of the commit message, of the pull request
 body and of the issue body is `Assisted-by: Claude Code`
 (llvm/docs/AIToolPolicy.md).
@@ -37,7 +37,7 @@ here. When the issue number exists, replace `#<issue>` in the body.
   run on main, where neither file changed.
 - [ ] Show Bjorn the issue, the pull request and each command; one "yes,
   post it" per command. File the issue, put its number in the body, push
-  to his fork, open the pull request against `main`.
+  to their fork, open the pull request against `main`.
 - [ ] Read the pre-merge CI (`check-mlir`) before anything else. A failure
   that also happens on main without the change is reported in the pull
   request.

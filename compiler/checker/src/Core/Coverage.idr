@@ -404,19 +404,165 @@ replaceDefaults fc defs nfty cs
         = c :: dropRep (filter (not . tagIs t) rest)
     dropRep (c :: rest) = c :: dropRep rest
 
+-- What the walk of a case tree has built of the function's arguments: a
+-- pattern variable, which a split refines; a constructor applied to its
+-- parts; a delay of its type and its value; a constant. A split builds only
+-- these, so the walk holds no other term.
+data Built : Type where
+     Unsplit : Name -> Built
+     ConApplied : (con : Name) -> (tag : Int) -> (parts : List Built) -> Built
+     DelayBuilt : (ty : Built) -> (arg : Built) -> Built
+     ConstBuilt : Constant -> Built
+
+-- A pattern with the pattern variable `x` replaced by what a split refined
+-- it to.
+mutual
+  total
+  refineBuilt : (x : Name) -> Built -> Built -> Built
+  refineBuilt x pat (Unsplit y) = if x == y then pat else Unsplit y
+  refineBuilt x pat (ConApplied n t parts) = ConApplied n t (refineParts x pat parts)
+  refineBuilt x pat (DelayBuilt ty arg)
+      = DelayBuilt (refineBuilt x pat ty) (refineBuilt x pat arg)
+  refineBuilt x pat (ConstBuilt c) = ConstBuilt c
+
+  total
+  refineParts : (x : Name) -> Built -> List Built -> List Built
+  refineParts x pat [] = []
+  refineParts x pat (b :: bs) = refineBuilt x pat b :: refineParts x pat bs
+
+-- The pattern a clause would write for what the walk built: a pattern
+-- variable is a bound name, and a delay is a written `Delay`, whatever the
+-- clauses that made the tree wrote, which the tree does not keep and
+-- matching does not compare.
+mutual
+  total
+  builtTerm : FC -> Built -> ClosedTerm
+  builtTerm fc (Unsplit x) = Ref fc Bound x
+  builtTerm fc (ConApplied n t parts)
+      = apply fc (Ref fc (DataCon t (length parts)) n) (builtTerms fc parts)
+  builtTerm fc (DelayBuilt ty arg)
+      = TDelay fc (MkDelaying LUnknown InSource) (builtTerm fc ty) (builtTerm fc arg)
+  builtTerm fc (ConstBuilt c) = PrimVal fc c
+
+  total
+  builtTerms : FC -> List Built -> List ClosedTerm
+  builtTerms fc [] = []
+  builtTerms fc (b :: bs) = builtTerm fc b :: builtTerms fc bs
+
+-- What the walk has built of each of the function's arguments.
+data Patterns : Scope -> Type where
+     Nil : Patterns []
+     (::) : Built -> Patterns vs -> Patterns (v :: vs)
+
+-- What each variable of a case tree's scope stands for in what the walk has
+-- built of the function's arguments, `outer`: an argument's own pattern, or,
+-- for a variable a split binds inside them, the part of a pattern it binds.
+-- A tree splits a variable again below a split of it (the tree of a default
+-- repeats the split), binding its arguments under new names, and a split of
+-- one of those refines what the first split found; what each variable
+-- stands for is what joins the two.
+data Standing : (outer : Scope) -> (vars : Scope) -> Type where
+     Arguments : Patterns outer -> Standing outer outer
+     Inside : Built -> Standing outer vars -> Standing outer (v :: vars)
+
+-- Each argument stands for itself until a split refines it.
+total
+unsplit : (vs : Scope) -> Patterns vs
+unsplit [] = []
+unsplit (v :: vs) = Unsplit v :: unsplit vs
+
+total
+patternAt : {idx : Nat} -> (0 _ : IsVar n idx vs) -> Patterns vs -> Built
+patternAt First (b :: _) = b
+patternAt (Later el) (_ :: bs) = patternAt el bs
+
+total
+standsFor : {idx : Nat} -> (0 _ : IsVar n idx vars) -> Standing outer vars -> Built
+standsFor el (Arguments bs) = patternAt el bs
+standsFor First (Inside b _) = b
+standsFor (Later el) (Inside _ s) = standsFor el s
+
+total
+patternList : Patterns vs -> List Built
+patternList [] = []
+patternList (b :: bs) = b :: patternList bs
+
+total
+argumentsOf : Standing outer vars -> List Built
+argumentsOf (Arguments bs) = patternList bs
+argumentsOf (Inside _ s) = argumentsOf s
+
+-- Everything the walk has built with the pattern variable `x` refined: what
+-- each variable stands for, the arguments' patterns among it.
+total
+refinePatterns : (x : Name) -> Built -> Patterns vs -> Patterns vs
+refinePatterns x pat [] = []
+refinePatterns x pat (b :: bs) = refineBuilt x pat b :: refinePatterns x pat bs
+
+total
+refineStanding : (x : Name) -> Built -> Standing outer vars -> Standing outer vars
+refineStanding x pat (Arguments bs) = Arguments (refinePatterns x pat bs)
+refineStanding x pat (Inside b s) = Inside (refineBuilt x pat b) (refineStanding x pat s)
+
+-- A split's arguments, each standing for the part given for it, in order:
+-- a repeated split gives the parts of the pattern the first split built,
+-- one per argument of the same constructor. An argument no part is given
+-- for stands for itself, as every variable does until a split refines it.
+total
+bindParts : (as : List Name) -> List Built -> Standing outer vars -> Standing outer (as ++ vars)
+bindParts [] _ s = s
+bindParts (a :: as) (p :: ps) s = Inside p (bindParts as ps s)
+bindParts (a :: as) [] s = Inside (Unsplit a) (bindParts as [] s)
+
+-- The pattern variable of a split's argument, numbered `i`. The patterns
+-- give each split's arguments names of their own, since the alternatives
+-- that stand for a default all name theirs alike, and print them `m`, as
+-- those are printed.
+total
+freshPart : Int -> Built
+freshPart i = Unsplit (MN (known Km) i)
+
+-- A split's arguments as fresh pattern variables numbered from `next`, and
+-- the next number.
+total
+freshParts : (as : List Name) -> (next : Int) -> (List Built, Int)
+freshParts [] next = ([], next)
+freshParts (_ :: as) next
+    = let (parts, next') = freshParts as (next + 1) in
+          (freshPart next :: parts, next')
+
+-- Whether a pattern's constructor is an alternative's: a tag tells data
+-- constructors apart; type constructors, which all have tag 0, by their
+-- names, resolved or not.
+sameCon : {auto c : Ref Ctxt Defs} -> (Name, Int) -> (Name, Int) -> Core Bool
+sameCon (n, t) (n', t')
+    = if t /= t'
+         then pure False
+         else if n == n'
+                 then pure True
+                 else do full <- getFullName n
+                         full' <- getFullName n'
+                         pure (full == full')
+
 -- Traverse a case tree and refine the arguments while matching, so that
 -- when we reach a leaf we know what patterns were used to get there,
 -- and return those patterns.
--- The returned patterns are those arising from the *missing* cases
+-- The returned patterns are those arising from the *missing* cases.
+-- A split of a variable that stands for a pattern variable refines it,
+-- throughout what the walk has built; a split of one that stands for what a
+-- split further up built is taken only by the alternative of that
+-- constructor, delay or constant, and binds its arguments to the parts the
+-- first split built.
 buildArgs : {auto c : Ref Ctxt Defs} ->
             {vars : _} ->
             FC -> Defs ->
             KnownVars vars Int -> -- Things which have definitely match
             KnownVars vars (List Int) -> -- Things an argument *can't* be
                                     -- (because a previous case matches)
-            List ClosedTerm -> -- ^ arguments, with explicit names
-            CaseTree vars -> Core (List (List ClosedTerm))
-buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
+            (next : Int) -> -- the number of the next pattern variable a
+                            -- split names
+            Standing outer vars -> CaseTree vars -> Core (List (List ClosedTerm))
+buildArgs fc defs known not next standing cs@(Case idx el ty altsIn)
   -- If we've already matched on 'el' in this branch, restrict the alternatives
   -- to the tag we already know. Otherwise, add missing cases and filter out
   -- the ones it can't possibly be (the 'not') because a previous case
@@ -435,28 +581,56 @@ buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
                   CaseAlt vars -> Core (List (List ClosedTerm))
     buildArgAlt not' (ConCase n t args sc)
         = do let l = mkSizeOf args
-             let con = Ref fc (DataCon t (size l)) n
-             let ps' = map (substName var
-                             (apply fc
-                                    con (map (Ref fc Bound) args))) ps
-             buildArgs fc defs (weakenNs l ((MkVar el, t) :: known))
-                               (weakenNs l not') ps' sc
-    -- The pattern a clause would write to reach this alternative, as the
-    -- clauses the checker builds are written: a written `Delay`, whatever
-    -- the clauses that made the tree wrote, which the tree does not keep
-    -- and matching does not compare.
+             case standsFor el standing of
+                  Unsplit x =>
+                     do let (parts, next') = freshParts args next
+                        buildArgs fc defs (weakenNs l ((MkVar el, t) :: known))
+                                  (weakenNs l not') next'
+                                  (refineStanding x (ConApplied n t parts)
+                                                  (bindParts args parts standing))
+                                  sc
+                  ConApplied n' t' parts =>
+                     do same <- sameCon (n, t) (n', t')
+                        if same
+                           then buildArgs fc defs (weakenNs l ((MkVar el, t) :: known))
+                                          (weakenNs l not') next
+                                          (bindParts args parts standing) sc
+                           else pure []
+                  -- A delay or a constant, which no constructor's
+                  -- alternative matches.
+                  DelayBuilt {} => pure []
+                  ConstBuilt {} => pure []
     buildArgAlt not' (DelayCase t a sc)
-        = let l = mkSizeOf [t, a]
-              ps' = map (substName var (TDelay fc (MkDelaying LUnknown InSource)
-                                             (Ref fc Bound t)
-                                             (Ref fc Bound a))) ps in
-              buildArgs fc defs (weakenNs l known) (weakenNs l not')
-                                ps' sc
+        = let l = mkSizeOf [t, a] in
+              case standsFor el standing of
+                   Unsplit x =>
+                      let tyPart = freshPart next
+                          argPart = freshPart (next + 1) in
+                          buildArgs fc defs (weakenNs l known) (weakenNs l not')
+                                    (next + 2)
+                                    (refineStanding x (DelayBuilt tyPart argPart)
+                                                    (bindParts [t, a] [tyPart, argPart] standing))
+                                    sc
+                   DelayBuilt tyPart argPart =>
+                      buildArgs fc defs (weakenNs l known) (weakenNs l not') next
+                                (bindParts [t, a] [tyPart, argPart] standing) sc
+                   -- A constructor or a constant, which no delay is.
+                   ConApplied {} => pure []
+                   ConstBuilt {} => pure []
     buildArgAlt not' (ConstCase c sc)
-        = do let ps' = map (substName var (PrimVal fc c)) ps
-             buildArgs fc defs known not' ps' sc
+        = case standsFor el standing of
+               Unsplit x =>
+                  buildArgs fc defs known not' next
+                            (refineStanding x (ConstBuilt c) standing) sc
+               ConstBuilt c' =>
+                  if c == c'
+                     then buildArgs fc defs known not' next standing sc
+                     else pure []
+               -- A constructor or a delay, which no constant is.
+               ConApplied {} => pure []
+               DelayBuilt {} => pure []
     buildArgAlt not' (DefaultCase sc)
-        = buildArgs fc defs known not' ps sc
+        = buildArgs fc defs known not' next standing sc
 
     buildArgsAlt : KnownVars vars (List Int) -> List (CaseAlt vars) ->
                    Core (List (List ClosedTerm))
@@ -467,11 +641,11 @@ buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
     buildArgsAlt not' (c :: cs)
         = pure $ !(buildArgAlt not' c) ++ !(buildArgsAlt not' cs)
 
-buildArgs fc defs known not ps (STerm _ vs)
+buildArgs fc defs known not next standing (STerm _ vs)
     = pure [] -- matched, so return nothing
-buildArgs fc defs known not ps (Unmatched msg)
-    = pure [ps] -- unmatched, so return it
-buildArgs fc defs known not ps Impossible
+buildArgs fc defs known not next standing (Unmatched msg)
+    = pure [builtTerms fc (argumentsOf standing)] -- unmatched, so return it
+buildArgs fc defs known not next standing Impossible
     = pure [] -- not a possible match, so return nothing
 
 -- Traverse a case tree and return pattern clauses which are not
@@ -486,8 +660,7 @@ getMissing : {vars : _} ->
              Core (List ClosedTerm)
 getMissing fc n ty ctree
    = do defs <- get Ctxt
-        let psIn = map (Ref fc Bound) vars
-        pats <- buildArgs fc defs [] [] psIn ctree
+        pats <- buildArgs fc defs [] [] 0 (Arguments (unsplit vars)) ctree
         pats <- for pats $ trimArgs defs [<] !(nf defs Env.empty ty)
         unless (null pats) $
           logC "coverage.missing" 20 $ map unlines $

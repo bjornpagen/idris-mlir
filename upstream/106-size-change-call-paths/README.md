@@ -71,11 +71,15 @@ When the Idris pin carries upstream's own fix (the check then passes
 without the patch). Until then our code writes its mutual blocks as Idris
 allows them, and the bootstrap applies the patch.
 
+Our type checker (compiler/checker) never had the cost: its size-change
+search joins two walks' paths as one node (`CallPath`'s `Then`) and lists
+the calls of a reported loop alone.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). No matching upstream
-issue was found (2026-10-22). Whether Bjorn reports the bug, in his own
-words, is his call. The patch goes when the pin moves past upstream's fix,
+issue was found (2026-10-22). Whether Bjorn reports the bug, in their own
+words, is their call. The patch goes when the pin moves past upstream's fix,
 which `tests/upstream-size-change-call-paths` shows by passing on an
 unpatched pin.

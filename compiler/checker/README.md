@@ -735,15 +735,39 @@ known only when the checker runs.
   splits), 55-lazy-case-scrutinee (a case block where a delayed value is
   expected is delayed whole, its scrutinee with it) and
   59-literal-partial-fold (a literal's conversion is folded only to a
-  value, never to a stuck partial normal form). Two more the stock Idris
+  value, never to a stuck partial normal form). Others the stock Idris
   that bootstraps is patched for, and the checker has as its own code, so
   that both hosts accept the same definitions:
+  104-coverage-repeated-split (the walk that proposes missing cases keeps,
+  per variable of the tree's scope, what it stands for in the patterns
+  built, a `Built` pattern looked up by the variable's index, so a split of
+  a variable split further up binds its arguments to the first split's
+  parts, and is taken only by that constructor's alternative),
+  105-case-tree-fallthrough-copies (each copy of a fallthrough tree keeps,
+  of its cases on the variable just split, only the alternatives that can
+  still be taken there, `pruneCase`), 107-delayed-case-expected-type (a
+  delayed elaborator runs at the type its hole was given, so a case block
+  always has its type, and makes none of its own),
+  108-case-split-pattern-fragment (a case function that splits a variable
+  every clause splits, and that an unsolved metavariable after it is
+  applied to, takes it twice, split and unsplit at quantity 0, the
+  metavariables applied to the unsplit one, `Taking`),
+  109-delayed-retry-doubling (a delayed elaborator that failed recoverably
+  is not run again while every metavariable unsolved when its failing
+  attempt began is still unsolved; its error stands for the run),
   110-coverage-erased-index-first (the tree an erased definition's coverage
   is checked by takes next, of the columns `arrange` splits now, the first
-  one a run keeps, or else the last) and 111-coverage-nested-empty-type (a
+  one a run keeps, or else the last), 111-coverage-nested-empty-type (a
   type is empty also when each constructor that fits it takes an argument
   of an empty type, looked into only while it has fewer nodes, a descent
-  the search carries as the accessibility of the count).
+  the search carries as the accessibility of the count) and
+  112-do-local-definition-scope (a do block's bound, let-bound and locally
+  defined names are bound for its later types, as its translation into
+  lambdas and `let ... in` binds them). Each is checked by
+  `tests/checker-<name>`, a program idris-mlir compiles. The cost
+  106-size-change-call-paths removes was never the checker's: a walk's path
+  joins its two parts as one node, and only a reported loop's calls are
+  listed.
 
 ### What a TTC keeps
 

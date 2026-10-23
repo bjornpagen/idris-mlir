@@ -30,8 +30,8 @@ entry (`free(nullptr)` stays legal). The possibly-out-of-range lookup
 
 ## Upstreaming plan
 
-Status: carried (2026-10-21); not filed. Bjorn files it, if he chooses
-to, as a contribution he has reviewed and answers for (the Microsoft CLA,
+Status: carried (2026-10-21); not filed. Bjorn files it, if they choose
+to, as a contribution they have reviewed and answer for (the Microsoft CLA,
 as 49's README notes).
 
 - Where: one pull request against microsoft/snmalloc main.

@@ -69,8 +69,8 @@ reaches the runtime.
 
 ## Upstreaming plan
 
-Status: carried (2026-10-21); not filed. Bjorn files it, if he chooses to, as a contribution he
-has reviewed and answers for: snmalloc is a Microsoft project whose README
+Status: carried (2026-10-21); not filed. Bjorn files it, if they choose to, as a contribution they
+have reviewed and answer for: snmalloc is a Microsoft project whose README
 asks every contributor to sign the Microsoft CLA, which its bot checks on
 the pull request.
 

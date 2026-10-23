@@ -115,6 +115,6 @@ without the patch). Until then the bootstrap applies the patch.
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). Whether Bjorn reports
-the bug, in his own words, is his call. The patch goes when the pin moves
+the bug, in their own words, is their call. The patch goes when the pin moves
 past upstream's fix, which `tests/upstream-effectful-argument-inline`
 shows by passing on an unpatched pin.

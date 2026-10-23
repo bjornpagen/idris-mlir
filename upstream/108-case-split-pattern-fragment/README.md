@@ -120,10 +120,15 @@ checks the three reproducers.
 When the Idris pin carries upstream's fix for #62 (the check then passes
 without the patch). Until then the bootstrap applies the patch.
 
+Our type checker (compiler/checker) carries the change as its own code, in
+`TTImp.Elab.Case.caseBlock` (`splitTwice`), which
+`tests/checker-case-split-pattern-fragment` checks; it stays when the patch
+goes.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI
 or a coding agent (upstream/README.md, **Idris**). Whether Bjorn comments
-on #62, in his own words, is his call. The patch goes when the pin moves
+on #62, in their own words, is their call. The patch goes when the pin moves
 past upstream's fix, which `tests/upstream-case-split-pattern-fragment`
 shows by passing on an unpatched pin.
