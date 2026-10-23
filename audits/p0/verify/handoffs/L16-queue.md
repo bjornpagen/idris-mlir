@@ -357,3 +357,11 @@ coordinator, 2026-10-23):
   `lookupCtxtExactI` read as `def` before it is defined after it as a `d`
   with `definition d = definition def`, so `readDefinition` keeps the tree
   evidence it decodes and `solutionAt` reads each tree once.
+
+## For L17 (from L17at)
+
+- A `parameters` block's type is checked under index `-1`
+  (`ProcessParams.idr:48`), which the context never gives out, so a case
+  block in such a type would be named `Resolved (-1)` and fail at the TTC
+  writer. Base has none; give the block's type a real entry, or name its
+  blocks from the block's own name.
