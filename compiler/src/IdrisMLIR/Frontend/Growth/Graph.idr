@@ -815,6 +815,7 @@ landingBy (Readings.Chosen _) _ _ _ _ = Open
 landingBy (Readings.Gives _) _ _ _ _ = Open
 landingBy (Rooted _) b sb tm t = valueLanding b sb tm t
 landingBy (Parameter _ _) b sb tm t = valueLanding b sb tm t
+landingBy (ParameterField _ _) b sb tm t = valueLanding b sb tm t
 landingBy Unrooted b sb tm t = valueLanding b sb tm t
 
 -- What an argument is, landing (`landingBy`).
@@ -839,6 +840,7 @@ closedBy (Readings.Chosen _) _ _ _ _ Refl impossible
 closedBy (Readings.Gives _) _ _ _ _ Refl impossible
 closedBy (Rooted _) b sb tm t eq = valueClosed b sb tm t eq
 closedBy (Parameter _ _) b sb tm t eq = valueClosed b sb tm t eq
+closedBy (ParameterField _ _) b sb tm t eq = valueClosed b sb tm t eq
 closedBy Unrooted b sb tm t eq = valueClosed b sb tm t eq
 
 -- The walked edges' one traversal, which every reading of what they place

@@ -238,15 +238,41 @@ data Settling = AtRunTimeAlways | FixedAt FixedRoot
 ||| function that gives one at each use (a rank-2 dictionary, `\{y} => if
 ||| y == 0 then loud else quiet`), or a definition that computes one by
 ||| matching, applied, which the callee is given as written, so they split
-||| nothing; the writer's own parameter there (a marker `Var i d`); or
-||| neither (a family that is a lambda; a projection of what no constructor
-||| builds, which the template's field says).
+||| nothing; the writer's own parameter there (a marker `Var i d`); a
+||| projection of the writer's own dictionary parameter i, or of a field of
+||| it, by the fields the projections take, the parameter's own first,
+||| which no constructor builds at the site: each instance holds a value
+||| for the parameter, so the projection there is that field of the
+||| implementation the parameter is, or, where the parameter is one no
+||| implementation heads, the projection kept as written, at no head, and
+||| never a head of its own as written; or neither (a family that is a
+||| lambda; a projection of anything else no constructor builds, which the
+||| template's field says).
 public export
 data Root = Rooted Address
           | Chosen Settling
           | Gives (List1 Address)
           | Parameter Nat Nat
+          | ParameterField Nat (List1 Nat)
           | Unrooted
+
+||| The root of a projection, taking field k, of a record no constructor
+||| builds, by the record's root: the writer's own dictionary parameter,
+||| unmatched, or a projection of it, gives that field of the parameter,
+||| one projection further along; anything else no constructor builds (a
+||| part matched out of a value, a runtime value, a definition met again on
+||| its own unfolding) has no root of its own, and the template's field
+||| says what it is. Essential: only the writer's own parameter is a value
+||| the node that reads it is split by.
+public export
+fieldOfRoot : Nat -> Root -> Root
+fieldOfRoot k (Parameter i Z) = ParameterField i (k ::: [])
+fieldOfRoot k (ParameterField i ks) = ParameterField i (List1.snoc ks k)
+fieldOfRoot k (Parameter _ (S _)) = Unrooted
+fieldOfRoot k (Rooted _) = Unrooted
+fieldOfRoot k (Chosen _) = Unrooted
+fieldOfRoot k (Gives _) = Unrooted
+fieldOfRoot k Unrooted = Unrooted
 
 ------------------------------------------------------------------------------
 -- A site's stand-ins
@@ -1726,16 +1752,17 @@ readingHeight r = height r.template
 ||| The definition a root names that splits the node of a request it is
 ||| given to: an implementation's, or the type constructor a family's value
 ||| applies. A request's arguments hold no marker of the growth check, so
-||| no root is a `Parameter` here, and no choice the running program
-||| makes, which keys nothing, so none is `Chosen`; a function that gives
-||| an implementation at each use is given as written and matched where it
-||| is used, so it splits nothing.
+||| no root is a `Parameter` or a `ParameterField` here, and no choice the
+||| running program makes, which keys nothing, so none is `Chosen`; a
+||| function that gives an implementation at each use is given as written
+||| and matched where it is used, so it splits nothing.
 public export
 splitting : Root -> Maybe Address
 splitting (Rooted j) = Just j
 splitting (Chosen _) = Nothing
 splitting (Gives _) = Nothing
 splitting (Parameter _ _) = Nothing
+splitting (ParameterField _ _) = Nothing
 splitting Unrooted = Nothing
 
 ------------------------------------------------------------------------------

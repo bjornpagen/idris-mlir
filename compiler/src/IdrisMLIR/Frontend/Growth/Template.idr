@@ -2055,6 +2055,7 @@ rootAddresses (Chosen AtRunTimeAlways) = []
 rootAddresses (Chosen (FixedAt f)) = fixedAddresses f
 rootAddresses (Gives ms) = forget ms
 rootAddresses (Parameter _ _) = []
+rootAddresses (ParameterField _ _) = []
 rootAddresses Unrooted = []
 
 ||| A type's root, with what a reading of whose term it is holds of the type
@@ -2158,10 +2159,19 @@ appliedType ty (a :: as) = do
 -- takes its field from the constructor its record is built with, and a
 -- record is built with one as written, or once a definition with one
 -- right-hand side (an implementation) is unfolded over its arguments. A
--- projection whose record is built with none (a marker, a runtime part)
--- has no root of its own: the template's field says what it is. Nothing
--- goes to Idris's normaliser, whose normal form of a record unfolds the
--- implementations inside the field too.
+-- projection whose record is built with none is that field of what the
+-- record is (`Readings.fieldOfRoot`): of the writer's own dictionary
+-- parameter, a field of it; of anything else (a part matched out of a
+-- value, a runtime part), nothing of its own, and the template's field
+-- says what it is. Nothing goes to Idris's normaliser, whose normal form
+-- of a record unfolds the implementations inside the field too.
+
+||| What a projection applied to its parameters takes its field from: its
+||| record built with the constructor it matches, whose field it takes; or
+||| its record built with none (a marker, a runtime part, a definition that
+||| matches), which gives no field.
+data Projecting = TakesField Piece | OfUnbuilt Piece
+
 mutual
   ||| A part met as an argument of a spine.
   pieceOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) -> ClosedTerm -> Piece
@@ -2177,8 +2187,8 @@ mutual
   builtOf w acc (Ref _ Func n) args = do
     Just pr <- projection n
       | Nothing => unfoldedBuilt w acc n args
-    Just (field, extras) <- projectedPiece pr args
-      | Nothing => pure Nothing
+    Just (TakesField field, extras) <- projecting pr args
+      | _ => pure Nothing
     map (\(con, fields) => (con, fields ++ extras)) <$> Force field.built
   builtOf w acc _ _ = pure Nothing
 
@@ -2207,30 +2217,35 @@ mutual
               builtOf w' (rec w' less) (applyTo (closeBy written env body) (map written extras)) []
       _ => pure Nothing
 
-  ||| A projection applied to its parameters: the field it takes from the
-  ||| constructor its record is built with, and the arguments past the
-  ||| projection's own.
-  projectedPiece : {auto c : Ref Ctxt Defs} -> Projection -> List Piece -> Front (Maybe (Piece, List Piece))
-  projectedPiece pr args = do
+  ||| A projection applied to its parameters: what it takes its field from
+  ||| (`Projecting`), and the arguments past the projection's own. Nothing
+  ||| where it is applied to fewer arguments than its parameters, or its
+  ||| record is built with another constructor than the one it matches, or
+  ||| with no such field.
+  projecting : {auto c : Ref Ctxt Defs} -> Projection -> List Piece -> Front (Maybe (Projecting, List Piece))
+  projecting pr args = do
     let Just (env, extras) = bindParams pr.params args
       | Nothing => pure Nothing
-    Just (con, fields) <- Force (valueAt env pr.matched pr.isParam).built
-      | Nothing => pure Nothing
+    let matched = valueAt env pr.matched pr.isParam
+    Just (con, fields) <- Force matched.built
+      | Nothing => pure (Just (OfUnbuilt matched, extras))
     ctx <- frozenContext
     if fullNameIn ctx con /= fullNameIn ctx pr.con
        then pure Nothing
-       else pure ((, extras) <$> getAt pr.field fields)
+       else pure ((\field => (TakesField field, extras)) <$> getAt pr.field fields)
 
   ||| The implementation, or the constructor, at a dictionary's root: one of
   ||| the walk's markers is the writer's own dictionary; a constructor
   ||| applied, or a definition applied that is no projection (an
   ||| implementation), is itself; a projection is its field's root when its
-  ||| record is built with a constructor, and has none when it is not (its
-  ||| record a marker, a runtime part, a definition that matches): what it
-  ||| is then, the template's field says (`Heads`). A runtime value (a hole,
-  ||| a runtime part, a value closed as unknown) is one the running program
-  ||| chooses. A field applied to further arguments is a function, and roots
-  ||| nothing.
+  ||| record is built with a constructor, and when it is not, that field of
+  ||| what its record is (`Readings.fieldOfRoot`): of the writer's own
+  ||| dictionary parameter, or a projection of it, that field of the
+  ||| parameter; of anything else no constructor builds, nothing of its
+  ||| own, which the template's field says (`Heads`). A runtime value (a
+  ||| hole, a runtime part, a value closed as unknown) is one the running
+  ||| program chooses. A field applied to further arguments is a function,
+  ||| and roots nothing.
   rootOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            ClosedTerm -> List Piece -> Front Root
   rootOf w acc (App _ f a) args = rootOf w acc f (pieceOf w acc a :: args)
@@ -2247,11 +2262,13 @@ mutual
       AtDefinition a => do
         Just pr <- projection n
           | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a (map (\p => Force p.written) args)
-        Just (field, []) <- projectedPiece pr args
+        Just (from, []) <- projecting pr args
           | _ => pure Unrooted
-        Force field.root
-      -- A field of a dictionary, which the template's field says, and
-      -- what is no dictionary.
+        case from of
+          TakesField field => Force field.root
+          OfUnbuilt matched => fieldOfRoot pr.field <$> Force matched.root
+      -- A field of a dictionary a match binds, which the template's field
+      -- says, and what is no dictionary.
       FieldMarker _ _ => pure Unrooted
       HoleMarker _ => pure (Chosen AtRunTimeAlways)
       FormalMarker _ _ => pure Unrooted
@@ -2539,6 +2556,7 @@ givenRecursions (Just k) t (Chosen _) held = allJoined held []
 givenRecursions (Just k) t (Rooted _) held = held
 givenRecursions (Just k) t (Gives _) held = held
 givenRecursions (Just k) t (Parameter _ _) held = held
+givenRecursions (Just k) t (ParameterField _ _) held = held
 givenRecursions (Just k) t Unrooted held = held
 givenRecursions Nothing t _ held = held
 
@@ -2558,6 +2576,7 @@ givenHeads (Just k) member t (Chosen _) heads = allJoined heads (allJoined membe
 givenHeads (Just k) member t (Rooted _) heads = heads
 givenHeads (Just k) member t (Gives _) heads = heads
 givenHeads (Just k) member t (Parameter _ _) heads = heads
+givenHeads (Just k) member t (ParameterField _ _) heads = heads
 givenHeads (Just k) member t Unrooted heads = heads
 givenHeads Nothing member t _ heads = heads
 

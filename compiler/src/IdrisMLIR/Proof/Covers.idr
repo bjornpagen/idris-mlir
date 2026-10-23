@@ -684,6 +684,7 @@ asGivenWrites (Just k) (Readings.Chosen _) wr = Bound.Writing.Chosen Here wr
 asGivenWrites (Just k) (Rooted _) wr = wr
 asGivenWrites (Just k) (Gives _) wr = wr
 asGivenWrites (Just k) (Parameter _ _) wr = wr
+asGivenWrites (Just k) (ParameterField _ _) wr = wr
 asGivenWrites (Just k) Unrooted wr = wr
 asGivenWrites Nothing _ wr = wr
 

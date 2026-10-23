@@ -593,12 +593,38 @@ fixedReach : Settling -> HeadSet b ByImplementation
 fixedReach (FixedAt (GivenBy js)) = headedAll js (oneHead Headless HeadlessRead)
 fixedReach s = fixedKey s
 
--- A dictionary with the root Core gave it. A parameter matched deeper, or
--- no root (a projection of what no constructor builds), says nothing of
--- its own, and the template decides, a part of it no root is read off at
--- no head. A function that gives an implementation at each use, or a
--- definition that computes one by matching, is given as written, at no
--- head, and a dispatch through it reaches what its leaves give.
+-- Whether a dictionary can be one no implementation heads (one given as
+-- written that a definition computes by matching, or one the running
+-- program chose, held as it is), or only ones an implementation heads.
+-- The view a projection of it matches on.
+data Headedness = MayBeUnheaded | OnlyHeaded
+
+headednessOf : HeadSet b ByImplementation -> Headedness
+headednessOf hs = if hasHead Headless hs || hasHead Unsettled hs then MayBeUnheaded else OnlyHeaded
+
+-- Field k of what a dictionary can be, where a projection written in a
+-- static argument takes it: that field of each implementation it can be,
+-- as the template's field reads it (`byTemplate`); and, where it can be
+-- one no implementation heads, the projection stuck on it, kept as
+-- written at that instance, which no implementation heads either.
+projectedFields : SlotHeads b -> HeadSet b ByImplementation -> Nat -> HeadSet b ByImplementation
+projectedFields v hs k = stuck (headednessOf hs) (asSet (fieldsReached v k (ReachedBy hs)))
+  where
+    stuck : Headedness -> HeadSet b ByImplementation -> HeadSet b ByImplementation
+    stuck MayBeUnheaded fs = withHead Headless HeadlessRead fs
+    stuck OnlyHeaded fs = fs
+
+-- A dictionary with the root Core gave it. A projection of the writer's
+-- own dictionary parameter, or of a field of it, is that field of what
+-- the parameter can be (`projectedFields`), never the projection as
+-- written read as a head of its own: each instance holds a value for the
+-- parameter, which the writer's node is split by. A parameter matched
+-- deeper, or no root (a projection of anything else no constructor
+-- builds), says nothing of its own, and the template decides, a part of
+-- it no root is read off at no head. A function that gives an
+-- implementation at each use, or a definition that computes one by
+-- matching, is given as written, at no head, and a dispatch through it
+-- reaches what its leaves give.
 byRoot : SlotHeads b -> Own b -> Root -> Template -> HeadSet b ByImplementation
 byRoot v own (Rooted j) _ = oneHead (HeadedBy j) ImplementationRead
 -- What the running program chooses, its template says: its choice, which
@@ -608,6 +634,7 @@ byRoot v own (Chosen s) t = withHead Unsettled UnsettledRead (bothHeads (asSet (
 byRoot v own (Gives js) _ = headedAll (forget js) (oneHead Headless HeadlessRead)
 byRoot v own (Parameter i Z) _ = own.ofMarker ByImplementation i
 byRoot v own (Parameter _ (S _)) t = asSet (byTemplate v own OfRootless t)
+byRoot v own (ParameterField i ks) _ = foldl (projectedFields v) (own.ofMarker ByImplementation i) ks
 byRoot v own Unrooted t = asSet (byTemplate v own OfRootless t)
 
 -- A family by its type root: the type constructor there, with its name and
@@ -620,6 +647,7 @@ byFamily own (Parameter i Z ** _) = own.ofMarker ByTypeConstructor i
 byFamily own (Chosen _ ** _) = oneHead Headless HeadlessRead
 byFamily own (Gives _ ** _) = oneHead Headless HeadlessRead
 byFamily own (Parameter _ (S _) ** _) = oneHead Headless HeadlessRead
+byFamily own (ParameterField _ _ ** _) = oneHead Headless HeadlessRead
 byFamily own (Unrooted ** _) = oneHead Headless HeadlessRead
 
 -- An argument that splits the definition it lands at, by how: a

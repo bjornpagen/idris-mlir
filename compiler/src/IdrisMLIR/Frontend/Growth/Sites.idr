@@ -1796,6 +1796,7 @@ computedFields ((g, x) :: rest) = (++) <$> one x.root <*> computedFields rest
     one (Rooted _) = pure []
     one (Gives _) = pure []
     one (Parameter _ _) = pure []
+    one (ParameterField _ _) = pure []
     one Unrooted = pure []
 
 ||| A definition applied in a type or a static argument: a constructor as
