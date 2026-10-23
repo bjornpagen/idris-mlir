@@ -190,12 +190,19 @@ beforeShorter m k = rewrite sym (plusSuccRightSucc m k) in LTESucc (lteAddRight 
 0 afterShorter : (m, k : Nat) -> LT k (m + S k)
 afterShorter m k = rewrite plusCommutative m (S k) in LTESucc (lteAddRight k)
 
--- A vector of a length cut so, held as a tree: each side is shorter, the
--- measure it recurses on.
-heldBy : {0 n : Nat} -> Halves n -> (v : Vect n a) -> (0 _ : Accessible LT n) -> Indexed v
-heldBy NoHalves [] _ = Bare
-heldBy (HalvesAt m k) v (Access rec) = case cut m v of
-  MkCut xs x ys same => rewrite same in
+mutual
+  -- A vector of a length cut so, held as a tree: each side is shorter, the
+  -- measure it recurses on.
+  heldBy : {0 n : Nat} -> Halves n -> (v : Vect n a) -> (0 _ : Accessible LT n) -> Indexed v
+  heldBy NoHalves [] _ = Bare
+  heldBy (HalvesAt m k) v acc = heldCut (cut m v) acc
+
+  -- A cut vector held as the node over its parts. The cut is matched here,
+  -- where the vector it is of is a variable of the clause: matched where
+  -- the vector's length is the sum the cut computes, its index could not be
+  -- read back as that variable, and its equation would rewrite nothing.
+  heldCut : {m, k : Nat} -> {0 v : Vect (m + S k) a} -> Cut m k v -> (0 _ : Accessible LT (m + S k)) -> Indexed v
+  heldCut (MkCut xs x ys same) (Access rec) = rewrite same in
     Node m (heldBy (halves m) xs (rec m (beforeShorter m k))) x
            (heldBy (halves k) ys (rec k (afterShorter m k)))
 

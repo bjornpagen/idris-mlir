@@ -74,7 +74,9 @@ orBoth Refl Refl = Refl
 -- below the binders or past the scope, or a marker, which is a bound
 -- reference, never an unknown. The local's location and kind are given to
 -- the substitution lemmas: their equations name a local of their own, which
--- is the goal's only once given as the goal's.
+-- is the goal's only once given as the goal's. `weakenRef` is given the
+-- size it weakens past: weakening a reference computes to the reference
+-- whatever the size, so nothing else fixes it.
 0 markedLocal : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) ->
                 (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
                 mentions UnknownOnly bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)) = False
@@ -84,7 +86,7 @@ markedLocal o sz bs p = case range (size o) (size sz) i of
     let (w ** wj) = varAt sz j lt in
     rewrite substMiddle {fc = lfc} {r} o sz (markersOf {vars} fc bs) p w (trans eq (cong (size o +) (sym wj))) in
     rewrite the (weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w))
-                (trans (cong (weakenNs o) (markerNamed bs w)) weakenRef) in
+                (trans (cong (weakenNs o) (markerNamed bs w)) (weakenRef {s = o})) in
     Refl
   PastBoth k eq => localUnnamed (substPast {fc = lfc} {r} o sz (markersOf {vars} fc bs) p k eq)
 

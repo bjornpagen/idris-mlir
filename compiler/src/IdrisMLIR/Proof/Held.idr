@@ -330,6 +330,14 @@ nonEmptyGiven (ItemGiving {ks = rest} _ _) _ = (length rest ** Refl)
 someOther NothingGiven ia two = nonEmptyGiven ia (fromLteSucc two)
 someOther (ItemGiving {ks = rest} _ _) ia _ = (length rest + length after ** Refl)
 
+-- A value given alone, the items around it giving none: none of them is
+-- there in every instance, and one value is written by the way that
+-- brings one.
+0 givenAlone : {before, after : List ItemKind} -> HeldInstance before cb -> HeldInstance after ca ->
+               (heldGiven cb = 0, c = 1, heldGiven ca = 0) ->
+               Alone (alwaysIn before + alwaysIn after) (length before + length after) (bringing c)
+givenAlone ib ia (none, Refl, none') = rewrite noneGiven ib none in rewrite noneGiven ia none' in NoneBeside
+
 ||| A list an instance gives one value, given by one of its items: that
 ||| value is written where a list's one value is. No other item is there
 ||| in every instance, since each of those gives a value, and the way it
@@ -339,8 +347,7 @@ export
                  HeldInstance before cb -> Gives k c -> HeldInstance after ca ->
                  heldGiven cb + (c + heldGiven ca) = 1 -> LTE 1 c ->
                  Alone (alwaysIn before + alwaysIn after) (length before + length after) (bringing c)
-aloneWritten ib g ia givenOne one = case oneOfThree (heldGiven cb) c (heldGiven ca) givenOne one of
-  (none, Refl, none') => rewrite noneGiven ib none in rewrite noneGiven ia none' in NoneBeside
+aloneWritten ib g ia givenOne one = givenAlone ib ia (oneOfThree (heldGiven cb) c (heldGiven ca) givenOne one)
 
 ||| A list an instance gives two values or more: each value one of its
 ||| items gives is written where the values of a list of several are. An
@@ -382,10 +389,13 @@ export
 pairChainHeight a Z = Refl
 pairChainHeight a (S n) = cong S (trans (maximumZeroNLeft (height (pairChain a n))) (pairChainHeight a n))
 
+-- A count at most one more than m is one more, or at most m. The proof is
+-- split rather than the counts: its constructors fix the counts, so a
+-- count no proof has is a constructor its type refuses.
 0 lteSuccCases : {k, m : Nat} -> LTE k (S m) -> Either (k = S m) (LTE k m)
-lteSuccCases {k = Z} _ = Right LTEZero
-lteSuccCases {k = S k'} {m = Z} (LTESucc LTEZero) = Left Refl
-lteSuccCases {k = S k'} {m = S m'} (LTESucc le) = case lteSuccCases le of
+lteSuccCases LTEZero = Right LTEZero
+lteSuccCases {m = Z} (LTESucc LTEZero) = Left Refl
+lteSuccCases {m = S m'} (LTESucc le) = case lteSuccCases le of
   Left eq => Left (cong S eq)
   Right le' => Right (LTESucc le')
 
@@ -452,7 +462,7 @@ joinAllMeasured {xs = (i, w) :: rest} ma (mw :: ms) = joinAllMeasured (insertMea
 0 settledMeasured : {xs : List (Nat, Weight)} -> All (\x => MeasuredWeight (snd x)) xs ->
                     All (\x => MeasuredWeight (snd x)) (map Template.settledEntry xs)
 settledMeasured {xs = []} [] = []
-settledMeasured {xs = (i, w) :: rest} (MeasuredBy :: ms) = MeasuredBy :: settledMeasured ms
+settledMeasured {xs = (i, Finite gain loss) :: rest} (MeasuredBy :: ms) = MeasuredBy :: settledMeasured ms
 
 ||| Every weight a pair chain draws is measured: packing held values raises
 ||| their height by the pairs above them, never by what nothing bounds, so

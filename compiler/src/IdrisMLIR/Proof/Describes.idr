@@ -406,31 +406,37 @@ writersOfHas {ws = (j, q) :: rest} (There el) with (i == j)
   _ | True = There (writersOfHas el)
   _ | False = writersOfHas el
 
+-- Arcs into a target at a label a weight has are drawn from each of the
+-- positions given: stated once at the label's equation for the four kinds
+-- of arc below, where the label is a variable the equation fixes, so no
+-- rewrite waits on a list of arcs not yet known.
+0 arcsIntoHas : {t : Fin n} -> (l : Maybe Label) -> l = Just lab -> Elem p ps -> Elem (MkArc p t lab) (arcsInto t l ps)
+arcsIntoHas _ Refl el = elemMap (\q => MkArc q t lab) el
+
 ||| A parameter listed with a weight that has a label, read at a position,
 ||| draws an arc from there at that label.
 export
 0 varArcsHas : {t : Fin n} -> {ws : List (Nat, Fin n)} -> {vs : List (Nat, Weight)} ->
                Elem (i, w) vs -> Elem (i, p) ws -> labelOf w = Just lab -> Elem (MkArc p t lab) (varArcs t ws vs)
-varArcsHas Here wp eq =
-  elemAppendLeft (rewrite eq in elemMap (\q => MkArc q t lab) (writersOfHas wp))
+varArcsHas Here wp eq = elemAppendLeft (arcsIntoHas (labelOf w) eq (writersOfHas wp))
 varArcsHas {vs = (j, v) :: rest} (There el) wp eq =
   elemAppendRight (arcsInto t (labelOf v) (writersOf j ws)) (varArcsHas el wp eq)
 
 0 heldArcsHas : {t : Fin n} -> {ps : Address -> List (Fin n)} -> {hs : List (Address, Weighed)} ->
                 Elem (j, c) hs -> Elem p (ps j) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (heldArcs t ps hs)
-heldArcsHas Here inJ eq = elemAppendLeft (rewrite eq in elemMap (\q => MkArc q t lab) inJ)
+heldArcsHas Here inJ eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inJ)
 heldArcsHas {hs = (j', c') :: rest} (There el) inJ eq =
   elemAppendRight (arcsInto t (labelOf c'.atWeight) (ps j')) (heldArcsHas el inJ eq)
 
 0 fieldArcsHas : {t : Fin n} -> {fps : Address -> Nat -> List (Fin n)} -> {fs : List ((Address, Nat), Weighed)} ->
                  Elem ((j, k), c) fs -> Elem p (fps j k) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (fieldArcs t fps fs)
-fieldArcsHas Here inF eq = elemAppendLeft (rewrite eq in elemMap (\q => MkArc q t lab) inF)
+fieldArcsHas Here inF eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inF)
 fieldArcsHas {fs = ((j', k'), c') :: rest} (There el) inF eq =
   elemAppendRight (arcsInto t (labelOf c'.atWeight) (fps j' k')) (fieldArcsHas el inF eq)
 
 0 choiceArcsHas : {t : Fin n} -> {cps : ChoiceHead -> List (Fin n)} -> {cs : List (ChoiceHead, Weighed)} ->
                   Elem (k, c) cs -> Elem p (cps k) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (choiceArcs t cps cs)
-choiceArcsHas Here inC eq = elemAppendLeft (rewrite eq in elemMap (\q => MkArc q t lab) inC)
+choiceArcsHas Here inC eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inC)
 choiceArcsHas {cs = (k', c') :: rest} (There el) inC eq =
   elemAppendRight (arcsInto t (labelOf c'.atWeight) (cps k')) (choiceArcsHas el inC eq)
 
@@ -618,13 +624,13 @@ ArcsAt g s i w = (p : Fin g.size) -> Elem (i, p) s.writers -> (lab : Label) -> l
 0 DrawnOver : (g : Graph) -> Site g.size -> Nat -> Weight -> Type
 DrawnOver g s i w0 = (w : Weight ** (Dominates w w0, ArcsAt g s i w))
 
-0 drawnCarries : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> Feasible g pot ->
+0 drawnCarries : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> {0 p : Fin g.size} -> Feasible g pot ->
                  DrawnOver g s i (Finite e d) -> Elem (i, p) s.writers -> Carries g p d e s.target
 drawnCarries fe (w ** (dom, arcs)) wa = case dom of
   OverAll => void (measuredOnly fe (arcs _ wa Unmeasured Refl))
   Over {g = gain} {l = loss} le => MkCarries (arcs _ wa (Measured gain loss) Refl) le
 
-0 stuckRefuted : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> Feasible g pot ->
+0 stuckRefuted : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> {0 p : Fin g.size} -> Feasible g pot ->
                  DrawnOver g s i Stuck -> Elem (i, p) s.writers -> Void
 stuckRefuted fe (w ** (dom, arcs)) wa = case overStuck dom of
   Refl => measuredOnly fe (arcs _ wa Unmeasured Refl)
@@ -633,26 +639,29 @@ stuckRefuted fe (w ** (dom, arcs)) wa = case overStuck dom of
 ||| its writer's, in a feasible graph that holds the site's own arcs: the
 ||| arc from such a position is Unmeasured, which no potential meets.
 export
-0 stuckUnread : {g : Graph} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
+0 stuckUnread : {g : Graph} -> {pot : Vect g.size Nat} -> {0 p : Fin g.size} -> Feasible g pot -> (s : Site g.size) ->
                 ((a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs) ->
                 Elem (i, Stuck) (weights s.template) -> Elem (i, p) s.writers -> Void
 stuckUnread fe s own inW wa = measuredOnly fe (own _ (varArcsHas inW wa Refl))
 
 -- An arc from what an applied family, a field or a member can
 -- be, as heavy as the part sits deep less the depth of what it carries.
-0 rootCarries : {g : Graph} -> {pot : Vect g.size Nat} -> Feasible g pot -> Dominates w (Finite e 0) ->
+0 rootCarries : {g : Graph} -> {pot : Vect g.size Nat} -> {0 p, t : Fin g.size} -> Feasible g pot -> Dominates w (Finite e 0) ->
                 ((lab : Label) -> labelOf w = Just lab -> Elem (MkArc p t lab) g.arcs) -> Carries g p 0 e t
 rootCarries fe OverAll arc = void (measuredOnly fe (arc Unmeasured Refl))
 rootCarries fe (Over {g = gain} {l = loss} le) arc = MkCarries (arc (Measured gain loss) Refl) le
 
 -- An applied family's own marker, by whether its arguments are closed.
-0 appliedCarries : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-                   (e, d : Nat) -> (ts : List Template) -> (closed : Bool) -> allSelfBounded ts = closed ->
-                   DrawnOver g s j (if closed then Finite (e + tallest ts) d else Stuck) ->
+-- The weight is the family's own (`appliedWeight`), split on the test it
+-- is written with: a test written again here would be a case function of
+-- its own, which no proof unifies with the weight's.
+0 appliedCarries : {g : Graph} -> {s : Site g.size} -> {pot : Vect g.size Nat} -> {0 p : Fin g.size} -> Feasible g pot ->
+                   (e, d : Nat) -> (ts : List Template) -> DrawnOver g s j (appliedWeight e d ts) ->
                    Elem (j, p) s.writers ->
                    (Carries g p d (e + tallest ts) s.target, AllUnmarked ts)
-appliedCarries fe e d ts True sb drawn wa = (drawnCarries fe drawn wa, allSelfBoundedAre ts sb)
-appliedCarries fe e d ts False sb drawn wa = void (stuckRefuted fe drawn wa)
+appliedCarries fe e d ts drawn wa with (allSelfBounded ts) proof closed
+  _ | True = (drawnCarries fe drawn wa, allSelfBoundedAre ts closed)
+  _ | False = void (stuckRefuted fe drawn wa)
 
 -- What a site's carried parts draw, as the graph holds it.
 record Drawing (g : Graph) (m : Model g) (s : Site g.size) (whole : Carried) where
@@ -741,7 +750,9 @@ headAnswered UnderComputation ans = ans
 choiceAnswered AtDepth ans = ans
 choiceAnswered UnderComputation ans = ans
 
-0 opaqueAnswered : (r : Reading) -> Answered g s r e (Opaque a ts) -> AnsweredIn g s UnderComputation e' ts
+-- What a recursion's arguments answer for is Stuck, whatever their depth:
+-- the depth is stated as theirs, a level down, so the part's own fixes it.
+0 opaqueAnswered : (r : Reading) -> Answered g s r e (Opaque a ts) -> AnsweredIn g s UnderComputation (S e) ts
 opaqueAnswered AtDepth ans = \i, w, el => case stuckOnlyIn ts el of Refl => ans i Stuck el
 opaqueAnswered UnderComputation ans = ans
 
@@ -776,7 +787,7 @@ mutual
   coverAt fe dr r at aw (Token h) ans part = CToken
   coverAt fe dr r at aw (Formal j k) ans part = CFormal
   coverAt fe dr AtDepth at aw (Applied j d ts) ans part =
-    CApplied (\p, wa => appliedCarries fe at.depth d ts (allSelfBounded ts) Refl (ans j (appliedWeight at.depth d ts) Here) wa)
+    CApplied (\p, wa => appliedCarries fe at.depth d ts (ans j (appliedWeight at.depth d ts) Here) wa)
              (rootsCarried fe dr at aw (Applied j d ts) (\x, el => part.partHeld x (elemAppendLeft el)))
   coverAt fe dr UnderComputation at aw (Applied j d ts) ans part =
     CApplied (\p, wa => void (stuckRefuted fe (ans j Stuck Here) wa))
@@ -801,11 +812,11 @@ mutual
     coverAll fe dr r at aw ts (restAnswered r ans) (restPart s.roots at t ts part)
 
 -- The graph covers a site whose arcs it holds.
-0 covering : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
-             ((a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs) ->
-             ((a : Arc g.size) -> Elem a (projectedArcs m.positionsOf m.fieldPositions m.choicePositions s) -> Elem a g.arcs) ->
-             CoveredAt m s 0 s.template
-covering {m} fe s own projected =
+0 siteCovered : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
+                ((a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs) ->
+                ((a : Arc g.size) -> Elem a (projectedArcs m.positionsOf m.fieldPositions m.choicePositions s) -> Elem a g.arcs) ->
+                CoveredAt m s 0 s.template
+siteCovered {m} fe s own projected =
   coverAt {whole = carriedAt s.roots atTop s.template} fe
           (MkDrawing (\a, el => projected a (elemAppendLeft el))
                      (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held)
@@ -891,7 +902,8 @@ fromSome f (y :: ys) el = case appendElem (f y) el of
 ||| satisfies a property has a template that draws measured arcs only: an
 ||| arc whose tag satisfies it is finite. A site draws its own arcs and
 ||| what its carried parts project, each tagged as the site is, and such a
-||| site projects none.
+||| site projects none. The arc's tag is the site's, and the property is
+||| carried across that equation to the site's tag.
 export
 0 measuredDrawn : {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
                   {cps : ChoiceHead -> List (Fin n)} -> {ss : List (Site n, tag)} -> (p : tag -> Type) ->
@@ -900,13 +912,13 @@ export
 measuredDrawn p measured el px = case appendElem (allOf ownTagged ss) el of
   Left own => case fromSome ownTagged ss own of
     ((s, y) ** (inSs, tagged)) => case untagged tagged of
-      (Refl, inOwn) =>
-        ownMeasured s (measured s _ inSs px)
+      (same, inOwn) =>
+        ownMeasured s (measured s y inSs (replace {p} same px))
                     (replace {p = Elem (fst e).drawnArc} (ownDrawnArcs s) (elemMap (.drawnArc) inOwn))
   Right projected => case fromSome (projectedTagged ps fps cps) ss projected of
     ((s, y) ** (inSs, tagged)) => case untagged tagged of
-      (Refl, inProjected) =>
-        void (noneProjected s (measured s _ inSs px)
+      (same, inProjected) =>
+        void (noneProjected s (measured s y inSs (replace {p} same px))
                             (replace {p = Elem (fst e).drawnArc} (projectedDrawnArcs ps fps cps s)
                                      (elemMap (.drawnArc) inProjected)))
 
@@ -959,11 +971,17 @@ taggedSite {ss = y :: rest} (There el) = let (x ** inner) = taggedSite el in (x 
 export
 0 ownDrawnOf : {n : Nat} -> {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
                {cps : ChoiceHead -> List (Fin n)} -> {positionOf : Fin n -> Maybe (Head, Nat)} -> {held : Nat} ->
-               {beyond : Nat} -> {caps : Vect n (Maybe Nat)} -> {ss : List (Site n, tag)} ->
+               {beyond : Nat} -> {caps : Vect n (Maybe Nat)} -> {ss : List (Site n, tag)} -> {0 s : Site n} ->
                Elem s (modelOf ps fps cps positionOf held beyond caps ss).sites ->
                (a : Arc n) -> Elem a (ownArcs s) -> Elem a (graphOf ps fps cps beyond caps ss).arcs
 ownDrawnOf inModel a el = case taggedSite inModel of
   (x ** inSs) => ownInGraph {ps} {fps} {cps} {ss} inSs el
+
+-- A site's template's height is among what K stands above. The site is
+-- matched here, so the list it heads is its own, a height alone.
+0 heightNeeded : {ss : List (Site n, tag)} -> Elem (s, x) ss -> Elem (height s.template) (allOf siteNeeds ss)
+heightNeeded Here = Here
+heightNeeded {ss = y :: _} (There el) = elemAppendRight (siteNeeds y) (heightNeeded el)
 
 ||| A graph drawn from a model's sites describes the model under any
 ||| feasible potential: every site lands at an uncapped position, K stands
@@ -981,7 +999,7 @@ describes ps fps cps positionOf held beyond caps ss uncapped fe = sitesCovered s
     -- K stands above every site's template.
     0 needed : (s : Site n) -> (x : tag) -> Elem (s, x) ss ->
                LTE (height s.template) (topOf beyond (allOf siteNeeds ss))
-    needed s x here = aboveAll beyond (allOf siteNeeds ss) (allOfHas siteNeeds here Here)
+    needed s x here = aboveAll beyond (allOf siteNeeds ss) (heightNeeded here)
 
     0 sitesCovered : (rest : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) rest ->
                      ((y : (Site n, tag)) -> Elem y rest -> Elem y ss) ->
@@ -989,7 +1007,7 @@ describes ps fps cps positionOf held beyond caps ss uncapped fe = sitesCovered s
     sitesCovered [] [] _ = []
     sitesCovered ((s, x) :: rest) (u :: us) sub =
       MkCovers u (needed s x (sub (s, x) Here))
-               (covering fe s
+               (siteCovered fe s
                   (\a, el => ownInGraph {ps} {fps} {cps} {ss} (sub (s, x) Here) el)
                   (\a, el => projectedInGraph {ps} {fps} {cps} {ss} (sub (s, x) Here) el))
       :: sitesCovered rest us (\y, el => sub y (There el))

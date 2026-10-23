@@ -76,7 +76,8 @@
 |||   `mappedShows` and `mappedSpine`);
 ||| - at a shape, what a request's skeleton is: one per term
 |||   (`skeletonsAlike`), its own skeleton (`skeletonFixed`), its holes
-|||   skeletons of nothing (`holeUnshaped`, from `Walk.runtimeProbeTerm`),
+|||   unshaped, a function's reference (`holeUnshaped`, from
+|||   `Walk.runtimeProbeTerm`),
 |||   and, against the contraction a site's reading reads, cut at least
 |||   where the contraction's skeleton is (`contractedSkeleton`,
 |||   `CutFrom`): a lambda the term as written holds, which the request
@@ -190,6 +191,7 @@
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
 
+import Core.Case.CaseTree
 import Core.Context
 import Core.TT
 import Idris.Host
@@ -209,6 +211,10 @@ import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Derivation
 import IdrisMLIR.Proof.Describes
+-- Nothing here names a form, but a constant's reading unfolds to the forms
+-- its symbols are written in (`constantPlain`), and Idris unfolds only
+-- what an import loads.
+import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Inversion
 import IdrisMLIR.Proof.Markers
@@ -529,10 +535,16 @@ replaceRead {u} ((::) {ts = rest} _ xs) Here x = (u :: rest ** (x :: xs, Here))
 replaceRead ((::) {t = r} y xs) (There el) x = case replaceRead xs el x of
   (rs' ** (xs', el')) => (r :: rs' ** (y :: xs', There el'))
 
+-- A marker's reading names its parameter and its depth.
+0 varParts : Template.Var i d = Template.Var i' d' -> (i = i', d = d')
+varParts Refl = (Refl, Refl)
+
 -- Where the markers held the instance's values, they hold with a value one
 -- match deeper added, put in for a marker read so: the value is a field of
 -- the data constructor the instance's value for x is applied, and any
 -- reading of the field is a child of a reading of the constructor applied.
+-- The new marker's parameter and depth are the walk's, which the goal is
+-- rewritten to.
 0 deeperMarkerHolds : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
                       {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
                       MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
@@ -541,16 +553,17 @@ replaceRead ((::) {t = r} y xs) (There el) x = case replaceRead xs el x of
                       walkMarker stands y = Just (Template.Var i (S d)) ->
                       MarkersHold m s ctx stands (Add new y bs) (f :: vs)
 deeperMarkerHolds held x marked spine el named (MkVar First) i' d' named' u read =
-  case justSame (trans (sym named') named) of
-    Refl => case readsAnyAll ctx [] fields of
-      (rs ** xs) => case replaceRead xs el read of
-        (rs' ** (xs', at)) =>
-          let whole = ASpine (spineReadBack spine
-                        (SData {a = definitionAddress (gamma (defsOf ctx)) cn} Refl
-                           (replace {p = \zs => AllReadAs (InstanceMode ctx) [] zs rs'} (sym (appendNilRightNeutral fields)) xs')))
-          in case held x i d marked _ whole of
-               (p ** v ** u' ** (wrote, inV, sub, again)) => case fieldHolds sub again at of
-                 (u'' ** (sub', again')) => (p ** v ** u'' ** (wrote, inV, sub', again'))
+  case varParts (justSame (trans (sym named') named)) of
+    (sameParameter, oneDeeper) => rewrite sameParameter in rewrite oneDeeper in
+      case readsAnyAll ctx [] fields of
+        (rs ** xs) => case replaceRead xs el read of
+          (rs' ** (xs', at)) =>
+            let whole = ASpine (spineReadBack spine
+                          (SData {a = definitionAddress (gamma (defsOf ctx)) cn} Refl
+                             (replace {p = \zs => AllReadAs (InstanceMode ctx) [] zs rs'} (sym (appendNilRightNeutral fields)) xs')))
+            in case held x i d marked _ whole of
+                 (p ** v ** u' ** (wrote, inV, sub, again)) => case fieldHolds sub again at of
+                   (u'' ** (sub', again')) => (p ** v ** u'' ** (wrote, inV, sub', again'))
 deeperMarkerHolds held x marked spine el named (MkVar (Later w)) i' d' named' u read = held (MkVar w) i' d' named' u read
 
 ||| A path one field longer is one match deeper: the marker of field k of a
@@ -576,7 +589,7 @@ pathStep (_ :: path) k = cong S (pathStep path k)
 ||| walk's.
 export
 0 fieldMarkerHolds : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
-                     {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                     {bs : Bounds ns} -> {vs : SubstEnv ns []} -> {0 path : List Nat} -> {0 k : Nat} ->
                      MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
                      walkMarker stands (replacedAt bs x) = Just (Template.Var i (length path)) ->
                      Spine (Var.index vs x) (Ref fc (DataCon tag arity) cn) fields -> Elem f fields ->
@@ -1233,7 +1246,8 @@ rootHolds (MkVar (Later _)) _ _ _ _ _ impossible
 ||| requesting instance's site gives (`siteWritesRead`).
 public export
 data ArgumentFrom : {g : Graph} -> Model g -> Bound.Site g.size -> Frozen -> (i, d : Nat) -> ClosedTerm -> Type where
-  WrittenArgument : {0 k : Readings.Static} -> {0 t : ClosedTerm} -> (p : Fin g.size) -> Elem (i, p) s.writers ->
+  WrittenArgument : {0 g : Graph} -> {0 m : Model g} -> {0 s : Bound.Site g.size} -> {0 ctx : Frozen} ->
+                    {0 k : Readings.Static} -> {0 t : ClosedTerm} -> (p : Fin g.size) -> Elem (i, p) s.writers ->
                     (inst : InstanceReading ctx k t) -> SiteWrites m p inst.template -> (0 _ : d = 0) -> (0 _ : v = inst.form) ->
                     ArgumentFrom m s ctx i d v
 
@@ -1603,11 +1617,12 @@ export
                Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (PrimVal fc c)) w -> Irreducible ev ctx w ->
                EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
                Writes m s (constantRead c) r
-atConstant {ns} {bs} {vs} {w} steps normal contracted maximal r read =
+atConstant {ns} {bs} {vs} {w} {v} steps normal contracted maximal r read =
   case constantReduces (replace {p = \x => Reduces ev ctx x w} (putInConstant SizeOf.zero (mkSizeOf ns) bs vs) steps) of
-    (_ ** Refl) => case constantKept contracted of
-      Refl => case constantReadAs read of
-        Refl => plainWrites (constantPlain c)
+    (_ ** moved) =>
+      let 0 kept = constantKept (replace {p = \x => EtaContracts x v} moved contracted) in
+      rewrite constantReadAs (replace {p = \x => ReadAs (InstanceMode ctx) [] x r} kept read) in
+      plainWrites (constantPlain c)
 
 ||| The induction at a universe applied to nothing, read as one leaf by the
 ||| site and by every instance: the host's steps only move it.
@@ -1617,11 +1632,12 @@ export
                Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (TType fc u)) w -> Irreducible ev ctx w ->
                EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
                Writes m s (Leaf 1) r
-atUniverse {ns} {bs} {vs} {w} steps normal contracted maximal r read =
+atUniverse {ns} {bs} {vs} {w} {v} steps normal contracted maximal r read =
   case universeReduces (replace {p = \x => Reduces ev ctx x w} (putInUniverse SizeOf.zero (mkSizeOf ns) bs vs) steps) of
-    (_ ** Refl) => case universeKept contracted of
-      Refl => case universeReadAs read of
-        Refl => AtLeaf
+    (_ ** moved) =>
+      let 0 kept = universeKept (replace {p = \x => EtaContracts x v} moved contracted) in
+      rewrite universeReadAs (replace {p = \x => ReadAs (InstanceMode ctx) [] x r} kept read) in
+      AtLeaf
 
 ||| The induction at a placeholder or what is impossible, applied to
 ||| nothing, read as one leaf by the site and by every instance: the
@@ -2154,16 +2170,11 @@ literalPutIn {s} {shown} bs vs none _ =
 -- What a request holds of a shape
 ------------------------------------------------------------------------------
 
--- A function's reference heads no skeleton.
-0 functionUnshaped : SkeletonOf (Ref fc Func n) s -> Void
-functionUnshaped SkeletonHead impossible
-functionUnshaped (SkeletonApplied _ _) impossible
-
 ||| The hole a skeleton cuts has no skeleton of its own: it is a function's
 ||| reference (`Walk.runtimeProbeTerm`), which no data constructor heads.
 export
-0 holeUnshaped : SkeletonOf (probeTerm ProbeRuntime) s -> Void
-holeUnshaped sk = functionUnshaped (replace {p = \x => SkeletonOf x s} runtimeProbeTerm sk)
+0 holeUnshaped : Unshaped (probeTerm ProbeRuntime)
+holeUnshaped = replace {p = Unshaped} (sym runtimeProbeTerm) UnshapedFunction
 
 mutual
   ||| A term has one skeleton: `SkeletonOf` is a function of the term.
@@ -2174,8 +2185,8 @@ mutual
 
   0 cutsAlike : ArgumentCut a s -> ArgumentCut a s' -> s = s'
   cutsAlike (ArgumentKept x) (ArgumentKept y) = skeletonsAlike x y
-  cutsAlike (ArgumentKept x) (ArgumentCutAt none) = void (none _ x)
-  cutsAlike (ArgumentCutAt none) (ArgumentKept y) = void (none _ y)
+  cutsAlike (ArgumentKept x) (ArgumentCutAt none) = void (unshapedNone none x)
+  cutsAlike (ArgumentCutAt none) (ArgumentKept y) = void (unshapedNone none y)
   cutsAlike (ArgumentCutAt _) (ArgumentCutAt _) = Refl
 
 mutual
@@ -2191,7 +2202,7 @@ mutual
 
   0 cutFixed : ArgumentCut a s -> ArgumentCut s s
   cutFixed (ArgumentKept x) = ArgumentKept (skeletonFixed x)
-  cutFixed (ArgumentCutAt _) = ArgumentCutAt (\_ => holeUnshaped)
+  cutFixed (ArgumentCutAt _) = ArgumentCutAt holeUnshaped
 
 ||| A skeleton cut further than another: the same, a hole where the other
 ||| keeps a node, or a constructor's application each part of which is cut

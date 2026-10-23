@@ -55,11 +55,13 @@ import Data.List.Quantifiers
 ||| arguments: a spine reaches its head through applications alone. Both
 ||| spines are over the term's scope, named so the recursion is over it too,
 ||| and the arguments before the last are equal by the recursion, so the
-||| last one, the same term's, is appended to both.
+||| last one, the same term's, is appended to both. The arguments are bound
+||| after the scope their terms are in, and the heads' equation is stated
+||| at that scope, which an equation of two references would not fix.
 export
-0 refSpines : {0 vars : Scope} -> {0 t : Term vars} ->
+0 refSpines : {0 vars : Scope} -> {0 t : Term vars} -> {0 args, args' : List (Term vars)} ->
               Spine t (Ref fc nt n) args -> Spine t (Ref fc' nt' n') args' ->
-              (Ref fc nt n = Ref fc' nt' n', args = args')
+              (the (Term vars) (Ref fc nt n) = Ref fc' nt' n', args = args')
 refSpines Head Head = (Refl, Refl)
 refSpines Head (Applied _) impossible
 refSpines (Applied _) Head impossible
