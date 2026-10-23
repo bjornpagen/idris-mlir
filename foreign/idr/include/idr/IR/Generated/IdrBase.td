@@ -247,6 +247,16 @@ def Idr_ExtentSide : I32EnumAttr<"ExtentSide", "the side of a function's signatu
 }
 def Idr_ExtentSideAttr : EnumAttr<Idr_Dialect, Idr_ExtentSide, "extent_side">;
 
+// how a data type lays its values out
+def Idr_LayoutMark : I32EnumAttr<"LayoutMark", "how a data type lays its values out", [
+    I32EnumAttrCase<"ByIndices", 0, "by_indices">,
+    I32EnumAttrCase<"Open", 1, "open">
+  ]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+def Idr_LayoutMarkAttr : EnumAttr<Idr_Dialect, Idr_LayoutMark, "layout_mark">;
+
 // how often Idris lets a value be used
 def Idr_Uses : I32EnumAttr<"Uses", "how often Idris lets a value be used", [
     I32EnumAttrCase<"Once", 0, "once">,

@@ -11,6 +11,7 @@ module IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Layout
 
 import Data.List1
 import Data.Vect
@@ -26,6 +27,12 @@ promiseCase : ImportedEnum
 promiseCase = imported promiseClosed
   (MkSource ("IdrisMLIR" ::: ["Spec", "Families", "Group"]) "Promise"
             ("IdrisMLIR" ::: ["Spec", "Families", "Dialect"]) "promiseClosed")
+
+||| Where the frontend finds the mark a data type's layout reads.
+markCase : ImportedEnum
+markCase = imported layoutMarkClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Families", "Layout"]) "LayoutMark"
+            ("IdrisMLIR" ::: ["Spec", "Families", "Layout"]) "layoutMarkClosed")
 
 modeCase : ImportedEnum
 modeCase = imported modeClosed
@@ -141,14 +148,17 @@ familyAttr = MkAttrDef
   }
 
 ||| `!idr.data<#F[ts]>`, C++ `DataType`: a member applied to index terms,
-||| perhaps refined to fewer constructors. Its storage is hand C++: its
+||| perhaps refined to fewer constructors, laid out as its indices say or,
+||| marked open, as at an unknown index. Its storage is hand C++: its
 ||| possible constructors, class, layout, references and words, and a
 ||| numeral's largest value where its layout is a fixed width, are computed
-||| when it is made and kept beside its key. What a value of it holds depends on that
-||| layout, so its value facts are a hand unit's answers, read from what was
-||| computed, and it declares no constant answers.
+||| when it is made and kept beside its key. What a value of it holds depends
+||| on that layout, so its value facts are a hand unit's answers, read from
+||| what was computed, and it declares no constant answers. The frontend
+||| writes every type laid out as its indices say; only the specializer
+||| opens one, for a tail call whose caller lays its result out so.
 export
-dataType : TypeDef 5
+dataType : TypeDef 6
 dataType = MkTypeDef
   { mnemonic = "data"
   , params =
@@ -156,7 +166,8 @@ dataType = MkTypeDef
       , MkParameter "member" memberPositionKind AlwaysWritten "the member of the family"
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index"
       , MkParameter "refinement" (WiredValue (WiredOne (LeafMaybeAttr "::mlir::DenseI32ArrayAttr")) refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
-      , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
+      , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders"
+      , MkParameter "mark" (EnumValue markCase) (DefaultsTo "::idr::LayoutMark::ByIndices") "how its values are laid out: as its indices say, or open, as at an unknown index" ]
   , syntax = HandSyntax
   , interfaces =
       [ Declares MemRefElementType []
@@ -170,7 +181,8 @@ dataType = MkTypeDef
   , storage = HandStorage
   , members =
       [ MkMember OnClass "::idr::DataType" "get" [param "::mlir::MLIRContext *" "context", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices"]
-      , MkMember OnClass "::idr::DataType" "getNormalized" [param "::llvm::function_ref<::mlir::InFlightDiagnostic()>" "emitError", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices", param "::mlir::DenseI32ArrayAttr" "refinement", param termsCode "binders"]
+      , MkMember OnClass "::idr::DataType" "getNormalized" [param "::llvm::function_ref<::mlir::InFlightDiagnostic()>" "emitError", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices", param "::mlir::DenseI32ArrayAttr" "refinement", param termsCode "binders", param "::idr::LayoutMark" "mark"]
+      , MkMember OnObjectConst "::idr::DataType" "marked" [param "::idr::LayoutMark" "mark"]
       , MkMember OnObjectConst "::idr::DataType" "refined" [param "::llvm::ArrayRef<::idr::Tag>" "tags"]
       , MkMember OnObjectConst "::idr::DataType" "refinedTo" [param "::idr::Tag" "tag", param termsCode "binders"]
       , MkMember OnObjectConst "::idr::DataType" "unrefined" []
@@ -204,8 +216,9 @@ dataType = MkTypeDef
       Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
       `!idr.data<#List @Cons>`, `!idr.data<#T {@A, @B}>`, or `!idr.data<#Ex
       @MkEx<v3>>` where its constructor binds an index variable its indices
-      do not determine. Identity is content. Its class, layout and what it
-      holds are computed when it is made.
+      do not determine; `!idr.data<#Vect[4] open>` laid out as at an unknown
+      index, its index kept. Identity is content. Its class, layout and what
+      it holds are computed when it is made.
       """
   }
 

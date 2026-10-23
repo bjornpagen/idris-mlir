@@ -95,6 +95,66 @@ std::pair<LevelMap, Unified> solve(ArrayRef<Equation> equations, uint32_t depth)
   return {map, Unified::Consistent};
 }
 
+} // namespace
+
+// The regions the walk is inside, and the equations that hold in them,
+// outermost first, each held once however deep the regions nest: both
+// sized by the function's nesting, in the footprint's storage.
+struct Refinements::State {
+  footprint::Vector<Frame> stack;
+  footprint::Vector<Equation> equations;
+};
+
+Refinements::Refinements(Operation *function) : state(new State) {
+  state->stack.push_back(Frame{function, 0, 0, 0, LevelMap(), Unified::Consistent});
+}
+
+Refinements::~Refinements() = default;
+
+void Refinements::enter(Operation *op, Region &region) {
+  auto &stack = state->stack;
+  auto &equations = state->equations;
+  Frame next{op, stack.back().depth, stack.back().depth, equations.size(), LevelMap(),
+             Unified::Consistent};
+  if (auto binders = dyn_cast<ErasedBinderOpInterface>(op)) {
+    next.depth += static_cast<uint32_t>(binders.getBoundSorts(region).size());
+    if (std::optional<RegionRefinement> refinement = binders.getRefinement(region)) {
+      uint32_t shift = refinement->scope == Scoped::RegionBinders ? next.depthAtOwner : 0;
+      equations.push_back(
+          {intoScope(refinement->outer, refinement->count, 0, refinement->group),
+           intoScope(refinement->inner, refinement->count, shift, refinement->group),
+           refinement->count});
+      next.equations = equations.size();
+    }
+  }
+  std::tie(next.refinement, next.unified) =
+      solve(ArrayRef<Equation>(equations.data(), next.equations), next.depth);
+  stack.push_back(std::move(next));
+}
+
+void Refinements::leave() {
+  auto &stack = state->stack;
+  stack.pop_back();
+  state->equations.erase(
+      state->equations.begin() + static_cast<std::ptrdiff_t>(stack.back().equations),
+      state->equations.end());
+}
+
+uint32_t Refinements::depthAtOwner() const { return state->stack.back().depthAtOwner; }
+uint32_t Refinements::depth() const { return state->stack.back().depth; }
+Unified Refinements::unified() const { return state->stack.back().unified; }
+const LevelMap &Refinements::refinement() const { return state->stack.back().refinement; }
+
+std::optional<uint32_t> Refinements::depthAtOwner(Operation *owner) const {
+  const auto &stack = state->stack;
+  auto at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
+  if (at == stack.end())
+    return std::nullopt;
+  return at->depthAtOwner;
+}
+
+namespace {
+
 // Whether a region is dead: its one block ends the run with nothing in it.
 bool unreachableBody(Region &region) {
   return region.hasOneBlock() && region.front().getOperations().size() == 1 &&
@@ -103,16 +163,9 @@ bool unreachableBody(Region &region) {
 
 class Walk {
 public:
-  explicit Walk(Operation *function) {
-    stack.push_back(Frame{function, 0, 0, 0, LevelMap(), Unified::Consistent});
-  }
+  explicit Walk(Operation *function) : scopes(function) {}
   LogicalResult enter(Operation *op, Region &region);
-  // The region's own equation, if it assumed one, goes with it.
-  void leave() {
-    stack.pop_back();
-    equations.erase(equations.begin() + static_cast<std::ptrdiff_t>(stack.back().equations),
-                    equations.end());
-  }
+  void leave() { scopes.leave(); }
   LogicalResult checkOp(Operation *op);
   // `a` and `b` equal under the refinement here, `a` perhaps a data type
   // refined further.
@@ -120,10 +173,7 @@ public:
   // The levels bound outside the regions of `owner`, if it encloses the op
   // the walk is at: its frame is on the stack.
   std::optional<uint32_t> depthAtOwner(Operation *owner) const {
-    auto at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
-    if (at == stack.end())
-      return std::nullopt;
-    return at->depthAtOwner;
+    return scopes.depthAtOwner(owner);
   }
 
 private:
@@ -139,11 +189,7 @@ private:
   // `region`: none, or the region's own levels.
   LogicalResult ownBinders(Operation *op, Region &region, Type operand, Type input);
 
-  // The regions the walk is inside, and the equations that hold in them,
-  // outermost first, each held once however deep the regions nest: both
-  // sized by the function's nesting, in the footprint's storage.
-  footprint::Vector<Frame> stack;
-  footprint::Vector<Equation> equations;
+  Refinements scopes;
   // The levels each type names, for this walk: types are uniqued, so each
   // is read once however many values have it.
   llvm::DenseMap<Type, Named> seen;
@@ -171,10 +217,10 @@ LogicalResult Walk::checkValue(Operation *op, Value value) {
     return op->emitOpError("has a value of type ")
            << value.getType() << ", which names a member of a family by position outside its "
            << "declaration";
-  if (levels > stack.back().depth)
+  if (levels > scopes.depth())
     return op->emitOpError("has a value of type ")
            << value.getType() << ", which names level " << levels - 1 << " where "
-           << stack.back().depth << " index variables are in scope";
+           << scopes.depth() << " index variables are in scope";
   return success();
 }
 
@@ -191,49 +237,39 @@ LogicalResult Walk::ownBinders(Operation *op, Region &region, Type operand, Type
   DataType from = dataTypeOf(operand);
   if (from && from.getBinders() == entered.getBinders())
     return success();
-  const Frame &here = stack.back();
   SmallVector<TermNode> own;
   TermWriter write(own);
-  for (uint32_t level = here.depthAtOwner; level < here.depth; ++level)
+  for (uint32_t level = scopes.depthAtOwner(); level < scopes.depth(); ++level)
     write.level(level);
   if (entered.getBinders() == ArrayRef<TermNode>(own))
     return success();
   return op->emitOpError("region #")
          << region.getRegionNumber() << " binds " << input << ", whose constructor's binders "
-         << "are not the " << here.depth - here.depthAtOwner << " index variables it binds";
+         << "are not the " << scopes.depth() - scopes.depthAtOwner() << " index variables it binds";
 }
 
+// The refinement maps index terms, and a layout mark is none: a cast whose
+// result is refined further meets its operand through `refines`, which
+// reads the indices alone, so an open value and one laid out as its indices
+// say are one up to the cast; a value that passes on with no op between
+// (a jump's argument, a value forwarded into a region) is compared whole,
+// its mark included, since there nothing converts it.
 bool Walk::sameHere(Type a, Type b, Narrowing narrowing) {
-  const LevelMap &here = stack.back().refinement;
+  const LevelMap &here = scopes.refinement();
   Type ma = mapLevels(a, here);
   Type mb = mapLevels(b, here);
   return ma == mb || (narrowing == Narrowing::Allowed && refines(ma, mb));
 }
 
 LogicalResult Walk::enter(Operation *op, Region &region) {
-  Frame next{op, stack.back().depth, stack.back().depth, equations.size(), LevelMap(),
-             Unified::Consistent};
-  auto binders = dyn_cast<ErasedBinderOpInterface>(op);
-  if (binders) {
-    next.depth += static_cast<uint32_t>(binders.getBoundSorts(region).size());
-    if (std::optional<RegionRefinement> refinement = binders.getRefinement(region)) {
-      uint32_t shift = refinement->scope == Scoped::RegionBinders ? next.depthAtOwner : 0;
-      equations.push_back(
-          {intoScope(refinement->outer, refinement->count, 0, refinement->group),
-           intoScope(refinement->inner, refinement->count, shift, refinement->group),
-           refinement->count});
-      next.equations = equations.size();
-    }
-  }
-  std::tie(next.refinement, next.unified) =
-      solve(ArrayRef<Equation>(equations.data(), next.equations), next.depth);
+  scopes.enter(op, region);
   // A case whose equation clashes with its scrutinee's index does not
-  // exist: only a substitution's dead region may stand, unreachable.
-  if (next.unified == Unified::Clash && !unreachableBody(region))
+  // exist: only a substitution's dead region may stand, unreachable. The
+  // region is on the stack either way, so the walk's leave pops it.
+  if (scopes.unified() == Unified::Clash && !unreachableBody(region))
     return op->emitOpError("region #")
            << region.getRegionNumber() << " assumes an equation its scope makes false, "
            << "a case whose constructor its scrutinee's index excludes";
-  stack.push_back(std::move(next));
   for (Block &block : region)
     for (BlockArgument arg : block.getArguments())
       if (failed(checkValue(op, arg)))
@@ -241,7 +277,7 @@ LogicalResult Walk::enter(Operation *op, Region &region) {
   // Each value entering the region is the operand it comes from, at the
   // region's refinement; the first a case binds, its scrutinee, refined.
   auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  if (!branch || region.empty() || stack.back().unified == Unified::Clash)
+  if (!branch || region.empty() || scopes.unified() == Unified::Clash)
     return success();
   OperandRange operands = branch.getEntrySuccessorOperands(RegionSuccessor(&region));
   ValueRange inputs = branch.getSuccessorInputs(RegionSuccessor(&region));

@@ -2,14 +2,16 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The one substitution of index terms: levels mapped to terms or to other
 // levels in every type upstream's replacer reaches, data types remade in
-// normal form; a function instantiated at a call's terms, its impossible
-// regions made unreachable in the same rewrite, each bare tensor
-// argument's axis whose extent becomes a size made static, and every type
-// derived from the parameters inferred again; and the context-free
-// matching of one type against another that a region's entry and a jump
-// ask of MLIR's verifier.
+// normal form, a sum whose levels became naturals the natural they add to;
+// a function instantiated at a call's terms, its impossible regions made
+// unreachable and the binders its known indices fix replaced in the same
+// rewrite, each bare tensor argument's axis whose extent becomes a size
+// made static, and every type derived from the parameters inferred again;
+// and the context-free matching of one type against another that a
+// region's entry and a jump ask of MLIR's verifier.
 
 #include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Families/Scope.h"
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -20,6 +22,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <cassert>
 #include <optional>
@@ -43,39 +46,66 @@ void LevelMap::shiftFrom(uint32_t from, int64_t by) {
   shift = by;
 }
 
+std::optional<Term> LevelMap::replacementOf(uint32_t level) const {
+  const auto *with = llvm::find_if(replaced, [&](const auto &r) { return r.first == level; });
+  if (with == replaced.end())
+    return std::nullopt;
+  return Term(with->second);
+}
+
 // Preorder from a stack, so a deep term is mapped with no recursion on its
 // depth. A replacing term is of the scope written into, so it is copied as
-// it is.
+// it is. A level of any sort is its replacement or its new level; a level
+// added to (a successor, a sum) is a natural's, added up again with each
+// level mapped, so a sum whose levels became naturals is the natural they
+// add to and one whose levels became sums is their sum, in normal form.
 void LevelMap::write(TermWriter &out, Term term) const {
+  auto moved = [&](uint32_t level) {
+    const auto *to = llvm::find_if(renumbered, [&](const auto &r) { return r.first == level; });
+    if (to != renumbered.end())
+      return to->second;
+    if (level >= shiftStart && shift != 0)
+      return static_cast<uint32_t>(static_cast<int64_t>(level) + shift);
+    return level;
+  };
   SmallVector<Term> pending{term};
   while (!pending.empty()) {
     Term t = pending.pop_back_val();
     const TermNode &head = t.head();
-    if (head.kind == TermKind::Level || head.kind == TermKind::Successor) {
-      auto level = static_cast<uint32_t>(head.kind == TermKind::Level ? head.value
-                                                                        : t.child(0).head().value);
-      uint64_t plus = head.kind == TermKind::Successor ? head.value : 0;
-      const auto *with = llvm::find_if(replaced, [&](const auto &r) { return r.first == level; });
-      if (with != replaced.end()) {
-        out.copy(Term(with->second), plus);
-        continue;
-      }
-      const auto *to = llvm::find_if(renumbered, [&](const auto &r) { return r.first == level; });
-      if (to != renumbered.end())
-        out.level(to->second, plus);
-      else if (level >= shiftStart && shift != 0)
-        out.level(static_cast<uint32_t>(static_cast<int64_t>(level) + shift), plus);
-      else
-        out.level(level, plus);
-      continue;
-    }
-    if (head.kind == TermKind::Constructor) {
+    switch (head.kind) {
+    case TermKind::Constructor:
       out.constructor(head.payload, head.member, head.value, head.arity);
       for (Term argument : llvm::reverse(argumentsOf(t)))
         pending.push_back(argument);
       continue;
+    case TermKind::Level: {
+      auto level = static_cast<uint32_t>(head.value);
+      if (std::optional<Term> with = replacementOf(level))
+        out.copy(*with);
+      else
+        out.level(moved(level));
+      continue;
     }
-    out.copy(t);
+    case TermKind::Successor:
+    case TermKind::Sum: {
+      NatSum sum;
+      std::optional<uint64_t> count = forEachPart(t, [&](uint32_t level, uint64_t times) {
+        if (std::optional<Term> with = replacementOf(level))
+          return sum.add(*with, times);
+        sum.addLevel(moved(level), times);
+      });
+      sum.addCount(*count);
+      out.sum(sum);
+      continue;
+    }
+    case TermKind::Natural:
+    case TermKind::Literal:
+    case TermKind::Opaque:
+      out.copy(t);
+      continue;
+    case TermKind::Multiple:
+      llvm_unreachable("a part of a sum heads no term");
+    }
   }
 }
 
@@ -118,7 +148,10 @@ void addLevelReplacements(AttrTypeReplacer &replacer, const LevelMap &map, Famil
     FamilyAttr group = data.getGroup();
     SmallVector<TermNode> indices =
         mapTerms(map, data.getIndices(), group.indices(data.getMember()).size());
-    DataType out = DataType::get(data.getContext(), group, data.getMember(), indices);
+    // The mark says how the value is laid out, which no index decides, so
+    // it stays as it was.
+    DataType out = DataType::get(data.getContext(), group, data.getMember(), indices)
+                       .marked(data.getMark());
     if (data.getRefinement()) {
       const TagSet &tags = data.possibleTags();
       if (tags.size() == 1 && !data.getBinders().empty())
@@ -293,6 +326,43 @@ void pruneUninhabited(Operation *root) {
   }
 }
 
+// Each binder a region binds that the refinements around it fix to a term
+// of the scope outside it (a case's constructor's binder, once its
+// scrutinee's index is known: `@Cons` of a `#Vect[3]` binds the length 2)
+// replaced throughout the region by that term: what the new indices
+// determine is substituted as they are, so a call in the region passes the
+// closed term, which keys its callee's layout class, and a type in it is
+// the closed application. The region still binds the level, which nothing
+// names any more. Regions are met in program order, each after the regions
+// around it, so a binder an outer one fixed is a term already where an
+// inner one reads it; a dead region, whose equations clash, is skipped.
+void resolveBinders(FuncOp function) {
+  struct Resolve {
+    Refinements scopes;
+    LogicalResult enter(Operation *op, Region &region) {
+      scopes.enter(op, region);
+      if (scopes.unified() == Unified::Clash)
+        return success();
+      uint32_t outside = scopes.depthAtOwner();
+      LevelMap own;
+      for (uint32_t level = outside; level < scopes.depth(); ++level)
+        if (std::optional<Term> term = scopes.refinement().replacementOf(level);
+            term && term->freeLevels() <= outside)
+          own.replace(level, *term);
+      if (own.isIdentity())
+        return success();
+      AttrTypeReplacer replacer;
+      addLevelReplacements(replacer, own, FamilyAttr());
+      replaceIn(replacer, region);
+      return success();
+    }
+    LogicalResult check(Operation *) { return success(); }
+    void leave() { scopes.leave(); }
+  };
+  Resolve resolve{Refinements(function)};
+  (void)walkFunction(function, resolve);
+}
+
 // A cast between two types the substitution made equal is the value.
 void foldEqualCasts(Operation *root) {
   root->walk([](DataReindexOp cast) {
@@ -464,6 +534,7 @@ FailureOr<SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr a
                              /*replaceTypes=*/true);
   replaceIn(replacer, function.getBody());
   pruneUninhabited(function);
+  resolveBinders(function);
   foldEqualCasts(function);
   function.setFunctionType(at.type(function.getContext()));
   function.setExtentsAttr(at.extents);

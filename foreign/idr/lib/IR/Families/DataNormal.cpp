@@ -4,7 +4,10 @@
 // constructors the indices exclude are dropped, a refinement to every
 // constructor the indices allow is none, binders the indices determine are
 // not kept), its verifier refuses any other, and the parser's and the
-// bytecode's builder makes what it read in that form. Then the binders and
+// bytecode's builder makes what it read in that form. Refining keeps the
+// layout mark: the indices decide what is possible, and the mark how the
+// value is laid out, which a case's refined value shares with what it
+// refines. Then the binders and
 // the fields of a constructor at the type's application. Each type is made
 // through the generated builder, whose storage is complete where the types
 // are defined.
@@ -65,7 +68,7 @@ DataType DataType::refined(ArrayRef<Tag> tags) const {
   if (kept.size() == base.possibleTags().size())
     return base;
   return get(getContext(), getGroup(), getMember(), getIndices(), tagsAttr(getContext(), kept),
-             ArrayRef<TermNode>());
+             ArrayRef<TermNode>(), getMark());
 }
 
 DataType DataType::refinedTo(Tag tag, ArrayRef<TermNode> binders) const {
@@ -74,7 +77,7 @@ DataType DataType::refinedTo(Tag tag, ArrayRef<TermNode> binders) const {
       determined(getGroup(), getMember(), getIndices(), tag))
     return one;
   return get(getContext(), getGroup(), getMember(), getIndices(), tagsAttr(getContext(), {tag}),
-             binders);
+             binders, getMark());
 }
 
 namespace {
@@ -118,7 +121,8 @@ checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint3
 // where the indices leave them undetermined.
 LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
                                uint32_t at, ArrayRef<TermNode> indices,
-                               DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+                               DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders,
+                               LayoutMark) {
   FailureOr<std::optional<SmallVector<Tag>>> tags =
       checkParts(emitError, group, at, indices, refinement, binders);
   if (failed(tags))
@@ -139,15 +143,17 @@ LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, Fam
 // The parser's and bytecode's builder: what it reads is checked, then made
 // in normal form, so a type has one spelling however it was written. It
 // takes its diagnostic callback in the form upstream's getChecked and
-// verify do, since it runs the check `verify` runs.
+// verify do, since it runs the check `verify` runs. Any mark is in normal
+// form: it is a layout's, which no index excludes.
 DataType DataType::getNormalized(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
                                  uint32_t member, ArrayRef<TermNode> indices,
-                                 DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+                                 DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders,
+                                 LayoutMark mark) {
   FailureOr<std::optional<SmallVector<Tag>>> tags =
       checkParts(emitError, group, member, indices, refinement, binders);
   if (failed(tags))
     return {};
-  DataType base = get(group.getContext(), group, member, indices);
+  DataType base = get(group.getContext(), group, member, indices).marked(mark);
   if (!*tags)
     return base;
   return (*tags)->size() == 1 ? base.refinedTo((*tags)->front(), binders) : base.refined(**tags);

@@ -15,16 +15,18 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Declare
     Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
     `!idr.data<#List @Cons>`, `!idr.data<#T {@A, @B}>`, or `!idr.data<#Ex
     @MkEx<v3>>` where its constructor binds an index variable its indices
-    do not determine. Identity is content. Its class, layout and what it
-    holds are computed when it is made.
+    do not determine; `!idr.data<#Vect[4] open>` laid out as at an unknown
+    index, its index kept. Identity is content. Its class, layout and what
+    it holds are computed when it is made.
   }];
-  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement", "{}">:$refinement, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms", "{}">:$binders);
+  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement", "{}">:$refinement, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms", "{}">:$binders, Idr_EnumParameter<Idr_LayoutMark, "::idr::LayoutMark::ByIndices">:$mark);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let genStorageClass = 0;
   let extraClassDeclaration = [{
     static ::idr::DataType get(::mlir::MLIRContext * context, ::idr::FamilyAttr group, uint32_t member, ::llvm::ArrayRef<::idr::families::TermNode> indices);
-    static ::idr::DataType getNormalized(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, ::idr::FamilyAttr group, uint32_t member, ::llvm::ArrayRef<::idr::families::TermNode> indices, ::mlir::DenseI32ArrayAttr refinement, ::llvm::ArrayRef<::idr::families::TermNode> binders);
+    static ::idr::DataType getNormalized(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, ::idr::FamilyAttr group, uint32_t member, ::llvm::ArrayRef<::idr::families::TermNode> indices, ::mlir::DenseI32ArrayAttr refinement, ::llvm::ArrayRef<::idr::families::TermNode> binders, ::idr::LayoutMark mark);
+    ::idr::DataType marked(::idr::LayoutMark mark) const;
     ::idr::DataType refined(::llvm::ArrayRef<::idr::Tag> tags) const;
     ::idr::DataType refinedTo(::idr::Tag tag, ::llvm::ArrayRef<::idr::families::TermNode> binders) const;
     ::idr::DataType unrefined() const;

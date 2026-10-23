@@ -26,6 +26,10 @@ data TermNode : (ty : Type) -> (at : Type) -> Type where
   TermNodeLevel : (value' : Nat) -> TermNode ty at
   ||| a level plus a positive count
   TermNodeSuccessor : (value' : Nat) -> TermNode ty at
+  ||| levels, each with how often it occurs, plus a count
+  TermNodeSum : (value' : Nat) -> (arity' : Nat) -> TermNode ty at
+  ||| a level of a sum, with how often it occurs there
+  TermNodeMultiple : (value' : Nat) -> TermNode ty at
   ||| a constant of a scalar sort, or a type
   TermNodeLiteral : (payload' : at) -> TermNode ty at
   ||| a constructor applied to its binders and fields
@@ -39,9 +43,11 @@ partsTermNode : TermNode TypeRef AttrRef -> List Part
 partsTermNode (TermNodeNatural value') = [VarInt 0] ++ [VarInt value']
 partsTermNode (TermNodeLevel value') = [VarInt 1] ++ [VarInt value']
 partsTermNode (TermNodeSuccessor value') = [VarInt 2] ++ [VarInt value']
-partsTermNode (TermNodeLiteral payload') = [VarInt 3] ++ [AttrAt payload']
-partsTermNode (TermNodeConstructor payload' member' value' arity') = [VarInt 4] ++ [OptionalAttrAt payload'] ++ [VarInt member'] ++ [VarInt value'] ++ [VarInt arity']
-partsTermNode TermNodeOpaque = [VarInt 5]
+partsTermNode (TermNodeSum value' arity') = [VarInt 3] ++ [VarInt value'] ++ [VarInt arity']
+partsTermNode (TermNodeMultiple value') = [VarInt 4] ++ [VarInt value']
+partsTermNode (TermNodeLiteral payload') = [VarInt 5] ++ [AttrAt payload']
+partsTermNode (TermNodeConstructor payload' member' value' arity') = [VarInt 6] ++ [OptionalAttrAt payload'] ++ [VarInt member'] ++ [VarInt value'] ++ [VarInt arity']
+partsTermNode TermNodeOpaque = [VarInt 7]
 
 ||| A `TermNode` with each type it holds given by `t` and each attribute by `a`.
 export
@@ -49,6 +55,8 @@ traverseTermNode : Applicative f => (ty -> f ty') -> (at -> f at') -> TermNode t
 traverseTermNode t a (TermNodeNatural value') = pure TermNodeNatural <*> pure value'
 traverseTermNode t a (TermNodeLevel value') = pure TermNodeLevel <*> pure value'
 traverseTermNode t a (TermNodeSuccessor value') = pure TermNodeSuccessor <*> pure value'
+traverseTermNode t a (TermNodeSum value' arity') = pure TermNodeSum <*> pure value' <*> pure arity'
+traverseTermNode t a (TermNodeMultiple value') = pure TermNodeMultiple <*> pure value'
 traverseTermNode t a (TermNodeLiteral payload') = pure TermNodeLiteral <*> a payload'
 traverseTermNode t a (TermNodeConstructor payload' member' value' arity') = pure TermNodeConstructor <*> traverse a payload' <*> pure member' <*> pure value' <*> pure arity'
 traverseTermNode t a TermNodeOpaque = pure TermNodeOpaque

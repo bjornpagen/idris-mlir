@@ -62,6 +62,12 @@ struct EnumTraits<::idr::ExtentSide> {
 };
 
 template <>
+struct EnumTraits<::idr::LayoutMark> {
+  static constexpr std::size_t count = 2;
+  static constexpr std::array<std::string_view, 2> names{{"by_indices", "open"}};
+};
+
+template <>
 struct EnumTraits<::idr::Uses> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"once", "many"}};

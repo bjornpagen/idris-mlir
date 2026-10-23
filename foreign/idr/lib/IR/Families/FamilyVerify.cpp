@@ -21,6 +21,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <concepts>
 
@@ -67,17 +68,28 @@ LogicalResult verifyTerm(Emit &&emitError, Term term, const Sort &sort, ArrayRef
   case TermKind::Opaque:
     return success();
   case TermKind::Level:
-  case TermKind::Successor: {
-    uint64_t level = head.kind == TermKind::Level ? head.value : term.child(0).head().value;
-    if (level >= binders.size())
-      return emitError() << "names level " << level << " where " << binders.size()
-                         << " binders are in scope";
-    if (!sortFits(binders[level], sort))
-      return emitError() << "names level " << level << " in a position of another sort";
-    if (head.kind == TermKind::Successor && sort.kind != SortKind::NatSort)
+  case TermKind::Successor:
+  case TermKind::Sum: {
+    // Each level it names is in scope and of its position's sort; one that
+    // is added to, by a count or another level, is a natural's.
+    LogicalResult named = success();
+    (void)forEachPart(term, [&](uint32_t level, uint64_t) {
+      if (failed(named))
+        return;
+      if (level >= binders.size())
+        named = emitError() << "names level " << level << " where " << binders.size()
+                            << " binders are in scope";
+      else if (!sortFits(binders[level], sort))
+        named = emitError() << "names level " << level << " in a position of another sort";
+    });
+    if (failed(named))
+      return failure();
+    if (head.kind != TermKind::Level && sort.kind != SortKind::NatSort)
       return emitError() << "adds to a level of a sort that is no natural";
     return success();
   }
+  case TermKind::Multiple:
+    llvm_unreachable("the count of an equation's terms refused a part of a sum outside one");
   case TermKind::Natural:
     if (sort.kind != SortKind::NatSort)
       return emitError() << "holds a natural in a position of a sort that is no natural";

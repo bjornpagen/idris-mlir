@@ -27,9 +27,10 @@ FamilyAttr idr::readFamily(DialectBytecodeReader &reader, MLIRContext *context,
 // number, so what is checked here is that the family has it.
 DataType idr::readDataType(DialectBytecodeReader &reader, MLIRContext *, FamilyAttr group,
                            uint32_t member, ArrayRef<TermNode> indices,
-                           DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+                           DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders,
+                           LayoutMark mark) {
   return DataType::getNormalized([&] { return reader.emitError(); }, group, member, indices,
-                                 refinement, binders);
+                                 refinement, binders, mark);
 }
 
 // Which group the member is of is the declaration's that holds it, which

@@ -15,13 +15,18 @@
 // of counting's are each drawn from a finite alphabet. A result is returned
 // as its class lays it out (closed: `#Vect[4]` in place, every non-tail
 // call's) or, for a tail call whose caller lays it out otherwise, at the
-// open layout, its indices opaque: a copy keyed open returns that, so the
-// two lower to one return. A copy keyed open asks only open: each of its
-// tails gives the open layout, so each tail call in it whose callee gives a
-// closed result asks that callee open in turn, at the grade the copy
-// returns it at. A result's open form is its type at opaque indices and
-// that grade, one of finitely many, so the axis adds finitely many keys to
-// each class and hold, and the copies end with no budget and no fixpoint.
+// open layout, its type marked open, its indices kept: a copy keyed open
+// returns that, so the two lower to one return. A copy keyed open asks only
+// open: each of its tails gives the open layout, so each tail call in it
+// whose callee gives a closed result asks that callee open in turn, at the
+// grade the copy returns it at. A result its class would close is asked
+// open too where a tail call of the callee gives it at an index the
+// language cannot express, which no class closes: that closed copy would
+// lose the tail, so it is not made, and its non-tail callers convert the
+// open result after the call. A result's open form is its type marked open
+// at that grade, the mark one of two, so the axis at most doubles the keys
+// of each class and hold, and the copies end with no budget and no
+// fixpoint.
 //
 // A size an axis becomes is not drawn from a finite alphabet: the naturals
 // are unbounded. A size keys a copy only from a call outside its callee's call
@@ -210,15 +215,16 @@ struct SignatureKey {
   FunctionId owner;
   mlir::FunctionType signature;
   // The index arguments fixed in the copy, one per index binder of the
-  // owner, `IndexArgsAttr::unknown()` where the binder stays.
+  // owner, an opaque term where the binder stays.
   IndexArgsAttr indices;
 };
 
 // The type a copy keyed open returns `type` at, for a caller that holds the
-// value as `held`, its own result there: a data type at opaque indices, the
-// layout of an index unknown at compile time, its refinement kept, at the
-// grade `held` has, so the caller's cast to `held` builds nothing and keeps
-// the hold; any other type as it is, whose layout no index decides.
+// value as `held`: a data type marked open, laid out as at an unknown index
+// with the indices Idris proved and its refinement kept, at the grade
+// `held` has, so a cast to a type of that grade laid out so builds nothing
+// and keeps the hold; any other type as it is, whose layout no index
+// decides.
 mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // The arena of one run: every pattern and key it made, freed with it.

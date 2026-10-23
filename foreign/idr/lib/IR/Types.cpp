@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The dialect's types, and the storages of the families' two: the data
 // type, a member of a family applied to index terms, perhaps refined to
-// fewer constructors, and a member of a declaration's own group by
-// position. A data type's storage is its content (the group, the member,
-// the terms, the refinement), so equal types are one type and no table
-// holds them; what the type is at run time and what a value of it holds are
+// fewer constructors, laid out as its indices say or open, and a member of
+// a declaration's own group by position. A data type's storage is its
+// content (the group, the member, the terms, the refinement, the mark), so
+// equal types are one type and no table holds them; what the type is at run time and what a value of it holds are
 // computed in its construction, over plain arrays and the storage of the
 // types it names, which exist already, so nothing is made while a type is.
 // A refinement is normalized by the builders (Families/DataNormal.cpp),
@@ -29,22 +29,24 @@ namespace idr::detail {
 // A data type's identity: the group, the member, the index terms, the
 // constructors it is refined to, the tags ascending, uniqued as an array
 // attribute (null: unrefined; empty: refined to no constructor, so no
-// value has it), and the terms of the binders of its one constructor that
-// its indices leave undetermined (none otherwise). A refined key carries
-// its unrefined application too, made before the type is: a function of
-// the rest, so no part of the identity, kept so a reader asks it of the
-// storage and never of the type table.
+// value has it), the terms of the binders of its one constructor that its
+// indices leave undetermined (none otherwise), and how its values are laid
+// out. A refined key carries its unrefined application too, at the same
+// mark, made before the type is: a function of the rest, so no part of the
+// identity, kept so a reader asks it of the storage and never of the type
+// table.
 struct DataKey {
   FamilyAttr group;
   uint32_t member;
   ArrayRef<TermNode> indices;
   DenseI32ArrayAttr refinement;
   ArrayRef<TermNode> binders;
+  LayoutMark mark;
   DataType base;
 
   // The parts that are the identity, which the base is a function of: what
   // the storage compares a key by.
-  auto identity() const { return std::tie(group, member, indices, refinement, binders); }
+  auto identity() const { return std::tie(group, member, indices, refinement, binders, mark); }
 };
 
 // The parameters are the key; the rest is derived when the type is made.
@@ -53,31 +55,33 @@ struct DataTypeStorage : TypeStorage {
 
   DataTypeStorage(const KeyTy &key, TagSet possible, LayoutFacts facts, uint32_t freeLevels)
       : group(key.group), member(key.member), indices(key.indices), refinement(key.refinement),
-        binders(key.binders), base(key.base), possible(possible), facts(facts),
+        binders(key.binders), mark(key.mark), base(key.base), possible(possible), facts(facts),
         freeLevels(freeLevels) {}
 
   // The key of the parameters as the builders give them: a refined one's
   // unrefined application is made here, before the type, never while it
   // is being made.
   static KeyTy getKey(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
-                      DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+                      DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders, LayoutMark mark) {
     DataType base = refinement || !binders.empty()
-                        ? DataType::get(group.getContext(), group, member, indices)
+                        ? DataType::get(group.getContext(), group, member, indices).marked(mark)
                         : DataType();
-    return DataKey{group, member, indices, refinement, binders, base};
+    return DataKey{group, member, indices, refinement, binders, mark, base};
   }
 
   bool operator==(const KeyTy &other) const { return other.identity() == getAsKey(); }
   // The parameters as MLIR walks and replaces them: a replacement rebuilds
   // the type through its builder.
-  std::tuple<FamilyAttr, uint32_t, ArrayRef<TermNode>, DenseI32ArrayAttr, ArrayRef<TermNode>>
+  std::tuple<FamilyAttr, uint32_t, ArrayRef<TermNode>, DenseI32ArrayAttr, ArrayRef<TermNode>,
+             LayoutMark>
   getAsKey() const {
-    return {group, member, indices, refinement, binders};
+    return {group, member, indices, refinement, binders, mark};
   }
   static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(
-        key.group.getAsOpaquePointer(), key.member, llvm::hash_combine_range(key.indices),
-        key.refinement.getAsOpaquePointer(), llvm::hash_combine_range(key.binders));
+    return llvm::hash_combine(key.group.getAsOpaquePointer(), key.member,
+                              llvm::hash_combine_range(key.indices),
+                              key.refinement.getAsOpaquePointer(),
+                              llvm::hash_combine_range(key.binders), key.mark);
   }
   static DataTypeStorage *construct(TypeStorageAllocator &allocator, const KeyTy &key);
 
@@ -86,6 +90,7 @@ struct DataTypeStorage : TypeStorage {
   ArrayRef<TermNode> indices;
   DenseI32ArrayAttr refinement;
   ArrayRef<TermNode> binders;
+  LayoutMark mark;
   // The unrefined application, null where this is it.
   DataType base;
   TagSet possible;
@@ -120,7 +125,7 @@ idr::detail::DataTypeStorage *
 idr::detail::DataTypeStorage::construct(TypeStorageAllocator &allocator, const KeyTy &key) {
   DataKey own{key.group,      key.member,
               allocator.copyInto(key.indices), key.refinement,
-              allocator.copyInto(key.binders), key.base};
+              allocator.copyInto(key.binders), key.mark, key.base};
   uint32_t levels = std::max(freeLevelsOf(own.indices), freeLevelsOf(own.binders));
   // The layout is the unrefined application's: refining a value to fewer
   // constructors never changes how it is held, so a case's refined value
@@ -142,7 +147,7 @@ idr::detail::DataTypeStorage::construct(TypeStorageAllocator &allocator, const K
   TagSet possible = atIndices.size() == declared
                         ? TagSet::every(declared)
                         : TagSet::listed(allocator.copyInto(ArrayRef<Tag>(atIndices)));
-  LayoutFacts facts = classify(own.group, own.member, own.indices, allocator);
+  LayoutFacts facts = classify(own.group, own.member, own.indices, own.mark, allocator);
   return new (allocator.allocate<DataTypeStorage>())
       DataTypeStorage(own, possible, facts, levels);
 }
@@ -173,6 +178,7 @@ uint32_t DataType::getMember() const { return getImpl()->member; }
 ArrayRef<TermNode> DataType::getIndices() const { return getImpl()->indices; }
 DenseI32ArrayAttr DataType::getRefinement() const { return getImpl()->refinement; }
 ArrayRef<TermNode> DataType::getBinders() const { return getImpl()->binders; }
+LayoutMark DataType::getMark() const { return getImpl()->mark; }
 
 uint32_t SelfType::getMember() const { return getImpl()->member; }
 ArrayRef<TermNode> SelfType::getIndices() const { return getImpl()->indices; }
@@ -182,10 +188,18 @@ ArrayRef<TermNode> SelfType::getIndices() const { return getImpl()->indices; }
 //===----------------------------------------------------------------------===//
 
 // Through the parameters, as every builder passes them: upstream checks the
-// type's invariants on them, and the storage makes its key from them.
+// type's invariants on them, and the storage makes its key from them. A
+// type is made laid out as its indices say; only `marked` opens one.
 DataType DataType::get(MLIRContext *context, FamilyAttr group, uint32_t member,
                        ArrayRef<TermNode> indices) {
-  return Base::get(context, group, member, indices, DenseI32ArrayAttr(), ArrayRef<TermNode>());
+  return Base::get(context, group, member, indices, DenseI32ArrayAttr(), ArrayRef<TermNode>(),
+                   LayoutMark::ByIndices);
+}
+
+// The same type, its refinement and binders kept, laid out as `mark` says.
+DataType DataType::marked(LayoutMark mark) const {
+  return Base::get(getContext(), getGroup(), getMember(), getIndices(), getRefinement(),
+                   getBinders(), mark);
 }
 
 DataType DataType::unrefined() const {
@@ -249,19 +263,20 @@ uint32_t DataType::components() const { return getImpl()->facts.slots.count(); }
 const Slots &DataType::slots() const { return getImpl()->facts.slots; }
 std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts.bound; }
 
-// The same words where the two are one application, refinements aside; or
-// numbers of one layout, each its layout's word; or two values of one
-// member the layouts lay out as the member at an unknown index, which every
-// cell, frame stack and value in place at an unknown class of it is, at its
-// constructors' own fields, an array field's elements included, so the
-// two share every word they reach. A closed application held in place is
-// its own unfolding, so only that application has its words. Asked of
-// every field a lowering worker reads, so it reads only the two types' own
-// parameters and stored facts, and makes no type.
+// The same words where the two are one application at one mark,
+// refinements aside; or numbers of one layout, each its layout's word; or
+// two values of one member the layouts lay out as the member at an unknown
+// index, which every cell, frame stack and value in place at an unknown
+// class of it is, an open one among them, at its constructors' own fields,
+// an array field's elements included, so the two share every word they
+// reach. A closed application held in place is its own unfolding, so only
+// that application has its words, and the same application open is none.
+// Asked of every field a lowering worker reads, so it reads only the two
+// types' own parameters and stored facts, and makes no type.
 LayoutMatch DataType::layoutMatch(DataType other) const {
   if (getGroup() != other.getGroup() || getMember() != other.getMember())
     return LayoutMatch::OtherLayout;
-  if (getIndices() == other.getIndices())
+  if (getIndices() == other.getIndices() && getMark() == other.getMark())
     return LayoutMatch::SameLayout;
   if (layout() != other.layout())
     return LayoutMatch::OtherLayout;

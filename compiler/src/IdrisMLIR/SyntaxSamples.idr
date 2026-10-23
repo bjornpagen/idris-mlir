@@ -38,6 +38,7 @@ import IdrisMLIR.MLIR.Bytecode
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Functions.Extents
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
@@ -88,18 +89,18 @@ natLists = Idr (FamilyAttr
 ||| A vector of naturals of the length given: no refinement, since a known
 ||| length leaves one constructor possible.
 vecOf : Nat -> MlirType
-vecOf n = Idr (DataType natLists 0 [TermNodeNatural n] Nothing [])
+vecOf n = Idr (DataType natLists 0 [TermNodeNatural n] Nothing [] ByIndices)
 
 ||| A vector of naturals of three, and of any length.
 vec3 : MlirType
 vec3 = vecOf 3
 
 vecAny : MlirType
-vecAny = Idr (DataType natLists 0 [TermNodeOpaque] Nothing [])
+vecAny = Idr (DataType natLists 0 [TermNodeOpaque] Nothing [] ByIndices)
 
 ||| A vector known to be a cons.
 consCell : MlirType
-consCell = Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [1])) [])
+consCell = Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [1])) [] ByIndices)
 
 types : List MlirType
 types =
@@ -303,8 +304,8 @@ sample =
             (TypeAttr (FunctionType (MkSignature [vecAny, nat, i64, str] [i64])))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
-                 binding 4 (Idr.dataConOp [] [] (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) [])))
-               , binding 5 (Idr.dataReindexOp (bound 4 (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) []))) [] vecAny)
+                 binding 4 (Idr.dataConOp [] [] (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) [] ByIndices)))
+               , binding 5 (Idr.dataReindexOp (bound 4 (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) [] ByIndices))) [] vecAny)
                , binding 6 (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
                , binding 7 (Idr.linCastOp (bound 6 (Idr (GradedType Once Nothing i64))) [] i64)
                , binding 8 (Idr.checkNonzeroOp DivisionByZero (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
@@ -316,11 +317,11 @@ sample =
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
                , binding 12 (Idr.dataMatchOp (DenseI32ArrayAttr [0, 1]) v [] [] NoBlocks
-                                 [ block [bound 13 (Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0])) []))]
+                                 [ block [bound 13 (Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0])) [] ByIndices))]
                                      [stmt (Idr.yieldOp [bound 8 i64])]
                                  , block [cons]
                                      [ binding 15 (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
-                                     , binding 16 (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (Idr (DataType natLists 0 [TermNodeLevel 1] Nothing [])))
+                                     , binding 16 (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (Idr (DataType natLists 0 [TermNodeLevel 1] Nothing [] ByIndices)))
                                      , stmt (Idr.yieldOp [x]) ] ]
                                  [i64])
                , binding 17 (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)

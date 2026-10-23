@@ -15,6 +15,8 @@
 #define IDR_IR_FAMILIES_SCOPE_H
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Families/Unify.h"
 #include "idr/Support/Footprint.h"
 
 #include "mlir/IR/Operation.h"
@@ -32,6 +34,46 @@ namespace idr::families {
 // assumes: the scrutinee's indices equal to the constructor's equation over
 // its binders.
 RegionRefinement caseRefinement(DataType scrutinee, Tag tag);
+
+// The refinements of one function as a walk in program order enters and
+// leaves its regions: on a stack, the depth of the scope in each region
+// and the equations the regions around it assume, and the refinement they
+// make there, the most general unifier of them all, one space of levels
+// for the whole scope (a case's constructor's binders are levels after its
+// enclosing scope's). What the scope walk checks types against, and what a
+// substitution reads to replace the binders a known index fixes. No op
+// walks to its ancestors.
+class Refinements {
+public:
+  // The refinements of `function`, its body's region not yet entered.
+  explicit Refinements(mlir::Operation *function);
+  ~Refinements();
+  Refinements(const Refinements &) = delete;
+  Refinements &operator=(const Refinements &) = delete;
+
+  // Before the ops of `region`, a region of `op`: its binders and the
+  // equation it assumes, if it assumes one, solved with those around it.
+  void enter(mlir::Operation *op, mlir::Region &region);
+  // After them: the region's own equation goes with it.
+  void leave();
+
+  // In the region last entered: the levels bound outside it, by the
+  // regions around it and the function; the levels in scope, its own
+  // binders the last of them; whether its equations clash, so it is dead;
+  // and, where they do not, each level they bind replaced by its term.
+  uint32_t depthAtOwner() const;
+  uint32_t depth() const;
+  Unified unified() const;
+  const LevelMap &refinement() const;
+
+  // The levels bound outside the regions of `owner`, where its frame is on
+  // the stack; none otherwise.
+  std::optional<uint32_t> depthAtOwner(mlir::Operation *owner) const;
+
+private:
+  struct State;
+  std::unique_ptr<State> state;
+};
 
 // The scope rules of one function, as its one walk meets each op and each
 // region (the function's verifier drives the walk, the effect row's

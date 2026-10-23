@@ -24,6 +24,10 @@ enum class TermKind : std::uint8_t {
   Level,
   // a level plus a positive count
   Successor,
+  // levels, each with how often it occurs, plus a count
+  Sum,
+  // a level of a sum, with how often it occurs there
+  Multiple,
   // a constant of a scalar sort, or a type
   Literal,
   // a constructor applied to its binders and fields
@@ -98,7 +102,7 @@ enum class Layout : std::uint8_t {
 enum class Class : std::uint8_t {
   // every index closed and its unfolding within the shape budget
   Closed,
-  // an index names a level, holds an opaque term, or unfolds past the budget
+  // an index names a level or holds an opaque term, the type is open, or it unfolds past the budget
   Unknown,
 };
 
@@ -141,8 +145,8 @@ namespace idr {
 
 template <>
 struct EnumTraits<::idr::TermKind> {
-  static constexpr std::size_t count = 6;
-  static constexpr std::array<std::string_view, 6> names{{"natural", "level", "successor", "literal", "constructor", "opaque"}};
+  static constexpr std::size_t count = 8;
+  static constexpr std::array<std::string_view, 8> names{{"natural", "level", "successor", "sum", "multiple", "literal", "constructor", "opaque"}};
 };
 
 template <>

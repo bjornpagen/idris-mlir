@@ -10,8 +10,13 @@
 ||| The terms are well-scoped by construction (a level is a `Fin s`), and
 ||| in normal form by construction: a successor applies only to a level, so
 ||| `nat 3 + 1` and `(v + 1) + 1` cannot be written, only `nat 4` and
-||| `v + 2`. The C++ holds the same terms as a preorder array of nodes whose
-||| kinds are `TermKind`'s, printed from here.
+||| `v + 2`; and a sum of naturals is each level with how often it occurs,
+||| then a count, so `w + v + v` and `v + w + v` are one term, and a sum of
+||| one level once is that level or its successor, never a sum. What base's
+||| `plus` on `Nat` computes is a sum; a match on one learns nothing of its
+||| parts. The C++ holds the same terms as a preorder array of nodes whose
+||| kinds are `TermKind`'s, printed from here: a sum's levels in ascending
+||| order, each after its multiplicity, the absent ones left out.
 module IdrisMLIR.Spec.Families.Terms
 
 import Data.Fin
@@ -54,6 +59,13 @@ data SortKind = NatSort | TypeSort | OpaqueSort | ScalarSort | FamilySort
 -- Terms
 ------------------------------------------------------------------------------
 
+||| How many levels a sum's multiplicities hold in all, each counted as
+||| often as it occurs.
+public export
+occurrences : Vect s Nat -> Nat
+occurrences [] = 0
+occurrences (m :: ms) = m + occurrences ms
+
 ||| An index term over `s` binders, in normal form.
 |||
 ||| `literal` is the holder's constant (an integer, a character, a string,
@@ -67,6 +79,13 @@ data Term : (family, literal : Type) -> (s : Nat) -> Type where
   ||| A level plus a positive count: the one successor form, so a natural
   ||| is never a chain of successors and two successors never nest.
   TSucc : Fin s -> (k : Nat) -> {auto 0 positive : IsSucc k} -> Term family literal s
+  ||| A sum of levels plus a count: each level of the scope with how often
+  ||| it occurs, none where it does not, then the count. Two occurrences at
+  ||| least, since one level plus a count is `TVar` or `TSucc` and no level
+  ||| a natural: `v + 0`, `0 + 3` and `v + 2` are no sums, and `w + v` and
+  ||| `v + w` are one.
+  TSum : (times : Vect s Nat) -> (k : Nat) -> {auto 0 several : LTE 2 (occurrences times)}
+      -> Term family literal s
   ||| A constant of a scalar sort, or a type.
   TLit : literal -> Term family literal s
   ||| Constructor `tag` of a family member, applied to its binders, then
@@ -78,7 +97,7 @@ data Term : (family, literal : Type) -> (s : Nat) -> Type where
 
 ||| The kinds of term, the closed set the C++ storage and the bytecode name.
 public export
-data TermKind = Natural | Level | Successor | Literal | Constructor | Opaque
+data TermKind = Natural | Level | Successor | Sum | Multiple | Literal | Constructor | Opaque
 
 ||| A term plus `k`, in normal form: what Idris's `S` applied `k` times is.
 ||| Only a term of a natural's sort has a successor; any other term plus a
@@ -94,9 +113,21 @@ plus (TSucc v j) (S k) = TSucc v (j + S k) {positive = plusSucc j k}
     plusSucc : (a, b : Nat) -> IsSucc (a + S b)
     plusSucc Z b = ItIsSucc
     plusSucc (S a) b = ItIsSucc
+plus (TSum times j {several}) (S k) = TSum times (j + S k) {several}
 plus (TLit _) (S _) = TOpaque
 plus (TCon _ _ _) (S _) = TOpaque
 plus TOpaque (S _) = TOpaque
+
+||| A sum's multiplicities padded with levels it does not name hold no more
+||| occurrences.
+public export
+0 occurrencesPadded : (n : Nat) -> (ms : Vect s Nat) -> occurrences (ms ++ replicate n 0) = occurrences ms
+occurrencesPadded n [] = noneIn n
+  where
+    noneIn : (j : Nat) -> occurrences (replicate j 0) = 0
+    noneIn Z = Refl
+    noneIn (S j) = noneIn j
+occurrencesPadded n (m :: ms) = cong (m +) (occurrencesPadded n ms)
 
 ||| A term over `s` binders seen under `n` more: levels count from the
 ||| outside in, so a term keeps its meaning, and its form, unchanged.
@@ -105,6 +136,8 @@ weaken : (n : Nat) -> Term family literal s -> Term family literal (s + n)
 weaken n (TNat k) = TNat k
 weaken n (TVar v) = TVar (weakenN n v)
 weaken n (TSucc v k {positive}) = TSucc (weakenN n v) k {positive}
+weaken n (TSum times k {several}) =
+  TSum (times ++ replicate n 0) k {several = rewrite occurrencesPadded n times in several}
 weaken n (TLit c) = TLit c
 weaken n (TCon f tag args) = TCon f tag (weakenAll args)
   where

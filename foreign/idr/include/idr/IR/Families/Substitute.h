@@ -40,6 +40,8 @@ public:
 
   // Writes `term` with its levels mapped.
   void write(TermWriter &out, Term term) const;
+  // The term level `level` is replaced by, none where it is kept.
+  std::optional<Term> replacementOf(uint32_t level) const;
   // Whether no level changes.
   bool isIdentity() const { return replaced.empty() && renumbered.empty() && shift == 0; }
 

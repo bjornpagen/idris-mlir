@@ -36,20 +36,7 @@ Type openResult(Type type, Type held) {
   DataType data = dataTypeOf(type);
   if (!data)
     return type;
-  FamilyAttr group = data.getGroup();
-  std::uint32_t member = data.getMember();
-  SmallVector<families::TermNode> opaque;
-  families::TermWriter write(opaque);
-  for (size_t index = 0, count = group.indices(member).size(); index < count; ++index)
-    write.opaque();
-  DataType open = DataType::get(type.getContext(), group, member, opaque);
-  if (data.getRefinement()) {
-    SmallVector<Tag> tags;
-    for (Tag tag : data.possibleTags())
-      tags.push_back(tag);
-    open = open.refined(tags);
-  }
-  return graded(gradeOf(held), open);
+  return graded(gradeOf(held), data.marked(LayoutMark::Open));
 }
 
 namespace {
@@ -178,6 +165,12 @@ void openTails(FuncOp fn, ArrayRef<Type> results) {
           position,
           DataReindexOp::create(b, terminator->getLoc(), results[position], given).getResult());
     }
+    // A tail call the block ended with now reaches the return through the
+    // cast, a tail lost to a layout, which the decider leaves no tail call
+    // until the copy's own turn asks its callee open: its fact is the one
+    // definition's answer at every step.
+    if (CallOp call = source ? tailCallOf(source) : CallOp())
+      call.setTailKind(tail::decide(call));
   }
 }
 

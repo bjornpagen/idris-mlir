@@ -6,6 +6,7 @@ module IdrisMLIR.Spec.Families.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Families.Types
 
@@ -21,7 +22,7 @@ declarations = MkDeclarations
   , attributes =
       [ SomeAttr familyAttr, SomeAttr indexBindersAttr, SomeAttr indexArgsAttr, SomeAttr equationAttr
       , SomeAttr conAttr ]
-  , enums = []
+  , enums = [enumDef layoutMarkClosed]
   , tables = []
   , interfaces = [erasedBinderInterface, indexedTypeInterface, patternTypeInterface, fieldTypeInterface, scopeRuleInterface, indexPositionsInterface]
   , traits = []

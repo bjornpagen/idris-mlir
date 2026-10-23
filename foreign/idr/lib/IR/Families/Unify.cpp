@@ -5,7 +5,10 @@
 // literals and naturals, and a level that occurs in its own binding under a
 // constructor or a successor; an opaque term clashes with nothing and binds
 // nothing, and so does a rigid level, but where the application side's
-// opaque terms stay open. Everything is plain arrays and words:
+// opaque terms stay open. A sum of naturals is what base's `plus` gives,
+// which Idris's `conflict` sees as a stuck application: it clashes with
+// nothing and its parts learn nothing, and only a free level is bound to
+// it. Everything is plain arrays and words:
 // a successor peeled off a term is a count beside its view, and a natural
 // that meets a successor leaves a smaller natural with no node of its own.
 // No step recurses on a term's depth: a term's arguments wait on a stack.
@@ -13,6 +16,7 @@
 #include "idr/IR/Families/Unify.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <limits>
 #include <utility>
@@ -35,6 +39,12 @@ std::optional<uint64_t> add(uint64_t a, uint64_t b) {
   if (a > std::numeric_limits<uint64_t>::max() - b)
     return std::nullopt;
   return a + b;
+}
+
+std::optional<uint64_t> multiply(uint64_t a, uint64_t b) {
+  if (b != 0 && a > std::numeric_limits<uint64_t>::max() / b)
+    return std::nullopt;
+  return a * b;
 }
 
 } // namespace
@@ -65,7 +75,8 @@ namespace {
 
 // `b` with its successors peeled into its count and its bound levels
 // replaced by their bindings: its head is then a natural (no nodes), a
-// level no binding has, a literal, a constructor, or opaque.
+// level no binding has, a sum, a literal, a constructor, or opaque. A sum's
+// own levels are resolved where it is written, not here.
 Bound normal(const Subst &subst, Bound b) {
   while (!isConstant(b)) {
     const TermNode &head = headOf(b);
@@ -93,10 +104,13 @@ Bound normal(const Subst &subst, Bound b) {
       b = Bound{bound->nodes, bound->side, *plus};
       continue;
     }
+    case TermKind::Sum:
     case TermKind::Literal:
     case TermKind::Constructor:
     case TermKind::Opaque:
       return b;
+    case TermKind::Multiple:
+      llvm_unreachable("a part of a sum heads no term");
     }
   }
   return b;
@@ -144,6 +158,15 @@ Unified bindLevel(Subst &subst, Bound v, Bound other) {
   }
   if (headOf(other).kind == TermKind::Level) {
     if (other.plus < v.plus)
+      return Unified::Consistent;
+    subst.bind(v.side, head.value, Bound{other.nodes, other.side, other.plus - v.plus});
+    return Unified::Consistent;
+  }
+  // A sum: bound where the count peeled off it covers the level's, the
+  // sum's own count staying in its nodes. One that holds the level is
+  // `v = v + w`, true at `w = 0`, so it learns nothing and is no clash.
+  if (headOf(other).kind == TermKind::Sum) {
+    if (other.plus < v.plus || occurs(subst, v.side, head.value, other))
       return Unified::Consistent;
     subst.bind(v.side, head.value, Bound{other.nodes, other.side, other.plus - v.plus});
     return Unified::Consistent;
@@ -243,6 +266,66 @@ Unified unifyAll(Subst &subst, llvm::ArrayRef<TermNode> application,
   return Unified::Consistent;
 }
 
+namespace {
+
+// The level one part of a sum adds, as a term of its side.
+Bound partLevel(const Bound &sum, uint32_t part) {
+  return Bound{sum.nodes.slice(2 + 2 * static_cast<size_t>(part), 1), sum.side, 0};
+}
+
+// `root`, a sum, added to `total` with each level through its bindings, so
+// a sum whose levels all became naturals is a natural and one whose levels
+// became sums is their sum: a level no binding has stays a level, shifted
+// on the constructor side by `shift`; anything bound to no natural makes
+// it opaque. Whether a constructor level no binding replaced was added.
+// The bindings hold no cycle (a level is never bound to a sum it occurs
+// in), so the parts end.
+Instance addResolved(const Subst &subst, NatSum &total, Bound root, uint32_t shift) {
+  Instance instance = Instance::Determined;
+  llvm::SmallVector<std::pair<Bound, uint64_t>> pending{{root, 1}};
+  while (!pending.empty()) {
+    auto [at, times] = pending.pop_back_val();
+    Bound b = normal(subst, at);
+    total.addCount(b.plus, times);
+    if (isConstant(b))
+      continue;
+    const TermNode &head = headOf(b);
+    switch (head.kind) {
+    case TermKind::Level:
+      if (b.side == Side::Constructor)
+        instance = Instance::Undetermined;
+      total.addLevel(static_cast<uint32_t>(head.value) + (b.side == Side::Constructor ? shift : 0),
+                     times);
+      continue;
+    case TermKind::Sum:
+      total.addCount(head.value, times);
+      for (uint32_t part = 0; part < head.arity; ++part) {
+        std::optional<uint64_t> occurs =
+            multiply(b.nodes[1 + 2 * static_cast<size_t>(part)].value, times);
+        if (!occurs) {
+          total.forget();
+          break;
+        }
+        pending.push_back({partLevel(b, part), *occurs});
+      }
+      continue;
+    case TermKind::Literal:
+    case TermKind::Constructor:
+    case TermKind::Opaque:
+      total.forget();
+      continue;
+    case TermKind::Natural:
+    case TermKind::Successor:
+    case TermKind::Multiple:
+      // `normal` peels the first two, and the third heads no term.
+      continue;
+    }
+  }
+  return instance;
+}
+
+} // namespace
+
 // Preorder, from a stack: a constructor's head is written, then its
 // arguments, each a view waiting its turn, so a deep term is written with
 // no recursion on its depth.
@@ -263,6 +346,13 @@ Instance Subst::write(TermWriter &out, Term term, Side side, uint32_t shift) con
       out.level(static_cast<uint32_t>(head.value) + (b.side == Side::Constructor ? shift : 0),
                 b.plus);
       continue;
+    case TermKind::Sum: {
+      NatSum total;
+      if (addResolved(*this, total, b, shift) == Instance::Undetermined)
+        instance = Instance::Undetermined;
+      out.sum(total);
+      continue;
+    }
     case TermKind::Opaque:
       out.opaque();
       continue;
@@ -285,7 +375,8 @@ Instance Subst::write(TermWriter &out, Term term, Side side, uint32_t shift) con
     }
     case TermKind::Natural:
     case TermKind::Successor:
-      // `normal` peels both.
+    case TermKind::Multiple:
+      // `normal` peels the first two, and the third heads no term.
       continue;
     }
   }

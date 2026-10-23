@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // How a data type is written: `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at
 // 1 [v0]>`, refined `!idr.data<#List @Cons>`, `!idr.data<#T {@A, @B}>`,
-// `!idr.data<#Ex @MkEx<v3>>`: the group by its alias, the member after `at`
-// when it is not the first, the indices when there are any, the
-// refinement. A label is read into its tag here, at the boundary, and what
-// is read is made in normal form, so a type has one spelling.
+// `!idr.data<#Ex @MkEx<v3>>`, open `!idr.data<#Vect[4] open>`: the group by
+// its alias, the member after `at` when it is not the first, the indices
+// when there are any, `open` when its values are laid out as at an unknown
+// index, the refinement. A label is read into its tag here, at the
+// boundary, and what is read is made in normal form, so a type has one
+// spelling.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
@@ -30,6 +32,8 @@ void DataType::print(AsmPrinter &printer) const {
     printTerms(printer, getIndices(), count, group);
     printer << ']';
   }
+  if (getMark() == LayoutMark::Open)
+    printer << " open";
   SmallVector<Tag> tags;
   if (getRefinement())
     tags.assign(possibleTags().begin(), possibleTags().end());
@@ -69,6 +73,8 @@ Type DataType::parse(AsmParser &parser) {
   if (count > 0 && (parser.parseLSquare() || parseTerms(parser, count, indices, nullptr) ||
                     parser.parseRSquare()))
     return {};
+  LayoutMark mark = succeeded(parser.parseOptionalKeyword("open")) ? LayoutMark::Open
+                                                                   : LayoutMark::ByIndices;
   auto labelTag = [&](Tag &tag) -> ParseResult {
     StringAttr label;
     SMLoc at = parser.getCurrentLocation();
@@ -117,5 +123,5 @@ Type DataType::parse(AsmParser &parser) {
           return static_cast<int32_t>(tag);
         })));
   return getNormalized([&] { return parser.emitError(loc); }, group, member, indices, refinement,
-                       binders);
+                       binders, mark);
 }

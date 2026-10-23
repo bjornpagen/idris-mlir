@@ -10,6 +10,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -39,6 +40,24 @@ void printTerm(AsmPrinter &printer, Term term, Attribute ownGroup) {
       // Its one child is the level it adds to, printed with it.
       printer << 'v' << nodes[++at].value << " + " << node.value;
       break;
+    case TermKind::Sum: {
+      // Its parts are its own nodes, each how often its level occurs, then
+      // the level; then the count, where there is one.
+      for (uint32_t part = 0; part < node.arity; ++part) {
+        uint64_t times = nodes[at + 1 + 2 * part].value;
+        if (part > 0)
+          printer << " + ";
+        printer << 'v' << nodes[at + 2 + 2 * part].value;
+        if (times > 1)
+          printer << " * " << times;
+      }
+      if (node.value > 0)
+        printer << " + " << node.value;
+      at += 2 * static_cast<size_t>(node.arity);
+      break;
+    }
+    case TermKind::Multiple:
+      llvm_unreachable("a part of a sum is printed with its sum");
     case TermKind::Literal:
       printer << "lit ";
       if (auto type = dyn_cast<TypeAttr>(node.payload)) {
@@ -175,16 +194,33 @@ FailureOr<Head> parseTermHead(AsmParser &parser, SmallVectorImpl<TermNode> &out,
   if (failed(parser.parseOptionalKeyword("self"))) {
     OptionalParseResult attr = parser.parseOptionalAttribute(group);
     if (!attr.has_value()) {
-      // A level is `v<k>`, a bare keyword, then perhaps `+ n`.
-      StringRef keyword;
-      uint32_t level;
-      if (parser.parseKeyword(&keyword) || !keyword.consume_front("v") ||
-          keyword.getAsInteger(10, level))
-        return parser.emitError(at, "expects an index term");
-      uint64_t plus = 0;
-      if (succeeded(parser.parseOptionalPlus()) && parser.parseInteger(plus))
-        return failure();
-      write.level(level, plus);
+      // A level is `v<k>`, a bare keyword, perhaps `* m` times; then
+      // perhaps `+` and another, or `+ n`, which ends the sum. What is read
+      // is added up, so any order and any repetition is made one normal
+      // form.
+      NatSum sum;
+      do {
+        StringRef keyword;
+        uint32_t level;
+        if (parser.parseKeyword(&keyword) || !keyword.consume_front("v") ||
+            keyword.getAsInteger(10, level))
+          return parser.emitError(at, "expects an index term");
+        uint64_t times = 1;
+        if (succeeded(parser.parseOptionalStar()) && parser.parseInteger(times))
+          return failure();
+        sum.addLevel(level, times);
+        if (failed(parser.parseOptionalPlus()))
+          break;
+        uint64_t count;
+        OptionalParseResult counted = parser.parseOptionalInteger(count);
+        if (counted.has_value()) {
+          if (failed(*counted))
+            return failure();
+          sum.addCount(count);
+          break;
+        }
+      } while (true);
+      write.sum(sum);
       return Head::Whole;
     }
     if (failed(*attr))

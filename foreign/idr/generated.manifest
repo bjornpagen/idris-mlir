@@ -1,11 +1,11 @@
-specification d39ac5755969b0af
+specification 0688d3336bd7d795
 generator 88c375be77ecf00d
-72656c82c999e6ec foreign/idr/include/idr/IR/Generated/IdrBase.td
+8ebce6e9dd5924e7 foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
-4344e20c8f096c8f foreign/idr/include/idr/IR/Generated/IdrTypes.td
+e2c1baf2a98be36d foreign/idr/include/idr/IR/Generated/IdrTypes.td
 59730110ce469656 foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
-74dc22cf0dd76646 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
+f8db0fc7099d73fd foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 ff6f48f99a642609 foreign/idr/include/idr/IR/Generated/IdrPasses.td
 18243b25f64191de foreign/idr/include/idr/IR/Generated/IdrInnerPasses.td
 c2fceea76613b6aa foreign/idr/include/idr/IR/Generated/IdrAdmittedBase.td
@@ -20,7 +20,7 @@ a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
 84e83153b09209e0 foreign/idr/include/idr/IR/Generated/IdrAdmittedSCF.td
 d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 200dcab686d2b2f2 foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
-52a5e55d30d46bc3 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
+2155f51b3239f66b foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 04c4213dde97376d foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
 10217cbb352453b4 foreign/idr/include/idr/IR/Generated/OpIndex.h.inc
@@ -31,7 +31,7 @@ eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 8ad40bb10dc45593 foreign/idr/include/idr/IR/Generated/Resources.h.inc
 f61d03fe59dc91bd foreign/idr/include/idr/IR/Generated/Effects.h.inc
 cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
-93f7a544492daec2 foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
+6213ac596405b043 foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 a28a5a3603892fe5 foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 e47fa31130cf71be foreign/idr/include/idr/IR/Generated/Laws.h.inc
@@ -50,7 +50,7 @@ a5f8d8a5b2c9d611 foreign/idr/include/idr/IR/Generated/ShownOutput.h.inc
 95bf2e6746733d56 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
 a310756d6c6cb9f6 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
-dfa2dbe205f5c128 foreign/idr/include/idr/IR/Generated/Families.h.inc
+38b8278a11b17e45 foreign/idr/include/idr/IR/Generated/Families.h.inc
 5717923c1ce7d525 foreign/idr/include/idr/IR/Generated/Grades.h.inc
 978454316de3be9c foreign/idr/include/idr/IR/Generated/Lifetimes.h.inc
 38a72f6dcdfb55a4 foreign/idr/include/idr/IR/Generated/Endings.h.inc
@@ -61,5 +61,5 @@ be6d7fa54983ad20 foreign/idr/include/idr/IR/Generated/NumericEnums.h.inc
 b135473c4ae3ece4 foreign/idr/include/idr/IR/Generated/FileTimes.h.inc
 fbffe30a4c38c232 foreign/idr/include/idr/IR/Generated/Carry.h.inc
 116823b568211f60 compiler/src/IdrisMLIR/Dialect/Idr.idr
-031532483648bbe9 compiler/src/IdrisMLIR/Encoding/Wire.idr
-8397cb62bbc0a7b4 compiler/src/IdrisMLIR/Encoding/Idr.idr
+67c3586d480bb36d compiler/src/IdrisMLIR/Encoding/Wire.idr
+51c16b7e02940f38 compiler/src/IdrisMLIR/Encoding/Idr.idr

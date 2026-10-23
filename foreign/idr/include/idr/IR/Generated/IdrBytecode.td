@@ -40,7 +40,7 @@ class Idr_Wired<string cppType, string directive> :
   WithPrinter<"write" # directive # "($_writer, $_getter)",
   WithType   <cppType>>>>;
 
-def DataType : DialectType<(type Idr_Wired<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_Wired<"uint32_t", "MemberPosition">:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices, Idr_Wired<"::mlir::DenseI32ArrayAttr", "Refinement">:$refinement, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$binders)> {
+def DataType : DialectType<(type Idr_Wired<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_Wired<"uint32_t", "MemberPosition">:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices, Idr_Wired<"::mlir::DenseI32ArrayAttr", "Refinement">:$refinement, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$binders, Idr_Enum<"LayoutMark">:$mark)> {
   let cType = "::idr::DataType";
   let cBuilder = "::idr::readDataType(reader, context, $_args)";
 }

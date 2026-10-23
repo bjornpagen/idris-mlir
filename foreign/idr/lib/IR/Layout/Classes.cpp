@@ -3,14 +3,14 @@
 // The class rule: inline or in a cell is a function of a data type, computed
 // once, when the type is made. A frame stack is a frame stack; a memo sum
 // is a cell; a numeral is a number, of a fixed width where its bound is
-// closed and fits one, a natural otherwise. At an
-// index that names a level or holds anything opaque (class Unknown), a
-// member of a group that holds itself is a cell and any other is in place
-// over its constructors. At closed indices (class Closed) the application
-// unfolds over the constructors its indices leave possible, each field at
-// the binders its equation solves: in place unless the unfolding meets an
-// application again or passes the shape budget, when it takes its member's
-// layout at an unknown index. So `#Vect[3]` of words is three words in
+// closed and fits one, a natural otherwise. At an index that names a level
+// or holds anything opaque, or marked open whatever its indices (class
+// Unknown), a member of a group that holds itself is a cell and any other
+// is in place over its constructors. At closed indices (class Closed) the
+// application unfolds over the constructors its indices leave possible,
+// each field at the binders its equation solves: in place unless the
+// unfolding meets an application again or passes the shape budget, when it
+// takes its member's layout at an unknown index. So `#Vect[3]` of words is three words in
 // place, `#Vect[v0]` a cell, `List` a cell, and `T 0` of a family whose
 // successor climbs its index stops at the budget. The budget bounds the
 // classes and never refuses a program: a spent budget leaves a value in its
@@ -172,7 +172,8 @@ public:
 
 private:
   // What `field`, declared in `app`'s member with the binders `subst`
-  // solved, gives; none where the unfolding stops.
+  // solved, gives; none where the unfolding stops. A field of a data type
+  // marked open is laid out as at an unknown index, whatever its terms.
   std::optional<Part> field(const Application &app, const Subst &subst, Type field);
 
   SmallVector<const Application *> path;
@@ -227,7 +228,7 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
   // A member of the field's group, at the field's index terms instantiated
   // by the binders the equation solved; `declared` what the field's own
   // type gives where those terms are not closed.
-  auto member = [&](FamilyAttr group, uint32_t index, ArrayRef<TermNode> terms,
+  auto member = [&](FamilyAttr group, uint32_t index, ArrayRef<TermNode> terms, LayoutMark mark,
                     Part declared) -> std::optional<Part> {
     Application next{group, index, {}};
     TermWriter write(next.indices);
@@ -235,7 +236,7 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
     for (Term term : termsOf(terms, group.indices(index).size()))
       if (subst.write(write, term, Side::Constructor, 0) == Instance::Undetermined)
         instance = Instance::Undetermined;
-    bool closed = instance == Instance::Determined &&
+    bool closed = mark == LayoutMark::ByIndices && instance == Instance::Determined &&
                   llvm::all_of(termsOf(next.indices, group.indices(index).size()),
                                [](Term term) { return term.isClosed(); });
     if (!closed) {
@@ -259,10 +260,10 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
   // slots.
   auto indexed = dyn_cast<IndexedTypeInterface>(value);
   if (std::optional<uint32_t> position = indexed ? indexed.getPositionalMember() : std::nullopt)
-    return member(app.group, *position, indexed.getIndexTermRuns().front(),
+    return member(app.group, *position, indexed.getIndexTermRuns().front(), LayoutMark::ByIndices,
                   atUnknown(app.group, *position).part());
   if (auto data = dyn_cast<DataType>(value))
-    return member(data.getGroup(), data.getMember(), data.getIndices(),
+    return member(data.getGroup(), data.getMember(), data.getIndices(), data.getMark(),
                   Part{flatWords(data.slots()),
                        data.holdsReferences() ? Refs::References : Refs::Words,
                        layout::reachOf(data)});
@@ -274,14 +275,18 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
 
 } // namespace
 
+// An open type is laid out as its member at an unknown index: its class is
+// Unknown, so it takes the layout every Unknown application of its member
+// shares, whatever its indices.
 LayoutFacts classify(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
-                     StorageUniquer::StorageAllocator &allocator) {
+                     LayoutMark mark, StorageUniquer::StorageAllocator &allocator) {
   auto keep = [&](const Laid &laid) {
     return LayoutFacts{laid.cls,   laid.layout, laid.refs,
                        laid.reach, laid.bound,  laid.slots.keep(allocator)};
   };
   size_t count = group.indices(member).size();
-  bool closed = llvm::all_of(termsOf(indices, count), [](Term term) { return term.isClosed(); });
+  bool closed = mark == LayoutMark::ByIndices &&
+                llvm::all_of(termsOf(indices, count), [](Term term) { return term.isClosed(); });
   Class cls = closed ? Class::Closed : Class::Unknown;
   if (std::optional<Laid> fixed = fixedLayout(group, member, indices, cls))
     return keep(*fixed);

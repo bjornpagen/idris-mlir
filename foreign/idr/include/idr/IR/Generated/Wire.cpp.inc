@@ -21,6 +21,16 @@
     if (::mlir::failed(reader.readVarInt(value.value)))
       return ::mlir::failure();
     break;
+  case ::idr::TermKind::Sum:
+    if (::mlir::failed(reader.readVarInt(value.value)))
+      return ::mlir::failure();
+    if (::mlir::failed(readWord32(reader, value.arity)))
+      return ::mlir::failure();
+    break;
+  case ::idr::TermKind::Multiple:
+    if (::mlir::failed(reader.readVarInt(value.value)))
+      return ::mlir::failure();
+    break;
   case ::idr::TermKind::Literal:
     {
       ::mlir::Attribute read;
@@ -59,6 +69,13 @@ void writeTermNode(::mlir::DialectBytecodeWriter &writer, const ::idr::families:
     writer.writeVarInt(value.value);
     break;
   case ::idr::TermKind::Successor:
+    writer.writeVarInt(value.value);
+    break;
+  case ::idr::TermKind::Sum:
+    writer.writeVarInt(value.value);
+    writer.writeVarInt(value.arity);
+    break;
+  case ::idr::TermKind::Multiple:
     writer.writeVarInt(value.value);
     break;
   case ::idr::TermKind::Literal:

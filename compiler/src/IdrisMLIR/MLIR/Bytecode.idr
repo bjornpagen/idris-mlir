@@ -582,8 +582,8 @@ mutual
 
   ||| An `idr` type, each type and attribute it holds numbered.
   numberIdrType : Writer -> IdrType MlirType MlirAttr -> W (IdrType TypeRef AttrRef)
-  numberIdrType w (DataType g m is r bs) =
-    DataType <$> attrNumber w g <*> pure m <*> numberTermNodes w is <*> numberOptional w r <*> numberTermNodes w bs
+  numberIdrType w (DataType g m is r bs mark) =
+    DataType <$> attrNumber w g <*> pure m <*> numberTermNodes w is <*> numberOptional w r <*> numberTermNodes w bs <*> pure mark
   numberIdrType w (SelfType m is) = SelfType m <$> numberTermNodes w is
   numberIdrType w (GradedType u h c) = GradedType u h <$> typeNumber w c
   numberIdrType w (LifetimeType k) = pure (LifetimeType (numberKind k))

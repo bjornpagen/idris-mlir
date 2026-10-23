@@ -3,13 +3,16 @@
 ||| Inline or in a cell is layout, one function of a data type computed when
 ||| the type is made: never a type of its own, never the frontend's choice.
 |||
-||| An application's class is `Closed` when every index term is closed and
-||| its unfolding stays within the shape budget, `Unknown` otherwise; all
-||| `Unknown` applications of one member share its layout. A memo member is
-||| a cell, since a force writes the one cell every reference sees. A member
-||| of numeral shape (`Fin`, `Elem`, `LNat`, a user's Peano type) is a
-||| number: a fixed width where its bound is closed and fits one, a natural
-||| otherwise. Any other member at `Unknown` is a cell when its group is
+||| An application's class is `Closed` when every index term is closed, its
+||| type is not marked open and its unfolding stays within the shape budget,
+||| `Unknown` otherwise; all `Unknown` applications of one member share its
+||| layout. The mark is part of the type: an open `#Vect[4]` keeps the index
+||| Idris proved and is laid out as `#Vect[n]` is, so a value given where its
+||| index was not known needs no re-pack, and a match on it still prunes. A
+||| memo member is a cell, since a force writes the one cell every reference
+||| sees. A member of numeral shape (`Fin`, `Elem`, `LNat`, a user's Peano
+||| type) is a number: a fixed width where its bound is closed and fits one,
+||| a natural otherwise. Any other member at `Unknown` is a cell when its group is
 ||| recursive and in place over its constructors when it is not; at `Closed`
 ||| it is in place over the constructors its indices leave possible, unless
 ||| the unfolding meets an application again or passes the budget, when it
@@ -27,6 +30,14 @@ import Data.List1
 ||| Whether an application's indices fix its shape.
 public export
 data Class = Closed | Unknown
+
+||| How a data type lays its values out: as its indices say, or open, as at
+||| an unknown index, whatever its indices are. Its indices and what a match
+||| on it learns are the same either way; only its layout, its class and
+||| the comparison of layouts read the mark, as a tensor's encoding is read
+||| beside its shape.
+public export
+data LayoutMark = ByIndices | Open
 
 ||| What a value of a data type is at run time: a number of a fixed width,
 ||| a natural (a big's word), its constructors' fields in place (a tag
@@ -129,8 +140,23 @@ classClosed = MkClosed
       Unknown => There Here
   , describe = \case
       Closed => MkCase "Closed" ("closed" ::: []) "every index closed and its unfolding within the shape budget"
-      Unknown => MkCase "Unknown" ("unknown" ::: []) "an index names a level, holds an opaque term, or unfolds past the budget"
+      Unknown => MkCase "Unknown" ("unknown" ::: []) "an index names a level or holds an opaque term, the type is open, or it unfolds past the budget"
   , doc = brief "whether an application's indices fix its shape"
+  }
+
+export
+layoutMarkClosed : Closed LayoutMark
+layoutMarkClosed = MkClosed
+  { name = "LayoutMark"
+  , shape = OneOf
+  , every = ByIndices ::: [Open]
+  , complete = \case
+      ByIndices => Here
+      Open => There Here
+  , describe = \case
+      ByIndices => MkCase "ByIndices" ("by_indices" ::: []) "laid out as its indices say"
+      Open => MkCase "Open" ("open" ::: []) "laid out as at an unknown index, its indices kept"
+  , doc = brief "how a data type lays its values out"
   }
 
 export

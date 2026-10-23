@@ -256,6 +256,15 @@ bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTai
 
 namespace {
 
+// Whether every tail call's results are laid out as its caller's at the
+// program's stage: from Graded on. Before it, the decider leaves a call
+// whose result is re-packed on its way to the return no tail call, and
+// idr-optimize's specializer makes it one by keying its callee's copy to
+// the caller's layout.
+bool layoutsAgree(FuncOp fn) {
+  return tailLayoutsAt[fn.getProgram().getStage()] == StageTailLayouts::Agree;
+}
+
 // Whether an operand of a call that becomes a jump is, or lives in, a
 // lifetime that ends with the call: that lifetime, through the views and
 // rooms it is the extent of, is any but a parameter of the function, so its
@@ -322,14 +331,16 @@ LogicalResult verify(FuncOp fn) {
   // on, read once, with the re-pack, if any, between it and the return.
   // Each call there with no re-pack on its way is in tail position, so,
   // once every fact is decided, one that is no tail call is a jump the
-  // compiler fails to make; each with one is where a tail would be, and a
-  // jump the compiler fails to make too, whichever fact it holds.
+  // compiler fails to make; each with one is where a tail would be, and,
+  // once tail calls' layouts agree with their callers', a jump the
+  // compiler fails to make too, whichever fact it holds.
   unsigned tails = 0;
   fn.walk([&](CallOp call) {
     if (tailCallOf(call))
       ++tails;
   });
   bool exact = decided(fn);
+  bool agree = layoutsAgree(fn);
   unsigned reached = 0;
   struct Leg {
     Block *block;
@@ -351,7 +362,7 @@ LogicalResult verify(FuncOp fn) {
     if (!call)
       continue;
     if (repack) {
-      if (exact)
+      if (agree)
         return lostToRepack(call, repack);
       continue;
     }

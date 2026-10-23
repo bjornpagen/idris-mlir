@@ -13,6 +13,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -147,7 +148,7 @@ mutual
   typeIn a (DataT f ts) = case lookup f a.members of
     Just m => Idr (SelfType m (nodesIn a ts))
     Nothing => case lookup f a.declared of
-      Just e => Idr (DataType e.group e.member (nodesIn a ts) Nothing [])
+      Just e => Idr (DataType e.group e.member (nodesIn a ts) Nothing [] ByIndices)
       -- A family no group declares is the translation's broken contract;
       -- `Emit.index` declares every family before any type names one.
       Nothing => NoneType
@@ -233,7 +234,7 @@ resultTypes ix = resultsIn (MkAmong ix.families empty)
 ||| as `DataType::refined` makes it.
 refine : MlirType -> List1 Nat -> MlirType
 refine (Idr (GradedType u h t)) tags = Idr (GradedType u h (refine t tags))
-refine (Idr (DataType g m ts _ bs)) tags = Idr (DataType g m ts (Just (DenseI32ArrayAttr (forget tags))) bs)
+refine (Idr (DataType g m ts _ bs mark)) tags = Idr (DataType g m ts (Just (DenseI32ArrayAttr (forget tags))) bs mark)
 refine t tags = t
 
 ||| The module's type of a value of type `t`, used as `u`, held as `h`,

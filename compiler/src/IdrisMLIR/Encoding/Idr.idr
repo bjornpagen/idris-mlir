@@ -13,6 +13,7 @@ module IdrisMLIR.Encoding.Idr
 import IdrisMLIR.MLIR.Parts
 import IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Grades.Declarations
 import IdrisMLIR.Spec.Grades.Hold
@@ -26,7 +27,7 @@ import IdrisMLIR.Spec.Functions.Extents
 ||| `ty` and `at` are what the types and attributes they hold are.
 public export
 data IdrType : (ty : Type) -> (at : Type) -> Type where
-  DataType : (group' : at) -> (member' : Nat) -> (indices' : List (TermNode ty at)) -> (refinement' : Maybe at) -> (binders' : List (TermNode ty at)) -> IdrType ty at
+  DataType : (group' : at) -> (member' : Nat) -> (indices' : List (TermNode ty at)) -> (refinement' : Maybe at) -> (binders' : List (TermNode ty at)) -> (mark' : IdrisMLIR.Spec.Families.Layout.LayoutMark) -> IdrType ty at
   SelfType : (member' : Nat) -> (indices' : List (TermNode ty at)) -> IdrType ty at
   GradedType : (uses' : IdrisMLIR.Spec.Grades.Grade.Uses) -> (hold' : Maybe IdrisMLIR.Spec.Grades.Hold.Hold) -> (carrier' : ty) -> IdrType ty at
   LifetimeType : (kind' : LifetimeKindOf ty at) -> IdrType ty at
@@ -70,7 +71,7 @@ idrTypeMnemonics = ["data", "self", "graded", "lifetime", "lifetime.package", "s
 ||| The mnemonic of each of the dialect's types.
 export
 idrTypeMnemonic : IdrType ty at -> String
-idrTypeMnemonic (DataType _ _ _ _ _) = "data"
+idrTypeMnemonic (DataType _ _ _ _ _ _) = "data"
 idrTypeMnemonic (SelfType _ _) = "self"
 idrTypeMnemonic (GradedType _ _ _) = "graded"
 idrTypeMnemonic (LifetimeType _) = "lifetime"
@@ -117,8 +118,8 @@ dataTypeCode = 0
 
 ||| The parts of `DataType`: its code, then each parameter.
 export
-encodeDataType : AttrRef -> Nat -> List (TermNode TypeRef AttrRef) -> Maybe AttrRef -> List (TermNode TypeRef AttrRef) -> List Part
-encodeDataType group' member' indices' refinement' binders' = [VarInt dataTypeCode] ++ [AttrAt group'] ++ [VarInt member'] ++ (VarInt (length indices') :: concatMap (\x' => partsTermNode x') indices') ++ [OptionalAttrAt refinement'] ++ (VarInt (length binders') :: concatMap (\x' => partsTermNode x') binders')
+encodeDataType : AttrRef -> Nat -> List (TermNode TypeRef AttrRef) -> Maybe AttrRef -> List (TermNode TypeRef AttrRef) -> IdrisMLIR.Spec.Families.Layout.LayoutMark -> List Part
+encodeDataType group' member' indices' refinement' binders' mark' = [VarInt dataTypeCode] ++ [AttrAt group'] ++ [VarInt member'] ++ (VarInt (length indices') :: concatMap (\x' => partsTermNode x') indices') ++ [OptionalAttrAt refinement'] ++ (VarInt (length binders') :: concatMap (\x' => partsTermNode x') binders') ++ [VarInt (position IdrisMLIR.Spec.Families.Layout.layoutMarkClosed mark')]
 
 ||| The code of `SelfType`, its place among the dialect's types.
 export
@@ -413,7 +414,7 @@ encodeClosureAttr callee' captures' = [VarInt closureAttrCode] ++ [AttrAt callee
 ||| The parts of a value of `IdrType`, its types and attributes by their entries.
 export
 encodeIdrType : IdrType TypeRef AttrRef -> List Part
-encodeIdrType (DataType group' member' indices' refinement' binders') = encodeDataType group' member' indices' refinement' binders'
+encodeIdrType (DataType group' member' indices' refinement' binders' mark') = encodeDataType group' member' indices' refinement' binders' mark'
 encodeIdrType (SelfType member' indices') = encodeSelfType member' indices'
 encodeIdrType (GradedType uses' hold' carrier') = encodeGradedType uses' hold' carrier'
 encodeIdrType (LifetimeType kind') = encodeLifetimeType kind'
@@ -451,7 +452,7 @@ encodeIdrAttr (ClosureAttr callee' captures') = encodeClosureAttr callee' captur
 ||| A value of `IdrType` with each type it holds given by `t` and each attribute by `a`.
 export
 traverseIdrType : Applicative f => (ty -> f ty') -> (at -> f at') -> IdrType ty at -> f (IdrType ty' at')
-traverseIdrType t a (DataType group' member' indices' refinement' binders') = pure DataType <*> a group' <*> pure member' <*> traverse (\x' => traverseTermNode t a x') indices' <*> traverse a refinement' <*> traverse (\x' => traverseTermNode t a x') binders'
+traverseIdrType t a (DataType group' member' indices' refinement' binders' mark') = pure DataType <*> a group' <*> pure member' <*> traverse (\x' => traverseTermNode t a x') indices' <*> traverse a refinement' <*> traverse (\x' => traverseTermNode t a x') binders' <*> pure mark'
 traverseIdrType t a (SelfType member' indices') = pure SelfType <*> pure member' <*> traverse (\x' => traverseTermNode t a x') indices'
 traverseIdrType t a (GradedType uses' hold' carrier') = pure GradedType <*> pure uses' <*> pure hold' <*> t carrier'
 traverseIdrType t a (LifetimeType kind') = pure LifetimeType <*> traverseLifetimeKindOf t a kind'

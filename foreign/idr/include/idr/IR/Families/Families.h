@@ -161,11 +161,11 @@ constexpr unsigned numberBits(Layout layout) {
 }
 
 // The class, layout, references and words of member `member` of `group`
-// at the index terms `indices`, its words' arrays kept in `allocator`: the
-// class rule over plain arrays, so it runs inside the storage's
-// construction, where no attribute or type may be made.
+// at the index terms `indices`, laid out as `mark` says, its words' arrays
+// kept in `allocator`: the class rule over plain arrays, so it runs inside
+// the storage's construction, where no attribute or type may be made.
 LayoutFacts classify(FamilyAttr group, uint32_t member, llvm::ArrayRef<TermNode> indices,
-                     mlir::StorageUniquer::StorageAllocator &allocator);
+                     LayoutMark mark, mlir::StorageUniquer::StorageAllocator &allocator);
 
 // The constructors of member `member` of `group` its index terms leave
 // possible: each whose equation does not clash with them (unify, with the
@@ -184,9 +184,9 @@ mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAt
 enum class Narrowing : uint8_t { Allowed, Exact };
 
 // Whether a value of `from` and one of `to` are the same words at run time
-// (DataType::layoutMatch, an array as its elements are): what decides
-// whether a reindex between them is free or re-packs, and so the re-pack's
-// effects. Makes no type.
+// (DataType::layoutMatch, which reads each one's layout mark, an array as
+// its elements are): what decides whether a reindex between them is free or
+// re-packs, and so the re-pack's effects. Makes no type.
 LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
 
 // What re-packing a value of `from` as one of `to` decides by itself: it
@@ -259,14 +259,15 @@ bool fieldReadBuilds(mlir::Type container, unsigned index);
 // below a data type is walked. What exists only before idr-defunctionalize.
 ClosureReach closureReach(mlir::Type type);
 
-// Whether a value of `sub` stands where `super` is asked as the same value,
-// with no op between: `sub` is `super` with its levels instantiated by one
-// substitution (an index a case's equation fixes), at a data type perhaps
-// refined to fewer constructors. What a match's region binds is such a
-// refinement of what enters it. Context-free: every level of `super` may
-// be instantiated, consistently, and an opaque index of `super` stands for
-// any, one of `sub` for none `super` names; the exact substitution is the
-// scope walk's to check.
+// Whether `sub` refines `super`: it is `super` with its levels instantiated
+// by one substitution (an index a case's equation fixes), at a data type
+// perhaps refined to fewer constructors. What a match's region binds is
+// such a refinement of what enters it. Context-free: every level of
+// `super` may be instantiated, consistently, and an opaque index of
+// `super` stands for any, one of `sub` for none `super` names; the exact
+// substitution is the scope walk's to check. A layout mark is no index:
+// two types that differ in theirs alone refine each other, and whether a
+// value of one is the same words as one of the other is layoutMatch's.
 bool refines(mlir::Type sub, mlir::Type super);
 
 // Whether `instance` is `pattern` with its levels instantiated by one
@@ -323,7 +324,7 @@ FamilyAttr readFamily(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *co
 DataType readDataType(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context,
                       FamilyAttr group, uint32_t member, llvm::ArrayRef<families::TermNode> indices,
                       mlir::DenseI32ArrayAttr refinement,
-                      llvm::ArrayRef<families::TermNode> binders);
+                      llvm::ArrayRef<families::TermNode> binders, LayoutMark mark);
 SelfType readSelf(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context, uint32_t member,
                   llvm::ArrayRef<families::TermNode> indices);
 IndexBindersAttr readIndexBinders(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context,

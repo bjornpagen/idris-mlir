@@ -35,18 +35,22 @@ termKindClosed : Closed TermKind
 termKindClosed = MkClosed
   { name = "TermKind"
   , shape = OneOf
-  , every = Natural ::: [Level, Successor, Literal, Constructor, Opaque]
+  , every = Natural ::: [Level, Successor, Sum, Multiple, Literal, Constructor, Opaque]
   , complete = \case
       Natural => Here
       Level => There Here
       Successor => There (There Here)
-      Literal => There (There (There Here))
-      Constructor => There (There (There (There Here)))
-      Opaque => There (There (There (There (There Here))))
+      Sum => There (There (There Here))
+      Multiple => There (There (There (There Here)))
+      Literal => There (There (There (There (There Here))))
+      Constructor => There (There (There (There (There (There Here)))))
+      Opaque => There (There (There (There (There (There (There Here))))))
   , describe = \case
       Natural => MkCase "Natural" ("natural" ::: []) "a natural, a number"
       Level => MkCase "Level" ("level" ::: []) "a binder, by its level in its scope"
       Successor => MkCase "Successor" ("successor" ::: []) "a level plus a positive count"
+      Sum => MkCase "Sum" ("sum" ::: []) "levels, each with how often it occurs, plus a count"
+      Multiple => MkCase "Multiple" ("multiple" ::: []) "a level of a sum, with how often it occurs there"
       Literal => MkCase "Literal" ("literal" ::: []) "a constant of a scalar sort, or a type"
       Constructor => MkCase "Constructor" ("constructor" ::: []) "a constructor applied to its binders and fields"
       Opaque => MkCase "Opaque" ("opaque" ::: []) "an index outside the language, which refines nothing"
@@ -143,7 +147,8 @@ familiesHeader = MkHeader "Families"
 -- What a parameter of ours holds
 ------------------------------------------------------------------------------
 
-||| Index terms in normal form, `3`, `v1 + 2`, `#List @Cons(v0, v1)`, `_`.
+||| Index terms in normal form, `3`, `v1 + 2`, `v0 + v1 * 2 + 3`,
+||| `#List @Cons(v0, v1)`, `_`.
 export
 termsParam : Directive
 termsParam = MkDirective "IndexTerms" [] (brief "index terms in normal form")
@@ -203,6 +208,8 @@ termNode = MkComposite "TermNode" "::idr::families::TermNode"
      Natural => [MkWireField "value" (WireLeaf LeafCount)]
      Level => [MkWireField "value" (WireLeaf LeafCount)]
      Successor => [MkWireField "value" (WireLeaf LeafCount)]
+     Sum => [MkWireField "value" (WireLeaf LeafCount), MkWireField "arity" (WireLeaf LeafWord32)]
+     Multiple => [MkWireField "value" (WireLeaf LeafCount)]
      Literal => [MkWireField "payload" (WireLeaf (LeafAttr "::mlir::Attribute"))]
      Constructor =>
        [ MkWireField "payload" (WireLeaf (LeafMaybeAttr "::idr::FamilyAttr"))
