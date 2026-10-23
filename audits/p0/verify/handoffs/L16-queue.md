@@ -164,3 +164,19 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
 - `Walk` exports the placement of a non-negative index, so
   `definedAddress` takes its address from the entry `definitionIn` found
   rather than resolving the name again.
+
+## From L16cm
+
+- `DictParam` (`Cases.idr:947`): `Closed.fixing` returns the reduced
+  constructor or function value, and `Template.staticReading` carries it.
+- The family table (`Cases.idr:1004`, `Terms.idr:1938,2051`, `Choices.idr:91`):
+  family registration in `Translate/Types.idr` (`familyIn`, `constructor`,
+  `registeredChoice`, `dataOf`), `ConId` and `DataT` in `Ids.idr` and
+  `IdrisMLIR/Types.idr`.
+- `Shapes.idr:294`: the classification and `sizedTelescope` substitute
+  different stand-ins for the same parameters. One walk is the end state
+  (one fact, one derivation); show first that merging them leaves every
+  verdict as it is, since the two normalise differently.
+- `Terms.idr:490,1494` and `Cases.idr:921`: the caller's data per position
+  (held values, runtime variables) is not tied to the callee's signature by
+  type, and the cache key holds no holes.
