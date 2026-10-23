@@ -55,38 +55,41 @@ parameterName (x :: xs) = (binderName x, xs)
 ||| one per parameter, the scope having one variable per kind: a type, an
 ||| implementation or a parameter of quantity 0 a compile-time value, an
 ||| index parameter its level (the next one `level`), which its body's
-||| types read, and a runtime parameter the next Core parameter.
-runtimeParams : (level : Nat) -> List Name -> (vars : Scope) -> (kinds : List PKind) ->
-                (0 _ : length kinds = length vars) ->
-                (Vect (Runtimes kinds) Shown, StandsFor vars (Fin (Runtimes kinds)))
-runtimeParams level xs [] [] _ = ([], [])
-runtimeParams level xs (_ :: vs) (TypeParam t :: ks) same =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, TypeValue t :: env)
-runtimeParams level xs (_ :: vs) (DictParam t Nothing :: ks) same =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, Static t Nothing :: env)
-runtimeParams level xs (_ :: vs) (ErasedParam :: ks) same =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in
+||| types read, and a runtime parameter the next Core parameter. Each kind
+||| comes with its parameter's position among the instance's `kc`
+||| (`at`), which an implementation's entry keeps (`GivenParameter`).
+runtimeParams : {0 sp : Scoping} -> (level : Nat) -> List Name -> (vars : Scope) -> (kinds : List PKind) ->
+                (0 _ : length kinds = length vars) -> (at : Vect (length kinds) (Fin kc)) ->
+                (Vect (Runtimes kinds) Shown, StandsFor kc sp vars (Fin (Runtimes kinds)))
+runtimeParams level xs [] [] _ [] = ([], [])
+runtimeParams level xs (_ :: vs) (TypeParam t :: ks) same (_ :: at) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in (ps, TypeValue t :: env)
+runtimeParams level xs (_ :: vs) (DictParam t Nothing :: ks) same (p :: at) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in
+  (ps, Static t Nothing (MkGivenParameter p Nothing) :: env)
+runtimeParams level xs (_ :: vs) (ErasedParam :: ks) same (_ :: at) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in
   (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
-runtimeParams level xs (_ :: vs) (IndexParam _ :: ks) same =
-  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) vs ks (predecessors same) in
+runtimeParams level xs (_ :: vs) (IndexParam _ :: ks) same (_ :: at) =
+  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) vs ks (predecessors same) at in
   (ps, TypeValue (marker level) :: env)
-runtimeParams level xs (_ :: vs) (FormParam f :: ks) same =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) in (ps, TypeValue f :: env)
-runtimeParams level xs (_ :: vs) (DictParam t (Just h) :: ks) same =
+runtimeParams level xs (_ :: vs) (FormParam f :: ks) same (_ :: at) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in (ps, TypeValue f :: env)
+runtimeParams level xs (_ :: vs) (DictParam t (Just h) :: ks) same (p :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
-  (x :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
-runtimeParams level xs (_ :: vs) (ChoiceParam b known :: ks) same =
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
+  (x :: ps, Static t (Just (FZ, h)) (MkGivenParameter p (Just (FZ, h))) :: map (map FS) env)
+runtimeParams level xs (_ :: vs) (ChoiceParam b known :: ks) same (_ :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
   (x :: ps, Runtime FZ (BothTypes b.type known.type) :: map (map FS) env)
-runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same =
+runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same (_ :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
+      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
   (x :: ps, maybe (Runtime FZ (BothTypes b.type known)) (shaped FZ b.type known) shape
               :: map (map FS) env)
-runtimeParams level xs [] (_ :: _) Refl impossible
-runtimeParams level xs (_ :: _) [] Refl impossible
+runtimeParams level xs [] (_ :: _) Refl _ impossible
+runtimeParams level xs (_ :: _) [] Refl _ impossible
 
 ||| Equal successors have equal predecessors.
 predecessors : {0 m, n : Nat} -> S m = S n -> m = n
@@ -111,9 +114,9 @@ variablesOf (v :: vs) = Local EmptyFC Nothing 0 First :: map weaken (variablesOf
 ||| the signature, as the request classified as many parameters as the
 ||| body it holds has.
 translateDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                      (p : Request) -> (sig : InstanceSig) -> Name -> (m : Matched) ->
-                      (0 _ : length sig.kinds = length m.args) -> Front ()
-translateDefinition p sig n m counted = do
+                      (p : Request) -> Name -> (m : Matched) ->
+                      (0 _ : length p.signature.kinds = length m.args) -> Front ()
+translateDefinition p n m counted = do
   d <- lookupDef EmptyFC (show n) n
   let def = d.def
   let owner = show (fullname def)
@@ -123,7 +126,7 @@ translateDefinition p sig n m counted = do
   before <- getState
   False <- pure (contains address before.refused)
     | True => pure ()
-  Nothing <- heldChoice (kindsOf p)
+  Nothing <- heldChoice p.signature.kinds
     | Just parts => heldDispatch p parts
   let fc = location def
   let ty = d.type
@@ -131,14 +134,17 @@ translateDefinition p sig n m counted = do
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  let (names, env) = runtimeParams 0 (parameterNames ty) m.args sig.kinds counted
-  tree' <- tree (MkCtx owner fc complete sig.result sig.callee.result (length (telescopeOf sig.kinds)) (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
+  let (names, env) = runtimeParams {sp = OfTree} 0 (parameterNames ty) m.args p.signature.kinds counted
+                                   (Data.Vect.allFins (length p.signature.kinds))
+  tree' <- tree (MkCtx owner fc complete p.signature.result p.signature.callee.result
+                       (length (telescopeOf p.signature.kinds)) (givesAfter (length m.args) (memberPlaces d)) p Refl)
+                env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
   -- instance with no array parameter has none to state.
-  ties <- if any (isJust . valueDims . (.type)) sig.callee.params
-            then (entryTies . fst) <$> sizedTelescope ty sig.kinds
+  ties <- if any (isJust . valueDims . (.type)) p.signature.callee.params
+            then (entryTies . fst) <$> sizedTelescope ty p.signature.kinds
             else pure []
   -- Where the definition stands, read once from its Idris name: a case,
   -- with or nested block is local to the function Idris lifted it out of.
@@ -150,17 +156,17 @@ translateDefinition p sig n m counted = do
   -- parameters, where its body gives its value (`tiedExits`): each call of
   -- it states the same of the value, and one that becomes a jump leaves
   -- the statement to the region.
-  exits <- case (standing, valueDims sig.callee.result) of
+  exits <- case (standing, valueDims p.signature.callee.result) of
              (LocalDefinition, Just _) => do
-               (tel, res) <- sizedTelescope ty sig.kinds
-               map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes sig.kinds)) w)) <$> resultTies tel res sig.callee.result
+               (tel, res) <- sizedTelescope ty p.signature.kinds
+               map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes p.signature.kinds)) w)) <$> resultTies tel res p.signature.callee.result
              _ => pure []
-  let body = tied loc sig.callee.params (allFins (Runtimes sig.kinds)) ties
-                  (tiedExits loc sig.callee.result exits (length (telescopeOf sig.kinds)) sig.callee.params tree')
+  let body = tied loc p.signature.callee.params (allFins (Runtimes p.signature.kinds)) ties
+                  (tiedExits loc p.signature.callee.result exits (length (telescopeOf p.signature.kinds)) p.signature.callee.params tree')
   -- What Idris proved of its loops, read with the program (`Recursion`).
   termination <- (\r => terminationOf r d) <$> reading
-  extents <- signatureExtents sig.kinds sig.result
-  updateState (derive { fns $= insert p.inst (MkTFn p.key standing (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee
+  extents <- signatureExtents p.signature.kinds p.signature.result
+  updateState (derive { fns $= insert p.inst (MkTFn p.key standing (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
                                                       extents names body loc termination) })
   where
     -- The body under one `let` per parameter with a tied dimension, in
@@ -190,22 +196,23 @@ appliedScope app uses = app.formType :: app.form :: replicate uses (UN (Basic (k
 ||| first, in the scope `appliedScope` names. It has no loop of its own:
 ||| what its form calls is the callee's.
 translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                       (p : Request) -> (sig : InstanceSig) -> (uses : Nat) -> (0 _ : length sig.kinds = 2 + uses) ->
+                       (p : Request) -> (uses : Nat) -> (0 _ : length p.signature.kinds = 2 + uses) ->
                        Front ()
-translateApplication p sig uses counted = do
+translateApplication p uses counted = do
   let owner = show p.owner
   let fc = p.site
   app <- (.application) <$> reading
-  let (names, env) = runtimeParams 0 (appliedScope app uses) (appliedScope app uses) sig.kinds
+  let (names, env) = runtimeParams {sp = OfTerm} 0 (appliedScope app uses) (appliedScope app uses) p.signature.kinds
                                    (trans counted (sym (cong (\k => S (S k)) (lengthReplicate uses))))
+                                   (Data.Vect.allFins (length p.signature.kinds))
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result sig.callee.result (length (telescopeOf sig.kinds)) ByInstance p) env sig.result
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True p.signature.result p.signature.callee.result (length (telescopeOf p.signature.kinds)) ByInstance p Refl) env p.signature.result
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
-  extents <- signatureExtents sig.kinds sig.result
-  updateState (derive { fns $= insert p.inst (MkTFn p.key OwnFunction (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee
+  extents <- signatureExtents p.signature.kinds p.signature.result
+  updateState (derive { fns $= insert p.inst (MkTFn p.key OwnFunction (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
                                                       extents names body loc Acyclic) })
 
 ||| Translates one function instance, of a definition or of a member at a
@@ -217,11 +224,11 @@ translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Requ
 translateInstance p = translated p.instantiates p.classifiesAll
   where
     translated : (what : Instantiates) -> (0 _ : length p.signature.kinds = appliedArity what) -> Front ()
-    translated (OfDefinition n m) counted = translateDefinition p p.signature n m counted
+    translated (OfDefinition n m) counted = translateDefinition p n m counted
     translated (AtUse uses) counted = do
-      Nothing <- heldChoice (kindsOf p)
+      Nothing <- heldChoice p.signature.kinds
         | Just parts => heldDispatch p parts
-      translateApplication p p.signature uses counted
+      translateApplication p uses counted
 
 ||| One step of the translation's worklist: the instance of a request, the
 ||| item's own, translated as a function of what it reads (the program as

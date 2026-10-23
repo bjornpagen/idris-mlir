@@ -69,7 +69,7 @@ import Decidable.Equality
 ||| reads (`exiting`), and its signature, the kinds it was classified at,
 ||| which a field taken apart where it is held reads (`Cases.heldHere`).
 public export
-record Ctx where
+record Ctx (kc : Nat) where
   constructor MkCtx
   owner : String
   fc : FC
@@ -79,8 +79,9 @@ record Ctx where
   depth : Nat
   resultHolding : Holding
   request : Request
+  0 counts : length request.signature.kinds = kc
 
-bestFC : Ctx -> FC -> FC
+bestFC : Ctx kc -> FC -> FC
 bestFC ctx fc = if isEmptyFC fc then ctx.fc else fc
 
 ||| What a term is translated at, as Idris's elaborator checked it: the
@@ -94,7 +95,7 @@ data Expected = ExpectedAt Ty | Synthesized
 
 ||| The Core type of a runtime variable, where its entry gives it.
 export
-coreTyOf : VarInfo a -> Maybe Ty
+coreTyOf : VarInfo kc sp a -> Maybe Ty
 coreTyOf (Runtime _ t) = coreOf t
 coreTyOf (Shaped _ t _ _) = Just t
 coreTyOf _ = Nothing
@@ -102,10 +103,10 @@ coreTyOf _ = Nothing
 ||| What the environment knows of the types of the Core variables in scope:
 ||| each runtime variable's, as its entry gives it. It reads the entries
 ||| one by one, so a variable whose entry is at hand is typed by it instead.
-scopeOf : StandsFor vars (Fin nv) -> ScopeTypes nv
+scopeOf : StandsFor kc OfTerm vars (Fin nv) -> ScopeTypes nv
 scopeOf env x = go (innermostFirst env)
   where
-    go : List (VarInfo (Fin nv)) -> Maybe Ty
+    go : List (VarInfo kc OfTerm (Fin nv)) -> Maybe Ty
     go [] = Nothing
     go (e@(Runtime y _) :: es) = if y == x then coreTyOf e else go es
     go (e@(Shaped y _ _ _) :: es) = if y == x then coreTyOf e else go es
@@ -212,7 +213,7 @@ compileTimeArg _ = Erased EmptyFC Placeholder
 
 ||| Is an argument a type or a compile-time value, which exists only where
 ||| what takes it erases it?
-compileTime : StandsFor vars a -> TT vars -> Bool
+compileTime : StandsFor kc sp vars a -> TT vars -> Bool
 compileTime env (Local _ _ idx p) = case lookupVar idx p env of
   TypeValue _ => True
   _ => False
@@ -227,7 +228,7 @@ compileTime env tm = case getFnArgs tm of
 
 ||| The Idris type of a variable at the head of an application, through a
 ||| `Force` of a lazy one.
-headType : StandsFor vars a -> TT vars -> Maybe ClosedTerm
+headType : StandsFor kc sp vars a -> TT vars -> Maybe ClosedTerm
 headType env (Local _ _ idx p) = case lookupVar idx p env of
   Runtime _ t => idrisOf t
   Shaped _ _ t _ => Just t
@@ -238,7 +239,7 @@ headType env (TForce _ _ e) = case headType env e of
 headType _ _ = Nothing
 
 ||| A head as a message names it: a variable by its name.
-headName : {vars : Scope} -> FC -> StandsFor vars a -> TT vars -> Front String
+headName : {vars : Scope} -> FC -> StandsFor kc sp vars a -> TT vars -> Front String
 headName fc env (Local _ _ idx p) = pure (show (nameAt {idx} p))
 headName fc env tm = showTT (closeWritten fc env tm)
 
@@ -246,7 +247,7 @@ headName fc env tm = showTT (closeWritten fc env tm)
 ||| quantity check admits one only where the type of what takes it erases
 ||| it, which is where the translation leaves it out; here nothing does.
 inRuntime : {auto s : Ref TState TS} -> {vars : Scope} ->
-            String -> FC -> StandsFor vars a -> TT vars -> Front b
+            String -> FC -> StandsFor kc sp vars a -> TT vars -> Front b
 inRuntime owner fc env tm = do
   what <- showTT (closeWritten fc env tm)
   reject fc owner ValueType (what ++ " in a runtime position")
@@ -255,7 +256,7 @@ inRuntime owner fc env tm = do
 ||| closed normal form where the scope mentions it, nothing where it does
 ||| not.
 instantiate : {vars : Scope} ->
-              FC -> StandsFor vars a -> TT [x] -> TT vars -> Front ClosedTerm
+              FC -> StandsFor kc sp vars a -> TT [x] -> TT vars -> Front ClosedTerm
 instantiate fc env sc arg = case shrink sc (Drop Refl) of
   Just sc' => pure sc'
   Nothing => do
@@ -387,18 +388,18 @@ formType held t = lambdas 0 [] [] !(lambdasApplied t)
     -- Down the lambdas, each variable standing for its probe (`env`, the
     -- innermost first), then the body, closed with its `let`s put in.
     lambdas : {vs : Scope} -> Nat -> List (Name, RigCount, PiInfo ClosedTerm, ClosedTerm) ->
-              StandsFor vs Nat -> TT vs -> Front (Maybe ClosedTerm)
+              StandsFor 0 OfTerm vs Nat -> TT vs -> Front (Maybe ClosedTerm)
     lambdas k ls env (Bind _ x (Lam _ rig p ty) sc) =
       lambdas (S k) (ls ++ [(x, rig, map (closeWritten EmptyFC env) p, closeWritten EmptyFC env ty)])
               (TypeValue (formal k) :: env) sc
     lambdas k ls env body = map (bound 0 ls) <$> bodyType ls (closeWritten EmptyFC env body)
 
 ||| What a marker of a settled term stands for.
-data Stand : Nat -> Type where
+data Stand : Nat -> Nat -> Type where
   ||| A variable in scope: the marker is bound as it is, with no `let`.
-  AsVariable : VarInfo (Fin nv) -> Stand nv
+  AsVariable : VarInfo kc OfTerm (Fin nv) -> Stand kc nv
   ||| A runtime value, bound once by a `let` before the term.
-  AsValue : Lazy (Front (Term nv)) -> Stand nv
+  AsValue : Lazy (Front (Term nv)) -> Stand kc nv
 
 ||| The values an implementation closes over, each translated.
 valuesOf : {0 nv : Nat} -> List1 (ClosedTerm, Front (Term nv)) -> Front (List1 (ClosedTerm, Term nv))
@@ -412,7 +413,7 @@ valuesOf ((t, v) ::: rest) = (:::) <$> ((t,) <$> v) <*> later rest
 ||| in its scope: what keys an instance names no level of the scope
 ||| (`unmarked`); what an index parameter is given keeps them (`scoped`).
 argValueIn : {vars : Scope} ->
-             StandsFor vars (Fin nv) -> FC -> Arg vars nv -> Maybe ArgValue
+             StandsFor kc OfTerm vars (Fin nv) -> FC -> Arg vars nv -> Maybe ArgValue
 argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.written)
                                        (unmarked <$> solved (closeWritten fc env x.written))
                                        (offered x.written)
@@ -421,7 +422,8 @@ argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.wri
   where
     offered : TT vars -> Offer
     offered (Local _ _ idx p) = case lookupVar idx p env of
-      Static _ _ => AnImplementation
+      Static _ _ _ => AnImplementation
+      BoundHere _ _ => AnImplementation
       _ => AValue
     offered _ = AValue
 
@@ -447,7 +449,7 @@ givenTo (k :: ks) (a :: as) = consAt (boundAtRuntime k) (a k) (givenTo ks as)
 ||| which the call dispatches on, each arm the member at the use's types
 ||| (`Choices.calleeAt`), or the values a fixed form closes over.
 applyAtUse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-             Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> (t : ClosedTerm) -> (form : ArgValue) ->
+             Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> (t : ClosedTerm) -> (form : ArgValue) ->
              (value : Maybe (Term nv)) -> List (Arg vars nv) -> Front (Term nv)
 applyAtUse ctx env fc loc t form value args = do
   ty <- applicationType
@@ -504,7 +506,7 @@ applyAtUse ctx env fc loc t form value args = do
 ||| of its result, which the next one applies; its argument is translated
 ||| at the parameter's type.
 applyOver : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> Front String ->
+            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> Front String ->
             Term nv -> (core : Maybe Ty) -> Maybe ClosedTerm -> List (Arg vars nv) -> Front (Term nv)
 applyOver ctx env fc loc what f core _ [] = pure f
 applyOver ctx env fc loc what f core fty (x :: xs) = do
@@ -546,7 +548,7 @@ applyOver ctx env fc loc what f core fty (x :: xs) = do
 ||| holds it), at the extents a suspension's type holds: every one dynamic,
 ||| as `coreType` makes a `Lazy` type's.
 delayedType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-              Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> Front Ty
+              Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> TT vars -> Front Ty
 delayedType ctx env fc ty = do
   known <- closeNormalise fc env ty
   dynamicDims <$> coreType (bestFC ctx fc) ctx.owner ValueType known
@@ -567,7 +569,7 @@ mutual
   export
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         Ctx -> StandsFor vars (Fin nv) -> (ex : Expected) -> TT vars -> Front (Term nv)
+         Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> (ex : Expected) -> TT vars -> Front (Term nv)
   term ph w acc ctx env ex (Local fc r idx p) = applyVariable ph w acc ctx env fc fc r idx p []
   term ph w acc ctx env ex tm@(PrimVal fc c) = do
     loc <- toLoc (bestFC ctx fc)
@@ -667,7 +669,7 @@ mutual
   ||| of the chain.
   delayed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> StandsFor vars (Fin nv) -> Expected -> TT vars -> Front (List (Loc, Ty), Term nv)
+            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> TT vars -> Front (List (Loc, Ty), Term nv)
   delayed ph w acc ctx env ex (TDelay dfc _ ty arg) = do
     loc <- toLoc (bestFC ctx dfc)
     t <- delayedType ctx env dfc ty
@@ -687,8 +689,8 @@ mutual
   ||| bound once, here, where eager evaluation computes them.
   letIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> StandsFor vars (Fin nv) -> FC -> (x : Name) -> RigCount -> TT vars -> TT vars ->
-          ({0 m : Nat} -> StandsFor (x :: vars) (Fin m) -> Front (r, Term m)) -> Front (r, Term nv)
+          Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> (x : Name) -> RigCount -> TT vars -> TT vars ->
+          ({0 m : Nat} -> StandsFor kc OfTerm (x :: vars) (Fin m) -> Front (r, Term m)) -> Front (r, Term nv)
   letIn ph w acc ctx env fc x rig val ty body =
     case use rig of
       Erased => body (TypeValue (Erased fc Placeholder) :: env)
@@ -702,7 +704,7 @@ mutual
           then do
             FixedNow <- fixing known impl
               | ChosenAtRunTime _ => runtimeLet q loc known
-            body (Static impl Nothing :: env)
+            body (BoundHere impl Nothing :: env)
           else do
             Just (shape, values) <- holed ph w acc ctx env fc val
               | Nothing => runtimeLet q loc known
@@ -710,7 +712,7 @@ mutual
               | ChosenAtRunTime _ => runtimeLet q loc known
             held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack fc ctx.owner loc !(valuesOf values)
-            (r', inner) <- body (under {k = 1} [Static shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
+            (r', inner) <- body (under {k = 1} [BoundHere shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
             pure (r', Let loc (binderName x) (Checked (MkBinder Many held)) v inner)
     where
       -- The value computed and bound by a `let`, a runtime value used as
@@ -734,7 +736,7 @@ mutual
   export
   atType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Ctx -> StandsFor vars (Fin nv) -> (ty : ClosedTerm) -> TT vars -> Front (Term nv)
+           Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> (ty : ClosedTerm) -> TT vars -> Front (Term nv)
   atType ph w acc ctx env ty tm@(Bind fc _ (Lam {}) _) = do
     Just ct <- holds ctx.resultHolding ty
       | Nothing => term ph w acc ctx env (ExpectedAt ctx.resultType) tm
@@ -751,7 +753,7 @@ mutual
   ||| body is translated at.
   suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> StandsFor vars (Fin nv) -> FC -> (ty, arg : TT vars) -> Front (Term nv)
+            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> (ty, arg : TT vars) -> Front (Term nv)
   suspend ph w acc ctx env fc ty arg = do
     loc <- toLoc (bestFC ctx fc)
     t <- delayedType ctx env fc ty
@@ -762,7 +764,7 @@ mutual
   ||| what the use that gives it expects.
   argOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars -> Arg vars nv
+          Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> TT vars -> Arg vars nv
   argOf ph w acc ctx env afc a = MkArg a (\ex => term ph w acc ctx env ex a) (holed ph w acc ctx env afc a)
 
   ||| An application's spine, its arguments collected where each is a
@@ -770,7 +772,7 @@ mutual
   ||| expected at.
   spine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Ctx -> StandsFor vars (Fin nv) -> Expected -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
+          Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
   spine ph w acc ctx env ex afc (App _ f a) args = spine ph w acc ctx env ex afc f (argOf ph w acc ctx env afc a :: args)
   spine ph w acc ctx env ex afc (Ref rfc nt n) args = applyRef ph w acc ctx env ex afc rfc nt n args
   spine ph w acc ctx env ex afc tm args = applyHead ph w acc ctx env ex afc tm args
@@ -783,7 +785,7 @@ mutual
   ||| nothing, at what the application is expected at.
   applyHead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
               (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-              Ctx -> StandsFor vars (Fin nv) -> Expected -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
+              Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> FC -> TT vars -> List (Arg vars nv) -> Front (Term nv)
   applyHead ph w acc ctx env ex afc (Local fc r idx p) args = applyVariable ph w acc ctx env afc fc r idx p args
   -- The argument is bound as what it is: a compile-time value at an erased
   -- binder; another name for a variable; at a binder of an implementation
@@ -816,7 +818,7 @@ mutual
         body <- spine ph w acc ctx (under {k = 1} [Runtime FZ (BothTypes b.type known)] env) ex afc sc (map underLet rest)
         pure (Let loc (binderName x) (Checked b) v body)
 
-      aliased : TT vars -> Maybe (VarInfo (Fin nv))
+      aliased : TT vars -> Maybe (VarInfo kc OfTerm (Fin nv))
       aliased (Local _ _ idx p) = Just (lookupVar idx p env)
       aliased _ = Nothing
 
@@ -832,7 +834,7 @@ mutual
           then do
             FixedNow <- fixing known impl
               | ChosenAtRunTime _ => asValue q loc
-            spine ph w acc ctx (Static impl Nothing :: env) ex afc sc (map overBinder rest)
+            spine ph w acc ctx (BoundHere impl Nothing :: env) ex afc sc (map overBinder rest)
           else do
             Just (shape, values) <- a.held
               | Nothing => asValue q loc
@@ -841,7 +843,7 @@ mutual
             held <- coreType bfc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack bfc ctx.owner loc !(valuesOf values)
             body <- spine ph w acc ctx
-                          (under {k = 1} [Static shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
+                          (under {k = 1} [BoundHere shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
                           ex afc sc (map underLet rest)
             pure (Let loc (binderName x) (Checked (MkBinder Many held)) v body)
   applyHead ph w acc ctx env ex afc (Meta mfc n i margs) args = entered ph w acc ctx env ex afc mfc n i margs args
@@ -857,7 +859,7 @@ mutual
   ||| implementation, as `implementationAt` uses one.
   applyVariable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  Ctx -> StandsFor vars (Fin nv) -> (afc : FC) -> (fc : FC) -> Maybe Bool ->
+                  Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> (afc : FC) -> (fc : FC) -> Maybe Bool ->
                   (idx : Nat) -> (0 p : IsVar n idx vars) -> List (Arg vars nv) -> Front (Term nv)
   applyVariable ph w acc ctx env afc fc r idx p args = case lookupVar idx p env of
     e@(Runtime x _) => applied x e
@@ -870,10 +872,11 @@ mutual
     -- TT's variable does not carry it: one that fails it is refused, as
     -- the compiled module it is.
     TypeValue _ => reject (bestFC ctx fc) ctx.owner CompiledModule "a compile-time variable in a runtime position"
-    Static t held => implementationAt ph w acc ctx env fc t held args
+    Static t held _ => implementationAt ph w acc ctx env fc t held args
+    BoundHere t held => implementationAt ph w acc ctx env fc t held args
     where
       -- The variable, of the Core type its entry gives.
-      applied : Fin nv -> VarInfo (Fin nv) -> Front (Term nv)
+      applied : Fin nv -> VarInfo kc OfTerm (Fin nv) -> Front (Term nv)
       applied x e = do
         loc <- toLoc (bestFC ctx fc)
         let at = bestFC ctx afc
@@ -898,7 +901,7 @@ mutual
   ||| type's choice is, dispatched on.
   implementationAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                      Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                     Ctx -> StandsFor vars (Fin nv) -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) ->
+                     Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) ->
                      List (Arg vars nv) -> Front (Term nv)
   implementationAt ph@Settled w acc@(Access rec) ctx env fc t held args = do
     place <- formHead t
@@ -925,7 +928,7 @@ mutual
   ||| them, marker 0, which stands for that variable, of the type that holds
   ||| them, so that a value at the form's head is applied as its own type
   ||| says (a choice, dispatched on).
-  standingFor : ClosedTerm -> Maybe (Fin nv, Holes) -> Front (ClosedTerm, List (Stand nv))
+  standingFor : ClosedTerm -> Maybe (Fin nv, Holes) -> Front (ClosedTerm, List (Stand kc nv))
   standingFor t Nothing = pure (t, [])
   standingFor t (Just (x, hs)) = do
     values <- unpacked hs.types (holeMarker 0)
@@ -935,7 +938,7 @@ mutual
   ||| entered once on the path.
   entered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Ctx -> StandsFor vars (Fin nv) -> Expected -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
+            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
             List (Arg vars nv) -> Front (Term nv)
   entered ph w acc@(Access rec) ctx env ex afc fc n i margs args = do
     -- The metavariable's entry is Idris's bare `Int`, which a resolved
@@ -964,8 +967,8 @@ mutual
   ||| refers to a definition Idris does not prove ends is settled as any
   ||| other.
   settle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> StandsFor vars (Fin nv) -> FC ->
-           (value : ClosedTerm) -> (pre : List (Stand nv)) -> List (Arg vars nv) -> Front (Term nv)
+           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC ->
+           (value : ClosedTerm) -> (pre : List (Stand kc nv)) -> List (Arg vars nv) -> Front (Term nv)
   settle ph w acc ctx env fc value pre args = do
     (terms, stands) <- given (length pre) args
     nf <- lambdasApplied (foldl (App EmptyFC) value terms)
@@ -974,7 +977,7 @@ mutual
     where
       -- A runtime value as a marker: a variable as itself, anything else
       -- by its translation.
-      stand : Arg vars nv -> Stand nv
+      stand : Arg vars nv -> Stand kc nv
       stand a = case a.written of
         Local _ _ idx p => case lookupVar idx p env of
           e@(Runtime {}) => AsVariable e
@@ -988,6 +991,7 @@ mutual
       anImplementation tm = case getFnArgs tm of
         (Local _ _ idx p, _) => pure (case lookupVar idx p env of
                                         Static {} => True
+                                        BoundHere {} => True
                                         _ => False)
         (Ref rfc _ n, _) => implementationType (!(lookupDef rfc ctx.owner n)).type
         _ => pure False
@@ -999,7 +1003,7 @@ mutual
       -- it reduces to (`implementationOf`), as that; an implementation that
       -- closes over runtime values by its form, its markers moved up to
       -- `k`; any other runtime value as a marker.
-      argument : Nat -> Arg vars nv -> Front (ClosedTerm, List (Stand nv))
+      argument : Nat -> Arg vars nv -> Front (ClosedTerm, List (Stand kc nv))
       argument k a = do
         written <- solved (closeWritten fc env a.written)
         if compileTime env a.written then pure (written, []) else case stand a of
@@ -1015,7 +1019,7 @@ mutual
                   | Nothing => pure (holeMarker k, [s])
                 pure (shifted markerName k (length values) shape, map (\(_, v) => AsValue v) (forget values))
 
-      given : Nat -> List (Arg vars nv) -> Front (List ClosedTerm, List (Stand nv))
+      given : Nat -> List (Arg vars nv) -> Front (List ClosedTerm, List (Stand kc nv))
       given k [] = pure ([], [])
       given k (a :: as) = do
         (t, ss) <- argument k a
@@ -1029,8 +1033,8 @@ mutual
   ||| is bound.
   bindStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-               Ctx -> StandsFor vars (Fin nv) -> Loc -> Nat -> (Fin m -> Fin nv) ->
-               List (Stand m) -> TT vars -> Front (Term nv)
+               Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Loc -> Nat -> (Fin m -> Fin nv) ->
+               List (Stand kc m) -> TT vars -> Front (Term nv)
   bindStands ph w acc ctx env loc i ren [] body = term ph w acc ctx env Synthesized body
   bindStands ph w acc ctx env loc i ren (AsVariable e :: stands) body =
     bindStands ph w acc ctx (map ren e :: env) loc (S i) ren stands (refToLocal (markerName i) (markerName i) body)
@@ -1050,8 +1054,8 @@ mutual
   ||| without end, and is the one case refused.
   settledPiece : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Ctx -> StandsFor vars (Fin nv) -> FC -> (giver : Placement) -> (impl : ClosedTerm) ->
-                 (stands : List (VarInfo (Fin nv))) -> TT vars -> Front (Term nv)
+                 Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> (giver : Placement) -> (impl : ClosedTerm) ->
+                 (stands : List (VarInfo kc OfTerm (Fin nv))) -> TT vars -> Front (Term nv)
   settledPiece ph w acc@(Access rec) ctx env afc giver impl stands p = do
     let Just (Element w' less) = enter giver w
       | Nothing => reject (bestFC ctx afc) ctx.owner RuntimeClosure
@@ -1078,7 +1082,7 @@ mutual
   ||| marker in the written form, which Closed's reduction takes to the
   ||| implementation it stands for (`implementationOf`), and that is walked.
   holed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-          Phase -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx -> StandsFor vars (Fin nv) -> FC -> TT vars ->
+          Phase -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> TT vars ->
           Front (Maybe (ClosedTerm, List1 (ClosedTerm, Front (Term nv))))
   holed ph w acc ctx env afc x = do
     r <- implementationOf !(solved (closeWritten afc (fst marked) x))
@@ -1095,32 +1099,34 @@ mutual
       -- The environment with each runtime variable, and each that holds an
       -- implementation closing over values, replaced by its marker, and
       -- those variables, the stands, by marker.
-      marking : Nat -> StandsFor vs (Fin nv) -> (StandsFor vs (Fin nv), List (VarInfo (Fin nv)))
+      marking : Nat -> StandsFor kc OfTerm vs (Fin nv) -> (StandsFor kc OfTerm vs (Fin nv), List (VarInfo kc OfTerm (Fin nv)))
       marking k [] = ([], [])
       marking k (e@(Runtime {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e@(Shaped {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
-      marking k (e@(Static _ (Just _)) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
+      marking k (e@(Static _ (Just _) _) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
+      marking k (e@(BoundHere _ (Just _)) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e :: es) = let (es', ss) = marking k es in (e :: es', ss)
 
-      marked : (StandsFor vars (Fin nv), List (VarInfo (Fin nv)))
+      marked : (StandsFor kc OfTerm vars (Fin nv), List (VarInfo kc OfTerm (Fin nv)))
       marked = marking 0 env
 
-      stands : List (VarInfo (Fin nv))
+      stands : List (VarInfo kc OfTerm (Fin nv))
       stands = snd marked
 
-      standAt : Name -> Maybe (VarInfo (Fin nv))
+      standAt : Name -> Maybe (VarInfo kc OfTerm (Fin nv))
       standAt n = markerOf n >>= \k => getAt k stands
 
       -- What the written form has for a variable (`closeWritten`), where a
       -- stand's marker is: a runtime value's unknown value, its shape, an
       -- implementation's form.
-      writtenAs : VarInfo (Fin nv) -> ClosedTerm
+      writtenAs : VarInfo kc OfTerm (Fin nv) -> ClosedTerm
       writtenAs (Shaped _ _ _ s) = s
-      writtenAs (Static t _) = t
+      writtenAs (Static t _ _) = t
+      writtenAs (BoundHere t _) = t
       writtenAs (TypeValue t) = t
       writtenAs (Runtime {}) = probeTerm ProbeRuntime
 
-      restoring : Nat -> List (VarInfo (Fin nv)) -> (ns : List Name ** (Bounds ns, SubstEnv ns Scope.empty))
+      restoring : Nat -> List (VarInfo kc OfTerm (Fin nv)) -> (ns : List Name ** (Bounds ns, SubstEnv ns Scope.empty))
       restoring k [] = ([] ** (None, []))
       restoring k (e :: es) =
         let (ns ** (bs, vs)) = restoring (S k) es in
@@ -1268,8 +1274,9 @@ mutual
           isMarker k (Ref _ _ n) = n == markerName k
           isMarker _ _ = False
 
-          holders : Nat -> List (VarInfo (Fin nv)) -> List (Nat, (Fin nv, Holes, ClosedTerm))
-          holders k (Static t (Just (v, hs)) :: rest) = (k, (v, hs, t)) :: holders (S k) rest
+          holders : Nat -> List (VarInfo kc OfTerm (Fin nv)) -> List (Nat, (Fin nv, Holes, ClosedTerm))
+          holders k (Static t (Just (v, hs)) _ :: rest) = (k, (v, hs, t)) :: holders (S k) rest
+          holders k (BoundHere t (Just (v, hs)) :: rest) = (k, (v, hs, t)) :: holders (S k) rest
           holders k (_ :: rest) = holders (S k) rest
           holders _ [] = []
 
@@ -1288,8 +1295,8 @@ mutual
       -- A variable that holds an implementation that closes over values
       -- holds them as one value: its markers become that value's
       -- projections.
-      headed impl (Ref _ Bound n) [] = case standAt n of
-        Just (Static t (Just (v, hs))) => do
+      headed impl (Ref _ Bound n) [] = case standAt n >>= implementationOf of
+        Just (t, Just (v, hs)) => do
           loc <- toLoc (bestFC ctx afc)
           projections <- unpacked hs.types (foundMarker 0)
           held <- packedType hs.types
@@ -1328,7 +1335,7 @@ mutual
           isMarker _ _ = False
 
           -- Each stand the lambda mentions, from found value `j` on.
-          capture : Loc -> Nat -> List (Nat, VarInfo (Fin nv)) -> ClosedTerm -> Front (Maybe (ClosedTerm, Found nv))
+          capture : Loc -> Nat -> List (Nat, VarInfo kc OfTerm (Fin nv)) -> ClosedTerm -> Front (Maybe (ClosedTerm, Found nv))
           capture loc j [] t = pure (Just (t, []))
           capture loc j ((k, e) :: rest) t = do
             Just (v, ty, here) <- standing e
@@ -1339,14 +1346,15 @@ mutual
             where
               -- The variable a stand is, the type of the value it holds, and
               -- what the lambda has where its marker was.
-              standing : VarInfo (Fin nv) -> Front (Maybe (Fin nv, ClosedTerm, ClosedTerm))
+              standing : VarInfo kc OfTerm (Fin nv) -> Front (Maybe (Fin nv, ClosedTerm, ClosedTerm))
               standing (Runtime v (BothTypes _ ity)) = pure (Just (v, ity, foundMarker j))
               standing (Shaped v _ ity _) = pure (Just (v, ity, foundMarker j))
-              standing (Static form (Just (v, hs))) = do
-                projections <- unpacked hs.types (foundMarker j)
-                held <- packedType hs.types
-                pure (Just (v, held, fillHoles projections form))
-              standing _ = pure Nothing
+              standing e = case implementationOf e of
+                Just (form, Just (v, hs)) => do
+                  projections <- unpacked hs.types (foundMarker j)
+                  held <- packedType hs.types
+                  pure (Just (v, held, fillHoles projections form))
+                _ => pure Nothing
 
       -- An implementation's spine, each argument with its own walk
       -- suspended where it is a subterm.
@@ -1365,7 +1373,7 @@ mutual
   ||| value is the choice among the members its own body fixes.
   member : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> ChoiceType -> TT vars -> Front (Maybe (Term nv))
+           Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> ChoiceType -> TT vars -> Front (Maybe (Term nv))
   member ph w acc ctx env fc loc ct written = do
     impl <- solved (closeWritten fc env written)
     if not !(runtimeDependent impl)
@@ -1388,7 +1396,7 @@ mutual
   ||| A definition applied to its arguments.
   applyRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
              (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             Ctx -> StandsFor vars (Fin nv) -> Expected -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
+             Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
              List (Arg vars nv) -> Front (Term nv)
   applyRef ph w acc ctx env ex afc rfc nt name args = do
     d <- lookupDef (bestFC ctx rfc) ctx.owner name
@@ -1398,7 +1406,7 @@ mutual
   ||| is what the whole application is expected at.
   applyDefined : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Ctx -> StandsFor vars (Fin nv) -> Expected -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
+                 Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> (afc : FC) -> (rfc : FC) -> NameType -> Name ->
                  Defined -> List (Arg vars nv) -> Front (Term nv)
   applyDefined ph w acc ctx env ex afc rfc nt name d args = do
     let fc = bestFC ctx rfc
@@ -2488,5 +2496,5 @@ mutual
 ||| does not prove ends runs there, eagerly, its divergence its call's.
 export
 computedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Ctx -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (Term nv)
+             Ctx kc -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (Term nv)
 computedAt ctx fc t held = implementationAt {vars = Scope.empty} asWritten start (sizeAccessible start) ctx [] fc t held []

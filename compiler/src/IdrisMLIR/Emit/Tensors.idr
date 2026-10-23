@@ -189,8 +189,7 @@ fit ix l slot v = case fitting slot v.type v.refinement of
   -- binds (`OfValue`) and a value a settled term computes are typed by what
   -- makes them, not by a binder of the scope, so what makes a value and
   -- what holds it are two readings of one Idris type.
-  Mismatch what expected =>
-    internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
+  Mismatch what expected => unfit (MkUnfit l what v.type expected)
 
 ||| An op that makes a value of type `made`, where a slot of type `slot`
 ||| takes it (`fit`), the variable `binder` bound to what the slot takes:

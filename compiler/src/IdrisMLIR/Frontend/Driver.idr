@@ -280,28 +280,24 @@ siteOf : (main : NonEmptyFC) -> Rejection -> NonEmptyFC
 siteOf main (Refused r) = r.site
 siteOf main (ByIdris e) = fromMaybe main (getErrorLoc e >>= isNonEmptyFC)
 
-||| A rejection as the refusal the module holds, at its site (`siteOf`).
-||| Idris's own error is a refusal of the rule `Elaboration`, its message
-||| Core's print of the error: Idris's renderer (`Idris.Error.perror`) is
-||| covering, and the frontend is total.
-refusalOf : Modules -> (main : NonEmptyFC) -> Rejection -> Core ModuleRefusal
-refusalOf ms main r@(Refused refusal) = moduleRefusal ms refusal.rule (siteOf main r) refusal.message
-refusalOf ms main r@(ByIdris e) = moduleRefusal ms (Refusal Elaboration) (siteOf main r) (show e)
+||| A rejection as a refusal of a rule at its site (`siteOf`). Idris's own
+||| error is a refusal of the rule `Elaboration`, its message Core's print
+||| of the error: Idris's renderer (`Idris.Error.perror`) is covering, and
+||| the frontend is total.
+refusalOf : (main : NonEmptyFC) -> Rejection -> (SomeRule, NonEmptyFC, String)
+refusalOf main r@(Refused refusal) = (refusal.rule, siteOf main r, refusal.message)
+refusalOf main r@(ByIdris e) = (Refusal Elaboration, siteOf main r, show e)
 
 ||| The program refused: each rejection written as a refusal into the module
 ||| at `out`, in the order found, with no Core and nothing printed, since
 ||| idris-mlir reads and reports them; the status says the program was
-||| refused. The modules already read (none, when Idris could not build the
-||| program) are completed with every rejection's module, at the home Idris
-||| found it in; essential: Idris locates an error in the module it was
-||| elaborating, which it may never have loaded, and a module it could not
-||| load is one of the project's it failed to build.
+||| refused. Each refusal's module is the one the modules already read
+||| (none, when Idris could not build the program) hold, or is read at the
+||| home Idris found it in (`moduleRefusals`).
 refusing : {auto c : Ref Ctxt Defs} -> Modules -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
 refusing loaded main out rs = do
   homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
-  sites <- modulesOf loaded (map (\m => (m, fromMaybe Project (lookup m homes)))
-                                 (mapMaybe (siteModule . siteOf main) (forget rs)))
-  writeRefused out !(traverseList1 (refusalOf sites main) rs)
+  writeRefused out !(moduleRefusals (\m => fromMaybe Project (lookup m homes)) loaded (map (refusalOf main) rs))
   coreLift (exitWith (ExitFailure 3))
 
 ||| Idris shows an error's location with the lines of the source it read

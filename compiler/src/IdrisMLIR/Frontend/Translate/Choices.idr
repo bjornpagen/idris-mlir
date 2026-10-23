@@ -125,15 +125,16 @@ pack fc owner loc (first ::: rest) = packed first rest
 
 ||| The values one variable holds as one (`pack`), of these types, taken
 ||| apart by the pairs that hold them: the body built over each value's
-||| variable, in order, with the renaming of the scope outside.
+||| variable, one per type, in order, with the renaming of the scope
+||| outside.
 export
 takenApart : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {0 n : Nat} ->
-             FC -> String -> Loc -> ClosedTerm -> List ClosedTerm -> Fin n ->
-             ({0 p : Nat} -> (Fin n -> Fin p) -> List (Fin p) -> Front (Term p)) -> Front (Term n)
-takenApart fc owner loc t [] x k = k id [x]
-takenApart fc owner loc t (u :: us) x k = do
+             FC -> String -> Loc -> (types : List1 ClosedTerm) -> Fin n ->
+             ({0 p : Nat} -> (Fin n -> Fin p) -> Vect (length (forget types)) (Fin p) -> Front (Term p)) -> Front (Term n)
+takenApart fc owner loc (t ::: []) x k = k id [x]
+takenApart fc owner loc (t ::: (u :: us)) x k = do
   pair <- pairOf fc owner t (u ::: us)
-  body <- takenApart fc owner loc u us (Bound {k = 2} (FS FZ))
+  body <- takenApart fc owner loc (u ::: us) (Bound {k = 2} (FS FZ))
             (\ren, vs => k (ren . Free {k = 2}) (ren (Bound {k = 2} FZ) :: vs))
   pure (Case loc pair.id.family x (Exhaustive (MkAlt pair [shown "value", shown "rest"] body ::: [])))
 
@@ -277,8 +278,14 @@ mutual
       | Just sig => pure sig
     (sig ** _) <- instanceSig fc owner what found
     st <- getState
+    -- The choice's parameter is one at run time in the kinds the call
+    -- requested with; the signature is those kinds classified again over
+    -- their static arguments, a second reading that nothing ties to the
+    -- first, so its position among the signature's is read off it here.
+    let Just at = natToFin (Runtimes (take (length parts.kindsBefore) sig.kinds)) (Runtimes sig.kinds)
+      | Nothing => internal fc "a dispatch whose choice is no parameter at run time"
     let d = MkDispatch inst found.key sig what parts.kindsBefore (Given rest b ty) parts.kindsAfter parts.spans
-                       choice.family fc owner
+                       at choice.family fc owner
     updateState (derive { instances $= insert inst sig, fnOrder $= (:< inst)
                         , dispatchesOn $= insert choice.family
                                             (d :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
@@ -304,8 +311,8 @@ mutual
   armAt d i m = do
     arm <- case d.chosen of
       Given rest _ _ => calleeAt rest d.site d.owner d.callee (givenInstead (memberKind m) d)
-      Held j form hs => do
-        kind <- heldMember d.site d.owner j form hs m
+      Held form hs j => do
+        kind <- heldMember d.site d.owner (finToNat j) form hs m
         request d.site d.owner d.callee (givenInstead kind d)
     updateState (withArm d.inst i (MkDispatchArm m arm))
 
@@ -313,26 +320,44 @@ mutual
 -- Choices an implementation holds
 ------------------------------------------------------------------------------
 
+%prefix_record_projections off
+
+||| A signature's kinds split at a parameter, and that parameter's position
+||| among those that exist at run time, which it is one of.
+public export
+record HeldAt (ks : List PKind) where
+  constructor MkHeldAt
+  kindsSplit : SplitKinds (length ks) (Chosen, ChoiceType)
+  runtimePlace : Fin (Runtimes ks)
+
+%prefix_record_projections on
+
 ||| The first value an implementation given at a parameter closes over that
 ||| is itself a choice (`choiceType`): a field of the implementation the
 ||| running program chose, which the program fixes the members of: the
 ||| kinds split at its parameter, which holds the parameter as it holds
 ||| the choice (`Held`, its place among the values the parameter holds)
-||| and the type it is a choice of, as `choiceType` read it.
+||| and the type it is a choice of, as `choiceType` read it, and that
+||| parameter's position at run time, read off the same kinds.
 export
-heldChoice : {auto s : Ref TState TS} -> Vect n PKind -> Front (Maybe (SplitKinds n (Chosen, ChoiceType)))
+heldChoice : {auto s : Ref TState TS} -> (ks : List PKind) -> Front (Maybe (HeldAt ks))
 heldChoice [] = pure Nothing
 heldChoice (DictParam form (Just hs) :: ks) = do
-  Just (j, t) <- among 0 (forget hs.types)
-    | Nothing => map (afterKind (DictParam form (Just hs))) <$> heldChoice ks
-  pure (Just (MkSplitKinds [] (Held j form hs, t) ks Refl))
+  Just (j, t) <- among (forget hs.types)
+    | Nothing => map (later (DictParam form (Just hs))) <$> heldChoice ks
+  pure (Just (MkHeldAt (MkSplitKinds [] (Held form hs j, t) (Data.Vect.fromList ks) Refl) FZ))
   where
-    among : Nat -> List ClosedTerm -> Front (Maybe (Nat, ChoiceType))
-    among j [] = pure Nothing
-    among j (t :: ts) = case !(choiceType t) of
-      Just ct => pure (Just (j, ct))
-      Nothing => among (S j) ts
-heldChoice (k :: ks) = map (afterKind k) <$> heldChoice ks
+    among : (ts : List ClosedTerm) -> Front (Maybe (Fin (length ts), ChoiceType))
+    among [] = pure Nothing
+    among (t :: ts) = case !(choiceType t) of
+      Just ct => pure (Just (FZ, ct))
+      Nothing => map (\(j, ct) => (FS j, ct)) <$> among ts
+    later : (k : PKind) -> HeldAt ks -> HeldAt (k :: ks)
+    later k at = MkHeldAt (afterKind k at.kindsSplit) (after (boundAtRuntime k) at.runtimePlace)
+heldChoice (k :: ks) = map later <$> heldChoice ks
+  where
+    later : HeldAt ks -> HeldAt (k :: ks)
+    later at = MkHeldAt (afterKind k at.kindsSplit) (after (boundAtRuntime k) at.runtimePlace)
 
 ||| An instance given an implementation that holds a choice the running
 ||| program made, in the parameter its kinds are split at (`Held`, at its
@@ -346,13 +371,14 @@ heldChoice (k :: ks) = map (afterKind k) <$> heldChoice ks
 ||| member its choice has so far.
 export
 heldDispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               (r : Request) -> SplitKinds (appliedArity r.instantiates) (Chosen, ChoiceType) -> Front ()
-heldDispatch r parts = do
+               (r : Request) -> HeldAt r.signature.kinds -> Front ()
+heldDispatch r at = do
   let owner = show r.owner
+  let parts = at.kindsSplit
   let (chosen, ty) = parts.here
   choice <- choiceFamily r.site owner ty
-  let d = MkDispatch r.inst r.key r.signature r.instantiates parts.kindsBefore chosen parts.kindsAfter parts.spans
-                     choice.family r.site owner
+  let d = MkDispatch r.inst r.key r.signature r.instantiates parts.kindsBefore chosen parts.kindsAfter
+                     (trans parts.spans r.classifiesAll) at.runtimePlace choice.family r.site owner
   st <- getState
   -- A request is one instance, of one choice, so its dispatch is made at
   -- most once, among that choice's.
@@ -451,27 +477,20 @@ dispatcher d = do
   -- Each arm holds its member, written when the later of the two was
   -- made, so the match is read off the arms alone.
   let numbered = maybe [] SortedMap.toList (lookupFact (.dispatchArms) d.inst st)
-  -- The choice's parameter is one at run time in the dispatch's kinds;
-  -- its signature is those kinds classified over their static arguments,
-  -- a second reading that nothing ties to the first.
-  let Just choice = natToFin (Runtimes (take (length d.kindsBefore) kinds)) (Runtimes kinds)
-    | Nothing => internal d.site "a dispatch whose choice is no parameter at run time"
+  let choice = d.choice
   let indices = ownLevels (length (telescopeOf kinds))
   let params = List.allFins (Runtimes kinds)
   body <- case d.chosen of
     Given _ _ _ => do
       arms <- traverse (arm loc indices choice params) numbered
       pure (matching loc choice arms)
-    Held j _ hs => do
-      let (t ::: ts) = hs.types
-      takenApart d.site d.owner loc t ts choice $ \ren, values => do
-        let typed = zip (forget hs.types) values
-        -- The place was found among the values' types (`heldChoice`), and
-        -- the values are taken apart one per type, as lists whose lengths
-        -- nothing ties.
-        let Just (_, chosen) = getAt j typed
-          | Nothing => internal d.site "a choice held past the values an implementation holds"
-        arms <- traverse (heldArm loc indices choice params ren (without j typed)) numbered
+    Held _ hs j =>
+      -- The values are taken apart one per type, and the place is a
+      -- position among the types.
+      takenApart d.site d.owner loc hs.types choice $ \ren, values => do
+        let typed = Data.Vect.zip (Data.Vect.fromList (forget hs.types)) values
+        let chosen = snd (Data.Vect.index j typed)
+        arms <- traverse (heldArm loc indices choice params ren (without (finToNat j) (toList typed))) numbered
         pure (matching loc chosen arms)
   extents <- signatureExtents kinds d.signature.result
   updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) d.signature.callee
@@ -524,10 +543,9 @@ dispatcher d = do
       case a.member.con of
         Bare con => MkAlt con [] <$> called loc inst indices held params ren others
         Capturing h con => do
-          let (t ::: ts) = h.types
-          body <- takenApart d.site d.owner loc t ts (Bound {k = 1} {n = p} FZ) $ \ren', own =>
+          body <- takenApart d.site d.owner loc h.types (Bound {k = 1} {n = p} FZ) $ \ren', own =>
                     called loc inst indices held params (ren' . Free {k = 1} . ren)
-                           (map (\(ty, y) => (ty, ren' (Free {k = 1} y))) others ++ zip (forget h.types) own)
+                           (map (\(ty, y) => (ty, ren' (Free {k = 1} y))) others ++ zip (forget h.types) (toList own))
           pure (MkAlt con [shown "held"] body)
 
 ||| Dispatches in the order of their identities.

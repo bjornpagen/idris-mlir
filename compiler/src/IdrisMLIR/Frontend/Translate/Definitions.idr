@@ -24,6 +24,15 @@ export
 definitionAddress : Context -> Name -> Maybe Address
 definitionAddress ctx n = addressOf <$> placementIn ctx n
 
+||| A name the context resolves to an entry that is not negative has an
+||| address, its placement's (`Walk.placedWhereResolved`).
+export
+0 addressedWhereResolved : {0 ctx : Context} -> {0 n : Name} -> {0 i : Int} ->
+                           getNameID n ctx = Just i -> (i < 0) = False ->
+                           (a : Address ** definitionAddress ctx n = Just a)
+addressedWhereResolved resolved nonNegative = case placedWhereResolved resolved nonNegative of
+  (p ** placed) => (addressOf p ** cong (map addressOf) placed)
+
 ||| The index of the context an address is (`Walk.addressOf`'s inverse): the
 ||| index whose eight bytes, the low byte first, it is.
 export

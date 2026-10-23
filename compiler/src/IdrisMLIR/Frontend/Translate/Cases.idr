@@ -211,17 +211,17 @@ namesAt pats (MkPlace i steps _) = maybe [] (.names) (getAt i pats >>= follow (s
 ||| clause names by one of the erased one's binders, as Idris's run-time
 ||| tree reads it. Idris's quantity check gives every binder its right side
 ||| uses at run time such a place.
-heldAt : (clause : Nat) -> Clauses vars -> StandsFor vars a -> StandsFor vars a
+heldAt : (clause : Nat) -> Clauses vars -> StandsFor kc OfTree vars a -> StandsFor kc OfTerm vars a
 heldAt clause cls env = case getAt clause cls.patterns of
   Just pats => let named = zipByVar (,) env (map (namesAt pats) cls.places) in
-               map (read (reverse (innermostFirst named))) named
-  Nothing => env
+               map (asTermEntry . read (reverse (innermostFirst named))) named
+  Nothing => map asTermEntry env
   where
     -- A variable of no value: an erased place's.
-    erased : VarInfo a -> Bool
+    erased : VarInfo kc OfTree a -> Bool
     erased (TypeValue _) = True
     erased _ = False
-    read : List (VarInfo a, List Name) -> (VarInfo a, List Name) -> VarInfo a
+    read : List (VarInfo kc OfTree a, List Name) -> (VarInfo kc OfTree a, List Name) -> VarInfo kc OfTree a
     read outermostFirst (v, ns) =
       if not (erased v) then v
         else maybe v fst (find (\(w, ms) => not (erased w) && any (\b => elem b ms) ns) outermostFirst)
@@ -232,8 +232,8 @@ heldAt clause cls env = case getAt clause cls.patterns of
 ||| quantity 0 a compile-time one, and a runtime field (an implementation
 ||| the constructor holds among them, a choice) what `field` makes of it
 ||| and its shape.
-argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo a) ->
-            (vs : Scope) -> (as : List ArgKind) -> (0 _ : length as = length vs) -> List ClosedTerm -> StandsFor vs a
+argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo kc sp a) ->
+            (vs : Scope) -> (as : List ArgKind) -> (0 _ : length as = length vs) -> List ClosedTerm -> StandsFor kc sp vs a
 argsBound field [] [] _ _ = []
 argsBound field (_ :: vs) (a :: as) same ss =
   let (s, ss') = next ss in
@@ -245,7 +245,7 @@ argsBound field (_ :: vs) (a :: as) same ss =
     next [] = (Nothing, [])
     next (s :: ss) = (Just s, ss)
 
-    bound : ArgKind -> Maybe ClosedTerm -> VarInfo a
+    bound : ArgKind -> Maybe ClosedTerm -> VarInfo kc sp a
     bound (Param v) _ = TypeValue v
     bound ErasedArg _ = TypeValue (Erased EmptyFC Placeholder)
     bound (Field i b ity) s = field i b ity s
@@ -265,23 +265,23 @@ fieldNames (_ :: _) [] Refl impossible
 ||| What a runtime variable's binder says of it, beside its Core type
 ||| (`Terms.coreTyOf`): its Idris type, the shape of its value, and the
 ||| variable.
-idrisTypeOf : VarInfo a -> Maybe ClosedTerm
+idrisTypeOf : VarInfo kc sp a -> Maybe ClosedTerm
 idrisTypeOf (Runtime _ t) = idrisOf t
 idrisTypeOf (Shaped _ _ t _) = Just t
 idrisTypeOf _ = Nothing
 
-shapeOf : VarInfo a -> Maybe ClosedTerm
+shapeOf : VarInfo kc sp a -> Maybe ClosedTerm
 shapeOf (Shaped _ _ _ s) = Just s
 shapeOf _ = Nothing
 
-variableOf : VarInfo a -> Maybe a
+variableOf : VarInfo kc sp a -> Maybe a
 variableOf (Runtime x _) = Just x
 variableOf (Shaped x _ _ _) = Just x
 variableOf _ = Nothing
 
 ||| A leaf no input reaches: `Unreachable` in a covering definition
 ||| (Idris proved no input reaches it), a crash otherwise.
-missingCase : {0 nv : Nat} -> Ctx -> Loc -> IdrisMLIR.Term.Term nv
+missingCase : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
 missingCase ctx loc =
   if ctx.complete then Unreachable loc else Crash loc NoClauseMatched
 
@@ -302,7 +302,7 @@ orElse arm _ = arm
 
 ||| What runs where the tree has no arm: nothing in a covering definition,
 ||| a crash otherwise.
-missingArm : {0 nv : Nat} -> Ctx -> Loc -> Arm (IdrisMLIR.Term.Term nv)
+missingArm : {0 nv : Nat} -> Ctx kc -> Loc -> Arm (IdrisMLIR.Term.Term nv)
 missingArm ctx loc = if ctx.complete then Dead else Present (Crash loc NoClauseMatched)
 
 ||| A match on a value of the family `inst`, by its possible arms: its
@@ -511,7 +511,7 @@ mutual
   ||| variable where its clause holds it.
   export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-         Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> CaseTree vars -> Front (Term nv)
+         Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> CaseTree vars -> Front (Term nv)
   tree ctx env cls (STerm clause tm) =
     atType asWritten start (sizeAccessible start) ctx (heldAt (cast clause) cls env) ctx.result tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
@@ -530,7 +530,7 @@ mutual
       -- type forces the alternative; its fields are erased too.
       TypeValue _ => forced alts
       -- A match on an implementation selects its alternative now.
-      Static t hole => staticCase ctx env cls scrutinee t hole alts
+      Static t hole given => staticCase ctx env cls scrutinee t hole given alts
       v@(Runtime i t) => case coreOf t of
         Just WorldT => world alts
         _ => runtime loc v i
@@ -564,7 +564,7 @@ mutual
       -- binder gives none (a suspension's value, a value a settled term
       -- computes), the type Idris's tree gives the value it matches, which
       -- every match carries.
-      valueType : VarInfo (Fin nv) -> Front ClosedTerm
+      valueType : VarInfo kc OfTree (Fin nv) -> Front ClosedTerm
       valueType v = maybe (normaliseClosed (closeWritten ctx.fc env scTy)) pure (idrisTypeOf v)
 
       -- The data instance a match's constructors are of, at the value's
@@ -574,7 +574,7 @@ mutual
       -- value's own, or, where its binder gives none (a suspension's
       -- value, a value a settled term computes), the type Idris's tree
       -- gives the value it matches, which every match carries.
-      instanceOf : VarInfo (Fin nv) -> Defined -> Front FamilyId
+      instanceOf : VarInfo kc OfTree (Fin nv) -> Defined -> Front FamilyId
       instanceOf v con = do
         st <- getState
         let cn = fullname con.def
@@ -606,7 +606,7 @@ mutual
             pure inst
 
       -- A match on a runtime value's constructors, the first `cn`.
-      constructors : Loc -> VarInfo (Fin nv) -> Fin nv -> (cn : Name) -> (as : List (CaseAlt vars)) ->
+      constructors : Loc -> VarInfo kc OfTree (Fin nv) -> Fin nv -> (cn : Name) -> (as : List (CaseAlt vars)) ->
                      (0 _ : OfKind ConAlts as) -> Front (Term nv)
       constructors loc v i cn as cons = do
         con <- lookupDef ctx.fc ctx.owner cn
@@ -641,7 +641,7 @@ mutual
       -- one form, `Delay x`, so its match chooses nothing: it is the
       -- force, whose value `x` binds, then the alternative's tree, whose
       -- first variable is the value's type, erased.
-      runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Front (Term nv)
+      runtime : Loc -> VarInfo kc OfTree (Fin nv) -> Fin nv -> Front (Term nv)
       runtime loc v i = routed alts (route alts)
         where
           -- The value a suspension holds: of the Idris type its `Lazy` type
@@ -719,7 +719,7 @@ mutual
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
+            Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
             Maybe ClosedTerm -> Loc -> Fin nv -> ClosedTerm ->
             (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) -> Front (Term nv)
   natCase ctx env cls scrutinee shape loc x ity alts cons = do
@@ -742,7 +742,7 @@ mutual
   ||| and gives the predecessor its own; the predecessor is of the value's
   ||| type (`ity`).
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
+                    Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
                     Maybe ClosedTerm -> ClosedTerm -> Bool -> Loc -> Fin nv ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (Arm (Term nv), Arm (Shown, Term (Under 1 nv)), Arm (Term nv))
@@ -765,7 +765,7 @@ mutual
         let Yes counted = decEq (length taken) (length args)
           | No _ => reject ctx.fc ctx.owner CompiledModule
                            ("the successor " ++ show cn ++ " binds another number of arguments than it takes")
-        let predInfo : VarInfo (Fin (Under 1 nv))
+        let predInfo : VarInfo kc OfTree (Fin (Under 1 nv))
             predInfo = case predecessor (shapeArgs shape) taken of
                          Just p => shaped FZ (NatT IOpaque) ity p
                          Nothing => Runtime FZ (BothTypes (NatT IOpaque) ity)
@@ -801,13 +801,14 @@ mutual
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
   ||| An argument that mentions the runtime value the implementation closes
-  ||| over closes over it too. A field no compile-time reduction reaches is
-  ||| computed where the match reaches it (`heldHere`).
+  ||| over closes over it too, and every argument is of the parameter the
+  ||| implementation is (`given`). A field no compile-time reduction reaches
+  ||| is computed where the match reaches it (`heldHere`).
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-               Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
-               ClosedTerm -> Maybe (Fin nv, Holes) ->
+               Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
+               ClosedTerm -> Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) ->
                List (CaseAlt vars) -> Front (Term nv)
-  staticCase ctx env cls scrutinee t hole alts = do
+  staticCase ctx env cls scrutinee t hole given alts = do
     -- No parameter is such a form: an implementation is a parameter's form
     -- only where the program fixes it now, its head the constructor
     -- (`Closed.fixing`); one the running program chooses is passed as a
@@ -826,15 +827,15 @@ mutual
     con <- lookupDef ctx.fc ctx.owner cn
     pick cn cargs (typedParts none con.binders cargs) alts
     where
-      info : ArgumentAt -> ClosedTerm -> VarInfo (Fin nv)
-      info (RuntimeValue _) v = Static v (if mentionsHole v then hole else Nothing)
+      info : ArgumentAt -> ClosedTerm -> VarInfo kc OfTree (Fin nv)
+      info (RuntimeValue _) v = Static v (if mentionsHole v then hole else Nothing) given
       info _ v = TypeValue v
 
       -- Each argument of the constructor, as many as its type shows
       -- binders and the reduction gave arguments: what its variable
       -- stands for, and its type, its binder's closed over the arguments
       -- before it.
-      typedParts : Given ws -> Binders ArgumentAt ws -> List ClosedTerm -> List (VarInfo (Fin nv), ClosedTerm)
+      typedParts : Given ws -> Binders ArgumentAt ws -> List ClosedTerm -> List (VarInfo kc OfTree (Fin nv), ClosedTerm)
       typedParts g (ShowsBinder at ty rest) (v :: vs) = (info at v, close g ty) :: typedParts (give v g) rest vs
       typedParts _ _ _ = []
 
@@ -843,7 +844,7 @@ mutual
       -- keeps with its type (`afterOpen`); else the default. With
       -- neither, no alternative takes the value: the missing case, as any
       -- match's.
-      pick : Name -> List ClosedTerm -> List (VarInfo (Fin nv), ClosedTerm) -> List (CaseAlt vars) -> Front (Term nv)
+      pick : Name -> List ClosedTerm -> List (VarInfo kc OfTree (Fin nv), ClosedTerm) -> List (CaseAlt vars) -> Front (Term nv)
       pick cn cargs typed (ConCase con _ args rhs :: rest) = do
         full <- fullName con
         if full /= cn then pick cn cargs typed rest else do
@@ -892,22 +893,22 @@ mutual
       parameterValue : Nat -> Maybe (Fin nv)
       parameterValue i = go (innermostFirst (zipByVar (,) cls.places env))
         where
-          go : List (Place, VarInfo (Fin nv)) -> Maybe (Fin nv)
+          go : List (Place, VarInfo kc OfTree (Fin nv)) -> Maybe (Fin nv)
           go [] = Nothing
           go ((MkPlace j [<] _, v) :: rest) = if i == j then valueOf v else go rest
           go (_ :: rest) = go rest
 
-          valueOf : VarInfo (Fin nv) -> Maybe (Fin nv)
-          valueOf (Static _ (Just (x, _))) = Just x
+          valueOf : VarInfo kc OfTree (Fin nv) -> Maybe (Fin nv)
+          valueOf (Static _ (Just (x, _)) _) = Just x
           valueOf v = variableOf v
 
       -- An instance's runtime arguments, one per parameter of its kinds
       -- that exists at run time, in order, each this instance's parameter
-      -- at that position but at parameter `p`, which is `given`; `ren`
+      -- at that position but at parameter `p`, which is `here`; `ren`
       -- takes the scope's variables into the one they are read in.
       passedOn : {0 q : Nat} -> Loc -> (Fin nv -> Fin q) -> (p : Nat) -> Term q -> (ks : List PKind) ->
                  Front (Vect (Runtimes ks) (Term q))
-      passedOn loc ren p given = eachRuntime value
+      passedOn loc ren p here = eachRuntime value
         where
           value : Nat -> PKind -> Front (Term q)
           value i _ =
@@ -915,7 +916,7 @@ mutual
             -- requested with, classified apart from this instance's, so
             -- the types do not say that a parameter it takes at run time
             -- is one this instance binds at run time too.
-            if i == p then pure given else case parameterValue i of
+            if i == p then pure here else case parameterValue i of
               Just x => pure (Var loc (ren x))
               Nothing => internal ctx.fc ("parameter " ++ show i ++ " binds nothing at run time here")
 
@@ -927,17 +928,17 @@ mutual
       -- (`Choices.heldDispatch`), each of whose arms takes apart a member
       -- the program fixes. What the tree matched before this match only
       -- tested values, which that instance tests again. A field that is no
-      -- implementation is never taken apart, and is refused as it is.
+      -- implementation is never taken apart, and is refused as it is. The
+      -- parameter the implementation is of, its position among the
+      -- instance's and the values it holds, is the entry's (`given`).
       heldHere : StuckOn -> Front (Term nv)
       heldHere on = do
         let place = placeOf scrutinee
         let r = ctx.request
-        let own = kindsOf r
-        -- What binds an implementation at the root is a parameter given
-        -- one, and every part taken apart is at that parameter's place;
-        -- the environment's entry does not carry the kind it came from.
-        let Just (position, held) = dictionaryAt place.parameter own
-          | Nothing => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
+        let own = replace {p = \n => Vect n PKind} ctx.counts (Data.Vect.fromList ctx.request.signature.kinds)
+        let position = given.position
+        let parameter = finToNat position
+        let held = map snd given.holding
         -- The part is where the compile-time matches on the way took it
         -- out of the parameter's implementation. With none, it would be
         -- the implementation itself, whose head `Closed.fixing` makes a
@@ -953,31 +954,20 @@ mutual
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
         packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
         let kinds = replaceAt position (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) own
-        sig <- request ctx.fc ctx.owner r.instantiates kinds
+        sig <- request ctx.fc ctx.owner ctx.request.instantiates
+                       (replace {p = \n => Vect n PKind} (trans (sym ctx.counts) ctx.request.classifiesAll) kinds)
         loc <- toLoc ctx.fc
         value <- computedAt ctx ctx.fc t hole
         let levels = ownLevels (length (telescopeOf r.signature.kinds))
-        body <- case held of
-          Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) sig.kinds
-          Just hs => do
-            -- The parameter's kind holds values, and its entry binds them;
-            -- the entry does not carry the kind it was made from.
-            let Just x = parameterValue place.parameter
-              | Nothing => internal ctx.fc "an implementation's values bound by no variable"
-            let (h ::: hts) = hs.types
-            takenApart ctx.fc ctx.owner loc h hts (FS x) $ \ren, vs => do
-              given <- pack ctx.fc ctx.owner loc
-                         (ending (zip (forget hs.types) (map (Var loc) vs)) (fieldType, Var loc (ren FZ)))
-              Call loc sig.callee Nothing levels <$> passedOn loc (ren . FS) place.parameter given sig.kinds
+        body <- case given.holding of
+          Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS parameter (Var loc FZ) sig.kinds
+          Just (x, hs) =>
+            takenApart ctx.fc ctx.owner loc hs.types (FS x) $ \ren, vs => do
+              values <- pack ctx.fc ctx.owner loc
+                          (ending (zip (forget hs.types) (map (Var loc) (toList vs))) (fieldType, Var loc (ren FZ)))
+              Call loc sig.callee Nothing levels <$> passedOn loc (ren . FS) parameter values sig.kinds
         pure (Let loc (shown "field") (OfValue Many) value body)
         where
-          -- The parameter at a place among an instance's kinds, where it is
-          -- given an implementation: its position, and the values it holds.
-          dictionaryAt : Nat -> Vect k PKind -> Maybe (Fin k, Maybe Holes)
-          dictionaryAt Z (DictParam _ held :: _) = Just (FZ, held)
-          dictionaryAt (S j) (_ :: ks) = (\(i, held) => (FS i, held)) <$> dictionaryAt j ks
-          dictionaryAt _ _ = Nothing
-
           -- The values held, the field last.
           ending : List a -> a -> List1 a
           ending [] x = x ::: []
@@ -992,7 +982,7 @@ mutual
   ||| an alternative it rules out, or of a constructor with no value yet,
   ||| is no possible one.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
+                    Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
                     Maybe ClosedTerm -> Bool -> Bool -> FamilyId ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (SortedSet ConId, List (Alt nv), Arm (Term nv))
@@ -1031,7 +1021,7 @@ mutual
     where
       -- Runtime field `i` is the alternative's `Bound i`, of its type in
       -- scope, with what the value's shape says of it.
-      fieldAt : {k : Nat} -> Vect k Binder -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin (Under k nv))
+      fieldAt : {k : Nat} -> Vect k Binder -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo kc OfTree (Fin (Under k nv))
       fieldAt {k} inScope i _ ity s = case natToFin i k of
         Just f => let t = (index f inScope).type in case s of
           Just s' => shaped (Bound {n = nv} f) t ity s'
@@ -1049,7 +1039,7 @@ mutual
   ||| The alternatives of a match on literals, each keyed by its constant,
   ||| and the default when one runs.
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
+                    Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConstAlts alts) ->
                     Front (List (CaseKey, Term nv), Maybe (Term nv))
   litAlternatives ctx env cls scrutinee [] _ = pure ([], Nothing)

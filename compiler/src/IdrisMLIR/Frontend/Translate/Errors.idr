@@ -312,13 +312,6 @@ modulesOf ms ((m, home) :: rest) = do
   (ms', _) <- moduleIn ms m home
   modulesOf ms' rest
 
-||| The module a site is in, when it is in one: a package file and no
-||| location are in none.
-export
-siteModule : NonEmptyFC -> Maybe ModuleIdent
-siteModule (PhysicalIdrSrc ident, _, _) = Just ident
-siteModule _ = Nothing
-
 ||| Where an Idris location is: a span of a module, which a table of the
 ||| modules locates; or a place in no module, a package file's span, or
 ||| code at no location, which is generated.

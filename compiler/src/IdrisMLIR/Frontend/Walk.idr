@@ -61,6 +61,22 @@ export
 placementIn : Context -> Name -> Maybe Placement
 placementIn ctx n = getNameID n ctx >>= placementOf
 
+-- A non-negative index is placed, at itself.
+0 placedAt : (i : Int) -> (i < 0) = False -> placementOf i = Just (MkPlacement i (bitsOf i))
+placedAt i nonNegative =
+  replace {p = \lt => (if lt then Nothing else Just (MkPlacement i (bitsOf i))) = Just (MkPlacement i (bitsOf i))}
+          (sym nonNegative) Refl
+
+||| A name the context resolves to an entry that is not negative has a
+||| placement: what the host knows of the entries it reads, from entry 0
+||| up, carried to a place.
+export
+0 placedWhereResolved : {0 ctx : Context} -> {0 n : Name} -> {0 i : Int} ->
+                        getNameID n ctx = Just i -> (i < 0) = False ->
+                        (p : Placement ** placementIn ctx n = Just p)
+placedWhereResolved {i} resolved nonNegative =
+  (MkPlacement i (bitsOf i) ** trans (cong (\found => found >>= placementOf) resolved) (placedAt i nonNegative))
+
 ||| The `k` bytes of a number, the low byte first.
 export
 bytes : (k : Nat) -> Integer -> Vect k (Fin 256)

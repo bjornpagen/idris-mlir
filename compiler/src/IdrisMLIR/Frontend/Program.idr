@@ -16,6 +16,7 @@ import Idris.Host
 import Idris.Syntax
 
 import IdrisMLIR.Emit
+import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Term
@@ -64,22 +65,26 @@ write path text = do
 
 ||| The module, written as Emit makes it, top-level op by top-level op, so
 ||| that no text of the whole module is held. It streams to its path, and a
-||| module Emit gives up on is removed, so a failed emit leaves no partial
-||| module there: its message is the compiler's failure. There is no write beside the path and rename onto
-||| it: base has no rename, and `%foreign` is outside the language this
-||| compiler compiles, which the frontend is written in.
-writeModule : FC -> String -> Source -> Core ()
-writeModule fc path src = do
+||| module not written whole is removed, so a failed emit leaves no partial
+||| module there: Emit's failure is the compiler's at the site Emit names,
+||| and the writer's is the file's. There is no write beside the path and
+||| rename onto it: base has no rename, and `%foreign` is outside the
+||| language this compiler compiles, which the frontend is written in.
+writeModule : String -> Source -> Core ()
+writeModule path src = do
   makeParent path
   Right h <- coreLift (openFile path WriteTruncate)
     | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
   emitted <- coreLift (emit h src)
   coreLift (closeFile h)
   case emitted of
-    Right () => pure ()
-    Left msg => do
+    Written => pure ()
+    EmitFailed u => do
       ignore (coreLift (removeFile path))
-      internal fc ("Emit: " ++ msg)
+      throw (InternalError (show u.site ++ ": internal error: Emit: " ++ show u))
+    WriteFailed msg => do
+      ignore (coreLift (removeFile path))
+      throw (InternalError ("cannot write " ++ path ++ ": " ++ msg))
 
 ||| A program refused, written where its module would be: a module that
 ||| holds each refusal (`Emit.refused`) and no program, which the driver
@@ -230,6 +235,6 @@ program loaded mainFile mainChecked timing mlirPath = do
           t4 <- core now
           core (reportTimes timing (checked ++ [("translate", t4 - t3)]))
     t4 <- core now
-    core (writeModule fc mlirPath prog)
+    core (writeModule mlirPath prog)
     t5 <- core now
     core (reportTimes timing (checked ++ [("translate", t4 - t3), ("emit", t5 - t4)]))

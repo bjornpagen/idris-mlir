@@ -71,6 +71,31 @@ idrisOf : KnownTypes -> Maybe ClosedTerm
 idrisOf (BothTypes _ i) = Just i
 idrisOf _ = Nothing
 
+||| Where a variable's entry stands: in a case tree's scope, every
+||| implementation of which is a parameter's or a part a compile-time match
+||| took out of one; or in a term's, which also binds implementations of
+||| its own. Essential: the tree takes a parameter's implementation apart,
+||| and a term only uses implementations.
+public export
+data Scoping = OfTree | OfTerm
+
+%prefix_record_projections off
+
+||| The parameter an implementation the instance is given is of: its
+||| position among the instance's `kc` parameters, and the values that
+||| parameter holds, with the variable that holds them, where it holds any.
+public export
+record GivenParameter (kc : Nat) (a : Type) where
+  constructor MkGivenParameter
+  position : Fin kc
+  holding : Maybe (a, Holes)
+
+%prefix_record_projections on
+
+export
+Functor (GivenParameter kc) where
+  map f p = MkGivenParameter p.position (map (\(x, hs) => (f x, hs)) p.holding)
+
 ||| What a TT variable stands for: a Core variable (with what is known of
 ||| its type, `KnownTypes`, and the shape of its value when that is known),
 ||| a compile-time value, or an implementation's value. Types and
@@ -79,25 +104,51 @@ idrisOf _ = Nothing
 ||| Core variable. An implementation is used by translating it where it is
 ||| needed. An implementation that closes over runtime values holds
 ||| markers for them (`holeMarker`), with the variable that holds them and
-||| what it holds (`Holes`).
+||| what it holds (`Holes`). The instance has `kc` parameters, and the
+||| entry stands in a scope of the kind `sp` says (`Scoping`).
 public export
-data VarInfo : Type -> Type where
-  Runtime : a -> KnownTypes -> VarInfo a
+data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
+  Runtime : a -> KnownTypes -> VarInfo kc sp a
   ||| A runtime value whose shape is known: the constructors every call of
   ||| the instance built its argument with (`Instances.classify`), or a
   ||| constructor's field of such a value. The shape stands for the value
   ||| in types, and a match on the value takes only the alternatives a
   ||| value of that shape can. Its Idris type is the one before the shape.
-  Shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo a
-  TypeValue : ClosedTerm -> VarInfo a
-  Static : ClosedTerm -> Maybe (a, Holes) -> VarInfo a
+  Shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo kc sp a
+  TypeValue : ClosedTerm -> VarInfo kc sp a
+  ||| An implementation the instance is given: a parameter's, or a part a
+  ||| compile-time match took out of one, with the parameter it is of
+  ||| (`GivenParameter`), built where the parameters are bound
+  ||| (`Programs.runtimeParams`).
+  Static : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
+  ||| An implementation a term binds: a `let` of one, or one a lambda
+  ||| applied there takes. No case tree's scope holds one.
+  BoundHere : ClosedTerm -> Maybe (a, Holes) -> VarInfo kc OfTerm a
 
 export
-Functor VarInfo where
+Functor (VarInfo kc sp) where
   map f (Runtime x t) = Runtime (f x) t
-  map f (Shaped x t i s) = Shaped (f x) t i s
+  map f (Shaped x t i sh) = Shaped (f x) t i sh
   map f (TypeValue t) = TypeValue t
-  map f (Static t h) = Static t (map (\(x, hs) => (f x, hs)) h)
+  map f (Static t h p) = Static t (map (\(x, hs) => (f x, hs)) h) (map f p)
+  map f (BoundHere t h) = BoundHere t (map (\(x, hs) => (f x, hs)) h)
+
+||| An implementation's entry, given or bound by a term, as a term uses
+||| either: its form, and the values it closes over where it closes over
+||| any; nothing for an entry of any other kind.
+export
+implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
+implementationOf (Static t h _) = Just (t, h)
+implementationOf (BoundHere t h) = Just (t, h)
+implementationOf _ = Nothing
+
+||| A case tree's entry as a term's scope holds it, at a leaf.
+export
+asTermEntry : VarInfo kc OfTree a -> VarInfo kc OfTerm a
+asTermEntry (Runtime x t) = Runtime x t
+asTermEntry (Shaped x t i sh) = Shaped x t i sh
+asTermEntry (TypeValue t) = TypeValue t
+asTermEntry (Static t h p) = Static t h p
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
@@ -178,14 +229,16 @@ everyVar : (vs : Scope) -> a -> ByVar vs a
 everyVar [] x = []
 everyVar (_ :: vs) x = x :: everyVar vs x
 
-||| What each variable of a scope stands for.
+||| What each variable of a scope stands for, in an instance of `kc`
+||| parameters, in a scope of the kind `sp` says.
 public export
-StandsFor : Scope -> Type -> Type
-StandsFor vs a = ByVar vs (VarInfo a)
+StandsFor : (kc : Nat) -> Scoping -> Scope -> Type -> Type
+StandsFor kc sp vs a = ByVar vs (VarInfo kc sp a)
 
 ||| An environment under a binder of `k` variables, which come first.
 export
-under : {k : Nat} -> StandsFor new (Fin (Under k n)) -> StandsFor vs (Fin n) -> StandsFor (new ++ vs) (Fin (Under k n))
+under : {k : Nat} -> StandsFor kc sp new (Fin (Under k n)) -> StandsFor kc sp vs (Fin n) ->
+        StandsFor kc sp (new ++ vs) (Fin (Under k n))
 under bound env = prepend bound (map (map (Free {k})) env)
 
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
@@ -280,12 +333,13 @@ closeOver fc values tm = zeta (betaAll (wrapLams fc tm) (reverse (innermostFirst
 ||| runtime variable becomes the stand-in for a runtime value
 ||| (`runtimePart`), which `runtimeDependent` detects.
 export
-closeWritten : {vars : Scope} -> FC -> StandsFor vars a -> TT vars -> ClosedTerm
+closeWritten : {vars : Scope} -> FC -> StandsFor kc sp vars a -> TT vars -> ClosedTerm
 closeWritten fc env tm = closeOver fc (map value env) tm
   where
-    value : VarInfo a -> ClosedTerm
+    value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t _) = t
+    value (Static t _ _) = t
+    value (BoundHere t _) = t
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
     value (Shaped _ _ _ s) = s
@@ -374,30 +428,16 @@ export
 argumentAt : GlobalDef -> (j : Nat) -> (rig : RigCount) -> ArgumentAt
 argumentAt def j rig = if erasedPosition def j then NoValue else byQuantity rig
 
-||| What a type in normal form takes at each binder it shows, in order, as
-||| `at` reads binder `j` of quantity `rig`.
-argumentsWith : (at : Nat -> RigCount -> ArgumentAt) -> ClosedTerm -> List ArgumentAt
-argumentsWith at = go 0
-  where
-    go : Nat -> TT vs -> List ArgumentAt
-    go j (Bind _ _ (Pi _ rig _ _) sc) = at j rig :: go (S j) sc
-    go _ _ = []
-
-||| What a definition takes at each binder of its type in normal form
-||| (`normal`, `argumentAt`), read once with the definition, off the normal
-||| form the boundary reads (`Defined.taken`). The prefix is the
-||| definition's; what an application past it takes, the type computes,
-||| and the instance reads (`argumentsIn`).
-export
-argumentsOfNormal : GlobalDef -> (normal : ClosedTerm) -> List ArgumentAt
-argumentsOfNormal def = argumentsWith (argumentAt def)
-
 ||| What a type no definition has takes at each binder its normal form
 ||| shows (a method's type past its record, computed at a call): its
 ||| binders' own quantities, since no clause of it was checked.
 export
 argumentsIn : ClosedTerm -> Front (List ArgumentAt)
-argumentsIn ty = argumentsWith (const byQuantity) <$> normaliseClosed ty
+argumentsIn ty = shown <$> normaliseClosed ty
+  where
+    shown : TT vs -> List ArgumentAt
+    shown (Bind _ _ (Pi _ rig _ _) sc) = byQuantity rig :: shown sc
+    shown _ = []
 
 ||| What `runtimeDependent` has read of an application, its head and
 ||| arguments from the left: a type, whose arguments are types; a part that
@@ -1089,7 +1129,7 @@ skeleton _ = Nothing
 
 ||| A runtime value of a type with what its shape says, if anything.
 export
-shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo a
+shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo kc sp a
 shaped x t ity s = if isJust (shapeHead s) then Shaped x t ity s else Runtime x (BothTypes t ity)
 
 ||| How many constructors deep a shape says what the value was built with.
@@ -1643,13 +1683,14 @@ cutRuntime tm = cut start (sizeAccessible start) Same tm
 ||| closures, normalised, would unfold without end).
 export
 closeNormalise : {vars : Scope} ->
-                 FC -> StandsFor vars a -> TT vars -> Front ClosedTerm
+                 FC -> StandsFor kc sp vars a -> TT vars -> Front ClosedTerm
 closeNormalise fc env tm = do
   closed <- solved (betaAll (wrapLams fc tm) (reverse (innermostFirst (map value env))))
   normaliseClosed !(cutRuntime closed)
   where
-    value : VarInfo a -> ClosedTerm
+    value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t _) = t
+    value (Static t _ _) = t
+    value (BoundHere t _) = t
     value (Shaped _ _ _ s) = s
     value (Runtime {}) = runtimeVariable

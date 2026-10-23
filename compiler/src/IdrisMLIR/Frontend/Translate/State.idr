@@ -594,18 +594,20 @@ record Choice where
 ||| kinds hold `rest` more choices after it, each arm a call of the callee
 ||| with one fewer (`Choices.calleeAt`); or the parameter takes an
 ||| implementation the program fixes, of this form, and holds the values
-||| it closes over, the one at place `j` among them a choice the running
-||| program made (`Held j`): a field of the implementation, whose every
-||| member is an instance of the callee with that field fixed
-||| (`Choices.heldDispatch`).
+||| it closes over, the one at a place among them a choice the running
+||| program made (`Held`, the place a position among the values' types):
+||| a field of the implementation, whose every member is an instance of
+||| the callee with that field fixed (`Choices.heldDispatch`).
 public export
-data Chosen = Given (rest : Nat) Binder ChoiceType | Held (j : Nat) ClosedTerm Holes
+data Chosen : Type where
+  Given : (rest : Nat) -> Binder -> ChoiceType -> Chosen
+  Held : ClosedTerm -> (hs : Holes) -> Fin (length (forget hs.types)) -> Chosen
 
 ||| The kind of the parameter a dispatch finds its choice in.
 export
 chosenKind : Chosen -> PKind
 chosenKind (Given _ b t) = ChoiceParam b t
-chosenKind (Held _ form hs) = DictParam form (Just hs)
+chosenKind (Held form hs _) = DictParam form (Just hs)
 
 %prefix_record_projections off
 
@@ -634,10 +636,11 @@ afterKind k parts = MkSplitKinds (k :: parts.kindsBefore) parts.here parts.kinds
 ||| (a definition, or a member at a use, whose choice the use dispatches
 ||| on), its kinds as the call classified them, one per parameter the
 ||| callee applies, split at the parameter its choice is found in
-||| (`Chosen`), so that the parameter and its kind are one, the choice's
-||| family, and where and in whose definition it was made. None of it
-||| changes once made; its arms, which grow with its choice, are its own
-||| table's (`Facts.dispatchArms`).
+||| (`Chosen`), so that the parameter and its kind are one, and that
+||| parameter's position among its signature's parameters at run time,
+||| the choice's family, and where and in whose definition it was made.
+||| None of it changes once made; its arms, which grow with its choice,
+||| are its own table's (`Facts.dispatchArms`).
 public export
 record Dispatch where
   constructor MkDispatch
@@ -651,6 +654,7 @@ record Dispatch where
   chosen : Chosen
   kindsAfter : Vect after PKind
   0 spans : before + S after = appliedArity callee
+  choice : Fin (Runtimes signature.kinds)
   family : FamilyId
   site : FC
   owner : String
