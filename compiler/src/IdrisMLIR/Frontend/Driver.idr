@@ -254,23 +254,23 @@ session r = do
   for_ (r.given.packages <>> []) $ \p => addPkgDir p anyBounds
 
 ||| Builds the main file and the modules it imports, and loads the main
-||| module from its TTC; or the errors Idris reported, which it printed or
-||| not as the session's verbosity says. A main file that cannot be read is
-||| the program's error, as Idris reports it.
+||| module from its TTC, as Idris recorded it once read (`Reloaded`, its
+||| module named as its path names it, its checked file); or the errors
+||| Idris reported, at least one, which it printed or not as the session's
+||| verbosity says. A main file that cannot be read is the program's error,
+||| as Idris reports it.
 built : {auto c : Ref Ctxt Defs} ->
         {auto s : Ref Syn SyntaxInfo} ->
         {auto o : Ref ROpts REPLOpts} ->
-        String -> Core (Either (List1 Error) ModuleIdent)
+        String -> Core Built
 built source = do
   Right _ <- readText source
     | Left err => throw (FileErr source err)
-  mainModule <- ctxtPathToNS source
-  [] <- host.buildMain source
-    | (e :: es) => pure (Left (e ::: es))
-  pure (Right mainModule)
+  host.buildMain source
 
 ||| The main file's first position, where a refusal Idris gives no location
-||| is.
+||| is. Named from the file's path here, since a build that fails hands
+||| over its errors and no module.
 mainSite : {auto c : Ref Ctxt Defs} -> String -> Core NonEmptyFC
 mainSite source = (\m => (PhysicalIdrSrc m, (0, 0), (0, 0))) <$> ctxtPathToNS source
 
@@ -320,17 +320,18 @@ perform : {auto c : Ref Ctxt Defs} ->
           Task -> Core ()
 perform (Compile timing out source) = do
   main <- mainSite source
-  Right mainModule <- built source
-    | Left errs => refusing SortedMap.empty main out (map ByIdris errs)
+  Reloaded m <- built source
+    | NotBuilt errs => refusing SortedMap.empty main out (map ByIdris errs)
   -- The program loaded, each module's origin, source and name are read
-  -- once, before anything locates a term in it.
-  loaded <- modulesOf SortedMap.empty ((mainModule, Project) :: map (\(m, home, _) => (m, home)) !loadedModules)
-  [] <- program loaded mainModule timing out
+  -- once, before anything locates a term in it: every module the session
+  -- read, the main module among them.
+  loaded <- modulesOf SortedMap.empty (map (\(ident, home, _) => (ident, home)) !loadedModules)
+  [] <- program loaded m.ident m.file timing out
     | (r :: rs) => refusing loaded main out (r ::: rs)
   pure ()
 perform (Check source) = do
-  Right _ <- built source
-    | Left errs => coreLift (exitWith (statusOfAll errs))
+  Reloaded _ <- built source
+    | NotBuilt errs => coreLift (exitWith (statusOfAll errs))
   pure ()
 perform (PackageCommand timing cmd file) = do
   p <- newRef PostS defaultPost

@@ -312,6 +312,14 @@ modulesOf ms ((m, home) :: rest) = do
   (ms', _) <- moduleIn ms m home
   modulesOf ms' rest
 
+||| A module the session read, as a table of modules holds it, or read at
+||| the home Idris found it in (`moduleIn`): what the session recorded of
+||| the module is all a table needs to hold it, so no module it read is
+||| missing from one.
+export
+loadedModule : {auto c : Ref Ctxt Defs} -> Modules -> Loaded -> Core LoadedModule
+loadedModule ms l = snd <$> moduleIn ms l.ident (homeOf l.foundIn)
+
 ||| Where an Idris location is: a span of a module, which a table of the
 ||| modules locates; or a place in no module, a package file's span, or
 ||| code at no location, which is generated.
@@ -350,15 +358,15 @@ toLoc fc = core $ do
 
 ||| A refusal as the module of a refused program carries it, at its site,
 ||| and the table of modules: the site's module as the table holds it, or,
-||| where the table lacks it, read at the home `homeOf` gives it and added
+||| where the table lacks it, read at the home `homeAt` gives it and added
 ||| (`moduleIn`). Essential: Idris locates an error in the module it was
 ||| elaborating, which it may never have loaded, and a module it could not
 ||| load is one of the project's it failed to build.
-moduleRefusal : {auto c : Ref Ctxt Defs} -> (homeOf : ModuleIdent -> Home) -> Modules -> SomeRule -> NonEmptyFC ->
+moduleRefusal : {auto c : Ref Ctxt Defs} -> (homeAt : ModuleIdent -> Home) -> Modules -> SomeRule -> NonEmptyFC ->
                 String -> Core (Modules, ModuleRefusal)
-moduleRefusal homeOf ms rule site message = case placed (justFC site) of
+moduleRefusal homeAt ms rule site message = case placed (justFC site) of
   InIdrisModule ident sp => do
-    (ms', m) <- moduleIn ms ident (homeOf ident)
+    (ms', m) <- moduleIn ms ident (homeAt ident)
     pure (ms', MkModuleRefusal rule (spanIn m sp) message)
   InNoModule loc => pure (ms, MkModuleRefusal rule loc message)
 
@@ -366,14 +374,14 @@ moduleRefusal homeOf ms rule site message = case placed (justFC site) of
 ||| order given, each located as `moduleRefusal` locates it, in the table
 ||| the refusals before it completed.
 export
-moduleRefusals : {auto c : Ref Ctxt Defs} -> (homeOf : ModuleIdent -> Home) -> Modules ->
+moduleRefusals : {auto c : Ref Ctxt Defs} -> (homeAt : ModuleIdent -> Home) -> Modules ->
                  List1 (SomeRule, NonEmptyFC, String) -> Core (List1 ModuleRefusal)
-moduleRefusals homeOf ms ((rule, site, message) ::: rest) = do
-  (ms', r) <- moduleRefusal homeOf ms rule site message
+moduleRefusals homeAt ms ((rule, site, message) ::: rest) = do
+  (ms', r) <- moduleRefusal homeAt ms rule site message
   (r :::) <$> others ms' rest
   where
     others : Modules -> List (SomeRule, NonEmptyFC, String) -> Core (List ModuleRefusal)
     others ms [] = pure []
     others ms ((rule, site, message) :: rs) = do
-      (ms', r) <- moduleRefusal homeOf ms rule site message
+      (ms', r) <- moduleRefusal homeAt ms rule site message
       (r ::) <$> others ms' rs

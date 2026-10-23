@@ -97,34 +97,38 @@ discharged KwUnhide = True
 discharged KwLogging = True
 discharged _ = False
 
-||| A user module's imports and pragmas, as its checked module (`checked`,
-||| its TTC) keeps them, each where the source writes it: an import of a
-||| module that is neither one of the project's with source nor a trusted
-||| library's is refused at the import, and a pragma the elaborator has not
-||| discharged where it is written. Each is noted on its own, so every one
-||| is reported.
+||| A user module's imports, as the session read them (`importsRead`), and
+||| its pragmas, as its checked module (`checked`, its TTC) keeps them, each
+||| where the source writes it: an import of a module that is neither one
+||| of the project's with source nor a trusted library's is refused at the
+||| import, and a pragma the elaborator has not discharged where it is
+||| written. Each is noted on its own, so every one is reported. The
+||| session hands over each import with the module it read for it, so the
+||| imported module is never looked up by the name the import writes.
 export
 checkModule : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (ident : ModuleIdent) -> (checked : String) -> Core ()
 checkModule ident checked = do
   mf <- readDefinitions checked
   st <- get TState
-  for_ mf.imports $ \i => noted (imported st.modules i)
+  -- The session records the imports it read the last first; they are
+  -- checked the first first. A module read twice, once re-exported, has
+  -- its imports recorded twice, and an import's refusal is recorded once
+  -- however many times it is found (`noting`).
+  readImports <- (.importsRead) <$> get Ctxt
+  for_ (reverse readImports) $ \r => when (r.importer.ident == ident) $ do
+    importee <- loadedModule st.modules r.importee
+    noted (imported importee r.written)
   for_ mf.pragmas $ \u => unless (discharged u.kind) $ noted $
     reject u.loc (show ident) UserPragma ("the pragma %" ++ spelling u.kind)
   where
     acceptable : Origin -> Maybe String -> Bool
     acceptable User source = isJust source
     acceptable origin _ = covers Trusted origin
-    imported : Modules -> Import -> Front ()
-    imported ms i = case lookup i.path ms of
-      Just m => unless (acceptable m.origin m.source) $
-                  reject i.loc (show ident) ProgramShape
-                    ("imports " ++ show i.path ++ ", which is neither a user module nor a trusted module")
-      -- Idris's session checks a module only once the modules it imports
-      -- are, and loads each one it checks: a fact of the session the
-      -- compiler runs, which the table of what it loaded does not carry.
-      Nothing => internal i.loc ("an import of " ++ show i.path ++ ", which the session did not load")
+    imported : LoadedModule -> Import -> Front ()
+    imported m i = unless (acceptable m.origin m.source) $
+                     reject i.loc (show ident) ProgramShape
+                       ("imports " ++ show i.path ++ ", which is neither a user module nor a trusted module")
 
 ------------------------------------------------------------------------------
 -- Escape hatches spelled

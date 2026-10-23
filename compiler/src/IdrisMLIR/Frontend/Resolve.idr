@@ -15,7 +15,6 @@ import Core.Name.Namespace
 import Core.Options
 import Core.TT
 import Idris.Host
-import Libraries.Utils.Path
 
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
@@ -70,65 +69,30 @@ modulePath ident = map (.text) (reverse (unsafeUnfoldModuleIdent ident))
 ||| when it found the TTC: in the project's build directory, in a package
 ||| the build added, or in a directory named for imports. The module's name
 ||| says nothing about it.
+export
 homeOf : Found -> Home
 homeOf InBuild = Project
 homeOf (InPackage p) = Installed p.name
 homeOf (InExtraDir _) = Elsewhere
 
-||| The checked module Idris reloads as the file just elaborated has no name.
-unnamed : Loaded -> Bool
-unnamed l = null (unsafeUnfoldModuleIdent l.ident)
-
-||| The checked module of the file just elaborated, which Idris reloads
-||| with no name once it has built it: nothing before then.
-export
-elaboratedChecked : {auto c : Ref Ctxt Defs} -> Core (Maybe String)
-elaboratedChecked = do
-  defs <- get Ctxt
-  pure (case map (.file) (filter unnamed defs.allImported) of
-          [ttc] => Just ttc
-          _ => Nothing)
-
-||| The file just elaborated, recovered from its checked module. Its path
-||| is the file's, which need not be the module's: a file with no module
-||| header is `Main` whatever it is called.
-elaboratedFile : {auto c : Ref Ctxt Defs} -> Core (Maybe String)
-elaboratedFile = do
-  Just ttc <- elaboratedChecked
-    | Nothing => pure Nothing
-  bdir <- ttcBuildDirectory
-  let Just rel = dropBase bdir ttc
-    | Nothing => pure Nothing
-  d <- getDirs
-  let stem = dropExtensions rel
-  let base = maybe stem (\srcdir => srcdir </> stem) (source_dir d)
-  firstAvailable (map (base ++) listOfExtensionsStr)
-
-||| The source of a module of the project. It is the file named for the
-||| module, except the main module, which Idris allows to be any file: that
-||| file is the one just elaborated.
+||| The source of a module of the project: the file its path names. The
+||| session names every module as its path names it, the main module among
+||| them, whatever namespace its header gives, so the main file is found as
+||| every other module's is.
 export
 moduleSource : {auto c : Ref Ctxt Defs} -> FC -> ModuleIdent -> Core (Maybe String)
-moduleSource fc ident = do
-  named <- catch (Just <$> nsToSource fc ident) (\_ => pure Nothing)
-  if ident == nsAsModuleIdent mainNS
-    then do
-      elaborated <- elaboratedFile
-      pure (elaborated <|> named)
-    else pure named
+moduleSource fc ident = catch (Just <$> nsToSource fc ident) (\_ => pure Nothing)
 
 ||| Every checked module the session loaded, by name, each with where Idris
-||| found it and its checked file (`allImported`): with the main file, the
-||| modules a term of the program can be located in, since Idris locates a
-||| term in the module it elaborated it in. The file just elaborated is
-||| reloaded under no name (`elaboratedChecked`); it is the project's, and
-||| its terms are located in the module its path names, which is its
-||| namespace but for a file with no module header.
+||| found it and its checked file (`allImported`), the main module among
+||| them: the modules a term of the program can be located in, since Idris
+||| locates a term in the module it elaborated it in, and records each
+||| module under the name its terms' locations give.
 export
 loadedModules : {auto c : Ref Ctxt Defs} -> Core (List (ModuleIdent, Home, String))
 loadedModules = do
   defs <- get Ctxt
-  pure (map (\l => (l.ident, homeOf l.foundIn, l.file)) (filter (not . unnamed) defs.allImported))
+  pure (map (\l => (l.ident, homeOf l.foundIn, l.file)) defs.allImported)
 
 ------------------------------------------------------------------------------
 -- Refusals

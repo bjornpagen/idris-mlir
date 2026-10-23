@@ -23,6 +23,7 @@ import Core.Name.Scoped
 import Core.TT
 import Libraries.Data.List.Thin
 import Hash.XXH3
+import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
@@ -54,6 +55,11 @@ import Data.String
 import Data.Vect
 
 %default total
+
+-- The evaluator names a term's spine as this module names a link's head
+-- and an argument's place; here each name is the frontend's.
+%hide Idris.Host.Head
+%hide Idris.Host.Applied
 
 ------------------------------------------------------------------------------
 -- Names
@@ -355,7 +361,7 @@ mutual
   ||| one type two data instances, and a value built as one would reach a
   ||| match on the other, whose constructors no site builds.
   ||| A name is its address in the context, a marker its number; a name
-  ||| the context does not hold is no instance's (`unresolved`), and a
+  ||| the context defines as nothing is no instance's (`missingIn`), and a
   ||| request of one stops before it is written. A run of a `Nat`-like
   ||| type's successor, a literal's above all (`Fin 1024`), is two symbols.
   write : Writer -> TT vs -> List (Token Form)
@@ -434,9 +440,32 @@ mutual
   namesOfPassing (DefImplicit t) acc = namesOf t acc
   namesOfPassing _ acc = acc
 
-||| A name of the term that the context does not hold, if there is one.
-unresolved : Context -> TT vs -> Maybe Name
-unresolved ctx t = snd <$> find (\(_, n) => isNothing (definitionAddress ctx n)) (namesOf t [])
+||| The first name the terms refer to (`namesOf`) that the frozen context
+||| defines as nothing, if there is one.
+missingIn : Frozen -> List (TT vs) -> Maybe Name
+missingIn ctx tms = firstMissing (foldr namesOf [] tms)
+  where
+    firstMissing : List (NameType, Name) -> Maybe Name
+    firstMissing [] = Nothing
+    firstMissing ((_, n) :: ns) = case definitionIn ctx n of
+      NotDefined _ => Just n
+      DefinedAs {} => firstMissing ns
+
+-- A name a frozen context defines resolves to an entry at a non-negative
+-- index (`Host.definedPlaced`), which has an address.
+0 addressedWhereDefined : {0 ctx : Context} -> {0 n : Name} ->
+                          definitionAddress ctx n = Nothing ->
+                          (i : Int ** (getNameID n ctx = Just i, (i < 0) = False)) -> Void
+addressedWhereDefined none (i ** (resolved, nonNegative)) = case addressedWhereResolved resolved nonNegative of
+  (a ** addressed) => absurd (trans (sym none) addressed)
+
+||| The address of a name the frozen context defines: every entry the
+||| context reads is at a non-negative index, so a defined name has one,
+||| and no case is left for one without.
+definedAddress : (ctx : Frozen) -> (n : Name) -> (0 _ : Defines ctx n d) -> Address
+definedAddress ctx n defines with (definitionAddress (gamma (defsOf ctx)) n) proof found
+  _ | Just a = a
+  _ | Nothing = void (addressedWhereDefined found (definedPlaced defines))
 
 ||| The zeros and successors of `Nat`-like types the terms name, by address:
 ||| the constructors of no argument and of one that Idris flags as such
@@ -1014,14 +1043,18 @@ instanceAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              Front (Instance a)
 instanceAt fc what head originOf term given = do
   let forms = map (map term) given
-  defs <- getDefs
-  -- A broken invariant: a compile-time argument is checked TT, every name
-  -- of which the context holds, but the frontend's own markers, which are
-  -- written by their numbers (`holeAt`).
-  let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing forms
-    | Just stray => internal fc ("a compile-time argument of " ++ what ++ " names " ++ show !(fullNames stray) ++
-                                 ", which the context does not hold")
-  writer <- writerOf (catMaybes forms)
+  -- A link writes each name a compile-time argument refers to by the
+  -- address of the definition the frozen context gives it, but the
+  -- frontend's own markers, which are written by their numbers (`holeAt`).
+  -- A name the context defines as nothing is a definition the compiled
+  -- modules miss, refused before anything is written, as a request of one
+  -- is (`instanceKey`).
+  let present = catMaybes forms
+  ctx <- frozenContext
+  let Nothing = missingIn ctx present
+    | Just missing => reject fc what CompiledModule ("a compile-time argument names the missing definition " ++
+                                                    show !(fullNames missing))
+  writer <- writerOf present
   -- The link writes each argument as given, a name by the address it
   -- resolves to, whichever spelling it has, so that the key a request's
   -- reading bounds (`Template.keyedWithin`) is the one written; only the
@@ -1058,17 +1091,18 @@ instanceAt fc what head originOf term given = do
 
 ||| The instance of a definition at its compile-time arguments
 ||| (`instanceAt`), and the definition's address, which heads its link.
-||| The definition is the one the request names, missing from the context
-||| as a lookup of it is.
+||| The definition is the one the frozen context gives the name the
+||| request names; a name it defines as nothing is a definition the
+||| compiled modules miss.
 export
 instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Address, Instance a)
 instanceKey fc owner n term given = do
   full <- fullNames n
-  defs <- getDefs
-  let Just placement = placementIn (gamma defs) full
-    | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
-  let address = addressOf placement
+  ctx <- frozenContext
+  let DefinedAs _ _ _ defines = definitionIn ctx full
+    | NotDefined _ => reject fc owner CompiledModule ("missing definition " ++ show full)
+  let address = definedAddress ctx full defines
   (address,) <$> instanceAt fc (show full) (ADefinition address) (keyOrigin full) term given
 
 ||| The instance of a member at a use's types (`AtUse uses`) at its

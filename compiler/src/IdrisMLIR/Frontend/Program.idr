@@ -152,7 +152,8 @@ entryPoint fileSite = do
 
 ||| Compiles the program Idris has built from its main file, whose path
 ||| names the module `mainFile` and whose checked module, reloaded once
-||| built, is `mainChecked`, into the module at `mlirPath`, or gives the
+||| built, is `mainChecked` (both as Idris recorded the main module it
+||| reloaded), into the module at `mlirPath`, or gives the
 ||| program's rejections, the first found first, and writes nothing. What
 ||| each module the session loaded is (`loaded`) was read once, before
 ||| it. The checks of the source and of what the
@@ -205,10 +206,12 @@ program loaded mainFile mainChecked timing mlirPath = do
     let main = fullname mainDef
     let fc = location mainDef
     -- Every module of the project's is one with a checked module and a
-    -- source: the main file's, named as its path names it, which is where
-    -- its terms are located, and every one the session loaded, among them
-    -- the module `main` is in. Library modules outside the table may be
-    -- loaded, but not reached (checkReachable).
+    -- source, each the session loaded (the main file's among them, named
+    -- as its path names it, which is where its terms are located, and the
+    -- module `main` is in). The main module is checked first, as its
+    -- refusals are reported first; read again among the session's, it is
+    -- passed over. Library modules outside the table may be loaded, but
+    -- not reached (checkReachable).
     session <- core loadedModules
     let users = userModules SortedSet.empty ((mainFile, mainChecked) :: map (\(m, _, checked) => (m, checked)) session)
     -- The user's own imports are of user modules or trusted ones, and its
