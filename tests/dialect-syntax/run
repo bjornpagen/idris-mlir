@@ -8,9 +8,21 @@
 # the frontend writes, and one of every op the frontend builds (it exits 1,
 # writing nothing, when a generated sum has a mnemonic no sample has).
 # idris-mlir-opt reads it and prints it in the dialects' own syntax, and
-# that print reads back to the same text. The print itself is no part of
-# the check: what the samples are is the program's, and how the dialects
-# spell them their own fixtures'.
+# that print reads back to the same text.
+#
+# A float sample read back has the bits IEEE 754 gives its Double.
+# bits.mlir writes those bits, each as MLIR's literal of a float's bits,
+# and idris-mlir-opt prints them as it prints the samples. MLIR prints a
+# float as text that reads back to the same bits (a decimal where one
+# does, else the bits), so two floats print alike exactly when their bits
+# are equal: each reference's print must be some sample's, however MLIR
+# spells a float. A NaN's sign and payload are each host's, and IEEE 754
+# fixes only that 0 / 0 is one; no decimal is a NaN, so MLIR prints a NaN
+# as its bits, which must be a NaN's.
+#
+# No spelling is part of the check but a NaN's, whose only text in MLIR's
+# syntax is its bits: what the samples are is the program's, and how the
+# dialects spell them their own fixtures'.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 bounded "$root/compiler/build/exec/syntax-samples" "$work/samples.mlirbc" \
   > "$work/samples.out" 2> "$work/samples.err"
@@ -32,4 +44,37 @@ else
   say "reprint: differs"
   show "$work/reprint.err"
   diff "$work/printed.mlir" "$work/reprinted.mlir" | head -n 20
+fi
+
+# f64s FILE: each f64 attribute the module FILE prints, `name = text`, one
+# a line.
+f64s() {
+  grep -o '[A-Za-z0-9_.$]* = [^ ,{}()]* : f64' "$1" | sed 's/ : f64$//'
+}
+
+f64s "$work/printed.mlir" | sed 's/.* = //' > "$work/sample-floats"
+bounded "$idris_mlir_opt" --mlir-disable-threading "$here/bits.mlir" -o "$work/bits.mlir" \
+  > "$work/bits.err" 2>&1
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "bits: the references exit $status"
+  show "$work/bits.err"
+else
+  f64s "$work/bits.mlir" > "$work/references"
+  missing=0
+  while IFS= read -r reference; do
+    grep -qxF -e "${reference#* = }" "$work/sample-floats" ||
+      { say "bits: no sample reads back as ${reference% = *}, ${reference#* = }"; missing=1; }
+  done < "$work/references"
+  [ "$missing" -eq 0 ] && say "bits: $(wc -l < "$work/references" | tr -d ' ') samples as IEEE 754 gives them"
+fi
+
+# A NaN as MLIR prints it: 0x and 16 hexadecimal digits, the first three
+# the sign bit and the 11 bits of the exponent, all ones, and the other 13
+# the fraction, not all zeros, which would be an infinity.
+if grep '^0x[7Ff][Ff][Ff][0-9A-Fa-f]\{13\}$' "$work/sample-floats" |
+     grep -qv '^0x[7Ff][Ff][Ff]0\{13\}$'; then
+  say "nan: a sample reads back as a NaN"
+else
+  say "nan: no sample reads back as a NaN"
 fi
