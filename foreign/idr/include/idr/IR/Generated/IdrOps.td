@@ -1219,7 +1219,7 @@ def Idr_F64HeadOp : Idr_Op<"f64.head", [
 }
 
 def Idr_BigAddOp : Idr_Op<"big.add", [
-    SameTypeOperands,
+    AllMatchSameOperatorTrait<["lhs", "rhs"], "::idr::unrestricted($_self.getType())", "carrier">,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -1234,7 +1234,7 @@ def Idr_BigAddOp : Idr_Op<"big.add", [
 }
 
 def Idr_BigMulOp : Idr_Op<"big.mul", [
-    SameTypeOperands,
+    AllMatchSameOperatorTrait<["lhs", "rhs"], "::idr::unrestricted($_self.getType())", "carrier">,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -1382,7 +1382,7 @@ def Idr_NatPredOp : Idr_Op<"nat.pred", [
 }
 
 def Idr_BigCmpOp : Idr_Op<"big.cmp", [
-    SameTypeOperands,
+    AllMatchSameOperatorTrait<["lhs", "rhs"], "::idr::unrestricted($_self.getType())", "carrier">,
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -2833,16 +2833,18 @@ def Idr_MemoRunOp : Idr_Op<"memo.run", [
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorInputs", "getRegionInvocationBounds"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>
   ]> {
   let summary = "a memo cell's force: its captures moved out, its value moved in";
   let description = [{
     `%v = idr.memo.run %cell : !idr.data<#lazy@f<v1>> -> (R) { ^(%c: T): ... }`.
     The cell is refined to the state of a label that memoizes; the region
-    binds that label's captures as reads of the cell's fields give them,
-    runs once while the cell is running, and yields the value the cell's
-    forced state holds at its indices, then each result. `split` makes it
-    its steps, `idr.memo.take`, the region's code and `idr.memo.store`.
+    binds that label's captures, each holding its field's own reference,
+    the field emptied; runs once while the cell is running; and yields the
+    value the cell's forced state holds at its indices, then each result,
+    the value moving into the cell, its yield target. `split` makes it its
+    steps, `idr.memo.take`, the region's code and `idr.memo.store`.
   }];
   let arguments = (ins Type<CPred<"::idr::isMemoState($_self)">, "a memo family's cell, refined to one of its states", "::mlir::Type">:$cell);
   let results = (outs Variadic<AnyType>:$outs);
@@ -2876,7 +2878,7 @@ def Idr_MemoYieldOp : Idr_Op<"memo.yield", [
 def Idr_MemoTakeOp : Idr_Op<"memo.take", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    InferTypeOpAdaptor,
+    InferTypeOpAdaptorWithIsCompatible,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "an exchange's first step: the captures moved out of the cell, which runs";

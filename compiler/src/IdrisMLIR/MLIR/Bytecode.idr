@@ -515,9 +515,8 @@ numberKind (LifetimeKindOfRoom MkLifetimeKindRoom) = LifetimeKindOfRoom MkLifeti
 numberKind (LifetimeKindOfCursor MkLifetimeKindCursor) = LifetimeKindOfCursor MkLifetimeKindCursor
 numberKind (LifetimeKindOfHome (MkLifetimeKindHome site)) = LifetimeKindOfHome (MkLifetimeKindHome site)
 
-numberTermination : TerminationProof MlirType MlirAttr -> TerminationProof TypeRef AttrRef
-numberTermination (TerminationProofComponent (MkComponentProof c)) = TerminationProofComponent (MkComponentProof c)
-numberTermination (TerminationProofAcyclic MkAcyclicProof) = TerminationProofAcyclic MkAcyclicProof
+numberTermination : ComponentProof MlirType MlirAttr -> ComponentProof TypeRef AttrRef
+numberTermination (MkComponentProof c) = MkComponentProof c
 
 numberPutBound : PutBound MlirType MlirAttr -> PutBound TypeRef AttrRef
 numberPutBound (MkPutBound p n) = MkPutBound p n

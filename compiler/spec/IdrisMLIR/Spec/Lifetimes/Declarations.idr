@@ -209,7 +209,9 @@ lifetimeType = MkTypeDef
 
 ||| `!idr.lifetime.package<stack | chain, T…>`, C++ `LifetimePackageType`:
 ||| a per-level lifetime's memory and the values held in it, moved out of
-||| its region by `idr.lifetime.pack` and reopened by `idr.lifetime.unpack`.
+||| its region by `idr.lifetime.pack` and reopened by `idr.lifetime.unpack`;
+||| `!idr.lifetime.package<stack>` where it holds no value, the empty list
+||| a group its emptiness leaves out.
 ||| Used exactly once by its type, with no grade, so a second unpack is a
 ||| second use and a package no unpack takes holds memory nothing gives
 ||| back. Its held values live in its lifetime, so it holds no reference a
@@ -225,9 +227,10 @@ packageType = MkTypeDef
                       ("IdrisMLIR" ::: ["Spec", "Lifetimes", "Declarations"]) "packedClosed")))
           AlwaysWritten
           (line "what the package holds of the lifetime")
-      , MkParameter (ident "held") (ListOf TypeValue) AlwaysWritten
+      , MkParameter (ident "held") (ListOf TypeValue) (DefaultsTo (code "::llvm::SmallVector<::mlir::Type>()"))
           (line "the values held in the lifetime, in order") ]
-  , syntax = Declarative [Keyword (line "<"), ParamAt FZ, Keyword (line ","), ParamAt (FS FZ), Keyword (line ">")]
+  , syntax = Declarative
+      [Keyword (line "<"), ParamAt FZ, OptionalParams (BeginsWith (line ",")) (FS FZ) [], Keyword (line ">")]
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived

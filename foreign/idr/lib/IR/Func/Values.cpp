@@ -23,35 +23,26 @@ using namespace idr;
 // Termination proofs
 //===----------------------------------------------------------------------===//
 
-llvm::hash_code idr::hash_value(const TerminationProof &proof) {
-  return idr::match(
-      proof, [](InComponent in) { return llvm::hash_combine(0u, in.component); },
-      [](Acyclic) { return llvm::hash_combine(1u); });
+llvm::hash_code idr::hash_value(const InComponent &proof) {
+  return llvm::hash_value(proof.component);
 }
 
-// The proof's text, `component 3` or `acyclic`; its bytecode is its wire's.
-FailureOr<TerminationProof> idr::parseProof(AsmParser &parser) {
-  if (succeeded(parser.parseOptionalKeyword("acyclic")))
-    return TerminationProof(Acyclic{});
+// The proof's text, `component 3`; its bytecode is its wire's.
+FailureOr<InComponent> idr::parseProof(AsmParser &parser) {
   std::uint32_t component = 0;
   if (parser.parseKeyword("component") || parser.parseInteger(component))
     return failure();
-  return TerminationProof(InComponent{component});
+  return InComponent{component};
 }
 
-void idr::printProof(AsmPrinter &printer, TerminationProof proof) {
-  idr::match(
-      proof, [&](InComponent in) { printer << "component " << in.component; },
-      [&](Acyclic) { printer << "acyclic"; });
+void idr::printProof(AsmPrinter &printer, InComponent proof) {
+  printer << "component " << proof.component;
 }
 
 Termination idr::FuncOp::getTermination() {
-  TerminatesAttr proof = getTerminatesAttr();
-  if (!proof)
-    return Unproved{};
-  return idr::match(
-      proof.getProof(), [](InComponent in) -> Termination { return in; },
-      [](Acyclic acyclic) -> Termination { return acyclic; });
+  if (TerminatesAttr proof = getTerminatesAttr())
+    return proof.getProof();
+  return Unproved{};
 }
 
 //===----------------------------------------------------------------------===//

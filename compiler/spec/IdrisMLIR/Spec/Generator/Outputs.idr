@@ -314,10 +314,24 @@ setProperties op = concatMap refused (toList op.attrs)
       AProperty (DefaultedEnumProperty e _) => setOf e x
       _ => []
 
+||| The one-carrier trait compares its operands' values, one each: a group
+||| of any number, or of none, has no value to compare.
+carrierGroups : Op i o a r -> List String
+carrierGroups op = concatMap refused op.traits
+  where
+    groupOfOne : Operand -> List String
+    groupOfOne x = case x.arity of
+      Single => []
+      _ => [opName op ++ ": the one-carrier trait reads " ++ identText x.name ++ ", a group that may hold other than one value"]
+    refused : Trait i o -> List String
+    refused SameCarrierOperands = concatMap groupOfOne (toList op.ins)
+    refused _ = []
+
 ||| What the generator refuses to print, said for the one who wrote the
 ||| specification: each pair rule over a group that may hold other than one
-||| value, each op whose result-type rules cannot be printed, and each enum
-||| property over a set of cases.
+||| value, each op whose result-type rules cannot be printed, each enum
+||| property over a set of cases, and each one-carrier trait over a group
+||| that may hold other than one value.
 export
 refusals : List String
 refusals =
@@ -325,6 +339,7 @@ refusals =
       (unpairedRules allOps)
   ++ concatMap (\(SomeOp op) => typingRefusals op) allOps
   ++ concatMap (\(SomeOp op) => setProperties op) allOps
+  ++ concatMap (\(SomeOp op) => carrierGroups op) allOps
 
 ||| Every op key: ours, then the admitted upstream allOps.
 export

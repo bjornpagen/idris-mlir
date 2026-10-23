@@ -48,7 +48,6 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Declare
     uint32_t components() const;
     const ::idr::families::Slots & slots() const;
     ::std::optional<uint64_t> numeralBound() const;
-    ::idr::LayoutMatch layoutMatch(::idr::DataType other) const;
     bool boundsReach() const;
     ::llvm::ArrayRef<::idr::families::MemberRef> selfCells() const;
     uint32_t freeLevels() const;
@@ -87,8 +86,8 @@ def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [DeclareTypeInterfaceMet
 
 def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a per-level lifetime packed around a framed call, with the values it holds";
-  let parameters = (ins Idr_EnumParameter<Idr_Packed>:$packed, Idr_ArrayRefParameter<"::mlir::Type">:$held);
-  let assemblyFormat = [{ `<` $packed `,` $held `>` }];
+  let parameters = (ins Idr_EnumParameter<Idr_Packed>:$packed, Idr_ArrayRefParameter<"::mlir::Type", "::llvm::SmallVector<::mlir::Type>()">:$held);
+  let assemblyFormat = [{ `<` $packed (`,` $held^)? `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
@@ -186,8 +185,8 @@ def Idr_ReuseTokenType : Idr_Type<"ReuseToken", "reuse_token", [DeclareTypeInter
 
 def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a closure: a cell holding its captures";
-  let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type">:$inputs, Idr_ArrayRefParameter<"::mlir::Type">:$results);
-  let assemblyFormat = [{ `<` `(` $inputs `)` `->` `(` $results `)` `>` }];
+  let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type", "::llvm::SmallVector<::mlir::Type>()">:$inputs, Idr_ArrayRefParameter<"::mlir::Type", "::llvm::SmallVector<::mlir::Type>()">:$results);
+  let assemblyFormat = [{ `<` `(` (`)`) : ($inputs^ `)`)? `->` `(` (`)`) : ($results^ `)`)? `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
@@ -238,10 +237,12 @@ def Idr_BinderAttr : Idr_Attr<"Binder", "binder", []> {
 def Idr_TerminatesAttr : Idr_Attr<"Terminates", "terminates", []> {
   let summary = "how a function's own loops and recursion are known to end";
   let description = [{
-    On idr.func exactly when Idris proved its loops end, or a pass made it
-    with no loop of its own; its row holds divergence otherwise.
+    On idr.func exactly when Idris proved its loops end, in the component
+    of its call graph named. A cycle of calls through the function, or a
+    loop a pass makes of its code, ends only where every function on it
+    holds the same component; it may run for ever otherwise.
   }];
-  let parameters = (ins Idr_HandParameter<"::idr::TerminationProof", "Proof">:$proof);
+  let parameters = (ins Idr_HandParameter<"::idr::InComponent", "Proof">:$proof);
   let assemblyFormat = [{ `<` $proof `>` }];
 }
 

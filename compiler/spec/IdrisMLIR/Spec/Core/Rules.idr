@@ -25,10 +25,12 @@ public export
 data Category = Megamorphic | OutsideLanguage | UserError
 
 ||| Where a rule is decided: by the frontend, reading the program as Idris
-||| checked it, or by a total analysis of the pipeline over the first-order
-||| program, before any optimization.
+||| checked it; by a total analysis of the pipeline over the first-order
+||| program, before any optimization; or against the build, what the
+||| compiler was built for (the runtime it links, the target it compiles
+||| for), wherever a module meets it.
 public export
-data Scope = Frontend | Pipeline
+data Scope = Frontend | Pipeline | AgainstBuild
 
 public export
 data Rule : Category -> Type where
@@ -73,6 +75,9 @@ data Rule : Category -> Type where
   Cycle : Rule OutsideLanguage
   ||| A runtime the compiler cannot link as it is.
   Runtime : Rule OutsideLanguage
+  ||| A module made for another target than the build's: compiling it for
+  ||| the build's would compile something other than what it says.
+  OtherTarget : Rule OutsideLanguage
   ||| A program Idris does not elaborate; the refusal carries Idris's own
   ||| message.
   Elaboration : Rule UserError
@@ -114,12 +119,15 @@ phrase Deprecated = word "deprecated" ::: []
 phrase Uniqueness = word "uniqueness" ::: []
 phrase Cycle = word "cycle" ::: []
 phrase Runtime = word "runtime" ::: []
+phrase OtherTarget = word "target" ::: []
 phrase Elaboration = word "elaboration" ::: []
 
 public export
 scope : Rule c -> Scope
 scope Uniqueness = Pipeline
 scope Cycle = Pipeline
+scope Runtime = AgainstBuild
+scope OtherTarget = AgainstBuild
 scope _ = Frontend
 
 public export
@@ -148,6 +156,7 @@ ruleName Deprecated = ident "Deprecated"
 ruleName Uniqueness = ident "Uniqueness"
 ruleName Cycle = ident "Cycle"
 ruleName Runtime = ident "Runtime"
+ruleName OtherTarget = ident "OtherTarget"
 ruleName Elaboration = ident "Elaboration"
 
 public export
@@ -172,13 +181,15 @@ scopeClosed : Closed Scope
 scopeClosed = MkClosed
   { name = ident "RuleScope"
   , shape = OneOf
-  , every = Frontend ::: [Pipeline]
+  , every = Frontend ::: [Pipeline, AgainstBuild]
   , complete = \case
       Frontend => Here
       Pipeline => There Here
+      AgainstBuild => There (There Here)
   , describe = \case
       Frontend => MkCase (ident "Frontend") (word "frontend" ::: []) (line "decided by the frontend, on the program as Idris checked it")
       Pipeline => MkCase (ident "Pipeline") (word "pipeline" ::: []) (line "decided by a total analysis on the first-order program, before any optimization")
+      AgainstBuild => MkCase (ident "Build") (word "build" ::: []) (line "decided against what the compiler was built for: the runtime it links, the target it compiles for")
   , doc = brief (line "where a rule is decided")
   }
 
@@ -194,7 +205,8 @@ everyRule =
   , Refusal EscapeHatch, Refusal UserPragma, Refusal Threads
   , Refusal Finalizer, Refusal RawPointer, Refusal Signal, Refusal Process
   , Refusal CompiledModule, Refusal HookShape, Refusal Deprecated
-  , Refusal Uniqueness, Refusal Cycle, Refusal Runtime, Refusal Elaboration
+  , Refusal Uniqueness, Refusal Cycle, Refusal Runtime, Refusal OtherTarget
+  , Refusal Elaboration
   ]
 
 ||| The position of each rule in everyRule, by case: the list's order.
@@ -224,7 +236,8 @@ ruleIn (Refusal Deprecated) = There (There (There (There (There (There (There (T
 ruleIn (Refusal Uniqueness) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))
 ruleIn (Refusal Cycle) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))
 ruleIn (Refusal Runtime) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))))
-ruleIn (Refusal Elaboration) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))))
+ruleIn (Refusal OtherTarget) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))))
+ruleIn (Refusal Elaboration) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))))))
 
 public export
 ruleClosed : Closed SomeRule

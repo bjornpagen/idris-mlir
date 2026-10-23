@@ -210,16 +210,27 @@ record Parameter where
 -- Syntax
 ------------------------------------------------------------------------------
 
+||| How the parser tells an optional group's two forms apart: by a literal
+||| the group begins with where its anchor holds other than its default
+||| (`(`,` $held^)?`), or by one printed alone where it holds its default
+||| (`(`)`) : ($inputs^ `)`)?`). Either way the form read first begins with
+||| a literal, the one thing upstream's parser can look for to choose.
+public export
+data GroupLead = BeginsWith Line | AloneAtDefault Line
+
 ||| One element of a declarative type or attribute syntax, over `p`
-||| parameters: a literal, a parameter, the parameters as a struct, or a
-||| custom directive over parameters.
+||| parameters: a literal, a parameter, the parameters as a struct, a custom
+||| directive over parameters, or an optional group: its anchor, a parameter
+||| with a default, and the items after it, printed where the anchor holds
+||| other than its default, so a list whose default is empty prints as
+||| nothing where it is empty and parses back.
 public export
 data ParamItem : (p : Nat) -> Type where
   Keyword : Line -> ParamItem p
   ParamAt : Fin p -> ParamItem p
   Struct : List (Fin p) -> ParamItem p
   CustomParams : Directive -> List (Fin p) -> ParamItem p
-  OptionalParams : List (ParamItem p) -> ParamItem p
+  OptionalParams : GroupLead -> (anchor : Fin p) -> (after : List (ParamItem p)) -> ParamItem p
 
 ||| A declaration's syntax: declarative over its parameters, or written by
 ||| hand (its parser and printer a hand unit defines).

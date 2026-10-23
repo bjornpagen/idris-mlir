@@ -19,6 +19,7 @@ module IdrisMLIR.Spec.Closures.Memo
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Arrays.Generating
 
 import Data.Fin
 import Data.List1
@@ -56,7 +57,8 @@ memoRunOp = MkOp
   , traits = [SingleBlock]
   , interfaces =
       [ Declares RegionBranch ["getSuccessorInputs", "getRegionInvocationBounds"]
-      , Implements flowInterface ["getFlowEdges"] ]
+      , Implements flowInterface ["getFlowEdges"]
+      , Implements yieldTargetsInterface ["getYieldTargets"] ]
   , effects = Executes [OnValues Write MemoState (Operands 0)] [ReadsMemo 0] Recursive Untouched
   , speculation = NotSpeculatable
   , stages = between First Owned
@@ -78,10 +80,11 @@ memoRunOp = MkOp
       """
       `%v = idr.memo.run %cell : !idr.data<#lazy@f<v1>> -> (R) { ^(%c: T): ... }`.
       The cell is refined to the state of a label that memoizes; the region
-      binds that label's captures as reads of the cell's fields give them,
-      runs once while the cell is running, and yields the value the cell's
-      forced state holds at its indices, then each result. `split` makes it
-      its steps, `idr.memo.take`, the region's code and `idr.memo.store`.
+      binds that label's captures, each holding its field's own reference,
+      the field emptied; runs once while the cell is running; and yields the
+      value the cell's forced state holds at its indices, then each result,
+      the value moving into the cell, its yield target. `split` makes it its
+      steps, `idr.memo.take`, the region's code and `idr.memo.store`.
       """
   }
 
@@ -120,8 +123,10 @@ memoYieldOp = MkOp
   }
 
 ||| `idr.memo.take`: an exchange's first step, its captures moved out of the
-||| cell, each at the type a read of its field gives, which the cell infers;
-||| the cell is running from then on and keeps its reference.
+||| cell, each holding its field's own reference, the field emptied, at the
+||| type the cell infers or at any hold over the same carrier and uses (a
+||| pass may prove more of a capture than the cell says); the cell is
+||| running from then on and keeps its reference.
 public export
 memoTakeOp : Op 1 1 0 0
 memoTakeOp = MkOp
@@ -132,7 +137,7 @@ memoTakeOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
+  , interfaces = [InfersTypes AlsoCompatible, Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [OnValues Write MemoState (Operands 0)] [ReadsMemo 0] Covered Untouched
   , speculation = NotSpeculatable
   , stages = between First Owned

@@ -92,7 +92,7 @@ template <class Members>
 bool provedTogether(Members &&members) {
   FuncOp first = *std::begin(members);
   return idr::match(
-      first.getTermination(), [](Unproved) { return false; }, [](Acyclic) { return false; },
+      first.getTermination(), [](Unproved) { return false; },
       [&](InComponent in) {
         return llvm::all_of(members, [&](FuncOp fn) {
           return fn.getTermination() == Termination{in};

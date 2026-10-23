@@ -197,51 +197,6 @@ void writeComponentProof(::mlir::DialectBytecodeWriter &writer, const ::idr::InC
   writer.writeVarInt(value.component);
 }
 
-// a pass made the function with no loop of its own
-::mlir::LogicalResult readAcyclicProof(::mlir::DialectBytecodeReader &, ::idr::Acyclic &) {
-  return ::mlir::success();
-}
-
-void writeAcyclicProof(::mlir::DialectBytecodeWriter &, const ::idr::Acyclic &) {
-}
-
-// a termination proof: its kind, then what the kind holds
-::mlir::LogicalResult readTerminationProof(::mlir::DialectBytecodeReader &reader, ::idr::TerminationProof &value) {
-  ::idr::ProofKind kind{};
-  if (::mlir::failed(readCase(reader, kind)))
-    return ::mlir::failure();
-  switch (kind) {
-  case ::idr::ProofKind::Component: {
-    ::idr::InComponent alternative;
-    if (::mlir::failed(readComponentProof(reader, alternative)))
-      return ::mlir::failure();
-    value = alternative;
-    break;
-  }
-  case ::idr::ProofKind::Acyclic: {
-    ::idr::Acyclic alternative;
-    if (::mlir::failed(readAcyclicProof(reader, alternative)))
-      return ::mlir::failure();
-    value = alternative;
-    break;
-  }
-  }
-  return ::mlir::success();
-}
-
-void writeTerminationProof(::mlir::DialectBytecodeWriter &writer, const ::idr::TerminationProof &value) {
-  ::idr::match(
-      value,
-      [&](const ::idr::InComponent &alternative) {
-        writeCase(writer, ::idr::ProofKind::Component);
-        writeComponentProof(writer, alternative);
-      },
-      [&](const ::idr::Acyclic &alternative) {
-        writeCase(writer, ::idr::ProofKind::Acyclic);
-        writeAcyclicProof(writer, alternative);
-      });
-}
-
 // a put parameter's position among them and its bound in bytes
 ::mlir::LogicalResult readPutBound(::mlir::DialectBytecodeReader &reader, ::idr::PutBound &value) {
   if (::mlir::failed(readWord32(reader, value.parameter)))
@@ -736,13 +691,13 @@ void writeLifetimeKind(::mlir::DialectBytecodeWriter &writer, ::idr::LifetimeKin
   writeLifetimeKindOf(writer, value);
 }
 
-// a termination proof: `component <n>` or `acyclic`
-::mlir::LogicalResult readProof(::mlir::DialectBytecodeReader &reader, ::idr::TerminationProof &value) {
-  return readTerminationProof(reader, value);
+// a termination proof: `component <n>`
+::mlir::LogicalResult readProof(::mlir::DialectBytecodeReader &reader, ::idr::InComponent &value) {
+  return readComponentProof(reader, value);
 }
 
-void writeProof(::mlir::DialectBytecodeWriter &writer, ::idr::TerminationProof value) {
-  writeTerminationProof(writer, value);
+void writeProof(::mlir::DialectBytecodeWriter &writer, ::idr::InComponent value) {
+  writeComponentProof(writer, value);
 }
 
 // the bounded put parameters: `[0: 64, 2: 128]`

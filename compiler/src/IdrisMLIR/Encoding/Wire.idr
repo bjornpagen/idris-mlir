@@ -169,42 +169,6 @@ export
 traverseComponentProof : Applicative f => (ty -> f ty') -> (at -> f at') -> ComponentProof ty at -> f (ComponentProof ty' at')
 traverseComponentProof t a (MkComponentProof component') = pure MkComponentProof <*> pure component'
 
-||| a pass made the function with no loop of its own
-public export
-data AcyclicProof : (ty : Type) -> (at : Type) -> Type where
-  ||| a pass made the function with no loop of its own
-  MkAcyclicProof : AcyclicProof ty at
-
-||| The parts of a `AcyclicProof`, its types and attributes by their entries.
-export
-partsAcyclicProof : AcyclicProof TypeRef AttrRef -> List Part
-partsAcyclicProof MkAcyclicProof = []
-
-||| A `AcyclicProof` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseAcyclicProof : Applicative f => (ty -> f ty') -> (at -> f at') -> AcyclicProof ty at -> f (AcyclicProof ty' at')
-traverseAcyclicProof t a MkAcyclicProof = pure MkAcyclicProof
-
-||| a termination proof: its kind, then what the kind holds
-public export
-data TerminationProof : (ty : Type) -> (at : Type) -> Type where
-  ||| Idris proved the loops end in a component of its call graph
-  TerminationProofComponent : (componentProof' : ComponentProof ty at) -> TerminationProof ty at
-  ||| a pass made the function with no loop of its own
-  TerminationProofAcyclic : (acyclicProof' : AcyclicProof ty at) -> TerminationProof ty at
-
-||| The parts of a `TerminationProof`, its types and attributes by their entries.
-export
-partsTerminationProof : TerminationProof TypeRef AttrRef -> List Part
-partsTerminationProof (TerminationProofComponent componentProof') = [VarInt 0] ++ partsComponentProof componentProof'
-partsTerminationProof (TerminationProofAcyclic acyclicProof') = [VarInt 1] ++ partsAcyclicProof acyclicProof'
-
-||| A `TerminationProof` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseTerminationProof : Applicative f => (ty -> f ty') -> (at -> f at') -> TerminationProof ty at -> f (TerminationProof ty' at')
-traverseTerminationProof t a (TerminationProofComponent componentProof') = pure TerminationProofComponent <*> traverseComponentProof t a componentProof'
-traverseTerminationProof t a (TerminationProofAcyclic acyclicProof') = pure TerminationProofAcyclic <*> traverseAcyclicProof t a acyclicProof'
-
 ||| a put parameter's position among them and its bound in bytes
 public export
 data PutBound : (ty : Type) -> (at : Type) -> Type where

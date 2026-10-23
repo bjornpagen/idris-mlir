@@ -236,8 +236,8 @@ void printRefinement(::mlir::AsmPrinter &printer, ::mlir::DenseI32ArrayAttr valu
 ::mlir::FailureOr<::idr::LifetimeKind> parseLifetimeKind(::mlir::AsmParser &parser);
 void printLifetimeKind(::mlir::AsmPrinter &printer, ::idr::LifetimeKind value);
 
-::mlir::FailureOr<::idr::TerminationProof> parseProof(::mlir::AsmParser &parser);
-void printProof(::mlir::AsmPrinter &printer, ::idr::TerminationProof value);
+::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser);
+void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value);
 
 ::mlir::FailureOr<::llvm::SmallVector<::idr::PutBound>> parsePutBounds(::mlir::AsmParser &parser);
 void printPutBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::PutBound> value);

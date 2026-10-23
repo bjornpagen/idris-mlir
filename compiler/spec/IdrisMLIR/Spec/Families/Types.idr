@@ -204,7 +204,6 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "uint32_t" "components" []
       , MkMember OnObjectConst "const ::idr::families::Slots &" "slots" []
       , MkMember OnObjectConst "::std::optional<uint64_t>" "numeralBound" []
-      , MkMember OnObjectConst "::idr::LayoutMatch" "layoutMatch" [param "::idr::DataType" "other"]
       , MkMember OnObjectConst "bool" "boundsReach" []
       , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::MemberRef>" "selfCells" []
       , MkMember OnObjectConst "uint32_t" "freeLevels" []

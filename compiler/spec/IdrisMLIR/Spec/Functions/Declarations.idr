@@ -384,7 +384,7 @@ declarations =
       , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr
       , SomeAttr extentAttr, SomeAttr extentsAttr ]
   , enums :=
-      [ enumDef tailKindClosed, enumDef copyKindClosed, enumDef proofKindClosed
+      [ enumDef tailKindClosed, enumDef copyKindClosed
       , enumDef extentSideClosed ]
   , traits := [checkedRoot]
   } nothing

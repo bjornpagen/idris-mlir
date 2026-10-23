@@ -54,20 +54,20 @@ namespace {
 // The runtime frees a cell by its object slots, which it reads as pointers
 // of the target it is compiled for, one word each, and the layouts place
 // them so. The module's data layout is the target entry's (idr-target),
-// the one the runtime is built for, so a mismatch is the compiler's error,
-// never the program's; it is refused with the program's rules, at the
-// module's read and after every pass on the program, so that no layout is
-// ever made for another target.
+// the one the runtime is built for, so a module whose layout is another's
+// was made for another target: it is refused by that rule, at the module's
+// read and after every pass on the program, so that no layout is ever made
+// for another target.
 LogicalResult target(ProgramOp program) {
   DataLayout layout = DataLayout::closest(program);
   Type pointer = LLVM::LLVMPointerType::get(program.getContext());
   auto size = static_cast<uint64_t>(layout.getTypeSize(pointer).getFixedValue());
   uint64_t alignment = layout.getTypeABIAlignment(pointer);
   if (size != IDRIS_RT_WORD_BYTES || alignment != IDRIS_RT_WORD_BYTES)
-    return program->emitError() << "the module's target is not the runtime's: its pointers take "
-                                << size << " bytes at an alignment of " << alignment
-                                << ", and the runtime's object slots are words of "
-                                << IDRIS_RT_WORD_BYTES;
+    return refuse(program, Rule::OtherTarget)
+           << "the module's target is not the runtime's: its pointers take " << size
+           << " bytes at an alignment of " << alignment
+           << ", and the runtime's object slots are words of " << IDRIS_RT_WORD_BYTES;
   return success();
 }
 

@@ -4,10 +4,12 @@
 // The triple and the program's CPU with its features are the target
 // entry's description (idr/TargetEntry.h); LLVM derives the rest, the data
 // layout and the width of the vector registers, so nothing about a target
-// is decided here, and a module made for another target is an error, never
+// is decided here, and a module made for another target is refused, never
 // retargeted.
 
 #include "idr/Target/Target.h"
+
+#include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
@@ -108,7 +110,7 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
     // idris-mlir-opt, or one another build targeted) was made for another
     // target, and retargeting it would compile something other than what
     // it says, so that a test written for one target would check another
-    // on every other host: it is an error that names each fact it holds
+    // on every other host: it is refused, naming each fact it holds
     // otherwise, as it holds it and as the build has it.
     SmallVector<std::pair<NamedAttribute, Attribute>, 3> others;
     for (NamedAttribute fact : built)
@@ -116,7 +118,7 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
           held && held != fact.getValue())
         others.emplace_back(fact, held);
     if (!others.empty()) {
-      InFlightDiagnostic error = module.emitError()
+      InFlightDiagnostic error = idr::refuse(module, idr::Rule::OtherTarget)
                                  << "the module is for another target than idris-mlir";
       llvm::StringRef separator = ": ";
       for (auto [fact, held] : others) {

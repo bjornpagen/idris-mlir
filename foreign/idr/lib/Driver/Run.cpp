@@ -117,17 +117,17 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
     return mlir::failure();
   auto target = module->getAttrOfType<mlir::LLVM::TargetAttr>(
       mlir::LLVM::LLVMDialect::getTargetAttrName());
-  if (!target)
-    return module.emitError()
-           << "names no target (#llvm.target): a module of the LLVM dialect alone, the "
-              "pipeline's output, is compiled for the target it names";
   // The runtime it is linked with, every link and the machine its code is
   // compiled by are for the build's target, the program's CPU among it; a
-  // module lowered for another cannot join them.
+  // module lowered for another, or for none it names, cannot join them.
+  if (!target)
+    return idr::refuse(module, idr::Rule::OtherTarget)
+           << "the module names no target (#llvm.target): a module of the LLVM dialect alone, "
+              "the pipeline's output, is compiled for the target it names";
   mlir::LLVM::TargetAttr built = idr::target::programTarget(module.getContext());
   if (target != built)
-    return module.emitError() << "is compiled for " << target << ", and idris-mlir for "
-                              << built;
+    return idr::refuse(module, idr::Rule::OtherTarget)
+           << "the module is compiled for " << target << ", and idris-mlir for " << built;
   return ModuleKind(LoweredModule{});
 }
 

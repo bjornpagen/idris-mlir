@@ -182,14 +182,13 @@ void Scheduler::finalize(unsigned component) {
                                  inlining::bodyOf(member.fn)}};
     schedule.graph.setCallees(id, solver::rowOf(member.fn, schedule.graph));
   }
-  // A copy whose final component is no cycle terminates as its calls do:
-  // nothing of its own loops. The members' rows were just written from
-  // their final bodies, so a lone member's self call is read off its row.
+  // A copy whose final component is no cycle keeps no proof of its own: a
+  // proof is read only of a cycle through it, which this copy is on none
+  // of. The members' rows were just written from their final bodies, so a
+  // lone member's self call is read off its row.
   if (!isCycle(ids, [&](FunctionId lone) { return schedule.graph.callsItself(lone); }) &&
       schedule.members[ids.front().index()].node)
-    schedule.function(ids.front())
-        .setTerminatesAttr(
-            TerminatesAttr::get(schedule.program.getContext(), TerminationProof(Acyclic{})));
+    schedule.function(ids.front()).removeTerminatesAttr();
   llvm::SmallDenseSet<unsigned, 8> callers;
   for (FunctionId id : ids)
     for (FunctionId caller : schedule.callersOf(id))

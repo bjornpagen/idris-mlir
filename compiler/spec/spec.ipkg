@@ -2,7 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 package idris-mlir-spec
 version = 0.1.0
-brief = "The idr dialect's one source, and specgen, which prints it"
+brief = "The idr dialect's one source, and the generator that prints it"
 
 sourcedir = "."
 modules = IdrisMLIR.Spec
@@ -91,6 +91,3 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Generator.Outputs
         , IdrisMLIR.Spec.Generator.Render
         , IdrisMLIR.Spec.Generator.Wire
-
-main = IdrisMLIR.Spec.Generator.Main
-executable = specgen

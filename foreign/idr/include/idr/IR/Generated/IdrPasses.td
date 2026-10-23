@@ -14,7 +14,9 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
     Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM
     fill in the CPU's features and the data layout, and writes the module's target system
     spec: for the device `CPU`, the width in bits of its fixed vector registers. The triple
-    and the CPU are the build's target entry; every later step reads them here.
+    and the CPU are the build's target entry; every later step reads them here. A module
+    that holds any of these facts otherwise was made for another target and is refused,
+    naming each fact as it holds it and as the build has it; it is never retargeted.
   }];
   let baseClass = "::mlir::OperationPass<::mlir::ModuleOp>";
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
@@ -81,8 +83,11 @@ def IdrDeduplicate : Pass<"idr-deduplicate", "::idr::ProgramOp"> {
 def IdrContify : Pass<"idr-contify", "::idr::ProgramOp"> {
   let summary = "Make each function every call of which returns to one continuation a join point there";
   let description = [{
-    Fluet and Weeks on regions: one dominator tree over functions and their return points;
-    a call it moves out of tail position has its tail fact rewritten by the one definition.
+    Fluet and Weeks on regions: one dominator tree over functions and their return points.
+    The pass knows the tail fact of each call it moves, and writes it: a tail call stays one
+    where the group's place keeps tails, a call of the function it moved into takes its
+    context where it now stands, and every other call it moves into a continuation is
+    nontail.
   }];
   let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::First, ::idr::Stage::First>";
   let statistics = [

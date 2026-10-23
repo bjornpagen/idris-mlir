@@ -59,30 +59,24 @@ void addInlinerInterface(IdrDialect &dialect);
 //===----------------------------------------------------------------------===//
 
 // Idris proved the function's own loops and recursion end, in the
-// component of its call graph with this number.
+// component of its call graph with this number: what `#idr.terminates`
+// holds, so a function with the attribute cannot claim an empty proof.
 struct InComponent {
   std::uint32_t component;
   bool operator==(const InComponent &) const = default;
 };
-// A pass made the function with no loop of its own: it ends wherever no
-// cycle of calls reaches it.
-struct Acyclic {
-  bool operator==(const Acyclic &) const = default;
-};
-// Idris did not prove the function's loops end.
+// Idris did not prove the function's loops end: a function without the
+// attribute.
 struct Unproved {
   bool operator==(const Unproved &) const = default;
 };
 
-// What `#idr.terminates` holds: a proof, so a function with the attribute
-// cannot claim an empty one; a function without it is unproved.
-using TerminationProof = std::variant<InComponent, Acyclic>;
 // What is known of a function's own loops, the attribute read: whether a
 // loop a pass makes of its code may not end (joins::endingOf), and whether
 // a cycle of calls through it does (rows::provedTogether).
-using Termination = std::variant<Unproved, InComponent, Acyclic>;
+using Termination = std::variant<Unproved, InComponent>;
 
-llvm::hash_code hash_value(const TerminationProof &proof);
+llvm::hash_code hash_value(const InComponent &proof);
 
 //===----------------------------------------------------------------------===//
 // Amounts put into a lifetime

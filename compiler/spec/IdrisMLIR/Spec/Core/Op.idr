@@ -196,7 +196,12 @@ data Trait : (i, o : Nat) -> Type where
   AutomaticAllocationScope : Trait i o
   ConstantLike : Trait i o
   SameOperandsAndResultType : Trait i o
-  SameTypeOperands : Trait i o
+  ||| Every operand holds one carrier, each at whatever grade it has: a
+  ||| literal held static beside a counted value, or a small beside a big,
+  ||| is one Integer. Upstream's `SameTypeOperands` compares grades too;
+  ||| this compares `unrestricted` types, printed as upstream's predicate
+  ||| trait over the operands, each a group of one.
+  SameCarrierOperands : Trait i o
   PropagateControlFlowBreak : Trait i o
   ReportTrackingListenerFailures : Trait i o
   ||| An op whose results or region arguments may be upstream's `token`.

@@ -46,7 +46,7 @@ data IdrType : (ty : Type) -> (at : Type) -> Type where
 public export
 data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   BinderAttr : (definition' : at) -> (index' : Nat) -> IdrAttr ty at
-  TerminatesAttr : (proof' : TerminationProof ty at) -> IdrAttr ty at
+  TerminatesAttr : (proof' : ComponentProof ty at) -> IdrAttr ty at
   PutBoundsAttr : (bounds' : List (PutBound ty at)) -> IdrAttr ty at
   LivesInAttr : (parameters' : List (LivesIn ty at)) -> (results' : List (LivesIn ty at)) -> (bounds' : List (Outlives ty at)) -> IdrAttr ty at
   GivenBackEntryAttr : (result' : Nat) -> (result_fields' : List (Nat)) -> (argument' : Nat) -> (argument_fields' : List (Nat)) -> IdrAttr ty at
@@ -258,8 +258,8 @@ terminatesAttrCode = 1
 
 ||| The parts of `TerminatesAttr`: its code, then each parameter.
 export
-encodeTerminatesAttr : TerminationProof TypeRef AttrRef -> List Part
-encodeTerminatesAttr proof' = [VarInt terminatesAttrCode] ++ partsTerminationProof proof'
+encodeTerminatesAttr : ComponentProof TypeRef AttrRef -> List Part
+encodeTerminatesAttr proof' = [VarInt terminatesAttrCode] ++ partsComponentProof proof'
 
 ||| The code of `PutBoundsAttr`, its place among the dialect's attributes.
 export
@@ -470,7 +470,7 @@ traverseIdrType t a (DestType value') = pure DestType <*> t value'
 export
 traverseIdrAttr : Applicative f => (ty -> f ty') -> (at -> f at') -> IdrAttr ty at -> f (IdrAttr ty' at')
 traverseIdrAttr t a (BinderAttr definition' index') = pure BinderAttr <*> a definition' <*> pure index'
-traverseIdrAttr t a (TerminatesAttr proof') = pure TerminatesAttr <*> traverseTerminationProof t a proof'
+traverseIdrAttr t a (TerminatesAttr proof') = pure TerminatesAttr <*> traverseComponentProof t a proof'
 traverseIdrAttr t a (PutBoundsAttr bounds') = pure PutBoundsAttr <*> traverse (\x' => traversePutBound t a x') bounds'
 traverseIdrAttr t a (LivesInAttr parameters' results' bounds') = pure LivesInAttr <*> traverse (\x' => traverseLivesIn t a x') parameters' <*> traverse (\x' => traverseLivesIn t a x') results' <*> traverse (\x' => traverseOutlives t a x') bounds'
 traverseIdrAttr t a (GivenBackEntryAttr result' result_fields' argument' argument_fields') = pure GivenBackEntryAttr <*> pure result' <*> traverse (\x' => pure x') result_fields' <*> pure argument' <*> traverse (\x' => pure x') argument_fields'

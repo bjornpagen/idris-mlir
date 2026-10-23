@@ -43,16 +43,20 @@ import Data.Vect
 
 ||| `!idr.fn<(A) -> (R)>`, C++ `FnType`: a closure, a cell holding its
 ||| captures, applied to the inputs and giving the results: its function's
-||| parameters after the captures, and its results. Before
-||| defunctionalization only, which makes each a constructor of its family.
+||| parameters after the captures, and its results. Either list may be
+||| empty, `!idr.fn<() -> ()>`, so each is a group its emptiness leaves out
+||| between its parentheses. Before defunctionalization only, which makes
+||| each a constructor of its family.
 export
 fnType : TypeDef 2
 fnType = MkTypeDef
   { mnemonic = "fn"
   , params =
-      [ MkParameter "inputs" (ListOf TypeValue) AlwaysWritten "what it is applied to"
-      , MkParameter "results" (ListOf TypeValue) AlwaysWritten "what it gives" ]
-  , syntax = Declarative [Keyword "<", Keyword "(", ParamAt 0, Keyword ")", Keyword "->", Keyword "(", ParamAt 1, Keyword ")", Keyword ">"]
+      [ MkParameter "inputs" (ListOf TypeValue) (DefaultsTo "::llvm::SmallVector<::mlir::Type>()") "what it is applied to"
+      , MkParameter "results" (ListOf TypeValue) (DefaultsTo "::llvm::SmallVector<::mlir::Type>()") "what it gives" ]
+  , syntax = Declarative
+      [ Keyword "<", Keyword "(", OptionalParams (AloneAtDefault ")") 0 [Keyword ")"]
+      , Keyword "->", Keyword "(", OptionalParams (AloneAtDefault ")") 1 [Keyword ")"], Keyword ">" ]
   , interfaces = [Declares MemRefElementType [], Declares OpAsmType ["getAsmName"]]
   , verifier = AnyParameters
   , bytecode = Derived

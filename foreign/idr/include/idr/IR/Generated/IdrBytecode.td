@@ -88,7 +88,7 @@ def IdrDialectTypes : DialectTypes<"Idr"> {
 def BinderAttr : DialectAttribute<(attr Attribute:$definition, VarInt:$index)> {
   let cType = "::idr::BinderAttr";
 }
-def TerminatesAttr : DialectAttribute<(attr Idr_Wired<"::idr::TerminationProof", "Proof">:$proof)> {
+def TerminatesAttr : DialectAttribute<(attr Idr_Wired<"::idr::InComponent", "Proof">:$proof)> {
   let cType = "::idr::TerminatesAttr";
 }
 def PutBoundsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::PutBound>", "PutBounds">:$bounds)> {

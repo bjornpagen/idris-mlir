@@ -92,9 +92,12 @@ class Idr_APIntParameter<string desc, string default = "">
     : APIntParameter<desc> {
   let defaultValue = default;
 }
+// An array's default is compared as an array, as upstream's optional
+// array compares it, so an optional group leaves an empty one out.
 class Idr_ArrayRefParameter<string arrayOf, string default = "">
     : ArrayRefParameter<arrayOf, ""> {
   let defaultValue = default;
+  let comparator = cppType # "($_lhs) == " # cppType # "($_rhs)";
 }
 
 class Idr_HandParameter<string cppType, string directive, string default = "">
@@ -159,7 +162,8 @@ def Idr_RuleCategoryAttr : EnumAttr<Idr_Dialect, Idr_RuleCategory, "rule_categor
 // where a rule is decided
 def Idr_RuleScope : I32EnumAttr<"RuleScope", "where a rule is decided", [
     I32EnumAttrCase<"Frontend", 0, "frontend">,
-    I32EnumAttrCase<"Pipeline", 1, "pipeline">
+    I32EnumAttrCase<"Pipeline", 1, "pipeline">,
+    I32EnumAttrCase<"Build", 2, "build">
   ]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
@@ -192,7 +196,8 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
     I32EnumAttrCase<"Uniqueness", 21, "uniqueness">,
     I32EnumAttrCase<"Cycle", 22, "cycle">,
     I32EnumAttrCase<"Runtime", 23, "runtime">,
-    I32EnumAttrCase<"Elaboration", 24, "elaboration">
+    I32EnumAttrCase<"OtherTarget", 24, "target">,
+    I32EnumAttrCase<"Elaboration", 25, "elaboration">
   ]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
@@ -226,16 +231,6 @@ def Idr_CopyKind : I32EnumAttr<"CopyKind", "what a specialized copy is to its or
   let genSpecializedAttr = 0;
 }
 def Idr_CopyKindAttr : EnumAttr<Idr_Dialect, Idr_CopyKind, "copy_kind">;
-
-// which proof a function's termination attribute holds
-def Idr_ProofKind : I32EnumAttr<"ProofKind", "which proof a function's termination attribute holds", [
-    I32EnumAttrCase<"Component", 0, "component">,
-    I32EnumAttrCase<"Acyclic", 1, "acyclic">
-  ]> {
-  let cppNamespace = "::idr";
-  let genSpecializedAttr = 0;
-}
-def Idr_ProofKindAttr : EnumAttr<Idr_Dialect, Idr_ProofKind, "proof_kind">;
 
 // the side of a function's signature a value is on
 def Idr_ExtentSide : I32EnumAttr<"ExtentSide", "the side of a function's signature a value is on", [

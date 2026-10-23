@@ -5,9 +5,9 @@
 ||| that does IO; what it writes is `generate`'s, a pure function. Both modes
 ||| fingerprint the specification's printed value, every output in order,
 ||| so an edit that prints nothing new changes nothing, and the generator's
-||| sources, read in the order the package lists its modules; the manifest
-||| holds both. Both first fail, writing nothing, naming each thing the
-||| generator refuses:
+||| sources, read in the order the specification lists them
+||| (`generatorSources`); the manifest holds both. Both first fail, writing
+||| nothing, naming each thing the generator refuses:
 |||   specgen write <root>   rewrites each output whose bytes differ, and the manifest;
 |||   specgen check <root>   writes nothing, and fails naming each file that differs.
 module IdrisMLIR.Spec.Generator.Main
@@ -30,37 +30,6 @@ export
 under : String -> Path -> String
 under root p = root ++ "/" ++ pathText p
 
-||| The package's modules, in its order: the words after `modules =` up to
-||| the next field, split at commas. The package file is the one list of
-||| the specification's sources, so no directory is listed.
-export
-modulesOf : String -> List String
-modulesOf ipkg = go False (lines ipkg)
-  where
-    field : String -> Bool
-    field l = isInfixOf "=" l && not (isPrefixOf " " l) && not (isPrefixOf "," l)
-    names : String -> List String
-    names l = filter (/= "") (map trim (forget (split (== ',') l)))
-    go : Bool -> List String -> List String
-    go _ [] = []
-    go inside (l :: ls) =
-      if isPrefixOf "modules" (trim l) && isInfixOf "=" l
-        then names (snd (break (== '=') l) `minusFirst` 1) ++ go True ls
-        else if inside && not (field l) then names l ++ go True ls else go False ls
-      where
-        minusFirst : String -> Nat -> String
-        minusFirst s n = pack (drop n (unpack s))
-
-||| A module's source file under the specification's directory.
-export
-sourceOf : String -> String -> String
-sourceOf root m = root ++ "/compiler/spec/" ++ pack (map (\c => if c == '.' then '/' else c) (unpack m)) ++ ".idr"
-
-||| Whether a module is the generator's.
-export
-generatorModule : String -> Bool
-generatorModule = isPrefixOf "IdrisMLIR.Spec.Generator."
-
 -- Covering, not total: a read runs to the file's end, which a file that
 -- never ends never reaches; every reader below inherits it.
 ||| The text of a file, or nothing where there is none.
@@ -73,15 +42,15 @@ readText path = do
     Right t => pure (Just t)
     Left _ => pure Nothing
 
-||| The sources of `ms` as one text, each module's name before its text.
+||| The sources at `ps` as one text, each source's path before its text.
 export
 covering
-sourcesText : String -> List String -> IO String
+sourcesText : String -> List Path -> IO String
 sourcesText root [] = pure ""
-sourcesText root (m :: ms) = do
-  t <- readText (sourceOf root m)
-  rest <- sourcesText root ms
-  pure (m ++ "\n" ++ fromMaybe "" t ++ "\n" ++ rest)
+sourcesText root (p :: ps) = do
+  t <- readText (under root p)
+  rest <- sourcesText root ps
+  pure (pathText p ++ "\n" ++ fromMaybe "" t ++ "\n" ++ rest)
 
 ||| The specification's printed value: every output, each its path before
 ||| its text, in the outputs' order.
@@ -93,12 +62,10 @@ printedValue outs = concat (map (\(p, t) => pathText p ++ "\n" ++ t) outs)
 ||| printed value and the generator's sources.
 export
 covering
-manifestText : String -> List (Path, String) -> IO (Either String String)
+manifestText : String -> List (Path, String) -> IO String
 manifestText root outs = do
-  Just ipkg <- readText (root ++ "/compiler/spec/spec.ipkg")
-    | Nothing => pure (Left "no compiler/spec/spec.ipkg under the root")
-  gen <- sourcesText root (filter generatorModule (modulesOf ipkg))
-  pure (Right (manifest (fingerprint (printedValue outs)) (fingerprint gen) outs))
+  gen <- sourcesText root (forget generatorSources)
+  pure (manifest (fingerprint (printedValue outs)) (fingerprint gen) outs)
 
 ||| Writes `text` at `path` unless the file already holds exactly it.
 export
@@ -163,10 +130,7 @@ main = do
   case args of
     [_, mode, root] => do
       refuse refusals
-      Right m <- manifestText root generate
-        | Left e => do
-            putStrLn ("specgen: " ++ e)
-            exitWith (ExitFailure 1)
+      m <- manifestText root generate
       case mode of
         "write" => do
           errors <- writeAll (files root m)

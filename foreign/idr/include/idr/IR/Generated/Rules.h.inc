@@ -42,6 +42,7 @@ inline constexpr ::idr::EnumArray<::idr::Rule, ::idr::RuleCategory> categoryOf{{
     ::idr::RuleCategory::OutsideLanguage,
     ::idr::RuleCategory::OutsideLanguage,
     ::idr::RuleCategory::OutsideLanguage,
+    ::idr::RuleCategory::OutsideLanguage,
     ::idr::RuleCategory::UserError,
 }};
 
@@ -70,7 +71,8 @@ inline constexpr ::idr::EnumArray<::idr::Rule, ::idr::RuleScope> scopeOf{{
     ::idr::RuleScope::Frontend,
     ::idr::RuleScope::Pipeline,
     ::idr::RuleScope::Pipeline,
-    ::idr::RuleScope::Frontend,
+    ::idr::RuleScope::Build,
+    ::idr::RuleScope::Build,
     ::idr::RuleScope::Frontend,
 }};
 

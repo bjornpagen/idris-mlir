@@ -63,7 +63,6 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   properties.setSymName(name);
   properties.setFunctionType(TypeAttr::get(FunctionType::get(ctx, TypeRange(own), TypeRange(value))));
   properties.setBinders(IndexBindersAttr::get(ctx, sorts));
-  properties.setTerminates(TerminatesAttr::get(ctx, TerminationProof(Acyclic{})));
   auto fn = FuncOp::create(b, loc, TypeRange(), ValueRange(), properties);
   Block *entry = b.createBlock(&fn.getBody(), {}, TypeRange(own), {loc});
   Value taken = entry->getArgument(0);

@@ -60,10 +60,9 @@ namespace {
 // How a pass changes one atom of one function's row.
 enum class Change : std::uint8_t { Drop, Add };
 
-// What Idris proved of a function, as the seed draws it: nothing; its own
-// loops and recursion, in a component of its call graph; or nothing to
-// prove, a pass having made it with no loop of its own.
-enum class Proof : std::uint8_t { Unproved, InComponent, Acyclic };
+// What Idris proved of a function, as the seed draws it: nothing, or its
+// own loops and recursion, in a component of its call graph.
+enum class Proof : std::uint8_t { Unproved, InComponent };
 
 // The loop a function's body holds after its calls: none; an idr.loop whose
 // join region yields, so nothing repeats; or one whose join region begins
@@ -85,7 +84,7 @@ struct idr::EnumTraits<Change> {
 
 template <>
 struct idr::EnumTraits<Proof> {
-  static constexpr std::size_t count = 3;
+  static constexpr std::size_t count = 2;
 };
 
 template <>
@@ -148,7 +147,6 @@ Ending endingOf(const std::vector<idr::Termination> &terminations,
   return idr::match(
       terminations[static_cast<unsigned>(members.find_first())],
       [](idr::Unproved) { return Ending::MayNotEnd; },
-      [](idr::Acyclic) { return Ending::MayNotEnd; },
       [&](idr::InComponent in) {
         return llvm::all_of(members.set_bits(),
                             [&](unsigned member) {
@@ -199,12 +197,12 @@ Shape shapeOf(std::uint64_t seed) {
   unsigned busiest = 1 + draws.below(4);
   unsigned eighths = draws.below(5);
   unsigned components = 1 + draws.below(2);
-  EnumArray<Proof, unsigned> proofWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
+  EnumArray<Proof, unsigned> proofWeights{{1 + draws.below(4), draws.below(4)}};
   EnumArray<Loop, unsigned> loopWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
   Shape shape;
   for (unsigned f = 0; f < functions; ++f) {
     EnumArray<Proof, idr::Termination> proofs{
-        {idr::Unproved{}, idr::InComponent{draws.below(components)}, idr::Acyclic{}}};
+        {idr::Unproved{}, idr::InComponent{draws.below(components)}}};
     shape.terminations.push_back(proofs[draws.weighted(proofWeights)]);
     shape.loops.push_back(draws.weighted(loopWeights));
     std::vector<unsigned> callees;
@@ -276,8 +274,7 @@ std::string nameOf(unsigned f) { return "f" + std::to_string(f); }
 idr::TerminatesAttr attributeOf(mlir::MLIRContext &context, const idr::Termination &termination) {
   return idr::match(
       termination, [](idr::Unproved) { return idr::TerminatesAttr(); },
-      [&](idr::InComponent in) { return idr::TerminatesAttr::get(&context, in); },
-      [&](idr::Acyclic acyclic) { return idr::TerminatesAttr::get(&context, acyclic); });
+      [&](idr::InComponent in) { return idr::TerminatesAttr::get(&context, in); });
 }
 
 // An idr.loop of one join region, giving nothing, built at `b`'s insertion

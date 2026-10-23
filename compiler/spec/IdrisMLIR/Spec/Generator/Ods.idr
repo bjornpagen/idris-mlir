@@ -286,33 +286,36 @@ effectTraits (Declares es rules bodies) =
 -- Ops
 ------------------------------------------------------------------------------
 
+||| An op's trait, over its operands, which a trait comparing them names.
 export
-traitOds : Trait i o -> String
-traitOds Terminator = "Terminator"
-traitOds ReturnLike = "ReturnLike"
-traitOds IsolatedFromAbove = "IsolatedFromAbove"
-traitOds SingleBlock = "SingleBlock"
-traitOds NoTerminator = "NoTerminator"
-traitOds NoRegionArguments = "NoRegionArguments"
-traitOds SymbolTable = "SymbolTable"
-traitOds SymbolOp = "Symbol"
-traitOds SymbolName = "SymbolName"
-traitOds AffineScope = "AffineScope"
-traitOds AutomaticAllocationScope = "AutomaticAllocationScope"
-traitOds ConstantLike = "ConstantLike"
-traitOds SameOperandsAndResultType = "SameOperandsAndResultType"
-traitOds SameTypeOperands = "SameTypeOperands"
-traitOds PropagateControlFlowBreak = "PropagateControlFlowBreak"
-traitOds ReportTrackingListenerFailures = "ReportTrackingListenerFailuresOpTrait"
-traitOds TokenProducer = "TokenProducerTrait"
-traitOds TokenConsumer = "TokenConsumerTrait"
-traitOds (HasNestedTerminator ps) = "HasNestedTerminator<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
-traitOds (OurTrait d) = traitRecord d
-traitOds (HasParent (p ::: [])) = "HasParent<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
-traitOds (HasParent ps) = "ParentOneOf<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
-traitOds (HasUpstreamParent cls) = "HasParent<" ++ quoted (cppText cls) ++ ">"
-traitOds (ImplicitTerminator p) = "SingleBlockImplicitTerminator<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
-traitOds (ResultUsesMaxOf res from) =
+traitOds : Vect i Operand -> Trait i o -> String
+traitOds _ Terminator = "Terminator"
+traitOds _ ReturnLike = "ReturnLike"
+traitOds _ IsolatedFromAbove = "IsolatedFromAbove"
+traitOds _ SingleBlock = "SingleBlock"
+traitOds _ NoTerminator = "NoTerminator"
+traitOds _ NoRegionArguments = "NoRegionArguments"
+traitOds _ SymbolTable = "SymbolTable"
+traitOds _ SymbolOp = "Symbol"
+traitOds _ SymbolName = "SymbolName"
+traitOds _ AffineScope = "AffineScope"
+traitOds _ AutomaticAllocationScope = "AutomaticAllocationScope"
+traitOds _ ConstantLike = "ConstantLike"
+traitOds _ SameOperandsAndResultType = "SameOperandsAndResultType"
+traitOds ins SameCarrierOperands =
+  "AllMatchSameOperatorTrait<[" ++ joinWith ", " (map (\x => quoted (identText x.name)) (toList ins)) ++ "], "
+    ++ quoted "::idr::unrestricted($_self.getType())" ++ ", " ++ quoted "carrier" ++ ">"
+traitOds _ PropagateControlFlowBreak = "PropagateControlFlowBreak"
+traitOds _ ReportTrackingListenerFailures = "ReportTrackingListenerFailuresOpTrait"
+traitOds _ TokenProducer = "TokenProducerTrait"
+traitOds _ TokenConsumer = "TokenConsumerTrait"
+traitOds _ (HasNestedTerminator ps) = "HasNestedTerminator<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
+traitOds _ (OurTrait d) = traitRecord d
+traitOds _ (HasParent (p ::: [])) = "HasParent<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
+traitOds _ (HasParent ps) = "ParentOneOf<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
+traitOds _ (HasUpstreamParent cls) = "HasParent<" ++ quoted (cppText cls) ++ ">"
+traitOds _ (ImplicitTerminator p) = "SingleBlockImplicitTerminator<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
+traitOds _ (ResultUsesMaxOf res from) =
   "Idr_ResultUsesMax<\"" ++ joinWith ", " (decimal (finToNat res) :: map (decimal . finToNat) from) ++ "\">"
 
 ||| ODS's class that declares an interface's methods on a class of what it
@@ -392,7 +395,7 @@ typingTraits op = case op.typing of
 export
 opTraits : Op i o a r -> OdsEffects i o -> List String
 opTraits op effs =
-  map traitOds op.traits
+  map (traitOds op.ins) op.traits
   ++ segmentTraits op
   ++ typingTraits op
   ++ concatMap lawOds op.laws
@@ -674,7 +677,14 @@ mutual
   paramItem ps (Struct ks) = "struct(" ++ joinWith ", " (map (\k => "$" ++ identText (index k ps).name) ks) ++ ")"
   paramItem ps (CustomParams d ks) =
     "custom<" ++ identText d.name ++ ">(" ++ joinWith ", " (map (\k => "$" ++ identText (index k ps).name) ks) ++ ")"
-  paramItem ps (OptionalParams items) = "(" ++ joinWith " " (paramItems ps items) ++ ")?"
+  paramItem ps (OptionalParams (BeginsWith l) a after) =
+    "(`" ++ lineText l ++ "` " ++ joinWith " " (anchored ps a :: paramItems ps after) ++ ")?"
+  paramItem ps (OptionalParams (AloneAtDefault l) a after) =
+    "(`" ++ lineText l ++ "`) : (" ++ joinWith " " (anchored ps a :: paramItems ps after) ++ ")?"
+
+  ||| An optional group's anchor, the parameter whose presence prints it.
+  anchored : Vect p Parameter -> Fin p -> String
+  anchored ps a = "$" ++ identText (index a ps).name ++ "^"
 
   paramItems : Vect p Parameter -> List (ParamItem p) -> List String
   paramItems _ [] = []
@@ -954,9 +964,12 @@ baseClasses =
   , "    : APIntParameter<desc> {"
   , "  let defaultValue = default;"
   , "}"
+  , "// An array's default is compared as an array, as upstream's optional"
+  , "// array compares it, so an optional group leaves an empty one out."
   , "class Idr_ArrayRefParameter<string arrayOf, string default = \"\">"
   , "    : ArrayRefParameter<arrayOf, \"\"> {"
   , "  let defaultValue = default;"
+  , "  let comparator = cppType # \"($_lhs) == \" # cppType # \"($_rhs)\";"
   , "}"
   , ""
   , "class Idr_HandParameter<string cppType, string directive, string default = \"\">"

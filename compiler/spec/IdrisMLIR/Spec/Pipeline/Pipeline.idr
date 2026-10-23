@@ -203,12 +203,13 @@ stat : Ident -> Line -> Line -> Statistic
 stat = MkStatistic
 
 ||| `idr-target`: the module's target, from the build's target entry. The
-||| driver runs it first, and every later step reads the target there.
+||| driver runs it first, and every later step reads the target there. A
+||| module that already holds another target is refused, never retargeted.
 public export
 target : Pass
 target = MkPass ("target" ::: []) OnModule AnyStage Apply Keeps [] [] [] NoOptions [LoadsLLVM, LoadsDLTI] Registered
   (MkDoc "Give the module its target: triple, CPU, features, data layout"
-     "Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM\nfill in the CPU's features and the data layout, and writes the module's target system\nspec: for the device `CPU`, the width in bits of its fixed vector registers. The triple\nand the CPU are the build's target entry; every later step reads them here.")
+     "Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM\nfill in the CPU's features and the data layout, and writes the module's target system\nspec: for the device `CPU`, the width in bits of its fixed vector registers. The triple\nand the CPU are the build's target entry; every later step reads them here. A module\nthat holds any of these facts otherwise was made for another target and is refused,\nnaming each fact as it holds it and as the build has it; it is never retargeted.")
 
 public export
 defunctionalize : Pass
@@ -248,7 +249,7 @@ contify = MkPass ("contify" ::: []) OnProgram (At First) Restructure Edits
   [MkAction ("contify" ::: ["group"]) "a group of functions made join points where it returns"] []
   NoOptions [LoadsIdr] Registered
   (MkDoc "Make each function every call of which returns to one continuation a join point there"
-     "Fluet and Weeks on regions: one dominator tree over functions and their return points;\na call it moves out of tail position has its tail fact rewritten by the one definition.")
+     "Fluet and Weeks on regions: one dominator tree over functions and their return points.\nThe pass knows the tail fact of each call it moves, and writes it: a tail call stays one\nwhere the group's place keeps tails, a call of the function it moved into takes its\ncontext where it now stands, and every other call it moves into a continuation is\nnontail.")
 
 -- Tensor: a copy whose index terms make an axis a constant takes that axis
 -- static, and the copy's body and every call redirected to it pass the

@@ -34,6 +34,10 @@
 #                          after C++ changes, once make build has built them
 #   make compile SRC=Main.idr OUT=prog
 #                          idris-mlir, through tools/compile.sh
+#   make specgen           specgen (compiler/spec/specgen.ipkg), built by the pinned
+#                          Idris into compiler/spec/build/exec: `specgen write ROOT`
+#                          writes the specification's generated files, `specgen
+#                          check ROOT` compares the committed ones
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #   make self              the frontend compiled by itself (tools/self.sh): stages 1, 2
 #                          and 3, stage 2 the same as stage 3, on the release build,
@@ -150,7 +154,7 @@ TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = IDRIS_MLIR_NCPU=1 $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 sh $(ROOT)/harness/runs.sh $(RUNNER) $(COMPILER)
 
-.PHONY: help bootstrap doctor verify-pins env check build checker spec frontend prefix libs host-libs \
+.PHONY: help bootstrap doctor verify-pins env check build checker spec specgen frontend prefix libs host-libs \
         test test-idr test-mlir-tools test-unit runner knowngen compile bench self self-checker self-spec typecheck \
         typecheck-configure typecheck-tblgen typecheck-cxx typecheck-dialects typecheck-libs \
         typecheck-checker typecheck-frontend
@@ -227,26 +231,34 @@ $(CHECKER_STAMP): $(CHECKER_SOURCES) $(HOST_LIBS_STAMP) $(wildcard $(IDRIS_PREFI
 	  $(IDRIS2) --install idris-mlir-checker.ipkg
 	@touch $@
 
-# The dialect's specification (compiler/spec, the package idris-mlir-spec),
+# The dialect's specification (compiler/spec, the library idris-mlir-spec),
 # built by the pinned Idris and installed for it into HOST_PREFIX, where
-# the frontend, syntax-samples and the tests' runner import it. Again
-# whenever a file of it changes, its package removed first, so that no
-# module it has dropped stays installed. Only this file reads its stamp.
-# Installing builds the package's executable too, specgen
-# (compiler/spec/build/exec), and HOST_PREFIX holds packages alone: the
-# Chez backend's support code and library are the pinned prefix's, named
-# here as its data and libraries, so specgen is built and runs.
+# the frontend, syntax-samples, the tests' runner and specgen import it.
+# Again whenever a file of it changes, its package removed first, so that
+# no module it has dropped stays installed. Only this file reads its stamp.
 SPEC_SOURCES := $(ROOT)/compiler/spec/spec.ipkg $(shell find '$(ROOT)/compiler/spec' -name build -prune -o -name '*.idr' -print 2> /dev/null)
 SPEC_STAMP := $(HOST_PREFIX)/.spec-installed
 spec: $(SPEC_STAMP)
 $(SPEC_STAMP): $(SPEC_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@$(PINS) idris
 	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-mlir-spec-*
+	cd $(ROOT)/compiler/spec && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
+	  $(IDRIS2) --install spec.ipkg
+	@touch $@
+
+# specgen (compiler/spec/specgen.ipkg, its main the generator's Main),
+# built by the pinned Idris against the library `spec` installs, into
+# compiler/spec/build/exec, beside the library's build, so only its
+# executable is compiled. HOST_PREFIX holds packages alone: the Chez
+# backend's support code and library are the pinned prefix's, named here as
+# its data and libraries, so specgen is built and runs. Under self-host the
+# driver compiles specgen as any program (tests/spec-self).
+specgen: spec
+	@$(PINS) idris
 	cd $(ROOT)/compiler/spec && pinned="$(call libdir,$(IDRIS_PREFIX))" && \
 	  export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$$pinned" \
 	    IDRIS2_DATA="$$pinned/support" IDRIS2_LIBS="$$pinned/lib" && \
-	  $(IDRIS2) --install spec.ipkg
-	@touch $@
+	  $(IDRIS2) --build specgen.ipkg
 
 # The frontend, by the pinned Idris, against the checker, the specification
 # and the packages of libs/ (HOST_PREFIX) and the pinned prelude and base.
@@ -317,7 +329,9 @@ $(SELF_CHECKER_STAMP): $(CHECKER_SOURCES) $(LIBS_STAMP)
 # installed by the frontend, which imports it when it compiles itself
 # (-p idris-mlir-spec), as it does mlir-hash, which `libs` installs: from a
 # copy of compiler/spec, its earlier installation removed first, again
-# whenever a file of it changes.
+# whenever a file of it changes. It is a library, as every package the
+# frontend installs is; specgen's package, the executable, is the pinned
+# Idris's to build (`specgen`).
 SELF_SPEC_STAMP := $(CHECKOUT_PREFIX)/.spec-installed
 self-spec: $(SELF_SPEC_STAMP)
 $(SELF_SPEC_STAMP): $(SPEC_SOURCES) $(LIBS_STAMP)

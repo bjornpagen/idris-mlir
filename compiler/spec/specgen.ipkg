@@ -1,0 +1,11 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+package specgen
+version = 0.1.0
+brief = "specgen: writes the specification's outputs, or checks the committed ones"
+
+depends = idris-mlir-spec
+
+sourcedir = "."
+main = IdrisMLIR.Spec.Generator.Main
+executable = specgen

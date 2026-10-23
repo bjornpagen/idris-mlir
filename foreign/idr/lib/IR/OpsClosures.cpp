@@ -410,6 +410,10 @@ void MemoRunOp::getFlowEdges(FlowEdges &edges) {
     movedOut(*this, capture.getArgNumber(), capture, edges);
 }
 
+// The region's value moves into the cell, the memory the exchange holds,
+// which its yield writes.
+ValueRange MemoRunOp::getYieldTargets() { return getODSOperands(0); }
+
 //===----------------------------------------------------------------------===//
 // idr.memo.take and idr.memo.store
 //===----------------------------------------------------------------------===//
@@ -433,6 +437,12 @@ LogicalResult MemoTakeOp::inferReturnTypes(MLIRContext *, std::optional<Location
                              ", whose refinement gives its label no binders");
   llvm::append_range(inferred, *captures);
   return success();
+}
+
+// A capture may stand at any hold over its field's carrier and uses, as
+// the exchange's region binds it (standAsCaptures).
+bool MemoTakeOp::isCompatibleReturnTypes(TypeRange inferred, TypeRange actual) {
+  return standAsCaptures(inferred, actual);
 }
 
 LogicalResult MemoTakeOp::verify() { return memoizes(*this, getDataType()); }
