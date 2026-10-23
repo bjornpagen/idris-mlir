@@ -2196,6 +2196,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   before landings are read, so the proof reads a numbered table where it
   needed lookup-after-insert facts base's `SortedMap` does not state; the
   ids change and no verdict does.
+- **C255** (2026-10-22; L16ck's question, under C240 and C228). A
+  nested block no walk reaches is no part of the compiled program: a
+  local definition is a function, not a computation, so eager evaluation
+  runs nothing of one no call reaches, and nothing translates it. So
+  `Defined` holds its nested-block name only for a block a walk names,
+  the split of `Defined` parametrises it by the whole program's facts
+  (`Read = Reading Nature`), and no reading meets a block it cannot place.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
