@@ -1896,6 +1896,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   holds as written; C205 and C218 are amended so the graph reads that
   meaning without making attributes. The lowering's comment that the
   optimizer folded what folds becomes true.
+- **D128** (2026-10-23; the owner; §4's question on C257's stop,
+  L16da's evidence). "i recommend A": the translation walks a settled
+  implementation (a dictionary or a polymorphic function applied to
+  closed arguments) as written, its arguments bound once, as the growth
+  model's site walk does (`Sites.applyHead`), never by the host's
+  normaliser (`Terms.lambdasApplied`, `normaliseHoles`), so the two walks
+  visit one structure and every request is tied to its site by walking
+  (C257). A closure argument is bound once by a `let` and called where it
+  is used, not inlined at each use; inlining is the C++ pipeline's
+  (specialization, defunctionalization, the inliner), measured at
+  qualification. Keys still read through the host's normaliser (D68). The
+  growth proof stays over the code (D46), and with C257's site walk the
+  run-time re-check is deleted.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -5167,33 +5180,7 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, raised alone (L16da's evidence, 2026-10-23; C257's stop). The translation settles a dictionary or a
-polymorphic function applied to closed arguments by normalising it with
-the host's `normaliseHoles` (`Terms.lambdasApplied`), which contracts
-every redex at every depth and unfolds solved metavariables
-(`Core/Normalise/Eval.idr:123`, `574-577`), so the member is emitted
-with the caller's lambdas inlined into its body, and its normal form
-keeps neither the member's written structure nor which subterms are the
-caller's; a field reached through `Closed.projected` is a host normal
-form, no definition's text. The growth model walks the member as
-written, binding its arguments (`Sites.applyHead`), and C257 needs the
-two walks to visit one structure. The choice: (A) the translation walks
-the written member with its arguments bound, as the model does: a
-closure argument is bound once by a `let` instead of inlined at each
-use, which changes the emitted MLIR and leaves that inlining to the C++
-pipeline (specialization, defunctionalization, the inliner), keys still
-read through the host's normaliser (D68); (B) the model walks the host's
-normal forms, as the translation does, so a site is a place in a normal
-form rather than in the code, against D46's "the growth proof covers the
-code"; (C) the requests made inside a settled member keep the run-time
-re-check and the rest are carried by type, leaving C222 and D46's
-deletion of the re-check partly undone. Recommended: A (Idris does
-types and MLIR does programs; eager evaluation binds an argument once;
-the proof stays over the code); its cost is code the C++ pipeline must
-now inline, measured at qualification.
-
-**Then** (L16dv's evidence, 2026-10-23; to be raised alone in turn,
-after the two above). C262 keeps a tail call's array result in its slot's
+**Open**: one, raised alone (L16dv's evidence, 2026-10-23). C262 keeps a tail call's array result in its slot's
 type; a data result has the same hazard. A family's layout follows from
 its type, a known index fixing its shape (the data-type ruling), so a
 callee returning `Vect 4 Int`, laid out in place, and a caller returning
@@ -5290,7 +5277,7 @@ Also settled, not on F's list:
 - **The cutover's later questions**: a held buffer's storage by D122,
   the e-graph's form by D123, lending an array to upstream's ops by
   D124, 0011's O5 by D125, the C++'s type dispatch by D126, constant
-  folding by D127.
+  folding by D127, the walk of a settled implementation by D128.
 - **The execution's shape** (§7): settled by D56, one whole cutover
   built at its end.
 - **Equality saturation** (G's DP-25): reopened by D57; narrow (D106),
