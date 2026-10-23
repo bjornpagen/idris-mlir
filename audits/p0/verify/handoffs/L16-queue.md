@@ -697,3 +697,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   their Idris type); `runtime-closure-poly-rewrapped` still refused (C217);
   `Terms.idr` checks in 918 s against 674 s, almost all Idris's
   termination check of its mutual block (measured, one session).
+- From L12x: `idr.array.update` (`OpsArrays.cpp:164`) declares its element
+  a plain read, so an update whose region takes the element apart or
+  yields it back fails at owned (the emptied-place edge, L12); placement
+  dups a value without first forgetting its claim (`PlacementRewrite.cpp:158`),
+  so a building reindex's result used twice fails count.dup's verifier
+  (L07); a reindex's builds is asked by its verifier and its flow apart,
+  the flow's call possibly making types on a worker (one `builds()` on the
+  op, beside `fieldReadBuilds`, L04).
