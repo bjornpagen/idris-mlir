@@ -542,6 +542,7 @@ add_mlir_library(IdrBufferize
 	Bufferize/Data.cpp
 	Bufferize/Generating.cpp
 	Bufferize/Linear.cpp
+	Bufferize/Reindex.cpp
 	Bufferize/Releases.cpp
 	Bufferize/Values.cpp
 

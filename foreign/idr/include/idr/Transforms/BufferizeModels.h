@@ -119,6 +119,7 @@ void attachGradedModels(mlir::MLIRContext *ctx);
 void attachLinearModels(mlir::MLIRContext *ctx);
 void attachDataModels(mlir::MLIRContext *ctx);
 void attachGeneratingModels(mlir::MLIRContext *ctx);
+void attachReindexModel(mlir::MLIRContext *ctx);
 void attachViewModels(mlir::MLIRContext *ctx);
 void attachPoisonModel(mlir::MLIRContext *ctx);
 
