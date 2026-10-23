@@ -26,6 +26,7 @@ import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Loc
+import IdrisMLIR.Proof.Describes
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
@@ -434,46 +435,16 @@ located fc main b first candidates = do
 -- The causes
 ------------------------------------------------------------------------------
 
-||| An arc's source position as its writer reads it: parameter i of the
-||| writer, which the writer's text binds; position i of anything else,
-||| which the writer's text does not bind: of an implementation an applied
-||| family gives (the projection rule); an implementation's field k, which
-||| a field read takes its value from; a choice, which a member read takes
-||| its value from; or the values a dictionary holds, whose types a pair
-||| that packs them reads.
-data Source = Binds Nat | Projects Nat | ReadsField Nat | ReadsChoice ChoiceHead | ReadsHeld
-
-||| A position as what holds it reads it, its own.
-ownSource : Spot -> Source
-ownSource (OfParameter _ i) = Binds i
-ownSource (OfField _ k) = ReadsField k
-ownSource (OfChoice k) = ReadsChoice k
-ownSource (OfHeld _) = ReadsHeld
-
-sourceFor : (writer : Address) -> Spot -> Source
-sourceFor writer (OfParameter (OfNode node) i) = if sameAddress node.definition writer then Binds i else Projects i
-sourceFor writer (OfParameter OfApplication i) = Projects i
-sourceFor writer spot = ownSource spot
-
-||| An arc's source as a site's writer reads it: in the walk of a member's
-||| application, a position of the application the use gives is the
-||| writer's parameter past its own (`Sites.Parameters`).
-sourceOf : Site -> Spot -> Source
-sourceOf site spot@(OfParameter OfApplication i) = case site.params of
-  UseFrom from => Binds (from + i)
-  OwnOnly => sourceFor site.writer spot
-sourceOf site spot = sourceFor site.writer spot
-
-||| Parameter i of what holds a position, as a message names it: the
-||| writer's binder; the implementation's binder and the implementation; or
+||| Parameter i of what holds an arc's source, as a message names it, by
+||| whether the arc's writer binds it: the writer's binder; or one its text
+||| does not bind, an implementation's, named with the implementation; or
 ||| the application's argument.
-subjectAt : {auto c : Ref Ctxt Defs} -> FC -> Source -> Spot -> Front String
+subjectAt : {auto c : Ref Ctxt Defs} -> FC -> ArcSource -> Spot -> Front String
 subjectAt fc source (OfParameter (OfNode node) i) = do
   (def, name) <- graphDefinition fc node.definition
   case source of
-    Binds _ => parameter i def
-    -- A node's parameter its writer does not bind is projected.
-    _ => (++ " of " ++ name) <$> parameter i def
+    WriterBinds => parameter i def
+    WriterProjects => (++ " of " ++ name) <$> parameter i def
 subjectAt fc _ (OfParameter OfApplication i) =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
 subjectAt fc _ spot@(OfField _ _) = holderText fc spot
@@ -489,56 +460,6 @@ ofDataType fc (OfParameter (OfNode node) _) = do
           TCon {} => True
           _ => False)
 ofDataType fc _ = pure False
-
-||| The parts of a template that carry an arc's source into it: its
-||| variable when the writer binds it, an applied family that gives an
-||| implementation when it is projected, a read of that field when it is a
-||| field's position, a member read from that choice's position when it is
-||| a choice's: the choice's own, the unshown head's, which every member is
-||| read from, and every one for a member whose head is unshown; and, for
-||| the values a dictionary holds, each held type a packing writes, every
-||| one of whose variables is read there.
-carries : Source -> Template -> Bool
-carries (Binds i) (Template.Var j _) = i == j
-carries (Projects _) (Template.Applied _ _ _) = True
-carries (ReadsField k) (Template.Field k' _) = k == k'
-carries (ReadsChoice UnshownHead) (Template.Member _) = True
-carries (ReadsChoice _) (Template.Member UnshownHead) = True
-carries (ReadsChoice k) (Template.Member k') = k == k'
-carries ReadsHeld (Template.Var _ _) = True
-carries _ _ = False
-
-mutual
-  ||| Every part of a template, itself first, in preorder (a `Choice` visits
-  ||| what it matched on before its leaves, a field its record).
-  parts : Template -> List Template
-  parts t@(Template.Head _ ts) = t :: partsOf ts
-  parts t@(Template.Choice m ls) = t :: parts m ++ partsOf ls
-  parts t@(Template.Opaque _ ts) = t :: partsOf ts
-  parts t@(Template.Applied _ _ ts) = t :: partsOf ts
-  parts t@(Template.Field _ r) = t :: parts r
-  parts t = [t]
-
-  partsOf : List Template -> List Template
-  partsOf [] = []
-  partsOf (t :: ts) = parts t ++ partsOf ts
-
-||| What an opaque arc passes its source through: a type-level recursion,
-||| or a family the writer is given, applied (`Template.Applied`), which
-||| every instance beta-reduces. Two cases the problem has: a definition's
-||| own unfolding, and a value's.
-data Computation = Recursion Address | Family Nat
-
-||| The first type-level computation, in preorder, that holds a part the
-||| test picks: in its arguments, or for an applied family, as the family.
-computationThrough : (Template -> Bool) -> Template -> Maybe Computation
-computationThrough carried t = head' (mapMaybe holding (parts t))
-  where
-    holding : Template -> Maybe Computation
-    holding (Template.Opaque r ts) = if any carried (partsOf ts) then Just (Recursion r) else Nothing
-    holding (Template.Applied j d ts) =
-      if carried (Template.Var j d) || any carried (partsOf ts) then Just (Family j) else Nothing
-    holding _ = Nothing
 
 ||| A cycle's arcs, each with the position it leaves, in order: the ring its
 ||| certificate holds, at least one arc.
@@ -578,10 +499,11 @@ refuseCycle fc main b ring growth = do
       pure (" through " ++ joinBy " -> " (names ++ [sourceName]))
   let grows = ", growing it by " ++ show growth ++ " each round" ++ path ++
               ", and nothing bounds how far it grows"
-  text <- case index a b.wrote of
+  let (asDrawn, wrote) = index a b.drawing
+  x <- subjectAt fc asDrawn.sourceRead spot
+  text <- case wrote of
     FromArgument site argument => do
       (_, within) <- graphDefinition fc site.within
-      x <- subjectAt fc (sourceOf site spot) spot
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
@@ -593,27 +515,21 @@ refuseCycle fc main b ring growth = do
     -- A leading arc: the implementation whose parameter it is, the arc's
     -- source, places it in the method function its field holds, the arc's
     -- target.
-    ThroughMethod => do
-      x <- subjectAt fc (ownSource spot) spot
-      pure (sourceName ++ " passes " ++ x ++ " to its method " ++ target ++ grows)
+    ThroughMethod => pure (sourceName ++ " passes " ++ x ++ " to its method " ++ target ++ grows)
     -- An implementation's field: its template places the implementation's
     -- parameter, the arc's source, in the field's value, the arc's target.
-    InField _ k _ => do
-      x <- subjectAt fc (ownSource spot) spot
-      pure (sourceName ++ " places " ++ x ++ " in its field " ++ show k ++ grows)
+    InField _ k _ => pure (sourceName ++ " places " ++ x ++ " in its field " ++ show k ++ grows)
     -- A pair that packs held values: a held dictionary wrapped into
     -- another, so that each call wraps it deeper.
-    PacksHeld _ => do
-      x <- subjectAt fc (ownSource spot) spot
-      pure (target ++ " packs " ++ x ++ " as one held value" ++ grows)
+    PacksHeld _ => pure (target ++ " packs " ++ x ++ " as one held value" ++ grows)
   reject place.at place.owner Polymorphism text
   where
     spotOf : Fin b.graph.size -> Spot
     spotOf p = index p b.position
 
-||| What wrote an arc nothing bounds: an argument's template, or an
-||| implementation's field's.
-data UnmeasuredBy = ArgumentWrote Sites.Site Argument | FieldWrote Address Template
+||| What wrote an arc nothing bounds: a site's argument, or an
+||| implementation's field.
+data UnmeasuredBy = ArgumentWrote Sites.Site | FieldWrote Address
 
 0 unmeasuredInfinite : IsFinite Unmeasured -> Void
 unmeasuredInfinite ItIsFinite impossible
@@ -626,15 +542,16 @@ stuckLabel (ItIsStuck stuck) = stuck
 ||| (`Proof.Describes.measuredDrawn`), which the graph carries for each of
 ||| its arcs, so neither wrote one.
 unmeasuredBy : (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : (arc b.graph a).label = Unmeasured) -> UnmeasuredBy
-unmeasuredBy b a stuck with (index a b.wrote) proof wrote
-  _ | FromArgument site argument = ArgumentWrote site argument
-  _ | InField j _ t = FieldWrote j t
+unmeasuredBy b a stuck with (snd (index a b.drawing)) proof wrote
+  _ | FromArgument site _ = ArgumentWrote site
+  _ | InField j _ _ = FieldWrote j
   _ | ThroughMethod = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.methodsMeasured a wrote)))
   _ | PacksHeld held = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.packingsMeasured a held wrote)))
 
-||| A type-level recursion stuck on a static argument, which nothing bounds,
-||| reported at its place: what passes the argument, through which
-||| recursion, to whom.
+||| A type-level computation a static argument passes through, which
+||| nothing bounds, reported at its place: what passes the argument,
+||| through which computation, to whom. The arc was drawn with that
+||| computation (`Proof.Describes.throughOf`), where its weight was made.
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> Name -> (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : StuckArc b.graph a) -> Front ()
 refuseOpaque fc main b a stuck = do
@@ -643,21 +560,18 @@ refuseOpaque fc main b a stuck = do
   let target = index to b.position
   -- A field's writer is the implementation, which writes it in its own
   -- text.
-  let (writer, home, written, source) = the (Address, Address, Template, Source) $
-        case unmeasuredBy b a (stuckLabel stuck) of
-          ArgumentWrote site argument => (site.writer, site.within, argument.template, sourceOf site spot)
-          FieldWrote j t => (j, j, t, sourceFor j spot)
+  let (writer, home) = the (Address, Address) $ case unmeasuredBy b a (stuckLabel stuck) of
+        ArgumentWrote site => (site.writer, site.within)
+        FieldWrote j => (j, j)
   ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
-  let Just computation = computationThrough (carries source) written
-    | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
-  through <- case computation of
-    Recursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
-    Family j => do
+  through <- case throughOf (fst (index a b.drawing)) (trans (cong (.label) (b.drawnAs a)) (stuckLabel stuck)) of
+    StuckRecursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
+    AppliedFamily j => do
       (writerDef, _) <- graphDefinition fc writer
       ("its type family " ++) <$> parameter j writerDef
   targetName <- holderText fc target
   (_, homeName) <- graphDefinition fc home
-  x <- subjectAt fc source spot
+  x <- subjectAt fc (fst (index a b.drawing)).sourceRead spot
   reject place.at place.owner Polymorphism
          (homeName ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
           ", and nothing bounds what it computes")
@@ -692,7 +606,8 @@ checkGrowth fc main = do
   case check b.graph of
     Bounded pot _ => do
       let ts = tablesOf b pot
-      updateState { bounds := boundsOf b ts, sizes := sizesOf b (heightsOf b pot ts) }
+      updateState { bounds := boundsOf b ts, sizes := sizesOf b (heightsOf b pot ts),
+                    growth := MkGrowthModel b.graph b.model }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

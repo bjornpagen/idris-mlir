@@ -218,8 +218,12 @@ record Built where
   ||| The places where a position was first met: the positions the arcs
   ||| join, each once.
   firsts : List (Fin graph.size)
-  ||| What made each arc.
-  wrote : Vect (length graph.arcs) Wrote
+  ||| Each arc as its site drew it, with what made the site: whether the
+  ||| site's writer binds the arc's source, and what passes the source on,
+  ||| the computation that made it so where the arc is Unmeasured.
+  drawing : Vect (length graph.arcs) (Drawn graph.size, Wrote)
+  ||| Each arc as drawn is the graph's arc at its index.
+  0 drawnAs : (a : Fin (length graph.arcs)) -> arcOf (Vect.index a drawing) = arc graph a
   ||| The most children of any template's node.
   arity : Nat
   ||| The nodes above each on the walk from main: the node that first
@@ -236,10 +240,11 @@ record Built where
   ||| The graph describes its model under any feasible potential.
   0 described : (pot : Vect graph.size Nat) -> Feasible graph pot -> Describes model
   ||| A leading arc is measured: its template is a marker.
-  0 methodsMeasured : (a : Fin (length graph.arcs)) -> Vect.index a wrote = ThroughMethod -> IsFinite (arc graph a).label
+  0 methodsMeasured : (a : Fin (length graph.arcs)) -> snd (Vect.index a drawing) = ThroughMethod ->
+                      IsFinite (arc graph a).label
   ||| A held packing's arc is measured: its template is a chain of pairs or
   ||| a marker.
-  0 packingsMeasured : (a : Fin (length graph.arcs)) -> (p : Packing) -> Vect.index a wrote = PacksHeld p ->
+  0 packingsMeasured : (a : Fin (length graph.arcs)) -> (p : Packing) -> snd (Vect.index a drawing) = PacksHeld p ->
                        IsFinite (arc graph a).label
   ||| Each site's own arcs, from the positions its writer reads its
   ||| parameters at, are the graph's: the graph is drawn from the sites.
@@ -2359,18 +2364,26 @@ capsOf targets = snd <$> foldlM ask (empty, empty) (SortedMap.toList targets)
       cap <- maybe (capOf d j) pure (lookup (a, j) memo)
       pure (insert (a, j) cap memo, maybe capped (\k => insert p k capped) cap)
 
--- What made each arc, in the arcs' order.
-wrotes : (arcs : List (Arc n, Wrote)) -> Vect (length (map Builtin.fst arcs)) Wrote
-wrotes [] = []
-wrotes ((_, w) :: arcs) = w :: wrotes arcs
+-- Each arc as drawn, with what made it, in the arcs' order.
+drawnVect : (arcs : List (Drawn n, Wrote)) -> Vect (length (map Describes.arcOf arcs)) (Drawn n, Wrote)
+drawnVect [] = []
+drawnVect (x :: arcs) = x :: drawnVect arcs
 
--- The arc at an index, with what made it, is one of the arcs.
-0 taggedAt : (arcs : List (Arc n, Wrote)) -> (a : Fin (length (map Builtin.fst arcs))) ->
-             Elem (index' (map Builtin.fst arcs) a, Vect.index a (wrotes arcs)) arcs
-taggedAt [] FZ impossible
-taggedAt [] (FS _) impossible
-taggedAt ((x, w) :: arcs) FZ = Here
-taggedAt ((x, w) :: arcs) (FS a) = There (taggedAt arcs a)
+-- The arc at an index, as drawn, is one of the arcs drawn.
+0 drawnAmong : (arcs : List (Drawn n, Wrote)) -> (a : Fin (length (map Describes.arcOf arcs))) ->
+               Elem (Vect.index a (drawnVect arcs)) arcs
+drawnAmong [] FZ impossible
+drawnAmong [] (FS _) impossible
+drawnAmong (x :: arcs) FZ = Here
+drawnAmong (x :: arcs) (FS a) = There (drawnAmong arcs a)
+
+-- The arc at an index, as drawn, is the arc there.
+0 drawnIndexed : (arcs : List (Drawn n, Wrote)) -> (a : Fin (length (map Describes.arcOf arcs))) ->
+                 arcOf (Vect.index a (drawnVect arcs)) = index' (map Describes.arcOf arcs) a
+drawnIndexed [] FZ impossible
+drawnIndexed [] (FS _) impossible
+drawnIndexed (x :: arcs) FZ = Refl
+drawnIndexed (x :: arcs) (FS a) = drawnIndexed arcs a
 
 -- What a node is read at: its definition, and the heads of its families
 -- alone. Its dictionaries' heads change no reading: a dictionary stays its
@@ -2675,22 +2688,25 @@ build main = do
   let arcs = drawn positionsOf fieldPositionsOf choicePositionsOf kept
   -- A field's template is written into the values of every field read,
   -- and so into requests, as an argument's is.
-  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position firsts (wrotes arcs)
+  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position firsts
+                (drawnVect arcs) (drawnIndexed arcs)
                 (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers entered.breadth
                 (foldl (\m, x => max m (Template.heaviest (fst x).template)) count sites)
                 (modelOf positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept)
                 (\pot, fe => describes positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept
                                        (fst keptEvidence) fe)
-                (\a, through => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
-                                  (\x => x = ThroughMethod)
-                                  (\st, x, el, same => methodMeasured (replace {p = \w => DrawnBy w st.template} same
-                                                                                (fst (indexAll el (snd keptEvidence)))))
-                                  (taggedAt arcs a) through)
-                (\a, k, packs => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
-                                    (\x => x = PacksHeld k)
-                                    (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
-                                                                                  (fst (indexAll el (snd keptEvidence)))))
-                                    (taggedAt arcs a) packs)
+                (\a, leading => replace {p = IsFinite} (cong (.label) (drawnIndexed arcs a))
+                                   (measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
+                                      (\x => x = ThroughMethod)
+                                      (\st, x, el, same => methodMeasured (replace {p = \w => DrawnBy w st.template} same
+                                                                                    (fst (indexAll el (snd keptEvidence)))))
+                                      (drawnAmong arcs a) leading))
+                (\a, k, packs => replace {p = IsFinite} (cong (.label) (drawnIndexed arcs a))
+                                    (measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
+                                       (\x => x = PacksHeld k)
+                                       (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
+                                                                                     (fst (indexAll el (snd keptEvidence)))))
+                                       (drawnAmong arcs a) packs))
                 (\st, el => ownDrawnOf {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {positionOf}
                                        {held = count} {beyond} {caps} {ss = kept} el)
                 (\st, el => listedAmong (snd keptEvidence) el)

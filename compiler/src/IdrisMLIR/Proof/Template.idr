@@ -287,6 +287,162 @@ weights : Template -> List (Nat, Weight)
 weights t = map settledEntry (joinAll [] (occurrences 0 t))
 
 ------------------------------------------------------------------------------
+-- What passes an occurrence on
+------------------------------------------------------------------------------
+
+||| A type-level computation a value passes through, which nothing bounds:
+||| a recursive definition stuck on what its arguments hold (`Opaque`), or
+||| a family the writer is given, applied (`Applied`, `Computing`), which
+||| every instance beta-reduces. Two cases the problem has: a definition's
+||| own unfolding, and a value's.
+public export
+data Computation = StuckRecursion Address | AppliedFamily Nat
+
+||| What passes an occurrence on to where it is written, indexed by the
+||| weight it is drawn at: heads alone, which raise it by the finite weight
+||| they measure; or a computation, where its weight is Stuck. So a Stuck
+||| weight always says what computation made it so, and a finite one never
+||| names one.
+public export
+data Passage : Weight -> Type where
+  ByHeads : (gain, loss : Nat) -> Passage (Finite gain loss)
+  ByComputation : Computation -> Passage Stuck
+
+||| What passes on each of a list of weights by parameter: the list itself,
+||| each weight with its passage, so it cannot disagree with the weights
+||| it is indexed by.
+public export
+data Passages : List (Nat, Weight) -> Type where
+  NonePassed : Passages []
+  PassedOn : {0 w : Weight} -> {0 xs : List (Nat, Weight)} -> (i : Nat) -> Passage w -> Passages xs -> Passages ((i, w) :: xs)
+
+||| The label of the arc a passage draws.
+public export
+passageLabel : Passage w -> Label
+passageLabel (ByHeads gain loss) = Measured gain loss
+passageLabel (ByComputation _) = Unmeasured
+
+||| A passage draws the arc of the weight it passes on.
+export
+0 passageLabelled : (p : Passage w) -> labelOf w = Just (passageLabel p)
+passageLabelled (ByHeads _ _) = Refl
+passageLabelled (ByComputation _) = Refl
+
+||| What passes on a weight raised by a finite one (`plus`).
+export
+plusPassage : Passage w -> (gain, loss : Nat) -> Passage (plus w (Finite gain loss))
+plusPassage (ByHeads g l) gain loss = ByHeads (g + gain) (l + loss)
+plusPassage (ByComputation c) _ _ = ByComputation c
+
+-- One list's passages before another's.
+alsoPassedOn : {0 xs, ys : List (Nat, Weight)} -> Passages xs -> Passages ys -> Passages (xs ++ ys)
+alsoPassedOn NonePassed qs = qs
+alsoPassedOn (PassedOn i p ps) qs = PassedOn i p (alsoPassedOn ps qs)
+
+-- What passes on an applied family's own marker: heads above its
+-- arguments where they are closed, and otherwise the family, where what
+-- beta makes of them is a sum of two heights.
+appliedPassage : (j, e, d : Nat) -> (ts : List Template) -> Passage (appliedWeight e d ts)
+appliedPassage j e d ts = atClosed (allSelfBounded ts)
+  where
+    atClosed : (closed : Bool) -> Passage (if closed then Finite (e + tallest ts) d else Stuck)
+    atClosed True = ByHeads (e + tallest ts) d
+    atClosed False = ByComputation (AppliedFamily j)
+
+mutual
+  ||| What passes on each occurrence of a template read e heads deep
+  ||| (`occurrences`), where the occurrence's weight is made: heads alone
+  ||| for a marker, and for an applied family's own marker where its
+  ||| arguments are closed; the family itself for its own marker
+  ||| otherwise, and for a computing family's; and for every other marker
+  ||| under a computation, the outermost computation it is under.
+  export
+  passagesOf : (e : Nat) -> (t : Template) -> Passages (occurrences e t)
+  passagesOf e (Var j d) = PassedOn j (ByHeads e d) NonePassed
+  passagesOf e (Head _ ts) = passagesIn (S e) ts
+  passagesOf e (Opaque r ts) = passedThroughAll (StuckRecursion r) ts
+  passagesOf e (Applied j d ts) = PassedOn j (appliedPassage j e d ts) (passedThroughAll (AppliedFamily j) ts)
+  passagesOf e (Computing j _ ts) = PassedOn j (ByComputation (AppliedFamily j)) (passedThroughAll (AppliedFamily j) ts)
+  passagesOf e (Choice _ ts) = passagesIn e ts
+  passagesOf e (Field _ _) = NonePassed
+  passagesOf e (Leaf _) = NonePassed
+  passagesOf e (Token _) = NonePassed
+  passagesOf e (Member _) = NonePassed
+  passagesOf e (Formal _ _) = NonePassed
+
+  export
+  passagesIn : (e : Nat) -> (ts : List Template) -> Passages (occurrencesIn e ts)
+  passagesIn e [] = NonePassed
+  passagesIn e (t :: ts) = alsoPassedOn (passagesOf e t) (passagesIn e ts)
+
+  ||| What passes on each marker under a computation (`stuck`): that
+  ||| computation, the outermost one the marker is under, but for an
+  ||| applied or computing family's own marker, which its family passes on.
+  export
+  passedThrough : Computation -> (t : Template) -> Passages (stuck t)
+  passedThrough c (Var j _) = PassedOn j (ByComputation c) NonePassed
+  passedThrough c (Field _ _) = NonePassed
+  passedThrough c (Head _ ts) = passedThroughAll c ts
+  passedThrough c (Opaque _ ts) = passedThroughAll c ts
+  passedThrough c (Applied j _ ts) = PassedOn j (ByComputation (AppliedFamily j)) (passedThroughAll c ts)
+  passedThrough c (Computing j _ ts) = PassedOn j (ByComputation (AppliedFamily j)) (passedThroughAll c ts)
+  passedThrough c (Choice _ ts) = passedThroughAll c ts
+  passedThrough c (Leaf _) = NonePassed
+  passedThrough c (Token _) = NonePassed
+  passedThrough c (Member _) = NonePassed
+  passedThrough c (Formal _ _) = NonePassed
+
+  export
+  passedThroughAll : Computation -> (ts : List Template) -> Passages (stuckIn ts)
+  passedThroughAll c [] = NonePassed
+  passedThroughAll c (t :: ts) = alsoPassedOn (passedThrough c t) (passedThroughAll c ts)
+
+-- What passes on a weight joined into another (`join`): the first Stuck
+-- one's computation, or the finite weight the join keeps.
+joinPassage : {0 v, w : Weight} -> Passage v -> Passage w -> Passage (join v w)
+joinPassage (ByComputation c) (ByComputation _) = ByComputation c
+joinPassage (ByComputation c) (ByHeads _ _) = ByComputation c
+joinPassage (ByHeads _ _) (ByComputation c) = ByComputation c
+joinPassage (ByHeads g l) (ByHeads g' l') = kept (g + l' <= g' + l)
+  where
+    kept : (later : Bool) -> Passage (if later then Finite g' l' else Finite g l)
+    kept True = ByHeads g' l'
+    kept False = ByHeads g l
+
+-- What passes on a weight joined into a list of them (`insertJoin`).
+insertPassage : {0 w : Weight} -> {0 acc : List (Nat, Weight)} -> (i : Nat) -> Passage w -> Passages acc ->
+                Passages (insertJoin i w acc)
+insertPassage i p NonePassed = PassedOn i p NonePassed
+insertPassage i p (PassedOn j q qs) with (i == j)
+  _ | True = PassedOn j (joinPassage q p) qs
+  _ | False with (i < j)
+    _ | True = PassedOn i p (PassedOn j q qs)
+    _ | False = PassedOn j q (insertPassage i p qs)
+
+-- What passes on weights joined in, one at a time (`joinAll`).
+joinPassages : {0 acc, xs : List (Nat, Weight)} -> Passages acc -> Passages xs -> Passages (joinAll acc xs)
+joinPassages ps NonePassed = ps
+joinPassages ps (PassedOn i q qs) = joinPassages (insertPassage i q ps) qs
+
+-- What passes on a weight written with one side 0 (`settled`).
+settledPassage : {0 w : Weight} -> Passage w -> Passage (settled w)
+settledPassage (ByHeads g l) = ByHeads (minus g l) (minus l g)
+settledPassage (ByComputation c) = ByComputation c
+
+settledPassages : {0 xs : List (Nat, Weight)} -> Passages xs -> Passages (map settledEntry xs)
+settledPassages NonePassed = NonePassed
+settledPassages (PassedOn i p ps) = PassedOn i (settledPassage p) (settledPassages ps)
+
+||| What passes on each parameter a template grows (`weights`), at the
+||| weight its occurrences join to: where that is Stuck, the computation
+||| of its first Stuck occurrence. It is the weights themselves, computed
+||| with what passes each on, so the graph draws a parameter's arcs from
+||| it and knows, where an arc is Unmeasured, what made it so.
+export
+weightPassages : (t : Template) -> Passages (weights t)
+weightPassages t = settledPassages (joinPassages NonePassed (passagesOf 0 t))
+
+------------------------------------------------------------------------------
 -- Every occurrence is listed
 ------------------------------------------------------------------------------
 
