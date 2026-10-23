@@ -44,10 +44,10 @@ import Data.Vect
 ||| x`), so the placement is read off the field, never assumed.
 public export
 data Field : Type where
-  -- an eta-wrapped method field: its method function m, its template, and where each argument lands in m.
-  -- own: for each of the method's own arguments (the field's lambdas, in order), its parameter index in m;
-  -- leading: for each implementation parameter p, its index in m. Its root is m, by construction.
-  Method : (m : Address) -> TemplateRead -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
+  -- an eta-wrapped method field: its method function m, as it was read, its template, and where each argument
+  -- lands in m. own: for each of the method's own arguments (the field's lambdas, in order), its parameter index
+  -- in m; leading: for each implementation parameter p, its index in m. Its root is m, by construction.
+  Method : (m : Address) -> (function : GlobalDef) -> TemplateRead -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
   -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot, the
   -- head of the choice its type is, and that type over the constructor's arguments (`Var c 0` its argument c): a
   -- match takes it apart, and finds a member of that choice where the running program chose it, holding it at that
@@ -87,7 +87,7 @@ fieldAt fs j k = lookup j fs >>= \f => fieldIn f k
 ||| root. A method field's root is its function.
 export
 fieldRead : Field -> (TemplateRead, Root)
-fieldRead (Method m t _ _) = (t, Rooted m)
+fieldRead (Method m _ t _ _) = (t, Rooted m)
 fieldRead (Dictionary t r _ _) = (t, r)
 fieldRead (Plain t r) = (t, r)
 
@@ -199,7 +199,7 @@ methodField owner field = do
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
   ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map staticOf kinds)) xs))
-  pure (Method am (MkTemplateRead (Head (Just am) (templatesOf ts)) (allRead ts)) own (leadingOf passed))
+  pure (Method am md.def (MkTemplateRead (Head (Just am) (templatesOf ts)) (allRead ts)) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
     value (Own _) = Erased EmptyFC Placeholder

@@ -1179,7 +1179,7 @@ lambdaAt at ps env fc lam = do
 ||| undecided head is a value an instance puts in, so the walk takes the
 ||| value both ways.
 holdingOf : ClosedTerm -> Front Holding
-holdingOf normal = (\r => choiceHolding r.frozen r.interfaces normal) <$> reading
+holdingOf normal = (\r => choiceHolding r.frozen r.interfaces (pairTypeIn r) normal) <$> reading
 
 ||| What a value of a type the instance decides is (`holdingOf`), the type
 ||| the site's arguments give, delayed or not, normalised.

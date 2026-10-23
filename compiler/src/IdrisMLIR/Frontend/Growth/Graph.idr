@@ -620,8 +620,9 @@ record Found where
 -- were skipped: a visit outside the universe, split at a head where no
 -- site writes one, or holding a path no site re-packs; or a visit at
 -- heads the flow did not give, with no reading, met as main or where a
--- site enters it.
-data Stray = Outside Visit | Unheaded Visit
+-- site enters it. Each holds the definition the visit is of, as it was
+-- read where the visit was made, which the error names.
+data Stray = Outside GlobalDef | Unheaded GlobalDef
 
 -- A visit of the universe, with its erased membership.
 data Inside : Listed Address -> List (List1 Nat) -> Nat -> Visit -> Type where
@@ -674,19 +675,19 @@ inside names ps b x = case (choose (length x.heads <= b), choose (lowHeads b x.h
 -- self compile's 13,218 nodes (measured). A visit met again off its path
 -- is skipped by the run-time set, which needs no proof.
 mutual
-  -- Enters a visit new to its path from main, `above` the definitions of
-  -- the visit and of its path, nearest first, as the walk read them: its
+  -- Enters a visit new to its path from main, `here` its definition and
+  -- `above` those of its path, nearest first, as the walk read them: its
   -- sites' callees are walked below it, each new to the longer path,
   -- which leaves less room.
   visit : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-          (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
-          (above : List GlobalDef) ->
+          (out : Visit -> GlobalDef -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (here : GlobalDef) ->
+          (path : List Visit) -> (above : List GlobalDef) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
           (0 acc : Accessible LT (Room names ps b (x :: path))) -> Found -> Either Stray Found
-  visit names ps b out x path above nd inU acc found = case out x of
+  visit names ps b out x here path above nd inU acc found = case out x here of
     Left stray => Left stray
     Right edges =>
-      under names ps b out x path above nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
+      under names ps b out x path (here :: above) nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
             ({ done $= (:< (x, edges)) } found)
     where
       -- The application at a use is no node, nor is a choice, nor a
@@ -701,7 +702,7 @@ mutual
       calleeVisit (Kept _ _) = Nothing
 
   under : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-          (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
+          (out : Visit -> GlobalDef -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
           (above : List GlobalDef) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
           (0 acc : Accessible LT (Room names ps b (x :: path))) -> List (Visit, GlobalDef) -> Found -> Either Stray Found
@@ -711,29 +712,29 @@ mutual
     case inside names ps b c of
       -- Outside the universe: a head where no site writes one, so that the
       -- visit's arcs would be lost if it were skipped.
-      Nothing => Left (Outside c)
+      Nothing => Left (Outside cd)
       Just (In cIn) => case novel c (x :: path) of
         -- On its own path: entered already, so the set holds it.
         Nothing => under names ps b out x path above nd inU acc cs found
         Just (New notIn) =>
           let found' = { entered $= insert c, reachers $= insert (visitNode c) above } found in
-          case visit names ps b out c (x :: path) (cd :: above) (notIn :: nd) (cIn :: inU)
+          case visit names ps b out c cd (x :: path) above (notIn :: nd) (cIn :: inU)
                  (rec _ (room (notIn :: nd) (cIn :: inU))) found' of
             Left bad => Left bad
             Right after => under names ps b out x path above nd inU acc cs after
 
 -- The walk from a root, the root's definition as the reading holds it.
 nodesFrom : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-            (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit -> GlobalDef -> Either Stray Found
+            (out : Visit -> GlobalDef -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit -> GlobalDef -> Either Stray Found
 nodesFrom names ps b out root rootDef = case inside names ps b root of
-  Nothing => Left (Outside root)
-  Just (In rIn) => visit names ps b out root [] [rootDef] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
+  Nothing => Left (Outside rootDef)
+  Just (In rIn) => visit names ps b out root rootDef [] [] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
                      (MkFound (insert root empty) [<] empty)
 
 -- The walk over the real listing, named through an alias on a right-hand
 -- side: a lower-case global written in a type is bound as a new implicit.
-nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit ->
-                GlobalDef -> Either Stray Found
+nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> GlobalDef -> Either Stray (List (Sites.Site, Reached Defined))) ->
+                Visit -> GlobalDef -> Either Stray Found
 nodesFromMain ps b out root rootDef = let 0 names = addresses in nodesFrom names ps b out root rootDef
 
 -- The bound on a node's heads, b. A head sits at a dictionary parameter of
@@ -753,7 +754,7 @@ headBound fs ss = S (foldl (\m, f => foldl placedIn m f.inOrder) (foldl (foldl w
     written m s = foldl (\m', x => max m' x.position) m s.arguments
 
     placedIn : Nat -> Implementations.Field -> Nat
-    placedIn m (Method _ _ own leading) = foldl max (foldl (\m', (_, q) => max m' q) m leading) own
+    placedIn m (Method _ _ _ own leading) = foldl max (foldl (\m', (_, q) => max m' q) m leading) own
     placedIn m (Dictionary _ _ _ _) = m
     placedIn m (Plain _ _) = m
 
@@ -2596,34 +2597,26 @@ readings fl r = foldlM family plain (SortedMap.toList r.sites)
     family m (a, d, _) = foldlM (headed a d) m (familyHeads fl a (fromMaybe [] (lookup a r.families)))
 
 -- A visit's reading: the definition its node is read at, and the sites it
--- writes there.
-visitReading : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Visit ->
+-- writes there; where its node has none, the definition the visit was
+-- made of, which the error names.
+visitReading : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Visit -> GlobalDef ->
                Either Stray (Defined, List Sites.Site)
-visitReading families reads x = case SortedMap.lookup (readAt families (visitNode x)) reads of
+visitReading families reads x made = case SortedMap.lookup (readAt families (visitNode x)) reads of
   Just found => Right found
-  Nothing => Left (Unheaded x)
+  Nothing => Left (Unheaded made)
 
 -- What a site reaches, each callee it enters given the definition its
 -- node is read at, read where the walk reads the callee's sites: so a
 -- reader of an entered callee's parameters has its definition at hand,
 -- and looks nothing up by address.
-enteredBy : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Reached () ->
+enteredBy : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Reached GlobalDef ->
             Either Stray (Reached Defined)
-enteredBy families reads (MkReached (Entering c ()) placed via) =
-  (\(d, _) => MkReached (Entering c d) placed via) <$> visitReading families reads c
+enteredBy families reads (MkReached (Entering c made) placed via) =
+  (\(d, _) => MkReached (Entering c d) placed via) <$> visitReading families reads c made
 enteredBy families reads (MkReached Applying placed via) = Right (MkReached Applying placed via)
 enteredBy families reads (MkReached (Making k named) placed via) = Right (MkReached (Making k named) placed via)
 enteredBy families reads (MkReached (Filling con def) placed via) = Right (MkReached (Filling con def) placed via)
 enteredBy families reads (Kept b items) = Right (Kept b items)
-
--- A definition's name, for an internal error to print; its address when
--- the context has no entry there.
-nameOf : {auto c : Ref Ctxt Defs} -> Address -> Front String
-nameOf a = do
-  defs <- getDefs
-  case nameAt (gamma defs) a of
-    Just n => show <$> fullNames n
-    Nothing => pure (show a)
 
 -- A term with the writer's family markers given values: each `markerAt i
 -- []` whose parameter the list names is that value.
@@ -2741,17 +2734,15 @@ build main = do
   -- Every visit's node has its reading (`readings`): one without would
   -- lose the arcs its sites write. Each callee a site enters is given the
   -- definition its node is read at there.
-  let out : Visit -> Either Stray (List (Sites.Site, Reached Defined))
-      out x = visitReading entered.families reads x >>= \(_, ss) =>
-                traverse (\(s, r) => (s,) <$> enteredBy entered.families reads r) [(s, r) | s <- ss, r <- reaches fl x s]
+  let out : Visit -> GlobalDef -> Either Stray (List (Sites.Site, Reached Defined))
+      out x here = visitReading entered.families reads x here >>= \(_, ss) =>
+                     traverse (\(s, r) => (s,) <$> enteredBy entered.families reads r) [(s, r) | s <- ss, r <- reaches fl x s]
   let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields readSites) out
                                   (MkVisit root []) main.def
-    | Left (Outside x) => do
-        n <- nameOf x.definition
-        internal fc ("the growth graph met a node split at a parameter no site writes, or holding a path no site re-packs: " ++ n)
-    | Left (Unheaded x) => do
-        n <- nameOf x.definition
-        internal fc ("the growth graph met a node at heads its flow did not give: " ++ n)
+    | Left (Outside d) =>
+        internal fc ("the growth graph met a node split at a parameter no site writes, or holding a path no site re-packs: " ++
+                     show (fullname d))
+    | Left (Unheaded d) => internal fc ("the growth graph met a node at heads its flow did not give: " ++ show (fullname d))
   -- Each visit's sites write at its node's positions, which bound every
   -- request the translation keys by that node, whatever chain reached it.
   let walked0 = map (\(v, edges) => (visitNode v, edges)) (found.done <>> [])

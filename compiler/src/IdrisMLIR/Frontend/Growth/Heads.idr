@@ -472,19 +472,20 @@ dictionariesOf fs = MkDictionaries fs (foldl (\m, (j, f) => numbered j 0 f.inOrd
   where
     numbered : Address -> Nat -> List Field -> SortedMap Address (Address, Nat) -> SortedMap Address (Address, Nat)
     numbered j k [] m = m
-    numbered j k (Method fn _ _ _ :: rest) m = numbered j (S k) rest (insert fn (j, k) m)
+    numbered j k (Method fn _ _ _ _ :: rest) m = numbered j (S k) rest (insert fn (j, k) m)
     numbered j k (Dictionary _ _ _ _ :: rest) m = numbered j (S k) rest m
     numbered j k (Plain _ _ :: rest) m = numbered j (S k) rest m
 
--- The method function an implementation's field k is, with where the
--- method's own arguments and the implementation's parameters land among
--- its parameters, and the implementation as it was read. Any other field
--- (a superclass dictionary, or one of an interface constructor's own
--- variables) has none.
-methodAt : Dictionaries -> Address -> Nat -> Maybe (Address, List Nat, List (Nat, Nat), GlobalDef)
+-- The method function an implementation's field k is, by its address and
+-- as it was read, with where the method's own arguments and the
+-- implementation's parameters land among its parameters, and the
+-- implementation as it was read. Any other field (a superclass
+-- dictionary, or one of an interface constructor's own variables) has
+-- none.
+methodAt : Dictionaries -> Address -> Nat -> Maybe (Address, GlobalDef, List Nat, List (Nat, Nat), GlobalDef)
 methodAt ds j k = case lookup j ds.holding of
   Just f => case fieldIn f k of
-    Just (Method m _ own leading) => Just (m, own, leading, f.givenBy)
+    Just (Method m function _ own leading) => Just (m, function, own, leading, f.givenBy)
     _ => Nothing
   Nothing => Nothing
 
@@ -498,7 +499,7 @@ methodAt ds j k = case lookup j ds.holding of
 -- where it is written.
 runs : Dictionaries -> View -> Address -> Nat -> List (Address, Nat)
 runs ds v j k = case fieldAt ds.holding j k of
-  Just (Method _ _ _ _) => [(j, k)]
+  Just (Method _ _ _ _ _) => [(j, k)]
   _ => mapMaybe (\m => lookup m ds.methods) (headsIn (at v (fieldSlot j k)))
 
 ------------------------------------------------------------------------------
@@ -817,7 +818,7 @@ candidates ds v eqs = fromList (eqs >>= yield)
       (j', k') <- runs ds v j k
       case methodAt ds j' k' of
         Nothing => []
-        Just (m, own', _, _) => do
+        Just (m, _, own', _, _) => do
           (how, x) <- xs
           p <- placedAt own' x
           into (parameterSlot m p) (byArgument v (own w ps) how x)
@@ -1440,9 +1441,10 @@ data Via : Type where
   Dispatched : (j : Address) -> (jRead : GlobalDef) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a visit: a callee's visit, which the walk
-||| enters, with what the walk knows of the callee (`e`): nothing where a
-||| site's reading finds it (`reaches`), and the definition its node is
-||| read at once the walk has read that node (`Graph`); the application at
+||| enters, with what the walk knows of the callee (`e`): the definition
+||| the visit was made of, as the site read it, where a site's reading
+||| finds it (`reaches`), and the definition its node is read at once the
+||| walk has read that node (`Graph`); the application at
 ||| a use; a choice it makes a member of, with what a message reads of its
 ||| head; or the fields of a constructor a dictionary is rebuilt with, by
 ||| its address and as it was read, which no definition's node holds, each
@@ -1497,12 +1499,12 @@ data Reached : Type -> Type where
   MkReached : (callee : Callee e) -> (placed : List Placed) -> (via : Via) -> Reached e
   Kept : BoundPlace -> List1 HeldItem -> Reached e
 
-||| Each callee a site reaches from the writer's visit. A callee is split by
-||| the roots of its dictionary and family arguments, one visit for each
-||| combination; the writer's own dictionary given as it is keeps what its
-||| chain held.
+||| Each callee a site reaches from the writer's visit, with the definition
+||| its visit is of, as the site read it. A callee is split by the roots of
+||| its dictionary and family arguments, one visit for each combination;
+||| the writer's own dictionary given as it is keeps what its chain held.
 export
-reaches : Flow -> (writer : Visit) -> Site -> List (Reached ())
+reaches : Flow -> (writer : Visit) -> Site -> List (Reached GlobalDef)
 reaches fl v s = from s.reach
   where
     -- The writer's node, whose heads key what the writer's text gives.
@@ -1544,22 +1546,22 @@ reaches fl v s = from s.reach
     -- write of J gave them, through J's own call of the function: only the
     -- dispatched dictionary's root is Core's, not the arguments J was
     -- written at.
-    method : Nat -> Address -> List (Reached ())
+    method : Nat -> Address -> List (Reached GlobalDef)
     method k j = case methodAt fl.dictionaries j k of
       Nothing => []
-      Just (m, own, leading, jRead) =>
+      Just (m, mRead, own, leading, jRead) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) [] acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (Entering (MkVisit m hs) ()) placed (Dispatched j jRead k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (Entering (MkVisit m hs) mRead) placed (Dispatched j jRead k leading)) (combinations (passed placed fromJ))
 
     -- A dispatch through field k of j: each method field it runs (`runs`).
-    through : Nat -> Address -> List (Reached ())
+    through : Nat -> Address -> List (Reached GlobalDef)
     through k j = runs fl.dictionaries fl.solution j k >>= \(j', k') => method k' j'
 
     -- A field of a rebuilt constructor, as what the dictionary's argument
     -- writes there: the field holds what its dictionary holds, no list of
     -- its own.
-    filling : Argument -> Filled -> Reached ()
+    filling : Argument -> Filled -> Reached GlobalDef
     filling x f =
       MkReached (Filling f.con f.conRead)
                 [MkPlaced ({ position := f.field, template := f.template, recursionsRead := noRecursions {t = f.template} f.unrecursive
@@ -1587,7 +1589,7 @@ reaches fl v s = from s.reach
     -- values and then the values the member put in its place holds
     -- (`Choices.heldMember`).
     rebuiltAt : Argument -> (path : List1 Nat) -> (held : List (List1 Nat)) -> (0 _ : Not (Elem path held)) -> Chain ->
-                List (Reached ())
+                List (Reached GlobalDef)
     rebuiltAt x path held fresh (l ::: ls) =
       let r = rebuilt (Element (Template.Var x.position 0) Refl) l ls
           final = lastOf (Element (Template.Var x.position 0) Refl) l ls
@@ -1597,13 +1599,13 @@ reaches fl v s = from s.reach
                                  , term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
           settled = rebuiltHead l.holds.builtBy path held fresh
           target = MkVisit v.definition (headedAt x.position settled v.heads) in
-      MkReached (Entering target ()) (atOwnPositions s.arguments ++ [dictionary]) Called ::
+      MkReached (Entering target s.writerDef) (atOwnPositions s.arguments ++ [dictionary]) Called ::
         map (filling x) r.fillings
 
-    from : Reach -> List (Reached ())
-    from (Calls t _) = let placed = atOwnPositions s.arguments in
-                       map (\hs => MkReached (Entering (MkVisit t hs) ()) placed Called) (combinations (passed placed empty))
-    from (Builds t _) = [MkReached (Entering (MkVisit t []) ()) (atOwnPositions s.arguments) Called]
+    from : Reach -> List (Reached GlobalDef)
+    from (Calls t d) = let placed = atOwnPositions s.arguments in
+                       map (\hs => MkReached (Entering (MkVisit t hs) d.def) placed Called) (combinations (passed placed empty))
+    from (Builds t d) = [MkReached (Entering (MkVisit t []) d.def) (atOwnPositions s.arguments) Called]
     -- A dispatch through a dictionary with no head runs what its leaves
     -- give, which reach beside it.
     from (Dispatches t r k) = headsIn (rootsAt r t) >>= through k

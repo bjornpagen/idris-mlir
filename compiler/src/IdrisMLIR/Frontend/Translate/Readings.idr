@@ -932,6 +932,13 @@ unfolding : Mode -> Mode
 unfolding (MkMode w k KeepsCall ctx) = MkMode w k UnfoldsBeside ctx
 unfolding m = m
 
+||| Unfolding keeps whose term a reading reads.
+export
+0 unfoldingWhose : (m : Mode) -> (unfolding m).whose = m.whose
+unfoldingWhose (MkMode w k KeepsCall ctx) = Refl
+unfoldingWhose (MkMode w k UnfoldsBeside ctx) = Refl
+unfoldingWhose (MkMode w k WalksAlone ctx) = Refl
+
 ||| The stand-ins a mode reads, a site's; an instance's term holds none.
 public export
 standsOf : Mode -> List StandIn
@@ -974,7 +981,7 @@ keptChain a ts Nothing = Head (Just a) ts
 keptChain a ts (Just t) = Choice (Leaf 1) [Head (Just a) ts, t]
 
 ------------------------------------------------------------------------------
--- The recursions a site's reading holds
+-- The recursions a reading holds
 ------------------------------------------------------------------------------
 
 ||| The definition a site's reading met a recursion at, by the recursion's
@@ -995,26 +1002,74 @@ public export
 noRecursions : (0 _ : recursions t = []) -> All RecursionDef (recursions t)
 noRecursions none = replace {p = All RecursionDef} (sym none) []
 
+||| What a reading holds of the recursions it read, by whose term it reads:
+||| a site's reading, the definition of each, in order, read where the
+||| reading met it; an instance's term keeps every call as written and
+||| meets no recursion, and its reading holds nothing.
+public export
+data RecursionsHeld : Whose -> List Address -> Type where
+  SiteHolds : {0 stands : List StandIn} -> {0 rs : List Address} -> All RecursionDef rs -> RecursionsHeld (OfSite stands) rs
+  InstanceHoldsNone : {0 rs : List Address} -> RecursionsHeld OfInstance rs
+
+||| The definitions a site's reading holds.
+public export
+siteHolds : RecursionsHeld (OfSite stands) rs -> All RecursionDef rs
+siteHolds (SiteHolds held) = held
+
+||| What a reading holds where it read no recursion.
+public export
+heldNone : (w : Whose) -> RecursionsHeld w []
+heldNone (OfSite _) = SiteHolds []
+heldNone OfInstance = InstanceHoldsNone
+
+||| What a reading holds of two lists of recursions, the first's first.
+public export
+heldJoined : RecursionsHeld w xs -> RecursionsHeld w ys -> RecursionsHeld w (xs ++ ys)
+heldJoined InstanceHoldsNone _ = InstanceHoldsNone
+heldJoined (SiteHolds here) (SiteHolds rest) = SiteHolds (allJoined here rest)
+
+||| What a reading holds of a part a skeleton's hole cuts: nothing.
+public export
+cutHeld : RecursionsHeld w xs -> RecursionsHeld w []
+cutHeld InstanceHoldsNone = InstanceHoldsNone
+cutHeld (SiteHolds _) = SiteHolds []
+
+||| What a reading holds of a node's last part, as the node's list of parts
+||| holds it.
+public export
+heldLast : {0 w : Whose} -> {0 xs : List Address} -> RecursionsHeld w xs -> RecursionsHeld w (xs ++ [])
+heldLast held = replace {p = RecursionsHeld w} (sym (appendNilRightNeutral xs)) held
+
 ||| Two lists of templates hold the first's recursions, then the second's.
 public export
-joinedRecursions : (0 xs, ys : List Template) -> All RecursionDef (recursionsIn xs) -> All RecursionDef (recursionsIn ys) ->
-                   All RecursionDef (recursionsIn (xs ++ ys))
-joinedRecursions xs ys here rest = replace {p = All RecursionDef} (sym (recursionsJoined xs ys)) (allJoined here rest)
+joinedRecursions : {0 w : Whose} -> (0 xs, ys : List Template) -> RecursionsHeld w (recursionsIn xs) ->
+                   RecursionsHeld w (recursionsIn ys) -> RecursionsHeld w (recursionsIn (xs ++ ys))
+joinedRecursions xs ys here rest = replace {p = RecursionsHeld w} (sym (recursionsJoined xs ys)) (heldJoined here rest)
 
 ||| A part that is no head of its own holds each recursion it reads in a
 ||| type's node, and none in a skeleton's hole, which cuts it.
 public export
-nodeRecursions : (k : Keeping) -> All RecursionDef (recursions t) -> All RecursionDef (recursions (nodeOf k t))
+nodeRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> RecursionsHeld w (recursions t) ->
+                 RecursionsHeld w (recursions (nodeOf k t))
 nodeRecursions EveryNode held = held
-nodeRecursions Skeleton _ = []
+nodeRecursions Skeleton held = cutHeld held
 
 ||| A part applied (`partOf`) holds the part's recursions, then its
 ||| arguments'.
 public export
-partRecursions : (k : Keeping) -> (ts : List Template) -> All RecursionDef (recursions t) -> All RecursionDef (recursionsIn ts) ->
-                 All RecursionDef (recursions (partOf k t ts))
+partRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> (ts : List Template) -> RecursionsHeld w (recursions t) ->
+                 RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (partOf k t ts))
 partRecursions k [] here _ = here
-partRecursions k (u :: us) here rest = nodeRecursions k (allJoined here rest)
+partRecursions k (u :: us) here rest = nodeRecursions {t = aboveOf t (u :: us)} k (heldJoined here rest)
+
+||| A part that holds no recursion, applied (`partOf`), holds its
+||| arguments' recursions, and none in a skeleton's hole.
+public export
+leafPart : {0 w : Whose} -> (k : Keeping) -> (0 t : Template) -> (0 _ : recursions t = []) -> (ts : List Template) ->
+           RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (partOf k t ts))
+leafPart k t none [] held = replace {p = RecursionsHeld w} (sym none) held
+leafPart k t none (u :: us) held =
+  nodeRecursions {t = aboveOf t (u :: us)} k (replace {p = \r => RecursionsHeld w (r ++ recursionsIn (u :: us))} (sym none) held)
 
 ||| A template that holds no recursion, applied as one of the writer's
 ||| markers is (`markedOf`), holds its arguments' recursions: a family
@@ -1037,9 +1092,9 @@ markedHolds (Member _) (u :: us) none = Refl
 ||| One of the writer's markers applied (`markedOf`) holds its arguments'
 ||| recursions, the marker holding none.
 public export
-markedRecursions : (0 t : Template) -> (0 ts : List Template) -> (0 _ : recursions t = []) -> All RecursionDef (recursionsIn ts) ->
-                   All RecursionDef (recursions (markedOf t ts))
-markedRecursions t ts none held = replace {p = All RecursionDef} (sym (markedHolds t ts none)) held
+markedRecursions : {0 w : Whose} -> (0 t : Template) -> (0 ts : List Template) -> (0 _ : recursions t = []) ->
+                   RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (markedOf t ts))
+markedRecursions t ts none held = replace {p = RecursionsHeld w} (sym (markedHolds t ts none)) held
 
 -- A part that holds no recursion, applied, holds its arguments'.
 0 partHolds : (t : Template) -> recursions t = [] -> (ts : List Template) -> recursions (partOf EveryNode t ts) = recursionsIn ts
@@ -1074,17 +1129,18 @@ constantHolds WorldVal ts = partHolds (constant WorldVal) Refl ts
 
 ||| A constant applied (`appliedConstant`) holds its arguments' recursions.
 public export
-constantRecursions : (0 c : Constant) -> (0 ts : List Template) -> All RecursionDef (recursionsIn ts) ->
-                     All RecursionDef (recursions (appliedConstant c ts))
-constantRecursions c ts held = replace {p = All RecursionDef} (sym (constantHolds c ts)) held
+constantRecursions : {0 w : Whose} -> (0 c : Constant) -> (0 ts : List Template) -> RecursionsHeld w (recursionsIn ts) ->
+                     RecursionsHeld w (recursions (appliedConstant c ts))
+constantRecursions c ts held = replace {p = RecursionsHeld w} (sym (constantHolds c ts)) held
 
 ||| A kept chain (`keptChain`) holds its call's arguments' recursions, then
 ||| those of the unfolding beside it, where an instance unfolds the call.
 public export
-chainRecursions : (r : Maybe Template) -> All RecursionDef (recursionsIn ts) -> All RecursionDef (maybeRecursions r) ->
-                  All RecursionDef (recursions (keptChain a ts r))
+chainRecursions : {0 w : Whose} -> {0 a : Address} -> {0 ts : List Template} -> (r : Maybe Template) ->
+                  RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (maybeRecursions r) ->
+                  RecursionsHeld w (recursions (keptChain a ts r))
 chainRecursions Nothing own _ = own
-chainRecursions (Just t) own unfolded = allJoined own (allJoined unfolded [])
+chainRecursions (Just t) own unfolded = heldJoined own (heldLast unfolded)
 
 -- A substitute holds no recursion: an argument of a family's value, or a
 -- placeholder's leaf.
@@ -1100,9 +1156,9 @@ substitutesHold (s :: ss) = rewrite substituteHolds s in substitutesHold ss
 
 ||| A substitute applied (`partOf`) holds its arguments' recursions.
 public export
-substituteRecursions : (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
-                       All RecursionDef (recursions (partOf k (substituteTemplate s) ts))
-substituteRecursions k s ts held = partRecursions {t = substituteTemplate s} k ts (noRecursions (substituteHolds s)) held
+substituteRecursions : {0 w : Whose} -> (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> RecursionsHeld w (recursionsIn ts) ->
+                       RecursionsHeld w (recursions (partOf k (substituteTemplate s) ts))
+substituteRecursions k s ts held = leafPart k (substituteTemplate s) (substituteHolds s) ts held
 
 mutual
   ||| What a reading says of a term over a scope, each variable by its
