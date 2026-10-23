@@ -296,9 +296,6 @@ bringing (S (S _)) = SeveralValues
 bringing (S Z) = OneValue
 bringing Z = OneValue
 
-0 predEq : S a = S b -> a = b
-predEq Refl = Refl
-
 -- Three counts that add up to one, the middle one at least one: it is the
 -- one, and the others are none.
 0 oneOfThree : (x, c, y : Nat) -> x + (c + y) = 1 -> LTE 1 c -> (x = 0, c = 1, y = 0)
@@ -307,7 +304,7 @@ oneOfThree Z (S Z) (S y) Refl _ impossible
 oneOfThree Z (S (S c)) y Refl _ impossible
 oneOfThree Z Z y _ one = void (succNotLTEzero one)
 oneOfThree (S x) Z y _ one = void (succNotLTEzero one)
-oneOfThree (S x) (S c) y eq _ = void (SIsNotZ (trans (plusSuccRightSucc x (c + y)) (predEq eq)))
+oneOfThree (S x) (S c) y eq _ = void (SIsNotZ (trans (plusSuccRightSucc x (c + y)) (injective {f = S} eq)))
 
 -- Items that give nothing at an instance hold none there in every one.
 0 noneGiven : HeldInstance ks cs -> heldGiven cs = 0 -> alwaysIn ks = 0
