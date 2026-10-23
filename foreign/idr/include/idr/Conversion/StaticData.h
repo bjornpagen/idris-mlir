@@ -93,8 +93,8 @@ mlir::Value bigConstant(mlir::OpBuilder &b, mlir::Location loc, BigAttr value);
 // initializer of a global: a scalar's LLVM constant, an unboxed sum's words,
 // and the address of the static datum idr-lower-statics made for a string, a
 // big outside the small range, a cell (a memo cell among them) and poison of
-// a cell pointer. The one ladder of constants, which the lowering and a
-// static cell's fields both read.
+// a cell pointer. The one reading of a constant's static form, which the
+// lowering and a static cell's fields both use.
 llvm::SmallVector<mlir::Value> constantComponents(mlir::OpBuilder &b, mlir::Location loc,
                                                   const Layouts &layouts, mlir::Attribute value,
                                                   mlir::Type type);

@@ -37,23 +37,31 @@ namespace {
 // yet pushed; or opened, its fields done before it is popped again.
 enum class Visit : std::uint8_t { Met, Opened };
 
+// Whether `part` is a constant that may hold a closure, whose answer is
+// stored: a string, an integer or a Double is no constant of ours, and
+// holds none.
+bool mayHoldClosure(Attribute part) {
+  auto constant = dyn_cast<ConstantAttrInterface>(part);
+  return constant && constant.mayHoldClosure();
+}
+
 } // namespace
 
 bool ClosureParts::answer(Attribute part) const {
-  if (!isa<ClosureAttr>(part) && !isa<ConAttr>(part))
-    return false;
-  return known.find(part)->second;
+  return mayHoldClosure(part) && known.find(part)->second;
 }
 
+// A part that may hold a closure and is no constructor is a closure, which
+// holds itself.
 bool ClosureParts::holds(Attribute part) {
   footprint::Vector<std::pair<Attribute, Visit>> work{{part, Visit::Met}};
   while (!work.empty()) {
     auto [at, visit] = work.back();
-    auto con = dyn_cast<ConAttr>(at);
-    if ((!con && !isa<ClosureAttr>(at)) || known.contains(at)) {
+    if (!mayHoldClosure(at) || known.contains(at)) {
       work.pop_back();
       continue;
     }
+    auto con = dyn_cast<ConAttr>(at);
     if (!con) {
       known[at] = true;
       work.pop_back();
@@ -105,7 +113,7 @@ public:
   void add(Operation *op, const FlowEdges::Edge &edge);
   // `call`, in tail position, gives its caller's results: each result point
   // of `callee` that carries a label is one set with its caller's.
-  void tailResults(Label callee, Operation *call);
+  void tailResults(Label callee, CallOp call);
 
 private:
   Node nodeOf(const FlowSource &point) {
@@ -157,7 +165,7 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
       [&](FlowEdges::Dispatch move) { dispatch(move.call); });
 }
 
-void Reading::tailResults(Label callee, Operation *call) {
+void Reading::tailResults(Label callee, CallOp call) {
   Label caller = out.points.labelOf(call->getParentOfType<FuncOp>());
   for (auto [j, result] : llvm::enumerate(call->getResults()))
     if (carriesLabels(result.getType())) {
@@ -292,7 +300,7 @@ Read readProgram(Operation *program, const solver::ProgramGraph &graph) {
       reading.add(op, edge);
     edges.clear();
     if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail)
-      reading.tailResults(out.points.labelOf(call.getCalleeAttr()), op);
+      reading.tailResults(out.points.labelOf(call.getCalleeAttr()), call);
   });
   return out;
 }
