@@ -742,3 +742,22 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   rule (the callee's copy returning the caller's element layout, marked
   open where an index stays unwritten), the specializer's, not Emit's
   (L18, after L18t).
+- From spec round 4: `tests/spec-current/run` builds `spec.ipkg` expecting
+  an executable; it installs the library into a work prefix, then builds
+  `specgen.ipkg` (L19); `OtherTarget` has no test (L19);
+  `harness/Scale.idr:155` writes `!idr.fn<(i64) -> i64>`, which the format
+  never parsed (L19); the frontend's `Term.Termination` keeps `Acyclic`,
+  now read as `MayDiverge` by every reader, its writers `Choices.idr:628`,
+  `Programs.idr:229, 588` (L16, with the threading pass); `Settle.cpp`
+  could keep the origin's proof instead of removing it, as the copy rule
+  says, a behaviour change (L18). From L07u: `Narrow/Facts.cpp`'s `given`
+  does what `heldAs` does (L07); the static small's type is computed in
+  three places (Narrow's `small`, `Generating.cpp`, Emit): a builder on
+  `idr.big.small` taking the carrier holds it once (spec); `Bufferize.cpp:313`
+  asks `heldAs` to raise a claim from a fresh tensor, which no op admits
+  (L12); at the Higher stage Emit's static values (literals, coordinates)
+  reach call arguments and yields whose verifiers compare grades exactly,
+  and no op gives static data as counted there (count.share is legal from
+  First, lin.cast refuses equal uses): read whether the call's verifier
+  admits it today, and if not, the decision (D89's specialization by hold
+  runs at First) is the coordinator's.
