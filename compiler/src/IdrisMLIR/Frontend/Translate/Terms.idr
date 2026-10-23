@@ -1845,29 +1845,37 @@ mutual
         let arity = length m.args
         let vals = the ArgValues (replicate arity Nothing)
         kinds <- classifyKeys fc ctx.owner (show lib.named) (length m.args) target.type vals
-        let True = all valueOnly kinds
-          | False => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
         sig <- request fc ctx.owner (OfDefinition (fullname def) m) kinds
         called <- atCall fc ctx.owner vals sig
+        -- Which of its parameters exist at run time is its own signature's,
+        -- keyed by no static argument and classified apart from the call's
+        -- kinds, so it is read there, once, against the row's operands: a
+        -- value at each, nothing at run time elsewhere, which is the
+        -- `count` values the hook gives it, by type. A type, an
+        -- implementation, a form or a choice among them is a compile-time
+        -- argument the hook cannot give.
+        let Just (Element _ saturated) = valuesAt checked.operands called.kinds
+          | Nothing => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
         -- Its runtime arguments are all a call gives it, so no index
         -- parameter of it is given a term it is linked to.
         is <- callIndices called.kinds vals
-        -- Kept: the boundary counted the function's values at run time off
-        -- its type's binders (`CheckedLibrary.operands`), and the request's
-        -- signature counts them again, from the same binders, in kinds that
-        -- carry no evidence of that count and none that they are the
-        -- kinds it was requested with: two readings of one type.
-        let Yes saturated = decEq count (Runtimes called.kinds)
-          | No _ => internal fc ("the library function " ++ show lib.named ++ ", which the boundary read to take " ++
-                                 show count ++ " values at run time, classified at " ++ show (Runtimes called.kinds))
-        let mk = recount saturated (recount called.sameCount (MkMaker (\ys => Call loc sig.callee Nothing is ys)))
+        let mk = recount (sym saturated) (recount called.sameCount (MkMaker (\ys => Call loc sig.callee Nothing is ys)))
         pure (\ns => mk.make ns)
         where
-          valueOnly : PKind -> Bool
-          valueOnly (ValueParam {}) = True
-          valueOnly ErasedParam = True
-          valueOnly (IndexParam _) = True
-          valueOnly _ = False
+          -- The kinds as the row's operands read them: a runtime value at
+          -- each operand, an erased or index parameter at each binder of
+          -- quantity 0, so the kinds bind at run time as many values as the
+          -- operands are. The evidence is erased: reading the kinds builds
+          -- no proof at run time.
+          valuesAt : {0 p, k : Nat} -> Operands p k -> (ks : List PKind) -> Maybe (Subset () (\_ => Runtimes ks = k))
+          valuesAt NoParameter [] = Just (Element () Refl)
+          valuesAt (Operand ops) (ValueParam _ _ _ :: ks) = map oneMore (valuesAt ops ks)
+            where
+              oneMore : Subset () (\_ => Runtimes ks = j) -> Subset () (\_ => S (Runtimes ks) = S j)
+              oneMore (Element u same) = Element u (cong S same)
+          valuesAt (NoOperand ops) (ErasedParam :: ks) = valuesAt ops ks
+          valuesAt (NoOperand ops) (IndexParam _ :: ks) = valuesAt ops ks
+          valuesAt _ _ = Nothing
 
       -- The value of a head that takes one runtime argument, made from it;
       -- a head of another number of them is not the one `wrong` names.

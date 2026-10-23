@@ -793,11 +793,7 @@ instanceSig fc owner what requesting = do
 ||| result's Core type read, so that a result type the frontend refuses is
 ||| refused at the request that first meets it, which the refusal names;
 ||| its own step and every call of it read that one value. A new instance
-||| is recorded with it, with what its request keyed each parameter by and
-||| that each is put in at it, what it is an instance of, the site that
-||| requested it, the definition whose translation did, and the positions
-||| at which the worklist checks its static arguments against the growth
-||| check's bounds (`boundedAt`), so that a method's projection is
+||| is recorded with it (`recordRequest`), so that a method's projection is
 ||| checked at the implementation that runs, and a definition over a family
 ||| at the type constructor it is. The link stays its identity.
 export
@@ -809,9 +805,23 @@ request fc owner what kinds = do
   Nothing <- pure (requestedBefore inst !(getState))
     | Just sig => pure sig
   (sig ** signed) <- instanceSig fc owner what requesting
+  recordRequest fc owner what requesting sig signed
+  pure sig
+
+||| A new instance recorded at its signature, read once (`instanceSig`):
+||| in the instance table, in the order first requested, and as a request
+||| the worklist takes, with what its request keyed each parameter by and
+||| that each is put in at it, the site that requested it, the definition
+||| whose translation did, and the positions at which the worklist checks
+||| its static arguments against the growth check's bounds (`boundedAt`).
+export
+recordRequest : {auto s : Ref TState TS} ->
+                FC -> (owner : String) -> (what : Instantiates) -> (requesting : Requesting) -> (sig : InstanceSig) ->
+                SignedAt what (keysOf requesting.supplied) sig -> Front ()
+recordRequest fc owner what requesting sig signed = do
+  let inst = InstanceOf requesting.link
   updateState (derive { instances $= insert inst sig })
   updateState (derive { fnOrder $= (:< inst) })
   updateState { derived->requested $= (:< MkRequest what sig signed.classifiesAll (keysOf requesting.supplied) signed.atKey
                                                    requesting.key fc (shown owner) requesting.link
                                                    (boundedAt requesting.link.head requesting.supplied)) }
-  pure sig

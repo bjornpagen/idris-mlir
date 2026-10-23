@@ -634,11 +634,12 @@ afterKind k parts = MkSplitKinds (k :: parts.kindsBefore) parts.here parts.kinds
 ||| implementation that holds one, as one function: its identity and key,
 ||| its signature, read once where it was made (`InstanceSig`), the callee
 ||| (a definition, or a member at a use, whose choice the use dispatches
-||| on), its kinds as the call classified them, one per parameter the
-||| callee applies, split at the parameter its choice is found in
-||| (`Chosen`), so that the parameter and its kind are one, and that
-||| parameter's position among its signature's parameters at run time,
-||| the choice's family, and where and in whose definition it was made.
+||| on), its signature's kinds, one per parameter the callee applies,
+||| split at the parameter its choice is found in (`Chosen`), so that the
+||| parameter and its kind are one, and that parameter's position among
+||| its signature's parameters at run time, read off the same kinds
+||| (`Choices.ChoiceAt`), the choice's family, and where and in whose
+||| definition it was made.
 ||| None of it changes once made; its arms, which grow with its choice,
 ||| are its own table's (`Facts.dispatchArms`).
 public export
