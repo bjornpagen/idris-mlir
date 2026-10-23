@@ -587,3 +587,12 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   `Func.h:80-81`); then the specification's `Functions/Termination.idr:3-4`
   and `TerminatesAttr`'s description (after L04x). L19s adds `may-diverge`
   for `tests/partial-loop-diverges`.
+- From L14z: a static argument at a call needs a specializer round after
+  the e-graph (idr-optimize ends a component's rounds on a round that only
+  simplified; the standalone e-graph steps 10 and 14 have none), and
+  Signatures::edit re-grades parameters only; the specification could
+  state each operand constraint's hold admission as data (TakesStr and
+  strRead one fact). From L06h: tools/bootstrap.sh idris rerun so the
+  installed stock Idris carries 115 (INT, with 116 when L19v lands);
+  LinearCheck's updateHoleUsage visits an as name twice and its pattern
+  never (no cost; upstream, unacted).
