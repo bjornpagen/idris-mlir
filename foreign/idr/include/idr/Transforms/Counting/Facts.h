@@ -25,7 +25,6 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/FunctionInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstdint>
@@ -98,12 +97,15 @@ inline bool readWithoutReference(mlir::Value value) {
 // it.
 enum class Leaves : std::uint8_t { Frame, Process, Successors };
 
+// The return is asked first: it is return-like, which upstream makes a
+// region-branch terminator too, but its parent is the function, no region
+// branch, so it has no successors to ask. Its op's parent is always the
+// function, which its verifier holds.
 inline Leaves leavesOf(mlir::Operation *terminator) {
+  if (llvm::isa<ReturnOp>(terminator))
+    return Leaves::Frame;
   if (llvm::isa<mlir::RegionBranchTerminatorOpInterface>(terminator))
     return Leaves::Successors;
-  if (terminator->hasTrait<mlir::OpTrait::ReturnLike>() &&
-      llvm::isa<mlir::FunctionOpInterface>(terminator->getParentOp()))
-    return Leaves::Frame;
   return Leaves::Process;
 }
 
