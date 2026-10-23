@@ -329,6 +329,8 @@ record Writer where
   body : Bytes
   count : IORef Nat
   values : IORef Nat
+  ||| Eight bytes, in which a float is stored to read its bits back.
+  word : Buffer
 
 stringNumber : Writer -> String -> W Nat
 stringNumber w s = number w.stringTable s (pure s)
@@ -485,53 +487,19 @@ extent : Dim -> Integer
 extent (Static n) = cast n
 extent Dynamic = dynamicExtent
 
-||| 2 to the `n`, as a double, exactly: a power of two in range is a
-||| double.
-twoTo : Nat -> Double
-twoTo Z = 1.0
-twoTo (S n) = 2.0 * twoTo n
-
-||| The exponent and significand of a finite positive double: the `e` with
-||| `2^e <= x < 2^(e+1)`, found by halving or doubling, each exact, from
-||| below 2^1024 and at least 2^-1074; and `x / 2^e`. A double has 2098
-||| binary exponents, so each search ends within that many steps.
-binade : Double -> (Integer, Double)
-binade x = if x >= 1.0 then down 1024 x 0 else up 1075 x 0
-  where
-    down : Nat -> Double -> Integer -> (Integer, Double)
-    down Z y e = (e, y)
-    down (S k) y e = if y >= 2.0 then down k (y / 2.0) (e + 1) else (e, y)
-    up : Nat -> Double -> Integer -> (Integer, Double)
-    up Z y e = (e, y)
-    up (S k) y e = if y < 1.0 then up k (y * 2.0) (e - 1) else (e, y)
-
 ||| A double's IEEE 754 binary64 bits, read as a signed 64-bit integer as
-||| MLIR's reader takes a float of 64 bits (`readAPIntWithKnownWidth`): its
-||| sign, biased exponent and fraction, computed exactly in the double's own
-||| arithmetic (scaling by powers of two loses nothing), so the value that
-||| crosses is the one the program wrote, on either host, with no decimal
-||| text between.
-export
-doubleBits : Double -> Integer
-doubleBits d =
-  if d /= d then 0x7FF8000000000000
-  else if d == 1.0 / 0.0 then 0x7FF0000000000000
-  else if d == -1.0 / 0.0 then signedOf 0xFFF0000000000000
-  else if d == 0.0 then (if 1.0 / d < 0.0 then signedOf 0x8000000000000000 else 0)
-  else let sign = if d < 0.0 then 0x8000000000000000 else 0
-           x = abs d
-           (e, m) = binade x
-       in signedOf (sign + magnitude e m x)
-  where
-    signedOf : Integer -> Integer
-    signedOf u = if u >= 0x8000000000000000 then u - 0x10000000000000000 else u
-    -- A normal double's fraction is its significand's 52 bits past the
-    -- leading one; a subnormal's is the value in units of 2^-1074.
-    magnitude : Integer -> Double -> Double -> Integer
-    magnitude e m x =
-      if e >= -1022
-        then (e + 1023) * 0x10000000000000 + cast {to = Integer} ((m - 1.0) * twoTo 52)
-        else cast {to = Integer} (x * twoTo 1074)
+||| MLIR's reader takes a float of 64 bits (`readAPIntWithKnownWidth`): the
+||| double stored in the writer's word and the word loaded back, base's
+||| buffer operations, whose one meaning is the runtime's on either host.
+||| The store and the load are in the same byte order, the machine's, so
+||| the order cancels and never reaches the file. Every double crosses as
+||| the program holds it, the infinities, a NaN with its sign and payload,
+||| negative zero and the subnormals among them, with no arithmetic, no
+||| exact number and no decimal text between.
+doubleBits : Writer -> Double -> W Integer
+doubleBits w d = do
+  setDouble w.word 0 d
+  cast <$> getInt64 w.word 0
 
 ||| A type a record holds, as the record lays it out: its entry.
 typePart : TypeRef -> List Part
@@ -722,7 +690,8 @@ mutual
   -- width, which is how upstream's reader takes it.
   attrNumber w (FloatAttr d t) = do
     r <- typeNumber w t
-    attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt (doubleBits d)]
+    bits <- doubleBits w d
+    attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt bits]
   attrNumber w (Idr a) = attrEntry w IdrDialect . encodeIdrAttr =<< numberIdrAttr w a
   attrNumber w (LocAttr l) = locationNumber w l
   attrNumber w a = attrTextEntry w a
@@ -764,12 +733,19 @@ mutual
 -- The writer
 ------------------------------------------------------------------------------
 
+||| Room for one 64-bit word.
+newWord : W Buffer
+newWord = do
+  Just b <- newBuffer 8
+    | Nothing => throwE "cannot allocate a buffer"
+  pure b
+
 ||| A writer of a module, nothing numbered yet.
 export
 newWriter : IO (Either String Writer)
 newWriter = runEitherT $
   MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
-           <*> newBytes <*> newIORef 0 <*> newIORef 0
+           <*> newBytes <*> newIORef 0 <*> newIORef 0 <*> newWord
 
 ------------------------------------------------------------------------------
 -- Ops and regions
