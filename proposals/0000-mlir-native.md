@@ -4988,22 +4988,35 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, raised alone (recheck 3's finding, 2026-10-22). D98 and AGENTS.md say an op's fold is its
-meaning, which the e-graph reads. C205 and C218 narrowed that without
-the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
-`Engine.h`, `Rules.cpp`), because a fold returns an attribute and
-AGENTS.md also says no attribute is made on a worker's hot path; it
-reads inline arithmetic through the one numeric template, and knows a
-string, a `Double`, a big integer or a data constant only where an input
-op already holds one. The choice: (A) keep C218, D98 amended to say the
-e-graph reads a fold's meaning through the numeric template and never
-calls a fold, so string, `Double`, big and data constants fold only
-outside it, by the passes around it (recommended: no attribute on the
-hot path, one meaning); (B) the e-graph calls folds, making those
-constants' attributes as it rewrites, which D98's text asks and the
-hot-path rule forbids; (C) the e-graph gains its own constant domains
-for strings, `Double`s and bigs, computed through `runtime/`'s one
-meaning, with no attribute until the write-back.
+**Open**: one, raised alone (recheck 3's finding, 2026-10-22; the
+coordinator's reading of the tree, the same day). D98 and AGENTS.md say
+an op's fold is its meaning, which the e-graph reads. C205 and C218
+narrowed that without the owner: the e-graph asks no fold
+(`lib/Transforms/EGraph/Nodes.cpp`, `Engine.h`, `Rules.cpp`), because a
+fold returns an attribute and AGENTS.md also says no attribute is made on
+a worker's hot path; it reads inline arithmetic through the one numeric
+template, and knows a string, a `Double`, a big integer or a data constant
+only where an input op already holds one. The folds of those exist, one
+generic fold through the runtime's own functions (`IR/Fold.h`, the
+`RuntimeFolds` trait on 45 ops), but no pass calls them: greedy rewriting
+is gone (D98), the e-graph asks none, and the lowering turns folding off
+(`Conversion/Lower.cpp:226`, whose comment says the optimizer folded what
+folds, which holds only of integers). So `"a" ++ "b"` or `sqrt 2.0` is
+computed on every run, a fact known statically paid at run time. The
+choice: (A) keep C218 as it stands, D98 amended: those constants are
+never folded, their folds deleted as dead and Lower's comment corrected;
+programs pay at run time; (B) the e-graph calls the folds, making each
+constant's attribute as it rewrites, which D98's text asks and the
+hot-path rule forbids: every intermediate constant the graph explores is
+uniqued in the context under its lock (where workers once queued,
+98c6315c) and kept for the whole compile; (C) the e-graph holds those
+constants in value domains of its own (bytes, an `APFloat`, a big as the
+runtime's limbs), computed by the same runtime functions through
+`Fold.h`'s conversions made generic over the domain, as the numeric
+template already is, the op's fold its attribute instance, with no
+attribute until the write-back (recommended: one meaning, nothing on the
+hot path, nothing static paid at run time; the most work). A constructor
+applied to constants is a node in all three, and a match on one a rule.
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
