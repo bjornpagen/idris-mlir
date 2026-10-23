@@ -265,17 +265,28 @@ definedHead ctx n with (definitionAddress (gamma (defsOf ctx)) n) proof found
     NotDefined _ => pure Nothing
     DefinedAs i resolved _ _ => (\d => Just (a ** MkHeadDefinedAt ctx n d found)) <$> readDefined ctx n i resolved
 
-||| What a root's reader read of the definition at an address the root
-||| names, read by the name it met there, where it met it: the definition
-||| the frozen context gives that name, or nothing, at an entry the context
-||| defines nothing at, which the host's context has. Indexed by the
-||| address, so that what is read of one address is never another's; the
-||| flow carries it beside each heading it holds (`Heads.HeadingRead`), so
-||| no reader of a heading looks its definition up by the address.
+||| What a dictionary's root reader read of the definition at an address
+||| the root names, read by the name it met there, where it met it: the
+||| definition the frozen context gives that name, or nothing, at an entry
+||| the context defines nothing at, which the host's context has. Indexed by
+||| the address, so that what is read of one address is never another's;
+||| the flow carries it beside each implementation's heading it holds
+||| (`Heads.HeadingRead`), so no reader of a heading looks its definition up
+||| by the address.
 public export
 data DefinitionAt : Address -> Type where
   DefinedThere : {0 a : Address} -> GlobalDef -> DefinitionAt a
   NothingThere : {0 a : Address} -> DefinitionAt a
+
+||| What a type's root reader read of the type constructor at the head of
+||| the type's form, at the address the root names: its name, made full as
+||| Idris makes it, and the arity the host's normal form applies it by
+||| (`formRoot`). The reference states both, so no reader asks the context
+||| what it defines the name as: what heads a family is a type constructor
+||| by what was read of it (`Sites.nodeValues`).
+public export
+data TypeConstructorAt : Address -> Type where
+  NamedTypeConstructor : {0 a : Address} -> Name -> (arity : Nat) -> TypeConstructorAt a
 
 -- What the frozen context defines a name as, as what is read at its
 -- address.
@@ -2064,29 +2075,79 @@ rootAddresses (Gives ms) = forget ms
 rootAddresses (Parameter _ _) = []
 rootAddresses Unrooted = []
 
-||| A root, with what a reading holds of the definition at each address it
-||| names (`rootAddresses`), by whose term it reads (`HeldDefs`): a site's, what
-||| its reader read there; an instance's nothing, since no reader of an
-||| instance's root asks one.
+||| A dictionary's root, with what a reading holds of the definition at each
+||| address it names (`rootAddresses`), by whose term it reads (`HeldDefs`):
+||| a site's, what its reader read there; an instance's nothing, since no
+||| reader of an instance's root asks one.
 public export
 RootRead : Whose -> Type
 RootRead who = (r : Root ** HeldDefs DefinitionAt who (rootAddresses r))
 
-||| A root a site's reading read, with the definition at each address it
-||| names, which the flow carries beside the heading each address is.
+||| A dictionary's root a site's reading read, with the definition at each
+||| address it names, which the flow carries beside the heading each
+||| address is.
 public export
 SiteRoot : Type
 SiteRoot = (r : Root ** All DefinitionAt (rootAddresses r))
 
-||| What a site's reading read of a root.
+||| What a site's reading read of a root, whatever its reader reads of the
+||| definitions it names.
 export
-siteRoot : RootRead (OfSite stands) -> SiteRoot
+siteRoot : (r : Root ** HeldDefs q (OfSite stands) (rootAddresses r)) -> (r : Root ** All q (rootAddresses r))
 siteRoot (r ** held) = (r ** siteHolds held)
 
 ||| No root, which names nothing.
 public export
 unrooted : SiteRoot
 unrooted = (Unrooted ** [])
+
+||| A type's root, with what a reading of whose term it is holds of the type
+||| constructor it names (`formRoot`).
+public export
+TypeRootRead : Whose -> Type
+TypeRootRead who = (r : Root ** HeldDefs TypeConstructorAt who (rootAddresses r))
+
+||| A type's root a site's reading read, with the type constructor at the
+||| address it names.
+public export
+TypeRoot : Type
+TypeRoot = (r : Root ** All TypeConstructorAt (rootAddresses r))
+
+||| What a site's reading read of the definitions an argument's root names,
+||| by the argument's kind, each kind's root read by its own reader: a
+||| type's and a family's, the type constructor at the head of its form
+||| (`formRoot`); a dictionary's, the definition at each address its root
+||| names (`dictionaryRoot`); a form's and a shape's, nothing, as their root
+||| names nothing. Indexed by the kind, so a family's head is read as a type
+||| constructor and a dictionary's as an implementation, and no reader of
+||| the one meets the other.
+public export
+data HeadsRead : Readings.Static -> List Address -> Type where
+  TypeHeads : All TypeConstructorAt rs -> HeadsRead AType rs
+  FamilyHeads : All TypeConstructorAt rs -> HeadsRead AFamily rs
+  DictionaryHeads : All DefinitionAt rs -> HeadsRead ADictionary rs
+  FormHeads : HeadsRead AForm []
+  ShapeHeads : HeadsRead AShape []
+
+||| An argument's root, with what its kind's reader read of the definitions
+||| it names.
+public export
+ArgumentRoot : Readings.Static -> Type
+ArgumentRoot k = (r : Root ** HeadsRead k (rootAddresses r))
+
+||| What a reading of a kind read of a root that names nothing.
+public export
+noHeadsRead : (k : Readings.Static) -> HeadsRead k []
+noHeadsRead AType = TypeHeads []
+noHeadsRead AFamily = FamilyHeads []
+noHeadsRead ADictionary = DictionaryHeads []
+noHeadsRead AForm = FormHeads
+noHeadsRead AShape = ShapeHeads
+
+||| No root, read at a kind, which names nothing.
+public export
+unrootedAt : (k : Readings.Static) -> ArgumentRoot k
+unrootedAt k = (Unrooted ** noHeadsRead k)
 
 -- Addresses a root names, with what a reading holds of each.
 AddressesRead : Whose -> Type
@@ -2104,19 +2165,20 @@ bothAddresses (as ** held) (bs ** held') = (as ++ bs ** heldJoined held held')
 namedBy : RootRead who -> AddressesRead who
 namedBy (r ** held) = (rootAddresses r ** held)
 
--- What a reader holds of the definition at the address a name has, read
+-- What a reader holds of what it read at the address a name has, read
 -- where it met the name: a site's reader what it read there; an
 -- instance's nothing, so nothing is read for it.
-heldThere : (who : Whose) -> Lazy (DefinitionAt a) -> HeldDefs DefinitionAt who [a]
+heldThere : (who : Whose) -> Lazy (q a) -> HeldDefs q who [a]
 heldThere OfInstance _ = InstanceHoldsNone
 heldThere (OfSite _) d = SiteHolds [d]
 
--- The root a name is, read where a reader meets it: rooted at the address
--- the frozen context gives the name, with what the context defines it as
--- there; no root where the context gives it no address.
-namedRoot : (who : Whose) -> (ctx : Frozen) -> Name -> RootRead who
-namedRoot who ctx n = case definitionAddress (gamma (defsOf ctx)) n of
-  Just a => (Rooted a ** heldThere who (definitionThere (definitionIn ctx n)))
+-- The root a type constructor at the head of a family's value is, read
+-- where a reader meets it: rooted at the address the frozen context gives
+-- its name, with the name, made full, and the arity the reference applies
+-- it by; no root where the context gives the name no address.
+typeConstructorRoot : (who : Whose) -> (ctx : Frozen) -> Name -> (arity : Nat) -> TypeRootRead who
+typeConstructorRoot who ctx n arity = case definitionAddress (gamma (defsOf ctx)) n of
+  Just a => (Rooted a ** heldThere who (NamedTypeConstructor (fullNameIn ctx n) arity))
   Nothing => (Unrooted ** heldNone who)
 
 ||| The implementations a definition's leaves give, as its root, with what
@@ -2414,11 +2476,14 @@ dictionaryRoot who t = do
 ||| a family's, since a type of kind `Type` is a type constructor applied
 ||| in full; the writer's family there, applied or not, a marker that no
 ||| head was given for; or nothing (a lambda, a type, a stuck computation).
-||| With what a reading of whose term it is holds of the type constructor.
-formRoot : (who : Whose) -> Frozen -> ClosedTerm -> RootRead who
+||| With what a reading of whose term it is holds of the type constructor:
+||| the name and arity its reference applies it by, which say all a reader
+||| of a family's head needs, so nothing asks the context what it defines
+||| the name as.
+formRoot : (who : Whose) -> Frozen -> ClosedTerm -> TypeRootRead who
 formRoot who ctx form = case getFnArgs form of
   (Ref _ (TyCon arity) n, args) =>
-    if length args < arity then namedRoot who ctx n else (Unrooted ** heldNone who)
+    if length args < arity then typeConstructorRoot who ctx n arity else (Unrooted ** heldNone who)
   (Ref _ Bound n, _) => case Template.markerOf n of
     Just (i, path) => (Parameter i (length path) ** heldNone who)
     Nothing => (Unrooted ** heldNone who)
@@ -2426,11 +2491,24 @@ formRoot who ctx form = case getFnArgs form of
 
 -- A site's type or family read once: its reading (`siteReading`), and
 -- its root, off the form that reading read.
-typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, SiteRoot)
+typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, TypeRoot)
 typeReading stands k t = do
   ctx <- frozenContext
   r <- siteReading stands k t
   pure (r, siteRoot (formRoot (OfSite stands) ctx r.form))
+
+||| A site's dictionary read once: its reading (`siteReading`), and its
+||| root, the implementation that runs (`dictionaryRoot`), with the
+||| definition at each address the root names, read where the reader met
+||| the name.
+export
+dictionaryRooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (t : ClosedTerm) -> Front (SiteReading ADictionary t, SiteRoot)
+dictionaryRooted stands t = (,) <$> siteReading stands ADictionary t <*> (siteRoot <$> dictionaryRoot (OfSite stands) t)
+
+-- A root, with what its kind's reader read, as an argument of the kind
+-- holds it.
+headsAs : ((rs : List Address) -> All q rs -> HeadsRead k rs) -> (r : Root ** All q (rootAddresses r)) -> ArgumentRoot k
+headsAs read (r ** held) = (r ** read (rootAddresses r) held)
 
 ||| A static argument read once at its kind: its reading (`siteReading`),
 ||| whose template is what a site writes there, and its root, the
@@ -2443,15 +2521,16 @@ typeReading stands k t = do
 ||| request's, so the graph and the requests split a definition by the same
 ||| heads; the reading itself comes back with the root, so that what a site
 ||| writes is known to be its template (`Sites.WrittenAs`). The root comes
-||| with the definition at each address it names, read where the reader met
-||| the name (`SiteRoot`), which the flow carries beside the heading it is.
+||| with what its kind's reader read of each address it names, where the
+||| reader met the name (`HeadsRead`), which the flow carries beside the
+||| heading it is.
 export
-rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, SiteRoot)
-rooted stands AType t = typeReading stands AType t
-rooted stands AFamily t = typeReading stands AFamily t
-rooted stands AForm t = (, unrooted) <$> siteReading stands AForm t
-rooted stands AShape t = (, unrooted) <$> siteReading stands AShape t
-rooted stands ADictionary t = (,) <$> siteReading stands ADictionary t <*> (siteRoot <$> dictionaryRoot (OfSite stands) t)
+rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, ArgumentRoot k)
+rooted stands AType t = map (headsAs (\_ => TypeHeads)) <$> typeReading stands AType t
+rooted stands AFamily t = map (headsAs (\_ => FamilyHeads)) <$> typeReading stands AFamily t
+rooted stands AForm t = (, unrootedAt AForm) <$> siteReading stands AForm t
+rooted stands AShape t = (, unrootedAt AShape) <$> siteReading stands AShape t
+rooted stands ADictionary t = map (headsAs (\_ => DictionaryHeads)) <$> dictionaryRooted stands t
 
 ||| What a message reads of a choice's head, beside the head (a key, as the
 ||| growth graph holds it): the name of the type constructor an

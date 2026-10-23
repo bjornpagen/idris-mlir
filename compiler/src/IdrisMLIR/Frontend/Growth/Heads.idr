@@ -45,6 +45,13 @@
 ||| (`Sites.sitesOf`). A family's root is only ever its type root, never
 ||| read off a template: a lambda heads nothing.
 |||
+||| A heading's kind is part of it, a dictionary's or a family's
+||| (`Splitting`), so a slot holds each kind's headings apart. A use's
+||| application gives a dictionary at a position where another use gives a
+||| family, and every use shares those positions; apart, a family's set
+||| holds only what heads a family, each type constructor with the name and
+||| arity its root's reader read, which a node's reading needs.
+|||
 ||| Everything here is pure: the sites and the implementations' fields come
 ||| in as data, made where Core is.
 module IdrisMLIR.Frontend.Growth.Heads
@@ -82,52 +89,58 @@ import Decidable.Equality
 
 %default total
 
--- What splits a node here is an argument's kind (`splitting` below), not
--- the head a request's root names.
-%hide IdrisMLIR.Frontend.Translate.Readings.splitting
-
 ------------------------------------------------------------------------------
 -- Slots
 ------------------------------------------------------------------------------
 
--- Where a dictionary can flow: parameter j of a definition or constructor
--- (kind 0), field k of an implementation or constructor (kind 1), the
--- choice of a head (kind 2: an interface's by its address, the arrow's at
--- no address and index 1, the one whose head only an instance shows at no
--- address and index 2), or position j of the application at a use (kind
--- 3, which no definition is, at no address). The index is written as an
--- address too, so that a slot is a triple of finite types and every pair
--- of the solution lies in one finite type, whose listing the checker
--- supplies. There is no numbering pass, so no lookup of a slot can miss.
--- An index is a parameter or field count's, far below 2^63, so distinct
--- indices are distinct addresses.
+-- Where a dictionary or a family can flow: parameter j of a definition or
+-- constructor (kind 0), field k of an implementation or constructor (kind
+-- 1), the choice of a head (kind 2: an interface's by its address, the
+-- arrow's at no address and index 1, the one whose head only an instance
+-- shows at no address and index 2), or position j of the application at a
+-- use (kind 3, which no definition is, at no address). The index is
+-- written as an address too, so that a slot is a triple of finite types and
+-- every pair of the solution lies in one finite type, whose listing the
+-- checker supplies. There is no numbering pass, so no lookup of a slot can
+-- miss. An index is a parameter or field count's, far below 2^63, so
+-- distinct indices are distinct addresses.
 Slot : Type
 Slot = (Fin 4, Address, Address)
 
--- What a dictionary that reaches a slot keys a callee it is given to by:
--- the implementation at its root, or no head, where nothing roots it (a
--- function that gives an implementation at each use, a member a
--- definition computes by matching, a lambda). A callee given it is split
--- by each heading that reaches its parameter, no head among them, so a
--- choice whose members are rooted at some implementations and computed by
--- a definition reaches every instance a dispatch on it requests, the one
--- at no head included. What a dispatch through a dictionary with no head
--- reaches is what its definition's leaves give, which reach the slot
--- beside it. A dictionary the running program chooses keys nothing of its
--- own, since each use dispatches on it and its members reach beside it;
--- but a constructor that holds it holds it as it is, and a match that
--- takes that constructor apart there is stuck (`Translate.Cases.heldHere`),
--- so it reaches a slot as what it is (`Unsettled`), which splits no
--- callee.
-data Heading = HeadedBy Address | Headless | Unsettled
+-- How an argument splits the definition it lands at: a dictionary by the
+-- implementations it can be, a family by the type constructors that can
+-- head it. Any other kind splits nothing.
+data Splitting = ByImplementation | ByTypeConstructor
 
-Eq Heading where
+-- What a dictionary or a family of a kind that reaches a slot keys a
+-- callee it is given to by. A dictionary's: the implementation at its
+-- root, or no head, where nothing roots it (a function that gives an
+-- implementation at each use, a member a definition computes by matching,
+-- a lambda). A callee given it is split by each heading that reaches its
+-- parameter, no head among them, so a choice whose members are rooted at
+-- some implementations and computed by a definition reaches every instance
+-- a dispatch on it requests, the one at no head included. What a dispatch
+-- through a dictionary with no head reaches is what its definition's
+-- leaves give, which reach the slot beside it. A dictionary the running
+-- program chooses keys nothing of its own, since each use dispatches on it
+-- and its members reach beside it; but a constructor that holds it holds
+-- it as it is, and a match that takes that constructor apart there is
+-- stuck (`Translate.Cases.heldHere`), so it reaches a slot as what it is
+-- (`Unsettled`), which splits no callee. A family's: the type constructor
+-- at its value's head, or no head (a lambda, a value the program
+-- computes); the running program chooses no family.
+data Heading : Splitting -> Type where
+  HeadedBy : Address -> Heading k
+  Headless : Heading k
+  Unsettled : Heading ByImplementation
+
+Eq (Heading k) where
   HeadedBy a == HeadedBy b = a == b
   Headless == Headless = True
   Unsettled == Unsettled = True
   _ == _ = False
 
-Ord Heading where
+Ord (Heading k) where
   compare Headless Headless = EQ
   compare Headless _ = LT
   compare (HeadedBy _) Headless = GT
@@ -136,17 +149,49 @@ Ord Heading where
   compare Unsettled Unsettled = EQ
   compare Unsettled _ = GT
 
--- Every heading is listed: no head, the running program's, and each
--- address's.
-Finite Heading where
-  values = Headless :: Unsettled :: map HeadedBy (values {a = Address})
-  complete Headless = Here
-  complete Unsettled = There Here
-  complete (HeadedBy addr) = There (There (elemMap HeadedBy (complete {a = Address} addr)))
+-- A heading with its kind, as one fact of the solution keys it: a
+-- dictionary's and a family's are two headings, even at one address.
+data KindedHeading = ImplementationHeading (Heading ByImplementation) | TypeConstructorHeading (Heading ByTypeConstructor)
 
--- One fact of the solution: this heading reaches this slot.
+Eq KindedHeading where
+  ImplementationHeading h == ImplementationHeading h' = h == h'
+  TypeConstructorHeading h == TypeConstructorHeading h' = h == h'
+  _ == _ = False
+
+Ord KindedHeading where
+  compare (ImplementationHeading h) (ImplementationHeading h') = compare h h'
+  compare (ImplementationHeading _) (TypeConstructorHeading _) = LT
+  compare (TypeConstructorHeading _) (ImplementationHeading _) = GT
+  compare (TypeConstructorHeading h) (TypeConstructorHeading h') = compare h h'
+
+-- Each address's headings, of both kinds.
+0 bothKindsAt : List Address -> List KindedHeading
+bothKindsAt [] = []
+bothKindsAt (a :: as) = ImplementationHeading (HeadedBy a) :: TypeConstructorHeading (HeadedBy a) :: bothKindsAt as
+
+0 implementationIn : Elem a as -> Elem (ImplementationHeading (HeadedBy a)) (bothKindsAt as)
+implementationIn Here = Here
+implementationIn (There e) = There (There (implementationIn e))
+
+0 typeConstructorIn : Elem a as -> Elem (TypeConstructorHeading (HeadedBy a)) (bothKindsAt as)
+typeConstructorIn Here = There Here
+typeConstructorIn (There e) = There (There (typeConstructorIn e))
+
+-- Every heading of each kind is listed: no head of either kind, the
+-- running program's, and each address's of either kind. A pair of a
+-- finite kind and an address is still finite.
+Finite KindedHeading where
+  values = ImplementationHeading Headless :: ImplementationHeading Unsettled :: TypeConstructorHeading Headless ::
+           bothKindsAt (values {a = Address})
+  complete (ImplementationHeading Headless) = Here
+  complete (ImplementationHeading Unsettled) = There Here
+  complete (TypeConstructorHeading Headless) = There (There Here)
+  complete (ImplementationHeading (HeadedBy addr)) = There (There (There (implementationIn (complete {a = Address} addr))))
+  complete (TypeConstructorHeading (HeadedBy addr)) = There (There (There (typeConstructorIn (complete {a = Address} addr))))
+
+-- One fact of the solution: this heading, of its kind, reaches this slot.
 Entry : Type
-Entry = (Slot, Heading)
+Entry = (Slot, KindedHeading)
 
 parameterSlot : Address -> Nat -> Slot
 parameterSlot a j = (0, a, bytes 8 (cast j))
@@ -183,7 +228,7 @@ sameBytes a b = case decideAddress a b of
 sameKind : (i, j : Fin 4) -> Dec (i = j)
 sameKind = decEq
 
-sameHeading : (x, y : Heading) -> Dec (x = y)
+sameHeading : (x, y : Heading k) -> Dec (x = y)
 sameHeading Headless Headless = Yes Refl
 sameHeading Unsettled Unsettled = Yes Refl
 sameHeading (HeadedBy a) (HeadedBy b) = case sameBytes a b of
@@ -196,6 +241,16 @@ sameHeading Unsettled Headless = No (\case Refl impossible)
 sameHeading Unsettled (HeadedBy _) = No (\case Refl impossible)
 sameHeading (HeadedBy _) Unsettled = No (\case Refl impossible)
 
+sameKinded : (x, y : KindedHeading) -> Dec (x = y)
+sameKinded (ImplementationHeading h) (ImplementationHeading h') = case sameHeading h h' of
+  Yes Refl => Yes Refl
+  No ne => No (\Refl => ne Refl)
+sameKinded (TypeConstructorHeading h) (TypeConstructorHeading h') = case sameHeading h h' of
+  Yes Refl => Yes Refl
+  No ne => No (\Refl => ne Refl)
+sameKinded (ImplementationHeading _) (TypeConstructorHeading _) = No (\case Refl impossible)
+sameKinded (TypeConstructorHeading _) (ImplementationHeading _) = No (\case Refl impossible)
+
 -- Any order decides. The definition comes first: the self compile's flow
 -- holds 1,723 entries over 661 slots (measured on the prototype), so two
 -- entries of the seen list almost always differ there.
@@ -203,7 +258,7 @@ same : (x, y : Entry) -> Dec (x = y)
 same ((k, d, i), h) ((k', d', i'), h') =
   case sameBytes d d' of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => case sameHeading h h' of
+    Yes Refl => case sameKinded h h' of
       No ne => No (\Refl => ne Refl)
       Yes Refl => case sameBytes i i' of
         No ne => No (\Refl => ne Refl)
@@ -224,122 +279,145 @@ isNew = isElem @{bytewise}
 ------------------------------------------------------------------------------
 
 -- What a set of headings carries beside each, since a heading is a key and
--- names a definition by its address alone: the definition there, as the
--- reader that gave the flow the heading read it (`Template.DefinitionAt`),
--- which the flow's solution holds; or nothing beside the address, which is
--- all a node's own heads are (`Translate.State.Node`), as the split and the
--- growth theorem's model read them. The solve is over the headings either
--- way.
+-- names a definition by its address alone: what the reader that gave the
+-- flow the heading read there, which the flow's solution holds; or nothing
+-- beside the address, which is all a node's own heads are
+-- (`Translate.State.Node`), as the split and the growth theorem's model
+-- read them. The solve is over the headings either way.
 data Bearing = WithDefinitions | AddressesOnly
 
 -- What a set of headings carries beside one: in the flow's solution, the
--- definition at an implementation's, a constructor's or a type
--- constructor's address; nothing of no head, or of the running program's,
--- and nothing beside an address alone. Indexed by the heading, so what is
--- carried beside one heading is never another's.
-data HeadingRead : Bearing -> Heading -> Type where
-  HeadedRead : DefinitionAt a -> HeadingRead WithDefinitions (HeadedBy a)
-  AddressRead : HeadingRead AddressesOnly (HeadedBy a)
-  HeadlessRead : HeadingRead b Headless
-  UnsettledRead : HeadingRead b Unsettled
+-- definition at an implementation's or a constructor's address
+-- (`Template.DefinitionAt`), and the type constructor at a family's head,
+-- by the name and arity its reader read (`Template.TypeConstructorAt`);
+-- nothing of no head, or of the running program's, and nothing beside an
+-- address alone. Indexed by the kind and the heading, so what is carried
+-- beside one heading is never another's, and a family's head is a type
+-- constructor by what is carried beside it.
+data HeadingRead : Bearing -> (k : Splitting) -> Heading k -> Type where
+  ImplementationRead : DefinitionAt a -> HeadingRead WithDefinitions ByImplementation (HeadedBy a)
+  TypeConstructorRead : TypeConstructorAt a -> HeadingRead WithDefinitions ByTypeConstructor (HeadedBy a)
+  AddressRead : HeadingRead AddressesOnly k (HeadedBy a)
+  HeadlessRead : HeadingRead b k Headless
+  UnsettledRead : HeadingRead b ByImplementation Unsettled
 
--- What a set carries beside the heading at an address, from what a reader
--- read there.
-headedRead : (b : Bearing) -> DefinitionAt a -> HeadingRead b (HeadedBy a)
-headedRead WithDefinitions d = HeadedRead d
+-- What a set carries beside the implementation at an address, from what a
+-- reader read there.
+headedRead : (b : Bearing) -> DefinitionAt a -> HeadingRead b ByImplementation (HeadedBy a)
+headedRead WithDefinitions d = ImplementationRead d
 headedRead AddressesOnly _ = AddressRead
 
--- Some headings, each with what is carried beside it, each once.
-HeadSet : Bearing -> Type
-HeadSet b = SortedDMap Heading (HeadingRead b)
+-- What a set carries beside the type constructor at an address, from what
+-- a reader read there.
+typeConstructorRead : (b : Bearing) -> TypeConstructorAt a -> HeadingRead b ByTypeConstructor (HeadedBy a)
+typeConstructorRead WithDefinitions d = TypeConstructorRead d
+typeConstructorRead AddressesOnly _ = AddressRead
 
-noHeads : HeadSet b
+-- Some headings of a kind, each with what is carried beside it, each once.
+HeadSet : Bearing -> Splitting -> Type
+HeadSet b k = SortedDMap (Heading k) (HeadingRead b k)
+
+noHeads : HeadSet b k
 noHeads = Data.SortedMap.Dependent.empty
 
-oneHead : (h : Heading) -> HeadingRead b h -> HeadSet b
-oneHead h r = Data.SortedMap.Dependent.singleton {v = HeadingRead b} h r
+oneHead : (h : Heading k) -> HeadingRead b k h -> HeadSet b k
+oneHead h r = Data.SortedMap.Dependent.singleton {v = HeadingRead b k} h r
 
-withHead : (h : Heading) -> HeadingRead b h -> HeadSet b -> HeadSet b
+withHead : (h : Heading k) -> HeadingRead b k h -> HeadSet b k -> HeadSet b k
 withHead h r hs = Data.SortedMap.Dependent.insert h r hs
 
 -- What two sets hold together.
-bothHeads : HeadSet b -> HeadSet b -> HeadSet b
+bothHeads : HeadSet b k -> HeadSet b k -> HeadSet b k
 bothHeads hs hs' = Data.SortedMap.Dependent.insertFrom (Data.SortedMap.Dependent.toList hs') hs
 
 -- The headings of a set, ascending.
-listHeads : HeadSet b -> List (h : Heading ** HeadingRead b h)
+listHeads : HeadSet b k -> List (h : Heading k ** HeadingRead b k h)
 listHeads hs = Data.SortedMap.Dependent.toList hs
 
 -- Whether a heading is among some.
-hasHead : Heading -> HeadSet b -> Bool
+hasHead : Heading k -> HeadSet b k -> Bool
 hasHead h hs = isJust (Data.SortedMap.Dependent.lookup h hs)
 
 -- The implementations at some addresses, with what was read at each,
 -- added to a set.
-headedAll : (b : Bearing) -> (js : List Address) -> All DefinitionAt js -> HeadSet b -> HeadSet b
+headedAll : (b : Bearing) -> (js : List Address) -> All DefinitionAt js -> HeadSet b ByImplementation -> HeadSet b ByImplementation
 headedAll b [] [] hs = hs
 headedAll b (j :: js) (d :: ds) hs = headedAll b js ds (withHead (HeadedBy j) (headedRead b d) hs)
 
 -- What the flow holds beside one fact of its solution: what is carried
--- beside its heading.
+-- beside its heading, at its kind.
 EntryRead : Entry -> Type
-EntryRead (_, h) = HeadingRead WithDefinitions h
+EntryRead (_, ImplementationHeading h) = HeadingRead WithDefinitions ByImplementation h
+EntryRead (_, TypeConstructorHeading h) = HeadingRead WithDefinitions ByTypeConstructor h
 
--- A heading at a slot, as the fact of the solution it is.
-enteredAt : (s : Slot) -> (h : Heading ** HeadingRead WithDefinitions h) -> (x : Entry ** EntryRead x)
-enteredAt s (h ** r) = ((s, h) ** r)
+-- A heading of a kind at a slot, as the fact of the solution it is.
+enteredAt : (s : Slot) -> (k : Splitting) -> (h : Heading k ** HeadingRead WithDefinitions k h) -> (x : Entry ** EntryRead x)
+enteredAt s ByImplementation (h ** r) = ((s, ImplementationHeading h) ** r)
+enteredAt s ByTypeConstructor (h ** r) = ((s, TypeConstructorHeading h) ** r)
 
 ------------------------------------------------------------------------------
 -- Reading a dictionary
 ------------------------------------------------------------------------------
 
--- The solution so far, as each slot's set: a view of the seen list, rebuilt
--- from it, never a second state.
-View : Bearing -> Type
-View b = SortedMap Slot (HeadSet b)
+-- The solution so far, as each slot's set of each kind: a view of the seen
+-- list, rebuilt from it, never a second state.
+record View (b : Bearing) where
+  constructor MkView
+  implementations : SortedMap Slot (HeadSet b ByImplementation)
+  typeConstructors : SortedMap Slot (HeadSet b ByTypeConstructor)
 
-at : View b -> Slot -> HeadSet b
-at v s = fromMaybe noHeads (Data.SortedMap.lookup s v)
+at : View b -> (k : Splitting) -> Slot -> HeadSet b k
+at v ByImplementation s = fromMaybe noHeads (Data.SortedMap.lookup s v.implementations)
+at v ByTypeConstructor s = fromMaybe noHeads (Data.SortedMap.lookup s v.typeConstructors)
 
--- The seen list as each slot's set, each heading with what the seen list
--- holds beside it.
+-- A view with a heading of a kind at a slot.
+withAt : (k : Splitting) -> Slot -> (h : Heading k) -> HeadingRead b k h -> View b -> View b
+withAt ByImplementation s h r v = { implementations $= Data.SortedMap.insert s (withHead h r (at v ByImplementation s)) } v
+withAt ByTypeConstructor s h r v = { typeConstructors $= Data.SortedMap.insert s (withHead h r (at v ByTypeConstructor s)) } v
+
+-- The seen list as each slot's set of each kind, each heading with what
+-- the seen list holds beside it.
 viewOf : (seen : List Entry) -> All EntryRead seen -> View WithDefinitions
-viewOf seen reads = go Data.SortedMap.empty seen reads
+viewOf seen reads = go (MkView Data.SortedMap.empty Data.SortedMap.empty) seen reads
   where
     go : View WithDefinitions -> (es : List Entry) -> All EntryRead es -> View WithDefinitions
     go v [] [] = v
-    go v ((s, h) :: es) (r :: rs) = go (Data.SortedMap.insert s (withHead h r (at v s)) v) es rs
+    go v ((s, ImplementationHeading h) :: es) (r :: rs) = go (withAt ByImplementation s h r v) es rs
+    go v ((s, TypeConstructorHeading h) :: es) (r :: rs) = go (withAt ByTypeConstructor s h r v) es rs
 
 -- The flow's solution, each heading at its address alone: what the split
 -- and the growth theorem's model read, beside a node's own heads, which
 -- are addresses alone.
 addressesOnly : View WithDefinitions -> View AddressesOnly
-addressesOnly v = Prelude.map (Data.SortedMap.Dependent.map forgotten) v
+addressesOnly v = MkView (Prelude.map (Data.SortedMap.Dependent.map forgotten) v.implementations)
+                         (Prelude.map (Data.SortedMap.Dependent.map forgotten) v.typeConstructors)
   where
-    forgotten : {h : Heading} -> HeadingRead WithDefinitions h -> HeadingRead AddressesOnly h
-    forgotten (HeadedRead _) = AddressRead
+    forgotten : {h : Heading k} -> HeadingRead WithDefinitions k h -> HeadingRead AddressesOnly k h
+    forgotten (ImplementationRead _) = AddressRead
+    forgotten (TypeConstructorRead _) = AddressRead
     forgotten HeadlessRead = HeadlessRead
     forgotten UnsettledRead = UnsettledRead
 
--- The implementations among some headings, ascending: what a dispatch
--- through the dictionaries reaches, a heading of no head, and one the
--- running program chooses, reaching nothing of its own.
-headsIn : HeadSet b -> List Address
+-- The addresses among some headings, ascending: the implementations a
+-- dispatch through the dictionaries reaches, or the type constructors that
+-- head the families; a heading of no head, and one the running program
+-- chooses, reach nothing of their own.
+headsIn : HeadSet b k -> List Address
 headsIn hs = mapMaybe headed (listHeads hs)
   where
-    headed : (h : Heading ** HeadingRead b h) -> Maybe Address
+    headed : (h : Heading k ** HeadingRead b k h) -> Maybe Address
     headed (HeadedBy a ** _) = Just a
     headed (Headless ** _) = Nothing
     headed (Unsettled ** _) = Nothing
 
--- The same, each with the definition the flow carried beside it.
-headsReadIn : HeadSet WithDefinitions -> List (a : Address ** DefinitionAt a)
-headsReadIn hs = mapMaybe headed (listHeads hs)
+-- The type constructors among a family's headings, each with what the
+-- flow carried beside it.
+typeConstructorsIn : HeadSet WithDefinitions ByTypeConstructor -> List (a : Address ** TypeConstructorAt a)
+typeConstructorsIn hs = mapMaybe headed (listHeads hs)
   where
-    headed : (h : Heading ** HeadingRead WithDefinitions h) -> Maybe (a : Address ** DefinitionAt a)
-    headed (HeadedBy a ** HeadedRead d) = Just (a ** d)
+    headed : (h : Heading ByTypeConstructor ** HeadingRead WithDefinitions ByTypeConstructor h) -> Maybe (a : Address ** TypeConstructorAt a)
+    headed (HeadedBy a ** TypeConstructorRead d) = Just (a ** d)
     headed (Headless ** _) = Nothing
-    headed (Unsettled ** _) = Nothing
 
 -- What a template's reading reaches: no heading of its own, which a part
 -- no root is read off of a dictionary the running program chooses gives,
@@ -351,7 +429,7 @@ headsReadIn hs = mapMaybe headed (listHeads hs)
 -- know, and base states nothing of them a proof could read.
 data Headings : Bearing -> Type where
   NoHeading : Headings b
-  ReachedBy : HeadSet b -> Headings b
+  ReachedBy : HeadSet b ByImplementation -> Headings b
 
 -- What two readings reach together.
 joined : Headings b -> Headings b -> Headings b
@@ -360,7 +438,7 @@ joined (ReachedBy hs) NoHeading = ReachedBy hs
 joined (ReachedBy hs) (ReachedBy hs') = ReachedBy (bothHeads hs hs')
 
 -- What a reading reaches, as the set a reader that asks a set reads.
-asSet : Headings b -> HeadSet b
+asSet : Headings b -> HeadSet b ByImplementation
 asSet NoHeading = noHeads
 asSet (ReachedBy hs) = hs
 
@@ -378,45 +456,46 @@ data Reaching = ChosenReaches | FixedOnly
 -- What reaches a slot, read off its set: the set's own membership test,
 -- once, as the view.
 reachingAt : View b -> Slot -> Reaching
-reachingAt v s = asReaching (hasHead Unsettled (at v s))
+reachingAt v s = asReaching (hasHead Unsettled (at v ByImplementation s))
   where
     asReaching : Bool -> Reaching
     asReaching True = ChosenReaches
     asReaching False = FixedOnly
 
 -- Every choice's members: what reaches the slots of kind 2.
-everyMember : View b -> HeadSet b
-everyMember v = foldl anyChoice noHeads (Data.SortedMap.toList v)
+everyMember : View b -> HeadSet b ByImplementation
+everyMember v = foldl anyChoice noHeads (Data.SortedMap.toList v.implementations)
   where
-    anyChoice : HeadSet b -> (Slot, HeadSet b) -> HeadSet b
+    anyChoice : HeadSet b ByImplementation -> (Slot, HeadSet b ByImplementation) -> HeadSet b ByImplementation
     anyChoice acc ((FS (FS FZ), _, _), hs) = bothHeads acc hs
     anyChoice acc _ = acc
 
 -- What a member of a choice can be: at a head its type shows, the members
 -- made there and those made where only an instance shows the head, which
 -- may be that head; at an unshown head, every choice's members.
-membersAt : View b -> ChoiceHead -> HeadSet b
+membersAt : View b -> ChoiceHead -> HeadSet b ByImplementation
 membersAt v UnshownHead = everyMember v
-membersAt v k = bothHeads (at v (choiceSlot k)) (at v (choiceSlot UnshownHead))
+membersAt v k = bothHeads (at v ByImplementation (choiceSlot k)) (at v ByImplementation (choiceSlot UnshownHead))
 
 -- How the writer's own parameters read, the one place the flow and the
--- split differ: parameter i's marker, and the marker applied. A dictionary
--- parameter applied is a function that gives an implementation at each use
--- (a rank-2 dictionary), so it gives what the parameter can be; a family
--- applied is beta of its value, which no implementation is, so reading the
--- type constructors that head it would draw arcs from positions no value
--- of it comes from. The flow and the split read Core's root first, which
--- roots an applied marker as its parameter (`Template.rootOf`), and their
--- readings give an applied marker nothing of its own (`markersOnly`); the
--- growth theorem's model reads a template alone (`roots`), so it reads it.
+-- split differ: parameter i's marker, at the kind it is read at, and the
+-- marker applied. A dictionary parameter applied is a function that gives
+-- an implementation at each use (a rank-2 dictionary), so it gives what
+-- the parameter can be; a family applied is beta of its value, which no
+-- implementation is, so reading the type constructors that head it would
+-- draw arcs from positions no value of it comes from. The flow and the
+-- split read Core's root first, which roots an applied marker as its
+-- parameter (`Template.rootOf`), and their readings give an applied marker
+-- nothing of its own (`markersOnly`); the growth theorem's model reads a
+-- template alone (`roots`), so it reads it.
 record Own (b : Bearing) where
   constructor MkOwn
-  ofMarker : Nat -> HeadSet b
+  ofMarker : (k : Splitting) -> Nat -> HeadSet b k
   ofApplied : Nat -> Headings b
 
 -- A reading whose applied markers give nothing: where Core's root answers
 -- for every applied marker.
-markersOnly : (Nat -> HeadSet b) -> Own b
+markersOnly : ((k : Splitting) -> Nat -> HeadSet b k) -> Own b
 markersOnly reading = MkOwn reading (const NoHeading)
 
 -- Whose template a part no root is read off belongs to, which decides
@@ -436,7 +515,7 @@ unread OfRootless = ReachedBy (oneHead Headless HeadlessRead)
 -- the dictionary reaches none.
 fieldsReached : View b -> Nat -> Headings b -> Headings b
 fieldsReached v k NoHeading = NoHeading
-fieldsReached v k (ReachedBy hs) = ReachedBy (foldl (\acc, j => bothHeads acc (at v (fieldSlot j k))) noHeads (headsIn hs))
+fieldsReached v k (ReachedBy hs) = ReachedBy (foldl (\acc, j => bothHeads acc (at v ByImplementation (fieldSlot j k))) noHeads (headsIn hs))
 
 mutual
   -- The roots a template's structure gives, where Core named none. A head
@@ -453,7 +532,7 @@ mutual
   -- beside it, hold them. Any other part has no root read off it
   -- (`Unread`).
   byTemplate : View b -> Own b -> Unread -> Template -> Headings b
-  byTemplate v own u (Var i Z) = ReachedBy (own.ofMarker i)
+  byTemplate v own u (Var i Z) = ReachedBy (own.ofMarker ByImplementation i)
   byTemplate v own u (Field k s) = fieldsReached v k (byTemplate v own OfChosen s)
   byTemplate v own u (Member k) = ReachedBy (membersAt v k)
   byTemplate v own u (Choice _ leaves) = byLeaves v own u leaves
@@ -486,14 +565,14 @@ mutual
 -- no instance fixes it. A request at that instance is keyed by its root
 -- there, so the callee is split by it. With what was read of each
 -- definition it names, where the root was read.
-fixedKey : (b : Bearing) -> (s : Settling) -> All DefinitionAt (rootAddresses (Chosen s)) -> HeadSet b
+fixedKey : (b : Bearing) -> (s : Settling) -> All DefinitionAt (rootAddresses (Chosen s)) -> HeadSet b ByImplementation
 fixedKey b AtRunTimeAlways _ = noHeads
 fixedKey b (FixedAt (BuiltBy j)) [d] = oneHead (HeadedBy j) (headedRead b d)
 fixedKey b (FixedAt (GivenBy _)) _ = oneHead Headless HeadlessRead
 
 -- And what a dispatch through it reaches there: what keys a callee, and
 -- what its leaves give, which reach beside it.
-fixedReach : (b : Bearing) -> (s : Settling) -> All DefinitionAt (rootAddresses (Chosen s)) -> HeadSet b
+fixedReach : (b : Bearing) -> (s : Settling) -> All DefinitionAt (rootAddresses (Chosen s)) -> HeadSet b ByImplementation
 fixedReach b (FixedAt (GivenBy js)) ds = headedAll b js ds (oneHead Headless HeadlessRead)
 fixedReach b s ds = fixedKey b s ds
 
@@ -505,63 +584,78 @@ fixedReach b s ds = fixedKey b s ds
 -- head, and a dispatch through it reaches what its leaves give. Each
 -- implementation the root names comes with what was read of it where the
 -- root was read, the one place a heading enters the flow from a site.
-byRoot : {b : Bearing} -> View b -> Own b -> SiteRoot -> Template -> HeadSet b
+byRoot : {b : Bearing} -> View b -> Own b -> SiteRoot -> Template -> HeadSet b ByImplementation
 byRoot v own (Rooted j ** [d]) _ = oneHead (HeadedBy j) (headedRead b d)
 -- What the running program chooses, its template says: its choice, which
 -- the reader put in (`asGiven`); what an instance that fixes it after all
 -- makes of it; and, at every other instance, itself, held as it is.
 byRoot v own (Chosen s ** ds) t = withHead Unsettled UnsettledRead (bothHeads (asSet (byTemplate v own OfChosen t)) (fixedReach b s ds))
 byRoot v own (Gives js ** ds) _ = headedAll b (forget js) ds (oneHead Headless HeadlessRead)
-byRoot v own (Parameter i Z ** _) _ = own.ofMarker i
+byRoot v own (Parameter i Z ** _) _ = own.ofMarker ByImplementation i
 byRoot v own (Parameter _ (S _) ** _) t = asSet (byTemplate v own OfRootless t)
 byRoot v own (Unrooted ** _) t = asSet (byTemplate v own OfRootless t)
 
--- A family by its type root: the type constructor there, with what was
--- read of it where the root was read, or the writer's own family there. A
--- family no type constructor heads (a lambda, a value the program
--- computes) is given at no head.
-byFamily : {b : Bearing} -> Own b -> SiteRoot -> HeadSet b
-byFamily own (Rooted j ** [d]) = oneHead (HeadedBy j) (headedRead b d)
-byFamily own (Parameter i Z ** _) = own.ofMarker i
+-- A family by its type root: the type constructor there, with its name and
+-- arity as they were read where the root was read, or the writer's own
+-- family there. A family no type constructor heads (a lambda, a value the
+-- program computes) is given at no head.
+byFamily : {b : Bearing} -> Own b -> TypeRoot -> HeadSet b ByTypeConstructor
+byFamily own (Rooted j ** [d]) = oneHead (HeadedBy j) (typeConstructorRead b d)
+byFamily own (Parameter i Z ** _) = own.ofMarker ByTypeConstructor i
 byFamily own (Chosen _ ** _) = oneHead Headless HeadlessRead
 byFamily own (Gives _ ** _) = oneHead Headless HeadlessRead
 byFamily own (Parameter _ (S _) ** _) = oneHead Headless HeadlessRead
 byFamily own (Unrooted ** _) = oneHead Headless HeadlessRead
 
--- How an argument splits the definition it lands at: a dictionary by the
--- implementations it can be, a family by the type constructors that can
--- head it. Any other kind splits nothing.
-data Splitting = ByImplementation | ByTypeConstructor
+-- An argument that splits the definition it lands at, by how, with what
+-- its root's reader read of what the root names: a dictionary by the
+-- implementations it can be, beside the definition at each address its
+-- root names; a family by the type constructors that can head it, beside
+-- the type constructor at its root's head.
+data Splitter : Splitting -> Type where
+  ImplementationArgument : (x : Argument) -> All DefinitionAt (rootAddresses x.root) -> Splitter ByImplementation
+  FamilyArgument : (x : Argument) -> All TypeConstructorAt (rootAddresses x.root) -> Splitter ByTypeConstructor
 
-splitting : Static -> Maybe Splitting
-splitting ADictionary = Just ByImplementation
-splitting AFamily = Just ByTypeConstructor
-splitting AType = Nothing
-splitting AForm = Nothing
-splitting AShape = Nothing
+-- The argument a splitter is.
+splitArgument : Splitter k -> Argument
+splitArgument (ImplementationArgument x _) = x
+splitArgument (FamilyArgument x _) = x
+
+-- How an argument splits, read off what its kind's reader read of its
+-- root: a dictionary's and a family's; any other kind splits nothing.
+splitterOf : Argument -> Maybe (k : Splitting ** Splitter k)
+splitterOf x = byKind x.kind x.rootHeads
+  where
+    byKind : (k : Static) -> HeadsRead k (rootAddresses x.root) -> Maybe (s : Splitting ** Splitter s)
+    byKind ADictionary (DictionaryHeads ds) = Just (ByImplementation ** ImplementationArgument x ds)
+    byKind AFamily (FamilyHeads ts) = Just (ByTypeConstructor ** FamilyArgument x ts)
+    byKind AType _ = Nothing
+    byKind AForm _ = Nothing
+    byKind AShape _ = Nothing
 
 -- What an argument that splits can be, written in a writer whose own
 -- parameters read as `own`.
-byArgument : {b : Bearing} -> View b -> Own b -> Splitting -> Argument -> HeadSet b
-byArgument v own ByImplementation x = byRoot v own (x.root ** x.rootHeads) x.template
-byArgument v own ByTypeConstructor x = byFamily own (x.root ** x.rootHeads)
+byArgument : {b : Bearing} -> View b -> Own b -> Splitter k -> HeadSet b k
+byArgument v own (ImplementationArgument x ds) = byRoot v own (x.root ** ds) x.template
+byArgument v own (FamilyArgument x ts) = byFamily own (x.root ** ts)
 
 -- What an argument keys its callee by, at the call: what it can be, but
 -- no head alone for a function that gives an implementation at each use
 -- (`Gives`), which the callee is given as written, one instance of it
 -- taking every member; and for one the running program chooses, its
 -- choice's members and what an instance that fixes it is keyed by there.
-keyedBy : {b : Bearing} -> View b -> Own b -> Splitting -> Argument -> HeadSet b
-keyedBy v own how x = keyedAt how (x.root ** x.rootHeads)
+keyedBy : {b : Bearing} -> View b -> Own b -> Splitter k -> HeadSet b k
+keyedBy v own (ImplementationArgument x ds) = keyedAt (x.root ** ds)
   where
-    keyedAt : Splitting -> SiteRoot -> HeadSet b
-    keyedAt ByImplementation (Gives _ ** _) = oneHead Headless HeadlessRead
-    keyedAt ByImplementation (Chosen s ** ds) = bothHeads (asSet (byTemplate v own OfChosen x.template)) (fixedKey b s ds)
-    keyedAt _ _ = byArgument v own how x
+    keyedAt : SiteRoot -> HeadSet b ByImplementation
+    keyedAt (Gives _ ** _) = oneHead Headless HeadlessRead
+    keyedAt (Chosen s ** ds') = bothHeads (asSet (byTemplate v own OfChosen x.template)) (fixedKey b s ds')
+    keyedAt r = byRoot v own r x.template
+keyedBy v own sp@(FamilyArgument _ _) = byArgument v own sp
 
 -- The arguments a site passes that split their callee, each with how.
-splitters : Site -> List (Splitting, Argument)
-splitters s = mapMaybe (\x => (, x) <$> splitting x.kind) s.arguments
+splitters : Site -> List (k : Splitting ** Splitter k)
+splitters s = mapMaybe splitterOf s.arguments
 
 -- What the program's dictionaries hold, read once: each definition that
 -- gives one, with what it holds, and each method function by the
@@ -604,7 +698,7 @@ methodAt ds j k = case lookup j ds.holding of
 runs : Dictionaries -> View b -> Address -> Nat -> List (Address, Nat)
 runs ds v j k = case fieldAt ds.holding j k of
   Just (Method _ _ _ _ _) => [(j, k)]
-  _ => mapMaybe (\m => lookup m ds.methods) (headsIn (at v (fieldSlot j k)))
+  _ => mapMaybe (\m => lookup m ds.methods) (headsIn (at v ByImplementation (fieldSlot j k)))
 
 ------------------------------------------------------------------------------
 -- Rebuilt dictionaries
@@ -646,7 +740,7 @@ chains ds v (j :: js) k rest = here ++ chains ds v js k rest
     down l [] = case reachingAt v (fieldSlot j k) of
       ChosenReaches => [l ::: []]
       FixedOnly => []
-    down l (k' :: ks) = map (\c => l ::: forget c) (chains ds v (headsIn (at v (fieldSlot j k))) k' ks)
+    down l (k' :: ks) = map (\c => l ::: forget c) (chains ds v (headsIn (at v ByImplementation (fieldSlot j k))) k' ks)
 
     -- A root that holds no dictionary at the field is no way down: a
     -- match there takes apart nothing the program fixes.
@@ -800,13 +894,14 @@ mutual
 
   copied : View WithDefinitions -> Level -> (next : Maybe Fields) -> (c : Nat) -> List Field -> List (x : Entry ** EntryRead x)
   copied v l next c [] = []
-  copied v l next c (_ :: fs) = map (enteredAt (fieldSlot l.holds.builtBy c)) (listHeads (there next)) ++ copied v l next (S c) fs
+  copied v l next c (_ :: fs) =
+    map (enteredAt (fieldSlot l.holds.builtBy c) ByImplementation) (listHeads (there next)) ++ copied v l next (S c) fs
     where
-      own : HeadSet WithDefinitions
-      own = at v (fieldSlot l.rootedAt c)
+      own : HeadSet WithDefinitions ByImplementation
+      own = at v ByImplementation (fieldSlot l.rootedAt c)
 
-      there : Maybe Fields -> HeadSet WithDefinitions
-      there (Just f) = if c == l.taken then oneHead (HeadedBy f.builtBy) (HeadedRead (DefinedThere f.builtAs)) else own
+      there : Maybe Fields -> HeadSet WithDefinitions ByImplementation
+      there (Just f) = if c == l.taken then oneHead (HeadedBy f.builtBy) (ImplementationRead (DefinedThere f.builtAs)) else own
       there Nothing = if c == l.taken then membersAt v l.choiceOf else own
 
 -- Heads with the one at parameter i, ascending as a visit holds them.
@@ -856,11 +951,11 @@ placedBy own xs = xs >>= \x => map (MkPlaced x) (placedAt own x)
 -- says the constructors the writer's dictionary parameter is rebuilt
 -- with, down a path of fields a match finds stuck, hold what the parts
 -- there held (`rebuiltEntries`). A root comes with what its reader read of
--- each definition it names (`SiteRoot`), so every heading enters the flow
--- with what the flow carries beside it.
+-- each definition it names (`SiteRoot`, `Splitter`), so every heading
+-- enters the flow at its kind, with what the flow carries beside it.
 data Equation = Into Slot Address Parameters SiteRoot Template
-              | Passes Slot Address Parameters Splitting Argument
-              | Through Address Parameters SiteRoot Template Nat (List (Splitting, Argument))
+              | Passes Slot Address Parameters (k : Splitting ** Splitter k)
+              | Through Address Parameters SiteRoot Template Nat (List (k : Splitting ** Splitter k))
               | Rebuilds Address Parameters Nat (List1 Nat)
 
 -- Writing `J u` reaches J's parameters through the call of J, and J's
@@ -869,8 +964,8 @@ data Equation = Into Slot Address Parameters SiteRoot Template
 equations : SortedMap Address Fields -> List Site -> List Equation
 equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
   where
-    passes : (Nat -> Slot) -> Site -> (Splitting, Argument) -> Equation
-    passes slot s (how, x) = Passes (slot x.position) s.writer s.params how x
+    passes : (Nat -> Slot) -> Site -> (k : Splitting ** Splitter k) -> Equation
+    passes slot s sp = Passes (slot (splitArgument sp.snd).position) s.writer s.params sp
 
     fromSite : Site -> List Equation
     fromSite s = case s.reach of
@@ -911,14 +1006,14 @@ candidates : Dictionaries -> View WithDefinitions -> List Equation -> List (x : 
 candidates ds v eqs = Data.SortedMap.Dependent.toList (Data.SortedMap.Dependent.fromList {v = EntryRead} (eqs >>= yield))
   where
     own : Address -> Parameters -> Own WithDefinitions
-    own w ps = markersOnly (\i => at v (ownSlot w ps i))
+    own w ps = markersOnly (\k, i => at v k (ownSlot w ps i))
 
-    into : Slot -> HeadSet WithDefinitions -> List (x : Entry ** EntryRead x)
-    into s hs = map (enteredAt s) (listHeads hs)
+    into : Slot -> (k : Splitting) -> HeadSet WithDefinitions k -> List (x : Entry ** EntryRead x)
+    into s k hs = map (enteredAt s k) (listHeads hs)
 
     yield : Equation -> List (x : Entry ** EntryRead x)
-    yield (Into s w ps r t) = into s (byRoot v (own w ps) r t)
-    yield (Passes s w ps how x) = into s (byArgument v (own w ps) how x)
+    yield (Into s w ps r t) = into s ByImplementation (byRoot v (own w ps) r t)
+    yield (Passes s w ps (k ** sp)) = into s k (byArgument v (own w ps) sp)
     -- A dispatch through a dictionary with no head runs what its leaves
     -- give, which reach beside it.
     yield (Through w ps r t k xs) = do
@@ -927,11 +1022,11 @@ candidates ds v eqs = Data.SortedMap.Dependent.toList (Data.SortedMap.Dependent.
       case methodAt ds j' k' of
         Nothing => []
         Just (m, _, own', _, _) => do
-          (how, x) <- xs
-          p <- placedAt own' x
-          into (parameterSlot m p) (byArgument v (own w ps) how x)
+          (how ** sp) <- xs
+          p <- placedAt own' (splitArgument sp)
+          into (parameterSlot m p) how (byArgument v (own w ps) sp)
     yield (Rebuilds w ps i (k ::: ks)) =
-      chains ds v (headsIn (at v (ownSlot w ps i))) k ks >>= chainEntries v
+      chains ds v (headsIn (at v ByImplementation (ownSlot w ps i))) k ks >>= chainEntries v
 
 -- Whether a round grew the seen list: if it did, the room left in the
 -- listing is below the round's start, and otherwise it is the start.
@@ -982,16 +1077,17 @@ round complete ds eqs seen reads nd (Access rec) =
     MkDrained seen' reads' _ (Stayed _) => viewOf seen' reads'
 
 -- The listing is a variable here: written out, the checker would reduce
--- it, and it holds 4 * 256^24 entries.
+-- it, and it holds more than 8 * 256^24 entries.
 solve : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
         Dictionaries -> List Equation -> View WithDefinitions
 solve complete ds eqs = round complete ds eqs [] [] [] (wellFounded _)
 
 ||| The implementations each dictionary parameter and field of the program
-||| can hold, over the unsplit definitions: the least sets closed under the
+||| can hold, and the type constructors that can head each family
+||| parameter, over the unsplit definitions: the least sets closed under the
 ||| program's sites, given every implementation's and dictionary
-||| constructor's fields. Each heading found comes with the definition at
-||| its address, as the reader that gave the flow the heading read it; the
+||| constructor's fields, each kind's apart. Each heading found comes with
+||| what the reader that gave the flow the heading read at its address; the
 ||| split and the growth theorem's model read the same sets by address
 ||| alone, beside a node's own heads, made from them once.
 export
@@ -1008,14 +1104,13 @@ flow fs ss = let ds = dictionariesOf fs in solved ds (solve {u = values} complet
     solved : Dictionaries -> View WithDefinitions -> Flow
     solved ds v = MkFlow ds v (addressesOnly v)
 
-||| What the flow found can reach a definition's parameter: the
-||| implementations a dictionary there can be, the type constructors that
-||| can head a family there, each with the definition at its address the
-||| flow carried beside it from where it entered the flow. Sorted and
-||| without duplicates.
+||| The type constructors the flow found can head a family at a
+||| definition's parameter, each with its name and arity as the flow
+||| carried them from where it entered the flow. Sorted and without
+||| duplicates.
 export
-reaching : Flow -> Address -> Nat -> List (h : Address ** DefinitionAt h)
-reaching fl a j = headsReadIn (at fl.found (parameterSlot a j))
+reaching : Flow -> Address -> Nat -> List (h : Address ** TypeConstructorAt h)
+reaching fl a j = typeConstructorsIn (at fl.found ByTypeConstructor (parameterSlot a j))
 
 ------------------------------------------------------------------------------
 -- The split
@@ -1023,7 +1118,7 @@ reaching fl a j = headsReadIn (at fl.found (parameterSlot a j))
 
 -- A node's own head at a parameter, which the node holds by address alone
 -- (`Translate.State.Node`), as the split reads it.
-nodeHead : Address -> HeadSet AddressesOnly
+nodeHead : Address -> HeadSet AddressesOnly k
 nodeHead a = oneHead (HeadedBy a) AddressRead
 
 -- What keys a callee given the writer's parameter i: its node's head
@@ -1033,23 +1128,24 @@ nodeHead a = oneHead (HeadedBy a) AddressRead
 -- no request has. A position of the application that the walk of a
 -- member's application reads is no node's, and splits nothing: every
 -- instance of the application at a use is keyed by what that use gives
--- there, so it keys a callee by everything the flow found reaches it.
+-- there, so it keys a callee by everything the flow found reaches it at
+-- the kind it is read at.
 headAt : Flow -> Node -> Parameters -> Own AddressesOnly
-headAt fl w ps = markersOnly (\i => case parameterOf ps i of
+headAt fl w ps = markersOnly (\k, i => case parameterOf ps i of
   WritersOwn j => maybe noHeads nodeHead (lookup j w.heads)
-  UsesPosition j => at fl.solution (applicationSlot j))
+  UsesPosition j => at fl.solution k (applicationSlot j))
 
--- What a use of the writer's dictionary parameter i can be: its node's
--- head there. One with no head holds a function that gives an
--- implementation at each use (a rank-2 dictionary), whose members are the
--- implementations the flow found reach the parameter: every use of it
--- matches on it and runs the member's method, so a dispatch through it
--- reaches each of them. A position of the application is what the flow
--- found reaches it.
-dictionaryAt : Flow -> Node -> Parameters -> Nat -> HeadSet AddressesOnly
-dictionaryAt fl w ps i = case parameterOf ps i of
-  WritersOwn j => maybe (at fl.solution (parameterSlot w.definition j)) nodeHead (lookup j w.heads)
-  UsesPosition j => at fl.solution (applicationSlot j)
+-- What a use of the writer's parameter i can be, read at a kind: its
+-- node's head there. A dictionary parameter with no head holds a function
+-- that gives an implementation at each use (a rank-2 dictionary), whose
+-- members are the implementations the flow found reach the parameter:
+-- every use of it matches on it and runs the member's method, so a
+-- dispatch through it reaches each of them. A position of the application
+-- is what the flow found reaches it at that kind.
+canBeAt : Flow -> Node -> Parameters -> (k : Splitting) -> Nat -> HeadSet AddressesOnly k
+canBeAt fl w ps k i = case parameterOf ps i of
+  WritersOwn j => maybe (at fl.solution k (parameterSlot w.definition j)) nodeHead (lookup j w.heads)
+  UsesPosition j => at fl.solution k (applicationSlot j)
 
 -- What a use of a function that gives an implementation reaches, by what
 -- lands at its parameter. Essential: such a use is a member the flow found
@@ -1058,7 +1154,7 @@ dictionaryAt fl w ps i = case parameterOf ps i of
 -- above its arguments, beta of a value landed there, a part of that value
 -- and no member; where a value that computes lands, as computing, which
 -- nothing an instance writes reaches.
-appliedWhere : Landing -> Lazy (HeadSet b) -> Headings b
+appliedWhere : Landing -> Lazy (HeadSet b ByImplementation) -> Headings b
 appliedWhere Open hs = ReachedBy hs
 appliedWhere (Closed _) _ = NoHeading
 appliedWhere Computed _ = NoHeading
@@ -1079,18 +1175,18 @@ unlessFamily False h = h
 -- it.
 usedApplied : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Nat -> Headings AddressesOnly
 usedApplied fl families w ps landing i =
-  unlessFamily (elem i families) (appliedWhere (landing i) (dictionaryAt fl w ps i))
+  unlessFamily (elem i families) (appliedWhere (landing i) (canBeAt fl w ps ByImplementation i))
 
 -- How the growth theorem's model reads the writer's own parameters at a
 -- node: a dictionary parameter by what it can be, and one applied as its
 -- landing says.
 ownAt : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Own AddressesOnly
-ownAt fl families w ps landing = MkOwn (dictionaryAt fl w ps) (usedApplied fl families w ps landing)
+ownAt fl families w ps landing = MkOwn (canBeAt fl w ps) (usedApplied fl families w ps landing)
 
 ||| The implementations a template alone can be, written in the writer's
 ||| node as `ps` reads its parameters, where Core gave no root, the
 ||| writer's families by index and what lands at each parameter: a
-||| dictionary parameter by what it can be (`dictionaryAt`); one applied by
+||| dictionary parameter by what it can be (`canBeAt`); one applied by
 ||| what it can be only where values not all closed land at it, the one
 ||| landing at which the graph reads a use of it applied as no closed
 ||| value's part (`Template.withClosedFamilies`), whatever its arguments
@@ -1122,10 +1218,10 @@ eitherNothing False none = none
 -- A use of the writer's parameter where no value that can be a member
 -- lands reaches nothing.
 0 nothingAt : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
-              (i : Nat) -> (l : Landing) -> c i = l -> appliedWhere l (dictionaryAt fl w ps i) = NoHeading ->
+              (i : Nat) -> (l : Landing) -> c i = l -> appliedWhere l (canBeAt fl w ps ByImplementation i) = NoHeading ->
               usedApplied fl families w ps c i = NoHeading
 nothingAt fl families w ps c i l landed none =
-  trans (cong (\x => unlessFamily (elem i families) (appliedWhere x (dictionaryAt fl w ps i))) landed)
+  trans (cong (\x => unlessFamily (elem i families) (appliedWhere x (canBeAt fl w ps ByImplementation i))) landed)
         (eitherNothing (elem i families) none)
 
 ||| The roots of a use of the writer's parameter applied, as `roots` reads
@@ -1299,28 +1395,28 @@ rebuiltHead root path held _ = MkHeaded root (path :: held)
 Choices : Type
 Choices = SortedMap Nat (List (Maybe Headed))
 
--- What some headings key a callee by: each implementation, and no head. A
--- dictionary the running program chooses keys nothing of its own, since
--- its members, which reach beside it, key the callee.
-keyings : HeadSet b -> List (Maybe Address)
+-- What some headings key a callee by: each implementation or type
+-- constructor, and no head. A dictionary the running program chooses keys
+-- nothing of its own, since its members, which reach beside it, key the
+-- callee.
+keyings : HeadSet b k -> List (Maybe Address)
 keyings hs = mapMaybe keying (listHeads hs)
   where
-    keying : (h : Heading ** HeadingRead b h) -> Maybe (Maybe Address)
+    keying : (h : Heading k ** HeadingRead b k h) -> Maybe (Maybe Address)
     keying (HeadedBy a ** _) = Just (Just a)
     keying (Headless ** _) = Just Nothing
     keying (Unsettled ** _) = Nothing
 
--- A parameter with its headings, each implementation holding the stuck
+-- A parameter with what keys it (`keyings`), each head holding the stuck
 -- paths the argument carries (`reaches`). One that nothing keys is keyed
 -- at no head alone, as one only `Headless` reaches is: the request that
 -- reaches the callee holds no head there. The case is the program's (a
 -- function that gives an implementation at each use keys nothing, and a
 -- projection of a value no constructor builds is rooted by no
 -- implementation), not the representation's.
-choice : Nat -> HeadSet b -> (held : List (List1 Nat)) -> Choices -> Choices
-choice i hs held cs = case keyings hs of
-  [] => cs
-  ks => insert i (map (map (\a => MkHeaded a held)) ks) cs
+choice : Nat -> List (Maybe Address) -> (held : List (List1 Nat)) -> Choices -> Choices
+choice i [] held cs = cs
+choice i ks held cs = insert i (map (map (\a => MkHeaded a held)) ks) cs
 
 -- One list of heads for each way of choosing a head at each parameter,
 -- ascending by index: a parameter at no head has none in it.
@@ -1636,8 +1732,8 @@ reaches fl v s = from s.reach
     w : Node
     w = visitNode v
 
-    rootsAt : SiteRoot -> Template -> HeadSet AddressesOnly
-    rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w s.params))
+    rootsAt : SiteRoot -> Template -> HeadSet AddressesOnly ByImplementation
+    rootsAt = byRoot fl.solution (markersOnly (canBeAt fl w s.params))
 
     -- The stuck paths the writer's chain held a value for at its parameter
     -- i, as the site reads it: none at a position of the application, whose
@@ -1651,11 +1747,11 @@ reaches fl v s = from s.reach
     -- writer's own dictionary parameter, given as it is, is the dictionary
     -- the writer's chain rebuilt, with the paths it held; any other is a
     -- dictionary of its own, or a family, and held none.
-    carried : Splitting -> Argument -> List (List1 Nat)
-    carried ByImplementation x = case x.template of
+    carried : Splitter k -> List (List1 Nat)
+    carried (ImplementationArgument x _) = case x.template of
       Var i Z => heldAt i
       _ => []
-    carried ByTypeConstructor _ = []
+    carried (FamilyArgument _ _) = []
 
     -- The dictionaries and families among the placed arguments, at their
     -- parameters.
@@ -1663,9 +1759,15 @@ reaches fl v s = from s.reach
     passed placed cs = foldl add cs placed
       where
         add : Choices -> Placed -> Choices
-        add acc (MkPlaced x p) = case splitting x.kind of
-          Just how => choice p (keyedBy fl.solution (headAt fl w s.params) how x) (carried how x) acc
+        add acc (MkPlaced x p) = case splitterOf x of
+          Just (_ ** sp) => choice p (keyings (keyedBy fl.solution (headAt fl w s.params) sp)) (carried sp) acc
           Nothing => acc
+
+    -- What keys J's method function at a parameter J's lands at: what the
+    -- flow found reaches it, at either kind, since J's parameter there is a
+    -- dictionary or a family and the field's placement does not say which.
+    landed : Slot -> List (Maybe Address)
+    landed q = keyings (at fl.solution ByImplementation q) ++ keyings (at fl.solution ByTypeConstructor q)
 
     -- J's method function k. The parameters J's land at take what every
     -- write of J gave them, through J's own call of the function: only the
@@ -1675,7 +1777,7 @@ reaches fl v s = from s.reach
     method k j = case methodAt fl.dictionaries j k of
       Nothing => []
       Just (m, mRead, own, leading, jRead) =>
-        let fromJ = Prelude.foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) [] acc) (the Choices Data.SortedMap.empty) leading
+        let fromJ = Prelude.foldl (\acc, (_, q) => choice q (landed (parameterSlot m q)) [] acc) (the Choices Data.SortedMap.empty) leading
             placed = placedBy own s.arguments in
         map (\hs => MkReached (Entering (MkVisit m hs) mRead) placed (Dispatched j jRead k leading)) (combinations (passed placed fromJ))
 
@@ -1685,12 +1787,14 @@ reaches fl v s = from s.reach
 
     -- A field of a rebuilt constructor, as what the dictionary's argument
     -- writes there: the field holds what its dictionary holds, no list of
-    -- its own.
+    -- its own. Its root names nothing, read at the argument's kind, which
+    -- is set beside it so that the two are read together.
     filling : Argument -> Filled -> Reached GlobalDef
     filling x f =
       MkReached (Filling f.con f.conRead)
                 [MkPlaced ({ position := f.field, template := f.template, recursionsRead := noRecursions {t = f.template} f.unrecursive
-                           , root := Unrooted, rootHeads := [], term := Nothing, writtenAs := NoTerm, holds := [] } x) f.field]
+                           , kind := x.kind, root := Unrooted, rootHeads := noHeadsRead x.kind, term := Nothing, writtenAs := NoTerm
+                           , holds := [] } x) f.field]
                 Called
 
     -- The field the last level takes, as a value held (`Cases.heldHere`):
@@ -1700,7 +1804,7 @@ reaches fl v s = from s.reach
     stuckField x (part, l) =
       { position := 0, kind := AType, template := overPart part.fst l.heldType.template
       , recursionsRead := replace {p = All RecursionDef} (sym (overPartKeeps part.fst part.snd l.heldType.template)) l.heldType.recursionsRead
-      , root := Unrooted, rootHeads := [], term := Nothing, memberOf := Nothing, writtenAs := NoTerm, holds := [] } x
+      , root := Unrooted, rootHeads := TypeHeads [], term := Nothing, memberOf := Nothing, writtenAs := NoTerm, holds := [] } x
 
     -- The writer again, its dictionary parameter, whose argument is `x`,
     -- rebuilt down a chain to the stuck path `path`, which the writer's
@@ -1720,7 +1824,8 @@ reaches fl v s = from s.reach
           final = lastOf (Element (Template.Var x.position 0) Refl) l ls
           lists = [ EachOf x.position ::: [OfType (stuckField x final ::: [])]
                   , EachOf x.position ::: [MembersOf (snd final).choiceOf] ]
-          dictionary = MkPlaced ({ template := r.template, recursionsRead := noRecursions {t = r.template} r.unrecursive, root := Unrooted, rootHeads := []
+          dictionary = MkPlaced ({ template := r.template, recursionsRead := noRecursions {t = r.template} r.unrecursive
+                                 , kind := x.kind, root := Unrooted, rootHeads := noHeadsRead x.kind
                                  , term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
           settled = rebuiltHead l.holds.builtBy path held fresh
           target = MkVisit v.definition (headedAt x.position settled v.heads) in
@@ -1750,5 +1855,5 @@ reaches fl v s = from s.reach
       -- no match there is stuck, and a chain holds each stuck path once.
       Proof.Growth.Yes _ => []
       Proof.Growth.No fresh =>
-        chains fl.dictionaries fl.solution (headsIn (dictionaryAt fl w s.params x.position)) path.head path.tail
+        chains fl.dictionaries fl.solution (headsIn (canBeAt fl w s.params ByImplementation x.position)) path.head path.tail
           >>= rebuiltAt x path (heldAt x.position) fresh

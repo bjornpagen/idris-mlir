@@ -121,12 +121,14 @@ writtenReading (OffTerm r) = (r ** Refl)
 ||| One argument a site writes, whole: the target's parameter it is at (of
 ||| a dispatched method, its own, in the order its field's lambdas take
 ||| them), its kind, the template written there, with the definition of
-||| each recursion it holds as the reading met it, and its root, with the
-||| definition at each address the root names, read where the reading met
-||| the name, which the flow carries beside each heading it is given, as its
-||| kind's one reading gives them (`rooted`) and as the target is given it
-||| (`asGiven`), the closed term it was read off, over the writer's markers
-||| and the site's stand-ins (none for a part of a type already read),
+||| each recursion it holds as the reading met it, and its root, with what
+||| its kind's reader read at each address the root names, where the
+||| reading met the name (`HeadsRead`: a type constructor for a type's or a
+||| family's, a definition for a dictionary's), which the flow carries
+||| beside each heading it is given, as its kind's one reading gives them
+||| (`rooted`) and as the target is given it (`asGiven`), the closed term it
+||| was read off, over the writer's markers and the site's stand-ins (none
+||| for a part of a type already read),
 ||| those stand-ins, which a reading of the term again reads it with, the
 ||| choice a dictionary the running program chooses there is a member of
 ||| (its binder's type's), which a reading again reads it with too, the
@@ -144,7 +146,7 @@ record Argument where
   template : Template
   recursionsRead : All RecursionDef (recursions template)
   root : Root
-  rootHeads : All DefinitionAt (rootAddresses root)
+  rootHeads : HeadsRead kind (rootAddresses root)
   term : Maybe ClosedTerm
   stands : List StandIn
   memberOf : Maybe ChoiceHead
@@ -668,7 +670,7 @@ built at fc a h cs = case h of
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, TemplateRead) -> Argument
     argument (j, t) =
-      MkArgument j AType t.template t.recursionsRead Unrooted [] Nothing [] Nothing NoTerm []
+      MkArgument j AType t.template t.recursionsRead Unrooted (TypeHeads []) Nothing [] Nothing NoTerm []
                  (TemplateText at.writerDef t.template t.recursionsRead t.headsRead)
 
 mutual
@@ -948,7 +950,7 @@ readArgument : {auto c : Ref Ctxt Defs} -> List StandIn -> Nat -> Static -> (mem
                ArgumentText -> Front Argument
 readArgument stands j k memberOf t shown = argumentOf <$> rooted stands k t
   where
-    argumentOf : (SiteReading k t, SiteRoot) -> Argument
+    argumentOf : (SiteReading k t, ArgumentRoot k) -> Argument
     argumentOf (r, (root ** heads)) =
       MkArgument j k (asGiven memberOf (r.template, root)) (givenRecursions memberOf r.template root r.recursionsRead) root heads
                  (Just t) stands memberOf (OffTerm r) [] shown
@@ -1380,8 +1382,10 @@ walkedAt at ps env fc taker given (g :: gs) =
 ||| binder. Past the binders the type shows (a type the writer's variable
 ||| heads, or a definition its markers leave stuck), an argument is taken
 ||| as an instance's type takes it, by a kind only the instance decides:
-||| written at its position at every kind a request is read at, and walked
-||| both as a static value and as code.
+||| written at its position at every kind a request is read at, a type
+||| parameter read as a family, whose type constructor splits where the
+||| instance's value is a family's, and walked both as a static value and
+||| as code.
 useAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
         At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> (form : Argument) -> List (Arg vs) -> Front (List Site)
 useAt at ps env fc t form args = do
@@ -1416,11 +1420,14 @@ useAt at ps env fc t form args = do
       S <$> takes (subst o.value sc) os
 
     -- An argument past the binders the type shows, at position `j`, of no
-    -- binder's type here: one whose head only an instance shows.
+    -- binder's type here: one whose head only an instance shows. A type
+    -- and a family are read alike, so a type parameter is written once,
+    -- as a family, whose root a member that reads the position as a
+    -- family is given; a dictionary's root is the dictionary's alone.
     past : Nat -> Offered vs -> Front (List Argument, List Site)
     past j o = do
       ws <- traverse (\k => argument at ps env fc (MkGiven o j (AsStatic k) (Erased EmptyFC Placeholder)) k)
-                     [AType, ADictionary, AForm, AShape]
+                     [AFamily, ADictionary, AForm, AShape]
       walks <- (++) <$> Force o.arg.asStatic <*> Force o.arg.asCode
       pure (map fst ws, (ws >>= snd) ++ walks)
 
@@ -1443,7 +1450,7 @@ useAt at ps env fc t form args = do
 heldApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> List (Arg vs) -> Front (List Site)
 heldApplication at ps env fc t args =
-  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) [] Nothing [] (Just ArrowHead) NoTerm []
+  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) (DictionaryHeads []) Nothing [] (Just ArrowHead) NoTerm []
                                     (TemplateText at.writerDef (Member ArrowHead) [] []))
         args
 
@@ -1598,7 +1605,7 @@ dispatch at ps env fc p dict rest extras = do
   -- The record as its key holds it, bound before it is read: the reading's
   -- type names the term it reads.
   written <- solved !(holed env dict.offer.arg.written)
-  (r, root) <- rooted ps.made ADictionary written
+  (r, root) <- dictionaryRooted ps.made written
   tm <- (\head => asGiven (Just head) (r.template, root.fst)) <$> choiceAt dict.binder
   -- The method's own arguments are those its type shows binders for; any
   -- past them applies its result.
@@ -2522,7 +2529,7 @@ dictionaryProjection kinds t = do
 ||| the one value it holds (`Terms.holed`).
 projectionSite : {auto c : Ref Ctxt Defs} -> At -> Pats -> List (Maybe Static, Standing) -> Projected -> Front Site
 projectionSite at ps params p = do
-  (r, root) <- rooted [] ADictionary (markerAt p.matched [])
+  (r, root) <- dictionaryRooted [] (markerAt p.matched [])
   args <- traverse own (mapMaybe static (zip [0 .. length p.params] p.params))
   pure (siteAt at at.loc (Dispatches r.template root p.field) args)
   where
@@ -2546,10 +2553,10 @@ projectionSite at ps params p = do
 ||| family's value against the constructor would bind; any other parameter
 ||| is its marker. With the stand-ins made, after those of `ps`. Each head
 ||| comes with what the flow carried beside it, read where it entered the
-||| flow (`Heads.reaching`): for a family's root, the definition the
-||| context gives the name the type's form applies as a type constructor
-||| (`Template.formRoot`).
-nodeValues : {auto c : Ref Ctxt Defs} -> (n : Nat) -> List (Nat, (a : Address ** DefinitionAt a)) -> (i : Nat) -> ClosedTerm ->
+||| flow (`Heads.reaching`): the type constructor's name and arity, as the
+||| type's form applies it (`Template.formRoot`), since a family's set holds
+||| only what heads a family.
+nodeValues : {auto c : Ref Ctxt Defs} -> (n : Nat) -> List (Nat, (a : Address ** TypeConstructorAt a)) -> (i : Nat) -> ClosedTerm ->
              Pats -> Front (List ClosedTerm, Pats)
 nodeValues Z heads i ty ps = pure ([], ps)
 nodeValues (S n) heads i ty ps = do
@@ -2571,23 +2578,11 @@ nodeValues (S n) heads i ty ps = do
                            (rest, qs'') = parts (S k) m qs' in
                        (termOf st :: rest, qs'')
 
-    -- Essential, both: a heading is an address alone, of no kind, so
-    -- nothing of ours states that what reaches a family is a type
-    -- constructor. A family's root is the name the host's normal form
-    -- applies as one, read as the frozen context defines it, and the
-    -- host's context has entries made without a definition, and defines a
-    -- name as whatever it does; and a family's set takes in what the slots
-    -- it reads hold, among them the application's positions, which every
-    -- use shares and a use writes at every kind (`useAt`), so a
-    -- dictionary's heading can reach it.
-    headed : ClosedTerm -> (a : Address ** DefinitionAt a) -> Front (ClosedTerm, Pats)
-    headed kind (_ ** NothingThere) = internal EmptyFC "a family's head the context does not hold"
-    headed kind (_ ** DefinedThere tc) = do
-      let TCon arity _ _ _ _ _ _ = definition tc
-        | _ => internal EmptyFC ("a family's head that is no type constructor: " ++ show (fullname tc))
+    headed : ClosedTerm -> (a : Address ** TypeConstructorAt a) -> Front (ClosedTerm, Pats)
+    headed kind (_ ** NamedTypeConstructor name arity) = do
       k <- arrows <$> normaliseClosed kind
       let (ts, ps') = parts 0 (minus arity k) ps
-      pure (foldl (App EmptyFC) (Ref EmptyFC (TyCon arity) (fullname tc)) ts, ps')
+      pure (foldl (App EmptyFC) (Ref EmptyFC (TyCon arity) name) ts, ps')
 
 ||| Every site a definition writes at a node, with each parameter standing
 ||| for its value there (`nodeValues`): its signature's, for every
@@ -2649,7 +2644,7 @@ record NodeReading where
 ||| each of its families the node has a head for stands for that type
 ||| constructor (`nodeValues`), and every other parameter for its marker.
 atNode : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         Address -> Defined -> (heads : List (Nat, (a : Address ** DefinitionAt a))) -> Front (List (Maybe Static), List Site)
+         Address -> Defined -> (heads : List (Nat, (a : Address ** TypeConstructorAt a))) -> Front (List (Maybe Static), List Site)
 atNode a d heads = do
   values <- nodeValues (arityOf d) heads 0 d.type (MkPats 0 [] [<])
   nodeSites a d values
@@ -2667,10 +2662,10 @@ readingOf a d = do
     family _ = Nothing
 
 ||| Every site a definition writes at a node with heads, the definition as
-||| the walk holds it, each head with what the flow carried beside it.
+||| the walk holds it, each head the type constructor the flow carried.
 export
 sitesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined ->
-          (heads : List (Nat, (a : Address ** DefinitionAt a))) -> Front (List Site)
+          (heads : List (Nat, (a : Address ** TypeConstructorAt a))) -> Front (List Site)
 sitesOf a d heads = snd <$> atNode a d heads
 
 ||| The sites a closed term over the writer's markers and the stand-ins

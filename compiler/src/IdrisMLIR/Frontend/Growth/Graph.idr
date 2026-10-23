@@ -2565,15 +2565,15 @@ readAt families x = MkNode x.definition (filter (\(i, _) => elem i (fromMaybe []
 
 -- Every way of heading at least one of a definition's families, ascending
 -- by index: at each, one of the type constructors the flow found can head
--- it, with what the flow carried of its definition, or none. Heading none
--- is the definitions' walk's own reading.
-familyHeads : Flow -> Address -> List Nat -> List (List (Nat, (h : Address ** DefinitionAt h)))
+-- it, with its name and arity as the flow carried them, or none. Heading
+-- none is the definitions' walk's own reading.
+familyHeads : Flow -> Address -> List Nat -> List (List (Nat, (h : Address ** TypeConstructorAt h)))
 familyHeads fl a [] = []
 familyHeads fl a (i :: is) =
   let rest = familyHeads fl a is in rest ++ [(i, h) :: hs | h <- reaching fl a i, hs <- [] :: rest]
 
 -- The heads a node is split at, by address, as the node holds them.
-headAddresses : List (Nat, (h : Address ** DefinitionAt h)) -> List (Nat, Address)
+headAddresses : List (Nat, (h : Address ** TypeConstructorAt h)) -> List (Nat, Address)
 headAddresses = map (\(i, h) => (i, h.fst))
 
 -- Every node a walk from main can meet, by what it is read at, with the
@@ -2591,7 +2591,7 @@ readings fl r = foldlM family plain (SortedMap.toList r.sites)
     plain : SortedMap Node (Defined, List Sites.Site)
     plain = SortedMap.fromList (map (\(a, entry) => (MkNode a [], entry)) (SortedMap.toList r.sites))
 
-    headed : Address -> Defined -> SortedMap Node (Defined, List Sites.Site) -> List (Nat, (h : Address ** DefinitionAt h)) ->
+    headed : Address -> Defined -> SortedMap Node (Defined, List Sites.Site) -> List (Nat, (h : Address ** TypeConstructorAt h)) ->
              Front (SortedMap Node (Defined, List Sites.Site))
     headed a d m hs = (\ss => insert (MkNode a (headAddresses hs)) (d, ss) m) <$> sitesOf a d hs
 
