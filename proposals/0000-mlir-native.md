@@ -2214,6 +2214,50 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `Defined` holds its nested-block name only for a block a walk names,
   the split of `Defined` parametrises it by the whole program's facts
   (`Read = Reading Nature`), and no reading meets a block it cannot place.
+- **C256** (2026-10-22; L16ct's blockers, the design reader's evidence;
+  under C222, C249, D68). A request carries what it was keyed from, by
+  type, and nothing is computed and thrown away. `WholeKind`, `NeededCut`
+  and `HeldAs` move down into `Readings`, and the cut lemmas beside
+  `Closed.cutShape`, so `State.Request` holds, at quantity 0 per keyed
+  position, its site's membership and its `HeldAs`, and `TS` the model
+  and its site table, written once by the growth check; nothing imports
+  upward (`Program` passes the finished lemma down as an erased
+  argument). A dictionary's static reading runs `Closed.fixing` once on
+  the reading's form and keeps the reduct (`FixedValue` moved down), from
+  which classification decides static or choice and the whole
+  parameter's entry is matched, in place of the reductions Instances and
+  Cases compute and drop; the key stays the reading's form, since keying
+  by the frontend's own reduct would make a second evaluator part of an
+  instance's identity, against D68, and part from the growth check's key
+  at a marker. A call's per-position data is tied to the callee by an
+  index on its signature: `NoKey` carries evidence its kind keys nothing,
+  the instance cache keeps the `SignedAt` and returns it on both paths
+  with each link's holes, and classification returns the values it read,
+  so the held values and runtime variables the translation reads twice
+  are read once. No verdict and no emitted name changes, which the
+  cutover's `make test` confirms; a type computed from a dictionary that
+  changed a later binder's quantity, if a program has one, is refused as
+  `unsupported`.
+- **C257** (2026-10-22; the same evidence; under C222, D68). A request's
+  site is found by walking, never by a lookup that can miss. One
+  structural `Place`, a step per constructor of the term or case tree
+  with the walk's mode a field of its own and a default's expansion a
+  step named by its constructor, is moved below `State` from
+  `Growth/Sites.idr`, which emits a tree in the writer's shape that the
+  growth graph numbers once, as C254 numbers positions; the translation
+  threads the place down that tree beside its term, both walks made to
+  visit the same alternatives in the same order. Each keyed argument is
+  computed from its site's term: the instance's values put in by a
+  run-time copy of `Host.putIn` equal to it by `Refl`, then solved,
+  skeleton and cut, each step returning its piece of `HeldAs`, so the
+  request's equation holds by construction rather than by a simulation
+  between two environments; code generation keeps `closeNormalise`. With
+  the induction's facts this deletes `Finite.unsound`, `heightWithin`
+  and `sizedWithin`. If the translation's reduction of a settled
+  implementation does not keep its members' structure as written, the
+  site walk cannot follow it and this stops for a ruling; and if the
+  proof needs the normaliser idempotent beyond D68's statement, that new
+  trust is the owner's.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
