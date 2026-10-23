@@ -735,3 +735,10 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   `Layout.h` (L04); `tests/reindex-builds-told-apart` is the first dialect
   test through the lowered stage in opt: if those steps need the module's
   target, its RUN line passes the driver's own target, never a pass (L19).
+- From L04v: a tail call whose array result goes through a re-packing
+  reindex (an element at other index terms, L16el's fit) is now an internal
+  error before bufferization, as it was after: an array result whose
+  element's layout differs from the caller's at a tail call takes D129's
+  rule (the callee's copy returning the caller's element layout, marked
+  open where an index stays unwritten), the specializer's, not Emit's
+  (L18, after L18t).
