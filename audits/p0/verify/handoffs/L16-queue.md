@@ -226,3 +226,28 @@ cluster, and these open.
 - Kept as run-time facts: `Keys.idr:1080`'s hash collision; the checker's
   one `assert_total`, `Idris/Host.idr`'s `host`, the trust the frontend
   takes in Idris's covering functions, stated once.
+
+## From L16cw (D112 in Growth)
+
+Done: `Caps.idr:176`, the walk carrying a callee's `Defined` (`Callee e`,
+`Reached e`), so `capOf` takes it and the lookup by address goes. Open,
+each with the type that would carry it:
+- `Growth.idr:318`: addresses made with their definition dropped
+  (`Sites.definitionOf`, `MkFields`, `Proof.Template.InterfaceHead`,
+  `Template.Opaque`) keep the address with its read definition.
+- `Growth.idr:652`: each drawn arc tagged with where it came from and its
+  computation, at `Proof.Template.occurrences` and
+  `Describes.underComputation`, so `computationThrough`/`sourceOf` go.
+  Suspected reachable (read, unbuilt): a held arc out of the writer's own
+  positions has `sourceFor = Binds i`, so `computationThrough` may find
+  nothing there.
+- `Fields.idr:135`: `TyConFacts` keeps the constructors, a missing one
+  refused at the boundary (`Boundary.readFrom` skips one silently today),
+  and `constructorArity`'s silent `[]` goes.
+- `Graph.idr:2507`: `Reading.entry`, the entry's `Defined`, so main is
+  passed by its definition, not its name (`Program.idr:228`).
+- `Graph.idr:2530` (`Outside`), `:2533` (`Unheaded`): proofs (visits within
+  `headBound`/`countedIn`; `solve`'s fixpoint and `sitesOf` with heads).
+- `Finite.idr:224` is a fact of the instance table, not of the growth
+  verdict: `State.Request` holds that its link was absent, chain items that
+  theirs are present; C257 does not delete it.

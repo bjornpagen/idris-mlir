@@ -1310,45 +1310,49 @@ data Via : Type where
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a visit: a callee's visit, which the walk
-||| enters; the application at a use; a choice it makes a member of; or the
-||| fields of a constructor a dictionary is rebuilt with, which no
-||| definition's node holds, each a field's position. A dictionary the
-||| writer binds is no callee (`Reached`).
+||| enters, with what the walk knows of the callee (`e`): nothing where a
+||| site's reading finds it (`reaches`), and the definition its node is
+||| read at once the walk has read that node (`Graph`); the application at
+||| a use; a choice it makes a member of; or the fields of a constructor a
+||| dictionary is rebuilt with, which no definition's node holds, each a
+||| field's position. A dictionary the writer binds is no callee
+||| (`Reached`).
 public export
-data Callee = Entering Visit | Applying | Making ChoiceHead | Filling Address
+data Callee e = Entering Visit e | Applying | Making ChoiceHead | Filling Address
 
 ||| The place an argument placed at a callee's parameter i is at: that
 ||| parameter of the visit's node or of the application; at a choice, its
 ||| one place, where every member is whatever it is placed at; at a rebuilt
 ||| constructor, its field i. What a dictionary there holds is held there.
 export
-calleePlace : Callee -> Nat -> Subset HeldBy Positioned
-calleePlace (Entering v) i = Element (ByParameter (OfNode (visitNode v)) i) ParameterPlace
+calleePlace : Callee e -> Nat -> Subset HeldBy Positioned
+calleePlace (Entering v _) i = Element (ByParameter (OfNode (visitNode v)) i) ParameterPlace
 calleePlace Applying i = Element (ByParameter OfApplication i) ParameterPlace
 calleePlace (Making k) _ = Element (ByChoice k) ChoicePlace
 calleePlace (Filling con) i = Element (ByField con i) FieldPlace
 
 ||| Where an argument placed at a callee's parameter i lands (`calleePlace`).
 export
-landsAt : Callee -> Nat -> Spot
+landsAt : Callee e -> Nat -> Spot
 landsAt c i = let Element place positioned = calleePlace c i in valueSpot place positioned
 
-||| What a site reaches from a node: a callee, with each of the site's
-||| arguments placed at the parameter it lands at, and how it got there;
-||| or, where the writer binds a dictionary that closes over values, the
-||| place it is bound at, which holds the list of them as one at the
-||| writer's node (`ByBinding`), and which no argument is placed at.
+||| What a site reaches from a node: a callee, with what the walk knows of
+||| it (`Callee`), each of the site's arguments placed at the parameter it
+||| lands at, and how it got there; or, where the writer binds a
+||| dictionary that closes over values, the place it is bound at, which
+||| holds the list of them as one at the writer's node (`ByBinding`), and
+||| which no argument is placed at.
 public export
-data Reached : Type where
-  MkReached : (callee : Callee) -> (placed : List Placed) -> (via : Via) -> Reached
-  Kept : BoundPlace -> List1 HeldItem -> Reached
+data Reached : Type -> Type where
+  MkReached : (callee : Callee e) -> (placed : List Placed) -> (via : Via) -> Reached e
+  Kept : BoundPlace -> List1 HeldItem -> Reached e
 
 ||| Each callee a site reaches from the writer's visit. A callee is split by
 ||| the roots of its dictionary and family arguments, one visit for each
 ||| combination; the writer's own dictionary given as it is keeps what its
 ||| chain held.
 export
-reaches : Flow -> (writer : Visit) -> Site -> List Reached
+reaches : Flow -> (writer : Visit) -> Site -> List (Reached ())
 reaches fl v s = from s.reach
   where
     -- The writer's node, whose heads key what the writer's text gives.
@@ -1390,22 +1394,22 @@ reaches fl v s = from s.reach
     -- write of J gave them, through J's own call of the function: only the
     -- dispatched dictionary's root is Core's, not the arguments J was
     -- written at.
-    method : Nat -> Address -> List Reached
+    method : Nat -> Address -> List (Reached ())
     method k j = case methodAt fl.dictionaries j k of
       Nothing => []
       Just (m, own, leading) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) [] acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (Entering (MkVisit m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (Entering (MkVisit m hs) ()) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
 
     -- A dispatch through field k of j: each method field it runs (`runs`).
-    through : Nat -> Address -> List Reached
+    through : Nat -> Address -> List (Reached ())
     through k j = runs fl.dictionaries fl.solution j k >>= \(j', k') => method k' j'
 
     -- A field of a rebuilt constructor, as what the dictionary's argument
     -- writes there: the field holds what its dictionary holds, no list of
     -- its own.
-    filling : Argument -> (Address, Nat, Template) -> Reached
+    filling : Argument -> (Address, Nat, Template) -> Reached ()
     filling x (con, c, t) =
       MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) c]
                 Called
@@ -1429,7 +1433,7 @@ reaches fl v s = from s.reach
     -- values and then the values the member put in its place holds
     -- (`Choices.heldMember`).
     rebuiltAt : Argument -> (path : List1 Nat) -> (held : List (List1 Nat)) -> (0 _ : Not (Elem path held)) -> Chain ->
-                List Reached
+                List (Reached ())
     rebuiltAt x path held fresh (l ::: ls) =
       let r = rebuilt (Template.Var x.position 0) l ls
           final = lastOf (Template.Var x.position 0) l ls
@@ -1438,13 +1442,13 @@ reaches fl v s = from s.reach
           dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
           settled = rebuiltHead l.holds.builtBy path held fresh
           target = MkVisit v.definition (headedAt x.position settled v.heads) in
-      MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called ::
+      MkReached (Entering target ()) (atOwnPositions s.arguments ++ [dictionary]) Called ::
         map (filling x) r.fillings
 
-    from : Reach -> List Reached
+    from : Reach -> List (Reached ())
     from (Calls t) = let placed = atOwnPositions s.arguments in
-                     map (\hs => MkReached (Entering (MkVisit t hs)) placed Called) (combinations (passed placed empty))
-    from (Builds t) = [MkReached (Entering (MkVisit t [])) (atOwnPositions s.arguments) Called]
+                     map (\hs => MkReached (Entering (MkVisit t hs) ()) placed Called) (combinations (passed placed empty))
+    from (Builds t) = [MkReached (Entering (MkVisit t []) ()) (atOwnPositions s.arguments) Called]
     -- A dispatch through a dictionary with no head runs what its leaves
     -- give, which reach beside it.
     from (Dispatches t r k) = headsIn (rootsAt r t) >>= through k

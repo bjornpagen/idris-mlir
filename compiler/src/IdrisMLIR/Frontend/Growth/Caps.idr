@@ -160,20 +160,17 @@ parameterAt (S j) ty = do
   parameterAt j (rest (Erased EmptyFC Placeholder))
 
 ||| The cap of a definition's parameter j (the j-th binder of its type,
-||| erased ones counted): the most a key of j can hold of its argument's
-||| shape, as the height `closedHeight AShape` reads, for a parameter keyed
-||| by the shape of a chain whose matches the type inspects to a fixed depth.
-||| Nothing for every other parameter. Whether j is keyed by its shape is
+||| erased ones counted), the definition as the boundary read it: the most
+||| a key of j can hold of its argument's shape, as the height
+||| `closedHeight AShape` reads, for a parameter keyed by the shape of a
+||| chain whose matches the type inspects to a fixed depth. Nothing for
+||| every other parameter. Whether j is keyed by its shape is
 ||| `staticsOver`'s to say, the one reading of `classify`'s decisions, over
 ||| markers for every parameter as a definition's own sites give them.
 export
 capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-        Address -> (j : Nat) -> Front (Maybe Nat)
-capOf addr j = do
-  -- Every address the frontend holds came from `addressOf` of a definition
-  -- the boundary read, so the lookup finds one.
-  Just d <- definitionRead addr
-    | Nothing => internal EmptyFC "an address with no definition"
+        Defined -> (j : Nat) -> Front (Maybe Nat)
+capOf d j = do
   let owner = show (fullname d.def)
   let ty = d.type
   (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i [], AValue) | i <- [0 .. j]]

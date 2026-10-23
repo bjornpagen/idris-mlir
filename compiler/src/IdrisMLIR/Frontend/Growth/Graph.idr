@@ -265,15 +265,16 @@ record Built where
 -- The definitions
 ------------------------------------------------------------------------------
 
--- What the definitions' walk found: each definition's sites, by its
--- address, read with no family headed; each definition's families, by
--- its address; the represented arguments of every data type it entered,
--- as positions; every implementation's fields, by its address; and one
--- more than the most parameters, constructors or constructor arguments
--- of any definition it entered.
+-- What the definitions' walk found: each definition it entered, by its
+-- address, as the boundary read it, with its sites read with no family
+-- headed; each definition's families, by its address; the represented
+-- arguments of every data type it entered, as positions; every
+-- implementation's fields, by its address; and one more than the most
+-- parameters, constructors or constructor arguments of any definition it
+-- entered.
 record Entered where
   constructor MkEntered
-  sites : SortedMap Address (List Sites.Site)
+  sites : SortedMap Address (Defined, List Sites.Site)
   families : SortedMap Address (List Nat)
   datas : List Spot
   fields : SortedMap Address Fields
@@ -338,8 +339,9 @@ callee (Makes _) = Nothing
 callee (Repacks _ _) = Nothing
 callee (Keeps _ _) = Nothing
 
--- A definition entered: its sites by its address, its families, its
--- represented arguments as positions of its node with no heads, and its
+-- A definition entered: itself as the boundary read it, with its sites,
+-- by its address, its families, its represented arguments as positions
+-- of its node with no heads, and its
 -- fields, with the definitions its sites name, to enter next. A name that
 -- no definition of the context has is no place, and is not entered.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -349,7 +351,7 @@ keep a d reading r = do
   fs <- fieldsOf d
   defs <- getDefs
   let ss = rd.sites
-  pure ( { sites $= insert a ss
+  pure ( { sites $= insert a (d, ss)
          , families $= insert a rd.families
          , datas $= (map (OfParameter (OfNode (MkNode a []))) js ++)
          , fields $= maybe id (insert a) fs } r
@@ -381,7 +383,7 @@ level refused w0 acc@(Access rec) w p r (n :: rest) pending = do
     | Nothing => level refused w0 acc w p r rest pending
   (counts, reading) <- kindOf a d
   let measured = { breadth $= \b => foldl (\m, k => max m (S k)) b counts } r
-  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a [] } measured), the (List Name) []) else keep a d reading measured
+  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a (d, []) } measured), the (List Name) []) else keep a d reading measured
   level refused w0 acc w1 (thenNoMore (fewer q) p) r' rest (Queued (fewerThen q p) (queued pending <>< next))
 
 definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front Entered
@@ -533,14 +535,15 @@ Room names ps b path = minus (length (Visits names ps b b)) (length path)
 record Found where
   constructor MkFound
   entered : SortedSet Visit
-  done : SnocList (Visit, List (Sites.Site, Reached))
+  done : SnocList (Visit, List (Sites.Site, Reached Defined))
   reachers : SortedMap Node (List Node)
 
 -- Where the walk over nodes stops, either a broken invariant of the
 -- graph's own construction that would lose a visit's arcs if the visit
 -- were skipped: a visit outside the universe, split at a head where no
 -- site writes one, or holding a path no site re-packs; or a visit at
--- heads the flow did not give, with no reading.
+-- heads the flow did not give, with no reading, met as main or where a
+-- site enters it.
 data Stray = Outside Visit | Unheaded Visit
 
 -- A visit of the universe, with its erased membership.
@@ -592,27 +595,27 @@ mutual
   -- Enters a visit new to its path from main: its sites' callees are
   -- walked below it, each new to the longer path, which leaves less room.
   visit : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-          (out : Visit -> Maybe (List (Sites.Site, Reached))) -> (x : Visit) -> (path : List Visit) ->
+          (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
           (0 acc : Accessible LT (Room names ps b (x :: path))) -> Found -> Either Stray Found
   visit names ps b out x path nd inU acc found = case out x of
-    Nothing => Left (Unheaded x)
-    Just edges =>
+    Left stray => Left stray
+    Right edges =>
       under names ps b out x path nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
             ({ done $= (:< (x, edges)) } found)
     where
       -- The application at a use is no node, nor is a choice, nor a
       -- rebuilt constructor's fields, nor a binding's place, and the walk
       -- enters nothing there: what each holds, the sites into it bound.
-      calleeVisit : Reached -> Maybe Visit
-      calleeVisit (MkReached (Entering c) _ _) = Just c
+      calleeVisit : Reached Defined -> Maybe Visit
+      calleeVisit (MkReached (Entering c _) _ _) = Just c
       calleeVisit (MkReached Applying _ _) = Nothing
       calleeVisit (MkReached (Making _) _ _) = Nothing
       calleeVisit (MkReached (Filling _) _ _) = Nothing
       calleeVisit (Kept _ _) = Nothing
 
   under : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-          (out : Visit -> Maybe (List (Sites.Site, Reached))) -> (x : Visit) -> (path : List Visit) ->
+          (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> (x : Visit) -> (path : List Visit) ->
           (0 nd : NoDup (x :: path)) -> (0 inU : All (\y => Elem y (Visits names ps b b)) (x :: path)) ->
           (0 acc : Accessible LT (Room names ps b (x :: path))) -> List Visit -> Found -> Either Stray Found
   under names ps b out x path nd inU acc [] found = Right found
@@ -633,7 +636,7 @@ mutual
             Right after => under names ps b out x path nd inU acc cs after
 
 nodesFrom : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
-            (out : Visit -> Maybe (List (Sites.Site, Reached))) -> Visit -> Either Stray Found
+            (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit -> Either Stray Found
 nodesFrom names ps b out root = case inside names ps b root of
   Nothing => Left (Outside root)
   Just (In rIn) => visit names ps b out root [] ((\case _ impossible) :: []) [rIn] (sizeAccessible _)
@@ -641,7 +644,7 @@ nodesFrom names ps b out root = case inside names ps b root of
 
 -- The walk over the real listing, named through an alias on a right-hand
 -- side: a lower-case global written in a type is bound as a new implicit.
-nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> Maybe (List (Sites.Site, Reached))) -> Visit ->
+nodesFromMain : (ps : List (List1 Nat)) -> (b : Nat) -> (out : Visit -> Either Stray (List (Sites.Site, Reached Defined))) -> Visit ->
                 Either Stray Found
 nodesFromMain ps b out root = let 0 names = addresses in nodesFrom names ps b out root
 
@@ -752,7 +755,7 @@ closedBy Unrooted b sb tm t eq = valueClosed b sb tm t eq
 -- shares: each argument placed, in the walk's order, with the node whose
 -- site wrote it, the site, and what it reaches. A binding's place is
 -- given no argument.
-eachPlaced : (r -> Node -> Sites.Site -> Callee -> Placed -> r) -> r -> List (Node, List (Sites.Site, Reached)) -> r
+eachPlaced : (r -> Node -> Sites.Site -> Callee Defined -> Placed -> r) -> r -> List (Node, List (Sites.Site, Reached Defined)) -> r
 eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => case e of
                                                    MkReached callee placed _ => foldl (\acc'', pl => f acc'' w s callee pl) acc' placed
                                                    Kept _ _ => acc')
@@ -764,11 +767,11 @@ eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => case e of
 Leads : Type
 Leads = SortedMap (Node, Address, Nat) (List (Nat, Nat))
 
-leadsOf : List (Node, List (Sites.Site, Reached)) -> Leads
+leadsOf : List (Node, List (Sites.Site, Reached Defined)) -> Leads
 leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
   where
-    lead : Leads -> (Sites.Site, Reached) -> Leads
-    lead m (_, MkReached (Entering callee) _ (Dispatched j k leading)) = insert (visitNode callee, j, k) leading m
+    lead : Leads -> (Sites.Site, Reached Defined) -> Leads
+    lead m (_, MkReached (Entering callee _) _ (Dispatched j k leading)) = insert (visitNode callee, j, k) leading m
     -- Essential: a call, a build, an application and a binding place no
     -- implementation's parameters, and a dispatch reaches a method
     -- function's node.
@@ -1336,7 +1339,7 @@ record Carrying (n : Nat) where
   back : SortedMap Nat (List (Fin n))
 
 carried : {0 n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
-          List (Node, List (Sites.Site, Reached)) -> Carrying n
+          List (Node, List (Sites.Site, Reached Defined)) -> Carrying n
 carried number nodes leads walked =
   let cs = eachPlaced (\acc, w, s, callee, pl =>
                          foldl (\acc', i => carry (spotAt w s.params i) (landsAt callee pl.parameter) acc') acc (familiesIn pl.argument.template))
@@ -1369,7 +1372,7 @@ heldTemplates x = x.holds >>= \l => forget l >>= typed
 -- The numbered positions an applied family's reading reads the landing
 -- of (`applyingIn`), at the nodes whose sites apply it, in an argument or
 -- in a value of a type its lists hold.
-applying : {0 n : Nat} -> SortedMap Spot (PlacedNumber n) -> List (Node, List (Sites.Site, Reached)) -> List (Fin n)
+applying : {0 n : Nat} -> SortedMap Spot (PlacedNumber n) -> List (Node, List (Sites.Site, Reached Defined)) -> List (Fin n)
 applying number =
   eachPlaced (\acc, w, s, _, pl => mapMaybe (\i => (.number) <$> lookup (spotAt w s.params i) number)
                                             ((pl.argument.template :: heldTemplates pl.argument) >>= applyingIn) ++ acc) []
@@ -1410,7 +1413,7 @@ computingFrom i (l :: ls) eq =
 -- those alone: a type's marker passed on carries no family, and nothing
 -- applies it. With no computing value written there is nothing to carry.
 carriedTo : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
-            List (Node, List (Sites.Site, Reached)) -> LandingTable n -> List (Fin n)
+            List (Node, List (Sites.Site, Reached Defined)) -> LandingTable n -> List (Fin n)
 carriedTo number nodes leads walked t = case computingFrom 0 t Refl of
   [] => []
   seeds@(_ :: _) =>
@@ -1425,7 +1428,7 @@ carriedTo number nodes leads walked t = case computingFrom 0 t Refl of
 
 -- A table with a computing value carried on from where one lands.
 carriedFrom : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
-              List (Node, List (Sites.Site, Reached)) -> LandingTable n -> LandingTable n
+              List (Node, List (Sites.Site, Reached Defined)) -> LandingTable n -> LandingTable n
 carriedFrom number nodes leads walked t = computedAt (carriedTo number nodes leads walked t) t
 
 ||| What lands at every numbered position: what each writing lands as,
@@ -1433,13 +1436,13 @@ carriedFrom number nodes leads walked t = computedAt (carriedTo number nodes lea
 ||| besides (`openedTable`), and a computing value carried on
 ||| (`carriedTo`).
 tableOf : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> Vect n (Maybe Nat) -> SortedMap Address (List Node) -> Leads ->
-          List (Node, List (Sites.Site, Reached)) -> List (LandingAt n) -> LandingTable n
+          List (Node, List (Sites.Site, Reached Defined)) -> List (LandingAt n) -> LandingTable n
 tableOf number caps nodes leads walked written = carriedFrom number nodes leads walked (openedTable caps (landedTable written))
 
 -- Every landing written is bounded by what the table holds at its
 -- position.
 0 tableBounds : {n : Nat} -> (number : SortedMap Spot (PlacedNumber n)) -> (caps : Vect n (Maybe Nat)) ->
-                (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) ->
+                (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached Defined))) ->
                 (written : List (LandingAt n)) -> {0 y : LandingAt n} -> Elem y written ->
                 BoundedBy y.landing (Vect.index y.at.number (tableOf number caps nodes leads walked written))
 tableBounds {y} number caps nodes leads walked written el k eq =
@@ -1452,7 +1455,7 @@ tableBounds {y} number caps nodes leads walked written el k eq =
 
 -- A position only closed values land at in the table is uncapped.
 0 tableUncapped : {n : Nat} -> (number : SortedMap Spot (PlacedNumber n)) -> (caps : Vect n (Maybe Nat)) ->
-                  (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) ->
+                  (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached Defined))) ->
                   (written : List (LandingAt n)) ->
                   (p : Fin n) -> Vect.index p (tableOf number caps nodes leads walked written) = Just (Closed k) ->
                   Vect.index p caps = Nothing
@@ -1516,10 +1519,6 @@ record Written where
   0 draws : DrawnBy wrote template
   0 landsAs : LandsAs wrote template
 
--- The positions some writings land at, each once.
-targetsOf : List Written -> List Spot
-targetsOf xs = SortedSet.toList (foldl (\acc, x => insert x.target acc) empty xs)
-
 -- A pair's chain applies no family, so reading it where a node's
 -- families land leaves it as it is.
 0 chainRead : (c : Nat -> Landing) -> (a : Address) -> (n : Nat) -> withClosedFamilies c (pairChain a n) = pairChain a n
@@ -1572,7 +1571,7 @@ rootsRecorded fl families c AtHeld = \r, j, el => absurd el
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
-writings : List (Node, List (Sites.Site, Reached)) -> List Written
+writings : List (Node, List (Sites.Site, Reached Defined)) -> List Written
 writings =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWritten (spotAt w s.params) pl.argument.template (AtNode w s.params) (landsAt callee pl.parameter)
@@ -1750,7 +1749,7 @@ choicePlaces given UnshownHead = given
 choicePlaces given k = filter (\c => c == k || c == UnshownHead) given
 
 -- The choices some member of which is given values to hold.
-heldChoices : List (Node, List (Sites.Site, Reached)) -> List ChoiceHead
+heldChoices : List (Node, List (Sites.Site, Reached Defined)) -> List ChoiceHead
 heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => case (callee, pl.argument.holds) of
                                                      (Making k, _ :: _) => insert k acc
                                                      _ => acc)
@@ -1772,7 +1771,7 @@ heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => cas
 ||| given list is. The values a dictionary parameter holds, each as
 ||| itself, and those a member holds, come from their places' held
 ||| positions as they are.
-heldWritings : (count : Nat) -> Maybe Pairing -> List ChoiceHead -> List (Node, List (Sites.Site, Reached)) -> List Written
+heldWritings : (count : Nat) -> Maybe Pairing -> List ChoiceHead -> List (Node, List (Sites.Site, Reached Defined)) -> List Written
 heldWritings count pg choices walked =
   eachPlaced (\acc, w, s, callee, pl =>
                 (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter).fst (forget l)) ++ acc) [] walked
@@ -1820,7 +1819,7 @@ heldWritings count pg choices walked =
 
     -- The list a dictionary the writer binds closes over, written at its
     -- binding's place at the writer's node.
-    kept : Node -> Sites.Site -> Reached -> List Written
+    kept : Node -> Sites.Site -> Reached Defined -> List Written
     kept w s (Kept b items) = listAt w s (ByBinding w b) (forget items)
     kept w s (MkReached _ _ _) = []
 
@@ -2331,23 +2330,34 @@ boundedAmong {ks = _ :: _} (_ :: made) (There el) = boundedAmong made el
 byDefinition : (a -> Address) -> List a -> SortedMap Address (List a)
 byDefinition key = foldr (\x => insertWith (++) (key x) [x]) empty
 
--- Each of the positions that is capped, with its cap. A cap is asked once
--- per definition and parameter, since a definition's nodes share its type;
--- the application's positions are no definition's, and a field's, a
--- choice's and a held one no parameter's, so none of them is capped.
-capsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         List Spot -> Front (SortedMap Spot Nat)
-capsOf named = snd <$> foldlM ask (empty, empty) named
+-- Each position a walked site places an argument at that is a parameter
+-- of a callee the walk entered, once, with the callee's definition, its
+-- parameter there, and the definition its node is read at: the positions
+-- a cap can be asked of. The application's positions are no definition's,
+-- and a field's, a choice's and a held one no parameter's, so none of them
+-- is capped.
+enteredTargets : List (Node, List (Sites.Site, Reached Defined)) -> SortedMap Spot (Address, Nat, Defined)
+enteredTargets = eachPlaced entering empty
   where
-    ask : (SortedMap (Address, Nat) (Maybe Nat), SortedMap Spot Nat) -> Spot ->
+    entering : SortedMap Spot (Address, Nat, Defined) -> Node -> Sites.Site -> Callee Defined -> Placed ->
+               SortedMap Spot (Address, Nat, Defined)
+    entering acc _ _ callee@(Entering v d) pl = insert (landsAt callee pl.parameter) (v.definition, pl.parameter, d) acc
+    entering acc _ _ Applying _ = acc
+    entering acc _ _ (Making _) _ = acc
+    entering acc _ _ (Filling _) _ = acc
+
+-- Each of those positions that is capped, with its cap. A cap is asked
+-- once per definition and parameter, since a definition's nodes share its
+-- type.
+capsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+         SortedMap Spot (Address, Nat, Defined) -> Front (SortedMap Spot Nat)
+capsOf targets = snd <$> foldlM ask (empty, empty) (SortedMap.toList targets)
+  where
+    ask : (SortedMap (Address, Nat) (Maybe Nat), SortedMap Spot Nat) -> (Spot, Address, Nat, Defined) ->
           Front (SortedMap (Address, Nat) (Maybe Nat), SortedMap Spot Nat)
-    ask acc (OfParameter OfApplication _) = pure acc
-    ask acc (OfField _ _) = pure acc
-    ask acc (OfChoice _) = pure acc
-    ask acc (OfHeld _) = pure acc
-    ask (memo, capped) p@(OfParameter (OfNode n) j) = do
-      cap <- maybe (capOf n.definition j) pure (lookup (n.definition, j) memo)
-      pure (insert (n.definition, j) cap memo, maybe capped (\k => insert p k capped) cap)
+    ask (memo, capped) (p, a, j, d) = do
+      cap <- maybe (capOf d j) pure (lookup (a, j) memo)
+      pure (insert (a, j) cap memo, maybe capped (\k => insert p k capped) cap)
 
 -- What made each arc, in the arcs' order.
 wrotes : (arcs : List (Arc n, Wrote)) -> Vect (length (map Builtin.fst arcs)) Wrote
@@ -2377,24 +2387,50 @@ familyHeads fl a (i :: is) =
   let rest = familyHeads fl a is in rest ++ [(i, h) :: hs | h <- reaching fl a i, hs <- [] :: rest]
 
 -- Every node a walk from main can meet, by what it is read at, with the
--- sites it writes there. A node with no family headed is read as the
--- definitions' walk read it. The flow's sets hold every type constructor
--- that heads a family in the split, since a site the split reads at a
--- node is the definitions' walk's with each head in place of the marker
--- it stands for, whose flow equation already carries that head: so these
--- are every node the walk can meet, which the walk checks (`Unheaded`).
+-- definition the definitions' walk entered it at and the sites it writes
+-- there. A node with no family headed is read as the definitions' walk
+-- read it. The flow's sets hold every type constructor that heads a
+-- family in the split, since a site the split reads at a node is the
+-- definitions' walk's with each head in place of the marker it stands
+-- for, whose flow equation already carries that head: so these are every
+-- node the walk can meet, which the walk checks (`Unheaded`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           Flow -> Entered -> Front (SortedMap Node (List Sites.Site))
-readings fl r = foldlM family plain (SortedMap.toList r.families)
+           Flow -> Entered -> Front (SortedMap Node (Defined, List Sites.Site))
+readings fl r = foldlM family plain (SortedMap.toList r.sites)
   where
-    plain : SortedMap Node (List Sites.Site)
-    plain = SortedMap.fromList (map (\(a, ss) => (MkNode a [], ss)) (SortedMap.toList r.sites))
+    plain : SortedMap Node (Defined, List Sites.Site)
+    plain = SortedMap.fromList (map (\(a, entry) => (MkNode a [], entry)) (SortedMap.toList r.sites))
 
-    headed : Address -> SortedMap Node (List Sites.Site) -> List (Nat, Address) -> Front (SortedMap Node (List Sites.Site))
-    headed a m hs = (\ss => insert (MkNode a hs) ss m) <$> sitesOf a hs
+    headed : Address -> Defined -> SortedMap Node (Defined, List Sites.Site) -> List (Nat, Address) ->
+             Front (SortedMap Node (Defined, List Sites.Site))
+    headed a d m hs = (\ss => insert (MkNode a hs) (d, ss) m) <$> sitesOf a hs
 
-    family : SortedMap Node (List Sites.Site) -> (Address, List Nat) -> Front (SortedMap Node (List Sites.Site))
-    family m (a, fams) = foldlM (headed a) m (familyHeads fl a fams)
+    -- Each way of heading a definition's families, read at its
+    -- definition: a definition the checks refused was entered with none.
+    family : SortedMap Node (Defined, List Sites.Site) -> (Address, Defined, List Sites.Site) ->
+             Front (SortedMap Node (Defined, List Sites.Site))
+    family m (a, d, _) = foldlM (headed a d) m (familyHeads fl a (fromMaybe [] (lookup a r.families)))
+
+-- A visit's reading: the definition its node is read at, and the sites it
+-- writes there.
+visitReading : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Visit ->
+               Either Stray (Defined, List Sites.Site)
+visitReading families reads x = case SortedMap.lookup (readAt families (visitNode x)) reads of
+  Just found => Right found
+  Nothing => Left (Unheaded x)
+
+-- What a site reaches, each callee it enters given the definition its
+-- node is read at, read where the walk reads the callee's sites: so a
+-- reader of an entered callee's parameters has its definition at hand,
+-- and looks nothing up by address.
+enteredBy : SortedMap Address (List Nat) -> SortedMap Node (Defined, List Sites.Site) -> Reached () ->
+            Either Stray (Reached Defined)
+enteredBy families reads (MkReached (Entering c ()) placed via) =
+  (\(d, _) => MkReached (Entering c d) placed via) <$> visitReading families reads c
+enteredBy families reads (MkReached Applying placed via) = Right (MkReached Applying placed via)
+enteredBy families reads (MkReached (Making k) placed via) = Right (MkReached (Making k) placed via)
+enteredBy families reads (MkReached (Filling con) placed via) = Right (MkReached (Filling con) placed via)
+enteredBy families reads (Kept b items) = Right (Kept b items)
 
 -- A definition's name, for an internal error to print; its address when
 -- the context has no entry there.
@@ -2453,7 +2489,7 @@ evaluable _ = Nothing
 ||| evaluated. What lands at a position is read off the walk's own
 ||| numbering (`landingAt`), what the writings as written land as.
 evaluated : {auto c : Ref Ctxt Defs} -> (landingAt : Spot -> Landing) ->
-            List (Node, List (Sites.Site, Reached)) -> Front (List (Node, List (Sites.Site, Reached)))
+            List (Node, List (Sites.Site, Reached Defined)) -> Front (List (Node, List (Sites.Site, Reached Defined)))
 evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w st e) edges)
   where
     -- One closed reading of an argument at a choice of values: nothing
@@ -2483,7 +2519,7 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (s
                       y :: ys => y ::: ys))
     heldAt w st item = pure item
 
-    reachedAt : Node -> Sites.Site -> Reached -> Front Reached
+    reachedAt : Node -> Sites.Site -> Reached Defined -> Front (Reached Defined)
     reachedAt w st (MkReached callee placed via) = do
       placed' <- traverse (\pl => do
                              holds <- traverse (traverse (heldAt w st)) pl.argument.holds
@@ -2511,19 +2547,22 @@ build main = do
   -- Lists are joined by bind, which is linear: base's `concat` and
   -- `concatMap` on a list fold `++` from the left, so every join copies
   -- what came before, the square of the length in all.
-  let fl = flow entered.fields (values entered.sites >>= id)
+  let fl = flow entered.fields (values entered.sites >>= snd)
   reads <- readings fl entered
+  let readSites = map snd (values reads)
   -- The most values one list of held values holds, and every stuck path a
   -- chain of held dispatches can hold, read off every reading's sites
   -- once; and the pair that holds such lists.
-  let counted = countedIn (values reads)
+  let counted = countedIn readSites
   let count = heldCount counted
   pairing <- pairingOf
   -- Every visit's node has its reading (`readings`): one without would
-  -- lose the arcs its sites write.
-  let out : Visit -> Maybe (List (Sites.Site, Reached))
-      out x = (\ss => [(s, r) | s <- ss, r <- reaches fl x s]) <$> SortedMap.lookup (readAt entered.families (visitNode x)) reads
-  let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields (values reads)) out
+  -- lose the arcs its sites write. Each callee a site enters is given the
+  -- definition its node is read at there.
+  let out : Visit -> Either Stray (List (Sites.Site, Reached Defined))
+      out x = visitReading entered.families reads x >>= \(_, ss) =>
+                traverse (\(s, r) => (s,) <$> enteredBy entered.families reads r) [(s, r) | s <- ss, r <- reaches fl x s]
+  let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields readSites) out
                                   (MkVisit root [])
     | Left (Outside x) => do
         n <- nameOf x.definition
@@ -2546,7 +2585,7 @@ build main = do
   -- place's held positions, and what the walked sites' arguments write,
   -- the latest first: the order the check reads the arcs in.
   let fixed = leadingWritings nodes leads ++ fieldWritings nodes entered.fields
-  let writtenBy : List (Node, List (Sites.Site, Reached)) -> List Written -> List Written
+  let writtenBy : List (Node, List (Sites.Site, Reached Defined)) -> List Written -> List Written
       writtenBy ws args =
         let held = heldWritings count pairing (heldChoices ws) ws in
         fixed ++ heldPackings count pairing (pairedPlaces held) ++ held ++ args
@@ -2556,7 +2595,7 @@ build main = do
   -- name; a position only a data type's arguments give is a type
   -- argument, which no cap applies to.
   let args0 = writings walked0
-  capped <- capsOf (targetsOf args0)
+  capped <- capsOf (enteredTargets walked0)
   -- What lands at each position is joined from every writing there, and a
   -- capped position holds every value of its cap's height: the writings
   -- as written are numbered at their places, and what lands is read off
