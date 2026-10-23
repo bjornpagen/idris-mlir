@@ -2273,6 +2273,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   behaviour, not symbols. A program whose holes grow without bound along
   a chain needs unboundedly many instances and is refused as
   megamorphic, where today it would share one.
+  *Sharpened* (L16cz's evidence): the premise holds, since a hole type
+  names the caller's index levels where the form erases them
+  (`Terms.argValueIn`), so a cache hit gives a second request the first's
+  signature today. The holes are written in the callee's telescope, in
+  the link and in the binder the callee reads, never as the caller's
+  levels; the universe heights count held positions as parameter
+  positions are counted; and the hole key is computed by one function the
+  translation and the model both reach through C257's site walk, so it
+  lands with that walk and not before.
 - **C259** (2026-10-22; L16cv's finding, under C256). A choice's member is
   registered with its dictionary reading, the reduct the one
   classification found, so a dispatch arm's member, a held member and
