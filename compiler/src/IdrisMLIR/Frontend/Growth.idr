@@ -19,6 +19,7 @@ import Core.TT
 import IdrisMLIR.Frontend.Growth.Check
 import IdrisMLIR.Frontend.Growth.Graph
 import IdrisMLIR.Frontend.Growth.Heads
+import IdrisMLIR.Frontend.Growth.Indexed
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Definitions
@@ -32,6 +33,7 @@ import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Core.Rules
 
 import Control.Relation
+import Data.DPair
 import Data.Fin
 import Data.List
 import Data.List1
@@ -47,18 +49,48 @@ import Data.Vect
 -- The bounds
 ------------------------------------------------------------------------------
 
+||| What the bounds read of each position, held so that a position is read
+||| in as many steps as a tree over the positions is deep
+||| (`Indexed.indexed`), each tree made once: the spot it was met at, its
+||| potential, its cap.
+record Tables (b : Built) (pot : Vect b.graph.size Nat) where
+  constructor MkTables
+  spotsHeld : Indexed b.position
+  potentialsHeld : Indexed pot
+  capsHeld : Indexed b.graph.caps
+
+tablesOf : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot
+tablesOf b pot = MkTables (indexed b.position) (indexed pot) (indexed b.graph.caps)
+
+||| A position as the bounds read it: the spot it was met at and its bound
+||| under the potential (`bound`), each with the evidence that it is the
+||| graph's there.
+record ReadAt (b : Built) (pot : Vect b.graph.size Nat) (f : Fin b.graph.size) where
+  constructor MkReadAt
+  spotRead : Spot
+  0 isSpot : spotRead = index f b.position
+  boundRead : Nat
+  0 isBound : boundRead = bound b.graph pot f
+
+readAt : {b : Built} -> Tables b pot -> (f : Fin b.graph.size) -> ReadAt b pot f
+readAt ts f =
+  let Element spot isSpot = entryAt f ts.spotsHeld
+      Element p isPotential = entryAt f ts.potentialsHeld
+      Element cap isCap = entryAt f ts.capsHeld in
+  MkReadAt spot isSpot (capped b.graph.constant p cap) (cong2 (capped b.graph.constant) isPotential isCap)
+
 ||| Each node's position's bound under the potential the check found
 ||| (`bound`), in one pass over the places positions were first met at,
 ||| each position once: what the worklist checks an instance of a
 ||| definition's static arguments against. A member at a use is checked
 ||| by its link alone, and a field's, a choice's and the held values'
 ||| positions bound what reads of them write, never a request.
-boundsOf : (b : Built) -> Vect b.graph.size Nat -> SortedMap Position Nat
-boundsOf b pot = foldl at empty b.firsts
+boundsOf : (b : Built) -> Tables b pot -> SortedMap Position Nat
+boundsOf b ts = foldl at empty b.firsts
   where
     at : SortedMap Position Nat -> Fin b.graph.size -> SortedMap Position Nat
-    at acc f = case index f b.position of
-      OfParameter (OfNode node) i => insert (node, i) (bound b.graph pot f) acc
+    at acc f = let r = readAt ts f in case r.spotRead of
+      OfParameter (OfNode node) i => insert (node, i) r.boundRead acc
       OfParameter OfApplication _ => acc
       OfField _ _ => acc
       OfChoice _ => acc
@@ -236,17 +268,26 @@ record Placing (b : Built) (pot : Vect b.graph.size Nat) (fs : List (Fin b.graph
 keptAll r [] = []
 keptAll r (p :: ps) = r.kept _ _ p :: keptAll r ps
 
--- The positions placed one at a time, the last first.
-heightsFrom : (b : Built) -> (pot : Vect b.graph.size Nat) -> (fs : List (Fin b.graph.size)) -> Placing b pot fs
-heightsFrom b pot [] = MkPlacing [] []
-heightsFrom b pot (f :: fs) =
-  let MkPlacing table placed = heightsFrom b pot fs
-      r = raiseFor (index f b.position) (bound b.graph pot f) table in
-  MkPlacing r.raised (r.here :: keptAll r placed)
+-- A position placed as it was read, placed as the graph holds it.
+0 placedAsHeld : {b : Built} -> {pot : Vect b.graph.size Nat} -> {f : Fin b.graph.size} -> {h : Nat} -> {spot : Spot} ->
+                 (r : Raised table h spot) -> spot = index f b.position -> h = bound b.graph pot f ->
+                 PlacedIn r.raised (bound b.graph pot f) (index f b.position)
+placedAsHeld r isSpot isBound =
+  replace {p = \x => PlacedIn r.raised x (index f b.position)} isBound (replace {p = PlacedIn r.raised h} isSpot r.here)
+
+-- The positions placed one at a time, the last first, each read through
+-- the tables.
+heightsFrom : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot -> (fs : List (Fin b.graph.size)) -> Placing b pot fs
+heightsFrom b pot ts [] = MkPlacing [] []
+heightsFrom b pot ts (f :: fs) =
+  let MkPlacing table placed = heightsFrom b pot ts fs
+      MkReadAt spot isSpot h isBound = readAt ts f
+      r = raiseFor spot h table in
+  MkPlacing r.raised (placedAsHeld r isSpot isBound :: keptAll r placed)
 
 ||| Each head's heights by parameter, over every position first met.
-heightsOf : (b : Built) -> (pot : Vect b.graph.size Nat) -> Placing b pot b.firsts
-heightsOf b pot = heightsFrom b pot b.firsts
+heightsOf : (b : Built) -> (pot : Vect b.graph.size Nat) -> Tables b pot -> Placing b pot b.firsts
+heightsOf b pot ts = heightsFrom b pot ts b.firsts
 
 ||| Every position is within its parameter's height in the universe: a
 ||| request whose argument lands at a parameter's position, and is within
@@ -650,7 +691,8 @@ checkGrowth fc main = do
     | Nothing => pure False
   case check b.graph of
     Bounded pot _ => do
-      updateState { bounds := boundsOf b pot, sizes := sizesOf b (heightsOf b pot) }
+      let ts = tablesOf b pot
+      updateState { bounds := boundsOf b ts, sizes := sizesOf b (heightsOf b pot ts) }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

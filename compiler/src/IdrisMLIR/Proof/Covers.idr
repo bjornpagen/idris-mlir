@@ -53,7 +53,21 @@
 ||| - at a match, the host's half: an alternative the trace passes by is one
 |||   the host misses (`passedMisses`), and a data constructor at another
 |||   entry than an alternative of its tag leaves the host's walk stuck
-|||   (`sharedTagStuck`).
+|||   (`sharedTagStuck`); what the reader read the scrutinee as, the host's
+|||   step meets as it is, through its dots (`constructedScrutinised`,
+|||   `literalScrutinised`: `Readings.scrutineeOf` returns the host's
+|||   evidence); and a literal's alternatives, which the trace compares by
+|||   the evaluator's own comparison, are missed and matched as the host
+|||   misses and matches them (`literalPassedMisses`, `literalTaken`,
+|||   `literalTypePassed`, `literalTypeTaken`, `literalFieldsMissed`);
+||| - a name the context gives no address it defines as nothing
+|||   (`unaddressedUndefined`), since every name it defines has one
+|||   (`definedAddressed`, from `Idris.Host.definedPlaced`), so the
+|||   induction at such a name is proved from its address alone
+|||   (`undefinedCovers`);
+||| - the lemma at its statement, for a kind read off the host's normal
+|||   form, over what a request holds (`Template.HeldAs`), which at such a
+|||   kind is the term whole (`normalHeldWhole`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
@@ -67,52 +81,51 @@
 |||   `NodeCovers` at each node, which the lemmas above take. The site's
 |||   term naming no unknown by a marker's name is `readingFromNormal`'s
 |||   premise, a fact of the walk's terms no module states;
-||| - under a binder: `NodeCovers` states closed terms only; a lambda's or
-|||   a function type's body is read in a scope the instance's values are
-|||   put in under (`putIn` at an outer scope) with its variable read as an
-|||   argument of the value, so the induction needs that statement, and,
+||| - under a binder: `NodeCovers` states closed terms only. A lambda's or
+|||   a function type's body is a term of one variable more, which the
+|||   site reads with its variable an argument of the value (`Formal`) and
+|||   the host reduces under the binder (`Idris.Host.ABind`), the values
+|||   put in under it (`putIn` at an outer scope of that variable). The
+|||   induction needs `NodeCovers` over a scope: its reduction of the term
+|||   with the values put in at that outer scope, its reading in an
+|||   environment of substitutes, and `Writes` at a `Formal` for the
+|||   variable whatever number the instance gives it (`AtFormal`); and,
 |||   where the instance contracts a lambda the site keeps, a reading of
 |||   `g x` from a reading of `g` (`DropsLast`);
 ||| - a call the site reads beside its unfolding (`SBeside`, `Reducing`,
 |||   `Unfolds`): the instance's evaluation of the call with the values put
 |||   in either takes no `Unfold` step, leaving the call as written, or
 |||   takes the one whose `Chooses` walks the same alternatives the trace
-|||   took. The host's half of each alternative the trace passes or is
-|||   stuck at is above; what is left is the frontend's: `scrutineeOf`'s
-|||   `Constructed h c sargs` giving `HeadedAs h c sargs` of the term it
-|||   read, through its dots (`Idris.Host.Shows`) and through `putIn`;
-|||   a literal's alternatives, which `Readings.TakesLiteral` passes and
-|||   takes by the syntax of the constants (`LiteralPasses`, `LiteralThis`)
-|||   where the host compares them by the evaluator's equality
-|||   (`Idris.Host.OtherConstant`, `ByConstant`), so two doubles equal but
-|||   spelt apart, or a NaN, take apart; the trace's `ArityDiffers`, a stuck
-|||   walk only where an entry's constructor has the tag the alternative
-|||   names, which the host does not state; each alternative it takes a
-|||   `Matches`; and the instance's normal form of the leaf related to the
-|||   site's reading of it (`Idris.Host.reachesNormalForm` with putting
-|||   values in commuting with the normaliser's steps);
-||| - a name the context gives no address (`SNoDefinition`): the induction
-|||   there is proved from the context defining the name as nothing
-|||   (`undefinedCovers`), which follows from every defined name having an
-|||   address (`unaddressedUndefined`, over `PlacedWhereDefined`). That
-|||   fact is the host's and no module states it: `Idris.Host` stating that
-|||   a name it defines resolves to an entry that is not negative (its
-|||   frozen entries are read from entry 0 up, but `IntMap` states nothing
-|||   of a lookup after an insert, so the host carries the fact where it
-|||   reads them), and `Walk.placementIn` and
-|||   `Definitions.definitionAddress` giving an address to a name resolved
-|||   to such an entry;
-||| - a shape: the lemma states an instance's reading of the site's term
-|||   with the values put in, but a request holds the skeleton of that term
-|||   (`Instances.argumentShape`, `Closed.skeleton`), and the instance
-|||   reads every node of what it is given. Where the site's skeleton cuts
-|||   a node to one leaf (`Readings.nodeOf Skeleton`: an applied call, a
-|||   type constructor applied), the instance reads the node whole, and no
-|||   `Writes` takes a leaf to a node above parts, so the statement is
-|||   false at a shape until it is over the skeleton the request holds,
-|||   which the translation's site table (C222) gives it: there the cut
-|||   node is a hole, read as one leaf (`AtLeaf`), and a marker the
-|||   skeleton cuts is `AtCut`;
+|||   took. The host's half of each alternative is above; what is left: the
+|||   scrutinee's evidence carried through putting the values in, which the
+|||   host proves (`putInMapped`, `mappedShows`, `mappedSpine`) but does not
+|||   export, so no proof here can read it; the trace's `ArityDiffers`, a
+|||   stuck walk only where an entry's constructor has the tag the
+|||   alternative names, which the host does not state; each alternative it
+|||   takes a `Matches`; and the instance's normal form of the leaf related
+|||   to the site's reading of it (`Idris.Host.reachesNormalForm` with
+|||   putting values in commuting with the normaliser's steps);
+||| - a shape: the lemma now reads what the request holds, the skeleton of
+|||   the term with the values put in (`Template.HeldAs`), against the
+|||   site's skeleton (`Readings.nodeOf Skeleton`), and so is no longer
+|||   false there; its induction is a node at a time over the request's
+|||   skeleton (`Readings.SkeletonOf`): a constructor both keep writes
+|||   itself (`AtHead`), a node both cut a hole one high (`AtLeaf`), a
+|||   marker the value put in for which is itself a skeleton what the
+|||   markers hold (`markerWrites`), and one the request cuts a hole within
+|||   it (`AtCut`). It lacks three facts. The request cuts the term as
+|||   written, before its unknowns are solved and it is contracted, the
+|||   site after both, so the two cut at one node only where neither moves
+|||   a constructor: a lambda whose contraction is a constructor applied,
+|||   or an unknown solved as one, is cut by one and kept by the other, so
+|||   the skeleton is to be carried through solving and contraction, or the
+|||   two cut at one point. The runtime probe a cut leaves reads as one leaf
+|||   only as a function no context defines (`SNoDefinition`), but
+|||   `Walk.probeTerm` is exported opaque, so no proof here sees which term
+|||   it is. And the evidence itself, `HeldAs` of the site's term at the
+|||   requesting instance's values, is what the translation's site table
+|||   is to give each request: `Closed.skeleton` returning its
+|||   `SkeletonOf`, `Instances.argumentShape` keeping it with the site;
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
@@ -1317,12 +1330,25 @@ public export
 0 siteNormal : ReadOffNormal k -> (r : SiteReading k t) -> Reduct OfNormaliseTypes r.mode.inContext t
 siteNormal nk r = (normalOnly nk r.formFrom).fst.reduct
 
+||| A request holds a kind read off the host's normal form whole: only a
+||| shape's holds its skeleton.
+export
+0 normalHeldWhole : ReadOffNormal k -> HeldAs ctx k u held -> held = u
+normalHeldWhole _ (HeldWhole _) = Refl
+normalHeldWhole TypeReadNormal (HeldWritten _) impossible
+normalHeldWhole TypeReadNormal (HeldNormal _ _ _) impossible
+normalHeldWhole FamilyReadNormal (HeldWritten _) impossible
+normalHeldWhole FamilyReadNormal (HeldNormal _ _ _) impossible
+normalHeldWhole FormReadNormal (HeldWritten _) impossible
+normalHeldWhole FormReadNormal (HeldNormal _ _ _) impossible
+
 ||| The reading lemma, as the growth proof states it, for a kind read off
 ||| the host's normal form, from its induction at the site's normal form
 ||| (`coversAtRoot`) for every set of markers and the values put in for
-||| them: the markers are fresh for the context (`Proof.Markers.Markers`),
-||| and the site's term names no unknown by a marker's name, a fact of the
-||| walk's terms no module states yet, so it is this lemma's premise.
+||| them: a request holds such a kind whole (`normalHeldWhole`), the
+||| markers are fresh for the context (`Proof.Markers.Markers`), and the
+||| site's term names no unknown by a marker's name, a fact of the walk's
+||| terms no module states yet, so it is this lemma's premise.
 export
 0 readingFromNormal : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 stands : List StandIn} ->
                       {0 k : Readings.Static} -> {0 t : ClosedTerm} -> (nk : ReadOffNormal k) -> (r : SiteReading k t) ->
@@ -1331,7 +1357,8 @@ export
                        MarkersHold m s r.mode.inContext stands mk.bounds vs ->
                        NodeCovers m s (evaluationOf OfNormaliseTypes) r.mode.inContext mk.bounds vs (siteNormal nk r).value r.template) ->
                       ReadingCovers m s stands k t r
-readingFromNormal nk r none covers mk vs held inst = coversAtRoot nk mk.fresh (none mk) (siteNormal nk r) (covers mk vs held) inst
+readingFromNormal nk r none covers mk vs marked holds inst = case normalHeldWhole nk holds of
+  Refl => coversAtRoot nk mk.fresh (none mk) (siteNormal nk r) (covers mk vs marked) inst
 
 ||| What an instance writes under a site's reading, the template written at
 ||| a node, it writes under the template the graph's site holds, that
@@ -1347,9 +1374,10 @@ landedWrites ls same wr =
 ||| from the reading lemma at the site the request read: the graph's site
 ||| holds the template the argument was written as read where its writer's
 ||| families land (`Graph.SiteLanding`), which is its reading's template as
-||| the target is given it (`Sites.writtenReading`), and the lemma gives what it
-||| writes at the instance's reading of the argument, which giving it to
-||| the target (`asGivenWrites`) and that reading keep (`landedWrites`).
+||| the target is given it (`Sites.writtenReading`), and the lemma gives
+||| what it writes at the instance's reading of what the request holds of
+||| the site's term (`Template.HeldAs`), which giving it to the target
+||| (`asGivenWrites`) and that reading keep (`landedWrites`).
 export
 0 siteWritesRead : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {c : Nat -> Landing} -> (s : SiteOf m p) ->
                    (r : SiteReading k t) -> (given : Maybe ChoiceHead) -> (root : Root) -> LandingsWrite m s.site c ->
@@ -1357,10 +1385,11 @@ export
                    ReadingCovers m s.site stands k t r ->
                    (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
                    MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
-                   (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
+                   HeldAs r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t) held ->
+                   (inst : InstanceReading r.mode.inContext k held) ->
                    SiteWrites m p inst.template
-siteWritesRead s r given root ls same covers mk vs held inst =
-  siteWritten s (landedWrites ls same (asGivenWrites given root (covers mk vs held inst)))
+siteWritesRead s r given root ls same covers mk vs marked holds inst =
+  siteWritten s (landedWrites ls same (asGivenWrites given root (covers mk vs marked holds inst)))
 
 ------------------------------------------------------------------------------
 -- Templates that name nothing
@@ -1806,44 +1835,42 @@ undefinedRead {args} none s (ASpine sp) = case undefinedSpine none (spineRead s 
 partWrites [] = AtLeaf
 partWrites (w :: rest) = AtHead (AtLeaf :: w :: rest)
 
-||| The induction at a function the context defines as nothing, applied,
-||| in a form that keeps every node: putting values in keeps the function,
-||| the host's steps reduce only its arguments
+||| Every name a frozen context defines has an address: the host reads its
+||| entries from entry 0 up, so a defined name resolves to a non-negative
+||| entry (`Idris.Host.definedPlaced`), which has a place and so an address
+||| (`Definitions.addressedWhereResolved`).
+export
+0 definedAddressed : Defines ctx n d -> (a : Address ** AddressedAs (InstanceMode ctx) n (Just a))
+definedAddressed defines = case definedPlaced defines of
+  (i ** (resolved, nonNegative)) => addressedWhereResolved resolved nonNegative
+
+||| A name the context gives no address it defines as nothing.
+export
+0 unaddressedUndefined : AddressedAs (InstanceMode ctx) n Nothing -> (d : GlobalDef) -> Not (Defines ctx n d)
+unaddressedUndefined none d defines = case definedAddressed defines of
+  (a ** addressed) => nothingNotJust (trans (sym none) addressed)
+
+||| The induction at a function the context gives no address, applied, in
+||| a form that keeps every node: the context defines it as nothing
+||| (`unaddressedUndefined`), so putting values in keeps the function, the
+||| host's steps reduce only its arguments
 ||| (`Proof.Inversion.InertUndefined`), contraction keeps it, and the
 ||| instance reads it as the site does, a part over what each argument
 ||| writes, by the induction at each.
 export
 0 undefinedCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
                     {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
-                    (0 none : (d : GlobalDef) -> Not (Defines ctx n d)) -> (0 at : AddressedAs (InstanceMode ctx) n Nothing) ->
+                    (0 at : AddressedAs (InstanceMode ctx) n Nothing) ->
                     Spine u (Ref fc Func n) args -> AllNodeCovers m s ev ctx bs vs args ts -> {0 w, v : ClosedTerm} ->
                     Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) w -> Irreducible ev ctx w ->
                     EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
                     Writes m s (partOf EveryNode (Leaf 1) ts) r
-undefinedCovers {ns} {bs} {vs} none at sp covers steps normal contracted maximal r read =
-  case inertPutIn SizeOf.zero (mkSizeOf ns) bs vs (InertUndefined none) KeptFunc sp steps of
+undefinedCovers {ns} {bs} {vs} at sp covers steps normal contracted maximal r read =
+  case inertPutIn SizeOf.zero (mkSizeOf ns) bs vs (InertUndefined (unaddressedUndefined at)) KeptFunc sp steps of
     ReducedUnder sw rs => case refContracts sw contracted of
       ContractedUnder sv cs => case undefinedRead at sv read of
         (outs ** (Refl, reads)) =>
           partWrites (coversAll covers rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal) reads)
-
-||| That every name a frozen context defines has an address: what the
-||| induction needs where a site's term holds a function the context gives
-||| none (`undefinedCovers`). It is the host's fact: the frozen entries are
-||| read from entry 0 up, so a defined name resolves to a non-negative
-||| entry, which `Walk.placementIn` places. No module states it yet; this
-||| is its statement, which `Idris.Host` is to prove.
-public export
-0 PlacedWhereDefined : Frozen -> Type
-PlacedWhereDefined ctx = {0 n : Name} -> {0 d : GlobalDef} -> Defines ctx n d -> (a : Address ** AddressedAs (InstanceMode ctx) n (Just a))
-
-||| A name the context gives no address it defines as nothing, wherever
-||| every name it defines has an address.
-export
-0 unaddressedUndefined : PlacedWhereDefined ctx -> AddressedAs (InstanceMode ctx) n Nothing ->
-                         (d : GlobalDef) -> Not (Defines ctx n d)
-unaddressedUndefined placed none d defines = case placed defines of
-  (a ** addressed) => nothingNotJust (trans (sym none) addressed)
 
 ------------------------------------------------------------------------------
 -- Binders, inverted
@@ -1912,13 +1939,6 @@ piReduces (ABind (APi pr tr) sr) = (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr))
 -- Alternatives a match passes and is stuck at, as the host takes them
 ------------------------------------------------------------------------------
 
-||| A term a constructor heads, as a match meets it: a data constructor of
-||| its tag, or a type constructor, applied to its fields.
-public export
-data HeadedAs : ConstructorHead -> Name -> List (Term vs) -> Term vs -> Type where
-  DataHeaded : Spine s (Ref rfc (DataCon tag arity) c) fields -> HeadedAs (DataHead tag) c fields s
-  FamilyHeaded : Spine s (Ref rfc (TyCon arity) c) fields -> HeadedAs FamilyHead c fields s
-
 ||| An alternative a match passes by (`Readings.TakenBy`'s `PassesThis`),
 ||| at another entry than the constructor it meets and missed as the host
 ||| misses it (`Readings.Missed`), is one the host's step misses there
@@ -1966,3 +1986,59 @@ export
                    Picks ev ctx env s (ConCase con tag cargs sc :: alts) v -> Void
 sharedTagStuck (DataHeaded sp) other (Takes matched) = sharedNotMatched sp other matched
 sharedTagStuck (DataHeaded sp) other (Skips missed _) = sharedNotMissed sp missed
+
+------------------------------------------------------------------------------
+-- Alternatives a match on a literal passes and takes, as the host does
+------------------------------------------------------------------------------
+
+||| A constant alternative a match on a literal passes by
+||| (`Readings.TakesLiteral`'s `LiteralPasses`) is one the host's step
+||| misses there (`Idris.Host.OtherConstant`), and one it takes
+||| (`LiteralMeets`) one the step matches (`Idris.Host.ByConstant`): the
+||| trace compares the two constants by the evaluator's comparison, the one
+||| the step decides by, so two doubles equal but spelt apart meet and a
+||| NaN meets none, at the site as at every instance.
+export
+0 literalPassedMisses : (k' == k) = False -> Misses ctx (PrimVal fc k) (ConstCase k' sc)
+literalPassedMisses differs = OtherConstant differs
+
+export
+0 literalTaken : {0 ev : Evaluation} -> (k' == k) = True -> Chooses ev ctx env sc v ->
+                 Matches ev ctx env (PrimVal fc k) (ConstCase k' sc) v
+literalTaken same chosen = ByConstant same chosen
+
+||| An alternative of a primitive type that binds nothing, passed by a
+||| literal of another type (`LiteralOtherType`), the host's step misses
+||| (`Idris.Host.OtherPrimitiveType`), and one of its type
+||| (`LiteralNamesType`) the step matches (`Idris.Host.ByPrimitiveType`),
+||| each by the comparison the step decides by; one that binds fields
+||| (`LiteralFields`) it misses (`Idris.Host.PrimitiveFields`).
+export
+0 literalTypePassed : (map PrT (isConstantType (dropNS cn)) == Just k) = False ->
+                      Misses ctx (PrimVal fc k) (ConCase cn tag [] sc)
+literalTypePassed other = OtherPrimitiveType other
+
+export
+0 literalTypeTaken : {0 ev : Evaluation} -> (map PrT (isConstantType (dropNS cn)) == Just k) = True ->
+                     Chooses ev ctx env sc v -> Matches ev ctx env (PrimVal fc k) (ConCase cn tag [] sc) v
+literalTypeTaken named chosen = ByPrimitiveType named chosen
+
+export
+0 literalFieldsMissed : Misses ctx (PrimVal fc k) (ConCase cn tag (f :: fs) sc)
+literalFieldsMissed = PrimitiveFields
+
+||| What a match on a literal meets, the reader's view of its scrutinee
+||| (`Readings.scrutineeOf`'s `Literal`), the host's step meets as it is,
+||| through its dots (`Idris.Host.AsItIs`).
+export
+0 literalScrutinised : {0 ev : Evaluation} -> scrutineeOf c stands s = Literal {fc} k shown -> Scrutinised ev ctx s (PrimVal fc k)
+literalScrutinised {shown} _ = AsItIs shown
+
+||| What a match on a constructor meets (`Readings.scrutineeOf`'s
+||| `Constructed`) the host's step meets as it is, through its dots, headed
+||| as the reader read it.
+export
+0 constructedScrutinised : {0 ev : Evaluation} -> scrutineeOf c stands s = Constructed h n fields {u} shown headed ->
+                           (Scrutinised ev ctx s u, HeadedAs h n fields u)
+constructedScrutinised {shown} {headed} _ = (AsItIs shown, headed)
+

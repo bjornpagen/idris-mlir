@@ -11,7 +11,8 @@
 ||| (`primitiveWithin`): a sum or a product of two sizes, a size times two to
 ||| a size, and two to four times a size are each below 2^(4x) * (x + 2), and
 ||| a fixed width's 2^64, a double's text and a cast's 2^1024 below 2^1024,
-||| whose exponent is held behind its name (`Proof.Widest.widestExponent`).
+||| each exponent the host's, held behind its name
+||| (`Core.Primitives.Host.widthExponent`, `widestExponent`).
 ||| With the host's bound, what the table computes from constants no larger
 ||| than x is so (`computedGrown`). No power of two is ever computed: each is
 ||| compared through `Proof.Requests.powerMono`, by its exponent.
@@ -19,11 +20,11 @@
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Primitives
 
+import Core.Primitives.Host
 import Core.TT
 import Idris.Host
 
 import IdrisMLIR.Proof.Requests
-import IdrisMLIR.Proof.Widest
 
 import Control.Relation
 import Data.Fin
@@ -38,7 +39,7 @@ import Data.Vect
 
 -- What `grown x` is above, less one: its two parts.
 0 Room : Nat -> Nat
-Room x = power 2 (4 * x) * (x + 2) + power 2 widestExponent
+Room x = power 2 (4 * x) * (x + 2) + power 2 Host.widestExponent
 
 -- A number is below two to it.
 0 belowItsPower : (x : Nat) -> Nat.LTE x (power 2 x)
@@ -92,30 +93,28 @@ shiftBelow x =
   rewrite multCommutative x (power 2 x) in
     timesMono (powerMono {a = x} {b = 4 * x} (lteAddRight {m = 3 * x} x)) (lteAddRight {m = 2} x)
 
--- The bounds below the second part, 2^1024, each by its exponent.
+-- The bounds below the second part, 2^1024, each by its exponent; a
+-- cast to Integer's own 2^1024 is that part itself.
 
-0 widthBelow : Nat.LTE (power 2 64) (power 2 widestExponent)
-widthBelow = powerMono {a = 64} {b = widestExponent} (withinWidest 64 (lteAddRight {m = 960} 64))
+0 widthBelow : Nat.LTE (power 2 Host.widthExponent) (power 2 Host.widestExponent)
+widthBelow = powerMono widthWithinWidest
 
-0 castBelow : Nat.LTE (power 2 1024) (power 2 widestExponent)
-castBelow = powerMono {a = 1024} {b = widestExponent} (withinWidest 1024 reflexive)
-
-0 textBelow : Nat.LTE 49 (power 2 widestExponent)
-textBelow = transitive (withinWidest 49 (lteAddRight {m = 975} 49)) (belowItsPower widestExponent)
+0 textBelow : Nat.LTE 49 (power 2 Host.widestExponent)
+textBelow = transitive (withinWidest 49 (lteAddRight {m = 975} 49)) (belowItsPower Host.widestExponent)
 
 -- Each part within the room.
 
 0 inFirst : {x : Nat} -> Nat.LTE e (power 2 (4 * x) * (x + 2)) -> Nat.LTE e (Room x)
 inFirst le = transitive le (lteAddRight (power 2 (4 * x) * (x + 2)))
 
-0 inSecond : {x : Nat} -> Nat.LTE e (power 2 widestExponent) -> Nat.LTE e (Room x)
+0 inSecond : {x : Nat} -> Nat.LTE e (power 2 Host.widestExponent) -> Nat.LTE e (Room x)
 inSecond le =
-  transitive le (replace {p = Nat.LTE (power 2 widestExponent)}
-                         (plusCommutative (power 2 widestExponent) (power 2 (4 * x) * (x + 2)))
-                         (lteAddRight (power 2 widestExponent)))
+  transitive le (replace {p = Nat.LTE (power 2 Host.widestExponent)}
+                         (plusCommutative (power 2 Host.widestExponent) (power 2 (4 * x) * (x + 2)))
+                         (lteAddRight (power 2 Host.widestExponent)))
 
 -- A bound below the first part, wrapped to a fixed width.
-0 wrapped : {x : Nat} -> Nat.LTE e (power 2 (4 * x) * (x + 2)) -> Nat.LTE (e + power 2 64) (Room x)
+0 wrapped : {x : Nat} -> Nat.LTE e (power 2 (4 * x) * (x + 2)) -> Nat.LTE (e + power 2 Host.widthExponent) (Room x)
 wrapped le = plusLteMonotone le widthBelow
 
 ------------------------------------------------------------------------------
@@ -126,7 +125,7 @@ wrapped le = plusLteMonotone le widthBelow
 -- string's one more than its argument, a double's text, nothing for a
 -- character or the world, and any fixed width its argument wrapped.
 0 castWithin : (from, to : PrimType) -> (x : Nat) -> Nat.LTE (resultBound (Cast from to) [x]) (Room x)
-castWithin from IntegerType x = plusLteMonotone (powerBelow x) castBelow
+castWithin from IntegerType x = plusLteMonotone (powerBelow x) reflexive
 castWithin from StringType x = inFirst {x} (rewrite plusCommutative x 1 in succBelow x)
 castWithin from CharType x = LTEZero
 castWithin from DoubleType x = inSecond textBelow
@@ -154,11 +153,11 @@ boundWithin (ShiftR _) x = wrapped {x} (shiftBelow x)
 boundWithin (BAnd _) x = wrapped {x} (sumBelow x)
 boundWithin (BOr _) x = wrapped {x} (sumBelow x)
 boundWithin (BXOr _) x = wrapped {x} (sumBelow x)
-boundWithin (Primitive.LT _) x = inSecond {x} (powerPositive widestExponent)
-boundWithin (Primitive.LTE _) x = inSecond {x} (powerPositive widestExponent)
-boundWithin (Primitive.EQ _) x = inSecond {x} (powerPositive widestExponent)
-boundWithin (Primitive.GTE _) x = inSecond {x} (powerPositive widestExponent)
-boundWithin (Primitive.GT _) x = inSecond {x} (powerPositive widestExponent)
+boundWithin (Primitive.LT _) x = inSecond {x} (powerPositive Host.widestExponent)
+boundWithin (Primitive.LTE _) x = inSecond {x} (powerPositive Host.widestExponent)
+boundWithin (Primitive.EQ _) x = inSecond {x} (powerPositive Host.widestExponent)
+boundWithin (Primitive.GTE _) x = inSecond {x} (powerPositive Host.widestExponent)
+boundWithin (Primitive.GT _) x = inSecond {x} (powerPositive Host.widestExponent)
 boundWithin StrLength x = inFirst {x} (sizeBelow x)
 boundWithin StrHead x = LTEZero
 boundWithin StrTail x = inFirst {x} (sizeBelow x)

@@ -1374,38 +1374,17 @@ applying number =
   eachPlaced (\acc, w, s, _, pl => mapMaybe (\i => (.number) <$> lookup (spotAt w s.params i) number)
                                             ((pl.argument.template :: heldTemplates pl.argument) >>= applyingIn) ++ acc) []
 
--- How many positions a walk has not visited.
-unvisited : Vect n Bool -> Nat
-unvisited [] = 0
-unvisited (b :: bs) = (if b then 0 else 1) + unvisited bs
-
--- A position marked visited.
-mark : Fin n -> Vect n Bool -> Vect n Bool
-mark FZ (_ :: bs) = True :: bs
-mark (FS x) (b :: bs) = b :: mark x bs
-
--- Visiting a position not visited leaves one fewer.
-0 visitLeaves : (x : Fin n) -> (vis : Vect n Bool) -> Vect.index x vis = False -> LT (unvisited (mark x vis)) (unvisited vis)
-visitLeaves FZ (False :: bs) _ = reflexive
-visitLeaves FZ (True :: bs) eq = absurd eq
-visitLeaves (FS x) (False :: bs) eq = LTESucc (visitLeaves x bs eq)
-visitLeaves (FS x) (True :: bs) eq = visitLeaves x bs eq
-
--- A flag, with what it is.
-flag : (b : Bool) -> Either (b = True) (b = False)
-flag True = Left Refl
-flag False = Right Refl
-
 -- Every position reachable from the queue along the carries, each once,
--- with those found before: a walk that visits each position once, so each
--- visit leaves fewer unvisited, the measure it recurses on; nothing counts
--- its steps.
-spread : (next : Fin n -> List (Fin n)) -> (vis : Vect n Bool) -> (0 acc : Accessible LT (unvisited vis)) ->
+-- with those found before: a walk that visits each position once, its
+-- marks a tree made once (`Indexed.Marks`), so a visit costs the tree's
+-- depth and a first one leaves fewer unvisited, the measure it recurses
+-- on; nothing counts its steps.
+spread : (next : Fin n -> List (Fin n)) -> (marks : Marks n left) -> (0 acc : Accessible LT left) ->
          (found : List (Fin n)) -> List (Fin n) -> List (Fin n)
-spread next vis _ found [] = found
-spread next vis (Access rec) found (x :: xs) = case flag (Vect.index x vis) of
-  Left _ => spread next vis (Access rec) found xs
-  Right fresh => spread next (mark x vis) (rec _ (visitLeaves x vis fresh)) (x :: found) (next x ++ xs)
+spread next marks _ found [] = found
+spread next marks (Access rec) found (x :: xs) = case visitMark x marks of
+  SeenBefore => spread next marks (Access rec) found xs
+  FirstSeen marks' fewer => spread next marks' (rec _ fewer) (x :: found) (next x ++ xs)
 
 -- A landing that computes, which carries on.
 computes : Maybe Landing -> Bool
@@ -1436,13 +1415,13 @@ carriedTo number nodes leads walked t = case computingFrom 0 t Refl of
   [] => []
   seeds@(_ :: _) =>
     let cs = carried number nodes leads walked
-        asked = spread (\x => fromMaybe [] (lookup (finToNat x) cs.back)) (replicate n False) (wellFounded _) []
+        asked = spread (\x => fromMaybe [] (lookup (finToNat x) cs.back)) (noneVisited n) (wellFounded _) []
                        (applying number walked)
         askedSet = SortedSet.fromList (map finToNat asked)
         onward = \x => filter (\y => contains (finToNat y) askedSet) (fromMaybe [] (lookup (finToNat x) cs.onward)) in
     -- What a computing value is carried on to: a position it lands at as
     -- written keeps its landing (an evaluable one its values).
-    spread onward (replicate n False) (wellFounded _) [] (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
+    spread onward (noneVisited n) (wellFounded _) [] (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
 
 -- A table with a computing value carried on from where one lands.
 carriedFrom : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->

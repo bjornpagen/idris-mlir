@@ -13,6 +13,12 @@
 ||| `natToFinLT` and `finToNat` the identity. What a read returns carries,
 ||| at quantity 0, that it is `Vect.index` of the vector there, so every
 ||| proof stated over the vector holds of what is read.
+|||
+||| The marks of a walk that visits each position once are held as such a
+||| tree too (`Marks`), made once with none visited: a visit reads and marks
+||| its position in as many steps as the tree is deep, and the count of
+||| positions left unvisited is the tree's index, which a first visit
+||| lowers, the measure the walk recurses on.
 module IdrisMLIR.Frontend.Growth.Indexed
 
 import IdrisMLIR.Proof.Growth
@@ -186,3 +192,68 @@ heldBy (HalvesAt m k) v (Access rec) = case cut m v of
 export
 indexed : {n : Nat} -> (v : Vect n a) -> Indexed v
 indexed v = heldBy (halves n) v (wellFounded n)
+
+------------------------------------------------------------------------------
+-- Marks
+------------------------------------------------------------------------------
+
+||| Which of n positions a walk has visited, held as a tree as `Indexed`
+||| holds a vector, with the count of those left unvisited as its index: a
+||| node is its position, visited or not, between the part before it, m
+||| long, and the part after.
+public export
+data Marks : (n, left : Nat) -> Type where
+  NoMarks : Marks Z Z
+  Seen : (m : Nat) -> Marks m lb -> Marks k la -> Marks (m + S k) (lb + la)
+  Unseen : (m : Nat) -> Marks m lb -> Marks k la -> Marks (m + S k) (S (lb + la))
+
+||| A position visited: seen before, or seen first now, with the marks
+||| after it, one fewer left unvisited.
+public export
+data Visiting : (n, left : Nat) -> Type where
+  SeenBefore : Visiting n left
+  FirstSeen : Marks n left' -> (0 _ : LT left' left) -> Visiting n left
+
+0 fewerBefore : LT lb' lb -> LT (lb' + la) (lb + la)
+fewerBefore {lb'} {lb} {la} lt = plusLteMonotoneRight la (S lb') lb lt
+
+0 fewerAfter : LT la' la -> LT (lb + la') (lb + la)
+fewerAfter {lb} {la'} {la} lt = rewrite plusSuccRightSucc lb la' in plusLteMonotoneLeft lb (S la') la lt
+
+||| A position visited, found by its number against the part before each
+||| node, as `entryAt` finds one.
+export
+visitMark : (pos : Fin n) -> Marks n left -> Visiting n left
+visitMark pos NoMarks = absurd pos
+visitMark pos (Seen m {k} before after) = case placed m (finToNat pos) of
+  Before below => case visitMark (natToFinLT (finToNat pos) {prf = below}) before of
+    SeenBefore => SeenBefore
+    FirstSeen before' fewer => FirstSeen (Seen m before' after) (fewerBefore fewer)
+  AtNode _ => SeenBefore
+  After j past =>
+    let 0 within := pastBelow m j (replace {p = \q => LT q (m + S k)} past (elemSmallerThanBound pos)) in
+    case visitMark (natToFinLT j {prf = within}) after of
+      SeenBefore => SeenBefore
+      FirstSeen after' fewer => FirstSeen (Seen m before after') (fewerAfter fewer)
+visitMark pos (Unseen m {k} before after) = case placed m (finToNat pos) of
+  Before below => case visitMark (natToFinLT (finToNat pos) {prf = below}) before of
+    SeenBefore => SeenBefore
+    FirstSeen before' fewer => FirstSeen (Unseen m before' after) (LTESucc (fewerBefore fewer))
+  AtNode _ => FirstSeen (Seen m before after) lteRefl
+  After j past =>
+    let 0 within := pastBelow m j (replace {p = \q => LT q (m + S k)} past (elemSmallerThanBound pos)) in
+    case visitMark (natToFinLT j {prf = within}) after of
+      SeenBefore => SeenBefore
+      FirstSeen after' fewer => FirstSeen (Unseen m before after') (LTESucc (fewerAfter fewer))
+
+-- None of a length cut so visited, each side shorter than the whole.
+unvisitedBy : {0 n : Nat} -> Halves n -> (0 _ : Accessible LT n) -> Marks n n
+unvisitedBy NoHalves _ = NoMarks
+unvisitedBy (HalvesAt m k) (Access rec) =
+  replace {p = Marks (m + S k)} (plusSuccRightSucc m k)
+    (Unseen m (unvisitedBy (halves m) (rec m (beforeShorter m k))) (unvisitedBy (halves k) (rec k (afterShorter m k))))
+
+||| The marks of n positions, none visited, made once.
+export
+noneVisited : (n : Nat) -> Marks n n
+noneVisited n = unvisitedBy (halves n) (wellFounded n)

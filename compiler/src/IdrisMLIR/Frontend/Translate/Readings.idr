@@ -27,6 +27,7 @@ import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
+import Data.DPair
 import Data.List
 import Data.List1
 import Data.Vect
@@ -495,6 +496,26 @@ referenceOf ctx stands Func n = maybe RuntimePart AtDefinition (definitionAddres
 public export
 data Keeping = EveryNode | Skeleton
 
+mutual
+  ||| A term's skeleton, as a shape's key holds it (`Closed.skeleton`): the
+  ||| data constructor that heads it, applied to each argument's own
+  ||| skeleton, every argument that has none (no data constructor heads it)
+  ||| cut to one hole, the runtime probe. A hole stands for the node it cut,
+  ||| as a site's reading of a shape reads a part that is no data
+  ||| constructor as one hole (`nodeOf Skeleton`). Only a term a data
+  ||| constructor heads has a skeleton.
+  public export
+  data SkeletonOf : ClosedTerm -> ClosedTerm -> Type where
+    SkeletonHead : SkeletonOf (Ref fc (DataCon tag arity) n) (Ref fc (DataCon tag arity) n)
+    SkeletonApplied : SkeletonOf f f' -> ArgumentCut a a' -> SkeletonOf (App fc f a) (App fc f' a')
+
+  ||| An argument of a skeleton: its own skeleton, or, where it has none, the
+  ||| hole that stands for it.
+  public export
+  data ArgumentCut : ClosedTerm -> ClosedTerm -> Type where
+    ArgumentKept : SkeletonOf a a' -> ArgumentCut a a'
+    ArgumentCutAt : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf a s)) -> ArgumentCut a (probeTerm ProbeRuntime)
+
 ||| What a reading does with a definition left applied: keep it as
 ||| written, as a written key holds it and as an instance's term is the
 ||| key; unfold its case tree beside the call as written, as a site's term
@@ -608,42 +629,61 @@ data Missed : ConstructorHead -> Int -> Type where
 -- What a match meets
 ------------------------------------------------------------------------------
 
-||| What a match meets, parsed once: a data or type constructor applied, a
-||| literal, a delay, a part of the writer's parameter (by its parameter
+||| A term a constructor heads, as a match meets it: a data constructor of
+||| its tag, or a type constructor, applied to its fields, with the host's
+||| evidence of the spine (`Idris.Host.Spine`).
+public export
+data HeadedAs : ConstructorHead -> Name -> List (Term vs) -> Term vs -> Type where
+  DataHeaded : Spine s (Ref rfc (DataCon tag arity) c) fields -> HeadedAs (DataHead tag) c fields s
+  FamilyHeaded : Spine s (Ref rfc (TyCon arity) c) fields -> HeadedAs FamilyHead c fields s
+
+||| What a match meets, parsed once, with what the host's step meets there
+||| where it takes or passes an alternative by it: through the term's dots
+||| (`Idris.Host.Shows`), a data or type constructor applied, a literal or
+||| a delay. Besides, a part of the writer's parameter (by its parameter
 ||| and path), an argument of a family's value, a runtime value (a part
 ||| every reading takes as one node, or a hole marker), or anything else:
 ||| an application stuck in turn, a projection of what is no constructor,
 ||| an applied marker, a field of the writer's dictionary.
 public export
-data Scrutinee = Constructed ConstructorHead Name (List ClosedTerm)
-               | Literal Constant
-               | Suspended ClosedTerm ClosedTerm
-               | Matched Nat (List Nat)
-               | OnFormal Nat Nat
-               | AtRuntime
-               | StuckInTurn
+data Scrutinee : ClosedTerm -> Type where
+  Constructed : (h : ConstructorHead) -> (c : Name) -> (sargs : List ClosedTerm) ->
+                {0 u : ClosedTerm} -> (0 _ : Shows s u) -> (0 _ : HeadedAs h c sargs u) -> Scrutinee s
+  Literal : (k : Constant) -> {0 fc : FC} -> (0 _ : Shows s (PrimVal fc k)) -> Scrutinee s
+  Suspended : (dty, da : ClosedTerm) -> {0 fc : FC} -> {0 r : LazyReason} -> (0 _ : Shows s (TDelay fc r dty da)) -> Scrutinee s
+  Matched : Nat -> List Nat -> Scrutinee s
+  OnFormal : Nat -> Nat -> Scrutinee s
+  AtRuntime : Scrutinee s
+  StuckInTurn : Scrutinee s
 
-undotted : Term vs -> Term vs
-undotted (Erased _ (Dotted u)) = undotted u
-undotted t = t
-
-export
-scrutineeOf : Context -> List StandIn -> ClosedTerm -> Scrutinee
-scrutineeOf ctx stands s = case getFnArgs (undotted s) of
-  (Ref _ (DataCon tag _) n, args) => Constructed (DataHead tag) n args
-  (Ref _ (TyCon _) n, args) => Constructed FamilyHead n args
-  (Ref _ nt n, args) => case (referenceOf ctx stands nt n, args) of
-    (PartMarker i path, []) => Matched i path
-    (FormalMarker j a, []) => OnFormal j a
-    (RuntimePart, _) => AtRuntime
-    (HoleMarker _, _) => AtRuntime
-    _ => StuckInTurn
-  (PrimVal _ k, []) => Literal k
-  (TDelay _ _ ty a, []) => Suspended ty a
-  (Erased _ Placeholder, _) => AtRuntime
-  (Erased _ Impossible, _) => AtRuntime
-  (Meta {}, _) => AtRuntime
+-- What a match meets at a head applied to arguments, the term shown
+-- through its dots.
+headedScrutinee : Context -> List StandIn -> {0 s, u : ClosedTerm} -> (0 _ : Shows s u) ->
+                  (h : ClosedTerm) -> (args : List ClosedTerm) -> (0 _ : Spine u h args) -> Scrutinee s
+headedScrutinee ctx stands shown (Ref _ (DataCon tag _) n) args sp = Constructed (DataHead tag) n args shown (DataHeaded sp)
+headedScrutinee ctx stands shown (Ref _ (TyCon _) n) args sp = Constructed FamilyHead n args shown (FamilyHeaded sp)
+headedScrutinee ctx stands shown (Ref _ nt n) args sp = case (referenceOf ctx stands nt n, args) of
+  (PartMarker i path, []) => Matched i path
+  (FormalMarker j a, []) => OnFormal j a
+  (RuntimePart, _) => AtRuntime
+  (HoleMarker _, _) => AtRuntime
   _ => StuckInTurn
+headedScrutinee ctx stands shown (PrimVal _ k) [] sp = Literal k (shownAlone shown sp)
+headedScrutinee ctx stands shown (TDelay _ _ ty a) [] sp = Suspended ty a (shownAlone shown sp)
+headedScrutinee ctx stands shown (Erased _ Placeholder) args sp = AtRuntime
+headedScrutinee ctx stands shown (Erased _ Impossible) args sp = AtRuntime
+headedScrutinee ctx stands shown (Meta {}) args sp = AtRuntime
+headedScrutinee ctx stands shown _ args sp = StuckInTurn
+
+||| What a match meets: the term shown through its dots (`Proof.Reading.shownOf`),
+||| read as its head applied to its arguments (`Proof.Reading.spineOf`), each
+||| with the host's evidence, which the match's alternatives are taken by.
+export
+scrutineeOf : Context -> List StandIn -> (s : ClosedTerm) -> Scrutinee s
+scrutineeOf ctx stands s =
+  let Element u shown = shownOf s
+      MkSpineOf h args sp = spineOf u in
+  headedScrutinee ctx stands shown h args sp
 
 ------------------------------------------------------------------------------
 -- Structural recursions
@@ -1035,12 +1075,12 @@ mutual
             ReadAs (unfolding m) [] r.reading.readForm t -> Unfolds m self written env (STerm i rhs) extras (Just t)
     UUnmatched : Unfolds m self written env (Unmatched msg) extras (Just written)
     UImpossible : Unfolds m self written env Impossible extras Nothing
-    UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed h c sargs) ->
+    UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed h c sargs shown headed) ->
                    TakenBy m self written env h c sargs alts extras r ->
                    Unfolds m self written env (Case idx p ty alts) extras r
-    ULiteral : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Literal k) ->
+    ULiteral : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Literal k shown) ->
                TakesLiteral m self written env k alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
-    USuspended : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Suspended dty da) ->
+    USuspended : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Suspended dty da shown) ->
                  TakesDelay m self written env dty da alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
     UMatched : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Matched j path) ->
                Alternatives m self written env (PartsOf j path) alts extras ls ->
@@ -1089,26 +1129,25 @@ mutual
     NoneTaken : TakenBy m self written env h c sargs [] extras (Just written)
 
   ||| The alternative a literal takes, as the host's step takes it
-  ||| (`Idris.Host.Picks`): the first of that constant, or of the primitive
-  ||| type the literal is, or a default, past every alternative the host
+  ||| (`Idris.Host.Picks`): the first of a constant equal to it, or of the
+  ||| primitive type it is, or a default, past every alternative the host
   ||| misses (another constant, a primitive type the literal is not, an
   ||| alternative that binds fields); the definition as written where the
   ||| host's walk is stuck, at a delay's alternative, or where none is left.
-  ||| Two doubles compare as the evaluator compares them.
+  ||| Constants are compared by the evaluator's own comparison
+  ||| (`Idris.Host.ByConstant`, `Idris.Host.OtherConstant`), each type's
+  ||| equality, never by their syntax: two doubles equal but spelt apart
+  ||| meet, and a NaN meets none.
   public export
   data TakesLiteral : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> Constant ->
                       List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
-    LiteralThis : (0 _ : k' = k) -> Unfolds m self written env t extras r ->
-                  TakesLiteral m self written env k (ConstCase k' t :: alts) extras r
-    LiteralPasses : (0 _ : Not (k' = k)) -> TakesLiteral m self written env k alts extras r ->
+    LiteralMeets : (0 _ : (k' == k) = True) -> Unfolds m self written env t extras r ->
+                   TakesLiteral m self written env k (ConstCase k' t :: alts) extras r
+    LiteralPasses : (0 _ : (k' == k) = False) -> TakesLiteral m self written env k alts extras r ->
                     TakesLiteral m self written env k (ConstCase k' t :: alts) extras r
-    DoubleMeets : (0 _ : (x' == x) = True) -> Unfolds m self written env t extras r ->
-                  TakesLiteral m self written env (Db x) (ConstCase (Db x') t :: alts) extras r
-    DoublePasses : (0 _ : (x' == x) = False) -> TakesLiteral m self written env (Db x) alts extras r ->
-                   TakesLiteral m self written env (Db x) (ConstCase (Db x') t :: alts) extras r
-    LiteralNamesType : (0 _ : map PrT (isConstantType (dropNS cn)) = Just k) -> Unfolds m self written env t extras r ->
+    LiteralNamesType : (0 _ : (map PrT (isConstantType (dropNS cn)) == Just k) = True) -> Unfolds m self written env t extras r ->
                        TakesLiteral m self written env k (ConCase cn tag [] t :: alts) extras r
-    LiteralOtherType : (0 _ : Not (map PrT (isConstantType (dropNS cn)) = Just k)) ->
+    LiteralOtherType : (0 _ : (map PrT (isConstantType (dropNS cn)) == Just k) = False) ->
                        TakesLiteral m self written env k alts extras r ->
                        TakesLiteral m self written env k (ConCase cn tag [] t :: alts) extras r
     LiteralFields : TakesLiteral m self written env k alts extras r ->

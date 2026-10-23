@@ -21,7 +21,8 @@
 module IdrisMLIR.Proof.Requests
 
 import IdrisMLIR.Proof.Growth
-import IdrisMLIR.Proof.Widest
+
+import Core.Primitives.Host
 
 import public Data.Fin
 import Data.Fin.Properties
@@ -770,11 +771,12 @@ fitsWithin size arity height heaviest =
 ||| chosen above every primitive's bound at x (`Idris.Host.boundOf`), whose
 ||| largest are a cast to Integer's 2^(4x) and 2^1024, a shift's x * 2^x and
 ||| a fixed width's 2^64, and above x, which `believe_me` gives back. The
-||| exponent 1024 is held behind its name (`Proof.Widest.widestExponent`),
-||| so no type here holds 2^1024 as a number the type checker would build.
+||| exponent 1024 is the host's, held behind its name
+||| (`Core.Primitives.Host.widestExponent`), so no type here holds 2^1024 as
+||| a number the type checker would build.
 public export
 grown : Nat -> Nat
-grown x = S (power 2 (4 * x) * (x + 2) + power 2 widestExponent)
+grown x = S (power 2 (4 * x) * (x + 2) + power 2 Host.widestExponent)
 
 ||| What n computations, each over what the one before made, make of
 ||| literals that measure at most x.
@@ -806,7 +808,7 @@ timesAtLeastOne c one = replace {p = \z => LTE z (k * c)} (multOneLeftNeutral c)
 export
 0 grownMono : {x, y : Nat} -> LTE x y -> LTE (grown x) (grown y)
 grownMono le =
-  LTESucc (plusLteMonotoneRight (power 2 widestExponent) _ _
+  LTESucc (plusLteMonotoneRight (power 2 Host.widestExponent) _ _
              (timesMono (powerMono (timesLte 4 le)) (plusLteMonotoneRight 2 x y le)))
 
 ||| A computation is above what it computes from.

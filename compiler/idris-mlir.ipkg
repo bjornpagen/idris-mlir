@@ -69,7 +69,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Describes
         , IdrisMLIR.Proof.Generations
         , IdrisMLIR.Proof.Forms
-        , IdrisMLIR.Proof.Widest
         , IdrisMLIR.Proof.Requests
         , IdrisMLIR.Proof.Reading
         , IdrisMLIR.Proof.Sizes

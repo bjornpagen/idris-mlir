@@ -28,15 +28,82 @@
 ||| evaluation runs: `ShapeRedex`) that the normal form lacks
 ||| (`contractedShape`), so what a reader reads off a normal form takes
 ||| none (`readNoShapeStep`).
+|||
+||| A term's head and arguments are read here too, with the host's own
+||| evidence of them (`spineOf`, through a match's dots `shownOf`), so that
+||| what a reader decides of a match's scrutinee is what the host's step
+||| meets there.
 module IdrisMLIR.Proof.Reading
 
 import Core.TT
 import Idris.Host
 
 import Control.Relation
+import Data.DPair
+import Data.List
 import Data.Nat
 
 %default total
+
+------------------------------------------------------------------------------
+-- A term's spine, read
+------------------------------------------------------------------------------
+
+||| A term as its head applied to its arguments, with the host's evidence
+||| that it is so (`Idris.Host.Spine`).
+public export
+record SpineOf (t : Term vs) where
+  constructor MkSpineOf
+  spineHead : Term vs
+  spineArgs : List (Term vs)
+  0 spine : Spine t spineHead spineArgs
+
+-- A term is a head applied to the arguments gathered so far, the first
+-- gathered outermost.
+data AppliedTo : Term vs -> List (Term vs) -> Term vs -> Type where
+  NoMore : AppliedTo t [] t
+  OneMore : AppliedTo (App fc f a) as t -> AppliedTo f (a :: as) t
+
+-- A spine of a part, applied on to the whole, is the whole's spine.
+0 spineOn : Spine f h pre -> AppliedTo f as t -> Spine t h (pre ++ as)
+spineOn {pre} sp NoMore = rewrite appendNilRightNeutral pre in sp
+spineOn {pre} sp (OneMore {a} {as = rest} more) = rewrite appendAssociative pre [a] rest in spineOn (Applied sp) more
+
+-- The arguments gathered as each application is entered, one cons each,
+-- as Idris's `getFnArgs` gathers them.
+spineFrom : (f : Term vs) -> (as : List (Term vs)) -> (0 _ : AppliedTo f as t) -> SpineOf t
+spineFrom (App fc f a) as applied = spineFrom f (a :: as) (OneMore applied)
+spineFrom f as applied = MkSpineOf f as (spineOn Head applied)
+
+||| A term's head and its arguments, in one pass, with the evidence.
+export
+spineOf : (t : Term vs) -> SpineOf t
+spineOf t = spineFrom t [] NoMore
+
+0 snocNotNil : (pre : List a) -> Not (pre ++ [x] = [])
+snocNotNil [] Refl impossible
+snocNotNil (_ :: _) Refl impossible
+
+0 spineAloneOf : Spine t h args -> args = [] -> t = h
+spineAloneOf Head _ = Refl
+spineAloneOf (Applied {args = pre} _) same = void (snocNotNil pre same)
+
+||| A spine of no arguments is its head alone.
+export
+0 spineAlone : Spine t h [] -> t = h
+spineAlone sp = spineAloneOf sp Refl
+
+||| A term shown as a head of no arguments shows that head.
+export
+0 shownAlone : Shows s u -> Spine u h [] -> Shows s h
+shownAlone shown sp = rewrite sym (spineAlone sp) in shown
+
+||| A term as a match shows it to its alternatives, through its dots
+||| (`Idris.Host.Shows`).
+export
+shownOf : (t : Term vs) -> Subset (Term vs) (Shows t)
+shownOf (Erased fc (Dotted u)) = let Element v shows = shownOf u in Element v (ThroughDot shows)
+shownOf t = Element t Itself
 
 ------------------------------------------------------------------------------
 -- Heights

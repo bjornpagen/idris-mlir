@@ -140,13 +140,39 @@ record InFrozen (ctx : Frozen) (n : Name) where
   def : GlobalDef
   0 defines : Defines ctx n def
 
+0 justAlike : Just x = Just y -> x = y
+justAlike Refl = Refl
+
+0 noneIsJust : Nothing = Just x -> Void
+noneIsJust Refl impossible
+
+-- A name the context defines resolves to an entry at a non-negative index
+-- (`Idris.Host.definedPlaced`).
+0 entryNonNegative : Resolves ctx n i -> Defines ctx n d -> (i < 0) = False
+entryNonNegative r defines = case definedPlaced defines of
+  (j ** (found, nonNegative)) => replace {p = \k => (k < 0) = False} (justAlike (trans (sym found) (resolvesAs r))) nonNegative
+
+-- An entry at a non-negative index has a place (`Walk.placedWhereResolved`),
+-- read off the name the entry resolves itself as.
+0 unplacedEntry : {0 ctx : Frozen} -> placementIn (gamma (defsOf ctx)) (Resolved i) = Nothing -> (i < 0) = False -> Void
+unplacedEntry none nonNegative = case placedWhereResolved {ctx = gamma (defsOf ctx)} {n = Resolved i} Refl nonNegative of
+  (p ** placed) => noneIsJust (trans (sym none) placed)
+
+-- The place of the entry a name the context defines resolves to, read off
+-- the entry's resolved name, which names it with no lookup: every entry of
+-- a defined name has one, so no definition the context gives is left
+-- without a place.
+placeOf : (ctx : Frozen) -> (i : Int) -> (0 _ : Resolves ctx n i) -> (0 _ : Defines ctx n d) -> Placement
+placeOf ctx i r defines with (placementIn (gamma (defsOf ctx)) (Resolved i)) proof placed
+  _ | Just p = p
+  _ | Nothing = void (unplacedEntry placed (entryNonNegative r defines))
+
 ||| The definition the frozen context gives a name, at its place: nothing
-||| for a name it defines as nothing, or for one at a negative entry, which
-||| no place is.
+||| for a name it defines as nothing, the one case the context has.
 inFrozen : (ctx : Frozen) -> (n : Name) -> Maybe (InFrozen ctx n)
 inFrozen ctx n = case definitionIn ctx n of
   NotDefined _ => Nothing
-  DefinedAs i _ d defines => (\p => MkInFrozen p d defines) <$> placementOf i
+  DefinedAs i r d defines => Just (MkInFrozen (placeOf ctx i r defines) d defines)
 
 ||| The definition at an address of the frozen context: nothing at bytes no
 ||| entry has.
@@ -232,223 +258,6 @@ anotherEntry FamilyHead tag = Passed EntryDiffers
 anotherEntry (DataHead t) tag = case decEq t tag of
   Yes same => Blocked same
   No other => Passed (TagDiffers other)
-
-------------------------------------------------------------------------------
--- Literals, compared as the host compares them
-------------------------------------------------------------------------------
-
--- A decision of base's, its evidence erased.
-decided : DecEq a => (x, y : a) -> Decided (x = y)
-decided x y = case decEq x y of
-  Yes same => Yes same
-  No other => No other
-
-0 leftAlike : the (Either a b) (Left x) = Left y -> x = y
-leftAlike Refl = Refl
-
-0 rightAlike : the (Either a b) (Right x) = Right y -> x = y
-rightAlike Refl = Refl
-
-0 justAlike : Just x = Just y -> x = y
-justAlike Refl = Refl
-
-0 justNotNothing : Just x = Nothing -> Void
-justNotNothing Refl impossible
-
-0 noneIsJust : Nothing = Just x -> Void
-noneIsJust Refl impossible
-
--- A sum decided by each side's decision.
-sameEither : ((x, y : a) -> Decided (x = y)) -> ((x, y : b) -> Decided (x = y)) -> (e, e' : Either a b) -> Decided (e = e')
-sameEither l r (Left x) (Left y) = case l x y of
-  Yes same => Yes (cong Left same)
-  No other => No (\eq => other (leftAlike eq))
-sameEither l r (Right x) (Right y) = case r x y of
-  Yes same => Yes (cong Right same)
-  No other => No (\eq => other (rightAlike eq))
-sameEither l r (Left _) (Right _) = No (\case Refl impossible)
-sameEither l r (Right _) (Left _) = No (\case Refl impossible)
-
-sameUnit : (x, y : ()) -> Decided (x = y)
-sameUnit () () = Yes Refl
-
--- A primitive type by its number, which tells two apart.
-primTypeCode : PrimType -> Nat
-primTypeCode IntType = 0
-primTypeCode Int8Type = 1
-primTypeCode Int16Type = 2
-primTypeCode Int32Type = 3
-primTypeCode Int64Type = 4
-primTypeCode IntegerType = 5
-primTypeCode Bits8Type = 6
-primTypeCode Bits16Type = 7
-primTypeCode Bits32Type = 8
-primTypeCode Bits64Type = 9
-primTypeCode StringType = 10
-primTypeCode CharType = 11
-primTypeCode DoubleType = 12
-primTypeCode WorldType = 13
-
-primTypeAt : Nat -> Maybe PrimType
-primTypeAt 0 = Just IntType
-primTypeAt 1 = Just Int8Type
-primTypeAt 2 = Just Int16Type
-primTypeAt 3 = Just Int32Type
-primTypeAt 4 = Just Int64Type
-primTypeAt 5 = Just IntegerType
-primTypeAt 6 = Just Bits8Type
-primTypeAt 7 = Just Bits16Type
-primTypeAt 8 = Just Bits32Type
-primTypeAt 9 = Just Bits64Type
-primTypeAt 10 = Just StringType
-primTypeAt 11 = Just CharType
-primTypeAt 12 = Just DoubleType
-primTypeAt 13 = Just WorldType
-primTypeAt _ = Nothing
-
-0 primTypeDecoded : (t : PrimType) -> primTypeAt (primTypeCode t) = Just t
-primTypeDecoded IntType = Refl
-primTypeDecoded Int8Type = Refl
-primTypeDecoded Int16Type = Refl
-primTypeDecoded Int32Type = Refl
-primTypeDecoded Int64Type = Refl
-primTypeDecoded IntegerType = Refl
-primTypeDecoded Bits8Type = Refl
-primTypeDecoded Bits16Type = Refl
-primTypeDecoded Bits32Type = Refl
-primTypeDecoded Bits64Type = Refl
-primTypeDecoded StringType = Refl
-primTypeDecoded CharType = Refl
-primTypeDecoded DoubleType = Refl
-primTypeDecoded WorldType = Refl
-
--- Two primitive types, decided by their numbers.
-samePrimType : (a, b : PrimType) -> Decided (a = b)
-samePrimType a b = case sameNat (primTypeCode a) (primTypeCode b) of
-  Yes same => Yes (justAlike (trans (sym (primTypeDecoded a)) (trans (cong primTypeAt same) (primTypeDecoded b))))
-  No other => No (\eq => other (cong primTypeCode eq))
-
--- A literal other than a double as the sum it is, of types whose
--- equality base decides: an integer of each width, a string, a
--- character, a primitive type, the world.
-LiteralSum : Type
-LiteralSum = Either Int (Either Int8 (Either Int16 (Either Int32 (Either Int64 (Either Integer (Either Bits8 (Either Bits16 (Either Bits32 (Either Bits64 (Either String (Either Char (Either PrimType ()))))))))))))
-
-fromLiteralSum : LiteralSum -> Constant
-fromLiteralSum (Left x) = I x
-fromLiteralSum (Right (Left x)) = I8 x
-fromLiteralSum (Right (Right (Left x))) = I16 x
-fromLiteralSum (Right (Right (Right (Left x)))) = I32 x
-fromLiteralSum (Right (Right (Right (Right (Left x))))) = I64 x
-fromLiteralSum (Right (Right (Right (Right (Right (Left x)))))) = BI x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Left x))))))) = B8 x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Left x)))))))) = B16 x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))) = B32 x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))) = B64 x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))) = Str x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))) = Ch x
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left t))))))))))))) = PrT t
-fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ()))))))))))))) = WorldVal
-
-toLiteralSum : Constant -> Maybe LiteralSum
-toLiteralSum (I x) = Just (Left x)
-toLiteralSum (I8 x) = Just (Right (Left x))
-toLiteralSum (I16 x) = Just (Right (Right (Left x)))
-toLiteralSum (I32 x) = Just (Right (Right (Right (Left x))))
-toLiteralSum (I64 x) = Just (Right (Right (Right (Right (Left x)))))
-toLiteralSum (BI x) = Just (Right (Right (Right (Right (Right (Left x))))))
-toLiteralSum (B8 x) = Just (Right (Right (Right (Right (Right (Right (Left x)))))))
-toLiteralSum (B16 x) = Just (Right (Right (Right (Right (Right (Right (Right (Left x))))))))
-toLiteralSum (B32 x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))
-toLiteralSum (B64 x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))
-toLiteralSum (Str x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))
-toLiteralSum (Ch x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))))
-toLiteralSum (PrT x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))))
-toLiteralSum WorldVal = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ())))))))))))))
-toLiteralSum (Db _) = Nothing
-
-0 sumReadBack : (s : LiteralSum) -> toLiteralSum (fromLiteralSum s) = Just s
-sumReadBack (Left _) = Refl
-sumReadBack (Right (Left _)) = Refl
-sumReadBack (Right (Right (Left _))) = Refl
-sumReadBack (Right (Right (Right (Left _)))) = Refl
-sumReadBack (Right (Right (Right (Right (Left _))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Left _)))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Left _))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Left _)))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _)))))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _)))))))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))))))) = Refl
-sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ()))))))))))))) = Refl
-
-0 sumInjective : (s, s' : LiteralSum) -> fromLiteralSum s = fromLiteralSum s' -> s = s'
-sumInjective s s' same = justAlike (trans (sym (sumReadBack s)) (trans (cong toLiteralSum same) (sumReadBack s')))
-
-0 notDouble : (s : LiteralSum) -> Not (fromLiteralSum s = Db x)
-notDouble s same = justNotNothing (trans (sym (sumReadBack s)) (cong toLiteralSum same))
-
-sameLiteralSum : (s, s' : LiteralSum) -> Decided (s = s')
-sameLiteralSum =
-  sameEither decided (sameEither decided (sameEither decided (sameEither decided (sameEither decided
-    (sameEither decided (sameEither decided (sameEither decided (sameEither decided (sameEither decided
-    (sameEither decided (sameEither decided (sameEither samePrimType sameUnit))))))))))))
-
--- A literal is a double, or one of the sum's, read back.
-data LiteralKind : Constant -> Type where
-  ADouble : (x : Double) -> LiteralKind (Db x)
-  InSum : (s : LiteralSum) -> LiteralKind (fromLiteralSum s)
-
-literalKind : (k : Constant) -> LiteralKind k
-literalKind (I x) = InSum (Left x)
-literalKind (I8 x) = InSum (Right (Left x))
-literalKind (I16 x) = InSum (Right (Right (Left x)))
-literalKind (I32 x) = InSum (Right (Right (Right (Left x))))
-literalKind (I64 x) = InSum (Right (Right (Right (Right (Left x)))))
-literalKind (BI x) = InSum (Right (Right (Right (Right (Right (Left x))))))
-literalKind (B8 x) = InSum (Right (Right (Right (Right (Right (Right (Left x)))))))
-literalKind (B16 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Left x))))))))
-literalKind (B32 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))
-literalKind (B64 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))
-literalKind (Str x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))
-literalKind (Ch x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))))
-literalKind (PrT x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))))
-literalKind WorldVal = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ())))))))))))))
-literalKind (Db x) = ADouble x
-
-||| How the host's step compares a constant alternative with the literal a
-||| match meets (`Idris.Host.ByConstant`, `Idris.Host.OtherConstant`): one
-||| constant, or two apart, decided on their parts; or two doubles, which
-||| the evaluator compares as doubles (`==`, so `0.0` meets `-0.0` and a
-||| NaN meets nothing), where no equality of the constants is decided.
-public export
-data LiteralsCompared : Constant -> Constant -> Type where
-  SameLiteral : (0 _ : k' = k) -> LiteralsCompared k' k
-  OtherLiteral : (0 _ : Not (k' = k)) -> LiteralsCompared k' k
-  TwoDoubles : (meets : Bool) -> (0 _ : (x' == x) = meets) -> LiteralsCompared (Db x') (Db x)
-
-compareLiterals : (k', k : Constant) -> LiteralsCompared k' k
-compareLiterals k' k with (literalKind k')
-  compareLiterals _ k | ADouble x' with (literalKind k)
-    compareLiterals _ _ | ADouble x' | ADouble x = TwoDoubles (x' == x) Refl
-    compareLiterals _ _ | ADouble x' | InSum s = OtherLiteral (\same => notDouble s (sym same))
-  compareLiterals _ k | InSum s' with (literalKind k)
-    compareLiterals _ _ | InSum s' | ADouble x = OtherLiteral (notDouble s')
-    compareLiterals _ _ | InSum s' | InSum s = case sameLiteralSum s' s of
-      Yes same => SameLiteral (cong fromLiteralSum same)
-      No other => OtherLiteral (\same => other (sumInjective s' s same))
-
-||| Whether an alternative of a primitive type that binds nothing names the
-||| literal a match meets, as the host's step decides it
-||| (`Idris.Host.ByPrimitiveType`, `Idris.Host.OtherPrimitiveType`): the
-||| type its name names, as a literal, is the literal.
-namesLiteral : (cn : Name) -> (k : Constant) -> Decided (map PrT (isConstantType (dropNS cn)) = Just k)
-namesLiteral cn k with (isConstantType (dropNS cn))
-  _ | Nothing = No noneIsJust
-  _ | Just t = case compareLiterals (PrT t) k of
-    SameLiteral same => Yes (cong Just same)
-    OtherLiteral other => No (\named => other (justAlike named))
 
 ------------------------------------------------------------------------------
 -- Structural recursions
@@ -1178,10 +987,10 @@ mutual
   walk m w acc self written env Impossible extras = pure (Element Nothing UImpossible)
   walk m w acc self written env (Case idx p ty alts) extras =
     case Element (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) Refl of
-      Element (Constructed h c sargs) found =>
+      Element (Constructed h c sargs _ _) found =>
         (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env h c sargs alts extras
-      Element (Literal k) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
-      Element (Suspended dty da) found =>
+      Element (Literal k _) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
+      Element (Suspended dty da _) found =>
         (\r => Element r.fst (USuspended found r.snd)) <$> delayed m w acc self written env dty da alts extras
       -- A constructor's argument is a part of the matched value, one level
       -- deeper, at its own field.
@@ -1236,18 +1045,16 @@ mutual
             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (k : Constant) ->
             (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
             Front (Subset (Maybe Template) (TakesLiteral m self written env k alts extras))
-  literal m w acc self written env k (ConstCase k' t :: alts) extras with (compareLiterals k' k)
-    literal m w acc self written env k (ConstCase k' t :: alts) extras | SameLiteral same =
-      (\r => Element r.fst (LiteralThis same r.snd)) <$> walk m w acc self written env t extras
-    literal m w acc self written env k (ConstCase k' t :: alts) extras | OtherLiteral other =
-      (\r => Element r.fst (LiteralPasses other r.snd)) <$> literal m w acc self written env k alts extras
-    literal m w acc self written env (Db x) (ConstCase (Db x') t :: alts) extras | TwoDoubles True meets =
-      (\r => Element r.fst (DoubleMeets meets r.snd)) <$> walk m w acc self written env t extras
-    literal m w acc self written env (Db x) (ConstCase (Db x') t :: alts) extras | TwoDoubles False misses =
-      (\r => Element r.fst (DoublePasses misses r.snd)) <$> literal m w acc self written env (Db x) alts extras
-  literal m w acc self written env k (ConCase cn tag [] t :: alts) extras = case namesLiteral cn k of
-    Yes named => (\r => Element r.fst (LiteralNamesType named r.snd)) <$> walk m w acc self written env t extras
-    No other => (\r => Element r.fst (LiteralOtherType other r.snd)) <$> literal m w acc self written env k alts extras
+  -- A constant alternative and a primitive type's are compared with the
+  -- literal by the evaluator's own comparison, the one its step decides
+  -- by, so the walk takes the alternative every instance's evaluation
+  -- takes.
+  literal m w acc self written env k (ConstCase k' t :: alts) extras with (k' == k) proof compared
+    _ | True = (\r => Element r.fst (LiteralMeets compared r.snd)) <$> walk m w acc self written env t extras
+    _ | False = (\r => Element r.fst (LiteralPasses compared r.snd)) <$> literal m w acc self written env k alts extras
+  literal m w acc self written env k (ConCase cn tag [] t :: alts) extras with (map PrT (isConstantType (dropNS cn)) == Just k) proof named
+    _ | True = (\r => Element r.fst (LiteralNamesType named r.snd)) <$> walk m w acc self written env t extras
+    _ | False = (\r => Element r.fst (LiteralOtherType named r.snd)) <$> literal m w acc self written env k alts extras
   literal m w acc self written env k (ConCase cn tag (_ :: _) t :: alts) extras =
     (\r => Element r.fst (LiteralFields r.snd)) <$> literal m w acc self written env k alts extras
   literal m w acc self written env k (DefaultCase t :: _) extras =
@@ -2619,26 +2426,53 @@ MarkersHold {g} m s ctx stands bs vs =
   (u : Template) -> ReadAs (InstanceMode ctx) [] (Var.index vs x) u ->
   (p : Fin g.size ** v : Template ** u' : Template ** (Elem (i, p) s.writers, InV m p v, Sub d v u', Reread u' u))
 
+||| The kinds a request holds whole: every kind but a shape, whose request
+||| holds its skeleton.
+public export
+data WholeKind : Readings.Static -> Type where
+  WholeType : WholeKind AType
+  WholeFamily : WholeKind AFamily
+  WholeDictionary : WholeKind ADictionary
+  WholeForm : WholeKind AForm
+
+||| What a request holds of the term an instance writes at a static
+||| argument of kind k, which the instance's reading reads: at a shape, the
+||| term's skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape`
+||| keys it), of the term as written where a data constructor heads it,
+||| else of the host's normal form of it; at any other kind, the term
+||| itself. A skeleton's hole stands for the node it cut, which the site's
+||| reading of a shape reads as a hole too (`Readings.nodeOf Skeleton`), so
+||| no rule takes a hole to the node a reading of the whole term would
+||| read there. This is the evidence a request carries with the site it
+||| reads (the translation's site table): the site's term, with the
+||| requesting instance's values put in, holds as the request's argument.
+public export
+data HeldAs : Frozen -> Readings.Static -> ClosedTerm -> ClosedTerm -> Type where
+  HeldWhole : WholeKind k -> HeldAs ctx k u u
+  HeldWritten : (0 _ : SkeletonOf u held) -> HeldAs ctx AShape u held
+  HeldNormal : (0 _ : (s : ClosedTerm) -> Not (SkeletonOf u s)) -> (0 r : Reduct OfNormaliseTypes ctx u) ->
+               (0 _ : SkeletonOf r.value held) -> HeldAs ctx AShape u held
+
 ||| The reading lemma, as the growth proof states it: at markers fresh for
 ||| the frozen context and apart (`Proof.Markers.Markers`), put in by values
-||| the site's writer holds (`MarkersHold`), every reading of the site's
-||| term with those values put in, as an instance's key reads it, is what
-||| the site's reading writes (`Proof.Bound.Writes`), and so what the
-||| graph's site, that reading read where its writer's families land,
-||| writes (`Proof.Covers.siteWritesRead`). It is proved by
-||| induction on the site's reading, the host's reduction inverted at each
-||| head it keeps (`Proof.Inversion`), carried through putting the values
-||| in (`Idris.Host.Mapped`, `Idris.Host.mappedReduces`) and through
-||| contraction (`Proof.Reading`). At a shape the instance read here is of
-||| the term with the values put in, while a request holds that term's
-||| skeleton (`Instances.argumentShape`); where the site's skeleton cuts a
-||| node the instance would read whole, the statement holds only of the
-||| skeleton, which the translation's site table is to give it.
+||| the site's writer holds (`MarkersHold`), every reading of what a request
+||| holds of the site's term with those values put in (`HeldAs`), as an
+||| instance's key reads it, is what the site's reading writes
+||| (`Proof.Bound.Writes`), and so what the graph's site, that reading read
+||| where its writer's families land, writes
+||| (`Proof.Covers.siteWritesRead`). It is proved by induction on the
+||| site's reading, the host's reduction inverted at each head it keeps
+||| (`Proof.Inversion`), carried through putting the values in
+||| (`Idris.Host.Mapped`, `Idris.Host.mappedReduces`) and through
+||| contraction (`Proof.Reading`). At a shape the instance reads the
+||| skeleton the request holds, never the whole term: where the site's
+||| skeleton cuts a node to a hole, the request's skeleton cuts it too.
 public export
 0 ReadingCovers : {g : Graph} -> (m : Model g) -> Bound.Site g.size -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) ->
                   SiteReading k t -> Type
 ReadingCovers m s stands k t r =
   {0 ns : Scope} -> (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
   MarkersHold m s r.mode.inContext stands mk.bounds vs ->
-  (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
+  {0 held : ClosedTerm} -> HeldAs r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t) held ->
+  (inst : InstanceReading r.mode.inContext k held) ->
   Writes m s r.template inst.template
