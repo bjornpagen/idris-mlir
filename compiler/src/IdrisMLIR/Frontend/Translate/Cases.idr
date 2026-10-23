@@ -2,8 +2,9 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Case trees: Idris's compile-time case trees (`treeCT`) as Core matches.
 ||| A match on a compile-time value selects its alternative now, and so does
-||| a match on a value of a type with one runtime field, which is its
-||| field's value.
+||| a match on the world, which has one value; a match on a value of a
+||| family takes it apart by its constructors, however few its fields, and
+||| how the family is laid out is the dialect's.
 module IdrisMLIR.Frontend.Translate.Cases
 
 import Core.Case.CaseTree
@@ -554,18 +555,20 @@ mutual
 
       -- The data instance a match's constructors are of, at the value's
       -- type. The Core type names it when it is a declaration the
-      -- constructor belongs to; a value of a type with one runtime field
-      -- has its field's type, so the Idris type names it then: the
-      -- value's own, or, where its binder gives none (a suspension's
-      -- value, a value a settled term computes), the type Idris's tree
-      -- gives the value it matches, which every match carries.
+      -- constructor belongs to; where the value's binder gives no Core
+      -- type, or gives one that names no family of this constructor, the
+      -- Idris type names it: the value's own, or, where its binder gives
+      -- none (a suspension's value, a value a settled term computes), the
+      -- type Idris's tree gives the value it matches, which every match
+      -- carries.
       instanceOf : VarInfo kc OfTree (Fin nv) -> Defined -> Front DataFamily
       instanceOf v con = do
         st <- getState
         let cn = fullname con.def
-        -- The Core type may name a choice, or the family of the one field
-        -- a value of a type with one runtime field has, neither of which
-        -- has this constructor: the Idris type names its family then.
+        -- The Core type may name a choice, which has no constructor of
+        -- Idris's, or be a type the registry represents itself, which is no
+        -- family: the Idris type is read then, which names the
+        -- constructor's family, or is one the registry represents.
         let fromCore = case coreTyOf v of
                          Just (DataT d _) => lookupFact (.dataFamilies) d st >>= \df => df <$ constructorIn df con
                          _ => Nothing
@@ -617,8 +620,8 @@ mutual
             pure (armsOf loc df.id i conAlts crashing)
 
       -- A match on a runtime value, by what its alternatives match
-      -- (`route`): a suspension's form, constructors (a natural's, one
-      -- runtime field's, a declaration's), or literals. A suspension has
+      -- (`route`): a suspension's form, constructors (a natural's or a
+      -- declaration's), or literals. A suspension has
       -- one form, `Delay x`, so its match chooses nothing: it is the
       -- force, whose value `x` binds, then the alternative's tree, whose
       -- first variable is the value's type, erased.

@@ -30,9 +30,10 @@
 ||| what it read, which the frozen context keeps (`Host.keptAt`): once the
 ||| context is frozen, each unknown met is told, by the entry its term
 ||| gives it, as the solution the checker gave it or a hole (`Solution`),
-||| from what that reading decoded, and the pair is read as its three
-||| definitions (`PairRead`), so no phase after looks either up by name,
-||| and nothing is decoded twice.
+||| from what that reading decoded, the pair is read as its three
+||| definitions (`PairRead`), and `IO` as its type constructor's address,
+||| so no phase after looks any of them up by name, and nothing is decoded
+||| twice.
 module IdrisMLIR.Frontend.Translate.Boundary
 
 import Core.Case.CaseTree
@@ -707,19 +708,24 @@ shownBinders _ = Z
 
 ||| What a definition read before the freeze has its calls lowered to,
 ||| read off its type in normal form (`Resolve.rowOf`): the hook of its
-||| calls checked against the arity its calls are translated at, a case
-||| tree's parameters or a bodiless declaration's; nothing where no hook
-||| lowers its calls, or where its calls are no function's (a constructor's,
-||| a type's, a builtin's), which no hook lowers. A `%foreign` definition
-||| the registry gives no hooks is refused where it is called.
+||| calls checked against every binder that type shows (`operandsOf`),
+||| which is what the definition takes: its case tree takes as many
+||| parameters as its clauses do, which eta-reduction changes and its type
+||| does not; nothing where no hook lowers its calls, or where its calls are
+||| no function's (a constructor's, a type's, a builtin's), which no hook
+||| lowers. A `%foreign` definition the registry gives no hooks is refused
+||| where it is called.
 loweredOf : Unfrozen i -> ClosedTerm -> Either String (Maybe (Lowered (const LibraryFunction)))
 loweredOf u normal = case callHooks u.registered of
   Left _ => Right Nothing
   Right hs => case (u.matched, definition u.def) of
-    (Just m, _) => rowOf (length m.args) (shownBinders u.type) normal hs
-    (Nothing, ForeignDef arity _) => rowOf arity (shownBinders u.type) normal hs
-    (Nothing, ExternDef arity) => rowOf arity (shownBinders u.type) normal hs
+    (Just _, _) => typed hs
+    (Nothing, ForeignDef _ _) => typed hs
+    (Nothing, ExternDef _) => typed hs
     _ => Right Nothing
+  where
+    typed : Hooks LibraryFunction -> Either String (Maybe (Lowered (const LibraryFunction)))
+    typed hs = let (n ** ops) = operandsOf normal in rowOf {arity = n} ops (shownBinders u.type) normal hs
 
 ||| A definition read before the freeze, by its name, as `found` holds it,
 ||| with its entry: nothing for a name no read definition has.
@@ -728,25 +734,16 @@ foundAs found n = do
   defs <- get Ctxt
   pure ((\(i, _) => Data.SortedMap.Dependent.lookup i found) =<< !(lookupCtxtExactI n (gamma defs)))
 
-||| The operands of every binder a type in normal form shows: one at each
-||| binder of nonzero quantity, as a hook takes them (`Operands`).
-operandsOf : {0 vs : Scope} -> Term vs -> (n : Nat ** k : Nat ** Operands n k)
-operandsOf (Bind _ _ (Pi _ rig _ _) sc) =
-  let (n ** k ** ops) = operandsOf sc in
-  case use rig of
-    Erased => (S n ** k ** NoOperand ops)
-    Used _ => (S n ** S k ** Operand ops)
-operandsOf _ = (0 ** 0 ** NoParameter)
-
 ||| A library function a row names (a natural's test, its operation on
 ||| integers), read against its definition: every binder its type in
-||| normal form shows, and the values among them at run time, `count` of
-||| them, as many as the row's lowering gives it (`CheckedLibrary`). What a
-||| function takes at run time is its type's, which no clause changes; its
-||| case tree's parameters are as many as its clauses take, which
-||| eta-reduction changes (`compareInteger = compare` takes none), and its
-||| calls read them where they are made (`Terms.libraryCall`). Else why it
-||| is not the function the row's hook calls.
+||| normal form shows (`Resolve.operandsOf`), and the values among them at
+||| run time, `count` of them, as many as the row's lowering gives it
+||| (`CheckedLibrary`). What a function takes at run time is its type's,
+||| which no clause changes; its case tree's parameters are as many as its
+||| clauses take, which eta-reduction changes (`compareInteger = compare`
+||| takes none), and its calls read them where they are made
+||| (`Terms.libraryCall`). Else why it is not the function the row's hook
+||| calls.
 checkedLibrary : {auto c : Ref Ctxt Defs} -> Frozen -> FoundBefore -> (count : Nat) -> LibraryFunction ->
                  Core (Either String (CheckedLibrary count))
 checkedLibrary fz found count lib = do
@@ -1069,6 +1066,13 @@ pairingIn fz ds (Just placed) = do
     definedAt : PairPart fz -> Core (DefinitionRead facts)
     definedAt part = readEntry fz ds part.named part.entry part.resolved
 
+||| `IO`'s name, `PrimIO.IO`, as Idris's prelude declares it and the
+||| registry's program root takes it (`unsafePerformIO : IO a -> a`), from
+||| the known vocabulary: the one place `IO` is named, where its definition
+||| is found once (`readProgram`).
+ioName : Name
+ioName = NS primIONS (knownUN KIO)
+
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
 ||| definition it can meet from the entry and from the pair `%pair` names,
@@ -1078,7 +1082,8 @@ pairingIn fz ds (Just placed) = do
 ||| against it, the pair's names resolved once, and each definition's
 ||| values that are members of a choice, its binders with what it takes at
 ||| each and their types, and the hook that lowers its calls read off its
-||| type in normal form; the entry's name resolved once; the solution of
+||| type in normal form; the entry's name resolved once, and `IO`'s, whose
+||| type constructor's address is how `IO` is known after; the solution of
 ||| every metavariable a term read names, by its entry, told from what the
 ||| reading before the freeze decoded there, which the frozen context
 ||| keeps (`Host.keptAt`); each type
@@ -1088,10 +1093,10 @@ pairingIn fz ds (Just placed) = do
 ||| alone found once: each type constructor's facts, each definition's
 ||| loops, and each block's name. A registry entry or row the loaded
 ||| definitions contradict, a type constructor whose constructors the
-||| context does not hold, and a metavariable or a `%pair` the context does
-||| not define as one, are refused here, once, at their definition or else
-||| at `fallback`, and nothing after reads the registry's rows but as this
-||| read them.
+||| context does not hold, a metavariable or a `%pair` the context does
+||| not define as one, and a context that defines no `IO`, are refused here,
+||| once, at their definition or else at `fallback`, and nothing after reads
+||| the registry's rows but as this read them.
 export
 readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) ->
               (fallback : NonEmptyFC) -> Core (Either Refusal Read)
@@ -1122,6 +1127,15 @@ readProgram ifs entry fallback = do
   -- defines it as nothing is a program with no main, refused as one.
   let DefinedAs entryAt entryResolved _ _ = definitionIn fz entry
     | NotDefined _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback (programEntry ++ ": the program defines no main")))
+  -- `IO`, the type of what `unsafePerformIO` runs, which upstream runs
+  -- `main` as, known from here on by the address of its type constructor,
+  -- found once, and never by its name or its shape (`Terms.ioOf`). A
+  -- context that defines no `IO` holds none for `main` to be, refused as
+  -- the program shape it is.
+  let DefinedAs ioEntry ioResolved _ ioDefines = definitionIn fz ioName
+    | NotDefined _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback
+                                            (programEntry ++ ": main must have type IO (), and the program defines no IO")))
+  let ioAddress = definedAddress ioEntry ioResolved ioDefines
   -- Each metavariable met told by its entry from what the reading before
   -- the freeze decoded there, which the frozen context keeps, so no phase
   -- after looks one up by name and no entry is decoded twice, with the
@@ -1141,9 +1155,9 @@ readProgram ifs entry fallback = do
     | Left refusal => pure (Left refusal)
   entryRead <- readEntry fz withConstructors entry entryAt entryResolved
   pairing <- pairingIn fz withConstructors placed
-  let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing
+  let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing ioAddress
   let fromDefinitions = MkReading fz (withNature () entryRead) definitions application ifs solutions
-                                  (pairWith (withNature ()) <$> pairing)
+                                  (pairWith (withNature ()) <$> pairing) ioAddress
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
   Right <$> readWhole proved blocks constructedReading

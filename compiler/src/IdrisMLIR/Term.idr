@@ -1184,6 +1184,40 @@ worldUses (OnWorld w _) = w
 actionResult : ActionType t -> Ty
 actionResult (OnWorld _ g) = g
 
+%prefix_record_projections off
+
+||| `IO` at a type, as the frontend reads it, by `IO`'s identity and never
+||| by its shape (`Terms.ioOf`): a family carried whole like every other,
+||| whose one constructor (`io`) has one field, the action on the world,
+||| which takes the world at `world` and gives `gives`, the `IORes` of the
+||| type and the next world. A value of it is made by applying the
+||| constructor to an action, and run by taking it apart into the action,
+||| applied to the world (`runIO`). How the family is laid out, a one-field
+||| collapse included, is the dialect's. Its projections are postfix only.
+public export
+record IOFamily where
+  constructor MkIOFamily
+  io : Con 1
+  world : Uses
+  gives : Ty
+  0 holds : (Data.Vect.head io.fields).type = FunT (MkBinder world WorldT) gives
+
+%prefix_record_projections on
+
+||| An `IO` value run on the world `w` of its scope, as `unsafePerformIO`
+||| and every bind run one: the value, bound once, taken apart by `IO`'s
+||| constructor into the action its field holds, and the action applied to
+||| the world, giving what the action gives. The one form a run is written
+||| in, which a tail's head reads back (`tailHead`).
+export
+runIO : {0 m : Nat} -> Loc -> IOFamily -> (value : TermAt [] m) -> (w : Fin m) -> TermAt js m
+runIO l a value w =
+  Let l (shown "io") (OfValue Once) value
+      (Case l a.io.id.family FZ
+            (Exhaustive (MkAlt a.io [shown "action"]
+                               (App l (MkBinder a.world WorldT) a.gives (Var l FZ) (Var l (FS (FS w))))
+                         ::: [])))
+
 ||| The visit of a position no tail of a term reaches, for a `let`'s
 ||| variable, which `without` takes out of the scope: such a position may
 ||| not hold it, which would make it a value and no join point.
@@ -1365,9 +1399,16 @@ letOf l x b v body = case lambdas v of
 ||| tails makes: a call, read through the ties around it, with what they
 ||| state, since a tie gives its array on with no work and a call's value is
 ||| tied by what its callee's signature fixes, which the region the call
-||| may become states again (`tiedExits`); a call applied to the world, the
-||| action the call gives run on it, read bare, since what a tie around it
-||| would state of the action's value no region states again; or no call.
+||| may become states again (`tiedExits`); a run of a call on the world of
+||| the scope, read bare, since what a tie around the call would state of
+||| its value no region states again: an action's call applied to the
+||| world, or a call's `IO` value run in the one form a run is written in
+||| (`runIO`), bound, taken apart by its family's one constructor into the
+||| action its field holds, and that applied to the world; or no call.
+||| Which of the two a run is, is its callee's type's: a run of a local
+||| definition whose calls jump to it by runs is as its value is run
+||| (`RunOf`), and of `IO`'s only where its standing reads its value as
+||| `IO`'s, by `IO`'s identity.
 data TailHead : Nat -> Type where
   CallHead : {arity : Nat} -> Loc -> Callee arity -> (indices : List ITerm) -> Vect arity (Term n) ->
              (stated : List (Nat, Stated (Term n))) -> TailHead n
@@ -1375,10 +1416,15 @@ data TailHead : Nat -> Type where
             (world : Term n) -> TailHead n
   NoHead : TailHead n
 
-||| A tail's head (`TailHead`).
+||| A tail's head (`TailHead`). An `IO` run's world is a variable of the
+||| scope outside its `let` and its alternative, as `runIO` writes it.
 tailHead : TermAt js n -> TailHead n
 tailHead (Call l c _ is as) = CallHead l c is as []
 tailHead (App l _ _ (Call _ c _ is as) w) = RunHead l c is as w
+tailHead (Let l _ _ (Call _ c _ is as)
+              (Case _ _ FZ (Exhaustive (MkAlt _ [_] (App _ (MkBinder _ WorldT) _ (Var _ FZ) (Var wl (FS (FS w))))
+                                        ::: [])))) =
+  RunHead l c is as (Var wl w)
 tailHead (Tie _ _ x ds) = case throughTies x ds of
   (Call l c _ is as, stated) => CallHead l c is as stated
   _ => NoHead
@@ -1388,10 +1434,10 @@ tailHead _ = NoHead
 
 ||| What a body calls, read once: every callee, in the order its calls are
 ||| written, each as often as it is called; each one called at a tail's head
-||| (`TailHead`), as a call or as a call applied to the world; and each one
-||| called anywhere else. A local definition every call of which in a body
-||| is a head of one of those forms is a join point there, jumped to by that
-||| form (`Programs`). Its projections are postfix only.
+||| (`TailHead`), as a call or as a run of a call on the world; and each
+||| one called anywhere else. A local definition every call of which
+||| in a body is a head of one of those forms is a join point there, jumped
+||| to by that form (`Programs`). Its projections are postfix only.
 public export
 record BodyCalls where
   constructor MkBodyCalls
@@ -1413,29 +1459,28 @@ Monoid BodyCalls where
 awayCalls : SnocList FnId -> BodyCalls
 awayCalls cs = MkBodyCalls cs SortedSet.empty SortedSet.empty (SortedSet.fromList (cs <>> []))
 
-||| What a tail that is no `let`, match, assumption, read or join op calls,
-||| by its head: the callee its head calls, as a call or as a call applied
-||| to the world, then every other call in it, elsewhere, in the order they
-||| are written, which puts the head's first.
-atTail : TermAt js n -> BodyCalls
-atTail t = case tailHead t of
-  CallHead _ c _ as stated =>
-    MkBodyCalls [< c.fn] (SortedSet.singleton c.fn) SortedSet.empty SortedSet.empty
-      <+> awayCalls ((visitVect collecting as).callees ++ (visitStated collecting stated).callees)
-  RunHead _ c _ as w =>
-    MkBodyCalls [< c.fn] SortedSet.empty (SortedSet.singleton c.fn) SortedSet.empty
-      <+> awayCalls ((visitVect collecting as).callees ++ calleesIn w)
-  NoHead => awayCalls (calleesIn t)
+||| What a tail calls, by its head: the callee its head calls, as a call or
+||| as a run of a call, then every other call in it, elsewhere, in
+||| the order they are written, which puts the head's first; what
+||| `otherwise` reads, for a tail with no such head.
+headCalls : TailHead n -> (otherwise : Lazy BodyCalls) -> BodyCalls
+headCalls (CallHead _ c _ as stated) _ =
+  MkBodyCalls [< c.fn] (SortedSet.singleton c.fn) SortedSet.empty SortedSet.empty
+    <+> awayCalls ((visitVect collecting as).callees ++ (visitStated collecting stated).callees)
+headCalls (RunHead _ c _ as w) _ =
+  MkBodyCalls [< c.fn] SortedSet.empty (SortedSet.singleton c.fn) SortedSet.empty
+    <+> awayCalls ((visitVect collecting as).callees ++ calleesIn w)
+headCalls NoHead otherwise = otherwise
 
 mutual
   ||| What a body calls (`BodyCalls`), in one walk of its tails: through a
   ||| `let`'s body, a match's arms, an assumption, a read's body and a join
-  ||| op's regions and body, the tails a jump may be written at; each other
-  ||| tail by its head (`atTail`); and every call in a slot no tail reaches,
-  ||| elsewhere.
+  ||| op's regions and body, the tails a jump may be written at; a run, which
+  ||| is a `let`, and each other tail by its head (`headCalls`); and every
+  ||| call in a slot no tail reaches, elsewhere.
   export
   callsOf : TermAt js n -> BodyCalls
-  callsOf (Let _ _ _ v body) = awayCalls (calleesIn v) <+> callsOf body
+  callsOf t@(Let _ _ _ v body) = headCalls (tailHead t) (awayCalls (calleesIn v) <+> callsOf body)
   callsOf (Case _ _ _ arms) = callsArms arms
   callsOf (CaseLit _ _ arms) = callsLitArms arms
   callsOf (CaseNat _ _ arms) = callsNatArms arms
@@ -1443,7 +1488,7 @@ mutual
   callsOf (ReadBack _ _ x cs body) = awayCalls (calleesIn x ++ (visitAll collecting cs).callees) <+> callsOf body
   callsOf (ExtentsBack _ x body) = awayCalls (calleesIn x) <+> callsOf body
   callsOf (Join _ _ targets body) = callsTargets targets <+> callsOf body
-  callsOf t = atTail t
+  callsOf t = headCalls (tailHead t) (awayCalls (calleesIn t))
 
   callsArms : CaseArmsOf (AltAt js n) (TermAt js n) -> BodyCalls
   callsArms (Defaulted alts d) = callsAlts alts <+> callsOf d
@@ -1592,28 +1637,6 @@ mutual
              (overTails at UnderJoin (Free {k} . e) (dp + length sorts) (paramTypes params sc) body)
       :: overTargets at e dp sc rest
 
-||| An action's value run on the world `w` of its scope, at a tail: a
-||| lambda of the world, outside every join op, is its body with its world
-||| `w`, so a tail of that body that applies a call to the world is that
-||| call saturated; any other action is applied to the world at the
-||| function type its own term states (`termType`), the one its head is
-||| made at, whatever the definition it is the value of declares. A
-||| lambda's body sees no join point, so it stands for a tail only where
-||| none is in scope; inside a join op the lambda is applied as any action
-||| is.
-running : Loc -> ActionType t -> Fin n -> AtTail n
-running l a w Outermost e dp sc (Lam _ _ (MkBinder _ WorldT) _ body) =
-  rename (\v => case splitUnder {k = 1} v of
-                  Left _ => e w
-                  Right y => y) body
-running l a w _ e dp sc t = case termType dp sc t of
-  Just (FunT b@(MkBinder _ WorldT) r) => App l b r t (Var l (e w))
-  -- Of an action's tails, only a variable bound to a value that never
-  -- returns states no type of its own, and nothing applies it when the
-  -- program runs: it is applied at the action type `a` the definition
-  -- declares, the one Idris checked each of its tails at.
-  _ => App l (MkBinder (worldUses a) WorldT) (actionResult a) t (Var l (e w))
-
 ||| What a function's signature fixes of its result's dynamic dimensions
 ||| (`ds`, over its parameters), stated of the value at a tail, of the
 ||| function's result type `ty`: what a call of it states of the value,
@@ -1648,12 +1671,21 @@ tiedExits l ty ds@(_ :: _) dp params body = overTails (tying l ty ds) Outermost 
 public export
 data Termination = Terminates ComponentId | Acyclic | MayDiverge (List1 Shown)
 
+||| What a local definition's value is, as far as a call of it may jump to
+||| it: `IO`'s, read by `IO`'s identity at its result type (`IOFamily`),
+||| which a call's value may be run on the world as; or a value of any
+||| other type, which its Core type says the rest of (an action is run by
+||| applying it, `actionType`). The two are the problem's: that a family is
+||| `IO` is its identity, which no Core type carries.
+public export
+data LocalValue = OfIO IOFamily | OfOtherType
+
 ||| Where a function instance's definition stands: a function in its own
 ||| right, or a definition local to another, which Idris lifted out under a
 ||| name nested in it (a `case` or `with` block, a `where` or `let`
-||| function), read once from its Idris name.
+||| function), read once from its Idris name, with what its value is.
 public export
-data Standing = OwnFunction | LocalDefinition
+data Standing = OwnFunction | LocalDefinition LocalValue
 
 %prefix_record_projections off
 
@@ -1694,25 +1726,83 @@ regionOf q f names params body =
            (map (movedBinder (MovedBy q)) params)
            (runIdentity (visitTerm (MkVisit (\x => Id (Bound {n = r} x)) (\_ => Id ()) (MovedBy q)) body))
 
-||| A local definition's action run on the world: its body, in the scope of
-||| its parameters and then the world, at the depth of its telescope, each
-||| tail that gives the action run on the world (`running`), so a tail that
-||| applied a call to the world is that call saturated with it.
-ranOn : (f : TFn) -> ActionType f.callee.result -> Term (S f.arity)
-ranOn f a =
-  overTails (running f.loc a last) Outermost id (length f.telescope)
-            (paramScope (snoc f.callee.params (MkBinder (worldUses a) WorldT))) (rename weaken f.body)
+||| How a local definition's value is run on the world, by its type: an
+||| action, a function of the world, applied to it (`AnAction`); or, its
+||| value `IO`'s as its standing reads it (`io`), taken apart into the
+||| action its field holds, applied to it (`AnIO`, `runIO`). The two are the
+||| problem's: Idris's `PrimIO` is an action, and its `IO` a family that
+||| holds one, known by `IO`'s identity and never by that shape.
+public export
+data RunOf : TFn -> Type where
+  AnAction : ActionType f.callee.result -> RunOf f
+  AnIO : (io : IOFamily) -> (0 _ : f.standing = LocalDefinition (OfIO io)) -> RunOf f
+
+||| The quantity a run takes the world at: its action's.
+runWorld : RunOf f -> Uses
+runWorld (AnAction a) = worldUses a
+runWorld (AnIO io _) = io.world
+
+||| A local definition's value run on the world `w` of its scope, at a
+||| tail, as its run says (`RunOf`). An action: a lambda of the world is
+||| its body with its world `w`, so a tail of that body that applies a call
+||| to the world is that call saturated; any other action is applied to the
+||| world at the function type its own term states (`termType`), the one
+||| its head is made at, whatever the definition declares. An `IO` value:
+||| the constructor applied to a lambda of the world is the lambda's body
+||| with its world `w`, since taking the value apart gives the lambda back;
+||| any other value is run as `runIO` runs one, so a tail call there is a
+||| run of its value. A tail of the definition is a value of its type, so
+||| an `IO` tail's constructor is `IO`'s. A lambda's body sees no join
+||| point, so it stands for a tail only outside every join op; inside one
+||| the value is run as any is.
+running : {0 f : TFn} -> Loc -> RunOf f -> Fin n -> AtTail n
+running l (AnAction _) w Outermost e dp sc (Lam _ _ (MkBinder _ WorldT) _ body) =
+  rename (\v => case splitUnder {k = 1} v of
+                  Left _ => e w
+                  Right y => y) body
+running l (AnAction a) w _ e dp sc t = case termType dp sc t of
+  Just (FunT b@(MkBinder _ WorldT) r) => App l b r t (Var l (e w))
+  -- Of an action's tails, only a variable bound to a value that never
+  -- returns states no type of its own, and nothing applies it when the
+  -- program runs: it is applied at the action type `a` the definition
+  -- declares, the one Idris checked each of its tails at.
+  _ => App l (MkBinder (worldUses a) WorldT) (actionResult a) t (Var l (e w))
+running l (AnIO _ _) w Outermost e dp sc (ConApp _ _ _ [Lam _ _ (MkBinder _ WorldT) _ body]) =
+  rename (\v => case splitUnder {k = 1} v of
+                  Left _ => e w
+                  Right y => y) body
+running l (AnIO io _) w _ e dp sc t = runIO l io t (e w)
+
+||| A local definition's value run on the world (`RunOf`): its body, in the
+||| scope of its parameters and then the world, at the depth of its
+||| telescope, each tail that gives its value run on the world (`running`),
+||| so a tail call there is a run of the call.
+ranOn : (f : TFn) -> RunOf f -> Term (S f.arity)
+ranOn f r =
+  overTails (running f.loc r last) Outermost id (length f.telescope)
+            (paramScope (snoc f.callee.params (MkBinder (runWorld r) WorldT))) (rename weaken f.body)
 
 ||| How every call of a local definition, in every function that reaches
 ||| it, jumps to it: a tail call of it with its parameters, its region its
-||| body (`ByCall`); or, its result an action, a tail call of it applied to
-||| the world, its region the action run on the world (`ByRun`). The two are
-||| the problem's: a tail that gives the action and one that runs it give
+||| body (`ByCall`); or a tail run of each call on the world, its region its
+||| value run on the world, as its type says (`ByRun`, `RunOf`). The two are
+||| the problem's: a tail that gives the value and one that runs it give
 ||| values of two types, which no one region gives.
 public export
 data JumpsBy : TFn -> Type where
   ByCall : JumpsBy f
-  ByRun : ActionType f.callee.result -> JumpsBy f
+  ByRun : RunOf f -> JumpsBy f
+
+||| How a local definition's calls jump to it when each runs it on the
+||| world (`ByRun`): its value `IO`'s, where its standing reads it so, or
+||| an action, where its type is one; nothing for a definition of any other
+||| value, or one in its own right.
+export
+byRun : (f : TFn) -> Maybe (JumpsBy f)
+byRun f with (f.standing) proof stands
+  _ | LocalDefinition (OfIO io) = Just (ByRun (AnIO io stands))
+  _ | LocalDefinition OfOtherType = ByRun . AnAction <$> actionType f.callee.result
+  _ | OwnFunction = Nothing
 
 %prefix_record_projections off
 
@@ -1728,27 +1818,27 @@ record LocalJoin where
 %prefix_record_projections on
 
 ||| The arity of a local join's join point: its parameters, then the world
-||| for one whose calls run its action.
+||| for one whose calls are runs.
 public export
 pointArity : LocalJoin -> Nat
 pointArity (MkLocalJoin f ByCall) = f.arity
 pointArity (MkLocalJoin f (ByRun _)) = S f.arity
 
 ||| A local join's region's body before the calls of local joins in it are
-||| jumps: its body, or its action run on the world (`ranOn`).
+||| jumps: its body, or its value run on the world (`ranOn`).
 export
 regionBody : (m : LocalJoin) -> Term (pointArity m)
 regionBody (MkLocalJoin f ByCall) = f.body
-regionBody (MkLocalJoin f (ByRun a)) = ranOn f a
+regionBody (MkLocalJoin f (ByRun r)) = ranOn f r
 
 ||| A local join as a join region of a function whose telescope is `q`
-||| levels deep (`regionOf`): its parameters, then, for one whose calls run
-||| its action, the world, at the quantity the action takes it.
+||| levels deep (`regionOf`): its parameters, then, for one whose calls are
+||| runs, the world, at the quantity its run takes it.
 export
 regionAt : (q : Nat) -> (m : LocalJoin) -> TermAt s (pointArity m) -> Target s r (pointArity m)
 regionAt q (MkLocalJoin f ByCall) body = regionOf q f f.paramNames f.callee.params body
-regionAt q (MkLocalJoin f (ByRun a)) body =
-  regionOf q f (snoc f.paramNames (shown "world")) (snoc f.callee.params (MkBinder (worldUses a) WorldT)) body
+regionAt q (MkLocalJoin f (ByRun how)) body =
+  regionOf q f (snoc f.paramNames (shown "world")) (snoc f.callee.params (MkBinder (runWorld how) WorldT)) body
 
 ||| The join points in scope once each of the local joins `ms` has one, in
 ||| order, each outside those before it.
@@ -1790,8 +1880,8 @@ calledPoint {js} (MkLocalJoin f ByCall :: ms) arity fn = case callOf arity fn f 
 calledPoint {js} (MkLocalJoin f (ByRun _) :: ms) arity fn = calledPoint {js = S f.arity :: js} ms arity fn
 
 ||| The join point, among `stacked g js`, of the member of `g` whose calls
-||| run its action that a call of `fn` on `arity` arguments applied to the
-||| world calls, if one is: its parameters, then the world.
+||| are runs that a run of a call of `fn` on `arity` arguments calls, if one
+||| is: its parameters, then the world.
 runPoint : {0 js : List Nat} -> (g : List LocalJoin) -> (arity : Nat) -> FnId -> Maybe (Elem (S arity) (stacked g js))
 runPoint [] arity fn = Nothing
 runPoint {js} (MkLocalJoin f ByCall :: ms) arity fn = runPoint {js = f.arity :: js} ms arity fn
@@ -1802,8 +1892,9 @@ runPoint {js} (MkLocalJoin f (ByRun _) :: ms) arity fn = case callOf arity fn f 
 ||| A tail's head as a jump to the member of `g` it calls in the form that
 ||| member's calls jump to it by, which takes the place of the ties around a
 ||| call, since the member's region states what they did (`tiedExits`);
-||| else the tail as it is (`asIs`).
-jumpOr : {0 js : List Nat} -> (g : List LocalJoin) -> TailHead n -> TermAt (stacked g js) n -> TermAt (stacked g js) n
+||| else the tail as it is (`asIs`), made only then.
+jumpOr : {0 js : List Nat} -> (g : List LocalJoin) -> TailHead n -> (asIs : Lazy (TermAt (stacked g js) n)) ->
+         TermAt (stacked g js) n
 jumpOr {js} g (CallHead {arity} l c is as _) asIs = case calledPoint {js} g arity c.fn of
   Just e => Jump l e is as
   Nothing => asIs
@@ -1828,7 +1919,8 @@ mutual
   joinsIn g (Effect l p gives as w res) = Effect l p gives as w res
   joinsIn {js} g t@(Call l c stands is as) = jumpOr {js} g (tailHead t) (Call l c stands is as)
   joinsIn g (ConApp l con bs as) = ConApp l con bs as
-  joinsIn g (Let l x b v body) = Let l x b v (joinsIn g body)
+  -- A `let` is a run's head (`runIO`) or holds its tails in its body.
+  joinsIn {js} g t@(Let l x b v body) = jumpOr {js} g (tailHead t) (Let l x b v (joinsIn g body))
   joinsIn g (Case l fam x arms) = Case l fam x (joinsArms g arms)
   joinsIn g (CaseLit l x arms) = CaseLit l x (joinsLitArms g arms)
   joinsIn g (CaseNat l x arms) = CaseNat l x (joinsNatArms g arms)

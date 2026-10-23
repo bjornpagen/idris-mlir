@@ -179,18 +179,14 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
                                     (\ren, ns => k' (ren . Free {k = 2}) (ns :< ren (Bound {k = 2} (FS FZ)))))
                               ::: []))
 
-||| A value of a family of one constructor of one field taken apart, by
-||| that constructor, into its field, which the alternative names `name`;
-||| the body is built over the field, with the renaming of the scope
-||| outside. A linear array's cell is taken apart so into the array it
-||| holds: every operation of a linear array runs on that array and builds
-||| the cell again, so the cell is rebuilt in place by the rule that
-||| rebuilds every cell of a type whose values are. An `IO` value is taken
-||| apart so into its action (`runIO`).
-opened : {0 m : Nat} -> Loc -> (name : Shown) -> Con 1 -> Fin m ->
-         ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
-opened loc name c x k =
-  Case loc c.id.family x (Exhaustive (MkAlt c [name] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
+||| A linear array's cell taken apart, by its one constructor, into the
+||| array it holds; the body is built over the array, with the renaming of
+||| the scope outside. Every operation of a linear array runs on that
+||| array and builds the cell again, so the cell is rebuilt in place by the
+||| rule that rebuilds every cell of a type whose values are.
+opened : {0 m : Nat} -> Loc -> Con 1 -> Fin m -> ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
+opened loc writing x k =
+  Case loc writing.id.family x (Exhaustive (MkAlt writing [shown "elements"] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
 
 ||| Each term bound by a `let` at the quantity of the parameter it is given
 ||| for, left to right, and the body built over the variables that hold
@@ -218,21 +214,13 @@ bindArguments loc bs ts k = go id bs ts k
 %prefix_record_projections off
 
 ||| `IO` at a type, as Idris declares it (`MkIO : (1 fn : PrimIO a) -> IO
-||| a`): a family carried whole like every other, whose one constructor
-||| (`io`) has one field, the action on the world, which takes the world at
-||| `world` and gives `gives` (the `IORes` of the type and the next world);
-||| and the field's Idris type, the `PrimIO`, which names that `IORes`. A
-||| value of it is made by applying the constructor to an action, and run
-||| by taking it apart into the action, applied to the world (`runIO`). How
-||| the family is laid out, a one-field collapse included, is the
-||| dialect's.
+||| a`): its family, constructor and action (`Term.IOFamily`), which the
+||| core term holds; and its field's Idris type, the `PrimIO`, which names
+||| the `IORes` the action gives.
 public export
 record IOAt where
   constructor MkIOAt
-  io : Con 1
-  world : Uses
-  gives : Ty
-  0 holds : (Data.Vect.head io.fields).type = FunT (MkBinder world WorldT) gives
+  family : IOFamily
   primIO : ClosedTerm
 
 %prefix_record_projections on
@@ -242,37 +230,49 @@ record IOAt where
 partsOf : ActionType t -> (world : Uses ** gives : Ty ** t = FunT (MkBinder world WorldT) gives)
 partsOf (OnWorld world gives) = (world ** gives ** Refl)
 
-||| A type read at `IO`'s shape (`IOAt`) where a hook or the program's root
-||| first reads it: the family it names, its one constructor of one field
-||| (`Choices.onlyCon`), and that field an action on the world
-||| (`actionType`). Each is a declaration whose shape the family's
-||| identity does not carry, so a type of another shape is refused there,
-||| by `refused`, told what the type is.
+||| A type read at `IO` (`IOAt`) where `IO` is the type constructor it
+||| applies, known by its identity, the address the boundary read `IO` at
+||| (`Reading.ioType`), and never by its shape, so a family of the same
+||| shape is not `IO`; nothing for a type of any other head. `IO`'s
+||| declaration is Idris's: the family it names at the type, its one
+||| constructor of one field (`Choices.onlyCon`), that field an action on
+||| the world (`actionType`), each read where a hook, the program's root or
+||| a local definition first reads `IO` at a type. A declaration of another
+||| shape is the compiled module's error, refused there.
+export
+ioOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> String -> ClosedTerm -> Front (Maybe IOAt)
+ioOf fc owner ty = do
+  io <- (.ioType) <$> reading
+  tm <- normaliseClosed ty
+  case getFn tm of
+    Ref _ (TyCon _) n => do
+      (tc, _) <- lookupTyCon fc owner n
+      if sameAddress (addressOf tc.placement) io then Just <$> declared tm else pure Nothing
+    _ => pure Nothing
+  where
+    declared : ClosedTerm -> Front IOAt
+    declared tm = do
+      Just (df, _) <- dataFamilyOf fc owner tm
+        | Nothing => reject fc owner CompiledModule "IO, which is no data type"
+      only <- onlyCon 1 (reject fc owner CompiledModule) df
+      let io = only.single
+      let Just action = actionType (Data.Vect.head io.fields).type
+        | Nothing => reject fc owner CompiledModule ("a value of " ++ keyText df.key ++ ", whose field holds no action on the world")
+      let (world ** gives ** holds) = partsOf action
+      pure (MkIOAt (MkIOFamily io world gives holds) (Data.Vect.head only.fieldTypes))
+
+||| A type read at `IO` (`ioOf`) where a hook or the program's root takes
+||| an `IO` value: one of any other type is refused there, by `refused`,
+||| told what the type is.
 export
 ioAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
        FC -> String -> (refused : {0 r : Type} -> String -> Front r) -> ClosedTerm -> Front IOAt
 ioAt fc owner refused ty = do
-  Just (df, _) <- dataFamilyOf fc owner ty
+  Just a <- ioOf fc owner ty
     | Nothing => do
         written <- showTT ty
-        refused ("a value of type " ++ written ++ ", which is no data type")
-  only <- onlyCon 1 refused df
-  let io = only.single
-  let Just action = actionType (Data.Vect.head io.fields).type
-    | Nothing => refused ("a value of " ++ keyText df.key ++ ", whose field holds no action on the world")
-  let (world ** gives ** holds) = partsOf action
-  pure (MkIOAt io world gives holds (Data.Vect.head only.fieldTypes))
-
-||| An `IO` value run on the world `w` of its scope, as `unsafePerformIO`
-||| and every bind run one: the value, bound once, taken apart by `IO`'s
-||| constructor into the action its field holds, and the action applied to
-||| the world, giving what the action gives.
-export
-runIO : {0 m : Nat} -> Loc -> IOAt -> (value : Term m) -> (w : Fin m) -> Term m
-runIO loc a value w =
-  Let loc (shown "io") (OfValue Once) value
-      (opened loc (shown "action") a.io FZ (\ren, action =>
-         App loc (MkBinder a.world WorldT) a.gives (Var loc action) (Var loc (ren (FS w)))))
+        refused ("a value of type " ++ written ++ ", which is no IO")
+  pure a
 
 ------------------------------------------------------------------------------
 -- A library function a hook calls
@@ -2306,7 +2306,7 @@ mutual
           let r = minus (length ds) (rank vTy)
               xa = MkArrayType (Data.Vect.fromList ds) e
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i, v] =>
-                  opened loc (shown "elements") writing l (\ren', x =>
+                  opened loc writing l (\ren', x =>
                     apart loc iSnoc r (ren' i) (\ren'', cs =>
                       ConApp loc writing []
                         [Tensor loc (Insert xa (TensorT ds e) (Var loc (ren'' x)) (Var loc (ren'' (ren' v))) (map (Var loc) cs))]))))
@@ -2390,7 +2390,7 @@ mutual
           res <- (.single) <$> onlyAt fc 2 resTy
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l, i] =>
-                  opened loc (shown "elements") writing l (\ren', x =>
+                  opened loc writing l (\ren', x =>
                     apart loc iSnoc r (ren' i) (\ren'', cs =>
                       ReadBack loc (cellAfter r ds e) (Var loc (ren'' x)) (map (Var loc) cs)
                         (ConApp loc res [] [ Var loc (Bound {k = 2} FZ)
@@ -2410,7 +2410,7 @@ mutual
           s <- snocCons fc (Data.Vect.index 0 only.fieldTypes)
           let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [l] =>
-                  opened loc (shown "elements") writing l (\ren', x =>
+                  opened loc writing l (\ren', x =>
                     ExtentsBack {k = r} loc (Var loc x)
                       (ConApp loc res []
                          [ snocValue loc s (toList (map (\j => Var loc (Bound (weaken j))) (Data.Vect.allFins r)))
@@ -2425,12 +2425,12 @@ mutual
           axis <- axisOf (length ds) (lastAxis (TensorT ds e) vTy)
           fill <- fillOf (minus (length ds) (S (finToNat axis))) vTy
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [k, v, l] =>
-                  opened loc (shown "elements") writing l (\ren', x =>
+                  opened loc writing l (\ren', x =>
                     ConApp loc grown []
                       [Tensor loc (Concat xa (alongAxis axis xa) ga axis
                          (Var loc x) (copies xa axis fill (Var loc x) (Var loc (ren' k)) (Var loc (ren' v))))])))
         -- The step at each index and the tabulation are `IO` values, each
-        -- read at `IO`'s shape (`ioAt`): the tabulation is `IO`'s
+        -- read at `IO` (`ioAt`): the tabulation is `IO`'s
         -- constructor applied to its action, which runs the step's action
         -- at each index on the world before it. The step's and the
         -- result's `IORes` are read off the Idris types of their actions.
@@ -2450,10 +2450,10 @@ mutual
           cellsFixed fc arrTy r
           pure $ MkMaker (\ys => bindArguments loc bs ys (\ren, [e, act] =>
                   apart loc eSnoc r e (\ren', ds =>
-                    ConApp loc doneAt.io []
-                      [Lam noLoc (shown "world") (MkBinder doneAt.world WorldT) doneAt.gives
+                    ConApp loc doneAt.family.io []
+                      [Lam noLoc (shown "world") (MkBinder doneAt.family.world WorldT) doneAt.family.gives
                          (TabulateIO loc arrTy (map (Var loc . FS) (fromList ds)) (Var loc FZ)
-                            (runIO loc stepAt
+                            (runIO loc stepAt.family
                                (App loc ib stepIO (Var loc (Free {k = S (length ds)} (FS (ren' act))))
                                     (snocValue loc iSnoc
                                        (map (Var loc . Bound . weaken) (toList (Data.Vect.allFins (length ds))))))

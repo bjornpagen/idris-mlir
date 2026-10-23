@@ -155,17 +155,22 @@ translateDefinition p n m counted = do
             then (entryTies . fst) <$> sizedTelescope ty p.signature.kinds
             else pure []
   -- Where the definition stands, read once from its Idris name: a case,
-  -- with or nested block is local to the function Idris lifted it out of.
-  let standing = case blockOf (fullname def) of
-                   Just _ => LocalDefinition
-                   Nothing => OwnFunction
+  -- with or nested block is local to the function Idris lifted it out of;
+  -- and what a local one's value is, read once at its result type: `IO`'s,
+  -- known by `IO`'s identity (`Terms.ioOf`), which its calls' values may
+  -- be run as.
+  standing <- case blockOf (fullname def) of
+                Just _ => do
+                  value <- ioOf fc owner p.signature.result
+                  pure (LocalDefinition (maybe OfOtherType (OfIO . (.family)) value))
+                Nothing => pure OwnFunction
   -- A local definition, which a join point may make its region, states
   -- what its signature fixes of its result's dynamic dimensions, over its
   -- parameters, where its body gives its value (`tiedExits`): each call of
   -- it states the same of the value, and one that becomes a jump leaves
   -- the statement to the region.
   exits <- case (standing, valueDims p.signature.callee.result) of
-             (LocalDefinition, Just _) => do
+             (LocalDefinition _, Just _) => do
                (tel, res) <- sizedTelescope ty p.signature.kinds
                map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes p.signature.kinds)) w)) <$> resultTies tel res p.signature.callee.result
              _ => pure []
@@ -438,8 +443,8 @@ joined calls members f =
     [] => f
     (m :: ms) => joinedBy calls (m :: ms) Data.List.IsNonEmpty f
 
-||| The local joins among those found whose calls run their actions, each
-||| with what its region calls.
+||| The local joins among those found whose calls are runs, each with what
+||| its region calls.
 runsOf : List (LocalJoin, BodyCalls) -> List (LocalJoin, BodyCalls)
 runsOf [] = []
 runsOf (r@(MkLocalJoin _ (ByRun _), _) :: rs) = r :: runsOf rs
@@ -450,11 +455,12 @@ runsOf (_ :: rs) = runsOf rs
 ||| lifted out of a function) every call of which, in every function, is
 ||| the head of a saturated application in a tail position is no function
 ||| of the program but a join region of each function that reaches it. Its
-||| calls are tail calls with its parameters, or, its result an action, tail
-||| calls applied to the world (`JumpsBy`). What each body calls where is
-||| read once (`callsOf`), the decision is made on those readings alone, and
-||| each function's body is rewritten once (`joinsIn`). A local definition
-||| only inlining would make one is left to the passes that inline.
+||| calls are tail calls with its parameters, or, its value an action or
+||| `IO`'s, tail runs of its calls on the world (`JumpsBy`). What each body
+||| calls where is read once (`callsOf`), the decision is made on those
+||| readings alone, and each function's body is rewritten once
+||| (`joinsIn`). A local definition only inlining would make one is left to
+||| the passes that inline.
 joinLocals : TFn -> List TFn -> (TFn, List TFn)
 joinLocals root fns =
   let fnBodies = map (\f => (f, callsOf f.body)) fns
@@ -478,40 +484,40 @@ joinLocals root fns =
     calledOnly : FnId -> BodyCalls -> Bool
     calledOnly fn cs = not (contains fn cs.asRuns || contains fn cs.elsewhere)
 
-    -- Every call of `fn` in a body is a tail's head that runs its action.
+    -- Every call of `fn` in a body is a tail's head that runs it.
     runOnly : FnId -> BodyCalls -> Bool
     runOnly fn cs = not (contains fn cs.asCalls || contains fn cs.elsewhere)
 
     -- How a local definition's calls jump to it, each caller read as it
     -- is written: every one a tail call with its parameters; else, its
-    -- result an action, every one a tail call applied to the world, its own
-    -- calls read in its region, its action run on the world. A caller that
-    -- runs another's action is never read as running its own, so no
-    -- decision here rests on another's. Each comes with what its region
-    -- calls.
+    -- value an action or `IO`'s (`byRun`), every one a tail run of it on
+    -- the world, its own calls read in its region, its value run on the
+    -- world. A caller that runs another's value is never read as running
+    -- its own, so no decision here rests on another's. Each comes with what
+    -- its region calls.
     jumpedBy : SortedMap FnId (List (TFn, BodyCalls)) -> (TFn, BodyCalls) -> Maybe (LocalJoin, BodyCalls)
     jumpedBy callers (f, own) = case f.standing of
       OwnFunction => Nothing
-      LocalDefinition =>
+      LocalDefinition _ =>
         let hs = fromMaybe [] (lookup f.callee.fn callers) in
         if all (calledOnly f.callee.fn . snd) hs
           then Just (MkLocalJoin f ByCall, own)
-          else case actionType f.callee.result of
+          else case byRun f of
             Nothing => Nothing
-            Just a =>
-              let m = MkLocalJoin f (ByRun a)
+            Just jumps =>
+              let m = MkLocalJoin f jumps
                   ran = callsOf (regionBody m) in
               if all (\(h, cs) => runOnly f.callee.fn (if h.callee.fn == f.callee.fn then ran else cs)) hs
                 then Just (m, ran)
                 else Nothing
 
     -- A local join read again, in its own form, in the region of each whose
-    -- calls run its action, which is what that region is rewritten from:
-    -- the region applies each of its tails to the world, so a call there
-    -- that was a tail call with its parameters, or a tail call applied to
-    -- the world, is neither any longer. Read so, every body a member's calls
-    -- are rewritten in is a body its calls were read in. A local join's own
-    -- region passes, as its decision read it there already.
+    -- calls are runs, which is what that region is rewritten from: the
+    -- region runs each of its tails on the world, so a tail call there with
+    -- its parameters is a run of the call, no tail call any longer. Read so,
+    -- every body a member's calls are rewritten in is a body its calls were
+    -- read in. A local join's own region passes, as its decision read it
+    -- there already.
     fitsRuns : List (LocalJoin, BodyCalls) -> LocalJoin -> Bool
     fitsRuns runs (MkLocalJoin f ByCall) = all (calledOnly f.callee.fn . snd) runs
     fitsRuns runs (MkLocalJoin f (ByRun _)) = all (runOnly f.callee.fn . snd) runs
@@ -533,7 +539,7 @@ assemble t root =
 ||| `unsafeCreateWorld` and `unsafeDestroyWorld` mean:
 |||   root w = case main of MkIO action => action w
 ||| since `main`'s value is `IO`'s, a family carried whole, whose one
-||| constructor holds the action on the world (`Terms.runIO`). It returns
+||| constructor holds the action on the world (`Term.runIO`). It returns
 ||| the `IORes` of `main`'s result and the last world, so the world is used
 ||| exactly once. `%MkWorld` never appears. Nothing when an instance was
 ||| rejected (`rejections`).
@@ -555,8 +561,10 @@ translateIOProgram fc main = do
   -- Main was requested first, so requesting it again reads the signature
   -- every call of it holds.
   sig <- mainInstance fc main
-  -- Its value is `IO`'s, read at that shape off the type Idris checked it
-  -- at, which its signature holds.
+  -- Its value is `IO`'s, known by `IO`'s identity off the type Idris
+  -- checked it at, which its signature holds: upstream runs `main` as
+  -- `unsafePerformIO main`, which takes an `IO` of any type and nothing of
+  -- another family, whatever its shape.
   mainIO <- ioAt fc owner (\_ => reject fc owner ProgramShape mustBeIO) sig.result
   -- The root calls main with no argument; a `main` that takes one is no
   -- `IO ()`.
@@ -569,13 +577,13 @@ translateIOProgram fc main = do
   -- binder's whatever it is called.
   let loc = noLoc
   let body : Term 1
-      body = runIO loc mainIO (Call loc sig.callee Nothing [] (rewrite noArgument in [])) FZ
+      body = runIO loc mainIO.family (Call loc sig.callee Nothing [] (rewrite noArgument in [])) FZ
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`. It
   -- has no loop of its own; what main does is main's, which the passes find
   -- through the call.
-  let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.gives)
+  let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.family.gives)
                    (MkExtents [[]] []) [shown "world"] body loc Acyclic
   pure (Just (assemble st.table root))

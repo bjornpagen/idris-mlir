@@ -1249,12 +1249,16 @@ withSolution i s table = Data.SortedMap.Dependent.insert i s table
 ||| a pair of or a function to such values,
 ||| `Boundary.implementationHolding`); the solution of every metavariable a
 ||| term read names, by its entry (`Solutions`), which every walk that
-||| meets one reads; and the pair Idris's `%pair` names (`PairRead`), which
-||| holds values as one, none for a program that declares no `%pair`. Each
-||| definition holds what the whole program's definitions say of it
-||| (`facts`): nothing while they are being read, its constructors once
-||| they are, and its `Nature` once those are (`Read`); the pair's, as
-||| every other's. Nothing the translation does changes it.
+||| meets one reads; the pair Idris's `%pair` names (`PairRead`), which
+||| holds values as one, none for a program that declares no `%pair`; and
+||| the address of `IO`'s type constructor (`ioType`), the type of what
+||| `unsafePerformIO` runs, which the program's root runs `main` as, read
+||| once after the freeze, so `IO` is known by that identity and never by
+||| its name again, nor by its shape (`Terms.ioOf`). Each definition holds
+||| what the whole program's definitions say of it (`facts`): nothing while
+||| they are being read, its constructors once they are, and its `Nature`
+||| once those are (`Read`); the pair's, as every other's. Nothing the
+||| translation does changes it.
 public export
 record Reading (facts : Type) where
   constructor MkReading
@@ -1265,6 +1269,7 @@ record Reading (facts : Type) where
   interfaces : SortedSet Name
   solutions : Solutions frozen
   pair : Maybe (PairRead facts)
+  ioType : Address
 
 ||| What every phase after the boundary reads of the program: each
 ||| definition with its `Nature`.
@@ -1300,7 +1305,7 @@ export
 natured : (DefinitionRead facts -> Nature) -> Reading facts -> Read
 natured nature r =
   MkReading r.frozen (withNature (nature r.entry) r.entry) (map (\d => withNature (nature d) d) r.definitions)
-            r.application r.interfaces r.solutions (map (pairWith (\d => withNature (nature d) d)) r.pair)
+            r.application r.interfaces r.solutions (map (pairWith (\d => withNature (nature d) d)) r.pair) r.ioType
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to, with the entry and the evidence that the name resolves

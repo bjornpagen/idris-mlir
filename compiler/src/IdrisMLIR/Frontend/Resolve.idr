@@ -381,11 +381,14 @@ lastOperand (NoOperand ops) = FS (lastOperand ops)
 %prefix_record_projections off
 
 ||| A library function a hook names, read against its definition where the
-||| boundary reads the row (`Translate.Boundary`): the function, the
-||| parameters its calls are translated at (its case tree's), and which of
-||| them are values at run time, `arity` of them, as its type in normal form
-||| shows (`Operands`), the count the hook's lowering gives it. A row whose
-||| function takes another number is refused there, once.
+||| boundary reads the row (`Translate.Boundary`): the function, every
+||| binder its type in normal form shows (`operandsOf`), and which of them
+||| are values at run time, `arity` of them (`Operands`), the count the
+||| hook's lowering gives it. What a function takes is its type's, which no
+||| clause changes; its case tree takes as many as its clauses do, which
+||| eta-reduction changes, and its calls read those where they are made
+||| (`Terms.libraryCall`). A row whose function takes another number is
+||| refused there, once.
 public export
 record CheckedLibrary (arity : Nat) where
   constructor MkCheckedLibrary
@@ -441,10 +444,24 @@ record Lowered (lib : Nat -> Type) where
 
 %prefix_record_projections on
 
+||| The operands of every binder a type in normal form shows: one at each
+||| binder of nonzero quantity, as a hook takes them (`Operands`). What a
+||| definition takes is its type's, whatever its clauses take, so a hook's
+||| row (`rowOf`) and a library function's definition (`CheckedLibrary`)
+||| are read by it.
+export
+operandsOf : Term vs -> (n : Nat ** k : Nat ** Operands n k)
+operandsOf (Bind _ _ (Pi _ rig _ _) sc) =
+  let (n ** k ** ops) = operandsOf sc in
+  case use rig of
+    Erased => (S n ** k ** NoOperand ops)
+    Used _ => (S n ** S k ** Operand ops)
+operandsOf _ = (0 ** 0 ** NoParameter)
+
 ||| The operands among the first `arity` binders of a type in normal form:
 ||| one at each binder of nonzero quantity. Nothing for a type that shows
-||| fewer binders. A hook's row and a library function's definition are
-||| read by it (`rowOf`, `CheckedLibrary`).
+||| fewer binders. A hook's row reads by it what the binders of its type as
+||| written take (`rowOf`).
 export
 operandsUpTo : (arity : Nat) -> Term vs -> Maybe (k ** Operands arity k)
 operandsUpTo Z _ = Just (0 ** NoParameter)
@@ -456,34 +473,36 @@ operandsUpTo (S n) (Bind _ _ (Pi _ rig _ _) sc) = do
 operandsUpTo (S n) _ = Nothing
 
 ||| The row of a definition whose calls a hook lowers, read off its type in
-||| normal form (`normal`), at the arity its calls are translated at: its
-||| own (`own`, a case tree's parameters or a bodiless declaration's), or,
-||| for a function of the array language and an identity, the binders its
-||| type shows (`shown`), which say what it takes. The hooks are taken in
-||| the order a call of it tries them. What the row and the type disagree
-||| on is the message of the refusal: the boundary refuses it once, where
-||| it reads the definition, and nothing after can meet it.
+||| normal form (`normal`): at the operands of every binder that type shows
+||| (`typed`, `operandsOf`), what the definition takes, a definition with
+||| clauses as a bodiless declaration, whatever its clauses take; or, for a
+||| function of the array language and an identity, at the binders its
+||| type shows as written (`shown`), which say what it takes. The hooks are
+||| taken in the order a call of it tries them. What the row and the type
+||| disagree on is the message of the refusal: the boundary refuses it
+||| once, where it reads the definition, and nothing after can meet it.
 export
-rowOf : (own, shown : Nat) -> (normal : Term vs) -> Hooks lib -> Either String (Maybe (Lowered (const lib)))
-rowOf own shown normal hs = traverse id $
-      map (\m => at own >>= natural m) hs.natOperation
-  <|> map (\p => at own >>= builder p) hs.builds
-  <|> map (\g => at shown >>= generated g) hs.generating
-  <|> (if hs.identityOnLast then Just (at shown >>= identity) else Nothing)
-  <|> map (\(p, lits) => at own >>= pureOp p lits) hs.pureCall
-  <|> map (\(a, lits) => at own >>= action a lits) hs.ioCall
-  <|> map (\a => at own >>= access a) hs.arrayCall
-  <|> map (\(p, lits) => at own >>= primOp p lits) hs.primCall
+rowOf : {arity : Nat} -> (typed : (k ** Operands arity k)) -> (shown : Nat) -> (normal : Term vs) -> Hooks lib ->
+        Either String (Maybe (Lowered (const lib)))
+rowOf typed shown normal hs = traverse id $
+      map (\m => natural m typed) hs.natOperation
+  <|> map (\p => builder p typed) hs.builds
+  <|> map (\g => written >>= generated g) hs.generating
+  <|> (if hs.identityOnLast then Just (written >>= identity) else Nothing)
+  <|> map (\(p, lits) => pureOp p lits typed) hs.pureCall
+  <|> map (\(a, lits) => action a lits typed) hs.ioCall
+  <|> map (\a => access a typed) hs.arrayCall
+  <|> map (\(p, lits) => primOp p lits typed) hs.primCall
   where
-    at : (arity : Nat) -> Either String (k ** Operands arity k)
-    at arity = maybe (Left ("its calls take " ++ show arity ++ " arguments, which its type does not show")) Right
-                     (operandsUpTo arity normal)
+    written : Either String (k ** Operands shown k)
+    written = maybe (Left ("its type as written shows " ++ show shown ++ " binders, which its normal form does not")) Right
+                    (operandsUpTo shown normal)
 
     takes : Nat -> String
     takes k = ", and the definition takes " ++ show k ++ " values at run time"
 
     -- A lowering holds the arity its operands are read at, so each reading
-    -- below takes the one `at` read them at.
+    -- below takes the one its operands were read at.
     natural : {n : Nat} -> NatMeaning lib -> (k ** Operands n k) -> Either String (Lowered (const lib))
     natural (Primitive {k = pk} p) (k ** ops) = case decEq k pk of
       Yes Refl => Right (MkLowered ops (NatPrimitive p))
