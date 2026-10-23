@@ -180,3 +180,13 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
 - `Terms.idr:490,1494` and `Cases.idr:921`: the caller's data per position
   (held values, runtime variables) is not tied to the callee's signature by
   type, and the cache key holds no holes.
+
+## From L16cp (the lemma over skeletons)
+
+- C222: `Instances` carries `HeldAs` together with the site's membership
+  (`Template.ReadingCovers`'s premise), from the translation's site table.
+- `Closed.skeleton` returns `SkeletonOf` evidence.
+- `Walk` states `probeTerm ProbeRuntime`, so a proof sees a cut's hole.
+- The induction at shapes: the request cuts before solving and contraction,
+  the site after (Covers' header).
+- L17 exports `putInMapped`, `mappedShows`, `mappedSpine` (L17aj).
