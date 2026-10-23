@@ -692,7 +692,7 @@ record Part {0 top : Template} (c : Carried top) (whole : Carried top) where
 -- A list's first template carries a part of what the list does.
 0 firstPart : (rts : Template -> List Address) -> (at : Depth top) -> (t : Template) -> (ts : List Template) ->
               (w : InWhole (recursionsIn (t :: ts)) top) ->
-              Part (carriedAll rts at (t :: ts) w) whole -> Part (carriedAt rts at t (placedFirst w)) whole
+              Part (carriedAll rts at (t :: ts) w) whole -> Part (carriedAt rts at t (placedFirst {ys = recursionsIn ts} w)) whole
 firstPart rts at t ts w p =
   MkPart (\a, el => p.partFields a (elemAppendLeft el))
          (\a, el => p.partHeld a (elemAppendLeft el))

@@ -192,14 +192,16 @@ methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> ClosedTerm -> Front Field
 methodField owner field = do
   let Just (m, passed, own) = etaWrapper Refl 0 field
-    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) []) Unrooted)
-  Just md <- defined m
-    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) []) Unrooted)
-  let am = addressOf md.placement
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) Unrooted)
+  ctx <- frozenContext
+  -- The method function, read once: its address, what the boundary read
+  -- of it, and that as the head of what the field writes.
+  Just (am ** (md, methodHead)) <- definedHead ctx m
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) [] []) Unrooted)
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
   ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map staticOf kinds)) xs))
-  pure (Method am md.def (MkTemplateRead (Head (Just am) (templatesOf ts)) (allRead ts)) own (leadingOf passed))
+  pure (Method am md.def (MkTemplateRead (Head (Just am) (templatesOf ts)) (allRead ts) (methodHead :: allHeads ts)) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
     value (Own _) = Erased EmptyFC Placeholder
@@ -229,8 +231,8 @@ fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -
 fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
   r <- dictionaryRoot a
-  head <- choiceHeadOf ty
-  Dictionary (givenRead (Just head) t r) r head <$> typeOverArguments ty
+  (head ** member) <- choiceDefOf ty
+  Dictionary (givenRead (Just head) member t r) r head <$> typeOverArguments ty
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a
@@ -294,7 +296,7 @@ fieldsOf d = case (definition d.def, d.matched) of
     arguments Z j _ = pure []
     arguments (S n) j (Bind _ _ (Pi _ rig _ a) sc) = do
       here <- case !(bindingOf rig a) of
-        Reads ADictionary => Dictionary (MkTemplateRead (Var j 0) []) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
-        _ => pure (Plain (MkTemplateRead (Var j 0) []) (Parameter j 0))
+        Reads ADictionary => Dictionary (MkTemplateRead (Var j 0) [] []) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
+        _ => pure (Plain (MkTemplateRead (Var j 0) [] []) (Parameter j 0))
       (here ::) <$> arguments n (S j) sc
-    arguments (S n) j _ = pure (map (\q => Plain (MkTemplateRead (Var q 0) []) (Parameter q 0)) (iterateN (S n) S j))
+    arguments (S n) j _ = pure (map (\q => Plain (MkTemplateRead (Var q 0) [] []) (Parameter q 0)) (iterateN (S n) S j))

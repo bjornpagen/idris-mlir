@@ -2827,17 +2827,17 @@ build main = do
                            (foldr (\(f, spot) => case spot of
                                                     OfParameter (OfNode node) _ => insertWith (++) node.definition [f]
                                                     _ => id)
-                                  empty firstMet)
+                                  SortedMap.empty firstMet)
   let byFieldAt = the (SortedMap (Address, Nat) (List (Fin (length slots))))
                       (foldr (\(f, spot) => case spot of
                                                OfField j k => insertWith (++) (j, k) [f]
                                                _ => id)
-                             empty firstMet)
+                             SortedMap.empty firstMet)
   let byChoiceAt = the (SortedMap ChoiceHead (List (Fin (length slots))))
                        (foldr (\(f, spot) => case spot of
                                                 OfChoice k => insertWith (++) k [f]
                                                 _ => id)
-                              empty firstMet)
+                              SortedMap.empty firstMet)
   let positionsOf : Address -> List (Fin (length slots))
       positionsOf a = fromMaybe [] (lookup a byDefinitionAt)
   let fieldPositionsOf : Address -> Nat -> List (Fin (length slots))

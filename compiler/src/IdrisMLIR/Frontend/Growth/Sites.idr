@@ -36,7 +36,6 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Cases
 import IdrisMLIR.Frontend.Translate.Closed
-import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Keys
@@ -527,11 +526,11 @@ display names ps env t = do
 siteAt : At -> FC -> Reach -> List Argument -> Site
 siteAt at fc reach args = MkSite at.writer at.writerDef at.params at.within reach args (if isEmptyFC fc then at.loc else fc)
 
-||| The name of what an address holds, for a message.
-nameText : {auto c : Ref Ctxt Defs} -> Address -> Front String
-nameText a = do
-  defs <- getDefs
-  maybe (pure "_") (\n => show <$> fullNames n) (nameAt (gamma defs) a)
+||| The name a head is shown by: its definition's, as the boundary read
+||| it; at an entry the context defines nothing at, the entry's.
+headText : {auto c : Ref Ctxt Defs} -> HeadDef a -> Front String
+headText (HeadDefined _ _ d _) = pure (show (fullname d.def))
+headText (HeadUndefined _ _ entry _ _ _) = show <$> fullNames (Resolved entry)
 
 ||| The name the writer's type gives its parameter i, as a message shows it.
 parameterName : (names : List Name) -> Nat -> String
@@ -539,37 +538,48 @@ parameterName names i = maybe "_" show (getAt i names)
 
 mutual
   ||| A template as a message shows it, each marker by the writer's name for
-  ||| its parameter.
-  render : {auto c : Ref Ctxt Defs} -> (names : List Name) -> Template -> Front String
-  render names (Var i _) = pure (parameterName names i)
-  render names (Head (Just a) []) = nameText a
-  render names (Head (Just a) cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll names cs
-  render names (Head Nothing cs) = (\as => "(" ++ joinBy " -> " as ++ ")") <$> renderAll names cs
-  render names (Leaf _) = pure "_"
-  render names (Token _) = pure "_"
-  render names (Formal _ _) = pure "_"
-  render names (Choice _ ls) = (\as => "{" ++ joinBy " | " as ++ "}") <$> renderAll names ls
-  render names (Opaque a cs) = (\h, as => "(" ++ unwords (h :: as) ++ ")") <$> nameText a <*> renderAll names cs
-  render names (Applied i _ cs) = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs
-  render names (Computing i _ cs) = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs
-  render names (Field k t) = (\s => s ++ "." ++ show k) <$> render names t
-  render names (Member (InterfaceHead a)) = (\s => "{" ++ s ++ " the running program chooses}") <$> nameText a
-  render names (Member ArrowHead) = pure "{a polymorphic function the running program chooses}"
-  render names (Member UnshownHead) = pure "{a member the running program chooses}"
+  ||| its parameter, each head and each recursion by its definition's, as
+  ||| the reading met it.
+  render : {auto c : Ref Ctxt Defs} -> (names : List Name) -> (t : Template) -> All RecursionDef (recursions t) ->
+           All HeadDef (namedHeads t) -> Front String
+  render names (Var i _) _ _ = pure (parameterName names i)
+  render names (Head (Just a) []) _ [h] = headText h
+  render names (Head (Just a) cs) held (h :: heads) =
+    (\x, as => "(" ++ unwords (x :: as) ++ ")") <$> headText h <*> renderAll names cs held heads
+  render names (Head Nothing cs) held heads = (\as => "(" ++ joinBy " -> " as ++ ")") <$> renderAll names cs held heads
+  render names (Leaf _) _ _ = pure "_"
+  render names (Token _) _ _ = pure "_"
+  render names (Formal _ _) _ _ = pure "_"
+  render names (Choice s ls) held heads =
+    (\as => "{" ++ joinBy " | " as ++ "}") <$> renderAll names ls (allAfter (recursions s) held) (allAfter (namedHeads s) heads)
+  render names (Opaque a cs) (r :: held) heads =
+    (\as => "(" ++ unwords (show (fullname r.def) :: as) ++ ")") <$> renderAll names cs held heads
+  render names (Applied i _ cs) held heads = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs held heads
+  render names (Computing i _ cs) held heads = (\as => "(" ++ unwords (parameterName names i :: as) ++ ")") <$> renderAll names cs held heads
+  render names (Field k t) held heads = (\s => s ++ "." ++ show k) <$> render names t held heads
+  render names (Member (InterfaceHead a)) _ [h] = (\s => "{" ++ s ++ " the running program chooses}") <$> headText h
+  render names (Member ArrowHead) _ _ = pure "{a polymorphic function the running program chooses}"
+  render names (Member UnshownHead) _ _ = pure "{a member the running program chooses}"
 
-  renderAll : {auto c : Ref Ctxt Defs} -> (names : List Name) -> List Template -> Front (List String)
-  renderAll names [] = pure []
-  renderAll names (t :: ts) = (::) <$> render names t <*> renderAll names ts
+  renderAll : {auto c : Ref Ctxt Defs} -> (names : List Name) -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+              All HeadDef (namedHeadsIn ts) -> Front (List String)
+  renderAll names [] _ _ = pure []
+  renderAll names (t :: ts) held heads =
+    (::) <$> render names t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+         <*> renderAll names ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
 
 ||| What a message shows an argument by, read where a message is made
 ||| (`showArgument`): a template, each marker by the writer's name for its
-||| parameter; a closed term; a term as written, in its scope; or one of
-||| the writer's parameters. It holds the definition the names come from,
-||| never a computation: the sites are kept, and a computation kept with
-||| them is one the pipeline's closure analysis cannot tell from any other
-||| of its type, those that read the translation's state among them.
+||| parameter, with the definition of each recursion it holds and each head
+||| it names, which name the rest; a closed term; a term as written, in its
+||| scope; or one of the writer's parameters. It holds the definitions the
+||| names come from, never a computation: the sites are kept, and a
+||| computation kept with them is one the pipeline's closure analysis cannot
+||| tell from any other of its type, those that read the translation's
+||| state among them.
 data ArgumentText : Type where
-  TemplateText : (writer : GlobalDef) -> Template -> ArgumentText
+  TemplateText : (writer : GlobalDef) -> (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) ->
+                 ArgumentText
   TermText : ClosedTerm -> ArgumentText
   WrittenText : {vs : Scope} -> (writer : GlobalDef) -> Pats -> Env vs -> TT vs -> ArgumentText
   ParameterText : (writer : GlobalDef) -> Nat -> ArgumentText
@@ -578,16 +588,6 @@ data ArgumentText : Type where
 -- What a type builds
 ------------------------------------------------------------------------------
 
-||| The type constructor the boundary read at an address, with its facts,
-||| which its nature holds, if one is there.
-typeConstructorAt : Address -> Front (Maybe (Defined, TyConFacts))
-typeConstructorAt a = do
-  Just d <- definitionRead a
-    | Nothing => pure Nothing
-  pure (case d.nature.asTypeConstructor of
-          ATypeConstructor facts => Just (d, facts)
-          NoTypeConstructor => Nothing)
-
 mutual
   ||| A template with every child at a type constructor's position read by
   ||| its role (`Role`), at every head, the written ones and those
@@ -595,84 +595,102 @@ mutual
   ||| its form (`formedTemplate`), and any other as itself. The data key
   ||| holds no more than this of each argument (`Types.argumentKey`), so a
   ||| height read here bounds the key's. A part read as a closed part takes
-  ||| its recursions with it; every other part keeps its own.
-  eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (t : Template) -> All RecursionDef (recursions t) ->
-            Front TemplateRead
-  eraseIn (Head (Just a) cs) held = do
-    Just (_, facts) <- typeConstructorAt a
-      | Nothing => (\rs => MkTemplateRead (Head (Just a) (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
-    (\rs => MkTemplateRead (Head (Just a) (templatesOf rs)) (allRead rs)) <$> erasedAt facts.roles 0 cs held
-  eraseIn (Head Nothing cs) held = (\rs => MkTemplateRead (Head Nothing (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
-  eraseIn (Choice t ls) held = do
-    x <- eraseIn t (allBefore (recursions t) held)
-    rs <- eraseAll ls (allAfter (recursions t) held)
-    pure (MkTemplateRead (Choice x.template (templatesOf rs)) (allJoined x.recursionsRead (allRead rs)))
-  eraseIn (Opaque a cs) (def :: held) = (\rs => MkTemplateRead (Opaque a (templatesOf rs)) (def :: allRead rs)) <$> eraseAll cs held
-  eraseIn (Applied i d cs) held = (\rs => MkTemplateRead (Applied i d (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
-  eraseIn (Computing i d cs) held = (\rs => MkTemplateRead (Computing i d (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
-  eraseIn (Field k t) held = (\x => MkTemplateRead (Field k x.template) x.recursionsRead) <$> eraseIn t held
-  eraseIn (Var i d) held = pure (MkTemplateRead (Var i d) held)
-  eraseIn (Leaf h) held = pure (MkTemplateRead (Leaf h) held)
-  eraseIn (Token k) held = pure (MkTemplateRead (Token k) held)
-  eraseIn (Formal j k) held = pure (MkTemplateRead (Formal j k) held)
-  eraseIn (Member k) held = pure (MkTemplateRead (Member k) held)
+  ||| its recursions and its heads with it; every other part keeps its own.
+  ||| A head is a type constructor by what the boundary read of it, which
+  ||| the reading carries.
+  eraseIn : (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) -> TemplateRead
+  eraseIn (Head (Just a) cs) held (h :: heads) =
+    let rs = case h of
+               HeadDefined _ _ d _ => case d.nature.asTypeConstructor of
+                 ATypeConstructor facts => erasedAt facts.roles 0 cs held heads
+                 NoTypeConstructor => eraseAll cs held heads
+               -- Essential: an entry the context defines nothing at is no
+               -- type constructor.
+               HeadUndefined {} => eraseAll cs held heads in
+    MkTemplateRead (Head (Just a) (templatesOf rs)) (allRead rs) (h :: allHeads rs)
+  eraseIn (Head Nothing cs) held heads =
+    let rs = eraseAll cs held heads in MkTemplateRead (Head Nothing (templatesOf rs)) (allRead rs) (allHeads rs)
+  eraseIn (Choice t ls) held heads =
+    let x = eraseIn t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+        rs = eraseAll ls (allAfter (recursions t) held) (allAfter (namedHeads t) heads) in
+    MkTemplateRead (Choice x.template (templatesOf rs)) (allJoined x.recursionsRead (allRead rs)) (allJoined x.headsRead (allHeads rs))
+  eraseIn (Opaque a cs) (def :: held) heads =
+    let rs = eraseAll cs held heads in MkTemplateRead (Opaque a (templatesOf rs)) (def :: allRead rs) (allHeads rs)
+  eraseIn (Applied i d cs) held heads =
+    let rs = eraseAll cs held heads in MkTemplateRead (Applied i d (templatesOf rs)) (allRead rs) (allHeads rs)
+  eraseIn (Computing i d cs) held heads =
+    let rs = eraseAll cs held heads in MkTemplateRead (Computing i d (templatesOf rs)) (allRead rs) (allHeads rs)
+  eraseIn (Field k t) held heads = let x = eraseIn t held heads in MkTemplateRead (Field k x.template) x.recursionsRead x.headsRead
+  eraseIn (Var i d) held heads = MkTemplateRead (Var i d) held heads
+  eraseIn (Leaf h) held heads = MkTemplateRead (Leaf h) held heads
+  eraseIn (Token k) held heads = MkTemplateRead (Token k) held heads
+  eraseIn (Formal j k) held heads = MkTemplateRead (Formal j k) held heads
+  eraseIn (Member k) held heads = MkTemplateRead (Member k) held heads
 
-  eraseAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
-             Front (List TemplateRead)
-  eraseAll [] _ = pure []
-  eraseAll (t :: ts) held = (::) <$> eraseIn t (allBefore (recursions t) held) <*> eraseAll ts (allAfter (recursions t) held)
+  eraseAll : (ts : List Template) -> All RecursionDef (recursionsIn ts) -> All HeadDef (namedHeadsIn ts) -> List TemplateRead
+  eraseAll [] _ _ = []
+  eraseAll (t :: ts) held heads =
+    eraseIn t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+      :: eraseAll ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
 
-  erasedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Role -> Nat -> (ts : List Template) ->
-             All RecursionDef (recursionsIn ts) -> Front (List TemplateRead)
-  erasedAt rs j [] _ = pure []
-  erasedAt rs j (t :: ts) held =
-    (::) <$> asRole (roleAt j rs) (MkTemplateRead t (allBefore (recursions t) held)) <*> erasedAt rs (S j) ts (allAfter (recursions t) held)
+  erasedAt : List Role -> Nat -> (ts : List Template) -> All RecursionDef (recursionsIn ts) -> All HeadDef (namedHeadsIn ts) ->
+             List TemplateRead
+  erasedAt rs j [] _ _ = []
+  erasedAt rs j (t :: ts) held heads =
+    asRole (roleAt j rs) t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+      :: erasedAt rs (S j) ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
 
-  asRole : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Role -> TemplateRead -> Front TemplateRead
-  asRole Keyed t = eraseIn t.template t.recursionsRead
-  asRole Formed t = formedTemplate t
-  asRole Held t = eraseIn t.template t.recursionsRead
-  asRole Index _ = pure (MkTemplateRead (Leaf 1) [])
+  -- The part at a position read by its role, recursing on the part itself,
+  -- so that each step down is to a part of what was given.
+  asRole : Role -> (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) -> TemplateRead
+  asRole Keyed t held heads = eraseIn t held heads
+  asRole Formed t held heads = formedTemplate t held heads
+  asRole Held t held heads = eraseIn t held heads
+  asRole Index _ _ _ = MkTemplateRead (Leaf 1) [] []
 
-||| The site a type constructor's head writes: `Builds` of it, as it was
-||| read, at the arguments a value of it represents, each already read
-||| without what no value represents, with the definitions of the
-||| recursions it holds; none for a head that is no type constructor.
-built : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Address -> List TemplateRead -> Front (List Site)
-built at fc a cs = do
-  Just (d, facts) <- typeConstructorAt a
-    | Nothing => pure []
-  let args = map argument (mapMaybe (\j => (j,) <$> getAt j cs) (represented facts))
-  pure [siteAt at fc (Builds a d) args]
+||| The site a type constructor's head writes: `Builds` of it, as the
+||| boundary read it, at the arguments a value of it represents, each
+||| already read without what no value represents, with the definitions of
+||| the recursions it holds and the heads it names; none for a head that is
+||| no type constructor.
+built : At -> FC -> (a : Address) -> HeadDef a -> List TemplateRead -> List Site
+built at fc a h cs = case h of
+    HeadDefined _ _ d _ => case d.nature.asTypeConstructor of
+      ATypeConstructor facts => [siteAt at fc (Builds a d) (map argument (mapMaybe (\j => (j,) <$> getAt j cs) (represented facts)))]
+      NoTypeConstructor => []
+    -- Essential: an entry the context defines nothing at builds nothing.
+    HeadUndefined {} => []
   where
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, TemplateRead) -> Argument
-    argument (j, t) = MkArgument j AType t.template t.recursionsRead Unrooted Nothing [] Nothing NoTerm [] (TemplateText at.writerDef t.template)
+    argument (j, t) =
+      MkArgument j AType t.template t.recursionsRead Unrooted Nothing [] Nothing NoTerm []
+                 (TemplateText at.writerDef t.template t.recursionsRead t.headsRead)
 
 mutual
   ||| The sites at every type constructor of a template, at any depth: in a
   ||| stuck definition's leaves, in an unfolded synonym, under a binder.
-  buildsIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> (t : Template) -> All RecursionDef (recursions t) ->
-             Front (List Site)
-  buildsIn at fc (Head (Just a) cs) held = (++) <$> built at fc a (eachRead cs held) <*> buildsAll at fc cs held
-  buildsIn at fc (Head Nothing cs) held = buildsAll at fc cs held
-  buildsIn at fc (Choice t ls) held =
-    (++) <$> buildsIn at fc t (allBefore (recursions t) held) <*> buildsAll at fc ls (allAfter (recursions t) held)
-  buildsIn at fc (Opaque _ cs) (_ :: held) = buildsAll at fc cs held
-  buildsIn at fc (Applied _ _ cs) held = buildsAll at fc cs held
-  buildsIn at fc (Computing _ _ cs) held = buildsAll at fc cs held
-  buildsIn at fc (Field _ t) held = buildsIn at fc t held
-  buildsIn at fc (Var _ _) _ = pure []
-  buildsIn at fc (Leaf _) _ = pure []
-  buildsIn at fc (Token _) _ = pure []
-  buildsIn at fc (Formal _ _) _ = pure []
-  buildsIn at fc (Member _) _ = pure []
+  buildsIn : At -> FC -> (t : Template) -> All RecursionDef (recursions t) -> All HeadDef (namedHeads t) -> List Site
+  buildsIn at fc (Head (Just a) cs) held (h :: heads) = built at fc a h (eachRead cs held heads) ++ buildsAll at fc cs held heads
+  buildsIn at fc (Head Nothing cs) held heads = buildsAll at fc cs held heads
+  buildsIn at fc (Choice t ls) held heads =
+    buildsIn at fc t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+      ++ buildsAll at fc ls (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
+  buildsIn at fc (Opaque _ cs) (_ :: held) heads = buildsAll at fc cs held heads
+  buildsIn at fc (Applied _ _ cs) held heads = buildsAll at fc cs held heads
+  buildsIn at fc (Computing _ _ cs) held heads = buildsAll at fc cs held heads
+  buildsIn at fc (Field _ t) held heads = buildsIn at fc t held heads
+  buildsIn at fc (Var _ _) _ _ = []
+  buildsIn at fc (Leaf _) _ _ = []
+  buildsIn at fc (Token _) _ _ = []
+  buildsIn at fc (Formal _ _) _ _ = []
+  buildsIn at fc (Member _) _ _ = []
 
-  buildsAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> (ts : List Template) ->
-              All RecursionDef (recursionsIn ts) -> Front (List Site)
-  buildsAll at fc [] _ = pure []
-  buildsAll at fc (t :: ts) held =
-    (++) <$> buildsIn at fc t (allBefore (recursions t) held) <*> buildsAll at fc ts (allAfter (recursions t) held)
+  buildsAll : At -> FC -> (ts : List Template) -> All RecursionDef (recursionsIn ts) -> All HeadDef (namedHeadsIn ts) -> List Site
+  buildsAll at fc [] _ _ = []
+  buildsAll at fc (t :: ts) held heads =
+    buildsIn at fc t (allBefore (recursions t) held) (allBefore (namedHeads t) heads)
+      ++ buildsAll at fc ts (allAfter (recursions t) held) (allAfter (namedHeads t) heads)
 
 ||| What a closed type, a term of a site whose stand-ins are `stands`,
 ||| builds: its canonical form as data instances compare type arguments,
@@ -681,8 +699,8 @@ mutual
 builds : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List StandIn -> FC -> ClosedTerm -> Front (List Site)
 builds at stands fc t = do
   written <- templateOf stands AType !(canonicalTypeArg t)
-  erased <- eraseIn written.template written.recursionsRead
-  buildsIn at fc erased.template erased.recursionsRead
+  let erased = eraseIn written.template written.recursionsRead written.headsRead
+  pure (buildsIn at fc erased.template erased.recursionsRead erased.headsRead)
 
 ------------------------------------------------------------------------------
 -- Sites of calls
@@ -1008,7 +1026,7 @@ packings at stands fc h shaped = do
 ||| each marker stands for, and the writer's dictionary parameters it
 ||| mentions; a settling of it holds them as one variable, as the
 ||| translation's does (`Terms.standingFor`).
-knownAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> At -> Pats -> Env vs -> TT vs -> Front Dict
+knownAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -> At -> Pats -> Env vs -> TT vs -> Front Dict
 knownAt at ps env t = do
   closed <- solved (close env t)
   h <- holedAt env t
@@ -1420,7 +1438,7 @@ heldApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : 
                   At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> List (Arg vs) -> Front (List Site)
 heldApplication at ps env fc t args =
   useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) Nothing [] (Just ArrowHead) NoTerm []
-                                    (TemplateText at.writerDef (Member ArrowHead)))
+                                    (TemplateText at.writerDef (Member ArrowHead) [] []))
         args
 
 ||| Arguments applied to a value of a known type, or of none: one at an
@@ -2428,7 +2446,7 @@ atDefinition writer within d kinds giving =
 ||| An argument as a message shows it.
 export
 showArgument : {auto c : Ref Ctxt Defs} -> ArgumentText -> Front String
-showArgument (TemplateText def t) = render !(parameterNames def) t
+showArgument (TemplateText def t held heads) = render !(parameterNames def) t held heads
 showArgument (TermText t) = showTT t
 showArgument (WrittenText def ps env t) = display !(parameterNames def) ps env t
 showArgument (ParameterText def i) = (\names => parameterName names i) <$> parameterNames def

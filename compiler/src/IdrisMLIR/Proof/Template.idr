@@ -221,6 +221,72 @@ export
 recursionsRaised Z t = Refl
 recursionsRaised (S c) t = rewrite recursionsRaised c t in appendNilRightNeutral (recursions t)
 
+------------------------------------------------------------------------------
+-- The definitions a template names by address
+------------------------------------------------------------------------------
+
+||| A node's head before what its children name: a head that is a
+||| definition names it, a binder or a primitive type former nothing.
+public export
+headNamed : Maybe Address -> List Address -> List Address
+headNamed Nothing hs = hs
+headNamed (Just a) hs = a :: hs
+
+||| What a member of a choice names: an implementation's choice its
+||| interface; the arrow, and the head only an instance shows, nothing.
+public export
+memberHead : ChoiceHead -> List Address
+memberHead (InterfaceHead a) = [a]
+memberHead ArrowHead = []
+memberHead UnshownHead = []
+
+mutual
+  ||| Every definition a template names by address but a recursion's own
+  ||| (`recursions`), in order, a choice's scrutinee's and a field's record's
+  ||| among them: each head a definition is, and each choice's interface a
+  ||| member names. A site's reading gives, beside its template, the
+  ||| definition of each, as it met it, so no reader of the template finds
+  ||| one again by its address.
+  public export
+  namedHeads : Template -> List Address
+  namedHeads (Head h ts) = headNamed h (namedHeadsIn ts)
+  namedHeads (Opaque _ ts) = namedHeadsIn ts
+  namedHeads (Applied _ _ ts) = namedHeadsIn ts
+  namedHeads (Computing _ _ ts) = namedHeadsIn ts
+  namedHeads (Choice s ts) = namedHeads s ++ namedHeadsIn ts
+  namedHeads (Field _ s) = namedHeads s
+  namedHeads (Member k) = memberHead k
+  namedHeads (Var _ _) = []
+  namedHeads (Leaf _) = []
+  namedHeads (Token _) = []
+  namedHeads (Formal _ _) = []
+
+  ||| Every definition some templates name by address, in order.
+  public export
+  namedHeadsIn : List Template -> List Address
+  namedHeadsIn [] = []
+  namedHeadsIn (t :: ts) = namedHeads t ++ namedHeadsIn ts
+
+||| The definitions a template names, where there is one.
+public export
+maybeNamedHeads : Maybe Template -> List Address
+maybeNamedHeads Nothing = []
+maybeNamedHeads (Just t) = namedHeads t
+
+||| Two lists of templates name the first's definitions, then the second's.
+export
+0 headsJoined : (xs, ys : List Template) -> namedHeadsIn (xs ++ ys) = namedHeadsIn xs ++ namedHeadsIn ys
+headsJoined [] ys = Refl
+headsJoined (x :: xs) ys =
+  rewrite headsJoined xs ys in appendAssociative (namedHeads x) (namedHeadsIn xs) (namedHeadsIn ys)
+
+||| Heads raised above a template name what it names and nothing else: a
+||| raised head is no definition.
+export
+0 headsRaised : (c : Nat) -> (t : Template) -> namedHeads (raise c t) = namedHeads t
+headsRaised Z t = Refl
+headsRaised (S c) t = rewrite headsRaised c t in appendNilRightNeutral (namedHeads t)
+
 ||| What holds of each of two lists, the first's first.
 public export
 allJoined : All p xs -> All p ys -> All p (xs ++ ys)

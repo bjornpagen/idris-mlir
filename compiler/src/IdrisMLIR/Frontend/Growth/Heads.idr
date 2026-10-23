@@ -551,6 +551,17 @@ chains ds v (j :: js) k rest = here ++ chains ds v js k rest
       Nothing => []
       Just f => maybe [] (\(h, ty) => down (MkLevel j f k h ty) rest) (heldDictionary f k)
 
+-- A rebuilt constructor's field: the constructor, by its address and as
+-- it was read, the field, and what it holds there, which holds no
+-- recursion.
+record Filled where
+  constructor MkFilled
+  con : Address
+  conRead : GlobalDef
+  field : Nat
+  template : Template
+  0 unrecursive : recursions template = []
+
 -- A dictionary rebuilt down a chain, as an arm of the dispatch
 -- `Translate.Cases.heldHere` requests holds it
 -- (`Translate.Choices.heldMember`): each level the constructor its root is
@@ -567,17 +578,6 @@ record Rebuilt where
   template : Template
   0 unrecursive : recursions template = []
   fillings : List Filled
-
--- A rebuilt constructor's field: the constructor, by its address and as
--- it was read, the field, and what it holds there, which holds no
--- recursion.
-record Filled where
-  constructor MkFilled
-  con : Address
-  conRead : GlobalDef
-  field : Nat
-  template : Template
-  0 unrecursive : recursions template = []
 
 -- A template that holds no recursion.
 Unrecursive : Type

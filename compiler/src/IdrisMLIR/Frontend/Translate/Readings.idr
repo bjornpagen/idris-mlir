@@ -487,6 +487,31 @@ export
 0 markerUnrecursive : (stands : List StandIn) -> (n : Name) -> walkMarker stands n = Just t -> recursions t = []
 markerUnrecursive stands n found = probeUnrecursive stands (probeOf n) found
 
+-- A field along a path of a value that names no head names none.
+0 fieldsHeadless : (t : Template) -> namedHeads t = [] -> (path : List Nat) -> namedHeads (foldl Readings.fieldOfRecord t path) = []
+fieldsHeadless t none [] = none
+fieldsHeadless t none (k :: ks) = fieldsHeadless (Field k t) none ks
+
+-- A part read off a probe names no head.
+0 partHeadless : (part : Maybe (Nat, List Nat)) -> map (uncurry Template.Var . Readings.partDepth) part = Just t -> namedHeads t = []
+partHeadless (Just (i, path)) Refl = Refl
+partHeadless Nothing Refl impossible
+
+0 alongHeadless : (stands : List StandIn) -> (q : Probe) -> (path : Maybe (Nat, List1 Nat)) -> markerAlong stands q path = Just t ->
+                  namedHeads t = []
+alongHeadless stands q (Just (i, k ::: ks)) Refl = fieldsHeadless (Field k (Var i 0)) Refl ks
+alongHeadless stands q Nothing found = partHeadless (partOfProbe stands q) found
+
+0 probeHeadless : (stands : List StandIn) -> (q : Maybe Probe) -> markerOfProbe stands q = Just t -> namedHeads t = []
+probeHeadless stands (Just q) found = alongHeadless stands q (fieldPathOf q) found
+probeHeadless stands Nothing Refl impossible
+
+||| A writer's marker names no head: a part of its parameter, or a field of
+||| its dictionary along a path.
+export
+0 markerHeadless : (stands : List StandIn) -> (n : Name) -> walkMarker stands n = Just t -> namedHeads t = []
+markerHeadless stands n found = probeHeadless stands (probeOf n) found
+
 ||| Whether a bound name is a marker of a runtime value an implementation
 ||| closes over (`Readings.markerName`), with the evidence either way.
 public export
@@ -981,7 +1006,7 @@ keptChain a ts Nothing = Head (Just a) ts
 keptChain a ts (Just t) = Choice (Leaf 1) [Head (Just a) ts, t]
 
 ------------------------------------------------------------------------------
--- The recursions a reading holds
+-- The recursions a reading holds, and the heads it names
 ------------------------------------------------------------------------------
 
 ||| The definition a site's reading met a recursion at, by the recursion's
@@ -1002,74 +1027,75 @@ public export
 noRecursions : (0 _ : recursions t = []) -> All RecursionDef (recursions t)
 noRecursions none = replace {p = All RecursionDef} (sym none) []
 
-||| What a reading holds of the recursions it read, by whose term it reads:
-||| a site's reading, the definition of each, in order, read where the
-||| reading met it; an instance's term keeps every call as written and
-||| meets no recursion, and its reading holds nothing.
+||| What a reading holds of the definitions it met at some addresses (the
+||| recursions it read, the heads it named), by whose term it reads: a
+||| site's reading, the definition of each, in order, read where the
+||| reading met it; an instance's term is its key, whose reading no reader
+||| asks a definition of, and holds nothing.
 public export
-data RecursionsHeld : Whose -> List Address -> Type where
-  SiteHolds : {0 stands : List StandIn} -> {0 rs : List Address} -> All RecursionDef rs -> RecursionsHeld (OfSite stands) rs
-  InstanceHoldsNone : {0 rs : List Address} -> RecursionsHeld OfInstance rs
+data HeldDefs : (Address -> Type) -> Whose -> List Address -> Type where
+  SiteHolds : {0 q : Address -> Type} -> {0 stands : List StandIn} -> {0 rs : List Address} -> All q rs -> HeldDefs q (OfSite stands) rs
+  InstanceHoldsNone : {0 q : Address -> Type} -> {0 rs : List Address} -> HeldDefs q OfInstance rs
 
-||| The definitions a site's reading holds.
+||| What a site's reading holds.
 public export
-siteHolds : RecursionsHeld (OfSite stands) rs -> All RecursionDef rs
+siteHolds : HeldDefs q (OfSite stands) rs -> All q rs
 siteHolds (SiteHolds held) = held
 
-||| What a reading holds where it read no recursion.
+||| What a reading holds where it met nothing.
 public export
-heldNone : (w : Whose) -> RecursionsHeld w []
+heldNone : (w : Whose) -> HeldDefs q w []
 heldNone (OfSite _) = SiteHolds []
 heldNone OfInstance = InstanceHoldsNone
 
-||| What a reading holds of two lists of recursions, the first's first.
+||| What a reading holds of two lists, the first's first.
 public export
-heldJoined : RecursionsHeld w xs -> RecursionsHeld w ys -> RecursionsHeld w (xs ++ ys)
+heldJoined : HeldDefs q w xs -> HeldDefs q w ys -> HeldDefs q w (xs ++ ys)
 heldJoined InstanceHoldsNone _ = InstanceHoldsNone
 heldJoined (SiteHolds here) (SiteHolds rest) = SiteHolds (allJoined here rest)
 
 ||| What a reading holds of a part a skeleton's hole cuts: nothing.
 public export
-cutHeld : RecursionsHeld w xs -> RecursionsHeld w []
+cutHeld : HeldDefs q w xs -> HeldDefs q w []
 cutHeld InstanceHoldsNone = InstanceHoldsNone
 cutHeld (SiteHolds _) = SiteHolds []
 
 ||| What a reading holds of a node's last part, as the node's list of parts
 ||| holds it.
 public export
-heldLast : {0 w : Whose} -> {0 xs : List Address} -> RecursionsHeld w xs -> RecursionsHeld w (xs ++ [])
-heldLast held = replace {p = RecursionsHeld w} (sym (appendNilRightNeutral xs)) held
+heldLast : {0 q : Address -> Type} -> {0 w : Whose} -> {0 xs : List Address} -> HeldDefs q w xs -> HeldDefs q w (xs ++ [])
+heldLast held = replace {p = HeldDefs q w} (sym (appendNilRightNeutral xs)) held
 
 ||| Two lists of templates hold the first's recursions, then the second's.
 public export
-joinedRecursions : {0 w : Whose} -> (0 xs, ys : List Template) -> RecursionsHeld w (recursionsIn xs) ->
-                   RecursionsHeld w (recursionsIn ys) -> RecursionsHeld w (recursionsIn (xs ++ ys))
-joinedRecursions xs ys here rest = replace {p = RecursionsHeld w} (sym (recursionsJoined xs ys)) (heldJoined here rest)
+joinedRecursions : {0 q : Address -> Type} -> {0 w : Whose} -> (0 xs, ys : List Template) -> HeldDefs q w (recursionsIn xs) ->
+                   HeldDefs q w (recursionsIn ys) -> HeldDefs q w (recursionsIn (xs ++ ys))
+joinedRecursions xs ys here rest = replace {p = HeldDefs q w} (sym (recursionsJoined xs ys)) (heldJoined here rest)
 
 ||| A part that is no head of its own holds each recursion it reads in a
 ||| type's node, and none in a skeleton's hole, which cuts it.
 public export
-nodeRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> RecursionsHeld w (recursions t) ->
-                 RecursionsHeld w (recursions (nodeOf k t))
+nodeRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> HeldDefs q w (recursions t) ->
+                 HeldDefs q w (recursions (nodeOf k t))
 nodeRecursions EveryNode held = held
 nodeRecursions Skeleton held = cutHeld held
 
 ||| A part applied (`partOf`) holds the part's recursions, then its
 ||| arguments'.
 public export
-partRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> (ts : List Template) -> RecursionsHeld w (recursions t) ->
-                 RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (partOf k t ts))
+partRecursions : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> (ts : List Template) -> HeldDefs q w (recursions t) ->
+                 HeldDefs q w (recursionsIn ts) -> HeldDefs q w (recursions (partOf k t ts))
 partRecursions k [] here _ = here
 partRecursions k (u :: us) here rest = nodeRecursions {t = aboveOf t (u :: us)} k (heldJoined here rest)
 
 ||| A part that holds no recursion, applied (`partOf`), holds its
 ||| arguments' recursions, and none in a skeleton's hole.
 public export
-leafPart : {0 w : Whose} -> (k : Keeping) -> (0 t : Template) -> (0 _ : recursions t = []) -> (ts : List Template) ->
-           RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (partOf k t ts))
-leafPart k t none [] held = replace {p = RecursionsHeld w} (sym none) held
+leafPart : {0 q : Address -> Type} -> {0 w : Whose} -> (k : Keeping) -> (0 t : Template) -> (0 _ : recursions t = []) -> (ts : List Template) ->
+           HeldDefs q w (recursionsIn ts) -> HeldDefs q w (recursions (partOf k t ts))
+leafPart k t none [] held = replace {p = HeldDefs q w} (sym none) held
 leafPart k t none (u :: us) held =
-  nodeRecursions {t = aboveOf t (u :: us)} k (replace {p = \r => RecursionsHeld w (r ++ recursionsIn (u :: us))} (sym none) held)
+  nodeRecursions {t = aboveOf t (u :: us)} k (replace {p = \r => HeldDefs q w (r ++ recursionsIn (u :: us))} (sym none) held)
 
 ||| A template that holds no recursion, applied as one of the writer's
 ||| markers is (`markedOf`), holds its arguments' recursions: a family
@@ -1092,9 +1118,9 @@ markedHolds (Member _) (u :: us) none = Refl
 ||| One of the writer's markers applied (`markedOf`) holds its arguments'
 ||| recursions, the marker holding none.
 public export
-markedRecursions : {0 w : Whose} -> (0 t : Template) -> (0 ts : List Template) -> (0 _ : recursions t = []) ->
-                   RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (recursions (markedOf t ts))
-markedRecursions t ts none held = replace {p = RecursionsHeld w} (sym (markedHolds t ts none)) held
+markedRecursions : {0 q : Address -> Type} -> {0 w : Whose} -> (0 t : Template) -> (0 ts : List Template) -> (0 _ : recursions t = []) ->
+                   HeldDefs q w (recursionsIn ts) -> HeldDefs q w (recursions (markedOf t ts))
+markedRecursions t ts none held = replace {p = HeldDefs q w} (sym (markedHolds t ts none)) held
 
 -- A part that holds no recursion, applied, holds its arguments'.
 0 partHolds : (t : Template) -> recursions t = [] -> (ts : List Template) -> recursions (partOf EveryNode t ts) = recursionsIn ts
@@ -1129,16 +1155,16 @@ constantHolds WorldVal ts = partHolds (constant WorldVal) Refl ts
 
 ||| A constant applied (`appliedConstant`) holds its arguments' recursions.
 public export
-constantRecursions : {0 w : Whose} -> (0 c : Constant) -> (0 ts : List Template) -> RecursionsHeld w (recursionsIn ts) ->
-                     RecursionsHeld w (recursions (appliedConstant c ts))
-constantRecursions c ts held = replace {p = RecursionsHeld w} (sym (constantHolds c ts)) held
+constantRecursions : {0 q : Address -> Type} -> {0 w : Whose} -> (0 c : Constant) -> (0 ts : List Template) -> HeldDefs q w (recursionsIn ts) ->
+                     HeldDefs q w (recursions (appliedConstant c ts))
+constantRecursions c ts held = replace {p = HeldDefs q w} (sym (constantHolds c ts)) held
 
 ||| A kept chain (`keptChain`) holds its call's arguments' recursions, then
 ||| those of the unfolding beside it, where an instance unfolds the call.
 public export
 chainRecursions : {0 w : Whose} -> {0 a : Address} -> {0 ts : List Template} -> (r : Maybe Template) ->
-                  RecursionsHeld w (recursionsIn ts) -> RecursionsHeld w (maybeRecursions r) ->
-                  RecursionsHeld w (recursions (keptChain a ts r))
+                  HeldDefs q w (recursionsIn ts) -> HeldDefs q w (maybeRecursions r) ->
+                  HeldDefs q w (recursions (keptChain a ts r))
 chainRecursions Nothing own _ = own
 chainRecursions (Just t) own unfolded = heldJoined own (heldLast unfolded)
 
@@ -1156,9 +1182,128 @@ substitutesHold (s :: ss) = rewrite substituteHolds s in substitutesHold ss
 
 ||| A substitute applied (`partOf`) holds its arguments' recursions.
 public export
-substituteRecursions : {0 w : Whose} -> (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> RecursionsHeld w (recursionsIn ts) ->
-                       RecursionsHeld w (recursions (partOf k (substituteTemplate s) ts))
+substituteRecursions : {0 w : Whose} -> (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> HeldDefs q w (recursionsIn ts) ->
+                       HeldDefs q w (recursions (partOf k (substituteTemplate s) ts))
 substituteRecursions k s ts held = leafPart k (substituteTemplate s) (substituteHolds s) ts held
+
+------------------------------------------------------------------------------
+-- The heads a reading names
+------------------------------------------------------------------------------
+
+||| Two lists of templates name the first's definitions, then the second's.
+public export
+joinedHeads : {0 q : Address -> Type} -> {0 w : Whose} -> (0 xs, ys : List Template) -> HeldDefs q w (namedHeadsIn xs) ->
+              HeldDefs q w (namedHeadsIn ys) -> HeldDefs q w (namedHeadsIn (xs ++ ys))
+joinedHeads xs ys here rest = replace {p = HeldDefs q w} (sym (headsJoined xs ys)) (heldJoined here rest)
+
+||| A part that is no head of its own names each definition it reads in a
+||| type's node, and none in a skeleton's hole, which cuts it.
+public export
+nodeHeads : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> HeldDefs q w (namedHeads t) ->
+            HeldDefs q w (namedHeads (nodeOf k t))
+nodeHeads EveryNode held = held
+nodeHeads Skeleton held = cutHeld held
+
+||| A part applied (`partOf`) names the part's definitions, then its
+||| arguments'.
+public export
+partHeads : {0 w : Whose} -> {0 t : Template} -> (k : Keeping) -> (ts : List Template) -> HeldDefs q w (namedHeads t) ->
+            HeldDefs q w (namedHeadsIn ts) -> HeldDefs q w (namedHeads (partOf k t ts))
+partHeads k [] here _ = here
+partHeads k (u :: us) here rest = nodeHeads {t = aboveOf t (u :: us)} k (heldJoined here rest)
+
+||| A part that names no definition, applied (`partOf`), names its
+||| arguments' definitions, and none in a skeleton's hole.
+public export
+leafPartHeads : {0 q : Address -> Type} -> {0 w : Whose} -> (k : Keeping) -> (0 t : Template) -> (0 _ : namedHeads t = []) -> (ts : List Template) ->
+                HeldDefs q w (namedHeadsIn ts) -> HeldDefs q w (namedHeads (partOf k t ts))
+leafPartHeads k t none [] held = replace {p = HeldDefs q w} (sym none) held
+leafPartHeads k t none (u :: us) held =
+  nodeHeads {t = aboveOf t (u :: us)} k (replace {p = \r => HeldDefs q w (r ++ namedHeadsIn (u :: us))} (sym none) held)
+
+-- A template that names no definition, applied as one of the writer's
+-- markers is (`markedOf`), names its arguments' definitions.
+0 markedHeadsHold : (t : Template) -> (ts : List Template) -> namedHeads t = [] -> namedHeads (markedOf t ts) = namedHeadsIn ts
+markedHeadsHold t [] none = none
+markedHeadsHold (Var _ _) (u :: us) none = Refl
+markedHeadsHold (Head _ xs) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Opaque _ xs) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Applied _ _ xs) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Computing _ _ xs) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Choice s xs) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Field _ s) (u :: us) none = rewrite none in Refl
+markedHeadsHold (Leaf _) (u :: us) none = Refl
+markedHeadsHold (Token _) (u :: us) none = Refl
+markedHeadsHold (Formal _ _) (u :: us) none = Refl
+markedHeadsHold (Member _) (u :: us) none = rewrite none in Refl
+
+||| One of the writer's markers applied (`markedOf`) names its arguments'
+||| definitions, the marker naming none.
+public export
+markedHeads : {0 q : Address -> Type} -> {0 w : Whose} -> (0 t : Template) -> (0 ts : List Template) -> (0 _ : namedHeads t = []) ->
+              HeldDefs q w (namedHeadsIn ts) -> HeldDefs q w (namedHeads (markedOf t ts))
+markedHeads t ts none held = replace {p = HeldDefs q w} (sym (markedHeadsHold t ts none)) held
+
+-- A part that names no definition, applied, names its arguments'.
+0 partHeadsHold : (t : Template) -> namedHeads t = [] -> (ts : List Template) -> namedHeads (partOf EveryNode t ts) = namedHeadsIn ts
+partHeadsHold t none [] = none
+partHeadsHold t none (u :: us) = rewrite none in Refl
+
+-- The leaves a constant is spelt with name no definition.
+0 speltHeadless : (cs : List Char) -> namedHeadsIn (spelt cs) = []
+speltHeadless [] = Refl
+speltHeadless (_ :: cs) = speltHeadless cs
+
+-- A constant applied names its arguments' definitions, the constant none,
+-- every constructor listed as `constantHolds` lists them.
+0 constantHeadsHold : (c : Constant) -> (ts : List Template) -> namedHeads (appliedConstant c ts) = namedHeadsIn ts
+constantHeadsHold (Str x) ts = rewrite headsJoined (spelt (unpack x)) ts in rewrite speltHeadless (unpack x) in Refl
+constantHeadsHold (Db x) ts = rewrite headsJoined (spelt (unpack (show x))) ts in rewrite speltHeadless (unpack (show x)) in Refl
+constantHeadsHold (I v) ts = partHeadsHold (constant (I v)) Refl ts
+constantHeadsHold (I8 v) ts = partHeadsHold (constant (I8 v)) Refl ts
+constantHeadsHold (I16 v) ts = partHeadsHold (constant (I16 v)) Refl ts
+constantHeadsHold (I32 v) ts = partHeadsHold (constant (I32 v)) Refl ts
+constantHeadsHold (I64 v) ts = partHeadsHold (constant (I64 v)) Refl ts
+constantHeadsHold (BI v) ts = partHeadsHold (constant (BI v)) Refl ts
+constantHeadsHold (B8 v) ts = partHeadsHold (constant (B8 v)) Refl ts
+constantHeadsHold (B16 v) ts = partHeadsHold (constant (B16 v)) Refl ts
+constantHeadsHold (B32 v) ts = partHeadsHold (constant (B32 v)) Refl ts
+constantHeadsHold (B64 v) ts = partHeadsHold (constant (B64 v)) Refl ts
+constantHeadsHold (Ch v) ts = partHeadsHold (constant (Ch v)) Refl ts
+constantHeadsHold (PrT v) ts = partHeadsHold (constant (PrT v)) Refl ts
+constantHeadsHold WorldVal ts = partHeadsHold (constant WorldVal) Refl ts
+
+||| A constant applied (`appliedConstant`) names its arguments' definitions.
+public export
+constantHeads : {0 q : Address -> Type} -> {0 w : Whose} -> (0 c : Constant) -> (0 ts : List Template) -> HeldDefs q w (namedHeadsIn ts) ->
+                HeldDefs q w (namedHeads (appliedConstant c ts))
+constantHeads c ts held = replace {p = HeldDefs q w} (sym (constantHeadsHold c ts)) held
+
+||| A kept chain (`keptChain`) names its call's definition, its arguments',
+||| then those of the unfolding beside it, where an instance unfolds the
+||| call.
+public export
+chainHeads : {0 w : Whose} -> {0 a : Address} -> {0 ts : List Template} -> (r : Maybe Template) -> HeldDefs q w [a] ->
+             HeldDefs q w (namedHeadsIn ts) -> HeldDefs q w (maybeNamedHeads r) -> HeldDefs q w (namedHeads (keptChain a ts r))
+chainHeads Nothing call own _ = heldJoined call own
+chainHeads (Just t) call own unfolded = heldJoined (heldJoined call own) (heldLast unfolded)
+
+-- A substitute names no definition.
+0 substituteHeadless : (s : Substitute) -> namedHeads (substituteTemplate s) = []
+substituteHeadless (FormalArgument _ _) = Refl
+substituteHeadless Placeholding = Refl
+
+||| Substitutes name no definition.
+export
+0 substitutesHeadless : (ss : List Substitute) -> namedHeadsIn (map Readings.substituteTemplate ss) = []
+substitutesHeadless [] = Refl
+substitutesHeadless (s :: ss) = rewrite substituteHeadless s in substitutesHeadless ss
+
+||| A substitute applied (`partOf`) names its arguments' definitions.
+public export
+substituteHeads : {0 w : Whose} -> (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> HeldDefs q w (namedHeadsIn ts) ->
+                  HeldDefs q w (namedHeads (partOf k (substituteTemplate s) ts))
+substituteHeads k s ts held = leafPartHeads k (substituteTemplate s) (substituteHeadless s) ts held
 
 mutual
   ||| What a reading says of a term over a scope, each variable by its

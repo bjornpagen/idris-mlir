@@ -60,8 +60,9 @@ addressIndex a = cast (bytes a)
     bytes (b :: bs) = cast (finToNat b) + 256 * bytes bs
 
 ||| The name a definition's address stands for (`addressOf`'s inverse): the
-||| context's entry at that index, for a message to print (`toFullNames`);
-||| nothing for bytes no entry of the context has.
+||| context's entry at that index; nothing for bytes no entry of the context
+||| has. Its one reader is a node's head, which the flow holds by address
+||| alone (`Template.definitionRead`).
 export
 nameAt : Context -> Address -> Maybe Name
 nameAt ctx a = let i = addressIndex a in
