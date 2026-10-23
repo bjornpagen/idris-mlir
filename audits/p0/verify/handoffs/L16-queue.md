@@ -412,3 +412,9 @@ L17ay settles whether Readings' marker names change):
   `IndexedTypeInterface::getPositionalMember` answers);
   `IR/Layout/Components.cpp`'s `wordsOf`, a template fold over the
   dialect's types, which D126 says is not the form.
+- Unit B: `Defunctionalize/Convert.cpp:100-104, 135-144` and
+  `Analysis/LabelSites.cpp:260-277` choose closure or constructor by a
+  two-way `dyn_cast`; one method giving a closed sum (`Closure | Con`)
+  folded by `match` is AGENTS.md's form. `Conversion/Lower/Statics.cpp:46,
+  103` reads a crash site by the attribute name `"site"`: a site interface
+  the op families that carry one implement, then a typed walk.
