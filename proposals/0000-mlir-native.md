@@ -2600,6 +2600,21 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   it. Rejected: storing the answer on the op (a second copy of a fact the
   types hold) and splitting the reindex by whether it builds (the
   distinction is derived from its types, not chosen).
+- **C276** (2026-10-23; L18w's evidence, under D48 and AGENTS.md's
+  "acceptance is a property of the program, never of the optimizer"; for
+  the owner's review). A cast from an opaque index is admitted to any
+  term, as it is to a level: the operand's index is one Idris proved and
+  the language cannot write (`Vect (length xs)` returned where `Vect n` is
+  owed), and the scope rule takes the program's word for it whatever the
+  target. So substitution never changes whether a function verifies: a
+  copy that closes `v0` to 3 turns `#Vect[_]` to `#Vect[v0]` into
+  `#Vect[_]` to `#Vect[3]`, admitted as the generic cast was. Today a
+  level target admits an opaque operand (a level pattern matches anything)
+  and a closed one refuses it, so a class copy of a valid function failed
+  verification. A cast between two terms the language writes is checked
+  against the refinements as before. Rejected: opening every binder such
+  a cast targets, with conversions before calls, which keeps the
+  inconsistency and pays at every call.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
