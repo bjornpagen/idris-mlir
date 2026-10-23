@@ -572,3 +572,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   among Emit's `coerce` (`Emit/Operations.idr:230`, static data where
   counted is asked with no op between), `Consumer.cpp:305` and the call
   verifier's equal grades, to confirm.
+- C269, after L04x releases the specification: the uniqueness test's
+  shared region takes its value at `many` (its region argument and type
+  compatibility in the specification; `Counting/Expand.cpp:112`'s dup
+  then admitted). From L07x: many values read in an `idr.loop` body are
+  still held across it (a dup at the entry, a drop after, a count of 2
+  inside), which the same region rule would move (counting, measured at
+  qualification); a fixture of a once parameter passed into a loop body,
+  graded to owned, verifier clean.
