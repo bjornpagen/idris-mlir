@@ -95,13 +95,15 @@ record GivenParameter (kc : Nat) (a : Type) where
   holding : Maybe (a, Holes)
 
 ||| A constructor a compile-time match found an implementation built with:
-||| the constructor, its arguments as the reduction gave them, the one a
-||| part the match bound is, and that part's type, its binder's in the
-||| constructor's type closed over the arguments before it.
+||| the constructor, as the reading holds the definition the match read it
+||| by, so that rebuilding the implementation around a part refers to it
+||| with nothing looked up again (`refTo`); its arguments as the reduction
+||| gave them, the one a part the match bound is, and that part's type, its
+||| binder's in the constructor's type closed over the arguments before it.
 public export
 record Opened where
   constructor MkOpened
-  con : Name
+  con : Defined
   args : List ClosedTerm
   at : Nat
   partType : ClosedTerm
@@ -251,10 +253,7 @@ prepend (y :: ys) xs = y :: prepend ys xs
 export
 byVarFrom : (vs : Scope) -> (f : a -> b) -> (xs : List a) -> (0 _ : length xs = length vs) -> ByVar vs b
 byVarFrom [] f [] _ = []
-byVarFrom (_ :: vs) f (x :: xs) same = f x :: byVarFrom vs f xs (predecessors same)
-  where
-    predecessors : {0 m, n : Nat} -> S m = S n -> m = n
-    predecessors Refl = Refl
+byVarFrom (_ :: vs) f (x :: xs) same = f x :: byVarFrom vs f xs (injective {f = S} same)
 byVarFrom [] f (_ :: _) Refl impossible
 byVarFrom (_ :: _) f [] Refl impossible
 
@@ -1293,13 +1292,12 @@ fillHoles values tm = foldl fill tm (zip [0 .. length values] values)
     fill : ClosedTerm -> (Nat, ClosedTerm) -> ClosedTerm
     fill t (i, v) = substName (markerName i) v t
 
-||| A reference to a definition, as Idris writes one: with its kind.
+||| A reference to a definition as Idris writes one, with its kind, by its
+||| full name: of the definition as the reading holds it, carried from
+||| where its name was resolved, so nothing is looked up again.
 export
-refTo : FC -> Name -> Front ClosedTerm
-refTo fc n = do
-  Just d <- defined n
-    | Nothing => throw (InternalError ("no definition of " ++ show n))
-  pure (Ref fc (kind (definition d.def)) (fullname d.def))
+refTo : FC -> DefinitionRead facts -> ClosedTerm
+refTo fc d = Ref fc (kind (definition d.def)) (fullname d.def)
   where
     kind : Def -> NameType
     kind (DCon tag arity _) = DataCon tag arity
@@ -1315,6 +1313,17 @@ pairNames = do
     | Nothing => throw (InternalError "no pair type")
   pure (pairType ns, fstName ns, sndName ns)
 
+-- One of the names the pair names (`pairNames`), as the reading holds its
+-- definition. The boundary reads the pair's definitions with the
+-- program's, but the reading keeps no record of which they are, so each
+-- name is resolved again where the pair is packed or unpacked, and one the
+-- context defines as nothing is the compiler's error.
+pairPart : Name -> Front Defined
+pairPart n = do
+  Just d <- defined n
+    | Nothing => throw (InternalError ("no definition of " ++ show n))
+  pure d
+
 ||| The type of the one value that holds the values an implementation closes
 ||| over: the one type, or a pair of the first and the rest.
 export
@@ -1325,8 +1334,8 @@ packedType (t ::: ts) = packed t ts
     packed t [] = pure t
     packed t (u :: us) = do
       (pair, _, _) <- pairNames
-      p <- refTo EmptyFC pair
-      pure (App EmptyFC (App EmptyFC p t) !(packed u us))
+      p <- pairPart pair
+      pure (App EmptyFC (App EmptyFC (refTo EmptyFC p) t) !(packed u us))
 
 ||| The values the one value holds (`packedType`), as projections of it.
 export
@@ -1337,11 +1346,11 @@ unpacked (t ::: ts) v = projections t ts v
     projections _ [] v = pure [v]
     projections t (u :: us) v = do
       (_, first, second) <- pairNames
-      f <- refTo EmptyFC first
-      s <- refTo EmptyFC second
+      f <- pairPart first
+      s <- pairPart second
       rest <- packedType (u ::: us)
       let proj = \p => App EmptyFC (App EmptyFC (App EmptyFC p t) rest) v
-      (proj f ::) <$> projections u us (proj s)
+      (proj (refTo EmptyFC f) ::) <$> projections u us (proj (refTo EmptyFC s))
 
 ||| Does a term mention `holeMarker`?
 export

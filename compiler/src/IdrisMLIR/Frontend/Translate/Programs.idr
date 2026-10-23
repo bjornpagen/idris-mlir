@@ -56,10 +56,6 @@ import Decidable.Equality
 %hide Core.Core.(>>=)
 %hide Core.Core.(>>)
 
-||| Equal successors have equal predecessors.
-predecessors : {0 m, n : Nat} -> S m = S n -> m = n
-predecessors Refl = Refl
-
 ||| The name of the next parameter, and the names after it: a parameter
 ||| past the names a type gives is `x`.
 parameterName : List Name -> (Shown, List Name)
@@ -79,29 +75,29 @@ runtimeParams : {0 sp : Scoping} -> (level : Nat) -> List Name -> (vars : Scope)
                 (Vect (Runtimes kinds) Shown, StandsFor kc sp vars (Fin (Runtimes kinds)))
 runtimeParams level xs [] [] _ [] = ([], [])
 runtimeParams level xs (_ :: vs) (TypeParam t :: ks) same (_ :: at) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in (ps, TypeValue t :: env)
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in (ps, TypeValue t :: env)
 runtimeParams level xs (_ :: vs) (DictParam t Nothing :: ks) same (p :: at) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in
   (ps, Static t Nothing (MkGivenParameter p Nothing) :: env)
 runtimeParams level xs (_ :: vs) (ErasedParam :: ks) same (_ :: at) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in
   (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
 runtimeParams level xs (_ :: vs) (IndexParam _ :: ks) same (_ :: at) =
-  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) vs ks (predecessors same) at in
+  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) vs ks (injective {f = S} same) at in
   (ps, TypeValue (marker level) :: env)
 runtimeParams level xs (_ :: vs) (FormParam f :: ks) same (_ :: at) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (predecessors same) at in (ps, TypeValue f :: env)
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in (ps, TypeValue f :: env)
 runtimeParams level xs (_ :: vs) (DictParam t (Just h) :: ks) same (p :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
+      (ps, env) = runtimeParams level xs' vs ks (injective {f = S} same) at in
   (x :: ps, Static t (Just (FZ, h)) (MkGivenParameter p (Just (FZ, h))) :: map (map FS) env)
 runtimeParams level xs (_ :: vs) (ChoiceParam b known :: ks) same (_ :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
+      (ps, env) = runtimeParams level xs' vs ks (injective {f = S} same) at in
   (x :: ps, Runtime FZ (BothTypes b.type known.type) :: map (map FS) env)
 runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same (_ :: at) =
   let (x, xs') = parameterName xs
-      (ps, env) = runtimeParams level xs' vs ks (predecessors same) at in
+      (ps, env) = runtimeParams level xs' vs ks (injective {f = S} same) at in
   (x :: ps, maybe (Runtime FZ (BothTypes b.type known)) (shaped FZ b.type known) shape
               :: map (map FS) env)
 runtimeParams level xs [] (_ :: _) Refl _ impossible

@@ -124,10 +124,6 @@ clauses args pats = MkClauses (map patternsOf pats) (rooted 0 args)
     rooted i [] = []
     rooted i (_ :: vs) = MkPlace i [<] :: rooted (S i) vs
 
--- Lists of equal successor lengths have tails of equal lengths.
-0 tailsAgree : {0 m, n : Nat} -> S m = S n -> m = n
-tailsAgree Refl = Refl
-
 ||| The clauses inside a match's alternative that binds `args` in front of
 ||| the scope, argument `j` at the place `part j` makes of the matched
 ||| variable's.
@@ -207,7 +203,7 @@ argsBound : (field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo 
 argsBound field [] [] _ _ = []
 argsBound field (_ :: vs) (arg :: as) same ss =
   let (s, ss') = next ss in
-  bound arg s :: argsBound field vs as (tailsAgree same) ss'
+  bound arg s :: argsBound field vs as (injective {f = S} same) ss'
   where
     -- The shape of an argument and those of the arguments after it; none
     -- once the shape gives no more.
@@ -226,9 +222,9 @@ argsBound field (_ :: _) [] Refl _ impossible
 ||| of its layout's arguments, each its argument's name in the tree.
 fieldNames : (vs : Scope) -> (as : List ArgKind) -> (0 _ : length as = length vs) -> Vect (fieldCount as) Shown
 fieldNames [] [] _ = []
-fieldNames (_ :: vs) (Param _ :: as) same = fieldNames vs as (tailsAgree same)
-fieldNames (_ :: vs) (ErasedArg :: as) same = fieldNames vs as (tailsAgree same)
-fieldNames (v :: vs) (Field _ _ _ :: as) same = binderName v :: fieldNames vs as (tailsAgree same)
+fieldNames (_ :: vs) (Param _ :: as) same = fieldNames vs as (injective {f = S} same)
+fieldNames (_ :: vs) (ErasedArg :: as) same = fieldNames vs as (injective {f = S} same)
+fieldNames (v :: vs) (Field _ _ _ :: as) same = binderName v :: fieldNames vs as (injective {f = S} same)
 fieldNames [] (_ :: _) Refl impossible
 fieldNames (_ :: _) [] Refl impossible
 
@@ -827,15 +823,16 @@ mutual
       info o (RuntimeValue _) v = OpenedPart v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken)
       info _ _ v = TypeValue v
 
-      -- Each argument of the constructor `cn`, applied to `cargs`, as many
-      -- as its type shows binders and the reduction gave arguments, the
-      -- next at position `j`: what its variable stands for, and its type,
-      -- its binder's closed over the arguments before it.
-      typedParts : Name -> List ClosedTerm -> (j : Nat) -> Given ws -> Binders ArgumentAt ws -> List ClosedTerm ->
+      -- Each argument of the constructor `con`, as its definition was read,
+      -- applied to `cargs`, as many as its type shows binders and the
+      -- reduction gave arguments, the next at position `j`: what its
+      -- variable stands for, and its type, its binder's closed over the
+      -- arguments before it.
+      typedParts : Defined -> List ClosedTerm -> (j : Nat) -> Given ws -> Binders ArgumentAt ws -> List ClosedTerm ->
                    List (VarInfo kc OfTree (Fin nv), ClosedTerm)
-      typedParts cn cargs j g (ShowsBinder at ty rest) (v :: vs) =
+      typedParts con cargs j g (ShowsBinder at ty rest) (v :: vs) =
         let partType = close g ty in
-        (info (MkOpened cn cargs j partType) at v, partType) :: typedParts cn cargs (S j) (give v g) rest vs
+        (info (MkOpened con cargs j partType) at v, partType) :: typedParts con cargs (S j) (give v g) rest vs
       typedParts _ _ _ _ _ _ = []
 
       -- The alternative of the constructor `cn` the implementation was
@@ -855,12 +852,12 @@ mutual
 
       -- An implementation built with its constructor applied, an argument
       -- replaced, and the value it is at its head, which is that
-      -- constructor applied, by construction.
-      rebuilt : Name -> Nat -> ClosedTerm -> List ClosedTerm -> Front (ClosedTerm, FixedValue)
-      rebuilt cn j v args = do
-        f <- refTo EmptyFC cn
-        let args' = replaceAt j v args
-        pure (foldl (App EmptyFC) f args', FixedConstructor cn args')
+      -- constructor applied, by construction. The constructor is the
+      -- definition the match read it by, so its reference is made from it.
+      rebuilt : Defined -> Nat -> ClosedTerm -> List ClosedTerm -> (ClosedTerm, FixedValue)
+      rebuilt con j v args =
+        let args' = replaceAt j v args in
+        (foldl (App EmptyFC) (refTo EmptyFC con) args', FixedConstructor (fullname con.def) args')
         where
           replaceAt : Nat -> a -> List a -> List a
           replaceAt Z x (_ :: ys) = x :: ys
@@ -876,12 +873,12 @@ mutual
       holding : (m : Nat) -> List1 Opened -> Front (ClosedTerm, FixedValue, ClosedTerm)
       holding m (inner ::: outer) = do
         ty <- normaliseClosed inner.partType
-        (form, value) <- around !(rebuilt inner.con inner.at (holeMarker m) inner.args) outer
+        let (form, value) = around (rebuilt inner.con inner.at (holeMarker m) inner.args) outer
         pure (form, value, ty)
         where
-          around : (ClosedTerm, FixedValue) -> List Opened -> Front (ClosedTerm, FixedValue)
-          around done [] = pure done
-          around (part, _) (f :: fs) = rebuilt f.con f.at part f.args >>= \b => around b fs
+          around : (ClosedTerm, FixedValue) -> List Opened -> (ClosedTerm, FixedValue)
+          around done [] = done
+          around (part, _) (f :: fs) = around (rebuilt f.con f.at part f.args) fs
 
       -- The variable that holds the value of parameter `i` at run time, as
       -- the tree's scope binds it: the parameter itself, at its own place,
@@ -973,7 +970,7 @@ mutual
       built cn cargs = do
         full <- fullName cn
         con <- lookupDef ctx.fc ctx.owner full
-        pick full cargs (typedParts full cargs 0 none con.binders cargs) alts
+        pick full cargs (typedParts con cargs 0 none con.binders cargs) alts
 
   ||| The constructors a match's alternatives name, its possible
   ||| alternatives, each over its fields, named as the alternative names
