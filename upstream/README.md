@@ -158,7 +158,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
 | 95 | snmalloc-notify-using-result | PR to microsoft/snmalloc: the PALs report a refused commit | carried; not filed; Microsoft CLA |
-| 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | open: patch owed (D121); the first fix, never built before, and a revision both stop Idris's own base build (2026-10-22, README); the check records the pin still drops the write |
+| 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb; base builds as fast as on the stock Idris (README) |
 | 97 | bytecode-numbering-iterative | PR after the recursion RFC: the bytecode writer numbers nested attributes and types from an explicit stack | carried (2026-10-21); not filed |
 | 98 | simdutf-constexpr-implementation | PR to simdutf/simdutf: the implementation constructors constexpr, rvv's aside | carried (2026-10-21); not filed; simdutf's AI policy wants a human author who answers for it |
 | 99 | function-interface-edits | PR: FunctionOpInterface's four signature edits are interface methods, the present bodies their defaults, so a caller holding the interface reaches an operation's own | carried (2026-10-21); not filed |
@@ -170,8 +170,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 105 | case-tree-fallthrough-copies | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb |
 | 106 | size-change-call-paths | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb |
 | 107 | delayed-case-expected-type | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb; upstream #3418 |
-| 108 | case-split-pattern-fragment | nothing: Idris takes no tool-written contribution (**Idris**) | open: patch owed (a redesign of `caseBlock`'s metas over a split variable); upstream #62; the check records the pin still refuses |
-| 109 | delayed-retry-doubling | nothing: Idris takes no tool-written contribution (**Idris**) | open: a type error under nested delayed elaboration is slow to report; candidate patch to `contra` not built; no check yet |
+| 108 | case-split-pattern-fragment | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies after 104 to 107 at the gitlink 89ba32eb; upstream #62 |
+| 109 | delayed-retry-doubling | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies after 104 to 107 at the gitlink 89ba32eb |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

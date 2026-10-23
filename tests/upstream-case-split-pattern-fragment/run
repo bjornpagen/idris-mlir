@@ -1,16 +1,17 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# upstream/108-case-split-pattern-fragment, not yet patched: the stock
-# Idris refuses a case (a record update) that splits a bound variable when
-# a still-unsolved meta is applied to that variable. Update.idr and
-# Hint.idr are well typed; this checks that the pinned Idris still refuses
-# both, so it fails, and goes, once a patch or the pin fixes them.
+# upstream/108-case-split-pattern-fragment, carried: the stock Idris
+# refused a case (a record update) that splits a bound variable when a
+# still-unsolved meta is applied to that variable, since each clause put
+# its pattern in the meta's arguments. With the patch the case function
+# takes the variable twice, those metas applied to the unsplit copy, and
+# Update.idr and Hint.idr, both well typed, check.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 for case in Update Hint; do
   cp "$root/upstream/108-case-split-pattern-fragment/$case.idr" "$work/$case.idr"
   if (cd "$work" && pinned_idris --check "$case.idr") > "$work/$case.out" 2>&1; then
-    say "$case: checks: fixed at the pin"
+    say "$case: checks"
   elif grep -q 'caseTy\|delayTy\|Mismatch between: Integer and Nat' "$work/$case.out"; then
     say "$case: still refused"
   else

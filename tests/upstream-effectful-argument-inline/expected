@@ -1,1 +1,2 @@
-still reproduces at the pin: the write is dropped, 0 is printed
+Bug: kept: the write runs, 7 is printed
+Eager: every ignored computation runs once, in order; the delayed one does not

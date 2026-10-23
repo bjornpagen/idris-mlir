@@ -1,21 +1,37 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# upstream/96-effectful-argument-inline, not yet patched: the stock
-# Idris's inliner substitutes call by name, so an argument a body never
-# uses is dropped with its effects. Bug.idr writes 7 into an array through
-# an effectful `let` its body ignores; the pinned Idris still prints 0.
-# When this check fails, either the pin has upstream's fix and the report
-# goes, or our patch is carried and the check expects 7.
+# upstream/96-effectful-argument-inline, carried: the stock Idris's
+# inliner substituted call by name, so an argument a body never used was
+# dropped with its effects. Bug.idr writes 7 into an array through an
+# effectful `let` its body ignores; Eager.idr prints from computations
+# whose values nothing uses (an unused let, an ignored argument, an ignored
+# field, a pattern let, a recursive call an identity drops) and from a
+# delayed argument nothing forces. With the patch each computation runs
+# once, in order, as eager evaluation runs it, and the delayed one does not.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-cp "$root/upstream/96-effectful-argument-inline/Bug.idr" "$work/Bug.idr"
+dir=$root/upstream/96-effectful-argument-inline
+cp "$dir/Bug.idr" "$dir/Eager.idr" "$work/"
 if ! (cd "$work" && pinned_idris --exec main Bug.idr) > "$work/out" 2> "$work/err"; then
-  say "the stock Idris fails on the reproducer, which is not this bug"
+  say "the stock Idris fails on Bug.idr, which is not this bug"
   show "$work/err"
   exit 0
 fi
 case $(cat "$work/out") in
-  0) say "still reproduces at the pin: the write is dropped, 0 is printed" ;;
-  7) say "fixed at the pin: the write is kept, 7 is printed" ;;
-  *) say "the reproducer prints $(cat "$work/out")" ;;
+  7) say "Bug: kept: the write runs, 7 is printed" ;;
+  0) say "Bug: still reproduces: the write is dropped, 0 is printed" ;;
+  *) say "Bug: the reproducer prints $(cat "$work/out")" ;;
+esac
+if ! (cd "$work" && pinned_idris --exec main Eager.idr) > "$work/eager" 2> "$work/err"; then
+  say "the stock Idris fails on Eager.idr, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+kept='let 1 argument 2 field 3 pattern 4 recursive recursive 2 6'
+dropped='1 2 3 4 2 6'
+case $(tr '\n' ' ' < "$work/eager" | sed 's/ $//') in
+  "$kept") say "Eager: every ignored computation runs once, in order; the delayed one does not" ;;
+  "$dropped") say "Eager: still reproduces: every ignored computation is dropped" ;;
+  *) say "Eager: the reproducer prints otherwise"
+     show "$work/eager" ;;
 esac

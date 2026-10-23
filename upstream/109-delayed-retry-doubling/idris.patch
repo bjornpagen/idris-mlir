@@ -1,0 +1,151 @@
+--- a/src/TTImp/Elab/Delayed.idr
++++ b/src/TTImp/Elab/Delayed.idr
+@@ -228,6 +228,33 @@
+   show RecoverableErrors = "RecoverableErrors"
+   show AllErrors = "AllErrors"
+ 
++-- The metavariables unsolved at some point: the holes, and the guesses
++-- that wait on constraints.
++Unsolved : Type
++Unsolved = (IntMap (FC, Name), IntMap (FC, Name))
++
++unsolved : {auto u : Ref UST UState} -> Core Unsolved
++unsolved = do ust <- get UST
++              pure (holes ust, guesses ust)
++
++-- Whether every metavariable unsolved at the first point is still unsolved
++-- at the second.
++noneSolved : Unsolved -> Unsolved -> Bool
++noneSolved (hs, gs) (hs', gs') = still hs hs' && still gs gs'
++  where
++    still : IntMap (FC, Name) -> IntMap (FC, Name) -> Bool
++    still before now = all (\k => isJust (lookup k now)) (keys before)
++
++-- What a pass learnt of a delayed elaborator that failed recoverably: the
++-- error, and what was unsolved when the failing attempt began. An attempt
++-- that begins with all of that still unsolved knows no more than the one
++-- that failed, so it fails the same way, and is not run again. Each
++-- delayed elaborator may retry delayed elaborators of its own, so running
++-- such a failure again at every level of a nest, once in each pass, costs
++-- time exponential in the nesting before the same error is reported.
++Failures : Type
++Failures = IntMap (Unsolved, Error)
++
+ -- Try all the delayed elaborators. If there's a failure, we want to
+ -- show the ambiguity errors first (since that's the likely cause)
+ -- Return all the ones that need trying again
+@@ -238,15 +265,50 @@
+                 {auto e : Ref EST (EState vars)} ->
+                 RetryError ->
+                 (progress : Bool) ->
++                Failures ->
+                 List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
+                 List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
+-                Core (Bool, List (DelayReason, Int, NameMap (), Core ClosedTerm))
+-retryDelayed' errmode p acc [] = pure (p, reverse acc)
+-retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
++                Core (Bool, Failures, List (DelayReason, Int, NameMap (), Core ClosedTerm))
++retryDelayed' errmode p fs acc [] = pure (p, fs, reverse acc)
++retryDelayed' errmode p fs acc (d@(_, i, hints, elab) :: ds)
+     = do defs <- get Ctxt
+          Just Delayed <- lookupDefExact (Resolved i) (gamma defs)
+-              | _ => retryDelayed' errmode p acc ds
+-         handle
++              | _ => retryDelayed' errmode p fs acc ds
++         before <- unsolved
++         case lookup i fs of
++              Just (was, err) =>
++                  if noneSolved was before
++                     then do logC "elab.retry" 5 $ do pure $ "Not retrying unchanged delayed hole " ++ show !(getFullName (Resolved i))
++                             failed was err
++                     else attempt before
++              Nothing => attempt before
++  where
++    better : Error -> Error -> Error
++    better e (GenericMsg {}) = e
++    better (GenericMsg {}) e = e
++    better e _ = e
++
++    failed : Unsolved -> Error ->
++             Core (Bool, Failures, List (DelayReason, Int, NameMap (), Core ClosedTerm))
++    failed before err
++        = do logC "elab" 5 $ do pure $ show errmode ++ ":Error in " ++ show !(getFullName (Resolved i))
++                                       ++ "\n" ++ show err
++             case errmode of
++               RecoverableErrors =>
++                  if not !(recoverable err)
++                     then throw err
++                     else retryDelayed' errmode p (insert i (before, err) fs) (d :: acc) ds
++               AllErrors =>
++                  -- we've got an error, but see if we get a more
++                  -- helpful one with a later elaborator
++                  handle (do ignore $ retryDelayed' errmode p fs [] ds
++                             throw err)
++                     (\err' => throw (better err err'))
++
++    attempt : Unsolved ->
++              Core (Bool, Failures, List (DelayReason, Int, NameMap (), Core ClosedTerm))
++    attempt before
++        = handle
+            (do est <- get EST
+                logC "elab.retry" 5 $ do pure $ show (delayDepth est) ++ ": Retrying delayed hole " ++ show !(getFullName (Resolved i))
+                -- elab itself might have delays internally, so keep track of them
+@@ -263,25 +325,8 @@
+                logTerm "elab.update" 5 ("Resolved delayed hole " ++ show i) tm
+                logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
+                removeHole i
+-               retryDelayed' errmode True acc ds')
+-           (\err => do logC "elab" 5 $ do pure $ show errmode ++ ":Error in " ++ show !(getFullName (Resolved i))
+-                                              ++ "\n" ++ show err
+-                       case errmode of
+-                         RecoverableErrors =>
+-                            if not !(recoverable err)
+-                               then throw err
+-                               else retryDelayed' errmode p (d :: acc) ds
+-                         AllErrors =>
+-                            -- we've got an error, but see if we get a more
+-                            -- helpful one with a later elaborator
+-                            handle (do ignore $ retryDelayed' errmode p [] ds
+-                                       throw err)
+-                               (\err' => throw (better err err')))
+-  where
+-    better : Error -> Error -> Error
+-    better e (GenericMsg {}) = e
+-    better (GenericMsg {}) e = e
+-    better e _ = e
++               retryDelayed' errmode True (delete i fs) acc ds')
++           (failed before)
+ 
+ export
+ retryDelayed : {vars : _} ->
+@@ -291,12 +336,15 @@
+                {auto e : Ref EST (EState vars)} ->
+                UnifyInfo -> List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
+                Core ()
+-retryDelayed mode ds
+-    = do (p, ds) <- retryDelayed' RecoverableErrors False [] ds -- try everything again
+-         solveConstraints mode Normal -- maybe we can resolve some interfaces now
+-         if p
+-            then retryDelayed mode ds -- progress, go around again
+-            else ignore $ retryDelayed' AllErrors False [] ds -- fail on all errors
++retryDelayed mode ds = go empty ds
++  where
++    go : Failures -> List (DelayReason, Int, NameMap (), Core ClosedTerm) -> Core ()
++    go fs ds
++        = do (p, fs, ds) <- retryDelayed' RecoverableErrors False fs [] ds -- try everything again
++             solveConstraints mode Normal -- maybe we can resolve some interfaces now
++             if p
++                then go fs ds -- progress, go around again
++                else ignore $ retryDelayed' AllErrors False fs [] ds -- fail on all errors
+ 
+ -- Run an elaborator, then all the delayed elaborators arising from it
+ export
+@@ -313,7 +361,7 @@
+          tm <- elab
+          ust <- get UST
+          log "elab.delay" 2 $ "Rerunning delayed in elaborator"
+-         handle (do ignore $ retryDelayed' AllErrors False []
++         handle (do ignore $ retryDelayed' AllErrors False empty []
+                        (reverse (filter hasPri (delayedElab ust))))
+                 (\err => do put UST ({ delayedElab := olddelayed } ust)
+                             throw err)

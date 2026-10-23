@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/109-delayed-retry-doubling, carried: the stock Idris retried a
+# failing delayed elaborator in two passes at every level of a nest, each
+# running the levels inside again, so a type error eleven pattern binds
+# deep took about fifty seconds to report. With the patch an attempt that
+# knows no more than the one that failed is not run again: Retry.idr's
+# error is reported well within a limit the stock Idris passes.
+step_limit=20
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cp "$root/upstream/109-delayed-retry-doubling/Retry.idr" "$work/Retry.idr"
+(cd "$work" && pinned_idris --check Retry.idr) > "$work/out" 2>&1
+case $? in
+  0) say "the stock Idris checks the reproducer, which has a type error"
+     show "$work/out" ;;
+  124) say "still reproduces: the type error is not reported within the step limit" ;;
+  *) if grep -q 'Mismatch between: v Nat and Type -> Type' "$work/out"; then
+       say "reported: the type error is reported within the step limit"
+     else
+       say "the stock Idris fails on the reproducer otherwise, which is not this bug"
+       show "$work/out"
+     fi ;;
+esac

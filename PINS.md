@@ -1394,6 +1394,25 @@ which the top-level CMake configure gate reads.
   host
 - upstream: none
 
+## effectful-argument-inline
+
+- symptom: the stock Idris's inliner substitutes call by name, so a value
+  a body never uses (an argument, a `let`, a pattern `let`'s scrutinee, a
+  known constructor's field) is dropped with its effects, against eager
+  evaluation: an `unsafePerformIO` write in an effectful `let` the body
+  ignores never happens
+- sites: everything the stock host compiles to run: stage 0, the test
+  runner, the benchmarks' Chez baseline
+- workaround: `upstream/96-effectful-argument-inline/idris.patch`: a
+  value the body never uses that is a computation is kept, evaluated
+  before the body by a `let` the inliner never inlines; a recursive call
+  is an identity's only where its other arguments are no computations;
+  checked by tests/upstream-effectful-argument-inline
+- retire: when the Idris pin carries upstream's fix
+- upstream: upstream/96-effectful-argument-inline; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
 ## coverage-repeated-split
 
 - symptom: the stock Idris's coverage checker reports a covered case as
@@ -1471,15 +1490,34 @@ which the top-level CMake configure gate reads.
   bound variable while an unsolved meta is applied to that variable: the
   clause's constraint leaves the pattern fragment, so an inferred lambda's
   type is never solved, or a `%defaulthint` fires first (upstream #62)
-- sites: everything the stock host checks; code of ours that stands in
-  for the patch: harness/Main.idr's `keep`, given a signature, and its
-  `--threads` parse, `parsePositive {a = Nat}`
-- workaround: none carried: the patch, a change to how `caseBlock` treats
-  a meta applied to the variable it splits, is not written yet
-  (upstream/108-case-split-pattern-fragment); tests/upstream-case-split-pattern-fragment
-  checks that the pin still refuses both reproducers
-- retire: when a carried patch or the pin fixes it, with the two
-  stand-ins in harness/Main.idr
+- sites: everything the stock host checks; code of ours bent around it
+  before the patch, to go once the toolchain carries it: harness/Main.idr's
+  `keep`, given a signature, and its `--threads` parse,
+  `parsePositive {a = Nat}` with its comment naming this bug
+- workaround: `upstream/108-case-split-pattern-fragment/idris.patch`:
+  where an unsolved meta is applied to the variable a case splits, the
+  case function takes the variable twice, those metas applied to an
+  unsplit copy at quantity 0; checked by
+  tests/upstream-case-split-pattern-fragment
+- retire: when the Idris pin carries upstream's fix for #62
 - upstream: upstream/108-case-split-pattern-fragment; nothing sent (Idris
   takes no tool-written contribution)
-- status (2026-10-22): open; patch owed
+- status (2026-10-22): carried
+
+## delayed-retry-doubling
+
+- symptom: the stock Idris retries a failing delayed elaborator in a
+  recoverable pass and an all-errors pass at every level of a nest, each
+  running the levels inside again, so a type error under nested pattern
+  binds takes time exponential in the nesting to report (eleven binds:
+  about 50 s)
+- sites: everything the stock host checks: stage 0 and the libraries;
+  correct code is unaffected, an error in it is slow to report
+- workaround: `upstream/109-delayed-retry-doubling/idris.patch`: an
+  attempt that would begin with every metavariable unsolved that was
+  unsolved when the last one failed is not run, its error kept; checked by
+  tests/upstream-delayed-retry-doubling
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/109-delayed-retry-doubling; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
