@@ -84,7 +84,8 @@
   number={1},
   pages={270--282},
   year={2002},
-  publisher={ACM New York, NY, USA}
+  publisher={ACM New York, NY, USA},
+  doi={10.1145/503272.503298}
 }
 
 @inproceedings{petersen2013measuring,
@@ -9486,5 +9487,188 @@ numpages = {14}
   author = {{Free Software Foundation}},
   howpublished = {\url{https://github.com/gcc-mirror/gcc/tree/575b8ec6ec455504622d9ad3ac7a8c555c5bcedf/gcc}},
   note = {Revision 575b8ec6ec455504622d9ad3ac7a8c555c5bcedf, fetched 2026-10-10},
+  year = {2026}
+}
+
+% --- Analyses, solvers and dense side tables (2026-10-23): the papers and
+% --- snapshots of that INDEX.md topic, from P0 audit 5.7's list. Keys are the
+% --- library shortnames; snapshots are keyed by their library path, since the
+% --- keys egg and egglog are taken. Metadata from the copies read, Crossref and
+% --- the arXiv record; the LNCS volume of CC 2014 from Springer's book record.
+% --- Already present under another key, so not entered again:
+% ---   click-1995-combining-analyses   -> Click1995
+% ---   lerner-2002-composing-dataflow  -> lerner2002composing (doi added)
+% ---   szabo-2018-inca                 -> inca
+% ---   steensgaard-1996-points-to      -> DBLP:conf/popl/Steensgaard96
+
+@inproceedings{tavares-2014-sparse-dataflow,
+  title = {Parameterized Construction of Program Representations for Sparse Dataflow Analyses},
+  author = {Tavares, Andr{\'e} and Boissinot, Benoit and Pereira, Fernando and Rastello, Fabrice},
+  booktitle = {Compiler Construction (CC 2014)},
+  series = {Lecture Notes in Computer Science},
+  volume = {8409},
+  pages = {18--39},
+  publisher = {Springer},
+  year = {2014},
+  doi = {10.1007/978-3-642-54807-9_2},
+  eprint = {1403.5952},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{reps-1995-ifds,
+  title = {Precise Interprocedural Dataflow Analysis via Graph Reachability},
+  author = {Reps, Thomas and Horwitz, Susan and Sagiv, Mooly},
+  booktitle = {Proceedings of the 22nd ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL '95)},
+  pages = {49--61},
+  year = {1995},
+  doi = {10.1145/199448.199462}
+}
+
+@article{sagiv-1996-ide,
+  title = {Precise Interprocedural Dataflow Analysis with Applications to Constant Propagation},
+  author = {Sagiv, Mooly and Reps, Thomas and Horwitz, Susan},
+  journal = {Theoretical Computer Science},
+  volume = {167},
+  number = {1--2},
+  pages = {131--170},
+  year = {1996},
+  doi = {10.1016/0304-3975(96)00072-2}
+}
+
+@article{distefano-2019-scaling-static-analyses,
+  title = {Scaling Static Analyses at {Facebook}},
+  author = {Distefano, Dino and F{\"a}hndrich, Manuel and Logozzo, Francesco and O'Hearn, Peter W.},
+  journal = {Communications of the ACM},
+  volume = {62},
+  number = {8},
+  pages = {62--70},
+  year = {2019},
+  doi = {10.1145/3338112}
+}
+
+@inproceedings{oh-2012-sparse-global-analyses,
+  title = {Design and Implementation of Sparse Global Analyses for {C}-like Languages},
+  author = {Oh, Hakjoo and Heo, Kihong and Lee, Wonchan and Lee, Woosuk and Yi, Kwangkeun},
+  booktitle = {Proceedings of the 33rd ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '12)},
+  pages = {229--238},
+  year = {2012},
+  doi = {10.1145/2254064.2254092}
+}
+
+@article{wegman-1991-constant-propagation,
+  title = {Constant Propagation with Conditional Branches},
+  author = {Wegman, Mark N. and Zadeck, F. Kenneth},
+  journal = {ACM Transactions on Programming Languages and Systems},
+  volume = {13},
+  number = {2},
+  pages = {181--210},
+  year = {1991},
+  doi = {10.1145/103135.103136}
+}
+
+@inproceedings{choi-1991-sparse-evaluation-graphs,
+  title = {Automatic Construction of Sparse Data Flow Evaluation Graphs},
+  author = {Choi, Jong-Deok and Cytron, Ron and Ferrante, Jeanne},
+  booktitle = {Proceedings of the 18th ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL '91)},
+  pages = {55--66},
+  year = {1991},
+  doi = {10.1145/99583.99594}
+}
+
+@inproceedings{sahebolamri-2022-ascent,
+  title = {Seamless Deductive Inference via Macros},
+  author = {Sahebolamri, Arash and Gilray, Thomas and Micinski, Kristopher},
+  booktitle = {Proceedings of the 31st ACM SIGPLAN International Conference on Compiler Construction (CC '22)},
+  pages = {77--88},
+  year = {2022},
+  doi = {10.1145/3497776.3517779}
+}
+
+@article{sahebolamri-2023-byods,
+  title = {Bring Your Own Data Structures to {Datalog}},
+  author = {Sahebolamri, Arash and Barrett, Langston and Moore, Scott and Micinski, Kristopher},
+  journal = {Proceedings of the ACM on Programming Languages},
+  volume = {7},
+  number = {OOPSLA2},
+  pages = {264:1--264:26},
+  year = {2023},
+  doi = {10.1145/3622840}
+}
+
+@inproceedings{scholz-2016-fast-datalog,
+  title = {On Fast Large-Scale Program Analysis in {Datalog}},
+  author = {Scholz, Bernhard and Jordan, Herbert and Suboti{\'c}, Pavle and Westmann, Till},
+  booktitle = {Proceedings of the 25th International Conference on Compiler Construction (CC 2016)},
+  pages = {196--206},
+  year = {2016},
+  doi = {10.1145/2892208.2892226}
+}
+
+@article{briggs-1993-sparse-sets,
+  title = {An Efficient Representation for Sparse Sets},
+  author = {Briggs, Preston and Torczon, Linda},
+  journal = {ACM Letters on Programming Languages and Systems},
+  volume = {2},
+  number = {1--4},
+  pages = {59--69},
+  year = {1993},
+  doi = {10.1145/176454.176484}
+}
+
+@inproceedings{hardekopf-2011-flow-sensitive,
+  title = {Flow-Sensitive Pointer Analysis for Millions of Lines of Code},
+  author = {Hardekopf, Ben and Lin, Calvin},
+  booktitle = {International Symposium on Code Generation and Optimization (CGO 2011)},
+  pages = {289--298},
+  publisher = {IEEE},
+  year = {2011},
+  doi = {10.1109/CGO.2011.5764696}
+}
+
+@misc{code-go,
+  title = {The {Go} compiler's {SSA} package: dense value ids and sparse sets},
+  author = {{The Go Authors}},
+  howpublished = {\url{https://github.com/golang/go/tree/2aae1000ea1d4b28923b96db28acf4e3b99d6aff/src/cmd/compile/internal/ssa}},
+  note = {Tag go1.27.3, revision 2aae1000ea1d4b28923b96db28acf4e3b99d6aff, fetched 2026-10-23},
+  year = {2026}
+}
+
+@misc{code-wasmtime,
+  title = {cranelift-entity: dense entity references and their side tables},
+  author = {{The Wasmtime Project Developers}},
+  howpublished = {\url{https://github.com/bytecodealliance/wasmtime/tree/ebe5e8df1f4e12c5fc2f5954926881d8d61367d8/cranelift/entity}},
+  note = {Tag v50.0.0, revision ebe5e8df1f4e12c5fc2f5954926881d8d61367d8, fetched 2026-10-23},
+  year = {2026}
+}
+
+@misc{docs-carbon,
+  title = {Carbon toolchain design documents},
+  author = {{Carbon Language contributors}},
+  howpublished = {\url{https://github.com/carbon-language/carbon-lang/tree/434c564a9437faeb7666a01445b85dcbba71918f/toolchain/docs}},
+  note = {Tag v0.0.0-0.nightly.2026.10.23, revision 434c564a9437faeb7666a01445b85dcbba71918f, fetched 2026-10-23},
+  year = {2026}
+}
+
+@misc{code-zig,
+  title = {The {Zig} compiler: {MultiArrayList}, {Ast}, {Zir}, {InternPool}, {Air} and {Sema}},
+  author = {{Zig contributors}},
+  howpublished = {\url{https://github.com/ziglang/zig/tree/e4cbd752c8c05f131051f8c873cff7823177d7d3}},
+  note = {Tag 0.15.2, revision e4cbd752c8c05f131051f8c873cff7823177d7d3, fetched 2026-10-09 and 2026-10-23},
+  year = {2026}
+}
+
+@misc{code-egg,
+  title = {egg: the e-graph library},
+  author = {Willsey, Max and {egg contributors}},
+  howpublished = {\url{https://github.com/egraphs-good/egg/tree/2f31b28e3f9d78e02273b6c6d4201b5b0720b343}},
+  note = {Revision 2f31b28e3f9d78e02273b6c6d4201b5b0720b343 (main, 7 commits past v0.11.0), fetched 2026-10-23},
+  year = {2026}
+}
+
+@misc{code-egglog,
+  title = {egglog: Datalog and equality saturation},
+  author = {{egglog contributors}},
+  howpublished = {\url{https://github.com/egraphs-good/egglog/tree/90635860397ce710f8c0a4eeb04154a8ebc3ac05}},
+  note = {Revision 90635860397ce710f8c0a4eeb04154a8ebc3ac05 (main, 62 commits past v3.0.0), fetched 2026-10-23},
   year = {2026}
 }

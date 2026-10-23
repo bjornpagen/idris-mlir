@@ -6,7 +6,11 @@ snapshots each topic draws on. Topics: [Memory](#memory),
 [Arrays and scheduling](#arrays-and-scheduling), [Verification](#verification),
 [Types and quantities](#types-and-quantities),
 [Array languages and typed array programming](#array-languages-and-typed-array-programming),
-[Sharded and incremental compilation](#sharded-and-incremental-compilation).
+[Sharded and incremental compilation](#sharded-and-incremental-compilation),
+[Flattened data: packed, columnar and nested layouts](#flattened-data-packed-columnar-and-nested-layouts--columnar),
+[Fast dependent type checking and elaboration](#fast-dependent-type-checking-and-elaboration--elaborators),
+[Swift: ownership, ARC and the compiler](#swift-ownership-arc-and-the-compiler),
+[Analyses, solvers and dense side tables](#analyses-solvers-and-dense-side-tables-p0).
 
 Each paper appears once, under its main topic; a topic's "Also" line names papers filed
 elsewhere that serve it too. Per entry: the folder (or shortname when nothing is stored),
@@ -25,17 +29,23 @@ confirm before redistributing.
 
 | Outcome | Count |
 | --- | --- |
-| Stored as TeX source (arXiv e-prints) | 29 |
-| Stored as TeX source (author repository) | 1 |
+| Stored as TeX source (arXiv e-prints) | 41 |
+| Stored as TeX source (author repository or page) | 3 |
 | Stored as TeX source (provenance not recorded) | 1 |
-| Stored as PDF | 69 |
-| Stored as PostScript | 3 |
-| Stored as HTML (author or project web edition) | 7 |
+| Stored as PDF | 101 |
+| Stored as PostScript | 6 |
+| Stored as HTML (author or project web edition) | 8 |
 | Stored as repository text extraction (the PDF is over the cap) | 1 |
-| **Papers stored** | **111** |
+| **Papers stored** | **161** |
 | Book stored as a documentation snapshot (`docs/ssa-book/`) | 1 |
-| Link only (identifier known, no copy stored) | 36 |
-| Unresolved (no identifier or copy located, or no canonical reference chosen) | 23 rows |
+| Link only (identifier known, no copy stored) | 57 |
+| Unresolved (no identifier or copy located, or no canonical reference chosen) | 25 rows |
+
+Counted on 2026-10-23 over every table of this index: a stored row is one paper whatever number
+of copies its folder holds, and a row whose status is `unresolved` counts as unresolved whichever
+table holds it (23 rows of the "Unresolved" tables and 2 of a link-only table). Not counted: the
+two paper folders the Swift table lists without a row (`benes-2025-simple-essence-of-overloading`,
+`milano-2022-fearless-concurrency`).
 
 The array-languages passes of 2026-10-09 added 42 stored papers (6 arXiv TeX, 1 author TeX,
 25 PDF, 2 PostScript, 7 HTML, 1 text extraction), 6 link-only rows, and resolved 3
@@ -50,10 +60,19 @@ and `sun-2025-gpu-datalog`, committed on 2026-10-09 without READMEs, and
 unrecorded provenance); all are under
 [Sharded and incremental compilation](#sharded-and-incremental-compilation).
 
-Six paper folders hold two copies that differ (other host or version):
+The additions of 2026-10-09 filed after the sharded-compilation topic (flattened data, and fast
+dependent type checking) hold 45 stored papers (12 arXiv TeX, 2 author TeX, 27 PDF, 3 PostScript,
+1 HTML), 10 link-only rows and 2 unresolved rows.
+
+The P0 pass of 2026-10-23 added 5 stored papers (5 PDF) and 11 link-only rows, all under
+[Analyses, solvers and dense side tables](#analyses-solvers-and-dense-side-tables-p0); six of the
+link-only rows keep a folder whose `README.md` records the copy that was fetched and not stored.
+
+Nine paper folders hold two copies that differ (other host or version):
 `adams-2019-halide-learning`, `ikarashi-2022-exo`, `kjolstad-2017-taco`,
 `leroy-2009-compcert`, `marshall-2022-linearity-uniqueness`, `slepak-2014-remora` (the LNCS
-version and the full version with appendices).
+version and the full version with appendices), `blelloch-1994-portable-nesl` (the article and the
+technical report), `vollmer-2019-local` and `abel-2011-dynamic-pattern-unification`.
 
 These counts are of the papers this index lists. Seventeen folders added to `papers/` on
 2026-10-07 (commit `cb65104d`) are not indexed yet: `atkey-2009-parameterised-notions`,
@@ -264,8 +283,16 @@ programs and inside a type theory.
 - `code/tinygrad/tinygrad/uop/ops.py` and `codegen/simplify.py` (the rewrite-rule system and
   symbolic simplifier); `code/tinygrad/tinygrad/codegen/opt/{search,heuristic}.py` (BEAM
   search).
-- Not vendored: the egg and egglog repositories, DialEgg and MLIR `eqsat` sources, HVM2 and
-  Bend (planned; pins in [README.md](README.md#pins)).
+- `code/egg/` and `code/egglog/`: the egg and egglog repositories at their pins in
+  [README.md](README.md#pins) (`2f31b28e`, `90635860`), vendored 2026-10-23 under [Analyses,
+  solvers and dense side tables](#analyses-solvers-and-dense-side-tables-p0); MIT.
+- `code/hvm2/`: HVM2's `src/hvm.c`, `src/hvm.cu`, `src/hvm.h` and `LICENSE` (Apache-2.0),
+  committed on 2026-10-09 (`96156233`) with no `SNAPSHOT.md`. Each file's git blob is identical
+  to `HigherOrderCO/HVM2` at `65427601` (`main`, "Merge pull request #423", 2024-08-21; checked
+  2026-10-23). The `HigherOrderCO/HVM` pin in [README.md](README.md#pins), `7365a56c`, is the
+  repository GitHub now names `HigherOrderCO/HVM1`, and is not vendored.
+- Not vendored: DialEgg and MLIR `eqsat` sources, and Bend (planned; pins in
+  [README.md](README.md#pins)).
 
 **Read first:** `willsey-2021-egg` (e-graphs and rebuilding),
 `zhang-2022-relational-ematching` (e-matching), `koehler-2021-sketch-eqsat`
@@ -906,7 +933,9 @@ instead of pointers in a self-hosted compiler; hash-consing).
 - `docs/parquet-site/` (`apache/parquet-site` `14a99121`: nested encoding, nulls and file-format
   pages); Apache-2.0; [SNAPSHOT](docs/parquet-site/SNAPSHOT.md).
 - `code/zig/` (Zig `0.15.2` = `e4cbd752`: `lib/std/multi_array_list.zig`, `lib/std/zig/Ast.zig`,
-  `lib/std/zig/Zir.zig`, `src/InternPool.zig`); MIT; [SNAPSHOT](code/zig/SNAPSHOT.md).
+  `lib/std/zig/Zir.zig`, `src/InternPool.zig`; and `src/Air.zig`, `src/Sema.zig`, added 2026-10-23
+  under [Analyses, solvers and dense side tables](#analyses-solvers-and-dense-side-tables-p0)); MIT;
+  [SNAPSHOT](code/zig/SNAPSHOT.md).
 - `code/structarrays/` (StructArrays.jl `v0.7.3` = `4a1e2710`: `docs/src/*.md` and the core
   `src/*.jl`); MIT; [SNAPSHOT](code/structarrays/SNAPSHOT.md).
 - `code/vector/` (`vector-0.13.2.0` = `d9d0d466`: `Data/Vector/Unboxed.hs`, `Unboxed/Base.hs`,
@@ -946,7 +975,7 @@ StructArrays.jl and `Data.Vector.Unboxed` decide by type and leave to the progra
 hash-consing gives (constant-time equality and hashing, memoization) and costs, as measured.
 
 Summary-table deltas: +2 papers stored (2 PDF); +0 link-only; +8 snapshots (4 `docs/`, 4
-`code/`). The Summary table needs the new topic in the topic list at the top of `INDEX.md`.
+`code/`).
 
 
 ### Flattened data: packed, columnar and nested layouts — flattening
@@ -1229,6 +1258,91 @@ why unification belongs outside the kernel.
 | [`code/swift`](code/swift/) | Snapshot addendum: Swift ownership verifier, semantic ARC and COW sources (cluster `sil-arc`) |
 | [`papers/benes-2025-simple-essence-of-overloading`](papers/benes-2025-simple-essence-of-overloading/) |  |
 | [`papers/milano-2022-fearless-concurrency`](papers/milano-2022-fearless-concurrency/) |  |
+
+
+## Analyses, solvers and dense side tables (P0)
+
+The sources P0's audit of the research library asked for (`audits/p0/wave1/5.7-library.md`, the
+list "Missing, worth snapshotting for P0", items 1 to 17; P0's C13): analyses composed with
+rewrites, sparse and interprocedural dataflow, Datalog with lattices compiled into its host
+language, unification-based and staged pointer analysis, and the dense per-function ids and side
+tables that keep a solve's state sized by the problem; with the egg and egglog repositories, which
+return with equality saturation (D57). Fetched, verified and recorded on 2026-10-23; the thread is
+`p0-library`, and every row names its 5.7 item. Each title, author list and venue was read from
+the copy and checked against Crossref; each licence was read from the copy itself. This repository
+is public (`gh repo view`: `PUBLIC`), so storing a copy publishes it: a copy is stored only when it
+carries a grant to redistribute (an open licence, or ACM's older notice granting copies "not made
+or distributed for direct commercial advantage"). Every other copy is linked, and its fetch (URL,
+bytes, SHA-256) is recorded, in the paper's `README.md` or in its row, so the same copy can be
+fetched again and checked. The library's earlier entries were not re-examined under this rule.
+
+| Paper | Title | Authors | Venue / year | Link | Stored | Threads | Licence | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [`distefano-2019-scaling-static-analyses`](papers/distefano-2019-scaling-static-analyses/) | Scaling Static Analyses at Facebook | Distefano, Fähndrich, Logozzo, O'Hearn | CACM 62(8), pp. 62–70, 2019 | https://doi.org/10.1145/3338112 | PDF (accepted manuscript, UCL Discovery) | p0-library | CC-BY 4.0 for the published version (Crossref); none stated on the manuscript | stored (accepted manuscript; the ACM PDF returned HTTP 403); 5.7 item 5 |
+| [`wegman-1991-constant-propagation`](papers/wegman-1991-constant-propagation/) | Constant Propagation with Conditional Branches | Wegman, Zadeck | TOPLAS 13(2), pp. 181–210, 1991 | https://doi.org/10.1145/103135.103136 | PDF (ACM's scan, a course copy, UMass Amherst) | p0-library | ACM © 1991; the copy's notice grants copying without fee, not for direct commercial advantage, with the notice kept (verify) | stored; 5.7 item 7 |
+| [`choi-1991-sparse-evaluation-graphs`](papers/choi-1991-sparse-evaluation-graphs/) | Automatic Construction of Sparse Data Flow Evaluation Graphs | Choi, Cytron, Ferrante | POPL 1991, pp. 55–66 | https://doi.org/10.1145/99583.99594 | PDF (ACM's scan, the second author's course copy) | p0-library | ACM © 1990; the same grant as `wegman-1991-constant-propagation` (verify) | stored; 5.7 item 7 |
+| [`szabo-2018-inca`](papers/szabo-2018-inca/) | Incrementalizing Lattice-Based Program Analyses in Datalog | Szabó, Bergmann, Erdweg, Voelter | OOPSLA 2018 (PACMPL 2(OOPSLA), Article 139) | https://doi.org/10.1145/3276509 | PDF (published version, KITopen) | p0-library | CC-BY-NC-SA 4.0 (stated on the copy) | stored; 5.7 item 8 (IncA) |
+| [`sahebolamri-2023-byods`](papers/sahebolamri-2023-byods/) | Bring Your Own Data Structures to Datalog | Sahebolamri, Barrett, Moore, Micinski | OOPSLA 2023 (PACMPL 7(OOPSLA2), Article 264, pp. 1198–1223) | https://doi.org/10.1145/3622840 | PDF (published version, author site) | p0-library | CC-BY 4.0 (stated on the copy) | stored; 5.7 item 9 (BYODS) |
+
+| Shortname | Title | Authors | Venue / year | Link | Threads | Licence | Status / reason |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `click-1995-combining-analyses` | Combining Analyses, Combining Optimizations | Click, Cooper | TOPLAS 17(2), pp. 181–196, 1995 | https://doi.org/10.1145/201059.201061 | p0-library | ACM © | link-only; 5.7 item 1. The only open copy found is ACM's (OpenAlex: bronze OA at `https://dl.acm.org/doi/pdf/10.1145/201059.201061`), HTTP 403 on 2026-10-23. Stands in: Click's PhD thesis of the same title (Rice University 1995, https://hdl.handle.net/1911/16807), which extends the paper, not fetched: the repository's rights statement reserves reproduction to the author ("Permission to reuse, publish, or reproduce the work beyond the bounds of fair use or other exemptions to copyright law must be obtained from the copyright holder"); and `lerner-2002-composing-dataflow`, which automates the composition. MLIR cites the paper in `docs/mlir/docs/Rationale/RationaleLinalgDialect.md:588` |
+| [`lerner-2002-composing-dataflow`](papers/lerner-2002-composing-dataflow/) | Composing Dataflow Analyses and Transformations | Lerner, Grove, Chambers | POPL 2002, pp. 270–282 | https://doi.org/10.1145/503272.503298 | p0-library | technical report UW-CSE-01-11-01 (the extended version): none stated, so no grant to redistribute; POPL version ACM © 2002, personal or classroom use only | link-only; 5.7 item 2. Both copies fetched 2026-10-23 from the first author's page and verified; the README records each one's URL, bytes and SHA-256 |
+| [`tavares-2014-sparse-dataflow`](papers/tavares-2014-sparse-dataflow/) | Parameterized Construction of Program Representations for Sparse Dataflow Analyses | Tavares, Boissinot, Pereira, Rastello | CC 2014 (LNCS 8409), pp. 18–39 | https://doi.org/10.1007/978-3-642-54807-9_2 (arXiv https://arxiv.org/abs/1403.5952) | p0-library | arXiv non-exclusive, which grants arXiv alone the right to distribute; Springer © for the LNCS version | link-only; 5.7 item 3. The arXiv e-print (TeX; INRIA RR-8491, March 2014) fetched 2026-10-23 and verified; the README records its URL, bytes and SHA-256, and the manifest of its 17 files |
+| [`reps-1995-ifds`](papers/reps-1995-ifds/) | Precise Interprocedural Dataflow Analysis via Graph Reachability | Reps, Horwitz, Sagiv | POPL 1995, pp. 49–61 | https://doi.org/10.1145/199448.199462 | p0-library | ACM ©; the author copy states none | link-only; 5.7 item 4 (IFDS). The authors' copy fetched 2026-10-23 from their project site and verified; the README records its URL, bytes and SHA-256 |
+| [`sagiv-1996-ide`](papers/sagiv-1996-ide/) | Precise Interprocedural Dataflow Analysis with Applications to Constant Propagation | Sagiv, Reps, Horwitz | TCS 167(1–2), pp. 131–170, 1996 | https://doi.org/10.1016/0304-3975(96)00072-2 | p0-library | Elsevier ©; the published version is under Elsevier's user licence (Crossref), under which users "may not redistribute, display or adapt" the articles; the author copy states none | link-only; 5.7 item 4 (IDE). The authors' PostScript and the PDF made from it fetched 2026-10-23 and verified; the ScienceDirect PDF returned HTTP 403; the README records each copy's URL, bytes and SHA-256 |
+| `oh-2012-sparse-global-analyses` | Design and Implementation of Sparse Global Analyses for C-like Languages | Oh, Heo, Lee, Lee, Yi | PLDI 2012, pp. 229–238 | https://doi.org/10.1145/2254064.2254092 | p0-library | ACM © 2012; the copy's notice grants personal or classroom use; "to post on servers or to redistribute to lists, requires prior specific permission" | link-only; 5.7 item 6. Fetched 2026-10-23 from `https://prl.korea.ac.kr/papers/pldi12-ohheleleyi.pdf` (HTTP 200, 10 pages, 407,549 bytes, SHA-256 `2b3ccadb…`), verified, not stored |
+| `sahebolamri-2022-ascent` | Seamless Deductive Inference via Macros (Ascent) | Sahebolamri, Gilray, Micinski | CC 2022, pp. 77–88 | https://doi.org/10.1145/3497776.3517779 | p0-library | © 2022 the authors, publication rights licensed to ACM; the copy's notice grants personal or classroom use; posting on servers or redistributing requires permission | link-only; 5.7 item 9. Fetched 2026-10-23 from the project site `https://s-arash.github.io/ascent/cc22main-p95-seamless-deductive-inference-via-macros.pdf` (HTTP 200, 12 pages, 234,999 bytes, SHA-256 `64b6e14c…`; also at `https://thomas.gilray.org/pdf/seamless-deductive.pdf`, not fetched), verified, not stored. Stands in: `sahebolamri-2023-byods`, which extends Ascent |
+| [`scholz-2016-fast-datalog`](papers/scholz-2016-fast-datalog/) | On Fast Large-Scale Program Analysis in Datalog | Scholz, Jordan, Subotić, Westmann | CC 2016, pp. 196–206 | https://doi.org/10.1145/2892208.2892226 | p0-library | ACM ©; the accepted manuscript states none | link-only; 5.7 item 10. The accepted manuscript fetched 2026-10-23 from UCL Discovery and verified; the README records its URL, bytes and SHA-256 |
+| `steensgaard-1996-points-to` | Points-to Analysis in Almost Linear Time | Steensgaard | POPL 1996, pp. 32–41 | https://doi.org/10.1145/237721.237727 | p0-library | ACM © ("Copyright 1995 by the Association for Computing Machinery" on the copy); the notice grants personal or classroom use; "to post on servers or to redistribute requires prior specific permission" | link-only; 5.7 item 11. Fetched 2026-10-23 from a course copy of the camera-ready, `https://www.cs.cornell.edu/courses/cs711/2005fa/papers/steensgaard-popl96.pdf` (HTTP 200, 10 pages, 138,608 bytes, SHA-256 `e761914d…`), verified, not stored. The technical report MSR-TR-95-08 was not found |
+| `briggs-1993-sparse-sets` | An Efficient Representation for Sparse Sets | Briggs, Torczon | LOPLAS 2(1–4), pp. 59–69, 1993 | https://doi.org/10.1145/176454.176484 | p0-library | ACM © | link-only; 5.7 item 12. The only copy found is ACM's, `https://dl.acm.org/doi/pdf/10.1145/176454.176484`, HTTP 403 on 2026-10-23; OpenAlex and Semantic Scholar list it closed, and a web search found no author, course or repository copy. Stands in: two implementations that cite it, `code/go/src/cmd/compile/internal/ssa/sparseset.go` (below) and LLVM's `llvm/include/llvm/ADT/SparseSet.h` in the pinned tree (`.toolchain/llvm-project`) |
+| [`hardekopf-2011-flow-sensitive`](papers/hardekopf-2011-flow-sensitive/) | Flow-Sensitive Pointer Analysis for Millions of Lines of Code | Hardekopf, Lin | CGO 2011, pp. 289–298 | https://doi.org/10.1109/CGO.2011.5764696 | p0-library | IEEE ©; the author copy states none | link-only; 5.7 item 17. The authors' copy fetched 2026-10-23 from the second author's page and read in full; the README records its URL, bytes and SHA-256 |
+
+**Also:** `pacak-2020-incremental-type-checkers` (stored, not indexed), which 5.7 cites for IncA;
+`jordan-2016-souffle`, `jordan-2019-concurrent-btree`, `gilray-2022-slog`,
+`mcsherry-2013-differential-dataflow` (Sharded and incremental compilation) for Datalog engines and
+incremental fixpoints; `willsey-2021-egg`, `zhang-2023-egglog`, `zhang-2022-relational-ematching`
+(Rewriting) for the libraries below; `code/zig/` (Flattened data) for the InternPool that Air's
+operands index; the SSA book (`docs/ssa-book/`) for SSA and SSI.
+
+**Snapshots.**
+- `code/go/` (`golang/go` `go1.27.3` = `2aae1000`: `src/cmd/compile/internal/ssa/{value,func,id,sparseset,sparsemap}.go`,
+  the package's `README.md`, `LICENSE`, `PATENTS`); BSD-3-Clause; 5.7 item 12;
+  [SNAPSHOT](code/go/SNAPSHOT.md).
+- `code/wasmtime/` (`bytecodealliance/wasmtime` `v50.0.0` = `ebe5e8df`: the whole
+  `cranelift/entity/` crate, `PrimaryMap`, `SecondaryMap`, `EntitySet`, `SparseMap`, `EntityList`,
+  `PackedOption`); Apache-2.0 WITH LLVM-exception; 5.7 item 13; [SNAPSHOT](code/wasmtime/SNAPSHOT.md).
+- `docs/carbon/` (`carbon-language/carbon-lang` at the nightly tag `v0.0.0-0.nightly.2026.10.23` =
+  `434c564a`, Carbon publishing no releases: the whole `toolchain/docs/`, 18 files, and `LICENSE`);
+  Apache-2.0 WITH LLVM-exception; 5.7 item 14; [SNAPSHOT](docs/carbon/SNAPSHOT.md).
+- `code/zig/src/Air.zig` and `code/zig/src/Sema.zig` (Zig `0.15.2` = `e4cbd752`, the pin of
+  `code/zig/`, which holds them beside the InternPool); MIT; 5.7 item 15;
+  [SNAPSHOT](code/zig/SNAPSHOT.md).
+- `code/egg/` (`egraphs-good/egg` `main` at `2f31b28e`, the pin in [README.md](README.md#pins), 7
+  commits past `v0.11.0`: the whole `src/`, `Cargo.toml`, `README.md`, `LICENSE`); MIT; 5.7 item 16;
+  [SNAPSHOT](code/egg/SNAPSHOT.md).
+- `code/egglog/` (`egraphs-good/egglog` `main` at `90635860`, the pin in [README.md](README.md#pins),
+  62 commits past `v3.0.0`: the whole `src/`, and `Cargo.toml` and `src/` of the members
+  `core-relations`, `egglog-bridge`, `union-find`, `numeric-id`, `egglog-ast`; 116 files); MIT; 5.7
+  item 16; [SNAPSHOT](code/egglog/SNAPSHOT.md).
+
+**Read first** (5.7 ranks its items by how directly each bears on its L1 to L4):
+`click-1995-combining-analyses` (or its thesis), `lerner-2002-composing-dataflow`,
+`tavares-2014-sparse-dataflow`, `reps-1995-ifds` with `sagiv-1996-ide`.
+
+**Claims these settle**, in 5.7's words: the composition rule M7 rests on (Click and Cooper);
+analyses and rewrites composed in one fixpoint (Lerner); the general SSI construction behind L1,
+measured in LLVM (Tavares); the summary discipline of L2's interprocedural half (IFDS, IDE);
+compositional, per-procedure summaries as what makes analysis parallel and incremental at 10^8
+lines (Distefano); sparse analysis at scale with measured memory (Oh); Datalog with lattices
+compiled into the host language at compile time, the closest model for L4 in C++ (Ascent, BYODS);
+Soufflé's index selection and data structures (Scholz); dense value ids per function and sparse
+sets as per-value state (Briggs and Torczon, Go); the canonical dense-id side tables (Cranelift); a
+C++ compiler built on flat, index-based IRs (Carbon); the typed IR the InternPool serves (Zig);
+staged sparse flow-sensitivity (Hardekopf and Lin).
+
+Summary-table deltas: +5 papers stored (5 PDF); +11 link-only; +5 snapshots (4 `code/`, 1
+`docs/`) and two files added to `code/zig/`.
 
 
 ## Reading notes

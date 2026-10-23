@@ -253,6 +253,11 @@ facts were merged.
 | `docs/rocq/` | Open Publication License v1.0 (`doc/LICENSE`; options A and B not elected) |
 | `docs/rustc-dev-guide/` (2026-10-10) | MIT OR Apache-2.0 (the repository's `LICENSE-MIT`, `LICENSE-APACHE`) |
 | `docs/gcc-lto/` (2026-10-10) | `lto-partition.cc` GPL-3.0-or-later; the `invoke.texi` excerpt GFDL-1.3-or-later with Invariant Sections and Cover Texts; study only, never copied into this repository's code |
+| `code/go/` (2026-10-23) | BSD-3-Clause, with the patent grant in `PATENTS` (both kept in the snapshot) |
+| `code/wasmtime/` (2026-10-23) | Apache-2.0 WITH LLVM-exception (`cranelift/entity/LICENSE`, kept) |
+| `docs/carbon/` (2026-10-23) | Apache-2.0 WITH LLVM-exception (the repository's `LICENSE`, kept) |
+| `code/egg/`, `code/egglog/` (2026-10-23) | MIT (each repository's `LICENSE`, kept) |
+| `code/hvm2/` | Apache-2.0 (its `LICENSE`, kept) |
 
 **Papers**, by the licence recorded for the stored copies (each README has the details):
 
@@ -291,6 +296,18 @@ Papers added or first indexed on 2026-10-10:
 | CC-BY 3.0 (stated on the copy) | `mcsherry-2013-differential-dataflow` |
 | publisher ©, author, project or course copy, no licence stated (verify) | IEEE: `johnson-2017-thinlto`; ACM: `blumofe-1999-work-stealing` (a third-party course copy), `le-2013-weak-memory-work-stealing`, `kuper-2014-freeze-after-writing`, `blelloch-2012-internally-deterministic`, `shun-2014-phase-concurrent-hash`, `jordan-2019-concurrent-btree`, `michael-1996-concurrent-queues`; Springer: `jordan-2016-souffle` |
 | none stated (verify) | `weeks-2006-mlton-whole-program` (slides in the MLton repository), `newton-2016-parallel-type-checking` (draft), `kivity-2019-seastar` (slides) |
+
+Papers added on 2026-10-23 (P0 audit 5.7's list; [INDEX.md](INDEX.md#analyses-solvers-and-dense-side-tables-p0)).
+This repository is public, so a copy is stored only when it carries a grant to redistribute;
+every other copy is linked, its fetch recorded in its folder's `README.md` or its INDEX row:
+
+| Licence | Papers |
+| --- | --- |
+| CC-BY 4.0 (stated on the copy, or Crossref for the published version) | `sahebolamri-2023-byods`; `distefano-2019-scaling-static-analyses` (the accepted manuscript states none) |
+| CC-BY-NC-SA 4.0 (stated on the copy) | `szabo-2018-inca` |
+| ACM's older notice, granting copies "not made or distributed for direct commercial advantage" with the notice kept (verify) | `wegman-1991-constant-propagation`, `choi-1991-sparse-evaluation-graphs` |
+| linked, not stored: no grant to redistribute | `lerner-2002-composing-dataflow`, `tavares-2014-sparse-dataflow` (arXiv non-exclusive), `reps-1995-ifds`, `sagiv-1996-ide` (Elsevier's user licence: users "may not redistribute"), `scholz-2016-fast-datalog`, `hardekopf-2011-flow-sensitive`, `oh-2012-sparse-global-analyses`, `sahebolamri-2022-ascent`, `steensgaard-1996-points-to` (the last three ACM's personal-or-classroom notice) |
+| linked, not fetched (ACM 403, no other copy) | `click-1995-combining-analyses`, `briggs-1993-sparse-sets` |
 
 The 2026-10-09 passes used the same sources as before: arXiv, publisher open access,
 green-OA repositories (IUScholarWorks, UvA-DARE, Glasgow eprints, Dagstuhl DROPS), author,
@@ -361,7 +378,9 @@ The Idris 2 snapshots were fetched from the pinned raw GitHub URLs because
 ## Pins
 
 Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows after
-`ssa-book` on 2026-10-09, except the last two, resolved on 2026-10-10. Raw bases:
+`ssa-book` on 2026-10-09, except the last two, resolved on 2026-10-10. The `golang/go`,
+`bytecodealliance/wasmtime`, `carbon-language/carbon-lang` and `HigherOrderCO/HVM2` rows were
+resolved on 2026-10-23, when the egg, egglog and HVM rows were rechecked. Raw bases:
 `https://raw.githubusercontent.com/<repo>/<pin>/<path>`.
 
 | Component | Pin | Resolved SHA | Source of truth command | In the library |
@@ -372,9 +391,9 @@ Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows afte
 | `tinygrad/tinygrad` | `master` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | `git ls-remote https://github.com/tinygrad/tinygrad.git refs/heads/master` | `code/tinygrad/`, `docs/tinygrad/` |
 | `MLton/mlton` | `master` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` (`master` was `5fe943391e539a502699327a6266b6e8e97939e1` on 2026-10-10; the pin was kept) | `git ls-remote https://github.com/MLton/mlton.git refs/heads/master` | `code/mlton/`, `docs/mlton/`, `papers/weeks-2006-mlton-whole-program/` |
 | `llvm/llvm-project` | main at a pinned commit (`toolchain.lock.json`) | `7208ba24ca2894729cd394475a00d2a7b605e642`; `mlir` subtree `ec52aa1c2a6f38a131b8edffc6390e1c60cbc4e0` | `tools/verify-pins.sh lock llvm revision` | `code/mlir/`, `docs/mlir/`, `docs/llvm/` |
-| `egraphs-good/egg` | `main` | `2f31b28e3f9d78e02273b6c6d4201b5b0720b343` | `git ls-remote https://github.com/egraphs-good/egg refs/heads/main` | not vendored |
-| `egraphs-good/egglog` | `main` | `90635860397ce710f8c0a4eeb04154a8ebc3ac05` | `git ls-remote https://github.com/egraphs-good/egglog refs/heads/main` | not vendored |
-| `HigherOrderCO/HVM` | `master` | `7365a56cca56a5853c979755891cb86aa343c42d` | `git ls-remote https://github.com/HigherOrderCO/HVM refs/heads/master` | not vendored |
+| `egraphs-good/egg` | `main` | `2f31b28e3f9d78e02273b6c6d4201b5b0720b343` (7 commits past the release tag `v0.11.0`; `main` was `73975c9819efb4af2f3c6c1b44fa53f8c5742574` on 2026-10-23, the pin was kept) | `git ls-remote https://github.com/egraphs-good/egg refs/heads/main` | `code/egg/` (2026-10-23) |
+| `egraphs-good/egglog` | `main` | `90635860397ce710f8c0a4eeb04154a8ebc3ac05` (62 commits past the release tag `v3.0.0`; `main` was `43cc88e5abed0567afa75180e27e0805b62e89ff` on 2026-10-23, the pin was kept) | `git ls-remote https://github.com/egraphs-good/egglog refs/heads/main` | `code/egglog/` (2026-10-23) |
+| `HigherOrderCO/HVM` | `master` | `7365a56cca56a5853c979755891cb86aa343c42d` (the repository GitHub now names `HigherOrderCO/HVM1`) | `git ls-remote https://github.com/HigherOrderCO/HVM refs/heads/master` | not vendored |
 | `HigherOrderCO/Bend` | `main` | `574b6d39a235b539eb19a5c532993a0abb3d11ad` | `git ls-remote https://github.com/HigherOrderCO/Bend refs/heads/main` | not vendored |
 | `google-research/dex-lang` | `main` | `25e2e389b90403ae2f8d67fb6d52f47d23c439ee` | `git ls-remote https://github.com/google-research/dex-lang refs/heads/main` | `code/dex/` (excerpts, 2026-10-09) |
 | `diku-dk/futhark` | `master` at the 2026-09-26 pin | `304c56ff73c48f1842ed3971fe19805a3a85c766` (`master` was `e641ce0c7e41c1edf285b06cc833179bc6a30690` on 2026-10-09) | `git ls-remote https://github.com/diku-dk/futhark refs/heads/master` | `code/futhark/`, `docs/futhark/` (excerpts, 2026-10-09) |
@@ -395,6 +414,10 @@ Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows afte
 | `triton-lang/triton` | `main` | `11523f38065f52a8117dc3c4d74a2ac59936c19e` | `git ls-remote https://github.com/triton-lang/triton.git refs/heads/main` | `code/triton/` |
 | `rust-lang/rustc-dev-guide` | `main` | `20a4fdd79ed91d0e04f7d48919423d799e3375f0` | `git ls-remote https://github.com/rust-lang/rustc-dev-guide.git HEAD` | `docs/rustc-dev-guide/` |
 | `gcc-mirror/gcc` | `master` (= `trunk`) | `575b8ec6ec455504622d9ad3ac7a8c555c5bcedf` | `git ls-remote https://github.com/gcc-mirror/gcc.git HEAD` | `docs/gcc-lto/` |
+| `golang/go` | tag `go1.27.3` (lightweight) | `2aae1000ea1d4b28923b96db28acf4e3b99d6aff` | `git ls-remote https://github.com/golang/go refs/tags/go1.27.3` | `code/go/` |
+| `bytecodealliance/wasmtime` | tag `v50.0.0` (lightweight) | `ebe5e8df1f4e12c5fc2f5954926881d8d61367d8` | `git ls-remote https://github.com/bytecodealliance/wasmtime refs/tags/v50.0.0` | `code/wasmtime/` |
+| `carbon-language/carbon-lang` | tag `v0.0.0-0.nightly.2026.10.23` (lightweight; Carbon publishes no releases) | `434c564a9437faeb7666a01445b85dcbba71918f` | `git ls-remote https://github.com/carbon-language/carbon-lang refs/tags/v0.0.0-0.nightly.2026.10.23` | `docs/carbon/` |
+| `HigherOrderCO/HVM2` | `main` | `654276018084b8f44a22b562dd68ab18583bfb5b` (the git blobs of the stored files match it; their fetch was not recorded) | `git ls-remote https://github.com/HigherOrderCO/HVM2 HEAD` | `code/hvm2/` |
 | GHC | not vendored (live docs) | — | pointer only: `docs/ghc/SNAPSHOT.md` | `docs/ghc/` |
 | SSA book | Wayback snapshot `20210621194509` | — | `docs/ssa-book/SNAPSHOT.md` | `docs/ssa-book/` |
 
@@ -1287,7 +1310,7 @@ The manifest's code, documentation and pointer rows that were planned and not co
 | Shortname | What | Threads | Harvest method (planned) | Would go in | Licence | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
 | `code-eqsat-dialects` | DialEgg and the MLIR `eqsat` dialect source | B, F | pinned LLVM (planned at `llvmorg-23.1.2`; the pin is now main `7208ba24`); DialEgg repo | `code/mlir-eqsat/` | Apache-2.0 WITH LLVM-exception / DialEgg verify | not collected |
-| `code-egg-repos` | egg / egglog repositories | B | pinned GitHub `2f31b28e…` (egg), `90635860…` (egglog) | `code/egg/`, `code/egglog/` | MIT | not collected |
+| `code-egg-repos` | egg / egglog repositories | B | pinned GitHub `2f31b28e…` (egg), `90635860…` (egglog) | `code/egg/`, `code/egglog/` | MIT | collected 2026-10-23 at these pins: `code/egg/` (26 files: `src/` whole), `code/egglog/` (116 files: `src/` and five workspace members) |
 | `book-pe-jones-gomard-sestoft` | *Partial Evaluation and Automatic Program Generation* (book) | C | author-hosted free PDF → pointer | `docs/pe-book/` (pointer) | author-hosted free | not collected |
 | `book-gc-handbook` | Garbage Collection Handbook | D | no OA; pointer only | `docs/gc-handbook/` (pointer) | book © | not collected |
 | `boehm-gc` | Boehm GC (project/tech report) | D | project page → pointer | `docs/boehm-gc/` (pointer) | verify | not collected |
@@ -1299,7 +1322,7 @@ The manifest's code, documentation and pointer rows that were planned and not co
 | `code-futhark` | Futhark source | G | pinned GitHub `304c56ff…` | `code/futhark/` | ISC (was recorded as BSD-3-Clause) | collected 2026-10-09: 20 files, and 5 docs in `docs/futhark/` |
 | `idris-vect-material` | Idris `Vect`/index-typed array material; tinygrad symbolic shapes | E, G, A | Idris2 pinned docs/source; tinygrad pinned source | `docs/idris2/`, `code/idris2/`, `code/tinygrad/` | BSD-3-Clause / MIT verify | not collected as such; the tinygrad symbolic-shape modules are in `code/tinygrad/`, and `libs/base/Data/Nat.idr` with the `rewrite` elaborator in the `code/idris2/` addendum (2026-10-09) |
 | `mlgo-compilergym` | MLGO / CompilerGym | H | project pages + papers; probe | `docs/mlgo-compilergym/` (pointer) | TBD | unresolved |
-| `code-hvm` | HVM2 source + docs | J | pinned GitHub `7365a56c…` | `code/hvm/` | verify | not vendored |
+| `code-hvm` | HVM2 source + docs | J | pinned GitHub `7365a56c…` | `code/hvm/` | verify | in part: `code/hvm2/` holds HVM2's `src/hvm.{c,cu,h}` and `LICENSE` (Apache-2.0), matching `HigherOrderCO/HVM2` at `65427601`, not the planned pin, which is HVM1; committed 2026-10-09 without a record; docs not collected |
 | `code-bend` | Bend source + docs | J | pinned GitHub `574b6d39…` | `code/bend/` | verify | not vendored |
 | `inpla-inets` | Inpla / inets | J | repo/author host → pointer | `docs/inpla-inets/` (pointer) | TBD | unresolved |
 | `code-lean4-lcnf-specinfo` | Lean 4 `LCNF` and `SpecInfo` | cross-cutting | lean4 repo pinned at fetch time → pointer/excerpts | `code/lean4/` | Apache-2.0 | not collected; `code/lean4/` now exists at `7cd10322` with the rewrite tactics (2026-10-09), and these files would join it at that pin |
@@ -1348,6 +1371,12 @@ entries added to cover the catalogued papers, de-duplicated by citation key
   sharing a key or DOI. The count before it, 752, includes the entries the 2026-10-09
   additions appended after the array-languages section. `weeks-2006-mlton-whole-program`
   already had an entry (`Weeks:2006:WCM:1159876.1159877`) and was not entered twice.
+- **P0 library pass (2026-10-23):** 18 entries appended in a final section, keyed by the
+  library shortnames (twelve papers) and by library path (six snapshots, `code-go`,
+  `code-wasmtime`, `docs-carbon`, `code-zig`, `code-egg`, `code-egglog`, since the keys `egg`
+  and `egglog` are taken) → 783 entries, no two sharing a key or DOI. Four papers already had
+  an entry under another key and were not entered twice (`Click1995`, `lerner2002composing`,
+  `inca`, `DBLP:conf/popl/Steensgaard96`); `lerner2002composing` gained its doi in place.
 - **Sources:** the 13 per-paper files are `bhat-2022-lambda-ultimate-ssa/references.bib`,
   `brady-2021-idris2-qtt/idris-qtt.bib`, `koehler-2021-sketch-eqsat/reference.bib`,
   `lattner-2020-mlir/references.bib`, `shivers-2019-remora/refs.bib`,
@@ -1524,10 +1553,11 @@ found while fetching"):
   unreachable), `research-collection.ethz.ch` (500), ANU Open Research (503), and HAL
   (Anubis bot challenge, not solved or evaded). The affected papers are in
   [Papers not stored](#papers-not-stored).
-- **Un-vendored source trees:** egg, egglog, HVM, Bend and GHC sources were planned or
-  pointer-only; only their pins and URL patterns are recorded ([Pins](#pins),
-  `docs/ghc/SNAPSHOT.md`). Fetch on demand when exact code is needed. dex-lang and Futhark
-  are vendored as excerpts since 2026-10-09 (`code/dex/`, `code/futhark/`).
+- **Un-vendored source trees:** HVM1, Bend and GHC sources were planned or pointer-only; only
+  their pins and URL patterns are recorded ([Pins](#pins), `docs/ghc/SNAPSHOT.md`). Fetch on
+  demand when exact code is needed. dex-lang and Futhark are vendored as excerpts since
+  2026-10-09 (`code/dex/`, `code/futhark/`), egg and egglog since 2026-10-23 (`code/egg/`,
+  `code/egglog/`), and HVM2's runtime sources are in `code/hvm2/`.
 - **No `mlir/include/mlir/IR/RewriterBase.h`** at the pin: `RewriterBase` lives in
   `PatternMatch.h` (vendored). Likewise several dialect docs exist only as ODS-generated
   content covered by the full `docs/mlir/` snapshot; for the array dialects the ODS itself is

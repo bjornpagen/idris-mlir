@@ -6,11 +6,14 @@
   `738d2be9d6b6ef3ff3559130c05159ef53336224` on 2026-10-09).
 - **Fetched:** 2026-10-09, from
   `https://raw.githubusercontent.com/ziglang/zig/e4cbd752c8c05f131051f8c873cff7823177d7d3/<path>`;
-  the file list was chosen from the tree at that commit.
+  the file list was chosen from the tree at that commit. `src/Air.zig` and `src/Sema.zig` were
+  fetched the same way on 2026-10-23 (P0 audit 5.7, item 15), when 0.15.2 was still the latest
+  Zig release.
 - **Paths:** relative to the repository root (so `lib/std/multi_array_list.zig`).
-- **Files:** 5 (plus this file).
+- **Files:** 7 (plus this file).
 - **Licence:** MIT (Expat) (`LICENSE`, "Copyright (c) Zig contributors").
-- **Topic:** Flattened data: packed, columnar and nested layouts.
+- **Topic:** Flattened data: packed, columnar and nested layouts; `src/Air.zig` and `src/Sema.zig`
+  also Analyses, solvers and dense side tables.
 - Nothing was built or run; the files were read only.
 
 **What is here, and why.**
@@ -21,24 +24,28 @@
 | `lib/std/zig/Ast.zig` | the self-hosted compiler's syntax tree as data built on it: `tokens` and `nodes` are `MultiArrayList`s, a node is `{tag: u8, main_token: u32, data: 8-byte union}`, children are `u32` indices, and what does not fit goes in `extra_data: []u32`, decoded by `extraData(index, T)` from the field list of `T` |
 | `lib/std/zig/Zir.zig` | the untyped IR in the same style (`instructions: MultiArrayList(Inst).Slice`, `string_bytes`, `extra`), written to and read from cache files as these arrays with a `Header` of their lengths |
 | `src/InternPool.zig` | the typed compiler's hash-consing store: every type and value is an `Index` (`enum(u32)`), its flat form an `Item {tag, data: u32}` with `extra`/`limbs` arrays, its rich form a `Key` union; interning maps a `Key` to its one `Index` (sharded, per-thread lists), so equality of interned types and values is equality of indices |
+| `src/Air.zig` | the Analyzed Intermediate Representation: "produced by Sema and consumed by codegen", one instance per function: `instructions: std.MultiArrayList(Inst).Slice` with an `extra` array of `u32`, and an operand `Ref` that is either an instruction index or an InternPool index |
+| `src/Sema.zig` | semantic analysis: "transforms untyped ZIR instructions into semantically-analyzed AIR instructions. Does type checking, comptime control flow, and safety-check generation" |
 | `LICENSE` | licence |
 
-Not taken: `lib/std/zig/AstGen.zig` (568 KB), `src/Air.zig`, `src/Sema.zig`, `lib/std/meta.zig`.
+Not taken: `lib/std/zig/AstGen.zig` (568 KB), `src/Air/` (`Legalize.zig`, `Liveness.zig`,
+`Liveness/Verify.zig`, `print.zig`, `types_resolved.zig`), `lib/std/meta.zig`.
 The tests of `MultiArrayList` (from line 650 of the stored file) are part of it.
 
 **How to fetch more.**
 
 ```bash
 rev=e4cbd752c8c05f131051f8c873cff7823177d7d3
-p=src/Air.zig
+p=src/Air/Liveness.zig
 mkdir -p "code/zig/$(dirname $p)"
 curl -sL --fail -o "code/zig/$p" "https://raw.githubusercontent.com/ziglang/zig/$rev/$p"
 ```
 
 ## File manifest
 
-Every stored file except this one: 5 files, 909,393 bytes in all. Computed 2026-10-09 over the
-stored copies; check with `shasum -a 256 <path>` from this folder.
+Every stored file except this one: 7 files, 2,601,518 bytes in all. Computed 2026-10-09 over the
+first five stored copies, and on 2026-10-23 over `src/Air.zig` and `src/Sema.zig`; check with
+`shasum -a 256 <path>` from this folder.
 
 ```
 SHA-256                                                           bytes  path
@@ -46,5 +53,7 @@ SHA-256                                                           bytes  path
 7e755ded94d6c31487185e903b637b5285aee81c2e874c6a8312a79ea17995e3      43556  lib/std/multi_array_list.zig
 6f7078dde1517b052a97d7c1e0348f163e016a8a5ba12d7e572980baec9356ee     148759  lib/std/zig/Ast.zig
 6787a258b3c1f6fd530cf15b571c98e1d31d0c42e95012a481ae38c8f000e4a8     204779  lib/std/zig/Zir.zig
+3196c5d73e9ad030bee0ef60ffddbb0e732170a6a242329fd93c4afc3c2d1612      86645  src/Air.zig
 5b7572236aa12f48d2762e2aa434d28661c8669311befccc4057200e1bcdcb6a     511219  src/InternPool.zig
+5023a80d760ceb96dc9840608006767f65a927eecb111307c11f4de07c72848b    1605480  src/Sema.zig
 ```

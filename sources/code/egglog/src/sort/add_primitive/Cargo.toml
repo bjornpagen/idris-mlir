@@ -1,0 +1,19 @@
+[package]
+name = "egglog-add-primitive"
+version = { workspace = true }
+edition = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = { workspace = true }
+# `full` is required: the macro parses whole closure bodies (if/match, method
+# calls, `?`, statements) via `syn::Expr`. Declare it here instead of relying
+# on another crate in the graph (e.g. clap_derive) to unify it onto our `syn`.
+syn = { workspace = true, features = ["full"] }
