@@ -10,6 +10,7 @@ import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.TT
+import Idris.Host
 
 import Libraries.Data.List.Thin
 
