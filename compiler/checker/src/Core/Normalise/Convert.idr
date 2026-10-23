@@ -10,7 +10,6 @@ import Core.Context
 import Core.Env
 import Core.Value
 
-import Data.Buffer
 import Data.List
 
 import Libraries.Data.NatSet
@@ -92,23 +91,6 @@ leafAt leaves x
     = do tm <- leafTerm leaves {outer = []} x
          pure (replace {p = Term} (appendNilRightNeutral vs) tm)
 
--- Two constants convert when they are one constant. Every constant but a
--- double is one with another exactly when `==` says so. A double is one
--- IEEE 754 binary64 pattern, and `==` is the program's comparison, by which
--- 0.0 is -0.0 though `1.0 / x` tells them apart, and no NaN is itself: so
--- two doubles are one constant exactly when their bits are. The word they
--- are read through is made only where two doubles meet, which few
--- conversions reach. Base's newBuffer fails only for a negative size,
--- which its type does not say, so the error below is never raised.
-identicalConstants : Constant -> Constant -> Core Bool
-identicalConstants (Db x) (Db y)
-    = do Just word <- coreLift (newBuffer 8)
-             | Nothing => throw (InternalError "No word to read a double's bits in")
-         bits <- coreLift (doubleBits word x)
-         bits' <- coreLift (doubleBits word y)
-         pure (bits == bits')
-identicalConstants c c' = pure (c == c')
-
 mutual
   allConvNF : {auto c : Ref Ctxt Defs} ->
               {vars : _} ->
@@ -124,11 +106,10 @@ mutual
   -- return False if anything differs at the head, to quickly find
   -- conversion failures without going deeply into all the arguments.
   -- True means they might still match. Two constants differ at the head
-  -- when they are two constants, which for doubles is read from their bits.
-  quickConv : List (NF vars) -> List (NF vars) -> Core Bool
-  quickConv [] [] = pure True
-  quickConv (x :: xs) (y :: ys)
-      = if !(quickConvArg x y) then quickConv xs ys else pure False
+  -- when they are two constants (`identicalConstants`).
+  quickConv : List (NF vars) -> List (NF vars) -> Bool
+  quickConv [] [] = True
+  quickConv (x :: xs) (y :: ys) = quickConvArg x y && quickConv xs ys
     where
       quickConvHead : NHead vars -> NHead vars -> Bool
       quickConvHead (NLocal {}) (NLocal {}) = True
@@ -136,22 +117,22 @@ mutual
       quickConvHead (NMeta n _ _) (NMeta n' _ _) = n == n'
       quickConvHead _ _ = False
 
-      quickConvArg : NF vars -> NF vars -> Core Bool
-      quickConvArg (NBind {}) _ = pure True -- let's not worry about eta here...
-      quickConvArg _ (NBind {}) = pure True
-      quickConvArg (NApp _ h _) (NApp _ h' _) = pure (quickConvHead h h')
-      quickConvArg (NDCon _ _ t _ _) (NDCon _ _ t' _ _) = pure (t == t')
-      quickConvArg (NTCon _ n _ _) (NTCon _ n' _ _) = pure (n == n')
+      quickConvArg : NF vars -> NF vars -> Bool
+      quickConvArg (NBind {}) _ = True -- let's not worry about eta here...
+      quickConvArg _ (NBind {}) = True
+      quickConvArg (NApp _ h _) (NApp _ h' _) = quickConvHead h h'
+      quickConvArg (NDCon _ _ t _ _) (NDCon _ _ t' _ _) = t == t'
+      quickConvArg (NTCon _ n _ _) (NTCon _ n' _ _) = n == n'
       quickConvArg (NAs _ _ _ t) (NAs _ _ _ t') = quickConvArg t t'
       quickConvArg (NDelayed _ _ t) (NDelayed _ _ t') = quickConvArg t t'
-      quickConvArg (NDelay {}) (NDelay {}) = pure True
+      quickConvArg (NDelay {}) (NDelay {}) = True
       quickConvArg (NForce _ _ t _) (NForce _ _ t' _) = quickConvArg t t'
       quickConvArg (NPrimVal _ c) (NPrimVal _ c') = identicalConstants c c'
-      quickConvArg (NType {}) (NType {}) = pure True
-      quickConvArg (NErased {}) _ = pure True
-      quickConvArg _ (NErased {}) = pure True
-      quickConvArg _ _ = pure False
-  quickConv _ _ = pure False
+      quickConvArg (NType {}) (NType {}) = True
+      quickConvArg (NErased {}) _ = True
+      quickConvArg _ (NErased {}) = True
+      quickConvArg _ _ = False
+  quickConv _ _ = False
 
   allConv : {auto c : Ref Ctxt Defs} ->
             {vars : _} ->
@@ -160,7 +141,7 @@ mutual
   allConv q i defs env xs ys
       = do xsnf <- traverse (evalClosure defs) xs
            ysnf <- traverse (evalClosure defs) ys
-           if !(quickConv xsnf ysnf)
+           if quickConv xsnf ysnf
               then allConvNF q i defs env xsnf ysnf
               else pure False
 
@@ -206,7 +187,7 @@ mutual
       dropP cs cs' (x, y) = pure (!(strengthenNs cs x), !(strengthenNs cs' y))
 
   getMatchingVarAlt lv lv' defs ms (ConstCase c t) (ConstCase c' t')
-      = if !(identicalConstants c c')
+      = if identicalConstants c c'
            then getMatchingVars lv lv' defs ms t t'
            else pure Nothing
   getMatchingVarAlt lv lv' defs ms (DefaultCase t) (DefaultCase t')
@@ -456,7 +437,7 @@ mutual
                      else pure False
              else pure False
 
-    convGen q i defs env (NPrimVal _ c) (NPrimVal _ c') = identicalConstants c c'
+    convGen q i defs env (NPrimVal _ c) (NPrimVal _ c') = pure (identicalConstants c c')
     convGen q i defs env (NErased _ (Dotted t)) u = convGen q i defs env t u
     convGen q i defs env t (NErased _ (Dotted u)) = convGen q i defs env t u
     convGen q i defs env (NErased {}) _ = pure True

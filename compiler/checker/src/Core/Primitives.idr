@@ -20,7 +20,8 @@ import Data.Vect
 -- empty string), a cast of an infinity, a NaN or a String, whose value on
 -- Chez is not the runtime's, a Double's text and a Double's function of
 -- the C library, which agree with the runtime only as far as two printers
--- or two libraries happen to, and a cast the compiler has never folded
+-- or two libraries happen to, a Double's operation whose result is a NaN,
+-- whose bits are the target's, and a cast the compiler has never folded
 -- stay applied.
 
 ||| A primitive: its name, its operation, its type and its totality.
@@ -59,6 +60,20 @@ finite x = if negate infinity < x && x < infinity then Just x else Nothing
   where
     infinity : Double
     infinity = 1.0 / 0.0
+
+-- A Double's operation folds to its result where the result is a number,
+-- an infinity among them, which IEEE 754 fixes to one double. Where the
+-- result is a NaN, IEEE 754 fixes only that it is one, not its sign or its
+-- payload: x86's default NaN has its sign bit set and arm64's has not, and
+-- LLVM leaves payloads unspecified. So a NaN has no one value to fold to,
+-- and the operation stays applied: the program's run reaches its target's
+-- NaN. No constant is then a NaN (no literal is one, and a cast from an
+-- integer gives a number or an infinity), which is what makes
+-- `sameDouble`, by which definitional equality compares two doubles,
+-- compare their bits. A NaN is the one Double that IEEE's `==` finds
+-- unequal to itself.
+number : Double -> Maybe Constant
+number x = if x == x then Just (Db x) else Nothing
 
 -- A Double's text stays applied, finite or not. The runtime writes a
 -- finite Double in its shortest digits, laid out as the stock Chez backend
@@ -293,7 +308,7 @@ add (B8 x) (B8 y) = pure $ B8 (prim__add_Bits8 x y)
 add (B16 x) (B16 y) = pure $ B16 (prim__add_Bits16 x y)
 add (B32 x) (B32 y) = pure $ B32 (prim__add_Bits32 x y)
 add (B64 x) (B64 y) = pure $ B64 (prim__add_Bits64 x y)
-add (Db x) (Db y) = pure $ Db (prim__add_Double x y)
+add (Db x) (Db y) = number (prim__add_Double x y)
 add _ _ = Nothing
 
 sub : Constant -> Constant -> Maybe Constant
@@ -307,7 +322,7 @@ sub (B8 x) (B8 y) = pure $ B8 (prim__sub_Bits8 x y)
 sub (B16 x) (B16 y) = pure $ B16 (prim__sub_Bits16 x y)
 sub (B32 x) (B32 y) = pure $ B32 (prim__sub_Bits32 x y)
 sub (B64 x) (B64 y) = pure $ B64 (prim__sub_Bits64 x y)
-sub (Db x) (Db y) = pure $ Db (prim__sub_Double x y)
+sub (Db x) (Db y) = number (prim__sub_Double x y)
 sub _ _ = Nothing
 
 mul : Constant -> Constant -> Maybe Constant
@@ -321,7 +336,7 @@ mul (I8 x) (I8 y) = pure $ I8 (prim__mul_Int8 x y)
 mul (I16 x) (I16 y) = pure $ I16 (prim__mul_Int16 x y)
 mul (I32 x) (I32 y) = pure $ I32 (prim__mul_Int32 x y)
 mul (I64 x) (I64 y) = pure $ I64 (prim__mul_Int64 x y)
-mul (Db x) (Db y) = pure $ Db (prim__mul_Double x y)
+mul (Db x) (Db y) = number (prim__mul_Double x y)
 mul _ _ = Nothing
 
 -- Through the host's trusted division and remainder, which stay unapplied
@@ -340,7 +355,7 @@ div (B64 x) (B64 y) = B64 <$> divBits64 x y
 -- A double's division never fails, but its primitive is registered partial
 -- with the integers' divisions, so it is reached through `/`, which is that
 -- primitive for `Double`.
-div (Db x) (Db y) = pure $ Db (x / y)
+div (Db x) (Db y) = number (x / y)
 div _ _ = Nothing
 
 mod : Constant -> Constant -> Maybe Constant
@@ -428,7 +443,7 @@ bxor _ _ = Nothing
 -- subtraction from zero instead.
 neg : Constant -> Maybe Constant
 neg (BI x) = pure $ BI (prim__negate_Integer x)
-neg (Db x) = pure $ Db (prim__negate_Double x)
+neg (Db x) = number (prim__negate_Double x)
 neg _ = Nothing
 
 lt : Constant -> Constant -> Maybe Constant
@@ -520,7 +535,7 @@ gt _ _ = Nothing
 -- library's, whose last digit IEEE 754 leaves to each library, so the
 -- host's library could give another double than the target's.
 doubleOp : (Double -> Double) -> Vect 1 (NF vars) -> Maybe (NF vars)
-doubleOp f [NPrimVal fc (Db x)] = Just (NPrimVal fc (Db (f x)))
+doubleOp f [NPrimVal fc (Db x)] = NPrimVal fc <$> number (f x)
 doubleOp f _ = Nothing
 
 doubleSqrt : Vect 1 (NF vars) -> Maybe (NF vars)

@@ -649,9 +649,12 @@ Eq a => Eq (WhyErased a) where
   Dotted t == Dotted u = t == u
   _ == _ = False
 
--- Two terms are equal when they have one shape and their parts are equal.
--- Each kind of node that holds terms is compared by a function of its own,
--- so that every recursive call is on a part of its arguments.
+-- Two terms are equal when they have one shape and their parts are equal,
+-- two constants when they are one constant (`identicalConstants`), as
+-- conversion compares them: the unifier takes two equal terms as
+-- convertible without converting them. Each kind of node that holds terms
+-- is compared by a function of its own, so that every recursive call is on
+-- a part of its arguments.
 mutual
   eqPi : PiInfo (Term vs) -> PiInfo (Term vs') -> Bool
   eqPi Implicit Implicit = True
@@ -686,7 +689,7 @@ mutual
   eqTerm (TDelayed _ _ t) (TDelayed _ _ t') = eqTerm t t'
   eqTerm (TDelay _ _ t x) (TDelay _ _ t' x') = eqTerm t t' && eqTerm x x'
   eqTerm (TForce _ _ t) (TForce _ _ t') = eqTerm t t'
-  eqTerm (PrimVal _ c) (PrimVal _ c') = c == c'
+  eqTerm (PrimVal _ c) (PrimVal _ c') = identicalConstants c c'
   eqTerm (Erased _ Impossible) (Erased _ Impossible) = True
   eqTerm (Erased _ Placeholder) (Erased _ Placeholder) = True
   eqTerm (Erased _ (Dotted t)) (Erased _ (Dotted t')) = eqTerm t t'

@@ -9,7 +9,8 @@ module Main
 -- Each type below reaches the casts on both its sides. The infinities are
 -- written two ways, so the sides are one term only once both are
 -- evaluated, each to the cast of one infinity, left applied; NaN is
--- written alike on both sides, since no NaN is equal to another. Checking
+-- written alike on both sides, since its division stays applied and no
+-- NaN constant exists to compare. Checking
 -- the types is the test. The run casts NaN, and crashes by the runtime's
 -- cause after the line before it.
 

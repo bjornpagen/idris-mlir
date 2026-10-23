@@ -4,7 +4,6 @@ module Core.TT.Primitive
 
 import Core.Name
 
-import Data.Buffer
 import Data.String
 
 import Idris.Pretty.Annotations
@@ -184,9 +183,9 @@ Eq PrimType where
 
 -- Public, so that a proof reads off the evaluator's comparison of
 -- constants: each type's own equality, a double's the runtime's. It is the
--- program's comparison, which a match on a constant makes; conversion
--- reads a double by its bits instead (`doubleBits`), since by `==` 0.0 is
--- -0.0 and no NaN is itself.
+-- program's comparison, which a match on a constant makes; definitional
+-- equality compares constants by `identicalConstants` instead, since by
+-- `==` 0.0 is -0.0.
 public export
 Eq Constant where
   (I x) == (I y) = x == y
@@ -206,17 +205,31 @@ Eq Constant where
   WorldVal == WorldVal = True
   _ == _ = False
 
-||| A double's IEEE 754 binary64 bits: the double stored into `word`, of
-||| eight bytes, and the word loaded back, base's buffer operations, whose
-||| one meaning is the runtime's on either host. The store and the load are
-||| in the machine's byte order, so the order cancels. Every double is read
-||| as it is held, -0.0 and a NaN's sign and payload among them, with no
-||| arithmetic between.
+||| Whether two doubles are one double, the same IEEE 754 binary64 bits:
+||| they are equal by `==`, and so are their reciprocals. Binary64 has one
+||| encoding for each number but zero, so two numbers `==` finds equal are
+||| one encoding, but for the two zeros, which `==` finds equal and whose
+||| reciprocals, by IEEE 754 the infinity of each zero's sign, it does not;
+||| no number's reciprocal is a NaN, so of every other pair the first test
+||| holds of, the second holds too. That is exact on every Double a term
+||| can hold, since a NaN, which `==` finds unequal to every double, itself
+||| included, is no constant: no literal is one, the evaluator's folds leave
+||| an operation whose result is a NaN applied, and it reads no String's
+||| number. Were one to appear, the comparison would refuse it as itself,
+||| never take two doubles that differ for one. It is pure, so the quick
+||| syntactic check (`eqTerm`) and conversion make the one comparison.
 export
-doubleBits : HasIO io => (word : Buffer) -> Double -> io Bits64
-doubleBits word d = do
-  setDouble word 0 d
-  getBits64 word 0
+sameDouble : Double -> Double -> Bool
+sameDouble x y = x == y && 1.0 / x == 1.0 / y
+
+||| Whether two constants are one constant, the comparison definitional
+||| equality makes of them: a double by `sameDouble`, by which 0.0 is not
+||| -0.0 though `==` finds them equal, every other constant by its type's
+||| `==`, which is its value's identity.
+export
+identicalConstants : Constant -> Constant -> Bool
+identicalConstants (Db x) (Db y) = sameDouble x y
+identicalConstants c c' = c == c'
 
 export
 Ord PrimType where
