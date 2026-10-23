@@ -508,8 +508,8 @@ refuseCycle fc main b ring growth = do
   let (asDrawn, wrote) = index a b.drawing
   x <- subjectAt asDrawn.sourceRead (index source b.position) (readAtPlace source b.positionRead)
   text <- case wrote of
-    FromArgument site argument => do
-      within <- definitionName site.within
+    FromArgument entry argument => do
+      within <- definitionName entry.site.within
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
@@ -551,7 +551,7 @@ stuckLabel (ItIsStuck stuck) = stuck
 ||| its arcs, so neither wrote one.
 unmeasuredBy : (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : (arc b.graph a).label = Unmeasured) -> UnmeasuredBy
 unmeasuredBy b a stuck with (snd (index a b.drawing)) proof wrote
-  _ | FromArgument site _ = ArgumentWrote site
+  _ | FromArgument entry _ = ArgumentWrote entry.site
   _ | InField j _ _ = FieldWrote j
   _ | ThroughMethod = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.methodsMeasured a wrote)))
   _ | PacksHeld held = void (unmeasuredInfinite (replace {p = IsFinite} stuck (b.packingsMeasured a held wrote)))

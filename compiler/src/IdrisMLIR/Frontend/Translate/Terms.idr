@@ -418,14 +418,14 @@ shifted family by Z t = t
 shifted family by (S k) t = shifted family by k (substName (family k) (Ref EmptyFC Bound (family (k + by))) t)
 
 ||| Where a term being translated comes from: written in the definition
-||| (`Written`), which may still hold redexes, solved metavariables and
-||| values the environment binds, and which may be settled once into the
-||| phase it holds; or settled (`Settled`): a normal form of Idris's
-||| evaluator, closed but for the variables bound around it. What a
-||| settled term settles again (an implementation or a polymorphic
-||| function applied in it, a value an implementation in it closes over)
-||| stays settled, on a path that enters the definition at the head of
-||| what it settles, as a metavariable's solution is entered.
+||| (`Written`), whose implementations and polymorphic functions applied
+||| may be settled once into the phase it holds; or settled (`Settled`):
+||| the written form of one of those, walked where it is applied, closed
+||| but for the variables bound around it. What a settled term settles
+||| again (an implementation or a polymorphic function applied in it, a
+||| value an implementation in it closes over) stays settled, on a path
+||| that enters the definition at the head of what it settles, as a
+||| metavariable's solution is entered.
 export
 data Phase = Settled | Written Phase
 
@@ -638,8 +638,9 @@ delayedType ctx env fc ty = do
 -- The translation ends, lexicographically in the phase, the definitions
 -- and metavariables entered on the path, and the term. Every step goes to
 -- a part of the term, with three exceptions: a metavariable's solution,
--- entered once on its path (`Walk`); a written term Idris's evaluator
--- settled, which is translated in the phase the written one held; and
+-- entered once on its path (`Walk`); the written form of an
+-- implementation or a polymorphic function a written term applies, which
+-- is walked in the phase the written one held; and
 -- what a settled term settles again, which enters the definition at its
 -- head on the path, once, or, where it cannot, is an instance of its own
 -- (`applyAtUse`), which the worklist translates on a path of its own. A
@@ -973,13 +974,13 @@ mutual
         applyOver ph w acc ctx env at aloc (headName at env tm) (Var loc x) (coreTyOf e) (headType env tm) args
 
   ||| An implementation or a polymorphic function the environment binds,
-  ||| used at runtime: as written, applied to its arguments, it is settled
-  ||| by Idris's evaluator and its normal form translated, each use at its
-  ||| own types. One that closes over runtime values stands for them by the
-  ||| projections of the variable that holds them, marker 0. Applied in a
-  ||| settled term (a part of another implementation closes over it, or a
-  ||| `let` there binds it), its normal form stays settled, on a path that
-  ||| enters the definition at its head (`formHead`). One whose head is a
+  ||| used at runtime: its form, as written, is walked applied to its
+  ||| arguments, each bound once (`settle`), each use at its own types. One
+  ||| that closes over runtime values stands for them by the projections of
+  ||| the variable that holds them, marker 0. Applied in a settled term (a
+  ||| part of another implementation closes over it, or a `let` there binds
+  ||| it), its form stays settled, on a path that enters the definition at
+  ||| its head (`formHead`). One whose head is a
   ||| variable (a value it closes over, one of its own lambdas'), which no
   ||| path enters, and one whose definition the path has entered already,
   ||| which would be settled inside its own settled form, are the member at
@@ -1042,94 +1043,43 @@ mutual
       | Nothing => reject (bestFC ctx fc) ctx.owner CompiledModule "a metavariable met again on its own path"
     spine ph w' (rec w' less) ctx env ex afc (solvedApplied (bestFC ctx fc) tm margs) args
 
-  ||| A value of the environment applied to arguments, its lambdas applied
-  ||| and its solved metavariables filled in by Idris's evaluator that runs
-  ||| no definition (`lambdasApplied`), so that a closed call in it still
-  ||| runs at run time, and its normal form translated in phase `ph` on the
-  ||| path `w`. `value` is closed but for the markers `0 .. length pre - 1`,
-  ||| which `pre` says what they stand for. Each argument is given in place
-  ||| when the evaluator may see it whole, a compile-time value, and as a
-  ||| marker when it is a runtime value. Since nothing is run, a value that
-  ||| refers to a definition Idris does not prove ends is settled as any
-  ||| other.
+  ||| A value of the environment applied to arguments, walked as it is
+  ||| written in phase `ph` on the path `w`, its arguments bound once where
+  ||| its lambdas bind them, as any lambda applied in a term binds its
+  ||| argument (`applyHead`): a closure is bound once by a `let` and called
+  ||| where it is used, never put in at each use, which the pipeline's
+  ||| inliner decides. `value` is closed but for the markers
+  ||| `0 .. length pre - 1`, which `pre` says what they stand for. Nothing
+  ||| is evaluated, so a value that refers to a definition Idris does not
+  ||| prove ends is walked as any other.
   settle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) -> Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC ->
            (value : ClosedTerm) -> (pre : List (Stand kc nv)) -> List (Arg vars nv) -> Front (Term nv)
   settle ph w acc ctx env fc value pre args = do
-    (terms, stands) <- given (length pre) args
-    nf <- lambdasApplied (foldl (App EmptyFC) value terms)
     loc <- toLoc (bestFC ctx fc)
-    bindStands ph w acc ctx env loc 0 id (pre ++ stands) (embedClosed {vars} nf)
-    where
-      -- A runtime value as a marker: a variable as itself, anything else
-      -- by its translation.
-      stand : Arg vars nv -> Stand kc nv
-      stand a = case a.written of
-        Local _ _ idx p => case lookupVar idx p env of
-          e@(Runtime {}) => AsVariable e
-          e@(Shaped {}) => AsVariable e
-          _ => AsValue (a.translated Synthesized)
-        _ => AsValue (a.translated Synthesized)
-
-      -- Is an argument an implementation: a variable that holds one, or a
-      -- definition whose type gives one, applied?
-      anImplementation : TT vars -> Front Bool
-      anImplementation tm = case getFnArgs tm of
-        (Local _ _ idx p, _) => pure (case lookupVar idx p env of
-                                        Static {} => True
-                                        BoundHere {} => True
-                                        _ => False)
-        (Ref rfc _ n, _) => implementationType (!(lookupDef rfc ctx.owner n)).type
-        _ => pure False
-
-      -- One argument for the evaluator, the new markers numbered from `k`,
-      -- and what each stands for: a type in place; a runtime variable as a
-      -- marker; a value that needs no runtime value where one exists, in
-      -- place, as written, or once it needs none only as the implementation
-      -- it reduces to (`implementationOf`), as that; an implementation that
-      -- closes over runtime values by its form, its markers moved up to
-      -- `k`; any other runtime value as a marker.
-      argument : Nat -> Arg vars nv -> Front (ClosedTerm, List (Stand kc nv))
-      argument k a = do
-        written <- solved (closeWritten fc env a.written)
-        if compileTime env a.written then pure (written, []) else case stand a of
-          s@(AsVariable _) => pure (holeMarker k, [s])
-          s@(AsValue _) => do
-            dependent <- runtimeDependent written
-            if not dependent then pure (written, []) else do
-              impl <- implementationOf written
-              if not !(runtimeDependent impl) then pure (impl, []) else do
-                True <- anImplementation a.written
-                  | False => pure (holeMarker k, [s])
-                Just (shape, values) <- a.held
-                  | Nothing => pure (holeMarker k, [s])
-                pure (shifted markerName k (length values) shape, map (\(_, v) => AsValue v) (forget values))
-
-      given : Nat -> List (Arg vars nv) -> Front (List ClosedTerm, List (Stand kc nv))
-      given k [] = pure ([], [])
-      given k (a :: as) = do
-        (t, ss) <- argument k a
-        (ts, sss) <- given (k + length ss) as
-        pure (t :: ts, ss ++ sss)
+    bindStands ph w acc ctx env loc fc 0 id pre (embedClosed {vars} value) args
 
   ||| A settled term with its markers bound, the first first: a variable as
   ||| another name for it, with no Core binder; a value by a `let` before the
   ||| term. Each value is in the scope outside the binders made so far,
   ||| which `ren` takes into the current one, and is renamed once, where it
-  ||| is bound.
+  ||| is bound. The term is then applied to `args`, at `fc`, the arguments
+  ||| taken under each binder made.
   bindStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-               Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Loc -> Nat -> (Fin m -> Fin nv) ->
-               List (Stand kc m) -> TT vars -> Front (Term nv)
-  bindStands ph w acc ctx env loc i ren [] body = term ph w acc ctx env Synthesized body
-  bindStands ph w acc ctx env loc i ren (AsVariable e :: stands) body =
-    bindStands ph w acc ctx (map ren e :: env) loc (S i) ren stands (refToLocal (markerName i) (markerName i) body)
-  bindStands ph w acc ctx env loc i ren (AsValue v :: stands) body = do
+               Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Loc -> FC -> Nat -> (Fin m -> Fin nv) ->
+               List (Stand kc m) -> TT vars -> List (Arg vars nv) -> Front (Term nv)
+  bindStands ph w acc ctx env loc fc i ren [] body [] = term ph w acc ctx env Synthesized body
+  bindStands ph w acc ctx env loc fc i ren [] body args@(_ :: _) = spine ph w acc ctx env Synthesized fc body args
+  bindStands ph w acc ctx env loc fc i ren (AsVariable e :: stands) body args =
+    bindStands ph w acc ctx (map ren e :: env) loc fc (S i) ren stands (refToLocal (markerName i) (markerName i) body)
+               (map overBinder args)
+  bindStands ph w acc ctx env loc fc i ren (AsValue v :: stands) body args = do
     value <- rename ren <$> v
     -- The value is of the type its own term states, where it states one.
     let held = maybe Untyped CoreTypeOnly (termType ctx.depth (scopeOf env) value)
-    rest <- bindStands ph w acc ctx (under {k = 1} [Runtime FZ held] env) loc (S i) (FS . ren) stands
-                       (refToLocal (markerName i) (markerName i) body)
+    rest <- bindStands ph w acc ctx (under {k = 1} [Runtime FZ held] env) loc fc (S i) (FS . ren) stands
+                       (refToLocal (markerName i) (markerName i) body) (map underLet args)
     pure (Let loc (shown "held") (OfValue Many) value rest)
 
   ||| A value an implementation closes over, computed inside a settled term
@@ -1148,7 +1098,7 @@ mutual
                           ("a value an implementation closes over, computed inside another of its own: " ++
                            !(showTT impl))
     loc <- toLoc (bestFC ctx afc)
-    bindStands ph w' (rec w' less) ctx env loc 0 id (map AsVariable stands) p
+    bindStands ph w' (rec w' less) ctx env loc afc 0 id (map AsVariable stands) p []
 
   ||| An implementation that closes over runtime values: a definition that
   ||| gives an implementation without matching on its arguments, applied to
@@ -1252,7 +1202,7 @@ mutual
         pure (settledPiece ph' w acc ctx env afc giver (restore impl) stands (embedClosed {vars} p))
       piece (Written next) _ _ p = do
         loc <- toLoc (bestFC ctx afc)
-        pure (bindStands next start (sizeAccessible start) ctx env loc 0 id (map AsVariable stands) (embedClosed {vars} p))
+        pure (bindStands next start (sizeAccessible start) ctx env loc afc 0 id (map AsVariable stands) (embedClosed {vars} p) [])
 
       -- The runtime variable a part of the implementation is, if it is one.
       variableOf : ClosedTerm -> Maybe (Fin nv)
@@ -1738,11 +1688,12 @@ mutual
            else pure value
 
       -- A method or a parent taken from an implementation the call fixes:
-      -- the implementation's field, applied in place to the arguments past
-      -- the projection's, settled. Idris writes a method's field as a
-      -- lambda over every argument of the method, erased ones included,
-      -- applying the method's own function, so once the evaluator has
-      -- applied it, that function is called at its own arity and no
+      -- the implementation's field, as the implementation writes it,
+      -- applied in place to the arguments past the projection's, settled
+      -- (`settle`). Idris writes a method's field as a lambda over every
+      -- argument of the method, erased ones included, applying the
+      -- method's own function, so once its lambdas have bound the
+      -- arguments, that function is called at its own arity and no
       -- instance of the projection exists. A projection that does not
       -- reduce, or whose record is a runtime value (`fst` of a pair), is
       -- called as any definition is, and so is every projection of a

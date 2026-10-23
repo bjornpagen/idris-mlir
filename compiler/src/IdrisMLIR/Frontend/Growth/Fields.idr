@@ -22,6 +22,7 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
+import IdrisMLIR.Frontend.Translate.Place
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests
 
@@ -94,22 +95,25 @@ bindings rs ret = numbered 0 (argumentsFrom 0 (snd (getFnArgs ret)))
     numbered n ((k, j, path) :: bs) = (k, MkStandIn n j path) :: numbered (S n) bs
 
 -- The types of a constructor's runtime fields, in binder order, read with
--- each binder given what the return type binds it to. A binder no
--- represented position binds is `Erased`, as the translation reads a
--- constructor. A binder of quantity 0 is no field, and an implementation
--- or a polymorphic function (`compileTimeBinder`) is a member of a closed
--- sum the constructor holds, never data the type writes: both are the
--- problem's cases, not the reading's.
+-- each binder given what the return type binds it to, each at its place in
+-- the constructor's type, the binder `here`: its type a step into the
+-- binder, and the binders after it a step into its scope, as the type's
+-- own constructors are. A binder no represented position binds is
+-- `Erased`, as the translation reads a constructor. A binder of quantity 0
+-- is no field, and an implementation or a polymorphic function
+-- (`compileTimeBinder`) is a member of a closed sum the constructor holds,
+-- never data the type writes: both are the problem's cases, not the
+-- reading's.
 fieldTypes : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Given vs -> Nat -> List (Nat, ClosedTerm) -> TT vs -> Front (List ClosedTerm)
-fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
-  rest <- fieldTypes (give (fromMaybe (Erased bfc Placeholder) (lookup k bound)) g) (S k) bound sc
+             Given vs -> Nat -> List (Nat, ClosedTerm) -> (here : Place) -> TT vs -> Front (List (Place, ClosedTerm))
+fieldTypes g k bound here (Bind bfc _ (Pi _ rig _ a) sc) = do
+  rest <- fieldTypes (give (fromMaybe (Erased bfc Placeholder) (lookup k bound)) g) (S k) bound (into BinderScope here) sc
   case use rig of
     Erased => pure rest
     Used _ => do
       a' <- normaliseClosed (close g a)
-      if !(compileTimeBinder rig a') then pure rest else pure (a' :: rest)
-fieldTypes _ _ _ _ = pure []
+      if !(compileTimeBinder rig a') then pure rest else pure ((into BinderType here, a') :: rest)
+fieldTypes _ _ _ _ _ = pure []
 
 ||| The sites a type constructor's fields write: each runtime field of each
 ||| of its constructors, as the boundary read them (`ConstructorAt`, which
@@ -121,18 +125,22 @@ fieldTypes _ _ _ _ = pure []
 ||| `within` and its location, for the message that names it. The field
 ||| types go to the site walk as they are: it reads each type constructor
 ||| they apply as its key does, so reading them here too would be a second
-||| reading.
+||| reading. Each field's sites are made in the type's text at the field's
+||| binder in its constructor's type, a step into the constructor by its
+||| name.
 export
 fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (t : Address) -> Defined -> (constructors : List ConstructorAt) -> (represented : List Nat) -> Front (List Site)
+             (t : Address) -> Defined -> (constructors : List ConstructorAt) -> (represented : List Nat) -> Front (List Made)
 fieldSites t td cons rs = (>>= id) <$> traverse constructorSites cons
   where
-    constructorSites : ConstructorAt -> Front (List Site)
+    constructorSites : ConstructorAt -> Front (List Made)
     constructorSites con = do
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
       ty <- normaliseClosed con.read.type
       let bound = bindings rs (returned none 0 ty)
-      fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) ty
-      (>>= id) <$> traverse (\ft => map (\st => { fc := location con.read.def } st) <$> sitesIn t td con.read.def (map snd bound) ft)
+      let typed = [< OfConstructor (fullname con.read.def), DefinitionType]
+      fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) typed ty
+      (>>= id) <$> traverse (\(place, ft) => map (\m => { site->fc := location con.read.def } m) <$>
+                                               sitesIn t td con.read.def (map snd bound) place ft)
                             fts
