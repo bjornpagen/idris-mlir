@@ -759,11 +759,25 @@ known only when the checker runs.
   is checked by takes next, of the columns `arrange` splits now, the first
   one a run keeps, or else the last), 111-coverage-nested-empty-type (a
   type is empty also when each constructor that fits it takes an argument
-  of an empty type, looked into only while it has fewer nodes, a descent
-  the search carries as the accessibility of the count) and
-  112-do-local-definition-scope (a do block's bound, let-bound and locally
-  defined names are bound for its later types, as its translation into
-  lambdas and `let ... in` binds them). Each is checked by
+  of an empty type, as it is or read under what the others hold: a type
+  with one constructor holds the equations its constructor's return type
+  holds of it and those its arguments' types hold, `Inhabitants`, and a
+  fresh name an equation solves is put into the arguments' types that name
+  it; each is looked into only while it has fewer nodes, a descent the
+  search carries as the accessibility of the count, and the fresh names are
+  numbered across the whole search, so putting one's term into a type
+  captures no other), 112-do-local-definition-scope (a do block's bound,
+  let-bound and locally defined names are bound for its later types, as
+  its translation into lambdas and `let ... in` binds them),
+  113-type-implicit-binding-order (a type matches the arguments of the
+  applications its postponed constraints relate before its defaults and
+  before an implicit still unsolved is bound as an argument of it, as a
+  term's elaboration does; a left-hand side and the coverage check, where
+  such an implicit becomes a pattern variable, keep their order,
+  `checkBindHere`) and 114-let-delayed-elaborator-dropped (`runDelays`
+  keeps aside the delayed elaborators it does not run and puts them back
+  for the retries around it, so a let's value, which runs its case blocks
+  first, loses no ambiguous name's). Each is checked by
   `tests/checker-<name>`, a program idris-mlir compiles. The cost
   106-size-change-call-paths removes was never the checker's: a walk's path
   joins its two parts as one node, and only a reported loop's calls are

@@ -132,15 +132,40 @@ instantiate defs (S k) i (NBind fc x b sc)
          pure (ty :: tys, ret, next)
 instantiate defs _ i ret = pure ([], ret, i)
 
+-- Two parts of a type that every value of it holds equal.
+data Equation : Scoped where
+     MkEquation : (lhs : Term vars) -> (rhs : Term vars) -> Equation vars
+
+-- A term with each fresh name the first part of a pair names replaced by
+-- the second. The fresh names of a search are numbered past those of every
+-- type it is inside, so what one is replaced by mentions no other of them.
+total
+substAll : List (Name, Term vars) -> Term vars -> Term vars
+substAll [] tm = tm
+substAll ((x, v) :: ms) tm = substAll ms (substName x v tm)
+
+-- The parts of a type a constructor's return type puts at one of its
+-- arguments, two by two: each two are equal, since the argument is one
+-- value (`Refl`'s two sides, both at its `x`).
+total
+sameArgument : List (Name, Term vars) -> List (Equation vars)
+sameArgument [] = []
+sameArgument ((x, tm) :: ms)
+    = map (MkEquation tm . snd) (filter ((== x) . fst) ms) ++ sameArgument ms
+
 -- What a constructor's type says of building a value of a given type: it
 -- cannot, its return type conflicting with the type, or it may, and then
 -- takes arguments of these types, each argument its return type
 -- determines replaced by what the type has there (an argument it does not
--- determine stays a fresh name, which conflicts with nothing), with the
--- next number for a fresh name.
+-- determine stays a fresh name, which conflicts with nothing). A fit also
+-- holds the equations its return type holds of the type, two parts of the
+-- type it puts at one of its arguments being equal (`Refl`'s, at
+-- `MkHead Nothing (y :: z) = MkHead Nothing ts`, that the two sides are),
+-- and the next number for a fresh name.
 data Fit : Scoped where
      Conflicts : Fit vars
-     Fits : (argTypes : List (Term vars)) -> (next : Int) -> Fit vars
+     Fits : (argTypes : List (Term vars)) -> (holds : List (Equation vars)) ->
+            (next : Int) -> Fit vars
 
 -- How a constructor builds a value of the type, if it can: whether any
 -- part of the type conflicts with the constructor's return type in such a
@@ -153,7 +178,7 @@ fitting : {vars : _} ->
           Defs -> Env Term vars -> (base : Int) -> NF vars -> Name -> Core (Fit vars)
 fitting defs env base nfty n
     = do Just gdef <- lookupCtxtExact n (gamma defs)
-              | Nothing => pure (Fits [] base)
+              | Nothing => pure (Fits [] [] base)
          case definition gdef of
               DCon _ arity _
                   => do (argtys, ret, next) <- instantiate defs arity base
@@ -162,15 +187,9 @@ fitting defs env base nfty n
                             | Nothing => pure Conflicts
                         pure $ if conflictMatch ms
                                   then Conflicts
-                                  else Fits (map (argTypeIn ms) argtys) next
-              _ => pure (Fits [] base)
+                                  else Fits (map (argTypeIn ms) argtys) (sameArgument ms) next
+              _ => pure (Fits [] [] base)
   where
-    -- The fresh names are numbered past those of every type the caller is
-    -- inside, so what one is replaced by mentions no other of them.
-    substAll : List (Name, Term vars) -> Term vars -> Term vars
-    substAll [] tm = tm
-    substAll ((x, v) :: ms) tm = substAll ms (substName x v tm)
-
     -- An argument's type in the scope of the type built, each argument the
     -- constructor's return type determines replaced by what the type has.
     argTypeIn : List (Name, Term vars) -> ClosedTerm -> Term vars
@@ -223,75 +242,193 @@ fitting defs env base nfty n
 data OfFamily : NF vars -> Type where
      FamilyApplied : OfFamily (NTCon fc n a args)
 
--- Whether a type of a family, of `nodes` nodes, is empty: no constructor of
--- the family can build a value of it. Its arguments' types are looked into
--- only while they have fewer nodes, so the search descends the nodes, whose
--- accessibility it carries; the fresh names of its constructors' arguments
--- are numbered from `base`.
+-- Whether a name occurs in a term.
+total
+occurs : Name -> Term vars -> Bool
+occurs x tm = isJust (lookup x (getRefs (UN Underscore) tm))
+
+-- What equations between parts of a type say of its fresh names, the
+-- arguments a search for a value has not determined: a fresh name equal to
+-- a term it does not occur in is that term, and two applications of one
+-- constructor are equal only where their arguments are. Any other equation
+-- says nothing here, which loses facts and never invents one.
 mutual
-  emptyFrom : {vars : _} ->
-              {auto c : Ref Ctxt Defs} ->
-              Defs -> Env Term vars -> (base : Int) ->
-              (nfty : NF vars) -> (0 _ : OfFamily nfty) ->
-              (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Core Bool
-  emptyFrom defs env base nfty@(NTCon _ n _ _) _ nodes acc
+  total
+  solveEquation : Term vars -> Term vars -> List (Name, Term vars)
+  solveEquation (Ref _ Bound x) tm = if occurs x tm then [] else [(x, tm)]
+  solveEquation tm (Ref _ Bound x) = if occurs x tm then [] else [(x, tm)]
+  solveEquation tm tm' = fromMaybe [] (sameSpine tm tm')
+
+  -- Two applications of one constructor to as many arguments, argument by
+  -- argument, peeled together so that each call is on a part of its
+  -- arguments; Nothing for two terms of any other shape.
+  total
+  sameSpine : Term vars -> Term vars -> Maybe (List (Name, Term vars))
+  sameSpine (App _ f a) (App _ f' a') = map (++ solveEquation a a') (sameSpine f f')
+  sameSpine (Ref _ (DataCon {}) n) (Ref _ (DataCon {}) n')
+      = if n == n' then Just [] else Nothing
+  sameSpine (Ref _ (TyCon {}) n) (Ref _ (TyCon {}) n')
+      = if n == n' then Just [] else Nothing
+  sameSpine _ _ = Nothing
+
+-- The fresh names a type's equations solve, each with what it stands for.
+total
+forcedBy : List (Equation vars) -> List (Name, Term vars)
+forcedBy [] = []
+forcedBy (MkEquation lhs rhs :: eqs) = solveEquation lhs rhs ++ forcedBy eqs
+
+-- Whether a term names one of the fresh names solved.
+total
+mentionsSolved : List (Name, Term vars) -> Term vars -> Bool
+mentionsSolved solved ty = any (\s => occurs (fst s) ty) solved
+
+-- What the search knows of the values of a type, or of a constructor's
+-- arguments taken together: there are none, or every one holds these
+-- equations of the type's parts. A type with one constructor holds those
+-- its constructor's return type holds (`Refl`'s) and those its arguments'
+-- types hold (a pair's parts'); one with more holds none here.
+data Inhabitants : Scoped where
+     NoValue : Inhabitants vars
+     Holding : (equations : List (Equation vars)) -> Inhabitants vars
+
+-- What the values hold, and these equations besides.
+total
+holdingAlso : List (Equation vars) -> Inhabitants vars -> Inhabitants vars
+holdingAlso _ NoValue = NoValue
+holdingAlso eqs (Holding held) = Holding (eqs ++ held)
+
+-- Whether a type of a family, of `nodes` nodes, has a value, and what every
+-- value of it holds: the search for a constructor that can build one. Its
+-- arguments' types are looked into only while they have fewer nodes, so the
+-- search descends the nodes, whose accessibility it carries. Each search
+-- takes the number of its first fresh name, `next`, and gives the number
+-- past every fresh name it made, so no two fresh names of the whole search
+-- are the same, and putting into a type what one stands for captures no
+-- other.
+mutual
+  inhabitantsOf : {vars : _} ->
+                  {auto c : Ref Ctxt Defs} ->
+                  Defs -> Env Term vars -> (next : Int) ->
+                  (nfty : NF vars) -> (0 _ : OfFamily nfty) ->
+                  (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+                  Core (Inhabitants vars, Int)
+  inhabitantsOf defs env next nfty@(NTCon _ n _ _) _ nodes acc
       = do Just nty <- lookupDefExact n (gamma defs)
-             | _ => pure False
+             | _ => pure (Holding [], next)
            case nty of
                 TCon _ _ _ flags _ (Just cons) _
                      => if not (external flags)
-                           then allM (cannotBuild defs env base nfty nodes acc) cons
-                           else pure False
-                _ => pure False
+                           then byConstructors defs env next nfty nodes acc cons
+                           else pure (Holding [], next)
+                _ => pure (Holding [], next)
 
-  -- No value of the type is built by the constructor: its return type
-  -- conflicts with the type, or one of the arguments it takes has a type
-  -- that is empty there.
-  cannotBuild : {vars : _} ->
-                {auto c : Ref Ctxt Defs} ->
-                Defs -> Env Term vars -> (base : Int) -> NF vars ->
-                (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Name -> Core Bool
-  cannotBuild defs env base nfty nodes acc con
-      = case !(fitting defs env base nfty con) of
-             Conflicts => pure True
-             Fits argtys next => anyM (emptyArg defs env next nodes acc) argtys
+  -- A type with one constructor holds what that constructor holds of it
+  -- when it builds a value; with more, a value is built by any one of them,
+  -- and what one holds another need not, so the type holds nothing here.
+  byConstructors : {vars : _} ->
+                   {auto c : Ref Ctxt Defs} ->
+                   Defs -> Env Term vars -> (next : Int) -> NF vars ->
+                   (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+                   List Name -> Core (Inhabitants vars, Int)
+  byConstructors defs env next nfty nodes acc [con]
+      = built defs env next nfty nodes acc con
+  byConstructors defs env next nfty nodes acc cons
+      = someBuilds defs env next nfty nodes acc cons
 
-  -- An argument's type is empty, looked into only when it has fewer nodes
-  -- than the type it is an argument of: the search's bound, so that a
-  -- family whose arguments do not get smaller is not taken apart again.
-  -- The family is written out where it is used, not named by an as-pattern,
-  -- since the case below is a function of its own that sees the name apart
-  -- from what it matched.
-  emptyArg : {vars : _} ->
+  -- Whether one of the constructors builds a value of the type.
+  someBuilds : {vars : _} ->
+               {auto c : Ref Ctxt Defs} ->
+               Defs -> Env Term vars -> (next : Int) -> NF vars ->
+               (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+               List Name -> Core (Inhabitants vars, Int)
+  someBuilds defs env next nfty nodes acc [] = pure (NoValue, next)
+  someBuilds defs env next nfty nodes acc (con :: cons)
+      = do (NoValue, next) <- built defs env next nfty nodes acc con
+             | (Holding _, next) => pure (Holding [], next)
+           someBuilds defs env next nfty nodes acc cons
+
+  -- What every value the constructor builds of the type holds, or that it
+  -- builds none: its return type conflicts with the type, or one of its
+  -- arguments' types is empty, as it is or read under what the others hold
+  -- of the fresh names, each of which stands for one value of an argument.
+  -- Only the arguments whose types name a fresh name so solved are read
+  -- again, each still only while it has fewer nodes than the type.
+  built : {vars : _} ->
+          {auto c : Ref Ctxt Defs} ->
+          Defs -> Env Term vars -> (next : Int) -> NF vars ->
+          (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+          Name -> Core (Inhabitants vars, Int)
+  built defs env next nfty nodes acc con
+      = case !(fitting defs env next nfty con) of
+             Conflicts => pure (NoValue, next)
+             Fits argtys eqs next
+                 => do (Holding held, next) <- argsHold defs env next nodes acc argtys
+                         | (NoValue, next) => pure (NoValue, next)
+                       let holds = eqs ++ held
+                       let solved = forcedBy holds
+                       (Holding _, next) <- argsHold defs env next nodes acc
+                                              (map (substAll solved)
+                                                   (filter (mentionsSolved solved) argtys))
+                         | (NoValue, next) => pure (NoValue, next)
+                       pure (Holding holds, next)
+
+  -- What the values of the arguments hold together, or that they have none,
+  -- one of their types being empty.
+  argsHold : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              Defs -> Env Term vars -> (next : Int) ->
-             (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Term vars -> Core Bool
-  emptyArg defs env next nodes (Access rec) ty
+             (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+             List (Term vars) -> Core (Inhabitants vars, Int)
+  argsHold defs env next nodes acc [] = pure (Holding [], next)
+  argsHold defs env next nodes acc (ty :: tys)
+      = do (Holding eqs, next) <- argHolds defs env next nodes acc ty
+             | (NoValue, next) => pure (NoValue, next)
+           (held, next) <- argsHold defs env next nodes acc tys
+           pure (holdingAlso eqs held, next)
+
+  -- What the values of an argument's type hold, looked into only when the
+  -- type has fewer nodes than the type it is an argument of: the search's
+  -- bound, so that a family whose arguments do not get smaller is not taken
+  -- apart again. The family is written out where it is used, not named by
+  -- an as-pattern, since the case below is a function of its own that sees
+  -- the name apart from what it matched.
+  argHolds : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+             Defs -> Env Term vars -> (next : Int) ->
+             (nodes : Nat) -> (0 _ : Accessible LT nodes) ->
+             Term vars -> Core (Inhabitants vars, Int)
+  argHolds defs env next nodes (Access rec) ty
       = do NTCon nfc nn na nargs <- nf defs env ty
-             | _ => pure False
+             | _ => pure (Holding [], next)
            argNodes <- termSize <$> quote defs env (NTCon nfc nn na nargs)
            case choose (argNodes < nodes) of
-                Left lt => emptyFrom defs env next (NTCon nfc nn na nargs) FamilyApplied argNodes
-                                     (rec argNodes (ltOpReflectsLT argNodes nodes lt))
-                Right _ => pure False
+                Left lt => inhabitantsOf defs env next (NTCon nfc nn na nargs) FamilyApplied
+                                         argNodes (rec argNodes (ltOpReflectsLT argNodes nodes lt))
+                Right _ => pure (Holding [], next)
 
 -- Return whether the given type is definitely empty: no constructor can
 -- build a value of it, since its return type conflicts with the type, or
 -- one of its arguments has a type which is itself empty there (a pair
 -- whose second part is `0 = 1`; `LTE (S (S k)) (S Z)`, whose `LTESucc`
--- takes an `LTE (S k) Z`). A pattern variable of such a type is the
--- evidence a missing case is impossible, wherever in the variable's type
--- the conflict is. An argument's type is looked into only while it is
--- smaller than the type it is an argument of, so the search ends: a family
--- whose arguments do not get smaller, a stream with no end, is not taken
--- apart again. A type that is no family's has no constructor to try.
+-- takes an `LTE (S k) Z`), or empty once read under what the others hold
+-- of the arguments the type does not determine (a dependent pair `(ts **
+-- (MkHead Nothing (y :: z) = MkHead Nothing ts, AllR [] ts))`, whose
+-- equation holds `ts = y :: z`, under which its second part is empty). A
+-- pattern variable of such a type is the evidence a missing case is
+-- impossible, wherever in the variable's type the conflict is. An
+-- argument's type is looked into only while it is smaller than the type it
+-- is an argument of, so the search ends: a family whose arguments do not
+-- get smaller, a stream with no end, is not taken apart again. A type that
+-- is no family's has no constructor to try.
 export
 isEmpty : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
           Defs -> Env Term vars -> NF vars -> Core Bool
 isEmpty defs env nfty@(NTCon {})
     = do nodes <- termSize <$> quote defs env nfty
-         emptyFrom defs env 0 nfty FamilyApplied nodes (wellFounded nodes)
+         (NoValue, _) <- inhabitantsOf defs env 0 nfty FamilyApplied nodes (wellFounded nodes)
+           | (Holding _, _) => pure False
+         pure True
 isEmpty defs env _ = pure False
 
 altMatch : CaseAlt vars -> CaseAlt vars -> Bool

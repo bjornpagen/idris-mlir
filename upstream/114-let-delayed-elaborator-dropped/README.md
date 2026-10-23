@@ -129,6 +129,11 @@ without the patch; upstream main has the same `runDelays` on
 2026-10-23), or when nothing of ours meets the shape. Until then the
 bootstrap applies the patch.
 
+Our type checker (compiler/checker) now carries the change as its own
+code, in `TTImp.Elab.Delayed.runDelays`, which
+`tests/checker-let-delayed-elaborator-dropped` checks; it stays when the
+patch goes.
+
 ## Upstreaming plan
 
 Nothing is sent: Idris takes no contribution written with generative AI

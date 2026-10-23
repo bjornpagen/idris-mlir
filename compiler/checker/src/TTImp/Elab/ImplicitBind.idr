@@ -574,6 +574,24 @@ checkBindHere rig elabinfo nest env fc bindmode tm exp
          traverse_ solvePolyConstraint cons
          traverse_ checkPolyConstraint cons
 
+         -- In a type, an implicit argument still unsolved is about to be
+         -- bound as an argument of the type, standing for any value, outside
+         -- every local the type binds. So the arguments of the applications
+         -- a postponed constraint relates are matched first, as they are for
+         -- any other term before its defaults: `firstOf w`, with
+         -- `firstOf : P (xs ++ ys) n -> P xs n` and `w : P (as ++ bs) n`,
+         -- has `xs` solved by `as` here, as on a right-hand side. Binding
+         -- `xs` first would leave a constraint between `as` and a name bound
+         -- outside it, which nothing solves. A left-hand side's unsolved
+         -- implicit, and the coverage check's, becomes a pattern variable
+         -- instead, and keeps the order it had; with no binding, none is
+         -- bound.
+         case bindmode of
+              PI _ => solveConstraintsAfter constart solvemode MatchArgs
+              PATTERN => pure ()
+              COVERAGE => pure ()
+              NONE => pure ()
+
          solveConstraintsAfter constart
                           (case elabMode elabinfo of
                                 InLHS c => inLHS

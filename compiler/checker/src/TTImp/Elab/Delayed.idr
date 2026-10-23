@@ -383,7 +383,14 @@ retryDelayed mode ds = go IntMap.empty ds
                 then go fs ds -- progress, go around again
                 else ignore $ retryDelayed' AllErrors False fs [] ds -- fail on all errors
 
--- Run an elaborator, then all the delayed elaborators arising from it
+-- Run an elaborator, then the delayed elaborators arising from it that
+-- have the given priority. The others stay delayed, for whatever retries
+-- the delayed elaborators around this one (an ambiguous name in a let's
+-- value, delayed until its type is known, while the value's case blocks
+-- run here). Each attempt starts the cell afresh, so they are kept aside
+-- and put back after the retry, as the ones from before this elaborator
+-- are: a delayed elaborator dropped never runs, and its hole is left
+-- unsolved.
 export
 runDelays : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
@@ -397,14 +404,15 @@ runDelays pri elab
          put DLY (the DelayedElabs [])
          tm <- elab
          ust <- get UST
-         delayed <- get DLY
+         (now, later) <- partition hasPri <$> get DLY
+         put DLY (the DelayedElabs [])
          log "elab.delay" 2 $ "Rerunning delayed in elaborator"
          handle (do ignore $ retryDelayed' AllErrors False IntMap.empty []
-                       (reverse (filter hasPri delayed)))
+                       (reverse now))
                 (\err => do put UST ust
                             put DLY olddelayed
                             throw err)
-         update DLY (++ olddelayed)
+         update DLY (++ (later ++ olddelayed))
          pure tm
   where
     hasPri : (DelayReason, d) -> Bool

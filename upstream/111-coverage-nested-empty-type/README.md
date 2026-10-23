@@ -192,17 +192,13 @@ When the Idris pin carries an upstream fix (the check then passes without
 the patch), or when nothing of ours meets the shape. Until then the
 bootstrap applies the patch.
 
-Our type checker (compiler/checker) carries the first form as its own
-code, in `Core.Coverage.isEmpty`, which
-`tests/checker-coverage-nested-empty-type` checks, and
+Our type checker (compiler/checker) now carries the change as its own
+code, the equations across arguments included, in `Core.Coverage.isEmpty`
+(`fitting`'s equations, `inhabitantsOf`'s search, its fresh names numbered
+across it), which `tests/checker-coverage-nested-empty-type` checks,
+`Joint.idr`'s case among them, and
 `tests/checker-coverage-nested-empty-type-missing` that it still refuses
-`Missing.idr`'s first shape; it stays when the patch goes. The equations
-across arguments are not yet its own: they go into its `Fit` and
-`fitting` (`src/Core/Coverage.idr`, 142 to 166: what a fit holds),
-`emptyFrom` (232: what a type with one constructor holds), `cannotBuild`
-(250: the second look under what the arguments hold) and `emptyArg` (265),
-with the fresh names numbered across the whole search; its fix is its
-own code, as every fix there is.
+`Missing.idr`'s first shape; it stays when the patch goes.
 
 ## Upstreaming plan
 

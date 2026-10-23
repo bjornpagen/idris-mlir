@@ -12,7 +12,14 @@ module Main
 -- looked into only while that type is smaller, so `Endless` and `Up` are
 -- not taken apart again. `closedBelow`'s scrutinee is a call of its
 -- argument, a pair proved for any `Landing`, which no closed function can
--- give for `Open`.
+-- give for `Open`. In `atHead`, `atNamed` and `clauses` the case proposed,
+-- `MkHead Nothing (_ :: _)`, has a dependent pair unsplit whose parts each
+-- have a value alone and none together: its equation holds `ts = _ :: _`,
+-- under which `AllR [] ts` is empty. A type with one constructor holds
+-- what its constructor's return type holds (`Refl`'s two sides equal) and
+-- what its arguments' types hold, and its arguments are looked into again
+-- under that, so the case is refuted, as the impossible clause of
+-- `written` that names it is.
 -- The stock Idris is patched for it (upstream/111-coverage-nested-empty-
 -- type); the type checker has the change as its own code, and this test
 -- checks it.
@@ -77,7 +84,29 @@ endless _ (_, Refl) = 0
 up : (b : Bool) -> (Up 0, b = True) -> Nat
 up _ (_, Refl) = 0
 
+data AllR : List Nat -> List Nat -> Type where
+  Nil : AllR [] []
+  (::) : (t : Nat) -> AllR xs ts -> AllR (x :: xs) (t :: ts)
+
+data Head = MkHead (Maybe Nat) (List Nat)
+
+atHead : (r : Head) -> (ts : List Nat ** (r = MkHead Nothing ts, AllR [] ts)) -> Nat
+atHead r p = case p of
+  ([] ** (Refl, [])) => Z
+
+0 atNamed : (r : Head) -> (a : Maybe Nat ** ts : List Nat ** (r = MkHead a ts, a = a, AllR [] ts)) -> Nat
+atNamed r p = case p of
+  (a' ** [] ** (Refl, _, [])) => Z
+
+clauses : (r : Head) -> (ts : List Nat ** (r = MkHead Nothing ts, AllR [] ts)) -> Nat
+clauses (MkHead Nothing []) ([] ** (Refl, [])) = Z
+
+written : (r : Head) -> (ts : List Nat ** (r = MkHead Nothing ts, AllR [] ts)) -> Nat
+written (MkHead Nothing []) ([] ** (Refl, [])) = Z
+written (MkHead Nothing (_ :: _)) (_ ** (Refl, _)) impossible
+
 main : IO ()
 main = do
   printLn (brought (aloneKept {c = 1} 0 0 Refl (LTESucc LTEZero)))
   printLn (brought (paired 1 (5, Refl)))
+  printLn (atHead (MkHead Nothing []) ([] ** (Refl, [])))
