@@ -117,14 +117,32 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
   return IndexArgsAttr::get(ctx, kept, count);
 }
 
-// What a call of the copy `made` is, the node a granted key names (none
-// for one the table has not made yet), passes, from the key's signature
-// `type` and the operands the key would pass, which become those it
-// passes: each but those at the parameters the node says its copy no
-// longer takes, which dropUnread erased when the copy's component became
-// final. A copy not final yet takes them all; a call of it made now loses
-// them with its callers' when it is.
-FunctionType passing(const Node *made, FunctionType type, SmallVectorImpl<Value> &operands) {
+// What `call`, redirected to the copy `made`, the node a granted key names
+// (none for one the table has not made yet), passes, from the key's
+// signature `type` and the operands the key would pass, which become those
+// it passes. Where the decisions of the component the copy joined restated
+// its signature, its parameters are at the holds that component passes:
+// an operand that claims more than one is shared down to it before the
+// call, as every call of a lowered parameter is, a claim no key may raise;
+// one that differs otherwise (static data where the copy counts) crosses
+// at the copy's hold until the copy is final and its own copy is keyed to
+// it, or the caller's edges are made exact. Then each but those at the
+// parameters the node says its copy no longer takes, which dropUnread
+// erased when the copy's component became final. A copy not final yet
+// takes them all; a call of it made now loses them with its callers' when
+// it is.
+FunctionType passing(CallOp call, const Node *made, FunctionType type,
+                     SmallVectorImpl<Value> &operands) {
+  if (made && made->restated) {
+    type = made->restated;
+    OpBuilder b(call);
+    for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs())) {
+      std::optional<Hold> given = holdOf(operand.getType());
+      std::optional<Hold> asked = holdOf(input);
+      if (given && asked && given->claim() != asked->claim() && given->fits(*asked))
+        operand = heldAs(b, call.getLoc(), operand, atHold(operand.getType(), *asked));
+    }
+  }
   if (!made || made->unread.none())
     return type;
   assert(made->unread.size() == operands.size() &&
@@ -232,20 +250,26 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
     FunctionType type = typeOf(grant, ownerFn, **want, nodes.forms());
     FlatSymbolRefAttr target = grant.asked.name;
     const Node *made = nodes.known(grant.asked.key);
+    // A copy the component it joined gave other results than its key says
+    // was converted at every call made of it then, each caller re-graded
+    // between waves; a call made of it now would change what its caller
+    // reads in the middle of a turn, so it stays a call of its callee.
+    if (made && made->restated && made->restated.getResults() != type.getResults())
+      continue;
     redirected += idr::match(
         **want,
         [&](const PatternWant &pattern) {
           return support::perform<SpecializeCloneAction>(call, [&] {
             SmallVector<Value> operands =
                 operandsOf(rewriter, call, pattern, *grant.key, grant.sources, ownerFn);
-            FunctionType passed = passing(made, type, operands);
+            FunctionType passed = passing(call, made, type, operands);
             redirect(rewriter, call, target, passed, call.getIndexArgsAttr(), operands);
           });
         },
         [&](const SignatureWant &copy) {
           return support::perform<SpecializeCloneAction>(call, [&] {
             SmallVector<Value> operands(call.getArgs());
-            FunctionType passed = passing(made, type, operands);
+            FunctionType passed = passing(call, made, type, operands);
             redirect(rewriter, call, target, passed,
                      keptArgs(fn.getContext(), call.getIndexArgsAttr(), copy.key->indices), operands);
           });
@@ -257,7 +281,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
               if (!erased.test(later) && dispatch->isAncestor(calls[later]))
                 erased.set(later);
             RaiseWant kept = raise;
-            FunctionType passed = passing(made, type, kept.operands);
+            FunctionType passed = passing(call, made, type, kept.operands);
             redirect(rewriter, call, target, passed, kept);
           });
         });

@@ -155,6 +155,10 @@ void Scheduler::finalize(unsigned component) {
   SmallVector<FunctionId> ids(schedule.byComponent[component].begin(),
                               schedule.byComponent[component].end());
   dropUnread(schedule, ids);
+  // Every edge a member still crosses at a hold that fits the one asked is
+  // made exact, before its facts are read off its final body.
+  for (FunctionId id : ids)
+    specialize::shareCrossings(schedule, id);
   // The rows: one join over the component, every call of a member taking
   // it; and what each member gives back over the parameters it kept, its
   // callees' read as their components published them, which later turns
@@ -171,7 +175,7 @@ void Scheduler::finalize(unsigned component) {
           },
           spent);
   for (auto [id, facts] : llvm::zip_equal(ids, given)) {
-    writeGivenBack(schedule.function(id), facts);
+    writeGivenBack(schedule.function(id), facts.givesBack);
     schedule.callees.publish(id, std::move(facts));
   }
   for (FunctionId id : ids) {

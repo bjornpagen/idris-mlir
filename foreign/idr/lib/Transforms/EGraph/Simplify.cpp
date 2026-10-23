@@ -49,11 +49,11 @@ void CalleeFacts::publish(solver::FunctionId f, identities::Facts given) {
 
 // A callee the editor does not hold yet (a copy its wave made) has no facts
 // yet, and neither has one inserted since the table last grew.
-std::span<const identities::GivesBack> CalleeFacts::of(FlatSymbolRefAttr callee) const {
+identities::FactsView CalleeFacts::of(FlatSymbolRefAttr callee) const {
   std::optional<solver::FunctionId> f = names->find(callee);
   if (!f || f->index() >= facts.size().value())
     return {};
-  return facts[*f];
+  return facts[*f].view();
 }
 
 } // namespace idr::egraph

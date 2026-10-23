@@ -96,13 +96,13 @@ enum class TailStanding : std::uint8_t { Elsewhere, LostToLayout };
 // fix a layout class the callee's layout changes under or a bare tensor
 // argument's extent the callee names, as `site` lets a size key it, or it
 // passes an argument at a hold its parameter does not have (each result
-// the callee gives back that argument as, by `givenBack`, keyed with it),
-// or `standing` is a tail lost to a layout; else its raise; else its
-// pattern key.
+// that argument may reach, by the callee's published facts `given`, keyed
+// with it), or `standing` is a tail lost to a layout; else its raise; else
+// its pattern key.
 mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                             const Node *requester, FuncOp callee,
                                             FunctionId calleeId, const Node *calleeNode,
-                                            std::span<const identities::GivesBack> givenBack,
+                                            identities::FactsView given,
                                             llvm::ArrayRef<BindingTime> seen,
                                             const CallSite &site, TailStanding standing);
 

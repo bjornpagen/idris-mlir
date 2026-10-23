@@ -67,11 +67,30 @@ struct KnownLiteral {
 using Known = std::variant<KnownTag, KnownLiteral>;
 
 // How a value is built, as far as giving back reads it. A value this
-// question does not look into is opaque: an op's own result it cannot see
-// through, a memo cell's part (a memo cell is written when it is forced,
-// so no part of it is a part of anything), a region's argument.
+// question does not look into is no part of anything: an op's own result
+// it cannot see through and a memo cell's part (a memo cell is written when
+// it is forced, so no part of it is a part of anything) are opaque, and may
+// hold what the op's operands hold; what a region branch forwards into, a
+// region's argument or the branch's result, may be what enters it; any
+// other region's argument, and the result of any other op with regions,
+// is unseen, and may hold any argument.
 namespace build {
-struct Opaque {};
+// What an op made of `from`, its operands, which it may hold: whole where
+// the op only changes a grade (idr::ResultCarriesOperand), its result its
+// operand's value; else by a part, as far as the op lets what they hold
+// reach it, which nothing here reads.
+struct Opaque {
+  Range from;
+  Reach reach = Reach::Part;
+};
+// A region branch's successor input: any of `from`, the values that enter
+// it on each edge (upstream's predecessor values), some of which may come
+// after it in the walk, around a loop.
+struct Forwarded {
+  Range from;
+};
+// Made where nothing here reads what it may hold.
+struct Unseen {};
 // The function's argument.
 struct Entry {
   std::uint32_t argument;
@@ -122,9 +141,9 @@ struct Constant {
   mlir::Type type;
 };
 } // namespace build
-using Build = std::variant<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
-                           build::Result, build::Con, build::Successor, build::Join,
-                           build::Constant>;
+using Build = std::variant<build::Opaque, build::Forwarded, build::Unseen, build::Entry,
+                           build::Same, build::Read, build::Pred, build::Result, build::Con,
+                           build::Successor, build::Join, build::Constant>;
 
 // A call of another function: its callee and its arguments, a run of the
 // record's operands.
@@ -158,6 +177,9 @@ struct Record {
   solver::FunctionId id;
   Count<ValueId> values;
   IndexVector<ValueId, Build> builds;
+  // Whether each value holds references, read off its type once: one that
+  // holds none holds no argument either.
+  IndexVector<ValueId, Refs> refs;
   footprint::Vector<ValueId> operands;
   footprint::Vector<Frame> frames;
   footprint::Vector<CallSite> calls;
@@ -168,6 +190,9 @@ struct Record {
   // Every argument's and result's type, with its grade stripped.
   footprint::Vector<mlir::Type> argumentTypes;
   footprint::Vector<mlir::Type> resultTypes;
+  // The arguments that hold references, ascending: what an unseen value
+  // may hold.
+  footprint::Vector<std::uint32_t> referenceArguments;
 
   std::span<const ValueId> run(Range range) const {
     return std::span<const ValueId>(operands).subspan(range.first, range.count);
@@ -184,13 +209,19 @@ Record readRecord(const N &names, const solver::Member &member);
 // callees give back (`callees[c]` for call site c): the subset of `asked`,
 // each a whole result given back as a whole argument, that every return
 // rebuilds (IdentitiesRebuilds.cpp).
-Facts wholeFactsAmong(const Record &record, std::span<const std::span<const GivesBack>> callees,
-                      std::span<const GivesBack> asked);
+footprint::Vector<GivesBack> wholeFactsAmong(const Record &record,
+                                             std::span<const FactsView> callees,
+                                             std::span<const GivesBack> asked);
 
 // Every fact a record's function gives back, per result field path, under
 // the same callees' facts: what a member publishes once its component's
 // fixpoint holds.
-Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>> callees);
+footprint::Vector<GivesBack> everyFact(const Record &record, std::span<const FactsView> callees);
+
+// What may reach each result of a record's function on some path that
+// returns, under what may reach each call site's callee's results: sorted
+// by result, then argument, each pair once (IdentitiesRebuilds.cpp).
+footprint::Vector<MayReach> reachesOf(const Record &record, std::span<const FactsView> callees);
 
 // Whether a value of `a` and one of `b` are one value at run time, so one
 // may be given back as the other: the same type once grades are stripped,

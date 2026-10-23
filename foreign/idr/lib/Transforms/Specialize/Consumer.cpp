@@ -285,8 +285,8 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // key it, each parameter at the hold the call passes where the two differ
 // (static data where the callee would count, which that copy then counts
 // nothing of; a claim re-grading lowered, which no cast raises back), each
-// result the callee gives back such a parameter as at no more than that
-// hold, read off what it gives back (`givenBack`), which the call's own
+// result such a parameter may reach at no more than that hold, read off
+// what the callee's component published (`given`), which the call's own
 // results already took when its caller was taken up (keyGivenBack), and
 // each result its caller needs open, where `standing` is a tail lost to a
 // layout, returned open. None where nothing changes the callee.
@@ -298,8 +298,7 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // result asked open is that result marked open, which the copy's tails
 // give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
-                                         FunctionId calleeId,
-                                         std::span<const identities::GivesBack> givenBack,
+                                         FunctionId calleeId, identities::FactsView given,
                                          const CallSite &site, TailStanding standing) {
   ExtentsAttr extents = callee.getExtentsAttr();
   SmallVector<Extent> keying = keyedBy(extents, call.getIndexArgsAttr(), site);
@@ -312,7 +311,7 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
     if (hold)
       input = atHold(input, *hold);
   SmallVector<Type> returned(type.getResults());
-  keyGivenBack(givenBack, passed, returned);
+  keyGivenBack(given, passed, returned);
   SmallVector<ResultLayout> layouts = layoutsAsked(call, standing);
   auto open = [](const ResultLayout &layout) {
     return idr::match(layout, [](AsGiven) { return false; }, [](const AtOpen &) { return true; });
@@ -345,8 +344,7 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
 
 FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                       const Node *requester, FuncOp callee, FunctionId calleeId,
-                                      const Node *calleeNode,
-                                      std::span<const identities::GivesBack> givenBack,
+                                      const Node *calleeNode, identities::FactsView given,
                                       ArrayRef<BindingTime> seen, const CallSite &site,
                                       TailStanding standing) {
   // A signature copy first: the layout a call's indices fix, the hold it
@@ -354,7 +352,7 @@ FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
   // call and where it stands, and every later key is composed over the
   // copy's own parameters.
   if (std::optional<SignatureWant> copy =
-          signatureOf(arena, call, callee, calleeId, givenBack, site, standing))
+          signatureOf(arena, call, callee, calleeId, given, site, standing))
     return std::optional<Want>(*copy);
 
   // A pattern copy raises nothing; a raise copy only with its own

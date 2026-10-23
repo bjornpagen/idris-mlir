@@ -19,7 +19,7 @@
 // result is the type the call gave: a result the owner's type marks open
 // the call took open already, converting it after itself where its own
 // type closed it (openResults), and a result keyed to the hold of a lowered
-// parameter it gives back the call took at that hold already, when its
+// parameter that may reach it the call took at that hold already, when its
 // caller was taken up (openResults again). The one result type a copy
 // changes is a result keyed open for a tail lost to a layout: the call
 // gives it at its caller's layout, so the cast after it, which re-packed,

@@ -388,6 +388,9 @@ FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
     // whatever order the asks came in.
     if (fresh || waiting)
       holdConsumer(node, each.parent, s.schedule.originOf(each.asker));
+    // The asker's call names the copy from this wave on.
+    if (!llvm::is_contained(node.askers, each.asker))
+      node.askers.push_back(each.asker);
   }
   return made;
 }
@@ -448,6 +451,12 @@ void Nodes::dropped(FunctionId fn, const llvm::BitVector &unread) {
     return;
   assert(node->unread.empty() && "a copy's component becomes final once");
   node->unread = unread;
+}
+
+void Nodes::restate(FunctionId fn, mlir::FunctionType type) {
+  Node *node = state->placedAt(fn);
+  assert(node && "only a copy has a key whose signature its decisions restate");
+  node->restated = type;
 }
 
 // Every copy's function says what it is, none included: a function the

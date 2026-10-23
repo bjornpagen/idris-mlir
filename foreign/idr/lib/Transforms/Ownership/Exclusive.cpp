@@ -28,6 +28,7 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/TypeGraph.h"
 #include "idr/Analysis/Solver/Work.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/Transforms/Effects.h"
@@ -95,16 +96,19 @@ SmallVector<Value> writeVersion(idr::FuncOp fn, const Exclusivity::Version &vers
 }
 
 // Each op whose results its operands infer (a take: its token and its
-// fields) that takes a value the solve just graded, its results inferred
-// again from its operands as now graded: what a take gives is a fact of the
-// value it takes, never a second answer of the solve, so a take of a value
-// now `unique deep` gives the token that holds its cell. A field taken out
-// of such a value is unshared at the take whatever a later use does to it;
-// where the solve proved less of it over its life, it is shared into what
-// was proved right after the op, so every use reads the proved type and no
-// op past it takes another operand type. An op that admits its results at
-// any grade (a cell's init) keeps them, and one met twice is met again with
-// nothing left to change. A failed inference was reported at the op.
+// fields) that takes a value the solve just graded, its results the types
+// it takes from its operands as now graded, by the one rule by which an
+// op's results follow its operands (families::takenTypes): what a take
+// gives is a fact of the value it takes, never a second answer of the
+// solve, so a take of a value now `unique deep` gives the token that holds
+// its cell. A field taken out of such a value is unshared at the take
+// whatever a later use does to it; where the solve proved less of it over
+// its life, it is shared into what was proved right after the op, so every
+// use reads the proved type and no op past it takes another operand type.
+// An op that admits its results at any grade (a cell's init) keeps them,
+// and one met twice is met again with nothing left to change. An op whose
+// inference refuses operands the solve graded is the compiler's error,
+// reported at the op.
 LogicalResult reinfer(llvm::ArrayRef<Value> graded) {
   SmallVector<InferTypeOpInterface> inferring;
   for (Value value : graded)
@@ -113,16 +117,13 @@ LogicalResult reinfer(llvm::ArrayRef<Value> graded) {
         inferring.push_back(infer);
   for (InferTypeOpInterface infer : inferring) {
     Operation *op = infer.getOperation();
-    SmallVector<Type> inferred;
-    if (failed(infer.inferReturnTypes(op->getContext(), op->getLoc(), op->getOperands(),
-                                      op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
-                                      op->getRegions(), inferred)))
-      return failure();
-    if (infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
-      continue;
+    std::optional<SmallVector<Type>> taken = idr::families::takenTypes(infer);
+    if (!taken)
+      return op->emitError("internal error: idr-rc-exclusive: infers no results from the "
+                           "operands exclusivity graded");
     OpBuilder builder(op->getContext());
     builder.setInsertionPointAfter(op);
-    for (auto [result, type] : llvm::zip_equal(op->getResults(), inferred)) {
+    for (auto [result, type] : llvm::zip_equal(op->getResults(), *taken)) {
       Type proved = result.getType();
       if (proved == type)
         continue;

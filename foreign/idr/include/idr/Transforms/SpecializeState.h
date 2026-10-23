@@ -86,6 +86,18 @@ struct Node {
   // nothing reading them; none before. A call made of the copy after leaves
   // out the operands its key would pass there.
   llvm::BitVector unread{};
+  // The functions a request of whose its key granted, each once: each
+  // holds a call of the copy, which no caller's list holds, since a call
+  // made by a request is no call of the program the schedule was read from
+  // nor of a copy placed since.
+  llvm::SmallVector<FunctionId, 1> askers{};
+  // The signature its copy has where the decisions of the component it
+  // joined changed it from its key's (a parameter lowered to what the
+  // component passes, a result to the hold its return then gives), at its
+  // key's positions, before any parameter goes unread; none while its key
+  // says it. Every call made of the copy before was converted then; a call
+  // made of it after passes and takes what this says.
+  mlir::FunctionType restated{};
 };
 
 // The consumer forms raising has met: each a detached function, interned
@@ -204,6 +216,11 @@ public:
   // for every call of it made after. Once per node: a component becomes
   // final once.
   void dropped(FunctionId fn, const llvm::BitVector &unread);
+  // Between waves, as the schedule takes up the component of `fn`, a copy:
+  // the decisions changed its signature to `type`, which its node keeps for
+  // every call of it made after. A hold only descends, so each restatement
+  // claims no more than the one before.
+  void restate(FunctionId fn, mlir::FunctionType type);
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.
   void writeCopies();

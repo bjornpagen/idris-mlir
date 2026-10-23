@@ -21,6 +21,31 @@
 // - a constant inside a case that says the part is it, at its use: a
 //   fieldless constructor in a case or default of that constructor, a
 //   literal in a literal match's case of that literal.
+//
+// What may reach a result is the other reading, a sound bound where the
+// first is exact. One loop ascending gives each value the arguments it may
+// hold on some path, each whole or by a part, after every value it is made
+// of; a value that holds no reference holds none:
+// - the argument itself, whole; the same value as another, or the
+//   successor of one, what that one holds;
+// - a field of a value, or the predecessor of one, a part of everything
+//   that value holds, since a field of an argument is a part of it and a
+//   field of what holds an argument may be the argument;
+// - a constructor, what each of its fields holds; a match, what each region
+//   that yields gives;
+// - a call's result, what each argument its callee lets reach that result
+//   holds, whole only where both reach whole;
+// - an op's own result, a part of what its operands hold, or, for an op
+//   that only changes a grade, what its operand holds;
+// - what a region branch forwards into, what each value entering it holds;
+//   one may enter from later in the walk, around a loop, so where one did
+//   the loop goes round again, until no value holds more, which it does
+//   after finitely many rounds, each argument reaching each value at most
+//   whole and then by a part;
+// - any other region's argument, or what any other op with regions gives,
+//   which nothing here reads, a part of every argument that holds
+//   references;
+// - a constant, nothing.
 // The record is never written; a reading holds what it learns while it
 // answers.
 #include "idr/Analysis/Solver/IdentityRecords.h"
@@ -31,6 +56,9 @@
 
 #include <algorithm>
 #include <concepts>
+#include <cstddef>
+#include <iterator>
+#include <optional>
 #include <tuple>
 #include <utility>
 
@@ -138,7 +166,7 @@ private:
 
 class Reading {
 public:
-  Reading(const Record &record, std::span<const std::span<const GivesBack>> callees)
+  Reading(const Record &record, std::span<const FactsView> callees)
       : record(record), callees(callees), parts(record),
         equal(record.values, std::optional<PartId>()) {
     for (ValueId value : record.values.ids())
@@ -154,13 +182,13 @@ public:
         [&](const build::Constant &constant) {
           return inCase(constant.known, constant.type, frames);
         },
-        []<OneOf<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
-                 build::Result, build::Con, build::Successor, build::Join> B>(const B &)
-            -> std::optional<PartId> { return std::nullopt; });
+        []<OneOf<build::Opaque, build::Forwarded, build::Unseen, build::Entry, build::Same,
+                 build::Read, build::Pred, build::Result, build::Con, build::Successor,
+                 build::Join> B>(const B &) -> std::optional<PartId> { return std::nullopt; });
   }
 
   const Record &record;
-  std::span<const std::span<const GivesBack>> callees;
+  std::span<const FactsView> callees;
   Parts parts;
 
 private:
@@ -185,7 +213,8 @@ private:
 std::optional<PartId> Reading::rebuilt(ValueId value) {
   return match(
       record.builds[value],
-      [](const build::Opaque &) -> std::optional<PartId> { return std::nullopt; },
+      [](const OneOf<build::Opaque, build::Forwarded, build::Unseen> auto &)
+          -> std::optional<PartId> { return std::nullopt; },
       [](const build::Constant &) -> std::optional<PartId> { return std::nullopt; },
       [&](const build::Entry &entry) -> std::optional<PartId> {
         return parts.whole(entry.argument);
@@ -217,7 +246,7 @@ std::optional<PartId> Reading::rebuilt(ValueId value) {
 std::optional<PartId> Reading::ofResult(const build::Result &result) {
   const CallSite &call = record.calls[result.call];
   std::span<const ValueId> args = record.run(call.args);
-  for (const GivesBack &fact : callees[result.call]) {
+  for (const GivesBack &fact : callees[result.call].givesBack) {
     if (fact.result.index != result.result || !fact.result.fields.empty())
       continue;
     std::optional<PartId> part = equal[args[fact.argument.index]];
@@ -278,10 +307,11 @@ std::optional<PartId> Reading::ofJoin(const build::Join &join) {
 
 } // namespace
 
-Facts wholeFactsAmong(const Record &record, std::span<const std::span<const GivesBack>> callees,
-                      std::span<const GivesBack> asked) {
+footprint::Vector<GivesBack> wholeFactsAmong(const Record &record,
+                                             std::span<const FactsView> callees,
+                                             std::span<const GivesBack> asked) {
   Reading reading(record, callees);
-  Facts kept;
+  footprint::Vector<GivesBack> kept;
   for (const GivesBack &fact : asked) {
     PartId whole = reading.parts.whole(fact.argument.index);
     if (llvm::all_of(record.returns, [&](const Return &ret) {
@@ -316,8 +346,8 @@ std::optional<Path> layoutPath(const Record &record, const Parts &parts, PartId 
   return path;
 }
 
-Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>> callees) {
-  Facts facts;
+footprint::Vector<GivesBack> everyFact(const Record &record, std::span<const FactsView> callees) {
+  footprint::Vector<GivesBack> facts;
   if (record.returns.empty())
     return facts;
   Reading reading(record, callees);
@@ -368,9 +398,9 @@ Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>
     bool built = llvm::all_of(item.occurrences, [&](const Occurrence &occurrence) {
       const build::Con *con = match(
           record.builds[occurrence.value], [](const build::Con &made) { return &made; },
-          []<OneOf<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
-                   build::Result, build::Successor, build::Join, build::Constant> B>(const B &)
-              -> const build::Con * { return nullptr; });
+          []<OneOf<build::Opaque, build::Forwarded, build::Unseen, build::Entry, build::Same,
+                   build::Read, build::Pred, build::Result, build::Successor, build::Join,
+                   build::Constant> B>(const B &) -> const build::Con * { return nullptr; });
       fields = con ? con->fields.count : 0;
       cons.push_back(con);
       return con && con->tag == *tag && fields != 0;
@@ -386,6 +416,224 @@ Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>
     }
   }
   return facts;
+}
+
+//===----------------------------------------------------------------------===//
+// What may reach a result
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// An argument a value may hold, and how far.
+struct Held {
+  std::uint32_t argument;
+  Reach reach;
+  friend bool operator==(const Held &, const Held &) = default;
+};
+
+// A part covers a whole: it bounds the result's claim no higher.
+constexpr Reach covering(Reach a, Reach b) {
+  return a == Reach::Part || b == Reach::Part ? Reach::Part : Reach::Whole;
+}
+
+// What each value of a record may hold of its function's arguments on
+// some path, each argument once, ascending: a run of one table per value,
+// written in one loop ascending, so each value reads the runs of what it is
+// made of, written already, but what enters a region from later in the
+// walk, for which the loop goes round again until no run grows. A value
+// that holds what another holds, as it is, shares that one's run, and a
+// run that holds what it held in the round before stays where it was.
+class Holding {
+public:
+  Holding(const Record &record, std::span<const FactsView> callees)
+      : record(record), callees(callees), runs(record.values, Range{}) {
+    // Every run only grows from one round to the next (a value holds the
+    // union of what it reads, and an argument's reach only weakens), so the
+    // rounds end; a record no value of which is entered from later in the
+    // walk takes one.
+    for (;;) {
+      Grew grew = Grew::No;
+      for (ValueId value : record.values.ids()) {
+        previous = runs[value];
+        Range now = heldBy(value);
+        if (!llvm::equal(at(now), at(previous)))
+          grew = Grew::Yes;
+        runs[value] = now;
+      }
+      if (entered == Entered::InOrder || grew == Grew::No)
+        return;
+    }
+  }
+
+  std::span<const Held> of(ValueId value) const { return at(runs[value]); }
+
+private:
+  std::span<const Held> at(Range range) const {
+    return std::span<const Held>(table).subspan(range.first, range.count);
+  }
+
+  // Each of `run`'s, at `as` where one is given, onto the scratch.
+  void gather(Range run, std::optional<Reach> as) {
+    for (const Held &held : at(run))
+      scratch.push_back({held.argument, as ? *as : held.reach});
+  }
+
+  // The scratch as a run, each argument once at the reach covering its
+  // others: `same`, where that run holds it already, or the value's run of
+  // the round before where that one does, else a new run.
+  Range written(Range same) {
+    llvm::sort(scratch, [](const Held &a, const Held &b) { return a.argument < b.argument; });
+    auto kept = scratch.begin();
+    for (const Held &held : scratch) {
+      if (kept != scratch.begin() && std::prev(kept)->argument == held.argument) {
+        std::prev(kept)->reach = covering(std::prev(kept)->reach, held.reach);
+        continue;
+      }
+      *kept++ = held;
+    }
+    scratch.erase(kept, scratch.end());
+    Range run = same;
+    if (llvm::equal(scratch, at(same))) {
+      // Held already.
+    } else if (llvm::equal(scratch, at(previous))) {
+      run = previous;
+    } else {
+      run = Range{static_cast<std::uint32_t>(table.size()),
+                  static_cast<std::uint32_t>(scratch.size())};
+      table.insert(table.end(), scratch.begin(), scratch.end());
+    }
+    scratch.clear();
+    return run;
+  }
+
+  // A part of everything `run` holds.
+  Range weakened(Range run) {
+    gather(run, Reach::Part);
+    return written(run);
+  }
+
+  // A part of every argument that holds references, written once.
+  Range everything() {
+    if (!unseen) {
+      for (std::uint32_t argument : record.referenceArguments)
+        scratch.push_back({argument, Reach::Part});
+      unseen = written(Range{});
+    }
+    return *unseen;
+  }
+
+  Range heldBy(ValueId value);
+
+  // Whether a round grew any run; whether any value is entered from later
+  // in the walk, which the first round finds.
+  enum class Grew : std::uint8_t { No, Yes };
+  enum class Entered : std::uint8_t { InOrder, Later };
+
+  const Record &record;
+  std::span<const FactsView> callees;
+  IndexVector<ValueId, Range> runs;
+  footprint::Vector<Held> table;
+  footprint::Vector<Held> scratch;
+  std::optional<Range> unseen;
+  // The run of the value being read, as the round before left it.
+  Range previous;
+  Entered entered = Entered::InOrder;
+};
+
+Range Holding::heldBy(ValueId value) {
+  if (record.refs[value] == Refs::Words)
+    return Range{};
+  return match(
+      record.builds[value],
+      [&](const build::Entry &entry) {
+        scratch.push_back({entry.argument, Reach::Whole});
+        return written(Range{});
+      },
+      [&](const build::Same &same) { return runs[same.of]; },
+      [&](const build::Successor &successor) { return runs[successor.of]; },
+      [&](const build::Read &read) { return weakened(runs[read.of]); },
+      [&](const build::Pred &pred) { return weakened(runs[pred.of]); },
+      [&](const build::Opaque &opaque) {
+        std::optional<Reach> as;
+        if (opaque.reach == Reach::Part)
+          as = Reach::Part;
+        for (ValueId from : record.run(opaque.from))
+          gather(runs[from], as);
+        return written(Range{});
+      },
+      [&](const build::Forwarded &forwarded) {
+        for (ValueId from : record.run(forwarded.from)) {
+          if (from.index() >= value.index())
+            entered = Entered::Later;
+          gather(runs[from], std::nullopt);
+        }
+        return written(Range{});
+      },
+      [&](const build::Unseen &) { return everything(); },
+      [&](const build::Con &con) {
+        Range first{};
+        for (ValueId field : record.run(con.fields)) {
+          if (first.count == 0)
+            first = runs[field];
+          gather(runs[field], std::nullopt);
+        }
+        return written(first);
+      },
+      [&](const build::Join &join) {
+        Range side = record.sides[join.side];
+        Range first{};
+        for (const Arm &arm : std::span<const Arm>(record.arms).subspan(side.first, side.count))
+          match(
+              arm, [](NeverReturns) {},
+              [&](const Yields &yields) {
+                Range given = runs[record.run(yields.values)[join.result]];
+                if (first.count == 0)
+                  first = given;
+                gather(given, std::nullopt);
+              });
+        return written(first);
+      },
+      [&](const build::Result &result) {
+        std::span<const ValueId> args = record.run(record.calls[result.call].args);
+        for (const MayReach &fact : callees[result.call].mayReach) {
+          if (fact.result != result.result)
+            continue;
+          for (const Held &held : at(runs[args[fact.argument]]))
+            scratch.push_back({held.argument, covering(fact.reach, held.reach)});
+        }
+        return written(Range{});
+      },
+      [](const build::Constant &) { return Range{}; });
+}
+
+} // namespace
+
+footprint::Vector<MayReach> reachesOf(const Record &record, std::span<const FactsView> callees) {
+  footprint::Vector<MayReach> reaches;
+  if (record.returns.empty())
+    return reaches;
+  Holding holding(record, callees);
+  for (std::uint32_t result = 0; result < record.resultTypes.size(); ++result) {
+    std::size_t first = reaches.size();
+    for (const Return &ret : record.returns)
+      for (const Held &held : holding.of(record.run(ret.values)[result]))
+        reaches.push_back({result, held.argument, held.reach});
+    // Each return's run holds an argument once; several returns may each
+    // hold one, at the reach that covers both.
+    auto from = reaches.begin() + static_cast<std::ptrdiff_t>(first);
+    std::sort(from, reaches.end(),
+              [](const MayReach &a, const MayReach &b) { return a.argument < b.argument; });
+    auto kept = from;
+    for (auto at = from; at != reaches.end(); ++at) {
+      if (kept != from && std::prev(kept)->argument == at->argument) {
+        std::prev(kept)->reach = covering(std::prev(kept)->reach, at->reach);
+        continue;
+      }
+      *kept++ = *at;
+    }
+    reaches.erase(kept, reaches.end());
+  }
+  return reaches;
 }
 
 } // namespace idr::identities

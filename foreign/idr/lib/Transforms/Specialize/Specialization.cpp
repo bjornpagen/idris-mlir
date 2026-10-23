@@ -20,7 +20,7 @@
 // copy builds where its index is known it still builds in place, and casts
 // at the end of each tail, at the grade the cast gives, shared down to the
 // grade the key asks where it claims less. A result the key gives at a
-// lowered parameter's hold, since it gives that parameter back, is given at
+// lowered parameter's hold, since that parameter may reach it, is given at
 // it by every tail the same way.
 
 #include "idr/IR/Families/Substitute.h"
@@ -146,13 +146,12 @@ LogicalResult Signatures::edit(Key key, FuncOp clone) {
   // (openResults), as every caller's calls do.
   (void)regrade(clone, regraded);
   // The key's results are what its callers read before the copy was built:
-  // a result it gives back a lowered parameter as is keyed at no more than
-  // that parameter's hold (keyGivenBack), so a parameter's weaker claim
-  // reaches the return no further than the key says. A result the key keeps
-  // at its layout is checked here; one it opens is given by a re-pack at
-  // the hold the key asks, which giveAs checks. What a function gives back
-  // holds on every path that returns, so a parameter that reaches a result
-  // on some paths only keys nothing, and is caught here.
+  // a result a lowered parameter may reach on some path is keyed at no more
+  // than that parameter's hold, or, by a part, that hold claiming nothing
+  // (keyGivenBack), so a parameter's weaker claim reaches the return no
+  // further than the key says. A result the key keeps at its layout is
+  // checked here; one it opens is given by a re-pack at the hold the key
+  // asks, which giveAs checks.
   assert([&] {
     Operation *end = entry.getTerminator();
     if (!end->hasTrait<OpTrait::ReturnLike>())

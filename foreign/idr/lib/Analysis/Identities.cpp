@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The functions of a component and what they give back: each read once, the
-// greatest fixpoint over the reads, and every fact per result field path
-// once it holds. IdentitiesRecord.cpp reads a function; IdentitiesRebuilds.cpp
-// says what its returns rebuild under the assumptions left.
+// The functions of a component and what they give back: each read once, one
+// solve over the reads holding two fixpoints, the greatest of what every
+// return gives back and the least of what may reach a result, and every
+// fact per result field path once both hold. IdentitiesRecord.cpp reads a
+// function; IdentitiesRebuilds.cpp says what its returns rebuild under the
+// assumptions left, and what may reach them under the facts gained.
 #include "idr/Analysis/Solver/IdentityRecords.h"
 #include "idr/Support/Match.h"
 
@@ -73,20 +75,21 @@ enum class Queued : std::uint8_t { No, Yes };
 
 } // namespace
 
-footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> outside,
+footprint::Vector<Facts> Component::solve(std::span<const FactsView> outside,
                                           solver::Work &work) && {
   const footprint::Vector<Record> &members = records->members;
   auto count = static_cast<unsigned>(members.size());
   // Each reading of a member visits its every value: its record's, once
-  // when it was read, and a reading's at each check and publication.
+  // when it was read, and each reading's at each check and publication.
   std::uint64_t visited = 0;
   auto visit = [&](std::uint32_t member) { visited += members[member].values.value(); };
   for (std::uint32_t member = 0; member < count; ++member)
     visit(member);
 
   // Every member starts assumed to give back each argument of a result's
-  // type, as a whole, at that result.
-  footprint::Vector<Facts> assumed(count);
+  // type, as a whole, at that result, and to let nothing reach any result.
+  footprint::Vector<footprint::Vector<GivesBack>> assumed(count);
+  footprint::Vector<footprint::Vector<MayReach>> reaching(count);
   for (auto [at, record] : llvm::enumerate(members))
     for (auto [result, resultType] : llvm::enumerate(record.resultTypes))
       for (auto [argument, argumentType] : llvm::enumerate(record.argumentTypes))
@@ -95,7 +98,7 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
                                  {static_cast<std::uint32_t>(argument), {}}});
 
   // The members that call each member: who must be checked again when its
-  // assumptions drop.
+  // assumptions drop or its facts grow.
   footprint::Vector<footprint::Vector<std::uint32_t>> callers(count);
   for (auto [at, callees] : llvm::enumerate(records->callees))
     for (const Records::Callee &callee : callees)
@@ -110,21 +113,24 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
     list.erase(std::unique(list.begin(), list.end()), list.end());
   }
 
-  // What each call site of `member` is assumed or known to give back, read
-  // afresh for each check, since assumptions drop between checks.
+  // What each call site of `member` is assumed or known to give back and to
+  // let reach its results, read afresh for each check, since both change
+  // between checks.
   auto calleeFacts = [&](std::uint32_t member) {
-    footprint::Vector<std::span<const GivesBack>> facts;
+    footprint::Vector<FactsView> facts;
     for (const Records::Callee &callee : records->callees[member])
       facts.push_back(match(
           callee,
-          [&](Records::InComponent in) { return std::span<const GivesBack>(assumed[in.member]); },
+          [&](Records::InComponent in) {
+            return FactsView{assumed[in.member], reaching[in.member]};
+          },
           [&](Records::Elsewhere away) { return outside[away.outside]; }));
     return facts;
   };
 
-  // A check can only drop assumptions, and a member is checked again only
-  // after an assumption of a member it calls dropped: finitely many drops,
-  // so the queue empties, at the greatest fixpoint.
+  // A check can only drop assumptions and add facts, and a member is
+  // checked again only after a member it calls changed: finitely many
+  // drops and additions, so the queue empties, at both fixpoints.
   std::deque<std::uint32_t, footprint::Allocator<std::uint32_t>> queue;
   footprint::Vector<Queued> queued(count, Queued::Yes);
   for (std::uint32_t member = 0; member < count; ++member)
@@ -133,12 +139,15 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
     std::uint32_t member = queue.front();
     queue.pop_front();
     queued[member] = Queued::No;
-    footprint::Vector<std::span<const GivesBack>> facts = calleeFacts(member);
-    Facts kept = wholeFactsAmong(members[member], facts, assumed[member]);
+    footprint::Vector<FactsView> facts = calleeFacts(member);
+    footprint::Vector<GivesBack> kept = wholeFactsAmong(members[member], facts, assumed[member]);
     visit(member);
-    if (kept.size() == assumed[member].size())
+    footprint::Vector<MayReach> reached = reachesOf(members[member], facts);
+    visit(member);
+    if (kept.size() == assumed[member].size() && reached == reaching[member])
       continue;
     assumed[member] = std::move(kept);
+    reaching[member] = std::move(reached);
     for (std::uint32_t caller : callers[member])
       if (queued[caller] == Queued::No) {
         queued[caller] = Queued::Yes;
@@ -146,10 +155,13 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
       }
   }
 
+  // What may reach each member's results is the fixpoint's own; what each
+  // gives back is read once more, per result field path, under the facts
+  // that held.
   footprint::Vector<Facts> out;
   out.reserve(count);
   for (std::uint32_t member = 0; member < count; ++member) {
-    out.push_back(everyFact(members[member], calleeFacts(member)));
+    out.push_back(Facts{everyFact(members[member], calleeFacts(member)), reaching[member]});
     visit(member);
   }
   work.add(visited);

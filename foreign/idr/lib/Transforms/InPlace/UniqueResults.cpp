@@ -24,6 +24,7 @@
 #include "idr/Analysis/Ownership/Meets.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/InPlace/Unique.h"
@@ -284,20 +285,19 @@ private:
     runs[f].to = changed.size();
   }
 
-  // `infer`'s results inferred again from its operands as now written: what
-  // it gives is a fact of what it reads. An op that admits its results at
-  // more grades than it infers keeps them. An op of upstream's is never
-  // inferred again: it reads the bare carrier, a loan lent after.
+  // `infer`'s results the types it takes from its operands as now written,
+  // by the one rule by which an op's results follow its operands
+  // (families::takenTypes): what it gives is a fact of what it reads. An op
+  // that admits its results at more grades than it infers keeps them, and
+  // one whose inference refuses its operands keeps what it had. An op of
+  // upstream's is never inferred again: it reads the bare carrier, a loan
+  // lent after.
   template <class Change>
   void reinfer(InferTypeOpInterface infer, Change &&change) {
-    Operation *op = infer.getOperation();
-    llvm::SmallVector<Type> inferred;
-    if (failed(infer.inferReturnTypes(op->getContext(), op->getLoc(), op->getOperands(),
-                                      op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
-                                      op->getRegions(), inferred)) ||
-        infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
+    std::optional<llvm::SmallVector<Type>> taken = idr::families::takenTypes(infer);
+    if (!taken)
       return;
-    for (auto [result, type] : llvm::zip_equal(op->getResults(), inferred))
+    for (auto [result, type] : llvm::zip_equal(infer.getOperation()->getResults(), *taken))
       change(result, type);
   }
 

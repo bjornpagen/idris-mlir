@@ -546,7 +546,7 @@ std::optional<ClassId> Function::giveBack(const node::Input &op,
   auto call = dyn_cast<CallOp>(op.origin);
   if (!call)
     return std::nullopt;
-  for (const identities::GivesBack &fact : callees->of(call.getCalleeAttr()))
+  for (const identities::GivesBack &fact : callees->of(call.getCalleeAttr()).givesBack)
     if (fact.result.index == 0 && fact.result.fields.empty() && fact.argument.fields.empty() &&
         at(operands[fact.argument.index]).type == type)
       return operands[fact.argument.index];

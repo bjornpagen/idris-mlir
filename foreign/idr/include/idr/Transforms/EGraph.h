@@ -350,8 +350,10 @@ concept SkeletonRule =
 // final nodes' facts, and a parallel function pass may not read its
 // siblings, so the optimizer hands the pass this table. A call is replaced
 // by the argument its callee gives back whole where the call floats (its
-// row carries neither crash nor divergence). The pipeline's own points run
-// after the optimizer has rewritten every such call, and read none.
+// row carries neither crash nor divergence). The specializer reads the
+// same table: a copy keyed to a weaker hold for a parameter keys each
+// result that parameter may reach to that hold. The pipeline's own points
+// run after the optimizer has rewritten every such call, and read none.
 class CalleeFacts {
 public:
   explicit CalleeFacts(const solver::Editor &names)
@@ -361,7 +363,9 @@ public:
   // between its waves; the table grows with the functions it made.
   void publish(solver::FunctionId f, identities::Facts given);
 
-  std::span<const identities::GivesBack> of(mlir::FlatSymbolRefAttr callee) const;
+  // What `callee` gives back on every path and what may reach its results,
+  // both empty for a callee not final.
+  identities::FactsView of(mlir::FlatSymbolRefAttr callee) const;
 
 private:
   const solver::Editor *names;

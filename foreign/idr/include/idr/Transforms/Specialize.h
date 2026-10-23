@@ -12,10 +12,9 @@
 // finitely many by construction. The layout class of a call's index
 // arguments, the hold an argument is passed at where its parameter's
 // differs (static data where the callee would count, or a claim re-grading
-// lowered) and the hold a result that gives such an argument back is
-// returned at with it, the layout each result is returned at, a lifetime's
-// mode and a grade copy of counting's are each drawn from a finite
-// alphabet. A result is returned as its class lays it out (closed:
+// lowered) and the hold a result such an argument may reach is returned at
+// with it, the layout each result is returned at, a lifetime's mode and a
+// grade copy of counting's are each drawn from a finite alphabet. A result is returned as its class lays it out (closed:
 // `#Vect[4]` in place, every non-tail call's) or, for a tail call whose
 // caller lays it out otherwise, at the open layout, its type marked open,
 // its indices kept: a copy keyed open returns that, so the two lower to one
@@ -40,7 +39,10 @@
 // budget and no number; an axis is static besides only where a layout
 // class fixes its index variable, which the class alphabet bounds. Every
 // copy starts as a clone of its owner, so every parameter keeps the grade
-// the owner gave it unless the key itself changes it.
+// the owner gave it unless the key itself changes it, or, for a copy a
+// call cycle joins to its callers' component, unless what that component
+// passes it lowers it (openResults), its node then restating its
+// signature.
 //
 // Keys are the run's own data: patterns and keys hash-consed in an arena
 // freed with the run, never attributes of the context, so no worker takes
@@ -105,6 +107,8 @@ class Schedule;
 namespace idr::specialize {
 
 using solver::FunctionId;
+
+class Nodes;
 
 //===----------------------------------------------------------------------===//
 // The canonical bytes a name is digested from
@@ -212,7 +216,7 @@ struct RaiseKey {
 // layout changes under it), a bare tensor argument's axis made static
 // where the index term naming it becomes a constant, a parameter's hold
 // made the one the caller passes where the two differ and each result that
-// gives that parameter back keyed with it (keyGivenBack), a result at the open
+// parameter may reach keyed with it (keyGivenBack), a result at the open
 // layout where a tail call's caller returns it so, a lifetime parameter's
 // kind fixed, a grade copy's grades. The target signature and the index
 // terms substituted are the key, so a result's layout is read off its type
@@ -237,11 +241,11 @@ struct SignatureKey {
 mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // `fn` returning `results`, which differ from its own results only where
-// one opens or claims less (a copy's result keyed to a lowered parameter it
-// gives back, keyGivenBack): every tail of it gives that result at the new
-// type, what it gave there cast to it once at the grade that cast gives and
-// shared down to the new type's claim where it claims less, and each call
-// in it takes the tail fact its place now gives it.
+// one opens or claims less (a copy's result keyed to a lowered parameter
+// that may reach it, keyGivenBack): every tail of it gives that result at
+// the new type, what it gave there cast to it once at the grade that cast
+// gives and shared down to the new type's claim where it claims less, and
+// each call in it takes the tail fact its place now gives it.
 void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 
 // The hold each argument of `call` is passed at where it differs from its
@@ -253,16 +257,19 @@ llvm::SmallVector<std::optional<Hold>> passedHolds(CallOp call, mlir::TypeRange 
 // `results`, a callee's results (its own, or a call's view of them), as its
 // copy keyed to the holds `passed` names (passedHolds; none where a
 // parameter keeps its own) gives them, read off what the callee's component
-// published it gives back (`given`, through egraph::CalleeFacts), never
-// worked out again: a result that is a lowered parameter on every path that
-// returns claims no more than that parameter is passed at, so it takes the
-// weakest of its own hold and that one; a result that is a part of one, the
-// weakest of its own and that hold claiming nothing, since how far a claim
-// reaches into a part is the part's field's. Every other result keeps its
-// own. The one rule a copy's key is made by (signatureOf) and its caller
-// reads the call's results by before the copy is built (openResults).
-void keyGivenBack(std::span<const identities::GivesBack> given,
-                  llvm::ArrayRef<std::optional<Hold>> passed,
+// published (`given`, through egraph::CalleeFacts), never worked out again.
+// A result that is a lowered parameter on every path that returns claims no
+// more than that parameter is passed at, so it takes the weakest of its own
+// hold and that one; a result that is a part of one, the weakest of its own
+// and that hold claiming nothing, since how far a claim reaches into a part
+// is the part's field's; and what may reach it on some path adds nothing.
+// Any other result takes the same bound from each lowered parameter that
+// may reach it on some path, whole or by a part as the facts say: a sound
+// bound, so the copy gives no less there than its key says. A result that
+// claims no more than a bound keeps its own hold. The one rule a copy's key
+// is made by (signatureOf) and its caller reads the call's results by
+// before the copy is built (openResults).
+void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold>> passed,
                   llvm::MutableArrayRef<mlir::Type> results);
 
 // What a function's signature and its calls are decided to be when the
@@ -271,17 +278,16 @@ void keyGivenBack(std::span<const identities::GivesBack> given,
 // decision reaches; holds only descend, by one finite order, and a layout
 // opens once, so the decisions end. Its callers outside its component wait
 // on it, so nothing reads what they rewrite. Three decisions, in order:
-// - Its parameters, for a function the program held: each takes the
-//   weakest hold the calls of its own component pass it, as no copy of a
-//   member is keyed while its component is not final; its body is
-//   re-graded from there, and every call of it shares a stronger operand
-//   down to it.
+// - Its parameters: each takes the weakest hold the calls of its own
+//   component pass it, as no copy is keyed inside a component, a copy of
+//   the component's included; its body is re-graded from there, and every
+//   call of it shares a stronger operand down to it.
 // - Its calls of final functions: each that passes an operand lowered
-//   takes, at each result the callee gives back that operand as, the hold
-//   the callee's copy keyed to it will give (keyGivenBack), so it reads the
-//   key's results before the copy is built and the values they carry on
-//   are re-graded down.
-// - Its results, for a function the program held: the one rule for a
+//   takes, at each result that operand may reach, the hold the callee's
+//   copy keyed to it will give (keyGivenBack), so it reads the key's
+//   results before the copy is built and the values they carry on are
+//   re-graded down.
+// - Its results: for a function the program held, the one rule for a
 //   result a tail of its function gives at a layout the function's own
 //   type cannot agree with, in the function or in a copy whose classes
 //   would close it, whatever closed them: the function's result is marked
@@ -290,15 +296,28 @@ void keyGivenBack(std::span<const identities::GivesBack> given,
 //   and every call of it takes the open type and casts it back after
 //   itself, at the hold the cast gives where that claims less than the call
 //   was given, the caller re-graded down from there (regrade). Its other
-//   half: a result its return gives at a weaker hold, which re-grading
-//   brought there, takes that hold, its layout kept, every call of it
-//   converted the same way.
+//   half, for every function: a result its return gives at a weaker hold,
+//   which re-grading brought there, takes that hold, its layout kept, every
+//   call of it converted the same way. A copy's layouts are its key's,
+//   which its callers asked for, and every copy keeps the mark its owner's
+//   type gives it.
 // A member of its component that loses a tail to the cast, has its return
 // re-graded or is passed an operand at another hold than its parameter's
-// is decided again in turn. A copy's parameters and results are its key's,
-// which its callers read, and every copy keeps the mark its owner's type
-// gives it.
-void openResults(optimize::Schedule &schedule, llvm::ArrayRef<FunctionId> starters);
+// is decided again in turn. A copy whose signature the decisions changed
+// has it restated on its node (Nodes::restate), which a call made of it
+// after reads.
+void openResults(optimize::Schedule &schedule, Nodes &nodes, llvm::ArrayRef<FunctionId> starters);
+
+// Each edge of `id`, a function whose component is becoming final, that a
+// value still crosses at a hold that fits the one asked (crossedAs: a
+// call's argument, a forwarded value, a jump's, the return's), made exact:
+// the value shared down to the hold asked by idr.count.share where it is
+// given. From the stage before counting on every edge is exact; the
+// specializer keys each call by the hold it passes and the decisions give
+// what they rewrite exactly, so what still crosses is the program's own
+// (a literal yielded where a counted value is asked, a jump contify made)
+// or a call no key took, each shared down once the function is final.
+void shareCrossings(const optimize::Schedule &schedule, FunctionId id);
 
 // The values of `fn` that carry one of `lowered` on, each of which now
 // claims less than its uses were given (a call's result opened or keyed at
