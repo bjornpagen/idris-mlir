@@ -10,6 +10,7 @@
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Effects.h"
+#include "idr/Analysis/Solver/Components.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
@@ -108,12 +109,13 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
   // One row for every member: what each does and what each writes
   // elsewhere through another, and the cycle's divergence. The optimizer's
   // components grow and merge apart from the frozen graph's, so no SccId
-  // names this one; its cycle is read off its sites instead. A site is a
-  // call of a member, so a lone member with any site calls itself.
+  // names this one; whether it is a cycle is isCycle over its members as
+  // read here, from the bodies as they now stand. A site is a call of a
+  // member, so a lone member's sites are its calls of itself.
   effects::Row row;
   for (const Own &mine : own)
     row = row | mine.derived.atoms | writesElsewhere(mine.sites, nodes, written);
-  if ((members.size() > 1 || !own.front().sites.empty()) &&
+  if (isCycle(own, [](const Own &lone) { return !lone.sites.empty(); }) &&
       !provedTogether(llvm::map_range(members, [](const solver::Member &m) { return m.fn; })))
     row = row | effects::Row{effects::Atom::divergence};
 

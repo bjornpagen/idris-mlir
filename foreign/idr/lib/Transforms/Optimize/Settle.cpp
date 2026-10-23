@@ -22,6 +22,7 @@
 
 #include "idr/Transforms/OptimizeScheduler.h"
 
+#include "idr/Analysis/Solver/Components.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -181,11 +182,11 @@ void Scheduler::finalize(unsigned component) {
                                  inlining::bodyOf(member.fn)}};
     schedule.graph.setCallees(id, solver::rowOf(member.fn, schedule.graph));
   }
-  // A copy whose final component has no cycle terminates as its calls do:
-  // nothing of its own loops.
-  if (ids.size() == 1 && schedule.members[ids.front().index()].node &&
-      llvm::none_of(schedule.graph.callees(ids.front()),
-                    [&](const solver::Call &call) { return call.callee == ids.front(); }))
+  // A copy whose final component is no cycle terminates as its calls do:
+  // nothing of its own loops. The members' rows were just written from
+  // their final bodies, so a lone member's self call is read off its row.
+  if (!isCycle(ids, [&](FunctionId lone) { return schedule.graph.callsItself(lone); }) &&
+      schedule.members[ids.front().index()].node)
     schedule.function(ids.front())
         .setTerminatesAttr(
             TerminatesAttr::get(schedule.program.getContext(), TerminationProof(Acyclic{})));

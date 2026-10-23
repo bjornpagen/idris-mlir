@@ -34,6 +34,7 @@
 #ifndef IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 #define IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 
+#include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -44,6 +45,7 @@
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
 
+#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -134,11 +136,10 @@ public:
   // contiguous.
   IdRange<FunctionId> bottomUp() const { return IdRange<FunctionId>(order); }
   // Whether a member of component `c` may have more than one frame live at
-  // a time: the component has two members or more, or its one member calls
-  // itself. The one place a component is decided cyclic.
+  // a time: the component is a cycle, by isCycle, a lone member's edge to
+  // itself its self call. Every reader of the program's cycles asks this.
   bool onCycle(SccId c) const {
-    IdRange<FunctionId> in = members(c);
-    return in.size() > 1 || callsItself(in.front());
+    return isCycle(members(c), [&](FunctionId lone) { return callsItself(lone); });
   }
   bool onCycle(FunctionId f) const { return onCycle(sccOf(f)); }
   // Whether a call made in component `from`, of `callee`, whose fact is
@@ -230,6 +231,12 @@ public:
   // count of calls.
   void setCallees(FunctionId f, llvm::ArrayRef<Call> row);
   std::span<const Call> callees(FunctionId f) const { return rows[f.index()]; }
+  // Whether `f`'s row, as last written, names `f`: read off the row, which
+  // the pass replaces while it holds the editor, so no bit laid at the
+  // freeze can say it.
+  bool callsItself(FunctionId f) const {
+    return std::ranges::any_of(callees(f), [&](const Call &call) { return call.callee == f; });
+  }
   // The function `callee` names, which the verifier proved one.
   FunctionId id(mlir::FlatSymbolRefAttr callee) const;
   // The function `callee` names, or none: a copy the pass has made and not

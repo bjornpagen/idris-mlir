@@ -20,7 +20,6 @@
 #include "idr/Support/Footprint.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
@@ -76,7 +75,8 @@ private:
   using Node = std::variant<Data, Array>;
 
   // A member's node is keyed by its group and position; an array's by its
-  // type.
+  // type: content, uniqued, which no numbering of the module covers, and no
+  // IR node.
   using Key = std::pair<mlir::Attribute, uint64_t>;
 
   // The node a value of `type` is: none where it is neither a member nor
@@ -86,9 +86,10 @@ private:
   // The nodes a field or an element of `type` names, inserted as met.
   void named(mlir::Type type, llvm::SmallVectorImpl<unsigned> &out);
 
-  // Every node, sized by the program, in the footprint's storage.
+  // Every node and its key, sized by the program, in the footprint's
+  // storage.
   footprint::Vector<Node> nodes;
-  llvm::DenseMap<Key, unsigned> index;
+  footprint::DenseMap<Key, unsigned> index;
   std::optional<Csr<TypeNode>> graph;
   std::optional<Partition<TypeNode>> parts;
 };

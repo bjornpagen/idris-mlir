@@ -22,9 +22,9 @@
 #include "idr/Analysis/Ownership.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -116,9 +116,10 @@ public:
 private:
   // A field by its declaration's identity: its family, uniqued by content,
   // its member and its positions, so a field named at generic levels and at
-  // an instance is one anchor; no IR node is a key.
+  // an instance is one anchor; no IR node is a key. Sized by the program's
+  // memo fields, so held in the footprint's storage.
   using Key = std::tuple<mlir::Attribute, std::uint32_t, std::uint32_t, std::uint32_t>;
-  llvm::DenseMap<Key, Anchor> keys;
+  footprint::DenseMap<Key, Anchor> keys;
   footprint::Vector<Anchor> sharedAnchors;
 };
 
