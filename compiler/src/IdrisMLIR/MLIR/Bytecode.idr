@@ -43,6 +43,7 @@ import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Families.Terms
 
 import Control.Monad.Error.Either
@@ -602,6 +603,8 @@ mutual
   numberTermNode w (TermNodeNatural v) = pure (TermNodeNatural v)
   numberTermNode w (TermNodeLevel v) = pure (TermNodeLevel v)
   numberTermNode w (TermNodeSuccessor v) = pure (TermNodeSuccessor v)
+  numberTermNode w (TermNodeSum v n) = pure (TermNodeSum v n)
+  numberTermNode w (TermNodeMultiple v) = pure (TermNodeMultiple v)
   numberTermNode w (TermNodeLiteral a) = TermNodeLiteral <$> attrNumber w a
   numberTermNode w (TermNodeConstructor a m v n) = (\a' => TermNodeConstructor a' m v n) <$> numberOptional w a
   numberTermNode w TermNodeOpaque = pure TermNodeOpaque
