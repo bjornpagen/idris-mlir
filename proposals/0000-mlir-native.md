@@ -2482,6 +2482,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   first verification, an internal error. Checking from First, where
   defunctionalization decides the facts, refused every program with such
   a tail before the specializer ran.
+- **C266** (2026-10-23; L05x's handoff, under D124). A loan's stretch is
+  cut at every op no loan region may hold (a call that runs on a frame, a
+  tail call, a jump out, the terminator), the reads on each side lent
+  under their own view lifetimes, and an alias a read needs past a cut is
+  made again on the far side from that side's loan, as frames re-lend
+  static data (one helper for both). So no loan changes a count. The two
+  residual shares go: an upstream op whose own region holds a call that
+  runs on a frame cannot reach lending (idr-structure-loops keeps every
+  region that calls as our op, and frames stop at such an op), and an
+  alias read across a cut whose op cannot be made again has no frontend
+  shape; each is an internal error naming its op, never a count change
+  D124 rules out. An op of ours adopts an alias when its flow edges move,
+  release or pass it by value, whatever its uses count.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
