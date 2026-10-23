@@ -325,3 +325,20 @@ is confirming.
   success), `jumpedBy`/`fitsRuns` returning evidence; or tail calls typed
   apart from inner calls from Terms on. `callHead`'s `decEq arity k` tests
   what the callee's identity fixes.
+
+## From L16dj (the stuck recursion's definition)
+
+Done: `graphDefinition` and its internal error (3acf6323), and
+`Definitions.definitionAt` with them. Open, decided here (the
+coordinator, 2026-10-23):
+- An instance's reading shares the writer's reader, so it builds an empty
+  `All RecursionDef` list at every node, paying at run time for what is
+  known statically (an instance never meets a recursion): the reading is
+  indexed by whose term it reads, a writer's carrying the definitions and
+  an instance's none, so nothing is built for an instance.
+- The other readings of a name from an address: `Sites.render`/`nameText`
+  (`Sites.idr:534`, a silent `"_"` for an address with no entry),
+  `Graph.idr:2624`, and `Template.atAddress`/`definitionRead`
+  (`Template.idr:190, 199`): each carries the name or definition from
+  where the address was made, as the positions now do, and `nameAt`'s
+  `Maybe` goes with its last reader.
