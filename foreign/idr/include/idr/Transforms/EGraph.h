@@ -13,8 +13,8 @@
 // bytes at any thread count.
 //
 // This header is what the specification's generator and the op lanes write
-// against: the shape of the printed rule tables, and the concept a hand
-// skeleton rule meets.
+// against: the shape of the printed rule tables, the concept a hand
+// skeleton rule meets, and the constants such a rule reads.
 #ifndef IDR_TRANSFORMS_EGRAPH_H
 #define IDR_TRANSFORMS_EGRAPH_H
 
@@ -27,15 +27,21 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
+// The runtime's C ABI: the strings and bigs the graph's constants hold.
+#include "idris_rt.h"
+
+#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
+#include <utility>
 #include <variant>
 
 namespace idr {
@@ -191,6 +197,85 @@ private:
   std::uint32_t units;
 };
 
+//===----------------------------------------------------------------------===//
+// The graph's constants
+//===----------------------------------------------------------------------===//
+// A constant the graph knows is a value of its own, never an attribute,
+// until the write-back places it; a rule reads it as such.
+
+// A string as the runtime holds it, one reference of the graph's own: two
+// are one constant exactly when their bytes are. A rule reads one through
+// a borrowed pointer, so what it reads needs no symbol of the engine's.
+class Text {
+public:
+  // The reference the runtime gave, which the graph now holds.
+  static Text adopt(const idris_rt_str *made) { return Text(made); }
+  // Another reference to a string held elsewhere.
+  static Text share(const idris_rt_str *s);
+  Text(const Text &other) : Text(share(other.s)) {}
+  Text(Text &&other) noexcept : s(std::exchange(other.s, nullptr)) {}
+  Text &operator=(Text other) noexcept {
+    std::swap(s, other.s);
+    return *this;
+  }
+  ~Text();
+
+  const idris_rt_str *get() const { return s; }
+  llvm::StringRef bytes() const { return llvm::StringRef(idris_rt_str_bytes(s), s->bytes); }
+  friend bool operator==(const Text &a, const Text &b) { return a.bytes() == b.bytes(); }
+
+private:
+  explicit Text(const idris_rt_str *s) : s(s) {}
+  // Null only once moved from.
+  const idris_rt_str *s;
+};
+
+// A Double by its IEEE bits, so two are one constant exactly when their
+// bits are: 0.0 and -0.0 are two, as the program tells them apart.
+struct Real {
+  std::uint64_t bits;
+
+  double value() const { return std::bit_cast<double>(bits); }
+  friend bool operator==(Real, Real) = default;
+};
+
+// A big past the small range as the runtime holds it, a cell of limbs, one
+// reference of the graph's own: two are one constant exactly when the
+// runtime's comparison orders them equal. A big in the small range is an
+// integer, the one value of its interval.
+class Big {
+public:
+  static Big adopt(idris_rt_big made) { return Big(made); }
+  static Big share(idris_rt_big b);
+  Big(const Big &other) : Big(share(other.word)) {}
+  Big(Big &&other) noexcept : word(std::exchange(other.word, smallZero)) {}
+  Big &operator=(Big other) noexcept {
+    std::swap(word, other.word);
+    return *this;
+  }
+  ~Big();
+
+  idris_rt_big get() const { return word; }
+  friend bool operator==(const Big &a, const Big &b);
+
+private:
+  explicit Big(idris_rt_big word) : word(word) {}
+  // A big moved from holds the small 0, the word 2 * 0 + 1, which has no
+  // cell to release.
+  static constexpr idris_rt_big smallZero = 1;
+  idris_rt_big word;
+};
+
+// What the graph knows a value to be where no interval says it: a string,
+// a Double, or a big past the small range.
+using Constant = std::variant<Text, Real, Big>;
+
+// A constant a rule reads of a value, borrowed from its class while the
+// rule decides: an integer, the one value of its interval (a big in the
+// small range among them, as the runtime holds it in its word); or the
+// string, the Double or the big past the small range its class holds.
+using KnownConstant = std::variant<llvm::APInt, const Text *, Real, const Big *>;
+
 // What the e-graph knows of any value of the function a rule is deciding
 // in: an operand of its root, or a value a region of a producer yields
 // (the choice per arm reads each arm's). Each answer is the value's
@@ -199,10 +284,16 @@ private:
 class OperandFacts {
 public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
-  // The constant the value's class holds as an attribute, one an op of a
-  // member holds; null where it holds none. An integer the graph computed
-  // is a value and no attribute: it is the one value of the value's range.
-  mlir::Attribute constant(mlir::Value value) const;
+  // The constant the value is, where the graph knows it, whether an op of
+  // the input held it or the graph computed it; none where it is no one
+  // constant the graph reads (a data constant, a closure: see `held`).
+  std::optional<KnownConstant> constant(mlir::Value value) const;
+  // The constant an op of a member holds, as it holds it; null where none
+  // does. It is the one form of a constant the graph reads no value of (a
+  // data constant, a closure), and what a hook that takes attributes is
+  // given; a constant the graph computed holds no attribute, and `constant`
+  // reads it.
+  mlir::Attribute held(mlir::Value value) const;
   // The interval of an integer value, where the interval analysis knows
   // one; an interval of one value is the integer the value is.
   std::optional<mlir::ConstantIntRanges> range(mlir::Value value) const;

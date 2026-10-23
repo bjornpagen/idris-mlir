@@ -138,7 +138,7 @@ DataConOp constructorOf(Value value, const egraph::OperandFacts &facts) {
 }
 
 bool knownConstructor(Value value, const egraph::OperandFacts &facts) {
-  return isa_and_nonnull<ConAttr>(facts.constant(value)) ||
+  return isa_and_nonnull<ConAttr>(facts.held(value)) ||
          static_cast<bool>(constructorOf(value, facts));
 }
 

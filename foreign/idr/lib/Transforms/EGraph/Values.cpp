@@ -14,9 +14,17 @@
 // and no attribute is made until the write-back places one, here too.
 //
 // What the graph knows of a guard is what its classes' intervals say: the
-// guard's own decision over them, which the skeleton rule asks too. An op
-// whose fold has a condition beyond its guards states it over attributes
-// (its `foldable` hook), so the graph does not compute it.
+// guard's own decision over them, which the skeleton rule asks too. A big
+// past the small range has the interval its sign gives, so a guard of it
+// decides on its interval as on any integer's. An op whose fold has a
+// condition beyond its guards states it over attributes (its `foldable`
+// hook), so the graph does not compute it.
+//
+// Upstream's ops on Doubles whose result IEEE 754 fixes (the generated
+// ComputedOnDoubles) compute on the graph's Double values by the APFloat
+// operation each op's own fold applies, at round-to-nearest-even, so the
+// op means what upstream documents and no second meaning is written; a NaN
+// result is no constant, as the one fold's refusal says.
 
 #include "idr/Transforms/EGraph/Engine.h"
 
@@ -24,17 +32,23 @@
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <tuple>
+#include <vector>
+
+// The generated list of upstream's ops on Doubles the graph computes.
+#include "idr/IR/Generated/Rewrites.h.inc"
 
 using namespace mlir;
 
-namespace idr::egraph::detail {
+namespace idr::egraph {
 
 //===----------------------------------------------------------------------===//
 // The values
@@ -52,8 +66,6 @@ Text::~Text() {
     idris_rt_dec_cell(&const_cast<idris_rt_str *>(s)->header);
 }
 
-llvm::StringRef Text::bytes() const { return llvm::StringRef(idris_rt_str_bytes(s), s->bytes); }
-
 Big Big::share(idris_rt_big b) {
   idris_rt_inc_big(b);
   return Big(b);
@@ -64,6 +76,10 @@ Big::~Big() { idris_rt_dec_big(word); }
 bool operator==(const Big &a, const Big &b) {
   return runtime::Abi<BigCmpOp>::function(a.word, b.word) == 0;
 }
+
+} // namespace idr::egraph
+
+namespace idr::egraph::detail {
 
 // A big's word past the small range is its cell's address.
 namespace {
@@ -107,13 +123,21 @@ bool placedAt(const Constant &constant, Type type) {
 namespace {
 
 // A big as the graph knows it: in the small range, the one value of its
-// interval, as the runtime holds it in its word; past it, its cell.
+// interval, as the runtime holds it in its word; past it, its cell, and the
+// interval its sign gives, which the runtime's comparison with 0 reads: a
+// bound at the small range's end on that side and none beyond, as the
+// ranges of bigs read an interval, so the value is known not to be 0.
 Facts factsOfBig(Big big) {
   idris_rt_big word = big.get();
-  if (!idris_rt_word_is_small(word))
-    return {std::nullopt, std::move(big)};
-  std::int64_t value = idris_rt_small_value(word);
-  return {ranges::rangeOf(ranges::bounded(value, value)), std::nullopt};
+  if (idris_rt_word_is_small(word)) {
+    std::int64_t value = idris_rt_small_value(word);
+    return {ranges::rangeOf(ranges::bounded(value, value)), std::nullopt};
+  }
+  idris_rt_big zero = runtime::Abi<BigSmallOp>::function(0);
+  ranges::Bounds past = runtime::Abi<BigCmpOp>::function(word, zero) > 0
+                            ? ranges::bounded(IDRIS_RT_SMALL_MAX, std::nullopt)
+                            : ranges::bounded(std::nullopt, IDRIS_RT_SMALL_MIN);
+  return {ranges::rangeOf(past), std::move(big)};
 }
 
 // The interval a guard reads of an operand: its class's, or every value of
@@ -191,7 +215,10 @@ public:
   std::optional<Facts> big(Type, idris_rt_big made) const { return factsOfBig(Big::adopt(made)); }
 
   // Each guard decides on its operands' intervals, as the skeleton rule
-  // asks it: the op computes only where every one holds.
+  // asks it: the op computes only where every one holds. A guard of a
+  // string's length or a Double's bits reads them from the constant an op
+  // holds, an attribute, of which the graph gives none, so it holds here
+  // once its hook reads the graph's values.
   template <class Op>
   bool admits(llvm::ArrayRef<const Class *> operands, const typename Op::Properties &) const {
     if constexpr (fold::HasFoldCondition<Op>)
@@ -231,16 +258,160 @@ std::optional<Facts> ofBuilt(Type type, llvm::ArrayRef<const Class *> operands) 
   return meaningOf<Op>(operands, type, typename Op::Properties{});
 }
 
+// Each op of ours whose meaning is its runtime function, by its trait.
 template <class... Ops>
-std::vector<std::pair<TypeID, Meaning>> meaningsOf() {
-  std::vector<std::pair<TypeID, Meaning>> out;
+void runtimeMeaningsOf(std::vector<std::pair<TypeID, Meaning>> &out) {
   (
       [&] {
         if constexpr (fold::Folds<Ops>)
           out.emplace_back(TypeID::get<Ops>(), Meaning{&ofInput<Ops>, &ofBuilt<Ops>});
       }(),
       ...);
-  return out;
+}
+
+//===----------------------------------------------------------------------===//
+// Upstream's ops on Doubles
+//===----------------------------------------------------------------------===//
+
+// A Double a class holds, as the IEEE double its bits are; none where it
+// holds no Double.
+std::optional<APFloat> doubleOf(const Class *cls) {
+  if (!cls->facts.constant)
+    return std::nullopt;
+  return match(
+      *cls->facts.constant,
+      [](const Real &real) -> std::optional<APFloat> {
+        return APFloat(APFloat::IEEEdouble(), APInt(64, real.bits));
+      },
+      [](const OneOf<Text, Big> auto &) -> std::optional<APFloat> { return std::nullopt; });
+}
+
+// The Double an operation gave, as the graph's: none for a NaN, whose sign
+// and payload IEEE leaves to each machine.
+std::optional<Facts> computed(const APFloat &value) {
+  if (value.isNaN())
+    return std::nullopt;
+  return Facts{std::nullopt, Real{value.bitcastToAPInt().getZExtValue()}};
+}
+
+// Whether an op rounds as Idris's Double does, to nearest with ties to
+// even: the rounding its fold applies where it names none, the default
+// floating-point environment. An op that names another computes what the
+// graph does not: it stays applied.
+template <class Op>
+bool nearestEven(Op op) {
+  std::optional<arith::RoundingMode> mode = op.getRoundingmode();
+  return !mode || *mode == arith::RoundingMode::to_nearest_even;
+}
+
+// Each op's computation, the operation its own upstream fold applies to two
+// constant operands, named once for the op it is; the ops are the
+// generated list's, and an op on it with no computation here does not
+// compile.
+template <class Op>
+struct OnDoubles;
+
+// arith.addf, subf, mulf and divf: APFloat's add, subtract, multiply and
+// divide of the first by the second, as each one's fold computes
+// `APFloat result(a); result.op(b, rounding)`, at round-to-nearest-even,
+// the rounding it applies where the op names none.
+template <APFloat::opStatus (APFloat::*Apply)(const APFloat &, APFloat::roundingMode)>
+struct Rounded {
+  template <class Op>
+  static std::optional<Facts> of(Op op, llvm::ArrayRef<const Class *> operands, Type) {
+    std::optional<APFloat> a = doubleOf(operands[0]), b = doubleOf(operands[1]);
+    if (!a || !b || !nearestEven(op))
+      return std::nullopt;
+    APFloat result(*a);
+    (void)(result.*Apply)(*b, APFloat::rmNearestTiesToEven);
+    return computed(result);
+  }
+};
+
+template <>
+struct OnDoubles<arith::AddFOp> : Rounded<&APFloat::add> {};
+template <>
+struct OnDoubles<arith::SubFOp> : Rounded<&APFloat::subtract> {};
+template <>
+struct OnDoubles<arith::MulFOp> : Rounded<&APFloat::multiply> {};
+template <>
+struct OnDoubles<arith::DivFOp> : Rounded<&APFloat::divide> {};
+
+// arith.negf: its operand with its sign changed, its fold's `-a`.
+template <>
+struct OnDoubles<arith::NegFOp> {
+  static std::optional<Facts> of(arith::NegFOp, llvm::ArrayRef<const Class *> operands, Type) {
+    std::optional<APFloat> a = doubleOf(operands[0]);
+    return a ? computed(-*a) : std::nullopt;
+  }
+};
+
+// math.floor and math.ceil: the operand rounded to an integral value
+// toward negative and positive infinity, as each one's fold computes it by
+// APFloat's roundToIntegral.
+template <APFloat::roundingMode Toward>
+struct Integral {
+  template <class Op>
+  static std::optional<Facts> of(Op, llvm::ArrayRef<const Class *> operands, Type) {
+    std::optional<APFloat> a = doubleOf(operands[0]);
+    if (!a)
+      return std::nullopt;
+    APFloat result(*a);
+    (void)result.roundToIntegral(Toward);
+    return computed(result);
+  }
+};
+
+template <>
+struct OnDoubles<math::FloorOp> : Integral<APFloat::rmTowardNegative> {};
+template <>
+struct OnDoubles<math::CeilOp> : Integral<APFloat::rmTowardPositive> {};
+
+// arith.sitofp and uitofp: the integer read with its sign or without,
+// converted at round-to-nearest-even, as each one's fold computes it by
+// APFloat's convertFromAPInt in its result's semantics. A Double is the
+// graph's one float, so a result of another width is none of its values.
+template <bool Signed>
+struct FromInteger {
+  template <class Op>
+  static std::optional<Facts> of(Op, llvm::ArrayRef<const Class *> operands, Type type) {
+    std::optional<APInt> integer = operands[0]->facts.integer();
+    if (!integer || !type.isF64())
+      return std::nullopt;
+    APFloat result(APFloat::IEEEdouble(), APInt::getZero(64));
+    (void)result.convertFromAPInt(*integer, Signed, APFloat::rmNearestTiesToEven);
+    return computed(result);
+  }
+};
+
+template <>
+struct OnDoubles<arith::SIToFPOp> : FromInteger<true> {};
+template <>
+struct OnDoubles<arith::UIToFPOp> : FromInteger<false> {};
+
+// arith.cmpf: the op's predicate on the two, by upstream's own
+// applyCmpPredicate, which its fold calls; a truth, an i1.
+template <>
+struct OnDoubles<arith::CmpFOp> {
+  static std::optional<Facts> of(arith::CmpFOp op, llvm::ArrayRef<const Class *> operands, Type) {
+    std::optional<APFloat> a = doubleOf(operands[0]), b = doubleOf(operands[1]);
+    if (!a || !b)
+      return std::nullopt;
+    bool holds = arith::applyCmpPredicate(op.getPredicate(), *a, *b);
+    return Facts{ConstantIntRanges::constant(APInt(1, holds)), std::nullopt};
+  }
+};
+
+template <class Op>
+std::optional<Facts> onDoubles(Operation *op, Type type, llvm::ArrayRef<const Class *> operands) {
+  return OnDoubles<Op>::of(cast<Op>(op), operands, type);
+}
+
+// Each op of the generated list: no rule builds one, so it has no meaning
+// of a built node.
+template <class... Ops>
+void doubleMeaningsOf(table::OpList<Ops...>, std::vector<std::pair<TypeID, Meaning>> &out) {
+  (out.emplace_back(TypeID::get<Ops>(), Meaning{&onDoubles<Ops>, std::nullopt}), ...);
 }
 
 } // namespace
@@ -257,11 +428,14 @@ Value materialized(Dialect &dialect, RewriterBase &rewriter, Location loc, Type 
   return op->getResult(0);
 }
 
-std::vector<std::pair<TypeID, Meaning>> runtimeMeanings() {
-  return meaningsOf<
+std::vector<std::pair<TypeID, Meaning>> meanings() {
+  std::vector<std::pair<TypeID, Meaning>> out;
+  runtimeMeaningsOf<
 #define GET_OP_LIST
 #include "idr/IR/IdrOps.cpp.inc"
-      >();
+      >(out);
+  doubleMeaningsOf(generated::ComputedOnDoubles{}, out);
+  return out;
 }
 
 // A constant an op holds is read by the attribute instance's readers and
@@ -278,6 +452,12 @@ Facts heldFacts(Attribute value) {
   if (std::optional<idris_rt_big> big = fold::bigOf(scope, value))
     return factsOfBig(Big::share(*big));
   return {};
+}
+
+Facts factsOf(const Constant &constant) {
+  return match(
+      constant, [](const Big &big) { return factsOfBig(big); },
+      [](const OneOf<Text, Real> auto &value) { return Facts{std::nullopt, value}; });
 }
 
 //===----------------------------------------------------------------------===//

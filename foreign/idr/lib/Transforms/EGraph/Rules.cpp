@@ -22,6 +22,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <concepts>
 #include <span>
 #include <utility>
 
@@ -60,15 +61,42 @@ constexpr bool everySkeletonRule(table::RuleList<Rs...>) {
 static_assert(everySkeletonRule(generated::SkeletonRules{}),
               "every skeleton rule the specification names meets the engine's concept");
 
-// The graph computes an op only through its runtime meaning, which an op
-// whose upstream fold calls the compiling machine's C library has none of:
-// so the graph never folds one.
-template <class... Ops>
-constexpr bool noneComputed(table::OpList<Ops...>) {
-  return (!fold::Folds<Ops> && ...);
+// The graph computes an op only through its meaning: its runtime function,
+// which an op whose upstream fold calls the compiling machine's C library
+// has none of, or, on the Doubles list, the APFloat operation its fold
+// applies, which no such op is on: so the graph never folds one.
+template <class Op, class... Ops>
+constexpr bool among = (std::same_as<Op, Ops> || ...);
+
+template <class... Never, class... Computed>
+constexpr bool noneComputed(table::OpList<Never...>, table::OpList<Computed...>) {
+  return ((!fold::Folds<Never> && !among<Never, Computed...>) && ...);
 }
-static_assert(noneComputed(generated::NeverFolded{}),
-              "an op whose fold computes on the compiling machine has no runtime meaning");
+static_assert(noneComputed(generated::NeverFolded{}, generated::ComputedOnDoubles{}),
+              "an op whose fold computes on the compiling machine has no meaning in the graph");
+
+// Whether a rule's right side builds a node of the kind numbered `kind`.
+consteval bool builtByARule(std::uint16_t kind) {
+  for (const table::Rule &rule : generated::rules)
+    for (std::uint32_t at = rule.rhs; at < rule.rhs + rule.rhsSize; ++at)
+      if (generated::patterns[at].kind == table::PatternKind::Node &&
+          generated::patterns[at].op == kind)
+        return true;
+  return false;
+}
+
+// An op on Doubles has a meaning as an op of the input alone, so a pattern
+// may match one but no right side builds one: a node built of it would
+// have nothing to compute it by.
+template <class... Named, class... Computed>
+consteval bool noneBuilt(table::OpList<Named...>, table::OpList<Computed...>) {
+  std::uint16_t kind = 0;
+  bool none = true;
+  ((none = none && !(among<Named, Computed...> && builtByARule(kind)), ++kind), ...);
+  return none;
+}
+static_assert(noneBuilt(generated::Kinds{}, generated::ComputedOnDoubles{}),
+              "a rule builds an op on Doubles, which has a meaning only as an op of the input");
 
 template <class... Ops>
 void listKinds(table::OpList<Ops...>, MLIRContext *context,
@@ -125,13 +153,13 @@ Kinds::OfOp Kinds::of(Operation *op) const {
 }
 
 // Each kind and each meaning by its op's TypeID, one entry an op, sorted
-// for the one lookup an op of the input needs; and each kind's meaning by
-// its number, which a node a rule built reads.
+// for the one lookup an op of the input needs; and each kind's meaning of a
+// built node by its number, which a node a rule built reads.
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
   std::vector<std::pair<TypeID, Kinds::OfOp>> entries;
   listKinds(generated::Kinds{}, context, entries, out.names);
-  for (auto [id, meaning] : runtimeMeanings())
+  for (auto [id, meaning] : meanings())
     entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning});
   llvm::sort(entries, [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
   for (const auto &[id, of] : entries) {
@@ -145,10 +173,10 @@ Kinds makeKinds(MLIRContext *context) {
     if (of.meaning)
       into.meaning = of.meaning;
   }
-  out.meanings.assign(out.names.size(), std::nullopt);
+  out.built.assign(out.names.size(), std::nullopt);
   for (const auto &[id, of] : out.byTypeId)
-    if (of.kind)
-      out.meanings[*of.kind] = of.meaning;
+    if (of.kind && of.meaning)
+      out.built[*of.kind] = of.meaning->ofBuilt;
   return out;
 }
 

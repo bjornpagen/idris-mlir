@@ -15,15 +15,17 @@
 // one, is the integer it is; the constant it holds, read once from its
 // attribute into a value of the graph's own; and, where its meaning is a
 // runtime function, the constant that function computes from its
-// operands' constants, the one fold's value instance (IR/Fold.h), so no
-// attribute is made. A node a right side builds has no op to ask and none
-// is made for it: its interval is its kind's range function over its
-// operands' intervals, from the generated table, and its constant its
-// kind's runtime meaning over theirs. A constant is a value until the
-// write-back makes its attribute, of four kinds: an integer, the one value
-// of an interval (a big in the small range among them, as the runtime
-// holds it in its word); a string's bytes; a Double's bits; and a big past
-// the small range, as the runtime holds it, in a cell. One is hash-consed
+// operands' constants, the one fold's value instance (IR/Fold.h), or, for
+// an op of upstream's on Doubles whose result IEEE 754 fixes, the APFloat
+// operation its own fold applies, so no attribute is made. A node a right
+// side builds has no op to ask and none is made for it: its interval is
+// its kind's range function over its operands' intervals, from the
+// generated table, and its constant its kind's runtime meaning over
+// theirs. A constant is a value until the write-back makes its attribute,
+// of four kinds: an integer, the one value of an interval (a big in the
+// small range among them, as the runtime holds it in its word); a string's
+// bytes; a Double's bits; and a big past the small range, as the runtime
+// holds it, in a cell, with the interval its sign gives. One is hash-consed
 // by its value, and has a node only at a type its constant op stands at;
 // an op of the input whose meaning computes such a constant is it, with no
 // node of its own. A repeated read in a region with no write of what it
@@ -113,9 +115,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
 
-#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -170,71 +170,8 @@ enum class Identity : std::uint8_t { Shared, Own };
 enum class IntegerForm : std::uint8_t { Word, Splat, Small };
 std::optional<IntegerForm> integerFormOf(mlir::Type type);
 
-// A string as the runtime holds it, one reference of the graph's own: two
-// are one constant exactly when their bytes are.
-class Text {
-public:
-  // The reference the runtime gave, which the graph now holds.
-  static Text adopt(const idris_rt_str *made) { return Text(made); }
-  // Another reference to a string held elsewhere.
-  static Text share(const idris_rt_str *s);
-  Text(const Text &other) : Text(share(other.s)) {}
-  Text(Text &&other) noexcept : s(std::exchange(other.s, nullptr)) {}
-  Text &operator=(Text other) noexcept {
-    std::swap(s, other.s);
-    return *this;
-  }
-  ~Text();
-
-  const idris_rt_str *get() const { return s; }
-  llvm::StringRef bytes() const;
-  friend bool operator==(const Text &a, const Text &b) { return a.bytes() == b.bytes(); }
-
-private:
-  explicit Text(const idris_rt_str *s) : s(s) {}
-  // Null only once moved from.
-  const idris_rt_str *s;
-};
-
-// A Double by its IEEE bits, so two are one constant exactly when their
-// bits are: 0.0 and -0.0 are two, as the program tells them apart.
-struct Real {
-  std::uint64_t bits;
-
-  double value() const { return std::bit_cast<double>(bits); }
-  friend bool operator==(Real, Real) = default;
-};
-
-// A big past the small range as the runtime holds it, a cell of limbs, one
-// reference of the graph's own: two are one constant exactly when the
-// runtime's comparison orders them equal. A big in the small range is an
-// integer, the one value of its interval.
-class Big {
-public:
-  static Big adopt(idris_rt_big made) { return Big(made); }
-  static Big share(idris_rt_big b);
-  Big(const Big &other) : Big(share(other.word)) {}
-  Big(Big &&other) noexcept : word(std::exchange(other.word, smallZero)) {}
-  Big &operator=(Big other) noexcept {
-    std::swap(word, other.word);
-    return *this;
-  }
-  ~Big();
-
-  idris_rt_big get() const { return word; }
-  friend bool operator==(const Big &a, const Big &b);
-
-private:
-  explicit Big(idris_rt_big word) : word(word) {}
-  // A big moved from holds the small 0, the word 2 * 0 + 1, which has no
-  // cell to release.
-  static constexpr idris_rt_big smallZero = 1;
-  idris_rt_big word;
-};
-
-// What the graph knows a value to be where no interval says it: a string,
-// a Double, or a big past the small range.
-using Constant = std::variant<Text, Real, Big>;
+// The graph's constants (Text, Real, Big, the closed sum Constant of them)
+// are the interface's, since a skeleton rule reads them (EGraph.h).
 
 llvm::hash_code hash_value(const Constant &constant);
 // The bytes of the runtime's memory it takes: a string's or a big's cell; a
@@ -247,16 +184,19 @@ bool placedAt(const Constant &constant, mlir::Type type);
 struct Class;
 struct Facts;
 
-// An op's runtime meaning over its operands' classes, each a constant, as
-// the graph's own values (Values.cpp): of an op of the input, read with its
-// properties; of a node a rule built, with its kind's default properties.
+// An op's meaning over its operands' classes, each a constant, as the
+// graph's own values (Values.cpp): of an op of the input, read with its
+// properties; and, for an op a rule may build, of a node a rule built, with
+// its kind's default properties. Upstream's ops on Doubles have the first
+// alone: no rule builds one, and a pattern carries no predicate or
+// rounding for one to be built with.
 using MeaningOfInput = std::optional<Facts> (*)(mlir::Operation *op, mlir::Type type,
                                                 llvm::ArrayRef<const Class *> operands);
 using MeaningOfBuilt = std::optional<Facts> (*)(mlir::Type type,
                                                 llvm::ArrayRef<const Class *> operands);
 struct Meaning {
   MeaningOfInput ofInput;
-  MeaningOfBuilt ofBuilt;
+  std::optional<MeaningOfBuilt> ofBuilt;
 };
 
 // What a node is.
@@ -329,8 +269,12 @@ struct Facts {
   std::optional<mlir::ConstantIntRanges> range;
   std::optional<Constant> constant;
 
+  // An interval of no width is upstream's mark for a value it does not see
+  // as an integer (a string, a box), whose one "value" is no integer.
   std::optional<llvm::APInt> integer() const {
-    return range ? range->getConstantValue() : std::nullopt;
+    if (!range || range->umin().getBitWidth() == 0)
+      return std::nullopt;
+    return range->getConstantValue();
   }
   // Whether it says the value is one constant, of any kind.
   bool isConstant() const { return constant || integer(); }
@@ -406,34 +350,43 @@ struct Region {
 };
 
 // What the pass reads where the compiler is built and when it is made,
-// never per function: each generated kind's op name, and each op's runtime
+// never per function: each generated kind's op name, and each op's
 // meaning, found once per pass instance by the class of op, which MLIR's
 // open op set forces to be read at run time.
 struct Kinds {
   // What the graph reads of an op of one class: the kind a pattern names it
-  // by, and its runtime meaning.
+  // by, and its meaning.
   struct OfOp {
     std::optional<std::uint16_t> kind;
     std::optional<Meaning> meaning;
   };
   // By the op's TypeID, sorted, for the one lookup an Operation * needs.
   std::vector<std::pair<mlir::TypeID, OfOp>> byTypeId;
-  // By kind: a node a rule built names its op by its kind.
+  // By kind: a node a rule built names its op by its kind, and is computed
+  // by its kind's meaning of a built node.
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
-  std::vector<std::optional<Meaning>> meanings;
+  std::vector<std::optional<MeaningOfBuilt>> built;
 
   OfOp of(mlir::Operation *op) const;
 };
 
-// Every op's runtime meaning, by its TypeID: each op the trait RuntimeFolds
-// gives the one fold, its value instance (Values.cpp).
-std::vector<std::pair<mlir::TypeID, Meaning>> runtimeMeanings();
+// Every op's meaning the graph computes, by its TypeID (Values.cpp): each
+// op the trait RuntimeFolds gives the one fold, its value instance; and
+// each of upstream's ops on Doubles whose result IEEE 754 fixes (the
+// generated ComputedOnDoubles), by the APFloat operation its own fold
+// applies.
+std::vector<std::pair<mlir::TypeID, Meaning>> meanings();
 
 // What a constant an op of the input holds says of its value, read once
 // from its attribute into the graph's own: an integer's interval, a
 // Double, a string, or a big (an interval of one value in the small range,
-// as the runtime holds it in its word); nothing for any other constant.
+// as the runtime holds it in its word; its cell past it, with the interval
+// its sign gives); nothing for any other constant.
 Facts heldFacts(mlir::Attribute value);
+
+// What a constant the graph knows says of its value: the constant, and,
+// for a big past the small range, the interval its sign gives.
+Facts factsOf(const Constant &constant);
 
 // The constant op of `value` at `type`, by `dialect`'s hook.
 mlir::Value materialized(mlir::Dialect &dialect, mlir::RewriterBase &rewriter, mlir::Location loc,
@@ -465,7 +418,7 @@ enum class Turn : std::uint8_t { First, Second };
 // pass, whichever pass runs it, is admitted only while its arena fits
 // beside the arenas in flight in the host's memory, so a small host
 // compiles more slowly and never differently. Read from the generated
-// tables, which only Rules.cpp includes.
+// tables, which Rules.cpp reads.
 std::uint32_t nodesPerOp();
 
 // The most operands any node a rule's right side builds has, read off the
@@ -526,6 +479,7 @@ public:
   const Class &classOfValue(mlir::Value value) const;
   template <class OpT>
   OpT memberBuiltBy(mlir::Value value) const;
+  std::optional<KnownConstant> knownOf(mlir::Value value) const;
   mlir::Attribute heldBy(mlir::Value value) const;
   Cost costOf(mlir::Value value) const;
 

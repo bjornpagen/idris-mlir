@@ -27,8 +27,9 @@ namespace idr {
 namespace {
 
 // The region of `op` a known scrutinee takes, from what the e-graph knows
-// of it (its constant, or the idr.data.con that made its chosen form) or
-// from its type's one constructor; none where it is not known.
+// of it (the data constant an op holds, which the graph reads only from
+// it, or the idr.data.con that made its chosen form) or from its type's one
+// constructor; none where it is not known.
 Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
   if (DataConOp con = constructorOf(scrutinee, facts)) {
@@ -40,7 +41,7 @@ Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
   }
   SmallVector<RegionSuccessor> taken;
   SmallVector<Attribute> constants(op->getNumOperands(), Attribute());
-  constants.front() = facts.constant(scrutinee);
+  constants.front() = facts.held(scrutinee);
   op.getEntrySuccessorRegions(constants, taken);
   return taken.size() == 1 ? taken.front().getSuccessor() : nullptr;
 }
@@ -78,16 +79,20 @@ Region *takenByInteger(LitMatchOp op, const APInt &value) {
 
 // The region a literal match on a known scrutinee takes. An integer the
 // graph knows is the one value of its range, never an attribute, so it
-// finds its key by value; a range of width 0 is of a value that holds no
-// integer. A string, a double or a big past the small range is known by the
-// constant an op holds, which the match's own lookup reads.
+// finds its key by value. A string, a double or a big past the small range
+// is found by the constant an op holds, which the match's own lookup reads:
+// one the graph computed holds no attribute, and is found once that lookup
+// reads the graph's values.
 Region *literalTaken(LitMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
-  if (std::optional<ConstantIntRanges> range = facts.range(scrutinee);
-      range && range->umin().getBitWidth() != 0)
-    if (std::optional<APInt> value = range->getConstantValue())
-      return takenByInteger(op, *value);
-  Attribute held = facts.constant(scrutinee);
+  if (std::optional<KnownConstant> known = facts.constant(scrutinee))
+    if (Region *taken = idr::match(
+            *known, [&](const APInt &value) { return takenByInteger(op, value); },
+            [](const OneOf<const Text *, Real, const Big *> auto &) -> Region * {
+              return nullptr;
+            }))
+      return taken;
+  Attribute held = facts.held(scrutinee);
   if (!held)
     return nullptr;
   SmallVector<RegionSuccessor> taken;

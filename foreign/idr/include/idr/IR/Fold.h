@@ -133,8 +133,9 @@ enum class Storage : std::uint8_t { Cell, Word };
 
 // Whether idr.constant may stand at `type` for a constant stored so: a
 // value used any number of times, at no hold or a static one, or, in its
-// word, at any hold. The grade's half of what idr.constant holds, which a
-// constant the e-graph computes asks without an attribute.
+// word, at any hold. The one statement of the grade's half of what
+// idr.constant holds: its verifier asks it of an attribute, and the
+// e-graph of a constant it computes, which holds none.
 bool constantStandsAt(mlir::Type type, Storage storage);
 
 // An op whose fold has a condition beyond its guards and its kinds: the

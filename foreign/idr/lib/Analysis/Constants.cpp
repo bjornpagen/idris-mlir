@@ -8,9 +8,6 @@
 #include "mlir/IR/Matchers.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <algorithm>
-#include <vector>
-
 // The never-folded list, generated with the e-graph's tables.
 #include "idr/IR/Generated/Rewrites.h.inc"
 
@@ -19,24 +16,22 @@ using mlir::dataflow::ConstantValue;
 
 namespace {
 
-bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaquePointer(); }
-
+// Whether `id` is one of the listed classes'. The list is a type, fixed
+// when the compiler is built, and each class's TypeID is the address of
+// its own static, fixed when the compiler is linked: so the test is the
+// list's compares, unrolled here, against constants, and nothing is built,
+// sorted or guarded when the compiler runs. Which class an op is is the one
+// fact MLIR's open op set leaves to run time.
 template <class... Ops>
-std::vector<TypeID> sortedIds(idr::egraph::table::OpList<Ops...>) {
-  std::vector<TypeID> ids{TypeID::get<Ops>()...};
-  std::sort(ids.begin(), ids.end(), beforeId);
-  return ids;
+bool listed(idr::egraph::table::OpList<Ops...>, TypeID id) {
+  return ((id == TypeID::get<Ops>()) || ...);
 }
 
 } // namespace
 
-// The list's TypeIDs, which MLIR's open op set leaves to run time, sorted
-// once for the process: an op class's TypeID is the same in every context.
 idr::Folding idr::foldingOf(Operation *op) {
-  static const std::vector<TypeID> never = sortedIds(egraph::generated::NeverFolded{});
-  return std::binary_search(never.begin(), never.end(), op->getName().getTypeID(), beforeId)
-             ? Folding::Never
-             : Folding::Folds;
+  return listed(egraph::generated::NeverFolded{}, op->getName().getTypeID()) ? Folding::Never
+                                                                              : Folding::Folds;
 }
 
 // Per result, the constant the return's operand is, or unknown where it is

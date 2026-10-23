@@ -82,6 +82,21 @@ OpT Function::memberBuiltBy(mlir::Value value) const {
   return OpT();
 }
 
+// The constant the value's class is, as its facts say it: an integer, the
+// one value of its interval, or the constant it holds, borrowed from the
+// class, whichever member said it.
+inline std::optional<KnownConstant> Function::knownOf(mlir::Value value) const {
+  const Facts &facts = classOfValue(value).facts;
+  if (std::optional<llvm::APInt> integer = facts.integer())
+    return KnownConstant(std::move(*integer));
+  if (!facts.constant)
+    return std::nullopt;
+  return match(
+      *facts.constant, [](const Text &text) { return KnownConstant(&text); },
+      [](const Real &real) { return KnownConstant(real); },
+      [](const Big &big) { return KnownConstant(&big); });
+}
+
 // The constant an op of the input in the value's class holds, as it holds
 // it, from a member: a constant the graph computed is a value, and no op
 // holds it.
@@ -103,7 +118,11 @@ inline mlir::Attribute Function::heldBy(mlir::Value value) const {
 
 namespace idr::egraph {
 
-inline mlir::Attribute OperandFacts::constant(mlir::Value value) const {
+inline std::optional<KnownConstant> OperandFacts::constant(mlir::Value value) const {
+  return function.knownOf(value);
+}
+
+inline mlir::Attribute OperandFacts::held(mlir::Value value) const {
   return function.heldBy(value);
 }
 

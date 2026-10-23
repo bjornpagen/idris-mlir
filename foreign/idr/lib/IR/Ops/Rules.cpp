@@ -7,6 +7,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Numeric/Intervals.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
@@ -76,10 +77,11 @@ ConstantIntRanges widest(Type type) {
 
 // The guard's own decision on what the graph knows of its operands: each
 // one's interval, an integer the graph knows being its one value, whether
-// an op holds it or the graph computed it, and the constant an op holds of
-// one an interval says nothing of. No fold is asked: a fold reads
-// attributes, which an integer the graph computed is not, and none is made
-// here.
+// an op holds it or the graph computed it (a big past the small range has
+// its sign's), and the constant an op holds of one an interval says nothing
+// of, as the decision's hook takes it, an attribute. A string or a Double
+// the graph computed holds none, so its guard is decided once the hook
+// reads the graph's values. No fold is asked, and no attribute is made.
 std::optional<Edit> GuardDecided::decide(GuardOpInterface guard, const OperandFacts &facts) {
   Operation *op = guard.getOperation();
   SmallVector<ConstantIntRanges> ranges;
@@ -88,7 +90,7 @@ std::optional<Edit> GuardDecided::decide(GuardOpInterface guard, const OperandFa
   constants.reserve(op->getNumOperands());
   for (Value operand : op->getOperands()) {
     ranges.push_back(facts.range(operand).value_or(widest(operand.getType())));
-    constants.push_back(facts.constant(operand));
+    constants.push_back(facts.held(operand));
   }
   switch (guard.decide(ranges, constants)) {
   case numeric::Known::Holds:
@@ -188,9 +190,14 @@ void OutputOfChar::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &rew
   rewriter.eraseOp(output);
 }
 
+// The string is the empty one wherever the graph knows it, an op's
+// constant or one the graph computed.
 std::optional<Edit> OutputOfNothing::decide(IoPutStrOp output, const OperandFacts &facts) {
-  auto text = dyn_cast_if_present<StringAttr>(facts.constant(output.getStr()));
-  if (text && text.getValue().empty())
+  std::optional<KnownConstant> known = facts.constant(output.getStr());
+  bool empty = known && match(
+                            *known, [](const Text *text) { return text->bytes().empty(); },
+                            [](const OneOf<APInt, Real, const Big *> auto &) { return false; });
+  if (empty)
     return Rewrite{};
   return std::nullopt;
 }

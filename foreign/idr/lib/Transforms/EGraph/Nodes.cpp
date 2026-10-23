@@ -313,7 +313,9 @@ std::optional<ClassId> Function::integer(const APInt &value, Type type) {
   return classOfNode(make(std::move(node), {ConstantIntRanges::constant(value), std::nullopt}));
 }
 
-// Two constants of one value and type are one node.
+// Two constants of one value and type are one node, which says what the
+// constant does of its value: a big past the small range, its sign's
+// interval too.
 std::optional<ClassId> Function::known(const Constant &value, Type type) {
   assert(placedAt(value, type) && "a constant has a node only where its constant op stands");
   Node node{node::Known{value}, type, childrenFor({})};
@@ -321,7 +323,7 @@ std::optional<ClassId> Function::known(const Constant &value, Type type) {
     return forest.find(classOfNode(*found));
   if (nodes.size() >= budget)
     return std::nullopt;
-  return classOfNode(make(std::move(node), {std::nullopt, value}));
+  return classOfNode(make(std::move(node), factsOf(value)));
 }
 
 bool Function::placeable(const Facts &facts, Type type) const {
@@ -407,8 +409,8 @@ std::optional<Facts> Function::meant(const What &what, Type type,
         return op.meaning ? (*op.meaning)(op.origin, type, constants) : std::nullopt;
       },
       [&](const node::Built &op) -> std::optional<Facts> {
-        const std::optional<Meaning> &meaning = kinds.meanings[op.kind];
-        return meaning ? meaning->ofBuilt(type, constants) : std::nullopt;
+        const std::optional<MeaningOfBuilt> &meaning = kinds.built[op.kind];
+        return meaning ? (*meaning)(type, constants) : std::nullopt;
       },
       []<Atom N>(const N &) -> std::optional<Facts> { return std::nullopt; });
   if (!facts)
