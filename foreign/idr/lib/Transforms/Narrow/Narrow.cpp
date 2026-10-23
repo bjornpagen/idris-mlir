@@ -139,7 +139,7 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
       if (isa<BigOfIntegerOpInterface>(op))
         return true;
       if (op->hasTrait<OpTrait::ConstantLike>())
-        return isBig(op->getResult(0).getType());
+        return isCarriedAsBig(op->getResult(0).getType());
       return isa<BigToIntOp>(op);
     };
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {

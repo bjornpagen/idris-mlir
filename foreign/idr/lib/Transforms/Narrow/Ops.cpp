@@ -160,7 +160,7 @@ struct NarrowArith : OpRewritePattern<OpT> {
       for (OpOperand &operand : op->getOpOperands())
         if (effects::consumes(operand) && owned(operand.get()))
           CountDropOp::create(rewriter, loc, operand.get());
-      if (isBig(op->getResult(0).getType()))
+      if (isCarriedAsBig(op->getResult(0).getType()))
         replaceBig(rewriter, op.getOperation(), made);
       else
         rewriter.replaceOp(op, made);
@@ -181,7 +181,7 @@ struct NarrowGuard : OpInterfaceRewritePattern<GuardOpInterface> {
     Value guarded = guard.getGuarded();
     Operation *op = guard.getOperation();
     return narrowed(rewriter, op, Takes::Words, [&](llvm::ArrayRef<ValueId> ids) {
-      if (!isBig(guarded.getType()) || !allFit(rewriter.facts, ids))
+      if (!isCarriedAsBig(guarded.getType()) || !allFit(rewriter.facts, ids))
         return false;
       rewriter.setInsertionPoint(op);
       Location loc = op->getLoc();
@@ -243,7 +243,7 @@ struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
   LogicalResult matchAndRewrite(LitMatchOp match, PatternRewriter &base) const override {
     WordRewriter &rewriter = at(base);
     Value scrutinee = match.getScrutinee();
-    if (!isBig(scrutinee.getType()))
+    if (!isCarriedAsBig(scrutinee.getType()))
       return failure();
     BlockArgument refined = match.getDefaultRegion().getArgument(0);
     ValueId binding = rewriter.facts.at(refined);

@@ -290,3 +290,16 @@ ByType DataType::getByType() const {
 }
 bool DataType::isCounted() const { return holdsReferences(); }
 bool DataType::isCellPointer() const { return layout() == Layout::Cell; }
+
+// A numeral whose indices fix its bound is a word of its layout's width,
+// read as its bits; one whose index is open is laid out as a natural, and
+// read as one. Any other data holds no number, and is read as its bits.
+NumericReading DataType::getNumericReading() const {
+  return !numeralBound() && layout() == Layout::Natural ? NumericReading::Natural
+                                                        : NumericReading::Bits;
+}
+
+// A numeral laid out as a natural is a big's word at run time, but no
+// Integer the big ops take: its constant is a constructor, never a
+// #idr.big, and it is narrowed as data, not as a big.
+bool DataType::isCarriedAsBig() const { return false; }

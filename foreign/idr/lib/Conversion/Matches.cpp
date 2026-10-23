@@ -316,6 +316,11 @@ struct LowerGroup : OpConversionPattern<Group> {
       entries.push_back(&region.front());
       tokens.push_back(static_cast<unsigned>(points.getTokens(region).size()));
     }
+    // Essential: a block leaves by a yield of this op, which gives its
+    // results, or by a jump, which names its join region by its token,
+    // each read through its own op's accessors; every other end (a branch
+    // between the blocks the regions became, one that never ends, a jump to
+    // an enclosing op) stays.
     for (Region &region : op->getRegions())
       for (Block &block : region) {
         Operation *terminator = block.getTerminator();

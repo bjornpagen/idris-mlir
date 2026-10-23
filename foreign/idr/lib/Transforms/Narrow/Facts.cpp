@@ -27,8 +27,6 @@ namespace idr::narrow {
 
 using ranges::Bounds;
 
-bool isBig(Type type) { return isa<BigType, NatType>(unrestricted(type)); }
-
 namespace {
 
 // `source`, an integer of at most 64 bits, as an i64, extended by
@@ -42,7 +40,8 @@ Value widened(OpBuilder &b, Location loc, Value source) {
 }
 
 bool touchesBigs(Operation *op) {
-  return llvm::any_of(op->getOperandTypes(), isBig) || llvm::any_of(op->getResultTypes(), isBig);
+  return llvm::any_of(op->getOperandTypes(), isCarriedAsBig) ||
+         llvm::any_of(op->getResultTypes(), isCarriedAsBig);
 }
 
 } // namespace
@@ -100,7 +99,7 @@ Facts::Facts(FuncOp fn, const Ranges::Solved &analysis)
     : numbering(fn), values(walk(fn)), carriers(values.size(),
                                  [&](ValueId v) {
                                    Value value = values[v];
-                                   if (!isBig(value.getType()))
+                                   if (!isCarriedAsBig(value.getType()))
                                      return Carrier::NoBig;
                                    return value.getDefiningOp<BigSmallOp>() ? Carrier::SmallBig
                                                                             : Carrier::Big;
@@ -154,7 +153,7 @@ Facts::Classified Facts::classify(Operation *joint) {
   SmallVector<std::pair<OpOperand *, Value>> edges;
   auto add = [&](Operation *from) {
     forwardedValues(from, [&](OpOperand &operand, Value input) {
-      if (!isBig(input.getType()))
+      if (!isCarriedAsBig(input.getType()))
         return;
       // What enters a match's region from its scrutinee is the match's own
       // binding of the value it reads, of the scrutinee's type, which the
@@ -214,7 +213,7 @@ Facts::Classified Facts::classify(Operation *joint) {
   for (Region &region : joint->getRegions())
     for (Block &block : region)
       for (BlockArgument arg : block.getArguments()) {
-        if (!isBig(arg.getType()))
+        if (!isCarriedAsBig(arg.getType()))
           continue;
         ValueId v = numbering.at(arg);
         if (!llvm::is_contained(
@@ -223,7 +222,7 @@ Facts::Classified Facts::classify(Operation *joint) {
       }
   out.argumentsEnd = out.results = static_cast<std::uint32_t>(owns.size());
   for (OpResult result : joint->getResults()) {
-    if (!isBig(result.getType()))
+    if (!isCarriedAsBig(result.getType()))
       continue;
     ValueId v = numbering.at(result);
     if (out.carries == out.carriesEnd || !held(v))

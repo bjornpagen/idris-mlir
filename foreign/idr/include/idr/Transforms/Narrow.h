@@ -49,9 +49,6 @@ namespace idr {
 
 namespace idr::narrow {
 
-// Whether `type` is a big or a natural, under any grade.
-bool isBig(mlir::Type type);
-
 // The bounds of `value` as `analysis` found them: the range its type
 // proves where the analysis lost it, none where it never reached it, and
 // the program's poison, which may be taken to be any value, a small. The

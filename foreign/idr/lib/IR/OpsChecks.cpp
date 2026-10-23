@@ -39,12 +39,12 @@ numeric::Known knownOf(numeric::Bit truth) {
   return truth.holds ? numeric::Known::Holds : numeric::Known::Fails;
 }
 
-// An Integer's zero is the runtime's small 0, no word of the op's, and its
-// interval states only a value within i64: its constant decides it, as the
-// one interval it is, at its own width. Essential, the two types a divisor
-// has.
-numeric::Known bigNonzero(BigAttr big) {
-  return numeric::nonzero(numeric::Intervals{}, ConstantIntRanges::constant(big.getValue())).known;
+// A divisor's constant, a word's or an Integer's (keyInteger), decided as
+// the one interval it is, at its own width: an Integer's zero is the
+// runtime's small 0, no word of the op's, and its interval states only a
+// value within i64, so its constant decides it past i64 too.
+numeric::Known constantNonzero(const APInt &value) {
+  return numeric::nonzero(numeric::Intervals{}, ConstantIntRanges::constant(value)).known;
 }
 
 // The length of what is indexed, where an op holds it as a constant string:
@@ -88,10 +88,8 @@ numeric::Known finiteOf(Attribute value) {
 
 // A constant other than zero.
 bool CheckNonzeroOp::holds(FoldAdaptor adaptor) {
-  if (auto big = dyn_cast_or_null<BigAttr>(adaptor.getValue()))
-    return bigNonzero(big) == numeric::Known::Holds;
-  auto word = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
-  return word && numeric::nonzero(numeric::Words{}, numeric::wordOf(word)).holds;
+  std::optional<APInt> value = keyInteger(adaptor.getValue());
+  return value && constantNonzero(*value) == numeric::Known::Holds;
 }
 
 bool CheckInBoundsOp::holds(FoldAdaptor adaptor) {
@@ -131,11 +129,12 @@ bool CheckRangeOp::holds(FoldAdaptor adaptor) {
 
 // Zero is outside the divisor's interval, or is all of it; an Integer's
 // interval is its value's (idr::ranges), so the same test decides it,
-// but for a constant past i64, which its constant decides.
+// but for a constant past i64, which its constant decides. A constant is
+// the one interval it is, so it decides a word's as well.
 numeric::Known CheckNonzeroOp::decide(ArrayRef<ConstantIntRanges> ranges,
                                       ArrayRef<Attribute> constants) {
-  if (auto big = dyn_cast_or_null<BigAttr>(constants[0]))
-    return bigNonzero(big);
+  if (std::optional<APInt> value = keyInteger(constants[0]))
+    return constantNonzero(*value);
   if (ranges[0].umin().getBitWidth() == 0)
     return numeric::Known::Unknown;
   return numeric::nonzero(numeric::Intervals{}, ranges[0]).known;

@@ -56,7 +56,7 @@ void fromInteger(Op op, ArrayRef<ConstantIntRanges> ranges, SetIntRangeFn setRes
 void ConstantOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
   // Any other constant is not an integer: it has no range to state.
   auto big = dyn_cast<BigAttr>(getValue());
-  if (!big || !isa<BigType, NatType>(unrestricted(getType())))
+  if (!big || !isCarriedAsBig(getType()))
     return;
   // A value outside i64 is outside the small range too.
   Bounds bounds;

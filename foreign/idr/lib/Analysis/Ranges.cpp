@@ -34,12 +34,9 @@ namespace {
 // scrutinee's range, of no width, has no bound for one to cut.
 SmallVector<APInt> integerKeys(idr::LitMatchOp match) {
   SmallVector<APInt> keys;
-  for (Attribute key : match.getCases()) {
-    if (auto word = dyn_cast<IntegerAttr>(key))
-      keys.push_back(word.getValue());
-    else if (auto big = dyn_cast<idr::BigAttr>(key))
-      keys.push_back(big.getValue());
-  }
+  for (Attribute key : match.getCases())
+    if (std::optional<APInt> integer = idr::keyInteger(key))
+      keys.push_back(std::move(*integer));
   return keys;
 }
 

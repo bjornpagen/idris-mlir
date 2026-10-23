@@ -63,17 +63,13 @@ void inlineLiteral(RewriterBase &rewriter, LitMatchOp op, Region &kept) {
 }
 
 // The region of a literal match whose scrutinee is the integer `value`: the
-// case whose key is that integer, else the default. Essential: a word's key
-// and a big's or a natural's are two attributes; a big's is compared by its
-// signed value, at any width.
+// case whose key is that integer (keyInteger), else the default. A key is
+// compared by its signed value, at any width: a big's is held at its
+// fewest bits.
 Region *takenByInteger(LitMatchOp op, const APInt &value) {
   unsigned width = value.getBitWidth();
   for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
-    std::optional<APInt> integer;
-    if (auto word = dyn_cast<IntegerAttr>(key))
-      integer = word.getValue();
-    else if (auto big = dyn_cast<BigAttr>(key))
-      integer = big.getValue();
+    std::optional<APInt> integer = keyInteger(key);
     if (integer && integer->getSignificantBits() <= width && integer->sextOrTrunc(width) == value)
       return &region;
   }

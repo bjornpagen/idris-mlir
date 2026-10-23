@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The literals of the scalar types of ours, and the names the printer gives
-// a value of each.
+// The literals of the scalar types of ours, the integer a big's literal is
+// as a key, how an Integer and a natural are read as numbers, and the names
+// the printer gives a value of each.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
@@ -56,6 +57,17 @@ bool NatType::isLiteral(Attribute literal) const {
 ParseResult NatType::parseLiteral(AsmParser &parser, Attribute &literal) const {
   return BigType::get(getContext()).parseLiteral(parser, literal);
 }
+
+// A big's literal, as a key of a literal match or a constant, is its
+// integer, held at its fewest signed bits.
+APInt BigAttr::getKeyInteger() const { return getValue(); }
+
+// An Integer is read as the integer it stands for, and a natural as one
+// never negative besides; each is the big the big ops take.
+NumericReading BigType::getNumericReading() const { return NumericReading::Integer; }
+bool BigType::isCarriedAsBig() const { return true; }
+NumericReading NatType::getNumericReading() const { return NumericReading::Natural; }
+bool NatType::isCarriedAsBig() const { return true; }
 
 void StrType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("s"); }
 void BigType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("n"); }

@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The idr dialect's generated definition: its enums and attributes as
 // mlir-tblgen defines them from the specification's printed ODS, its
-// constants as folding materializes them, the identities of the operations
-// an accumulator may combine, and what it registers when it is initialized.
+// constants as folding materializes them, the integers its constants are
+// and how a value of each type is read as a number, the identities of the
+// operations an accumulator may combine, and what it registers when it is
+// initialized.
 // The types are registered where their storage is complete (registerTypes).
 
 #include "idr/IR/IdrDialect.h"
@@ -61,14 +63,40 @@ std::optional<unsigned> wordWidth(Type plain) {
 
 } // namespace
 
+// A big's constant is an integer of any size, a natural's one never
+// negative, which the type's reading says.
 std::optional<APInt> idr::integerAt(Type type, std::int64_t value) {
-  Type plain = unrestricted(type);
-  if (isa<BigType>(plain) || (isa<NatType>(plain) && value >= 0))
+  if (isCarriedAsBig(type)) {
+    if (value < 0 && numericReadingOf(type) == NumericReading::Natural)
+      return std::nullopt;
     return APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true);
-  std::optional<unsigned> width = wordWidth(plain);
+  }
+  std::optional<unsigned> width = wordWidth(unrestricted(type));
   if (!width || !llvm::isIntN(*width, value))
     return std::nullopt;
   return APInt(*width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
+}
+
+// Upstream's integer attribute takes no interface of ours: the one typed
+// test of an attribute that is an integer, after every key of ours asked.
+std::optional<APInt> idr::keyInteger(Attribute attr) {
+  if (auto key = dyn_cast_or_null<IntegerKeyAttrInterface>(attr))
+    return key.getKeyInteger();
+  if (auto word = dyn_cast_or_null<IntegerAttr>(attr))
+    return word.getValue();
+  return std::nullopt;
+}
+
+// A type that does not answer, upstream's integer and index among them, is
+// read as its bits and is no big.
+NumericReading idr::numericReadingOf(Type type) {
+  auto numeric = dyn_cast<NumericTypeInterface>(unrestricted(type));
+  return numeric ? numeric.getNumericReading() : NumericReading::Bits;
+}
+
+bool idr::isCarriedAsBig(Type type) {
+  auto numeric = dyn_cast<NumericTypeInterface>(unrestricted(type));
+  return numeric && numeric.isCarriedAsBig();
 }
 
 namespace {
@@ -80,10 +108,9 @@ std::optional<Attribute> literalAt(Type type, std::int64_t value) {
   std::optional<APInt> integer = integerAt(type, value);
   if (!integer)
     return std::nullopt;
-  Type plain = unrestricted(type);
-  if (isa<BigType>(plain) || isa<NatType>(plain))
+  if (isCarriedAsBig(type))
     return BigAttr::get(type.getContext(), *integer);
-  return IntegerAttr::get(plain, *integer);
+  return IntegerAttr::get(unrestricted(type), *integer);
 }
 
 // The least or greatest signed value of `type`'s width, as an integer

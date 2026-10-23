@@ -6,6 +6,7 @@
 
 #include "idr/IR/Ranges.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -39,25 +40,6 @@ std::optional<int64_t> minus(std::optional<int64_t> x, std::optional<int64_t> y)
   if (x && y)
     return *x - *y;
   return std::nullopt;
-}
-
-// How a range of a value of a type is read: as bounds on the integer a big
-// stands for, or a natural, which is at least 0 besides, a bound past the
-// small range none; or as bounds on a word's bits, each end a bound.
-enum class Reading : unsigned char { Integer, Natural, Bits };
-
-Reading readingOf(Type type) {
-  type = unrestricted(type);
-  if (isa<BigType>(type))
-    return Reading::Integer;
-  if (isa<NatType>(type))
-    return Reading::Natural;
-  // A numeral whose indices fix its bound is a word of its layout's width;
-  // one whose index is open is laid out as a natural.
-  if (auto data = dyn_cast<DataType>(type);
-      data && !data.numeralBound() && data.layout() == Layout::Natural)
-    return Reading::Natural;
-  return Reading::Bits;
 }
 
 // One view's ends, [lo, hi] in its order.
@@ -162,23 +144,22 @@ ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
 // value has upstream's maximum range (IntegerValueRange::getMaxRange), so a
 // seed joins every range an op infers at the width the op infers it.
 IntegerValueRange ofType(Type type) {
-  switch (readingOf(type)) {
-  case Reading::Integer:
+  switch (numericReadingOf(type)) {
+  case NumericReading::Integer:
     return IntegerValueRange(rangeOf({}));
-  case Reading::Natural:
+  case NumericReading::Natural:
     return IntegerValueRange(rangeOf(natural()));
-  case Reading::Bits:
+  case NumericReading::Bits:
     break;
   }
-  type = unrestricted(type);
   // A numeral whose indices fix its bound is a word of its layout's width,
   // up to the largest value they allow, which the type kept when it was
   // made (`#Fin[3]` 0 to 2, so no bounds check on an index of one is
   // built). A data type of any other layout holds no integer.
-  if (auto data = dyn_cast<DataType>(type))
+  if (DataType data = dataTypeOf(type))
     if (std::optional<uint64_t> largest = data.numeralBound())
       return IntegerValueRange(nonNegative(families::numberBits(data.layout()), 0, *largest));
-  unsigned width = ConstantIntRanges::getStorageBitwidth(type);
+  unsigned width = ConstantIntRanges::getStorageBitwidth(unrestricted(type));
   // A width-0 APInt has no sign bit, so upstream stores the range of a value
   // that holds no integer as the one width-0 value in all four bounds.
   if (width == 0)
@@ -196,13 +177,13 @@ ConstantIntRanges excluding(Type type, const ConstantIntRanges &range, ArrayRef<
   // A value that holds no integer has no bounds to cut.
   if (width == 0)
     return range;
-  Reading reading = readingOf(type);
+  NumericReading reading = numericReadingOf(type);
   SmallVector<APInt> atWidth;
   for (const APInt &key : keys) {
     if (key.getSignificantBits() > width)
       continue;
     APInt at = key.sextOrTrunc(width);
-    if (reading != Reading::Bits && !inside(at.trySExtValue()))
+    if (reading != NumericReading::Bits && !inside(at.trySExtValue()))
       continue;
     atWidth.push_back(std::move(at));
   }
@@ -210,10 +191,10 @@ ConstantIntRanges excluding(Type type, const ConstantIntRanges &range, ArrayRef<
                [](const APInt &a, const APInt &b) { return a.slt(b); });
   ConstantIntRanges refined = ConstantIntRanges::fromSigned(s.lo, s.hi).intersection(range);
   switch (reading) {
-  case Reading::Integer:
-  case Reading::Natural:
+  case NumericReading::Integer:
+  case NumericReading::Natural:
     break;
-  case Reading::Bits: {
+  case NumericReading::Bits: {
     Ends u = cut({range.umin(), range.umax()}, std::move(atWidth),
                  [](const APInt &a, const APInt &b) { return a.ult(b); });
     refined = refined.intersection(ConstantIntRanges::fromUnsigned(u.lo, u.hi));

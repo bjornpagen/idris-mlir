@@ -7,7 +7,6 @@
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/Transforms/Narrow.h"
 
 #include "mlir/Interfaces/LoopLikeInterface.h"
 
@@ -28,10 +27,10 @@ LogicalResult wordLoop(const Request<Functions> &request) {
       WalkResult big = loop->walk([&](Operation *op) {
         for (Region &region : op->getRegions())
           for (Block &block : region)
-            if (llvm::any_of(block.getArgumentTypes(), narrow::isBig))
+            if (llvm::any_of(block.getArgumentTypes(), isCarriedAsBig))
               return WalkResult::interrupt();
-        if (llvm::any_of(op->getOperandTypes(), narrow::isBig) ||
-            llvm::any_of(op->getResultTypes(), narrow::isBig))
+        if (llvm::any_of(op->getOperandTypes(), isCarriedAsBig) ||
+            llvm::any_of(op->getResultTypes(), isCarriedAsBig))
           return WalkResult::interrupt();
         return WalkResult::advance();
       });

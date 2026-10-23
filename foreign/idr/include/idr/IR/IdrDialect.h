@@ -50,6 +50,8 @@
 // constraints name.
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
+// The words the question interfaces answer in, which their methods name.
+#include "idr/IR/Interfaces/Vocabulary.h"
 // The traits the generated ops are built on.
 #include "idr/IR/Traits.h"
 // The effect system's words and sets, the tree's states among them, which
@@ -89,6 +91,10 @@ class TagSet;
 #include "idr/IR/IdrTypeInterfaces.h.inc"
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
+
+// How a constant is laid out as static data, after the attributes and
+// types its alternatives hold, which the constant interface answers in.
+#include "idr/IR/Interfaces/StaticForm.h"
 
 // The dialect's types as the closed list a match over an mlir::Type folds:
 // every class mlir-tblgen generates, from the list it prints beside their
@@ -237,8 +243,25 @@ std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
 // big, and at a natural where it is not negative; of the type's width at an
 // integer or an index where it fits. Nothing where `value` is no value of
 // the type. The one rule from an integer to a constant's value, which the
-// dialect's identities and the e-graph's literals both read.
+// dialect's identities and the e-graph's literals both read; keyInteger is
+// its converse.
 std::optional<llvm::APInt> integerAt(mlir::Type type, std::int64_t value);
+
+// The integer an attribute is, as a key or a constant holds it: what a key
+// of ours that is an integer answers (IntegerKeyAttrInterface, a big's), or
+// upstream's integer attribute, a word's. Nothing for any other attribute,
+// or none. The one rule from a constant to its integer.
+std::optional<llvm::APInt> keyInteger(mlir::Attribute attr);
+
+// How a value of `type`, through its grade, is read as a number, as its
+// type answers (NumericTypeInterface): a type that does not answer is read
+// as a word's bits.
+NumericReading numericReadingOf(mlir::Type type);
+
+// Whether a value of `type`, through its grade, is an Integer the big ops
+// take, its constant a #idr.big, as its type answers (NumericTypeInterface):
+// a type that does not answer is none.
+bool isCarriedAsBig(mlir::Type type);
 
 namespace laws {
 // The identity of `op`'s operation, as the constant the dialect
