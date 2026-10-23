@@ -2407,6 +2407,7 @@ mappedApply m MNone = m
 mappedApply m (MEach a ms) = mappedApply (MApp m a) ms
 
 -- A head and its arguments, mapped: the image's head and arguments.
+export
 0 mappedSpine : Mapped mv bs vals c t t' -> Spine t h args ->
                 (h' : Term ys ** (args' : List (Term ys) **
                   (Spine t' h' args', Mapped mv bs vals c h h', AllMapped mv bs vals c args args')))
@@ -2489,6 +2490,7 @@ mappedFloats (MPLet _ _) PLetFloats = PLetFloats
 mappedFloats (MPVTy _) PVTyFloats = PVTyFloats
 mappedFloats (MLet _ _) (LetFloats holes) = LetFloats holes
 
+export
 0 mappedShows : Mapped mv bs vals c t t' -> Shows t s -> (s' : Term ys ** (Mapped mv bs vals c s s', Shows t' s'))
 mappedShows {t'} m Itself = (t' ** (m, Itself))
 mappedShows (MDotted m) (ThroughDot shows) = case mappedShows m shows of
@@ -2949,6 +2951,7 @@ mutual
 
 -- Values put in for the names a set of bounds replaces map a term that
 -- names no unknown by them to the term with the values put in.
+export
 0 putInMapped : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                 (t : Term (outer ++ vars)) -> mentions UnknownOnly bs t = False ->
                 Mapped KeepsLocals bs vs (size o) t (putIn o sz bs vs t)
