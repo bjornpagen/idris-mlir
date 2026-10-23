@@ -4,7 +4,9 @@
 // position, its hold kept or its claim forgotten on the way. It passes its
 // operand through, so a scoped result lives where its operand does or in a
 // lifetime that one encloses, which it states by its entry of `outers`, as
-// every op that makes a scoped value does.
+// every op that makes a scoped value does. And how a pass holds a value at
+// another grade of its carrier: the cast where the uses change, a share
+// where only the hold does.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -14,11 +16,16 @@
 using namespace mlir;
 using namespace idr;
 
-// One cast between types of one carrier at other uses, whose direction its
-// types say.
+// Between types of one carrier: the cast where the uses differ, whose
+// direction its types say, the hold kept or its claim forgotten on the
+// way; a share where only the hold does, which the cast is not, its claim
+// forgotten or static data given where a value that claims nothing is
+// asked; and nothing at the same grade.
 Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
   if (value.getType() == type)
     return value;
+  if (usesOf(value.getType()) == usesOf(type))
+    return CountShareOp::create(b, loc, type, value);
   return LinCastOp::create(b, loc, type, value);
 }
 

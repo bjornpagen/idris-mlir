@@ -153,15 +153,6 @@ EffectSet whole(Operation *op) {
   return set;
 }
 
-// A consumption is a free of the operand's count, which only an op of ours
-// declares, on the operand itself.
-bool consumes(OpOperand &operand) {
-  return declares(operand.getOwner(), Kinds{Kind::Free}, [&](const MemoryEffects::EffectInstance &instance) {
-    return stateOf(instance.getResource()) == ResourceId::Count &&
-           instance.getEffectValue<OpOperand *>() == &operand;
-  });
-}
-
 bool allocates(Operation *op, Value value) {
   return declares(op, Kinds{Kind::Allocate},
                   [&](const MemoryEffects::EffectInstance &instance) { return instance.getValue() == value; });

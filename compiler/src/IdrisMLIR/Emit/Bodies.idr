@@ -221,6 +221,16 @@ record Case where
 caseRegions : List Case -> List MLIR.Region
 caseRegions = map (\c => MkRegion c.arm.arguments c.arm.statements)
 
+||| What a region of a literal match binds, and its argument: the scrutinee
+||| at its own type, grade and hold, as the match moves it into every
+||| region. What a region knows of it, its key or none of the keys, is the
+||| match's to say, not the type's.
+rebound : Index -> Loc -> Val -> E (Val, Argument)
+rebound ix l scrut = do
+  n <- fresh
+  let r = { name := Bound n 0 } scrut
+  pure (r, MkArgument (operand ix r) (At l))
+
 ||| A field's position as `idr.data.field` holds it.
 fieldIndex : Nat -> MlirAttr
 fieldIndex i = IntegerAttr (natToInteger i) (IntegerType 64)
@@ -706,13 +716,13 @@ alg ix (CaseLitF l x arms) sc w = case arms of
     literals key alts@(_ :: _) d = do
       scrut <- coerce ix l Many (standing (sc.vars x))
       arms <- traverse (\(_, c) => do
-                          (inCase, arg) <- freshVal ix scrut.type Many
+                          (inCase, arg) <- rebound ix l scrut
                           (res, ops) <- collect (plain ix l (c.result (refining x inCase sc) ({ binder := Nothing } w)))
-                          pure (MkCase 0 (MkArm [MkArgument arg (At l)] res ops))) alts
-      (back, arg) <- freshVal ix scrut.type Many
+                          pure (MkCase 0 (MkArm [arg] res ops))) alts
+      (back, arg) <- rebound ix l scrut
       (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
       match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map (key . fst) alts)) (operand ix scrut) [] dr (caseRegions cs) ts)
-            arms (Just (MkArm [MkArgument arg (At l)] res ops))
+            arms (Just (MkArm [arg] res ops))
 
     literalsOf : (kt -> MlirAttr) -> LitArmsOf kt (Sub Em js nv) -> E (Maybe Val)
     literalsOf key (LitDefault alts d) = literals key (forget alts) d
@@ -726,12 +736,12 @@ alg ix (CaseNatF l x arms) sc w = case arms of
   OnlySucc p s => successor p s sc w !(coerce ix l Many (standing (sc.vars x)))
   Both z p s => do
     n <- coerce ix l Many (standing (sc.vars x))
-    (atZero, zarg) <- freshVal ix (NatT IOpaque) Many
+    (atZero, zarg) <- rebound ix l n
     (zr, zops) <- collect (plain ix l (z.result (refining x atZero sc) ({ binder := Nothing } w)))
-    (back, arg) <- freshVal ix (NatT IOpaque) Many
+    (back, arg) <- rebound ix l n
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
     match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
-          [MkCase 0 (MkArm [MkArgument zarg (At l)] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
+          [MkCase 0 (MkArm [zarg] zr zops)] (Just (MkArm [arg] sr sops))
   where
     successor : Shown -> Sub Em js (Under 1 nv) -> Scope js nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do

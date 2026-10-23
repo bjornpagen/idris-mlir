@@ -5,10 +5,12 @@
 // the flow interface (FlowEdges.h) and what upstream's interfaces declare
 // for it; and the flow rule the verifier holds a function to while it may
 // hold closures and suspensions. The label solve, the key decision of
-// idr-defunctionalize, the escape analysis, exclusivity, `consumes` and the
-// lifetimes' decide step read these edges, each those of the carrier it asks
-// about. An idr.func's body is one block, so no branch forwards a value in
-// one.
+// idr-defunctionalize, the escape analysis, exclusivity, counting's one
+// rule (referenceAt, movedOn: a counted operand's reference moves on where
+// an edge hands the use on, or a part of it the op takes over, or gives it
+// up) and the lifetimes' decide step read these edges, each those of the
+// carrier it asks about. An idr.func's body is one block, so no branch
+// forwards a value in one.
 //
 // Every op of ours with an edge to declare holds the interface in its ODS,
 // whose verifier holds its edges to their rule (verifyFlowEdges);

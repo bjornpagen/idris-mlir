@@ -64,12 +64,12 @@ coordinate ix l n = do
   w <- mlirValue l (IntegerType 64) (Idr.bigToIntOp (operand ix !(coerce ix l Many n)))
   mlirValue l IndexType (Arith.indexCastuiOp w)
 
-||| A coordinate as a natural, the variable `binder` bound to it.
+||| A coordinate as a natural, the variable `binder` bound to it: the small
+||| of its word, which has no cell, so it is held as static data is.
 natural : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Value -> E Val
 natural ix l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many made (NatT IOpaque)) (Idr.bigSmallOp w)
-  pure (val r.name (NatT IOpaque) Many made)
+  heldValue {binder} ix l Hold.Static (NatT IOpaque) (Idr.bigSmallOp w)
 
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.

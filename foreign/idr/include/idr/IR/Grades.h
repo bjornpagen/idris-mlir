@@ -326,9 +326,11 @@ mlir::Value arrayRoot(mlir::Value array);
 // that index moves into its one read.
 bool fieldReadOnce(mlir::Value value, unsigned index);
 
-// `value` held as `type`, its own type at other uses, its hold kept or
-// forgotten (holdFits): cast into a linear position, or out of one; itself
-// when the types agree.
+// `value` held as `type`, its carrier at another grade, whose hold the
+// value's fits (holdFits): cast into a linear position, or out of one,
+// where the uses differ (idr.lin.cast); shared where only the hold does, a
+// claim forgotten or static data given where a value that claims nothing
+// is asked (idr.count.share); itself when the types agree.
 mlir::Value heldAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 // An application compares a closure's declared types with the values it is

@@ -14,6 +14,7 @@
 // region moved: it stays an op until right before the lowering, where
 // upstream's lowerToLoopsUsingSCFForOp makes it its loops, and counting
 // meets it on buffers through its flow and effects in between.
+#include "idr/IR/Grades.h"
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -168,7 +169,9 @@ struct ReadModel : BufferizableOpInterface::ExternalModel<ReadModel, idr::ArrayR
 
 // The read of an extent that gives its array back: it reads the shape, no
 // element, and writes nothing; the array it gives is the array's buffer and
-// the extent the buffer's dimension, a natural made of the word it is.
+// the extent the buffer's dimension, the small of the word it is. A small
+// has no cell, so it is static data, used many; it is given at the
+// extent's own type, which every use of the extent was written for.
 struct ExtentModel : BufferizableOpInterface::ExternalModel<ExtentModel, idr::ArrayExtentOp> {
   bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
     return false;
@@ -198,8 +201,11 @@ struct ExtentModel : BufferizableOpInterface::ExternalModel<ExtentModel, idr::Ar
     Value size =
         memref::DimOp::create(rewriter, loc, *buffer, static_cast<int64_t>(extent.getAxis()));
     Value word = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getI64Type(), size);
-    Value natural = idr::BigSmallOp::create(rewriter, loc, extent.getExtent().getType(), word);
-    replaceOpWithBufferizedValues(rewriter, op, {natural, *buffer});
+    Type type = extent.getExtent().getType();
+    Type held =
+        idr::graded(idr::Grade{idr::Uses::Many, idr::Hold::staticData()}, idr::unrestricted(type));
+    Value small = idr::BigSmallOp::create(rewriter, loc, held, word);
+    replaceOpWithBufferizedValues(rewriter, op, {idr::heldAs(rewriter, loc, small, type), *buffer});
     return success();
   }
 };
