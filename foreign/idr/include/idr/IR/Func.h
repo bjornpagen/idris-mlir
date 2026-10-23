@@ -254,16 +254,33 @@ Values onSide(ExtentSide side, Values inputs, Values results) {
 // signature whose inputs are `inputs` static: a bare tensor input's axis,
 // which tensor.cast reaches, at a natural a dimension holds. None where
 // the type keeps the axis `?` on purpose, so the entry keeps the size: a
-// result keeps its callee's type, since a cast after a call would take a
-// tail call out of tail position; a graded array keeps its `?`, since no
-// cast keeps a grade; and a natural past MLIR's signed dimension is no
-// size. The substitution makes an axis static exactly where this gives a
-// size, and the function's verifier refuses a constant entry exactly
-// there, so the two read one rule.
+// result keeps every axis `?` (returnedAs), since a cast after a call
+// would take a tail call out of tail position; a graded array keeps its
+// `?`, since no cast keeps a grade; and a natural past MLIR's signed
+// dimension is no size. The substitution makes an axis static exactly
+// where this gives a size, and the function's verifier refuses a constant
+// entry exactly there, so the two read one rule.
 std::optional<std::int64_t> staticSizeAt(llvm::ArrayRef<mlir::Type> inputs, ExtentAt at,
                                          families::Term term);
 
+class ExtentAttr;
 class ExtentsAttr;
+
+// Whether a function can return a value of `type`: every value but a
+// graded array with a static axis. A function returns an array `?` at
+// every axis (returnedAs), and no cast keeps a grade, so nothing takes
+// such a value to the type its function would return.
+bool returnable(mlir::Type type);
+
+// The type a function returns a value of `type` at, as its result at
+// `position`, with what its extents keep of it appended to `entries` in
+// their order: every axis of an array `?`, whatever its size, each size
+// `type` fixed the constant term of its axis's entry. So the type a call
+// gives is the type a tail of its caller returns, and nothing stands
+// between a call and a return: the value of `type` is cast to this one
+// before its return instead. `type` is returnable.
+mlir::Type returnedAs(mlir::Type type, std::uint32_t position,
+                      llvm::SmallVectorImpl<ExtentAttr> &entries);
 
 // Whether a value of type `given` meets the value at `position` on `side`
 // of a signature whose extents are `extents` (null for none), which a call

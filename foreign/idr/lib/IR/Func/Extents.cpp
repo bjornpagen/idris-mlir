@@ -4,8 +4,9 @@
 // (`#idr.extents`, each entry its own `#idr.extent`, whose storage owns its
 // term's nodes): their syntax, what each entry and the list hold of
 // themselves, how an edit of the signature moves them, the one rule of
-// which axis a constant makes static, and the one rule of where a value
-// meets a signature's view by shape compatibility. What an entry names of
+// which axis a constant makes static, the one rule of the type a function
+// returns a value at, and the one rule of where a value meets a
+// signature's view by shape compatibility. What an entry names of
 // the signature and of the binders, and where a constant may stand, is the
 // function's verifier's. Their bytecode is printed from their wires; the
 // entries' list is written with the hooks the specification declares.
@@ -19,6 +20,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -111,8 +113,13 @@ LogicalResult ExtentAttr::verify(function_ref<InFlightDiagnostic()> emitError, E
 namespace {
 
 // What a known size makes an axis, by the side it is on: static on an
-// input; kept on a result, which keeps the callee's type.
+// input; kept on a result, which keeps every axis `?`.
 enum class AtSize { Static, Kept };
+
+// Whether an array holds an axis whose size its type fixes.
+bool fixesAnAxis(RankedTensorType array) {
+  return array.getNumDynamicDims() != array.getRank();
+}
 
 } // namespace
 
@@ -123,6 +130,33 @@ std::optional<std::int64_t> idr::staticSizeAt(ArrayRef<Type> inputs, ExtentAt at
       term.head().value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
     return std::nullopt;
   return static_cast<std::int64_t>(term.head().value);
+}
+
+bool idr::returnable(Type type) {
+  if (!isa<GradedType>(type))
+    return true;
+  auto array = dyn_cast<RankedTensorType>(unrestricted(type));
+  return !array || !fixesAnAxis(array);
+}
+
+// A bare array's sizes move into the entries and its axes become `?`, which
+// tensor.cast reaches; every other value a function returns is returned at
+// its own type, a graded array among them, whose axes are `?` already.
+Type idr::returnedAs(Type type, std::uint32_t position, SmallVectorImpl<ExtentAttr> &entries) {
+  assert(returnable(type) && "a function returns no graded array with a static axis");
+  auto array = dyn_cast<RankedTensorType>(type);
+  if (!array || !fixesAnAxis(array))
+    return type;
+  for (auto [axis, size] : llvm::enumerate(array.getShape())) {
+    if (ShapedType::isDynamic(size))
+      continue;
+    SmallVector<families::TermNode, 1> term;
+    families::TermWriter(term).natural(static_cast<std::uint64_t>(size));
+    entries.push_back(ExtentAttr::get(type.getContext(), ExtentSide::Result, position,
+                                      static_cast<std::uint32_t>(axis),
+                                      ArrayRef<families::TermNode>(term)));
+  }
+  return array.clone(SmallVector<std::int64_t>(array.getRank(), ShapedType::kDynamic));
 }
 
 bool idr::meets(Type given, Type asked, ExtentsAttr extents, ExtentSide side,

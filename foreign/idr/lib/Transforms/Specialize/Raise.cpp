@@ -82,7 +82,9 @@ FuncOp buildRaise(FuncOp callee, const RaiseKey &key, StringAttr name, const For
 
   // The consumer's free values keep their types, quantities included. The
   // copy returns what the consumer returns: the callee's results go, with
-  // what its signature states of them, and the consumer's take their place.
+  // what its signature states of them, and the consumer's take their place,
+  // with the sizes its extents keep of them, after the entries the copy
+  // keeps of the callee's parameters, so the entries stay in order.
   ArrayRef<Type> inputs = consumer.getArgumentTypes();
   unsigned arity = clone.getNumArguments();
   SmallVector<unsigned> positions(inputs.size() - 1, arity);
@@ -94,6 +96,13 @@ FuncOp buildRaise(FuncOp callee, const RaiseKey &key, StringAttr name, const For
   TypeRange returned = consumer.getResultTypes();
   (void)clone.insertResults(SmallVector<unsigned>(returned.size(), 0), returned,
                             SmallVector<DictionaryAttr>(returned.size(), DictionaryAttr()));
+  if (ExtentsAttr sizes = consumer.getExtentsAttr(); sizes && !sizes.getEntries().empty()) {
+    SmallVector<ExtentAttr> entries;
+    if (ExtentsAttr own = clone.getExtentsAttr())
+      llvm::append_range(entries, own.getEntries());
+    llvm::append_range(entries, sizes.getEntries());
+    clone.setExtentsAttr(ExtentsAttr::get(ctx, ArrayRef<ExtentAttr>(entries)));
+  }
   ValueRange extra = clone.getArguments().drop_front(arity);
 
   // The callee returns: its raise was asked for only then (decide).

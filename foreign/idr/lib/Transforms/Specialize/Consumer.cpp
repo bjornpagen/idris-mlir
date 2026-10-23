@@ -11,7 +11,11 @@
 // call's block, and the call may run at the dispatch. Nor may the callee
 // itself: its effects would then interleave with the consumer's, so its
 // row carries neither io nor crash, and where it may diverge the consumer
-// performs no io. Moving a call is licensed by its row alone.
+// performs no io. Moving a call is licensed by its row alone. The consumer
+// is a function, so it returns an array `?` at every axis, each size the
+// dispatch's type fixed kept in its extents and its value cast before the
+// return; a dispatch that gives a graded array with a static axis, which
+// no cast reaches, is not raised.
 
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Substitute.h"
@@ -23,6 +27,7 @@
 #include "idr/Transforms/Joins.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -118,6 +123,11 @@ std::optional<Elimination> consumerOf(CallOp call) {
   if (joins::scopeDepth(call->getParentRegion()) != 0 || bindsLevels(e->dispatch) ||
       llvm::any_of(e->steps(), bindsLevels))
     return std::nullopt;
+  // The consumer returns what the dispatch gives, and no function returns
+  // a graded array with a static axis: the call stays a call, the program
+  // less optimized and nothing refused.
+  if (!llvm::all_of(e->dispatch->getResultTypes(), returnable))
+    return std::nullopt;
   return e;
 }
 
@@ -143,13 +153,22 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
 
   SmallVector<Type> inputs{call.getResult(0).getType()};
   llvm::append_range(inputs, ValueRange(outside.getArrayRef()).getTypes());
+  // It returns what the dispatch gives as a function returns it, `?` at
+  // every axis of an array, each size the dispatch's type fixed kept as
+  // its extents' constant; a raise copy returns what it returns.
+  SmallVector<ExtentAttr> entries;
+  SmallVector<Type> results;
+  for (auto [position, type] : llvm::enumerate(dispatch->getResultTypes()))
+    results.push_back(returnedAs(type, static_cast<std::uint32_t>(position), entries));
   // The consumer keeps the dispatch's own place, so what a raise pushes
   // into a tail is found at the code it came from.
   Location loc = dispatch->getLoc();
   OpBuilder b(ctx);
   FuncOp::Properties properties;
   properties.setSymName(b.getStringAttr("consumer"));
-  properties.setFunctionType(TypeAttr::get(FunctionType::get(ctx, inputs, dispatch->getResultTypes())));
+  properties.setFunctionType(TypeAttr::get(FunctionType::get(ctx, inputs, results)));
+  if (!entries.empty())
+    properties.setExtents(ExtentsAttr::get(ctx, ArrayRef<ExtentAttr>(entries)));
   auto fn = FuncOp::create(b, loc, TypeRange(), ValueRange(), properties);
   Block *entry = b.createBlock(&fn.getBody(), {}, inputs, SmallVector<Location>(inputs.size(), loc));
   IRMapping map;
@@ -159,7 +178,16 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
   for (Operation *step : steps)
     b.clone(*step, map);
   Operation *copy = b.clone(*dispatch, map);
-  ReturnOp::create(b, loc, copy->getResults());
+  // A value whose type fixed a size is cast to the type returned before the
+  // return, so a raise pushes the cast into each tail with the consumer.
+  SmallVector<Value> returned;
+  for (auto [value, type] : llvm::zip_equal(copy->getResults(), results)) {
+    if (value.getType() == type)
+      returned.push_back(value);
+    else
+      returned.push_back(tensor::CastOp::create(b, loc, type, value).getResult());
+  }
+  ReturnOp::create(b, loc, returned);
   return fn;
 }
 

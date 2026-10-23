@@ -20,6 +20,12 @@
 // stood, so its tail fact is the one definition's answer there. Its row
 // is what the call and the consumer did, which its function contained
 // already; the writer derives the copy's own when its component is final.
+// It gives what the dispatch gave as a function returns it, `?` at every
+// axis of an array, so where the dispatch's type fixed a size the value
+// reaches the dispatch's uses cast back to that type, after the call. A
+// use that cast it to the call's type, as a tail does before its return,
+// takes the call's result itself, so no cast stands between the call and
+// a return and a raise of a recursion keeps its tail call.
 
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/IdrDialect.h"
@@ -102,6 +108,35 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   return fresh;
 }
 
+namespace {
+
+// `given`, what a raise's call gives at the type a function returns it,
+// where the dispatch gave `had`, placed after the call: each use of `had`
+// takes `given` itself where the two types are one, or where the use is a
+// tensor.cast to the type `given` has already, which the cast then states
+// nothing of; any other use takes `given` cast back to the type of `had`,
+// which fixed a size the function's type leaves `?`. A return gives its
+// function's type, `?` at every axis, so it reads `had` only through such a
+// cast, and nothing stands between the call and a return.
+void giveAs(RewriterBase &rewriter, Location loc, Value given, Value had) {
+  if (given.getType() == had.getType()) {
+    rewriter.replaceAllUsesWith(had, given);
+    return;
+  }
+  for (OpOperand &use : llvm::make_early_inc_range(had.getUses()))
+    if (auto widened = dyn_cast<tensor::CastOp>(use.getOwner());
+        widened && widened.getType() == given.getType()) {
+      rewriter.replaceAllUsesWith(widened.getResult(), given);
+      rewriter.eraseOp(widened);
+    }
+  if (had.use_empty())
+    return;
+  rewriter.replaceAllUsesWith(had,
+                              tensor::CastOp::create(rewriter, loc, had.getType(), given).getResult());
+}
+
+} // namespace
+
 // A raise replaces what the dispatch returns; the steps from the call's
 // result to the dispatch, each the one use of the one before, go from the
 // dispatch back, and the call last.
@@ -115,7 +150,9 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   CallOp fresh = callOf(rewriter, call.getLoc(), target, type.getResults(), call.getIndexArgsAttr(),
                         want.operands, TailKind::nontail, row);
   SmallVector<Value> old(call.getArgs());
-  rewriter.replaceOp(dispatch, fresh.getResults());
+  for (auto [given, had] : llvm::zip_equal(fresh.getResults(), dispatch->getResults()))
+    giveAs(rewriter, dispatch->getLoc(), given, had);
+  rewriter.eraseOp(dispatch);
   for (Operation *step : llvm::reverse(want.consumer.steps()))
     rewriter.eraseOp(step);
   rewriter.eraseOp(call);

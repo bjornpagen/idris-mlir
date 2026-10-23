@@ -70,8 +70,10 @@ SmallVector<BindingTime> seenBy(const CallSite &site, const optimize::Readable &
 // results; a signature copy has its key's signature, static at each bare
 // tensor argument's axis the call's index arguments make a constant; a
 // raise copy takes the call's operands and the consumer's free values and
-// returns what the consumer does.
-FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want) {
+// returns what the consumer's function, the form its key names, returns:
+// what the dispatch gives, `?` at every axis of an array.
+FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want,
+                    const Forms &forms) {
   return idr::match(
       want,
       [&](const PatternWant &) {
@@ -83,7 +85,7 @@ FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want) {
       [](const SignatureWant &copy) { return copy.key->signature; },
       [&](const RaiseWant &raise) {
         return FunctionType::get(owner.getContext(), ValueRange(raise.operands).getTypes(),
-                                 raise.consumer.dispatch->getResultTypes());
+                                 forms.at(raise.key->form).getResultTypes());
       });
 }
 
@@ -177,7 +179,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
         grant.asked.key, [](const PatternKey *k) { return k->owner; },
         [](const RaiseKey *k) { return k->callee; }, [](const SignatureKey *k) { return k->owner; });
     FuncOp ownerFn = schedule.readable(self, owner).fn;
-    FunctionType type = typeOf(grant, ownerFn, **want);
+    FunctionType type = typeOf(grant, ownerFn, **want, nodes.forms());
     FlatSymbolRefAttr target = grant.asked.name;
     redirected += idr::match(
         **want,
