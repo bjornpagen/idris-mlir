@@ -1936,6 +1936,22 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   caller in a mixed group and rewrites signatures after Emit) and C (the
   lost tail call, against D30). C262's array result is the same rule's
   array case, unchanged.
+- **D130** (2026-10-23; the owner; L18y's evidence on D129's open
+  copy). "1 is good": a data type carries a layout mark,
+  `!idr.data<#Vect[4] open>`: the indices Idris proved stay, and the
+  value is laid out as at an unknown index (a cell where its indices
+  would put it inline). D129's open copy returns its result marked open,
+  so nothing it knew is dropped: a match on it still knows its indices
+  and prunes the cases they rule out, and the reindex after a redirected
+  tail call is refined by the scope rule as any other, unchanged. The
+  mark is part of the type, so layout is still computed from the type;
+  refinement and identity of indices ignore it, substitution keeps it,
+  and the layout classes and layout comparison read it. It follows
+  upstream's own form for one shape in another layout (a tensor's
+  `encoding`, a memref's `layout`). Rejected: a data index's known value
+  kept in the function's extents beside an opaque type (C262's form,
+  which arrays keep only because the tensor type is upstream's), and a
+  stated trust in the redirected reindex.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
