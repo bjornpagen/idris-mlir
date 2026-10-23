@@ -4,6 +4,7 @@ module Core.TT.Primitive
 
 import Core.Name
 
+import Data.Buffer
 import Data.String
 
 import Idris.Pretty.Annotations
@@ -182,7 +183,10 @@ Eq PrimType where
   _ == _ = False
 
 -- Public, so that a proof reads off the evaluator's comparison of
--- constants: each type's own equality, a double's the runtime's.
+-- constants: each type's own equality, a double's the runtime's. It is the
+-- program's comparison, which a match on a constant makes; conversion
+-- reads a double by its bits instead (`doubleBits`), since by `==` 0.0 is
+-- -0.0 and no NaN is itself.
 public export
 Eq Constant where
   (I x) == (I y) = x == y
@@ -201,6 +205,18 @@ Eq Constant where
   (PrT x) == (PrT y) = x == y
   WorldVal == WorldVal = True
   _ == _ = False
+
+||| A double's IEEE 754 binary64 bits: the double stored into `word`, of
+||| eight bytes, and the word loaded back, base's buffer operations, whose
+||| one meaning is the runtime's on either host. The store and the load are
+||| in the machine's byte order, so the order cancels. Every double is read
+||| as it is held, -0.0 and a NaN's sign and payload among them, with no
+||| arithmetic between.
+export
+doubleBits : HasIO io => (word : Buffer) -> Double -> io Bits64
+doubleBits word d = do
+  setDouble word 0 d
+  getBits64 word 0
 
 export
 Ord PrimType where
