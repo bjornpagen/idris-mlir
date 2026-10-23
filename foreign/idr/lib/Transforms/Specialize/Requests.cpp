@@ -12,6 +12,7 @@
 // it alone (the beta step of a recursion), as the member's turn left it.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
@@ -123,12 +124,30 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
 // every call inside it, which the walk has not met yet; no other redirect
 // erases a call but its own. So before a raise, each call still to come
 // that the dispatch holds is marked by its number, and the walk passes it.
+//
+// Where each call's results go is read once, off the function's tails
+// before any redirect. A redirect touches its own call, the ops that built
+// its arguments and the uses of its results; a raise, the ops from its call
+// to the dispatch, which its call replaces. Any such op on another call's
+// way to the return has a call or a use of one's results on that way too,
+// before the edit and after, so that call was no tail and is none: no
+// other call's standing moves.
 FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes) {
   FunctionId self = schedule.graph.id(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
   Requester &asking = schedule.requesterOf(self);
   const Node *requester = nodes.find(self);
   SmallVector<CallOp> calls;
   fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+  // The calls whose results reach the function's return through a re-pack:
+  // the tails lost to a layout.
+  SmallVector<Operation *> lost;
+  for (const tail::Tail &each : tail::tailsOf(fn))
+    if (each.repack && isa<CallOp>(each.source))
+      lost.push_back(each.source);
+  auto standingOf = [&](CallOp call) {
+    return llvm::is_contained(lost, call.getOperation()) ? TailStanding::LostToLayout
+                                                         : TailStanding::Elsewhere;
+  };
   auto count = static_cast<unsigned>(calls.size());
   llvm::BitVector erased(count);
   IRRewriter rewriter(fn.getContext());
@@ -146,7 +165,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
     if (std::optional<optimize::Readable> known = schedule.final(*callee)) {
       CallSite site = siteOf(schedule, self, requester, *callee);
       want = decide(nodes.arena(), nodes.forms(), call, requester, known->fn, *callee,
-                    nodes.find(*callee), seenBy(site, *known), site);
+                    nodes.find(*callee), seenBy(site, *known), site, standingOf(call));
     } else if (schedule.sameComponent(self, *callee)) {
       // The beta step: closures built for this call alone, applied to a
       // member of the component, keyed by those closures, so their cells

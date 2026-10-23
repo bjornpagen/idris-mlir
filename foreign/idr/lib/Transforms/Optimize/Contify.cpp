@@ -24,11 +24,13 @@
 // stays a function. Nothing is copied, so nothing is budgeted.
 //
 // A call in a moved body that ended its function now ends a join region:
-// where the group stands at a continuation, the region gives on to the code
-// after the call, and the call is no longer in tail position. Its tail fact
-// is the one definition's answer where it now stands, and that answer only
-// ever loses a tail position at a continuation the program already had,
-// so no stack grows that the program as written did not grow.
+// where the group stands in a function, the region gives on to that
+// function's return, and the call is a tail call still; where it stands at
+// a continuation, the region gives on to the code after the call, and the
+// call is no longer in tail position, which only ever loses a tail position
+// at a continuation the program already had, so no stack grows that the
+// program as written did not grow. A call of the function the group moves
+// into is a self call there, and takes the context the rule reads off it.
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Families/Substitute.h"
@@ -228,11 +230,23 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   });
 
   IRRewriter rewriter(program.getContext());
-  // Each call left in a body a group just moved, its tail fact where it now
-  // stands; every other call stands where it stood. A body moved again by
-  // a group placed later is decided again there.
-  auto decideMoved = [](Region &moved) {
-    moved.walk([](idr::CallOp call) { call.setTailKind(idr::tail::decide(call)); });
+  // Each call left in a body a group just moved into `host`, once the jumps
+  // replaced its sites: a tail call stays one where the group's place keeps
+  // tails (a function's own body, whose return the group gives on to), every
+  // other call ends no tail, and one of `host` itself, a self call now,
+  // takes its context where it now stands. Every other call stands where it
+  // stood. A body moved again by a group placed later is written again
+  // there.
+  enum class Place : std::uint8_t { KeepsTails, Continuation };
+  auto placeMoved = [](Region &moved, idr::FuncOp host, Place place) {
+    moved.walk([&](idr::CallOp call) {
+      if (place == Place::KeepsTails && idr::tailCallOf(call))
+        return;
+      if (call.getCalleeAttr().getAttr() == host.getSymNameAttr())
+        call.setTailKind(idr::tail::withContext(call));
+      else
+        call.setTailKind(idr::TailKind::nontail);
+    });
   };
   unsigned placed = 0;
   // Each function's place among the members of the group being placed, by
@@ -307,7 +321,7 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
             for (const idr::joins::Site &site : sites)
               idr::joins::jumpAt(rewriter, site,
                                  group.targets.tokenFor(site.target, site.op->getParentRegion()));
-            decideMoved(h.getBody());
+            placeMoved(h.getBody(), h, Place::KeepsTails);
           },
           [&](const Continuation &k) {
             // The call that leaves for the group's entry is a site of the
@@ -319,9 +333,12 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
               sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i), 0);
             sites.push_back(idr::joins::Site{call, *memberOf[graph.id(call.getCalleeAttr())],
                                              call.getArgs(), call.getIndexArgsAttr()});
+            // The function the call stands in now, which a group placed
+            // earlier may have moved it into.
+            auto in = call->getParentOfType<idr::FuncOp>();
             Operation *outer = idr::joins::wrap(rewriter, call, regions, sites, ending);
             for (Region &region : outer->getRegions())
-              decideMoved(region);
+              placeMoved(region, in, Place::Continuation);
           });
       for (FunctionId fn : members)
         rewriter.eraseOp(graph.op(fn));

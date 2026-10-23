@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Tail position: the one definition, the call's own check of its fact and
-// of its result layout, its function's, and the one reading of the fact a
-// call holds. Tail position modulo a context is Tail/Context.cpp's.
+// Tail position: the one reading of where a function's tails are, down from
+// its body; the call's own check of its fact and of its result layout, its
+// function's; and the one reading of the fact a call holds. Tail position
+// modulo a context is Tail/Context.cpp's.
 
 #include "idr/IR/Tail.h"
 
@@ -26,7 +27,7 @@
 #include <utility>
 
 // What each stage of a program implies: whether every call's tail fact is
-// the decider's.
+// exactly where it stands, and whether tail calls' layouts agree.
 #include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
@@ -208,48 +209,50 @@ llvm::SmallVector<Block *> tailEnds(FuncOp fn) {
   return ends;
 }
 
-namespace {
-
-// The way `op`'s results go to their function's return, read up through
-// each region op a break crosses whose results they become: the first
-// re-pack on it, null where every op on it gives them on freely; none where
-// they reach no return, another op running after one on the way or a
-// terminator forwarding anything else. The one climb: tail position is a
-// way with no re-pack on it, and a tail lost to a layout one with a re-pack.
-struct Way {
-  Operation *repack;
-};
-
-std::optional<Way> wayOf(Operation *op) {
-  llvm::SmallVector<Value, 4> values;
-  Operation *repack = nullptr;
-  for (Operation *at = op;;) {
-    std::optional<Passage> passage = passageOf(at, values);
-    if (!passage)
-      return std::nullopt;
-    if (!repack)
-      repack = passage->repack;
-    if (returnsFromFunction(passage->terminator))
-      return Way{repack};
-    at = rejoinOf(passage->terminator);
-    if (!at)
-      return std::nullopt;
+llvm::SmallVector<Tail> tailsOf(Block &block) {
+  llvm::SmallVector<Tail> tails;
+  // Each block still to read, with the re-pack between what it gives and
+  // the return, null where none stands there.
+  struct Leg {
+    Block *block;
+    Operation *repack;
+  };
+  llvm::SmallVector<Leg, 8> spine{{&block, nullptr}};
+  while (!spine.empty()) {
+    Leg leg = spine.pop_back_val();
+    std::optional<Given> given = givenBy(*leg.block);
+    if (!given)
+      continue;
+    // The re-pack nearest what the block gives names that value's layout.
+    Operation *repack = given->repack ? given->repack : leg.repack;
+    tails.push_back({given->source, repack});
+    if (given->source->hasTrait<OpTrait::PropagateControlFlowBreak>())
+      forEachRejoining(given->source, [&](Block &entry) { spine.push_back({&entry, repack}); });
   }
+  return tails;
 }
 
-} // namespace
-
-bool inTailPosition(Operation *op) {
-  std::optional<Way> way = wayOf(op);
-  return way && !way->repack;
+// A body that ends in no return (a crash, an exit) gives its callers
+// nothing, so nothing in it is a tail.
+llvm::SmallVector<Tail> tailsOf(FuncOp fn) {
+  Block &body = fn.getBody().front();
+  if (!returnsFromFunction(body.getTerminator()))
+    return {};
+  return tailsOf(body);
 }
 
-TailKind decide(CallOp call) {
-  if (inTailPosition(call))
-    return TailKind::tail;
-  if (contextOf(call))
-    return TailKind::modulo_context;
-  return TailKind::nontail;
+llvm::SmallVector<Operation *> sourcesOf(FuncOp fn) {
+  llvm::SmallVector<Operation *> sources;
+  for (const Tail &each : tailsOf(fn))
+    if (!each.repack)
+      sources.push_back(each.source);
+  return sources;
+}
+
+// A tail call's result goes to its function's return, never into a cell,
+// so the rule admits a context only of a call that ends no tail.
+TailKind withContext(CallOp call) {
+  return contextOf(call) ? TailKind::modulo_context : TailKind::nontail;
 }
 
 bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTails::Decided; }
@@ -257,10 +260,10 @@ bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTai
 namespace {
 
 // Whether every tail call's results are laid out as its caller's at the
-// program's stage: from Graded on. Before it, the decider leaves a call
-// whose result is re-packed on its way to the return no tail call, and
-// idr-optimize's specializer makes it one by keying its callee's copy to
-// the caller's layout.
+// program's stage: from Graded on. Before it, a call whose result is
+// re-packed on its way to the return is no tail call, and idr-optimize's
+// specializer makes it one by keying its callee's copy to the caller's
+// layout.
 bool layoutsAgree(FuncOp fn) {
   return tailLayoutsAt[fn.getProgram().getStage()] == StageTailLayouts::Agree;
 }
@@ -324,60 +327,43 @@ LogicalResult verify(CallOp call) {
 }
 
 LogicalResult verify(FuncOp fn) {
-  // The tail calls of the function, and the calls its spine reaches: each
-  // block whose terminator gives what the function gives, but for the
-  // layouts a re-pack on the way converts between, from the body down
-  // through every region op a break crosses whose results the block gives
-  // on, read once, with the re-pack, if any, between it and the return.
-  // Each call there with no re-pack on its way is in tail position, so,
+  // The calls among the function's tails, each with the re-pack, if any,
+  // between it and the return. Each with none is in tail position, so,
   // once every fact is decided, one that is no tail call is a jump the
   // compiler fails to make; each with one is where a tail would be, and,
   // once tail calls' layouts agree with their callers', a jump the
   // compiler fails to make too, whichever fact it holds.
+  bool exact = decided(fn);
+  bool agree = layoutsAgree(fn);
+  llvm::SmallVector<CallOp> reached;
+  for (const Tail &each : tailsOf(fn)) {
+    auto call = dyn_cast<CallOp>(each.source);
+    if (!call)
+      continue;
+    if (each.repack) {
+      if (agree)
+        return lostToRepack(call, each.repack);
+      continue;
+    }
+    if (tailCallOf(call))
+      reached.push_back(call);
+    else if (exact)
+      return call.emitOpError("internal error: a call in tail position that is no tail call, a "
+                              "jump the compiler fails to make");
+  }
+  // Each tail reached is one tail call, so as many tail calls as reached
+  // are each among them.
   unsigned tails = 0;
   fn.walk([&](CallOp call) {
     if (tailCallOf(call))
       ++tails;
   });
-  bool exact = decided(fn);
-  bool agree = layoutsAgree(fn);
-  unsigned reached = 0;
-  struct Leg {
-    Block *block;
-    Operation *repack;
-  };
-  llvm::SmallVector<Leg, 8> spine{{&fn.getBody().front(), nullptr}};
-  while (!spine.empty()) {
-    Leg leg = spine.pop_back_val();
-    std::optional<Given> given = givenBy(*leg.block);
-    if (!given)
-      continue;
-    // The re-pack nearest what the block gives names that value's layout.
-    Operation *repack = given->repack ? given->repack : leg.repack;
-    if (given->source->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
-      forEachRejoining(given->source, [&](Block &entry) { spine.push_back({&entry, repack}); });
-      continue;
-    }
-    auto call = dyn_cast<CallOp>(given->source);
-    if (!call)
-      continue;
-    if (repack) {
-      if (agree)
-        return lostToRepack(call, repack);
-      continue;
-    }
-    if (tailCallOf(call))
-      ++reached;
-    else if (exact)
-      return call.emitOpError("internal error: a call in tail position that is no tail call, a "
-                              "jump the compiler fails to make");
-  }
-  if (reached == tails)
+  if (reached.size() == tails)
     return success();
-  // Some tail call is off the spine: name it, reading up from each.
+  // Some tail call is no tail of the function: name it.
   LogicalResult result = success();
   fn.walk([&](CallOp call) {
-    if (tailCallOf(call) && !inTailPosition(call)) {
+    if (tailCallOf(call) && !llvm::is_contained(reached, call)) {
       result = call.emitOpError("internal error: a tail call that is not in tail position: an "
                                 "op runs after a region op around it");
       return WalkResult::interrupt();
@@ -414,14 +400,6 @@ namespace idr {
 CallOp tailCallOf(Operation *op) {
   auto call = dyn_cast<CallOp>(op);
   return call && call.getTailKind() == TailKind::tail ? call : CallOp();
-}
-
-CallOp repackedTailOf(Operation *op) {
-  auto call = dyn_cast<CallOp>(op);
-  if (!call)
-    return CallOp();
-  std::optional<tail::Way> way = tail::wayOf(call);
-  return way && way->repack ? call : CallOp();
 }
 
 CallOp lastActOf(Operation *op) {

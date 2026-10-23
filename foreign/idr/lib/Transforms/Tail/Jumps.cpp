@@ -136,9 +136,11 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
     rewriter.setInsertionPoint(terminator);
     CallOp::create(rewriter, terminator->getLoc(), resumes[row], IndexArgsAttr::get(ctx, {}, 0),
                    given, TailKind::tail);
-    // A call whose value goes to the resume returns here first.
+    // A call whose value goes to the resume returns here first, and calls
+    // out of the component, never its own function, so it holds no
+    // context: an ordinary call.
     if (call)
-      call.setTailKind(decide(call));
+      call.setTailKind(TailKind::nontail);
   }
 
   // Nothing is given at any tail now: every block of the spine forwards

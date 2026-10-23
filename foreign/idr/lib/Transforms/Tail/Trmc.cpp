@@ -46,6 +46,7 @@
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Effects.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Tail.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -154,19 +155,21 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       if (failed(again.give(cloneReturned, 0, Written{clone.getArgument(arity)})) ||
           failed(first.give(returned, 0, Given{})))
         return signalPassFailure();
-      // Each call takes the kind its final place gives it: the clone's
-      // calls in its tails are tail calls, the function's first level calls
-      // the clone and then returns the value it built, and a call whose
-      // value a tail of the clone now writes returns to it. No call modulo
-      // a context is left.
+      // Each call takes the kind its final place gives it, read off each
+      // function's tails, since the rewrite moved calls and the ops after
+      // them throughout both: the clone's calls in its tails are tail
+      // calls, the function's first level calls the clone and then returns
+      // the value it built, and a call whose value a tail of the clone now
+      // writes returns to it. No call modulo a context is left.
+      (void)optimize::decideTails(fn);
+      (void)optimize::decideTails(clone);
       LogicalResult kinds = success();
-      auto settle = [&](CallOp call) {
-        call.setTailKind(decide(call));
+      auto settled = [&](CallOp call) {
         if (contextCallOf(call))
           kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
       };
-      fn.walk(settle);
-      clone.walk(settle);
+      fn.walk(settled);
+      clone.walk(settled);
       if (failed(kinds))
         return signalPassFailure();
       made.push_back({fn, clone});

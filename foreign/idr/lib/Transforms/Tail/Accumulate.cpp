@@ -151,8 +151,10 @@ Value identityAt(RewriterBase &rewriter, Location loc, const Combination &by, Ty
 // The value the combination at `site` takes beside the call's, ready where
 // the combination is: a law's other operand; or what the short circuit's
 // other region gives, its ops moved out before the match, which they may
-// precede (they only compute, on every path), each call among them taking
-// the fact its new place gives it.
+// precede (they only compute, on every path). Each call among them ends no
+// tail where it now stands, before the match whose region gave its value
+// on, and calls no self call (mayLead), so it holds no context: an
+// ordinary call.
 Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
   return idr::match(
       site.by,
@@ -167,7 +169,7 @@ Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
           moved.push_back(&op);
         }
         for (Operation *op : moved)
-          op->walk([](CallOp call) { call.setTailKind(decide(call)); });
+          op->walk([](CallOp call) { call.setTailKind(TailKind::nontail); });
         return body.getTerminator()->getOperand(0);
       });
 }
@@ -220,8 +222,9 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
         });
 
   // Every other tail of the clone combines the value it gives, on the side
-  // the calls were on; a call that gave it is no longer in tail position,
-  // and takes the fact its place now gives it.
+  // the calls were on; a call that gave it returns to the combination now,
+  // and calls another function than the clone, so it holds no context: an
+  // ordinary call.
   for (Block *end : tailEnds(clone)) {
     Operation *terminator = end->getTerminator();
     if (terminator->getNumOperands() != 1)
@@ -237,7 +240,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
                       : combine(rewriter, loc, plan.by, carriedType, carried, value);
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, given); });
     if (call)
-      call.setTailKind(decide(call));
+      call.setTailKind(TailKind::nontail);
   }
 
   // The function the program calls starts the clone at the identity.
@@ -262,7 +265,10 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
 // value: once an operand decides, the answer is decided, and the rest of
 // the recursion, which only computes, is skipped. idr-tail-loops makes the
 // loop. Where the operand's type already says which constructor it is,
-// that decides here: the call stays, a tail call, or goes.
+// that decides here: the call stays, a tail call, or goes. The combination
+// was a tail of the function with no re-pack on the way, and the call
+// gives what it gave, in its place or from the region whose end gives the
+// match that replaces it, so the call is a tail call.
 void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
                      const ShortCircuit &circuit) {
   for (const Site &site : plan.sites)
@@ -291,7 +297,7 @@ void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
                 });
             rewriter.replaceOp(at, decided);
           }
-          call.setTailKind(decide(call));
+          call.setTailKind(TailKind::tail);
         });
 }
 

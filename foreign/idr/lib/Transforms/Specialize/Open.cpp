@@ -41,7 +41,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/Transforms/Optimize.h"
-#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/IR/Builders.h"
@@ -93,11 +92,14 @@ void eraseDeadCasts(Value value) {
 // it gives there cast to the open type before its terminator, the cast
 // composed with the re-pack it may have given, so what the function gives
 // at a tail it gives in its own block at the open type. A block whose end
-// never returns gives nothing to cast. Each call's fact is then the one
-// definition's answer at its place: a call that reached the return through
-// a re-pack now reaches it through a cast that builds nothing, a tail call,
-// and one that gave a closed value on now gives it to a re-pack, a tail
-// lost to a layout, which a copy's own turn asks its callee open for.
+// never returns gives nothing to cast. Only those blocks change what
+// follows a call, and each ends a tail, as the walk down found it: the
+// tails below each say what each call there now is. A call that reached
+// the return through a re-pack now reaches it through a cast that builds
+// nothing, a tail call, and one that gave a closed value on now gives it to
+// a re-pack, a tail lost to a layout, which a copy's own turn asks its
+// callee open for; a region op that gave its value to a re-pack and now
+// gives it freely makes a tail of each region's end.
 void openTails(FuncOp fn, ArrayRef<Type> results) {
   SmallVector<unsigned> opened;
   for (auto [position, types] : llvm::enumerate(llvm::zip_equal(fn.getResultTypes(), results)))
@@ -107,7 +109,7 @@ void openTails(FuncOp fn, ArrayRef<Type> results) {
     return;
   fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), results));
   Block &body = fn.getBody().front();
-  SmallVector<Block *> spine;
+  SmallVector<Block *> spine, rewritten;
   if (body.getTerminator()->hasTrait<OpTrait::ReturnLike>())
     spine.push_back(&body);
   while (!spine.empty()) {
@@ -116,8 +118,8 @@ void openTails(FuncOp fn, ArrayRef<Type> results) {
     Operation *source = tail::tailSource(*block);
     if (source && source->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
       // The ops after it give its results on, each in its place, to the
-      // terminator, which forwards them in order: the one definition found
-      // the way so.
+      // terminator, which forwards them in order: tailSource found the way
+      // so.
       SmallVector<Value> values(source->getResults());
       for (unsigned position : opened)
         source->getResult(position).setType(results[position]);
@@ -139,8 +141,12 @@ void openTails(FuncOp fn, ArrayRef<Type> results) {
       terminator->setOperand(position, castTo(b, terminator->getLoc(), results[position], given));
       eraseDeadCasts(given);
     }
+    rewritten.push_back(block);
   }
-  (void)optimize::decideTails(fn);
+  for (Block *block : rewritten)
+    for (const tail::Tail &each : tail::tailsOf(*block))
+      if (auto call = dyn_cast<CallOp>(each.source))
+        call.setTailKind(each.repack ? TailKind::nontail : TailKind::tail);
 }
 
 namespace {
@@ -179,12 +185,16 @@ std::optional<Type> openedAgainst(Type given, Type result) {
 // `fn`'s results with each one a tail cannot agree with opened, against the
 // first such tail in the function's walk; none where every tail agrees. A
 // tail here is a call whose results reach the function's return, freely or
-// through a re-pack, each in its place.
+// through a re-pack, each in its place: a call among the function's tails.
 std::optional<SmallVector<Type>> openedResults(FuncOp fn) {
   ArrayRef<Type> own = fn.getResultTypes();
   SmallVector<Type> results(own);
+  SmallVector<Operation *> tails;
+  for (const tail::Tail &each : tail::tailsOf(fn))
+    if (isa<CallOp>(each.source))
+      tails.push_back(each.source);
   fn.walk([&](CallOp call) {
-    if (!tailCallOf(call) && !repackedTailOf(call))
+    if (!llvm::is_contained(tails, call.getOperation()))
       return;
     assert(call->getNumResults() == own.size() && "a tail's results are its function's, one for one");
     for (auto [position, given] : llvm::enumerate(call.getResultTypes()))
@@ -260,7 +270,15 @@ void openResults(optimize::Schedule &schedule, ArrayRef<FunctionId> starters) {
       });
       for (CallOp call : calls)
         convertCall(call, fn);
-      (void)optimize::decideTails(caller);
+      // Only what follows each converted call changed: a cast back after
+      // it, or a cast on gone. Each is a tail call where the caller's tails
+      // now reach it freely, a tail lost to a layout where a cast back
+      // re-packs it, and ends no tail anywhere else.
+      SmallVector<Operation *> reached = tail::sourcesOf(caller);
+      for (CallOp call : calls)
+        call.setTailKind(llvm::is_contained(reached, call.getOperation())
+                             ? TailKind::tail
+                             : tail::withContext(call));
       // A caller of its component may have lost a tail to the cast, and is
       // read again now; one outside is read when it is taken up.
       if (holder != id && schedule.sameComponent(holder, id) && schedule.originOf(holder) == holder)

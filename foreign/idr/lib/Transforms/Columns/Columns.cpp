@@ -10,7 +10,6 @@
 #include "idr/Transforms/Columns.h"
 
 #include "idr/IR/Generated/Actions.h.inc"
-#include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -63,8 +62,10 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
     // A function whose signature carries an array of records is remade
     // with its columns, its facts moved by position; each call holds
     // copies of its callee's, which it takes again once every signature
-    // is final, and stands where its columns now flow, its tail fact
-    // decided again there.
+    // is final. A call is remade where it stood, its tail fact with it, and
+    // its columns flow where the array did, so that fact still says where
+    // it stands; a gather the conversion puts after a tail call would lose
+    // the tail, which the verifier reports.
     bool remade = llvm::any_of(program.getOps<FuncOp>(), [&](FuncOp fn) {
       return !converter.isSignatureLegal(fn.getFunctionType());
     });
@@ -79,7 +80,6 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
       SymbolTable functions(program);
       program.walk([&](CallOp call) {
         call.copyCallee(functions.lookup<FuncOp>(call.getCalleeAttr().getAttr()));
-        call.setTailKind(tail::decide(call));
       });
     });
   }

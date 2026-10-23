@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Tail position, the one fact `idr.call` holds as its TailKind: defined
-// once, here, written on every call by the pass that makes the program
-// first order and by every pass that makes or moves a call, or changes
-// what follows one, and verified after every pass.
+// Tail position, the one fact `idr.call` holds as its TailKind: written on
+// every call by the pass that makes it, kept by every pass that moves one
+// as the place it moves it to gives, read off the function's tails by a
+// pass that leaves a call where an op that holds no such fact stood
+// (Optimize/Tails.h), and verified after every pass.
 //
 // A call in tail position never grows the stack: it becomes a loop, a
 // jump to a join point, or LLVM's `musttail` under `tailcc`. So the fact
 // is a promise the call keeps: `tail` demands the shape below, and a pass
 // that puts anything after such a call breaks the program. And from the
-// first-order program on, the fact is exactly decide's answer: a call in
-// tail position left an ordinary call, or a self call the rule below
-// admits left one, is a jump the compiler fails to make. The verifier
-// reports either as an internal error. The frontend writes every call
-// `nontail`, which promises nothing: no source syntax states a context,
-// so it would only restate the decider. decide, run where the program
-// becomes first order, writes `tail` and `modulo_context`.
+// first-order program on, the fact is exactly where the call stands: a
+// call in tail position left an ordinary call, or a self call the rule
+// below admits left one, is a jump the compiler fails to make. The
+// verifier reports either as an internal error. Where a function's tails
+// are is read one way, down from its body (tailsOf), never up from an op.
 //
 // A self call modulo a context (`modulo_context`) is the second promise:
 // its one result goes only into cells built for it whose value a tail
@@ -50,18 +49,41 @@ namespace idr::tail {
 // does so after the call; one without the interface gives nothing on.
 bool carriesOn(mlir::Operation *op);
 
-// Whether what `op` gives is what its function gives: the ops after it in
-// its block only give its results on (carriesOn), the block's terminator
-// forwards exactly those values, and that terminator is the function's
-// return, or ends a region of an op a control-flow break may cross
-// (PropagateControlFlowBreak: the matches, the join points) and forwards
-// them to that op's results, which give what the function gives in turn.
-// An op that does something when its region ends (a lifetime's opener
-// frees its memory there, an answer slot reads its results there) lets no
-// break cross it, so nothing inside it is in tail position. The one
-// definition of tail position. It reads up the regions above `op`; a
-// verifier asks verify(FuncOp) instead, which reads each region once.
-bool inTailPosition(mlir::Operation *op);
+// A tail of a function: an op whose results are what its function gives,
+// each in its place, through ops that only give a value on, re-packs among
+// them; `repack` is the first on the way that works to give it on,
+// converting it between two layouts, and null where every one is free. A
+// region op a break crosses (PropagateControlFlowBreak: the matches, the
+// join points) is a tail when its results are, and so is the op each of
+// its regions ends with in turn. An op that does something when its region
+// ends (a lifetime's opener frees its memory there, an answer slot reads
+// its results there) lets no break cross it, so nothing inside it is a
+// tail.
+struct Tail {
+  mlir::Operation *source;
+  mlir::Operation *repack;
+};
+
+// The tails of `fn`, read down from its body through each region op a break
+// crosses, each region read once; none where the body ends in no return. A
+// call among them with no re-pack is in tail position; one with a re-pack
+// is a tail lost to a layout, which the specializer keys its callee's copy
+// to its caller's layout for. The one reading of where a function's tails
+// are: the verifier checks every call's fact against it, and a pass that
+// asks where an op that holds no fact stands (an apply, a combination, a
+// region op around a call) reads it once per function.
+llvm::SmallVector<Tail> tailsOf(FuncOp fn);
+
+// The ops of `fn` in tail position: its tails with no re-pack on the way.
+// What a pass reads where it asks whether an op that holds no fact stands
+// at a tail, once per function, and looks the op up among them.
+llvm::SmallVector<mlir::Operation *> sourcesOf(FuncOp fn);
+
+// The tails at and below `block`, which a pass knows ends a tail of its
+// function with no re-pack after it: the function's body, or a block whose
+// end the pass rewrote where it gave what its function gives. tailsOf
+// reads them from the body.
+llvm::SmallVector<Tail> tailsOf(mlir::Block &block);
 
 // The blocks of `fn` where a tail ends: the body's, and down through each
 // region op a break crosses whose results such a block gives on, every
@@ -133,20 +155,19 @@ struct Context {
 // `call`'s context, or none when the rule does not admit it.
 std::optional<Context> contextOf(CallOp call);
 
-// Whether every call's fact in `fn`'s program is decide's answer, as it is
-// from the stage where the program becomes first order on; before it, the
-// frontend's `nontail` promises nothing. The one reading of the stage
-// table for tail facts: a pass that must keep them exact, or may leave
-// them, asks here.
+// Whether every call's fact in `fn`'s program is exactly where it stands,
+// as it is from the stage where the program becomes first order on; before
+// it, the frontend's `nontail` promises nothing. The one reading of the
+// stage table for tail facts: a pass that must keep them exact, or may
+// leave them, asks here.
 bool decided(FuncOp fn);
 
-// What `call`'s place in its function makes it: `tail` in tail position;
-// `modulo_context` for a self call contextOf admits; `nontail` otherwise.
-// The pass that makes the program first order writes it on every call, and
-// a pass that makes a call, moves one (contification, inlining,
-// specialization) or changes what follows one writes what this gives at
-// the call's place.
-TailKind decide(CallOp call);
+// The fact of `call` where it ends no tail: `modulo_context` for a self call
+// contextOf admits, `nontail` otherwise. What a pass that makes or moves a
+// call writes where its place is no tail, so a call that became a self call
+// there (its callee merged into its own function, its body moved into its
+// callee's) takes the context the rule reads off it.
+TailKind withContext(CallOp call);
 
 // The parts of `call`'s fact the call alone can show: a `tail` call's
 // results go unchanged to its block's terminator, which forwards them to
@@ -164,9 +185,9 @@ mlir::LogicalResult verify(CallOp call);
 // call's block ends a tail of the function, and once every fact is
 // decided, each call whose block ends one is `tail`, and no call's value
 // reaches the function's return through a re-pack, which would make a
-// tail of it but for the two layouts. One walk down the regions a tail or
-// a re-pack of one runs through, each region read once, called by
-// idr.func's region verifier.
+// tail of it but for the two layouts. Read off tailsOf, one walk down the
+// regions a tail or a re-pack of one runs through, each region read once;
+// called by idr.func's region verifier.
 mlir::LogicalResult verify(FuncOp fn);
 
 // The layout a `tail` call shares with its caller: each result of `call`
@@ -186,16 +207,6 @@ namespace idr {
 // The one reading of whether an op is a tail call, so a pass that treats
 // tail calls apart asks here and never reads the fact itself.
 CallOp tailCallOf(mlir::Operation *op);
-
-// `op` as a call in tail position but for a re-pack: the call, when its
-// results reach its function's return through ops that only give a value
-// on, one of them at least converting it between two layouts, so it would
-// be a tail call were each result laid out as its caller returns it; null
-// for any other op, for a call in tail position, and for one whose results
-// go elsewhere. The one reading of a tail lost to a layout: the specializer
-// asks it to key the callee's copy to its caller's layout, and verify
-// reports what is left of it.
-CallOp repackedTailOf(mlir::Operation *op);
 
 // `op` as a call that is its caller's last act, which nothing of the
 // caller may follow: a tail call, and a self call modulo a context, which

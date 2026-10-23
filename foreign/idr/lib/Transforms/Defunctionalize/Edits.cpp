@@ -32,8 +32,8 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// Whether an apply stands in tail position, read by the one definition
-// before it is replaced.
+// Whether an apply stands in tail position, read off its function's tails
+// before it is replaced: an apply holds no fact of where it stands.
 enum class TailPosition : bool { Within, Tail };
 
 } // namespace
@@ -87,7 +87,8 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
   // arguments, each moved into the label's parameter where their keys
   // differ, and gives its results, each moved into the apply's. A tail
   // apply's calls are in tail position, so no result may be rebuilt after
-  // one.
+  // one. What stands at the function's tails, read once.
+  SmallVector<Operation *> tails = tail::sourcesOf(fn);
   WalkResult applied = fn.walk([&](FnApplyOp apply) -> WalkResult {
     Key key = *keyOf(apply.getCallee());
     if (key.labels.empty()) {
@@ -95,8 +96,9 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
       return WalkResult::advance();
     }
     unsigned depth = joins::scopeDepth(apply->getParentRegion());
-    TailPosition position =
-        tail::inTailPosition(apply) ? TailPosition::Tail : TailPosition::Within;
+    TailPosition position = llvm::is_contained(tails, apply.getOperation())
+                                ? TailPosition::Tail
+                                : TailPosition::Within;
     MatchId over = matchOver(typeOf(apply.getCallee().getType(), key), depth);
     Dispatch dispatch{apply, over, {}};
     for (auto [at, label] : llvm::enumerate(key.labels.getAsRange<FlatSymbolRefAttr>())) {

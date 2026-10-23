@@ -23,7 +23,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
-#include "idr/IR/Tail.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Joins.h"
 #include "idr/Transforms/Specialize/Calls.h"
@@ -263,18 +262,19 @@ struct AtOpen {
 };
 using ResultLayout = std::variant<AsGiven, AtOpen>;
 
-// What `call` asks of each result as its caller holds it. A tail lost to
-// a layout asks open each result its caller lays out otherwise than the
-// call gives it, as the layout classes say (the reading by which a cast
-// between the two is free or re-packs): a copy that returns it open makes
-// the cast free, so the call is a tail call. Every other result is asked
-// as given. A result no copy of the callee could give closed is marked
-// open in the callee's own type, decided once when the callee was taken
-// up (openResults), so it reaches the copy by the substitution, which
-// keeps the mark, and no call asks for it.
-SmallVector<ResultLayout> layoutsAsked(CallOp call) {
+// What `call`, standing where `standing` says, asks of each result as its
+// caller holds it. A tail lost to a layout asks open each result its
+// caller lays out otherwise than the call gives it, as the layout classes
+// say (the reading by which a cast between the two is free or re-packs): a
+// copy that returns it open makes the cast free, so the call is a tail
+// call. Every other result is asked as given. A result no copy of the
+// callee could give closed is marked open in the callee's own type,
+// decided once when the callee was taken up (openResults), so it reaches
+// the copy by the substitution, which keeps the mark, and no call asks for
+// it.
+SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
   SmallVector<ResultLayout> asked(call->getNumResults(), AsGiven{});
-  if (!repackedTailOf(call))
+  if (standing == TailStanding::Elsewhere)
     return asked;
   // A tail's results are its caller's, one for one: the way from the call
   // to the return forwards each in its place.
@@ -291,7 +291,8 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call) {
 // argument's extent the callee names becomes a constant that `site` lets
 // key it, each parameter that counts made static where the call passes
 // static data, which that copy then counts nothing of, and each result its
-// caller needs open returned open. None where nothing changes the callee.
+// caller needs open, where `standing` is a tail lost to a layout, returned
+// open. None where nothing changes the callee.
 // The copy's signature is the callee's at those index arguments, every
 // binder they do not fix kept as the copy's own level, read through all the
 // callee's extents by the one substitution its copy is made by, so each
@@ -300,7 +301,8 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call) {
 // result asked open is that result marked open, which the copy's tails
 // give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
-                                         FunctionId calleeId, const CallSite &site) {
+                                         FunctionId calleeId, const CallSite &site,
+                                         TailStanding standing) {
   ExtentsAttr extents = callee.getExtentsAttr();
   SmallVector<Extent> keying = keyedBy(extents, call.getIndexArgsAttr(), site);
   std::optional<IndexArgsAttr> classes =
@@ -310,7 +312,7 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs()))
     if (counts(input) && isStatic(arg.getType()))
       input = atHold(input, Hold::staticData());
-  SmallVector<ResultLayout> layouts = layoutsAsked(call);
+  SmallVector<ResultLayout> layouts = layoutsAsked(call, standing);
   auto open = [](const ResultLayout &layout) {
     return idr::match(layout, [](AsGiven) { return false; }, [](const AtOpen &) { return true; });
   };
@@ -343,12 +345,13 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
 FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                       const Node *requester, FuncOp callee, FunctionId calleeId,
                                       const Node *calleeNode, ArrayRef<BindingTime> seen,
-                                      const CallSite &site) {
+                                      const CallSite &site, TailStanding standing) {
   // A signature copy first: the layout a call's indices fix, the hold it
   // passes and the layout its caller returns a tail at are facts of the
   // call and where it stands, and every later key is composed over the
   // copy's own parameters.
-  if (std::optional<SignatureWant> copy = signatureOf(arena, call, callee, calleeId, site))
+  if (std::optional<SignatureWant> copy =
+          signatureOf(arena, call, callee, calleeId, site, standing))
     return std::optional<Want>(*copy);
 
   // A pattern copy raises nothing; a raise copy only with its own

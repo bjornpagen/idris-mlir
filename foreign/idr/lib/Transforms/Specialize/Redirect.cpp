@@ -23,11 +23,14 @@
 // caller's layout, so the cast after it, which re-packed, now builds
 // nothing.
 //
-// A copy called where the call was takes the one definition's answer there:
-// the call is at the same place, and where it gives a result open, the
-// re-pack it waited for is gone, so a tail lost to a layout is a tail call.
-// A raise's call stands where the dispatch it replaces stood, so its tail
-// fact is the one definition's answer there too. Its row is what the call
+// A copy called where the call was stands at the call's place, so it keeps
+// the call's tail fact; where it gives a result open, the re-pack it waited
+// for is gone, so a tail lost to a layout is a tail call. A call that names
+// its own function now (a copy's recursion keyed to the copy itself) takes
+// the context the rule reads off it, and one that no longer does loses its
+// context. A raise's call stands where the dispatch it replaces stood: a
+// tail call where the dispatch was a tail of its function and nothing
+// stands between the call and its block's end. Its row is what the call
 // and the consumer did, which its function contained already; the writer
 // derives the copy's own when its component is final.
 // It gives what the dispatch gave as a function returns it, `?` at every
@@ -118,15 +121,18 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   // caller's levels: the view substitutes the one by the other, a result
   // keeping its type but for them.
   FunctionType seen = indices ? families::substitute(type, ExtentsAttr(), indices) : type;
-  assert((repackedTailOf(call) || llvm::equal(seen.getResults(), call.getResultTypes())) &&
+  bool opened = !llvm::equal(seen.getResults(), call.getResultTypes());
+  assert((!opened || !lastActOf(call)) &&
          "a copy gives each result as its call did, but one keyed open for a tail lost to a "
-         "layout");
-  CallOp fresh = callOf(rewriter, loc, target, seen.getResults(), indices, passed,
-                        call.getTailKind(), call.getRow());
+         "layout, which returns to its caller");
+  TailKind kind = opened || tailCallOf(call) ? TailKind::tail : TailKind::nontail;
+  CallOp fresh =
+      callOf(rewriter, loc, target, seen.getResults(), indices, passed, kind, call.getRow());
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(call, fresh.getResults());
   eraseUnused(rewriter, old);
-  fresh.setTailKind(tail::decide(fresh));
+  if (!tailCallOf(fresh))
+    fresh.setTailKind(tail::withContext(fresh));
   return fresh;
 }
 
@@ -165,6 +171,10 @@ void giveAs(RewriterBase &rewriter, Location loc, Value given, Value had) {
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
                 const RaiseWant &want) {
   Operation *dispatch = want.consumer.dispatch;
+  // Whether the dispatch is a tail of its function, read off the function's
+  // tails before it goes: it holds no fact of its own.
+  bool atTail =
+      llvm::is_contained(tail::sourcesOf(dispatch->getParentOfType<FuncOp>()), dispatch);
   effects::Row row = call.getRow() | effects::rowOf(dispatch);
   for (Operation *step : want.consumer.steps())
     row = row | effects::rowOf(step);
@@ -179,7 +189,13 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
     rewriter.eraseOp(step);
   rewriter.eraseOp(call);
   eraseUnused(rewriter, old);
-  fresh.setTailKind(tail::decide(fresh));
+  // The call gives on what the dispatch gave, from its block, which ends a
+  // tail where the dispatch was one: a tail call where nothing, no cast
+  // back, stands between the two.
+  if (atTail && tail::tailSource(*fresh->getBlock()) == fresh.getOperation())
+    fresh.setTailKind(TailKind::tail);
+  else
+    fresh.setTailKind(tail::withContext(fresh));
   return fresh;
 }
 

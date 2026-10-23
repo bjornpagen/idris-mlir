@@ -25,12 +25,12 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/Tail.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/Generated/ApplyGroups.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -184,8 +184,8 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // What follows a call may have changed: a count op or a conversion
     // after it gone. No web holding what a tail call gives was carried, so
     // what a call in tail position gives still goes straight to its tail;
-    // each call's fact is decided again where it now stands.
-    fn.walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
+    // every call takes its fact again from the function's tails.
+    (void)optimize::decideTails(fn);
   }
 
   FrozenRewritePatternSet words;

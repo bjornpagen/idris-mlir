@@ -16,8 +16,6 @@
 
 #include "idr/Transforms/StructureLoops.h"
 
-#include "idr/IR/Tail.h"
-
 using namespace mlir;
 
 namespace idr::structure {
@@ -31,11 +29,11 @@ void splitUpdate(RewriterBase &rewriter, ArrayUpdateOp update) {
   rewriter.setInsertionPoint(update);
   auto taken = ArrayTakeOp::create(rewriter, loc, body.getArgument(0).getType(), array,
                                    update.getIndices());
+  // The calls the region held, each an ordinary call there, since no break
+  // crosses an update, now stand in the update's block between the take and
+  // the put-back after them, or before the end of a region that never
+  // returns: an ordinary call still.
   rewriter.inlineBlockBefore(&body, update, ValueRange(taken.getValue()));
-  // The calls the region held now stand in the update's block, between the
-  // take and its end: each is decided again there.
-  for (Operation &moved : llvm::make_range(std::next(taken->getIterator()), end->getIterator()))
-    moved.walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
   if (auto yield = dyn_cast<ArrayUpdateYieldOp>(end)) {
     rewriter.setInsertionPoint(update);
     arrays::putBackAt(rewriter, loc, yield.getElement(), array, update.getIndices());

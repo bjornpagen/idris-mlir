@@ -9,11 +9,11 @@
 // block's argument, one node; a part of a value is its anchor's node. A
 // dispatch's callee and the values it moves get their nodes here too, so a
 // firing reads numbers alone. A call in tail position, direct by its own
-// fact or a dispatch by the one definition of tail position, states its
-// callee's result points one set with its caller's. A constant is looked
-// into on an explicit stack, so one of any depth takes no recursion; so is
-// the question of which of its parts hold a closure, which
-// defunctionalization asks too.
+// fact or a dispatch among its function's tails (a dispatch holds no fact
+// of where it stands), states its callee's result points one set with its
+// caller's. A constant is looked into on an explicit stack, so one of any
+// depth takes no recursion; so is the question of which of its parts hold
+// a closure, which defunctionalization asks too.
 
 #include "idr/Analysis/Labels.h"
 
@@ -103,11 +103,16 @@ struct Expansion {
 };
 using Pending = std::variant<Expansion, Statements::Linked>;
 
+// The ops at each function's tails with no re-pack on the way, by the
+// function's id, read once down from each body before the walk.
+using TailsOf = IndexVector<solver::FunctionId, llvm::SmallVector<Operation *>>;
+
 // One reading of a program into `out`, and the constants it has expanded,
 // each once.
 class Reading {
 public:
-  explicit Reading(Read &out) : out(out) {}
+  Reading(Read &out, const solver::ProgramGraph &graph, TailsOf tails)
+      : out(out), graph(graph), tails(std::move(tails)) {}
 
   void add(Operation *op, const FlowEdges::Edge &edge);
   // `call`, in tail position, gives its caller's results: each result point
@@ -130,6 +135,8 @@ private:
   void expandOne(const Expansion &next, footprint::Vector<Pending> &work);
 
   Read &out;
+  const solver::ProgramGraph &graph;
+  TailsOf tails;
   // The closure constants already expanded at a point, and the constructor
   // constants already laid out at their anchors.
   footprint::DenseSet<std::pair<Attribute, Node>> expanded;
@@ -208,9 +215,11 @@ void Reading::sink(OpOperand &use, const FlowPlace &target) {
 void Reading::dispatch(CallOpInterface call) {
   Operation *op = call.getOperation();
   Operation::operand_range args = call.getArgOperands();
+  auto fn = op->getParentOfType<FuncOp>();
   Dispatched dispatched{out.points.of(cast<Value>(call.getCallableForCallee())),
-                        out.points.labelOf(op->getParentOfType<FuncOp>()),
-                        tail::inTailPosition(op) ? Standing::Tail : Standing::Within,
+                        out.points.labelOf(fn),
+                        llvm::is_contained(tails[graph.id(fn)], op) ? Standing::Tail
+                                                                     : Standing::Within,
                         static_cast<std::uint32_t>(args.size()),
                         static_cast<std::uint32_t>(out.moves.size()),
                         0,
@@ -297,7 +306,10 @@ void Reading::expandOne(const Expansion &next, footprint::Vector<Pending> &work)
 
 Read readProgram(Operation *program, const solver::ProgramGraph &graph) {
   Read out{Points(graph), Sinks(), Statements(), {}, {}};
-  Reading reading(out);
+  TailsOf tails = graph.table<llvm::SmallVector<Operation *>>();
+  for (solver::FunctionId id : graph.functions())
+    tails[id] = tail::sourcesOf(graph.op(id));
+  Reading reading(out, graph, std::move(tails));
   FlowEdges edges;
   program->walk([&](Operation *op) {
     flowEdgesOf(op, edges);

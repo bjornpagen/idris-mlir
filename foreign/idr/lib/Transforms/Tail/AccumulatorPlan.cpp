@@ -192,15 +192,16 @@ std::optional<ShortCircuit> shortCircuitOf(DataMatchOp match, CallOp call, FuncO
 
 // The combination `call` is a site of, if any: its one result's one use is
 // a law's operand, or a short circuit's scrutinee, where that op's result
-// is what the function gives, its other operand may lead, and the call may
-// move to its place.
-std::optional<Combined> combinedAt(CallOp call, FuncOp fn) {
+// is what the function gives (among `tails`, the ops at the function's
+// tails with no re-pack on the way), its other operand may lead, and the
+// call may move to its place.
+std::optional<Combined> combinedAt(CallOp call, FuncOp fn, llvm::ArrayRef<Operation *> tails) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
   OpOperand &use = *call->getResult(0).getUses().begin();
   Operation *combine = use.getOwner();
   Type result = fn.getFunctionType().getResult(0);
-  if (combine->getBlock() != call->getBlock() || !inTailPosition(combine) ||
+  if (combine->getBlock() != call->getBlock() || !llvm::is_contained(tails, combine) ||
       !mayMoveTo(call, combine))
     return std::nullopt;
   if (std::optional<Law> law = lawOf(combine, result)) {
@@ -275,6 +276,9 @@ std::optional<Accumulator> accumulatorOf(FuncOp fn) {
     return std::nullopt;
   llvm::SmallVector<Site> sites;
   std::optional<Accumulator> plan;
+  // What gives what the function gives, read once down from its body: a
+  // combination holds no fact of where it stands.
+  llvm::SmallVector<Operation *> tails = sourcesOf(fn);
   WalkResult walk = fn.walk([&](CallOp call) {
     if (!isSelfCall(call, fn))
       return WalkResult::advance();
@@ -282,7 +286,7 @@ std::optional<Accumulator> accumulatorOf(FuncOp fn) {
       sites.push_back(call);
       return WalkResult::advance();
     }
-    std::optional<Combined> combined = combinedAt(call, fn);
+    std::optional<Combined> combined = combinedAt(call, fn, tails);
     if (!combined)
       return WalkResult::interrupt();
     // One operation for every site, and one side unless it commutes.

@@ -59,6 +59,7 @@
 
 #include "idr/IR/Tail.h"
 #include "idr/Support/Nest.h"
+#include "idr/Transforms/Optimize/Tails.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -442,13 +443,13 @@ void Function::elaborate(RewriterBase &rewriter) {
   // What follows a call is new wherever a floating op followed it, since
   // every one was made again where it is demanded and the input's erased;
   // a call that floated was made again itself, and an edit or a merge
-  // erased the op it stood for. So a call may now end a tail, or its
-  // result flow into cells built for it, or neither any more. Telling an
-  // unchanged call apart costs what deciding it does, so each takes its
-  // fact where it now stands. Before the program is first order its calls
-  // promise nothing, and no pass decides one.
+  // erased the op it stood for, an op that holds no fact of where it stood.
+  // So a call may now end a tail, or its result flow into cells built for
+  // it: the function was written back whole, and its calls take their
+  // facts off its tails, once. Before the program is first order its calls
+  // promise nothing, and no pass writes one.
   if (tail::decided(fn))
-    fn.getBody().walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
+    (void)optimize::decideTails(fn);
 }
 
 } // namespace idr::egraph::detail

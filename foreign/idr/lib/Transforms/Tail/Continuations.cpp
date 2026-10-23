@@ -173,8 +173,8 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
   // break crosses it and frames cannot split it: it becomes its steps, the
   // captures taken out, the region's code in place, the value stored after
   // it, which a continuation can begin with. An exchange inside another is
-  // made its steps first. Its calls are decided again where they then
-  // stand.
+  // made its steps first. Its calls were ordinary calls in its region, and
+  // the store after them keeps each one so.
   llvm::SmallVector<MemoRunOp> exchanges;
   fn.walk<WalkOrder::PostOrder>([&](MemoRunOp run) {
     if (run->walk([&](CallOp call) {
@@ -183,13 +183,8 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
             .wasInterrupted())
       exchanges.push_back(run);
   });
-  for (MemoRunOp run : exchanges) {
-    llvm::SmallVector<CallOp> moved;
-    run.getRegion().walk([&](CallOp call) { moved.push_back(call); });
+  for (MemoRunOp run : exchanges)
     run.split(rewriter);
-    for (CallOp call : moved)
-      call.setTailKind(decide(call));
-  }
   // A join point op around a call to frame, outermost first, and the first
   // such call in it; no op when none holds one.
   struct Held {
@@ -226,7 +221,9 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
       if (!op->hasTrait<OpTrait::PropagateControlFlowBreak>())
         return unsplittable(held.call, op);
     normalize(&fn.getBody().front());
-    if (!inTailPosition(join)) {
+    // A join point holds no fact of where it stands: the function's tails,
+    // read again after each round's move, say it.
+    if (!llvm::is_contained(sourcesOf(fn), join)) {
       FailureOr<CallOp> continuation =
           outline(fn, row, join->getNextNode(), join->getResults(), "k");
       if (failed(continuation))
@@ -253,17 +250,18 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
     // The region ops around the call, outermost first: each a break may
     // cross whose results something after it reads gives its continuation
     // to a function, until the call's block ends a tail. Each such change
-    // remakes the ops around, so they are read again after it. Any other
-    // op may only be the one directly around the call. The next to lift is
-    // the outermost not in tail position; none once the call's block ends
-    // a tail.
+    // remakes the ops around, so they are read again after it, and the
+    // function's tails with them. Any other op may only be the one directly
+    // around the call. The next to lift is the outermost not in tail
+    // position; none once the call's block ends a tail.
     auto liftOf = [&]() -> FailureOr<Operation *> {
       llvm::SmallVector<Operation *> around;
       for (Operation *op = site->getParentOp(); op != fn.getOperation(); op = op->getParentOp())
         around.push_back(op);
+      llvm::SmallVector<Operation *> tails = sourcesOf(fn);
       for (Operation *op : llvm::reverse(around)) {
         if (op->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
-          if (inTailPosition(op))
+          if (llvm::is_contained(tails, op))
             continue;
           return op;
         }

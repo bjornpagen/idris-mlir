@@ -17,7 +17,6 @@
 
 #include "idr/Transforms/StructureLoops.h"
 
-#include "idr/IR/Tail.h"
 #include "idr/Transforms/Joins.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -75,11 +74,6 @@ LogicalResult joinLoops(RewriterBase &rewriter, DestinationStyleOpInterface op) 
                            "writes in no order");
   OpBuilder::InsertionGuard guard(rewriter);
   Location loc = op.getLoc();
-  // What the rewrite makes stands between the op's neighbours, in its
-  // block: the op is no terminator, so something follows it.
-  Block *block = op->getBlock();
-  Operation *before = op->getPrevNode();
-  Operation *after = op->getNextNode();
   rewriter.setInsertionPoint(op);
   auto tiling = cast<TilingInterface>(op.getOperation());
   // Every extent is read where the op stood, before any loop: each loop
@@ -92,12 +86,11 @@ LogicalResult joinLoops(RewriterBase &rewriter, DestinationStyleOpInterface op) 
       llvm::map_to_vector(extents, [&](Value extent) { return sweep(rewriter, loc, extent); });
   if (failed(tiling.generateScalarImplementation(rewriter, loc, indices)))
     return failure();
+  // The calls the step holds are the op's region's, each an ordinary call
+  // there, since no break crosses an op of the generating set; they now
+  // stand in a join region's turn, which goes on to its jump back, so each
+  // is an ordinary call still.
   rewriter.eraseOp(op);
-  // The calls the step moved now stand in a join region's turn, before a
-  // jump back: each is decided again there.
-  Operation *first = before ? before->getNextNode() : &block->front();
-  for (Operation &made : llvm::make_range(first->getIterator(), after->getIterator()))
-    made.walk([](CallOp call) { call.setTailKind(tail::decide(call)); });
   return success();
 }
 

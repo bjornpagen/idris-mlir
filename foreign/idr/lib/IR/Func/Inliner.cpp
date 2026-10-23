@@ -13,9 +13,9 @@
 // view of the lifetime given, `idr.lifetime.forget`, the one op whose result
 // is its operand's view, defined where the argument is in scope.
 //
-// Each call the body holds moves to a new place, so its tail fact is
-// decided again there, by the one definition of tail position, as every
-// call's is from the first-order program on.
+// Each call the body holds moves to where the call it replaces stood, so
+// its tail fact is the two facts composed: a tail of the body at a tail
+// call's place is a tail of the caller, and nothing else is.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -26,6 +26,8 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
 
 using namespace mlir;
 using namespace idr;
@@ -59,19 +61,24 @@ struct IdrInlinerInterface : DialectInlinerInterface {
   void handleTerminator(Operation *, Block *) const final {}
 
   // A call the body holds gives its results where the call it replaced gave
-  // its own, so it is in tail position, or a self call of the caller modulo
-  // a context, exactly where it was so in the body and the call it replaced
-  // was in tail position; anywhere else it is an ordinary call. Upstream
-  // calls this while the body still ends in the callee's return, so the one
-  // decider reads each held call's place in the body, and the replaced
-  // call's own fact, the decider's answer at its place, says the rest. Of
-  // the dialect's calls, only idr.call names a function upstream resolves.
+  // its own, so it is in tail position exactly where it was in the body and
+  // the call it replaced was a tail call; anywhere else it is an ordinary
+  // call, and a self call of the callee modulo a context, which calls the
+  // callee and not the caller, is none any more. Neither fact is read off
+  // the body's place, which upstream hands over while the body still ends
+  // in the callee's return: the two facts say it. No call the inliner takes
+  // calls its own function (a self call is a cycle, kept), so the replaced
+  // call is never one modulo a context. A self call of the caller the body
+  // brings in takes its context from the pass that inlined it, once the
+  // body stands where the call did. Of the dialect's calls, only idr.call
+  // names a function upstream resolves.
   void processInlinedCallBlocks(Operation *call,
                                 iterator_range<Region::iterator> inlined) const final {
-    CallOp replaced = tailCallOf(cast<CallOp>(call));
+    assert(!contextCallOf(call) && "the inliner takes no self call");
+    CallOp replaced = tailCallOf(call);
     for (Block &block : inlined)
       block.walk([&](CallOp held) {
-        held.setTailKind(replaced ? tail::decide(held) : TailKind::nontail);
+        held.setTailKind(replaced && tailCallOf(held) ? TailKind::tail : TailKind::nontail);
       });
   }
 

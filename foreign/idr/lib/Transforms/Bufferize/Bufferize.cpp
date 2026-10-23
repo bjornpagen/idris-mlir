@@ -56,7 +56,6 @@
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -348,10 +347,12 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
         failed(placedFirst(program)))
       return signalPassFailure();
     moveElementsOut(program);
-    // One-Shot makes each call again on buffers, and may put a cast or a
-    // copy after one or fold away what followed it: each call's fact is
-    // decided again where it now stands.
-    program.walk([](idr::CallOp call) { call.setTailKind(idr::tail::decide(call)); });
+    // One-Shot makes each call again on buffers as a clone of itself, its
+    // tail fact with it, where the call stood: what it folds away after a
+    // call is the conversion it put on the call's results, which stood
+    // nowhere before, so each fact still says where its call stands. A cast
+    // or a copy it leaves after a tail call loses the tail, which the
+    // verifier reports.
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);

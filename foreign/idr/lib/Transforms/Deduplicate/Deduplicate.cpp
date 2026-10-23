@@ -371,8 +371,10 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       return markAllAnalysesPreserved();
 
     // A call of a merged function, in a function that stays, calls the one
-    // kept, which may be its own function now: each takes the tail fact its
-    // place gives it once it names the one kept.
+    // kept, which may be its own function now. It stands where it stood, so
+    // a tail call stays one; any other is a self call where it names its
+    // own function, which takes the context the rule reads off it once it
+    // names the one kept.
     SmallVector<idr::CallOp> redirected;
     for (idr::FuncOp fn : fns)
       if (!keptAs[graph.id(fn)])
@@ -393,7 +395,8 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     if (StringAttr root = renamed(program.getRootAttr()))
       program.setRootAttr(FlatSymbolRefAttr::get(root));
     for (idr::CallOp call : redirected)
-      call.setTailKind(idr::tail::decide(call));
+      if (!idr::tailCallOf(call))
+        call.setTailKind(idr::tail::withContext(call));
     for (idr::FuncOp fn : fns)
       if (keptAs[graph.id(fn)]) {
         fn->erase();

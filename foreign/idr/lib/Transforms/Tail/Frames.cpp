@@ -58,6 +58,7 @@
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Effects.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Tail.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -176,12 +177,16 @@ struct Frames : impl::IdrFramesBase<Frames> {
       component.members = static_cast<unsigned>(component.functions.size());
       numFunctions += component.members;
 
-      // 1. Continuations become functions, each read in turn.
+      // 1. Continuations become functions, each read in turn. The step
+      // moves code into functions of its own, leaves a call where a join
+      // point's jump or the code after a region op stood, and sinks calls
+      // into regions, so each function of the component, the program's and
+      // those it made, takes the facts its tails give its calls.
       for (size_t at = 0; at < component.functions.size(); ++at)
         if (failed(component.restructure(component.functions[at].fn, component.functions[at].row)))
           return signalPassFailure();
-      for (CallOp call : component.made)
-        call.setTailKind(decide(call));
+      for (const Component::Function &f : component.functions)
+        (void)optimize::decideTails(f.fn);
 
       // The kinds of frame, and the family. A frame holds what its rest
       // takes after the call's results, but the component's lifetimes, each

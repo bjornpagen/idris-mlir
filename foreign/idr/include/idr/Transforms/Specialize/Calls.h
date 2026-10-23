@@ -17,6 +17,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
 #include <optional>
 #include <variant>
 
@@ -84,16 +85,22 @@ struct InsideCycle {
 };
 using CallSite = std::variant<OutsideCycle, InsideCycle>;
 
+// Where a call's results go in its caller, read once per caller off its
+// tails (tail::tailsOf): to its caller's return through a re-pack, a tail
+// lost to a layout, which a copy returning them open makes a tail call; or
+// anywhere else, a tail call's free way to the return among them.
+enum class TailStanding : std::uint8_t { Elsewhere, LostToLayout };
+
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
 // argument's extent the callee names, as `site` lets a size key it, or it
-// passes static data where the callee would count; else its raise; else
-// its pattern key.
+// passes static data where the callee would count, or `standing` is a tail
+// lost to a layout; else its raise; else its pattern key.
 mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                             const Node *requester, FuncOp callee,
                                             FunctionId calleeId, const Node *calleeNode,
                                             llvm::ArrayRef<BindingTime> seen,
-                                            const CallSite &site);
+                                            const CallSite &site, TailStanding standing);
 
 // Calling a node.
 llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, CallOp call,
