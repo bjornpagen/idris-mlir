@@ -44,6 +44,7 @@ import Core.Context
 import Core.Core
 import Core.TT
 
+import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
@@ -165,12 +166,13 @@ without Z (_ :: ys) = ys
 without (S i) (y :: ys) = y :: without i ys
 without _ [] = []
 
-||| What a callee is given at a member: the implementation it is, and the
-||| values it closes over when it closes over any.
+||| What a callee is given at a member: the implementation it is, fixed as
+||| it was registered, and the values it closes over when it closes over
+||| any.
 memberKind : ChoiceMember -> PKind
 memberKind m = case m.con of
-  Bare _ => DictParam m.form Nothing
-  Capturing h _ => DictParam m.form (Just h)
+  Bare _ => DictParam m.dictionary Nothing
+  Capturing h _ => DictParam m.dictionary (Just h)
 
 ||| The constructor of the member at position `at` of a choice's family,
 ||| labelled for a reader by the definition its implementation or function
@@ -247,36 +249,42 @@ ownValues m = case m.con of
 heldTypes : (j : Nat) -> List ClosedTerm -> ChoiceMember -> List ClosedTerm
 heldTypes j types m = without j types ++ ownValues m
 
-||| An implementation's form for one member of the choice it holds at
-||| place `j` (`heldTypes`): the member's form in place of the choice's
-||| marker, the markers after it each one lower, and the member's own after
-||| all of them. The member's markers pass through the frontend's other
-||| family of markers on the way, so that none is renamed twice.
-heldForm : (j : Nat) -> (count : Nat) -> ClosedTerm -> ChoiceMember -> ClosedTerm
-heldForm j count form m =
+||| A term of an implementation that holds `count` values for one member of
+||| the choice it holds at place `j` (`heldTypes`): the member's form in
+||| place of the choice's marker, the markers after it each one lower, and
+||| the member's own after all of them. The member's markers pass through
+||| the frontend's other family of markers on the way, so that none is
+||| renamed twice. Every step puts in names no reduction unfolds, so the
+||| implementation's form and the value it was fixed at are placed alike
+||| (`mapValue`).
+heldPlaced : (j : Nat) -> (count : Nat) -> ChoiceMember -> ClosedTerm -> ClosedTerm
+heldPlaced j count m t =
   let own = iterateN (length (ownValues m)) S 0
       left = minus count 1
-      moved = fillHoles (map found own) m.form
-      placed = substName (markerName j) moved form
-      lowered = foldl (\t, i => substName (markerName (S i)) (holeMarker i) t) placed (drop j (iterateN left S 0))
-  in foldl (\t, q => substName (probeName (ProbeHoleFound q)) (holeMarker (left + q)) t) lowered own
+      moved = fillHoles (map found own) m.dictionary.form
+      placed = substName (markerName j) moved t
+      lowered = foldl (\u, i => substName (markerName (S i)) (holeMarker i) u) placed (drop j (iterateN left S 0))
+  in foldl (\u, q => substName (probeName (ProbeHoleFound q)) (holeMarker (left + q)) u) lowered own
   where
     found : Nat -> ClosedTerm
     found q = probeTerm (ProbeHoleFound q)
 
 ||| The parameter an instance takes for one member of the choice the
-||| implementation it is given holds at place `j`: the implementation with
-||| that field fixed (`heldForm`), holding the values left (`heldTypes`),
-||| none when none is left.
+||| implementation it is given (`holder`) holds at place `j`: the
+||| implementation with that field fixed, its form and the value it was
+||| fixed at placed alike (`heldPlaced`), so it is fixed by construction and
+||| nothing reduces it, holding the values left (`heldTypes`), none when
+||| none is left.
 heldMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> (j : Nat) -> ClosedTerm -> Holes -> ChoiceMember -> Front PKind
-heldMember fc owner j form hs m = do
-  let form' = heldForm j (length (forget hs.types)) form m
+             FC -> String -> (j : Nat) -> (holder : FixedDictionary) -> Holes -> ChoiceMember -> Front PKind
+heldMember fc owner j holder hs m = do
+  let placing = heldPlaced j (length (forget hs.types)) m
+  fixed <- builtDictionary (placing holder.form) (mapValue placing holder.reducesTo)
   case heldTypes j (forget hs.types) m of
-    [] => pure (DictParam form' Nothing)
+    [] => pure (DictParam fixed Nothing)
     (t :: ts) => do
       held <- coreType fc owner ValueType !(normaliseClosed !(packedType (t ::: ts)))
-      pure (DictParam form' (Just (MkHoles (t ::: ts) (MkBinder Many held))))
+      pure (DictParam fixed (Just (MkHoles (t ::: ts) (MkBinder Many held))))
 
 mutual
   ||| The function a call reaches at kinds that hold up to `choices`
@@ -345,8 +353,8 @@ mutual
   armAt d i m = do
     arm <- case d.chosen of
       Given rest _ _ => calleeAt rest d.site d.owner d.callee (givenInstead (memberKind m) d)
-      HeldIn form hs j => do
-        kind <- heldMember d.site d.owner (finToNat j) form hs m
+      HeldIn holder hs j => do
+        kind <- heldMember d.site d.owner (finToNat j) holder hs m
         request d.site d.owner d.callee (givenInstead kind d)
     updateState (withArm d.inst i (MkDispatchArm m arm))
 
@@ -364,10 +372,10 @@ mutual
 export
 heldChoice : {auto s : Ref TState TS} -> (ks : List PKind) -> Front (Maybe (ChoiceAt ks (Chosen, ChoiceType)))
 heldChoice [] = pure Nothing
-heldChoice (DictParam form (Just hs) :: ks) = do
+heldChoice (DictParam holder (Just hs) :: ks) = do
   Just (j, t) <- among (forget hs.types)
-    | Nothing => map (laterChoice (DictParam form (Just hs))) <$> heldChoice ks
-  pure (Just (MkChoiceAt (MkSplitKinds [] (HeldIn form hs j, t) (Data.Vect.fromList ks) Refl) FZ))
+    | Nothing => map (laterChoice (DictParam holder (Just hs))) <$> heldChoice ks
+  pure (Just (MkChoiceAt (MkSplitKinds [] (HeldIn holder hs j, t) (Data.Vect.fromList ks) Refl) FZ))
   where
     among : (ts : List ClosedTerm) -> Front (Maybe (Fin (length ts), ChoiceType))
     among [] = pure Nothing
@@ -417,45 +425,69 @@ added choice m = do
   st <- getState
   for_ (fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) $ \d => armAt d at m
 
+||| An implementation written where a value of a choice's type is made,
+||| read as the one classification of a dictionary reads it
+||| (`Template.dictionaryReading`): fixed at the choice's type, with its
+||| reading and the value it reduces to (`Closed.fixedAt`), or nothing for
+||| one the running program chooses. Only a fixed one is registered, so no
+||| arm of a dispatch meets a member its tree cannot take apart.
+fixedMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              ChoiceType -> (form : ClosedTerm) -> Front (Maybe FixedDictionary)
+fixedMember ty form = do
+  d <- dictionaryReading form
+  pure (case fixedAt ty.type d.reduct of
+          FixedNow v => Just (MkFixedDictionary form d.asStatic d.ofDictionary v)
+          ChosenAtRunTime _ => Nothing)
+
 ||| The member of the choice of a type, as `choiceType` read it, for an
-||| implementation that closes over no runtime value (`form`): found by its
-||| form, or added as the choice's next constructor, with no field.
+||| implementation that closes over no runtime value (`form`), where the
+||| program fixes it (`fixedMember`): found by its form, or added as the
+||| choice's next constructor, with no field. Nothing for one the running
+||| program chooses, which is no member.
 export
 memberBare : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> ChoiceType -> (form : ClosedTerm) -> Front (Con 0)
+             FC -> String -> ChoiceType -> (form : ClosedTerm) -> Front (Maybe (Con 0))
 memberBare fc owner ty form = do
+  Just dictionary <- fixedMember ty form
+    | Nothing => pure Nothing
   choice <- choiceFamily fc owner ty
   case found (choice.members <>> []) of
-    Just con => pure con
+    Just con => pure (Just con)
     Nothing => do
       con <- newCon fc choice.family (length choice.members) form []
-      added choice (MkChoiceMember form (Bare con))
-      pure con
+      added choice (MkChoiceMember dictionary (Bare con))
+      pure (Just con)
   where
     found : List ChoiceMember -> Maybe (Con 0)
     found [] = Nothing
-    found (MkChoiceMember f (Bare con) :: ms) = if f == form then Just con else found ms
+    found (MkChoiceMember d (Bare con) :: ms) = if d.form == form then Just con else found ms
     found (_ :: ms) = found ms
 
 ||| The member of the choice of a type, as `choiceType` read it, for an
-||| implementation that closes over runtime values, by its form with a
-||| marker for each (`form`): found by that form, or added as the choice's
-||| next constructor, whose one field holds the values (`Holes`).
+||| implementation that closes over runtime values of these types, by its
+||| form with a marker for each (`form`), where the program fixes it
+||| (`fixedMember`): found by that form, or added as the choice's next
+||| constructor, whose one field holds the values (`Holes`). Nothing for
+||| one the running program chooses, which is no member.
 export
 memberHolding : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                FC -> String -> ChoiceType -> (form : ClosedTerm) -> Holes -> Front (Con 1)
-memberHolding fc owner ty form held = do
+                FC -> String -> ChoiceType -> (form : ClosedTerm) -> List1 ClosedTerm -> Front (Maybe (Con 1))
+memberHolding fc owner ty form types = do
+  Just dictionary <- fixedMember ty form
+    | Nothing => pure Nothing
+  packed <- coreType fc owner ValueType !(normaliseClosed !(packedType types))
+  let held = MkHoles types (MkBinder Many packed)
   choice <- choiceFamily fc owner ty
   case found (choice.members <>> []) of
-    Just con => pure con
+    Just con => pure (Just con)
     Nothing => do
       con <- newCon fc choice.family (length choice.members) form [held.binder]
-      added choice (MkChoiceMember form (Capturing held con))
-      pure con
+      added choice (MkChoiceMember dictionary (Capturing held con))
+      pure (Just con)
   where
     found : List ChoiceMember -> Maybe (Con 1)
     found [] = Nothing
-    found (MkChoiceMember f (Capturing _ con) :: ms) = if f == form then Just con else found ms
+    found (MkChoiceMember d (Capturing _ con) :: ms) = if d.form == form then Just con else found ms
     found (_ :: ms) = found ms
 
 ------------------------------------------------------------------------------

@@ -1943,6 +1943,26 @@ dictionaryReading t = do
       updateState (derive { dictionaries $= insert written here })
       pure here
 
+||| An implementation built around one the program fixes, as a kind holds it
+||| (`State.FixedDictionary`): its reading, read once by its written key as
+||| every static argument is, and the value it reduces to at its head, which
+||| its builder built beside it (`Choices.heldMember`, `Cases.heldHere`), so
+||| nothing reduces it. A form read before keeps the reading it had; one read
+||| first here is kept with that value as what it reduces to.
+export
+builtDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> FixedValue -> Front FixedDictionary
+builtDictionary t v = do
+  writer <- writerOf [t]
+  let written = writtenOf writer t
+  case lookupFact (.dictionaries) written !(getState) of
+    Just d => pure (MkFixedDictionary t d.asStatic d.ofDictionary v)
+    Nothing => do
+      ctx <- frozenContext
+      r <- readInstance ctx ADictionary t
+      let here = MkDictionaryReading (keptReading r) Refl (ReducesTo v)
+      updateState (derive { dictionaries $= insert written here })
+      pure (MkFixedDictionary t here.asStatic here.ofDictionary v)
+
 ||| A request's static argument at its kind, as the translation keeps it:
 ||| the reading itself (`readInstance`), kept at quantity 0 beside what the
 ||| translation reads of it, the form its link writes, its height and the
@@ -1955,7 +1975,9 @@ dictionaryReading t = do
 ||| time, never another.
 export
 staticReading : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Readings.Static -> ClosedTerm -> Front StaticReading
-staticReading ADictionary t = (.asStatic) <$> dictionaryReading t
+staticReading ADictionary t = do
+  d <- dictionaryReading t
+  pure d.asStatic
 staticReading kind t = do
   writer <- writerOf [t]
   let written = writtenOf writer t

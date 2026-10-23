@@ -67,14 +67,118 @@ record ChoiceType where
 
 %prefix_record_projections on
 
+||| A request's static argument as an instance's reading reads it
+||| (`Template.staticReading`), kept by its kind and its written key, and
+||| given to every request that argument keys: the reading itself, at
+||| quantity 0, in the frozen context it was read in and at the kind and
+||| the term it was read at, so that what a request puts in for a parameter
+||| its key names is a reading's form by construction; and what the
+||| translation reads of it at run time, each the reading's by type: the
+||| form its link writes, its height (`Readings.readingHeight`), and the
+||| definition at its root that splits the node of a request it is given
+||| to, the implementation of a dictionary or the type constructor at the
+||| head of a family, if it has one (`Readings.splitting`).
+public export
+record StaticReading where
+  constructor MkStaticReading
+  {0 readIn : Frozen}
+  {0 readKind : Static}
+  {0 readTerm : ClosedTerm}
+  0 reading : InstanceReading readIn readKind readTerm
+  form : ClosedTerm
+  0 isForm : form = reading.form
+  height : Nat
+  0 isHeight : height = readingHeight reading
+  head : Maybe Address
+  0 isHead : head = splitting reading.root
+
+||| What a reduction to a head is stuck on.
+public export
+data StuckOn
+  = ||| A runtime value: one an implementation closes over, a part of one
+    ||| its shape does not say, or a runtime variable.
+    OnRuntime ClosedTerm
+  | ||| A definition Idris does not prove ends, which Idris's normaliser
+    ||| would run.
+    OnPartial Name
+  | ||| A value that is no constructor application: a literal, a type, a
+    ||| function, a definition applied to fewer arguments than it takes.
+    OnValue ClosedTerm
+
+||| What an implementation the program fixes now reduces to at its head: an
+||| interface's constructor applied to its fields, which a tree that matches
+||| on the implementation takes apart at compile time; or a value of a
+||| function type, a lambda or a definition applied to fewer arguments than
+||| it takes, which each use applies in place.
+public export
+data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction ClosedTerm
+
+||| A fixed value with each of its terms changed alike: the constructor's
+||| arguments, or the function. Putting in names no reduction unfolds (the
+||| markers of the values an implementation closes over) commutes with
+||| reducing to a head, so a form with such names put in reduces to its
+||| value with them put in, and nothing reduces it again.
+export
+mapValue : (ClosedTerm -> ClosedTerm) -> FixedValue -> FixedValue
+mapValue f (FixedConstructor n args) = FixedConstructor n (map f args)
+mapValue f (FixedFunction v) = FixedFunction (f v)
+
+||| What an implementation's form reduces to at its head, whatever type it
+||| is given at (`Closed.reducedOf`): a value the program fixes, or what the
+||| reduction is stuck on. Whether a function value is fixed is its type's
+||| to say, read where it is given (`Closed.fixedAt`).
+public export
+data HeadReduct = ReducesTo FixedValue | StuckAt StuckOn
+
+||| A dictionary's static argument as an instance's reading reads it
+||| (`StaticReading`), with what the reading's form reduces to at its head
+||| (`HeadReduct`), found once where it was read: reduced there, or, for a
+||| form built around one already reduced, built beside it
+||| (`Template.builtDictionary`). Whether the program fixes the dictionary
+||| is decided from it at each parameter it is given at (`Closed.fixedAt`),
+||| and nothing reduces the form again.
+public export
+record DictionaryReading where
+  constructor MkDictionaryReading
+  asStatic : StaticReading
+  0 ofDictionary : asStatic.readKind = ADictionary
+  reduct : HeadReduct
+
+||| An implementation the program fixes now, as the kind of a parameter
+||| given it holds it (`DictParam`): its form as given (what a call writes,
+||| where the call classifies it; its reading's form, where an instance is
+||| keyed by it, `atReading`); its reading (`StaticReading`); and the value
+||| its form reduces to at its head (`FixedValue`), found once: where the
+||| one classification of a dictionary read it, the reduct its reading kept
+||| (`Template.dictionaryReading`), fixed at the type it is given at
+||| (`Closed.fixedAt`); or, for a form built around one already reduced,
+||| built beside it (`Choices.heldMember`, `Cases.heldHere`). A kind that
+||| holds it is fixed by type, so a tree that matches on its parameter takes
+||| that value apart, and nothing reduces the form again.
+public export
+record FixedDictionary where
+  constructor MkFixedDictionary
+  form : ClosedTerm
+  asStatic : StaticReading
+  0 ofDictionary : asStatic.readKind = ADictionary
+  reducesTo : FixedValue
+
+||| A fixed implementation as an instance keyed by it holds it: at the form
+||| its reading reads, which its key writes there.
+public export
+atReading : FixedDictionary -> FixedDictionary
+atReading d = MkFixedDictionary d.asStatic.form d.asStatic d.ofDictionary d.reducesTo
+
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
 ||| such as an interface constraint, or a polymorphic function passed as a
 ||| value, `Types.polymorphicType`) are compile-time values: they key the
-||| instance and are not parameters at runtime. An implementation may close
-||| over runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
-||| has): which implementation it is stays a compile-time value, the values
-||| replaced by markers, and the parameter holds the values (`Holes`). An
+||| instance and are not parameters at runtime. An implementation is one the
+||| program fixes now, with its reading and the value it reduces to
+||| (`FixedDictionary`). It may close over runtime values (`{vars : _} ->
+||| Show (Term vars)` at the scope a term has): which implementation it is
+||| stays a compile-time value, the values replaced by markers, and the
+||| parameter holds the values (`Holes`). An
 ||| implementation the call chooses at run time among those the program
 ||| fixes is a choice (`ChoiceParam`): a runtime value of the closed sum of
 ||| the implementations of its interface type (`Choices`), with its binder
@@ -96,7 +200,7 @@ record ChoiceType where
 ||| tree's scope has one variable per parameter.
 public export
 data PKind = TypeParam ClosedTerm
-           | DictParam ClosedTerm (Maybe Holes)
+           | DictParam FixedDictionary (Maybe Holes)
            | ChoiceParam Binder ChoiceType
            | ErasedParam
            | IndexParam Sort
@@ -344,71 +448,6 @@ public export
 Position : Type
 Position = (Node, Nat)
 
-||| A request's static argument as an instance's reading reads it
-||| (`Template.staticReading`), kept by its kind and its written key, and
-||| given to every request that argument keys: the reading itself, at
-||| quantity 0, in the frozen context it was read in and at the kind and
-||| the term it was read at, so that what a request puts in for a parameter
-||| its key names is a reading's form by construction; and what the
-||| translation reads of it at run time, each the reading's by type: the
-||| form its link writes, its height (`Readings.readingHeight`), and the
-||| definition at its root that splits the node of a request it is given
-||| to, the implementation of a dictionary or the type constructor at the
-||| head of a family, if it has one (`Readings.splitting`).
-public export
-record StaticReading where
-  constructor MkStaticReading
-  {0 readIn : Frozen}
-  {0 readKind : Static}
-  {0 readTerm : ClosedTerm}
-  0 reading : InstanceReading readIn readKind readTerm
-  form : ClosedTerm
-  0 isForm : form = reading.form
-  height : Nat
-  0 isHeight : height = readingHeight reading
-  head : Maybe Address
-  0 isHead : head = splitting reading.root
-
-||| What a reduction to a head is stuck on.
-public export
-data StuckOn
-  = ||| A runtime value: one an implementation closes over, a part of one
-    ||| its shape does not say, or a runtime variable.
-    OnRuntime ClosedTerm
-  | ||| A definition Idris does not prove ends, which Idris's normaliser
-    ||| would run.
-    OnPartial Name
-  | ||| A value that is no constructor application: a literal, a type, a
-    ||| function, a definition applied to fewer arguments than it takes.
-    OnValue ClosedTerm
-
-||| What an implementation the program fixes now reduces to at its head: an
-||| interface's constructor applied to its fields, which a tree that matches
-||| on the implementation takes apart at compile time; or a value of a
-||| function type, a lambda or a definition applied to fewer arguments than
-||| it takes, which each use applies in place.
-public export
-data FixedValue = FixedConstructor Name (List ClosedTerm) | FixedFunction ClosedTerm
-
-||| What an implementation's form reduces to at its head, whatever type it
-||| is given at (`Closed.reducedOf`): a value the program fixes, or what the
-||| reduction is stuck on. Whether a function value is fixed is its type's
-||| to say, read where it is given (`Closed.fixedAt`).
-public export
-data HeadReduct = ReducesTo FixedValue | StuckAt StuckOn
-
-||| A dictionary's static argument as an instance's reading reads it
-||| (`StaticReading`), with what the reading's form reduces to at its head
-||| (`HeadReduct`), found once where it was read: whether the program fixes
-||| the dictionary is decided from it at each parameter it is given at
-||| (`Closed.fixedAt`), and nothing reduces the form again.
-public export
-record DictionaryReading where
-  constructor MkDictionaryReading
-  asStatic : StaticReading
-  0 ofDictionary : asStatic.readKind = ADictionary
-  reduct : HeadReduct
-
 %prefix_record_projections off
 ||| What a pattern-matching definition's body is to the translation, read
 ||| once through the context's accessors (`Boundary`): its case tree, each
@@ -461,15 +500,15 @@ appliedArity (AtUse uses) = 2 + uses
 ||| What an instance's parameter is put in at, as its request keys it
 ||| there: where a static argument keys it, that argument's reading's
 ||| form, at the kind it was read as (`KeyedAs`), the implementation with
-||| the values it closes over and the shape at the quantity it was read
-||| with; where nothing keys it, whatever the parameter's binder decides.
-||| So the value an instance holds for a parameter its key names is the
-||| form the key writes there.
+||| the values it closes over and the value it was fixed at, and the shape
+||| at the quantity it was read with; where nothing keys it, whatever the
+||| parameter's binder decides. So the value an instance holds for a
+||| parameter its key names is the form the key writes there.
 public export
 data AtKey : Maybe (KeyedAs, StaticReading) -> PKind -> Type where
   TypeAtKey : {0 r : StaticReading} -> AtKey (Just (AsType, r)) (TypeParam r.form)
-  DictionaryAtKey : {0 r : StaticReading} -> {0 holes : Maybe Holes} ->
-                    AtKey (Just (AsDictionary holes, r)) (DictParam r.form holes)
+  DictionaryAtKey : {0 d : FixedDictionary} -> {0 holes : Maybe Holes} ->
+                    AtKey (Just (AsDictionary holes, d.asStatic)) (DictParam (atReading d) holes)
   FormAtKey : {0 r : StaticReading} -> AtKey (Just (AsForm, r)) (FormParam r.form)
   ShapeAtKey : {0 r : StaticReading} -> {0 q : Uses} -> {0 t : Ty} -> {0 idrisType : ClosedTerm} ->
                AtKey (Just (AsShape q, r)) (ValueParam (MkBinder q t) (Just r.form) idrisType)
@@ -628,14 +667,18 @@ memberCon (Bare c) = (0 ** c)
 memberCon (Capturing _ c) = (1 ** c)
 
 ||| An implementation the program fixes as a value of its interface type,
-||| one constructor of that type's choice (`Choices`): its form, the
-||| runtime values it closes over replaced by markers (`Closed.holeMarker`),
-||| which keys the instance of every callee a dispatch calls at it, and its
-||| constructor.
+||| one constructor of that type's choice (`Choices`): the implementation
+||| fixed (`FixedDictionary`), its form the runtime values it closes over
+||| replaced by markers (`Closed.holeMarker`), registered with the reading
+||| and the value the one classification of a dictionary found, which key
+||| the instance of every callee a dispatch calls at it and which that
+||| callee's tree takes apart; and its constructor. A member is registered
+||| only where the program fixes it now (`Choices.memberBare`), so no arm of
+||| a dispatch is given one its tree cannot take apart.
 public export
 record ChoiceMember where
   constructor MkChoiceMember
-  form : ClosedTerm
+  dictionary : FixedDictionary
   con : MemberCon
 
 ||| What a choice is a choice of, its identity: an interface type, by its
@@ -686,21 +729,21 @@ choiceDeclared ch = MkFamily ch.family ch.key None [] (map (\m => memberCon m.co
 ||| parameter takes the choice, of this binder and type (`Given`), and the
 ||| kinds hold `rest` more choices after it, each arm a call of the callee
 ||| with one fewer (`Choices.calleeAt`); or the parameter takes an
-||| implementation the program fixes, of this form, and holds the values
-||| it closes over, the one at a place among them a choice the running
-||| program made (`HeldIn`, the place a position among the values' types):
-||| a field of the implementation, whose every member is an instance of
-||| the callee with that field fixed (`Choices.heldDispatch`).
+||| implementation the program fixes (`FixedDictionary`), and holds the
+||| values it closes over, the one at a place among them a choice the
+||| running program made (`HeldIn`, the place a position among the values'
+||| types): a field of the implementation, whose every member is an
+||| instance of the callee with that field fixed (`Choices.heldDispatch`).
 public export
 data Chosen : Type where
   Given : (rest : Nat) -> Binder -> ChoiceType -> Chosen
-  HeldIn : ClosedTerm -> (hs : Holes) -> Fin (length (forget hs.types)) -> Chosen
+  HeldIn : FixedDictionary -> (hs : Holes) -> Fin (length (forget hs.types)) -> Chosen
 
 ||| The kind of the parameter a dispatch finds its choice in.
 export
 chosenKind : Chosen -> PKind
 chosenKind (Given _ b t) = ChoiceParam b t
-chosenKind (HeldIn form hs _) = DictParam form (Just hs)
+chosenKind (HeldIn holder hs _) = DictParam holder (Just hs)
 
 %prefix_record_projections off
 

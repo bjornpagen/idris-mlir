@@ -11,6 +11,7 @@ import Core.Context
 import Core.Core
 import Core.TT
 
+import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Choices
 import IdrisMLIR.Frontend.Translate.Closed
@@ -473,19 +474,22 @@ route (DefaultCase _ :: rest) = case route rest of
   OnConstructors cn _ => OnConstructors cn AtDefault
   OnConstants _ => OnConstants AtDefault
 
-||| Where an implementation a compile-time match takes apart stands: the
-||| whole implementation a parameter of the instance is given, or a part
-||| earlier matches took out of one, with the constructors they found it
-||| inside (`Opened`, the innermost first). Essential: a part is put back
-||| into its parameter's implementation where no reduction reaches it
-||| (`heldHere`), and the whole has nothing to be put back into.
-data Taken = WholeParameter | TakenOut (List1 Opened)
+||| Where an implementation a compile-time match takes apart stands, with
+||| what the match reads of it there: the whole implementation a parameter
+||| of the instance is given, at the value its kind holds it fixed at
+||| (`FixedDictionary`), which nothing reduces again; or a part earlier
+||| matches took out of one, as a term no reduction has reached into, with
+||| the constructors they found it inside (`Opened`, the innermost first).
+||| Essential: a part is put back into its parameter's implementation where
+||| no reduction reaches it (`heldHere`), and the whole has nothing to be
+||| put back into.
+data Taken = WholeParameter FixedValue | TakenOut ClosedTerm (List1 Opened)
 
 ||| The constructors a match found the implementation inside, the
 ||| innermost first: none around a parameter's whole implementation.
 openedOf : Taken -> List Opened
-openedOf WholeParameter = []
-openedOf (TakenOut opened) = forget opened
+openedOf (WholeParameter _) = []
+openedOf (TakenOut _ opened) = forget opened
 
 mutual
   ||| A case tree over its scope's variables, and where they stand in the
@@ -514,8 +518,8 @@ mutual
       TypeValue _ => forced alts
       -- A match on an implementation selects its alternative now: a
       -- parameter's whole, or a part an earlier match took out of one.
-      Static t hole given => staticCase ctx env cls scrutinee t hole given WholeParameter alts
-      Part t hole given opened => staticCase ctx env cls scrutinee t hole given (TakenOut opened) alts
+      Static d hole given => staticCase ctx env cls scrutinee hole given (WholeParameter d.reducesTo) alts
+      Part t hole given opened => staticCase ctx env cls scrutinee hole given (TakenOut t opened) alts
       v@(Runtime i t) => case coreOf t of
         Just WorldT => world alts
         _ => runtime loc v i
@@ -779,7 +783,7 @@ mutual
     natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextConst cons)
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DelayCase {} :: _) _ impossible
 
-  ||| A match on a compile-time value: the implementation is reduced to its
+  ||| A match on a compile-time value: the implementation at its
   ||| constructor, and the alternative's variables stand for its arguments,
   ||| each a part taken out of it (`Taken`). An argument that mentions the
   ||| runtime value the implementation closes over closes over it too, and
@@ -788,35 +792,33 @@ mutual
   ||| reaches it (`heldHere`).
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-               ClosedTerm -> Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) -> Taken ->
+               Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) -> Taken ->
                List (CaseAlt vars) -> Front (Term nv)
-  staticCase ctx env cls scrutinee t hole given taken alts = do
-    -- An implementation is a parameter's form only where the program fixes
-    -- it now, its head the constructor (`Closed.fixedAt`); one the running
-    -- program chooses is passed as a choice (`Instances.classify`) and
-    -- translated as the computation it is (`Terms.memberHere`), so each
-    -- member a dispatch fixes reduces. A field of a fixed implementation
-    -- that the running program chooses is a value the parameter holds, and
-    -- an instance given one is split by the members of its choice
+  staticCase ctx env cls scrutinee hole given taken alts = case taken of
+    -- A parameter's whole implementation is one the program fixes now:
+    -- its kind holds the value it reduces to (`FixedDictionary`), read
+    -- where it was classified, registered as a member, or built beside a
+    -- form built around one, so it is taken apart as it is.
+    WholeParameter (FixedConstructor cn cargs) => built cn cargs
+    -- Essential: the checked tree matches only a value of a data type,
+    -- and a function value is none, though a parameter of a function type
+    -- is fixed at one. A tree that matches one is the compiled module's,
+    -- refused where the frontend first reads the match.
+    WholeParameter (FixedFunction v) => do
+      written <- showTT v
+      reject ctx.fc ctx.owner CompiledModule ("a match on an implementation that is a function value: " ++ written)
+    -- A part is reduced here first. A field of a fixed implementation that
+    -- the running program chooses is a value the parameter holds, and an
+    -- instance given one is split by the members of its choice
     -- (`Choices.heldDispatch`), so its tree takes apart the member. What
     -- reaches here stuck is a part of a fixed implementation that no
     -- compile-time reduction reaches: one a definition Idris does not prove
     -- ends computes, or one computed from the values the implementation
     -- closes over.
-    Built cn cargs <- whnf t
-      | Stuck on => case taken of
-          TakenOut opened => heldHere opened on
-          -- Kept: the classification keys a parameter by an implementation
-          -- only where its reading's form reduces (`Closed.fixedAt`, off
-          -- the reduct `Template.dictionaryReading` keeps, the reduction
-          -- made again here), but the parameter's kind holds the form and
-          -- not that reduct, and a dispatch's arm is given a member's form
-          -- no such decision was made on, so its being stuck is no state
-          -- the types rule out.
-          WholeParameter => internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
-    cn <- fullName cn
-    con <- lookupDef ctx.fc ctx.owner cn
-    pick cn cargs (typedParts cn cargs 0 none con.binders cargs) alts
+    TakenOut t opened => do
+      Built cn cargs <- whnf t
+        | Stuck on => heldHere t opened on
+      built cn cargs
     where
       -- What a constructor's argument stands for: a runtime value of it, a
       -- part taken out of the implementation, with the constructor it was
@@ -852,11 +854,13 @@ mutual
       pick cn cargs typed [] = missingCase ctx <$> toLoc ctx.fc
 
       -- An implementation built with its constructor applied, an argument
-      -- replaced.
-      rebuilt : Name -> Nat -> ClosedTerm -> List ClosedTerm -> Front ClosedTerm
+      -- replaced, and the value it is at its head, which is that
+      -- constructor applied, by construction.
+      rebuilt : Name -> Nat -> ClosedTerm -> List ClosedTerm -> Front (ClosedTerm, FixedValue)
       rebuilt cn j v args = do
         f <- refTo EmptyFC cn
-        pure (foldl (App EmptyFC) f (replaceAt j v args))
+        let args' = replaceAt j v args
+        pure (foldl (App EmptyFC) f args', FixedConstructor cn args')
         where
           replaceAt : Nat -> a -> List a -> List a
           replaceAt Z x (_ :: ys) = x :: ys
@@ -867,16 +871,17 @@ mutual
       -- a value it holds, marker `m`: rebuilt around the part from the
       -- constructors the compile-time matches on the way found, the
       -- innermost first (the one the part is an argument of, then those
-      -- outer to it), with nothing reduced again; and the part's type.
-      holding : (m : Nat) -> List1 Opened -> Front (ClosedTerm, ClosedTerm)
+      -- outer to it), with nothing reduced again; the value it is at its
+      -- head, its outermost constructor applied; and the part's type.
+      holding : (m : Nat) -> List1 Opened -> Front (ClosedTerm, FixedValue, ClosedTerm)
       holding m (inner ::: outer) = do
         ty <- normaliseClosed inner.partType
-        part <- rebuilt inner.con inner.at (holeMarker m) inner.args
-        (, ty) <$> around part outer
+        (form, value) <- around !(rebuilt inner.con inner.at (holeMarker m) inner.args) outer
+        pure (form, value, ty)
         where
-          around : ClosedTerm -> List Opened -> Front ClosedTerm
-          around part [] = pure part
-          around part (f :: fs) = rebuilt f.con f.at part f.args >>= \p => around p fs
+          around : (ClosedTerm, FixedValue) -> List Opened -> Front (ClosedTerm, FixedValue)
+          around done [] = pure done
+          around (part, _) (f :: fs) = rebuilt f.con f.at part f.args >>= \b => around b fs
 
       -- The variable that holds the value of parameter `i` at run time, as
       -- the tree's scope binds it: the parameter itself, at its own place,
@@ -924,22 +929,25 @@ mutual
       -- parameter the implementation is of, its position among the
       -- instance's and the values it holds, is the entry's (`given`), and
       -- so are the constructors the matches on the way found (`opened`).
-      heldHere : List1 Opened -> StuckOn -> Front (Term nv)
-      heldHere opened on = do
+      -- The implementation rebuilt is fixed by construction, at its
+      -- outermost constructor (`holding`), so nothing reduces it.
+      heldHere : ClosedTerm -> List1 Opened -> StuckOn -> Front (Term nv)
+      heldHere t opened on = do
         let r = ctx.request
         let own = replace {p = \n => Vect n PKind} ctx.counts (Data.Vect.fromList ctx.request.signature.kinds)
         let position = given.position
         let parameter = finToNat position
         let held = map snd given.holding
         let count = maybe 0 (length . forget . (.types)) held
-        (form', fieldType) <- holding count opened
+        (form', value', fieldType) <- holding count opened
         Just _ <- choiceType fieldType
           | Nothing => reject ctx.fc ctx.owner RuntimeClosure
                             ("an implementation's field no compile-time reduction reaches, matched where the " ++
                              "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
         packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
-        let kinds = replaceAt position (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) own
+        fixed <- builtDictionary form' value'
+        let kinds = replaceAt position (DictParam fixed (Just (MkHoles types (MkBinder Many packed)))) own
         sig <- request ctx.fc ctx.owner ctx.request.instantiates
                        (replace {p = \n => Vect n PKind} (trans (sym ctx.counts) ctx.request.classifiesAll) kinds)
         loc <- toLoc ctx.fc
@@ -958,6 +966,14 @@ mutual
           ending : List a -> a -> List1 a
           ending [] x = x ::: []
           ending (y :: ys) x = y ::: (ys ++ [x])
+
+      -- The alternative of the constructor the implementation is at,
+      -- applied to `cargs` (`pick`).
+      built : Name -> List ClosedTerm -> Front (Term nv)
+      built cn cargs = do
+        full <- fullName cn
+        con <- lookupDef ctx.fc ctx.owner full
+        pick full cargs (typedParts full cargs 0 none con.binders cargs) alts
 
   ||| The constructors a match's alternatives name, its possible
   ||| alternatives, each over its fields, named as the alternative names

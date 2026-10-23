@@ -132,12 +132,13 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| value of that shape can. Its Idris type is the one before the shape.
   Shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo kc sp a
   TypeValue : ClosedTerm -> VarInfo kc sp a
-  ||| An implementation the instance is given, with the parameter it is of
-  ||| (`GivenParameter`), built where the parameters are bound
-  ||| (`Programs.runtimeParams`): in a case tree's scope the parameter's
-  ||| own, in a term's that or a part a match took out of it (`Part`,
-  ||| which a term only uses).
-  Static : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
+  ||| An implementation the instance is given, whole, as its parameter's
+  ||| kind holds it, fixed (`FixedDictionary`), with the parameter it is
+  ||| of (`GivenParameter`), built where the parameters are bound
+  ||| (`Programs.runtimeParams`). A part a match took out of one is a
+  ||| `Part` in a case tree's scope, and in a term's an implementation
+  ||| known as a term (`BoundHere`), which a term only uses.
+  Static : FixedDictionary -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
   ||| A part a compile-time match took out of an implementation the
   ||| instance is given (`Cases.staticCase`), with the parameter it is of
   ||| and the constructor each match on the way found it built with
@@ -145,8 +146,10 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| is put back into the implementation with nothing reduced again
   ||| (`Cases.heldHere`). Only a case tree takes an implementation apart.
   Part : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> VarInfo kc OfTree a
-  ||| An implementation a term binds: a `let` of one, or one a lambda
-  ||| applied there takes. No case tree's scope holds one.
+  ||| An implementation a term's scope knows as a term: one a `let` binds or
+  ||| a lambda applied there takes, or a part a compile-time match took out
+  ||| of a given one (`asTermEntry`), which a term only uses. No case tree's
+  ||| scope holds one.
   BoundHere : ClosedTerm -> Maybe (a, Holes) -> VarInfo kc OfTerm a
 
 export
@@ -166,21 +169,21 @@ namespace VarInfo
   ||| any; nothing for an entry of any other kind.
   export
   implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
-  implementationOf (Static t h _) = Just (t, h)
+  implementationOf (Static d h _) = Just (d.form, h)
   implementationOf (Part t h _ _) = Just (t, h)
   implementationOf (BoundHere t h) = Just (t, h)
   implementationOf _ = Nothing
 
 ||| A case tree's entry as a term's scope holds it, at a leaf: a part of an
 ||| implementation the instance is given, which no term takes apart, as an
-||| implementation of its parameter.
+||| implementation known as a term, with the values it closes over.
 export
 asTermEntry : VarInfo kc OfTree a -> VarInfo kc OfTerm a
 asTermEntry (Runtime x t) = Runtime x t
 asTermEntry (Shaped x t i sh) = Shaped x t i sh
 asTermEntry (TypeValue t) = TypeValue t
-asTermEntry (Static t h p) = Static t h p
-asTermEntry (Part t h p _) = Static t h p
+asTermEntry (Static d h p) = Static d h p
+asTermEntry (Part t h _ _) = BoundHere t h
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
@@ -370,7 +373,7 @@ closeWritten fc env tm = closeOver fc (map value env) tm
   where
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t _ _) = t
+    value (Static d _ _) = d.form
     value (Part t _ _ _) = t
     value (BoundHere t _) = t
     -- A shape is what is known of the value at compile time; its holes
@@ -1863,7 +1866,7 @@ closeNormalise fc env tm = do
   where
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t _ _) = t
+    value (Static d _ _) = d.form
     value (Part t _ _ _) = t
     value (BoundHere t _) = t
     value (Shaped _ _ _ s) = s

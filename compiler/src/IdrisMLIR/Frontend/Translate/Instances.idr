@@ -99,10 +99,16 @@ ArgValues = List (Maybe ArgValue)
 ||| how it is read (`FromCall`, nothing for an argument the call leaves
 ||| out); or a requested instance's static argument, read once where it was
 ||| requested (`Template.staticReading`), which keys the instance and is put
-||| in at its reading's form as it is, so nothing of it is read again
-||| (`FromKey`).
+||| in at its reading's form as it is, so nothing of it is read again: a
+||| type, a form, a runtime value's shape at the quantity it was read with,
+||| or an implementation with the values it closes over, fixed as its kind
+||| holds it (`FixedDictionary`), which carries its reading.
 public export
-data Supply = FromCall (Maybe ArgValue) | FromKey KeyedAs StaticReading
+data Supply = FromCall (Maybe ArgValue)
+            | FromType StaticReading
+            | FromForm StaticReading
+            | FromShape Uses StaticReading
+            | FromDictionary (Maybe Holes) FixedDictionary
 
 ||| What a supplied argument keys its instance by: a requested static
 ||| argument's reading, at the kind it was read as; nothing for an argument
@@ -110,7 +116,10 @@ data Supply = FromCall (Maybe ArgValue) | FromKey KeyedAs StaticReading
 public export
 keyOf : Supply -> Maybe (KeyedAs, StaticReading)
 keyOf (FromCall _) = Nothing
-keyOf (FromKey as r) = Just (as, r)
+keyOf (FromType r) = Just (AsType, r)
+keyOf (FromForm r) = Just (AsForm, r)
+keyOf (FromShape q r) = Just (AsShape q, r)
+keyOf (FromDictionary holes d) = Just (AsDictionary holes, d.asStatic)
 
 ||| What each argument supplied keys its instance by, position by position.
 public export
@@ -139,12 +148,14 @@ nextSupplied [] = (FromCall Nothing, [])
 ||| by (`Sites`). An implementation that is a function (`() -> Eq a`) and a
 ||| family that is a lambda have no root and split nothing: cases the
 ||| problem has. A kind that keys nothing is offered as what the call knows
-||| of it, and the instance's binder decides it.
+||| of it, and the instance's binder decides it. An implementation's kind
+||| holds its reading already (`FixedDictionary`), read where it was fixed,
+||| so nothing reads it again.
 supplying : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> PKind -> Front Supply
-supplying (TypeParam t) = FromKey AsType <$> staticReading AType t
-supplying (DictParam t holes) = FromKey (AsDictionary holes) <$> staticReading ADictionary t
-supplying (FormParam f) = FromKey AsForm <$> staticReading AForm f
-supplying (ValueParam b (Just shape) _) = FromKey (AsShape b.quantity) <$> staticReading AShape shape
+supplying (TypeParam t) = FromType <$> staticReading AType t
+supplying (DictParam d holes) = pure (FromDictionary holes d)
+supplying (FormParam f) = FromForm <$> staticReading AForm f
+supplying (ValueParam b (Just shape) _) = FromShape b.quantity <$> staticReading AShape shape
 supplying (ValueParam _ Nothing _) = pure (FromCall Nothing)
 -- A choice keys nothing: which implementation runs is the value's, and the
 -- interface type it is a choice of follows from the static arguments
@@ -186,8 +197,9 @@ instanceFor fc owner what kinds = do
 -- parameter index.
 heightsOf : Nat -> List Supply -> List (Nat, StaticReading)
 heightsOf i [] = []
-heightsOf i (FromKey _ r :: rest) = (i, r) :: heightsOf (S i) rest
-heightsOf i (FromCall _ :: rest) = heightsOf (S i) rest
+heightsOf i (s :: rest) = case keyOf s of
+  Just (_, r) => (i, r) :: heightsOf (S i) rest
+  Nothing => heightsOf (S i) rest
 
 ||| Where the growth check bounds a new instance's static arguments, by
 ||| what its link heads: a definition's at its node, the definition split
@@ -578,9 +590,9 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
           if not dependent
             then do
               d <- dictionaryReading val
-              let FixedNow _ = fixedAt a' d.reduct
+              let FixedNow fixed = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
-              static val Nothing
+              static (MkFixedDictionary val d.asStatic d.ofDictionary fixed) Nothing
             else do
               -- One that still needs a runtime value to say which it is is
               -- chosen at run time, among those the program fixes, unless
@@ -590,14 +602,15 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
                 | Nothing => chosen q a'
               key <- implementationOf shape
               d <- dictionaryReading key
-              let FixedNow _ = fixedAt a' d.reduct
+              let FixedNow fixed = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-              static key (Just (MkHoles tys (MkBinder Many held)))
+              static (MkFixedDictionary key d.asStatic d.ofDictionary fixed) (Just (MkHoles tys (MkBinder Many held)))
 
-        -- An implementation known now keys the instance.
-        static : ClosedTerm -> Maybe Holes -> Front (Stepped (FromCall given))
-        static key holes = unkeyedAt (DictParam key holes) level !(normaliseClosed (subst key sc))
+        -- An implementation known now keys the instance, with the value it
+        -- was fixed at, which its kind holds.
+        static : FixedDictionary -> Maybe Holes -> Front (Stepped (FromCall given))
+        static d holes = unkeyedAt (DictParam d holes) level !(normaliseClosed (subst d.form sc))
 
         -- A choice of an implementation or a polymorphic function of the
         -- parameter's type (`choiceType`), a value at run time, which the
@@ -635,12 +648,13 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
     -- instance, as the request classified it: a type, a form, an
     -- implementation with the values it closes over, a runtime value's
     -- shape at the quantity it was read with, whose binder only the
-    -- instance's own type gives. Nothing of the argument is read again.
+    -- instance's own type gives. Nothing of the argument is read again: an
+    -- implementation keeps the value it was fixed at.
     parameter : (given : Supply) -> Front (Stepped given)
-    parameter (FromKey AsType r) = keyedAt (TypeParam r.form) TypeAtKey r.form
-    parameter (FromKey (AsDictionary holes) r) = keyedAt (DictParam r.form holes) DictionaryAtKey r.form
-    parameter (FromKey AsForm r) = keyedAt (FormParam r.form) FormAtKey r.form
-    parameter (FromKey (AsShape q) r) = do
+    parameter (FromType r) = keyedAt (TypeParam r.form) TypeAtKey r.form
+    parameter (FromDictionary holes d) = keyedAt (DictParam (atReading d) holes) DictionaryAtKey d.asStatic.form
+    parameter (FromForm r) = keyedAt (FormParam r.form) FormAtKey r.form
+    parameter (FromShape q r) = do
       a' <- normaliseClosed a
       t <- runtimeType a'
       keyedAt (ValueParam (MkBinder q t) (Just r.form) a') ShapeAtKey r.form

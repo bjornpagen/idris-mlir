@@ -271,7 +271,7 @@ sizedTelescope ty kinds = go 0 ty kinds
   where
     value : Nat -> PKind -> ClosedTerm
     value i (TypeParam t) = t
-    value i (DictParam t _) = t
+    value i (DictParam d _) = d.form
     value i (FormParam f) = fst (axes i f)
     value i (ValueParam _ (Just s) _) = s
     value i _ = sourceRef (Size i)

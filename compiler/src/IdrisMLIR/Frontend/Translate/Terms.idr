@@ -211,7 +211,7 @@ bindArguments loc bs ts k = go id bs ts k
 ||| reads its arguments: a type, an implementation, or nothing known.
 compileTimeArg : PKind -> ClosedTerm
 compileTimeArg (TypeParam t) = t
-compileTimeArg (DictParam t _) = t
+compileTimeArg (DictParam d _) = d.form
 compileTimeArg (FormParam f) = f
 compileTimeArg _ = Erased EmptyFC Placeholder
 
@@ -876,7 +876,7 @@ mutual
     -- TT's variable does not carry it: one that fails it is refused, as
     -- the compiled module it is.
     TypeValue _ => reject (bestFC ctx fc) ctx.owner CompiledModule "a compile-time variable in a runtime position"
-    Static t held _ => implementationAt ph w acc ctx env fc t held args
+    Static d held _ => implementationAt ph w acc ctx env fc d.form held args
     BoundHere t held => implementationAt ph w acc ctx env fc t held args
     where
       -- The variable, of the Core type its entry gives.
@@ -1125,7 +1125,7 @@ mutual
       -- implementation's form.
       writtenAs : VarInfo kc OfTerm (Fin nv) -> ClosedTerm
       writtenAs (Shaped _ _ _ s) = s
-      writtenAs (Static t _ _) = t
+      writtenAs (Static d _ _) = d.form
       writtenAs (BoundHere t _) = t
       writtenAs (TypeValue t) = t
       writtenAs (Runtime {}) = probeTerm ProbeRuntime
@@ -1279,7 +1279,7 @@ mutual
           isMarker _ _ = False
 
           holders : Nat -> List (VarInfo kc OfTerm (Fin nv)) -> List (Nat, (Fin nv, Holes, ClosedTerm))
-          holders k (Static t (Just (v, hs)) _ :: rest) = (k, (v, hs, t)) :: holders (S k) rest
+          holders k (Static d (Just (v, hs)) _ :: rest) = (k, (v, hs, d.form)) :: holders (S k) rest
           holders k (BoundHere t (Just (v, hs)) :: rest) = (k, (v, hs, t)) :: holders (S k) rest
           holders k (_ :: rest) = holders (S k) rest
           holders _ [] = []
@@ -1373,8 +1373,9 @@ mutual
   ||| the runtime values it closes over as its field. Nothing for one the
   ||| running program chooses (stuck on a runtime value), or one a
   ||| definition Idris does not prove ends computes, which no compile-time
-  ||| reduction runs: it is translated as the computation it is, whose
-  ||| value is the choice among the members its own body fixes.
+  ||| reduction runs, as the choice's registration decides
+  ||| (`Choices.memberBare`): it is translated as the computation it is,
+  ||| whose value is the choice among the members its own body fixes.
   member : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> ChoiceType -> TT vars -> Front (Maybe (Term nv))
@@ -1382,18 +1383,13 @@ mutual
     impl <- solved (closeWritten fc env written)
     if not !(runtimeDependent impl)
       then do
-        FixedNow _ <- fixing ct.type impl
-          | ChosenAtRunTime _ => pure Nothing
-        con <- memberBare fc ctx.owner ct !(implementationOf impl)
-        pure (Just (ConApp loc con [] []))
+        found <- memberBare fc ctx.owner ct !(implementationOf impl)
+        pure (map (\con => ConApp loc con [] []) found)
       else do
         Just (shape, values) <- holed ph w acc ctx env fc written
           | Nothing => pure Nothing
-        form <- implementationOf shape
-        FixedNow _ <- fixing ct.type form
-          | ChosenAtRunTime _ => pure Nothing
-        held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
-        con <- memberHolding fc ctx.owner ct form (MkHoles (map fst values) (MkBinder Many held))
+        Just con <- memberHolding fc ctx.owner ct !(implementationOf shape) (map fst values)
+          | Nothing => pure Nothing
         v <- pack fc ctx.owner loc !(valuesOf values)
         pure (Just (ConApp loc con [] [v]))
 
