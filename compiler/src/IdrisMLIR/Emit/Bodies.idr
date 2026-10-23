@@ -266,10 +266,10 @@ mutual
   names : (from, k : Nat) -> TermAt js n -> Bool
   names from k (Var _ x) = namesVar from k x
   names from k (Literal _ _) = False
-  names from k (PrimApp _ _ _ as) = anyNames from k (toList as)
-  names from k (Effect _ _ _ as world _) = anyNames from k (toList as) || names from k world
-  names from k (Call _ _ _ _ as) = anyNames from k (toList as)
-  names from k (ConApp _ _ _ as) = anyNames from k (toList as)
+  names from k (PrimApp _ _ _ as) = vectNames from k as
+  names from k (Effect _ _ _ as world _) = vectNames from k as || names from k world
+  names from k (Call _ _ _ _ as) = vectNames from k as
+  names from k (ConApp _ _ _ as) = vectNames from k as
   names from k (Let _ _ _ v b) = names from k v || names (S from) k b
   names from k (Case _ _ x arms) = namesVar from k x || armsName from k arms
   names from k (CaseLit _ x arms) = namesVar from k x || litArmsName from k arms
@@ -283,38 +283,64 @@ mutual
   names from k (Crash _ _) = False
   names from k (CrashWith _ m) = names from k m
   names from k (NewWorld _) = False
-  names from k (Tensor _ op) = anyNames from k (toList op)
-  names from k (Tabulate {k = j} _ _ es body) = anyNames from k (toList es) || names (j + from) k body
+  names from k (Tensor _ op) = opNames from k op
+  names from k (Tabulate {k = j} _ _ es body) = vectNames from k es || names (j + from) k body
   names from k (TabulateIO {k = j} _ _ es w body _ _) =
-    anyNames from k (toList es) || names from k w || names (S j + from) k body
+    vectNames from k es || names from k w || names (S j + from) k body
   names from k (Reduce _ _ _ _ _ _ _ z x body) = names from k z || names from k x || names (2 + from) k body
-  names from k (Tie _ _ x ds) = names from k x || anyNames from k (map (stated . snd) ds)
-    where
-      stated : Stated (TermAt [] n) -> TermAt [] n
-      stated (SameAs t) = t
-      stated (Natural t) = t
+  names from k (Tie _ _ x ds) = names from k x || statedNames from k ds
   names from k (ReadBack _ _ x cs body) = names from k x || anyNames from k cs || names (2 + from) k body
   names from k (ExtentsBack {k = j} _ x body) = names from k x || names (S j + from) k body
   names from k (Join _ _ targets body) = targetsName from k targets || names from k body
-  names from k (Jump _ _ _ as) = anyNames from k (toList as)
+  names from k (Jump _ _ _ as) = vectNames from k as
 
   namesVar : (from, k : Nat) -> Fin n -> Bool
   namesVar from k x = from <= finToNat x && finToNat x < from + k
 
+  -- Each container of subterms is walked by its own clauses, every one
+  -- taken apart where it is matched, so each term the walk reaches is a
+  -- part of the one it started from.
   anyNames : (from, k : Nat) -> List (TermAt js n) -> Bool
   anyNames from k [] = False
   anyNames from k (t :: ts) = names from k t || anyNames from k ts
 
+  vectNames : (from, k : Nat) -> Vect j (TermAt js n) -> Bool
+  vectNames from k [] = False
+  vectNames from k (t :: ts) = names from k t || vectNames from k ts
+
+  opNames : (from, k : Nat) -> TensorOp (TermAt js n) -> Bool
+  opNames from k (Extent _ _ x) = names from k x
+  opNames from k (Extract _ _ x cs) = names from k x || anyNames from k cs
+  opNames from k (Insert _ _ x v cs) = names from k x || names from k v || anyNames from k cs
+  opNames from k (Take _ _ _ c x) = names from k c || names from k x
+  opNames from k (Drop _ _ _ c x) = names from k c || names from k x
+  opNames from k (Concat _ _ _ _ x y) = names from k x || names from k y
+  opNames from k (Transpose _ _ _ x) = names from k x
+  opNames from k (Reshape _ _ x es) = names from k x || anyNames from k es
+
+  statedNames : (from, k : Nat) -> List (Nat, Stated (TermAt js n)) -> Bool
+  statedNames from k [] = False
+  statedNames from k ((_, SameAs t) :: ds) = names from k t || statedNames from k ds
+  statedNames from k ((_, Natural t) :: ds) = names from k t || statedNames from k ds
+
   altNames : (from, k : Nat) -> AltAt js n -> Bool
   altNames from k (MkAlt {k = j} _ _ body) = names (j + from) k body
 
+  altsNames : (from, k : Nat) -> List (AltAt js n) -> Bool
+  altsNames from k [] = False
+  altsNames from k (alt :: alts) = altNames from k alt || altsNames from k alts
+
   armsName : (from, k : Nat) -> CaseArmsOf (AltAt js n) (TermAt js n) -> Bool
-  armsName from k (Defaulted alts d) = any (altNames from k) alts || names from k d
-  armsName from k (Exhaustive alts) = any (altNames from k) (forget alts)
+  armsName from k (Defaulted alts d) = altsNames from k alts || names from k d
+  armsName from k (Exhaustive (alt ::: alts)) = altNames from k alt || altsNames from k alts
+
+  litsName : (from, k : Nat) -> List (kt, TermAt js n) -> Bool
+  litsName from k [] = False
+  litsName from k ((_, t) :: rest) = names from k t || litsName from k rest
 
   keyedName : (from, k : Nat) -> LitArmsOf kt (TermAt js n) -> Bool
-  keyedName from k (LitDefault alts d) = any (names from k . snd) (forget alts) || names from k d
-  keyedName from k (LitNoDefault alts) = any (names from k . snd) (forget alts)
+  keyedName from k (LitDefault ((_, t) ::: alts) d) = names from k t || litsName from k alts || names from k d
+  keyedName from k (LitNoDefault ((_, t) ::: alts)) = names from k t || litsName from k alts
 
   litArmsName : (from, k : Nat) -> LitMatch (TermAt js n) -> Bool
   litArmsName from k (OnlyDefault d) = names from k d
@@ -353,7 +379,7 @@ fieldBinders d u c = map (\b => MkBinder (times u b.quantity) b.type) (fieldsAt 
 ||| value of the module. `named i` says whether the alternative names field
 ||| `i`.
 caseFields : Index -> Loc -> Val -> (named : Nat -> Bool) -> Vect k Binder -> E (Vect k InScope)
-caseFields ix l r named bs = traverse (\(i, b) => field (finToNat i) b) (zip range bs)
+caseFields ix l r named bs = fieldsFrom 0 bs
   where
     -- A field at a linear position of a value nothing else reaches is
     -- reached by nothing else either; any other field's sharing is unknown.
@@ -386,6 +412,11 @@ caseFields ix l r named bs = traverse (\(i, b) => field (finToNat i) b) (zip ran
     -- A field no name of the alternative reads: never looked at.
     field : Nat -> Binder -> E InScope
     field i b = if named i then read i b else pure World
+    -- The fields from position `i` on, each numbered as it is reached, so
+    -- the count of them is never needed at run time.
+    fieldsFrom : Nat -> Vect j Binder -> E (Vect j InScope)
+    fieldsFrom i [] = pure []
+    fieldsFrom i (b :: rest) = (::) <$> field i b <*> fieldsFrom (S i) rest
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -694,7 +725,7 @@ alg ix (LamF l name b held body) sc w = do
       (r, ops) <- collect $
         plain ix l (body.result (bind [World] (offTail sc)) (expecting (Just result)))
           >>= traverse (fit ix l (Just result))
-      pure ([], r, ops)
+      pure (Prelude.Nil, r, ops)
     _ => do
       (p, arg) <- freshVal ix param b.quantity
       (r, ops) <- collect $ do

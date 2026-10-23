@@ -566,9 +566,11 @@ record AnyEntry where
   entry : Entry kind
 
 ||| An entry, of the kind its expectation fixes, as a table of entries of
-||| every kind holds it.
+||| every kind holds it. The table holds the kind as a value, and each
+||| entry's expectation fixes it where the entry is written, so it is
+||| passed as that constant.
 export
-entry : (key : Key) -> Expect kd key -> Hook kd -> AnyEntry
+entry : {kd : Kind} -> (key : Key) -> Expect kd key -> Hook kd -> AnyEntry
 entry key expect hook = Kinded (MkEntry key expect hook)
 
 ||| What validation checks of the definition an entry resolves to: that its

@@ -646,19 +646,19 @@ choiceDeclared ch = MkFamily ch.family ch.key None [] (map (\m => memberCon m.co
 ||| with one fewer (`Choices.calleeAt`); or the parameter takes an
 ||| implementation the program fixes, of this form, and holds the values
 ||| it closes over, the one at a place among them a choice the running
-||| program made (`Held`, the place a position among the values' types):
+||| program made (`HeldIn`, the place a position among the values' types):
 ||| a field of the implementation, whose every member is an instance of
 ||| the callee with that field fixed (`Choices.heldDispatch`).
 public export
 data Chosen : Type where
   Given : (rest : Nat) -> Binder -> ChoiceType -> Chosen
-  Held : ClosedTerm -> (hs : Holes) -> Fin (length (forget hs.types)) -> Chosen
+  HeldIn : ClosedTerm -> (hs : Holes) -> Fin (length (forget hs.types)) -> Chosen
 
 ||| The kind of the parameter a dispatch finds its choice in.
 export
 chosenKind : Chosen -> PKind
 chosenKind (Given _ b t) = ChoiceParam b t
-chosenKind (Held form hs _) = DictParam form (Just hs)
+chosenKind (HeldIn form hs _) = DictParam form (Just hs)
 
 %prefix_record_projections off
 

@@ -113,7 +113,7 @@ raiseList (S i) x [] = 0 :: raiseList i x []
 raiseList (S i) x (h :: hs) = h :: raiseList i x hs
 
 0 raisedHere : (i, x : Nat) -> (hs : List Nat) -> LTE x (parameterHeight (raiseList i x hs) i)
-raisedHere Z x [] = lteRefl
+raisedHere Z x [] = reflexive {rel = LTE}
 raisedHere Z x (h :: hs) = maximumRightUpperBound h x
 raisedHere (S i) x [] = raisedHere i x []
 raisedHere (S i) x (h :: hs) = raisedHere i x hs
@@ -121,8 +121,8 @@ raisedHere (S i) x (h :: hs) = raisedHere i x hs
 0 raisedKeeps : (i, x : Nat) -> (hs : List Nat) -> (j : Nat) -> LTE (parameterHeight hs j) (parameterHeight (raiseList i x hs) j)
 raisedKeeps i x [] j = LTEZero
 raisedKeeps Z x (h :: hs) Z = maximumLeftUpperBound h x
-raisedKeeps Z x (h :: hs) (S j) = lteRefl
-raisedKeeps (S i) x (h :: hs) Z = lteRefl
+raisedKeeps Z x (h :: hs) (S j) = reflexive {rel = LTE}
+raisedKeeps (S i) x (h :: hs) Z = reflexive {rel = LTE}
 raisedKeeps (S i) x (h :: hs) (S j) = raisedKeeps i x hs j
 
 ||| What the universe heads a request at a holder of positions by: a
@@ -211,13 +211,13 @@ heightsKeep g k i x j ((h, hs) :: rest) =
         Right (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
-                     lteRefl)
+                     reflexive {rel = LTE})
     Right (_, raised) =>
       case lookView (decideHead k h) hs hs (heightsIn rest k) (heightsIn (raiseAt g i x rest) k) of
         Left (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
-                     lteRefl)
+                     reflexive {rel = LTE})
         Right (_, before, after) =>
           lteOfEq (cong (\l => parameterHeight l j) before)
             (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))

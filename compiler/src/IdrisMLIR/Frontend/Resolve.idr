@@ -27,6 +27,7 @@ import IdrisMLIR.Types
 import Data.DPair
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.Maybe
 import Data.String
 import Decidable.Equality
@@ -481,7 +482,9 @@ rowOf own shown normal hs = traverse id $
     takes : Nat -> String
     takes k = ", and the definition takes " ++ show k ++ " values at run time"
 
-    natural : NatMeaning lib -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    -- A lowering holds the arity its operands are read at, so each reading
+    -- below takes the one `at` read them at.
+    natural : {n : Nat} -> NatMeaning lib -> (k ** Operands n k) -> Either String (Lowered (const lib))
     natural (Primitive {k = pk} p) (k ** ops) = case decEq k pk of
       Yes Refl => Right (MkLowered ops (NatPrimitive p))
       No _ => Left ("the registry's natural operation of " ++ show pk ++ " operands" ++ takes k)
@@ -493,28 +496,28 @@ rowOf own shown normal hs = traverse id $
       No _ => Left ("the registry's comparison of two naturals" ++ takes k)
     natural (OnIntegers onIntegers) (k ** ops) = Right (MkLowered ops (NatOnIntegers onIntegers))
 
-    builder : PureOp -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    builder : {n : Nat} -> PureOp -> (k ** Operands n k) -> Either String (Lowered (const lib))
     builder p (k ** ops) = case decEq p.arity k of
       Yes fits => Right (MkLowered ops (Builder p fits))
       No _ => Left ("the registry's string builder of " ++ show p.arity ++ " operands" ++ takes k)
 
-    generated : ArrayPrim -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    generated : {n : Nat} -> ArrayPrim -> (k ** Operands n k) -> Either String (Lowered (const lib))
     generated g (k ** ops) = case decEq k (generatedOperands g) of
       Yes Refl => Right (MkLowered ops (ArrayOperation g))
       No _ => Left ("the array language's operation of " ++ show (generatedOperands g) ++ " operands" ++ takes k)
 
-    identity : (k ** Operands n k) -> Either String (Lowered (const lib))
+    identity : {n : Nat} -> (k ** Operands n k) -> Either String (Lowered (const lib))
     identity (S j ** ops) = Right (MkLowered ops IdentityOnLast)
     identity (Z ** _) = Left "the registry names an identity on its last runtime parameter, and it has none"
 
-    pureOp : PureOp -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    pureOp : {n : Nat} -> PureOp -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
     pureOp p lits (k ** ops) = case decEq (k + length lits) p.arity of
       Yes fits => Right (MkLowered ops (PureOperation p lits fits))
       No _ => Left ("the registry's primitive of " ++ show p.arity ++ " operands, " ++ show (length lits) ++
                     " of them literals" ++ takes k)
 
     -- The world is an IO primitive's last value.
-    action : SomeAction -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    action : {n : Nat} -> SomeAction -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
     action (MkSomeAction {operands} a) lits (S j ** ops) = case decEq (j + length lits) operands of
       Yes Refl => Right (MkLowered ops (IOOperation lits a))
       No _ => Left ("the registry's IO primitive of " ++ show operands ++ " operands and the world, " ++
@@ -522,13 +525,13 @@ rowOf own shown normal hs = traverse id $
     action (MkSomeAction {operands} a) lits (Z ** _) =
       Left ("the registry's IO primitive of " ++ show operands ++ " operands and the world" ++ takes Z)
 
-    access : ArrayAccess -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    access : {n : Nat} -> ArrayAccess -> (k ** Operands n k) -> Either String (Lowered (const lib))
     access acc (S j ** ops) = case accessRank acc j of
       Just (rank ** Refl) => Right (MkLowered ops (AccessOperation acc rank))
       Nothing => Left ("the registry's array access, which no rank of an array takes" ++ takes (S j))
     access acc (Z ** _) = Left ("the registry's array access, which takes the world" ++ takes Z)
 
-    primOp : (k ** Prim k) -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    primOp : {n : Nat} -> (k ** Prim k) -> List Lit -> (k ** Operands n k) -> Either String (Lowered (const lib))
     primOp (pk ** p) lits (k ** ops) = case decEq (k + length lits) pk of
       Yes Refl => Right (MkLowered ops (PrimOperation lits p))
       No _ => Left ("the registry's primitive of " ++ show pk ++ " operands, " ++ show (length lits) ++

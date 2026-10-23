@@ -13,6 +13,7 @@ module IdrisMLIR.Types
 
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
@@ -506,6 +507,10 @@ Show Shift where
   show ShiftLeft = "shl"
   show ShiftRight = "shr"
 
+-- A comparison is named as the dialect spells it, the spec's one spelling.
+comparisonText : Comparison -> String
+comparisonText op = spellingText (comparisonClosed.describe op)
+
 export
 Show (Prim k) where
   show (IntOp op t) = show op ++ "_" ++ show t
@@ -514,17 +519,17 @@ Show (Prim k) where
   show Negate = "neg_Double"
   show (Math1 f) = show f ++ "_Double"
   show Pow = "pow_Double"
-  show (Compare op s) = show op ++ "_" ++ show s
+  show (Compare op s) = comparisonText op ++ "_" ++ show s
   show (Cast (IntToInt a b)) = "cast_" ++ show a ++ show b
   show (Cast (IntToDouble t)) = "cast_" ++ show t ++ "Double"
   show (Cast (DoubleToInt t)) = "cast_Double" ++ show t
-  show (StrCompare op) = show op ++ "_String"
+  show (StrCompare op) = comparisonText op ++ "_String"
   show (ToStr s) = "cast_" ++ show s ++ "String"
   show (FromStr n) = "cast_String" ++ show n
-  show (BigCompare op) = show op ++ "_Integer"
+  show (BigCompare op) = comparisonText op ++ "_Integer"
   show (ToBig s) = "cast_" ++ show s ++ "Integer"
   show (FromBig s) = "cast_Integer" ++ show s
-  show (NatCompare op) = show op ++ "_Nat"
+  show (NatCompare op) = comparisonText op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
   show (Op op _ _) = opName op
 

@@ -29,6 +29,7 @@ module IdrisMLIR.Term
 
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Control.Joins
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Core.Text
@@ -1120,29 +1121,34 @@ mutual
   letTypes dp scope (Checked b) _ = underTypes {k = 1} [Just b.type] scope
   letTypes dp scope (OfValue _) v = underTypes {k = 1} [termType dp scope v] scope
 
+  altType : (dp : Nat) -> ScopeTypes n -> AltAt js n -> Maybe Ty
+  altType dp scope (MkAlt {k} c _ body) = termType (dp + length c.binders) (altTypes dp c scope) body
+
   altsType : (dp : Nat) -> ScopeTypes n -> List (AltAt js n) -> Maybe Ty
   altsType dp scope [] = Nothing
-  altsType dp scope (MkAlt {k} c _ body :: alts) =
-    termType (dp + length c.binders) (altTypes dp c scope) body <|> altsType dp scope alts
+  altsType dp scope (alt :: alts) = altType dp scope alt <|> altsType dp scope alts
 
+  -- The non-empty alternatives are taken apart where they are matched, as
+  -- every walk of a term does, so each one read is a part of the term.
   armsType : (dp : Nat) -> ScopeTypes n -> CaseArmsOf (AltAt js n) (TermAt js n) -> Maybe Ty
   armsType dp scope (Defaulted alts d) = altsType dp scope alts <|> termType dp scope d
-  armsType dp scope (Exhaustive alts) = altsType dp scope (forget alts)
+  armsType dp scope (Exhaustive (alt ::: alts)) = altType dp scope alt <|> altsType dp scope alts
 
   keyedType : (dp : Nat) -> ScopeTypes n -> List (kt, TermAt js n) -> Maybe Ty
   keyedType dp scope [] = Nothing
   keyedType dp scope ((_, t) :: rest) = termType dp scope t <|> keyedType dp scope rest
 
+  keyedArmsType : (dp : Nat) -> ScopeTypes n -> LitArmsOf kt (TermAt js n) -> Maybe Ty
+  keyedArmsType dp scope (LitDefault ((_, t) ::: alts) d) =
+    termType dp scope t <|> keyedType dp scope alts <|> termType dp scope d
+  keyedArmsType dp scope (LitNoDefault ((_, t) ::: alts)) = termType dp scope t <|> keyedType dp scope alts
+
   litArmsType : (dp : Nat) -> ScopeTypes n -> LitMatch (TermAt js n) -> Maybe Ty
   litArmsType dp scope (OnlyDefault d) = termType dp scope d
-  litArmsType dp scope (OnInts _ (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
-  litArmsType dp scope (OnInts _ (LitNoDefault alts)) = keyedType dp scope (forget alts)
-  litArmsType dp scope (OnChars (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
-  litArmsType dp scope (OnChars (LitNoDefault alts)) = keyedType dp scope (forget alts)
-  litArmsType dp scope (OnStrings (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
-  litArmsType dp scope (OnStrings (LitNoDefault alts)) = keyedType dp scope (forget alts)
-  litArmsType dp scope (OnBigs (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
-  litArmsType dp scope (OnBigs (LitNoDefault alts)) = keyedType dp scope (forget alts)
+  litArmsType dp scope (OnInts _ arms) = keyedArmsType dp scope arms
+  litArmsType dp scope (OnChars arms) = keyedArmsType dp scope arms
+  litArmsType dp scope (OnStrings arms) = keyedArmsType dp scope arms
+  litArmsType dp scope (OnBigs arms) = keyedArmsType dp scope arms
 
   targetsType : (dp : Nat) -> ScopeTypes n -> All (Target s n) ts -> Maybe Ty
   targetsType dp scope [] = Nothing
@@ -1247,10 +1253,10 @@ appHead c@(Applying without) l f x = case headOf f [x] of
     Nothing => UseOf (toVect k args >>= \as => Jump l Here [] <$> visitVect (awayFrom c) as)
     Just _ => NoUse
   _ => NoUse
-appHead c@(Running target _) l f x = case headOf f [x] of
+appHead {k = S j} c@(Running target _) l f x = case headOf f [x] of
   (Call {arity} _ callee _ is as, [world]) =>
     if callee.fn == target.fn
-       then UseOf (case decEq (S arity) k of
+       then UseOf (case decEq arity j of
                      Yes Refl => Jump l Here is <$> (snoc <$> visitVect (awayFrom c) as <*> visitTerm (awayFrom c) world)
                      No _ => Nothing)
        else NoUse
@@ -1425,9 +1431,11 @@ data Around : List Nat -> Type where
 ||| binders between the term and the tail make of the term's `n`, which the
 ||| embedding takes there, at telescope depth `dp`, with what is known of
 ||| the types of its variables, which `termType` reads the tail's type off:
-||| the tail, which holds no tail of its own, and the term it becomes.
+||| the tail, which holds no tail of its own, and the term it becomes. It is
+||| a type and nothing at run time, so the join points and the scope it
+||| ranges over stay erased in it, as in every function it types.
 public export
-AtTail : Nat -> Type
+0 AtTail : Nat -> Type
 AtTail n = {0 js : List Nat} -> {0 p : Nat} -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p ->
            TermAt [] p -> TermAt js p
 

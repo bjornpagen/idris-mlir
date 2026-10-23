@@ -343,7 +343,7 @@ tensorOp ix l binder (Concat xa ya ra axis x y) = do
       rds = toList ra.dims
       -- The result's dimensions, each with the first array's at its axis,
       -- and the second array's own.
-      (before, (xown, rown), after) = around axis (Data.Vect.zip (withAxes xa.dims) ra.dims)
+      (before, (xown, rown), after) = around axis (Data.Zippable.zip (withAxes xa.dims) ra.dims)
       yown = Data.Vect.index axis (withAxes ya.dims)
   pre <- traverse (\(xd, rd) => resultSize rd (sizeAt l xv xd)) before
   mid <- resultSize rown $ do

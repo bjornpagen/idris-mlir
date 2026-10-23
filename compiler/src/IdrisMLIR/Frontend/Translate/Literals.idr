@@ -49,12 +49,16 @@ export
 glyphOf : Char -> Glyph
 glyphOf c = let k = cast {to = Integer} (ord c) in (lowBits 11 (k `div` 1024), lowBits 10 k)
 
-export
+||| A string's characters, one spelt glyph each. Its body is public, as
+||| `writeConstant`'s is, so that a proof of a string constant's key
+||| reduces through it to its characters.
+public export
 spellChars : List Char -> List (Token Form)
 spellChars [] = []
 spellChars (c :: cs) = node (Spelt (glyphOf c)) :: spellChars cs
 
-export
+||| A string, spelt (`spellChars`), its body public for the same reason.
+public export
 spell : String -> List (Token Form)
 spell s = spellChars (unpack s)
 

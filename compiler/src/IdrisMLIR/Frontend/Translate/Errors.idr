@@ -30,6 +30,10 @@ import Data.SortedMap
 
 %default total
 
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
+
 export
 isEmptyFC : FC -> Bool
 isEmptyFC EmptyFC = True
@@ -161,7 +165,8 @@ leafOfBody body = core (walkTree body leaf)
   where
     leaf : {0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core (Maybe (Core.TT.Term.Term args))
     leaf leaves (STerm _ r) =
-      Just . replace {p = Core.TT.Term.Term} (appendNilRightNeutral args) <$> leaves.leafTerm {outer = []} r
+      -- `replace` takes its term once, so it is applied, not composed.
+      (\rhs => Just (Builtin.replace {p = Core.TT.Term.Term} (appendNilRightNeutral args) rhs)) <$> leaves.leafTerm {outer = []} r
     leaf _ _ = pure Nothing
 
 ||| An action of the host.

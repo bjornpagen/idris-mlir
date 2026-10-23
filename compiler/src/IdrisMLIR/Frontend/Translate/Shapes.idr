@@ -21,6 +21,8 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -31,6 +33,10 @@ import Data.SnocList
 import Data.Vect
 
 %default total
+
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
 
 ------------------------------------------------------------------------------
 -- Spines and forms
@@ -369,7 +375,7 @@ entryTies tel = mapMaybe arrayTies tel
 
     arrayTies : SizedParam r -> Maybe (Fin r, List (Nat, Witness r))
     arrayTies p = case p.runtime of
-      Just (x, MkBinder Many _, Just (MkSizedArray a ss)) => case stated x (byAxis (Data.Vect.zip a.dims ss)) of
+      Just (x, MkBinder Many _, Just (MkSizedArray a ss)) => case stated x (byAxis (Data.Zippable.zip a.dims ss)) of
         [] => Nothing
         ts => Just (x, ts)
       _ => Nothing
@@ -383,7 +389,7 @@ resultTies : Telescope r -> ClosedTerm -> Ty -> Front (List (Nat, Witness r))
 resultTies tel res rt = case valueDims rt of
   Nothing => pure []
   Just ds => let dv = Data.Vect.fromList ds in
-             (\ss => stated 0 (toList (Data.Vect.zip dv (axisSources dv ss)))) <$> dimensionSources res
+             (\ss => stated 0 (toList (Data.Zippable.zip dv (axisSources dv ss)))) <$> dimensionSources res
   where
     ws : List (SizeVar, Witness r)
     ws = witnesses tel

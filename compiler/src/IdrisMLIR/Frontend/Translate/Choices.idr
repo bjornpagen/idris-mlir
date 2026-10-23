@@ -345,7 +345,7 @@ mutual
   armAt d i m = do
     arm <- case d.chosen of
       Given rest _ _ => calleeAt rest d.site d.owner d.callee (givenInstead (memberKind m) d)
-      Held form hs j => do
+      HeldIn form hs j => do
         kind <- heldMember d.site d.owner (finToNat j) form hs m
         request d.site d.owner d.callee (givenInstead kind d)
     updateState (withArm d.inst i (MkDispatchArm m arm))
@@ -358,7 +358,7 @@ mutual
 ||| is itself a choice (`choiceType`): a field of the implementation the
 ||| running program chose, which the program fixes the members of: the
 ||| kinds split at its parameter, which holds the parameter as it holds
-||| the choice (`Held`, its place among the values the parameter holds)
+||| the choice (`HeldIn`, its place among the values the parameter holds)
 ||| and the type it is a choice of, as `choiceType` read it, and that
 ||| parameter's position at run time, read off the same kinds.
 export
@@ -367,7 +367,7 @@ heldChoice [] = pure Nothing
 heldChoice (DictParam form (Just hs) :: ks) = do
   Just (j, t) <- among (forget hs.types)
     | Nothing => map (laterChoice (DictParam form (Just hs))) <$> heldChoice ks
-  pure (Just (MkChoiceAt (MkSplitKinds [] (Held form hs j, t) (Data.Vect.fromList ks) Refl) FZ))
+  pure (Just (MkChoiceAt (MkSplitKinds [] (HeldIn form hs j, t) (Data.Vect.fromList ks) Refl) FZ))
   where
     among : (ts : List ClosedTerm) -> Front (Maybe (Fin (length ts), ChoiceType))
     among [] = pure Nothing
@@ -377,7 +377,7 @@ heldChoice (DictParam form (Just hs) :: ks) = do
 heldChoice (k :: ks) = map (laterChoice k) <$> heldChoice ks
 
 ||| An instance given an implementation that holds a choice the running
-||| program made, in the parameter its kinds are split at (`Held`, at its
+||| program made, in the parameter its kinds are split at (`HeldIn`, at its
 ||| place among the values): a dispatch on that choice, whose arm for each member
 ||| is the callee's instance with the field fixed to the member
 ||| (`heldMember`), so that the callee's tree takes the field apart as it
@@ -501,11 +501,11 @@ dispatcher d = do
     Given _ _ _ => do
       arms <- traverse (arm loc indices choice params) numbered
       pure (matching loc choice arms)
-    Held _ hs j =>
+    HeldIn _ hs j =>
       -- The values are taken apart one per type, and the place is a
       -- position among the types.
       takenApart d.site d.owner loc hs.types choice $ \ren, values => do
-        let typed = Data.Vect.zip (Data.Vect.fromList (forget hs.types)) values
+        let typed = Data.Zippable.zip (Data.Vect.fromList (forget hs.types)) values
         let chosen = snd (Data.Vect.index j typed)
         arms <- traverse (heldArm loc indices choice params ren (without (finToNat j) (toList typed))) numbered
         pure (matching loc chosen arms)

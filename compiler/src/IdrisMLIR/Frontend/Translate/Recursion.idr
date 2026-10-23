@@ -59,9 +59,9 @@ record Search where
   onStack : SortedSet Address
   found : List (List Member)
 
-||| A definition read as a node (`Defined`), with its calls, every name
+||| A definition read as a node, with its calls, every name
 ||| full as the frozen context names it.
-memberOf : Frozen -> Defined -> Member
+memberOf : Frozen -> DefinitionRead () -> Member
 memberOf fz d =
   MkMember (fullNameIn fz (fullname d.def)) (addressOf d.placement)
            (map (\call => { fnCall := fullNameIn fz call.fnCall } call) (sizeChange d.def))
@@ -72,7 +72,7 @@ mutual
   ||| it entered the definition, and every definition it enters below
   ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
   ||| ends. `done` are the definitions whose components are checked.
-  visit : Read -> SortedSet Address -> Member ->
+  visit : Reading () -> SortedSet Address -> Member ->
           (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
   visit r done v w0 acc s0 = do
     let key = v.address
@@ -89,7 +89,7 @@ mutual
   ||| not entered is visited, and one on the stack lowers the definition's
   ||| link. A callee is read as the translation reads it (`definedIn`); a
   ||| name no definition has is no callee.
-  successors : Read -> SortedSet Address -> Address ->
+  successors : Reading () -> SortedSet Address -> Address ->
                (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
   successors r done key w0 acc w p [] s = pure (s, Element w (noMore w))
@@ -128,7 +128,7 @@ record Checked where
 ||| kept at its member's address. Whether its recursion asks for ever more
 ||| instances is the growth check's to say (`Growth`), on the program's
 ||| static positions.
-checkComponent : Read -> Checked -> List Member -> Checked
+checkComponent : Reading () -> Checked -> List Member -> Checked
 checkComponent r checked members =
   let names = gamma (defsOf r.frozen)
       inside = the (SortedSet Address) (fromList (map (.address) members))
@@ -151,10 +151,10 @@ checkComponent r checked members =
 ||| follows from the definitions alone, so every one is found where the
 ||| program is read, before any instance is requested.
 export
-loopsOf : Read -> Core (SortedMap Address ComponentId)
-loopsOf r = (.proved) <$> foldlM from (MkChecked 0 empty empty) (values r.definitions)
+loopsOf : Reading () -> Core (SortedMap Address ComponentId)
+loopsOf r = (.proved) <$> foldlC from (MkChecked 0 empty empty) (values r.definitions)
   where
-    from : Checked -> Defined -> Core Checked
+    from : Checked -> DefinitionRead () -> Core Checked
     from checked d =
       if contains (addressOf d.placement) checked.inComponent then pure checked else do
         let w = startAt d.placement

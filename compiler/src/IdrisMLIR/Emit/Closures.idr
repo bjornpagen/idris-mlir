@@ -71,13 +71,13 @@ export
 functionOp : String -> List (SortOf MlirType MlirAttr) -> List MlirAttr -> MlirType -> Region -> Term.Termination -> Op
 functionOp sym telescope extents type body termination =
   Idr.funcOp {binders' = Just (Idr (IndexBindersAttr telescope)), extents' = Just (Idr (ExtentsAttr extents)),
-              terminates' = proof termination}
+              terminates' = terminates termination}
              (StringAttr sym) (TypeAttr type) body
   where
-    proof : Term.Termination -> Maybe MlirAttr
-    proof (Terminates c) = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof c.index))))
-    proof Acyclic = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))
-    proof (MayDiverge _) = Nothing
+    terminates : Term.Termination -> Maybe MlirAttr
+    terminates (Terminates c) = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof c.index))))
+    terminates Acyclic = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))
+    terminates (MayDiverge _) = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.
 public export

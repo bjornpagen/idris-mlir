@@ -51,6 +51,10 @@ import Decidable.Equality
 
 %default total
 
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
+
 ||| What a function's translation reads beside each term: who owns it, for
 ||| a message; where it is; whether Idris found no missing case; the type
 ||| every leaf of its tree gives (`result`), its expected type, which a

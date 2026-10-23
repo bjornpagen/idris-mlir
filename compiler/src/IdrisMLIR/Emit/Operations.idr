@@ -25,6 +25,7 @@ import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.IO
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Ops.Values
@@ -112,7 +113,7 @@ specGuarded : List (Guard (Fin i)) -> Vect i Value -> (Vect i Value -> Op) -> Gu
 specGuarded [] vs made = Unguarded (made vs)
 specGuarded (g :: gs) vs made =
   let at = Vect.head g.given in
-  Checking (specName g.check) g.cause (index at vs)
+  Checking (specName (guardOpOf g.check)) g.cause (index at vs)
            (toList (map (\k => index k vs) (Vect.tail g.given)))
            (\c => specGuarded gs (replaceAt at c vs) made)
 

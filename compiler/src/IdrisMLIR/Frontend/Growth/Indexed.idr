@@ -88,6 +88,13 @@ placed m q = placedBy m q (compareNat q m) Refl
 0 unS : the Nat (S a) = S b -> a = b
 unS Refl = Refl
 
+-- Two positions numbered alike are one position.
+0 sameNumber : (i, j : Fin n) -> finToNat i = finToNat j -> i = j
+sameNumber FZ FZ _ = Refl
+sameNumber FZ (FS j) same = void (SIsNotZ (sym same))
+sameNumber (FS i) FZ same = void (SIsNotZ same)
+sameNumber (FS i) (FS j) same = cong FS (sameNumber i j (unS same))
+
 -- The element at a position before the node is the part before's, at the
 -- position numbered alike.
 0 indexBefore : (xs : Vect m a) -> (rest : Vect r a) -> (pos : Fin (m + r)) -> (f : Fin m) ->
@@ -111,7 +118,7 @@ indexAtNode (z :: xs) x ys (FS pos) same = indexAtNode xs x ys pos (unS same)
 0 indexAfter : (xs : Vect m a) -> (x : a) -> (ys : Vect k a) -> (pos : Fin (m + S k)) -> (f : Fin k) ->
                finToNat pos = m + S (finToNat f) -> Vect.index pos (xs ++ x :: ys) = Vect.index f ys
 indexAfter [] x ys FZ f same = void (SIsNotZ (sym same))
-indexAfter [] x ys (FS pos) f same = rewrite finToNatInjective pos f (unS same) in Refl
+indexAfter [] x ys (FS pos) f same = rewrite sameNumber pos f (unS same) in Refl
 indexAfter (z :: xs) x ys FZ f same = void (SIsNotZ (sym same))
 indexAfter (z :: xs) x ys (FS pos) f same = indexAfter xs x ys pos f (unS same)
 
@@ -162,15 +169,19 @@ halves (S (S n)) = case halves n of
   NoHalves => HalvesAt (S Z) Z
   HalvesAt m k => replace {p = Halves} (widened m k) (HalvesAt (S m) (S k))
 
--- A vector m + 1 + k long, cut around its node.
+-- A vector m + 1 + k long, cut around its node: the part before, the
+-- node and the part after, with the evidence that they make the vector.
+-- The evidence is a field, not the index, so a match on a cut of a vector
+-- held in a variable leaves the variable as it is.
 data Cut : (m, k : Nat) -> Vect (m + S k) a -> Type where
-  MkCut : (xs : Vect m a) -> (x : a) -> (ys : Vect k a) -> Cut m k (xs ++ x :: ys)
+  MkCut : {0 v : Vect (m + S k) a} -> (xs : Vect m a) -> (x : a) -> (ys : Vect k a) -> (0 _ : v = xs ++ x :: ys) ->
+          Cut m k v
 
 -- A vector cut after its first m elements.
 cut : (m : Nat) -> {0 k : Nat} -> (v : Vect (m + S k) a) -> Cut m k v
-cut Z (x :: ys) = MkCut [] x ys
+cut Z (x :: ys) = MkCut [] x ys Refl
 cut (S m) (y :: v) = case cut m v of
-  MkCut xs x ys => MkCut (y :: xs) x ys
+  MkCut xs x ys same => MkCut (y :: xs) x ys (rewrite same in Refl)
 
 -- Each side of a node is shorter than the whole.
 0 beforeShorter : (m, k : Nat) -> LT m (m + S k)
@@ -184,8 +195,9 @@ afterShorter m k = rewrite plusCommutative m (S k) in LTESucc (lteAddRight k)
 heldBy : {0 n : Nat} -> Halves n -> (v : Vect n a) -> (0 _ : Accessible LT n) -> Indexed v
 heldBy NoHalves [] _ = Bare
 heldBy (HalvesAt m k) v (Access rec) = case cut m v of
-  MkCut xs x ys => Node m (heldBy (halves m) xs (rec m (beforeShorter m k))) x
-                          (heldBy (halves k) ys (rec k (afterShorter m k)))
+  MkCut xs x ys same => rewrite same in
+    Node m (heldBy (halves m) xs (rec m (beforeShorter m k))) x
+           (heldBy (halves k) ys (rec k (afterShorter m k)))
 
 ||| A vector held as a tree, made once, in as many steps as its length
 ||| times the tree's depth.
@@ -239,7 +251,7 @@ visitMark pos (Unseen m {k} before after) = case placed m (finToNat pos) of
   Before below => case visitMark (natToFinLT (finToNat pos) {prf = below}) before of
     SeenBefore => SeenBefore
     FirstSeen before' fewer => FirstSeen (Unseen m before' after) (LTESucc (fewerBefore fewer))
-  AtNode _ => FirstSeen (Seen m before after) lteRefl
+  AtNode _ => FirstSeen (Seen m before after) reflexive
   After j past =>
     let 0 within := pastBelow m j (replace {p = \q => LT q (m + S k)} past (elemSmallerThanBound pos)) in
     case visitMark (natToFinLT j {prf = within}) after of

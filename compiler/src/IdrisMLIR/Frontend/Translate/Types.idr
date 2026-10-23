@@ -52,6 +52,10 @@ import Data.String
 
 %default total
 
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
+
 -- A term is closed here over what a given scope holds (`Given.close`),
 -- never over a reading's values.
 %hide IdrisMLIR.Frontend.Translate.Readings.close
@@ -857,7 +861,7 @@ mutual
                                                   (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
                                                           inside.member))
                                              fc owner fam place found.link args params roles dcon)
-                              (Data.Vect.zip (allFins (length datacons)) (Data.Vect.fromList datacons))
+                              (Data.Zippable.zip (allFins (length datacons)) (Data.Vect.fromList datacons))
           promise <- promised tname (namedHooks tc.registered).sumShape (toList (map layoutCon layouts))
           let df = MkDataFamily fam found.key promise sorts layouts loc
           updateState (derive { familiesAt $= insert found.link df, dataFamilies $= insert fam df

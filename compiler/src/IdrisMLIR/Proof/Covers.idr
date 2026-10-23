@@ -151,15 +151,11 @@
 |||   unknowns or redexes the site's solving never met, so relating the two
 |||   needs the site's solved form with the values put in to reach the
 |||   request's (`Idris.Host.reachesNormalForm` at the holes normaliser) and
-|||   a reading that does not see the locations a step moves; and the
-|||   instance's own solving of what the request holds, which an instance
-|||   reading keeps only as steps (`Readings.FormFrom`'s `ReadOff`), not as
-|||   the solving that says a skeleton, holding no unknown, is itself. The
-|||   hole a skeleton cuts reads as one leaf (`holeReadAs`) once the host
-|||   states that no probe's name resolves in a frozen context and the
-|||   definitions' module carries that to an address. Where the request
-|||   reads the normal form (`HeldNormal`), the translation's normal form
-|||   (`Closed.closeNormalise`) is not the host's normal form of the
+|||   a reading that does not see the locations a step moves. An instance's
+|||   reading keeps its own solving whole (`Readings.FormFrom`'s `Solved`),
+|||   which says a skeleton, holding no unknown, is itself. Where the
+|||   request reads the normal form (`HeldNormal`), the translation's
+|||   normal form (`Closed.closeNormalise`) is not the host's normal form of the
 |||   argument as written: it normalises the argument with every
 |||   computation on a runtime variable cut to a hole first (`cutRuntime`),
 |||   which also cuts one in an erased position, where the shape is still
@@ -172,7 +168,7 @@
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
-|||   (`Closed.NoUnknown`), which the holes evaluation may still step (a
+|||   (`Readings.NoUnknown`), which the holes evaluation may still step (a
 |||   definition that always reduces, a lambda applied), so neither
 |||   `reachesNormalForm`, which needs a `Reduct`, nor one normal form per
 |||   term relates the instance's form to the site's. Read as written,
@@ -1315,7 +1311,7 @@ notWritten FormReadNormal WrittenShape impossible
 -- A form of such a kind is the host's normal form of its term, contracted.
 0 normalOnly : ReadOffNormal k -> FormFrom k ctx t u -> (r : NormalReading OfNormaliseTypes ctx t ** u = r.readForm)
 normalOnly _ (FromNormalForm r) = (r ** Refl)
-normalOnly nk (FromWritten wk _) = void (notWritten nk wk)
+normalOnly nk (FromWritten wk _ _) = void (notWritten nk wk)
 normalOnly TypeReadNormal (FromImplementation _) impossible
 normalOnly FamilyReadNormal (FromImplementation _) impossible
 normalOnly FormReadNormal (FromImplementation _) impossible
@@ -2259,18 +2255,19 @@ export
 0 heldContracted : SkeletonOf w shape -> NeededCut shape held -> EtaContracts held v -> v = held
 heldContracted sk cut c = etaNormalFixed (neededNormal (skeletonNormal sk) cut) c
 
-||| The hole a skeleton cuts reads as one leaf wherever an instance reads it,
-||| in a context that gives the runtime probe's name no address: a function
-||| the context gives no address is read as a part over its arguments
-||| (`undefinedRead`), and the hole is applied to none. The address fact is
-||| the host's statement that no probe's name resolves
-||| (`Walk.probeNamed`, `Walk.unresolvedUnplaced`), carried to an address
-||| by the definitions' module.
+||| The hole a skeleton cuts reads as one leaf wherever an instance reads it:
+||| the frozen context gives the runtime probe's name no address, and a
+||| function the context gives no address is read as a part over its
+||| arguments (`undefinedRead`), the hole applied to none. The address fact
+||| is the host's statement that no probe's name resolves
+||| (`Host.probesUnresolved`, at `Walk.probeNamed`), which leaves it no
+||| place (`Walk.unresolvedUnplaced`) and so no address
+||| (`Definitions.unplacedUnaddressed`).
 export
 0 holeReadAs : {0 ctx : Frozen} -> {0 vs : Scope} -> {0 env : Values Substitute vs} -> {0 r : Template} ->
-               AddressedAs (InstanceMode ctx) (probeName ProbeRuntime) Nothing ->
                ReadAs (InstanceMode ctx) env (probeTerm ProbeRuntime) r -> r = Leaf 1
-holeReadAs none read =
+holeReadAs read =
+  let none = unplacedUnaddressed (unresolvedUnplaced (probesUnresolved {ctx} (probeNamed ProbeRuntime))) in
   case undefinedRead none Host.Head (replace {p = \x => ReadAs (InstanceMode ctx) env x r} runtimeProbeTerm read) of
     (_ ** (same, [])) => same
 

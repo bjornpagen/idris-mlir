@@ -22,6 +22,7 @@ import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
+import Data.List.Quantifiers
 import Data.Maybe
 import Data.SnocList
 import Data.Vect

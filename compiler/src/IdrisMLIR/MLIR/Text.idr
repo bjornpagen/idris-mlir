@@ -187,11 +187,16 @@ placeText Unlocated = Nothing
 wrapped : Loc -> String -> String
 wrapped l inner = "loc(" ++ (if inLibrary l then "fused<\"library\">[" ++ inner ++ "]" else inner) ++ ")"
 
+||| An Idris name at a span, MLIR's `NameLoc`: a named location's text,
+||| and that of a binder at a span, which is its name there.
+namedText : Shown -> Loc -> String
+namedText n l = wrapped l (quoted (show n) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located))
+
 ||| A location as an attribute's text, `loc(...)`, as MLIR writes it.
 export
 location : Location -> String
 location (At l) = wrapped l (fromMaybe "unknown" (placeText l.located))
-location (Named n l) = wrapped l (quoted (show n) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located))
-location (Binder n (Spanned l) _ _) = location (Named n l)
+location (Named n l) = namedText n l
+location (Binder n (Spanned l) _ _) = namedText n l
 location (Binder n (Lowered d l) _ _) =
   wrapped l (quoted (show n) ++ "(" ++ quoted (show d) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located) ++ ")")

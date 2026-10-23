@@ -17,6 +17,7 @@ import Idris.Host
 
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Proof.Reading
+import IdrisMLIR.Proof.Requests
 
 import Data.DPair
 import Data.Nat

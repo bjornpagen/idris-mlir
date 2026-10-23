@@ -15,6 +15,7 @@ import Core.Context
 import Core.Core
 import Core.TT
 import Idris.Host
+import Libraries.Data.NatSet
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
@@ -84,8 +85,8 @@ normal r tm = (.value) <$> host.normaliseTypes r.frozen tm
 ||| its binders, each given its stand-in (`marker`): what the constructor
 ||| takes at each binder, as Idris decided it (`argumentAt`), with the
 ||| binder's type, and the type it returns.
-record Constructor where
-  constructor MkConstructor
+record ConstructorRead where
+  constructor MkConstructorRead
   global : GlobalDef
   normalForm : ClosedTerm
   taking : List (ArgumentAt, ClosedTerm)
@@ -100,11 +101,11 @@ conBinders con g i (Bind _ _ (Pi _ rig _ a) sc) =
 conBinders con g i t = ([], close g t)
 
 ||| The constructors of a type constructor, each read once
-||| (`Constructor`). Nothing when Idris does not know the constructors (a
+||| (`ConstructorRead`). Nothing when Idris does not know the constructors (a
 ||| type declared without them) or one names no definition. What the
 ||| translation reads of a type constructor is read from these
 ||| (`factsOf`).
-constructorsOf : {0 facts : Type} -> Reading facts -> DefinitionRead facts -> Core (Maybe (List Constructor))
+constructorsOf : {0 facts : Type} -> Reading facts -> DefinitionRead facts -> Core (Maybe (List ConstructorRead))
 constructorsOf r tc = case definition tc.def of
   TCon _ _ _ _ _ (Just cons) _ => do
     found <- traverse (definedIn r) cons
@@ -113,11 +114,11 @@ constructorsOf r tc = case definition tc.def of
       Nothing => pure Nothing
   _ => pure Nothing
   where
-    read : DefinitionRead facts -> Core Constructor
+    read : DefinitionRead facts -> Core ConstructorRead
     read con = do
       ty <- fullNamesIn r.frozen <$> normal r con.type
       let (bs, ret) = conBinders con.def none 0 ty
-      pure (MkConstructor con.def ty bs ret)
+      pure (MkConstructorRead con.def ty bs ret)
 
 ||| The parameters of a type constructor: Idris's, and those its own
 ||| reading of the constructors' types misses because a type hides its
@@ -128,11 +129,11 @@ constructorsOf r tc = case definition tc.def of
 ||| constructor, and no earlier position has it too. Such an argument is
 ||| never refined by a match, so reading it as a parameter changes nothing
 ||| Idris proved. Given the constructors' types (`constructorsOf`).
-dataParams : GlobalDef -> Maybe (List Constructor) -> List Nat
+dataParams : GlobalDef -> Maybe (List ConstructorRead) -> List Nat
 dataParams def conTys = case definition def of
   TCon arity params _ _ _ _ _ =>
     let positions : List Nat = iterateN arity S 0
-        idris = List.filter (\i => elem i params) positions in
+        idris = List.filter (\i => NatSet.elem i params) positions in
     if length idris == arity then idris else
       let found : List Nat = case conTys of
                     Just ts@(_ :: _) => let sets = map (uniform . (.normalForm)) ts in
@@ -218,7 +219,7 @@ kinds _ = []
 ||| abstraction over it, `{0 s : Type} -> ST s Int`, is a value of that one
 ||| instance once applied to whatever type. Given its parameters and its
 ||| constructors' types (`constructorsOf`).
-keyedOf : Reading facts -> DefinitionRead facts -> List Nat -> Maybe (List Constructor) -> Core (List Nat)
+keyedOf : Reading facts -> DefinitionRead facts -> List Nat -> Maybe (List ConstructorRead) -> Core (List Nat)
 keyedOf r tc params conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
     -- A record's parameter kinds may be solved metavariables, and a type
@@ -240,7 +241,7 @@ keyedOf r tc params conTys = case definition tc.def of
     -- has no representation, whatever its type names (`Subset`'s
     -- predicate, the type of its erased proof). Anything but a binder
     -- there counts.
-    represents : Nat -> Constructor -> Bool
+    represents : Nat -> ConstructorRead -> Bool
     represents p con = case getAt p (snd (getFnArgs con.result)) >>= binderOf of
       Just k => binderHeld k con.taking || any (namedBy k) con.taking
       Nothing => True
@@ -260,7 +261,7 @@ shorter a b Refl = rewrite sym (plusSuccRightSucc a b) in LTESucc (lteAddRight a
 ||| does not. Such an index is checked by the growth phase, never a key.
 ||| Given the type constructor's parameters, its `Keyed` positions and its
 ||| constructors' types (`constructorsOf`).
-heldOf : Reading facts -> DefinitionRead facts -> (params, keys : List Nat) -> List Constructor -> Core (List Nat)
+heldOf : Reading facts -> DefinitionRead facts -> (params, keys : List Nat) -> List ConstructorRead -> Core (List Nat)
 heldOf r tc ps keys conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
     ty <- normal r tc.type
@@ -313,14 +314,14 @@ heldOf r tc ps keys conTys = case definition tc.def of
 
     -- Does a constructor whose return type has its own binder at `p` hold
     -- a runtime argument whose type reaches it?
-    holds : List Nat -> Nat -> Constructor -> Core Bool
+    holds : List Nat -> Nat -> ConstructorRead -> Core Bool
     holds own p con = case getAt p (snd (getFnArgs con.result)) >>= binderOf of
       Just k => any id <$> traverse (reachedBy own k) con.taking
       Nothing => pure False
 
     -- The candidates of `out` the set `held` makes held, and the rest, as
     -- many between them as `out` has.
-    among : List Nat -> List Constructor -> List Nat -> (out : List Nat) ->
+    among : List Nat -> List ConstructorRead -> List Nat -> (out : List Nat) ->
             Core (Subset (List Nat, List Nat) (\s => length (snd s) + length (fst s) = length out))
     among keys conTys held [] = pure (Element ([], []) Refl)
     among keys conTys held (p :: ps) = do
@@ -333,7 +334,7 @@ heldOf r tc ps keys conTys = case definition tc.def of
     -- held among the candidates still out, and the set is whole at a round
     -- that holds none. A round that holds one or more leaves fewer out, so
     -- the rounds descend on the candidates still out.
-    least : List Nat -> List Constructor -> List Nat -> (out : List Nat) ->
+    least : List Nat -> List ConstructorRead -> List Nat -> (out : List Nat) ->
             (0 _ : Accessible LT (length out)) -> Core (List Nat)
     least keys conTys held out (Access fewer) = do
       Element (p :: ps, outs) n <- among keys conTys held out
@@ -347,7 +348,7 @@ heldOf r tc ps keys conTys = case definition tc.def of
 ||| key keeps what a constructor takes at quantity 0 (`FS`'s index), so a
 ||| chain's values' keys are only their successors: `Nat`, but neither
 ||| `Fin` nor `Elem`, which are `Numeral`s.
-natnessOf : Maybe (List Constructor) -> Natness
+natnessOf : Maybe (List ConstructorRead) -> Natness
 natnessOf (Just cons@(_ :: _)) =
   if not (all (isJust . natRole . (.global)) cons) then NotNat
     else if all (\con => all heldBinder con.taking) cons then Chain
@@ -483,7 +484,7 @@ mutual
       rounds r known w acc assumed (fullname tc.def) cons [] (dataParams tc.def (Just cons)) (wellFounded _)
 
   rounds : Reading facts -> FactsFound facts ->
-           (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> List Constructor ->
+           (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> List ConstructorRead ->
            (formed, out : List Nat) -> (0 _ : Accessible LT (length out)) -> Core (List Nat)
   rounds r known w acc assumed self conTys formed out (Access fewer) = do
     Element (p :: ps, outs) n <- formedAmong r known w acc ((self, formed) :: assumed) conTys out
@@ -493,7 +494,7 @@ mutual
   -- The parameters of `out` some constructor puts in a form, and the rest,
   -- as many between them as `out` has.
   formedAmong : Reading facts -> FactsFound facts ->
-                (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> List Constructor -> (out : List Nat) ->
+                (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> List ConstructorRead -> (out : List Nat) ->
                 Core (Subset (List Nat, List Nat) (\s => length (snd s) + length (fst s) = length out))
   formedAmong r known w acc assumed conTys [] = pure (Element ([], []) Refl)
   formedAmong r known w acc assumed conTys (p :: ps) = do
@@ -505,7 +506,7 @@ mutual
   -- Does a constructor whose return type has its own binder at parameter
   -- `p` put that binder in a form with a runtime field?
   formedBy : Reading facts -> FactsFound facts ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Nat -> List Constructor -> Core Bool
+             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Nat -> List ConstructorRead -> Core Bool
   formedBy r known w acc assumed p [] = pure False
   formedBy r known w acc assumed p (con :: cs) = do
     let bs = con.taking
@@ -554,7 +555,7 @@ factsOf r known tc = do
 ||| and walks to the rest (`formedAt`). The table holds a type
 ||| constructor's facts and nothing else.
 typeConstructorsOf : Reading () -> Core (SortedMap Address TyConFacts)
-typeConstructorsOf r = foldlM add empty (values r.definitions)
+typeConstructorsOf r = foldlC add empty (values r.definitions)
   where
     add : SortedMap Address TyConFacts -> DefinitionRead () -> Core (SortedMap Address TyConFacts)
     add known d = case definition d.def of

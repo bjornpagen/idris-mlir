@@ -23,6 +23,7 @@ import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Literals
+import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
@@ -173,6 +174,36 @@ mentions p tm = mentioned (mentioning (\t => asMention (p t)) tm)
     mentioned Mentioned = True
     mentioned Unmentioned = False
 
+||| Does a term mention a metavariable? Idris can leave a solved one in an
+||| elaborated term (the implementation for the inner pair of a triple).
+export
+hasMeta : TT vars -> Bool
+hasMeta = mentions metaTerm
+  where
+    metaTerm : TT vs -> Bool
+    metaTerm (Meta {}) = True
+    metaTerm _ = False
+
+||| How a term's unknowns were solved, kept whole: it holds none, and is
+||| itself; or it holds one, and is the normal form the normaliser that
+||| applies lambdas and fills in solutions gives, with that normaliser's
+||| steps and the evidence that it takes none further. The translation's
+||| argument as written and a growth reading's term are solved by the one
+||| function that gives this (`Closed.solving`), so a proof relating the
+||| two holds which case each is in rather than relating two solvers. It
+||| sits here, below the readings, so that a reading read off a term as
+||| written keeps the solving itself (`FormFrom`), not its steps alone.
+public export
+data Solved : Frozen -> ClosedTerm -> ClosedTerm -> Type where
+  NoUnknown : (0 _ : hasMeta t = False) -> Solved ctx t t
+  SolvedBy : (0 _ : hasMeta t = True) -> (0 r : Reduct OfNormaliseHoles ctx t) -> Solved ctx t r.value
+
+||| The steps a solving took: none where the term holds no unknown.
+export
+0 solvedSteps : Solved ctx t s -> Reduces (evaluationOf OfNormaliseHoles) ctx t s
+solvedSteps (NoUnknown {t} _) = reducesToItself t
+solvedSteps (SolvedBy _ r) = r.steps
+
 ------------------------------------------------------------------------------
 -- Roots
 ------------------------------------------------------------------------------
@@ -283,12 +314,15 @@ partDepth (i, path) = (i, length path)
 -- Scopes
 ------------------------------------------------------------------------------
 
-||| What each variable of a scope stands for, the first first: a
-||| definition's parameters and the arguments its matches bind.
-public export
-data Values : Type -> Scope -> Type where
-  Nil : Values a []
-  (::) : a -> Values a vs -> Values a (v :: vs)
+-- Its own namespace, since the terms read in turn (`AllReadAs`) are a list
+-- too, and one module holds one `Nil` per namespace.
+namespace Values
+  ||| What each variable of a scope stands for, the first first: a
+  ||| definition's parameters and the arguments its matches bind.
+  public export
+  data Values : Type -> Scope -> Type where
+    Nil : Values a []
+    (::) : a -> Values a vs -> Values a (v :: vs)
 
 ||| What a variable stands for, which its scope says is there.
 public export
@@ -871,8 +905,7 @@ mutual
             SpineAs m env (Meta fc x i margs) as (nodeOf m.keeping (Head Nothing (ms ++ ts)))
     SUniverse : AllReadAs m env as ts -> SpineAs m env (TType fc u) as (partOf m.keeping (Leaf 1) ts)
     SConstant : AllReadAs m env as ts -> SpineAs m env (PrimVal fc c) as (nodeOf m.keeping (appliedConstant c ts))
-    SLambda : {0 vs : Scope} -> {0 env : Values Substitute vs} ->
-              PassingAs m env info ps -> ReadAs m env ty t -> ReadAs m (FormalArgument (length vs) k :: env) sc s ->
+    SLambda : PassingAs m env info ps -> ReadAs m env ty t -> ReadAs m (FormalArgument (List.length vs) k :: env) sc s ->
               AllReadAs m env as ts ->
               SpineAs m env (Bind fc x (Lam lfc rig info ty) sc) as (nodeOf m.keeping (Head Nothing ((ps ++ [t, s]) ++ ts)))
     SBinder : BinderAs m env b ps -> ReadAs m (Placeholding :: env) sc s -> AllReadAs m env as ts ->
@@ -980,9 +1013,8 @@ mutual
   ||| instance unfolds it.
   public export
   data EtaChain : Mode -> Values Substitute vs -> Term vs -> Address -> List Template -> Maybe Template -> Type where
-    ChainLambda : {0 vs : Scope} -> {0 env : Values Substitute vs} ->
-                  PassingAs m env info ps -> ReadAs m env ty t ->
-                  EtaChain m (FormalArgument (length vs) k :: env) sc a ts r ->
+    ChainLambda : PassingAs m env info ps -> ReadAs m env ty t ->
+                  EtaChain m (FormalArgument (List.length vs) k :: env) sc a ts r ->
                   EtaChain m env (Bind fc x (Lam lfc rig info ty) sc) a ts
                            (map (\s => nodeOf m.keeping (Head Nothing (ps ++ [t, s]))) r)
     ChainCall : CallUnfolds m env u [] a ts r -> EtaChain m env u a ts r
@@ -1020,7 +1052,8 @@ mutual
              Reducing m a n terms written t
     ||| A recursion structural on a Nat-like argument: the argument raised
     ||| by its leaves.
-    ByStructure : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
+    ByStructure : {0 extras : List ClosedTerm} ->
+                  (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
                   (0 _ : bindParams pargs terms = Just (env, extras)) -> Structural m a terms env tree t ->
                   Reducing m a n terms written t
     ||| Given fewer arguments than its parameters: a family's value, its
@@ -1208,16 +1241,17 @@ data ReadAsWritten : Static -> Type where
 ||| it, contracted (a type, a family, a form, a shape no constructor
 ||| heads), with the evidence that it is normal, which the reading lemma
 ||| compares an instance's normal form by; or the term as written, its
-||| unknowns' solutions put in, then contracted, of a kind read so (a
-||| dictionary, a shape a constructor heads: `ReadAsWritten`), each what a
-||| reader reads off the term (`Proof.Reading.ReadOff`). A dictionary, and
-||| no other kind, that closes over runtime values is the implementation
-||| the frontend's own reduction finds it to be (`Closed.implementationOf`),
-||| contracted, which no relation of the host's yet states.
+||| unknowns solved (`Solved`, kept whole, so a proof reads which of no
+||| unknown or the holes normaliser's normal form it is), then contracted,
+||| of a kind read so (a dictionary, a shape a constructor heads:
+||| `ReadAsWritten`). A dictionary, and no other kind, that closes over
+||| runtime values is the implementation the frontend's own reduction finds
+||| it to be (`Closed.implementationOf`), contracted, which no relation of
+||| the host's yet states.
 public export
 data FormFrom : Static -> Frozen -> ClosedTerm -> ClosedTerm -> Type where
   FromNormalForm : (r : NormalReading OfNormaliseTypes ctx t) -> FormFrom k ctx t r.readForm
-  FromWritten : ReadAsWritten k -> ReadOff OfNormaliseHoles ctx t u -> FormFrom k ctx t u
+  FromWritten : ReadAsWritten k -> Solved ctx t v -> EtaContracts v u -> FormFrom k ctx t u
   FromImplementation : EtaContracts v u -> FormFrom ADictionary ctx t u
 
 ------------------------------------------------------------------------------

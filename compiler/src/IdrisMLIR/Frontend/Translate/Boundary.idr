@@ -31,6 +31,7 @@ module IdrisMLIR.Frontend.Translate.Boundary
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
+import Core.Env
 import Core.Options
 import Core.TT
 import Idris.Host
@@ -41,9 +42,11 @@ import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
+import IdrisMLIR.Ids
 import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Types
 
 import Control.WellFounded
 import Data.DPair
@@ -53,8 +56,13 @@ import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
+import Decidable.Equality
 
 %default total
+
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
 
 ------------------------------------------------------------------------------
 -- What a definition refers to
@@ -250,11 +258,12 @@ registeredOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Registered
 registeredOf def = do
   own <- interned (hooksOf (fullname def))
   case definition def of
-    ForeignDef _ specs => BySpecs own <$> traverse interned (foreignHooks (fullname def) specs)
+    ForeignDef _ specs => BySpecs own <$> Interfaces.traverse @{%search} @{Applicative.CORE} interned
+                                                            (foreignHooks (fullname def) specs)
     _ => pure (ByName own)
   where
     interned : Hooks QName -> Core (Hooks LibraryFunction)
-    interned = readLibraries (\q => MkLibraryFunction q <$> toName q)
+    interned = readLibraries @{Applicative.CORE} (\q => MkLibraryFunction q <$> toName q)
 
 ||| A definition as the translation reads it, each part through the
 ||| context's accessors once, before the context is frozen: its type; of
@@ -484,7 +493,7 @@ blockOf _ = Nothing
 ||| What a definition read refers to, in the order the walk meets it
 ||| (`references`): its body as the translation reads it, then its type.
 ||| For a solved metavariable these are its solution's.
-referentsOf : Defined -> List Referent
+referentsOf : DefinitionRead () -> List Referent
 referentsOf d = references d.matched d.type
 
 ||| Where a walk that names blocks has got to: what each definition it has
@@ -517,7 +526,7 @@ mutual
   ||| metavariable is entered once (`Walk`), which is why the walk ends:
   ||| `w0` is where this level of it began, and every definition it enters
   ||| leaves fewer than `w0` to enter.
-  nameUnder : Read -> String -> SortedMap Address String -> SortedMap BlockKind Nat ->
+  nameUnder : Reading () -> String -> SortedMap Address String -> SortedMap BlockKind Nat ->
               (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
               (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Core (Reached w)
   nameUnder r origin names ks w0 acc w p [] = pure (MkReached names ks w (noMore w))
@@ -556,7 +565,7 @@ mutual
 
   ||| Names the blocks of a definition that is no block, once, by its full
   ||| name.
-  blocksFrom : Read -> SortedMap Address String -> Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
+  blocksFrom : Reading () -> SortedMap Address String -> Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
                (w : Walked) -> (0 _ : NoMore w w0) -> Core (SortedMap Address String, Subset Walked (\w' => NoMore w' w))
   blocksFrom r names full w0 acc@(Access rec) w p = do
     let Nothing = blockOf full
@@ -576,7 +585,7 @@ mutual
 
 ||| Names the blocks of a definition that is no block, once, on a walk of
 ||| its own.
-nameBlocksOf : Read -> SortedMap Address String -> Name -> Core (SortedMap Address String)
+nameBlocksOf : Reading () -> SortedMap Address String -> Name -> Core (SortedMap Address String)
 nameBlocksOf r names n = fst <$> blocksFrom r names (fullNameIn r.frozen n) start (sizeAccessible start) start (noMore start)
 
 ||| What each case, with and nested block the translation can meet is
@@ -588,10 +597,10 @@ nameBlocksOf r names n = fst <$> blocksFrom r names (fullNameIn r.frozen n) star
 ||| context that elaborated it, which loading does not keep). Each name
 ||| depends on the definitions alone, and on the one order they are walked
 ||| in.
-blockNamesOf : Read -> (entry : Name) -> Core (SortedMap Address String)
+blockNamesOf : Reading () -> (entry : Name) -> Core (SortedMap Address String)
 blockNamesOf r entry = do
   fromEntry <- nameBlocksOf r empty entry
-  foldlM (\names, d => nameBlocksOf r names (fullname d.def)) fromEntry (values r.definitions)
+  foldlC (\names, d => nameBlocksOf r names (fullname d.def)) fromEntry (values r.definitions)
 
 ------------------------------------------------------------------------------
 -- Reading the program
@@ -847,13 +856,13 @@ readProgram ifs entry fallback = do
   Right definitions <- frozenAll fz found empty (SortedMap.toList found)
     | Left refusal => pure (Left refusal)
   application <- applicationOf
-  -- What follows from the definitions alone is found from them: none of
-  -- the three readings reads what the others find.
-  let fromDefinitions = MkRead fz definitions application ifs empty empty empty
-  facts <- typeConstructorsOf fromDefinitions
+  -- What follows from the definitions alone is found from them, before
+  -- any definition holds it: none of the three readings reads what the
+  -- others find, and each definition is given all three at once.
+  let fromDefinitions = MkReading fz definitions application ifs
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
-  pure (Right ({ tyCons := facts, loops := proved, blockNames := blocks } fromDefinitions))
+  Right <$> readWhole proved blocks fromDefinitions
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are
@@ -863,7 +872,7 @@ readProgram ifs entry fallback = do
     -- definitions (`checkedRow`), and, for an exit, what Idris's types say
     -- of its `believe_me` (`exitTypesOf`); or the refusal of the registry's
     -- row the definitions contradict.
-    frozenAs : Frozen -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either Refusal Defined)
+    frozenAs : Frozen -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either Refusal (DefinitionRead ()))
     frozenAs fz found u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
       let refused = \msg => MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
@@ -877,12 +886,12 @@ readProgram ifs entry fallback = do
       Right exit <- exitTypesOf fz found u
         | Left msg => pure (Left (refused msg))
       pure (Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered checked exit
-                             (placesOf fz ifs normal) (bindersWith (argumentAt u.def) normal)))
+                             (placesOf fz ifs normal) (bindersWith (argumentAt u.def) normal) ()))
 
     -- Every definition read, frozen in order, by its entry; the first
     -- refusal stops the reading.
-    frozenAll : Frozen -> SortedMap Int Unfrozen -> SortedMap Int Defined -> List (Int, Unfrozen) ->
-                Core (Either Refusal (SortedMap Int Defined))
+    frozenAll : Frozen -> SortedMap Int Unfrozen -> SortedMap Int (DefinitionRead ()) -> List (Int, Unfrozen) ->
+                Core (Either Refusal (SortedMap Int (DefinitionRead ())))
     frozenAll fz found done [] = pure (Right done)
     frozenAll fz found done ((i, u) :: rest) = do
       Right d <- frozenAs fz found u

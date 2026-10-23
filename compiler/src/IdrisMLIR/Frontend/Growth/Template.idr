@@ -1184,7 +1184,7 @@ dictionaryForm ctx t = do
        pure (MkDictionaryForm c.etaForm (FromImplementation c.etaSteps) c.etaNormal)
      else
        let c = contracted s.fst in
-       pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal)
+       pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary s.snd c.etaSteps) c.etaNormal)
 
 ||| A site's static argument read: the mode it is read in, the context of
 ||| which is the one every normal form and definition of the reading is
@@ -1254,7 +1254,7 @@ siteReading stands AShape t = do
       let c = contracted s.fst
       r <- readFromStart (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
       pure (MkSiteReading (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
-                          (FromWritten WrittenShape (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal r.fst r.snd r.fst AsRead)
+                          (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.fst r.snd r.fst AsRead)
     _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside ctx) t
 
 ||| What a site writes at a static argument (`siteReading`).
@@ -1913,7 +1913,7 @@ readInstance ctx AShape t = do
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (InstanceMode ctx) c.etaForm
-      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape (ReducedThenContracted (solvedSteps s.snd) c.etaSteps)) c.etaNormal r.fst r.snd Unrooted)
+      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.fst r.snd Unrooted)
     _ => normalInstance ctx noRoot t
 
 ||| A request's static argument at its kind, as the translation keeps it:
@@ -2374,7 +2374,8 @@ export
 0 shapeForm : ChainShape ctx t h -> FormFrom AShape ctx t u -> ChainShape ctx u h
 shapeForm c (FromNormalForm r) =
   rewrite chainContracted (chainReduces c r.reduct.steps) r.contraction in chainReduces c r.reduct.steps
-shapeForm c (FromWritten _ (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
+shapeForm c (FromWritten _ solving k) =
+  rewrite chainContracted (chainReduces c (solvedSteps solving)) k in chainReduces c (solvedSteps solving)
 
 ||| What the cut of a capped parameter's argument gives the request that
 ||| keys by it (`Instances.neededShape`, `Closed.cutShape`): the shape it
@@ -2512,7 +2513,7 @@ mutual
 ||| argument of kind k, which the instance's reading reads: at a shape, the
 ||| skeleton (`Readings.SkeletonOf`, as `Instances.argumentShape` keys it)
 ||| of the term as written, its unknowns solved as every written form is
-||| (`Closed.Solved`, the one solving), where a data constructor heads it,
+||| (`Readings.Solved`, the one solving), where a data constructor heads it,
 ||| else of the host's normal form of it, cut where the callee's type stops
 ||| needing it (`NeededCut`); at any other kind, the term itself. The
 ||| solving is carried, not assumed away: a term whose unknowns the

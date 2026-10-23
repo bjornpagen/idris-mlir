@@ -352,16 +352,6 @@ closeWritten fc env tm = closeOver fc (map value env) tm
     value (Shaped _ _ _ s) = s
     value (Runtime {}) = probeTerm ProbeRuntime
 
-||| Does a term mention a metavariable? Idris can leave a solved one in an
-||| elaborated term (the implementation for the inner pair of a triple).
-export
-hasMeta : TT vars -> Bool
-hasMeta = mentions metaTerm
-  where
-    metaTerm : TT vs -> Bool
-    metaTerm (Meta {}) = True
-    metaTerm _ = False
-
 ||| Does a term mention a part that stands for a runtime value, wherever
 ||| it stands (`runtimeDependent`'s two markers)?
 export
@@ -380,26 +370,9 @@ export
 lambdasApplied : ClosedTerm -> Front ClosedTerm
 lambdasApplied tm = (.value) <$> core (host.normaliseHoles !frozenContext tm)
 
-||| How a term's unknowns were solved, kept whole: it holds none, and is
-||| itself; or it holds one, and is the normal form the normaliser that
-||| applies lambdas and fills in solutions gives, with that normaliser's
-||| steps and the evidence that it takes none further. The translation's
-||| argument as written and a growth reading's term are solved by the one
-||| function that gives this (`solving`), so a proof relating the two holds
-||| which case each is in rather than relating two solvers.
-public export
-data Solved : Frozen -> ClosedTerm -> ClosedTerm -> Type where
-  NoUnknown : (0 _ : hasMeta t = False) -> Solved ctx t t
-  SolvedBy : (0 _ : hasMeta t = True) -> (0 r : Reduct OfNormaliseHoles ctx t) -> Solved ctx t r.value
-
-||| The steps a solving took: none where the term holds no unknown.
-export
-0 solvedSteps : Solved ctx t s -> Reduces (evaluationOf OfNormaliseHoles) ctx t s
-solvedSteps (NoUnknown {t} _) = reducesToItself t
-solvedSteps (SolvedBy _ r) = r.steps
-
 ||| A term with its unknowns' solutions put in, in a frozen context, with
-||| how (`Solved`): the one solving every reader of a written form takes.
+||| how (`Readings.Solved`): the one solving every reader of a written form
+||| takes.
 export
 solving : (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (Solved ctx t))
 solving ctx t with (hasMeta t) proof unknown

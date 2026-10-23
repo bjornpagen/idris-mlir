@@ -34,6 +34,12 @@ export
 addressedWhereResolved resolved nonNegative = case placedWhereResolved resolved nonNegative of
   (p ** placed) => (addressOf p ** cong (map addressOf) placed)
 
+||| A name the context gives no place has no address: the address is the
+||| place's (`definitionAddress`).
+export
+0 unplacedUnaddressed : {0 ctx : Context} -> {0 n : Name} -> placementIn ctx n = Nothing -> definitionAddress ctx n = Nothing
+unplacedUnaddressed none = cong (map addressOf) none
+
 ||| The address of the entry a name the frozen context defines is at, the
 ||| one `definitionIn` found: the entry is at a non-negative index
 ||| (`Host.resolvedPlaced`), placed as it is (`Walk.placementAt`), so the

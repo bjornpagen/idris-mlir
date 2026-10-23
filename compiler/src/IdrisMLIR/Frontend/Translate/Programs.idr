@@ -44,6 +44,10 @@ import Decidable.Equality
 
 %default total
 
+-- A scope here is always a term's, the checker's: where a rule is decided
+-- is no question this module asks.
+%hide IdrisMLIR.Spec.Core.Rules.Scope
+
 ||| The name of the next parameter, and the names after it: a parameter
 ||| past the names a type gives is `x`.
 parameterName : List Name -> (Shown, List Name)

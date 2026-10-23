@@ -446,16 +446,21 @@ library w l inner =
 nameNumber : Writer -> Shown -> AttrRef -> W AttrRef
 nameNumber w n child = attrEntry w BuiltinDialect (encodeNameLoc !(stringAttrNumber w (show n)) child)
 
+||| An Idris name at a span (`NameLoc`): a named location's records, and
+||| those of a binder at a span, which is its name there.
+namedNumber : Writer -> Shown -> Loc -> W AttrRef
+namedNumber w n l = library w l !(nameNumber w n !(placeNumber w l.located))
+
 ||| A location, builtin's records: a span, or a name at one (`NameLoc`);
 ||| a binder's is its name fused with its identity, `#idr.binder<@def, i>`,
 ||| the definition by its symbol, its name at the definition the registry
 ||| lowered where the binder's op stands.
 locationNumber : Writer -> Location -> W AttrRef
 locationNumber w (At l) = library w l !(placeNumber w l.located)
-locationNumber w (Named n l) = library w l !(nameNumber w n !(placeNumber w l.located))
+locationNumber w (Named n l) = namedNumber w n l
 locationNumber w (Binder n p def k) = do
   named <- case p of
-    Spanned l => locationNumber w (Named n l)
+    Spanned l => namedNumber w n l
     Lowered d l => library w l !(nameNumber w n !(nameNumber w d !(placeNumber w l.located)))
   definition <- attrTextEntry w (SymbolRefAttr (MkSymbolRef def []))
   identity <- attrEntry w IdrDialect (encodeBinderAttr definition k)
@@ -753,6 +758,7 @@ mutual
   numberIdrAttr w MutableAttr = pure MutableAttr
   numberIdrAttr w (SiteAttr f l c fn) = pure (SiteAttr f l c fn)
   numberIdrAttr w (BigAttr v) = pure (BigAttr v)
+  numberIdrAttr w (ClosureAttr f cs) = ClosureAttr <$> attrNumber w f <*> attrNumber w cs
 
 ------------------------------------------------------------------------------
 -- The writer
