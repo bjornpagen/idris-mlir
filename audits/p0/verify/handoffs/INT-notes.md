@@ -194,3 +194,17 @@ handoff lists its own wiring.
   generated `Known.idr` committed. The new `tests/checker-*` run in
   `test-mlir-tools` on the owner's machines; their refusal tests' line
   numbers are assumptions L17aq could not check.
+
+- **INT-18 (2026-10-23, at 366a9a22; `build/int18/`).** The stock Idris
+  with 96 and 104 to 112 installs whole (474 s, 3.0 GiB; `install-api`
+  about 142 s) and the four upstream checks pass on it. The checker,
+  first built with L17aq's ports, needed one fix (R-w, `emptyArg`'s
+  as-name in a nested case; 76804a4b), then all 208 modules (649 s,
+  4.7 GiB). The frontend builds 85 of 102 modules from HEAD before its
+  first error (INT-17: 55) and, with scratch in 5 files, all 102, the
+  executable running and syntax-samples (519 s; Sites 194 s, Terms
+  126 s, the executable about 100 s at 6.2 GiB). Routed: R-x (Sites'
+  `asRole`), R-f (Heads' order), `knownAt`'s state, and R-y and R-z's
+  sites to L16do; R-y, R-z and the remaining R-u (`atNamedType`,
+  `CovG.idr`) to L06f; State's `resolvedItself` qualified; Boundary's
+  dependent-map import came with L17ar.
