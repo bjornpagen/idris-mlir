@@ -6,13 +6,15 @@
 # type no constructor's return type fits, so a Refl matched inside a pair
 # or a case block's scrutinee, which refines an argument the tree then
 # splits, left that argument's other values proposed and unrefuted.
-# CaseBlock.idr's and Clause.idr's definitions are covering, and the
-# patched check, which also finds a type empty when each constructor that
-# fits takes an argument of an empty type, accepts them under %default
-# total. Missing.idr's misses a case, whose argument's type is inhabited
-# through the same constructors, and is still refused, naming it.
+# CaseBlock.idr's, Clause.idr's and Joint.idr's definitions are covering,
+# and the patched check, which also finds a type empty when each
+# constructor that fits takes an argument of an empty type, as it is or
+# read under what the other arguments' types hold (an equation's two sides
+# equal), accepts them under %default total. Missing.idr's two miss a
+# case each, whose argument's type is inhabited through the same
+# constructors, and are still refused, each naming its case.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-for case in CaseBlock Clause; do
+for case in CaseBlock Clause Joint; do
   cp "$root/upstream/111-coverage-nested-empty-type/$case.idr" "$work/$case.idr"
   if (cd "$work" && pinned_idris --check "$case.idr") > "$work/$case.out" 2>&1; then
     say "$case: the covering definitions are accepted"
@@ -25,9 +27,10 @@ for case in CaseBlock Clause; do
 done
 cp "$root/upstream/111-coverage-nested-empty-type/Missing.idr" "$work/Missing.idr"
 if (cd "$work" && pinned_idris --check Missing.idr) > "$work/Missing.out" 2>&1; then
-  say "Missing: a definition that misses a case is accepted"
-elif grep -q 'below (S _) _' "$work/Missing.out"; then
-  say "Missing: refused, naming the case it misses"
+  say "Missing: definitions that miss a case are accepted"
+elif grep -q 'below (S _) _' "$work/Missing.out" &&
+     grep -q 'upToOne (MkHead Nothing (_ :: _)) _' "$work/Missing.out"; then
+  say "Missing: refused, naming the cases they miss"
 else
   say "Missing: refused otherwise"
   show "$work/Missing.out"

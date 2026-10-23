@@ -17,6 +17,14 @@ refines an argument (*measured*, a scratch build of 89ba32eb on Chez
   `Held.lteSuccCases` with its second clause's `k'` written `_` (INT-16's
   `repro/LteSucc.idr`), is reported missing `lteSuccCases _`; `endless`
   and `up` are reported missing their `False` case.
+- `Joint.idr` (INT-18, with this patch's first form, 2026-10-23):
+  `atHead` and `0 atNamed` are "not covering" by their case blocks, and
+  `clauses` is reported missing `clauses (MkHead Nothing (_ :: _)) _`,
+  though `written`, the same with that case as an impossible clause,
+  checks. `atHead` is INT-18's `repro/CovG.idr`; `atNamed` has the shape
+  of the frontend's `Proof/Covers.idr` `atNamedType` (INT-18's
+  `repro/CoverNested.idr` and `CoverNestedCase.idr`), the one site the
+  first form left (1754 at 366a9a22, still at 57c45e61).
 
 Each case reported is impossible. INT-16 met the shape on every build of
 the frontend: `Held` 342 and 387, `Graph` 798 to 816 (`landsInto`,
@@ -46,6 +54,17 @@ fits with an argument of the empty `LTE (S k) Z`. The case is reported, and
 in a case block no clause can rule it out by hand, since the block's
 patterns cannot name the variable its scrutinee refines.
 
+`Joint.idr`'s cases are empty only by two parts together. In `atHead`
+the Refl refines `r` to `MkHead Nothing []`, and the case proposed,
+`MkHead Nothing (y :: z)`, has the scrutinee unsplit, of type `(ts ** (MkHead
+Nothing (y :: z) = MkHead Nothing ts, AllR [] ts))`. `ts` is the first
+part, which the type does not determine; each of the pair's parts has a
+value for some `ts` (`Refl` fits the first, `Nil` the second), and none
+for one `ts`: the equation holds `ts = y :: z`, and `AllR [] (y :: z)` is
+empty. Written as an impossible clause the case is refuted by
+elaborating its `Refl` pattern (`written`); the first form looked into
+each part's type on its own, and so did not refute it.
+
 ## Patch
 
 `idris.patch`, against 89ba32eb with 96 and 104 to 110, changes
@@ -61,23 +80,71 @@ less, never more. It looks into an argument's type only while that type is
 smaller (in the nodes of its normal form) than the type it is an argument
 of, so it ends: a family whose arguments do not get smaller (`Endless`,
 whose `More` takes an `Endless`; `Up n`, whose `Climb` takes an
-`Up (S n)`) is not taken apart again. The fresh names of each level are
-numbered past those of the levels it is inside, so a substitution at one
-level captures no other's.
+`Up (S n)`) is not taken apart again.
+
+A constructor that fits also says what its return type holds of the
+type: two parts of the type it puts at one of its arguments are equal
+(`Refl`'s two sides). A type with one constructor holds what that
+constructor holds and what its arguments' types hold (a pair's parts'); a
+type with more holds nothing here. Under what the arguments' types hold,
+a constructor's arguments are looked into again: a fresh name equal to a
+term it does not occur in stands for that term, two applications of one
+constructor are equal where their arguments are, an equation of any
+other shape says nothing, and each argument's type that names a fresh
+name so solved is looked into with the term put in; if one is empty, the
+constructor cannot build a value. In `atHead`'s case, the pair's
+equation holds `ts = y :: z`, under which its `AllR [] ts` is empty. The
+second look is into the same arguments, again only while each is smaller
+than the type, so the search still ends. Every fresh name of the whole
+search is numbered past every other, so putting what one stands for into
+a type captures none.
 
 The check refutes more proposed cases, and accepts more of a user's
 `impossible` clauses, which the same test checks, and changes nothing
 else: the tree, the cases proposed and the clauses matched are as before,
 and a type the search calls empty has no value, since a constructor that
-fits it needs a value of an empty type. `Missing.idr` misses a case,
-`below (S _) _`, whose pair's `LTE (S _) 1` is inhabited by
-`LTESucc LTEZero`; it is still refused, naming the case.
+fits it needs a value of an empty type. An equation a type with one
+constructor holds holds of every value of it, a fresh name stands for one
+value of an argument, and only what constructor equality gives is drawn
+from it, so an argument's type read under it is that argument's type.
+`Missing.idr` misses two cases: `below (S _) _`, whose pair's `LTE (S _)
+1` is inhabited by `LTESucc LTEZero`, and `upToOne (MkHead Nothing (_ ::
+_)) _`, whose value `MkHead Nothing [t]` has `([t] ** (Refl, LTESucc
+LTEZero))`: read under its equation's `ts = t :: _`, the bound still has
+a value. Both are still refused, each naming its case.
 
 ## Testing
 
-On full bootstraps of 89ba32eb (scratch, Chez 10.4.1, 2026-10-23, this
-repository's 8-core arm64 macOS machine), one with every Idris patch, 96
-and 104 to 110, and one with this patch as well, each of which built
+The patch as it now stands, with the equations across arguments
+(INT-18's R-u, 2026-10-23), on full bootstraps of 89ba32eb (scratch, Chez
+10.4.1, this repository's 8-core arm64 macOS machine), one with the Idris
+series as the toolchain carries it (96 and 104 to 112, this patch's first
+form among them) and one with the whole series as it now stands (96 and
+104 to 114, this patch amended), each of which built itself and all its
+libraries and ran the bootstrap's own targets, `make bootstrap install
+install-api`, to the end: 469 s wall (bootstrap 328 s, install-api 137
+s) and 502 s (355 s and 143 s, beside a run of upstream's tests on the
+first), 2.9 and 3.0 GiB peak RSS (rusage) (*measured*). With the series, Idris's own source, which
+`install-api` checks, and its libraries check as before.
+
+- `Joint.idr` checks; with the first form, `atHead`, `atNamed` and
+  `clauses` are refused as above. INT-18's `repro/CovG.idr`,
+  `CoverNested.idr` and `CoverNestedCase.idr` check; `CovA.idr` to
+  `CovF.idr` check, as before.
+- `CaseBlock.idr` and `Clause.idr` check, and `Missing.idr` is refused,
+  naming `below (S _) _` and `upToOne (MkHead Nothing (_ :: _)) _`, with
+  either form.
+- the frontend's `Proof/Covers.idr` at dbb63119, `atNamedType` as
+  written, checks (INT-18's supplementary export, its scratch for this
+  site taken out); with the toolchain's Idris it is refused, not
+  covering, as INT-18 reports.
+- upstream's own tests, as below: 731 of 733 pass with either series, the
+  same two failing, and every test's result is the same (114's README).
+
+The first form, on full bootstraps of 89ba32eb (scratch, Chez 10.4.1,
+2026-10-23, this repository's 8-core arm64 macOS machine), one with every
+Idris patch, 96 and 104 to 110, and one with this patch as well, each of
+which built
 itself and all its libraries and ran the bootstrap's own targets, `make
 bootstrap install install-api`, to the end: 482 s wall each, the two side
 by side (bootstrap 339 s, install-api 140 s, alike), 3.0 GiB peak RSS
@@ -103,11 +170,11 @@ by side (bootstrap 339 s, install-api 140 s, alike), 3.0 GiB peak RSS
   `Scrut.idr` and `Refine.idr` are refused as before (the language's
   behaviour, not this bug).
 
-The patch as it stands, changed since those runs only in the comment of
+The first form, changed since those runs only in the comment of
 `hasEmptyPat`, was then built again the same way, applied by the
 repository's series as the bootstrap applies it (476 s; bootstrap 334 s,
 install-api 138 s; 2.9 GiB), and the check and the reproducers above,
-rerun on it, give the same results.
+rerun on it, gave the same results.
 
 The frontend's sites were not checked with the patch: L16 has since
 rewritten `Held`'s two (`givenAlone`, a clause whose triple holds the
@@ -116,8 +183,8 @@ splitting the proof first), and `Graph`'s three keep the shape
 `CaseBlock.idr`'s `closedBelow` reduces.
 
 `tests/upstream-coverage-nested-empty-type` checks that the pinned Idris
-accepts `CaseBlock.idr` and `Clause.idr` and still refuses `Missing.idr`,
-naming its missing case.
+accepts `CaseBlock.idr`, `Clause.idr` and `Joint.idr` and still refuses
+`Missing.idr`, naming its two missing cases.
 
 ## When it goes
 
@@ -125,10 +192,17 @@ When the Idris pin carries an upstream fix (the check then passes without
 the patch), or when nothing of ours meets the shape. Until then the
 bootstrap applies the patch.
 
-Our type checker (compiler/checker) carries the change as its own code, in
-`Core.Coverage.isEmpty`, which `tests/checker-coverage-nested-empty-type`
-checks, and `tests/checker-coverage-nested-empty-type-missing` that it
-still refuses `Missing.idr`'s shape; it stays when the patch goes.
+Our type checker (compiler/checker) carries the first form as its own
+code, in `Core.Coverage.isEmpty`, which
+`tests/checker-coverage-nested-empty-type` checks, and
+`tests/checker-coverage-nested-empty-type-missing` that it still refuses
+`Missing.idr`'s first shape; it stays when the patch goes. The equations
+across arguments are not yet its own: they go into its `Fit` and
+`fitting` (`src/Core/Coverage.idr`, 142 to 166: what a fit holds),
+`emptyFrom` (232: what a type with one constructor holds), `cannotBuild`
+(250: the second look under what the arguments hold) and `emptyArg` (265),
+with the fresh names numbered across the whole search; its fix is its
+own code, as every fix there is.
 
 ## Upstreaming plan
 

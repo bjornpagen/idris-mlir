@@ -1,0 +1,37 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/113-type-implicit-binding-order, carried: the stock Idris bound
+# an implicit argument still unsolved in a type as an argument of the type
+# before it retried, matching arguments, the postponed constraint that
+# solves it, so `firstOf w` in a type, its `xs` solved by `as ++ bs`
+# against `xs ++ ys`, was refused (`?xs [no locals in scope]`), where the
+# same term on a right-hand side checks. With the patch Matched.idr's
+# definitions check; an implicit no constraint relates is still bound as
+# an argument (Generalised.idr), and a constraint no match solves is still
+# refused (Unmatched.idr).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/113-type-implicit-binding-order
+cp "$dir/Matched.idr" "$dir/Generalised.idr" "$dir/Unmatched.idr" "$work/"
+if (cd "$work" && pinned_idris --check Matched.idr) > "$work/Matched.out" 2>&1; then
+  say "Matched: an implicit a type's constraint solves by matching is solved"
+elif grep -q 'no locals in scope' "$work/Matched.out"; then
+  say "Matched: still reproduces: a type's implicit is bound before its constraint is matched"
+else
+  say "Matched: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Matched.out"
+fi
+if (cd "$work" && pinned_idris --check Generalised.idr) > "$work/Generalised.out" 2>&1; then
+  say "Generalised: an implicit no constraint relates is bound as an argument of the type"
+else
+  say "Generalised: refused"
+  show "$work/Generalised.out"
+fi
+if (cd "$work" && pinned_idris --check Unmatched.idr) > "$work/Unmatched.out" 2>&1; then
+  say "Unmatched: a constraint no match solves is accepted"
+elif grep -q "Can't solve constraint between: rev as and ?xs ++ ?ys" "$work/Unmatched.out"; then
+  say "Unmatched: refused: a constraint no match solves is an error"
+else
+  say "Unmatched: refused otherwise"
+  show "$work/Unmatched.out"
+fi

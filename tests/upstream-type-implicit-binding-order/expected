@@ -1,0 +1,3 @@
+Matched: an implicit a type's constraint solves by matching is solved
+Generalised: an implicit no constraint relates is bound as an argument of the type
+Unmatched: refused: a constraint no match solves is an error

@@ -1554,19 +1554,25 @@ which the top-level CMake configure gate reads.
   reports its other values missing, with the argument that holds the
   equation unsplit (the frontend: `Held`'s `aloneWritten` and
   `lteSuccCases`, `Graph`'s `landsInto`, `joinedOver` and `intoClosed`,
-  `Covers`' case blocks at 1252, 1733 and 1834)
+  `Covers`' case blocks at 1252, 1733 and 1834, and `Covers`'
+  `atNamedType`, whose case's pair is empty only by its equation and the
+  part beside it together)
 - sites: everything the stock host checks under `%default total` or
   `covering`: stage 0 and the libraries
 - workaround: `upstream/111-coverage-nested-empty-type/idris.patch`: a
   type is empty also when each constructor that fits it takes an argument
   of an empty type, the arguments its return type determines replaced by
-  what the type has there; an argument's type is looked into only while
-  it is smaller than the type it is an argument of; checked by
+  what the type has there, or read under what the other arguments' types
+  hold of the fresh names (a type with one constructor holds what its
+  return type and its arguments' types hold, `Refl`'s two sides equal);
+  an argument's type is looked into only while it is smaller than the
+  type it is an argument of; checked by
   tests/upstream-coverage-nested-empty-type
 - retire: when the Idris pin carries an upstream fix
 - upstream: upstream/111-coverage-nested-empty-type; nothing sent (Idris
   takes no tool-written contribution)
-- status (2026-10-23): carried
+- status (2026-10-23): carried; amended the same day for the equations
+  across arguments
 
 ## do-local-definition-scope
 
@@ -1589,4 +1595,42 @@ which the top-level CMake configure gate reads.
 - retire: when the Idris pin carries an upstream fix
 - upstream: upstream/112-do-local-definition-scope; nothing sent (Idris
   takes no tool-written contribution)
+- status (2026-10-23): carried
+
+## type-implicit-binding-order
+
+- symptom: the stock Idris binds an implicit argument still unsolved in a
+  type as an argument of the type, outside the type's locals, before it
+  retries the postponed constraints matching the arguments of two
+  applications of one function, the step that solves it on a right-hand
+  side, so a type naming `firstOf w`, `firstOf : P (xs ++ ys) n -> P xs
+  n` and `w : P (as ++ bs) n`, is refused (`Can't solve constraint
+  between: ?xs [no locals in scope] and as`) (the frontend:
+  `Proof/Describes`' `firstPart`, `placedFirst w`)
+- sites: every type the stock host checks: stage 0 and the libraries
+- workaround: `upstream/113-type-implicit-binding-order/idris.patch`:
+  `checkBindHere` retries a type's constraints in match mode before its
+  defaults and before binding its unsolved implicits, the order a term's
+  elaboration takes; checked by tests/upstream-type-implicit-binding-order
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/113-type-implicit-binding-order; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-23): carried
+
+## let-delayed-elaborator-dropped
+
+- symptom: the stock Idris retries the delayed case blocks of a let's
+  value and drops its other delayed elaborators, so an ambiguous name in
+  the value, waiting for its type, is never resolved, and its hole is left
+  unsolved (`Unsolved holes: ... {delayed:N}`), in `let ... in` and in a do
+  block's `let` (the frontend: `Growth/Graph`'s `build`, its three folds
+  from `empty`)
+- sites: every let the stock host checks: stage 0 and the libraries
+- workaround: `upstream/114-let-delayed-elaborator-dropped/idris.patch`:
+  `runDelays` keeps the delayed elaborators it does not retry and puts
+  them back for the retries around it; checked by
+  tests/upstream-let-delayed-elaborator-dropped
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/114-let-delayed-elaborator-dropped; nothing sent
+  (Idris takes no tool-written contribution)
 - status (2026-10-23): carried

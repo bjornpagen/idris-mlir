@@ -173,8 +173,10 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 108 | case-split-pattern-fragment | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies after 104 to 107 at the gitlink 89ba32eb; upstream #62 |
 | 109 | delayed-retry-doubling | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies after 104 to 107 at the gitlink 89ba32eb |
 | 110 | coverage-erased-index-first | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies after 104 to 109 at the gitlink 89ba32eb |
-| 111 | coverage-nested-empty-type | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies after 104 to 110 at the gitlink 89ba32eb |
+| 111 | coverage-nested-empty-type | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121; amended the same day for the equations across arguments); applies after 104 to 110 at the gitlink 89ba32eb |
 | 112 | do-local-definition-scope | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies at the gitlink 89ba32eb |
+| 113 | type-implicit-binding-order | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies at the gitlink 89ba32eb |
+| 114 | let-delayed-elaborator-dropped | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-23, D121); applies after 107 and 109 at the gitlink 89ba32eb |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -327,7 +329,7 @@ for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
 64 to 77, 79 to 93, 97 and 99, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
 2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
-its gitlink (8d82299, 9.3.2); for Idris: 96 and 104 to 112, applying at its
+its gitlink (8d82299, 9.3.2); for Idris: 96 and 104 to 114, applying at its
 gitlink (89ba32eb) in that order; for Chez: none. No toolchain is built yet with them, on any
 target, and `make build` refuses until one is. That is this repository's
 build, not a precondition for sending anything upstream.

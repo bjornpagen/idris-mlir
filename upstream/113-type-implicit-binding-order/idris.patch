@@ -1,0 +1,24 @@
+diff --git a/src/TTImp/Elab/ImplicitBind.idr b/src/TTImp/Elab/ImplicitBind.idr
+index f4a3f7b..cc6953c 100644
+--- a/src/TTImp/Elab/ImplicitBind.idr
++++ b/src/TTImp/Elab/ImplicitBind.idr
+@@ -569,6 +569,19 @@ checkBindHere rig elabinfo nest env fc bindmode tm exp
+          traverse_ solvePolyConstraint cons
+          traverse_ checkPolyConstraint cons
+ 
++         -- In a type, an implicit argument still unsolved is about to be
++         -- bound as an argument of the type, standing for any value,
++         -- outside every local the type binds. So the arguments of the
++         -- applications a postponed constraint relates are matched first,
++         -- as for any other term before its last tries (elabTermSub):
++         -- `firstOf w`, `firstOf : P (xs ++ ys) n -> P xs n` and `w : P (as
++         -- ++ bs) n`, is solved by `xs = as` here, as it is on a
++         -- right-hand side. Binding `xs` first would leave a constraint
++         -- between `as` and a name bound outside it, which nothing solves.
++         case bindmode of
++              PI _ => solveConstraintsAfter constart solvemode MatchArgs
++              _ => pure ()
++
+          solveConstraintsAfter constart
+                           (case elabMode elabinfo of
+                                 InLHS c => inLHS

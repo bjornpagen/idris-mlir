@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/114-let-delayed-elaborator-dropped, carried: the stock Idris
+# ran a let's value's delayed case blocks and dropped its other delayed
+# elaborators, so an ambiguous name there, waiting for its type, was never
+# resolved and its hole was left unsolved ("Unsolved holes: ... delayed").
+# With the patch Let.idr's definitions, `let ... in` and a do block's
+# `let`, check, and NoneFits.idr's name, which nothing fits, is refused in
+# a let's value for what the same value on a right-hand side is refused
+# for, which without the patch is reported for the right-hand side alone.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/114-let-delayed-elaborator-dropped
+cp "$dir/Let.idr" "$dir/NoneFits.idr" "$work/"
+if (cd "$work" && pinned_idris --check Let.idr) > "$work/Let.out" 2>&1; then
+  say "Let: an ambiguous name in a let's value is resolved by its type"
+elif grep -q 'delayed' "$work/Let.out"; then
+  say "Let: still reproduces: a let's delayed elaborator is dropped, its hole unsolved"
+else
+  say "Let: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Let.out"
+fi
+if (cd "$work" && pinned_idris --check NoneFits.idr) > "$work/NoneFits.out" 2>&1; then
+  say "NoneFits: a name nothing fits is accepted"
+else
+  inlet=$(sed -n 's/^Error: While processing right hand side of inLet\. //p' "$work/NoneFits.out")
+  onright=$(sed -n 's/^Error: While processing right hand side of onRight\. //p' "$work/NoneFits.out")
+  if [ -n "$inlet" ] && [ "$inlet" = "$onright" ]; then
+    say "NoneFits: refused in a let's value for what a right-hand side is refused for"
+  elif [ -z "$inlet" ] && [ -n "$onright" ]; then
+    say "NoneFits: still reproduces: the name in a let's value is never elaborated"
+  else
+    say "NoneFits: refused otherwise"
+    show "$work/NoneFits.out"
+  fi
+fi

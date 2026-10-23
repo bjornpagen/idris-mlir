@@ -1,0 +1,36 @@
+diff --git a/src/TTImp/Elab/Delayed.idr b/src/TTImp/Elab/Delayed.idr
+index 685e4fa..03acd4b 100644
+--- a/src/TTImp/Elab/Delayed.idr
++++ b/src/TTImp/Elab/Delayed.idr
+@@ -346,7 +346,14 @@ retryDelayed mode ds = go empty ds
+                 then go fs ds -- progress, go around again
+                 else ignore $ retryDelayed' AllErrors False fs [] ds -- fail on all errors
+ 
+--- Run an elaborator, then all the delayed elaborators arising from it
++-- Run an elaborator, then the delayed elaborators arising from it that
++-- have the given priority. The others stay delayed, for whatever retries
++-- the delayed elaborators around this one (an ambiguous name in a let's
++-- value, delayed until its type is known, while the value's case blocks
++-- run here). Each attempt starts the list afresh, so they are kept aside
++-- and put back after the retry, as the ones from before this elaborator
++-- are: a delayed elaborator dropped never runs, and its hole is left
++-- unsolved.
+ export
+ runDelays : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+@@ -360,12 +367,14 @@ runDelays pri elab
+          put UST ({ delayedElab := [] } ust)
+          tm <- elab
+          ust <- get UST
++         let later = filter (not . hasPri) (delayedElab ust)
++         put UST ({ delayedElab := [] } ust)
+          log "elab.delay" 2 $ "Rerunning delayed in elaborator"
+          handle (do ignore $ retryDelayed' AllErrors False empty []
+                        (reverse (filter hasPri (delayedElab ust))))
+                 (\err => do put UST ({ delayedElab := olddelayed } ust)
+                             throw err)
+-         update UST { delayedElab $= (++ olddelayed) }
++         update UST { delayedElab $= (++ (later ++ olddelayed)) }
+          pure tm
+   where
+     hasPri : (DelayReason, d) -> Bool

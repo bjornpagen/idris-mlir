@@ -1,0 +1,2 @@
+Let: an ambiguous name in a let's value is resolved by its type
+NoneFits: refused in a let's value for what a right-hand side is refused for
