@@ -26,13 +26,13 @@
 // make too large a constant for, or whose function has a precondition the
 // op's type does not carry, declares `foldable` (a member hook of its
 // specification), which the fold asks first. A domain asks those of what
-// it holds. A Double the function gives as a NaN is no constant: its sign
-// and payload are each machine's, which IEEE leaves open.
+// it holds. A Double the function gives as a NaN is no constant (ieeeOn).
 //
 // Besides: what a constant constructor or closure holds in a field or
 // capture (`buildable`), the string a constant list packs or concatenates
-// to (the folds of str.pack and str.concat), and where idr.constant holds
-// static data.
+// to (the folds of str.pack and str.concat), where idr.constant holds
+// static data, and which floating-point values a fold may make constants of
+// at all.
 #ifndef IDR_IR_FOLD_H
 #define IDR_IR_FOLD_H
 
@@ -46,6 +46,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -62,7 +63,6 @@
 #include "idr/IR/Generated/RuntimeAbi.h.inc"
 
 #include <cassert>
-#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -112,6 +112,17 @@ mlir::Attribute bigAttr(mlir::MLIRContext *context, idris_rt_big b);
 llvm::APInt wrappedTo(mlir::Type type, int64_t value);
 // The same as a constant of `type`.
 mlir::Attribute wrapped(mlir::Type type, int64_t value);
+
+// What IEEE 754 fixes of a floating-point value an operation computed: all
+// of it, or, of a NaN, neither its sign nor its payload, which it leaves
+// to each machine, so the target may compute other bits than the compiling
+// machine did. A fold makes a constant only of a value IEEE fixes: the one
+// statement of which, asked by every folder of what it computes. A NaN a
+// constant op holds was computed by nothing: its bits are the program's.
+enum class Ieee : std::uint8_t { Fixes, LeavesOpen };
+inline Ieee ieeeOn(const llvm::APFloat &computed) {
+  return computed.isNaN() ? Ieee::LeavesOpen : Ieee::Fixes;
+}
 
 // Whether a comparison whose predicate is `predicate` holds of an order:
 // negative, zero or positive.
@@ -304,7 +315,7 @@ std::optional<typename W::Result> resultOf(W &where, mlir::Type type,
   else if constexpr (kind == Order)
     return where.integer(type, llvm::APInt(1, orderHolds(properties.getPredicate(), value)));
   else if constexpr (kind == Double) {
-    if (std::isnan(value))
+    if (ieeeOn(llvm::APFloat(value)) == Ieee::LeavesOpen)
       return std::nullopt;
     return where.real(type, value);
   } else {

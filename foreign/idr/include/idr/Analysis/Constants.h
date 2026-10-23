@@ -36,6 +36,16 @@ Folding foldingOf(mlir::Operation *op);
 // uninitialized where the function has no return, a constant, or unknown.
 using ConstantResults = llvm::SmallVector<mlir::dataflow::ConstantValue, 1>;
 
+// What `analysis`'s fold of `op` computed kept as a constant only where
+// IEEE 754 fixes it, by the one fold's rule (fold::ieeeOn): a result the
+// solve holds as a floating-point value IEEE leaves to each machine, a
+// NaN, is set to unknown, the state upstream's solve gives a value it
+// cannot know. A constant op computes nothing, so the bits it holds stay
+// what the program says. The solve's updates only queue the values that
+// read a result, so none of them ever reads the NaN.
+void keepFixed(mlir::dataflow::SparseConstantPropagation &analysis, mlir::Operation *op,
+               llvm::ArrayRef<mlir::dataflow::Lattice<mlir::dataflow::ConstantValue> *> results);
+
 // What `fn` returns, read from its final body: idr-constants ran last on
 // it and replaced every value its solve held constant, so a return's
 // operand is a constant exactly where the solve found one. The body is the
@@ -69,7 +79,9 @@ public:
       : SparseConstantPropagation(solver), read(read) {}
 
   // An op whose fold would compute on the compiling machine is never
-  // folded: its results stay unknown.
+  // folded: its results stay unknown. Upstream's folds of every other op
+  // compute what they compute, a NaN among them, which is kept only as
+  // the one fold's rule says (keepFixed).
   mlir::LogicalResult visitOperation(
       mlir::Operation *op,
       llvm::ArrayRef<const mlir::dataflow::Lattice<mlir::dataflow::ConstantValue> *> operands,
@@ -78,7 +90,10 @@ public:
       setAllToEntryStates(results);
       return mlir::success();
     }
-    return SparseConstantPropagation::visitOperation(op, operands, results);
+    if (mlir::failed(SparseConstantPropagation::visitOperation(op, operands, results)))
+      return mlir::failure();
+    keepFixed(*this, op, results);
+    return mlir::success();
   }
 
   // A program at the stage the optimizer runs holds no call but idr.call.

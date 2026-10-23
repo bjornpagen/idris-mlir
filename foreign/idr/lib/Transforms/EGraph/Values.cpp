@@ -305,10 +305,10 @@ std::optional<APFloat> doubleOf(const Class *cls) {
       [](const OneOf<Text, Big> auto &) -> std::optional<APFloat> { return std::nullopt; });
 }
 
-// The Double an operation gave, as the graph's: none for a NaN, whose sign
-// and payload IEEE leaves to each machine.
+// The Double an operation gave, as the graph's: none where IEEE leaves it
+// to each machine (fold::ieeeOn, a NaN's sign and payload).
 std::optional<Facts> computed(const APFloat &value) {
-  if (value.isNaN())
+  if (fold::ieeeOn(value) == fold::Ieee::LeavesOpen)
     return std::nullopt;
   return Facts{std::nullopt, Real{value.bitcastToAPInt().getZExtValue()}};
 }

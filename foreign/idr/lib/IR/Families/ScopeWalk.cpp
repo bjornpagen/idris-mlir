@@ -340,8 +340,11 @@ using families::TermNode;
 
 // A cast's two types are one under the refinements around it, its result
 // perhaps refined further.
+// The grades on either side are the reindex's own verifier's (a reindex
+// that builds gives a fresh one), so the scope compares the carriers.
 LogicalResult DataReindexOp::verifyScopeRule(ScopeQuery &scope) {
-  if (!scope.sameHere(getValue().getType(), getType(), Narrowing::Allowed))
+  if (!scope.sameHere(unrestricted(getValue().getType()), unrestricted(getType()),
+                      Narrowing::Allowed))
     return emitOpError("casts ") << getValue().getType() << " to " << getType()
                                  << ", which the refinements around it do not make equal";
   return success();

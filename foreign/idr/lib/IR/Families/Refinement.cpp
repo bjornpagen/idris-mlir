@@ -37,21 +37,30 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
   build(builder, state, result, value, outers);
 }
 
-// One type is the other at some instance of its levels, or a refinement of
-// it: a cast of anything else could be no refinement's. A reindex that
-// builds a cell or an array gives a fresh value, counted and claimed unique
-// whatever the operand's hold, which counting frees as any fresh value.
-// One that builds nothing, free or not (a cell taken apart in place, a
-// numeral widened), keeps the operand's hold, its result's memory the
-// operand's, wherever both hold references. Whether it builds is the one
-// answer the lowering's re-pack reads too, here at the field types the
-// layouts lay out, which a verifier may make.
+// One carrier is the other at some instance of its levels, or a refinement
+// of it: a cast of anything else could be no refinement's. A grade is no
+// index term, so what refines is the carriers, and the grade the result
+// takes is the cast's own, by what its re-pack does. Either way the value
+// is the one Idris proved, so its uses are kept. A reindex that builds a
+// cell or an array gives a fresh value, counted and claimed unique
+// whatever the operand's hold, none among them (words in place hold no
+// reference), which counting frees as any fresh value. One that builds
+// nothing, free or not (a cell taken apart in place, a numeral widened),
+// keeps the operand's hold, its result's memory the operand's, wherever
+// both hold references. Whether it builds is the one answer the lowering's
+// re-pack reads too, here at the field types the layouts lay out, which a
+// verifier may make; a re-pack that works builds nothing where it only
+// takes a cell apart, so whether the cast is free does not decide it.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
-  if (!refines(from, to) && !refines(to, from))
+  Type fromCarrier = unrestricted(from);
+  Type toCarrier = unrestricted(to);
+  if (!refines(fromCarrier, toCarrier) && !refines(toCarrier, fromCarrier))
     return emitOpError("casts ") << from << " to " << to
                                  << ", which no refinement of index terms relates";
+  if (usesOf(from) != usesOf(to))
+    return emitOpError("casts one value, so it keeps its uses; ") << from << " is given as " << to;
   auto laidOut = [](DataType type, Tag tag) { return Layouts::fieldsAt(type, tag); };
   if (families::builds(from, to, laidOut)) {
     if (!freedBy(to, Release::Counted) || !claims(to, Unique::Self))
