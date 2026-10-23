@@ -1,9 +1,9 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| A definition's identity, its address in the context, and the way back
-||| from an address to the definition. They sit below everything that keys
-||| or reads by address, the readings an instance is keyed by among them,
-||| which the translation's state caches.
+||| A definition's identity, its address in the context, and the index of
+||| the context an address is. They sit below everything that keys by
+||| address, the readings an instance is keyed by among them, which the
+||| translation's state caches.
 module IdrisMLIR.Frontend.Translate.Definitions
 
 import Core.Context
@@ -58,12 +58,3 @@ addressIndex a = cast (bytes a)
     bytes : Vect k (Fin 256) -> Integer
     bytes [] = 0
     bytes (b :: bs) = cast (finToNat b) + 256 * bytes bs
-
-||| The name a definition's address stands for (`addressOf`'s inverse): the
-||| context's entry at that index; nothing for bytes no entry of the context
-||| has. Its one reader is a node's head, which the flow holds by address
-||| alone (`Template.definitionRead`).
-export
-nameAt : Context -> Address -> Maybe Name
-nameAt ctx a = let i = addressIndex a in
-               if i < nextEntry ctx then Just (Resolved i) else Nothing

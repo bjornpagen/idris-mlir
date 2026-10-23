@@ -188,18 +188,28 @@ inFrozen ctx n = case definitionIn ctx n of
   NotDefined _ => Nothing
   DefinedAs i r d defines => Just (MkInFrozen (placeOf ctx i r defines) d defines)
 
+||| A head at an entry the frozen context defines: what the boundary read of
+||| the definition the context gives the name the head is called by
+||| (`Errors.defined`), which every reader of the head reads, a type
+||| constructor's facts and a constructor's tag among it, at the address the
+||| context gives that name. One read, which whatever holds the head holds
+||| once.
+public export
+record HeadDefinedAt (a : Address) where
+  constructor MkHeadDefinedAt
+  0 frozenIn : Frozen
+  0 calledBy : Name
+  defined : Defined
+  0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a
+
 ||| The definition a site's reading met a head at, by the head's address,
 ||| the one the reading's frozen context gives the name the head is called
-||| by: what the boundary read of the definition the context gives that
-||| name (`Errors.defined`), which every reader of the head reads, a type
-||| constructor's facts and a constructor's tag among it; or, at an entry the
-||| context defines nothing at, that entry, which a message shows the head
-||| by. Two cases the host's context has: an entry made with a definition,
-||| and one made without.
+||| by (`HeadDefinedAt`); or, at an entry the context defines nothing at,
+||| that entry, which a message shows the head by. Two cases the host's
+||| context has: an entry made with a definition, and one made without.
 public export
 data HeadDef : Address -> Type where
-  HeadDefined : {0 a : Address} -> (0 frozenIn : Frozen) -> (0 calledBy : Name) -> (d : Defined) ->
-                (0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a) -> HeadDef a
+  HeadDefined : {0 a : Address} -> HeadDefinedAt a -> HeadDef a
   HeadUndefined : {0 a : Address} -> (0 frozenIn : Frozen) -> (0 calledBy : Name) -> (entry : Int) ->
                   (0 resolved : getNameID calledBy (gamma (defsOf frozenIn)) = Just entry) ->
                   (0 none : (d : GlobalDef) -> Not (Defines frozenIn calledBy d)) ->
@@ -225,7 +235,7 @@ headUndefined ctx n none at with (getNameID n (gamma (defsOf ctx))) proof found
 ||| entry no definition is at.
 headOf : (ctx : Frozen) -> (n : Name) -> (0 _ : definitionAddress (gamma (defsOf ctx)) n = Just a) -> Definition ctx n ->
          Front (HeadDef a)
-headOf ctx n at (DefinedAs i resolved _ _) = (\d => HeadDefined ctx n d at) <$> readDefined ctx n i resolved
+headOf ctx n at (DefinedAs i resolved _ _) = (\d => HeadDefined (MkHeadDefinedAt ctx n d at)) <$> readDefined ctx n i resolved
 headOf ctx n at (NotDefined none) = pure (headUndefined ctx n none at)
 
 ||| What a reading holds of a head it meets at a name its context gives an
@@ -244,30 +254,34 @@ constructorHeads m n rest with (definitionAddress (gamma (defsOf m.inContext)) n
   _ | Just a = (\here => heldJoined here rest) <$> headMet m n found
   _ | Nothing = pure rest
 
-||| A definition the frozen context holds, read as a head: its address, what
-||| the boundary read of it, and that as the head's definition; nothing for
-||| a name the context gives no address, or defines as nothing.
+||| A definition the frozen context holds, read as a head: its address and
+||| what the boundary read of it there, the head's definition; nothing for a
+||| name the context gives no address, or defines as nothing.
 export
-definedHead : (ctx : Frozen) -> (n : Name) -> Front (Maybe (a : Address ** (Defined, HeadDef a)))
+definedHead : (ctx : Frozen) -> (n : Name) -> Front (Maybe (a : Address ** HeadDefinedAt a))
 definedHead ctx n with (definitionAddress (gamma (defsOf ctx)) n) proof found
   _ | Nothing = pure Nothing
   _ | Just a = case definitionIn ctx n of
     NotDefined _ => pure Nothing
-    DefinedAs i resolved _ _ => (\d => Just (a ** (d, HeadDefined ctx n d found))) <$> readDefined ctx n i resolved
+    DefinedAs i resolved _ _ => (\d => Just (a ** MkHeadDefinedAt ctx n d found)) <$> readDefined ctx n i resolved
 
-||| The definition the boundary read at an address (`Errors.defined`), by
-||| the name the frozen context gives the entry there: nothing at bytes no
-||| entry has, or for an entry the context defines as nothing. A template's
-||| heads carry their definitions (`HeadDef`); a node's heads come from the
-||| flow, whose sets hold them by address (`Heads.Heading`), and only those
-||| are read here (`Sites.nodeValues`).
-export
-definitionRead : Address -> Front (Maybe State.Defined)
-definitionRead a = do
-  ctx <- frozenContext
-  case nameAt (gamma (defsOf ctx)) a of
-    Just n => defined n
-    Nothing => pure Nothing
+||| What a root's reader read of the definition at an address the root
+||| names, read by the name it met there, where it met it: the definition
+||| the frozen context gives that name, or nothing, at an entry the context
+||| defines nothing at, which the host's context has. Indexed by the
+||| address, so that what is read of one address is never another's; the
+||| flow carries it beside each heading it holds (`Heads.HeadingRead`), so
+||| no reader of a heading looks its definition up by the address.
+public export
+data DefinitionAt : Address -> Type where
+  DefinedThere : {0 a : Address} -> GlobalDef -> DefinitionAt a
+  NothingThere : {0 a : Address} -> DefinitionAt a
+
+-- What the frozen context defines a name as, as what is read at its
+-- address.
+definitionThere : {0 a : Address} -> Definition ctx n -> DefinitionAt a
+definitionThere (DefinedAs _ _ d _) = DefinedThere d
+definitionThere (NotDefined _) = NothingThere
 
 ------------------------------------------------------------------------------
 -- The markers
@@ -1592,7 +1606,7 @@ mutual
   -- are case blocks, which would see a name bound by an as pattern apart
   -- from the template it matched.
   formedReading (Head (Just a) [e, rest, x]) held (h :: heads) = case h of
-    HeadDefined _ _ d _ => case definition d.def of
+    HeadDefined hd => case definition hd.defined.def of
       DCon 1 _ _ =>
         let extentHeld = allBefore (recursions e) held
             restHeld = allBefore (recursions rest) (allAfter (recursions e) held)
@@ -2028,38 +2042,99 @@ mutual
 -- Roots and requests
 ------------------------------------------------------------------------------
 
-||| A part of a dictionary met on the way to its root: as written, the
-||| constructor it is built with and that constructor's arguments, and the
-||| implementation at its root, each found when needed, on the walk where
-||| the part was met.
-record Piece where
-  constructor MkPiece
-  written : Lazy ClosedTerm
-  built : Lazy (Front (Maybe (Name, List Piece)))
-  root : Lazy (Front Root)
-
-||| The implementations a definition's leaves give, as its root: none roots
-||| nothing.
-givesOf : List Address -> Root
-givesOf [] = Unrooted
-givesOf (m :: ms) = Gives (m ::: ms)
-
 ||| The implementations an instance that fixes a dictionary can make it.
+public export
 fixedAddresses : FixedRoot -> List Address
 fixedAddresses (BuiltBy a) = [a]
 fixedAddresses (GivenBy js) = js
 
-||| The implementations a root can be: none for the writer's own parameter,
-||| whose head is the node's; for one the running program chooses, whose
-||| members its choice holds, only those an instance that fixes it after
-||| all makes it; and none for what roots nothing.
-addresses : Root -> List Address
-addresses (Rooted j) = [j]
-addresses (Chosen AtRunTimeAlways) = []
-addresses (Chosen (FixedAt f)) = fixedAddresses f
-addresses (Gives ms) = forget ms
-addresses (Parameter _ _) = []
-addresses Unrooted = []
+||| The definitions a root names: the one it is rooted at; for a dictionary
+||| the running program chooses, only the implementations an instance that
+||| fixes it after all makes it; the implementations a definition's leaves
+||| give; and none for the writer's own parameter, whose head is the
+||| node's, or for what roots nothing. Each is a heading the flow is given
+||| where the root is read (`Heads.byRoot`), so what a reading holds of a
+||| root is what it read at each of them.
+public export
+rootAddresses : Root -> List Address
+rootAddresses (Rooted j) = [j]
+rootAddresses (Chosen AtRunTimeAlways) = []
+rootAddresses (Chosen (FixedAt f)) = fixedAddresses f
+rootAddresses (Gives ms) = forget ms
+rootAddresses (Parameter _ _) = []
+rootAddresses Unrooted = []
+
+||| A root, with what a reading holds of the definition at each address it
+||| names (`rootAddresses`), by whose term it reads (`HeldDefs`): a site's, what
+||| its reader read there; an instance's nothing, since no reader of an
+||| instance's root asks one.
+public export
+RootRead : Whose -> Type
+RootRead who = (r : Root ** HeldDefs DefinitionAt who (rootAddresses r))
+
+||| A root a site's reading read, with the definition at each address it
+||| names, which the flow carries beside the heading each address is.
+public export
+SiteRoot : Type
+SiteRoot = (r : Root ** All DefinitionAt (rootAddresses r))
+
+||| What a site's reading read of a root.
+export
+siteRoot : RootRead (OfSite stands) -> SiteRoot
+siteRoot (r ** held) = (r ** siteHolds held)
+
+||| No root, which names nothing.
+public export
+unrooted : SiteRoot
+unrooted = (Unrooted ** [])
+
+-- Addresses a root names, with what a reading holds of each.
+AddressesRead : Whose -> Type
+AddressesRead who = (as : List Address ** HeldDefs DefinitionAt who as)
+
+-- No address.
+noAddresses : (who : Whose) -> AddressesRead who
+noAddresses who = ([] ** heldNone who)
+
+-- The addresses of two, the first's first.
+bothAddresses : AddressesRead who -> AddressesRead who -> AddressesRead who
+bothAddresses (as ** held) (bs ** held') = (as ++ bs ** heldJoined held held')
+
+-- The addresses a root names, with what is held of each.
+namedBy : RootRead who -> AddressesRead who
+namedBy (r ** held) = (rootAddresses r ** held)
+
+-- What a reader holds of the definition at the address a name has, read
+-- where it met the name: a site's reader what it read there; an
+-- instance's nothing, so nothing is read for it.
+heldThere : (who : Whose) -> Lazy (DefinitionAt a) -> HeldDefs DefinitionAt who [a]
+heldThere OfInstance _ = InstanceHoldsNone
+heldThere (OfSite _) d = SiteHolds [d]
+
+-- The root a name is, read where a reader meets it: rooted at the address
+-- the frozen context gives the name, with what the context defines it as
+-- there; no root where the context gives it no address.
+namedRoot : (who : Whose) -> (ctx : Frozen) -> Name -> RootRead who
+namedRoot who ctx n = case definitionAddress (gamma (defsOf ctx)) n of
+  Just a => (Rooted a ** heldThere who (definitionThere (definitionIn ctx n)))
+  Nothing => (Unrooted ** heldNone who)
+
+||| The implementations a definition's leaves give, as its root, with what
+||| is held of each: none roots nothing.
+givesOf : AddressesRead who -> RootRead who
+givesOf ([] ** held) = (Unrooted ** held)
+givesOf (m :: ms ** held) = (Gives (m ::: ms) ** held)
+
+||| A part of a dictionary met on the way to its root: as written, the
+||| constructor it is built with and that constructor's arguments, and the
+||| implementation at its root, with what a reading of whose term it is
+||| holds of the definitions that root names, each found when needed, on
+||| the walk where the part was met.
+record Piece (who : Whose) where
+  constructor MkPiece
+  written : Lazy ClosedTerm
+  built : Lazy (Front (Maybe (Name, List (Piece who))))
+  root : Lazy (Front (RootRead who))
 
 ||| The type of a definition applied to arguments, normalised as a type is
 ||| read: each argument put in for the binder that takes it, and past the
@@ -2083,29 +2158,29 @@ appliedType ty (a :: as) = do
 -- implementations inside the field too.
 mutual
   ||| A part met as an argument of a spine.
-  pieceOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) -> ClosedTerm -> Piece
-  pieceOf w acc t = MkPiece t (builtOf w acc t []) (rootOf w acc t [])
+  pieceOf : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) -> ClosedTerm -> Piece who
+  pieceOf who w acc t = MkPiece t (builtOf who w acc t []) (rootOf who w acc t [])
 
   ||| The constructor a dictionary is built with, and its arguments; nothing
   ||| for a marker, a runtime part, a definition that matches, or one met
   ||| again on its own unfolding.
-  builtOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            ClosedTerm -> List Piece -> Front (Maybe (Name, List Piece))
-  builtOf w acc (App _ f a) args = builtOf w acc f (pieceOf w acc a :: args)
-  builtOf w acc (Ref _ (DataCon _ _) n) args = pure (Just (n, args))
-  builtOf w acc (Ref _ Func n) args = do
+  builtOf : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+            ClosedTerm -> List (Piece who) -> Front (Maybe (Name, List (Piece who)))
+  builtOf who w acc (App _ f a) args = builtOf who w acc f (pieceOf who w acc a :: args)
+  builtOf who w acc (Ref _ (DataCon _ _) n) args = pure (Just (n, args))
+  builtOf who w acc (Ref _ Func n) args = do
     Just pr <- projection n
-      | Nothing => unfoldedBuilt w acc n args
+      | Nothing => unfoldedBuilt who w acc n args
     Just (field, extras) <- projectedPiece pr args
       | Nothing => pure Nothing
     map (\(con, fields) => (con, fields ++ extras)) <$> Force field.built
-  builtOf w acc _ _ = pure Nothing
+  builtOf who w acc _ _ = pure Nothing
 
   ||| A definition with one right-hand side, applied to its parameters,
   ||| unfolded: the constructor its body is built with.
-  unfoldedBuilt : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  Name -> List Piece -> Front (Maybe (Name, List Piece))
-  unfoldedBuilt w acc@(Access rec) n args = do
+  unfoldedBuilt : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                  Name -> List (Piece who) -> Front (Maybe (Name, List (Piece who)))
+  unfoldedBuilt who w acc@(Access rec) n args = do
     ctx <- frozenContext
     let Just (MkInFrozen placement def _) = inFrozen ctx n
       | Nothing => pure Nothing
@@ -2121,15 +2196,16 @@ mutual
           Just (env, extras) => case enter placement w of
             Nothing => pure Nothing
             Just (Element w' less) =>
-              let written : Piece -> ClosedTerm
+              let written : Piece who -> ClosedTerm
                   written p = Force p.written in
-              builtOf w' (rec w' less) (applyTo (closeBy written env body) (map written extras)) []
+              builtOf who w' (rec w' less) (applyTo (closeBy written env body) (map written extras)) []
       _ => pure Nothing
 
   ||| A projection applied to its parameters: the field it takes from the
   ||| constructor its record is built with, and the arguments past the
   ||| projection's own.
-  projectedPiece : {auto c : Ref Ctxt Defs} -> Projection -> List Piece -> Front (Maybe (Piece, List Piece))
+  projectedPiece : {auto c : Ref Ctxt Defs} -> {0 who : Whose} -> Projection -> List (Piece who) ->
+                   Front (Maybe (Piece who, List (Piece who)))
   projectedPiece pr args = do
     let Just (env, extras) = bindParams pr.params args
       | Nothing => pure Nothing
@@ -2150,35 +2226,36 @@ mutual
   ||| a runtime part, a value closed as unknown) is one the running program
   ||| chooses. A field applied to further arguments is a function, and roots
   ||| nothing.
-  rootOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           ClosedTerm -> List Piece -> Front Root
-  rootOf w acc (App _ f a) args = rootOf w acc f (pieceOf w acc a :: args)
-  rootOf w acc (Ref _ nt n) args = do
+  rootOf : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+           ClosedTerm -> List (Piece who) -> Front (RootRead who)
+  rootOf who w acc (App _ f a) args = rootOf who w acc f (pieceOf who w acc a :: args)
+  rootOf who w acc (Ref _ nt n) args = do
     ctx <- frozenContext
     -- A stand-in is a part of a runtime value, never a dictionary: read as
     -- a runtime part, it names no implementation, as its marker matched
     -- deeper would name none of its own, so a root reads no site's
     -- stand-ins.
     case referenceOf (gamma (defsOf ctx)) [] nt n of
-      PartMarker i path => pure (Parameter i (length path))
-      DataConstructor a => pure (maybe Unrooted Rooted a)
+      PartMarker i path => pure (Parameter i (length path) ** heldNone who)
+      DataConstructor (Just a) => pure (Rooted a ** heldThere who (definitionThere (definitionIn ctx n)))
+      DataConstructor Nothing => pure (Unrooted ** heldNone who)
       AtDefinition a => do
         Just pr <- projection n
-          | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a (map (\p => Force p.written) args)
+          | Nothing => definitionRoot who w acc (Ref EmptyFC nt n) n a (map (\p => Force p.written) args)
         Just (field, []) <- projectedPiece pr args
-          | _ => pure Unrooted
+          | _ => pure (Unrooted ** heldNone who)
         Force field.root
       -- A field of a dictionary, which the template's field says, and
       -- what is no dictionary.
-      FieldMarker _ _ => pure Unrooted
-      HoleMarker _ => pure (Chosen AtRunTimeAlways)
-      FormalMarker _ _ => pure Unrooted
-      RuntimePart => pure (Chosen AtRunTimeAlways)
-      TypeConstructor _ => pure Unrooted
+      FieldMarker _ _ => pure (Unrooted ** heldNone who)
+      HoleMarker _ => pure (Chosen AtRunTimeAlways ** heldNone who)
+      FormalMarker _ _ => pure (Unrooted ** heldNone who)
+      RuntimePart => pure (Chosen AtRunTimeAlways ** heldNone who)
+      TypeConstructor _ => pure (Unrooted ** heldNone who)
   -- A dictionary delayed, or forced, is that dictionary: a choice's leaves
   -- hold their alternatives lazily.
-  rootOf w acc (TDelay _ _ _ t) args = rootOf w acc t args
-  rootOf w acc (TForce _ _ t) args = rootOf w acc t args
+  rootOf who w acc (TDelay _ _ _ t) args = rootOf who w acc t args
+  rootOf who w acc (TForce _ _ t) args = rootOf who w acc t args
   -- A function that computes an implementation from what it is given (a
   -- rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`), a value
   -- the program fixes (`Closed.fixing`), given to its callee as written:
@@ -2188,18 +2265,18 @@ mutual
   -- variable, each use gives the one dictionary its body is
   -- (`\_ => __Impl_Eq_Int`). A body applied at its head to anything else
   -- (a projection, the writer's own parameter) gives nothing it names.
-  rootOf w acc (Bind _ _ (Lam {}) sc) [] = case getFnArgs (subst unknownPart sc) of
+  rootOf who w acc (Bind _ _ (Lam {}) sc) [] = case getFnArgs (subst unknownPart sc) of
     (Ref _ Func n, as) =>
-      if any mentionsUnknown as then givesOf <$> leafRoots w acc n as else do
+      if any mentionsUnknown as then givesOf <$> leafRoots who w acc n as else do
         ctx <- frozenContext
         let Just a = definitionAddress (gamma (defsOf ctx)) n
-          | Nothing => pure Unrooted
+          | Nothing => pure (Unrooted ** heldNone who)
         Nothing <- projection n
-          | Just _ => pure Unrooted
-        givesOf . addresses <$> definitionRoot w acc (Ref EmptyFC Func n) n a as
-    _ => pure Unrooted
-  rootOf w acc (Erased _ Impossible) _ = pure (Chosen AtRunTimeAlways)
-  rootOf w acc _ _ = pure Unrooted
+          | Just _ => pure (Unrooted ** heldNone who)
+        givesOf . namedBy <$> definitionRoot who w acc (Ref EmptyFC Func n) n a as
+    _ => pure (Unrooted ** heldNone who)
+  rootOf who w acc (Erased _ Impossible) _ = pure (Chosen AtRunTimeAlways ** heldNone who)
+  rootOf who w acc _ _ = pure (Unrooted ** heldNone who)
 
   ||| A definition applied that is no projection, at its root, as the
   ||| translation decides what it is. Of a function type, it gives at each
@@ -2216,19 +2293,19 @@ mutual
   ||| choice, which every dispatch on it reads whole; and where what its
   ||| reduction is stuck on mentions the walk's markers, an instance's
   ||| values may fix it after all, and it is there what a fixed one is.
-  definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                   (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front Root
-  definitionRoot w acc head n a args = do
+  definitionRoot : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                   (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front (RootRead who)
+  definitionRoot who w acc head n a args = do
     ctx <- frozenContext
     let Just (MkInFrozen _ def _) = inFrozen ctx n
-      | Nothing => pure (Rooted a)
+      | Nothing => pure (Rooted a ** heldThere who NothingThere)
     ty <- appliedType !(typeOfDefinition def) args
     case ty of
       -- Essential: a value of a function type gives an implementation at
       -- each use; a value of an interface's type is one.
-      Bind _ _ (Pi {}) _ => givesOf <$> leafRoots w acc n (args ++ replicate (lacking def) unknownPart)
+      Bind _ _ (Pi {}) _ => givesOf <$> leafRoots who w acc n (args ++ replicate (lacking def) unknownPart)
       _ => case !(fixing ty (applyTo head args)) of
-        ChosenAtRunTime on => Chosen <$> settling on def
+        ChosenAtRunTime on => settling on def
         FixedNow _ => asRoot <$> fixedAs def
     where
       lacking : GlobalDef -> Nat
@@ -2236,31 +2313,43 @@ mutual
         PMDef _ pargs _ => minus (length pargs) (length args)
         _ => 0
 
-      -- What the definition applied is where the program fixes it.
-      fixedAs : GlobalDef -> Front FixedRoot
+      -- What the definition applied is where the program fixes it, with
+      -- what is held of the definitions that names: itself, the one the
+      -- name it was met at is defined as.
+      fixedAs : GlobalDef -> Front (f : FixedRoot ** HeldDefs DefinitionAt who (fixedAddresses f))
       fixedAs def = case definition def of
         PMDef _ pargs body => do
           Just rhs <- leafOfBody {args = pargs} body
-            | Nothing => GivenBy <$> leafRoots w acc n args
+            | Nothing => givenBy <$> leafRoots who w acc n args
           case getFn rhs of
-            Ref _ (DataCon _ _) _ => pure (BuiltBy a)
-            _ => GivenBy <$> leafRoots w acc n args
-        _ => pure (BuiltBy a)
+            Ref _ (DataCon _ _) _ => pure (BuiltBy a ** heldThere who (DefinedThere def))
+            _ => givenBy <$> leafRoots who w acc n args
+        _ => pure (BuiltBy a ** heldThere who (DefinedThere def))
 
-      asRoot : FixedRoot -> Root
-      asRoot (BuiltBy j) = Rooted j
-      asRoot (GivenBy js) = givesOf js
+      -- The implementations a definition's leaves give, as what a fixed
+      -- one is.
+      givenBy : AddressesRead who -> (f : FixedRoot ** HeldDefs DefinitionAt who (fixedAddresses f))
+      givenBy (js ** held) = (GivenBy js ** held)
+
+      asRoot : (f : FixedRoot ** HeldDefs DefinitionAt who (fixedAddresses f)) -> RootRead who
+      asRoot (BuiltBy j ** held) = (Rooted j ** held)
+      asRoot (GivenBy js ** held) = givesOf (js ** held)
+
+      -- What the running program chooses, where an instance fixes it after
+      -- all: what a fixed one is, with what is held of it.
+      fixedAfterAll : (f : FixedRoot ** HeldDefs DefinitionAt who (fixedAddresses f)) -> RootRead who
+      fixedAfterAll (f ** held) = (Chosen (FixedAt f) ** held)
 
       -- Essential: a reduction stuck on a value that mentions the walk's
       -- markers is one an instance puts values in for, and one stuck on
       -- anything else, a definition Idris does not prove ends above all,
       -- stays stuck at every instance.
-      settledBy : Mention -> GlobalDef -> Front Settling
-      settledBy Mentioned def = FixedAt <$> fixedAs def
-      settledBy Unmentioned def = pure AtRunTimeAlways
+      settledBy : Mention -> GlobalDef -> Front (RootRead who)
+      settledBy Mentioned def = fixedAfterAll <$> fixedAs def
+      settledBy Unmentioned def = pure (Chosen AtRunTimeAlways ** heldNone who)
 
-      settling : StuckOn -> GlobalDef -> Front Settling
-      settling (OnPartial _) def = pure AtRunTimeAlways
+      settling : StuckOn -> GlobalDef -> Front (RootRead who)
+      settling (OnPartial _) def = pure (Chosen AtRunTimeAlways ** heldNone who)
       settling (OnRuntime t) def = settledBy (markersIn t) def
       settling (OnValue t) def = settledBy (markersIn t) def
 
@@ -2268,54 +2357,56 @@ mutual
   ||| case tree: every alternative's, since what it matches on is known
   ||| only at run time, each leaf read by its root, a leaf that is a choice
   ||| in turn giving its members. A definition met again on its own
-  ||| unfolding gives nothing more.
-  leafRoots : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-              Name -> List ClosedTerm -> Front (List Address)
-  leafRoots w acc@(Access rec) n args = do
+  ||| unfolding gives nothing more. With what is held of each, as its leaf's
+  ||| root holds it.
+  leafRoots : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+              Name -> List ClosedTerm -> Front (AddressesRead who)
+  leafRoots who w acc@(Access rec) n args = do
     ctx <- frozenContext
     let Just (MkInFrozen placement def _) = inFrozen ctx n
-      | Nothing => pure []
+      | Nothing => pure (noAddresses who)
     let PMDef _ pargs body = definition def
-      | _ => pure []
+      | _ => pure (noAddresses who)
     case (bindParams pargs args, enter placement w) of
-      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env !((.fst) <$> caseTreeOf body) extras
-      _ => pure []
+      (Just (env, extras), Just (Element w' less)) => leaves who w' (rec w' less) env !((.fst) <$> caseTreeOf body) extras
+      _ => pure (noAddresses who)
 
   ||| The implementations a case tree gives at its leaves, its variables
   ||| standing for what `env` says; a pattern's variables stand for the
   ||| value matched, as a walk of every alternative reads them.
-  leaves : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (List Address)
-  leaves w acc env (STerm _ rhs) extras = do
-    addresses <$> rootOf w acc (applyTo (close env rhs) extras) []
-  leaves w acc env (Case idx p _ alts) extras = leavesOfAlts w acc env (valueAt env idx p) alts extras
-  leaves w acc env (Unmatched _) extras = pure []
-  leaves w acc env Impossible extras = pure []
+  leaves : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+           Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (AddressesRead who)
+  leaves who w acc env (STerm _ rhs) extras = do
+    namedBy <$> rootOf who w acc (applyTo (close env rhs) extras) []
+  leaves who w acc env (Case idx p _ alts) extras = leavesOfAlts who w acc env (valueAt env idx p) alts extras
+  leaves who w acc env (Unmatched _) extras = pure (noAddresses who)
+  leaves who w acc env Impossible extras = pure (noAddresses who)
 
-  leavesOfAlts : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Values ClosedTerm vs -> ClosedTerm -> List (CaseAlt vs) -> List ClosedTerm -> Front (List Address)
-  leavesOfAlts w acc env x [] extras = pure []
-  leavesOfAlts w acc env x (ConCase _ _ cargs t :: alts) extras =
-    (++) <$> leaves w acc (extend (bindAll cargs x) env) t extras <*> leavesOfAlts w acc env x alts extras
-  leavesOfAlts w acc env x (DelayCase _ _ t :: alts) extras =
-    (++) <$> leaves w acc (x :: x :: env) t extras <*> leavesOfAlts w acc env x alts extras
-  leavesOfAlts w acc env x (ConstCase _ t :: alts) extras =
-    (++) <$> leaves w acc env t extras <*> leavesOfAlts w acc env x alts extras
-  leavesOfAlts w acc env x (DefaultCase t :: alts) extras =
-    (++) <$> leaves w acc env t extras <*> leavesOfAlts w acc env x alts extras
+  leavesOfAlts : {auto c : Ref Ctxt Defs} -> (who : Whose) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                 Values ClosedTerm vs -> ClosedTerm -> List (CaseAlt vs) -> List ClosedTerm -> Front (AddressesRead who)
+  leavesOfAlts who w acc env x [] extras = pure (noAddresses who)
+  leavesOfAlts who w acc env x (ConCase _ _ cargs t :: alts) extras =
+    bothAddresses <$> leaves who w acc (extend (bindAll cargs x) env) t extras <*> leavesOfAlts who w acc env x alts extras
+  leavesOfAlts who w acc env x (DelayCase _ _ t :: alts) extras =
+    bothAddresses <$> leaves who w acc (x :: x :: env) t extras <*> leavesOfAlts who w acc env x alts extras
+  leavesOfAlts who w acc env x (ConstCase _ t :: alts) extras =
+    bothAddresses <$> leaves who w acc env t extras <*> leavesOfAlts who w acc env x alts extras
+  leavesOfAlts who w acc env x (DefaultCase t :: alts) extras =
+    bothAddresses <$> leaves who w acc env t extras <*> leavesOfAlts who w acc env x alts extras
 
 ||| What a dictionary is at its root (`rootOf`), never its written head:
 ||| `snd (MkPair x d)` is d's root. A lambda applied at its head is applied
 ||| first. The one root function of a dictionary: a request's, a site's and
-||| a field's roots are its result.
+||| a field's roots are its result. With what a reading of whose term it is
+||| holds of the definitions the root names (`RootRead`).
 export
-dictionaryRoot : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Root
-dictionaryRoot t = do
+dictionaryRoot : {auto c : Ref Ctxt Defs} -> (who : Whose) -> ClosedTerm -> Front (RootRead who)
+dictionaryRoot who t = do
   written <- solved t
   form <- case getFn written of
             Bind {} => lambdasApplied written
             _ => pure written
-  rootOf start (sizeAccessible start) form []
+  rootOf who start (sizeAccessible start) form []
 
 ||| What a type is at its root, as its normal form (`readNormal`) shows it:
 ||| the type constructor at its head when it takes more arguments than it
@@ -2323,20 +2414,23 @@ dictionaryRoot t = do
 ||| a family's, since a type of kind `Type` is a type constructor applied
 ||| in full; the writer's family there, applied or not, a marker that no
 ||| head was given for; or nothing (a lambda, a type, a stuck computation).
-formRoot : Context -> ClosedTerm -> Root
-formRoot ctx form = case getFnArgs form of
+||| With what a reading of whose term it is holds of the type constructor.
+formRoot : (who : Whose) -> Frozen -> ClosedTerm -> RootRead who
+formRoot who ctx form = case getFnArgs form of
   (Ref _ (TyCon arity) n, args) =>
-    if length args < arity then maybe Unrooted Rooted (definitionAddress ctx n) else Unrooted
-  (Ref _ Bound n, _) => maybe Unrooted (uncurry Parameter . partDepth) (Template.markerOf n)
-  _ => Unrooted
+    if length args < arity then namedRoot who ctx n else (Unrooted ** heldNone who)
+  (Ref _ Bound n, _) => case Template.markerOf n of
+    Just (i, path) => (Parameter i (length path) ** heldNone who)
+    Nothing => (Unrooted ** heldNone who)
+  _ => (Unrooted ** heldNone who)
 
 -- A site's type or family read once: its reading (`siteReading`), and
 -- its root, off the form that reading read.
-typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, Root)
+typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, SiteRoot)
 typeReading stands k t = do
   ctx <- frozenContext
   r <- siteReading stands k t
-  pure (r, formRoot (gamma (defsOf ctx)) r.form)
+  pure (r, siteRoot (formRoot (OfSite stands) ctx r.form))
 
 ||| A static argument read once at its kind: its reading (`siteReading`),
 ||| whose template is what a site writes there, and its root, the
@@ -2348,14 +2442,16 @@ typeReading stands k t = do
 ||| shape split nothing. The one reading of a site's argument and of a
 ||| request's, so the graph and the requests split a definition by the same
 ||| heads; the reading itself comes back with the root, so that what a site
-||| writes is known to be its template (`Sites.WrittenAs`).
+||| writes is known to be its template (`Sites.WrittenAs`). The root comes
+||| with the definition at each address it names, read where the reader met
+||| the name (`SiteRoot`), which the flow carries beside the heading it is.
 export
-rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, Root)
+rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, SiteRoot)
 rooted stands AType t = typeReading stands AType t
 rooted stands AFamily t = typeReading stands AFamily t
-rooted stands AForm t = (, Unrooted) <$> siteReading stands AForm t
-rooted stands AShape t = (, Unrooted) <$> siteReading stands AShape t
-rooted stands ADictionary t = (,) <$> siteReading stands ADictionary t <*> dictionaryRoot t
+rooted stands AForm t = (, unrooted) <$> siteReading stands AForm t
+rooted stands AShape t = (, unrooted) <$> siteReading stands AShape t
+rooted stands ADictionary t = (,) <$> siteReading stands ADictionary t <*> (siteRoot <$> dictionaryRoot (OfSite stands) t)
 
 ||| What a message reads of a choice's head, beside the head (a key, as the
 ||| growth graph holds it): the name of the type constructor an
@@ -2460,9 +2556,10 @@ givenRead k member t root =
 -- An instance's static argument
 ------------------------------------------------------------------------------
 
--- What a type is at its root, off its form (`formRoot`).
+-- What a type is at its root, off its form (`formRoot`): an instance's
+-- reading, which holds nothing of the type constructor.
 typeRoot : Frozen -> ClosedTerm -> Front Root
-typeRoot ctx form = pure (formRoot (gamma (defsOf ctx)) form)
+typeRoot ctx form = pure ((formRoot OfInstance ctx form).fst)
 
 -- An instance's term read off its normal form, its root read off the form.
 normalInstance : {auto c : Ref Ctxt Defs} -> {0 k : Readings.Static} -> (ctx : Frozen) -> (ClosedTerm -> Front Root) ->
@@ -2492,7 +2589,7 @@ readInstance ctx AForm t = normalInstance ctx noRoot t
 readInstance ctx ADictionary t = do
   d <- dictionaryForm ctx t
   r <- readFromStart (InstanceMode ctx) d.form
-  root <- dictionaryRoot t
+  root <- (.fst) <$> dictionaryRoot OfInstance t
   pure (MkInstanceReading d.form d.formFrom d.maximal r.template r.described root)
 readInstance ctx AShape t = do
   s <- solving ctx t
