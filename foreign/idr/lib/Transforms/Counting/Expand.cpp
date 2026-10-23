@@ -66,11 +66,15 @@ Fates fatesOf(ResultRange fields) {
   return fates;
 }
 
-// A take to expand, read once: the value, its fields and what becomes of
-// each, and of its token.
+// A take to expand, read once: where it takes its value, its fields and
+// what becomes of each, and of its token. The value is read off its
+// operand when the take is expanded: a take of a field of another take
+// finds that field replaced by the other's match result once the other is
+// expanded, and the field itself gone.
 struct Taken {
   Operation *op;
-  Value value;
+  OpOperand *value;
+  DataType data;
   ResultRange fields;
   TokenUse use;
   // The token (taken), or the cell (fused into one recycle).
@@ -80,21 +84,21 @@ struct Taken {
   Fates fates;
 };
 
+// A take whose cell becomes free here, its token's one user its free,
+// frees the cell in the unique region.
 Taken read(CountTakeOp take) {
-  Taken taken{take, take.getValue(), take.getFields(), TokenUse::GivenOn, take.getToken(),
-              nullptr, fatesOf(take.getFields())};
-  Value token = take.getToken();
-  if (token.hasOneUse())
-    if (auto free = dyn_cast<TokenFreeOp>(*token.user_begin())) {
-      taken.use = TokenUse::Freed;
-      taken.free = free;
-    }
+  Taken taken{take, &take.getValueMutable(), take.getDataType(), take.getFields(), TokenUse::GivenOn,
+              take.getToken(), nullptr, fatesOf(take.getFields())};
+  if (take.getFreedCellType()) {
+    taken.use = TokenUse::Freed;
+    taken.free = *take.getToken().user_begin();
+  }
   return taken;
 }
 
 Taken read(CountTakeIntoOp into) {
-  return Taken{into, into.getValue(), into.getFields(), TokenUse::Recycled, into.getCell(),
-               nullptr, fatesOf(into.getFields())};
+  return Taken{into, &into.getValueMutable(), into.getDataType(), into.getFields(), TokenUse::Recycled,
+               into.getCell(), nullptr, fatesOf(into.getFields())};
 }
 
 // The fields of a counted value that live on, each read from it, and one
@@ -118,6 +122,7 @@ SmallVector<Value> dupFields(RewriterBase &rewriter, Location loc, Value owner,
 // value's drop releases them.
 void expand(RewriterBase &rewriter, Taken &taken) {
   Location loc = taken.op->getLoc();
+  Value value = taken.value->get();
   Type tokenType = taken.op->getResult(0).getType();
   llvm::ArrayRef<unsigned> living = taken.fates.living;
   // The match's results: what replaces the token or the cell, then the
@@ -128,14 +133,13 @@ void expand(RewriterBase &rewriter, Taken &taken) {
   for (unsigned index : living)
     results.push_back(taken.fields[index].getType());
   rewriter.setInsertionPoint(taken.op);
-  auto match = CountMatchUniqueOp::create(rewriter, loc, results, taken.value);
+  auto match = CountMatchUniqueOp::create(rewriter, loc, results, value);
   // The unique region: the cell's token, the holder's alone, and the fields
   // moved out.
   {
     SmallVector<Type> args{graded(Grade{Uses::Once, Hold::counted(Unique::Deep)}, unrestricted(tokenType))};
     if (taken.use == TokenUse::Recycled)
-      args[0] = graded(Grade{Uses::Once, Hold::counted(Unique::Deep)},
-                       ReuseTokenType::of(cast<DataType>(unrestricted(taken.value.getType()))));
+      args[0] = graded(Grade{Uses::Once, Hold::counted(Unique::Deep)}, ReuseTokenType::of(taken.data));
     for (Value field : taken.fields)
       args.push_back(field.getType());
     Block *unique = rewriter.createBlock(&match.getUnique(), {}, args,
@@ -162,7 +166,7 @@ void expand(RewriterBase &rewriter, Taken &taken) {
   // The shared region: the value given to it; the living fields read from
   // it, each with a reference of its own; the value dropped.
   {
-    Block *shared = rewriter.createBlock(&match.getShared(), {}, {taken.value.getType()}, {loc});
+    Block *shared = rewriter.createBlock(&match.getShared(), {}, {value.getType()}, {loc});
     Value owner = shared->getArgument(0);
     SmallVector<Value> dups = dupFields(rewriter, loc, owner, living);
     CountDropOp::create(rewriter, loc, owner);
@@ -197,16 +201,16 @@ void expand(RewriterBase &rewriter, Taken &taken) {
 struct Expand : impl::IdrRcExpandBase<Expand> {
   void runOnProgram(ProgramOp) {
     // Found first, expanded after: each expansion erases the take the walk
-    // would stand on.
+    // would stand on. Each expansion builds at its own take and reads its
+    // value where it stands, so the order they run in builds one program.
     SmallVector<Taken> takes;
-    getOperation().walk([&](Operation *op) {
-      if (auto take = dyn_cast<CountTakeOp>(op)) {
-        if (!claims(take.getValue().getType(), Unique::Self))
-          takes.push_back(read(take));
-      } else if (auto into = dyn_cast<CountTakeIntoOp>(op)) {
-        if (!claims(into.getValue().getType(), Unique::Self))
-          takes.push_back(read(into));
-      }
+    getOperation().walk([&](CountTakeOp take) {
+      if (!claims(take.getValue().getType(), Unique::Self))
+        takes.push_back(read(take));
+    });
+    getOperation().walk([&](CountTakeIntoOp into) {
+      if (!claims(into.getValue().getType(), Unique::Self))
+        takes.push_back(read(into));
     });
     IRRewriter rewriter(&getContext());
     for (Taken &taken : takes)

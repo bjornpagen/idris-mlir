@@ -63,8 +63,8 @@ public:
 
 private:
   // The sizes (Reuse.cpp).
-  unsigned cellBytes(mlir::Type value) const;
-  std::optional<unsigned> sourceBytes(mlir::Operation *op) const;
+  unsigned cellBytes(DataType data) const;
+  std::optional<unsigned> sourceBytes(ReuseSourceOpInterface source) const;
   std::optional<unsigned> indexOf(unsigned bytes) const;
   Demand none() const { return Demand(sizes.size(), 0); }
 

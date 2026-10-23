@@ -45,7 +45,7 @@ namespace {
 void splitCell(RewriterBase &rewriter, DataConOp con) {
   Type type = con.getResult().getType();
   rewriter.setInsertionPoint(con);
-  auto cellType = CellType::get(rewriter.getContext(), cast<DataType>(unrestricted(type)));
+  auto cellType = CellType::get(rewriter.getContext(), con.getDataType());
   Value cell = CellNewOp::create(rewriter, con.getLoc(), cellType);
   auto init = CellInitOp::create(rewriter, con.getLoc(), type, cell, con.getFields(),
                                  ArrayRef<int32_t>());
@@ -82,25 +82,25 @@ struct Cells : impl::IdrRcCellsBase<Cells> {
   void runOnProgram(ProgramOp) {
     FuncOp fn = getOperation();
     // Found first and rewritten after: each rewrite replaces the op the
-    // walk would stand on. Each op is met once, and each list holds a kind
-    // of op the rewrite of another never makes.
+    // walk would stand on. Each list holds a kind of op the rewrite of
+    // another never makes.
     SmallVector<DataConOp> cons;
     SmallVector<arith::SelectOp> selects;
     SmallVector<OpOperand *> stores;
+    fn.walk([&](DataConOp con) {
+      if (buildsCell(con.getResult().getType(), con.getTag()))
+        cons.push_back(con);
+    });
+    fn.walk([&](arith::SelectOp select) {
+      if (holdsReferences(select.getType()))
+        selects.push_back(select);
+    });
+    // An op of the dialect states its references in its grades; only an op
+    // of upstream's, which takes plain carriers, needs a crossing. A select
+    // writes nothing, so none of its operands is stored.
+    Dialect *ours = getContext().getLoadedDialect<IdrDialect>();
     fn.walk([&](Operation *op) {
-      if (auto con = dyn_cast<DataConOp>(op)) {
-        if (buildsCell(con.getResult().getType(), con.getTag()))
-          cons.push_back(con);
-        return;
-      }
-      if (auto select = dyn_cast<arith::SelectOp>(op)) {
-        if (holdsReferences(select.getType()))
-          selects.push_back(select);
-        return;
-      }
-      // An op of the dialect states its references in its grades; only an
-      // op of upstream's, which takes plain carriers, needs a crossing.
-      if (op->getDialect() == getContext().getLoadedDialect<IdrDialect>())
+      if (op->getDialect() == ours)
         return;
       for (OpOperand &operand : op->getOpOperands())
         if (holdsReferences(operand.get().getType()) && ownership::storedBy(operand))

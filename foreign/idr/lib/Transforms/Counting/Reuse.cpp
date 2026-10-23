@@ -5,10 +5,11 @@
 // free; so no cell is held longer than placement held it, and no reuse is
 // decided on code not yet written.
 //
-// A source is a take that frees its emptied cell (its token freed right
-// after it), or a drop of a value whose type fixes a constructor with a
-// cell, which can become such a take; a sink is the source of a new cell of
-// the same size. Two walks per function, over its regions:
+// A source (ReuseSourceOpInterface) is a take that frees its emptied cell
+// (its token freed right after it), or a drop of a value whose type fixes a
+// constructor with a cell, which can become such a take; a sink
+// (ReuseSinkOpInterface) is the source of a new cell of the same size. Two
+// walks per function, over its regions:
 //   - backward, the demand: the most sinks of each size on any path ahead
 //     until the function's tokens die (a return, a call in tail position, a
 //     jump, the end of the process); a region that may run many times
@@ -44,7 +45,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Pipeline.h"
@@ -67,8 +67,9 @@ namespace idr::counting::reuse {
 // The sizes
 //===----------------------------------------------------------------------===//
 
-unsigned Reuse::cellBytes(Type value) const {
-  return layouts.cells(cast<DataType>(unrestricted(value))).cell(*knownConstructor(value)).size;
+// The bytes of a cell of `data`, refined to the constructor it is of.
+unsigned Reuse::cellBytes(DataType data) const {
+  return layouts.cells(data).cell(*data.singleTag()).size;
 }
 
 std::optional<unsigned> Reuse::indexOf(unsigned bytes) const {
@@ -78,22 +79,10 @@ std::optional<unsigned> Reuse::indexOf(unsigned bytes) const {
   return static_cast<unsigned>(at - sizes.begin());
 }
 
-// A take whose token is freed right after it, or a drop of a value whose
-// type fixes a constructor with a cell: a cell of that size may become free
-// here.
-std::optional<unsigned> Reuse::sourceBytes(Operation *op) const {
-  if (auto take = dyn_cast<CountTakeOp>(op)) {
-    Value token = take.getToken();
-    if (token.hasOneUse() && isa<TokenFreeOp>(*token.user_begin()))
-      return cellBytes(take.getValue().getType());
-    return std::nullopt;
-  }
-  if (auto drop = dyn_cast<CountDropOp>(op)) {
-    Type type = drop.getValue().getType();
-    std::optional<Tag> tag = knownConstructor(type);
-    if (tag && !isMemo(type) && buildsCell(type, *tag))
-      return cellBytes(type);
-  }
+// The bytes of the cell that may become free at `source`, where one may.
+std::optional<unsigned> Reuse::sourceBytes(ReuseSourceOpInterface source) const {
+  if (DataType freed = source.getFreedCellType())
+    return cellBytes(freed);
   return std::nullopt;
 }
 

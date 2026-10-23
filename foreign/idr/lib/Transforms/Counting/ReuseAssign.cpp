@@ -15,12 +15,15 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <cassert>
+#include <iterator>
 #include <tuple>
 
 using namespace mlir;
@@ -45,12 +48,11 @@ namespace {
 // The order of choice among tokens of one size for a sink: a token the type
 // proves unique (never null, no test), then one of the sink's own
 // constructor (its header kept), then the earliest.
-auto rankFor(Type sinkValue) {
-  return [sinkValue](const Held &held) {
+auto rankFor(CellType sink) {
+  return [sink](const Held &held) {
     Type type = held.token.type();
     bool unique = claims(type, Unique::Deep);
-    bool own = llvm::is_contained(cast<ReuseTokenType>(unrestricted(type)).getSources(),
-                                  cast<DataType>(unrestricted(sinkValue)));
+    bool own = llvm::is_contained(cast<ReuseTokenType>(unrestricted(type)).getSources(), sink.getData());
     return std::tuple(!unique, !own, held.order);
   };
 }
@@ -141,9 +143,11 @@ llvm::SmallVector<Held> Reuse::carryAcross(Operation *&op,
 }
 
 void Reuse::assign() {
+  // A path's place is the position right after the last op it walked, so
+  // an op the walk rewrites hands it the position past what took its place.
   struct Path {
     Block *block;
-    Operation *next;
+    Block::iterator next;
     llvm::SmallVector<Held> held;
     unsigned region;
   };
@@ -188,7 +192,7 @@ void Reuse::assign() {
         TokenFreeOp::create(b, op->getLoc(), std::move(each.token).consume());
         ++freed;
       }
-      paths.push_back(Path{&entry, &entry.front(), std::move(start), region.getRegionNumber()});
+      paths.push_back(Path{&entry, entry.begin(), std::move(start), region.getRegionNumber()});
       return;
     }
     Regions done = std::move(regions);
@@ -201,15 +205,14 @@ void Reuse::assign() {
     Path &path = paths.back();
     for (Held &each : after)
       path.held.push_back(std::move(each));
-    path.next = done.op->getNextNode();
+    path.next = std::next(done.op->getIterator());
   };
   auto stepPath = [&](Path &path) {
-    if (!path.next) {
+    if (path.next == path.block->end()) {
       paths.pop_back();
       return;
     }
-    Operation *op = path.next;
-    path.next = op->getNextNode();
+    Operation *op = &*path.next++;
     if (op->hasTrait<OpTrait::IsTerminator>()) {
       switch (leavesOf(op)) {
       case Leaves::Frame:
@@ -246,52 +249,42 @@ void Reuse::assign() {
     // A call modulo a context keeps its tokens: its context, which follows
     // it, may recycle one, and idr-trmc moves what follows the call before
     // it, where no token is read by the call.
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail) {
+    if (tailCallOf(op)) {
       freeAll(path.held, op);
       return;
     }
-    // A source keeps its token where a path ahead can use it.
-    if (std::optional<unsigned> size = sourceBytes(op)) {
-      Demand ahead = std::move(trail.back());
-      trail.pop_back();
-      if (count(path.held, *size) >= ahead[*indexOf(*size)])
+    // A source keeps its token where a path ahead can use it. The source
+    // makes its token there and leaves the builder past what stands in its
+    // place (a take's free and a drop are gone), where the path goes on.
+    if (auto source = dyn_cast<ReuseSourceOpInterface>(op))
+      if (std::optional<unsigned> size = sourceBytes(source)) {
+        Demand ahead = std::move(trail.back());
+        trail.pop_back();
+        if (count(path.held, *size) >= ahead[*indexOf(*size)])
+          return;
+        OpBuilder b(path.block, path.next);
+        Value token = source.takeFreedToken(b);
+        assert(b.getInsertionBlock() == path.block && "a source leaves the builder in its own block");
+        path.next = b.getInsertionPoint();
+        path.held.push_back(Held{*size, nextOrder++, Token(token)});
         return;
-      Value token;
-      if (auto take = dyn_cast<CountTakeOp>(op)) {
-        (*take.getToken().user_begin())->erase();
-        token = take.getToken();
-      } else {
-        // A drop of a value of a known constructor becomes its take, each
-        // field dropped there, the emptied cell kept.
-        auto drop = cast<CountDropOp>(op);
-        OpBuilder b(drop);
-        auto opened = CountTakeOp::create(b, drop.getLoc(), drop.getValue());
-        for (Value field : opened.getFields())
-          if (freedBy(field.getType(), Release::Counted))
-            CountDropOp::create(b, drop.getLoc(), field);
-        drop->erase();
-        token = opened.getToken();
       }
-      path.held.push_back(Held{*size, nextOrder++, Token(token)});
-      return;
-    }
     // A sink recycles the best token of its size.
-    if (auto sink = dyn_cast<CellNewOp>(op)) {
-      Type value = sink.getCell().getType().getValue();
-      unsigned size = cellBytes(value);
-      auto rank = rankFor(value);
+    if (auto sink = dyn_cast<ReuseSinkOpInterface>(op)) {
+      CellType cell = sink.getFilledCellType();
+      unsigned size = cellBytes(cell.getData());
+      auto rank = rankFor(cell);
       Held *best = nullptr;
       for (Held &h : path.held)
         if (h.size == size && (!best || rank(h) < rank(*best)))
           best = &h;
       if (!best)
         return;
-      OpBuilder b(sink);
-      auto recycled = CellRecycleOp::create(b, sink.getLoc(), sink.getCell().getType(),
-                                            std::move(best->token).consume());
-      sink.getCell().replaceAllUsesWith(recycled.getCell());
+      OpBuilder b(op);
+      auto recycled = CellRecycleOp::create(b, op->getLoc(), cell, std::move(best->token).consume());
+      op->replaceAllUsesWith(recycled);
       path.held.erase(best);
-      sink->erase();
+      op->erase();
       ++reuses;
       return;
     }
@@ -315,7 +308,7 @@ void Reuse::assign() {
   };
   Block &body = fn.getBody().front();
   trail.pop_back();
-  paths.push_back(Path{&body, &body.front(), {}, 0});
+  paths.push_back(Path{&body, body.begin(), {}, 0});
   while (!paths.empty()) {
     if (paths.size() > ops.size())
       stepPath(paths.back());

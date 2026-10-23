@@ -9,7 +9,9 @@
 // application, each at the type a read of it gives, so nothing here reads
 // the module or names a constructor. An unpack passes a scoped value's
 // fields through, so it states the lifetime of each scoped field, one step
-// from it.
+// from it. Here too is where reuse finds a cell: a take whose cell its
+// free empties and a drop that can become such a take, each a source of a
+// dead cell, and the fresh cell a token of its size may stand in for.
 
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Families/Families.h"
@@ -17,9 +19,12 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
 
 using namespace mlir;
 using namespace idr;
@@ -33,7 +38,7 @@ namespace {
 // The data type a value of `type` is, refined to the one constructor whose
 // fields it determines; null for any other type.
 DataType refinedData(Type type) {
-  auto data = dyn_cast<DataType>(unrestricted(type));
+  DataType data = dataTypeOf(type);
   if (!data || !data.singleTag() || !data.determinedFields(*data.singleTag()))
     return DataType();
   return data;
@@ -157,6 +162,58 @@ void CountTakeIntoOp::build(OpBuilder &, OperationState &state, CellType cell, V
     mlir::detail::reportFatalInferReturnTypesError(state);
   state.addTypes(fields);
 }
+
+//===----------------------------------------------------------------------===//
+// Where reuse finds a cell, and where it may fill one
+//===----------------------------------------------------------------------===//
+
+// A take whose token's one user frees it empties a cell nothing needs.
+DataType CountTakeOp::getFreedCellType() {
+  Value token = getToken();
+  if (token.hasOneUse() && isa<TokenFreeOp>(*token.user_begin()))
+    return getDataType();
+  return DataType();
+}
+
+// The take already gives the token; its free goes, so the cell is kept.
+// The free may be the op right after the take, so the builder is set past
+// the take only once the free is gone.
+Value CountTakeOp::takeFreedToken(OpBuilder &builder) {
+  assert(getFreedCellType() && "a take gives its token only where its free is the token's one user");
+  Value token = getToken();
+  (*token.user_begin())->erase();
+  builder.setInsertionPointAfter(*this);
+  return token;
+}
+
+// A drop of a value whose type fixes a constructor that has a cell of its
+// own can become the take of that cell, but for a memo's, which is never
+// taken apart.
+DataType CountDropOp::getFreedCellType() {
+  Type value = getValue().getType();
+  DataType data = dataTypeOf(value);
+  std::optional<Tag> tag = data ? data.singleTag() : std::nullopt;
+  if (tag && !data.memo().has_value() && buildsCell(value, *tag))
+    return data;
+  return DataType();
+}
+
+// The drop becomes the take of its value, built where the builder stands,
+// right after it: each counted field is dropped there and the emptied cell
+// kept. The builder stays past what was built, the drop gone.
+Value CountDropOp::takeFreedToken(OpBuilder &builder) {
+  assert(getFreedCellType() && "a drop gives a token only of a cell its type fixes");
+  Location loc = getLoc();
+  auto taken = CountTakeOp::create(builder, loc, getValue());
+  for (Value field : taken.getFields())
+    if (freedBy(field.getType(), Release::Counted))
+      CountDropOp::create(builder, loc, field);
+  erase();
+  return taken.getToken();
+}
+
+// A fresh cell, which a dead cell of its size may be recycled into.
+CellType CellNewOp::getFilledCellType() { return getCell().getType(); }
 
 //===----------------------------------------------------------------------===//
 // The match on uniqueness

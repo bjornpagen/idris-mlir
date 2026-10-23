@@ -10,6 +10,7 @@
 #include "idr/Transforms/Counting/Reuse.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
@@ -26,8 +27,8 @@ namespace idr::counting::reuse {
 
 void Reuse::demands() {
   Demand cap;
-  fn.walk([&](Operation *op) {
-    std::optional<unsigned> bytes = sourceBytes(op);
+  fn.walk([&](ReuseSourceOpInterface source) {
+    std::optional<unsigned> bytes = sourceBytes(source);
     if (!bytes)
       return;
     if (!indexOf(*bytes)) {
@@ -115,12 +116,12 @@ void Reuse::demands() {
       }
       return;
     }
-    if (auto sink = dyn_cast<CellNewOp>(op))
-      if (std::optional<unsigned> index = indexOf(cellBytes(sink.getCell().getType().getValue())))
+    if (auto sink = dyn_cast<ReuseSinkOpInterface>(op))
+      if (std::optional<unsigned> index = indexOf(cellBytes(sink.getFilledCellType().getData())))
         walk.demand[*index] = std::min(walk.demand[*index] + 1, cap[*index]);
-    if (sourceBytes(op))
+    if (auto source = dyn_cast<ReuseSourceOpInterface>(op); source && sourceBytes(source))
       trail.push_back(walk.demand);
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail)
+    if (tailCallOf(op))
       walk.demand = none();
     if (op->getNumRegions() != 0) {
       trail.push_back(walk.demand);
