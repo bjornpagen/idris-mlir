@@ -564,8 +564,9 @@ whole:
   stores or reads a cell needs a model of its own (`Data.cpp`).
 - **What may be written in place.** A linear binder does not imply
   unique ownership, so a grade's uses decide nothing; its sharing does.
-  A field's buffer is writable only where its cell is `unique deep`
-  (P0's C105, `Releases.cpp`), and `LArray` and `Linear.Vec` are
+  A field's buffer is writable only where its cell is `unique self`,
+  which covers the storage of a buffer an own cell holds, never its
+  elements (P0's D122, `Releases.cpp`), and `LArray` and `Linear.Vec` are
   `in_place` types, exclusive by construction (P0's D71). Every other
   write is One-Shot's own analysis, which copies only where the array is
   read again.

@@ -3,7 +3,8 @@
   "proposals/",
   "AGENTS.md",
   "audits/",
-  ".claude/"
+  ".claude/",
+  "sources/"
  ],
  "INT": [
   "Makefile",

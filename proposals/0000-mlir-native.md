@@ -2,11 +2,12 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # P0: MLIR-native, modern C++, the cutover before everything
 
-**Status (2026-10-21):** the plan, being settled with the owner. The
-research is done and archived (§0). The owner's rulings are §2; the
-coordinator's decisions, each listed for the owner's review, are §3; what
-is left for the owner, in order, is §4. No code is written until the
-owner approves the whole plan (D4).
+**Status (2026-10-23):** being cut over, on main. The owner approved the
+plan on 2026-10-21 (D4) and the cutover started that night from
+28ef777e. The research is done and archived (§0). The owner's rulings
+are §2; the coordinator's decisions, each listed for the owner's review,
+are §3; what is left for the owner is §4. Recheck 5
+(`audits/p0/verify/recheck5/`) measures what remains.
 
 **Goal.** One total, hard-cutover refactor of the compiler's C++ and
 MLIR side and of the Idris side it feeds, so that every fact is held
@@ -182,6 +183,10 @@ below.
   then wave 2 over it, each lane reading the representation-first skill
   and AGENTS.md in full. Done.
 - **D4** (2026-10-21). No code until the whole plan is approved.
+  *Met* (2026-10-21, 19:56 CDT): "i want you to personally update the
+  entire verificatino swarm to BE the swarm cutover. then we'll start it
+  tonight." The packet was rewritten as the cutover's, and the cutover
+  started from 28ef777e (20:10 CDT); C153 was approved with the plan.
 - **D5** (2026-10-21). The lens: representation first. "This document
   outlines the philosophy and it's extremely important": the skill's
   source document is the bar every finding and design is judged by.
@@ -2406,6 +2411,28 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   else the default, else the missing case's crash). This widens what
   compiles toward the language, where a type at ω was refused as a
   run-time type; it changes no program's meaning.
+- **C264** (2026-10-23; L14x's handoff, under D127, D108 and C205).
+  Three settlements of the e-graph's computed constants. (a) The bytes
+  the strings and bigs it computes may take are the graph's own budget,
+  beside its nodes and their operands (`Engine.h`'s arena bound, derived
+  from D108's `nodesPerOp`): a constant past it is not kept and its op
+  stays applied, so a doubling chain stops; a spent budget leaves the
+  function less optimized and refuses nothing, as every budget of an
+  optimizing pass. (b) Upstream's float ops whose result IEEE 754 fixes
+  (`arith`'s add, sub, mul, div, rem, neg and compare, `math.sqrt`,
+  `floor`, `ceil`, and the conversions a range guard admits) are computed
+  on the graph's Double values by `APFloat` at round-to-nearest-even,
+  the operation each op's upstream fold applies (read there, cited per
+  op), so the op's meaning is upstream's documented one and no second
+  meaning is written; a NaN result stays applied (Fold.h's refusal), and
+  a function IEEE leaves to the library (`exp`, `log`, `pow`, the
+  trigonometric ones) stays applied, as the checker folds only what IEEE
+  fixes. Which upstream ops the graph computes is a list in the
+  specification, beside `NeverFolded`. (c) Whether a computed string or
+  big may stand at a counted hold is read before it is decided: how the
+  Graded stage strengthens holds, and whether a value's hold may change
+  under its users before it, decide whether the graph places the
+  constant at a static hold or leaves it (the queue's L14y).
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -4131,6 +4158,10 @@ C137.
   `closedHeight` on requests, the second dictionary take-apart, the unary
   `LTE` built per request and thrown away (`Proof/Requests.idr:692-709`,
   `Proof/Growth.idr:42-56`).
+  *Sharpened* (2026-10-23, recheck 5): the one representation as built
+  is `StaticReading` (`Translate/State.idr`), which holds the reading at
+  quantity 0 with its form, height and head tied to it by type; that,
+  not a `Template Admitted 0`, is C123's form.
 - **C124** (L16 §1.1 D13, I6). A `let` around a `Delay` keeps the
   language: the fork keeps "this `Delay` was inserted for a `Lazy`
   expected type", and only an inserted `Delay` moves a `let`; `f (let x =
@@ -4155,6 +4186,13 @@ C137.
   term with stock Idris's at `%ambiguity_depth 1000` over prelude, base,
   `libs/`, the fork, the frontend and `tests/`. Deletes
   `elaborator-counts.md` §1.7's list and the three tuple alternatives.
+  *Amended* (2026-10-23, recheck 5): the comparison with stock Idris's
+  checked terms is withdrawn. There is no oracle (AGENTS.md), and the
+  checker tracks no upstream (D118): the tuple forms' meaning is
+  upstream's language, stated by tests whose expected files are the
+  specification (each of `(a, b)`, `()` and `(x ** p)` as a type, as a
+  value and under an unknown expected type, with upstream's default),
+  and linearity in the tuple is a measurement.
 - **C127** (L17 I5, I8; review §9.3; within D54). A growth's case in
   `retryGuess` postpones in every mode but `LastChance`, where it throws
   its own refusal: the handler D54 cites postpones even at the last chance
@@ -4937,6 +4975,12 @@ C137.
   constants gets its constant from the built node's range at once, as
   the folds did before C191. The ops C198 never folds are a generated
   list the rewrite graph reads once, when it is built, and skips.
+  *Amended by D127* (2026-10-23): the value a node holds is not an
+  integer alone. A string, a Double and a big past the small range are
+  values the graph computes, by the runtime's functions through the one
+  fold (`Fold.h`'s `evaluate` over the graph's own values), never read
+  only off an op that already held them; the write-back still makes each
+  attribute once.
 - **C206** (2026-10-22; L04's finding on L18's seam). `data.reindex` is
   one op: the same value at new indices. Whether it does work at run
   time is a fact of its two types, since inline or in a cell is layout,
@@ -5024,6 +5068,13 @@ C137.
   made by a fold inside the graph; the write-back makes what it writes.
   And `idr.refusal` stays bare under C158, as an op that sits in the
   module and acts on no type or resource.
+  *Amended by D127* (2026-10-23): its first settlement's reading of
+  strings and bigs is reversed. The graph computes a string, a Double
+  and a big past the small range as values of its own (a runtime string
+  or big it holds a count of, a Double's bits), by the runtime's
+  function each op's fold calls; a data constant is still read only from
+  an op that holds it. No attribute is made while the graph is built or
+  rewritten, for any constant, as before.
 - **C219** (2026-10-22; L16's growth passes; under D46, D68). The growth
   graph's remaining shapes. A choice is held program-wide under the key
   the translation gives it (an interface's address for a dictionary, the

@@ -9,8 +9,9 @@ side in the frontend (P0 §7's F6). A1 onward stay as written,
 AFTER-SELF; static normalization (the closed call folded) is still not
 built, and which side it runs on is open (below, "Under P0").
 
-**Status (2026-10-22):** open, nothing built: no term arena,
-hash-consing, wavefront machine or `repl` in `compiler/src`,
+**Status (2026-10-23):** A0's arena is in the checker
+(`compiler/checker/src/Core/TT/Stored.idr`), P0's work; nothing later is
+built: no hash-consing, wavefront machine or `repl` in `compiler/src`,
 `compiler/checker/src` or `foreign/idr`. **A0 is P0's** (D44), written
 by its lanes and built only with the whole cutover (D56); its bars stay
 ratios to 0013's T0, measured natively once `make self` holds (C136).
