@@ -1,12 +1,15 @@
 module Main
 
 -- Pattern-matching lambdas, and a lambda over a case, checked at a Lazy
--- function type, as `maybe`'s second argument is. The lambda's body, a case
--- on its argument, is elaborated later, at the type its hole is given,
--- which the rest of the application fixes. The pinned Idris elaborated the
--- case block at a fresh type instead, abstracted over its own scrutinee,
--- which no clause could solve, and refused each definition: "Can't solve
--- constraint between: String and ?caseTy".
+-- function type, as `maybe`'s second argument is. A lambda checked at a
+-- type that is not a function type is inferred, so the case in its body is
+-- elaborated later, at the type its hole is given, which the rest of the
+-- application, or the definition's type, fixes. The pinned Idris
+-- elaborated the case block at a fresh type instead, abstracted over its
+-- own scrutinee, which no clause could solve, and refused each definition:
+-- "Can't solve constraint between: String and ?caseTy".
+-- `bar` is applied as it is: a use of a delayed function forces it, so it
+-- takes no `Force` of its own.
 -- The stock Idris is patched for it (upstream/107-delayed-case-expected-
 -- type); the type checker has the change as its own code, and this test
 -- checks it.
@@ -29,5 +32,5 @@ main = do
   putStrLn (first (Just (7, "n=")))
   putStrLn (first Nothing)
   putStrLn (second (Just ("a", "b")))
-  printLn ((Force bar) True)
-  printLn ((Force bar) False)
+  printLn (bar True)
+  printLn (bar False)
