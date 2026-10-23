@@ -290,7 +290,7 @@ mlir::Type returnedAs(mlir::Type type, std::uint32_t position,
 // value comes from another whose axes it holds at the same sizes: the same
 // value, taken by a function made of its function's code, or a column of
 // an array of records, which holds the array's axes. Several may come from
-// one, in any order, unlike a signature's edit (ExtentsAttr::renumber).
+// one, in any order; in a signature's edit each comes from its own.
 // The new signature binds the other's binders first, so each term means
 // what it meant. Null where no entry is kept.
 ExtentsAttr extentsFrom(ExtentsAttr extents, llvm::ArrayRef<std::optional<std::uint32_t>> inputs,

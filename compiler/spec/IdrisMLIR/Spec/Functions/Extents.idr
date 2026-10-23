@@ -115,10 +115,7 @@ extentsAttr = MkAttrDef
   , members =
       [ MkMember OnClass "::idr::ExtentsAttr" "get"
           [ param "::mlir::MLIRContext *" "context"
-          , param "::llvm::ArrayRef<::idr::Extent>" "entries" ]
-      , MkMember OnObjectConst "::idr::ExtentsAttr" "renumber"
-          [ param "::llvm::ArrayRef<::std::optional<uint32_t>>" "parameters"
-          , param "::llvm::ArrayRef<::std::optional<uint32_t>>" "results" ] ]
+          , param "::llvm::ArrayRef<::idr::Extent>" "entries" ] ]
   , doc = MkDoc "the index term each unknown axis of a function's signature is"
       """
       Each listed axis of an argument or a result is `?` in its type, and its

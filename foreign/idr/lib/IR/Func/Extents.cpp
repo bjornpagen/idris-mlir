@@ -3,8 +3,8 @@
 // The index term each unknown axis of a function's signature is
 // (`#idr.extents`, each entry its own `#idr.extent`, whose storage owns its
 // term's nodes): their syntax, what each entry and the list hold of
-// themselves, how an edit of the signature moves them and how a signature
-// made of another's keeps them, the one rule of which axis a constant
+// themselves, how a signature made of another's keeps them (an edit of the
+// signature among them), the one rule of which axis a constant
 // makes static, the one rule of the type a function returns a value at,
 // and the one rule of where a value meets a signature's view by shape
 // compatibility. What an entry names of the signature and of the binders,
@@ -200,22 +200,6 @@ ExtentsAttr ExtentsAttr::get(MLIRContext *context, ArrayRef<Extent> entries) {
     made.push_back(ExtentAttr::get(context, entry.at.side, entry.at.position, entry.at.axis,
                                    entry.term.nodes()));
   return get(context, ArrayRef<ExtentAttr>(made));
-}
-
-// Every entry at the position the signature's edit moves its value to, one
-// whose value is erased gone with it; a position inserted has none, so its
-// axes are named by no term until a writer names them. Positions move in order
-// on each side, so the entries stay sorted, and the terms are over the
-// binders, which no edit of the signature changes.
-ExtentsAttr ExtentsAttr::renumber(ArrayRef<std::optional<std::uint32_t>> parameters,
-                                  ArrayRef<std::optional<std::uint32_t>> results) const {
-  SmallVector<Extent> kept;
-  for (ExtentAttr attr : getEntries()) {
-    Extent entry = attr.extent();
-    if (std::optional<std::uint32_t> moved = onSide(entry.at.side, parameters, results)[entry.at.position])
-      kept.push_back({{entry.at.side, *moved, entry.at.axis}, entry.term});
-  }
-  return get(getContext(), kept);
 }
 
 // Each side in the order the entries list them, and on it each value in

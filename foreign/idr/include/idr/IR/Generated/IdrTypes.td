@@ -299,7 +299,6 @@ def Idr_ExtentsAttr : Idr_Attr<"Extents", "extents", []> {
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
     static ::idr::ExtentsAttr get(::mlir::MLIRContext * context, ::llvm::ArrayRef<::idr::Extent> entries);
-    ::idr::ExtentsAttr renumber(::llvm::ArrayRef<::std::optional<uint32_t>> parameters, ::llvm::ArrayRef<::std::optional<uint32_t>> results) const;
   }];
 }
 

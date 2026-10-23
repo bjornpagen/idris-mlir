@@ -25,6 +25,7 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -60,6 +61,19 @@ Moves inserting(unsigned count, ArrayRef<unsigned> indices) {
     moves.push_back(at + static_cast<std::uint32_t>(next - indices.begin()));
   }
   return moves;
+}
+
+// Where each of `count` new positions comes from: the old position `moves`
+// sends there, or none for one inserted. An edit sends each old position to
+// at most one new one, so each new one has at most one source.
+Moves comingFrom(ArrayRef<std::optional<std::uint32_t>> moves, unsigned count) {
+  Moves from(count, std::nullopt);
+  for (auto [at, to] : llvm::enumerate(moves))
+    if (to) {
+      assert(!from[*to] && "an edit sends one old position to each new one it fills");
+      from[*to] = static_cast<std::uint32_t>(at);
+    }
+  return from;
 }
 
 // A part of the record, which names its parameter by its position among
@@ -154,8 +168,8 @@ LogicalResult editSignature(FuncOp fn, FunctionType type, ArrayRef<std::optional
   }
   if (GivenBackAttr given = fn.getGivenBackAttr())
     stated.given = given.renumber(parameters, results);
-  if (ExtentsAttr extents = fn.getExtentsAttr())
-    stated.extents = extents.renumber(parameters, results);
+  stated.extents = extentsFrom(fn.getExtentsAttr(), comingFrom(parameters, type.getNumInputs()),
+                               comingFrom(results, type.getNumResults()));
   PartMoves parts =
       amongThose(ParameterParts(fn.getArgumentTypes()), parameters, ParameterParts(type.getInputs()));
   stated.untouched = moved(context, fn.getUntouchedAttr(), parts.writes);
