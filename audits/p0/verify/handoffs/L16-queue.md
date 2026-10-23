@@ -656,3 +656,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   reads only `mlir.expect` lines and harness scripts, so `reached` (asked
   from `Universal.idr`) and `folded` (asked by fixtures) count as stated by
   no test (L19).
+- From L07w: `memo.run` and `memo.take` declare their captures as parts of
+  a taken-over cell while the cell keeps its reference (closures' owner,
+  L18: their flow edges); the arrays' generating ops (fold, scan,
+  tabulate) pair their inits with results buffers leave empty, so asking
+  their flow asserts (L12); a lend's give-back stays a trait (a flow edge
+  would let exclusivity follow the owner into the given-back value without
+  the loan's view, L08's `rootOf`). L07v holds the once-only consumption's
+  other readers, the literal match's leak and `big.small`'s type.
