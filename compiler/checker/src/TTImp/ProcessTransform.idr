@@ -18,6 +18,12 @@ import Libraries.Data.VarSet
 
 %default covering
 
+||| A `%transform` rule, which only a trusted library writes (a user
+||| module's is refused by the frontend): elaborated as upstream elaborates
+||| one, its right side checked against its left's type and its left a
+||| function's application, and kept nowhere. A rule states an equality an
+||| optimizer may use, which changes no program, and this compiler's
+||| optimizer is its own.
 export
 processTransform : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
@@ -38,4 +44,6 @@ processTransform eopts nest env fc tn_in lhs rhs
                        checkTermSub tidx InExpr (InTrans :: eopts) nest' env' env sub' rhs (gnf env' lhsty)
          clearHoleLHS
          logTerm "transform.rhs" 3 "Transform RHS" rhstm
-         addTransform fc (MkTransform tn env' lhstm rhstm)
+         case getFn lhstm of
+              Ref {} => pure ()
+              _ => throw (GenericMsg fc "LHS of a transformation must be a function application")

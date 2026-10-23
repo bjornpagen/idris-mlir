@@ -85,10 +85,14 @@ the same profile as any other.
   (`partialEvalNS`), which every context made visible, went with it. The
   frontend translates the compile-time tree, so none is built: a `PMDef`
   holds that tree and, per clause, the patterns the case builder read, and
-  references are what that tree refers to (`refersTo`). The `%transform`
-  and `%spec` pragmas are still read, as hints this compiler need not
-  apply; a case block is no longer marked for inlining by the run-time
-  tree's shape.
+  references are what that tree refers to (`refersTo`). A `%transform`,
+  which only a trusted library writes (a user module's is refused), is
+  elaborated as upstream elaborates it, its right side checked against its
+  left's type, and kept nowhere: no table holds the rules and a TTC writes
+  none, and an implementation no longer makes a rule for each of its
+  methods, since nothing reads one. `%spec` is still read, as a hint this
+  compiler need not apply; a case block is no longer marked for inlining
+  by the run-time tree's shape.
 - **Counts, state and options nothing needs**, all gone: the search
   timer, never started and checked at every unfolding, with
   `%search_timeout`; `%foreign_impl`, stored and read by nothing;
@@ -715,6 +719,12 @@ known only when the checker runs.
   so a constructor whose binders come through a definition
   (`a -@ LList a -@ LList a`) has them.
 - `ZeroOneOmega` is public, so a reader matches on a quantity.
+- A record update names the record it updates by the type it is expected
+  to have, or, while that is not yet a type constructor's and the record
+  is a variable, by the variable's type (`updatedRecord`); it is still
+  checked against the type it is expected to have. Upstream waited for the
+  expected type, so an update of a variable in a let without a signature,
+  whose type only a later clause of a case fixes, was refused.
 - No count bounds a recursion of the checker's own: the evaluator's `fuel`
   and per-name `reduceLimit` options, which nothing set, are gone; the
   size-change decision takes a loop graph's powers until one repeats,

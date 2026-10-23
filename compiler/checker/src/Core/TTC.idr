@@ -1445,23 +1445,6 @@ TTC GlobalDef where
                                      mul Scope.empty (specified Public) unchecked False [] refs
                                      False False True def [])
 
-export
-TTC Transform where
-  toBuf (MkTransform {vars} n env lhs rhs)
-      = do toBuf vars
-           toBuf n
-           toBuf env
-           toBuf lhs
-           toBuf rhs
-
-  fromBuf
-      = do vars <- fromBuf
-           n <- fromBuf
-           env <- fromBuf
-           lhs <- fromBuf
-           rhs <- fromBuf
-           pure (MkTransform {vars} n env lhs rhs)
-
 -- decode : Context -> Int -> (update : Bool) -> ContextEntry -> Core GlobalDef
 -- The bytes are read as the trees a TTC holds, and the definition is
 -- stored from them: every definition read from a TTC is stored.

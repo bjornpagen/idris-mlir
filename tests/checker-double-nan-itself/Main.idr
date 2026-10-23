@@ -23,7 +23,7 @@ nanA = 0.0 / 0.0
 nanB : Double
 nanB = 0.0 / 0.0
 
-0 itself : nanA = nanB
+0 itself : Main.nanA = Main.nanB
 itself = Refl
 
 main : IO ()

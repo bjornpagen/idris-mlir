@@ -295,9 +295,6 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
                log "elab.implementation" 10 $ "Implementation body: " ++ show body'
                traverse_ (processDecl [] nest' env) body'
 
-               -- 6. Add transformation rules for top level methods
-               traverse_ (addTransform impName upds) (methods cdata)
-
                -- inline flag has done its job, and outside the interface
                -- it can hurt, so unset it now
                unsetFlag vfc impName TCInline
@@ -539,24 +536,3 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
         = throw (GenericMsg (getFC e)
                    "Implementation body can only contain definitions")
 
-    addTransform : Name -> List (Name, Name) ->
-                   Method ->
-                   Core ()
-    addTransform iname ns meth
-        = do log "elab.implementation" 3 $
-                     "Adding transform for " ++ show meth.nameVal ++ " : " ++ show meth.val ++
-                     "\n\tfor " ++ show iname ++ " in " ++ show ns
-             let lhs = INamedApp vfc (IVar vfc meth.name.val)
-                                     constructorBindName
-                                     (IVar vfc iname)
-             let Just mname = lookup (dropNS meth.nameVal) ns
-                 | Nothing => pure ()
-             let rhs = IVar vfc mname
-             log "elab.implementation" 5 $ show lhs ++ " ==> " ++ show rhs
-             handleUnifyElab
-                 (processDecl [] nest env
-                     (ITransform vfc (UN $ Basic !(intern (show meth.nameVal ++ " " ++ show iname))) lhs rhs))
-                 (\err =>
-                     log "elab.implementation" 5 $ "Can't add transform " ++
-                                show lhs ++ " ==> " ++ show rhs ++
-                             "\n\t" ++ show err)

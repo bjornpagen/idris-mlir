@@ -195,6 +195,32 @@ checkForDuplicates (x :: xs) seen dups
         dups = ifThenElse (contains path seen) (insert path dups) dups
     in checkForDuplicates xs (insert path seen) dups
 
+-- The record an update updates: the record of the type the update is
+-- expected to have, or, while that type is not yet a type constructor's
+-- and the record updated is a variable of the environment, the record of
+-- the type the environment gives the variable. Both name one record, since
+-- an update changes the record's parameters at most, never its name; only
+-- the name is read off the variable's type, the update still being checked
+-- against the type it is expected to have, and reading the environment
+-- elaborates nothing again, so a linear record is used once. With neither
+-- known the update waits (`RecordTypeNeeded`, which `checkUpdate` turns
+-- into a delay).
+updatedRecord : {vars : _} ->
+                {auto c : Ref Ctxt Defs} ->
+                FC -> Env Term vars -> (rec : RawImp) -> (grecty : Glued vars) ->
+                Core Name
+updatedRecord fc env rec grecty
+    = case getRecordType env !(getNF grecty) of
+           Just n => pure n
+           Nothing => case rec of
+             IVar _ v => case defined v env of
+               Just (MkIsDefined _ p) =>
+                 case getRecordType env !(getNF (gnf env (binderType (getBinder p env)))) of
+                      Just n => pure n
+                      Nothing => throw (RecordTypeNeeded fc env)
+               Nothing => throw (RecordTypeNeeded fc env)
+             _ => throw (RecordTypeNeeded fc env)
+
 -- Convert the collection of high level field accesses into a case expression
 -- which does the updates all in one go
 export
@@ -204,16 +230,12 @@ recUpdate : {vars : _} ->
             RigCount -> ElabInfo -> FC ->
             NestedNames vars -> Env Term vars ->
             List IFieldUpdate ->
-            (rec : RawImp) -> (grecty : Glued vars) ->
+            (rec : RawImp) -> (rectyn : Name) ->
             Core RawImp
-recUpdate rigc elabinfo iloc nest env flds rec grecty
+recUpdate rigc elabinfo iloc nest env flds rec rectyn
       = do let dups = checkForDuplicates flds empty empty
            unless (null dups) $
              throw (DuplicatedRecordUpdatePath iloc $ map (map (.text)) $ Prelude.toList dups)
-           defs <- get Ctxt
-           rectynf <- getNF grecty
-           let Just rectyn = getRecordType env rectynf
-                    | Nothing => throw (RecordTypeNeeded iloc env)
            fldn <- genFieldName "__fld"
            sides <- getAllSides iloc flds rectyn rec
                                 (Field Nothing fldn (IVar vloc (UN $ Basic fldn)))
@@ -256,7 +278,7 @@ checkUpdateDelayed : {vars : _} ->
 checkUpdateDelayed rig elabinfo nest env fc upds rec solvemode given delayed recty
     = do solveConstraints solvemode Normal
          logGlueNF "elab.record" 5 (show delayed ++ " record type " ++ show rec) env recty
-         rcase <- recUpdate rig elabinfo fc nest env upds rec recty
+         rcase <- recUpdate rig elabinfo fc nest env upds rec !(updatedRecord fc env rec recty)
          log "elab.record" 5 $ "Record update: " ++ show rcase
          check rig elabinfo nest env rcase (if given then Just recty else Nothing)
 
