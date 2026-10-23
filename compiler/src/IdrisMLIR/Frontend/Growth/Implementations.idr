@@ -195,6 +195,21 @@ etaWrapper th k body = case getFnArgs body of
     onePlace [j] = Just j
     onePlace _ = Nothing
 
+||| How a field of a dictionary built with an interface's constructor was
+||| written: one that applies a function to the field's own arguments, each
+||| once, and to closed values (`etaWrapper`), by the function's name, as
+||| Idris writes a method's field, and a parent its search found; or one
+||| written by hand, which computes.
+public export
+data FieldWriting = WrapsFunction Name | HandWritten
+
+||| How a dictionary's field, closed, was written (`FieldWriting`).
+export
+fieldWriting : ClosedTerm -> FieldWriting
+fieldWriting field = case etaWrapper Refl 0 field of
+  Just (m, _, _) => WrapsFunction m
+  Nothing => HandWritten
+
 ||| Where M takes each implementation parameter the field passes it as
 ||| itself (its marker, which stands for the parameter in the field), with
 ||| the kind of M's parameter there, as the field's reading of M's type

@@ -30,6 +30,7 @@ import Core.TT
 import Libraries.Data.List.SizeOf
 import Libraries.Data.NameMap
 
+import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
@@ -1505,17 +1506,23 @@ arityOf d = case d.matched of
     ExternDef arity => arity
     _ => length (piNames d.type)
 
+||| What a constructor's application builds: a dictionary, with an
+||| interface's constructor, whose fields a dispatch on it settles in place;
+||| or a value of a data type, whose fields are values at run time.
+data Building = BuildsDictionary | BuildsData
+
 ||| A data constructor applied, as the walk reads it: `Calls` of it at
 ||| every static argument, where it holds a dictionary or builds one, so
 ||| that the flow sees what a match on its dictionaries reads, and every
 ||| field a match on what it builds reads, its type arguments among them
 ||| (`Heads.rebuilt`, `Heads.overPart`), has a writer; and the sites of its
-||| result type after its arguments; the arguments given, for their walk;
-||| each dictionary among them with what the call read of it; and that
-||| result type.
+||| result type after its arguments; what it builds; the arguments given,
+||| for their walk; each dictionary among them with what the call read of
+||| it; and that result type.
 record Constructed (vs : Scope) where
   constructor MkConstructed
   sites : List Site
+  building : Building
   given : List (Given vs)
   dictionaries : List (Given vs, Argument)
   result : ClosedTerm
@@ -1529,18 +1536,18 @@ constructed at ps env fc a d positions args = do
   (gs, rest) <- taken at ps env d.type positions args
   dictionaries <- traverse (\g => (\(x, beside) => ((g, x), beside)) <$> argument at ps env fc g ADictionary)
                            (mapMaybe dictionary gs)
-  builtDictionary <- implementationType d.type
-  calls <- case (dictionaries, builtDictionary) of
+  building <- (\dict => if dict then BuildsDictionary else BuildsData) <$> implementationType d.type
+  calls <- case (dictionaries, building) of
     -- Essential: a constructor that holds no dictionary and builds none
     -- has no field a match on a dictionary reads.
-    ([], False) => pure []
+    ([], BuildsData) => pure []
     _ => do
       others <- traverse (\(g, k) => readArgument ps.made g.position k Nothing g.offer.value
                                        (WrittenText at.writerDef ps env g.offer.arg.written))
                          (mapMaybe other gs)
       pure (siteAt at fc (Calls a d) (map (snd . fst) dictionaries ++ others) :: (dictionaries >>= snd))
   result <- builds at ps.made fc rest
-  pure (MkConstructed (calls ++ result) gs (map fst dictionaries) rest)
+  pure (MkConstructed (calls ++ result) building gs (map fst dictionaries) rest)
   where
     dictionary : Given vs -> Maybe (Given vs)
     dictionary g = case g.taking of
@@ -1594,27 +1601,42 @@ methodRecord d gs = do
 
 ||| The method a call dispatches on its dictionary: the record's template
 ||| and root, read as the projection is given it (`asGiven`), at the
-||| method's own static arguments, those past the projection's, numbered
-||| from the method's first in the order its field's lambdas take them.
-||| With the walk of those arguments over the rest of the projection's
-||| type.
+||| method's own static arguments, numbered from the method's first in the
+||| order its field's lambdas take them, as the projection's own site
+||| numbers them (`projectionSite`). Idris's clause for a projection binds
+||| the method's leading implicit arguments, its own type variables (a
+||| `Monad m` it quantifies over among them), and applies the field to
+||| them: those are the call's arguments at the parameters the field is
+||| applied to (`given`, the call's arguments to the projection). Any the
+||| method takes past the projection's come after them, walked over the
+||| rest of the projection's type; the call walked the others.
 dispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-           At -> Pats -> Env vs -> FC -> Projected -> Given vs -> ClosedTerm -> List (Arg vs) -> Front (List Site)
-dispatch at ps env fc p dict rest extras = do
+           At -> Pats -> Env vs -> FC -> Projected -> Given vs -> (given : List (Given vs)) -> ClosedTerm ->
+           List (Arg vs) -> Front (List Site)
+dispatch at ps env fc p dict given rest extras = do
   -- The record as its key holds it, bound before it is read: the reading's
   -- type names the term it reads.
   written <- solved !(holed env dict.offer.arg.written)
   (r, root) <- dictionaryRooted ps.made written
   tm <- (\head => asGiven (Just head) (r.template, root)) <$> choiceAt dict.binder
-  -- The method's own arguments are those its type shows binders for; any
-  -- past them applies its result.
+  -- The method's own arguments past the projection's are those its type
+  -- shows binders for; any past them applies its result.
   positions <- argumentsIn rest
   let n = min (length extras) (length positions)
   (gs, after) <- taken at ps env rest positions (take n extras)
-  site <- callSite at ps env fc (Dispatches tm root p.field) gs
-  now <- walkedAt at ps env fc AFunction (const ByInstance) gs
+  let past = map (\g => { position $= (+ length p.params) } g) gs
+  site <- callSite at ps env fc (Dispatches tm root p.field) (mapMaybe applied (zip [0 .. length p.params] p.params) ++ past)
+  now <- walkedAt at ps env fc AFunction (const ByInstance) past
   later <- overType at ps env fc (Just after) (drop n extras)
   pure (site ++ now ++ later)
+  where
+    -- The field's argument q, where it is the projection's parameter j:
+    -- the call's argument there, at the method's own position q. One the
+    -- projection does not take from its parameters is no argument of the
+    -- call, as at the projection's own site.
+    applied : (Nat, Maybe Nat) -> Maybe (Given vs)
+    applied (q, Just j) = (\g => { position := q } g) <$> getAt j given
+    applied (_, Nothing) = Nothing
 
 ||| The definitions a hook calls in place of the one written: the library
 ||| function of a natural's operation, with no arguments, or the function a
@@ -1642,6 +1664,37 @@ hookCalls at ps env fc hs args = case hs.natOperation of
       (gs, _) <- taken at ps env d.type d.taken (take (arityOf d) args)
       callSite at ps env fc (Calls a d) gs
 
+||| The arguments of a dictionary built in code with its interface's
+||| constructor, each as the member table says, but a method's field Idris
+||| wrote at a binder that takes a member: one that applies a function, the
+||| method's own, to the field's own arguments
+||| (`Implementations.fieldWriting`). The translation settles such a field
+||| at each dispatch on the dictionary (`Terms.resolveMethod`), calling that
+||| function at the dispatch's own arguments, where the dispatch reaches it
+||| (`Dispatches`, `Heads.runs`). Nothing applies the field at a use, so it
+||| makes no member of the polymorphic functions' choice: as one, its use's
+||| walk would request the function at the positions every use of that
+||| choice shares, where the function's own type variables (a `Monad m` it
+||| quantifies over) meet whatever any use writes there. It is code where
+||| it is written, which is where the walk enters the function. A parent
+||| its search found applies a function too, and makes no member either way:
+||| it is no lambda, and nothing applies an implementation at a use.
+dictionaryArguments : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+                      At -> Pats -> Env vs -> FC -> Defined -> List (Given vs) -> Front (List Site)
+dictionaryArguments at ps env fc d [] = pure []
+dictionaryArguments at ps env fc d (g :: gs) =
+    (++) <$> asWritten (givenAt g.position (memberPlaces d)) (fieldWriting (close env g.offer.arg.written))
+         <*> dictionaryArguments at ps env fc d gs
+  where
+    asTable : Front (List Site)
+    asTable = walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) [g]
+
+    asWritten : Holding -> FieldWriting -> Front (List Site)
+    asWritten AMember (WrapsFunction _) = Force g.offer.arg.asCode
+    asWritten AMember HandWritten = asTable
+    asWritten NoMember _ = asTable
+    asWritten ByInstance _ = asTable
+
 ||| A definition applied as code: the member of its value's choice where
 ||| the member table says it gives one after its arguments
 ||| (`definitionMember`), however many it is given; `Calls` of it at the
@@ -1662,7 +1715,7 @@ call at ps env fc a d args = do
     Left _ => pure []
   now <- walkedAt at ps env fc AFunction (\j => givenAt j (memberPlaces d)) gs
   later <- case methodRecord d gs of
-    Just (p, dict) => dispatch at ps env fc p dict rest (drop arity args)
+    Just (p, dict) => dispatch at ps env fc p dict gs rest (drop arity args)
     Nothing => overType at ps env fc (Just rest) (drop arity args)
   pure (member ++ own ++ instead ++ now ++ later)
 
@@ -1676,10 +1729,13 @@ applyRef at ps env fc n args = do
   case definition d.def of
     -- A constructor's field that holds an implementation or a polymorphic
     -- function holds the member its site fixes (`Translate.Terms.constructor`),
-    -- as the member table says of its binder.
+    -- as the member table says of its binder, but for a method's field,
+    -- which a dispatch settles (`dictionaryArguments`).
     DCon _ arity _ => do
       dcon <- constructed at ps env fc a d d.taken (take arity args)
-      now <- walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) dcon.given
+      now <- case dcon.building of
+        BuildsDictionary => dictionaryArguments at ps env fc d dcon.given
+        BuildsData => walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) dcon.given
       later <- overType at ps env fc (Just dcon.result) (drop arity args)
       pure (dcon.sites ++ now ++ later)
     PMDef {} => call at ps env fc a d args
@@ -1725,8 +1781,9 @@ staticRef at ps env fc n args = do
   case definition d.def of
     DCon _ arity _ => do
       dcon <- constructed at ps env fc a d d.taken (take arity args)
-      fields <- if !(implementationType d.type) then (++) <$> walked dcon.given <*> computedFields dcon.dictionaries
-                  else statics (take arity args)
+      fields <- case dcon.building of
+        BuildsDictionary => (++) <$> walked dcon.given <*> computedFields dcon.dictionaries
+        BuildsData => statics (take arity args)
       (\later => dcon.sites ++ fields ++ later) <$> statics (drop arity args)
     _ => do
       own <- if not !(implementationType d.type) then pure [] else do
