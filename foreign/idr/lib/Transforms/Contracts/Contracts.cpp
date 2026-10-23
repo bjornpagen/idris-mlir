@@ -70,18 +70,6 @@ constexpr llvm::StringLiteral nameOf(Relation relation) {
   return relations[static_cast<unsigned>(relation)].name;
 }
 
-// Whether a run of a pass on `op` is checked: one on the module or on its
-// program.
-bool checked(Operation *op) { return isa<ModuleOp>(op) || isa<ProgramOp>(op); }
-
-// The module a check reads: the one checked, or the one that holds the
-// program checked.
-ModuleOp moduleOf(Operation *op) {
-  if (auto module = dyn_cast<ModuleOp>(op))
-    return module;
-  return op->getParentOfType<ModuleOp>();
-}
-
 // The pass as MLIR writes it in a pipeline: its argument and options, or,
 // for a nest adaptor, which has no argument, the pipeline it runs.
 std::string nameOf(Pass *pass) {
@@ -284,10 +272,10 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
 } // namespace
 
 void ContractInstrumentation::runBeforePass(Pass *pass, Operation *op) {
+  ModuleOp module = expect::checkedModule(op);
   // A run inside the run under way is part of it, and takes no record.
-  if (!checked(op) || before)
+  if (!module || before)
     return;
-  ModuleOp module = moduleOf(op);
   // The module the frontend emitted, before the first pass: what Idris
   // proved of its binders, read once. A module Emit gave two binders one
   // identity says so here, at that binder.
@@ -299,12 +287,12 @@ void ContractInstrumentation::runBeforePass(Pass *pass, Operation *op) {
 }
 
 void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  if (!checked(op) || !before || before->pass != pass)
+  ModuleOp module = expect::checkedModule(op);
+  if (!module || !before || before->pass != pass)
     return;
   Snapshot snapshot = std::move(*before);
   before.reset();
 
-  ModuleOp module = moduleOf(op);
   std::string name = nameOf(pass);
   ModuleAnalysisManager mam(module, /*passInstrumentor=*/nullptr);
   AnalysisManager analyses = mam;
@@ -325,7 +313,7 @@ void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
 }
 
 void ContractInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
-  if (checked(op) && before && before->pass == pass)
+  if (expect::checkedModule(op) && before && before->pass == pass)
     before.reset();
 }
 

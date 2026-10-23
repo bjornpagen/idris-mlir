@@ -41,7 +41,11 @@ effects::Does onCountOf(Operation *op, Value value, effects::Kind kind) {
 }
 
 // Whether a value of `type` is what a test gives for what it took apart:
-// the cell, or the token that holds it.
+// the cell, or the token that holds it. These are counting's two kinds of a
+// cell's memory, and no value fact says "a cell's memory": the cell holds
+// nothing yet and is used once by its type, while the token holds its cell,
+// counted, at the uses its grade says. So the two are named here, the one
+// place that asks.
 bool givenForReuse(Type type) {
   Type carrier = unrestricted(type);
   return isa<CellType, ReuseTokenType>(carrier);

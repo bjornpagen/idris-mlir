@@ -16,21 +16,22 @@
 // are one class, read when any member is, dropped from every member or
 // from none.
 //
-// A function that loses a result returns it no more, and each match or
-// join group whose result only that return took loses it too, down
-// through what its regions yield, by the e-graph's own rules for an unused
-// result: so a tail call that gave the result on still gives on exactly
-// what it gives. Then each call of the function is made again without the
-// result; where the value still stands, it reaches no return and nothing
-// reads it, and it is poison.
+// A function that loses a result returns it no more, and each op a tail
+// passes through (a match, a join group: an op a break crosses, which does
+// nothing at its rejoin) whose result only that return took loses it too,
+// down through what its regions yield, as the e-graph's rule for an unused
+// result drops one: so a tail call that gave the result on still gives on
+// exactly what it gives. Then each call of the function is made again
+// without the result; where the value still stands, it reaches no return
+// and nothing reads it, and it is poison.
 
 #include "idr/Analysis/Solver/Extraction.h"
-#include "idr/IR/Control/Control.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
-#include "idr/Transforms/EGraph.h"
+#include "idr/Transforms/Joins/Rules.h"
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -102,35 +103,39 @@ std::optional<SmallVector<unsigned, 1>> returnsOf(Value value, Followed &followe
   return positions;
 }
 
-// The operands `op`'s regions yield for its results that `dropped` holds,
-// by result number; what a region yields to another region is no result.
-SmallVector<Value> yieldedFor(Operation *op, const llvm::BitVector &dropped) {
+// The operands `op`'s regions yield for its results that `kept` leaves
+// out, by result number; what a region yields to another region is no
+// result.
+SmallVector<Value> yieldedFor(Operation *op, const llvm::BitVector &kept) {
   SmallVector<Value> out;
   for (Region &region : op->getRegions())
     for (Block &block : region)
       if (Operation *end = block.empty() ? nullptr : &block.back())
         forwardedValues(end, [&](OpOperand &operand, Value input) {
           auto result = dyn_cast<OpResult>(input);
-          if (result && result.getOwner() == op && dropped.test(result.getResultNumber()))
+          if (result && result.getOwner() == op && !kept.test(result.getResultNumber()))
             out.push_back(operand.get());
         });
   return out;
 }
 
-// Each match and join group whose results `released` lost their last use
-// loses them, down through what its regions yield, by the e-graph's rules
-// for an unused result. An op is noted by its first result's number in
-// `fn`'s numbering, made before any is rewritten: an op is noted only by
-// the return or by its parent's rewrite, which comes first, so every op
-// noted is one the numbering holds, and each is rewritten once.
+// Each op a break crosses whose results `released` lost their last use
+// loses them, down through what its regions yield. Such an op does nothing
+// at its rejoin, so its results are what its regions yield, and a result
+// goes with every yield's operand for it, as the e-graph's rule for an
+// unused result drops one: the ops a tail passes through, so none is left
+// giving a tail call's dropped result on. An op is noted by its first
+// result's number in `fn`'s numbering, made before any is rewritten: an op
+// is noted only by the return or by its parent's rewrite, which comes
+// first, so every op noted is one the numbering holds, and each is
+// rewritten once.
 void releaseRejoins(RewriterBase &rewriter, FuncOp fn, ArrayRef<Value> released) {
   solver::Numbering<BodyValue> numbering(fn);
   BitSet<ValueId> noted(numbering.size());
   SmallVector<Operation *> rejoins;
   auto note = [&](Value value) {
     Operation *def = value.getDefiningOp();
-    if (def && value.use_empty() &&
-        (isa<MatchOpInterface>(def) || isa<JoinPointsOpInterface>(def)) &&
+    if (def && value.use_empty() && def->hasTrait<OpTrait::PropagateControlFlowBreak>() &&
         noted.raise(numbering.at(def->getResult(0))) == Changed::Yes)
       rejoins.push_back(def);
   };
@@ -138,15 +143,12 @@ void releaseRejoins(RewriterBase &rewriter, FuncOp fn, ArrayRef<Value> released)
     note(value);
   while (!rejoins.empty()) {
     Operation *op = rejoins.pop_back_val();
-    llvm::BitVector unused(op->getNumResults());
+    llvm::BitVector kept(op->getNumResults(), true);
     for (OpResult result : op->getResults())
       if (result.use_empty())
-        unused.set(result.getResultNumber());
-    SmallVector<Value> yielded = yieldedFor(op, unused);
-    if (auto match = dyn_cast<MatchOpInterface>(op))
-      egraph::DeadResults::rewrite(match, egraph::Rewrite{}, rewriter);
-    else
-      egraph::DeadJoinResults::rewrite(cast<JoinPointsOpInterface>(op), egraph::Rewrite{}, rewriter);
+        kept.reset(result.getResultNumber());
+    SmallVector<Value> yielded = yieldedFor(op, kept);
+    control::keepResults(rewriter, op, kept);
     for (Value value : yielded)
       note(value);
   }
@@ -174,7 +176,7 @@ void dropDeadResults(Schedule &schedule) {
   for (FunctionId self : graph.size().ids())
     if (FuncOp fn = fns[self.index()])
       fn.getBody().walk([&](CallOp call) {
-        if (call.getTailKind() != TailKind::tail)
+        if (!tailCallOf(call))
           return;
         for (unsigned r = 0, e = call->getNumResults(); r < e; ++r)
           joined.join(slot(self, r), slot(calleeOf(call), r));

@@ -30,11 +30,15 @@ using namespace idr;
 // type is neither, its own verifier says. Every op that makes a destination
 // asks this, so what a hole or a slot may be is said here alone.
 LogicalResult DestType::verify(function_ref<InFlightDiagnostic()> emitError, Type value) {
-  if (idr::isLinearByType(value))
+  switch (byTypeOf(value)) {
+  case ByType::UsedOnceByType:
     return emitError() << "a destination never takes " << value
                        << ", which is used exactly once by its type";
-  if (isa<LifetimeType>(value))
+  case ByType::UsedFreelyByType:
     return emitError() << "a destination never takes a lifetime";
+  case ByType::UsedAsGraded:
+    return success();
+  }
   return success();
 }
 

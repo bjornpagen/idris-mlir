@@ -61,25 +61,32 @@ Operation *keepResults(RewriterBase &rewriter, Operation *op, const llvm::BitVec
       rewriter.setInsertionPoint(yield);
       rewriter.replaceOpWithNewOp<YieldOp>(yield, kept);
     }
-  OperandRange stated = cast<StatesOutersOpInterface>(op).getOutersMutable();
+  // Only an op that states the lifetimes its scoped results live in
+  // restates them for the results it keeps; one that states none (an index
+  // assumption, an unsafe run) keeps its results with nothing to restate.
+  auto states = dyn_cast<StatesOutersOpInterface>(op);
   SmallVector<Value> outers;
-  unsigned entry = 0;
-  for (OpResult result : op->getResults()) {
-    if (!scoped(result))
-      continue;
-    if (keep.test(result.getResultNumber()))
-      outers.push_back(stated[entry]);
-    ++entry;
+  if (states) {
+    OperandRange stated = states.getOutersMutable();
+    unsigned entry = 0;
+    for (OpResult result : op->getResults()) {
+      if (!scoped(result))
+        continue;
+      if (keep.test(result.getResultNumber()))
+        outers.push_back(stated[entry]);
+      ++entry;
+    }
+    llvm::append_range(outers, stated.drop_front(entry));
   }
-  llvm::append_range(outers, stated.drop_front(entry));
   SmallVector<Type> types;
   for (OpResult result : op->getResults())
     if (keep.test(result.getResultNumber()))
       types.push_back(result.getType());
   Operation *fresh = withResults(rewriter, op, types);
-  rewriter.modifyOpInPlace(fresh, [&] {
-    lifetimes::restateOuters(cast<StatesOutersOpInterface>(fresh), outers);
-  });
+  if (states)
+    rewriter.modifyOpInPlace(fresh, [&] {
+      lifetimes::restateOuters(cast<StatesOutersOpInterface>(fresh), outers);
+    });
   unsigned next = 0;
   for (OpResult result : op->getResults())
     if (keep.test(result.getResultNumber()))

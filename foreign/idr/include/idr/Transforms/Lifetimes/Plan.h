@@ -18,6 +18,7 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -348,7 +349,7 @@ bool regionMayHold(mlir::Block &block, mlir::Operation *first, mlir::Operation *
     return top && !top->isBeforeInBlock(first) && !last->isBeforeInBlock(top);
   };
   for (mlir::Operation *op : ops) {
-    if (auto call = llvm::dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail)
+    if (lastActOf(op))
       return false;
     for (mlir::Value operand : op->getOperands())
       if (llvm::isa<mlir::TokenType>(operand.getType()))
@@ -363,8 +364,7 @@ bool regionMayHold(mlir::Block &block, mlir::Operation *first, mlir::Operation *
 // its caller, and its callee is on `self`'s own cycle, so the frames pass
 // moves what follows it into a frame of its own.
 inline bool continuesOnFrame(const solver::ProgramGraph &graph, FunctionId self, CallOp call) {
-  return call.getTailKind() == TailKind::nontail &&
-         graph.sccOf(graph.id(call.getCalleeAttr())) == graph.sccOf(self);
+  return !lastActOf(call) && graph.sccOf(graph.id(call.getCalleeAttr())) == graph.sccOf(self);
 }
 
 // Opens a lifetime from `source` around the ops from `first` to `last`,

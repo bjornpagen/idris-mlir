@@ -34,6 +34,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Tail.h"
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Counting/Facts.h"
 #include "idr/Transforms/Lifetimes/Lend.h"
@@ -65,13 +66,36 @@ using solver::FunctionId;
 // `type` as a view: freed by its lifetime, claiming what it claimed.
 Type asView(Type type) { return atHold(type, Hold::scoped(holdOf(type)->claim())); }
 
-// A loan to make: the counted `owner` lent around `site`, its view given at
-// each of `positions`, operands of `site` or of ops in it.
+// A loan to make: the counted value `positions` read lent around `site`,
+// its view given at each of them, operands of `site` or of ops in it. The
+// owner is read off them when the loan is made, never kept: a loan made
+// before it in the site's block gives the owner back as a value of its own,
+// which every later use, the positions among them, then reads.
 struct Loan {
   Operation *site;
-  Value owner;
   SmallVector<OpOperand *, 2> positions;
 };
+
+// What `value`, read inside `site`, is where `site` stands: a value a loan
+// inside `site` gave back is the value that loan lent, which a loan around
+// the site lends in turn.
+Value atSite(Operation *site, Value value) {
+  while (auto inner = value.getDefiningOp<LendOp>()) {
+    if (inner.getReturned() != value || !site->isProperAncestor(inner))
+      break;
+    value = inner.getOwner();
+  }
+  return value;
+}
+
+// The owner `loan` lends, as it stands where the loan's site does.
+Value ownerOf(const Loan &loan) {
+  Value owner = atSite(loan.site, loan.positions.front()->get());
+  assert(llvm::all_of(loan.positions,
+                      [&](OpOperand *position) { return atSite(loan.site, position->get()) == owner; }) &&
+         "every position of a loan reads its one owner");
+  return owner;
+}
 
 class Writer {
 public:
@@ -93,15 +117,15 @@ private:
   LogicalResult findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans);
   LendOp lend(const Loan &loan);
 
-  // Adds `position` to the loan of `owner` around `site`, made once.
+  // Adds `position` to the loan around `site` of the value it reads, made
+  // once. Nothing is lent yet, so each position reads its owner as found.
   static void addLoan(SmallVectorImpl<Loan> &loans, Operation *site, OpOperand &position) {
-    Value owner = position.get();
     for (Loan &loan : loans)
-      if (loan.site == site && loan.owner == owner) {
+      if (loan.site == site && loan.positions.front()->get() == position.get()) {
         loan.positions.push_back(&position);
         return;
       }
-    loans.push_back(Loan{site, owner, {&position}});
+    loans.push_back(Loan{site, {&position}});
   }
 
   const solver::ProgramGraph &graph;
@@ -279,7 +303,7 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
         unsigned index = operand.getOperandNumber();
         if (index >= bits.size() || !bits.test(index) || !isCountedValue(operand.get().getType()))
           continue;
-        if (call.getTailKind() != TailKind::nontail) {
+        if (lastActOf(call)) {
           found = call.emitOpError("internal error: borrowing lends argument ")
                   << index << " of a call in tail position, which nothing may follow";
           return WalkResult::interrupt();
@@ -329,7 +353,7 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
 // owner after the loan reads the owner it gives back.
 LendOp Writer::lend(const Loan &loan) {
   Operation *site = loan.site;
-  Value owner = loan.owner;
+  Value owner = ownerOf(loan);
   Location loc = site->getLoc();
   OpBuilder b(site);
   auto made = LendOp::create(b, loc, owner.getType(), site->getResultTypes(), owner, ValueRange());

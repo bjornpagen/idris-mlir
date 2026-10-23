@@ -40,7 +40,9 @@ namespace idr::tail::frames {
 namespace {
 
 // The region ops of `fn`'s tail spine, outermost first, and the blocks it
-// runs through.
+// runs through: the walk tailEnds makes, down through each region whose end
+// rejoins at its op's results, so the blocks are exactly those whose tails
+// it found. A jump into a join region rejoins nothing, whatever it passes.
 void spineOf(FuncOp fn, llvm::SmallVectorImpl<Operation *> &ops,
              llvm::SmallVectorImpl<Block *> &blocks) {
   llvm::SmallVector<Block *, 8> work{&fn.getBody().front()};
@@ -51,14 +53,9 @@ void spineOf(FuncOp fn, llvm::SmallVectorImpl<Operation *> &ops,
     if (!source || !source->hasTrait<OpTrait::PropagateControlFlowBreak>())
       continue;
     ops.push_back(source);
-    for (Region &region : source->getRegions()) {
-      if (region.empty())
-        continue;
-      Operation *end = region.front().getTerminator();
-      if (isa<RegionBranchTerminatorOpInterface>(end) &&
-          end->getNumOperands() == source->getNumResults())
+    for (Region &region : source->getRegions())
+      if (!region.empty() && rejoinOf(region.front().getTerminator()) == source)
         work.push_back(&region.front());
-    }
   }
 }
 
@@ -111,8 +108,11 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
   llvm::SmallVector<Block *> blocks;
   spineOf(fn, spine, blocks);
   llvm::SmallVector<Block *> ends = tailEnds(fn);
-  llvm::SmallVector<Operation *> sources =
-      llvm::map_to_vector(ends, [](Block *end) { return tailSource(*end); });
+  // The tail call each tail ends in, where one op gives what it gives.
+  llvm::SmallVector<CallOp> calls = llvm::map_to_vector(ends, [](Block *end) {
+    Operation *source = tailSource(*end);
+    return source ? tailCallOf(source) : CallOp();
+  });
   Value stack = fn.getArguments().back();
   llvm::SmallVector<BlockArgument> lifetimes = lifetimesOf(fn);
 
@@ -120,13 +120,13 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
   // value, a tail call out of it first returning here, goes to the resume
   // with the lifetimes it lives in among the component's.
   llvm::SmallVector<CallOp> passing;
-  for (auto [end, source] : llvm::zip_equal(ends, sources)) {
+  for (auto [end, call] : llvm::zip_equal(ends, calls)) {
     Operation *terminator = end->getTerminator();
-    if (!isa<ReturnOp>(terminator) && !isa<RegionBranchTerminatorOpInterface>(terminator))
+    // A tail whose terminator returns nothing to its parent, a crash or an
+    // exit, never gives a value.
+    if (!terminator->hasTrait<OpTrait::ReturnLike>())
       continue;
-    auto call = dyn_cast_or_null<CallOp>(source);
-    if (call && call.getTailKind() == TailKind::tail &&
-        (component.isMade(call) || component.isMember(call))) {
+    if (call && (component.isMade(call) || component.isMember(call))) {
       passing.push_back(call);
       continue;
     }
@@ -260,8 +260,7 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
   Value stack = DataConOp::create(rewriter, loc, base, body->getArguments()).getResult();
   llvm::SmallVector<Value> args(entry->getArguments());
   args.push_back(stack);
-  auto binder = cast<ErasedBinderOpInterface>(wrapper.getOperation());
-  auto own = static_cast<uint32_t>(binder.getBoundSorts(wrapper.getBody()).size());
+  auto own = static_cast<uint32_t>(wrapper.getBoundSorts(wrapper.getBody()).size());
   CallOp::create(rewriter, loc, run, families::levelArgs(ctx, 0, own), args, TailKind::nontail);
   YieldOp::create(rewriter, loc, ValueRange());
   rewriter.setInsertionPointAfter(slots);
@@ -277,7 +276,7 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
 // `like`'s extents with them.
 FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType type,
               LivesInAttr lives) {
-  auto fn = cast<FuncOp>(like->cloneWithoutRegions());
+  FuncOp fn = like.cloneWithoutRegions();
   fn.setSymNameAttr(name);
   fn.setFunctionTypeAttr(TypeAttr::get(type));
   fn.setArgAttrsAttr(nullptr);

@@ -139,6 +139,13 @@ struct StageRequest {
 mlir::FailureOr<llvm::SmallVector<StageRequest>> parseStageRequests(mlir::MLIRContext *context,
                                                                      llvm::StringRef written);
 
+// The module a check of a pass's run on `op` reads, when the run is one the
+// stage expectations and the contracts check: a run on the module itself,
+// or on an op whose run covers the whole program (CheckedRoot), which the
+// module holds. Null for a run on an op inside the program, a function the
+// nest runs on a worker thread, which is checked as the nest's run.
+mlir::ModuleOp checkedModule(mlir::Operation *op);
+
 class StageInstrumentation final : public mlir::PassInstrumentation {
 public:
   explicit StageInstrumentation(llvm::SmallVector<StageRequest> requests);

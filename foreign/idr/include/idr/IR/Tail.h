@@ -158,4 +158,22 @@ mlir::LogicalResult verify(FuncOp fn);
 
 } // namespace idr::tail
 
+namespace idr {
+
+// `op` as a tail call: the call, when it is one whose fact is `tail`; null
+// for any other op, and for a call that is `nontail` or `modulo_context`.
+// The one reading of whether an op is a tail call, so a pass that treats
+// tail calls apart asks here and never reads the fact itself.
+CallOp tailCallOf(mlir::Operation *op);
+
+// `op` as a call that is its caller's last act, which nothing of the
+// caller may follow: a tail call, and a self call modulo a context, which
+// fills its hole as its last act. Null for any other op, and for a call
+// that returns to its caller (`nontail`), after which its caller goes on.
+// The one reading of whether code may follow a call: a loan ended after
+// it, or a lifetime's region closed after it.
+CallOp lastActOf(mlir::Operation *op);
+
+} // namespace idr
+
 #endif // IDR_IR_TAIL_H

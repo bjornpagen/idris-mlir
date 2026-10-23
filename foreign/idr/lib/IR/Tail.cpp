@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Tail position: the one definition, the call's own check of its fact,
-// and its function's. Tail position modulo a context is Tail/Context.cpp's.
+// its function's, and the one reading of whether an op is a tail call.
+// Tail position modulo a context is Tail/Context.cpp's.
 
 #include "idr/IR/Tail.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -48,6 +50,15 @@ Operation *passesOn(Operation *op, SmallVectorImpl<Value> &values) {
     *carried = next->getResult(0);
   }
   return next && llvm::equal(next->getOperands(), values) ? next : nullptr;
+}
+
+// Whether `terminator` gives its operands to its function's callers. It
+// returns control to its parent, as upstream's dataflow reads a return:
+// return-like, in a callable's own region. A yield returns to its parent
+// too, but its parent is the op whose region it ends, which rejoinOf reads.
+bool returnsFromFunction(Operation *terminator) {
+  return terminator->hasTrait<OpTrait::ReturnLike>() &&
+         isa<CallableOpInterface>(terminator->getParentOp());
 }
 
 } // namespace
@@ -99,7 +110,7 @@ bool inTailPosition(Operation *op) {
     Operation *terminator = passesOn(at, values);
     if (!terminator)
       return false;
-    if (isa<ReturnOp>(terminator))
+    if (returnsFromFunction(terminator))
       return true;
     at = rejoinOf(terminator);
     if (!at)
@@ -160,7 +171,7 @@ LogicalResult verify(CallOp call) {
   case TailKind::tail: {
     llvm::SmallVector<Value, 4> values;
     Operation *terminator = passesOn(call, values);
-    if (!terminator || (!isa<ReturnOp>(terminator) && !rejoinOf(terminator)))
+    if (!terminator || (!returnsFromFunction(terminator) && !rejoinOf(terminator)))
       return call.emitOpError(
           "internal error: a tail call whose results its block does not give on unchanged");
     return verifyOperands(call, fn);
@@ -182,7 +193,7 @@ LogicalResult verify(FuncOp fn) {
   // no tail call is a jump the compiler fails to make.
   unsigned tails = 0;
   fn.walk([&](CallOp call) {
-    if (call.getTailKind() == TailKind::tail)
+    if (tailCallOf(call))
       ++tails;
   });
   bool exact = decided(fn);
@@ -191,7 +202,7 @@ LogicalResult verify(FuncOp fn) {
     auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
     if (!call)
       continue;
-    if (call.getTailKind() == TailKind::tail)
+    if (tailCallOf(call))
       ++reached;
     else if (exact)
       return call.emitOpError("internal error: a call in tail position that is no tail call, a "
@@ -202,7 +213,7 @@ LogicalResult verify(FuncOp fn) {
   // Some tail call is off the spine: name it, reading up from each.
   LogicalResult result = success();
   fn.walk([&](CallOp call) {
-    if (call.getTailKind() == TailKind::tail && !inTailPosition(call)) {
+    if (tailCallOf(call) && !inTailPosition(call)) {
       result = call.emitOpError("internal error: a tail call that is not in tail position: an "
                                 "op runs after a region op around it");
       return WalkResult::interrupt();
@@ -213,3 +224,26 @@ LogicalResult verify(FuncOp fn) {
 }
 
 } // namespace idr::tail
+
+namespace idr {
+
+CallOp tailCallOf(Operation *op) {
+  auto call = dyn_cast<CallOp>(op);
+  return call && call.getTailKind() == TailKind::tail ? call : CallOp();
+}
+
+CallOp lastActOf(Operation *op) {
+  auto call = dyn_cast<CallOp>(op);
+  if (!call)
+    return CallOp();
+  switch (call.getTailKind()) {
+  case TailKind::nontail:
+    return CallOp();
+  case TailKind::tail:
+  case TailKind::modulo_context:
+    return call;
+  }
+  return CallOp();
+}
+
+} // namespace idr

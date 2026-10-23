@@ -27,17 +27,6 @@ Stage stageOf(ModuleOp module) {
   return Stage::Lowered;
 }
 
-// A run is checked when its op is the module or its program, which run on
-// the pass manager's own thread; a pass on each function is checked as the
-// nest that runs it on the program.
-bool checked(Operation *op) { return isa<ModuleOp>(op) || isa<ProgramOp>(op); }
-
-ModuleOp moduleOf(Operation *op) {
-  if (auto module = dyn_cast<ModuleOp>(op))
-    return module;
-  return op->getParentOfType<ModuleOp>();
-}
-
 // The pass as MLIR writes it in a pipeline, for a person reading the error.
 std::string nameOf(Pass *pass) {
   std::string name;
@@ -100,6 +89,17 @@ LogicalResult runOnce(const StageRequest &request, ModuleOp module, Report repor
 
 } // namespace
 
+// The module is upstream's, so it carries no trait of ours and is asked by
+// its class, here alone; every op of ours whose run covers the program says
+// so by its trait.
+ModuleOp checkedModule(Operation *op) {
+  if (auto module = dyn_cast<ModuleOp>(op))
+    return module;
+  if (op->hasTrait<CheckedRoot>())
+    return op->getParentOfType<ModuleOp>();
+  return ModuleOp();
+}
+
 FailureOr<SmallVector<StageRequest>> parseStageRequests(MLIRContext *context, StringRef written) {
   auto [stageText, rest] = written.split(':');
   std::optional<Stage> stage = symbolizeStage(stageText);
@@ -142,9 +142,9 @@ bool StageInstrumentation::closePending(Stage stage, ModuleOp module) {
 }
 
 void StageInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  if (!checked(op))
+  ModuleOp module = checkedModule(op);
+  if (!module)
     return;
-  ModuleOp module = moduleOf(op);
   Stage now = stageOf(module);
   bool held = true;
   if (current && *current != now)
