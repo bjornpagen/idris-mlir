@@ -4,12 +4,11 @@
 // its nodes, the making of a node with what it says of its value, the
 // union-find over its classes, and the rebuild that pays the unions and
 // restores congruence. No op is made here: a node of the input asks its
-// own op, and a node a rule built reads its kind's tables; and an integer
-// is a value, never an attribute.
+// own op, and a node a rule built reads its kind's tables; and a constant,
+// whatever its kind, is a value, never an attribute.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Matchers.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -31,16 +30,17 @@ namespace {
 bool keyed(const Node &node) {
   return match(
       node.what, [](const node::Input &op) { return op.identity == Identity::Shared; },
-      [](const OneOf<node::Built, node::Constant, node::Integer> auto &) { return true; },
+      [](const OneOf<node::Built, node::Held, node::Integer, node::Known> auto &) {
+        return true;
+      },
       [](const node::Leaf &) { return false; });
 }
 
 Identity identityOf(const Node &node) {
   return match(
       node.what, [](const node::Input &op) { return op.identity; },
-      [](const OneOf<node::Built, node::Constant, node::Integer, node::Leaf> auto &) {
-        return Identity::Shared;
-      });
+      [](const OneOf<node::Built, node::Held, node::Integer, node::Known,
+                     node::Leaf> auto &) { return Identity::Shared; });
 }
 
 } // namespace
@@ -95,8 +95,9 @@ RegionId Function::newRegion(Region region) {
 // A node's key: its kind, its type, its payload and its operands' classes.
 // Two nodes of the input compare their properties through the op's own
 // comparison; a node a rule built has its kind's default properties, and is
-// equal only to another such of its kind; an integer is its value, and a
-// constant its attribute and the dialect that materializes it.
+// equal only to another such of its kind; a constant an op holds is its
+// attribute and the dialect that materializes it; an integer and any other
+// constant the graph knows are their values.
 bool Function::sameKey(const Node &a, std::span<const ClassId> ac, const Node &b,
                        std::span<const ClassId> bc) {
   if (a.type != b.type || !std::ranges::equal(ac, bc))
@@ -114,31 +115,33 @@ bool Function::sameKey(const Node &a, std::span<const ClassId> ac, const Node &b
                      p->getName().compareOpProperties(p->getPropertiesStorage(),
                                                       q->getPropertiesStorage());
             },
-            [](const OneOf<node::Built, node::Constant, node::Integer, node::Leaf> auto &) {
-              return false;
-            });
+            [](const OneOf<node::Built, node::Held, node::Integer, node::Known,
+                           node::Leaf> auto &) { return false; });
       },
       [&](const node::Built &x) {
         return match(
             b.what, [&](const node::Built &y) { return x.kind == y.kind; },
-            [](const OneOf<node::Input, node::Constant, node::Integer, node::Leaf> auto &) {
-              return false;
-            });
+            [](const OneOf<node::Input, node::Held, node::Integer, node::Known,
+                           node::Leaf> auto &) { return false; });
+      },
+      [&](const node::Held &x) {
+        return match(
+            b.what,
+            [&](const node::Held &y) { return x.value == y.value && x.dialect == y.dialect; },
+            [](const OneOf<node::Input, node::Built, node::Integer, node::Known,
+                           node::Leaf> auto &) { return false; });
       },
       [&](const node::Integer &x) {
         return match(
             b.what, [&](const node::Integer &y) { return x.value == y.value; },
-            [](const OneOf<node::Input, node::Built, node::Constant, node::Leaf> auto &) {
-              return false;
-            });
+            [](const OneOf<node::Input, node::Built, node::Held, node::Known,
+                           node::Leaf> auto &) { return false; });
       },
-      [&](const node::Constant &x) {
+      [&](const node::Known &x) {
         return match(
-            b.what,
-            [&](const node::Constant &y) { return x.value == y.value && x.dialect == y.dialect; },
-            [](const OneOf<node::Input, node::Built, node::Integer, node::Leaf> auto &) {
-              return false;
-            });
+            b.what, [&](const node::Known &y) { return x.value == y.value; },
+            [](const OneOf<node::Input, node::Built, node::Held, node::Integer,
+                           node::Leaf> auto &) { return false; });
       },
       [](const node::Leaf &) { return false; });
 }
@@ -151,10 +154,11 @@ std::uint32_t Function::hashOf(const Node &node) const {
                                   op.origin->hashProperties());
       },
       [](const node::Built &op) { return llvm::hash_value(op.kind); },
-      [](const node::Integer &integer) { return llvm::hash_value(integer.value); },
-      [](const node::Constant &literal) {
+      [](const node::Held &literal) {
         return llvm::hash_combine(literal.value.getAsOpaquePointer(), literal.dialect);
       },
+      [](const node::Integer &integer) { return llvm::hash_value(integer.value); },
+      [](const node::Known &known) { return hash_value(known.value); },
       [](const node::Leaf &) { return llvm::hash_code(0); });
   hash = llvm::hash_combine(hash, node.type.getAsOpaquePointer());
   for (ClassId operand : childrenOf(node))
@@ -234,49 +238,54 @@ void Function::forget(NodeId n) {
 
 namespace {
 
-// A constant an op holds is that attribute, and lies in the interval the
-// op gives it, or, where the op gives none, is the one value of an integer
-// attribute.
-Facts held(Attribute value, std::optional<ConstantIntRanges> interval) {
-  if (!interval)
-    if (auto integer = dyn_cast<IntegerAttr>(value))
-      interval = ConstantIntRanges::constant(integer.getValue());
-  return {interval, value};
-}
-
 // Upstream's mark for a value it does not see as an integer: bounds of no
 // width, which say nothing of one.
 bool widthless(const ConstantIntRanges &range) { return range.umin().getBitWidth() == 0; }
 
-// How `value` is written as a word of `type`, where it is one. An interval
-// of another width than the type's storage, as an op may state of a value
-// it does not see as an integer, is no word of the type.
-std::optional<IntegerForm> wordOf(const APInt &value, Type type) {
+// How `value` is written as an integer of `type`, where it is one. An
+// interval of another width than the type's storage, as an op may state of
+// a value it does not see as an integer, is no word of the type; a big's
+// interval is of the integer it stands for, and an integer outside the
+// small range is none the runtime holds in its word.
+std::optional<IntegerForm> formOf(const APInt &value, Type type) {
   std::optional<IntegerForm> form = integerFormOf(type);
-  if (!form || value.getBitWidth() != ConstantIntRanges::getStorageBitwidth(type))
+  if (!form)
     return std::nullopt;
-  return form;
+  switch (*form) {
+  case IntegerForm::Word:
+  case IntegerForm::Splat:
+    if (value.getBitWidth() != ConstantIntRanges::getStorageBitwidth(type))
+      return std::nullopt;
+    return form;
+  case IntegerForm::Small: {
+    std::optional<int64_t> small = value.trySExtValue();
+    if (!small || *small < IDRIS_RT_SMALL_MIN || *small > IDRIS_RT_SMALL_MAX)
+      return std::nullopt;
+    return form;
+  }
+  }
+  return std::nullopt;
 }
 
 } // namespace
 
 ClassId Function::leaf(Value value, RegionId home) {
-  Facts facts;
-  if (Attribute known; matchPattern(value, m_Constant(&known)))
-    facts = held(known, std::nullopt);
   Node node{node::Leaf{value, home}, value.getType(), childrenFor({})};
-  return classOfNode(make(std::move(node), std::move(facts)));
+  return classOfNode(make(std::move(node), Facts()));
 }
 
 // Two ops holding one attribute are one constant, which says what each
-// says.
-ClassId Function::constant(Attribute value, Type type, Dialect *dialect,
-                           std::optional<ConstantIntRanges> interval) {
-  Node node{node::Constant{value, dialect}, type, childrenFor({})};
+// says: the interval the op gives it, and the value read once from its
+// attribute (an integer's interval where the op gives none).
+ClassId Function::held(Attribute value, Type type, Dialect *dialect,
+                       std::optional<ConstantIntRanges> interval) {
+  Node node{node::Held{value, dialect}, type, childrenFor({})};
   if (std::optional<NodeId> found = lookup(node))
     return forest.find(classOfNode(*found));
-  ClassId cls = classOfNode(make(std::move(node), held(value, interval)));
-  joinInteger(cls);
+  Facts facts = heldFacts(value);
+  (void)facts.meet({interval, std::nullopt});
+  ClassId cls = classOfNode(make(std::move(node), std::move(facts)));
+  joinConstant(cls);
   return cls;
 }
 
@@ -286,12 +295,14 @@ std::optional<IntegerForm> integerFormOf(Type type) {
   auto shaped = dyn_cast<ShapedType>(type);
   if (shaped && shaped.hasStaticShape() && shaped.getElementType().isIntOrIndex())
     return IntegerForm::Splat;
+  if (isCarriedAsBig(type) && usesOf(type) == Uses::Many)
+    return IntegerForm::Small;
   return std::nullopt;
 }
 
 // Two integers of one value and type are one node.
 std::optional<ClassId> Function::integer(const APInt &value, Type type) {
-  std::optional<IntegerForm> form = wordOf(value, type);
+  std::optional<IntegerForm> form = formOf(value, type);
   if (!form)
     return std::nullopt;
   Node node{node::Integer{value, *form}, type, childrenFor({})};
@@ -299,13 +310,40 @@ std::optional<ClassId> Function::integer(const APInt &value, Type type) {
     return forest.find(classOfNode(*found));
   if (nodes.size() >= budget)
     return std::nullopt;
-  return classOfNode(make(std::move(node), {ConstantIntRanges::constant(value), Attribute()}));
+  return classOfNode(make(std::move(node), {ConstantIntRanges::constant(value), std::nullopt}));
+}
+
+// Two constants of one value and type are one node.
+std::optional<ClassId> Function::known(const Constant &value, Type type) {
+  assert(placedAt(value, type) && "a constant has a node only where its constant op stands");
+  Node node{node::Known{value}, type, childrenFor({})};
+  if (std::optional<NodeId> found = lookup(node))
+    return forest.find(classOfNode(*found));
+  if (nodes.size() >= budget)
+    return std::nullopt;
+  return classOfNode(make(std::move(node), {std::nullopt, value}));
+}
+
+bool Function::placeable(const Facts &facts, Type type) const {
+  if (std::optional<APInt> value = facts.integer(); value && formOf(*value, type))
+    return true;
+  return facts.constant && placedAt(*facts.constant, type);
+}
+
+// A node's own run of operands is given back before a constant is made,
+// since a node is made over the last run laid.
+std::optional<ClassId> Function::constantOf(const Facts &facts, Type type) {
+  if (std::optional<APInt> value = facts.integer(); value && formOf(*value, type))
+    return integer(*value, type);
+  if (facts.constant && placedAt(*facts.constant, type))
+    return known(*facts.constant, type);
+  return std::nullopt;
 }
 
 Changed Facts::meet(const Facts &other) {
   Changed changed = Changed::No;
-  if (!attribute && other.attribute) {
-    attribute = other.attribute;
+  if (!constant && other.constant) {
+    constant = other.constant;
     changed = Changed::Yes;
   }
   if (!other.range || widthless(*other.range))
@@ -349,17 +387,59 @@ std::optional<ConstantIntRanges> Function::intervalOf(Operation *op,
   return interval;
 }
 
+// A node's meaning is computed only over constants: the op of the input's,
+// read with its own properties, or the kind's a rule built. What it
+// computes takes the runtime's memory for a string or a big past the small
+// range, within the bytes the function's constants may take; past them the
+// constant is not kept, and the op that computes it stays.
+std::optional<Facts> Function::meant(const What &what, Type type,
+                                     std::span<const ClassId> operands) {
+  SmallVector<const Class *, 4> constants;
+  for (ClassId operand : operands) {
+    const Class &cls = at(forest.rootOf(operand));
+    if (!cls.facts.isConstant())
+      return std::nullopt;
+    constants.push_back(&cls);
+  }
+  std::optional<Facts> facts = match(
+      what,
+      [&](const node::Input &op) -> std::optional<Facts> {
+        return op.meaning ? (*op.meaning)(op.origin, type, constants) : std::nullopt;
+      },
+      [&](const node::Built &op) -> std::optional<Facts> {
+        const std::optional<Meaning> &meaning = kinds.meanings[op.kind];
+        return meaning ? meaning->ofBuilt(type, constants) : std::nullopt;
+      },
+      []<Atom N>(const N &) -> std::optional<Facts> { return std::nullopt; });
+  if (!facts)
+    return std::nullopt;
+  ++steps;
+  if (facts->constant) {
+    std::uint64_t bytes = bytesOf(*facts->constant);
+    if (bytes > constantBytes - computedBytes)
+      facts->constant.reset();
+    else
+      computedBytes += bytes;
+  }
+  return facts;
+}
+
 // An atom reads no class: what it says it said when it was made, which its
 // class already holds.
-Facts Function::saysOf(NodeId n) const {
+Facts Function::saysOf(NodeId n) {
   const Node &node = at(n);
-  return match(
+  Facts said = match(
       node.what,
       [&](const node::Input &op) -> Facts {
-        return {intervalOf(op.origin, childrenOf(node)), Attribute()};
+        return {intervalOf(op.origin, childrenOf(node)), std::nullopt};
       },
-      [&](const node::Built &op) { return saysOf(op, node.type, childrenOf(node)); },
+      [&](const node::Built &op) -> Facts {
+        return {intervalOf(op, node.type, childrenOf(node)), std::nullopt};
+      },
       []<Atom N>(const N &) { return Facts(); });
+  if (std::optional<Facts> computed = meant(node.what, node.type, childrenOf(node)))
+    (void)said.meet(*computed);
+  return said;
 }
 
 Run Function::childrenFor(std::span<const ClassId> operands) {
@@ -375,40 +455,52 @@ void Function::unlay(Run run) {
   children.erase(children.begin() + static_cast<std::ptrdiff_t>(run.first), children.end());
 }
 
-void Function::joinInteger(ClassId c) {
+// A class holding a fresh identity is never one with a constant, which a
+// second equal identity could then never join: an op that makes one is its
+// constant only where it enters the graph with a meaning that computes it
+// (insert). The facts are read before a node is made, which moves them.
+void Function::joinConstant(ClassId c) {
   ClassId root = forest.find(c);
-  if (std::optional<APInt> value = at(root).facts.integer())
-    if (std::optional<ClassId> is = integer(*value, at(root).type))
-      (void)unite(root, *is);
+  if (at(root).identity == Identity::Own)
+    return;
+  Facts facts = at(root).facts;
+  if (std::optional<ClassId> is = constantOf(facts, at(root).type))
+    (void)unite(root, *is);
 }
 
 // The class of a floating op of the input over `operands`: an equal node's
-// class, found in the hash-cons; or a new node in a class of its own, with
-// its interval, united with the integer it is where its interval is one
-// value, and with an argument where its callee gives that back. The rules
-// run in the rounds after the walk.
+// class, found in the hash-cons; or the constant its meaning computes, with
+// no node of its own, as a node a rule built over constants is, where the
+// type places it; or a new node in a class of its own, with its interval
+// and what its meaning computes, united with the constant it is where its
+// facts are one, and with an argument where its callee gives that back. An
+// op that makes a fresh identity, as one that computes a string or a big
+// does, becomes its constant only here. The rules run in the rounds after
+// the walk.
 ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> operands) {
-  Node node{op, type, childrenFor(operands)};
-  if (op.identity == Identity::Shared)
-    if (std::optional<NodeId> found = lookup(node)) {
-      unlay(node.children);
+  if (op.identity == Identity::Shared) {
+    Node probe{op, type, childrenFor(operands)};
+    std::optional<NodeId> found = lookup(probe);
+    unlay(probe.children);
+    if (found)
       return forest.find(classOfNode(*found));
-    }
-  // What the op computes is its interval alone. Its own fold is never
-  // asked: a fold makes the attribute of what it computes, and the graph
-  // makes none, so a constant that is no integer (a string, a Double, a big
-  // past the small range, a data constant) is known only where an op of the
-  // input holds it, and the write-back makes what it writes.
-  Facts facts{intervalOf(op.origin, childrenOf(node)), Attribute()};
-  ClassId cls = classOfNode(make(std::move(node), std::move(facts)));
-  joinInteger(cls);
+  }
+  std::optional<Facts> computed = meant(op, type, operands);
+  if (computed && placeable(*computed, type))
+    if (std::optional<ClassId> is = constantOf(*computed, type))
+      return *is;
+  Facts facts{intervalOf(op.origin, operands), std::nullopt};
+  if (computed)
+    (void)facts.meet(*computed);
+  ClassId cls = classOfNode(make(Node{op, type, childrenFor(operands)}, std::move(facts)));
+  joinConstant(cls);
   if (std::optional<ClassId> given = giveBack(op, operands, type))
     (void)unite(cls, *given);
   return cls;
 }
 
 // The class of a node a right side built over `operands`: an equal node's
-// class, the integer it is, or a new node in a class of its own with what
+// class, the constant it is, or a new node in a class of its own with what
 // its kind's tables give. None once the function's budget of nodes is
 // spent: the rule then does not apply, and the function is less optimized.
 std::optional<ClassId> Function::insert(node::Built op, Type type,
@@ -429,12 +521,15 @@ std::optional<ClassId> Function::insert(node::Built op, Type type,
     unlay(node.children);
     return std::nullopt;
   }
-  // One built over constants is its integer at once, as a fold made it,
-  // and no node of its own: the budget, not yet spent, makes the integer.
-  Facts facts = saysOf(op, type, childrenOf(node));
-  if (std::optional<APInt> value = facts.integer(); value && wordOf(*value, type)) {
+  // One built over constants is the constant it computes at once, as a fold
+  // made it, and no node of its own: the budget, not yet spent, makes the
+  // constant.
+  Facts facts{intervalOf(op, type, childrenOf(node)), std::nullopt};
+  if (std::optional<Facts> computed = meant(op, type, childrenOf(node)))
+    (void)facts.meet(*computed);
+  if (placeable(facts, type)) {
     unlay(node.children);
-    return integer(*value, type);
+    return constantOf(facts, type);
   }
   return classOfNode(make(std::move(node), std::move(facts)));
 }
@@ -519,7 +614,7 @@ ClassId Function::pay(const Owed &debt) {
 // rebuild moved, is repaired; a repair's unions are paid and their roots
 // repaired in turn, a chunk at a time, each chunk its classes' roots once,
 // until none is owed. A repair unites only congruent nodes or a class with
-// its integer, so each chunk after the first follows a union, which leaves
+// its constant, so each chunk after the first follows a union, which leaves
 // one class fewer: the rebuild ends.
 void Function::rebuild() {
   footprint::Vector<ClassId> work = std::exchange(carried, {});
@@ -542,12 +637,13 @@ void Function::rebuild() {
 
 // Each node that reads `c` keyed again by its operands' roots: one now equal
 // to a keyed node unites with it. Then what it says over its operands'
-// facts as they are now narrows its class, and where it can be computed
+// facts as they are now narrows its class, where the class does not know
+// its constant already, which nothing narrows; and where it can be computed
 // widens its class's reach; a class so changed has its own users read
 // again at the next round's rebuild, so a change climbs one class a round
 // and no rebuild waits on a chain of them.
 void Function::repair(ClassId c) {
-  joinInteger(c);
+  joinConstant(c);
   for (std::optional<UseId> use = at(c).firstUse; use; use = uses[use->index()].next) {
     ++steps;
     NodeId user = uses[use->index()].user;
@@ -567,7 +663,12 @@ void Function::repair(ClassId c) {
       toRoots();
     }
     ClassId holder = forest.find(classOfNode(user));
-    if ((at(holder).facts.meet(saysOf(user)) | widen(holder, at(user))) == Changed::Yes)
+    Changed narrowed = Changed::No;
+    if (!at(holder).facts.isConstant()) {
+      Facts said = saysOf(user);
+      narrowed = at(holder).facts.meet(said);
+    }
+    if ((narrowed | widen(holder, at(user))) == Changed::Yes)
       carried.push_back(holder);
   }
 }

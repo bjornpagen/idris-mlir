@@ -222,7 +222,11 @@ LogicalResult lowerFunction(LLVM::LLVMFuncOp fn, const Lowering &lowering) {
   // Without rollback an op's operands are already the converted values
   // when the driver would fold it, so an idr op's fold would read an LLVM
   // value as one of its own types. Every op here has a pattern, and the
-  // optimizer folded what folds before the lowering.
+  // optimizer's e-graph computed before the lowering what an idr op's fold
+  // computes, wherever it knew the op's operands and that its guards and
+  // conditions admit them: the same runtime function or numeric meaning,
+  // over constants it holds as values, each placed where its constant op
+  // stands.
   conversion.foldingMode = DialectConversionFoldingMode::Never;
   if (failed(applyFullConversion(fn, lowering.target, lowering.patterns, conversion)))
     return failure();

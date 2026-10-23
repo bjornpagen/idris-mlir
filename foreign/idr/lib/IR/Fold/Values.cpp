@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime's scalar operands and results as constants: integers by the
-// kind the runtime takes or gives them in, Doubles, truths and orders; and
-// the string a constant list of characters packs to or a constant list of
-// strings concatenates to.
+// kind the runtime takes or gives them in, Doubles, truths and orders; the
+// attribute instance of the one fold; where idr.constant holds static data;
+// and the string a constant list of characters packs to or a constant list
+// of strings concatenates to.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
@@ -20,74 +21,92 @@ using namespace mlir;
 
 namespace idr::fold {
 
-// An integer constant read as the kind says: as its 32-bit word, its 64-bit
-// one, or extended to 64 bits with its sign or with zeros, as the op's
-// signedness extends it for its function.
-std::optional<int32_t> int32Of(Attribute constant) {
+std::optional<APInt> integerOf(Attribute constant) {
   auto n = dyn_cast_or_null<IntegerAttr>(constant);
   if (!n)
     return std::nullopt;
-  return static_cast<int32_t>(n.getValue().getSExtValue());
+  return n.getValue();
 }
 
-std::optional<int64_t> int64Of(Attribute constant) {
-  auto n = dyn_cast_or_null<IntegerAttr>(constant);
-  if (!n)
-    return std::nullopt;
-  return n.getValue().getSExtValue();
-}
-
-std::optional<int64_t> signedOf(Attribute constant) { return int64Of(constant); }
-
-std::optional<uint64_t> unsignedOf(Attribute constant) {
-  auto n = dyn_cast_or_null<IntegerAttr>(constant);
-  if (!n)
-    return std::nullopt;
-  return n.getValue().getZExtValue();
-}
-
-std::optional<double> doubleOf(Attribute constant) {
+// A Double is an f64: a float of another width is no constant of the
+// runtime's.
+std::optional<double> realOf(Attribute constant) {
   auto d = dyn_cast_or_null<FloatAttr>(constant);
-  if (!d)
+  if (!d || !d.getType().isF64())
     return std::nullopt;
   return d.getValueAsDouble();
 }
 
-Attribute intAttr(Type type, int64_t value) { return wrapped(type, value); }
+APInt wrappedTo(Type type, int64_t value) {
+  return APInt(type.getIntOrFloatBitWidth(), static_cast<uint64_t>(value), /*isSigned=*/false,
+               /*implicitTrunc=*/true);
+}
 
 Attribute wrapped(Type type, int64_t value) {
-  unsigned width = type.getIntOrFloatBitWidth();
-  return IntegerAttr::get(type, APInt(width, static_cast<uint64_t>(value), /*isSigned=*/false,
-                                      /*implicitTrunc=*/true));
+  return IntegerAttr::get(type, wrappedTo(type, value));
 }
 
-Attribute doubleAttr(Type type, double value) { return FloatAttr::get(type, value); }
-
-Attribute boolAttr(MLIRContext *ctx, bool value) { return BoolAttr::get(ctx, value); }
-
-// The order a comparison's runtime function gives, against the predicate
-// the op holds: each case of CmpPredicate one test of the order's sign.
-Attribute ordered(MLIRContext *ctx, unsigned predicate, int32_t order) {
-  bool holds = false;
-  switch (static_cast<CmpPredicate>(predicate)) {
+// Each case of CmpPredicate is one test of the order's sign.
+bool orderHolds(CmpPredicate predicate, int32_t order) {
+  switch (predicate) {
   case CmpPredicate::eq:
-    holds = order == 0;
-    break;
+    return order == 0;
   case CmpPredicate::lt:
-    holds = order < 0;
-    break;
+    return order < 0;
   case CmpPredicate::lte:
-    holds = order <= 0;
-    break;
+    return order <= 0;
   case CmpPredicate::gt:
-    holds = order > 0;
-    break;
+    return order > 0;
   case CmpPredicate::gte:
-    holds = order >= 0;
-    break;
+    return order >= 0;
   }
-  return BoolAttr::get(ctx, holds);
+  return false;
 }
+
+Attribute ordered(MLIRContext *ctx, unsigned predicate, int32_t order) {
+  return BoolAttr::get(ctx, orderHolds(static_cast<CmpPredicate>(predicate), order));
+}
+
+// Static data is used any number of times and, where its type holds
+// references, held static: nothing frees it and no count writes it. A
+// constant in its word has no cell for a count to write, so it stands at
+// any hold.
+bool constantStandsAt(Type type, Storage storage) {
+  Grade grade = gradeOf(type);
+  return grade.uses == Uses::Many &&
+         (!grade.hold || storage == Storage::Word || grade.hold->release() == Release::Static);
+}
+
+//===----------------------------------------------------------------------===//
+// The attribute instance
+//===----------------------------------------------------------------------===//
+
+// An integer of the op's result's integer type, a truth an i1's.
+std::optional<Attribute> InAttributes::integer(Type type, const APInt &value) const {
+  return IntegerAttr::get(type, value);
+}
+
+std::optional<Attribute> InAttributes::real(Type type, double value) const {
+  return FloatAttr::get(type, value);
+}
+
+// The scope keeps what the runtime made, whether or not idr.constant holds
+// it at the result's type.
+std::optional<Attribute> InAttributes::str(Type type, const idris_rt_str *made) {
+  scope.keep(made);
+  Attribute constant = held(strAttr(scope.context(), made), type);
+  return constant ? std::optional(constant) : std::nullopt;
+}
+
+std::optional<Attribute> InAttributes::big(Type type, idris_rt_big made) {
+  scope.keep(made);
+  Attribute constant = held(bigAttr(scope.context(), made), type);
+  return constant ? std::optional(constant) : std::nullopt;
+}
+
+//===----------------------------------------------------------------------===//
+// Constant lists
+//===----------------------------------------------------------------------===//
 
 namespace {
 
@@ -140,14 +159,15 @@ Attribute stringOfList(MLIRContext *ctx, Attribute list) {
     for (Attribute c : llvm::reverse(*elements)) {
       Scope step(ctx);
       step.keep(s);
-      std::optional<int32_t> ch = int32Of(c);
+      std::optional<APInt> ch = integerOf(c);
       if (!ch)
         return {};
-      s = runtime::Abi<StrConsOp>::function(*ch, s);
+      s = runtime::Abi<StrConsOp>::function(static_cast<int32_t>(ch->getSExtValue()), s);
     }
   }
   Scope scope(ctx);
-  return strAttr(scope, s);
+  scope.keep(s);
+  return strAttr(ctx, s);
 }
 
 } // namespace idr::fold

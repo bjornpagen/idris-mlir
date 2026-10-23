@@ -57,18 +57,17 @@ std::optional<idris_rt_big> bigOf(Scope &scope, Attribute constant) {
   return scope.keep(runtime::Abi<BigFromStrOp>::function(s));
 }
 
-Attribute strAttr(Scope &scope, const idris_rt_str *s) {
-  scope.keep(s);
-  return StringAttr::get(scope.context(), StringRef(idris_rt_str_bytes(s), s->bytes));
+Attribute strAttr(MLIRContext *context, const idris_rt_str *s) {
+  return StringAttr::get(context, StringRef(idris_rt_str_bytes(s), s->bytes));
 }
 
-Attribute bigAttr(Scope &scope, idris_rt_big b) {
-  scope.keep(b);
+Attribute bigAttr(MLIRContext *context, idris_rt_big b) {
+  Scope scope(context);
   const idris_rt_str *shown = scope.keep(runtime::Abi<BigShowOp>::function(b));
   StringRef text(idris_rt_str_bytes(shown), shown->bytes);
   // The bits the text needs read unsigned, and one for the sign, which a
   // positive value's top bit would otherwise be.
-  return BigAttr::get(scope.context(), APInt(APInt::getBitsNeeded(text, 10) + 1, text, 10));
+  return BigAttr::get(context, APInt(APInt::getBitsNeeded(text, 10) + 1, text, 10));
 }
 
 } // namespace idr::fold

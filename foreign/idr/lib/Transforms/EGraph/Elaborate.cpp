@@ -31,11 +31,8 @@
 #include "idr/IR/Tail.h"
 #include "idr/Support/Nest.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 
 #include <cassert>
 
@@ -44,17 +41,6 @@ using namespace mlir;
 namespace idr::egraph::detail {
 
 namespace {
-
-// The attribute of an integer at `type`, as its form writes it.
-TypedAttr attributeOf(Type type, const node::Integer &integer) {
-  switch (integer.form) {
-  case IntegerForm::Word:
-    return IntegerAttr::get(type, integer.value);
-  case IntegerForm::Splat:
-    return DenseIntElementsAttr::get(cast<ShapedType>(type), integer.value);
-  }
-  return {};
-}
 
 // The engine's own cost: an op one, an atom, which is placed for nothing,
 // none.
@@ -108,6 +94,8 @@ void Function::extract() {
 }
 
 void Function::elaborate(RewriterBase &rewriter) {
+  // The dialect whose constant op holds a string or a big, found once.
+  Dialect &constants = *rewriter.getContext()->getLoadedDialect<IdrDialect>();
   // Where each class is placed so far: a scope and its value there.
   footprint::Vector<footprint::Vector<std::pair<RegionId, Value>>> placed(classes.size());
   auto placedIn = [&](ClassId c, RegionId scope) -> std::optional<Value> {
@@ -122,8 +110,9 @@ void Function::elaborate(RewriterBase &rewriter) {
     return match(
         at(*best[c.index()]).what,
         [](const node::Leaf &leaf) -> std::optional<Value> { return leaf.value; },
-        [](const node::Constant &) -> std::optional<Value> { return std::nullopt; },
+        [](const node::Held &) -> std::optional<Value> { return std::nullopt; },
         [](const node::Integer &) -> std::optional<Value> { return std::nullopt; },
+        [](const node::Known &) -> std::optional<Value> { return std::nullopt; },
         [](const node::Input &) -> std::optional<Value> { return std::nullopt; },
         [](const node::Built &) -> std::optional<Value> { return std::nullopt; });
   };
@@ -142,27 +131,21 @@ void Function::elaborate(RewriterBase &rewriter) {
       SmallVector<Value, 4> values;
       for (ClassId operand : childrenOf(node))
         values.push_back(*placedIn(operand, scope));
-      // A constant held as an attribute is materialized by its dialect; an
-      // integer gets its attribute here, the one place the graph makes one;
-      // an op of the input is copied, its properties with it; a built one is
-      // made of its kind's op with the op's default properties; a leaf is
-      // where it is.
+      // A constant an op holds is materialized by its dialect, the
+      // attribute it held; a constant the graph knows gets its attribute
+      // here, the one place the graph makes one; an op of the input is
+      // copied, its properties with it; a built one is made of its kind's
+      // op with the op's default properties; a leaf is where it is.
       Value made = match(
           node.what, [](const node::Leaf &leaf) -> Value { return leaf.value; },
-          [&](const node::Constant &literal) -> Value {
-            Operation *op =
-                literal.dialect->materializeConstant(rewriter, literal.value, node.type, loc);
-            // A dialect folds only to what it materializes (MLIR's folding
-            // contract), so a constant class always has its op.
-            if (!op)
-              llvm::reportFatalInternalError("idr-simplify: a folded constant its dialect does "
-                                             "not materialize");
-            return op->getResult(0);
+          [&](const node::Held &literal) -> Value {
+            return materialized(*literal.dialect, rewriter, loc, node.type, literal.value);
           },
           [&](const node::Integer &integer) -> Value {
-            return arith::ConstantOp::create(rewriter, loc, node.type,
-                                             attributeOf(node.type, integer))
-                .getResult();
+            return writeBack(rewriter, loc, node.type, integer, constants);
+          },
+          [&](const node::Known &known) -> Value {
+            return writeBack(rewriter, loc, node.type, known, constants);
           },
           [&](const node::Input &op) -> Value {
             IRMapping mapping;

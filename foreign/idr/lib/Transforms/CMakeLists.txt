@@ -12,13 +12,16 @@
 # generated from the specification, with the interval analysis it reads
 # operands by. It calls the skeleton rules the specification names, which
 # the dialect, the joins and defunctionalization declare, so it links their
-# libraries; they read it through its headers alone and link it not.
+# libraries; they read it through its headers alone and link it not. It
+# computes constants with the runtime's functions, which the dialect's
+# library links.
 add_mlir_library(IdrEGraph
 	EGraph/Build.cpp
 	EGraph/Elaborate.cpp
 	EGraph/Nodes.cpp
 	EGraph/Rules.cpp
 	EGraph/Simplify.cpp
+	EGraph/Values.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL

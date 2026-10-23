@@ -10,18 +10,25 @@
 // op, a region op, a call in tail position and a terminator stays in the
 // skeleton of its region, in order, and so does an op whose value depends
 // on its parent (DependsOnParent), which two parents would make two
-// values. A node of the input is made with what it says of its value (an
+// values. A node of the input is made with what it says of its value: an
 // interval, by upstream's transfer function, whose one value, where it has
-// one, is the integer it is; the op's own fold is never asked, since a
-// fold makes an attribute and the graph makes none). A node a right side
-// builds has no op to ask and none is made for it: its interval is its
-// kind's range function over its operands' intervals, from the generated
-// table, so one built over constants is its integer at once. An integer is
-// a value until the write-back makes its attribute, hash-consed by its
-// value; any other constant is one an op of the input holds. A repeated
-// read in a region with no write of what it reads between merges into the
-// first, and a repeated op of the region's parent into the first; the
-// skeleton rules decide their edits.
+// one, is the integer it is; the constant it holds, read once from its
+// attribute into a value of the graph's own; and, where its meaning is a
+// runtime function, the constant that function computes from its
+// operands' constants, the one fold's value instance (IR/Fold.h), so no
+// attribute is made. A node a right side builds has no op to ask and none
+// is made for it: its interval is its kind's range function over its
+// operands' intervals, from the generated table, and its constant its
+// kind's runtime meaning over theirs. A constant is a value until the
+// write-back makes its attribute, of four kinds: an integer, the one value
+// of an interval (a big in the small range among them, as the runtime
+// holds it in its word); a string's bytes; a Double's bits; and a big past
+// the small range, as the runtime holds it, in a cell. One is hash-consed
+// by its value, and has a node only at a type its constant op stands at;
+// an op of the input whose meaning computes such a constant is it, with no
+// node of its own. A repeated read in a region with no write of what it
+// reads between merges into the first, and a repeated op of the region's
+// parent into the first; the skeleton rules decide their edits.
 //
 // Saturate: the specification's rules, in rounds. A round tries each rule,
 // in the generated order, at each node of the kind it is rooted at, over
@@ -41,13 +48,18 @@
 // through their roots when it reads them: when it is made, and when a
 // rebuild repairs it, where what it now says narrows its class; a class so
 // narrowed has its users read again at the next round's rebuild, and a
-// class whose facts are one integer holds that integer.
+// class whose facts are one constant, and that holds no fresh identity,
+// holds that constant.
 //
 // The rounds end by construction: a round that makes no node and unites no
 // two classes is the last; a node is made only while the function's budget
 // of nodes is not spent, and each union leaves one class fewer, so no more
 // rounds run than the budget's nodes and the classes together. A spent
 // budget stops them and leaves the function less optimized, never refused.
+// The strings and bigs the graph computes take the runtime's memory, as
+// many bytes at most as its nodes may: a constant past that is not kept,
+// and the op that computes it stays, so a chain that doubles a string
+// stops where the function's own size does.
 //
 // A class can be computed only where its members can: a leaf only in its
 // region, which a union may put in a class also used outside it. So each
@@ -69,7 +81,8 @@
 //
 // Elaborate: the regions in program order, each skeleton op's operands
 // written back where they are demanded, a value placed in the scope that
-// demands it unless an enclosing scope already holds it, the skeleton's
+// demands it unless an enclosing scope already holds it, a constant made
+// its attribute there, the one place the graph makes one, the skeleton's
 // edits carried out; then the input's floating ops, unused, are erased.
 //
 // Every id is minted by the table that holds it and never leaves the
@@ -96,9 +109,13 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 
+#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -145,12 +162,102 @@ enum class Identity : std::uint8_t { Shared, Own };
 
 // How the write-back writes an integer of a type: a word of the type, or
 // every element of a shaped value of a static shape the same word, each
-// arith's constant. A type whose integers have no constant op of their own
-// at it has none, and an integer of it stays the op that computes it: a
-// graded word, a numeral, and a big or a natural, whose constant op holds
-// one only held static, which an integer the graph computes never is.
-enum class IntegerForm : std::uint8_t { Word, Splat };
+// arith's constant; or a big or a natural used any number of times, whose
+// integer in the small range the runtime holds in its word, idr.constant's,
+// which stands at any hold. A type whose integers have no constant op of
+// their own at it has none, and an integer of it stays the op that
+// computes it: a word or a big used once, and a numeral.
+enum class IntegerForm : std::uint8_t { Word, Splat, Small };
 std::optional<IntegerForm> integerFormOf(mlir::Type type);
+
+// A string as the runtime holds it, one reference of the graph's own: two
+// are one constant exactly when their bytes are.
+class Text {
+public:
+  // The reference the runtime gave, which the graph now holds.
+  static Text adopt(const idris_rt_str *made) { return Text(made); }
+  // Another reference to a string held elsewhere.
+  static Text share(const idris_rt_str *s);
+  Text(const Text &other) : Text(share(other.s)) {}
+  Text(Text &&other) noexcept : s(std::exchange(other.s, nullptr)) {}
+  Text &operator=(Text other) noexcept {
+    std::swap(s, other.s);
+    return *this;
+  }
+  ~Text();
+
+  const idris_rt_str *get() const { return s; }
+  llvm::StringRef bytes() const;
+  friend bool operator==(const Text &a, const Text &b) { return a.bytes() == b.bytes(); }
+
+private:
+  explicit Text(const idris_rt_str *s) : s(s) {}
+  // Null only once moved from.
+  const idris_rt_str *s;
+};
+
+// A Double by its IEEE bits, so two are one constant exactly when their
+// bits are: 0.0 and -0.0 are two, as the program tells them apart.
+struct Real {
+  std::uint64_t bits;
+
+  double value() const { return std::bit_cast<double>(bits); }
+  friend bool operator==(Real, Real) = default;
+};
+
+// A big past the small range as the runtime holds it, a cell of limbs, one
+// reference of the graph's own: two are one constant exactly when the
+// runtime's comparison orders them equal. A big in the small range is an
+// integer, the one value of its interval.
+class Big {
+public:
+  static Big adopt(idris_rt_big made) { return Big(made); }
+  static Big share(idris_rt_big b);
+  Big(const Big &other) : Big(share(other.word)) {}
+  Big(Big &&other) noexcept : word(std::exchange(other.word, smallZero)) {}
+  Big &operator=(Big other) noexcept {
+    std::swap(word, other.word);
+    return *this;
+  }
+  ~Big();
+
+  idris_rt_big get() const { return word; }
+  friend bool operator==(const Big &a, const Big &b);
+
+private:
+  explicit Big(idris_rt_big word) : word(word) {}
+  // A big moved from holds the small 0, the word 2 * 0 + 1, which has no
+  // cell to release.
+  static constexpr idris_rt_big smallZero = 1;
+  idris_rt_big word;
+};
+
+// What the graph knows a value to be where no interval says it: a string,
+// a Double, or a big past the small range.
+using Constant = std::variant<Text, Real, Big>;
+
+llvm::hash_code hash_value(const Constant &constant);
+// The bytes of the runtime's memory it takes: a string's or a big's cell; a
+// Double takes none.
+std::uint64_t bytesOf(const Constant &constant);
+// Whether its constant op stands at `type`: a Double's, arith.constant, at
+// f64; a string's or a big's, idr.constant, where static data does.
+bool placedAt(const Constant &constant, mlir::Type type);
+
+struct Class;
+struct Facts;
+
+// An op's runtime meaning over its operands' classes, each a constant, as
+// the graph's own values (Values.cpp): of an op of the input, read with its
+// properties; of a node a rule built, with its kind's default properties.
+using MeaningOfInput = std::optional<Facts> (*)(mlir::Operation *op, mlir::Type type,
+                                                llvm::ArrayRef<const Class *> operands);
+using MeaningOfBuilt = std::optional<Facts> (*)(mlir::Type type,
+                                                llvm::ArrayRef<const Class *> operands);
+struct Meaning {
+  MeaningOfInput ofInput;
+  MeaningOfBuilt ofBuilt;
+};
 
 // What a node is.
 namespace node {
@@ -162,11 +269,13 @@ struct Leaf {
   RegionId home;
 };
 // An op of the input, which stands for itself: its kind where a rule names
-// it, and whether its result takes a fresh identity.
+// it, whether its result takes a fresh identity, and its runtime meaning
+// where it has one.
 struct Input {
   mlir::Operation *origin;
   std::optional<std::uint16_t> kind;
   Identity identity;
+  std::optional<MeaningOfInput> meaning;
 };
 // An op a rule's right side built: the op of its kind the write-back would
 // make, of its type and the op's default properties. A rule makes nothing
@@ -176,27 +285,34 @@ struct Built {
   mlir::RegisteredOperationName name;
 };
 // A constant an op of the input holds as an attribute, which the graph
-// reads and never makes; materialized by `dialect`'s hook where it is
-// placed.
-struct Constant {
+// reads once into its own values and never makes; materialized by
+// `dialect`'s hook, the same attribute, where it is placed.
+struct Held {
   mlir::Attribute value;
   mlir::Dialect *dialect;
 };
-// An integer the graph computed, by an interval of one value or a rule's
+// An integer the graph knows, by an interval of one value or a rule's
 // literal: a value, made an attribute of `form` only where the write-back
 // places it.
 struct Integer {
   llvm::APInt value;
   IntegerForm form;
 };
+// A string, a Double or a big past the small range the graph knows: a
+// value, made an attribute only where the write-back places it, and made a
+// node only at a type its constant op stands at.
+struct Known {
+  Constant value;
+};
 } // namespace node
-using What = std::variant<node::Leaf, node::Input, node::Built, node::Constant, node::Integer>;
+using What = std::variant<node::Leaf, node::Input, node::Built, node::Held, node::Integer,
+                          node::Known>;
 
 // A node that is no op: a leaf or a constant, of no operands. No node
 // pattern matches it, it reads no class, and it costs nothing to place.
 template <class N>
-concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Constant> ||
-               std::same_as<N, node::Integer>;
+concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Held> ||
+               std::same_as<N, node::Integer> || std::same_as<N, node::Known>;
 
 struct Node {
   What what;
@@ -206,19 +322,21 @@ struct Node {
 
 // What the graph knows of a value, each where known: the interval an
 // integer lies in, whose one value, where it has one, is the integer it is
-// (the rule upstream's range optimizations use), so an integer constant is
-// a value and never an attribute; and the constant as an attribute where an
-// op already holds one, which the graph reads and never makes.
+// (the rule upstream's range optimizations use); and the constant it is,
+// of a kind no interval states. Both are values: the graph makes no
+// attribute.
 struct Facts {
   std::optional<mlir::ConstantIntRanges> range;
-  mlir::Attribute attribute;
+  std::optional<Constant> constant;
 
   std::optional<llvm::APInt> integer() const {
     return range ? range->getConstantValue() : std::nullopt;
   }
+  // Whether it says the value is one constant, of any kind.
+  bool isConstant() const { return constant || integer(); }
   // What is known of one value known two ways, both of which hold: it lies
-  // in both intervals, and is either's attribute (two constants of one
-  // value are one). Whether this narrowed.
+  // in both intervals, and is either's constant (two constants of one value
+  // are one). Whether this narrowed.
   Changed meet(const Facts &other);
 };
 
@@ -288,16 +406,46 @@ struct Region {
 };
 
 // What the pass reads where the compiler is built and when it is made,
-// never per function: each generated kind's op name, found once per pass
-// instance, which MLIR's open op set forces to be read at run time.
+// never per function: each generated kind's op name, and each op's runtime
+// meaning, found once per pass instance by the class of op, which MLIR's
+// open op set forces to be read at run time.
 struct Kinds {
-  // (the op's TypeID, its kind), sorted by TypeID, for the one lookup an
-  // Operation * needs.
-  std::vector<std::pair<mlir::TypeID, std::uint16_t>> byTypeId;
+  // What the graph reads of an op of one class: the kind a pattern names it
+  // by, and its runtime meaning.
+  struct OfOp {
+    std::optional<std::uint16_t> kind;
+    std::optional<Meaning> meaning;
+  };
+  // By the op's TypeID, sorted, for the one lookup an Operation * needs.
+  std::vector<std::pair<mlir::TypeID, OfOp>> byTypeId;
+  // By kind: a node a rule built names its op by its kind.
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
+  std::vector<std::optional<Meaning>> meanings;
 
-  std::optional<std::uint16_t> kindOf(mlir::Operation *op) const;
+  OfOp of(mlir::Operation *op) const;
 };
+
+// Every op's runtime meaning, by its TypeID: each op the trait RuntimeFolds
+// gives the one fold, its value instance (Values.cpp).
+std::vector<std::pair<mlir::TypeID, Meaning>> runtimeMeanings();
+
+// What a constant an op of the input holds says of its value, read once
+// from its attribute into the graph's own: an integer's interval, a
+// Double, a string, or a big (an interval of one value in the small range,
+// as the runtime holds it in its word); nothing for any other constant.
+Facts heldFacts(mlir::Attribute value);
+
+// The constant op of `value` at `type`, by `dialect`'s hook.
+mlir::Value materialized(mlir::Dialect &dialect, mlir::RewriterBase &rewriter, mlir::Location loc,
+                         mlir::Type type, mlir::Attribute value);
+
+// A constant the graph knows, made where it is placed: its attribute, the
+// one the graph makes, held by arith's constant or by `constants`', the
+// dialect whose constant op holds a string's and a big's.
+mlir::Value writeBack(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Type type,
+                      const node::Integer &integer, mlir::Dialect &constants);
+mlir::Value writeBack(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Type type,
+                      const node::Known &known, mlir::Dialect &constants);
 
 // A rule's variables as a match binds them, each to a class.
 struct Bindings {
@@ -352,10 +500,12 @@ class Function {
 public:
   Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callees);
 
-  // The bytes its arena may take, its budget's nodes and the most operands
-  // their keys hold: known once it is made, from the function alone, before
-  // its search starts.
-  std::uint64_t arena() const { return budget * bytesPerNode + heldOperands * bytesPerOperand; }
+  // The bytes its arena may take, its budget's nodes, the most operands
+  // their keys hold and the strings and bigs it may compute: known once it
+  // is made, from the function alone, before its search starts.
+  std::uint64_t arena() const {
+    return budget * bytesPerNode + heldOperands * bytesPerOperand + constantBytes;
+  }
 
   // The walk, then the rounds of the rules until saturation or the budget.
   void build();
@@ -376,6 +526,7 @@ public:
   const Class &classOfValue(mlir::Value value) const;
   template <class OpT>
   OpT memberBuiltBy(mlir::Value value) const;
+  mlir::Attribute heldBy(mlir::Value value) const;
   Cost costOf(mlir::Value value) const;
 
   // What the function's e-graph did so far, the pass's work.
@@ -397,15 +548,27 @@ private:
 
   // Building.
   ClassId leaf(mlir::Value value, RegionId home);
-  // A constant an op holds as an attribute, with the interval the op gives
-  // it where it is an integer.
-  ClassId constant(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect,
-                   std::optional<mlir::ConstantIntRanges> interval);
+  // A constant an op holds as an attribute, read once into a value of the
+  // graph's own, with the interval the op gives it, its class united with
+  // the constant it is.
+  ClassId held(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect,
+               std::optional<mlir::ConstantIntRanges> interval);
   // The integer `value` of `type`; none where the type has no integer form,
   // or where a new node would pass the budget.
   std::optional<ClassId> integer(const llvm::APInt &value, mlir::Type type);
-  // A node of the input, its class united with the integer it is and with
-  // the argument its callee gives back, where it is either.
+  // The constant `value` of `type`, which its constant op stands at; none
+  // where a new node would pass the budget.
+  std::optional<ClassId> known(const Constant &value, mlir::Type type);
+  // Whether `facts` say a value of `type` is a constant its op stands at;
+  // and that constant's class, made after the node's own run is given
+  // back, none where they say none, or where a new node would pass the
+  // budget.
+  bool placeable(const Facts &facts, mlir::Type type) const;
+  std::optional<ClassId> constantOf(const Facts &facts, mlir::Type type);
+  // A node of the input that computes its value: the constant its meaning
+  // gives, where that is placed; else its node, its class united with the
+  // constant it is and with the argument its callee gives back, where it is
+  // either.
   ClassId insert(node::Input op, mlir::Type type, std::span<const ClassId> operands);
   // A node a right side built; none once the budget is spent.
   std::optional<ClassId> insert(node::Built op, mlir::Type type,
@@ -418,15 +581,23 @@ private:
   // its operands' classes.
   std::optional<mlir::ConstantIntRanges> intervalOf(mlir::Operation *op,
                                                     std::span<const ClassId> operands) const;
-  // What a node a right side built says over its operands' classes: its
-  // kind's range function's interval (Rules.cpp).
-  Facts saysOf(const node::Built &op, mlir::Type type, std::span<const ClassId> operands) const;
-  // What a node says of its value over its operands' facts as they are now.
-  Facts saysOf(NodeId n) const;
+  // The interval a node a right side built has over its operands' classes:
+  // its kind's range function's (Rules.cpp).
+  std::optional<mlir::ConstantIntRanges> intervalOf(const node::Built &op, mlir::Type type,
+                                                    std::span<const ClassId> operands) const;
+  // What a node's runtime meaning computes from its operands' classes,
+  // where each is a constant; none where one is not, it has none, or it
+  // does not admit them. A string or a big it computes past the bytes the
+  // function's constants may take is dropped.
+  std::optional<Facts> meant(const What &what, mlir::Type type,
+                             std::span<const ClassId> operands);
+  // What a node says of its value over its operands' facts as they are now:
+  // its interval and what its meaning computes, met.
+  Facts saysOf(NodeId n);
   std::optional<ClassId> giveBack(const node::Input &op, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // A class whose facts are one integer holds that integer.
-  void joinInteger(ClassId c);
+  // A class whose facts are one constant holds that constant.
+  void joinConstant(ClassId c);
   // The region a node can be computed in, from its operands' reaches; none
   // where they share none.
   std::optional<RegionId> needs(const Node &node) const;
@@ -483,6 +654,10 @@ private:
   // The most operands the graph's keys hold: an op of the input holds its
   // own, and a node a side builds at most the widest side's.
   std::uint64_t heldOperands;
+  // The bytes of the runtime's memory the strings and bigs it computes may
+  // take, as many as its nodes may; and those they take so far.
+  std::uint64_t constantBytes;
+  std::uint64_t computedBytes = 0;
 
   solver::Numbering<ValueTag> numbering;
   IndexVector<ValueId, std::optional<ClassId>> classOf;
@@ -519,9 +694,10 @@ private:
   footprint::Vector<Cost> cost;
 
   // Each step of work, in the e-graph's own units: a node made, a rule
-  // tried at a root, a use a rebuild repaired, an earlier op a repeated
-  // read is compared with and an op between them read, a node an
-  // extraction pass prices, a placement an elaboration looks at.
+  // tried at a root, a meaning computed, a use a rebuild repaired, an
+  // earlier op a repeated read is compared with and an op between them
+  // read, a node an extraction pass prices, a placement an elaboration
+  // looks at.
   std::uint64_t steps = 0;
 };
 

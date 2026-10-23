@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The specification's rules, read where the compiler is built: the
-// generated tables, the kinds they name, the rounds that saturate a
-// function's classes under them, the matcher and the builder of a right
-// side over them, the interval a built node's kind gives it, and the
-// dispatch of the hand skeleton rules. A pattern is a constant of the
-// specification, so a match's stack of choices is bounded by the
-// specification, never by the input.
+// generated tables, the kinds they name and the runtime meanings of the
+// ops, the rounds that saturate a function's classes under them, the
+// matcher and the builder of a right side over them, the interval a built
+// node's kind gives it, and the dispatch of the hand skeleton rules. A
+// pattern is a constant of the specification, so a match's stack of
+// choices is bounded by the specification, never by the input.
 //
 // The skeleton rules are each area's hand classes, declared where the
 // specification names them; the generated tables include every header
@@ -60,13 +60,25 @@ constexpr bool everySkeletonRule(table::RuleList<Rs...>) {
 static_assert(everySkeletonRule(generated::SkeletonRules{}),
               "every skeleton rule the specification names meets the engine's concept");
 
+// The graph computes an op only through its runtime meaning, which an op
+// whose upstream fold calls the compiling machine's C library has none of:
+// so the graph never folds one.
 template <class... Ops>
-void listKinds(table::OpList<Ops...>, MLIRContext *context, Kinds &out) {
+constexpr bool noneComputed(table::OpList<Ops...>) {
+  return (!fold::Folds<Ops> && ...);
+}
+static_assert(noneComputed(generated::NeverFolded{}),
+              "an op whose fold computes on the compiling machine has no runtime meaning");
+
+template <class... Ops>
+void listKinds(table::OpList<Ops...>, MLIRContext *context,
+               std::vector<std::pair<TypeID, Kinds::OfOp>> &byTypeId,
+               std::vector<std::optional<RegisteredOperationName>> &names) {
   std::uint16_t kind = 0;
   (
       [&] {
-        out.byTypeId.emplace_back(TypeID::get<Ops>(), kind);
-        out.names.push_back(RegisteredOperationName::lookup(TypeID::get<Ops>(), context));
+        byTypeId.emplace_back(TypeID::get<Ops>(), Kinds::OfOp{kind, std::nullopt});
+        names.push_back(RegisteredOperationName::lookup(TypeID::get<Ops>(), context));
         ++kind;
       }(),
       ...);
@@ -103,22 +115,40 @@ bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaqu
 
 } // namespace
 
-std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
+Kinds::OfOp Kinds::of(Operation *op) const {
   TypeID id = op->getName().getTypeID();
-  auto it = llvm::lower_bound(byTypeId, std::pair(id, std::uint16_t(0)),
-                              [](const auto &a, const auto &b) {
-                                return a.first.getAsOpaquePointer() < b.first.getAsOpaquePointer();
-                              });
+  auto it = llvm::lower_bound(
+      byTypeId, id, [](const auto &entry, TypeID key) { return beforeId(entry.first, key); });
   if (it == byTypeId.end() || it->first != id)
-    return std::nullopt;
+    return {};
   return it->second;
 }
 
+// Each kind and each meaning by its op's TypeID, one entry an op, sorted
+// for the one lookup an op of the input needs; and each kind's meaning by
+// its number, which a node a rule built reads.
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
-  listKinds(generated::Kinds{}, context, out);
-  llvm::sort(out.byTypeId,
-             [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
+  std::vector<std::pair<TypeID, Kinds::OfOp>> entries;
+  listKinds(generated::Kinds{}, context, entries, out.names);
+  for (auto [id, meaning] : runtimeMeanings())
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning});
+  llvm::sort(entries, [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
+  for (const auto &[id, of] : entries) {
+    if (out.byTypeId.empty() || out.byTypeId.back().first != id) {
+      out.byTypeId.emplace_back(id, of);
+      continue;
+    }
+    Kinds::OfOp &into = out.byTypeId.back().second;
+    if (of.kind)
+      into.kind = of.kind;
+    if (of.meaning)
+      into.meaning = of.meaning;
+  }
+  out.meanings.assign(out.names.size(), std::nullopt);
+  for (const auto &[id, of] : out.byTypeId)
+    if (of.kind)
+      out.meanings[*of.kind] = of.meaning;
   return out;
 }
 
@@ -311,7 +341,9 @@ std::optional<Bindings> Function::matchAt(const table::Rule &rule, NodeId root) 
 }
 
 // A side condition, read off the bound class's facts as the round found
-// them. Clean holds of every class the e-graph holds: a node floats only
+// them. A constant is one of any kind: a rule that combines two constants
+// leaves its new node to compute them, as a string's or a big's meaning
+// does. Clean holds of every class the e-graph holds: a node floats only
 // where nothing orders it, a call only where its row carries neither crash
 // nor divergence, and a leaf's maker stays in the skeleton whatever a rule
 // drops.
@@ -319,7 +351,7 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   const Facts &known = at(*bindings.vars[condition.var]).facts;
   switch (condition.kind) {
   case table::ConditionKind::IsConstant:
-    return known.integer().has_value();
+    return known.isConstant();
   case table::ConditionKind::PowerOfTwo: {
     std::optional<APInt> value = known.integer();
     return value && value->isStrictlyPositive() && value->isPowerOf2();
@@ -335,16 +367,16 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   return false;
 }
 
-// What a node a right side built says: the interval its kind's range
+// The interval a node a right side built has: the one its kind's range
 // function gives its operands' intervals as their roots now hold them, an
 // operand with none its type's whole width (a kind with a range function
 // takes integers), where the kind has one. No op is made to fold it: over
 // constants, the interval's one value is the integer it is.
-Facts Function::saysOf(const node::Built &op, Type type,
-                       std::span<const ClassId> operands) const {
+std::optional<ConstantIntRanges> Function::intervalOf(const node::Built &op, Type type,
+                                                      std::span<const ClassId> operands) const {
   const std::optional<table::IntRangeFn> &range = generated::intRanges[op.kind];
   if (!range)
-    return {};
+    return std::nullopt;
   SmallVector<ConstantIntRanges, 4> inputs;
   for (ClassId operand : operands) {
     const Facts &known = factsOf(operand);
@@ -352,7 +384,7 @@ Facts Function::saysOf(const node::Built &op, Type type,
                                  : ConstantIntRanges::maxRange(
                                        ConstantIntRanges::getStorageBitwidth(at(operand).type)));
   }
-  return {(*range)(inputs, type), Attribute()};
+  return (*range)(inputs, type);
 }
 
 // The right side's subtree at `at`, built bottom-up: a variable is its

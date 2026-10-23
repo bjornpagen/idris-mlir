@@ -8,9 +8,9 @@
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/IR/Effects/Whole.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/IR/Matchers.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -55,14 +55,12 @@ Entry entryOf(Operation *op, const effects::EffectSet &does) {
 }
 
 // Whether `op` stays where it is whatever its effects: a terminator, a
-// region op, an op of several results, and a call in tail position, whose
-// fact a promise reads.
+// region op, an op of several results, and a call nothing of its caller
+// may follow (a tail call, and a self call modulo a context), whose fact a
+// promise reads.
 bool staysPut(Operation *op) {
-  if (op->hasTrait<OpTrait::IsTerminator>() || op->getNumRegions() != 0 || op->getNumResults() != 1)
-    return true;
-  if (auto call = dyn_cast<CallOp>(op))
-    return call.getTailKind() != TailKind::nontail;
-  return false;
+  return op->hasTrait<OpTrait::IsTerminator>() || op->getNumRegions() != 0 ||
+         op->getNumResults() != 1 || lastActOf(op);
 }
 
 } // namespace
@@ -81,6 +79,7 @@ Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callee
   });
   budget = std::uint64_t(nodesPerOp()) * std::max<std::uint64_t>(ops, 1);
   heldOperands = read + budget * widestSide();
+  constantBytes = budget * bytesPerNode;
   slots.resize(64);
 }
 
@@ -149,14 +148,21 @@ void Function::build() {
       if (!staysPut(op) && (entry == Entry::Floats || entry == Entry::OwnIdentity)) {
         SmallVector<ClassId, 4> operands = classesOf(op);
         Value result = op->getResult(0);
-        Attribute known;
+        // A constant op's own fold gives back the attribute it holds,
+        // making none.
+        Attribute constant;
+        if (matchPattern(result, m_Constant(&constant))) {
+          classOf[numbering.at(result)] = held(constant, result.getType(), op->getDialect(),
+                                               intervalOf(op, operands));
+          return;
+        }
+        Kinds::OfOp of = kinds.of(op);
+        std::optional<MeaningOfInput> meaning;
+        if (of.meaning)
+          meaning = of.meaning->ofInput;
+        Identity identity = entry == Entry::OwnIdentity ? Identity::Own : Identity::Shared;
         classOf[numbering.at(result)] =
-            matchPattern(result, m_Constant(&known))
-                ? constant(known, result.getType(), op->getDialect(), intervalOf(op, operands))
-                : insert(node::Input{op, kinds.kindOf(op),
-                                     entry == Entry::OwnIdentity ? Identity::Own
-                                                                 : Identity::Shared},
-                         result.getType(), operands);
+            insert(node::Input{op, of.kind, identity, meaning}, result.getType(), operands);
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing

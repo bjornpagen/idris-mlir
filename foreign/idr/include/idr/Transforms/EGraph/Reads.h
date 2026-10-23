@@ -48,9 +48,8 @@ inline std::optional<RegionId> Function::needs(const Node &node) const {
   RegionId body(0);
   RegionId inner = match(
       node.what, [](const node::Leaf &leaf) { return leaf.home; },
-      [&](const OneOf<node::Input, node::Built, node::Constant, node::Integer> auto &) {
-        return body;
-      });
+      [&](const OneOf<node::Input, node::Built, node::Held, node::Integer,
+                      node::Known> auto &) { return body; });
   for (ClassId operand : childrenOf(node)) {
     RegionId there = at(forest.rootOf(operand)).reach;
     if (!outerOf(inner, there))
@@ -75,13 +74,29 @@ OpT Function::memberBuiltBy(mlir::Value value) const {
       continue;
     OpT op = match(
         node.what, [](const node::Input &input) { return llvm::dyn_cast<OpT>(input.origin); },
-        [](const OneOf<node::Built, node::Leaf, node::Constant, node::Integer> auto &) {
-          return OpT();
-        });
+        [](const OneOf<node::Built, node::Leaf, node::Held, node::Integer,
+                       node::Known> auto &) { return OpT(); });
     if (op)
       return op;
   }
   return OpT();
+}
+
+// The constant an op of the input in the value's class holds, as it holds
+// it, from a member: a constant the graph computed is a value, and no op
+// holds it.
+inline mlir::Attribute Function::heldBy(mlir::Value value) const {
+  const Class &cls = at(*classOf[numbering.at(value)]);
+  for (std::optional<NodeId> member = cls.first; member; member = nextMember[member->index()]) {
+    mlir::Attribute held = match(
+        at(*member).what, [](const node::Held &constant) { return constant.value; },
+        [](const OneOf<node::Input, node::Built, node::Leaf, node::Integer, node::Known> auto &) {
+          return mlir::Attribute();
+        });
+    if (held)
+      return held;
+  }
+  return {};
 }
 
 } // namespace idr::egraph::detail
@@ -89,7 +104,7 @@ OpT Function::memberBuiltBy(mlir::Value value) const {
 namespace idr::egraph {
 
 inline mlir::Attribute OperandFacts::constant(mlir::Value value) const {
-  return function.classOfValue(value).facts.attribute;
+  return function.heldBy(value);
 }
 
 inline std::optional<mlir::ConstantIntRanges> OperandFacts::range(mlir::Value value) const {
