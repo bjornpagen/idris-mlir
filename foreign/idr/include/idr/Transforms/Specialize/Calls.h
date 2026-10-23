@@ -94,8 +94,8 @@ enum class TailStanding : std::uint8_t { Elsewhere, LostToLayout };
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
 // argument's extent the callee names, as `site` lets a size key it, or it
-// passes static data where the callee would count, or `standing` is a tail
-// lost to a layout; else its raise; else its pattern key.
+// passes an argument at a hold its parameter does not have, or `standing`
+// is a tail lost to a layout; else its raise; else its pattern key.
 mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                             const Node *requester, FuncOp callee,
                                             FunctionId calleeId, const Node *calleeNode,

@@ -13,11 +13,13 @@
 // class fixed makes a known index's shape inline, an axis of a bare tensor
 // argument whose index term becomes a constant is static in the copy's
 // signature, which its caller casts its operand to and the substitution
-// carries into its body, and a static hold makes counting count nothing of
-// what the parameter holds. A result the key opens is given open by every
-// tail of the copy: what the copy builds where its index is known it still
-// builds in place, and casts at the end of each tail, at the grade the
-// cast gives, shared down to the grade the key asks where it claims less.
+// carries into its body, and a parameter's hold is the one its caller
+// passes, static data that counting then counts nothing of, or a claim its
+// caller's re-grading lowered, which re-grades the copy's body in turn. A
+// result the key opens is given open by every tail of the copy: what the
+// copy builds where its index is known it still builds in place, and casts
+// at the end of each tail, at the grade the cast gives, shared down to the
+// grade the key asks where it claims less.
 
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Grades.h"
@@ -105,28 +107,50 @@ void Signatures::write(Key key, Bytes &bytes) {
 }
 
 LogicalResult Signatures::edit(Key key, FuncOp clone) {
-  // Each parameter at the hold the key gives it first (a static hold where
-  // the caller passes static data), on the owner's own type: the key's
-  // signature is already substituted, and a hold names no index variable,
-  // so it is read off the key position by position.
-  Block &entry = clone.getBody().front();
-  SmallVector<Type> inputs;
-  for (auto [arg, keyed] : llvm::zip_equal(entry.getArguments(), key->signature.getInputs())) {
-    if (std::optional<Hold> hold = holdOf(keyed))
-      arg.setType(atHold(arg.getType(), *hold));
-    inputs.push_back(arg.getType());
-  }
-  clone.setFunctionType(FunctionType::get(clone.getContext(), inputs, clone.getResultTypes()));
-  // Then the index arguments, through the one substitution every pass that
-  // instantiates a function shares: each case a known index makes
+  // The index arguments first, through the one substitution every pass
+  // that instantiates a function shares: each case a known index makes
   // impossible goes with it, each bare tensor argument's axis whose term
   // becomes a constant is made static, and its one walk in program order
-  // infers each result type again wherever an operand's type changed, so
-  // the holds just set reach every value derived from the parameters.
+  // infers each result type again wherever an operand's type changed.
   FailureOr<SmallVector<families::Sort>> kept = families::substituteFunction(clone, key->indices);
   if (failed(kept))
     return failure();
   clone.setBindersAttr(IndexBindersAttr::get(clone.getContext(), *kept));
+  // Then each parameter at the hold the key gives it where its own
+  // differs, the one its caller passes: the key's signature is already
+  // substituted, and a hold names no index variable, so it is read off the
+  // key position by position. What carries such a parameter on is
+  // re-graded with it, the walk a caller of a result opened at a weaker
+  // hold takes (regrade): a value a branch forwards, a cast, an inferred
+  // result and a value built of it alike.
+  Block &entry = clone.getBody().front();
+  SmallVector<Type> inputs(clone.getArgumentTypes());
+  SmallVector<Value> regraded;
+  for (auto [index, keyed] : llvm::enumerate(key->signature.getInputs())) {
+    if (inputs[index] == keyed)
+      continue;
+    std::optional<Hold> hold = holdOf(keyed);
+    assert(hold && atHold(inputs[index], *hold) == keyed &&
+           "a copy's parameter differs from its owner's, substituted, only by the hold its key "
+           "gives it");
+    inputs[index] = keyed;
+    BlockArgument arg = entry.getArgument(static_cast<unsigned>(index));
+    arg.setType(keyed);
+    regraded.push_back(arg);
+  }
+  clone.setFunctionType(FunctionType::get(clone.getContext(), inputs, clone.getResultTypes()));
+  regrade(clone, regraded);
+  // A parameter's weaker claim that reached the return would ask the copy's
+  // result for less than the key gave its callers, who read the key's
+  // signature before the copy was built.
+  assert([&] {
+    Operation *end = entry.getTerminator();
+    if (!end->hasTrait<OpTrait::ReturnLike>())
+      return true;
+    return llvm::all_of(llvm::zip_equal(end->getOperandTypes(), clone.getResultTypes()),
+                        [](auto pair) { return holdFits(std::get<0>(pair), std::get<1>(pair)); });
+  }() && "a copy keyed at the hold its caller passes gives no less at its result than its key "
+         "says");
   // Each result the key opens, given open by every tail.
   openTails(clone, key->signature.getResults());
   // The call's view of the copy, read off the same mapping before the copy

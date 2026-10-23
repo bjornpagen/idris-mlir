@@ -71,12 +71,13 @@ CallOp callOf(RewriterBase &rewriter, Location loc, FlatSymbolRefAttr target, Ty
 }
 
 // `operand` passed where a copy asks `input`. At every position but a bare
-// tensor's the copy's type is its owner's, which the operand has, or one
-// the call's rule lets stand for it (a lifetime of any kind where a view is
-// asked), so it goes as it is. A bare tensor the copy asks at another type
-// has an axis made static, and upstream's cast states it. Which axes became
-// static is not carried out of the substitution that made them, so it is
-// read here off the two uniqued types.
+// tensor's the copy's type is its owner's at the hold the operand is passed
+// at, which the operand has, or one the call's rule lets stand for it (a
+// lifetime of any kind where a view is asked), so it goes as it is. A bare
+// tensor the copy asks at another type has an axis made static, and
+// upstream's cast states it. Which axes became static is not carried out
+// of the substitution that made them, so it is read here off the two
+// uniqued types.
 Value passedAs(OpBuilder &b, Location loc, Value operand, Type input) {
   auto tensor = dyn_cast<RankedTensorType>(input);
   if (!tensor || operand.getType() == input)

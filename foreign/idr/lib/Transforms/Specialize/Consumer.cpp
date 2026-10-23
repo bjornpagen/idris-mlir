@@ -199,13 +199,6 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
 
 namespace {
 
-// Whether a value of `type` is static data: the hold that is never freed.
-bool isStatic(Type type) { return freedBy(type, Release::Static); }
-
-// Whether a parameter of `type` counts what it is given: a reference-
-// holding type freed by its count.
-bool counts(Type type) { return freedBy(type, Release::Counted); }
-
 // The callee's extents whose sizes may key a copy at `site`, in order. From
 // outside the callee's call cycle, every one. From inside it, each whose
 // index variables the call gives no closed term but one its caller's body
@@ -289,10 +282,11 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // The signature copy `call` asks of `callee`: its index arguments' layout
 // class where the callee's layout changes under them or a bare tensor
 // argument's extent the callee names becomes a constant that `site` lets
-// key it, each parameter that counts made static where the call passes
-// static data, which that copy then counts nothing of, and each result its
-// caller needs open, where `standing` is a tail lost to a layout, returned
-// open. None where nothing changes the callee.
+// key it, each parameter at the hold the call passes where the two differ
+// (static data where the callee would count, which that copy then counts
+// nothing of; a claim re-grading lowered, which no cast raises back), and
+// each result its caller needs open, where `standing` is a tail lost to a
+// layout, returned open. None where nothing changes the callee.
 // The copy's signature is the callee's at those index arguments, every
 // binder they do not fix kept as the copy's own level, read through all the
 // callee's extents by the one substitution its copy is made by, so each
@@ -309,9 +303,12 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
       families::classesUnder(callee.getFunctionType(), keying, call.getIndexArgsAttr());
   FunctionType type = callee.getFunctionType();
   SmallVector<Type> inputs(type.getInputs());
-  for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs()))
-    if (counts(input) && isStatic(arg.getType()))
-      input = atHold(input, Hold::staticData());
+  for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs())) {
+    std::optional<Hold> passed = holdOf(arg.getType());
+    std::optional<Hold> asked = holdOf(input);
+    if (passed && asked && *passed != *asked)
+      input = atHold(input, *passed);
+  }
   SmallVector<ResultLayout> layouts = layoutsAsked(call, standing);
   auto open = [](const ResultLayout &layout) {
     return idr::match(layout, [](AsGiven) { return false; }, [](const AtOpen &) { return true; });

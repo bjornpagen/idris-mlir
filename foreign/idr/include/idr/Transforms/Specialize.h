@@ -10,16 +10,17 @@
 // two keys of one shape differ, so a recursion keeps finitely many copies.
 // The other keys are compared by equality and never lifted, and are
 // finitely many by construction. The layout class of a call's index
-// arguments, the hold of a static argument where the callee would count,
-// the layout each result is returned at, a lifetime's mode and a grade copy
-// of counting's are each drawn from a finite alphabet. A result is returned
-// as its class lays it out (closed: `#Vect[4]` in place, every non-tail
-// call's) or, for a tail call whose caller lays it out otherwise, at the
-// open layout, its type marked open, its indices kept: a copy keyed open
-// returns that, so the two lower to one return. A copy keyed open asks only
-// open: each of its tails gives the open layout, so each tail call in it
-// whose callee gives a closed result asks that callee open in turn, at the
-// grade the copy returns it at. A result's open form is its type marked
+// arguments, the hold an argument is passed at where its parameter's
+// differs (static data where the callee would count, or a claim re-grading
+// lowered), the layout each result is returned at, a lifetime's mode and a
+// grade copy of counting's are each drawn from a finite alphabet. A result
+// is returned as its class lays it out (closed: `#Vect[4]` in place, every
+// non-tail call's) or, for a tail call whose caller lays it out otherwise,
+// at the open layout, its type marked open, its indices kept: a copy keyed
+// open returns that, so the two lower to one return. A copy keyed open asks
+// only open: each of its tails gives the open layout, so each tail call in
+// it whose callee gives a closed result asks that callee open in turn, at
+// the grade the copy returns it at. A result's open form is its type marked
 // open at that grade, the mark one of two, so the axis at most doubles the
 // keys of each class and hold, and the copies end with no budget and no
 // fixpoint. A result no copy could give closed, since a tail of its owner
@@ -207,7 +208,7 @@ struct RaiseKey {
 // argument's layout class fixed (a closed index term where the owner's
 // layout changes under it), a bare tensor argument's axis made static
 // where the index term naming it becomes a constant, a parameter's hold
-// made static where the caller passes static data, a result at the open
+// made the one the caller passes where the two differ, a result at the open
 // layout where a tail call's caller returns it so, a lifetime parameter's
 // kind fixed, a grade copy's grades. The target signature and the index
 // terms substituted are the key, so a result's layout is read off its type
@@ -244,12 +245,34 @@ void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 // marked open in its own type, at the weakest hold its tails give, so each
 // tail fits it, one that claims more through a share; its tails give it
 // open, and every call of it takes the open type and casts it back after
-// itself. Decided once for each function the program held when the
-// schedule takes it up, between waves, for `starters`, each a member a turn
-// of the coming wave starts: its callers outside its component wait on it,
-// and a caller of its component that loses a tail to the cast is decided
-// again in turn. Every copy keeps the mark its owner's type gives it.
+// itself, at the hold the cast gives where that claims less than the call
+// was given, the caller re-graded down from there (regrade). Its other
+// half: a result its return gives at a weaker hold, which re-grading
+// brought there, takes that hold, its layout kept, every call of it
+// converted the same way. Decided for each function the program held when
+// the schedule takes it up, between waves, for `starters`, each a member a
+// turn of the coming wave starts: its callers outside its component wait
+// on it, and a member of its component, itself among them, that loses a
+// tail to the cast or has its return re-graded is decided again in turn.
+// A layout opens once and a hold only descends, so the rule ends. Every
+// copy keeps the mark its owner's type gives it.
 void openResults(optimize::Schedule &schedule, llvm::ArrayRef<FunctionId> starters);
+
+// The values of `fn` that carry one of `lowered` on, each of which now
+// claims less than its uses were given (a call's result opened at a weaker
+// hold, a copy's parameter keyed at the hold its caller passes), re-graded
+// down in one walk of their uses, no claim ever raised: a value a region
+// branch forwards takes the weakest hold its input is given, each operand
+// that claims more shared down where it is given; an op that only changes
+// a grade gives on the weaker of its two; a reindex, the grade its rule
+// gives; an op that infers its results, the inferred grade; and any other
+// op's values built of it, what the local rule of exclusivity gives them
+// from the edges the op declares. The walk stops where a grade is fixed
+// exactly: a call's operand stays at its own hold, which the next round
+// keys the callee's copy to; the return is shared down to the function's
+// result where it claims more, and otherwise left for the result rule
+// (openResults) to give the function's result.
+void regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
 
 // The arena of one run: every pattern and key it made, freed with it.
 // Interning is under one lock: a request interns its key once, after it
