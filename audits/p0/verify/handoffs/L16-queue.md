@@ -430,3 +430,7 @@ L17ay settles whether Readings' marker names change):
   `TrmcRewrite.cpp:221`, `TailLoops.cpp:129`, `AccumulatorPlan.cpp:281`,
   `Tail/Frames.h:139`, `Analysis/Ownership/Borrows.cpp:161, 316`: each
   calls `tailCallOf` or `lastActOf`.
+- Unit D: `MatchFamily.h`'s `verifyKeys` compares keys pairwise, quadratic
+  in a match's cases, since a carrier's equality need not be identity (a
+  Double's two zeros); hash the carriers whose `sameLiteral` is identity
+  and compare pairwise only the others.
