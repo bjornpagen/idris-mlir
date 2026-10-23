@@ -521,3 +521,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   generated `Wire.cpp.inc`). From L11y: `Target.cpp` overwrites a
   module's `#llvm.target` silently (L21: a hand-written module carrying
   another target is refused `unsupported`, or the overwrite says why).
+- From L16eh (unrun, by reading): MLIR's generated parser of a type
+  list needs one element, so `!idr.fn<() -> ()>` and a
+  `lifetime.package` holding nothing would not read back as text (the
+  dialect's assembly format, after round 3-A); `SyntaxSamples`' op sample
+  refining `List[0]` to `@Nil` writes a refinement the length decides,
+  which the reader drops: write the canonical form.
