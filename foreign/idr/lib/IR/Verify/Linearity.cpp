@@ -3,8 +3,10 @@
 // The one linearity rule, after every pass. A value used once by its grade's
 // uses is used at most once on every path, field by field: a field read
 // takes that field alone, as a match binds each field of its scrutinee
-// once, and every other use takes the whole value, every field with it. A
-// value used once by its type (a cell, a destination, a package) is used
+// once; a drop or a take takes the cell alone, which is counting giving the
+// value up after its last use, no use Idris counted; and every other use
+// takes the whole value, every field with it. A value used once by its type
+// (a cell, a destination, a package) is used
 // exactly once on every path that goes on: its one use is what takes it (an
 // init fills the cell, a write fills the destination, an unpack reopens the
 // package), so a path without it leaves memory nothing fills or gives
@@ -146,6 +148,9 @@ public:
   }
 
   LogicalResult check() {
+    // No use that counts: none is a second, and at most one asks for none.
+    if (users.empty() && !exactly(obligation))
+      return success();
     Block &home = *(isa<BlockArgument>(value) ? cast<BlockArgument>(value).getOwner()
                                               : value.getDefiningOp()->getBlock());
     // One use that counts, in the block that defines the value and in no
@@ -333,26 +338,61 @@ private:
 // Every use counts.
 bool anyUse(OpOperand &) { return true; }
 
-// Whether `use` takes field `index` of the value it uses: a field read
-// takes the field it reads and no other; every other use takes the whole
-// value, and every field with it.
+// What one use takes of the value it uses. A field read takes the field it
+// reads and no other. A use where the value's cell may become free, a drop
+// or a take (ReuseSourceOpInterface), takes the cell alone: it gives up the
+// reference, and every field with it, or moves each field out as a value of
+// its own, which carries on the uses a read of that field had. Every other
+// use takes the whole value, every field with it.
+struct TakesField {
+  std::uint64_t index;
+};
+struct TakesCell {};
+struct TakesWhole {};
+using Taken = std::variant<TakesField, TakesCell, TakesWhole>;
+
+Taken takenBy(OpOperand &use) {
+  Operation *user = use.getOwner();
+  if (auto read = dyn_cast<DataFieldOp>(user))
+    return TakesField{read.getIndex()};
+  if (isa<ReuseSourceOpInterface>(user))
+    return TakesCell{};
+  return TakesWhole{};
+}
+
+// Whether `use` takes field `index` of the value it uses.
 bool takesField(OpOperand &use, std::uint64_t index) {
-  auto read = dyn_cast<DataFieldOp>(use.getOwner());
-  return !read || read.getIndex() == index;
+  return match(
+      takenBy(use), [&](TakesField field) { return field.index == index; },
+      [](TakesCell) { return false; }, [](TakesWhole) { return true; });
+}
+
+// Whether `use` takes some field of the value it uses.
+bool takesAField(OpOperand &use) {
+  return match(
+      takenBy(use), [](OneOf<TakesField, TakesWhole> auto) { return true; },
+      [](TakesCell) { return false; });
 }
 
 // A value its grade uses once is used at most once on every path, field by
 // field: each field some use reads is counted with the uses that take the
 // whole value, so a field read twice, or read beside a use of the whole, is
-// a second use of it. A value no use reads a field of is counted whole.
+// a second use of it. A value no use reads a field of is counted whole. A
+// use that takes the cell alone is in no count: placement puts it after the
+// value's last use, and once the program is counted the consumption count
+// holds it, beside every other use that gives the value up, to exactly one.
 LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
   SmallVector<std::uint64_t, 4> read;
-  for (Operation *user : value.getUsers())
-    if (auto field = dyn_cast<DataFieldOp>(user);
-        field && !llvm::is_contained(read, field.getIndex()))
-      read.push_back(field.getIndex());
+  for (OpOperand &use : value.getUses())
+    match(
+        takenBy(use),
+        [&](TakesField field) {
+          if (!llvm::is_contained(read, field.index))
+            read.push_back(field.index);
+        },
+        [](OneOf<TakesCell, TakesWhole> auto) {});
   if (read.empty())
-    return Count(value, Obligation::UsedAtMostOnce, exclusivity, anyUse).check();
+    return Count(value, Obligation::UsedAtMostOnce, exclusivity, takesAField).check();
   for (std::uint64_t index : read)
     if (failed(Count(value, Obligation::UsedAtMostOnce, exclusivity,
                      [index](OpOperand &use) { return takesField(use, index); })

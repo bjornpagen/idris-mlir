@@ -101,8 +101,7 @@ struct LowerStatics : idr::impl::IdrLowerStaticsBase<LowerStatics> {
     });
     uint32_t homes = 0;
     program.walk([&](LifetimeHomeOp home) {
-      cast<LifetimeType>(home.getBody().front().getArgument(0).getType())
-          .getKind()
+      lifetimes::kindOf(home.getOpened())
           .fold([] {}, [] {}, [] {}, [&](uint32_t site) { homes = std::max(homes, site + 1); });
     });
     for (auto fn : program->getRegion(0).getOps<FuncOp>())

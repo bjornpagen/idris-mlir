@@ -101,7 +101,7 @@ LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
     if (isRoomLifetime(arg.getType()))
       rooms.push_back({arg, 0, {}});
   fn.walk<WalkOrder::PreOrder>([&](LifetimeBlockOp opener) {
-    rooms.push_back({opener.getBody().front().getArgument(0), 0, opener});
+    rooms.push_back({opener.getOpened(), 0, opener});
   });
   LogicalResult laid = success();
   fn.walk<WalkOrder::PreOrder>([&](Operation *op) {

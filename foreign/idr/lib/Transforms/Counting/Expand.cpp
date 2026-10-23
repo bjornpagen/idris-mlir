@@ -12,8 +12,9 @@
 //     the region the token (unique, never null) and the fields, moved out;
 //     the region drops the fields nothing needs and gives the rest on;
 //   - shared: the value is given to the region, which reads the fields that
-//     live on, takes a reference of its own for each from the counted value
-//     it read it from, and drops the value.
+//     live on, takes a reference of its own for each that is a part of the
+//     value (a read that builds a fresh value has its own), and drops the
+//     value.
 // What the token becomes is read off what reuse made of it, one case each:
 // freed (the unique region frees the cell; the shared region has none);
 // recycled into one construction (count.take_into: the unique region
@@ -101,19 +102,22 @@ Taken read(CountTakeIntoOp into) {
                into.getCell(), nullptr, fatesOf(into.getFields())};
 }
 
-// The fields of a counted value that live on, each read from it, and one
-// its count frees given a reference of its own: the shared region's fields.
-SmallVector<Value> dupFields(RewriterBase &rewriter, Location loc, Value owner,
-                             llvm::ArrayRef<unsigned> fields) {
-  SmallVector<Value> dups;
+// The fields of a counted value that live on, each read from it: the shared
+// region's fields. A part its count frees, which holds no reference while
+// the value does, takes one of its own by a dup; a read that builds a fresh
+// value already holds its own, so it moves on at the type the read gives,
+// its claim kept, as the field the take gave did.
+SmallVector<Value> sharedFields(RewriterBase &rewriter, Location loc, Value owner,
+                                llvm::ArrayRef<unsigned> fields) {
+  SmallVector<Value> given;
   for (unsigned index : fields) {
     Value read = DataFieldOp::create(rewriter, loc, owner, index).getResult();
-    dups.push_back(freedBy(read.getType(), Release::Counted)
-                       ? CountDupOp::create(rewriter, loc, atHold(read.getType(), Hold::counted()), read)
-                             .getResult()
-                       : read);
+    if (freedBy(read.getType(), Release::Counted) && readWithoutReference(read))
+      read = CountDupOp::create(rewriter, loc, atHold(read.getType(), Hold::counted()), read)
+                 .getResult();
+    given.push_back(read);
   }
-  return dups;
+  return given;
 }
 
 // The take made a match on uniqueness: its token or cell and its living
@@ -164,11 +168,12 @@ void expand(RewriterBase &rewriter, Taken &taken) {
     YieldOp::create(rewriter, loc, yields);
   }
   // The shared region: the value given to it; the living fields read from
-  // it, each with a reference of its own; the value dropped.
+  // it, each with a reference of its own, a dup's or the read's; the value
+  // dropped.
   {
     Block *shared = rewriter.createBlock(&match.getShared(), {}, {value.getType()}, {loc});
     Value owner = shared->getArgument(0);
-    SmallVector<Value> dups = dupFields(rewriter, loc, owner, living);
+    SmallVector<Value> fields = sharedFields(rewriter, loc, owner, living);
     CountDropOp::create(rewriter, loc, owner);
     SmallVector<Value> yields;
     switch (taken.use) {
@@ -181,7 +186,7 @@ void expand(RewriterBase &rewriter, Taken &taken) {
       yields.push_back(TokenNullOp::create(rewriter, loc, tokenType).getToken());
       break;
     }
-    llvm::append_range(yields, dups);
+    llvm::append_range(yields, fields);
     YieldOp::create(rewriter, loc, yields);
   }
   // The code after the take reads the match's results; the dying fields'
