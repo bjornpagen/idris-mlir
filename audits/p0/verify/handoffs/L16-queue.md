@@ -251,3 +251,24 @@ each with the type that would carry it:
 - `Finite.idr:224` is a fact of the instance table, not of the growth
   verdict: `State.Request` holds that its link was absent, chain items that
   theirs are present; C257 does not delete it.
+
+## From L16dc (C228's last checks)
+
+Done: a call's, a hook's and a constant's head carries the type it was
+built at (`valueTy`), not one re-read off the value. Open:
+- `Terms.idr:549` (an application's head) and `:667` (a force's operand):
+  one reading of a value's type, built where the type is first read, each
+  step holding the Core binder and result with Idris's erased, polymorphic
+  or runtime binder (`Closed.KnownTypes`, `State.Callee`/`InstanceSig`,
+  `Types.coreTypeIn`); an argument past every binder is the checked
+  module's, refused as `CompiledModule`.
+- `Terms.idr:657` (a lambda's result type): the markers of a settled term
+  (`settle`, `bindStands`, `holed`) take their position's type from
+  Instances; waits on the owner's C257 ruling, which decides how a
+  settled member is walked.
+- `Emit/Tensors.idr:192` (`Unfit`) and `Program.idr:84`: the term indexed
+  by its type (`TermAt js (sc : Vect n Ty) t`, each slot holding its fit),
+  which needs `DecEq Ty`, blocked by `ILit (LDouble _)` (base has no
+  `DecEq Double`) and ripples into State, Closed, Cases, Choices,
+  Programs, Shapes, Primitives, Recursion, Types and `Emit.idr`.
+- `Terms.boundTypes` defaults silently with `fromMaybe b.type`.

@@ -1555,9 +1555,10 @@ mutual
 
       -- The call's value: `mk` on the runtime arguments when the call gives
       -- every parameter, applied to the arguments past them over the
-      -- callee's result type (`resTy`), at the type the value's term states;
-      -- with fewer, one closure per missing runtime parameter, as
-      -- the curried type of the result requires. The arguments given
+      -- callee's result type (`resTy`), at `valueTy`, the Core type `mk`
+      -- makes the value at, which the call knew before it made the term;
+      -- with fewer, one closure per missing runtime parameter, as the
+      -- curried type of the result requires. The arguments given
       -- (`arguments`, over the first `arity` of `xs`) and the closures'
       -- parameters are as many as the call has runtime parameters, which is
       -- what `mk` takes (`runtimesSplit`).
@@ -1573,8 +1574,7 @@ mutual
         -- leaves out is a choice, so the missing ones are runtime
         -- parameters, each a closure's.
         if null missing
-           then applyOver ctx env afc loc (show <$> fullName name) value (termType ctx.depth (scopeOf env) value) (Just resTy)
-                          (drop arity xs)
+           then applyOver ctx env afc loc (show <$> fullName name) value (Just valueTy) (Just resTy) (drop arity xs)
            else pure value
 
       -- A method or a parent taken from an implementation the call fixes:
@@ -1749,16 +1749,20 @@ mutual
                 (replace {p = \j => Vect j (Maybe Ty)} together
                          (map (termType ctx.depth (scopeOf env)) given ++ map (\b => Just (closureBinder b).type) missing))
 
-      -- A lowered call's value: its hook's value on the operands it gives,
-      -- of the Core type `valueTy`, a closure over each it leaves out, and
-      -- the arguments past its arity applied to it, at the type its term
-      -- states, over the result type read in this scope.
+      -- A lowered call's value: its hook's value on every operand, of the
+      -- Core type `valueTy`, which the call knew before the hook made the
+      -- term, the arguments past its arity applied to it at that type, over
+      -- the result type read in this scope; or, where the call leaves
+      -- operands out, a closure over each, as with a call of a function.
+      -- An operand is left out only where the arguments end before the
+      -- arity (`operandsGiven`), so none is past it.
       completed : Loc -> (arity : Nat) -> List (Arg vars nv) -> Supplied k nv -> Maker k -> (valueTy : Ty) -> ClosedTerm ->
                   Front (Term nv)
-      completed loc arity xs (MkSupplied given missing together) mk valueTy resTy = do
-        let value = etaExpand loc missing valueTy (recount together mk) given
-        applyOver ctx env afc loc (show <$> fullName name) value (termType ctx.depth (scopeOf env) value) (Just resTy)
-                  (drop arity xs)
+      completed loc arity xs (MkSupplied given [] together) mk valueTy resTy =
+        applyOver ctx env afc loc (show <$> fullName name) (etaExpand loc [] valueTy (recount together mk) given)
+                  (Just valueTy) (Just resTy) (drop arity xs)
+      completed loc arity xs (MkSupplied given missing@(_ :: _) together) mk valueTy resTy =
+        pure (etaExpand loc missing valueTy (recount together mk) given)
 
       -- The identity on the last operand, wherever it stands among the
       -- proofs and types (a cell's form or a frame's extents before it
@@ -2532,22 +2536,22 @@ mutual
       -- declares it, or `otherwise` when no hook does: a deprecated one is
       -- refused; one whose calls a hook lowers to an operation on its
       -- operands is that operation, by its row (`lowerCall`); a handle and
-      -- a string of the compiler's are constants; an alias is a call of
-      -- the function it stands for.
+      -- a string of the compiler's are constants, each with the type it is
+      -- made at; an alias is a call of the function it stands for.
       hooked : FC -> Loc -> Name -> Maybe Shown -> Defined -> ClosedTerm -> Hooks LibraryFunction -> Front (Term nv) ->
                Front (Term nv)
       hooked fc loc full lowered d ty hs otherwise =
-        let constant = \v => applyOver ctx env fc loc (pure (show full)) v (termType ctx.depth (scopeOf env) v) (Just ty) args in
+        let constant = \v, t => applyOver ctx env fc loc (pure (show full)) v (Just t) (Just ty) args in
         fromMaybe otherwise $
               map (reject fc ctx.owner Deprecated) hs.deprecated
           <|> map (\row => lowerCall fc loc lowered row d ty args) d.loweredBy
-          <|> map (constant . Literal loc) hs.handle
+          <|> map (\h => constant (Literal loc h) (Term.literalType h)) hs.handle
           <|> map (\lib => aliasCall fc loc lowered lib args) hs.alias
-          <|> map (constant . systemFact) hs.systemInfo
+          <|> map (uncurry constant . systemFact) hs.systemInfo
         where
-          systemFact : SystemFact -> Term nv
-          systemFact TargetOs = PrimApp loc (Op platformOsOp StrT Hold.Static) Nothing []
-          systemFact BackendName = Literal loc (LStr codegenName)
+          systemFact : SystemFact -> (Term nv, Ty)
+          systemFact TargetOs = (PrimApp loc (Op platformOsOp StrT Hold.Static) Nothing [], StrT)
+          systemFact BackendName = (Literal loc (LStr codegenName), StrT)
 
 ||| An implementation the environment binds (`Static`), computed at run
 ||| time where the translation reaches it, as the term it is written as

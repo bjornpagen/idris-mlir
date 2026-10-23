@@ -1049,6 +1049,7 @@ paramTypes : {k : Nat} -> Vect k Binder -> ScopeTypes n -> ScopeTypes (Under k n
 paramTypes params = underTypes {k} (map (Just . (.type)) params)
 
 ||| The type of a literal's value, as its constant is made.
+export
 literalType : Lit -> Ty
 literalType (LInt t _) = IntT t
 literalType (LChar _) = CharT
