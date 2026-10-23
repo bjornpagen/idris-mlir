@@ -1868,6 +1868,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   parsing no slower than 0010's A0. So O5 needs no part of 0015's
   library, and P0 builds neither the join, nor a row per clause for its
   pattern variables, nor fields carrying binders into Desugar.
+- **D126** (2026-10-23; the owner; L06c's measurement of the C++'s type
+  dispatch). "i agree on this principle. let's do it and push hard":
+  every question a ladder asks becomes one interface method declared in
+  the Idris specification, with its `.td` regenerated; the C++ then
+  dispatches through that interface, a typed signature or a typed walk,
+  and no `isa` chain remains over our own ops, attributes or types. A
+  ladder over upstream's types uses upstream's own kind enums or
+  interfaces; a function that takes a bare `Operation *` and casts takes
+  the op's type; a walk that tests each op is a typed walk. A templated
+  visitor in C++ is not the form, since it keeps a second copy of what the
+  specification declares. Measured at HEAD by L06c: 94,405 lines of C++
+  in `foreign/idr`, 1,011 `isa`/`dyn_cast`/`cast` sites, 27 ladders of
+  three or more tests of one subject.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
