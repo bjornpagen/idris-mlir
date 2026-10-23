@@ -761,3 +761,27 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   First, lin.cast refuses equal uses): read whether the call's verifier
   admits it today, and if not, the decision (D89's specialization by hold
   runs at First) is the coordinator's.
+
+## Dispatched after INT-23 (2026-10-23)
+
+L11z (C279: idr-target first in every slice, the driver's lowered-module
+check gone, no test names it; takes over L19w's held pipeline-timing
+edit and its invalid root), INT-24 (the frontend over our own programs:
+the frontend, syntax-samples, specgen, knowngen, the runner), L17bd
+(C126's dependent-pair default and linear tuple patterns; the checker's
+own fixes for 116 to 118), L12v (count.share's bufferization model,
+array.update's emptied place, the generating ops' flow, the update
+region's rule over the resource tree), L06j (patch 27 rewires the hook's
+own cast), L19x (the root rule's test, the cycle contract, `reached` and
+`folded` coverage, Rows' model, may-diverge), L04y (layoutMatch deleted,
+fieldsAt at its binders, one `builds()` on reindex), L03aa (empty type
+lists read back, SyntaxSamples' canonical form, the generator's typed
+module list, `big.small`'s builder), L18x (D129 for array results, C267
+for class copies, one open hold by C277, callers' claims re-graded,
+askers in callersOf, Settle's removed proof). Waiting:
+- After L03aa: Emit's own static small type (`compiler/src`, L16) asks
+  the builder's rule.
+- From L19w: `Show` on a deep pair at a known type is exponential (0.9 s,
+  4.2 s, 35 s at 20, 24, 28 components) and an untyped `let` of a deep
+  pair then `printLn` too: the instance search, not the tuple syntax
+  (L17, measured with the checker alone at 3f7cd509).
