@@ -459,3 +459,43 @@ L17ay settles whether Readings' marker names change):
   what each of our types is, which D126 contradicts.
 - Hand readings of the tail kind outside Tail.h: `Accounts.cpp:66`,
   `Func/Call.cpp:273`, and `EGraph/Build.cpp:64` (L14x's).
+
+## Recheck 5's items not yet dispatched (2026-10-23)
+
+Dispatched from recheck 5: L10z (§4's tail-layout check, D32's frame
+decision once), L17bb (the checker's internal errors, `%start`, C55's
+`%transform`), L06h (stock Idris's nested linear patterns, D121),
+L16ef (Emit's tie before the call, C262), L19z (loan escapes, C17),
+D126 round 3-B and 3-A (with C65's `idr.may_loop`, C87's constraint and
+C264's float list declared), L16eg (the registry's string set), L11y,
+L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
+- After L16ee (Translate/, Growth/): C257 obligations 4 to 6, C258, the
+  reading lemma and `Finite.unsound`'s deletion (D46, D68, D128.3); the
+  frontend's 20 internal errors (D112.1); C122 (erasure held in
+  `ArgumentAt` and `Use`, and Sites' binder-quantity read); C55's case
+  blocks as regions of their parent (`Keys.idr:71-76`); C213 and C217
+  (the two `RuntimeClosure` refusals at `Terms.idr:614, 1004` name a
+  translation situation, not an unbounded set); C256's site membership;
+  `Caps.idr:135, 165` name the deleted `closedHeight`; D44 (Finite's
+  semi-naive worklist onto R2's fixpoint, C175; 0011's O8); L16dz's two
+  growth-model refusals; `MLIR.idr:149` (`typeText TokenType = "none"`,
+  a wrong text for a state the type allows); `Finite.idr:224`.
+- After round 3-A: C65's insertion of `idr.may_loop` where a loop is
+  made from code Idris did not prove total, and its readers (L09);
+  C87's callers; L14y (C264(b)'s float ops computed by `APFloat`, guards
+  and conditions over computed values, `OperandFacts::constant` over
+  them, `Constants.cpp`'s `isBuildableWith` asking `constantStandsAt`,
+  `heldFacts` through `ConstantAttrInterface`, C264(c)'s reading of hold
+  strengthening, `Analysis/Constants.cpp:36`'s `sortedIds(NeverFolded)`
+  built at run time from a static list); the specification's
+  `Termination` declared and read by nothing while `Func.h:68-82` writes
+  the same variant by hand (L02, L03); `Generator/Main.idr:33-52` finds
+  modules by scanning `spec.ipkg`'s text (L03).
+- INT, on the owner's machine: the measurements (D30's `tailcc`, D32's
+  and D33's stacks, D58's `shapeBudget`, D78, D95, D100, D108's
+  `nodesPerOp`, D115, C5, C43, C98, C201 and the other stage-1 rows);
+  D49 and D51's dialect modules (`tools/dialects.sh generate` on a built
+  toolchain: the 13 stamped modules and the missing Linalg,
+  Bufferization and SCF); `audits/bugs.md`'s entries rechecked.
+- The coordinator: strike `audits/p0/design/idris-linear-check.md` §5
+  when L06h returns.
