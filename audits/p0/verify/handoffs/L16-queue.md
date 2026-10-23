@@ -549,3 +549,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   today; `OpsPlatform.cpp:23-28`'s comment says idr-target writes over a
   module's triple, which it no longer does; `Pipeline.idr:205-211`'s
   description of idr-target.
+- C268, after L04x releases the specification: `tie_shape`'s axes named
+  (spec `Arrays/Memory.idr`, `OpsArrayShapes.cpp`'s inference, reify and
+  value bounds, the specializer's re-inference), then Emit's `tie`
+  (`Emit/Tensors.idr` about 600-622) states only the axes something
+  states and reads nothing from the array; reproducers
+  `/tmp/l16ef/repro/successor-axis`, `literal-index`.
