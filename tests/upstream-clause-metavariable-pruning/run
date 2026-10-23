@@ -1,0 +1,32 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/118-clause-metavariable-pruning, carried: a case's type, found
+# from a clause whose result holds a metavariable of the clause (a string
+# literal's type, which the let's body or the default fixes later), is a
+# term over the variables outside the clause, and the stock Idris
+# postponed it ("Can't shrink") because the metavariable stands applied to
+# the clause's variables too, so a pattern let of such a case was refused.
+# With the patch the metavariable is pruned of the clause's pattern
+# variables it cannot depend on, and Tuple.idr (the case splits a
+# variable, with 108) and Scrutinee.idr (a case of an expression) check;
+# Escape.idr, whose clause builds a type that needs the clause's own
+# variable, is refused as before.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/118-clause-metavariable-pruning
+cp "$dir/Tuple.idr" "$dir/Scrutinee.idr" "$dir/Escape.idr" "$work/"
+for name in Tuple Scrutinee; do
+  if (cd "$work" && pinned_idris --check "$name.idr") > "$work/$name.out" 2>&1; then
+    say "$name: the case's type is found from a clause holding its own metavariable"
+  elif grep -q "Can't infer type for case scrutinee" "$work/$name.out"; then
+    say "$name: still reproduces: the case's type is never found from its clauses"
+  else
+    say "$name: the stock Idris fails on the reproducer, which is not this bug"
+    show "$work/$name.out"
+  fi
+done
+if (cd "$work" && pinned_idris --check Escape.idr) > "$work/Escape.out" 2>&1; then
+  say "Escape: a clause's own variable escapes the case's type"
+else
+  say "Escape: refused: no type outside the clause holds its variable"
+fi

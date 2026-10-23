@@ -1,0 +1,2 @@
+Bind: a scrutinee's type that a postponed constraint fixes is found
+Literal: refused: no constraint fixes the scrutinee's type

@@ -1676,3 +1676,45 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/116-record-update-variable-type; nothing sent (Idris
   takes no tool-written contribution)
 - status (2026-10-23): carried
+
+## case-scrutinee-postponed-constraints
+
+- symptom: the stock Idris reads a case's scrutinee type straight after
+  checking the scrutinee, before solving the constraints that check
+  postponed, so a scrutinee whose type only such a constraint fixes is
+  refused ("Can't infer type for case scrutinee"): `case given >>=
+  parseInteger of`, where `Maybe String =?= ?m ?a` waits for the search
+  for `Monad ?m` to make `m` invertible (the test runner:
+  `harness/Determinism.idr`'s `determinismSeed`,
+  `harness/Universal.idr`'s `actionsSeed`)
+- sites: every case the stock host checks: stage 0 and the libraries
+- workaround: `upstream/117-case-scrutinee-postponed-constraints/idris.patch`:
+  `checkCase` solves the postponed constraints (no default applied) where
+  the scrutinee's type is still headed by a metavariable, before it gives
+  the type up; checked by tests/upstream-case-scrutinee-postponed-constraints
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/117-case-scrutinee-postponed-constraints; nothing
+  sent (Idris takes no tool-written contribution)
+- status (2026-10-23): carried
+
+## clause-metavariable-pruning
+
+- symptom: a case's type, found from a clause whose result holds a
+  metavariable the clause made (a string literal's type, fixed later by
+  the body or the default), is a term over the variables outside the
+  clause, and the stock Idris postpones it ("Can't shrink") because that
+  metavariable stands applied to the clause's variables too, so a pattern
+  let of such a case is refused ("Can't infer type for case scrutinee";
+  the test runner: `harness/Verdict.idr`'s `editLines`, `let (mark, l) =
+  case e of Keep x => (" ", x); ...`)
+- sites: every unification the stock host solves in a term: stage 0 and
+  the libraries
+- workaround: `upstream/118-clause-metavariable-pruning/idris.patch`:
+  where a solution does not shrink, `unifyHole` prunes each elaborator's
+  metavariable in it of the clause's pattern variables it cannot depend
+  on (solving it as a fresh one over those it keeps) and shrinks the
+  solution again; checked by tests/upstream-clause-metavariable-pruning
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/118-clause-metavariable-pruning; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-23): carried

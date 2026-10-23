@@ -1,0 +1,33 @@
+diff --git a/src/TTImp/Elab/Case.idr b/src/TTImp/Elab/Case.idr
+index a6fa4cb..753c021 100644
+--- a/src/TTImp/Elab/Case.idr
++++ b/src/TTImp/Elab/Case.idr
+@@ -543,10 +543,26 @@ checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
+ 
+            scrty <- getTerm gscrty
+            logTermNF "elab.case" 5 "Scrutinee type" env scrty
+-           defs <- get Ctxt
+-           checkConcrete !(nf defs env scrty)
++           checkConcrete !(solvedType scrty)
+            caseBlock rig elabinfo fc nest env opts scr scrtm_in scrty caseRig alts (Just expected)
+   where
++    -- The scrutinee's type, normalised. Checking the scrutinee may have
++    -- postponed the constraints that fix it (`Maybe String =?= ?m ?a`,
++    -- solvable once the search for `Monad ?m` has failed on `m` and made
++    -- it invertible), so where its head is still a metavariable they are
++    -- solved before it is given up on.
++    solvedType : Term vars -> Core (NF vars)
++    solvedType ty
++        = do defs <- get Ctxt
++             case !(nf defs env ty) of
++                  NApp _ (NMeta {}) _ =>
++                     do solveConstraints (case elabMode elabinfo of
++                                               InLHS _ => inLHS
++                                               _ => inTerm) Normal
++                        defs <- get Ctxt
++                        nf defs env ty
++                  tynf => pure tynf
++
+     -- For the moment, throw an error if we haven't been able to work out
+     -- the type of the case scrutinee, because we'll need it to build the
+     -- type of the case block. But (TODO) consider delaying on failure?

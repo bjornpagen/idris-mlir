@@ -1,0 +1,3 @@
+Tuple: the case's type is found from a clause holding its own metavariable
+Scrutinee: the case's type is found from a clause holding its own metavariable
+Escape: refused: no type outside the clause holds its variable

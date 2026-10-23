@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/117-case-scrutinee-postponed-constraints, carried: the stock
+# Idris read a case's scrutinee type straight after checking the
+# scrutinee, before solving the constraints that check postponed, so a
+# scrutinee whose type only such a constraint fixes (`given >>=
+# parseInteger`: `Maybe String =?= ?m ?a` waits for the search for
+# `Monad ?m`) was refused. With the patch Bind.idr checks; Literal.idr,
+# whose scrutinee's type only a default fixes, is refused as before.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/117-case-scrutinee-postponed-constraints
+cp "$dir/Bind.idr" "$dir/Literal.idr" "$work/"
+if (cd "$work" && pinned_idris --check Bind.idr) > "$work/Bind.out" 2>&1; then
+  say "Bind: a scrutinee's type that a postponed constraint fixes is found"
+elif grep -q "Can't infer type for case scrutinee" "$work/Bind.out"; then
+  say "Bind: still reproduces: the case reads its scrutinee's type before solving what fixes it"
+else
+  say "Bind: the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/Bind.out"
+fi
+if (cd "$work" && pinned_idris --check Literal.idr) > "$work/Literal.out" 2>&1; then
+  say "Literal: a scrutinee whose type only a default fixes is accepted"
+elif grep -q "Can't infer type for case scrutinee" "$work/Literal.out"; then
+  say "Literal: refused: no constraint fixes the scrutinee's type"
+else
+  say "Literal: refused otherwise"
+  show "$work/Literal.out"
+fi
