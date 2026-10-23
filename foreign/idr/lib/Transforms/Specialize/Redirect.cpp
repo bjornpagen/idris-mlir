@@ -14,12 +14,17 @@
 // after the call would take a tail call out of tail position, and the
 // caller learns no more from a result than its own types say. A graded
 // array keeps its axis `?`, since no cast changes a type under a grade.
+// The one result type a copy changes is a result keyed open, for a tail
+// lost to a layout: the call gives it at its caller's layout, so the cast
+// after it, which re-packed, now builds nothing.
 //
-// A copy called where the call was keeps the call's tail fact: the call is
-// at the same place. A raise's call stands where the dispatch it replaces
-// stood, so its tail fact is the one definition's answer there. Its row
-// is what the call and the consumer did, which its function contained
-// already; the writer derives the copy's own when its component is final.
+// A copy called where the call was takes the one definition's answer there:
+// the call is at the same place, and where it gives a result open, the
+// re-pack it waited for is gone, so a tail lost to a layout is a tail call.
+// A raise's call stands where the dispatch it replaces stood, so its tail
+// fact is the one definition's answer there too. Its row is what the call
+// and the consumer did, which its function contained already; the writer
+// derives the copy's own when its component is final.
 // It gives what the dispatch gave as a function returns it, `?` at every
 // axis of an array, so where the dispatch's type fixed a size the value
 // reaches the dispatch's uses cast back to that type, after the call. A
@@ -92,7 +97,8 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
 
 // A copy replaces the call, and returns what the call does: each operand
 // passed at the copy's type for it, and the copy's results, at the owner's
-// types, given to the call's uses as they are.
+// types or open where the key opens one, given to the call's uses as they
+// are, each such use a cast to its caller's type, which builds nothing.
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
                 IndexArgsAttr indices, ArrayRef<Value> operands) {
   Location loc = call.getLoc();
@@ -105,6 +111,7 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(call, fresh.getResults());
   eraseUnused(rewriter, old);
+  fresh.setTailKind(tail::decide(fresh));
   return fresh;
 }
 

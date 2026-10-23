@@ -19,12 +19,14 @@
 // embedding being a well-quasi-order, they are finitely many. A raise key
 // grows nothing and is never lifted: its forms are finitely many, each a
 // consumer of code the program holds. A signature key is finitely many
-// classes, holds, kinds and grades, and sizes: a size keys a copy only from
-// a call outside its callee's call cycle, or from one inside it whose
-// terms for that axis are terms its caller's body holds as its own (Node's
-// `own` and `cycles`, made here as each node joins the table), so every
-// size a cycle's copies are keyed at entered it by one of the finitely many
-// calls into it.
+// classes, holds, result layouts (a result as given, or at opaque indices
+// at one of finitely many grades, which a copy keyed open asks again of
+// each tail callee and asks nothing more), kinds and grades, and sizes: a
+// size keys a copy only from a call outside its callee's call cycle, or
+// from one inside it whose terms for that axis are terms its caller's body
+// holds as its own (Node's `own` and `cycles`, made here as each node joins
+// the table), so every size a cycle's copies are keyed at entered it by one
+// of the finitely many calls into it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Optimize.h"

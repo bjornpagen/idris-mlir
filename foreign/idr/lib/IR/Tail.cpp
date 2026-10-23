@@ -208,18 +208,40 @@ llvm::SmallVector<Block *> tailEnds(FuncOp fn) {
   return ends;
 }
 
-bool inTailPosition(Operation *op) {
+namespace {
+
+// The way `op`'s results go to their function's return, read up through
+// each region op a break crosses whose results they become: the first
+// re-pack on it, null where every op on it gives them on freely; none where
+// they reach no return, another op running after one on the way or a
+// terminator forwarding anything else. The one climb: tail position is a
+// way with no re-pack on it, and a tail lost to a layout one with a re-pack.
+struct Way {
+  Operation *repack;
+};
+
+std::optional<Way> wayOf(Operation *op) {
   llvm::SmallVector<Value, 4> values;
+  Operation *repack = nullptr;
   for (Operation *at = op;;) {
-    Operation *terminator = passesOn(at, values);
-    if (!terminator)
-      return false;
-    if (returnsFromFunction(terminator))
-      return true;
-    at = rejoinOf(terminator);
+    std::optional<Passage> passage = passageOf(at, values);
+    if (!passage)
+      return std::nullopt;
+    if (!repack)
+      repack = passage->repack;
+    if (returnsFromFunction(passage->terminator))
+      return Way{repack};
+    at = rejoinOf(passage->terminator);
     if (!at)
-      return false;
+      return std::nullopt;
   }
+}
+
+} // namespace
+
+bool inTailPosition(Operation *op) {
+  std::optional<Way> way = wayOf(op);
+  return way && !way->repack;
 }
 
 TailKind decide(CallOp call) {
@@ -381,6 +403,14 @@ namespace idr {
 CallOp tailCallOf(Operation *op) {
   auto call = dyn_cast<CallOp>(op);
   return call && call.getTailKind() == TailKind::tail ? call : CallOp();
+}
+
+CallOp repackedTailOf(Operation *op) {
+  auto call = dyn_cast<CallOp>(op);
+  if (!call)
+    return CallOp();
+  std::optional<tail::Way> way = tail::wayOf(call);
+  return way && way->repack ? call : CallOp();
 }
 
 CallOp lastActOf(Operation *op) {

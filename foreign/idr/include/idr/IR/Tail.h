@@ -187,6 +187,16 @@ namespace idr {
 // tail calls apart asks here and never reads the fact itself.
 CallOp tailCallOf(mlir::Operation *op);
 
+// `op` as a call in tail position but for a re-pack: the call, when its
+// results reach its function's return through ops that only give a value
+// on, one of them at least converting it between two layouts, so it would
+// be a tail call were each result laid out as its caller returns it; null
+// for any other op, for a call in tail position, and for one whose results
+// go elsewhere. The one reading of a tail lost to a layout: the specializer
+// asks it to key the callee's copy to its caller's layout, and verify
+// reports what is left of it.
+CallOp repackedTailOf(mlir::Operation *op);
+
 // `op` as a call that is its caller's last act, which nothing of the
 // caller may follow: a tail call, and a self call modulo a context, which
 // fills its hole as its last act. Null for any other op, and for a call

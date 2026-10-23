@@ -23,6 +23,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/Tail.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Joins.h"
 #include "idr/Transforms/Specialize/Calls.h"
@@ -33,6 +34,8 @@
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+
+#include <variant>
 
 using namespace mlir;
 
@@ -250,15 +253,46 @@ SmallVector<Extent> keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallS
   return keying;
 }
 
+// The layout a call asks a result of its callee at: as the callee's class
+// lays it out, D58's in-place result where its index is known; or open, as
+// an index unknown at compile time would be, for a caller that holds it as
+// `held`, its own result there.
+struct AsGiven {};
+struct AtOpen {
+  Type held;
+};
+using ResultLayout = std::variant<AsGiven, AtOpen>;
+
+// What `call` asks of each result. Only a tail lost to a layout asks open,
+// and only a result its caller lays out otherwise than the call gives it,
+// as the layout classes say (the reading by which a cast between the two is
+// free or re-packs): a copy that returns it open makes the cast free, so
+// the call is a tail call. Every other call keeps each result as given.
+SmallVector<ResultLayout> layoutsAsked(CallOp call) {
+  SmallVector<ResultLayout> asked(call->getNumResults(), AsGiven{});
+  if (!repackedTailOf(call))
+    return asked;
+  // A tail's results are its caller's, one for one: the way from the call
+  // to the return forwards each in its place.
+  auto caller = call->getParentOfType<FuncOp>();
+  for (auto [ask, given, returned] :
+       llvm::zip_equal(asked, call.getResultTypes(), caller.getResultTypes()))
+    if (families::layoutMatch(given, returned) == LayoutMatch::OtherLayout)
+      ask = AtOpen{returned};
+  return asked;
+}
+
 // The signature copy `call` asks of `callee`: its index arguments' layout
 // class where the callee's layout changes under them or a bare tensor
 // argument's extent the callee names becomes a constant that `site` lets
-// key it, and each parameter that counts made static where the call passes
-// static data, which that copy then counts nothing of. None where neither
-// changes the callee. The copy's signature is the callee's at those index
-// arguments, read through all the callee's extents by the one substitution
-// its copy is made by, so each extent whose term is fixed there is static
-// in it, and the call casts its operand there.
+// key it, each parameter that counts made static where the call passes
+// static data, which that copy then counts nothing of, and each result its
+// caller needs open returned open. None where nothing changes the callee.
+// The copy's signature is the callee's at those index arguments, read
+// through all the callee's extents by the one substitution its copy is made
+// by, so each extent whose term is fixed there is static in it, and the
+// call casts its operand there; a result asked open is that result at
+// opaque indices, which the copy's tails give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId, const CallSite &site) {
   ExtentsAttr extents = callee.getExtentsAttr();
@@ -270,13 +304,29 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs()))
     if (counts(input) && isStatic(arg.getType()))
       input = atHold(input, Hold::staticData());
-  if (!classes && llvm::equal(inputs, type.getInputs()))
+  SmallVector<ResultLayout> layouts = layoutsAsked(call);
+  auto open = [](const ResultLayout &layout) {
+    return idr::match(layout, [](AsGiven) { return false; }, [](const AtOpen &) { return true; });
+  };
+  if (!classes && llvm::equal(inputs, type.getInputs()) && llvm::none_of(layouts, open))
     return std::nullopt;
   // Each binder is a level, and a level is a 32-bit number.
   auto binders = static_cast<std::uint32_t>(callee.getBinders().getSorts().size());
   IndexArgsAttr indices = classes ? *classes : families::levelArgs(call.getContext(), 0, binders);
-  FunctionType signature = families::substitute(
+  // The classes keep every index the call's view closes, results included,
+  // so the copy's own result is that view, closed, and its tails cast it to
+  // the open type: what a known index lets it build in place, it builds.
+  FunctionType substituted = families::substitute(
       FunctionType::get(call.getContext(), inputs, type.getResults()), extents, indices);
+  SmallVector<Type> results;
+  for (auto [layout, result] : llvm::zip_equal(layouts, substituted.getResults())) {
+    Type given = result;
+    results.push_back(idr::match(
+        layout, [&](AsGiven) { return given; },
+        [&](const AtOpen &at) { return openResult(given, at.held); }));
+  }
+  FunctionType signature =
+      FunctionType::get(call.getContext(), substituted.getInputs(), results);
   return SignatureWant{arena.key(calleeId, signature, indices)};
 }
 
@@ -286,9 +336,10 @@ FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                       const Node *requester, FuncOp callee, FunctionId calleeId,
                                       const Node *calleeNode, ArrayRef<BindingTime> seen,
                                       const CallSite &site) {
-  // A signature copy first: the layout a call's indices fix and the hold
-  // it passes are facts of the call and where it stands, and every later
-  // key is composed over the copy's own parameters.
+  // A signature copy first: the layout a call's indices fix, the hold it
+  // passes and the layout its caller returns a tail at are facts of the
+  // call and where it stands, and every later key is composed over the
+  // copy's own parameters.
   if (std::optional<SignatureWant> copy = signatureOf(arena, call, callee, calleeId, site))
     return std::optional<Want>(*copy);
 

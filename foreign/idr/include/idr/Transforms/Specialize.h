@@ -10,10 +10,21 @@
 // two keys of one shape differ, so a recursion keeps finitely many copies.
 // The other keys are compared by equality and never lifted, and are
 // finitely many by construction. The layout class of a call's index
-// arguments, the hold of a static argument where the callee would count, a
-// lifetime's mode and a grade copy of counting's are each drawn from a
-// finite alphabet. A size an axis becomes is not: the naturals are
-// unbounded. A size keys a copy only from a call outside its callee's call
+// arguments, the hold of a static argument where the callee would count,
+// the layout each result is returned at, a lifetime's mode and a grade copy
+// of counting's are each drawn from a finite alphabet. A result is returned
+// as its class lays it out (closed: `#Vect[4]` in place, every non-tail
+// call's) or, for a tail call whose caller lays it out otherwise, at the
+// open layout, its indices opaque: a copy keyed open returns that, so the
+// two lower to one return. A copy keyed open asks only open: each of its
+// tails gives the open layout, so each tail call in it whose callee gives a
+// closed result asks that callee open in turn, at the grade the copy
+// returns it at. A result's open form is its type at opaque indices and
+// that grade, one of finitely many, so the axis adds finitely many keys to
+// each class and hold, and the copies end with no budget and no fixpoint.
+//
+// A size an axis becomes is not drawn from a finite alphabet: the naturals
+// are unbounded. A size keys a copy only from a call outside its callee's call
 // cycle, or from one inside it whose terms for that axis are terms its
 // caller's body holds as its own; a recursive call that changes the term
 // (`go (S n)` called at 0) reaches the copy with that axis `?`. So every
@@ -188,9 +199,11 @@ struct RaiseKey {
 // argument's layout class fixed (a closed index term where the owner's
 // layout changes under it), a bare tensor argument's axis made static
 // where the index term naming it becomes a constant, a parameter's hold
-// made static where the caller passes static data, a lifetime parameter's
+// made static where the caller passes static data, a result at the open
+// layout where a tail call's caller returns it so, a lifetime parameter's
 // kind fixed, a grade copy's grades. The target signature and the index
-// terms substituted are the key. The classes, holds, kinds and grades are
+// terms substituted are the key, so a result's layout is read off its type
+// there, as a hold is. The classes, holds, layouts, kinds and grades are
 // finite alphabets, and the sizes are those that entered each call cycle
 // from outside it, so no order and no lift is needed.
 struct SignatureKey {
@@ -200,6 +213,13 @@ struct SignatureKey {
   // owner, `IndexArgsAttr::unknown()` where the binder stays.
   IndexArgsAttr indices;
 };
+
+// The type a copy keyed open returns `type` at, for a caller that holds the
+// value as `held`, its own result there: a data type at opaque indices, the
+// layout of an index unknown at compile time, its refinement kept, at the
+// grade `held` has, so the caller's cast to `held` builds nothing and keeps
+// the hold; any other type as it is, whose layout no index decides.
+mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // The arena of one run: every pattern and key it made, freed with it.
 // Interning is under one lock: a request interns its key once, after it
