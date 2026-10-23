@@ -25,6 +25,7 @@
 
 #include <optional>
 #include <utility>
+#include <variant>
 
 namespace idr {
 
@@ -47,11 +48,11 @@ public:
   explicit TypeGraph(mlir::Operation *module);
 
   // How many nodes there are.
-  unsigned size() const { return static_cast<unsigned>(types.size()); }
+  unsigned size() const { return static_cast<unsigned>(nodes.size()); }
   // The type of a node: an application of the member, the first the walk
   // met, or the array.
-  mlir::Type type(unsigned at) const { return types[at]; }
-  bool isArray(unsigned at) const { return llvm::isa<mlir::MemRefType>(types[at]); }
+  mlir::Type type(unsigned at) const;
+  bool isArray(unsigned at) const;
 
   // The sets of types that reach one another through an array: each
   // component that is a cycle with an array in it.
@@ -61,18 +62,32 @@ public:
   llvm::SmallVector<unsigned> cycle(unsigned array, llvm::ArrayRef<unsigned> component) const;
 
 private:
-  using Node = Id<TypeNode>;
+  using NodeId = Id<TypeNode>;
+
+  // A node, told apart once where the walk meets its type: a member of a
+  // family, as the application of it the walk met first, or an array of
+  // mutable memory.
+  struct Data {
+    DataType type;
+  };
+  struct Array {
+    mlir::MemRefType type;
+  };
+  using Node = std::variant<Data, Array>;
 
   // A member's node is keyed by its group and position; an array's by its
   // type.
   using Key = std::pair<mlir::Attribute, uint64_t>;
 
-  unsigned insert(mlir::Type type);
+  // The node a value of `type` is: none where it is neither a member nor
+  // an array.
+  static std::optional<Node> nodeOf(mlir::Type type);
+  unsigned insert(const Node &node);
   // The nodes a field or an element of `type` names, inserted as met.
   void named(mlir::Type type, llvm::SmallVectorImpl<unsigned> &out);
 
-  // Every node's type, sized by the program, in the footprint's storage.
-  footprint::Vector<mlir::Type> types;
+  // Every node, sized by the program, in the footprint's storage.
+  footprint::Vector<Node> nodes;
   llvm::DenseMap<Key, unsigned> index;
   std::optional<Csr<TypeNode>> graph;
   std::optional<Partition<TypeNode>> parts;

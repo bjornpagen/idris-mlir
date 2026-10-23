@@ -15,6 +15,7 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Mangle.h"
 #include "idr/Conversion/Words.h"
@@ -84,7 +85,7 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type
     first.push_back(b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()));
   if (!first.empty())
     return facts;
-  auto data = dyn_cast<DataType>(unrestricted(type));
+  DataType data = dataTypeOf(type);
   if (!data || data.layout() != Layout::InPlace)
     return facts;
   std::optional<IntegerType> tag = layouts.sum(data).tag;

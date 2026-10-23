@@ -17,6 +17,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/Layout/SlotPlan.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -27,6 +28,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 
 using namespace mlir;
@@ -199,45 +201,58 @@ SmallVector<families::SlotWord> slotWordsOf(Type type) {
 }
 
 Reach reachOf(Type type) {
-  Type value = unrestricted(type);
-  if (auto data = dyn_cast<DataType>(value))
+  if (DataType data = dataTypeOf(type))
     return data.boundsReach() ? Reach::Bounded : Reach::Unbounded;
-  return holdsReferences(value) ? Reach::Unbounded : Reach::Bounded;
+  return holdsReferences(unrestricted(type)) ? Reach::Unbounded : Reach::Bounded;
 }
 
 } // namespace idr::layout
 
+namespace {
+
+// Both types as upstream's class `T`, or neither: a pair of one class is
+// one test of the pair, never one per side.
+template <typename T>
+std::optional<std::pair<T, T>> pairOf(Type from, Type to) {
+  auto first = dyn_cast<T>(from);
+  auto second = dyn_cast<T>(to);
+  if (!first || !second)
+    return std::nullopt;
+  return std::pair(first, second);
+}
+
+} // namespace
+
 // One type at two grades is the same words; two data types are as their
-// layout facts say; two arrays are where their elements are and their
-// descriptors' words agree; any other two where their words agree. Makes
-// no type: the lowering asks it of every field it reads.
+// layout facts say; two arrays, upstream's memrefs, are where their
+// elements are and their descriptors' words agree; any other two where
+// their words agree. Makes no type: the lowering asks it of every field it
+// reads.
 idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
   Type fromValue = unrestricted(from);
   Type toValue = unrestricted(to);
   if (fromValue == toValue)
     return LayoutMatch::SameLayout;
-  auto fromData = dyn_cast<DataType>(fromValue);
-  auto toData = dyn_cast<DataType>(toValue);
+  DataType fromData = dataTypeOf(fromValue);
+  DataType toData = dataTypeOf(toValue);
   if (fromData && toData)
     return fromData.layoutMatch(toData);
-  auto fromArray = dyn_cast<MemRefType>(fromValue);
-  auto toArray = dyn_cast<MemRefType>(toValue);
-  if (fromArray && toArray &&
-      layoutMatch(fromArray.getElementType(), toArray.getElementType()) == LayoutMatch::OtherLayout)
+  if (std::optional<std::pair<MemRefType, MemRefType>> arrays =
+          pairOf<MemRefType>(fromValue, toValue);
+      arrays && layoutMatch(arrays->first.getElementType(), arrays->second.getElementType()) ==
+                    LayoutMatch::OtherLayout)
     return LayoutMatch::OtherLayout;
   return layout::slotWordsOf(fromValue) == layout::slotWordsOf(toValue) ? LayoutMatch::SameLayout
                                                                        : LayoutMatch::OtherLayout;
 }
 
 idr::families::RepackStep idr::families::repackStep(Type from, Type to) {
-  Type fromValue = unrestricted(from);
-  Type toValue = unrestricted(to);
-  if (layoutMatch(fromValue, toValue) == LayoutMatch::SameLayout)
+  if (layoutMatch(from, to) == LayoutMatch::SameLayout)
     return RepackStep::BuildsNothing;
-  if (isa<MemRefType>(toValue))
+  if (isa<MemRefType>(unrestricted(to)))
     return RepackStep::Builds;
-  auto source = dyn_cast<DataType>(fromValue);
-  auto target = dyn_cast<DataType>(toValue);
+  DataType source = dataTypeOf(from);
+  DataType target = dataTypeOf(to);
   if (!source || !target || isNumber(source.layout()))
     return RepackStep::BuildsNothing;
   return target.layout() == Layout::InPlace ? RepackStep::ByFields : RepackStep::Builds;

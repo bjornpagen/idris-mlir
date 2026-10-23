@@ -321,12 +321,15 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
   });
 }
 
-// What a value of `type` holds, and whether the type alone makes every
-// value of it used exactly once, as the type's ValueFactsTypeInterface
-// answers (IdrInterfaces.td): every type of the dialect and every builtin
-// type a value may have answers it. A type of another dialect, which only
-// the lowering makes, is no value of the program and holds none of these.
+// What a value of `type` holds, and how the type alone fixes the uses of
+// every value of it (once, freely, or as its grade says; isLinearByType
+// asks for once), as the type's ValueFactsTypeInterface answers
+// (IdrInterfaces.td): every type of the dialect and every builtin type a
+// value may have answers it. A type of another dialect, which only the
+// lowering makes, is no value of the program and holds none of these, and
+// its values are used as their grade says.
 bool holdsReferences(mlir::Type type);
+ByType byTypeOf(mlir::Type type);
 bool isLinearByType(mlir::Type type);
 bool isCounted(mlir::Type type);
 bool isCellPointer(mlir::Type type);

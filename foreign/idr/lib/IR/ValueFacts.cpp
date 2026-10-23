@@ -20,18 +20,19 @@ namespace {
 template <typename T>
 struct ScalarFacts : ValueFactsTypeInterface::ExternalModel<ScalarFacts<T>, T> {
   bool holdsReferences(Type) const { return false; }
-  bool isLinearByType(Type) const { return false; }
+  ByType getByType(Type) const { return ByType::UsedAsGraded; }
   bool isCounted(Type) const { return false; }
   bool isCellPointer(Type) const { return false; }
 };
 
-// An array's cell is a reference. A buffer is counted; a value array is
-// counted as its buffer, after bufferization. Its value is a descriptor,
-// the cell with what of its shape the type leaves open, not one pointer.
+// An array's cell is a reference, used as often as its grade says. A
+// buffer is counted; a value array is counted as its buffer, after
+// bufferization. Its value is a descriptor, the cell with what of its shape
+// the type leaves open, not one pointer.
 template <typename T, bool counted>
 struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T, counted>, T> {
   bool holdsReferences(Type) const { return true; }
-  bool isLinearByType(Type) const { return false; }
+  ByType getByType(Type) const { return ByType::UsedAsGraded; }
   bool isCounted(Type) const { return counted; }
   bool isCellPointer(Type) const { return false; }
 };
@@ -90,6 +91,13 @@ struct DoubleLiterals : LiteralTypeInterface::ExternalModel<DoubleLiterals, Floa
     literal = FloatAttr::get(type, value);
     return success();
   }
+
+  // Equal as the runtime's match compares a Double with its key, by IEEE's
+  // ordered equality: either zero is the other, and a NaN equals nothing.
+  bool sameLiteral(Type, Attribute a, Attribute b) const {
+    return cast<FloatAttr>(a).getValue().compare(cast<FloatAttr>(b).getValue()) ==
+           APFloat::cmpEqual;
+  }
 };
 
 } // namespace
@@ -120,10 +128,14 @@ bool idr::holdsReferences(Type type) {
   return facts && facts.holdsReferences();
 }
 
-bool idr::isLinearByType(Type type) {
+// Nor does its type fix how a value of it is used: it is used as its
+// grade says.
+ByType idr::byTypeOf(Type type) {
   auto facts = dyn_cast<ValueFactsTypeInterface>(type);
-  return facts && facts.isLinearByType();
+  return facts ? facts.getByType() : ByType::UsedAsGraded;
 }
+
+bool idr::isLinearByType(Type type) { return byTypeOf(type) == ByType::UsedOnceByType; }
 
 bool idr::isCounted(Type type) {
   auto facts = dyn_cast<ValueFactsTypeInterface>(type);

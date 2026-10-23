@@ -101,15 +101,15 @@ void GradedType::print(AsmPrinter &printer) const {
 }
 
 // The canonical form, the one rule a type parameter cannot carry: a grade
-// is of a carrier, never of a grade; a type used once by its type takes
-// none, and neither does a lifetime, which is never consumed; a hold
-// exactly on a carrier that holds references, which the carrier says; and
-// never the carrier's bare grade, which is the carrier.
+// is of a carrier, never of a grade; a carrier whose type fixes its uses
+// takes none (one used once by its type, and a lifetime, which is never
+// consumed); a hold exactly on a carrier that holds references, which the
+// carrier says; and never the carrier's bare grade, which is the carrier.
 LogicalResult GradedType::verify(function_ref<InFlightDiagnostic()> emitError, Uses uses,
                                  std::optional<Hold> hold, Type carrier) {
   if (isa<GradedType>(carrier))
     return emitError() << "expects a grade of a carrier, got one of " << carrier;
-  if (idr::isLinearByType(carrier) || isa<LifetimeType>(carrier))
+  if (idr::byTypeOf(carrier) != ByType::UsedAsGraded)
     return emitError() << "expects no grade of " << carrier
                        << ", which is used exactly once by its type or is a lifetime";
   if (hold.has_value() != idr::holdsReferences(carrier))
@@ -122,9 +122,10 @@ LogicalResult GradedType::verify(function_ref<InFlightDiagnostic()> emitError, U
 }
 
 // What a value at a grade holds is its carrier's; the verifier refuses a
-// grade of a carrier used once by its type, so no graded type is one.
+// grade of a carrier whose type fixes its uses, so a graded type's values
+// are used as the grade says.
 bool GradedType::holdsReferences() const { return idr::holdsReferences(getCarrier()); }
-bool GradedType::isLinearByType() const { return false; }
+ByType GradedType::getByType() const { return ByType::UsedAsGraded; }
 bool GradedType::isCounted() const { return idr::isCounted(getCarrier()); }
 bool GradedType::isCellPointer() const { return idr::isCellPointer(getCarrier()); }
 
@@ -209,18 +210,17 @@ bool idr::holdFits(Type from, Type to) {
   return held == asked || (held && asked && held->fits(*asked));
 }
 
-// The declaration says it: a field of a member of the family's own group,
-// an application of a family whose data member promises in place, or a
-// buffer, whose storage the claim on the cell holding it covers and whose
-// elements it does not. A buffer is a memref field, of mutable memory or a
-// value array's after bufferization, and this is the one test of whether a
-// field holds one: every reader asks the reach.
+// The declaration says it: a type of ours answers for its own fields (a
+// member of the family's own group, an application of a family whose data
+// member promises in place); else a buffer, whose storage the claim on the
+// cell holding it covers and whose elements it does not. A buffer is a
+// memref field, upstream's type, of mutable memory or a value array's after
+// bufferization, and this is the one test of whether a field holds one:
+// every reader asks the reach.
 FieldReach idr::fieldReach(Type declared) {
   Type field = unrestricted(declared);
-  if (isa<SelfType>(field))
-    return FieldReach::OwnFamily;
-  if (auto data = dyn_cast<DataType>(field); data && data.promise() == Promise::InPlace)
-    return FieldReach::InPlaceFamily;
+  if (auto ours = dyn_cast<FieldTypeInterface>(field))
+    return ours.getFieldReach();
   if (isa<MemRefType>(field))
     return FieldReach::HeldBuffer;
   return FieldReach::Other;

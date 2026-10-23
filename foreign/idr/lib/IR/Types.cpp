@@ -224,6 +224,17 @@ Unique DataType::promisedClaim() const {
   return promise() == Promise::InPlace ? Unique::Self : Unique::None;
 }
 
+// How far a value's claim on its own cells reaches into a field of a data
+// type: into the cells of a family rebuilt in place, which are the value's
+// own by its promise; never into another family's.
+FieldReach DataType::getFieldReach() const {
+  return promise() == Promise::InPlace ? FieldReach::InPlaceFamily : FieldReach::Other;
+}
+
+// A field of a member of the group being declared is a cell of the value's
+// own family, which its claim on its own cells covers.
+FieldReach SelfType::getFieldReach() const { return FieldReach::OwnFamily; }
+
 FlatSymbolRefAttr DataType::labelFunction(Tag tag) const {
   return getGroup().labelFunction(getImpl()->member, tag);
 }
@@ -272,7 +283,10 @@ uint32_t DataType::freeLevels() const { return getImpl()->freeLevels; }
 // big's word.
 bool DataType::holdsReferences() const { return getImpl()->facts.refs == Refs::References; }
 // A frame stack is pushed once and popped once: used once by its type, so
-// no grade wraps it and no count is kept of it.
-bool DataType::isLinearByType() const { return layout() == Layout::FrameStack; }
+// no grade wraps it and no count is kept of it. Any other data is used as
+// its grade says.
+ByType DataType::getByType() const {
+  return layout() == Layout::FrameStack ? ByType::UsedOnceByType : ByType::UsedAsGraded;
+}
 bool DataType::isCounted() const { return holdsReferences(); }
 bool DataType::isCellPointer() const { return layout() == Layout::Cell; }

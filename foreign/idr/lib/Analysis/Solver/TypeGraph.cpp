@@ -22,6 +22,8 @@
 #include "idr/Analysis/Solver/TypeGraph.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Symbols.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -30,18 +32,41 @@
 #include "llvm/ADT/SetVector.h"
 
 #include <algorithm>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
 
-unsigned TypeGraph::insert(Type type) {
-  Key key = isa<MemRefType>(type)
-                ? Key(TypeAttr::get(type), 0)
-                : Key(cast<DataType>(type).getGroup(), cast<DataType>(type).getMember());
-  auto [it, fresh] = index.try_emplace(key, static_cast<unsigned>(types.size()));
+// Through its grade. An array is upstream's memref, which isArray tells
+// from a value array's buffer.
+std::optional<TypeGraph::Node> TypeGraph::nodeOf(Type type) {
+  if (DataType data = dataTypeOf(type))
+    return Node(Data{data});
+  Type value = unrestricted(type);
+  if (idr::isArray(value))
+    return Node(Array{cast<MemRefType>(value)});
+  return std::nullopt;
+}
+
+unsigned TypeGraph::insert(const Node &node) {
+  Key key = match(
+      node, [](const Data &member) { return Key(member.type.getGroup(), member.type.getMember()); },
+      [](const Array &array) { return Key(TypeAttr::get(array.type), 0); });
+  auto [it, fresh] = index.try_emplace(key, static_cast<unsigned>(nodes.size()));
   if (fresh)
-    types.push_back(type);
+    nodes.push_back(node);
   return it->second;
+}
+
+Type TypeGraph::type(unsigned at) const {
+  return match(
+      nodes[at], [](const Data &member) -> Type { return member.type; },
+      [](const Array &array) -> Type { return array.type; });
+}
+
+bool TypeGraph::isArray(unsigned at) const {
+  return match(
+      nodes[at], [](const Data &) { return false; }, [](const Array &) { return true; });
 }
 
 // Through its grade, and through a value array to its elements.
@@ -52,8 +77,8 @@ void TypeGraph::named(Type type, SmallVectorImpl<unsigned> &out) {
       break;
     value = unrestricted(values.getElementType());
   }
-  if (isa<DataType>(value) || idr::isArray(value))
-    out.push_back(insert(value));
+  if (std::optional<Node> node = nodeOf(value))
+    out.push_back(insert(*node));
 }
 
 TypeGraph::TypeGraph(Operation *module) {
@@ -64,11 +89,11 @@ TypeGraph::TypeGraph(Operation *module) {
   walker.addWalk([](ConAttr) { return WalkResult::skip(); });
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
   walker.addWalk([&](Type type) {
-    if (isa<DataType>(type) || idr::isArray(type)) {
-      insert(type);
-      return WalkResult::skip();
-    }
-    return WalkResult::advance();
+    std::optional<Node> node = nodeOf(type);
+    if (!node)
+      return WalkResult::advance();
+    insert(*node);
+    return WalkResult::skip();
   });
   module->walk([&](Operation *op) {
     walker.walk<WalkOrder::PreOrder>(op->getAttrDictionary());
@@ -86,33 +111,35 @@ TypeGraph::TypeGraph(Operation *module) {
   // group names that member by position.
   footprint::Vector<std::pair<unsigned, unsigned>> edges;
   SmallVector<unsigned> to;
-  for (unsigned at = 0; at < types.size(); ++at) {
+  for (unsigned at = 0; at < nodes.size(); ++at) {
     to.clear();
-    if (auto array = dyn_cast<MemRefType>(types[at])) {
-      named(array.getElementType(), to);
-    } else {
-      auto data = cast<DataType>(types[at]);
-      FamilyAttr group = data.getGroup();
-      for (uint32_t tag = 0, n = data.declaredCount(); tag < n; ++tag)
-        for (Type field : data.ctor(Tag{tag}).fields) {
-          if (auto self = dyn_cast<SelfType>(unrestricted(field))) {
-            auto member = static_cast<uint32_t>(self.getMember());
-            MLIRContext *context = group.getContext();
-            IndexArgsAttr any = families::opaqueArgs(
-                context, static_cast<uint32_t>(group.indices(member).size()));
-            to.push_back(insert(DataType::get(context, group, member, any.getTerms())));
-            continue;
-          }
-          named(field, to);
-        }
-    }
+    // Copied out of the list, which grows as the node's fields insert.
+    Node node = nodes[at];
+    match(
+        node, [&](const Array &array) { named(array.type.getElementType(), to); },
+        [&](const Data &applied) {
+          DataType data = applied.type;
+          FamilyAttr group = data.getGroup();
+          for (uint32_t tag = 0, n = data.declaredCount(); tag < n; ++tag)
+            for (Type field : data.ctor(Tag{tag}).fields) {
+              if (auto self = dyn_cast<SelfType>(unrestricted(field))) {
+                auto member = static_cast<uint32_t>(self.getMember());
+                MLIRContext *context = group.getContext();
+                IndexArgsAttr any = families::opaqueArgs(
+                    context, static_cast<uint32_t>(group.indices(member).size()));
+                to.push_back(insert(Data{DataType::get(context, group, member, any.getTerms())}));
+                continue;
+              }
+              named(field, to);
+            }
+        });
     for (unsigned target : to)
       edges.emplace_back(at, target);
   }
 
-  CsrBuilder<TypeNode> builder(Count<Node>(static_cast<uint32_t>(types.size())));
+  CsrBuilder<TypeNode> builder(Count<NodeId>(static_cast<uint32_t>(nodes.size())));
   for (auto [from, target] : edges)
-    builder.edge(Node(from), Node(target));
+    builder.edge(NodeId(from), NodeId(target));
   graph = std::move(builder).finish();
   parts = components(*graph);
 }
@@ -126,7 +153,7 @@ SmallVector<SmallVector<unsigned>> TypeGraph::knots() const {
     if (!parts->cyclic(component))
       continue;
     SmallVector<unsigned> members;
-    for (Node node : parts->members(component))
+    for (NodeId node : parts->members(component))
       members.push_back(node.index());
     if (llvm::any_of(members, [&](unsigned at) { return isArray(at); }))
       out.push_back(std::move(members));
@@ -138,7 +165,7 @@ SmallVector<unsigned> TypeGraph::cycle(unsigned array, ArrayRef<unsigned> compon
   llvm::DenseSet<unsigned> inComponent(component.begin(), component.end());
   // The element the array holds on the cycle: its one successor there.
   unsigned element = array;
-  for (Node next : graph->successors(Node(array)))
+  for (NodeId next : graph->successors(NodeId(array)))
     if (inComponent.contains(next.index())) {
       element = next.index();
       break;
@@ -151,7 +178,7 @@ SmallVector<unsigned> TypeGraph::cycle(unsigned array, ArrayRef<unsigned> compon
   reached.insert(element);
   llvm::DenseMap<unsigned, unsigned> previous;
   for (size_t at = 0; at < reached.size() && !reached.contains(array); ++at)
-    for (Node next : graph->successors(Node(reached[at])))
+    for (NodeId next : graph->successors(NodeId(reached[at])))
       if (inComponent.contains(next.index()) && reached.insert(next.index()))
         previous[next.index()] = reached[at];
   // Back from the array along the steps that reached it: each is to a node
