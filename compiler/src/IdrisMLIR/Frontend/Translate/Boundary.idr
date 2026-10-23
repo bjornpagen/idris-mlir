@@ -822,8 +822,8 @@ exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
 ||| and every registry name the validation resolves interned before it is
 ||| frozen; then the context frozen, the registry's entries validated
 ||| against it, and each definition's values that are members of a choice,
-||| what it takes at each binder and the hook that lowers its calls read off
-||| its type in normal form; and what follows from the definitions alone
+||| its binders with what it takes at each and their types, and the hook
+||| that lowers its calls read off its type in normal form; and what follows from the definitions alone
 ||| found once: each type constructor's facts, each definition's loops,
 ||| and each block's name. A registry entry or row the loaded definitions
 ||| contradict is refused here, once, at its definition or else at
@@ -857,7 +857,8 @@ readProgram ifs entry fallback = do
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are
-    -- members of a choice, what it takes at each binder, the hook that
+    -- members of a choice, each binder with what it takes there and the
+    -- binder's type, the hook that
     -- lowers its calls, its library functions read against their
     -- definitions (`checkedRow`), and, for an exit, what Idris's types say
     -- of its `believe_me` (`exitTypesOf`); or the refusal of the registry's
@@ -876,7 +877,7 @@ readProgram ifs entry fallback = do
       Right exit <- exitTypesOf fz found u
         | Left msg => pure (Left (refused msg))
       pure (Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered checked exit
-                             (placesOf fz ifs normal) (argumentsOfNormal u.def normal)))
+                             (placesOf fz ifs normal) (bindersWith (argumentAt u.def) normal)))
 
     -- Every definition read, frozen in order, by its entry; the first
     -- refusal stops the reading.

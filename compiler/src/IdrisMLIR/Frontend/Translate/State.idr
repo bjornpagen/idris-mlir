@@ -718,6 +718,32 @@ Eq Role where
 public export
 data ArgumentAt = NoValue | RuntimeValue Uses
 
+||| The binders a type in normal form shows, in order, each with what is
+||| read of it (`a`) and its type in the scope of the binders before it,
+||| then what the type gives after them. A reader that has the arguments
+||| before a binder closes the binder's type over them, so no reader walks
+||| the type again, where it could find fewer binders than were read.
+public export
+data Binders : Type -> Scope -> Type where
+  ShowsNoMore : Core.TT.Term.Term vs -> Binders a vs
+  ShowsBinder : {0 x : Name} -> a -> Core.TT.Term.Term vs -> Binders a (x :: vs) -> Binders a vs
+
+||| The binders a type in normal form shows (`Binders`), binder `j` of
+||| quantity `rig` read as `at` reads it.
+export
+bindersWith : (at : Nat -> RigCount -> a) -> Core.TT.Term.Term vs -> Binders a vs
+bindersWith at = go 0
+  where
+    go : Nat -> Core.TT.Term.Term ws -> Binders a ws
+    go j (Bind _ _ (Pi _ rig _ ty) sc) = ShowsBinder (at j rig) ty (go (S j) sc)
+    go _ t = ShowsNoMore t
+
+||| What is read of each binder, in order.
+public export
+readOfEach : Binders a vs -> List a
+readOfEach (ShowsNoMore _) = []
+readOfEach (ShowsBinder r _ rest) = r :: readOfEach rest
+
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters, the role of the argument at each position (`Role`), the
 ||| first first, and what its values are as numbers go.
@@ -846,9 +872,9 @@ record ExitTypes where
 ||| and its library functions' definitions (`Resolve.Lowered`), for an
 ||| exit (`Hook.Exits`) what Idris's types say of the `believe_me` it ends
 ||| with (`ExitTypes`), where its values are members of a choice
-||| (`MemberPlaces`), and what it takes at each binder of its type in
-||| normal form (`Closed.argumentAt`), read off the normal form the member
-||| table is read off.
+||| (`MemberPlaces`), and the binders of its type in normal form, the
+||| normal form the member table is read off, each with what the
+||| definition takes there (`Closed.argumentAt`) and its type (`Binders`).
 public export
 record Defined where
   constructor MkDefined
@@ -861,7 +887,13 @@ record Defined where
   loweredBy : Maybe (Lowered CheckedLibrary)
   exitTypes : Maybe ExitTypes
   places : MemberPlaces
-  taken : List ArgumentAt
+  binders : Binders ArgumentAt []
+
+||| What a definition takes at each binder of its type in normal form, in
+||| order (`binders`).
+public export
+(.taken) : Defined -> List ArgumentAt
+(.taken) d = readOfEach d.binders
 
 ||| Where a definition's values are members of a choice (`MemberPlaces`),
 ||| read once at the boundary: the lookup the translation and the growth

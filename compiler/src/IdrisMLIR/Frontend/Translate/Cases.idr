@@ -15,6 +15,7 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Choices
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Given
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
@@ -90,13 +91,15 @@ mutual
 data Step = Argument Nat Nat | DelayedType | DelayedValue
 
 ||| A constructor a compile-time match found an implementation built with:
-||| the constructor, its arguments as the reduction gave them, and the one
-||| a part the match bound is.
+||| the constructor, its arguments as the reduction gave them, the one a
+||| part the match bound is, and that part's type, its binder's in the
+||| constructor's type closed over the arguments before it.
 record Opened where
   constructor MkOpened
   con : Name
   args : List ClosedTerm
   at : Nat
+  partType : ClosedTerm
 
 ||| Where a variable of a case tree's scope stands in every clause of its
 ||| definition: one of the definition's parameters, then the step each
@@ -131,6 +134,10 @@ clauses args pats = MkClauses (map patternsOf pats) (rooted 0 args)
     rooted i [] = []
     rooted i (_ :: vs) = MkPlace i [<] [<] :: rooted (S i) vs
 
+-- Lists of equal successor lengths have tails of equal lengths.
+0 tailsAgree : {0 m, n : Nat} -> S m = S n -> m = n
+tailsAgree Refl = Refl
+
 ||| The clauses inside a match's alternative that binds `args` in front of
 ||| the scope, argument `j` at the place `part j` makes of the matched
 ||| variable's.
@@ -152,12 +159,23 @@ afterCon args = let k = length args in withArgs (\j, at => { steps $= (:< Argume
 
 ||| The clauses inside a compile-time match's alternative of the
 ||| constructor an implementation was found built with, applied to `cargs`:
-||| as `afterCon`, each argument's place also keeping that constructor.
-afterOpen : (con : Name) -> (cargs : List ClosedTerm) -> (args : List Name) -> Var vars -> Clauses vars ->
-            Clauses (Scope.addInner vars args)
-afterOpen con cargs args =
-  let k = length args in
-  withArgs (\j, at => { steps $= (:< Argument j k), opened $= (:< MkOpened con cargs j) } at) args
+||| as `afterCon`, each argument's place also keeping that constructor and
+||| the argument's type, one of `typed` per argument.
+afterOpen : (con : Name) -> (cargs : List ClosedTerm) -> (args : List Name) -> (typed : List (p, ClosedTerm)) ->
+            (0 _ : length typed = length args) -> Var vars -> Clauses vars -> Clauses (Scope.addInner vars args)
+afterOpen con cargs args typed same (MkVar {varIdx} prf) (MkClauses pats ps) =
+  MkClauses pats (bound (lookupVar varIdx prf ps) 0 args typed same ps)
+  where
+    -- Argument `j` and those after it, of the place `at`, each with its
+    -- type.
+    bound : Place -> Nat -> (as : List Name) -> (ts : List (p, ClosedTerm)) -> (0 _ : length ts = length as) ->
+            ByVar vs Place -> ByVar (Scope.addInner vs as) Place
+    bound at j [] [] _ rest = rest
+    bound at j (_ :: as) ((_, ty) :: ts) same' rest =
+      { steps $= (:< Argument j (length args)), opened $= (:< MkOpened con cargs j ty) } at
+        :: bound at (S j) as ts (tailsAgree same') rest
+    bound at j [] (_ :: _) Refl _ impossible
+    bound at j (_ :: _) [] Refl _ impossible
 
 ||| The clauses inside a match on a suspension, which binds its type and
 ||| its value in front of the scope.
@@ -207,10 +225,6 @@ heldAt clause cls env = case getAt clause cls.patterns of
     read outermostFirst (v, ns) =
       if not (erased v) then v
         else maybe v fst (find (\(w, ms) => not (erased w) && any (\b => elem b ms) ns) outermostFirst)
-
--- Lists of equal successor lengths have tails of equal lengths.
-0 tailsAgree : {0 m, n : Nat} -> S m = S n -> m = n
-tailsAgree Refl = Refl
 
 ||| What each argument of a constructor alternative binds, in argument
 ||| order, read with the shape of the matched value's argument there when
@@ -809,42 +823,36 @@ mutual
     Built cn cargs <- whnf t
       | Stuck on => heldHere on
     cn <- fullName cn
-    taken <- (.taken) <$> lookupDef ctx.fc ctx.owner cn
-    pick cn cargs (zipWith info taken cargs) alts
+    con <- lookupDef ctx.fc ctx.owner cn
+    pick cn cargs (typedParts none con.binders cargs) alts
     where
       info : ArgumentAt -> ClosedTerm -> VarInfo (Fin nv)
       info (RuntimeValue _) v = Static v (if mentionsHole v then hole else Nothing)
       info _ v = TypeValue v
+
+      -- Each argument of the constructor, as many as its type shows
+      -- binders and the reduction gave arguments: what its variable
+      -- stands for, and its type, its binder's closed over the arguments
+      -- before it.
+      typedParts : Given ws -> Binders ArgumentAt ws -> List ClosedTerm -> List (VarInfo (Fin nv), ClosedTerm)
+      typedParts g (ShowsBinder at ty rest) (v :: vs) = (info at v, close g ty) :: typedParts (give v g) rest vs
+      typedParts _ _ _ = []
+
       -- The alternative of the constructor `cn` the implementation was
       -- found built with, applied to `cargs`, which each place it binds
-      -- keeps (`afterOpen`); else the default. With neither, no
-      -- alternative takes the value: the missing case, as any match's.
-      pick : Name -> List ClosedTerm -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Front (Term nv)
-      pick cn cargs infos (ConCase con _ args rhs :: rest) = do
+      -- keeps with its type (`afterOpen`); else the default. With
+      -- neither, no alternative takes the value: the missing case, as any
+      -- match's.
+      pick : Name -> List ClosedTerm -> List (VarInfo (Fin nv), ClosedTerm) -> List (CaseAlt vars) -> Front (Term nv)
+      pick cn cargs typed (ConCase con _ args rhs :: rest) = do
         full <- fullName con
-        if full /= cn then pick cn cargs infos rest else do
-          let Yes same = decEq (length infos) (length args)
+        if full /= cn then pick cn cargs typed rest else do
+          let Yes same = decEq (length typed) (length args)
             | No _ => reject ctx.fc ctx.owner CompiledModule ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
-          tree ctx (prepend (byVarFrom args id infos same) env) (afterOpen cn cargs args scrutinee cls) rhs
-      pick cn cargs infos (DefaultCase rhs :: _) = tree ctx env cls rhs
-      pick cn cargs infos (_ :: rest) = pick cn cargs infos rest
-      pick cn cargs infos [] = missingCase ctx <$> toLoc ctx.fc
-
-      -- The type of argument `j` of a constructor applied to `args`.
-      argumentType : Name -> List ClosedTerm -> Nat -> Front ClosedTerm
-      argumentType cn args j = go (!(lookupDef ctx.fc ctx.owner cn)).type (take j args)
-        where
-          go : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
-          go ty as = do
-            -- The match binds no more arguments than the constructor's
-            -- type shows binders, which its `taken` was read off where the
-            -- program was read; that reading keeps no binder's type, so
-            -- this walk reads them again, and past them it would find none.
-            Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
-              | _ => internal ctx.fc ("an argument of " ++ show cn ++ " past the binders its type shows")
-            case as of
-              [] => normaliseClosed a
-              (v :: vs) => go (subst v sc) vs
+          tree ctx (prepend (byVarFrom args fst typed same) env) (afterOpen cn cargs args typed same scrutinee cls) rhs
+      pick cn cargs typed (DefaultCase rhs :: _) = tree ctx env cls rhs
+      pick cn cargs typed (_ :: rest) = pick cn cargs typed rest
+      pick cn cargs typed [] = missingCase ctx <$> toLoc ctx.fc
 
       -- An implementation built with its constructor applied, an argument
       -- replaced.
@@ -865,7 +873,7 @@ mutual
       -- innermost first, with nothing reduced again; and the part's type.
       holding : (m : Nat) -> (inner : Opened) -> (outer : SnocList Opened) -> Front (ClosedTerm, ClosedTerm)
       holding m inner outer = do
-        ty <- argumentType inner.con inner.args inner.at
+        ty <- normaliseClosed inner.partType
         part <- rebuilt inner.con inner.at (holeMarker m) inner.args
         (, ty) <$> around part outer
         where

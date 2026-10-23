@@ -146,7 +146,8 @@ entryPoint fileSite = do
       _ => pure False
 
 ||| Compiles the program Idris has built from its main file, whose path
-||| names the module `mainFile`, into the module at `mlirPath`, or gives the
+||| names the module `mainFile` and whose checked module, reloaded once
+||| built, is `mainChecked`, into the module at `mlirPath`, or gives the
 ||| program's rejections, the first found first, and writes nothing. What
 ||| each module the session loaded is (`loaded`) was read once, before
 ||| it. The checks of the source and of what the
@@ -158,9 +159,9 @@ entryPoint fileSite = do
 ||| thrown.
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
-          (loaded : Modules) -> (mainFile : ModuleIdent) -> (timing : Maybe String) ->
+          (loaded : Modules) -> (mainFile : ModuleIdent) -> (mainChecked : String) -> (timing : Maybe String) ->
           (mlirPath : String) -> Core (List Rejection)
-program loaded mainFile timing mlirPath = do
+program loaded mainFile mainChecked timing mlirPath = do
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -204,8 +205,6 @@ program loaded mainFile timing mlirPath = do
     -- the module `main` is in. Library modules outside the table may be
     -- loaded, but not reached (checkReachable).
     session <- core loadedModules
-    Just mainChecked <- core elaboratedChecked
-      | Nothing => internal fc "the main file's checked module is not loaded"
     let users = userModules SortedSet.empty ((mainFile, mainChecked) :: map (\(m, _, checked) => (m, checked)) session)
     -- The user's own imports are of user modules or trusted ones, and its
     -- pragmas those the elaborator discharges, each read from its checked
