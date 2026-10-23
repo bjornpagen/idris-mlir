@@ -303,3 +303,25 @@ is confirming.
   `Core.Core`'s own bind is imported; Choices hides Core's bind, as
   upstream's parser does. If INT-17 meets the same ambiguity in other
   Front-only modules, the same hide there.
+
+## From L16di (Closed and Programs)
+
+- The `%pair` (decided here, the coordinator, 2026-10-23): Sites'
+  `Pairing` moves to State as `Reading.pair : Maybe Pairing`, filled by
+  `readProgram` after the freeze (`readIn`, `definedAddress`), a declared
+  `%pair` naming nothing refused there as `CompiledModule`; packing more
+  than one captured value in a program with no `%pair` is refused as
+  `unsupported`, naming the pair it needs, where today it is an internal
+  error (no accepted program changes). Then `pairNames`/`pairPart` go, and
+  `packedType`, `unpacked` and Sites' `pairingOf` read the record.
+- A metavariable's solution (`Closed.solution`): either the checker states
+  that every metavariable a frozen definition names is at an entry it
+  defines, with one leaf and no arguments (`Unify.idr:503, 1527, 1546,
+  1572`; `Delayed.idr:278` write nothing else), and the walked terms carry
+  their origin; or a solved metavariable is read as a reference to the
+  definition it is (Terms, Sites). To be decided on the reading.
+- Programs' local-join call: lemmas over `jumpsTo` (a term that never
+  calls a callee rewrites for it; rewriting for one keeps another's
+  success), `jumpedBy`/`fitsRuns` returning evidence; or tail calls typed
+  apart from inner calls from Terms on. `callHead`'s `decEq arity k` tests
+  what the callee's identity fixes.
