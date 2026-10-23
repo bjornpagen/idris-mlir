@@ -160,3 +160,17 @@ handoff lists its own wiring.
   threads the instance's runtime parameters through the tree (Cases
   :794, :834 become unrepresentable); if something differs, the kind
   that differs names the reading to fix. Route the result to L16.
+
+- **INT-16 (2026-10-23, at d096237a; `build/int16/`).** The patched stock
+  Idris (96, 104 to 110) installs whole, `install-api` included (553 s,
+  3.0 GiB); the checker builds clean with no scratch (208 modules,
+  629 s), 110 clearing every coverage report and `mappedContracts`'
+  runaway. The frontend stops at module 23 of 101; with 23 files of
+  throwaway scratch every module builds and `idris-mlir-front` links
+  (524 s; Sites 188 s, Terms 124 s; the link 82 s at 6.0 GiB peak).
+  Routed: the driver's `Compile` patterns and syntax-samples' dependency
+  (5edb5795); five shapes stock rejects to L06d; the rest by file to
+  L16db (Growth, Graph, Sites, Template, Heads, Program), L16dd (Proof,
+  Indexed), L16de (Instances, Cases, Choices, Programs) and L16df
+  (Terms, Types, Readings with `SkeletonOf`'s positivity, Closed,
+  Contraction, Keys). INT-17 rebuilds once they hand off.
