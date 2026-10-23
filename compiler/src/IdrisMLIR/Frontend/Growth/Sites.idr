@@ -1308,14 +1308,19 @@ typeAfter ty (v :: vs) = do
 ||| A definition applied as code where what it gives after its arguments is
 ||| a member (`givesAfter`; where the instance decides, the type `after`
 ||| them says, and where only an instance can, it may be one): the member
-||| of its type's choice (`Translate.Terms.applyRef`'s `memberHere`),
-||| written at its choice's position (`memberAt`), the unshown head's
-||| where the type shows none. Essential: a value no compile-time
-||| reduction fixes is a choice, no member.
+||| of its type's choice (`Translate.Terms.applyDefined`'s `memberHere`,
+||| which reads every definition applied so, whatever its kind: an
+||| interface's constructor applied builds an implementation as a function
+||| that gives one does), written at its choice's position (`memberAt`),
+||| the unshown head's where the type shows none. The application is
+||| written as Idris writes it, its head the reference `reference` names
+||| (a constructor's by its tag and arity), which is how the reading of a
+||| dictionary tells a constructor from a function. Essential: a value no
+||| compile-time reduction fixes is a choice, no member.
 definitionMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-                   At -> Pats -> Env vs -> FC -> Defined -> (after : Front ClosedTerm) -> List (Arg vs) ->
-                   Front (List Site)
-definitionMember at ps env fc d after args = case givesAfter (length args) (memberPlaces d) of
+                   At -> Pats -> Env vs -> FC -> Defined -> (reference : NameType) -> (after : Front ClosedTerm) ->
+                   List (Arg vs) -> Front (List Site)
+definitionMember at ps env fc d reference after args = case givesAfter (length args) (memberPlaces d) of
     NoMember => pure []
     AMember => made !after
     ByInstance => do
@@ -1327,7 +1332,7 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
     made : ClosedTerm -> Front (List Site)
     made ty = do
       (k ** named) <- choiceReadOf ty
-      let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
+      let written = foldl (App fc) (Ref fc reference (fullname d.def)) (map (.written) args)
       h <- holedAt env written
       form <- solved h.key
       FixedNow _ <- fixing ty form
@@ -1731,7 +1736,7 @@ call : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
 call at ps env fc a d args = do
   let arity = arityOf d
   (gs, rest) <- taken at ps env d.type d.taken (take arity args)
-  member <- definitionMember at ps env fc d (typeAfter rest (map (\x => close env x.written) (drop arity args))) args
+  member <- definitionMember at ps env fc d Func (typeAfter rest (map (\x => close env x.written) (drop arity args))) args
   own <- callSite at ps env fc (Calls a d) gs
   -- A `%foreign` the registry gives no hooks is refused where it is
   -- called (`Translate.Terms.applyRef`), so it calls nothing in place.
@@ -1755,14 +1760,18 @@ applyRef at ps env fc n args = do
     -- A constructor's field that holds an implementation or a polymorphic
     -- function holds the member its site fixes (`Translate.Terms.constructor`),
     -- as the member table says of its binder, but for a method's field,
-    -- which a dispatch settles (`dictionaryArguments`).
-    DCon _ arity _ => do
+    -- which a dispatch settles (`dictionaryArguments`). What it builds is
+    -- itself a member where the table says it gives one after its
+    -- arguments (`definitionMember`), as any definition applied is.
+    DCon tag arity _ => do
       dcon <- constructed at ps env fc a d d.taken (take arity args)
+      member <- definitionMember at ps env fc d (DataCon tag arity)
+                                 (typeAfter dcon.result (map (\x => close env x.written) (drop arity args))) args
       now <- case dcon.building of
         BuildsDictionary => dictionaryArguments at ps env fc d dcon.given
         BuildsData => walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) dcon.given
       later <- overType at ps env fc (Just dcon.result) (drop arity args)
-      pure (dcon.sites ++ now ++ later)
+      pure (member ++ dcon.sites ++ now ++ later)
     PMDef {} => call at ps env fc a d args
     Builtin {} => call at ps env fc a d args
     ForeignDef {} => call at ps env fc a d args

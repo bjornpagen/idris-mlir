@@ -418,13 +418,13 @@ dataPosition a d j = (OfParameter (OfNode (MkNode a [])) j ** ParameterSpot (Nod
 
 -- A definition entered: itself as the boundary read it, with its sites,
 -- by its address, its families, its represented arguments as positions
--- of its node with no heads, and its fields, with the definitions its
--- sites name, as their sites hold them, to enter next.
+-- of its node with no heads, and the fields it is read with, with the
+-- definitions its sites name, as their sites hold them, to enter next.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       Address -> Defined -> Front (NodeReading, List Nat) -> Entered -> Front (Entered, List Defined)
-keep a d reading r = do
+       Address -> Defined -> Front (NodeReading, List Nat) -> Front (Maybe Fields) -> Entered -> Front (Entered, List Defined)
+keep a d reading fields r = do
   (rd, js) <- reading
-  fs <- fieldsOf d
+  fs <- fields
   let ss = rd.sites
   pure ( { sites $= insert a (d, ss)
          , families $= insert a rd.families
@@ -438,11 +438,12 @@ keep a d reading r = do
 -- starts with fewer definitions left to enter than the last. Each is
 -- walked as the boundary read it, main as the reading holds it and every
 -- other as the site that names it holds it, so none is looked up. A
--- definition the checks refused is entered and measured, since it is
--- still requested, but has no sites and reaches nothing: the translation
--- leaves it out, and what only it reaches. Its fields are left out too,
--- so that no dispatch reaches a method function through it, and it has
--- no family to be read at.
+-- definition the checks refused is still requested, and its request reads
+-- its signature, registering the families its types name, so it is read
+-- as any other is, at its node (`readingOf`), which leaves out its case
+-- tree (`nodeSites`): the translation leaves its body out, and what only
+-- that reaches. Its fields are left out too, so that no dispatch reaches
+-- a method function through it.
 level : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         SortedSet Address -> (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
         Entered -> List Defined -> Pending w0 w -> Front Entered
@@ -458,7 +459,7 @@ level refused w0 acc@(Access rec) w p r (d :: rest) pending = do
     | Nothing => level refused w0 acc w p r rest pending
   let (counts, reading) = kindOf a d
   let measured = { breadth $= \b => foldl (\m, k => max m (S k)) b counts } r
-  (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a (d, []) } measured), the (List Defined) []) else keep a d reading measured
+  (r', next) <- keep a d reading (if contains a refused then pure Nothing else fieldsOf d) measured
   level refused w0 acc w1 (thenNoMore (fewer q) p) r' rest (Queued (fewerThen q p) (queued pending <>< next))
 
 -- The definitions' walk from main, as the reading holds it.
@@ -2597,7 +2598,7 @@ readings fl r = foldlM family plain (SortedMap.toList r.sites)
     headed a d m hs = (\ss => insert (MkNode a (headAddresses hs)) (d, ss) m) <$> sitesOf a d hs
 
     -- Each way of heading a definition's families, read at its
-    -- definition: a definition the checks refused was entered with none.
+    -- definition.
     family : SortedMap Node (Defined, List Sites.Site) -> (Address, Defined, List Sites.Site) ->
              Front (SortedMap Node (Defined, List Sites.Site))
     family m (a, d, _) = foldlM (headed a d) m (familyHeads fl a (fromMaybe [] (lookup a r.families)))
