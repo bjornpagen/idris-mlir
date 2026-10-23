@@ -97,6 +97,11 @@ litAttr (LDouble d) = FloatAttr d F64Type
 litAttr (LBig n) = Idr (BigAttr n)
 litAttr (LNat n) = Idr (BigAttr n)
 
+||| The axes of an array a function gives: `?` at every one, whatever its
+||| size (`returned`).
+returnedAxes : List Dim -> List Dim
+returnedAxes = map (const Dynamic)
+
 ||| A value as a function gives it, whether the function is a definition, a
 ||| closure's or a suspension's: an array `?` at every axis, whatever its
 ||| size, which the function's extents keep where it is known. A cast
@@ -106,8 +111,22 @@ litAttr (LNat n) = Idr (BigAttr n)
 ||| take it out of tail position.
 export
 returned : Ty -> Ty
-returned (TensorT ds e) = TensorT (map (const Dynamic) ds) e
+returned (TensorT ds e) = TensorT (returnedAxes ds) e
 returned t = t
+
+||| A type of the module at a grade: its uses and, for a type that holds
+||| references (`Reaches`), who frees what it holds, wrapped around it.
+||| The bare type is the grade a type has by itself: a word used many
+||| times, the form upstream's ops take, or a value that holds references
+||| used many times and freed by its count, claiming nothing.
+grade : Uses -> Reaches -> Hold -> MlirType -> MlirType
+grade Many WordsOnly _ t = t
+grade Once WordsOnly _ t = Idr (GradedType Once Nothing t)
+-- A value that holds references, used freely and freed by its count with
+-- no claim of its sharing, is the bare type: every such value before
+-- counting.
+grade Many HoldsReferences (Hold.Counted None) t = t
+grade u HoldsReferences h t = Idr (GradedType u (Just h) t)
 
 mutual
   ||| The module's type of a Core type, among the families given. A family
@@ -137,32 +156,37 @@ mutual
   typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType [] (resultsIn a r))
   typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q made x] (resultsIn a r))
   -- A suspension's value is what its function returns.
-  typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many made (returned r)))
-  typeIn a (TensorT ds e) = RankedTensorType ds (typeIn a e)
+  typeIn a (LazyT r) = Idr (LazyType (resultIn a r))
+  typeIn a (TensorT ds e) = tensorIn a ds e
   -- Every memref the frontend writes is an array written while shared, in
   -- the dialect's memory space for it.
   typeIn a (MemRefT o e) = MemRefType (orderedDims o) (typeIn a e) (Just (Idr MutableAttr))
 
-  ||| The types a function's result of a type is (`returned`): none for
-  ||| the world.
+  ||| An array of the dimensions given, of its element's type.
+  tensorIn : Among -> List Dim -> Ty -> MlirType
+  tensorIn a ds e = RankedTensorType ds (typeIn a e)
+
+  ||| The module's type of a value of a Core type as a function gives it:
+  ||| `typeIn` of `returned t`, read off `t`'s own parts, clause for
+  ||| clause, so that the walk descends.
+  returnedIn : Among -> Ty -> MlirType
+  returnedIn a (TensorT ds e) = tensorIn a (returnedAxes ds) e
+  returnedIn a t = typeIn a t
+
+  ||| A function's result of a type (`returned`), used many times and
+  ||| freed by its count; `returned` changes no type's reach, so `t`'s is
+  ||| its own.
+  resultIn : Among -> Ty -> MlirType
+  resultIn a t = grade Many (reachesIn a t) made (returnedIn a t)
+
+  ||| The types a function's result of a type is: none for the world.
   resultsIn : Among -> Ty -> List MlirType
   resultsIn a WorldT = []
-  resultsIn a t = [gradedIn a Many made (returned t)]
+  resultsIn a t = [resultIn a t]
 
-  ||| A value's type: its uses and, for a type that holds references, who
-  ||| frees what it holds, wrapped around the type. The bare type is the
-  ||| grade a type has by itself: a word used many times, the form
-  ||| upstream's ops take, or a value that holds references used many times
-  ||| and freed by its count, claiming nothing.
+  ||| A value's type, at its uses and hold (`grade`).
   gradedIn : Among -> Uses -> Hold -> Ty -> MlirType
-  gradedIn a u h t = case (u, reachesIn a t, h) of
-    (Many, WordsOnly, _) => typeIn a t
-    (Once, WordsOnly, _) => Idr (GradedType Once Nothing (typeIn a t))
-    -- A value that holds references, used freely and freed by its count
-    -- with no claim of its sharing, is the bare type: every such value
-    -- before counting.
-    (Many, HoldsReferences, Hold.Counted None) => typeIn a t
-    (_, HoldsReferences, _) => Idr (GradedType u (Just h) (typeIn a t))
+  gradedIn a u h t = grade u (reachesIn a t) h (typeIn a t)
 
   ||| An index term's nodes, in preorder, among the families given: a
   ||| type standing as an index is a literal of its type attribute; a
