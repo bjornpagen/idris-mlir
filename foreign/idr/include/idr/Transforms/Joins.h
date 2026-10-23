@@ -73,7 +73,7 @@ enum class Ending : std::uint8_t { Ends, MayNotEnd };
 // The ending of a group whose members are the code of `functions`, one at
 // least: Idris's one proof that a cycle of ours ends, every function on it
 // proved in one and the same component of its own, the proof the writer of
-// rows reads of a cycle of calls (rows::writer::provedTogether). A cycle of
+// rows reads of a cycle of calls (rows::provedTogether). A cycle of
 // calls that becomes a cycle of jumps keeps the divergence it had.
 Ending endingOf(llvm::ArrayRef<FuncOp> functions);
 

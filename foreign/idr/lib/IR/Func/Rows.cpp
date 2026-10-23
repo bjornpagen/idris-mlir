@@ -155,8 +155,11 @@ rows::Check::Check(FuncOp fn)
 
 // The row holds what the body's ops do and nothing before them: a loop that
 // may not end says so by its own op, idr.may_loop, which every pass that
-// moves the loop moves with it, so the divergence it adds is blamed on it
-// like any other effect.
+// moves the loop moves with it; a recursion Idris did not prove says so by
+// the call of the function itself that closes it, which the derivation
+// reads as a cycle of one. The divergence either adds is blamed on that op
+// like any other effect. A cycle of several functions shows here only
+// through the other members' rows, which the calls of them hold.
 LogicalResult rows::Check::enter(Operation *op, Region &region) {
   return derivation.enter(op, region);
 }

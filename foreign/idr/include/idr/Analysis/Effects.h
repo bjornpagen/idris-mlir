@@ -16,10 +16,13 @@
 // run as calls of its labels. The fold starts empty, so every atom of a
 // row is some op's doing, divergence too: a loop Idris did not prove to
 // end begins each region it repeats with idr.may_loop, which goes wherever
-// a pass moves the loop; and the divergence of a cycle of calls Idris did
-// not prove together the writers join into each member's row
-// (rows::writer::provedTogether), from which every call of a member takes
-// it, a self call its own function's.
+// a pass moves the loop; a call of the function itself closes a cycle of
+// one, whose divergence the fold reads off Idris's proof of the function
+// (provedTogether), since the call's row is the function's own and cannot
+// vouch for it; and the divergence of a cycle of several functions Idris
+// did not prove together the writers join into each member's row, from
+// which every call of a member takes it. A cycle of several is the program
+// graph's, which no function's body shows.
 //
 // Two refinements keep a row to what a caller can see: an effect on memory
 // the function acquired itself (allocated on the heap or in its frame) is
@@ -44,6 +47,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/Support/Match.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -53,6 +57,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <iterator>
 #include <optional>
 #include <variant>
 
@@ -78,6 +83,22 @@ effects::Told told(FuncOp fn);
 //===----------------------------------------------------------------------===//
 // The derivation
 //===----------------------------------------------------------------------===//
+
+// Whether every function of a cycle was proved by Idris in one and the same
+// component of its own, the one way a cycle of ours is known to end: read of
+// a cycle of one by the fold, of a cycle of the program graph by the
+// writers, and of a loop made of calls by the pass that makes it.
+template <class Members>
+bool provedTogether(Members &&members) {
+  FuncOp first = *std::begin(members);
+  return idr::match(
+      first.getTermination(), [](Unproved) { return false; }, [](Acyclic) { return false; },
+      [&](InComponent in) {
+        return llvm::all_of(members, [&](FuncOp fn) {
+          return fn.getTermination() == Termination{in};
+        });
+      });
+}
 
 // Whether a region may run more than once for each run of its function: a
 // put inside one has no bound.
@@ -111,6 +132,10 @@ public:
   // An op's own effects as it declares them, its runtime memory and what
   // it puts into a lifetime. A call is read by its reader, never here.
   void declared(mlir::Operation *op, Runs runs);
+  // A call, before its reader reads what its callee runs: a call of the
+  // function itself closes a cycle of one, and holds the divergence Idris's
+  // proof of the function leaves it.
+  void cycleOfOne(CallOp call);
   // One effect of an op, attributed by where it lands.
   void effect(const effects::Effect &effect);
   // A write through `value`: a call's operand its callee writes through.
@@ -144,6 +169,10 @@ private:
 
   FuncOp fn;
   ParameterParts parts;
+  // The function's symbol, which a call of itself names, and what such a
+  // call adds: both read once, off the function.
+  mlir::StringAttr self;
+  effects::Row ownCycle;
   Derived derived;
   std::optional<Layouts> laidOut;
 };
@@ -192,11 +221,15 @@ public:
       runs.push_back(detail::regionRuns(op, region.getRegionNumber()));
     return mlir::success();
   }
+  // A call's cycle of one is the fold's, read before any reader takes the
+  // call, so no reader can leave it out.
   mlir::LogicalResult check(mlir::Operation *op) {
-    if (auto call = llvm::dyn_cast<CallOp>(op))
+    if (auto call = llvm::dyn_cast<CallOp>(op)) {
+      fold.cycleOfOne(call);
       reader.call(call, fold, runs.back());
-    else if (reader.other(op, fold, runs.back()) == Read::ByDeclaration)
+    } else if (reader.other(op, fold, runs.back()) == Read::ByDeclaration) {
       fold.declared(op, runs.back());
+    }
     return mlir::success();
   }
   void leave() { runs.pop_back(); }

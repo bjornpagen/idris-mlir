@@ -79,7 +79,7 @@ struct Unproved {
 using TerminationProof = std::variant<InComponent, Acyclic>;
 // What is known of a function's own loops, the attribute read: whether a
 // loop a pass makes of its code may not end (joins::endingOf), and whether
-// a cycle of calls through it does (rows::writer::provedTogether).
+// a cycle of calls through it does (rows::provedTogether).
 using Termination = std::variant<Unproved, InComponent, Acyclic>;
 
 llvm::hash_code hash_value(const TerminationProof &proof);

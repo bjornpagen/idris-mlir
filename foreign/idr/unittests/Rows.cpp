@@ -17,8 +17,9 @@
 // row then lacks what its body needs: divergence where it holds
 // idr.may_loop, and every atom of the row each of its calls holds. A
 // cycle's divergence is no op's: each member's call of another member
-// holds it, so a member that drops it lacks what that call needs, while a
-// self call holds its own function's row and gives it up with the row. A
+// holds it, so a member that drops it lacks what that call needs, and a
+// call of itself needs the divergence Idris's proof of the function alone
+// leaves, so a member that calls itself cannot drop it either. A
 // row that says too much is sound and passes. The judgement is shown
 // failing each oracle planted with a fault.
 
@@ -220,12 +221,17 @@ Shape shapeOf(std::uint64_t seed) {
   return shape;
 }
 
-// The atoms function `f`'s body needs under `rows`: its loop's, and every
-// atom of each callee's row, which its calls hold.
+// The atoms function `f`'s body needs under `rows`: its loop's, every atom
+// of each callee's row, which its calls hold, and, for a call of itself,
+// the divergence Idris's proof of `f` alone leaves (the one derivation's
+// cycle of one: none where `f` is proved, divergence otherwise).
 Row needs(const Shape &shape, const std::vector<Row> &rows, unsigned f) {
   Row needed = loopAtoms[shape.loops[f]];
+  llvm::SmallBitVector self(static_cast<unsigned>(rows.size()));
+  self.set(f);
   for (unsigned callee : shape.calls[f])
-    needed = needed | rows[callee];
+    needed = needed | rows[callee] |
+             (callee == f ? cycleAtoms[endingOf(shape.terminations, self)] : Row{});
   return needed;
 }
 

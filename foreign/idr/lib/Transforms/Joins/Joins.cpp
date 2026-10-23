@@ -143,7 +143,7 @@ unsigned scopeDepth(Region *region) {
 
 Ending endingOf(ArrayRef<FuncOp> functions) {
   assert(!functions.empty() && "a group's members are the code of one function at least");
-  return rows::writer::provedTogether(functions) ? Ending::Ends : Ending::MayNotEnd;
+  return rows::provedTogether(functions) ? Ending::Ends : Ending::MayNotEnd;
 }
 
 Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Member> members,

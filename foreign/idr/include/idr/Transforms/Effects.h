@@ -9,12 +9,14 @@
 // so its members share one row, the join of their own parts and of the
 // rows of the components they call. A cycle of ours may run forever unless
 // Idris proved every function on it in one and the same component of its
-// own; that is the cycle's, not any one function's, so the writer adds it
-// and no function's check can. The record follows the same way: a write
-// through a parameter passed on to a callee's written parameter is a write
-// through the caller's; what a callee puts into a lifetime passed on is
-// put into the caller's, with no bound where the call lies on a cycle or
-// in a region that runs again.
+// own (provedTogether). A cycle of one, a call of the function itself, is
+// in its own part already, the derivation's reading of the call, so its
+// check holds it too; a cycle of several is the graph's, not any one
+// function's, so the writer adds it and no function's check can. The
+// record follows the same way: a write through a parameter passed on to a
+// callee's written parameter is a write through the caller's; what a
+// callee puts into a lifetime passed on is put into the caller's, with no
+// bound where the call lies on a cycle or in a region that runs again.
 //
 // Rows are equal to their derivation right after the writer, and cover it
 // after every other pass. The writer runs where effects change: in
@@ -44,12 +46,10 @@
 #include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
-#include <iterator>
 #include <memory>
 #include <span>
 
@@ -102,8 +102,10 @@ struct AtomsProblem {
 };
 
 namespace detail {
-// The divergence of each cycle no single proof of Idris's covers, joined
-// into each member's own part.
+// The divergence of each cycle of the graph no single proof of Idris's
+// covers, joined into each member's own part. A lone member's call of
+// itself put it there already; its edge to itself may also be a run of
+// labels, in the label solve's graph, which no call of its body shows.
 void addCycles(const solver::ProgramGraph &graph, IndexVector<solver::FunctionId, effects::Row> &own);
 } // namespace detail
 
@@ -249,20 +251,6 @@ void passOn(llvm::MutableArrayRef<Amount> mine, const Site &site, TheirsOf &&the
           mine[part.position] = mine[part.position].plus(theirs);
         },
         [](WritePart) {}, [](NoPart) {});
-}
-
-// Whether every function of a cycle was proved by Idris in one and the same
-// component of its own, the one way a cycle of ours is known to end.
-template <class Members>
-bool provedTogether(Members &&members) {
-  FuncOp first = *std::begin(members);
-  return idr::match(
-      first.getTermination(), [](Unproved) { return false; }, [](Acyclic) { return false; },
-      [&](InComponent in) {
-        return llvm::all_of(members, [&](FuncOp fn) {
-          return fn.getTermination() == Termination{in};
-        });
-      });
 }
 
 } // namespace idr::rows::writer

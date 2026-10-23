@@ -3,9 +3,9 @@
 // The fold every derivation of a function's row and record shares: each op
 // read by its declaration through the effect system's one query API, each
 // effect attributed by where it lands, each put into a put parameter summed
-// by how often its region runs; and the verifier's reader of calls, the
-// calls' own copies of their callees' rows, whose derivation is compiled
-// here once.
+// by how often its region runs, each call of the function itself read as
+// the cycle it closes; and the verifier's reader of calls, the calls' own
+// copies of their callees' rows, whose derivation is compiled here once.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Effects/Classify.h"
@@ -19,6 +19,8 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
+#include <array>
+
 using namespace mlir;
 using namespace idr;
 
@@ -30,9 +32,24 @@ rows::Runs rows::detail::regionRuns(Operation *op, unsigned index) {
   return branch && !branch.isRepetitiveRegion(index) ? Runs::Once : Runs::Repeatedly;
 }
 
-rows::Fold::Fold(FuncOp fn) : fn(fn), parts(fn.getArgumentTypes()) {
+// A cycle of one is a cycle like any other: it ends only where Idris
+// proved its one member, as the writers read every cycle of the program.
+rows::Fold::Fold(FuncOp fn)
+    : fn(fn), parts(fn.getArgumentTypes()), self(fn.getSymNameAttr()),
+      ownCycle(provedTogether(std::array{fn}) ? effects::Row{}
+                                              : effects::Row{effects::Atom::divergence}) {
   derived.written.resize(parts.writable());
   derived.puts.assign(parts.puttable(), Amount::finite(0));
+}
+
+// A call's row is its callee's, so a call of the function itself carries
+// the function's own row, which can only repeat what that row says: the
+// divergence of the cycle such a call closes is read here instead, off the
+// function, so a row that leaves it out is short of its body, as a row
+// short of any op's effect is.
+void rows::Fold::cycleOfOne(CallOp call) {
+  if (call.getCalleeAttr().getAttr() == self)
+    join(ownCycle);
 }
 
 const Layouts &rows::Fold::layouts() {
