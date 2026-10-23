@@ -210,7 +210,8 @@ jumpOp = MkOp
   , traits = [Terminator, TokenConsumer]
   , interfaces =
       [ Declares RegionBranchTerminator ["getMutableSuccessorOperands"]
-      , Declares RegionExitTerminator ["getPotentialTargets"] ]
+      , Declares RegionExitTerminator ["getPotentialTargets"]
+      , Implements scopeRuleInterface ["verifyScopeRule"] ]
   , effects = noEffects
   , speculation = NotSpeculatable
   , stages = Always

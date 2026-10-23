@@ -155,25 +155,24 @@ LogicalResult verifyField(EmitError emitError, StringRef label, Type field,
   // Another group's declaration is its own scope: the walk stays out of it.
   AttrTypeWalker walker;
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
-  walker.addWalk([&](Type inner) {
-    if (auto data = dyn_cast<DataType>(inner)) {
-      levels(data.getIndices());
-      levels(data.getBinders());
-      return WalkResult::skip();
-    }
-    if (auto nat = dyn_cast<NatType>(inner))
-      levels(nat.getIndex());
-    else if (auto self = dyn_cast<SelfType>(inner)) {
-      levels(self.getIndices());
-      std::optional<ArrayRef<Sort>> sorts = sortsOfMember(Attribute(), self.getMember(), own);
-      if (!sorts)
-        result = emitError() << "@" << label << " names member " << self.getMember()
-                             << " of a group of " << own.size();
-      else if (countTerms(self.getIndices()) != sorts->size() ||
-               freeLevelsOf(self.getIndices()) > binders.size())
-        result = emitError() << "@" << label << " names its group's member with indices that "
-                             << "do not fit it";
-    }
+  // Every level an indexed type names is bound here; a data type's own
+  // parts are its family's, so the walk stays out of them.
+  walker.addWalk([&](IndexedTypeInterface indexed) {
+    for (ArrayRef<TermNode> run : indexed.getIndexTermRuns())
+      levels(run);
+    return indexed.scopeHoldsParts() ? WalkResult::advance() : WalkResult::skip();
+  });
+  // A member named by position is one of this group's, applied to indices
+  // of its sorts over the binders in scope.
+  walker.addWalk([&](SelfType self) {
+    std::optional<ArrayRef<Sort>> sorts = sortsOfMember(Attribute(), self.getMember(), own);
+    if (!sorts)
+      result = emitError() << "@" << label << " names member " << self.getMember()
+                           << " of a group of " << own.size();
+    else if (countTerms(self.getIndices()) != sorts->size() ||
+             freeLevelsOf(self.getIndices()) > binders.size())
+      result = emitError() << "@" << label << " names its group's member with indices that "
+                           << "do not fit it";
     return WalkResult::advance();
   });
   walker.walk<WalkOrder::PreOrder>(field);

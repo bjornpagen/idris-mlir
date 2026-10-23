@@ -710,7 +710,7 @@ factsDefinition : ValueFacts -> Lines
 factsDefinition f =
   [ "let extraClassDefinition = [{"
   , "  bool $cppClass::holdsReferences() const { return " ++ truth (holds f.holding) ++ "; }"
-  , "  bool $cppClass::isLinearByType() const { return " ++ truth (once f.byType) ++ "; }"
+  , "  ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::" ++ byTypeCase f.byType ++ "; }"
   , "  bool $cppClass::isCounted() const { return " ++ truth (counted f.counting) ++ "; }"
   , "  bool $cppClass::isCellPointer() const { return " ++ truth (cell f.word) ++ "; }"
   , "}];" ]
@@ -718,9 +718,10 @@ factsDefinition f =
     holds : Holding -> Bool
     holds HoldsReferences = True
     holds HoldsNoReference = False
-    once : ByType -> Bool
-    once UsedOnceByType = True
-    once UsedAsGraded = False
+    byTypeCase : ByType -> String
+    byTypeCase UsedOnceByType = "UsedOnceByType"
+    byTypeCase UsedFreelyByType = "UsedFreelyByType"
+    byTypeCase UsedAsGraded = "UsedAsGraded"
     counted : Counting -> Bool
     counted Counted = True
     counted Uncounted = False

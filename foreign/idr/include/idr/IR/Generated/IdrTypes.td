@@ -9,7 +9,7 @@
 include "idr/IR/Generated/IdrBase.td"
 include "idr/IR/Generated/IdrInterfaces.td"
 
-def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getFreeLevels", "scopeHoldsParts"]>, DeclareTypeInterfaceMethods<Idr_PatternTypeInterface, ["matchInstance"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>, DeclareTypeInterfaceMethods<Idr_NumericTypeInterface, ["getNumericReading", "isCarriedAsBig"]>, DeclareTypeInterfaceMethods<Idr_IndexPositionsTypeInterface, ["appendIndexPositions", "atFreshPositions"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a data type: a member of a family applied to index terms";
   let description = [{
     Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
@@ -55,14 +55,14 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Declare
   }];
 }
 
-def Idr_SelfType : Idr_Type<"Self", "self", []> {
+def Idr_SelfType : Idr_Type<"Self", "self", [DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getPositionalMember"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>]> {
   let summary = "a member of the group a field is declared in, by position";
   let parameters = (ins Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices);
   let hasCustomAssemblyFormat = 1;
   let genStorageClass = 0;
 }
 
-def Idr_GradedType : Idr_Type<"Graded", "graded", [DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_GradedType : Idr_Type<"Graded", "graded", [DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_PatternTypeInterface, ["matchInstance"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a value at a grade: its uses and, on a carrier that holds references, its hold";
   let parameters = (ins Idr_EnumParameter<Idr_Uses>:$uses, "::std::optional<::idr::Hold>":$hold, "::mlir::Type":$carrier);
   let hasCustomAssemblyFormat = 1;
@@ -75,7 +75,7 @@ def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [DeclareTypeInterfaceMet
   let assemblyFormat = [{ `<` $kind `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedFreelyByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
@@ -87,44 +87,44 @@ def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [D
   let assemblyFormat = [{ `<` $packed `,` $held `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
-    bool $cppClass::isLinearByType() const { return true; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
 }
 
-def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral", "buildKeyTest"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a string (UTF-8)";
   let parameters = (ins);
   let assemblyFormat = [{  }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
   }];
 }
 
-def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral", "buildKeyTest"]>, DeclareTypeInterfaceMethods<Idr_NumericTypeInterface, ["getNumericReading", "isCarriedAsBig"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "an Integer";
   let parameters = (ins);
   let assemblyFormat = [{  }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
 }
 
-def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral", "buildKeyTest"]>, DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns"]>, DeclareTypeInterfaceMethods<Idr_PatternTypeInterface, ["matchInstance"]>, DeclareTypeInterfaceMethods<Idr_NumericTypeInterface, ["getNumericReading", "isCarriedAsBig"]>, DeclareTypeInterfaceMethods<Idr_IndexPositionsTypeInterface, ["appendIndexPositions", "atFreshPositions"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a natural number: an Integer never negative, linked to its index term";
   let parameters = (ins Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$index);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
@@ -141,7 +141,7 @@ def Idr_CellType : Idr_Type<"Cell", "cell", [DeclareTypeInterfaceMethods<Idr_Val
   }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
-    bool $cppClass::isLinearByType() const { return true; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return true; }
   }];
@@ -158,7 +158,7 @@ def Idr_ReuseTokenType : Idr_Type<"ReuseToken", "reuse_token", [DeclareTypeInter
   }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
@@ -170,7 +170,7 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeIn
   let assemblyFormat = [{ `<` `(` $inputs `)` `->` `(` $results `)` `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
   }];
@@ -182,7 +182,7 @@ def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface, Declare
   let assemblyFormat = [{ `<` $value `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
-    bool $cppClass::isLinearByType() const { return false; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
   }];
@@ -195,7 +195,7 @@ def Idr_DestType : Idr_Type<"Dest", "dest", [DeclareTypeInterfaceMethods<Idr_Val
   let genVerifyDecl = 1;
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
-    bool $cppClass::isLinearByType() const { return true; }
+    ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
   }];
@@ -363,7 +363,7 @@ def Idr_EquationAttr : Idr_Attr<"Equation", "equation", []> {
   let genStorageClass = 0;
 }
 
-def Idr_ConAttr : Idr_Attr<"Con", "con", []> {
+def Idr_ConAttr : Idr_Attr<"Con", "con", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]>]> {
   let summary = "a constant constructor value, a run of its cells";
   let parameters = (ins Idr_HandParameter<"::idr::DataType", "DataRef">:$data, Idr_ArrayRefParameter<"::mlir::Attribute">:$cells, DefaultValuedParameter<"uint64_t", "0">:$spine);
   let hasCustomAssemblyFormat = 1;
@@ -395,14 +395,14 @@ def Idr_SiteAttr : Idr_Attr<"Site", "site", []> {
   let assemblyFormat = [{ `<` $file `,` $line `,` $column `,` $function `>` }];
 }
 
-def Idr_BigAttr : Idr_Attr<"Big", "big", []> {
+def Idr_BigAttr : Idr_Attr<"Big", "big", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]>, DeclareAttrInterfaceMethods<Idr_IntegerKeyAttrInterface, ["getKeyInteger"]>]> {
   let summary = "an integer of any size";
   let parameters = (ins Idr_APIntParameter<"">:$value);
   let assemblyFormat = [{ `<` $value `>` }];
   let genStorageClass = 0;
 }
 
-def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", []> {
+def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]>]> {
   let summary = "a closure whose captures are constants";
   let parameters = (ins Idr_HandParameter<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_HandParameter<"::mlir::ArrayAttr", "Captures">:$captures);
   let assemblyFormat = [{ `<` $callee `,` $captures `>` }];

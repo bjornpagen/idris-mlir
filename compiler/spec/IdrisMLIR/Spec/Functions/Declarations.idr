@@ -111,6 +111,17 @@ frameBoundSlot = AProperty (CountProperty 0)
 -- idr.program
 ------------------------------------------------------------------------------
 
+||| An op on which a pass's run covers the whole program, on the pass
+||| manager's own thread, so the contracts and a test's stage expectations
+||| are checked around that run. A run on an op inside it (a function the
+||| nest runs on a worker thread) is part of the run around it. Upstream's
+||| module, which holds the program, is the other such op; the
+||| instrumentation asks for it by its class.
+public export
+checkedRoot : TraitDef
+checkedRoot = MkTraitDef (ident "CheckedRoot")
+  (brief (line "a pass's run on it covers the whole program, checked around the run"))
+
 ||| The closed program: its functions, every one defined, and the one that
 ||| runs it, a property of the program, so a function's visibility is read
 ||| from it and never stored; and the stage the pipeline has brought it to,
@@ -133,7 +144,7 @@ programOp = MkOp
                        ("IdrisMLIR" ::: ["Spec", "Pipeline", "Stage"]) "stageClosed"))))
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
-  , traits = [SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator, SymbolName, SymbolOp]
+  , traits = [SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator, SymbolName, SymbolOp, OurTrait checkedRoot]
   , interfaces = []
   , effects = Definition
   , speculation = NotSpeculatable
@@ -288,7 +299,8 @@ callOp = MkOp
       [ Declares CallOp []
       , Declares SymbolUser ["verifySymbolUses"]
       , Implements flowInterface ["getFlowEdges"]
-      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
+      , Implements lifetimeUseInterface ["getLifetimeUse", "verifyLifetimeUse"] ]
   , effects = callEffects
   , speculation = Conditionally
   , stages = between Higher Owned
@@ -342,7 +354,7 @@ returnOp = MkOp
   , attrs = []
   , regions = []
   , traits = [HasParent ("func" ::: []), ReturnLike, Terminator]
-  , interfaces = [Implements flowInterface ["getFlowEdges"]]
+  , interfaces = [Implements flowInterface ["getFlowEdges"], Implements lifetimeUseInterface ["verifyLifetimeUse"]]
   , effects = Executes [] [Consumes FZ] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = between Higher Owned
@@ -374,4 +386,5 @@ declarations =
   , enums :=
       [ enumDef tailKindClosed, enumDef copyKindClosed, enumDef proofKindClosed
       , enumDef extentSideClosed ]
+  , traits := [checkedRoot]
   } nothing

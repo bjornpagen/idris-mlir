@@ -25,7 +25,8 @@ def Idr_ProgramOp : Idr_Op<"program", [
     SingleBlock,
     NoTerminator,
     SymbolName,
-    Symbol
+    Symbol,
+    Idr_CheckedRootTrait
   ]> {
   let summary = "a closed program: its functions, its root and its stage";
   let description = [{
@@ -95,7 +96,8 @@ def Idr_CallOp : Idr_Op<"call", [
     CallOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>
   ]> {
   let summary = "a call of a function by name, with its callee's row";
   let description = [{
@@ -132,7 +134,8 @@ def Idr_ReturnOp : Idr_Op<"return", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>
   ]> {
   let summary = "returns from a function";
   let arguments = (ins Variadic<AnyType>:$operands);
@@ -180,7 +183,8 @@ def Idr_DataFieldOp : Idr_Op<"data.field", [
     InferTypeOpAdaptor,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>
   ]> {
   let summary = "reads a field of a value refined to its constructor";
   let arguments = (ins Type<CPred<"::idr::isRefinedValue($_self)">, "a value of a data type refined to one constructor, at any grade", "::mlir::Type">:$value, Variadic<Idr_LifetimeType>:$outers, I64Attr:$index);
@@ -218,7 +222,8 @@ def Idr_DataReindexOp : Idr_Op<"data.reindex", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>,
+    DeclareOpInterfaceMethods<Idr_ScopeRuleOpInterface, ["verifyScopeRule"]>
   ]> {
   let summary = "a value at a type its enclosing refinements make equal to its own";
   let arguments = (ins AnyType:$value, Variadic<Idr_LifetimeType>:$outers);
@@ -368,6 +373,7 @@ def Idr_LifetimeStackOp : Idr_Op<"lifetime.stack", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
+    Idr_CursorBinderOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "opens a lifetime on its base cursor's stack";
@@ -413,7 +419,8 @@ def Idr_LendOp : Idr_Op<"lend", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>
   ]> {
   let summary = "lends a counted value for a region, giving it back";
   let arguments = (ins AnyType:$owner, Variadic<Idr_LifetimeType>:$outers);
@@ -456,7 +463,8 @@ def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
 def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
     Idr_GivesLifetimeTrait,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>
+    DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
   ]> {
   let summary = "a room reserved in a cursor lifetime";
   let arguments = (ins Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">:$lifetime, I64Attr:$bytes);
@@ -466,7 +474,8 @@ def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
 
 def Idr_CellStackOp : Idr_Op<"cell.stack", [
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>
   ]> {
   let summary = "a slot of its function's frame, in a lifetime of this function";
   let arguments = (ins Idr_LifetimeType:$lifetime);
@@ -477,7 +486,8 @@ def Idr_CellStackOp : Idr_Op<"cell.stack", [
 def Idr_CellArenaOp : Idr_Op<"cell.arena", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
   ]> {
   let summary = "a cell bumped in a lifetime something may allocate into";
   let arguments = (ins Type<CPred<"::idr::admitsPuts($_self)">, "a lifetime something may allocate into", "::mlir::Type">:$lifetime);
@@ -504,6 +514,7 @@ def Idr_LifetimeUnpackOp : Idr_Op<"lifetime.unpack", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
+    Idr_CursorBinderOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "reopens a packed lifetime, binding it, what it holds and what entered its base since";
@@ -524,7 +535,8 @@ def Idr_DataMatchOp : Idr_Op<"data.match", [
     Idr_DeclaredEffectsOpInterface,
     RecursivelySpeculatable,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "getEntrySuccessorOperands", "areTypesCompatible"]>,
-    DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]>,
+    DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]>,
+    DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_ErasedBinderOpInterface, ["getBoundSorts", "getRefinement"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface
@@ -568,7 +580,8 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
     Idr_DeclaredEffectsOpInterface,
     RecursivelySpeculatable,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "getEntrySuccessorOperands"]>,
-    DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]>,
+    DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]>,
+    DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface
   ]> {
@@ -684,7 +697,8 @@ def Idr_JumpOp : Idr_Op<"jump", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface, ["getMutableSuccessorOperands"]>,
-    DeclareOpInterfaceMethods<RegionExitTerminatorOpInterface, ["getPotentialTargets"]>
+    DeclareOpInterfaceMethods<RegionExitTerminatorOpInterface, ["getPotentialTargets"]>,
+    DeclareOpInterfaceMethods<Idr_ScopeRuleOpInterface, ["verifyScopeRule"]>
   ]> {
   let summary = "jumps to the join region a token designates, passing its parameters";
   let arguments = (ins Token:$target, Variadic<AnyType>:$args, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$terms);
@@ -2493,7 +2507,8 @@ def Idr_CountDupOp : Idr_Op<"count.dup", [
 def Idr_CountDropOp : Idr_Op<"count.drop", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>
   ]> {
   let summary = "gives up a counted reference, freeing the value with its last";
   let arguments = (ins Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">:$value);
@@ -2522,7 +2537,8 @@ def Idr_CountTakeOp : Idr_Op<"count.take", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>
   ]> {
   let summary = "takes a value out of its cell, giving its token and its fields";
   let arguments = (ins Type<CPred<"::idr::isTakeable($_self)">, "a counted value refined to a constructor with a cell", "::mlir::Type">:$value);
@@ -2590,7 +2606,8 @@ def Idr_CountMatchUniqueOp : Idr_Op<"count.match_unique", [
 
 def Idr_CellNewOp : Idr_Op<"cell.new", [
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_ReuseSinkOpInterface, ["getFilledCellType"]>
   ]> {
   let summary = "a fresh cell its count frees, its header written";
   let arguments = (ins);
@@ -2604,7 +2621,8 @@ def Idr_CellInitOp : Idr_Op<"cell.init", [
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptorWithIsCompatible,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>
   ]> {
   let summary = "writes the fields of a cell's constructor into it, giving the value";
   let arguments = (ins Idr_CellType:$cell, Variadic<AnyType>:$fields, Variadic<Idr_LifetimeType>:$outers, DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes);

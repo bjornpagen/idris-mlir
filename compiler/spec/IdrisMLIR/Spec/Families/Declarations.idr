@@ -23,7 +23,7 @@ declarations = MkDeclarations
       , SomeAttr conAttr ]
   , enums = []
   , tables = []
-  , interfaces = [erasedBinderInterface]
+  , interfaces = [erasedBinderInterface, indexedTypeInterface, patternTypeInterface, fieldTypeInterface, scopeRuleInterface, indexPositionsInterface]
   , traits = []
   , directives =
       [ termsParam, sortsParam, membersParam, refinementParam, familyParam, dataParam

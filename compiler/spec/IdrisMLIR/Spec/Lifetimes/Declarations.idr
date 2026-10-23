@@ -202,7 +202,7 @@ lifetimeType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsNoReference UsedAsGraded Uncounted MayBeOtherWord)
+  , facts = Answers (MkValueFacts HoldsNoReference UsedFreelyByType Uncounted MayBeOtherWord)
   , doc = brief (line "a lifetime: what it is at run time is its kind; its opener says where its memory comes from")
   }
 
@@ -528,7 +528,7 @@ stackOpener = MkOp
   , regions = [sized (ident "body") 1]
   , traits = [SingleBlock, OurTrait runsOnce]
   , interfaces = [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements opensLifetime []
-                   , Declares RegionBranch onceMethods ]
+                   , Implements cursorBinderInterface [], Declares RegionBranch onceMethods ]
   , effects = closes Untouched
   , speculation = NotSpeculatable
   , stages = between Graded Owned
@@ -600,7 +600,8 @@ lend : Op 2 2 0 1
 lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
   [result "returned" anyValue, results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, OurTrait runsOnceGivingBack]
-  [Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods]
+  [ Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods
+  , Implements valueSourceInterface ["getValueSource"] ]
   (Executes [] [] Recursive Untouched) NotSpeculatable Always VerifiesRegions
   (Declared
     [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
@@ -663,7 +664,7 @@ public export
 reserve : Op 1 1 1 0
 reserve = op "lifetime.reserve" [single "lifetime" cursorLifetime] [result "room" roomLifetime]
   [attr "bytes" (UpstreamAttr I64AttrC)] []
-  [OurTrait givesLifetime] [Implements putsIntoLifetime putMethods]
+  [OurTrait givesLifetime] [Implements putsIntoLifetime putMethods, Implements lifetimeUseInterface ["getLifetimeUse"]]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), Lit ",", ValueOf (AttrRef FZ), AttrDict, Lit ":",
@@ -688,7 +689,7 @@ cell = OurType (SomeType cellType)
 public export
 cellStack : Op 1 1 0 0
 cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell] [] []
-  [] [Implements flowInterface ["getFlowEdges"]]
+  [] [Implements flowInterface ["getFlowEdges"], Implements lifetimeUseInterface ["getLifetimeUse", "verifyLifetimeUse"]]
   (Executes [OnValues Allocate Frame (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [Lit "in", ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ)), AttrDict,
@@ -705,7 +706,8 @@ cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell]
 public export
 cellArena : Op 1 1 0 0
 cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell] [] [] []
-  [Implements putsIntoLifetime putMethods, Implements flowInterface ["getFlowEdges"]]
+  [ Implements putsIntoLifetime putMethods, Implements flowInterface ["getFlowEdges"]
+  , Implements lifetimeUseInterface ["getLifetimeUse"] ]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ)), AttrDict,
@@ -757,7 +759,8 @@ unpack = op "lifetime.unpack"
   , variadic "entering" anyValue, variadic "outers" anyLifetime ]
   [results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, OurTrait runsOnce]
-  [Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods]
+  [ Implements statesLifetime statedMethods, Implements statesOuters [], Implements cursorBinderInterface []
+  , Declares RegionBranch onceMethods ]
   (closes Touched) NotSpeculatable (between Graded Owned) VerifiesRegions
   (Declared [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
             , OptionalGroup [Lit "on"] (ValueOf (OperandRef (FS FZ)))
@@ -794,7 +797,7 @@ declarations =
                        SomeOp cellStack, SomeOp cellArena, SomeOp pack, SomeOp unpack]
   , types := [SomeType lifetimeType, SomeType packageType]
   , enums := [enumDef packedClosed]
-  , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime]
+  , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime, lifetimeUseInterface, cursorBinderInterface]
   , traits := [runsOnce, runsOnceGivingBack, givesLifetime, adoptsCarrier]
   , directives := [sameType, viewOf, roomOf]
   , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate, lendablePredicate]

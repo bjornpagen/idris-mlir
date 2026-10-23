@@ -13,6 +13,7 @@ import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Interfaces
 
 import Data.Fin
+import Data.List.Elem
 import Data.List1
 import Data.Vect
 
@@ -246,10 +247,30 @@ data Bytecode = Derived | CheckedBy Ident
 public export
 data Holding = HoldsReferences | HoldsNoReference
 
-||| Whether every value of the type is used exactly once by its type (a
-||| cell, a destination), so no grade is written on it.
+||| How a type fixes its values' uses: each exactly once (a cell, a
+||| destination), or freely, never consumed (a lifetime), so no grade is
+||| written on it; or as the grade a value carries says.
 public export
-data ByType = UsedOnceByType | UsedAsGraded
+data ByType = UsedOnceByType | UsedFreelyByType | UsedAsGraded
+
+||| The closed set of `ByType`, printed as the C++ enum the value facts
+||| answer in.
+export
+byTypeClosed : Closed ByType
+byTypeClosed = MkClosed
+  { name = ident "ByType"
+  , shape = OneOf
+  , every = UsedOnceByType ::: [UsedFreelyByType, UsedAsGraded]
+  , complete = \case
+      UsedOnceByType => Here
+      UsedFreelyByType => There Here
+      UsedAsGraded => There (There Here)
+  , describe = \case
+      UsedOnceByType => MkCase (ident "UsedOnceByType") (word "once" ::: []) (line "every value is used exactly once, by its type")
+      UsedFreelyByType => MkCase (ident "UsedFreelyByType") (word "freely" ::: []) (line "no value is consumed: each is used any number of times, by its type")
+      UsedAsGraded => MkCase (ident "UsedAsGraded") (word "graded" ::: []) (line "each value is used as its grade says")
+  , doc = brief (line "how a type fixes its values' uses")
+  }
 
 ||| Whether a reference a value holds is counted.
 public export
@@ -290,7 +311,7 @@ valueFactsInterface = MkInterfaceDef
   , bases = []
   , methods =
       [ MkMethod PerObject (MkCode "bool" Oh) (MkIdent "holdsReferences" Oh) [] EveryImplementer (MkLine "whether a value holds a reference" Oh)
-      , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isLinearByType" Oh) [] EveryImplementer (MkLine "whether every value is used exactly once by its type" Oh)
+      , MkMethod PerObject (MkCode "::idr::ByType" Oh) (MkIdent "getByType" Oh) [] EveryImplementer (MkLine "how the type fixes its values' uses: once, freely, or as their grade says" Oh)
       , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isCounted" Oh) [] EveryImplementer (MkLine "whether a reference a value holds is counted" Oh)
       , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isCellPointer" Oh) [] EveryImplementer (MkLine "whether a value's word is always a cell's address" Oh)
       ]

@@ -22,7 +22,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
+#include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace idr::families {
 
@@ -57,8 +59,28 @@ public:
   mlir::LogicalResult check(mlir::Operation *op);
 
 private:
+  friend class ScopeQuery;
   struct State;
   std::unique_ptr<State> state;
+};
+
+// What an op's own scope rule (ScopeRuleOpInterface) reads of the walk
+// where the op stands: whether two types are one under the refinements
+// around it, and how many levels an enclosing op's regions start after.
+class ScopeQuery {
+public:
+  explicit ScopeQuery(ScopeWalk &walk) : walk(walk) {}
+
+  // `a` and `b` equal under the refinements here, `a` perhaps a data type
+  // refined further where narrowing is allowed.
+  bool sameHere(mlir::Type a, mlir::Type b, Narrowing narrowing) const;
+
+  // The levels bound outside the regions of `owner`, an op enclosing the
+  // one asked; none where `owner` does not enclose it.
+  std::optional<uint32_t> depthAtOwner(mlir::Operation *owner) const;
+
+private:
+  ScopeWalk &walk;
 };
 
 // One rule read at every op of a function, as the function's one walk

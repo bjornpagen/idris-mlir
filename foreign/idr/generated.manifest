@@ -1,9 +1,9 @@
-specification 4932690f1c2893b7
-generator b5de4d86ae4c9c76
-f181c871d1c837fc foreign/idr/include/idr/IR/Generated/IdrBase.td
-90fe7782201c1d93 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
-257b41f2c19ffe7d foreign/idr/include/idr/IR/Generated/IdrTypes.td
-286fcc0ff4d4d1da foreign/idr/include/idr/IR/Generated/IdrOps.td
+specification 4ea76e0ebfbe2b1c
+generator 969a9fe84cf18626
+5cd19e57d72e0dd4 foreign/idr/include/idr/IR/Generated/IdrBase.td
+aa2b59fb49b1ec05 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
+eecc5406c0c4367e foreign/idr/include/idr/IR/Generated/IdrTypes.td
+bbda04791b5bf212 foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 74dc22cf0dd76646 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 ed630cb69beba5b5 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -35,7 +35,7 @@ cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 f20fb04eaec3e856 foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 e47fa31130cf71be foreign/idr/include/idr/IR/Generated/Laws.h.inc
-3b9501e80cd59822 foreign/idr/include/idr/IR/Generated/Hooks.h.inc
+d9731faedc6cf9c0 foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 c0f0155d0efe0af1 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 f38d4637e8b8aa8b foreign/idr/include/idr/IR/Generated/Actions.h.inc
@@ -50,7 +50,7 @@ a5f8d8a5b2c9d611 foreign/idr/include/idr/IR/Generated/ShownOutput.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
 a310756d6c6cb9f6 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
 dfa2dbe205f5c128 foreign/idr/include/idr/IR/Generated/Families.h.inc
-869e9a4a6f46fe31 foreign/idr/include/idr/IR/Generated/Grades.h.inc
+5717923c1ce7d525 foreign/idr/include/idr/IR/Generated/Grades.h.inc
 978454316de3be9c foreign/idr/include/idr/IR/Generated/Lifetimes.h.inc
 38a72f6dcdfb55a4 foreign/idr/include/idr/IR/Generated/Endings.h.inc
 2c8f77d7d22e5ebc foreign/idr/include/idr/IR/Generated/Clocks.h.inc

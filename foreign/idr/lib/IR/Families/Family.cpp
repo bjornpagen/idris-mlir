@@ -36,15 +36,14 @@ bool names(Type type) {
   AttrTypeWalker walker;
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
   bool found = false;
-  walker.addWalk([&](Type inner) {
-    if (isa<DataType>(inner))
-      return WalkResult::skip();
-    if (isa<Ts...>(inner)) {
-      found = true;
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
+  (walker.addWalk([&](Ts) {
+     found = true;
+     return WalkResult::interrupt();
+   }),
+   ...);
+  // Registered last, so asked first: a data type's parts are its own
+  // declaration's.
+  walker.addWalk([](DataType) { return WalkResult::skip(); });
   walker.walk<WalkOrder::PreOrder>(type);
   return found;
 }
@@ -59,14 +58,16 @@ ClosureReach idr::families::closureReach(Type type) {
   AttrTypeWalker walker;
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
   ClosureReach out = ClosureReach::NoClosure;
-  walker.addWalk([&](Type inner) {
-    auto data = dyn_cast<DataType>(inner);
-    if (data && data.getGroup().closureReach() == ClosureReach::NoClosure)
-      return WalkResult::skip();
-    if (!data && !isa<FnType, LazyType>(inner))
-      return WalkResult::advance();
+  auto reaches = [&] {
     out = ClosureReach::ReachesClosure;
     return WalkResult::interrupt();
+  };
+  walker.addWalk([&](FnType) { return reaches(); });
+  walker.addWalk([&](LazyType) { return reaches(); });
+  walker.addWalk([&](DataType data) {
+    if (data.getGroup().closureReach() == ClosureReach::NoClosure)
+      return WalkResult::skip();
+    return reaches();
   });
   walker.walk<WalkOrder::PreOrder>(type);
   return out;

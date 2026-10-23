@@ -13,7 +13,7 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
   let cppNamespace = "::idr";
   let methods = [
     InterfaceMethod<"whether a value holds a reference", "bool", "holdsReferences", (ins)>,
-    InterfaceMethod<"whether every value is used exactly once by its type", "bool", "isLinearByType", (ins)>,
+    InterfaceMethod<"how the type fixes its values' uses: once, freely, or as their grade says", "::idr::ByType", "getByType", (ins)>,
     InterfaceMethod<"whether a reference a value holds is counted", "bool", "isCounted", (ins)>,
     InterfaceMethod<"whether a value's word is always a cell's address", "bool", "isCellPointer", (ins)>
   ];
@@ -38,6 +38,45 @@ def Idr_ErasedBinderOpInterface : OpInterface<"ErasedBinderOpInterface"> {
   let methods = [
     InterfaceMethod<"the sorts of the index variables `region` binds, at the next levels", "::llvm::ArrayRef<::idr::families::Sort>", "getBoundSorts", (ins "::mlir::Region &":$region)>,
     InterfaceMethod<"the equation `region` assumes as it is entered, none where it assumes none", "::std::optional<::idr::families::RegionRefinement>", "getRefinement", (ins "::mlir::Region &":$region), [{}], [{ return ::idr::noRefinement($_op, region); }]>
+  ];
+}
+
+def Idr_IndexedTypeInterface : TypeInterface<"IndexedTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the runs of index terms this type names directly, each whole terms one after the other, not those of its parts", "::llvm::SmallVector<::llvm::ArrayRef<::idr::families::TermNode>, 2>", "getIndexTermRuns", (ins)>,
+    InterfaceMethod<"how many index levels the terms it names leave free", "std::uint32_t", "getFreeLevels", (ins), [{}], [{ return ::idr::freeLevelsOfTerms($_type); }]>,
+    InterfaceMethod<"the member of the group being declared that it names by position; none for a type that names none", "std::optional<std::uint32_t>", "getPositionalMember", (ins), [{}], [{ return ::idr::noPositionalMember($_type); }]>,
+    InterfaceMethod<"whether a walk over a scope must still read its parts: false where its own fact already holds what they name", "bool", "scopeHoldsParts", (ins), [{}], [{ return ::idr::scopeHoldsEveryPart($_type); }]>
+  ];
+}
+
+def Idr_PatternTypeInterface : TypeInterface<"PatternTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"whether this pattern matches `instance`, a type of the same class, queueing in `match` the parts that must match too", "bool", "matchInstance", (ins "::mlir::Type":$instance, "::idr::families::PatternMatch &":$match)>
+  ];
+}
+
+def Idr_FieldTypeInterface : TypeInterface<"FieldTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"what a field of this type reaches", "::idr::FieldReach", "getFieldReach", (ins)>
+  ];
+}
+
+def Idr_ScopeRuleOpInterface : OpInterface<"ScopeRuleOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"this op's own rule against the scope where it stands", "::mlir::LogicalResult", "verifyScopeRule", (ins "::idr::families::ScopeQuery &":$scope)>
+  ];
+}
+
+def Idr_IndexPositionsTypeInterface : TypeInterface<"IndexPositionsTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"appends the sorts of the index terms this type is keyed by, and the terms, in one order", "void", "appendIndexPositions", (ins "::llvm::SmallVectorImpl<::idr::families::Sort> &":$sorts, "::llvm::SmallVectorImpl<::idr::families::TermNode> &":$nodes)>,
+    InterfaceMethod<"this type with each index term it is keyed by the next fresh level, its refinement kept", "::mlir::Type", "atFreshPositions", (ins "::llvm::function_ref<::idr::families::TermNode()>":$next)>
   ];
 }
 
@@ -71,6 +110,21 @@ def Idr_LifetimePutOpInterface : OpInterface<"LifetimePutOpInterface"> {
   ];
 }
 
+def Idr_LifetimeUseOpInterface : OpInterface<"LifetimeUseOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"how this op uses the lifetime `lifetime` holds", "::idr::LifetimeUse", "getLifetimeUse", (ins "::mlir::OpOperand &":$lifetime), [{}], [{ return ::idr::namesLifetime($_op, lifetime); }]>,
+    InterfaceMethod<"this op's own rule against the lifetimes open where it stands", "::mlir::LogicalResult", "verifyLifetimeUse", (ins "const ::idr::OpenLifetimes &":$open), [{}], [{ return ::idr::acceptsLifetimeUse($_op, open); }]>
+  ];
+}
+
+def Idr_CursorBinderOpInterface : OpInterface<"CursorBinderOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the cursor whose base the lifetime this op binds extends", "::mlir::Value", "getCursorBase", (ins), [{}], [{ return ::idr::cursorBaseOfOp($_op); }]>
+  ];
+}
+
 def Idr_FlowOpInterface : OpInterface<"FlowOpInterface"> {
   let cppNamespace = "::idr";
   let description = [{
@@ -94,6 +148,7 @@ def Idr_MatchOpInterface : OpInterface<"MatchOpInterface"> {
     InterfaceMethod<"the number of its cases", "unsigned", "getNumCases", (ins)>,
     InterfaceMethod<"the region of case `index`", "::mlir::Region &", "getCaseRegion", (ins "unsigned":$index)>,
     InterfaceMethod<"the default region: empty when an idr.data.match's cases are exhaustive", "::mlir::Region &", "getDefaultRegion", (ins)>,
+    InterfaceMethod<"what `region`, a region of this match, knows of the scrutinee: the value it binds it as, whose type says what it knows, or the literal it equals where it binds none", "::idr::CaseScrutinee", "getRegionScrutinee", (ins "::mlir::Region &":$region)>,
     InterfaceMethod<"the case `region` is, a case region of this match", "unsigned", "caseOf", (ins "::mlir::Region &":$region)>,
     InterfaceMethod<"this match replaced by one of the cases `kept` alone, `fallback` its default (none: an exhaustive idr.data.match), a case region that reads none of its arguments binding the default's", "::mlir::Operation *", "keepCases", (ins "::mlir::RewriterBase &":$rewriter, "::llvm::ArrayRef<unsigned>":$kept, "::mlir::Region *":$fallback)>
   ];
@@ -105,6 +160,13 @@ def Idr_JoinPointsOpInterface : OpInterface<"JoinPointsOpInterface"> {
     InterfaceMethod<"the join region `token` designates; null when it is no token of this op", "::mlir::Region *", "getTarget", (ins "::mlir::BlockArgument":$token)>,
     InterfaceMethod<"the tokens `region` begins with, one per join region; none in an idr.join's join region", "::mlir::Block::BlockArgListType", "getTokens", (ins "::mlir::Region &":$region)>,
     InterfaceMethod<"a region's parameters: its arguments after its tokens; the body takes none", "::mlir::Block::BlockArgListType", "getParameters", (ins "::mlir::Region &":$region)>
+  ];
+}
+
+def Idr_ValueSourceOpInterface : OpInterface<"ValueSourceOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"what `made`, a result of this op or an argument of one of its regions, is made of: the same value as one it takes, a field of a value refined to one constructor, or made here", "::idr::Source", "getValueSource", (ins "::mlir::Value":$made)>
   ];
 }
 
@@ -129,7 +191,9 @@ def Idr_LiteralTypeInterface : TypeInterface<"LiteralTypeInterface"> {
   let cppNamespace = "::idr";
   let methods = [
     InterfaceMethod<"whether the attribute is a literal of this type", "bool", "isLiteral", (ins "::mlir::Attribute":$literal)>,
-    InterfaceMethod<"reads a literal of this type", "::mlir::ParseResult", "parseLiteral", (ins "::mlir::AsmParser &":$parser, "::mlir::Attribute &":$literal)>
+    InterfaceMethod<"reads a literal of this type", "::mlir::ParseResult", "parseLiteral", (ins "::mlir::AsmParser &":$parser, "::mlir::Attribute &":$literal)>,
+    InterfaceMethod<"whether two literals of this type are the same value", "bool", "sameLiteral", (ins "::mlir::Attribute":$a, "::mlir::Attribute":$b), [{}], [{ return ::idr::literalsIdentical($_type, a, b); }]>,
+    InterfaceMethod<"the condition that `held`, a value of this type as a literal match reads it, is the literal `key`, built where `builder` stands", "::mlir::Value", "buildKeyTest", (ins "::mlir::OpBuilder &":$builder, "::mlir::Location":$loc, "::mlir::Value":$held, "::mlir::Attribute":$key)>
   ];
 }
 
@@ -148,6 +212,46 @@ def Idr_BigOfIntegerOpInterface : OpInterface<"BigOfIntegerOpInterface"> {
   let methods = [
     InterfaceMethod<"the integer the big is made of", "::mlir::Value", "getValue", (ins)>,
     InterfaceMethod<"how the integer is read: its top bit its sign, or the natural its bits are", "::idr::numeric::Signedness", "getSignedness", (ins), [{}], [{ return ::idr::signednessOfOp($_op); }]>
+  ];
+}
+
+def Idr_NumericTypeInterface : TypeInterface<"NumericTypeInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"how a value of this type is read as a number", "::idr::NumericReading", "getNumericReading", (ins)>,
+    InterfaceMethod<"whether a value of this type is an Integer the big ops take, its constant a #idr.big", "bool", "isCarriedAsBig", (ins)>
+  ];
+}
+
+def Idr_ConstantAttrInterface : AttrInterface<"ConstantAttrInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"whether idr.constant holds this value at `type`", "bool", "isBuildableAt", (ins "::mlir::Type":$type)>,
+    InterfaceMethod<"how this value, held at `held`, is laid out as static data", "::idr::StaticForm", "getStaticForm", (ins "::mlir::Type":$held)>,
+    InterfaceMethod<"that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big has none", "::mlir::LogicalResult", "verifyParts", (ins "::mlir::Operation *":$holder, "::mlir::SymbolTableCollection &":$symbols, "::mlir::Type":$type, "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>":$part)>,
+    InterfaceMethod<"whether this value may hold a closure: a closure is one, a constructor may hold one in a field, a literal holds none", "bool", "mayHoldClosure", (ins)>
+  ];
+}
+
+def Idr_IntegerKeyAttrInterface : AttrInterface<"IntegerKeyAttrInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the integer this key is", "::llvm::APInt", "getKeyInteger", (ins)>
+  ];
+}
+
+def Idr_ReuseSourceOpInterface : OpInterface<"ReuseSourceOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the data type, refined to its one constructor, whose cell may become free here; null where none may", "::idr::DataType", "getFreedCellType", (ins)>,
+    InterfaceMethod<"makes the freed cell's token available where the builder stands, right after the op, and gives it; the builder is left right after what stands in the op's place", "::mlir::Value", "takeFreedToken", (ins "::mlir::OpBuilder &":$builder)>
+  ];
+}
+
+def Idr_ReuseSinkOpInterface : OpInterface<"ReuseSinkOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the cell this op fills", "::idr::CellType", "getFilledCellType", (ins)>
   ];
 }
 

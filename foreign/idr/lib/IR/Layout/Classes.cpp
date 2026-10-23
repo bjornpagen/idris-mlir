@@ -252,6 +252,10 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
       return std::nullopt;
     return unfolded->part();
   };
+  // Essential, two types, each read in its own context: a member named by
+  // position is of the group being unfolded, its declared layout the one
+  // that group's member has at unknown indices; a data type names its own
+  // group and is laid out by its own slots.
   if (auto self = dyn_cast<SelfType>(value))
     return member(app.group, self.getMember(), self.getIndices(),
                   atUnknown(app.group, self.getMember()).part());

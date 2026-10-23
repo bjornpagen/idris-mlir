@@ -172,7 +172,7 @@ dup = countingOp "count.dup" [single "value" (SatisfiesType countedValue)] [resu
 public export
 drop : Op 1 0 0 0
 drop = countingOp "count.drop" [single "value" (SatisfiesType countedValue)] [] [] []
-  [] [Implements flowInterface ["getFlowEdges"]]
+  [] [Implements flowInterface ["getFlowEdges"], Implements reuseSourceInterface ["getFreedCellType", "takeFreedToken"]]
   (Executes [OnValues Free Heap (Operands 0)] [Consumes 0, CountsIfShared (Operands 0)] Covered Untouched)
   counted DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
@@ -215,7 +215,8 @@ public export
 take : Op 1 2 0 0
 take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   [result "token" token, results "fields" anyValue] [] []
-  [] [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
+  [] [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
+     , Implements reuseSourceInterface ["getFreedCellType", "takeFreedToken"] ]
   (Executes [] [Consumes 0, CountsIfShared (Operands 0), NewIdentity 0, NewIdentity 1] Covered Untouched)
   explicit DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
@@ -301,7 +302,7 @@ matchUnique = countingOp "count.match_unique" [single "value" (SatisfiesType tak
 public export
 cellNew : Op 0 1 0 0
 cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
-  [] [Implements flowInterface ["getFlowEdges"]]
+  [] [Implements flowInterface ["getFlowEdges"], Implements reuseSinkInterface ["getFilledCellType"]]
   (Executes [OnValues Allocate Heap (Results 0)] [] Covered Untouched)
   explicit DeclarationOnly
   (Declared [AttrDict, Lit ":", QualifiedTypeOf (OfGroup (ResultRef 0))])
@@ -333,7 +334,8 @@ cellInit = countingOp "cell.init"
   []
   [ InfersTypes AlsoCompatible
   , Implements statesLifetime statedMethods
-  , Implements flowInterface ["getFlowEdges"] ]
+  , Implements flowInterface ["getFlowEdges"]
+  , Implements lifetimeUseInterface ["verifyLifetimeUse"] ]
   (Executes [OnValues Write Contents (Operands 0)] [Consumes 1, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0), Lit ":", QualifiedTypeOf (OfGroup (OperandRef 0))
@@ -478,4 +480,5 @@ declarations =
   , types := [SomeType cellType, SomeType reuseTokenType]
   , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
   , predicates := [countedValue, takeable, unpackable, tokenValue, heldValue]
+  , interfaces := [reuseSourceInterface, reuseSinkInterface]
   } nothing

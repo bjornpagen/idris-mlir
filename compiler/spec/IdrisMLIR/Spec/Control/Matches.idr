@@ -107,6 +107,8 @@ matchInterface = MkInterfaceDef
           EveryImplementer "the region of case `index`"
       , MkMethod PerObject "::mlir::Region &" "getDefaultRegion" [] EveryImplementer
           "the default region: empty when an idr.data.match's cases are exhaustive"
+      , MkMethod PerObject "::idr::CaseScrutinee" "getRegionScrutinee" [param "::mlir::Region &" "region"]
+          EveryImplementer "what `region`, a region of this match, knows of the scrutinee: the value it binds it as, whose type says what it knows, or the literal it equals where it binds none"
       , MkMethod PerObject "unsigned" "caseOf" [param "::mlir::Region &" "region"]
           EveryImplementer "the case `region` is, a case region of this match"
       , MkMethod PerObject "::mlir::Operation *" "keepCases"
@@ -182,7 +184,8 @@ matchOp = MkOp
   , interfaces =
       [ Declares RegionBranch
           (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])
-      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
+      , Implements matchInterface ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]
+      , Implements valueSourceInterface ["getValueSource"]
       , Implements erasedBinderInterface ["getBoundSorts", "getRefinement"]
       , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
       , Implements statesOuters [] ]
@@ -249,7 +252,8 @@ matchLitOp = MkOp
   , traits = [SingleBlock, PropagateControlFlowBreak]
   , interfaces =
       [ Declares RegionBranch (branchMethods ++ ["getEntrySuccessorOperands"])
-      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
+      , Implements matchInterface ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]
+      , Implements valueSourceInterface ["getValueSource"]
       , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
       , Implements statesOuters [] ]
   , effects = Executes [] [] Recursive Untouched

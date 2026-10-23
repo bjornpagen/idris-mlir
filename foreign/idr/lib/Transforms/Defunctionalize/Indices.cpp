@@ -29,31 +29,13 @@ namespace idr::defunctionalize {
 // the next part is on top, so the parts are met in the order they stand.
 IndexTerms indexTermsOf(Type type) {
   IndexTerms out;
+  // Every occurrence counts, each a position of its own, so the walk is
+  // this stack and not upstream's walker, which meets a type once.
   SmallVector<Type> pending{type};
   while (!pending.empty()) {
     Type next = pending.pop_back_val();
-    if (auto data = dyn_cast<DataType>(next)) {
-      // A sort names a family by its position in the group it is declared
-      // in; the family that takes the place is of another group, so the
-      // sort names its group.
-      auto place = [&](families::Sort sort) {
-        if (sort.kind == SortKind::FamilySort && !sort.payload)
-          sort.payload = data.getGroup();
-        out.sorts.push_back(sort);
-      };
-      llvm::for_each(data.getGroup().indices(data.getMember()), place);
-      llvm::append_range(out.nodes, data.getIndices());
-      // Essential, two types: one refined to a constructor whose binders
-      // its indices leave open keeps their terms, each of its binder's
-      // sort; any other keeps none.
-      if (!data.getBinders().empty())
-        llvm::for_each(data.binderSorts(*data.singleTag()), place);
-      llvm::append_range(out.nodes, data.getBinders());
-      continue;
-    }
-    if (auto nat = dyn_cast<NatType>(next)) {
-      out.sorts.push_back({SortKind::NatSort, 0, Attribute()});
-      llvm::append_range(out.nodes, nat.getIndex());
+    if (auto keyed = dyn_cast<IndexPositionsTypeInterface>(next)) {
+      keyed.appendIndexPositions(out.sorts, out.nodes);
       continue;
     }
     size_t parts = pending.size();
@@ -68,28 +50,9 @@ IndexTerms indexTermsOf(Type type) {
 // keeps take levels after its indices'. Each type is rebuilt after its
 // parts, in the order they stand, on a stack.
 Type overPositions(Type type) {
-  MLIRContext *ctx = type.getContext();
   std::uint64_t next = 0;
   auto level = [&] {
     return families::TermNode{TermKind::Level, 0, 0, next++, Attribute()};
-  };
-  auto placed = [&](DataType data) -> Type {
-    SmallVector<families::TermNode> levels;
-    for (size_t i = 0, n = data.getGroup().indices(data.getMember()).size(); i < n; ++i)
-      levels.push_back(level());
-    DataType at = DataType::get(ctx, data.getGroup(), data.getMember(), levels);
-    // Essential, three types: a refinement is a fact beyond the indices,
-    // kept, with the binders' terms it keeps; an unrefined type's
-    // constructors are its indices' to leave.
-    if (!data.getRefinement())
-      return at;
-    const families::TagSet &tags = data.possibleTags();
-    if (data.getBinders().empty())
-      return at.refined(SmallVector<Tag>(tags.begin(), tags.end()));
-    SmallVector<families::TermNode> binders;
-    for (size_t i = 0, n = data.binderSorts(tags.front()).size(); i < n; ++i)
-      binders.push_back(level());
-    return at.refinedTo(tags.front(), binders);
   };
   struct Frame {
     Type type;
@@ -105,10 +68,8 @@ Type overPositions(Type type) {
       stack.back().made.push_back(made);
   };
   auto enter = [&](Type part) {
-    if (auto data = dyn_cast<DataType>(part))
-      return give(placed(data));
-    if (isa<NatType>(part))
-      return give(NatType::get(ctx, {level()}));
+    if (auto keyed = dyn_cast<IndexPositionsTypeInterface>(part))
+      return give(keyed.atFreshPositions(level));
     Frame frame{part, {}, {}, {}};
     part.walkImmediateSubElements([&](Attribute attr) { frame.attrs.push_back(attr); },
                                   [&](Type inner) { frame.parts.push_back(inner); });
@@ -127,3 +88,59 @@ Type overPositions(Type type) {
 }
 
 } // namespace idr::defunctionalize
+
+namespace idr {
+
+// A data type is keyed by each index of its member, a family sort naming
+// its group where the declaration names it by position, then by the
+// binders its refinement keeps, each of its binder's sort.
+void DataType::appendIndexPositions(SmallVectorImpl<families::Sort> &sorts,
+                                    SmallVectorImpl<families::TermNode> &nodes) const {
+  auto place = [&](families::Sort sort) {
+    if (sort.kind == SortKind::FamilySort && !sort.payload)
+      sort.payload = getGroup();
+    sorts.push_back(sort);
+  };
+  llvm::for_each(getGroup().indices(getMember()), place);
+  llvm::append_range(nodes, getIndices());
+  // Essential, two types: one refined to a constructor whose binders its
+  // indices leave open keeps their terms, each of its binder's sort; any
+  // other keeps none.
+  if (!getBinders().empty())
+    llvm::for_each(binderSorts(*singleTag()), place);
+  llvm::append_range(nodes, getBinders());
+}
+
+// A natural is keyed by its one index.
+void NatType::appendIndexPositions(SmallVectorImpl<families::Sort> &sorts,
+                                   SmallVectorImpl<families::TermNode> &nodes) const {
+  sorts.push_back({SortKind::NatSort, 0, Attribute()});
+  llvm::append_range(nodes, getIndex());
+}
+
+// Each index takes the next level, then the binders the refinement keeps.
+// A refined data type keeps the constructors its refinement leaves.
+Type DataType::atFreshPositions(llvm::function_ref<families::TermNode()> next) const {
+  SmallVector<families::TermNode> levels;
+  for (size_t i = 0, n = getGroup().indices(getMember()).size(); i < n; ++i)
+    levels.push_back(next());
+  DataType at = DataType::get(getContext(), getGroup(), getMember(), levels);
+  // Essential, three types: a refinement is a fact beyond the indices,
+  // kept, with the binders' terms it keeps; an unrefined type's
+  // constructors are its indices' to leave.
+  if (!getRefinement())
+    return at;
+  const families::TagSet &tags = possibleTags();
+  if (getBinders().empty())
+    return at.refined(SmallVector<Tag>(tags.begin(), tags.end()));
+  SmallVector<families::TermNode> binders;
+  for (size_t i = 0, n = binderSorts(tags.front()).size(); i < n; ++i)
+    binders.push_back(next());
+  return at.refinedTo(tags.front(), binders);
+}
+
+Type NatType::atFreshPositions(llvm::function_ref<families::TermNode()> next) const {
+  return NatType::get(getContext(), {next()});
+}
+
+} // namespace idr

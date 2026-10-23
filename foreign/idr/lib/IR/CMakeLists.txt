@@ -75,6 +75,7 @@ add_mlir_dialect_library(IdrIR
 	Func/Values.cpp
 	Func/Verifier.cpp
 	Grades.cpp
+	Interfaces/Defaults.cpp
 	Layout/CellInfo.cpp
 	Layout/Classes.cpp
 	Layout/Components.cpp

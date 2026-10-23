@@ -243,7 +243,7 @@ graded = MkTypeDef
           AlwaysWritten (line "who frees what it holds and what is known of its sharing")
       , MkParameter (ident "carrier") TypeValue AlwaysWritten (line "the value itself") ]
   , syntax = HandSyntax
-  , interfaces = [Declares OpAsmType ["getAsmName"]]
+  , interfaces = [Declares OpAsmType ["getAsmName"], Implements patternTypeInterface ["matchInstance"]]
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
@@ -312,6 +312,7 @@ gradesHeader = MkHeader "Grades"
       [ EnumOf (enumDef releaseClosed), EnumOf (enumDef uniqueClosed)
       , EnumOf (enumDef refsClosed)
       , EnumOf (enumDef fieldReachClosed), EnumOf (enumDef quantityChangeClosed)
+      , EnumOf (enumDef byTypeClosed)
       , EnumOf (enumDef holdClosed), TableOf holdTable
       , holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
       , usesTimes ]) ]

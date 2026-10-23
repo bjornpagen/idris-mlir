@@ -114,6 +114,17 @@ public:
                     equations.end());
   }
   LogicalResult checkOp(Operation *op);
+  // `a` and `b` equal under the refinement here, `a` perhaps a data type
+  // refined further.
+  bool sameHere(Type a, Type b, Narrowing narrowing);
+  // The levels bound outside the regions of `owner`, if it encloses the op
+  // the walk is at: its frame is on the stack.
+  std::optional<uint32_t> depthAtOwner(Operation *owner) const {
+    auto at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
+    if (at == stack.end())
+      return std::nullopt;
+    return at->depthAtOwner;
+  }
 
 private:
   // One more than the largest level `type` names, and whether it names a
@@ -127,9 +138,6 @@ private:
   // The binders `input`'s type gains over `operand`'s as it enters
   // `region`: none, or the region's own levels.
   LogicalResult ownBinders(Operation *op, Region &region, Type operand, Type input);
-  // `a` and `b` equal under the refinement here, `a` perhaps a data type
-  // refined further.
-  bool sameHere(Type a, Type b, Narrowing narrowing);
 
   // The regions the walk is inside, and the equations that hold in them,
   // outermost first, each held once however deep the regions nest: both
@@ -147,16 +155,11 @@ Walk::Named Walk::levelsOf(Type type) {
   Named named{0, Named::Member::None};
   AttrTypeWalker walker;
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
-  walker.addWalk([&](Type inner) {
-    if (auto data = dyn_cast<DataType>(inner)) {
-      named.levels = std::max(named.levels, data.freeLevels());
-      return WalkResult::skip();
-    }
-    if (auto nat = dyn_cast<NatType>(inner))
-      named.levels = std::max(named.levels, freeLevelsOf(nat.getIndex()));
-    if (isa<SelfType>(inner))
+  walker.addWalk([&](IndexedTypeInterface indexed) {
+    named.levels = std::max(named.levels, indexed.getFreeLevels());
+    if (indexed.getPositionalMember())
       named.member = Named::Member::ByPosition;
-    return WalkResult::advance();
+    return indexed.scopeHoldsParts() ? WalkResult::advance() : WalkResult::skip();
   });
   walker.walk<WalkOrder::PreOrder>(type);
   return seen[type] = named;
@@ -182,10 +185,10 @@ LogicalResult Walk::checkValue(Operation *op, Value value) {
 // say the binder is something the constructor never fixed. A value carried
 // in with its binders keeps them, as the refinement already checked.
 LogicalResult Walk::ownBinders(Operation *op, Region &region, Type operand, Type input) {
-  auto entered = dyn_cast<DataType>(unrestricted(input));
+  DataType entered = dataTypeOf(input);
   if (!entered || entered.getBinders().empty())
     return success();
-  auto from = dyn_cast<DataType>(unrestricted(operand));
+  DataType from = dataTypeOf(operand);
   if (from && from.getBinders() == entered.getBinders())
     return success();
   const Frame &here = stack.back();
@@ -259,34 +262,6 @@ LogicalResult Walk::checkOp(Operation *op) {
   for (Value result : op->getResults())
     if (failed(checkValue(op, result)))
       return failure();
-  if (auto cast = dyn_cast<DataReindexOp>(op)) {
-    if (!sameHere(cast.getValue().getType(), cast.getType(), Narrowing::Allowed))
-      return cast.emitOpError("casts ")
-             << cast.getValue().getType() << " to " << cast.getType()
-             << ", which the refinements around it do not make equal";
-    return success();
-  }
-  // A jump's arguments are its target's parameters with the target's index
-  // variables replaced by the jump's terms: the target's op encloses the
-  // jump, so its depth is on the stack.
-  if (auto jump = dyn_cast<JumpOp>(op)) {
-    auto token = cast<BlockArgument>(jump.getTarget());
-    Operation *owner = token.getOwner()->getParentOp();
-    auto points = cast<JoinPointsOpInterface>(owner);
-    Region *target = points.getTarget(token);
-    auto at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
-    if (at == stack.end())
-      return jump.emitOpError("jumps to a join point that does not enclose it");
-    IndexArgsAttr terms = jump.getTermsAttr();
-    LevelMap map;
-    for (auto [level, term] : llvm::enumerate(termsOf(terms.getTerms(), terms.getCount())))
-      map.replace(at->depthAtOwner + static_cast<uint32_t>(level), term);
-    for (auto [arg, parameter] : llvm::zip(jump.getArgs(), points.getParameters(*target)))
-      if (!sameHere(arg.getType(), mapLevels(parameter.getType(), map), Narrowing::Exact))
-        return jump.emitOpError("passes ")
-               << arg.getType() << " to a parameter of type " << parameter.getType()
-               << " at its terms";
-  }
   return success();
 }
 
@@ -300,6 +275,82 @@ ScopeWalk::ScopeWalk(Operation *function) : state(new State{Walk(function)}) {}
 ScopeWalk::~ScopeWalk() = default;
 LogicalResult ScopeWalk::enter(Operation *op, Region &region) { return state->walk.enter(op, region); }
 void ScopeWalk::leave() { state->walk.leave(); }
-LogicalResult ScopeWalk::check(Operation *op) { return state->walk.checkOp(op); }
+LogicalResult ScopeWalk::check(Operation *op) {
+  if (failed(state->walk.checkOp(op)))
+    return failure();
+  if (auto rule = dyn_cast<ScopeRuleOpInterface>(op)) {
+    ScopeQuery scope(*this);
+    return rule.verifyScopeRule(scope);
+  }
+  return success();
+}
+
+bool ScopeQuery::sameHere(Type a, Type b, Narrowing narrowing) const {
+  return walk.state->walk.sameHere(a, b, narrowing);
+}
+
+std::optional<uint32_t> ScopeQuery::depthAtOwner(Operation *owner) const {
+  return walk.state->walk.depthAtOwner(owner);
+}
 
 } // namespace idr::families
+
+namespace idr {
+
+using families::Narrowing;
+using families::ScopeQuery;
+using families::TermNode;
+
+// A cast's two types are one under the refinements around it, its result
+// perhaps refined further.
+LogicalResult DataReindexOp::verifyScopeRule(ScopeQuery &scope) {
+  if (!scope.sameHere(getValue().getType(), getType(), Narrowing::Allowed))
+    return emitOpError("casts ") << getValue().getType() << " to " << getType()
+                                 << ", which the refinements around it do not make equal";
+  return success();
+}
+
+// A jump's arguments are its target's parameters with the target's index
+// variables replaced by the jump's terms: the target's op encloses the
+// jump, so its depth is on the walk's stack.
+LogicalResult JumpOp::verifyScopeRule(ScopeQuery &scope) {
+  auto token = cast<BlockArgument>(getTarget());
+  Operation *owner = token.getOwner()->getParentOp();
+  auto points = cast<JoinPointsOpInterface>(owner);
+  Region *target = points.getTarget(token);
+  std::optional<uint32_t> depth = scope.depthAtOwner(owner);
+  if (!depth)
+    return emitOpError("jumps to a join point that does not enclose it");
+  IndexArgsAttr terms = getTermsAttr();
+  families::LevelMap map;
+  for (auto [level, term] : llvm::enumerate(families::termsOf(terms.getTerms(), terms.getCount())))
+    map.replace(*depth + static_cast<uint32_t>(level), term);
+  for (auto [arg, parameter] : llvm::zip(getArgs(), points.getParameters(*target)))
+    if (!scope.sameHere(arg.getType(), families::mapLevels(parameter.getType(), map), Narrowing::Exact))
+      return emitOpError("passes ") << arg.getType() << " to a parameter of type " << parameter.getType()
+                                    << " at its terms";
+  return success();
+}
+
+// The index terms each indexed type names directly: a data type its
+// indices, then the binders its refinement keeps; a natural its index; a
+// member named by position its indices.
+llvm::SmallVector<ArrayRef<TermNode>, 2> DataType::getIndexTermRuns() const {
+  return {getIndices(), getBinders()};
+}
+
+llvm::SmallVector<ArrayRef<TermNode>, 2> NatType::getIndexTermRuns() const { return {getIndex()}; }
+
+llvm::SmallVector<ArrayRef<TermNode>, 2> SelfType::getIndexTermRuns() const { return {getIndices()}; }
+
+// A data type's free levels were counted when it was made.
+std::uint32_t DataType::getFreeLevels() const { return freeLevels(); }
+
+// A data type's family fact holds what its parts name, so a scope's walk
+// need not enter it.
+bool DataType::scopeHoldsParts() const { return false; }
+
+// The member of the group being declared, named by its position.
+std::optional<std::uint32_t> SelfType::getPositionalMember() const { return getMember(); }
+
+} // namespace idr

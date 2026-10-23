@@ -158,7 +158,13 @@ dataType = MkTypeDef
       , MkParameter "refinement" (WiredValue (WiredOne (LeafMaybeAttr "::mlir::DenseI32ArrayAttr")) refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
       , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
   , syntax = HandSyntax
-  , interfaces = [Declares MemRefElementType []]
+  , interfaces =
+      [ Declares MemRefElementType []
+      , Implements indexedTypeInterface ["getIndexTermRuns", "getFreeLevels", "scopeHoldsParts"]
+      , Implements patternTypeInterface ["matchInstance"]
+      , Implements fieldTypeInterface ["getFieldReach"]
+      , Implements numericTypeInterface ["getNumericReading", "isCarriedAsBig"]
+      , Implements indexPositionsInterface ["appendIndexPositions", "atFreshPositions"] ]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readDataType"
   , storage = HandStorage
@@ -215,7 +221,9 @@ selfType = MkTypeDef
       [ MkParameter "member" memberPositionKind AlwaysWritten "the member of the group being declared"
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
   , syntax = HandSyntax
-  , interfaces = []
+  , interfaces =
+      [ Implements indexedTypeInterface ["getIndexTermRuns", "getPositionalMember"]
+      , Implements fieldTypeInterface ["getFieldReach"] ]
   , verifier = AnyParameters
   , bytecode = CheckedBy "readSelf"
   , storage = HandStorage
@@ -260,7 +268,7 @@ conAttr = MkAttrDef
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax
   , typed = Untyped
-  , interfaces = []
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "mayHoldClosure"]]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"
   , storage = HandStorage

@@ -64,6 +64,16 @@ enum class QuantityChange : std::uint8_t {
   Leave,
 };
 
+// how a type fixes its values' uses
+enum class ByType : std::uint8_t {
+  // every value is used exactly once, by its type
+  UsedOnceByType,
+  // no value is consumed: each is used any number of times, by its type
+  UsedFreelyByType,
+  // each value is used as its grade says
+  UsedAsGraded,
+};
+
 // a hold: who frees a value, and what is known of its sharing
 enum class HoldCase : std::uint8_t {
   // counted, claiming nothing
@@ -115,6 +125,12 @@ template <>
 struct EnumTraits<::idr::QuantityChange> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"enter", "leave"}};
+};
+
+template <>
+struct EnumTraits<::idr::ByType> {
+  static constexpr std::size_t count = 3;
+  static constexpr std::array<std::string_view, 3> names{{"once", "freely", "graded"}};
 };
 
 template <>

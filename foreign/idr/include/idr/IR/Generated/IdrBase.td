@@ -340,6 +340,8 @@ def Idr_ResultCarriesOperandTrait : NativeOpTrait<"ResultCarriesOperand"> { let 
 def Idr_SameValueTrait : NativeOpTrait<"SameValue"> { let cppNamespace = "::idr"; }
 // the op eliminates its first operand, and does nothing else with it
 def Idr_EliminatesOperandTrait : NativeOpTrait<"EliminatesOperand"> { let cppNamespace = "::idr"; }
+// a pass's run on it covers the whole program, checked around the run
+def Idr_CheckedRootTrait : NativeOpTrait<"CheckedRoot"> { let cppNamespace = "::idr"; }
 // one region, run once, giving back what it yields
 def Idr_RunsOnceTrait : NativeOpTrait<"RunsOnce"> { let cppNamespace = "::idr"; }
 // one region, run once, giving back its operand and what it yields

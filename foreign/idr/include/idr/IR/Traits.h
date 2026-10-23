@@ -99,6 +99,13 @@ class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
 template <typename ConcreteType>
 class EliminatesOperand : public mlir::OpTrait::TraitBase<ConcreteType, EliminatesOperand> {};
 
+// An op on which a pass's run covers the whole program, on the pass
+// manager's own thread, so the contracts and a test's stage expectations
+// are checked around that run; the instrumentation asks for the trait, so
+// no op is named.
+template <typename ConcreteType>
+class CheckedRoot : public mlir::OpTrait::TraitBase<ConcreteType, CheckedRoot> {};
+
 // The grade's own rule over an op's groups: each value of its result group
 // `Result` is used once exactly when a value of one of its operand groups
 // `From...` is (a closure over a linear capture is linear). The positions

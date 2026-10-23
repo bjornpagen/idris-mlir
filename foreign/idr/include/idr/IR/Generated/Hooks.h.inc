@@ -203,6 +203,24 @@ bool isMemoState(::mlir::Type value);
 // The default of ErasedBinderOpInterface::getRefinement.
 ::std::optional<::idr::families::RegionRefinement> noRefinement(::mlir::Operation *self, ::mlir::Region & region);
 
+// The default of IndexedTypeInterface::getFreeLevels.
+std::uint32_t freeLevelsOfTerms(::mlir::Type self);
+
+// The default of IndexedTypeInterface::getPositionalMember.
+std::optional<std::uint32_t> noPositionalMember(::mlir::Type self);
+
+// The default of IndexedTypeInterface::scopeHoldsParts.
+bool scopeHoldsEveryPart(::mlir::Type self);
+
+// The default of LifetimeUseOpInterface::getLifetimeUse.
+::idr::LifetimeUse namesLifetime(::mlir::Operation *self, ::mlir::OpOperand & lifetime);
+
+// The default of LifetimeUseOpInterface::verifyLifetimeUse.
+::mlir::LogicalResult acceptsLifetimeUse(::mlir::Operation *self, const ::idr::OpenLifetimes & open);
+
+// The default of LiteralTypeInterface::sameLiteral.
+bool literalsIdentical(::mlir::Type self, ::mlir::Attribute a, ::mlir::Attribute b);
+
 // The default of GuardOpInterface::getGuarded.
 ::mlir::Value guardedOperand(::mlir::Operation *self);
 

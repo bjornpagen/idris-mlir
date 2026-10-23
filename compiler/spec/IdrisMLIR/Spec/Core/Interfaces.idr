@@ -113,6 +113,248 @@ structureInterface = MkInterfaceDef
   , doc = brief (line "an op whose result may be built of its operands by a constructor or a natural's successor or predecessor")
   }
 
+||| The questions the C++ asked by a chain of tests over our own ops, types
+||| and attributes, each now one method its subject answers, so a reader
+||| asks the interface and names no class. The vocabulary their signatures
+||| name is the hand header `idr/IR/Interfaces/Vocabulary.h`, which the
+||| dialect's header includes before the interfaces.
+
+||| `IndexedTypeInterface`: the index terms a type names directly, and how a
+||| walk over a scope reads it: the levels those terms leave free, the group
+||| member it names by position, and whether its parts must still be walked.
+public export
+indexedTypeInterface : InterfaceDef
+indexedTypeInterface = MkInterfaceDef
+  { name = ident "IndexedTypeInterface"
+  , subject = OverTypes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::llvm::SmallVector<::llvm::ArrayRef<::idr::families::TermNode>, 2>") (ident "getIndexTermRuns") [] EveryImplementer
+          (line "the runs of index terms this type names directly, each whole terms one after the other, not those of its parts")
+      , MkMethod PerObject (code "std::uint32_t") (ident "getFreeLevels") [] (Delegates (ident "freeLevelsOfTerms"))
+          (line "how many index levels the terms it names leave free")
+      , MkMethod PerObject (code "std::optional<std::uint32_t>") (ident "getPositionalMember") [] (Delegates (ident "noPositionalMember"))
+          (line "the member of the group being declared that it names by position; none for a type that names none")
+      , MkMethod PerObject (code "bool") (ident "scopeHoldsParts") [] (Delegates (ident "scopeHoldsEveryPart"))
+          (line "whether a walk over a scope must still read its parts: false where its own fact already holds what they name") ]
+  , verifier = Unverified
+  , doc = brief (line "the index terms a type names, and how a scope's walk reads it")
+  }
+
+||| `IndexPositionsTypeInterface`: the index positions a value type is keyed
+||| by, which defunctionalization reads to key a type by where its terms
+||| stand: their sorts and terms, and the type with each at a fresh level.
+public export
+indexPositionsInterface : InterfaceDef
+indexPositionsInterface = MkInterfaceDef
+  { name = ident "IndexPositionsTypeInterface"
+  , subject = OverTypes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "void") (ident "appendIndexPositions")
+          [ param (code "::llvm::SmallVectorImpl<::idr::families::Sort> &") (ident "sorts")
+          , param (code "::llvm::SmallVectorImpl<::idr::families::TermNode> &") (ident "nodes") ]
+          EveryImplementer
+          (line "appends the sorts of the index terms this type is keyed by, and the terms, in one order")
+      , MkMethod PerObject (code "::mlir::Type") (ident "atFreshPositions")
+          [param (code "::llvm::function_ref<::idr::families::TermNode()>") (ident "next")] EveryImplementer
+          (line "this type with each index term it is keyed by the next fresh level, its refinement kept") ]
+  , verifier = Unverified
+  , doc = brief (line "the index positions a value type is keyed by")
+  }
+
+||| `PatternTypeInterface`: how a pattern type matches an instance of its
+||| own class, given the match in progress, which compares terms and queues
+||| the parts it pairs. A type without it matches part by part.
+public export
+patternTypeInterface : InterfaceDef
+patternTypeInterface = MkInterfaceDef
+  { name = ident "PatternTypeInterface"
+  , subject = OverTypes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "bool") (ident "matchInstance")
+          [param (code "::mlir::Type") (ident "instance"), param (code "::idr::families::PatternMatch &") (ident "match")]
+          EveryImplementer
+          (line "whether this pattern matches `instance`, a type of the same class, queueing in `match` the parts that must match too") ]
+  , verifier = Unverified
+  , doc = brief (line "how a pattern type matches an instance of its class")
+  }
+
+||| `FieldTypeInterface`: what a field of a type reaches, which decides how
+||| a read of it is held.
+public export
+fieldTypeInterface : InterfaceDef
+fieldTypeInterface = MkInterfaceDef
+  { name = ident "FieldTypeInterface"
+  , subject = OverTypes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::FieldReach") (ident "getFieldReach") [] EveryImplementer
+          (line "what a field of this type reaches") ]
+  , verifier = Unverified
+  , doc = brief (line "what a field of a type reaches")
+  }
+
+||| `NumericTypeInterface`: how a type's values are read as numbers, and
+||| whether they are Integers the big ops take.
+public export
+numericTypeInterface : InterfaceDef
+numericTypeInterface = MkInterfaceDef
+  { name = ident "NumericTypeInterface"
+  , subject = OverTypes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::NumericReading") (ident "getNumericReading") [] EveryImplementer
+          (line "how a value of this type is read as a number")
+      , MkMethod PerObject (code "bool") (ident "isCarriedAsBig") [] EveryImplementer
+          (line "whether a value of this type is an Integer the big ops take, its constant a #idr.big") ]
+  , verifier = Unverified
+  , doc = brief (line "how a type's values are read as numbers")
+  }
+
+||| `ConstantAttrInterface`: a constant value of ours, at which types
+||| idr.constant holds it, how it is laid out as static data, that it agrees
+||| with what it names, and whether it may hold a closure.
+public export
+constantAttrInterface : InterfaceDef
+constantAttrInterface = MkInterfaceDef
+  { name = ident "ConstantAttrInterface"
+  , subject = OverAttributes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "bool") (ident "isBuildableAt") [param (code "::mlir::Type") (ident "type")] EveryImplementer
+          (line "whether idr.constant holds this value at `type`")
+      , MkMethod PerObject (code "::idr::StaticForm") (ident "getStaticForm") [param (code "::mlir::Type") (ident "held")] EveryImplementer
+          (line "how this value, held at `held`, is laid out as static data")
+      , MkMethod PerObject (code "::mlir::LogicalResult") (ident "verifyParts")
+          [ param (code "::mlir::Operation *") (ident "holder")
+          , param (code "::mlir::SymbolTableCollection &") (ident "symbols")
+          , param (code "::mlir::Type") (ident "type")
+          , param (code "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>") (ident "part") ]
+          EveryImplementer
+          (line "that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big has none")
+      , MkMethod PerObject (code "bool") (ident "mayHoldClosure") [] EveryImplementer
+          (line "whether this value may hold a closure: a closure is one, a constructor may hold one in a field, a literal holds none") ]
+  , verifier = Unverified
+  , doc = brief (line "a constant value of ours, and how it is held and laid out")
+  }
+
+||| `IntegerKeyAttrInterface`: a key of ours whose value is an integer.
+public export
+integerKeyAttrInterface : InterfaceDef
+integerKeyAttrInterface = MkInterfaceDef
+  { name = ident "IntegerKeyAttrInterface"
+  , subject = OverAttributes
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::llvm::APInt") (ident "getKeyInteger") [] EveryImplementer
+          (line "the integer this key is") ]
+  , verifier = Unverified
+  , doc = brief (line "a key whose value is an integer")
+  }
+
+||| `ReuseSourceOpInterface`: an op at which a cell may become free, and how
+||| its token is made available there.
+public export
+reuseSourceInterface : InterfaceDef
+reuseSourceInterface = MkInterfaceDef
+  { name = ident "ReuseSourceOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::DataType") (ident "getFreedCellType") [] EveryImplementer
+          (line "the data type, refined to its one constructor, whose cell may become free here; null where none may")
+      , MkMethod PerObject (code "::mlir::Value") (ident "takeFreedToken") [param (code "::mlir::OpBuilder &") (ident "builder")] EveryImplementer
+          (line "makes the freed cell's token available where the builder stands, right after the op, and gives it; the builder is left right after what stands in the op's place") ]
+  , verifier = Unverified
+  , doc = brief (line "an op at which a cell may become free")
+  }
+
+||| `ReuseSinkOpInterface`: an op that fills a fresh cell, which a token
+||| freed before it may supply.
+public export
+reuseSinkInterface : InterfaceDef
+reuseSinkInterface = MkInterfaceDef
+  { name = ident "ReuseSinkOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::CellType") (ident "getFilledCellType") [] EveryImplementer
+          (line "the cell this op fills") ]
+  , verifier = Unverified
+  , doc = brief (line "an op that fills a fresh cell")
+  }
+
+||| `LifetimeUseOpInterface`: how an op uses a lifetime it takes, and its own
+||| rule against the lifetimes open where it stands. An op without it only
+||| names the lifetime.
+public export
+lifetimeUseInterface : InterfaceDef
+lifetimeUseInterface = MkInterfaceDef
+  { name = ident "LifetimeUseOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::LifetimeUse") (ident "getLifetimeUse")
+          [param (code "::mlir::OpOperand &") (ident "lifetime")] (Delegates (ident "namesLifetime"))
+          (line "how this op uses the lifetime `lifetime` holds")
+      , MkMethod PerObject (code "::mlir::LogicalResult") (ident "verifyLifetimeUse")
+          [param (code "const ::idr::OpenLifetimes &") (ident "open")] (Delegates (ident "acceptsLifetimeUse"))
+          (line "this op's own rule against the lifetimes open where it stands") ]
+  , verifier = Unverified
+  , doc = brief (line "how an op uses a lifetime it takes")
+  }
+
+||| `CursorBinderOpInterface`: an op that binds a lifetime extending a
+||| cursor's base, the cursor read from the op's own class.
+public export
+cursorBinderInterface : InterfaceDef
+cursorBinderInterface = MkInterfaceDef
+  { name = ident "CursorBinderOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::mlir::Value") (ident "getCursorBase") [] (DelegatesByClass (ident "cursorBaseOfOp"))
+          (line "the cursor whose base the lifetime this op binds extends") ]
+  , verifier = Unverified
+  , doc = brief (line "an op that binds a lifetime extending a cursor's base")
+  }
+
+||| `ScopeRuleOpInterface`: what an op asks of the scope of index variables
+||| where it stands, beyond its values' types, which the function's scope
+||| walk checks everywhere: a cast's two types one under the refinements
+||| around it, a jump's arguments its target's parameters at its terms.
+public export
+scopeRuleInterface : InterfaceDef
+scopeRuleInterface = MkInterfaceDef
+  { name = ident "ScopeRuleOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::mlir::LogicalResult") (ident "verifyScopeRule")
+          [param (code "::idr::families::ScopeQuery &") (ident "scope")] EveryImplementer
+          (line "this op's own rule against the scope where it stands") ]
+  , verifier = Unverified
+  , doc = brief (line "what an op asks of the scope of index variables where it stands")
+  }
+
+||| `ValueSourceOpInterface`: what a value an op makes is made of: the same
+||| value as one it takes, a field of a value refined to one constructor, or
+||| made here.
+public export
+valueSourceInterface : InterfaceDef
+valueSourceInterface = MkInterfaceDef
+  { name = ident "ValueSourceOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::Source") (ident "getValueSource") [param (code "::mlir::Value") (ident "made")] EveryImplementer
+          (line "what `made`, a result of this op or an argument of one of its regions, is made of: the same value as one it takes, a field of a value refined to one constructor, or made here") ]
+  , verifier = Unverified
+  , doc = brief (line "an op that makes a value that is another value, or a field of one")
+  }
+
 ||| Which methods an op that infers its result types defines, in upstream's
 ||| adaptor form, the one form our ops take: `inferReturnTypes` given the
 ||| op's adaptor alone; or, for an op whose results may hold types other

@@ -24,7 +24,7 @@ declarations : Declarations
 declarations =
   { ops := [SomeOp matchOp, SomeOp matchLitOp, SomeOp yieldOp] ++ joinPointOps ++ [SomeOp jumpOp]
   , enums := [enumDef tokenScopeClosed]
-  , interfaces := [flowInterface, matchInterface, joinPointsInterface]
+  , interfaces := [flowInterface, matchInterface, joinPointsInterface, valueSourceInterface]
   , directives := [resultTypes, matchCases, literalCases, defaultCase]
   , predicates := [matchable, matchedLiteral]
   , admitted := controlAdmitted

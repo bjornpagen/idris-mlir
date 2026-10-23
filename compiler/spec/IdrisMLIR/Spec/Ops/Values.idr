@@ -40,6 +40,13 @@ literalType = MkInterfaceDef
       , MkMethod PerObject "::mlir::ParseResult" "parseLiteral"
           [param "::mlir::AsmParser &" "parser", param "::mlir::Attribute &" "literal"]
           EveryImplementer "reads a literal of this type"
+      , MkMethod PerObject "bool" "sameLiteral"
+          [param "::mlir::Attribute" "a", param "::mlir::Attribute" "b"]
+          (Delegates "literalsIdentical") "whether two literals of this type are the same value"
+      , MkMethod PerObject "::mlir::Value" "buildKeyTest"
+          [ param "::mlir::OpBuilder &" "builder", param "::mlir::Location" "loc"
+          , param "::mlir::Value" "held", param "::mlir::Attribute" "key" ]
+          EveryImplementer "the condition that `held`, a value of this type as a literal match reads it, is the literal `key`, built where `builder` stands"
       ]
   , verifier = Unverified
   , doc = brief "how a literal of a type is written and read"
@@ -51,7 +58,7 @@ scalarInterfaces : List InterfaceUse
 scalarInterfaces =
   [ Declares MemRefElementType []
   , Declares OpAsmType ["getAsmName"]
-  , Implements literalType ["isLiteral", "parseLiteral"] ]
+  , Implements literalType ["isLiteral", "parseLiteral", "buildKeyTest"] ]
 
 ||| What a value of a runtime value's type holds: a reference, counted, and
 ||| none is used once by its type; what its word is, the type says.
@@ -80,7 +87,8 @@ strType = scalarType "str" AlwaysCell (says "a string (UTF-8)")
 ||| An Integer's word is a small in the word, or a cell.
 public export
 bigType : TypeDef 0
-bigType = scalarType "big" MayBeOtherWord (says "an Integer")
+bigType = { interfaces $= (++ [Implements numericTypeInterface ["getNumericReading", "isCarriedAsBig"]]) }
+            (scalarType "big" MayBeOtherWord (says "an Integer"))
 
 ||| Nat, and every type Idris shapes like it: a big at run time, never
 ||| negative. Every op that makes one keeps it so, and the one way in from
@@ -99,7 +107,12 @@ natType = MkTypeDef
       [ MkParameter "index" (WiredValue (WiredArray termWire) termsParam)
           AlwaysWritten "the index term the natural is, opaque where none is known" ]
   , syntax = HandSyntax
-  , interfaces = scalarInterfaces
+  , interfaces =
+      scalarInterfaces ++
+        [ Implements indexedTypeInterface ["getIndexTermRuns"]
+        , Implements patternTypeInterface ["matchInstance"]
+        , Implements numericTypeInterface ["getNumericReading", "isCarriedAsBig"]
+        , Implements indexPositionsInterface ["appendIndexPositions", "atFreshPositions"] ]
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []

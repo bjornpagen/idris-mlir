@@ -156,7 +156,8 @@ fieldOp = MkOp
   , traits = [OurTrait eliminatesOperand]
   , interfaces =
       [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
-      , Implements statesLifetime lifetimeMethods, Implements statesOuters [] ]
+      , Implements statesLifetime lifetimeMethods, Implements statesOuters []
+      , Implements valueSourceInterface ["getValueSource"] ]
   , effects = Executes [] [ReadsMemo 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -236,7 +237,8 @@ dataReindexOp = MkOp
   , traits = []
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
-      , Implements statesOuters [], Implements carriesOnInterface ["getCarry"] ]
+      , Implements statesOuters [], Implements carriesOnInterface ["getCarry"]
+      , Implements scopeRuleInterface ["verifyScopeRule"] ]
   , effects = Executes [] [Repacks 0 0] Covered Untouched
   , speculation = Conditionally
   , stages = Always
