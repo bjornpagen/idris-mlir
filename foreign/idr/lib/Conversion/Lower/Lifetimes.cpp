@@ -111,7 +111,8 @@ Value homeSlot(OpBuilder &b, Location loc, uint32_t site) {
 
 // The cursor's slot that a put into `lifetime`, converted to `converted`,
 // bumps: a cursor's own, or a home's, which has no value of its own.
-Value cursorSlot(OpBuilder &b, Location loc, Value lifetime, ValueRange converted) {
+Value cursorSlot(OpBuilder &b, Location loc, TypedValue<LifetimeType> lifetime,
+                 ValueRange converted) {
   return lifetimes::kindOf(lifetime).fold(
       [&]() -> Value { return {}; }, [&]() -> Value { return {}; },
       [&]() -> Value { return converted.front(); },
@@ -133,7 +134,7 @@ struct LowerCellArena : IdrPattern<CellArenaOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     const layout::Cell &cell = cellLayoutOf(layouts, cast<CellType>(op.getCell().getType()));
-    Value lifetime = op.getLifetime();
+    TypedValue<LifetimeType> lifetime = op.getLifetime();
     Value place = lifetimes::kindOf(lifetime).isRoom()
                       ? adaptor.getLifetime().front()
                       : bump(rewriter, loc, runtime,
@@ -274,7 +275,7 @@ struct LowerHomeOpener : IdrPattern<LifetimeHomeOp> {
   LogicalResult matchAndRewrite(LifetimeHomeOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    uint32_t site = lifetimes::kindOf(op.getBody().front().getArgument(0))
+    uint32_t site = lifetimes::kindOf(op.getOpened())
                         .fold([] { return 0u; }, [] { return 0u; }, [] { return 0u; },
                               [](uint32_t k) { return k; });
     return runRegion(op, rewriter, *getTypeConverter(), {}, {}, {}, [&] {

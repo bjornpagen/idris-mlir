@@ -114,7 +114,8 @@ inline Leaves leavesOf(mlir::Operation *terminator) {
 // so a value from outside moves into each; or any number of times or none
 // (a loop, a branch that may skip its region, an op that declares no
 // region branching), so a value from outside is held across the op and
-// only read inside.
+// only read inside, but for a value used once that the region such an op
+// runs first and alone reads (a loop's body), which moves in.
 enum class Runs : std::uint8_t { Once, Repeats };
 
 inline Runs runsOf(mlir::Operation *op) {

@@ -130,6 +130,9 @@ struct BlockWalk {
 struct OpWalk {
   mlir::Operation *op;
   Runs runs;
+  // The region the op runs first and alone, before any may run again, if
+  // one: what a value used once needs there moves into it, never held.
+  mlir::Region *first;
   State after;
   unsigned remaining;
   llvm::SmallVector<std::optional<State>, 2> entries;
@@ -186,7 +189,7 @@ private:
   State successorState(const mlir::RegionSuccessor &successor, mlir::Operation *terminator);
   OpWalk *frameOf(mlir::Operation *op);
   bool aliveAt(ValueId owner, mlir::Operation *op, const State &state) const;
-  llvm::BitVector heldBy(mlir::Operation *op) const;
+  llvm::BitVector heldBy(mlir::Operation *op, mlir::Region *first) const;
   void holdLent(mlir::Operation *op, llvm::BitVector &held) const;
 
   // Uses and deaths (PlacementUses.cpp).

@@ -5,9 +5,11 @@
 // A region op that enters one of its regions once per run moves what its
 // regions need into them, each region dropping at its head what a sibling
 // needs and it does not; one that may run a region any number of times, or
-// none, holds what its regions read across it, and one whose region binds a
-// lifetime holds what is lent to upstream's ops under it, which outlives
-// the lifetime. A terminator's successors say what is needed where it
+// none, holds what its regions read across it, save a value used once that
+// the region it runs first and alone reads (a loop's body), which moves in
+// there as into a region run once; and one whose region binds a lifetime
+// holds what is lent to upstream's ops under it, which outlives the
+// lifetime. A terminator's successors say what is needed where it
 // leaves. The walk's stacks are on the heap, so a nesting of any depth
 // costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
@@ -21,6 +23,27 @@
 using namespace mlir;
 
 namespace idr::counting::placement {
+
+namespace {
+
+// The region a region op runs first and alone, once per run, before any of
+// its regions may run again: the one region it enters from itself, where it
+// never goes straight to its results and that region never runs again (a
+// loop's body, which jumps into the loop's join regions). None for an op
+// that enters several, may skip them, or enters one that repeats.
+Region *runFirst(Operation *op) {
+  auto branch = dyn_cast<RegionBranchOpInterface>(op);
+  if (!branch)
+    return nullptr;
+  llvm::SmallVector<RegionSuccessor> entries;
+  branch.getSuccessorRegions(RegionBranchPoint::parent(), entries);
+  if (entries.size() != 1 || entries.front().isOperation())
+    return nullptr;
+  Region *first = entries.front().getSuccessor();
+  return branch.isRepetitiveRegion(first->getRegionNumber()) ? nullptr : first;
+}
+
+} // namespace
 
 // The frame of a region op on the walk's stack of them: the op whose
 // results a yield gives or whose region a jump enters, the walk's own
@@ -114,14 +137,20 @@ bool Placement::aliveAt(ValueId owner, Operation *op, const State &state) const 
 
 // The counted values defined outside `op` that its regions use, a part's
 // owner with the part: what an op that may run its regions many times holds
-// across them.
-llvm::BitVector Placement::heldBy(Operation *op) const {
+// across them. A value used once whose use lies in `first`, the region the
+// op runs first and alone, is not held: that region runs once, before
+// anything repeats, so its one use there moves it in, as a region an op
+// enters once takes what it needs, and nothing duplicates it.
+llvm::BitVector Placement::heldBy(Operation *op, Region *first) const {
   llvm::BitVector held(count.value());
   op->walk([&](Operation *inner) {
     if (inner == op)
       return;
     for (Value operand : inner->getOperands()) {
       if (op->isAncestor(operand.getParentBlock()->getParentOp()))
+        continue;
+      if (first && first->isAncestor(inner->getParentRegion()) &&
+          usesOf(operand.getType()) == Uses::Once)
         continue;
       ValueId id = idOf(operand);
       if (roles[id] == Role::Owned)
@@ -196,11 +225,11 @@ void Placement::stepBlock(BlockWalk &walk) {
   }
   // A region op: its regions are walked from what is live after it. A part
   // still needed after it is pinned: no region supplies it.
-  OpWalk regions{op, runsOf(op), state, op->getNumRegions(), {}, llvm::BitVector(count.value()),
-                 llvm::BitVector(count.value())};
+  OpWalk regions{op, runsOf(op), runFirst(op), state, op->getNumRegions(), {},
+                 llvm::BitVector(count.value()), llvm::BitVector(count.value())};
   regions.entries.resize(op->getNumRegions());
   if (regions.runs == Runs::Repeats)
-    regions.held = heldBy(op);
+    regions.held = heldBy(op, regions.first);
   holdLent(op, regions.held);
   for (unsigned at : regions.after.live.set_bits())
     if (roles[idAt(at)] == Role::Part && !pinned.test(at)) {
@@ -254,14 +283,20 @@ void Placement::finishBlock(BlockWalk &walking) {
 // enters one region once, what any region it enters needs, each region
 // dropping at its head (or taking apart, where a part of it lives on) what a
 // sibling needs and it does not; for one that may repeat, what it holds
-// across its regions and what is live after it. The parts pinned at the op
-// take their references before it, where their owners still live.
+// across its regions, what is live after it and what the region it runs
+// first moves in. The parts pinned at the op take their references before
+// it, where their owners still live.
 State Placement::finishOp(OpWalk &walk) {
   Operation *op = walk.op;
   State before{llvm::BitVector(count.value()), walk.after.ahead};
   if (walk.runs == Runs::Repeats) {
     before.live = walk.after.live;
     before.live |= walk.held;
+    // And what the region it runs first takes in: beyond what the op holds,
+    // the values used once that it moves in.
+    if (walk.first)
+      if (const std::optional<State> &entry = walk.entries[walk.first->getRegionNumber()])
+        before.live |= entry->live;
   } else {
     auto branch = cast<RegionBranchOpInterface>(op);
     llvm::SmallVector<RegionSuccessor> entries;

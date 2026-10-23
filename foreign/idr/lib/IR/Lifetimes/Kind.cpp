@@ -101,8 +101,8 @@ bool idr::isLifetimeOfCase(Type type, LifetimeKindCase kase) {
   return kindIs(type, [&](LifetimeKind k) { return k.kindCase() == kase; });
 }
 
-LifetimeKind idr::lifetimes::kindOf(Value lifetime) {
-  return cast<LifetimeType>(lifetime.getType()).getKind();
+LifetimeKind idr::lifetimes::kindOf(TypedValue<LifetimeType> lifetime) {
+  return lifetime.getType().getKind();
 }
 
 bool idr::lifetimes::passesAs(Type arg, Type param) {

@@ -36,11 +36,11 @@ using State = verify::LifetimeRules::State;
 // that may put into it what its results hold.
 LogicalResult State::proof(Operation &user) {
   for (OpOperand &use : user.getOpOperands()) {
-    Value target = use.get();
-    if (!isa<LifetimeType>(target.getType()))
+    auto target = dyn_cast<TypedValue<LifetimeType>>(use.get());
+    if (!target)
       continue;
     auto reserved = target.getDefiningOp<LifetimeReserveOp>();
-    Value lifetime = reserved ? reserved.getLifetime() : target;
+    TypedValue<LifetimeType> lifetime = reserved ? reserved.getLifetime() : target;
     std::optional<OpenLifetimes::Open> held = open.recordOf(lifetime);
     if (!held)
       continue;

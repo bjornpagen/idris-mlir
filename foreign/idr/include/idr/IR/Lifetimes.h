@@ -47,6 +47,9 @@
 // type's parameter is one, comes with the dialect's enums, which Grades.h
 // includes once.
 #include "idr/IR/Generated/Lifetimes.h.inc"
+// The dialect's type classes by name, before their generated definitions:
+// a lifetime value is read at its type, which the declarations below name.
+#include "idr/IR/Generated/Storages.h.inc"
 
 namespace idr {
 
@@ -154,6 +157,10 @@ Opener openerOfOp(Op) {
   return LifetimeOpener<Op>::opener;
 }
 
+// An op that opens a lifetime: one whose class has its opener's constant.
+template <typename Op>
+concept OpensLifetime = requires { LifetimeOpener<Op>::opener; };
+
 // Whether `type` is a lifetime of a kind something may allocate into, a
 // cursor, a room, a view, or of the case `kase`: the predicates ODS asks of
 // a lifetime operand, and an opener of the lifetime it binds.
@@ -180,8 +187,9 @@ class CarrierOp;
 
 namespace idr::lifetimes {
 
-// The kind of a lifetime value.
-LifetimeKind kindOf(mlir::Value lifetime);
+// The kind of a lifetime value, read off its type: the value is typed where
+// the op that has it states its type, so no caller casts.
+LifetimeKind kindOf(mlir::TypedValue<LifetimeType> lifetime);
 
 // Whether a lifetime of type `arg` may be passed where a parameter of type
 // `param` is asked (LifetimeKind::passesAs): the call's rule for its
@@ -361,13 +369,24 @@ public:
     auto self = llvm::cast<ConcreteType>(op);
     if (failed(lifetimes::verifyOuters(self, Own)))
       return mlir::failure();
-    if constexpr (requires { LifetimeOpener<ConcreteType>::opener; }) {
+    if constexpr (OpensLifetime<ConcreteType>) {
       mlir::Block &entry = self.getBody().front();
       constexpr LifetimeKindCase opens = openerBinds[LifetimeOpener<ConcreteType>::opener];
       if (entry.getNumArguments() != 1 || !isLifetimeOfCase(entry.getArgument(0).getType(), opens))
         return op->emitOpError("binds no lifetime of the kind it opens, and nothing else");
     }
     return mlir::success();
+  }
+
+  // The lifetime an opener's region binds, at its type: the region binds it
+  // alone, of the kind the opener opens, which the verifier above holds, so
+  // the type is given here once, as ODS gives a typed operand, and what
+  // reads the lifetime's kind casts nothing.
+  mlir::TypedValue<LifetimeType> getOpened()
+    requires OpensLifetime<ConcreteType>
+  {
+    auto self = llvm::cast<ConcreteType>(this->getOperation());
+    return llvm::cast<mlir::TypedValue<LifetimeType>>(self.getBody().front().getArgument(0));
   }
 };
 
@@ -386,9 +405,12 @@ class GivesLifetime : public mlir::OpTrait::TraitBase<ConcreteType, GivesLifetim
 
 // An op of ours that makes a reference of its own from a bare carrier it is
 // given without taking one over (`idr.own.adopt`, `idr.count.dup`,
-// `idr.lin.cast`): where a loan's alias would become someone's reference,
-// which the loans' check reads off this trait, as it reads a reference
-// taken over off the op's consumption.
+// `idr.lin.cast`): where a loan's alias would become someone's reference.
+// The loans' check reads this trait beside what every op of ours declares
+// of its operand: a reference taken over by the op's consumption, and the
+// op's flow edges, which adopt the alias where they move it into what the
+// op holds or gives, release it, or pass it by value to a callee, whatever
+// the value's uses count, so a constructor given an alias adopts it.
 template <typename ConcreteType>
 class AdoptsCarrier : public mlir::OpTrait::TraitBase<ConcreteType, AdoptsCarrier> {};
 
