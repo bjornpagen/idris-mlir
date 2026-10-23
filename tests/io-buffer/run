@@ -17,11 +17,16 @@
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 build=${idris_mlir%/foreign/idr/idris-mlir}
 runtime=$build/runtime/libidris_rt.a
-page=$(cat "$build/runtime/page-size" 2> /dev/null)
+# The page size is the target entry's (CMakeLists.txt), which the build
+# writes beside its runtime. Every build has a target, so a build without
+# it is broken: runtime_fact names the file the build did not write, a
+# line no expected output holds, and the test fails.
+runtime_fact page-size || exit 1
+page=$runtime_fact_value
 case $page in
-  '' | *[!0-9]*)
-    say "the build records no page size ($build/runtime/page-size)"
-    exit 0 ;;
+  '' | *[!0-9]* | 0*)
+    say "the build's page size ($build/runtime/page-size) is \"$page\", no number of bytes"
+    exit 1 ;;
 esac
 
 # The input, read from a file, so each refill reads a whole buffer and the
