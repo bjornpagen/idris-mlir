@@ -711,3 +711,9 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   variables because of its `bindUnsolved`), so the runner builds under
   idris-mlir too (L17, after L17bc); INT reinstalls the stock Idris with
   96 and 104 to 118.
+- From L12w: an update's region verifier (`touchesInPlace`) refuses any
+  op that writes or frees heap memory, so after counting a region that
+  rebuilds a cell element (`cell.init`) or drops anything fails it; the
+  rule must read the resource tree (what the update may not touch: other
+  heap contents) rather than refuse counting's own work (L12 with L01's
+  effect vocabulary, after the specification frees).
