@@ -374,3 +374,23 @@ coordinator, 2026-10-23):
 - `SyntaxSamples` samples of ±inf, NaN and the smallest subnormal beside
   its `-0.0`, with a check that MLIR reads back those exact bits
   (`tests/dialect-syntax` only checks that the file parses and reprints).
+
+## From L16dz (growth refusals of valid programs)
+
+Two refusals the model makes wrongly, each a model gap (dispatch after
+L17ay settles whether Readings' marker names change):
+- `Compose` (`every-interfaces-export`; reduction `/tmp/l16dz/repro/FA1`,
+  `UC1` against `UC2`): the site reading of `Constraint (Functor f) l`
+  keeps the projection's as-written alternative, read as no head, so a
+  dispatch through it reaches every Functor and closes a cycle no
+  instance has. A `Root` for "a field of the writer's own dictionary
+  parameter", or the projection read as its field alone
+  (`Readings.SProjected`), with its case in `Proof.Covers`.
+- A constraint pair (`every-types-export`, `Ord (Either a b)`; reduction
+  `TupleSuper` against `CurriedSuper`): a constraint tuple is one
+  dictionary built with `MkPair`, whose field positions every pair of
+  dictionaries shares, so the superclass read over a field appears to
+  feed itself. A field of a constructor-built dictionary read as a part
+  of the record, one level below its position: a rule of the growth
+  model (`Proof.Bound`, `Proof.Describes`). Base has the shape too
+  (`Monoid (SortedMap k v)`, `MonadWriter w (WriterT w m)`).
