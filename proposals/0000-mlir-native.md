@@ -2486,6 +2486,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   Graded stage strengthens holds, and whether a value's hold may change
   under its users before it, decide whether the graph places the
   constant at a static hold or leaves it (the queue's L14y).
+  *Settled* (2026-10-23, L14y's reading): (ii). No pass makes a hold
+  static (the Graded strengthening moves counted to scoped and adds
+  sharing claims), primitive ops take any hold and constructor fields
+  accept static, but calls and returns need equal grades and the graph
+  unites only classes of one type. So the graph places a computed string
+  or big as static data and re-grades, at write-back, the values within
+  the function that flow from it to ops admitting any hold; an argument
+  of a call becomes static and idr-optimize's next round keys the callee
+  by hold (D89's specialization, already the specializer's); a value the
+  function returns at a counted hold stays applied, since its signature
+  is the specializer's, not the graph's.
 - **C265** (2026-10-23; L18y's handoff, under D129 and D30). A tail
   call's result layouts agree from the Graded stage on, a stage fact of
   the specification's table (`StageTailLayouts = LayoutsPending |
