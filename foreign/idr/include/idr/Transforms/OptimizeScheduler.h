@@ -92,14 +92,16 @@ inline bool isFinal(const Phase &phase) {
 // whose callees are final and whose members wait on nothing, run in
 // parallel as their arenas admit. Between waves, on the pass thread with no
 // turn running, the copies the turns asked for are admitted, built and go
-// into the program, finished components
-// become final and publish their summaries, waits are counted, components
-// a wait would close a cycle through are merged, and the steps that can go
-// on are queued. Every turn reads a fixed set of final functions, so the
-// output is the same at any thread count, and so is the work of the solves
-// of each component taken up (its binding times, counted in its turn and
-// added when the wave settles) and finished (what it gives back, solved on
-// the pass thread), added to `spent`.
+// into the program, finished components become final and publish their
+// summaries, waits are counted, components a wait would close a cycle
+// through are merged, the steps that can go on are queued, and each member
+// a step starts has its results opened where its tails cannot agree with
+// them (specialize::openResults), which rewrites its callers, each waiting
+// on it. Every turn reads a fixed set of final functions, so the output is
+// the same at any thread count, and so is the work of the solves of each
+// component taken up (its binding times, counted in its turn and added when
+// the wave settles) and finished (what it gives back, solved on the pass
+// thread), added to `spent`.
 class Scheduler {
 public:
   Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes, const InnerCounts &counts,

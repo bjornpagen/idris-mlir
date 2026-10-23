@@ -21,7 +21,6 @@
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Tail.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/Builders.h"
@@ -31,13 +30,6 @@
 using namespace mlir;
 
 namespace idr::specialize {
-
-Type openResult(Type type, Type held) {
-  DataType data = dataTypeOf(type);
-  if (!data)
-    return type;
-  return graded(gradeOf(held), data.marked(LayoutMark::Open));
-}
 
 namespace {
 
@@ -110,71 +102,6 @@ void Signatures::write(Key key, Bytes &bytes) {
   bytes.type(key->signature);
   bytes.attribute(key->indices);
 }
-
-namespace {
-
-// `fn` returning `results`, which differ from its own results only where the
-// key opens one: every tail of it gives that result at the open layout.
-// Down its tails from the body, a region op a break crosses whose results a
-// block gives on takes the open type at that result, as does each op after
-// it that only gives one on; a block that ends a tail otherwise casts what
-// it gives there to the open type before its terminator, the copy's one
-// re-pack of it. So what the copy gives at a tail it gives in its own block
-// at the open type, and a call there is a tail lost to a layout, which the
-// copy's own turn asks its callee open for. A block whose end never returns
-// gives nothing to cast.
-void openTails(FuncOp fn, ArrayRef<Type> results) {
-  SmallVector<unsigned> opened;
-  for (auto [position, types] : llvm::enumerate(llvm::zip_equal(fn.getResultTypes(), results)))
-    if (std::get<0>(types) != std::get<1>(types))
-      opened.push_back(static_cast<unsigned>(position));
-  if (opened.empty())
-    return;
-  fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), results));
-  Block &body = fn.getBody().front();
-  if (!body.getTerminator()->hasTrait<OpTrait::ReturnLike>())
-    return;
-  SmallVector<Block *> spine{&body};
-  while (!spine.empty()) {
-    Block *block = spine.pop_back_val();
-    Operation *terminator = block->getTerminator();
-    Operation *source = tail::tailSource(*block);
-    if (source && source->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
-      // The ops after it give its results on, each in its place, to the
-      // terminator, which forwards them in order: the one definition found
-      // the way so.
-      SmallVector<Value> values(source->getResults());
-      for (unsigned position : opened)
-        source->getResult(position).setType(results[position]);
-      for (Operation *op = source->getNextNode(); op != terminator; op = op->getNextNode()) {
-        auto *at = llvm::find(values, op->getOperand(0));
-        auto position = static_cast<unsigned>(std::distance(values.begin(), at));
-        *at = op->getResult(0);
-        if (llvm::is_contained(opened, position))
-          op->getResult(0).setType(results[position]);
-      }
-      for (Region &region : source->getRegions())
-        if (!region.empty() && tail::rejoinOf(region.front().getTerminator()) == source)
-          spine.push_back(&region.front());
-      continue;
-    }
-    OpBuilder b(terminator);
-    for (unsigned position : opened) {
-      Value given = terminator->getOperand(position);
-      terminator->setOperand(
-          position,
-          DataReindexOp::create(b, terminator->getLoc(), results[position], given).getResult());
-    }
-    // A tail call the block ended with now reaches the return through the
-    // cast, a tail lost to a layout, which the decider leaves no tail call
-    // until the copy's own turn asks its callee open: its fact is the one
-    // definition's answer at every step.
-    if (CallOp call = source ? tailCallOf(source) : CallOp())
-      call.setTailKind(tail::decide(call));
-  }
-}
-
-} // namespace
 
 LogicalResult Signatures::edit(Key key, FuncOp clone) {
   // Each parameter at the hold the key gives it first (a static hold where

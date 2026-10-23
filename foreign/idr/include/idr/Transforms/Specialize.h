@@ -19,14 +19,13 @@
 // returns that, so the two lower to one return. A copy keyed open asks only
 // open: each of its tails gives the open layout, so each tail call in it
 // whose callee gives a closed result asks that callee open in turn, at the
-// grade the copy returns it at. A result its class would close is asked
-// open too where a tail call of the callee gives it at an index the
-// language cannot express, which no class closes: that closed copy would
-// lose the tail, so it is not made, and its non-tail callers convert the
-// open result after the call. A result's open form is its type marked open
-// at that grade, the mark one of two, so the axis at most doubles the keys
-// of each class and hold, and the copies end with no budget and no
-// fixpoint.
+// grade the copy returns it at. A result's open form is its type marked
+// open at that grade, the mark one of two, so the axis at most doubles the
+// keys of each class and hold, and the copies end with no budget and no
+// fixpoint. A result no copy could give closed, since a tail of its owner
+// gives it at what no substitution closes, is no key's: the owner's own
+// type marks it open (openResults), every copy returns it open by the
+// substitution, which keeps the mark, and its class lays it out open.
 //
 // A size an axis becomes is not drawn from a finite alphabet: the naturals
 // are unbounded. A size keys a copy only from a call outside its callee's call
@@ -94,6 +93,10 @@ struct SpecializeCloneAction : support::TaggedAction<SpecializeCloneAction> {
 };
 
 } // namespace idr
+
+namespace idr::optimize {
+class Schedule;
+} // namespace idr::optimize
 
 namespace idr::specialize {
 
@@ -215,7 +218,8 @@ struct SignatureKey {
   FunctionId owner;
   mlir::FunctionType signature;
   // The index arguments fixed in the copy, one per index binder of the
-  // owner, an opaque term where the binder stays.
+  // owner: a closed term where the class fixes the binder, and where the
+  // binder stays the level it becomes in the copy, the k-th kept level k.
   IndexArgsAttr indices;
 };
 
@@ -226,6 +230,24 @@ struct SignatureKey {
 // and keeps the hold; any other type as it is, whose layout no index
 // decides.
 mlir::Type openResult(mlir::Type type, mlir::Type held);
+
+// `fn` returning `results`, which differ from its own results only where
+// one opens: every tail of it gives that result at the open type, what it
+// gave there cast to it once, and each call in it takes the tail fact its
+// place now gives it.
+void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
+
+// The one rule for a result a tail of its function gives at a layout the
+// function's own type cannot agree with, in the function or in a copy whose
+// classes would close it: the function's result is marked open in its own
+// type, at the hold that tail gives, its tails give it open, and every call
+// of it takes the open type and casts it back after itself. Decided once for
+// each function the program held when the schedule takes it up, between
+// waves, for `starters`, each a member a turn of the coming wave starts: its
+// callers outside its component wait on it, and a caller of its component
+// that loses a tail to the cast is decided again in turn. Every copy keeps
+// the mark its owner's type gives it.
+void openResults(optimize::Schedule &schedule, llvm::ArrayRef<FunctionId> starters);
 
 // The arena of one run: every pattern and key it made, freed with it.
 // Interning is under one lock: a request interns its key once, after it

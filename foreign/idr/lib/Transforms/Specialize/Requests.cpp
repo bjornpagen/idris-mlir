@@ -90,8 +90,9 @@ FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want,
 }
 
 // The index arguments a call of a signature copy passes: the call's own at
-// each binder the copy keeps, where the key's term is opaque, as the one
-// substitution the copy is made by keeps it; none where a class is fixed.
+// each binder the copy keeps, where the key's term is the level the binder
+// becomes in the copy, as the one substitution the copy is made by reads
+// it; none where a class is fixed, the key's term closed.
 IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr classes) {
   if (!call)
     return call;
@@ -100,7 +101,10 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
   ArrayRef<families::TermNode> mine = call.getTerms(), theirs = classes.getTerms();
   while (!mine.empty()) {
     families::Term own(mine), fixed(theirs);
-    if (fixed.head().kind == TermKind::Opaque) {
+    assert((fixed.isClosed() || fixed.kind() == TermKind::Level) &&
+           "a copy's key fixes a binder to a closed term or keeps it as a level");
+    if (fixed.kind() == TermKind::Level) {
+      assert(fixed.head().value == count && "a copy keeps a binder as its next level");
       llvm::append_range(kept, own.nodes());
       ++count;
     }

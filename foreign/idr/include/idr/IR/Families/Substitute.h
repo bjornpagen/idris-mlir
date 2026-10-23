@@ -65,13 +65,17 @@ llvm::SmallVector<mlir::Type> instantiateFields(FamilyAttr group, llvm::ArrayRef
                                                 llvm::ArrayRef<Term> binders);
 
 // `type`, a callee's signature whose extents are `extents` (null for none),
-// at a call's terms `args`: each binder whose term is opaque stays a
-// binder, renumbered among those that stay; every other is replaced by its
-// term; and each axis an extent names is static where staticSizeAt gives
-// its term a size, a bare tensor argument's, the rule idr.func's verifier
-// reads too. A result keeps the callee's type, and a graded array its `?`.
-// It is the signature substituteFunction gives the callee's copy at `args`,
-// both read off one mapping, so a call's view of a copy is the copy's type.
+// at a call's terms `args`: each binder replaced by its term, which is what
+// the binder becomes in the scope the signature is read in, the one meaning
+// a term has wherever substitution reads it. At a call the scope is the
+// caller's, where an opaque term is an index the language cannot express,
+// as Emit writes `_`; at a copy it is the copy's own, where a binder that
+// stays is the level it becomes there, the k-th kept being level k. Each
+// axis an extent names is static where staticSizeAt gives its term a
+// size, a bare tensor argument's, the rule idr.func's verifier reads too. A
+// result keeps the callee's type, and a graded array its `?`. It is the
+// signature substituteFunction gives the callee's copy at `args`, both read
+// off one mapping, so a call's view of a copy is the copy's type.
 mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, IndexArgsAttr args);
 
 // The function `function` (its signature, its extents and its body)
@@ -89,8 +93,9 @@ mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, Inde
 // back where a use's type is fixed elsewhere; a graded value keeps its
 // shape, since no cast keeps a grade, and an op that accepts a graded
 // result only at the refined shape reads its operands through their casts
-// back instead. The sorts of the binders that stay, which the caller sets
-// on its op.
+// back instead. `args` is a copy's key, each term closed or the level its
+// binder becomes in the copy, which keeps it. The sorts of the binders that
+// stay, which the caller sets on its op.
 mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args);
 
 // Moves the levels [from, from + count) of every type under `region` to
@@ -99,17 +104,20 @@ mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, Ind
 void renumber(mlir::Region &region, uint32_t from, uint32_t count, uint32_t to);
 
 // A call's terms naming levels [first, first + count) of the caller, in
-// order: a body entered with its own binders.
+// order: a body entered with its own binders; and, from 0, the key of a
+// copy that keeps every binder.
 IndexArgsAttr levelArgs(mlir::MLIRContext *context, uint32_t first, uint32_t count);
 
-// `count` opaque terms: every binder stays.
+// `count` opaque terms: indices the language cannot express, as an
+// application at unknown indices has them.
 IndexArgsAttr opaqueArgs(mlir::MLIRContext *context, uint32_t count);
 
 // The layout class a call's terms give its callee, `extents` the entries
 // of the callee's extents a size may key a copy at, in (side, position,
-// axis) order: each term that turns a type of the signature into an
-// application whose class is closed kept, and each that makes an axis
-// static by staticSizeAt, each other opaque; none when no type of the
+// axis) order, as the key of the copy at that class: each term that turns
+// a type of the signature into an application whose class is closed kept,
+// and each that makes an axis static by staticSizeAt; each other binder
+// stays, the level it becomes in the copy; none when no type of the
 // signature changes its layout, so the call needs no copy. The entries are
 // views of the terms the callee's attribute owns, so a caller that keys on
 // some of them filters them with no attribute made.

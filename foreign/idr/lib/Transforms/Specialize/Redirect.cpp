@@ -14,12 +14,14 @@
 // after the call would take a tail call out of tail position, and the
 // caller learns no more from a result than its own types say. A graded
 // array keeps its axis `?`, since no cast changes a type under a grade.
-// The one result type a copy changes is a result keyed open: for a tail
-// lost to a layout, the call gives it at its caller's layout, so the cast
-// after it, which re-packed, now builds nothing; for a call that is no
-// tail, whose callee's closed copy would have lost a tail of its own, the
-// result is converted after the call to the type the call gave, and its
-// uses take that.
+// The call's view of a copy is the copy's signature at the terms the call
+// passes it, as a call of a built function takes its callee's, so each
+// result is the type the call gave: a result the owner's type marks open
+// the call took open already, converting it after itself where its own
+// type closed it (openResults). The one result type a copy changes is a
+// result keyed open for a tail lost to a layout: the call gives it at its
+// caller's layout, so the cast after it, which re-packed, now builds
+// nothing.
 //
 // A copy called where the call was takes the one definition's answer there:
 // the call is at the same place, and where it gives a result open, the
@@ -36,6 +38,7 @@
 // a return and a raise of a recursion keeps its tail call.
 
 #include "idr/IR/Effects/Whole.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/Transforms/Specialize/Calls.h"
@@ -99,14 +102,11 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
 }
 
 // A copy replaces the call, and returns what the call does: each operand
-// passed at the copy's type for it, and the copy's results, at the owner's
-// types or open where the key opens one. A tail lost to a layout gives each
-// to the call's uses as it is, each such use a cast towards its caller's
-// return, which builds nothing now. Any other call's uses read the call's
-// own types: a result the key opened reaches them through one cast after
-// the call, which re-packs it there, where no tail is lost. Essential, two
-// cases: a tail's results go on to its return, and any other call's go
-// anywhere.
+// passed at the copy's type for it, and the copy's results as the call
+// sees them, `type`'s at `indices`, which are the call's own types but
+// where the key opens one for a tail lost to a layout. Such a tail gives
+// each result to the call's uses as it is, each such use a cast towards its
+// caller's return, which builds nothing now.
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
                 IndexArgsAttr indices, ArrayRef<Value> operands) {
   Location loc = call.getLoc();
@@ -114,15 +114,17 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   SmallVector<Value> passed;
   for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs()))
     passed.push_back(passedAs(rewriter, loc, operand, input));
-  CallOp fresh = callOf(rewriter, loc, target, type.getResults(), indices, passed,
+  // The copy's signature names its own binders, the call's terms the
+  // caller's levels: the view substitutes the one by the other, a result
+  // keeping its type but for them.
+  FunctionType seen = indices ? families::substitute(type, ExtentsAttr(), indices) : type;
+  assert((repackedTailOf(call) || llvm::equal(seen.getResults(), call.getResultTypes())) &&
+         "a copy gives each result as its call did, but one keyed open for a tail lost to a "
+         "layout");
+  CallOp fresh = callOf(rewriter, loc, target, seen.getResults(), indices, passed,
                         call.getTailKind(), call.getRow());
-  SmallVector<Value> given(fresh.getResults());
-  if (!repackedTailOf(call))
-    for (auto [value, had] : llvm::zip_equal(given, call.getResultTypes()))
-      if (value.getType() != had)
-        value = DataReindexOp::create(rewriter, loc, had, value).getResult();
   SmallVector<Value> old(call.getArgs());
-  rewriter.replaceOp(call, given);
+  rewriter.replaceOp(call, fresh.getResults());
   eraseUnused(rewriter, old);
   fresh.setTailKind(tail::decide(fresh));
   return fresh;

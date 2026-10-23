@@ -4,7 +4,8 @@
 // that can go on; its turns run in parallel and touch disjoint components.
 // Between two waves no turn runs, and what happens then is Settle.cpp's;
 // here the steps that can go on are queued, gathered into one turn per
-// component, and run, until no step is queued.
+// component, the results of the members they take up opened where their
+// tails cannot agree with them, and run, until no step is queued.
 
 #include "idr/Transforms/OptimizeScheduler.h"
 
@@ -85,6 +86,11 @@ LogicalResult Scheduler::run() {
   while (!ready.empty()) {
     SmallVector<Turn, 0> wave = gather(ready);
     ready.clear();
+    // Each member a turn takes up has its results opened first where its
+    // tails cannot agree with them, here, where no turn runs: the rule
+    // rewrites its callers, each of which waits on it, not taken up.
+    for (const Turn &work : wave)
+      specialize::openResults(schedule, work.starters);
     // The turns are disjoint, so the output is theirs in any order; the
     // context runs them one after another when its threading is off, as it
     // is while an action handler counts.

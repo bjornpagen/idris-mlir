@@ -161,6 +161,7 @@ add_mlir_library(IdrSpecialize
 	Specialize/Consumer.cpp
 	Specialize/Keys.cpp
 	Specialize/Lift.cpp
+	Specialize/Open.cpp
 	Specialize/Order.cpp
 	Specialize/Patterns.cpp
 	Specialize/Raise.cpp

@@ -134,6 +134,20 @@ void addLevelReplacements(AttrTypeReplacer &replacer, const LevelMap &map, Famil
   replacer.addReplacement([](FamilyAttr group) -> std::optional<std::pair<Attribute, WalkResult>> {
     return std::make_pair(Attribute(group), WalkResult::skip());
   });
+  // A grade's carrier is mapped and its uses kept. Its hold is a carrier's
+  // that holds references, so where the mapped carrier holds none (a vector
+  // of words at a length its index now fixes, laid out in place) the hold
+  // goes with them, and the grade is written in its canonical form, a bare
+  // grade being its carrier.
+  replacer.addReplacement(
+      [&replacer](GradedType at) -> std::optional<std::pair<Type, WalkResult>> {
+        Type carrier = replacer.replace(at.getCarrier());
+        assert(carrier && "the level replacements map every carrier");
+        Grade grade{at.getUses(), at.getHold()};
+        if (!holdsReferences(carrier))
+          grade.hold = std::nullopt;
+        return std::make_pair(graded(grade, carrier), WalkResult::skip());
+      });
   replacer.addReplacement(
       [&map](IndexArgsAttr args) -> std::optional<std::pair<Attribute, WalkResult>> {
         SmallVector<TermNode> terms = mapTerms(map, args.getTerms(), args.getCount());
@@ -172,20 +186,23 @@ void addLevelReplacements(AttrTypeReplacer &replacer, const LevelMap &map, Famil
   });
 }
 
-// The map a call's terms make of its callee's `count` binders: an opaque
-// term keeps its binder, renumbered among those kept; any other replaces
-// it; the levels past the binders move down by those replaced.
-LevelMap mapOfArgs(IndexArgsAttr args, uint32_t &kept) {
+// The map a call's terms make of its callee's binders. A term means one
+// thing wherever substitution reads one: what its binder becomes, written
+// in the scope the result is read in. At a call the scope is the caller's,
+// whose levels the terms name, and an opaque term there is an index the
+// language cannot express, as Emit writes `_`: the binder becomes it as it
+// becomes any other term, so no level of the callee's is left in the
+// call's view to be read as one of the caller's. At a copy the scope is the
+// copy's own, whose binders are those its key keeps: a binder that stays is
+// the level it becomes there, the k-th kept being level k (levelArgs from 0
+// keeps every one). Only a body binds levels past the binders, which
+// substituteFunction moves to follow the binders the copy keeps; a
+// signature names none.
+LevelMap mapOfArgs(IndexArgsAttr args) {
   LevelMap map;
-  kept = 0;
   auto count = static_cast<uint32_t>(args.getCount());
-  for (auto [level, term] : llvm::enumerate(termsOf(args.getTerms(), count))) {
-    if (term.kind() == TermKind::Opaque)
-      map.renumber(static_cast<uint32_t>(level), kept++);
-    else
-      map.replace(static_cast<uint32_t>(level), term);
-  }
-  map.shiftFrom(count, static_cast<int64_t>(kept) - static_cast<int64_t>(count));
+  for (auto [level, term] : llvm::enumerate(termsOf(args.getTerms(), count)))
+    map.replace(static_cast<uint32_t>(level), term);
   return map;
 }
 
@@ -278,8 +295,7 @@ SmallVector<Type> instantiateFields(FamilyAttr group, ArrayRef<Type> fields, Arr
 }
 
 FunctionType substitute(FunctionType type, ExtentsAttr extents, IndexArgsAttr args) {
-  uint32_t kept;
-  return mapSignature(type, extents, mapOfArgs(args, kept)).type(type.getContext());
+  return mapSignature(type, extents, mapOfArgs(args)).type(type.getContext());
 }
 
 //===----------------------------------------------------------------------===//
@@ -521,8 +537,18 @@ FailureOr<SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr a
   if (args.getCount() != binders.size())
     return function.emitOpError("is instantiated at ")
            << args.getCount() << " terms for its " << binders.size() << " index variables";
-  uint32_t kept;
-  LevelMap map = mapOfArgs(args, kept);
+  // The binders the copy keeps, each the level its term names, in order;
+  // every other is replaced by its term.
+  SmallVector<Sort> stay;
+  for (auto [sort, term] : llvm::zip_equal(binders, termsOf(args.getTerms(), args.getCount())))
+    if (term.kind() == TermKind::Level) {
+      assert(term.head().value == stay.size() && "a copy keeps a binder as its next level");
+      stay.push_back(sort);
+    }
+  LevelMap map = mapOfArgs(args);
+  // The levels the body binds past the binders follow those it keeps.
+  map.shiftFrom(static_cast<uint32_t>(binders.size()),
+                static_cast<int64_t>(stay.size()) - static_cast<int64_t>(binders.size()));
   // The signature from the function's own, through the map the body takes:
   // the replacer reaches its family types but not what its extents make of
   // its axes, so the signature and the extents are set from this one
@@ -539,10 +565,6 @@ FailureOr<SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr a
   function.setFunctionType(at.type(function.getContext()));
   function.setExtentsAttr(at.extents);
   followOperands(function, at);
-  SmallVector<Sort> stay;
-  for (auto [sort, term] : llvm::zip_equal(binders, termsOf(args.getTerms(), args.getCount())))
-    if (term.kind() == TermKind::Opaque)
-      stay.push_back(sort);
   return stay;
 }
 
@@ -577,7 +599,7 @@ IndexArgsAttr opaqueArgs(MLIRContext *context, uint32_t count) {
 // changes, so the call reaches a copy at that class. It is kept too where
 // staticSizeAt makes an axis static at the closed terms, the rule the
 // signature's mapping reads, so the copy has that axis static as the call's
-// view of it does.
+// view of it does. Every other binder the copy keeps, as its next level.
 std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ArrayRef<Extent> extents,
                                           IndexArgsAttr args) {
   auto count = static_cast<uint32_t>(args.getCount());
@@ -616,11 +638,12 @@ std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ArrayRef<Exten
     return std::nullopt;
   SmallVector<TermNode> nodes;
   TermWriter write(nodes);
+  uint32_t stays = 0;
   for (auto [level, term] : llvm::enumerate(terms)) {
     if (keep[level])
       write.copy(term);
     else
-      write.opaque();
+      write.level(stays++);
   }
   return IndexArgsAttr::get(signature.getContext(), nodes, count);
 }

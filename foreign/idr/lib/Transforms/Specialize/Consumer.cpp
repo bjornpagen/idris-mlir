@@ -253,11 +253,10 @@ SmallVector<Extent> keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallS
   return keying;
 }
 
-// The layout a call asks a result of its callee at: as the callee's class
-// lays it out, in place where its index is known; or open, as an index
-// unknown at compile time would be, at the grade of `held`: the caller's
-// own result where a tail lost to a layout asks it, the callee's where its
-// tails cannot close it.
+// The layout a call asks a result of its callee at: as the callee's type
+// lays it out, in place where its index is known and its type not marked
+// open; or open, as an index unknown at compile time would be, at the
+// grade of `held`, the caller's own result, for a tail lost to a layout.
 struct AsGiven {};
 struct AtOpen {
   Type held;
@@ -269,8 +268,10 @@ using ResultLayout = std::variant<AsGiven, AtOpen>;
 // call gives it, as the layout classes say (the reading by which a cast
 // between the two is free or re-packs): a copy that returns it open makes
 // the cast free, so the call is a tail call. Every other result is asked
-// as given, but where the callee's tails cannot give it so
-// (openUnclosable).
+// as given. A result no copy of the callee could give closed is marked
+// open in the callee's own type, decided once when the callee was taken
+// up (openResults), so it reaches the copy by the substitution, which
+// keeps the mark, and no call asks for it.
 SmallVector<ResultLayout> layoutsAsked(CallOp call) {
   SmallVector<ResultLayout> asked(call->getNumResults(), AsGiven{});
   if (!repackedTailOf(call))
@@ -285,60 +286,19 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call) {
   return asked;
 }
 
-// Whether `type` is a data type with an index the language cannot express,
-// an opaque term, which no substitution closes: `Vect (n * m)`.
-bool opaqueIndexed(Type type) {
-  DataType data = dataTypeOf(type);
-  return data && llvm::any_of(data.getIndices(), [](const families::TermNode &node) {
-           return node.kind == TermKind::Opaque;
-         });
-}
-
-// Each result asked as given that the classes close, so the copy lays it
-// out otherwise than `callee` does, asked open instead where a tail call of
-// `callee` gives it at an index the language cannot express: the copy with
-// the closed result would re-pack that tail's result after the call, a tail
-// call it fails to make, so it is not made. The open result is at the grade
-// `callee` returns it at, its tail's own, so that tail's cast to it builds
-// nothing, and the call's non-tail callers convert it after their call:
-// less optimized, never refused, and the tail call kept. `callee` is final,
-// so its tails are decided: a tail lost to a layout it asked open in its
-// own turn, and each tail it ends with is a tail call.
-void openUnclosable(FuncOp callee, FunctionType substituted,
-                    MutableArrayRef<ResultLayout> layouts) {
-  ArrayRef<Type> general = callee.getResultTypes();
-  SmallVector<unsigned> closing;
-  for (auto [position, layout, given] :
-       llvm::enumerate(layouts, substituted.getResults()))
-    if (std::holds_alternative<AsGiven>(layout) &&
-        families::layoutMatch(given, general[position]) == LayoutMatch::OtherLayout)
-      closing.push_back(static_cast<unsigned>(position));
-  if (closing.empty())
-    return;
-  for (Block *end : tail::tailEnds(callee)) {
-    Operation *source = tail::tailSource(*end);
-    CallOp last = source ? tailCallOf(source) : CallOp();
-    if (!last)
-      continue;
-    // A tail's results are its function's, one for one.
-    for (unsigned position : closing)
-      if (opaqueIndexed(last.getResultTypes()[position]))
-        layouts[position] = AtOpen{general[position]};
-  }
-}
-
 // The signature copy `call` asks of `callee`: its index arguments' layout
 // class where the callee's layout changes under them or a bare tensor
 // argument's extent the callee names becomes a constant that `site` lets
 // key it, each parameter that counts made static where the call passes
 // static data, which that copy then counts nothing of, and each result its
-// caller needs open, or its callee's tails cannot close, returned open.
-// None where nothing changes the callee. The copy's signature is the
-// callee's at those index arguments, every binder they leave opaque kept,
-// read through all the callee's extents by the one substitution its copy is
-// made by, so each extent whose term is fixed there is static in it, and
-// the call casts its operand there; a result asked open is that result
-// marked open, which the copy's tails give.
+// caller needs open returned open. None where nothing changes the callee.
+// The copy's signature is the callee's at those index arguments, every
+// binder they do not fix kept as the copy's own level, read through all the
+// callee's extents by the one substitution its copy is made by, so each
+// extent whose term is fixed there is static in it, and the call casts its
+// operand there; a result the callee's type marks open stays open, and a
+// result asked open is that result marked open, which the copy's tails
+// give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId, const CallSite &site) {
   ExtentsAttr extents = callee.getExtentsAttr();
@@ -357,15 +317,15 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   if (!classes && llvm::equal(inputs, type.getInputs()) && llvm::none_of(layouts, open))
     return std::nullopt;
   // Each binder is a level, and a level is a 32-bit number. With no class
-  // fixed, every binder stays: an opaque term keeps it.
+  // fixed, every binder stays, each the copy's level it was the callee's.
   auto binders = static_cast<std::uint32_t>(callee.getBinders().getSorts().size());
-  IndexArgsAttr indices = classes ? *classes : families::opaqueArgs(call.getContext(), binders);
+  IndexArgsAttr indices =
+      classes ? *classes : families::levelArgs(call.getContext(), 0, binders);
   // The classes keep every index the call's view closes, results included,
   // so the copy's own result is that view, closed, and its tails cast it to
   // the open type: what a known index lets it build in place, it builds.
   FunctionType substituted = families::substitute(
       FunctionType::get(call.getContext(), inputs, type.getResults()), extents, indices);
-  openUnclosable(callee, substituted, layouts);
   SmallVector<Type> results;
   for (auto [layout, result] : llvm::zip_equal(layouts, substituted.getResults())) {
     Type given = result;

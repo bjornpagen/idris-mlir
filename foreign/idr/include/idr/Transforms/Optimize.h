@@ -3,13 +3,15 @@
 // idr-optimize, the first-order optimizer, a fixed sequence of phases:
 //   - specialize, bottom-up over the components of the program graph: a
 //     function is taken up once every component it calls into is final,
-//     and runs rounds of its inner pipeline (the redirect to the copies its
-//     calls' keys name, leaf inlining, the e-graph, constants) until a
-//     round asks for no copy and inlines no leaf; the copies it asked for
-//     are made, numbered and taken up before it goes on; then, every
-//     function final, the results no caller reads and the labels' captures
-//     nothing reads go from the whole program, and each copy says what
-//     kind of copy it is;
+//     each of its results a tail cannot agree with opened in its own type
+//     first (specialize::openResults, once per function, before the wave
+//     that takes it up), and runs rounds of its inner pipeline (the
+//     redirect to the copies its calls' keys name, leaf inlining, the
+//     e-graph, constants) until a round asks for no copy and inlines no
+//     leaf; the copies it asked for are made, numbered and taken up before
+//     it goes on; then, every function final, the results no caller reads
+//     and the labels' captures nothing reads go from the whole program, and
+//     each copy says what kind of copy it is;
 //   - inline, once, on the final graph, with every call site counted, on
 //     upstream's inliner, a callee's verdict its profitability and the
 //     e-graph its simplification;
