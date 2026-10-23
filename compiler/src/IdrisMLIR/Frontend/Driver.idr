@@ -322,7 +322,7 @@ unnamed : {auto c : Ref Ctxt Defs} -> (out : String) -> Error -> Core ()
 unnamed out err = do
   let rule : SomeRule = Refusal Elaboration
       message = show err
-  refusals <- case getErrorLoc err >>= isNonEmptyFC of
+  refusals <- case the (Maybe NonEmptyFC) (getErrorLoc err >>= isNonEmptyFC) of
     Just site => do
       lacked <- building
       moduleRefusals lacked SortedMap.empty ((rule, site, message) ::: [])

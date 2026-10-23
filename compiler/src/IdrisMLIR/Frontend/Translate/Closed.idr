@@ -136,7 +136,7 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| kind holds it, fixed (`FixedDictionary`), with the parameter it is
   ||| of (`GivenParameter`), built where the parameters are bound
   ||| (`Programs.runtimeParams`). A part a match took out of one is a
-  ||| `Part` in a case tree's scope, and in a term's an implementation
+  ||| `OpenedPart` in a case tree's scope, and in a term's an implementation
   ||| known as a term (`BoundHere`), which a term only uses.
   Static : FixedDictionary -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
   ||| A part a compile-time match took out of an implementation the
@@ -145,7 +145,7 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| (`Opened`), the innermost first, so that a part no reduction reaches
   ||| is put back into the implementation with nothing reduced again
   ||| (`Cases.heldHere`). Only a case tree takes an implementation apart.
-  Part : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> VarInfo kc OfTree a
+  OpenedPart : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> VarInfo kc OfTree a
   ||| An implementation a term's scope knows as a term: one a `let` binds or
   ||| a lambda applied there takes, or a part a compile-time match took out
   ||| of a given one (`asTermEntry`), which a term only uses. No case tree's
@@ -158,7 +158,7 @@ Functor (VarInfo kc sp) where
   map f (Shaped x t i sh) = Shaped (f x) t i sh
   map f (TypeValue t) = TypeValue t
   map f (Static t h p) = Static t (map (\(x, hs) => (f x, hs)) h) (map f p)
-  map f (Part t h p o) = Part t (map (\(x, hs) => (f x, hs)) h) (map f p) o
+  map f (OpenedPart t h p o) = OpenedPart t (map (\(x, hs) => (f x, hs)) h) (map f p) o
   map f (BoundHere t h) = BoundHere t (map (\(x, hs) => (f x, hs)) h)
 
 -- An entry's implementation and a term's (`implementationOf` below) are
@@ -170,7 +170,7 @@ namespace VarInfo
   export
   implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
   implementationOf (Static d h _) = Just (d.form, h)
-  implementationOf (Part t h _ _) = Just (t, h)
+  implementationOf (OpenedPart t h _ _) = Just (t, h)
   implementationOf (BoundHere t h) = Just (t, h)
   implementationOf _ = Nothing
 
@@ -183,7 +183,7 @@ asTermEntry (Runtime x t) = Runtime x t
 asTermEntry (Shaped x t i sh) = Shaped x t i sh
 asTermEntry (TypeValue t) = TypeValue t
 asTermEntry (Static d h p) = Static d h p
-asTermEntry (Part t h _ _) = BoundHere t h
+asTermEntry (OpenedPart t h _ _) = BoundHere t h
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
@@ -374,7 +374,7 @@ closeWritten fc env tm = closeOver fc (map value env) tm
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static d _ _) = d.form
-    value (Part t _ _ _) = t
+    value (OpenedPart t _ _ _) = t
     value (BoundHere t _) = t
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
@@ -1809,7 +1809,7 @@ closeNormalise fc env tm = do
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static d _ _) = d.form
-    value (Part t _ _ _) = t
+    value (OpenedPart t _ _ _) = t
     value (BoundHere t _) = t
     value (Shaped _ _ _ s) = s
     value (Runtime {}) = runtimeVariable

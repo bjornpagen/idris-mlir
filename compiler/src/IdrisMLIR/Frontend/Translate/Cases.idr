@@ -519,7 +519,7 @@ mutual
       -- A match on an implementation selects its alternative now: a
       -- parameter's whole, or a part an earlier match took out of one.
       Static d hole given => staticCase ctx env cls scrutinee hole given (WholeParameter d.reducesTo) alts
-      Part t hole given opened => staticCase ctx env cls scrutinee hole given (TakenOut t opened) alts
+      OpenedPart t hole given opened => staticCase ctx env cls scrutinee hole given (TakenOut t opened) alts
       v@(Runtime i t) => case coreOf t of
         Just WorldT => world alts
         _ => runtime loc v i
@@ -824,7 +824,7 @@ mutual
       -- part taken out of the implementation, with the constructor it was
       -- found built with (`o`) inside those the matches before found.
       info : Opened -> ArgumentAt -> ClosedTerm -> VarInfo kc OfTree (Fin nv)
-      info o (RuntimeValue _) v = Part v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken)
+      info o (RuntimeValue _) v = OpenedPart v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken)
       info _ _ v = TypeValue v
 
       -- Each argument of the constructor `cn`, applied to `cargs`, as many
