@@ -15,6 +15,7 @@ import Idris.Syntax
 import Idris.Pretty
 
 import Data.Either
+import Data.List1
 import Data.String
 
 import System.Directory
@@ -252,46 +253,52 @@ buildMods fc num len (m :: ms)
            [] => buildMods fc (1 + num) len ms
            errs => pure errs
 
+||| A main file built: the errors Idris reported, at least one, or the main
+||| module as the session reloaded it once every module was built, its
+||| checked file read under the module its path names, which the locations
+||| of its terms name.
+public export
+data Built = NotBuilt (List1 Error) | Reloaded Loaded
+
 export
 buildDeps : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto o : Ref ROpts REPLOpts} ->
-            (mainFile : String) ->
-            Core (List Error)
-buildDeps fname
+            (mainModule : ModuleIdent) -> (mainFile : String) ->
+            Core Built
+buildDeps mainModule fname
     = do mods <- getBuildMods EmptyFC [] fname
          log "import" 20 $ "Needs to rebuild: " ++ show mods
          ok <- buildMods EmptyFC 1 (length mods) mods
          case ok of
               [] => do -- On success, reload the main ttc in a clean context
                        clearCtxt; addPrimitives
-                       modIdent <- ctxtPathToNS fname
-                       put MD (initMetadata (PhysicalIdrSrc modIdent))
-                       mainttc <- getTTCFileName fname "ttc"
+                       put MD (initMetadata (PhysicalIdrSrc mainModule))
+                       mainttc <- moduleFileName mainModule "ttc"
                        log "import" 10 $ "Reloading " ++ show mainttc ++ " from " ++ fname
-                       readAsMain mainttc
-                       pure []
-              errs => pure errs -- Error happened, give up
+                       Reloaded <$> readAsMain mainModule mainttc
+              (e :: es) => pure (NotBuilt (e ::: es)) -- Error happened, give up
 
 ||| The main file and every module it imports, built in a session of their
 ||| own: a unification state, delayed elaborators and metadata made here,
 ||| and the context reset to the main module's origin, before `buildDeps`.
 ||| A driver that only builds a program never holds the session's state.
+||| The main module, named once from its path here, is the one reloaded.
 export
 buildMain : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto o : Ref ROpts REPLOpts} ->
             (mainFile : String) ->
-            Core (List Error)
+            Core Built
 buildMain mainFile
     = do mainModule <- ctxtPathToNS mainFile
          u <- newRef UST initUState
          dl <- newRef DLY (the DelayedElabs [])
          m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
          resetContext (PhysicalIdrSrc mainModule)
-         buildDeps mainFile
+         buildDeps mainModule mainFile
 
 getAllBuildMods : {auto c : Ref Ctxt Defs} ->
                   {auto o : Ref ROpts REPLOpts} ->

@@ -30,6 +30,7 @@ import Idris.Syntax.TTC
 import Idris.Pretty
 import Idris.Doc.String
 
+import Data.List
 import Data.SortedMap
 import Data.String
 
@@ -75,6 +76,11 @@ processDecls decls
              | Just err => pure (if null errs then [err] else errs)
          pure errs
 
+-- Reads a module and what it imports, and gives the module as the session
+-- read it, now or before, in the same way: an import of it is resolved
+-- here, once, and its reader is handed the module rather than its name.
+-- Each import of the module read in turn is recorded with the module it
+-- was read as (`addImportRead`).
 readModule : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              {auto s : Ref Syn SyntaxInfo} ->
@@ -83,17 +89,19 @@ readModule : {auto c : Ref Ctxt Defs} ->
              (visible : Bool) -> -- Is import visible to top level module?
              (imp : ModuleIdent) -> -- Module name to import
              (as : Namespace) -> -- Namespace to import into
-             Core ()
+             Core Loaded
 readModule full loc vis imp as
     = do defs <- get Ctxt
-         let False = any (\l => l.ident == imp && l.reexported == vis && l.readAs == as)
-                         (allImported defs)
-             | True => when vis (setVisible (miAsNamespace imp))
+         let Nothing = find (\l => l.ident == imp && l.reexported == vis && l.readAs == as)
+                            (allImported defs)
+             | Just before => do when vis (setVisible (miAsNamespace imp))
+                                 pure before
          Right checked <- nsToPath loc imp
                | Left err => throw err
-         Just (syn, hash, more) <- readFromTTC False {extra = SyntaxInfo}
-                                                  loc vis checked.path checked.foundIn imp as
-              | Nothing => when vis (setVisible (miAsNamespace imp)) -- already loaded, just set visibility
+         let loading = MkLoaded checked.path checked.foundIn imp vis as
+         Just (syn, hash, more) <- readFromTTC False {extra = SyntaxInfo} loc loading
+              | Nothing => do when vis (setVisible (miAsNamespace imp)) -- already loaded, just set visibility
+                              pure loading
          extendSyn syn
 
          defs <- get Ctxt
@@ -101,16 +109,18 @@ readModule full loc vis imp as
          when vis $ setVisible (miAsNamespace imp)
          traverse_ (\ mimp =>
                        if reexport mimp || full
-                          then readModule full loc (reexport mimp) (path mimp) (nameAs mimp)
+                          then do importee <- readModule full loc (reexport mimp) (path mimp) (nameAs mimp)
+                                  addImportRead (MkImportRead loading mimp importee)
                           else addUnimported (path mimp)) more
          setNS modNS
+         pure loading
 
 readImport : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              {auto s : Ref Syn SyntaxInfo} ->
              Bool -> Import -> Core ()
 readImport full imp
-    = do readModule full (loc imp) True (path imp) (nameAs imp)
+    = do ignore $ readModule full (loc imp) True (path imp) (nameAs imp)
          addImported imp
 
 ||| Adds new import to the namespace without changing the current top-level namespace
@@ -145,15 +155,20 @@ readPrelude full
     = do readImport full prelude
          setNS mainNS
 
--- Import a TTC for use as the main file (e.g. at the REPL)
+-- Import a TTC for use as the main file (e.g. at the REPL), and give the
+-- module as the session read it. It is read under the module its path
+-- names (`mainIdent`), which the locations of its terms name, as every
+-- module the session reads is under the module its locations name; read
+-- as its own namespace, its definitions are added under no alias, as when
+-- it was read under no name.
 export
 readAsMain : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              {auto s : Ref Syn SyntaxInfo} ->
-             (fname : String) -> Core ()
-readAsMain fname
-    = do Just (syn, _, more) <- readFromTTC {extra = SyntaxInfo}
-                                             True EmptyFC True fname InBuild (nsAsModuleIdent emptyNS) emptyNS
+             (mainIdent : ModuleIdent) -> (fname : String) -> Core Loaded
+readAsMain mainIdent fname
+    = do let loading = MkLoaded fname InBuild mainIdent True (miAsNamespace mainIdent)
+         Just (syn, _, more) <- readFromTTC {extra = SyntaxInfo} True EmptyFC loading
               | Nothing => throw (InternalError "Already loaded")
 
          replNS <- getNS
@@ -164,13 +179,16 @@ readAsMain fname
          -- to their names (and any of their public imports)
          ustm <- get UST
          traverse_ (\ mimp =>
-                       do readModule True emptyFC True (path mimp) (nameAs mimp)
+                       do importee <- readModule True emptyFC True (path mimp) (nameAs mimp)
+                          addImportRead (MkImportRead loading mimp importee)
                           addImported ({ reexport := True } mimp)) more
 
          -- also load the prelude, if required, so that we have access to it
-         -- at the REPL.
+         -- at the REPL. Read for the session, it records no import: an
+         -- import of the prelude the main module's TTC holds is among those
+         -- above.
          when (not (noprelude !getSession)) $
-              readModule True emptyFC True (nsAsModuleIdent preludeNS) preludeNS
+              ignore $ readModule True emptyFC True (nsAsModuleIdent preludeNS) preludeNS
 
          -- We're in the namespace from the first TTC, so use the next name
          -- from that for the fresh metavariable name generation
@@ -180,6 +198,7 @@ readAsMain fname
 
          setNS replNS
          setNestedNS replNestedNS
+         pure loading
 
 addPrelude : List Import -> List Import
 addPrelude imps

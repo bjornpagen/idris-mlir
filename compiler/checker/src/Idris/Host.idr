@@ -42,8 +42,10 @@
 ||| definition it names (`definedFullName`). Beside them stand facts of the
 ||| context: that it makes one entry for each full name and records no
 ||| resolved name as one, so that two resolved names name one entry exactly
-||| when their full names agree (`fullNameSameEntry`), and that none of its
-||| definitions names one of the frontend's probes (`probesFresh`); and that
+||| when their full names agree (`fullNameSameEntry`), that its entries are
+||| at non-negative indices, so that every name it defines has a place
+||| (`definedPlaced`), and that none of its definitions names one of the
+||| frontend's probes (`probesFresh`); and that
 ||| what the evaluator's table of primitives computes stays within a bound
 ||| that grows with its arguments' sizes (`computedWithin`). What the hosts
 ||| that run this compiler give their primitives is trusted in
@@ -95,9 +97,10 @@ import Libraries.Data.WithDefault
 -- evaluator, which runs in `Core`, to what the normalisers give (`reduct`)
 -- and to a term's reducts and its normal form (`reachesNormalForm`); of
 -- the context, which `Core` actions build, to the full names its entries
--- hold (`oneEntryPerName`, `fullNameUnresolved`) and to the names its
--- definitions hold (`probesFresh`); and to what the table of primitives
--- computes (`computedWithin`).
+-- hold (`oneEntryPerName`, `fullNameUnresolved`), to the indices they are
+-- at (`entryPlaced`) and to the names its definitions hold
+-- (`probesFresh`); and to what the table of primitives computes
+-- (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -158,6 +161,12 @@ resolvesOnce (ResolvedAs found) (ResolvedAs found') = justSame (trans (sym found
 export
 0 resolvedItself : Resolves ctx (Resolved i) i
 resolvedItself = ResolvedAs Refl
+
+||| A name resolving to an entry is Idris's lookup turning it into that
+||| entry: what a reader that keys by the lookup's entry reads.
+export
+0 resolvesAs : Resolves ctx n i -> getNameID n (gamma (defsOf ctx)) = Just i
+resolvesAs (ResolvedAs found) = found
 
 ||| The entry a name resolves to, or the evidence that it resolves to none.
 public export
@@ -3350,6 +3359,22 @@ oneEntryPerName _ _ _ = trusted
                        IntMap.lookup i (entriesOf ctx) = Just d -> Not (fullname d = Resolved k)
 fullNameUnresolved _ _ = trusted
 
+-- The frozen map holds the entries `frozenContext` reads, from index 0 up
+-- to the context's next one (`entriesFrom`), each at the index it was read
+-- at, so none is at a negative index. That is a fact of that `Core` loop
+-- over `Int`, and `Libraries.Data.IntMap` states nothing of a lookup after
+-- an insert, so it is trusted.
+0 entryPlaced : {0 ctx : Frozen} -> {0 i : Int} ->
+                IntMap.lookup i (entriesOf ctx) = Just d -> (i < 0) = False
+entryPlaced _ = trusted
+
+||| A name a frozen context defines resolves to an entry at a non-negative
+||| index, which is what a reader keying definitions by their entry's place
+||| needs: every definition has one.
+export
+0 definedPlaced : Defines ctx n d -> (i : Int ** (getNameID n (gamma (defsOf ctx)) = Just i, (i < 0) = False))
+definedPlaced (AtEntry {i} (ResolvedAs found) held) = (i ** (found, entryPlaced {ctx} {i} held))
+
 0 resolvedInjective : Resolved i = Resolved j -> i = j
 resolvedInjective Refl = Refl
 
@@ -3468,9 +3493,10 @@ record Host where
   -- The driver.
 
   ||| `Idris.ModTree.buildMain`: the elaborator, on a main file and what it
-  ||| imports, from a fresh context and fresh elaboration states.
+  ||| imports, from a fresh context and fresh elaboration states; the
+  ||| errors it reports, or the main module as it reloads it.
   buildMain : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
-              {auto o : Ref ROpts REPLOpts} -> String -> Core (List Error)
+              {auto o : Ref ROpts REPLOpts} -> String -> Core Built
   ||| `Idris.Package.processPackageOpts`: the elaborator, on a package.
   processPackageOpts : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
                        {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->

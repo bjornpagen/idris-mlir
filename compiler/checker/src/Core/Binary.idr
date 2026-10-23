@@ -530,26 +530,26 @@ updateFExports ((n, conv) :: ns)
 -- hash and the list of additional TTCs that need importing
 -- (we need to return these, rather than do it here, because after loading
 -- the data that's when we process the extra data...)
+-- The module is given as the session records it once read (`Loaded`): its
+-- file and where the search found it, the module, whether it is imported
+-- as public and the namespace it is imported as. The caller made that
+-- record from what it resolved, and holds the one recorded.
 export
 readFromTTC : TTC extra =>
               {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
               Bool -> -- set nested namespaces (for records, to use at the REPL)
               FC ->
-              Bool -> -- importing as public
-              (fname : String) -> -- file containing the module
-              (foundIn : Found) -> -- where the search found it
-              (modNS : ModuleIdent) -> -- module namespace
-              (importAs : Namespace) -> -- namespace to import as
+              Loaded ->
               Core (Maybe (extra, Int, List Import))
-readFromTTC nestedns loc reexp fname foundIn modNS importAs
+readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
     = do defs <- get Ctxt
          -- If it's already in the context, with the same visibility flag,
          -- don't load it again (we do need to load it again if it's visible
          -- this time, because we need to reexport the dependencies.)
          let False = any (sameRead modNS reexp importAs) (allImported defs)
               | True => pure Nothing
-         put Ctxt ({ allImported $= (MkLoaded fname foundIn modNS reexp importAs ::) } defs)
+         put Ctxt ({ allImported $= (loading ::) } defs)
 
          Right buffer <- coreLift $ readFromFile fname
                | Left err => throw (InternalError (fname ++ ": " ++ show err))

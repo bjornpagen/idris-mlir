@@ -1276,8 +1276,9 @@ record Unimported where
 %prefix_record_projections off
 
 ||| A TTC the session read: its file and where the search found it, the
-||| module it holds, whether it was read re-exported, and the namespace it
-||| was read as.
+||| module it holds, named as the locations of its terms name it (the main
+||| module too, under the module its path names), whether it was read
+||| re-exported, and the namespace it was read as.
 public export
 record Loaded where
   constructor MkLoaded
@@ -1299,6 +1300,21 @@ record Import where
   reexport : Bool
   path : ModuleIdent
   nameAs : Namespace
+
+%prefix_record_projections off
+
+||| An import the session read: the module whose TTC writes it, the import
+||| as written there, and the module read for it. The loader makes one
+||| where it resolves the import, so a reader of what a module imports
+||| reads which module each import is, never resolving its name again.
+public export
+record ImportRead where
+  constructor MkImportRead
+  importer : Loaded
+  written : Import
+  importee : Loaded
+
+%prefix_record_projections on
 
 public export
 record Defs where
@@ -1344,6 +1360,9 @@ record Defs where
   allImported : List Loaded
      -- ^ every TTC the session read, so that none is read twice (a record
      -- of all the things we've called 'readFromTTC' with, in practice)
+  importsRead : List ImportRead
+     -- ^ every import of a TTC the session read that it read in turn, the
+     -- last first, each with the module it was read as
   cgdirectives : List (CG, String)
      -- ^ Code generator directives, which are free form text and thus to
      -- be interpreted however the specific code generator requires
@@ -1399,6 +1418,7 @@ initDefsWith ids
            , imported = []
            , pragmaUses = []
            , allImported = []
+           , importsRead = []
            , cgdirectives = []
            , userHoles = empty
            , timings = empty
@@ -2313,6 +2333,13 @@ export
 addImported : {auto c : Ref Ctxt Defs} ->
               Import -> Core ()
 addImported imp = update Ctxt { imported $= (imp ::) }
+
+||| An import of a TTC the session read, with the module read for it,
+||| recorded where the loader resolves it.
+export
+addImportRead : {auto c : Ref Ctxt Defs} ->
+                ImportRead -> Core ()
+addImportRead r = update Ctxt { importsRead $= (r ::) }
 
 ||| The pragmas this module writes, as its parse kept them.
 export
