@@ -51,6 +51,7 @@
   "compiler/spec/IdrisMLIR/Spec/Pipeline/",
   "compiler/spec/IdrisMLIR/Spec.idr",
   "compiler/spec/spec.ipkg",
+  "compiler/spec/specgen.ipkg",
   "foreign/idr/tools/idris-mlir-tblgen.cpp",
   "foreign/idr/include/idr/IR/IdrArrayOps.td",
   "foreign/idr/include/idr/IR/IdrAttrs.td",
@@ -347,6 +348,7 @@
  ],
  "L18": [
   "foreign/idr/lib/IR/OpsClosures.cpp",
+  "foreign/idr/include/idr/IR/Closures.h",
   "foreign/idr/lib/Transforms/Defunctionalize/",
   "foreign/idr/lib/Transforms/Deduplicate/",
   "foreign/idr/lib/Transforms/Inline/",
