@@ -2531,6 +2531,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   non-tail call keeps D58's in-place result" holds wherever the closed
   copy can be made. An internal error there would refuse a valid
   program, which acceptance as a property of the program rules out.
+  *Sharpened* (2026-10-23, L04x's evidence; under D130): a function
+  closed by its own type (declared `Vect 3`), which no copy can decline,
+  meets the same tail: its result is marked open (D130), so the tail call
+  agrees and its non-tail callers convert after their call, as a declined
+  copy's do. One rule for both: where a caller's closed result cannot
+  agree with its tail callee's, the caller's result is marked open. It is
+  decided once per function, beside the optimizer's schedule of
+  per-function facts, not per request.
 - **C268** (2026-10-23; L16ef's handoff, under C262 and D30; amends
   C262's second sharpening; for the owner's review). `idr.array.tie_shape`
   names the axes it ties, and its sizes cover those alone: a tie states
@@ -2555,6 +2563,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   established. Declared in the specification (the op's region argument
   and its type compatibility); a cast by `lin.cast`, which declares no
   consumption, is rejected.
+- **C270** (2026-10-23; L07y's evidence, under C87 and C88). C87 holds
+  for `count.drop` as for `count.dup`: a drop takes only a value used
+  many, by its declaration. A once owner is consumed by `count.take`,
+  which moves its cell into a token and its fields out, never by field
+  reads and a drop; placement takes it where it would have dropped it.
+  The ops that end an owner (drop, take, take_into, match_unique,
+  unpack) carry one trait in the specification, which linearity reads to
+  count such a use as the cell's alone.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
