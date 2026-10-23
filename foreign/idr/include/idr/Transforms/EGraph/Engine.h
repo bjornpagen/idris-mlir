@@ -85,7 +85,17 @@
 // written back where they are demanded, a value placed in the scope that
 // demands it unless an enclosing scope already holds it, a constant made
 // its attribute there, the one place the graph makes one, the skeleton's
-// edits carried out; then the input's floating ops, unused, are erased.
+// edits carried out; then the input's floating ops, unused, are erased. A
+// string or a big the graph computed whose constant op does not stand at
+// its class's type, a hold that counts, is static data at each use that
+// takes it so, an operand the op's runtime function borrows or a field of
+// a constructor, made there at its class's type with its hold made static;
+// every other use (a call, a return, a yield, an op whose result carries
+// it on) takes the op that computes it, applied. The class each skeleton
+// op's operand names is read off the input before any edit replaces a
+// value, and a value an edit replaces (a forwarded result, a taken region's
+// argument or result) becomes the class of the value it is given, which
+// later uses demand as they take it.
 //
 // Every id is minted by the table that holds it and never leaves the
 // function; no map holds per-node state by an IR handle but the value
@@ -116,6 +126,7 @@
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -180,6 +191,12 @@ std::uint64_t bytesOf(const Constant &constant);
 // Whether its constant op stands at `type`: a Double's, arith.constant, at
 // f64; a string's or a big's, idr.constant, where static data does.
 bool placedAt(const Constant &constant, mlir::Type type);
+// The type at which static data stands for a value of `type` that the graph
+// knows to be `constant`, a string or a big: `type` with its hold made
+// static, where the grade order lets static data stand where `type` is
+// asked (a hold that claims nothing) and idr.constant stands there; none
+// for a Double, which holds no reference, and for any other type.
+std::optional<mlir::Type> staticFormOf(const Constant &constant, mlir::Type type);
 
 struct Class;
 struct Facts;
@@ -197,6 +214,37 @@ using MeaningOfBuilt = std::optional<Facts> (*)(mlir::Type type,
 struct Meaning {
   MeaningOfInput ofInput;
   std::optional<MeaningOfBuilt> ofBuilt;
+};
+
+// The operands an op's runtime function takes as a string or a big, by
+// position: references the function borrows, neither keeping nor releasing
+// them, so what holds them is the caller's affair, as the op's constraint
+// on each says (read in place, at any hold). Read off the op's generated
+// ABI row, which has one kind per operand.
+class Borrowed {
+public:
+  // The most operands a row's positions are kept for.
+  static constexpr unsigned most = 32;
+
+  constexpr Borrowed() = default;
+  constexpr Borrowed with(unsigned position) const {
+    assert(position < most && "a row's operands fit its positions");
+    Borrowed out = *this;
+    out.bits |= std::uint32_t{1} << position;
+    return out;
+  }
+  constexpr Borrowed operator|(Borrowed other) const {
+    Borrowed out = *this;
+    out.bits |= other.bits;
+    return out;
+  }
+  constexpr bool has(unsigned position) const {
+    return position < most && ((bits >> position) & 1u) != 0;
+  }
+  constexpr bool empty() const { return bits == 0; }
+
+private:
+  std::uint32_t bits = 0;
 };
 
 // What a node is.
@@ -355,19 +403,21 @@ struct Region {
 // open op set forces to be read at run time.
 struct Kinds {
   // What the graph reads of an op of one class: the kind a pattern names it
-  // by, and its meaning.
+  // by, its meaning, and the operands its runtime function borrows.
   struct OfOp {
     std::optional<std::uint16_t> kind;
     std::optional<Meaning> meaning;
+    Borrowed borrowed;
   };
-  // By the op's TypeID, sorted, for the one lookup an Operation * needs.
+  // By the op's TypeID, sorted, for the one lookup an op's class needs.
   std::vector<std::pair<mlir::TypeID, OfOp>> byTypeId;
   // By kind: a node a rule built names its op by its kind, and is computed
   // by its kind's meaning of a built node.
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
   std::vector<std::optional<MeaningOfBuilt>> built;
 
-  OfOp of(mlir::Operation *op) const;
+  OfOp of(mlir::TypeID id) const;
+  OfOp of(mlir::Operation *op) const { return of(op->getName().getTypeID()); }
 };
 
 // Every op's meaning the graph computes, by its TypeID (Values.cpp): each
@@ -376,6 +426,10 @@ struct Kinds {
 // generated ComputedOnDoubles), by the APFloat operation its own fold
 // applies.
 std::vector<std::pair<mlir::TypeID, Meaning>> meanings();
+
+// Every op whose runtime function borrows a string or a big, by its TypeID
+// (Values.cpp), read off its generated ABI row.
+std::vector<std::pair<mlir::TypeID, Borrowed>> borrowings();
 
 // What a constant an op of the input holds says of its value, read once
 // from its attribute into the graph's own: an integer's interval, a
@@ -392,13 +446,13 @@ Facts factsOf(const Constant &constant);
 mlir::Value materialized(mlir::Dialect &dialect, mlir::RewriterBase &rewriter, mlir::Location loc,
                          mlir::Type type, mlir::Attribute value);
 
-// A constant the graph knows, made where it is placed: its attribute, the
-// one the graph makes, held by arith's constant or by `constants`', the
-// dialect whose constant op holds a string's and a big's.
+// A constant the graph knows, made where it is placed at `type`: its
+// attribute, the one the graph makes, held by arith's constant or by
+// `constants`', the dialect whose constant op holds a string's and a big's.
 mlir::Value writeBack(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Type type,
                       const node::Integer &integer, mlir::Dialect &constants);
 mlir::Value writeBack(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Type type,
-                      const node::Known &known, mlir::Dialect &constants);
+                      const Constant &constant, mlir::Dialect &constants);
 
 // A rule's variables as a match binds them, each to a class.
 struct Bindings {

@@ -105,7 +105,7 @@ void listKinds(table::OpList<Ops...>, MLIRContext *context,
   std::uint16_t kind = 0;
   (
       [&] {
-        byTypeId.emplace_back(TypeID::get<Ops>(), Kinds::OfOp{kind, std::nullopt});
+        byTypeId.emplace_back(TypeID::get<Ops>(), Kinds::OfOp{kind, std::nullopt, Borrowed()});
         names.push_back(RegisteredOperationName::lookup(TypeID::get<Ops>(), context));
         ++kind;
       }(),
@@ -143,8 +143,7 @@ bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaqu
 
 } // namespace
 
-Kinds::OfOp Kinds::of(Operation *op) const {
-  TypeID id = op->getName().getTypeID();
+Kinds::OfOp Kinds::of(TypeID id) const {
   auto it = llvm::lower_bound(
       byTypeId, id, [](const auto &entry, TypeID key) { return beforeId(entry.first, key); });
   if (it == byTypeId.end() || it->first != id)
@@ -152,15 +151,18 @@ Kinds::OfOp Kinds::of(Operation *op) const {
   return it->second;
 }
 
-// Each kind and each meaning by its op's TypeID, one entry an op, sorted
-// for the one lookup an op of the input needs; and each kind's meaning of a
-// built node by its number, which a node a rule built reads.
+// Each kind, each meaning and each op's borrowed operands by its op's
+// TypeID, one entry an op, sorted for the one lookup an op's class needs;
+// and each kind's meaning of a built node by its number, which a node a
+// rule built reads.
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
   std::vector<std::pair<TypeID, Kinds::OfOp>> entries;
   listKinds(generated::Kinds{}, context, entries, out.names);
   for (auto [id, meaning] : meanings())
-    entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning});
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning, Borrowed()});
+  for (auto [id, borrowed] : borrowings())
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, std::nullopt, borrowed});
   llvm::sort(entries, [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
   for (const auto &[id, of] : entries) {
     if (out.byTypeId.empty() || out.byTypeId.back().first != id) {
@@ -172,6 +174,7 @@ Kinds makeKinds(MLIRContext *context) {
       into.kind = of.kind;
     if (of.meaning)
       into.meaning = of.meaning;
+    into.borrowed = into.borrowed | of.borrowed;
   }
   out.built.assign(out.names.size(), std::nullopt);
   for (const auto &[id, of] : out.byTypeId)

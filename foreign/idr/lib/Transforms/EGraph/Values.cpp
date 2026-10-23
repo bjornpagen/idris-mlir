@@ -120,6 +120,25 @@ bool placedAt(const Constant &constant, Type type) {
       });
 }
 
+// Static data stands where a hold that claims nothing is asked, whoever
+// frees it (Hold::fits, the grade order), so a use that took a value of
+// `type` by that order takes the static data too; the type it stands at is
+// one where idr.constant stands, fold::constantStandsAt says. A value used
+// once has no static form: static data is used any number of times.
+std::optional<Type> staticFormOf(const Constant &constant, Type type) {
+  return match(
+      constant, [](const Real &) -> std::optional<Type> { return std::nullopt; },
+      [&](const OneOf<Text, Big> auto &) -> std::optional<Type> {
+        std::optional<Hold> hold = holdOf(type);
+        if (!hold || !Hold::staticData().fits(*hold))
+          return std::nullopt;
+        Type held = atHold(type, Hold::staticData());
+        if (!fold::constantStandsAt(held, fold::Storage::Cell))
+          return std::nullopt;
+        return held;
+      });
+}
+
 namespace {
 
 // A big as the graph knows it: in the small range, the one value of its
@@ -414,6 +433,43 @@ void doubleMeaningsOf(table::OpList<Ops...>, std::vector<std::pair<TypeID, Meani
   (out.emplace_back(TypeID::get<Ops>(), Meaning{&onDoubles<Ops>, std::nullopt}), ...);
 }
 
+//===----------------------------------------------------------------------===//
+// What a runtime function borrows
+//===----------------------------------------------------------------------===//
+
+// An op the lowering calls its runtime function for, by its generated row.
+template <class Op>
+concept HasRuntimeRow = requires { runtime::Abi<Op>::operands; };
+
+// The positions at which `Op`'s function takes a string or a big. Every
+// primitive borrows its arguments, as the runtime's ABI states, so a
+// reference it takes is held by whatever holds it at the call. The row has
+// one kind per operand, and the positions of every row fit.
+template <class Op>
+consteval Borrowed borrowedBy() {
+  using Row = runtime::Abi<Op>;
+  static_assert(std::size(Row::operands) <= Borrowed::most, "a row's operands fit its positions");
+  Borrowed out;
+  for (unsigned at = 0; at < std::size(Row::operands); ++at)
+    if (Row::operands[at] == runtime::OperandKind::Str ||
+        Row::operands[at] == runtime::OperandKind::Big)
+      out = out.with(at);
+  return out;
+}
+
+template <class... Ops>
+void borrowingsOf(std::vector<std::pair<TypeID, Borrowed>> &out) {
+  (
+      [&] {
+        if constexpr (HasRuntimeRow<Ops>) {
+          constexpr Borrowed borrowed = borrowedBy<Ops>();
+          if constexpr (!borrowed.empty())
+            out.emplace_back(TypeID::get<Ops>(), borrowed);
+        }
+      }(),
+      ...);
+}
+
 } // namespace
 
 // A dialect materializes what it folds to (MLIR's folding contract), and the
@@ -435,6 +491,15 @@ std::vector<std::pair<TypeID, Meaning>> meanings() {
 #include "idr/IR/IdrOps.cpp.inc"
       >(out);
   doubleMeaningsOf(generated::ComputedOnDoubles{}, out);
+  return out;
+}
+
+std::vector<std::pair<TypeID, Borrowed>> borrowings() {
+  std::vector<std::pair<TypeID, Borrowed>> out;
+  borrowingsOf<
+#define GET_OP_LIST
+#include "idr/IR/IdrOps.cpp.inc"
+      >(out);
   return out;
 }
 
@@ -484,12 +549,14 @@ Value writeBack(RewriterBase &rewriter, Location loc, Type type, const node::Int
 }
 
 // A Double is arith's constant of its bits; a string's and a big's
-// attributes are the ones the runtime's results make in the one fold.
-Value writeBack(RewriterBase &rewriter, Location loc, Type type, const node::Known &known,
+// attributes are the ones the runtime's results make in the one fold, at
+// the type they are placed at: their class's, or the static form a use
+// takes them at.
+Value writeBack(RewriterBase &rewriter, Location loc, Type type, const Constant &constant,
                 Dialect &constants) {
   MLIRContext *context = rewriter.getContext();
   return match(
-      known.value,
+      constant,
       [&](const Real &real) -> Value {
         APFloat bits(APFloat::IEEEdouble(), APInt(64, real.bits));
         TypedAttr value = FloatAttr::get(type, bits);
