@@ -2336,6 +2336,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   "static where that term is a literal" holds for inputs only, amended
   here. And `idr.array.tie_shape`, which carries a tail freely, keeps its
   operand's type by its definition.
+  *Sharpened* (L13y's evidence, 2026-10-23): `tie_shape`'s result type is
+  inferred, and its inference refuses operands whose `?` axes its sizes do
+  not number, so where a specialized copy makes a tie's input static the
+  re-inference fails at that op and the substitution's refusal path keeps
+  the tie's old type with a cast back (C239's amendment), rather than a
+  tie whose sizes no longer match its type; the size count is the
+  inference's, with no second verifier. Every C++ place that makes a
+  function's signature (the specializer's consumers and requests among
+  them) gives dynamic result axes and casts before the return.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
