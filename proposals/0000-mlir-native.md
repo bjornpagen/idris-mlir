@@ -1952,6 +1952,21 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   kept in the function's extents beside an opaque type (C262's form,
   which arrays keep only because the tensor type is upstream's), and a
   stated trust in the redirected reindex.
+- **D131** (2026-10-23; the owner; L18y's evidence on `tests/vect`, the
+  converse of D129). "A": the index language gains addition. A term of
+  sort `Nat` may be a sum of levels plus a count, in normal form (each
+  level once with its multiplicity, then the count; `n + 0` is `n`, a
+  level plus a count stays the successor form it is), read off base's
+  `plus` on `Nat` by identity, as `IO` is recognised. So a copy D58 keys
+  at closed inputs has a closed result where its type sums them
+  (`reverseOnto` at 0 and 3 returns `Vect 3`), its tail calls key copies
+  that return the same closed layout, and the copies end by construction;
+  vect's tail call is made with no mechanism of its own, and every length
+  computed from known lengths is known (append, concat, reverse). A match
+  on a sum learns nothing of its parts, which is sound. Rejected: keying a
+  callee to its caller's closed layout with nothing proving the sum (B),
+  and opening every such caller (C). What a sum cannot express stays
+  `opaque`: C267.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -2495,6 +2510,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   shape; each is an internal error naming its op, never a count change
   D124 rules out. An op of ours adopts an alias when its flow edges move,
   release or pass it by value, whatever its uses count.
+- **C267** (2026-10-23; under D131, D129 and AGENTS.md's acceptance
+  rule; for the owner's review). Where a caller compiled at a closed
+  layout tail-calls a callee whose result index the language still
+  cannot express (`Vect (n * m)`, `Vect (length xs)`), the specializer
+  does not make that closed copy: its non-tail callers take the open
+  result and convert it after their call, so the program is less
+  optimized, never refused, and its tail call is kept. D129's "every
+  non-tail call keeps D58's in-place result" holds wherever the closed
+  copy can be made. An internal error there would refuse a valid
+  program, which acceptance as a property of the program rules out.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
