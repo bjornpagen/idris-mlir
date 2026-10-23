@@ -43,6 +43,7 @@ import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 
 import Control.WellFounded
 import Data.DPair
@@ -640,7 +641,7 @@ shownBinders _ = Z
 ||| lowers its calls, or where its calls are no function's (a constructor's,
 ||| a type's, a builtin's), which no hook lowers. A `%foreign` definition
 ||| the registry gives no hooks is refused where it is called.
-loweredOf : Unfrozen -> ClosedTerm -> Either String (Maybe (Lowered LibraryFunction))
+loweredOf : Unfrozen -> ClosedTerm -> Either String (Maybe (Lowered (const LibraryFunction)))
 loweredOf u normal = case callHooks u.registered of
   Left _ => Right Nothing
   Right hs => case (u.matched, definition u.def) of
@@ -648,6 +649,171 @@ loweredOf u normal = case callHooks u.registered of
     (Nothing, ForeignDef arity _) => rowOf arity (shownBinders u.type) normal hs
     (Nothing, ExternDef arity) => rowOf arity (shownBinders u.type) normal hs
     _ => Right Nothing
+
+||| A definition read before the freeze, by its name, as `found` holds it:
+||| nothing for a name no read definition has.
+foundAs : {auto c : Ref Ctxt Defs} -> SortedMap Int Unfrozen -> Name -> Core (Maybe Unfrozen)
+foundAs found n = do
+  defs <- get Ctxt
+  pure ((\(i, _) => lookup i found) =<< !(lookupCtxtExactI n (gamma defs)))
+
+||| A library function a row names (a natural's test, its operation on
+||| integers), read against its definition: the parameters its calls are
+||| translated at, its case tree's, and the values among them at run time,
+||| as its type in normal form shows, `count` of them, as many as the row's
+||| lowering gives it (`CheckedLibrary`); else why it is not the function
+||| the row's hook calls.
+checkedLibrary : {auto c : Ref Ctxt Defs} -> Frozen -> SortedMap Int Unfrozen -> (count : Nat) -> LibraryFunction ->
+                 Core (Either String (CheckedLibrary count))
+checkedLibrary fz found count lib = do
+  Just u <- foundAs found lib.name
+    | Nothing => pure (Left notDefinition)
+  let Just m = u.matched
+    | Nothing => pure (Left notDefinition)
+  normal <- (.value) <$> host.normaliseTypes fz u.type
+  pure (checkedAt (length m.args) normal)
+  where
+    notDefinition : String
+    notDefinition = "the registry names the library function " ++ show lib.named ++ ", which is not a definition"
+
+    checkedAt : (params : Nat) -> ClosedTerm -> Either String (CheckedLibrary count)
+    checkedAt params normal = case operandsUpTo params normal of
+      Nothing => Left ("the registry names the library function " ++ show lib.named ++
+                       ", whose calls take arguments its type does not show")
+      Just (k ** ops) => case decEq k count of
+        Yes Refl => Right (MkCheckedLibrary lib ops)
+        No _ => Left ("the registry names the library function " ++ show lib.named ++ ", of " ++ show k ++
+                      " values at run time, where its hook gives it " ++ show count)
+
+||| A row read against its definition's type (`rowOf`), each library
+||| function it calls read against that function's definition
+||| (`checkedLibrary`), so the row carries what each takes.
+checkedRow : {auto c : Ref Ctxt Defs} -> Frozen -> SortedMap Int Unfrozen -> Lowered (const LibraryFunction) ->
+             Core (Either String (Lowered CheckedLibrary))
+checkedRow fz found (MkLowered {count} ops low) = map (MkLowered ops) <$> lowering {k = count} low
+  where
+    lowering : {k : Nat} -> Lowering (const LibraryFunction) k -> Core (Either String (Lowering CheckedLibrary k))
+    lowering (NatPrimitive p) = pure (Right (NatPrimitive p))
+    lowering (NatClamped p) = pure (Right (NatClamped p))
+    lowering (NatTested p lib) = map (NatTested p) <$> checkedLibrary fz found 1 lib
+    lowering {k} (NatOnIntegers lib) = map NatOnIntegers <$> checkedLibrary fz found k lib
+    lowering (Builder p fits) = pure (Right (Builder p fits))
+    lowering (ArrayOperation g) = pure (Right (ArrayOperation g))
+    lowering IdentityOnLast = pure (Right IdentityOnLast)
+    lowering (PureOperation p lits fits) = pure (Right (PureOperation p lits fits))
+    lowering (IOOperation lits a) = pure (Right (IOOperation lits a))
+    lowering (AccessOperation access rank) = pure (Right (AccessOperation access rank))
+    lowering (PrimOperation lits p) = pure (Right (PrimOperation lits p))
+
+mutual
+  ||| The right-hand sides a case tree reaches, each in its own scope.
+  leavesOf : {vs : Scope} -> CaseTree vs -> List (ws : Scope ** Term ws)
+  leavesOf (Case _ _ _ alts) = altLeaves alts
+  leavesOf {vs} (STerm _ tm) = [(vs ** tm)]
+  leavesOf (Unmatched _) = []
+  leavesOf Impossible = []
+
+  altLeaves : {vs : Scope} -> List (CaseAlt vs) -> List (ws : Scope ** Term ws)
+  altLeaves [] = []
+  altLeaves (ConCase _ _ args sc :: rest) = leavesOf sc ++ altLeaves rest
+  altLeaves (DelayCase _ _ sc :: rest) = leavesOf sc ++ altLeaves rest
+  altLeaves (ConstCase _ sc :: rest) = leavesOf sc ++ altLeaves rest
+  altLeaves (DefaultCase sc :: rest) = leavesOf sc ++ altLeaves rest
+
+mutual
+  ||| Every application in a term whose head is a definition given two
+  ||| arguments or more: the head and its first two arguments, in the scope
+  ||| the application is written in, the outermost first.
+  headedApps : {vs : Scope} -> Term vs -> List (ws : Scope ** (Name, Term ws, Term ws))
+  headedApps {vs} tm@(App _ f a) =
+    (case getFnArgs tm of
+       (Ref _ _ n, (x :: y :: _)) => [(vs ** (n, x, y))]
+       _ => []) ++ spineArgs f ++ headedApps a
+  headedApps (Bind _ _ (Let _ _ val _) sc) = headedApps val ++ headedApps sc
+  headedApps (Bind _ _ _ sc) = headedApps sc
+  headedApps (TDelay _ _ _ arg) = headedApps arg
+  headedApps (TForce _ _ arg) = headedApps arg
+  headedApps (As _ _ _ p) = headedApps p
+  headedApps _ = []
+
+  -- The arguments down an application's spine, whose head the application
+  -- itself is recorded at.
+  spineArgs : {vs : Scope} -> Term vs -> List (ws : Scope ** (Name, Term ws, Term ws))
+  spineArgs (App _ f a) = spineArgs f ++ headedApps a
+  spineArgs _ = []
+
+||| Every variable of a scope a placeholder, as a term closed over the scope
+||| reads a value it does not need.
+placeholdersOf : (vs : Scope) -> ByVar vs ClosedTerm
+placeholdersOf [] = []
+placeholdersOf (_ :: vs) = Erased EmptyFC Placeholder :: placeholdersOf vs
+
+||| A type in normal form that is an action on the world: the quantity it
+||| takes the world at, and what it gives, its world a placeholder.
+worldAction : ClosedTerm -> Maybe (Uses, ClosedTerm)
+worldAction (Bind _ _ (Pi _ rig _ (PrimVal _ (PrT WorldType))) sc) = case use rig of
+  Used q => Just (q, subst (Erased EmptyFC Placeholder) sc)
+  Erased => Nothing
+worldAction _ = Nothing
+
+||| Is a definition `believe_me`: the `BelieveMe` primitive, or a
+||| definition whose one right-hand side applies it, as the translation
+||| reads a call of either inside an exit (`Terms.exitCast`)?
+believeMeIn : {auto c : Ref Ctxt Defs} -> SortedMap Int Unfrozen -> Name -> Core Bool
+believeMeIn found n = do
+  Just u <- foundAs found n
+    | Nothing => pure False
+  if primitive u then pure True else case u.matched of
+    Just m => case getFn <$> leafOf m of
+      Just (Ref _ _ p) => maybe False primitive <$> foundAs found p
+      _ => pure False
+    Nothing => pure False
+  where
+    primitive : Unfrozen -> Bool
+    primitive u = case definition u.def of
+      Builtin BelieveMe => True
+      _ => False
+
+||| What Idris's types say of the `believe_me`s an exit gives its action any
+||| result by (`Hook.Exits`): each takes an action on the world and gives
+||| one, its type arguments read with the definition's variables as
+||| placeholders (`ExitTypes`, read off the first); nothing for a
+||| definition that is no exit, or an exit with no `believe_me`. An exit
+||| whose `believe_me` takes or gives anything else is not the definition
+||| the registry's hook names, and is refused here, once.
+exitTypesOf : {auto c : Ref Ctxt Defs} -> Frozen -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either String (Maybe ExitTypes))
+exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
+  (True, Just m) => do
+    found' <- casts (concatMap appsIn (leavesOf m.tree))
+    read found'
+  _ => pure (Right Nothing)
+  where
+    appsIn : (ws : Scope ** Term ws) -> List (ws : Scope ** (Name, Term ws, Term ws))
+    appsIn (ws ** tm) = headedApps tm
+
+    -- The applications whose head is `believe_me`.
+    casts : List (ws : Scope ** (Name, Term ws, Term ws)) -> Core (List (ws : Scope ** (Name, Term ws, Term ws)))
+    casts [] = pure []
+    casts (app@(_ ** (n, _, _)) :: rest) = do
+      later <- casts rest
+      pure (if !(believeMeIn found n) then app :: later else later)
+
+    actionOf : (ws : Scope) -> Term ws -> Core (Maybe (Uses, ClosedTerm))
+    actionOf ws t = worldAction . (.value) <$> host.normaliseTypes fz (closeOver EmptyFC (placeholdersOf ws) t)
+
+    noAction : String
+    noAction = "the registry names an exit whose believe_me does not give an action on the world any result"
+
+    read : List (ws : Scope ** (Name, Term ws, Term ws)) -> Core (Either String (Maybe ExitTypes))
+    read [] = pure (Right Nothing)
+    read ((ws ** (_, a, b)) :: rest) = do
+      Just (aw, ag) <- actionOf ws a
+        | Nothing => pure (Left noAction)
+      Just (vw, _) <- actionOf ws b
+        | Nothing => pure (Left noAction)
+      Right _ <- read rest
+        | Left msg => pure (Left msg)
+      pure (Right (Just (MkExitTypes aw ag vw)))
 
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
@@ -678,7 +844,7 @@ readProgram ifs entry fallback = do
   fz <- host.freezeContext
   Nothing <- validate fz sites fallback
     | Just refusal => pure (Left refusal)
-  Right definitions <- frozenAll fz empty (SortedMap.toList found)
+  Right definitions <- frozenAll fz found empty (SortedMap.toList found)
     | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them: none of
@@ -691,23 +857,33 @@ readProgram ifs entry fallback = do
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are
-    -- members of a choice, what it takes at each binder, and the hook that
-    -- lowers its calls, or the refusal of the registry's row its type
-    -- contradicts.
-    frozenAs : Frozen -> Unfrozen -> Core (Either Refusal Defined)
-    frozenAs fz u = do
+    -- members of a choice, what it takes at each binder, the hook that
+    -- lowers its calls, its library functions read against their
+    -- definitions (`checkedRow`), and, for an exit, what Idris's types say
+    -- of its `believe_me` (`exitTypesOf`); or the refusal of the registry's
+    -- row the definitions contradict.
+    frozenAs : Frozen -> SortedMap Int Unfrozen -> Unfrozen -> Core (Either Refusal Defined)
+    frozenAs fz found u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
-      pure $ case loweredOf u normal of
-        Left msg => Left (MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
-                                    (show (fullname u.def) ++ ": " ++ msg))
-        Right lowered => Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered lowered
-                                          (placesOf fz ifs normal) (argumentsOfNormal u.def normal))
+      let refused = \msg => MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
+                                     (show (fullname u.def) ++ ": " ++ msg)
+      let Right lowered = loweredOf u normal
+        | Left msg => pure (Left (refused msg))
+      Right checked <- the (Core (Either String (Maybe (Lowered CheckedLibrary)))) $ case lowered of
+                         Nothing => pure (Right Nothing)
+                         Just row => map Just <$> checkedRow fz found row
+        | Left msg => pure (Left (refused msg))
+      Right exit <- exitTypesOf fz found u
+        | Left msg => pure (Left (refused msg))
+      pure (Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered checked exit
+                             (placesOf fz ifs normal) (argumentsOfNormal u.def normal)))
 
     -- Every definition read, frozen in order, by its entry; the first
     -- refusal stops the reading.
-    frozenAll : Frozen -> SortedMap Int Defined -> List (Int, Unfrozen) -> Core (Either Refusal (SortedMap Int Defined))
-    frozenAll fz done [] = pure (Right done)
-    frozenAll fz done ((i, u) :: rest) = do
-      Right d <- frozenAs fz u
+    frozenAll : Frozen -> SortedMap Int Unfrozen -> SortedMap Int Defined -> List (Int, Unfrozen) ->
+                Core (Either Refusal (SortedMap Int Defined))
+    frozenAll fz found done [] = pure (Right done)
+    frozenAll fz found done ((i, u) :: rest) = do
+      Right d <- frozenAs fz found u
         | Left refusal => pure (Left refusal)
-      frozenAll fz (insert i d done) rest
+      frozenAll fz found (insert i d done) rest

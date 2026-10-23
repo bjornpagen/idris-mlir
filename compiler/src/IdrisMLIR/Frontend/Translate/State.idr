@@ -207,11 +207,6 @@ record Maker (r : Nat) where
   constructor MkMaker
   make : {0 m : Nat} -> Vect r (IdrisMLIR.Term.Term m) -> IdrisMLIR.Term.Term m
 
-||| A value made from its runtime arguments in order, whatever their number.
-export
-listed : ({0 m : Nat} -> List (IdrisMLIR.Term.Term m) -> IdrisMLIR.Term.Term m) -> Maker r
-listed f = MkMaker (\ys => f (toList ys))
-
 ||| A maker over a count shown equal to its own.
 export
 recount : (0 _ : a = b) -> Maker b -> Maker a
@@ -830,12 +825,27 @@ export
 givesAfter : Nat -> MemberPlaces -> Holding
 givesAfter k ps = fromMaybe (beyond ps) (getAt k (forget ps.gives))
 
+||| What Idris's types say of the `believe_me` an exit's body gives its
+||| action any result by (`Hook.Exits`), read once at the boundary: the
+||| action it is given is an action on the world, which it takes at
+||| `actionWorld` and gives an `IORes` of `actionGives`, read with the
+||| definition's variables as placeholders; and the value it gives is an
+||| action on the world too, taking it at `valueWorld`.
+public export
+record ExitTypes where
+  constructor MkExitTypes
+  actionWorld : Uses
+  actionGives : ClosedTerm
+  valueWorld : Uses
+
 ||| A definition of the frozen context as the translation reads it, each
 ||| part read once (`Boundary`): its place, the definition, its type as the
 ||| context's accessor reads it, its body when it matches (`Matched`),
 ||| whether Idris proved it ends (`Ends`), what the registry makes of it
 ||| (`Registered`), the hook that lowers its calls, read against its type
-||| (`Resolve.Lowered`), where its values are members of a choice
+||| and its library functions' definitions (`Resolve.Lowered`), for an
+||| exit (`Hook.Exits`) what Idris's types say of the `believe_me` it ends
+||| with (`ExitTypes`), where its values are members of a choice
 ||| (`MemberPlaces`), and what it takes at each binder of its type in
 ||| normal form (`Closed.argumentAt`), read off the normal form the member
 ||| table is read off.
@@ -848,7 +858,8 @@ record Defined where
   matched : Maybe Matched
   ends : Ends
   registered : Registered
-  loweredBy : Maybe (Lowered LibraryFunction)
+  loweredBy : Maybe (Lowered CheckedLibrary)
+  exitTypes : Maybe ExitTypes
   places : MemberPlaces
   taken : List ArgumentAt
 

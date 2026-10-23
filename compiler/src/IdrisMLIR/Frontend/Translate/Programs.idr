@@ -132,7 +132,7 @@ translateDefinition p sig n m counted = do
                    MissingCases _ => False
                    _ => True
   let (names, env) = runtimeParams 0 (parameterNames ty) m.args sig.kinds counted
-  tree' <- tree (MkCtx owner fc complete sig.result sig.callee.result (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
+  tree' <- tree (MkCtx owner fc complete sig.result sig.callee.result (length (telescopeOf sig.kinds)) (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -200,7 +200,7 @@ translateApplication p sig uses counted = do
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result sig.callee.result ByInstance p) env sig.result
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result sig.callee.result (length (telescopeOf sig.kinds)) ByInstance p) env sig.result
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
   extents <- signatureExtents sig.kinds sig.result

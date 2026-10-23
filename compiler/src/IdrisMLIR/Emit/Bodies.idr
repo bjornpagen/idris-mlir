@@ -339,14 +339,12 @@ mutual
 refining : Fin nv -> Val -> Scope js nv -> Scope js nv
 refining x r sc = { vars := \y => if y == x then Whole r else sc.vars y } sc
 
-||| The fields of constructor `c` in a case at depth `d`: their types with
-||| the constructor's binders at the levels `d ..`, each bound at the
-||| scrutinee's uses times its own: a field of a value used many times is
-||| used many times.
+||| The fields of constructor `c` in a case at depth `d`: their types in
+||| scope (`fieldsAt`, the reading the translation types a field's variable
+||| by), each bound at the scrutinee's uses times its own: a field of a
+||| value used many times is used many times.
 fieldBinders : Nat -> Uses -> Con k -> Vect k Binder
-fieldBinders d u c =
-  let bs = map IVar (take (length c.binders) [d .. d + length c.binders])
-  in map (\b => MkBinder (times u b.quantity) (substTy bs b.type)) c.fields
+fieldBinders d u c = map (\b => MkBinder (times u b.quantity) b.type) (fieldsAt d c)
 
 ||| A case's fields as the region holds them, from its refined value `r`:
 ||| each field the alternative names a read of `r` (`idr.data.field`), at

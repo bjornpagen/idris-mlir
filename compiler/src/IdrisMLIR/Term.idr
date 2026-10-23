@@ -981,6 +981,21 @@ export
 conType : Con k -> List ITerm -> Ty
 conType c bs = DataT c.id.family (substituteAll bs c.equation)
 
+||| The terms a region at telescope depth `dp` gives a constructor's erased
+||| binders: the levels `dp ..`, where the region binds them.
+export
+conLevels : Nat -> Con k -> List ITerm
+conLevels dp c = map IVar (take (length c.binders) [dp .. dp + length c.binders])
+
+||| A constructor's fields as a match on it in a region at telescope depth
+||| `dp` binds them: each its type with the constructor's binders at the
+||| levels the region binds them at (`conLevels`). The one reading of a
+||| field's type in scope, which the translation types a field's variable
+||| by and `Emit` reads the field at.
+export
+fieldsAt : Nat -> Con k -> Vect k Binder
+fieldsAt dp c = map (\b => { type $= substTy (conLevels dp c) } b) c.fields
+
 ||| The type of a closure that takes `bs` and then gives a value of
 ||| `valueTy`: one type for every extent its values are made at, so every
 ||| dimension in it is dynamic, as a closure's binder and result are.
@@ -1023,82 +1038,84 @@ opType (Reshape _ rt _ _) = rt
 
 mutual
   ||| The type of a term's value, read off the term in a scope whose
-  ||| variables' types `scope` gives: the type each form holds of what it
-  ||| gives (a call its callee's result at the call's index terms, a
-  ||| constructor its family's, a lambda its closure's, an application its
-  ||| function's result, a force its suspension's value, an array op its
-  ||| result), a `let`'s its body's, and a match's or a join op's the first
-  ||| of its arms (its join regions, then its body) whose type is known, as
-  ||| the op's results are the first arm's that returns. What a field of a value taken apart is
-  ||| bound at depends on the telescope the match stands in, which the term
-  ||| does not hold, so it is not read here. Nothing for a term that never
-  ||| returns (a crash, a jump, an unreachable arm), and for a primitive or
-  ||| an IO primitive, whose value's type its op makes.
+  ||| variables' types `scope` gives, at telescope depth `dp`: the type each
+  ||| form holds of what it gives (a call its callee's result at the call's
+  ||| index terms, a constructor its family's, a lambda its closure's, an
+  ||| application its function's result, a force its suspension's value, an
+  ||| array op its result), a `let`'s its body's, and a match's or a join
+  ||| op's the first of its arms (its join regions, then its body) whose type
+  ||| is known, as the op's results are the first arm's that returns; a
+  ||| field of a value taken apart at its type in scope (`fieldsAt`), as
+  ||| `Emit` reads it. Nothing for a term that never returns (a crash, a
+  ||| jump, an unreachable arm), and for a primitive or an IO primitive,
+  ||| whose value's type its op makes.
   export
-  termType : ScopeTypes n -> TermAt js n -> Maybe Ty
-  termType scope (Var _ x) = scope x
-  termType scope (Literal _ lit) = Just (literalType lit)
-  termType scope (PrimApp _ (Op _ r _) _ _) = Just r
-  termType scope (PrimApp _ _ _ _) = Nothing
-  termType scope (Effect _ _ _ _ _ _) = Nothing
-  termType scope (Call _ c _ is _) = Just (substTy is c.result)
-  termType scope (ConApp _ c bs _) = Just (conType c bs)
-  termType scope (Let _ _ (Checked b) _ body) = termType (underTypes {k = 1} [Just b.type] scope) body
-  termType scope (Let _ _ (OfValue _) v body) = termType (underTypes {k = 1} [termType scope v] scope) body
-  termType scope (Case _ _ _ arms) = armsType scope arms
-  termType scope (CaseLit _ _ arms) = litArmsType scope arms
-  termType scope (CaseNat _ _ (OnlyZero z)) = termType scope z
-  termType scope (CaseNat _ _ (OnlySucc _ s)) = termType (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
-  termType scope (CaseNat _ _ (Both z _ s)) =
-    termType scope z <|> termType (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
-  termType scope (Lam _ _ b r _) = Just (FunT b r)
-  termType scope (App _ _ r _ _) = Just r
-  termType scope (Suspend _ t _) = Just (LazyT t)
-  termType scope (Resume _ t _) = Just t
-  termType scope (Unreachable _) = Nothing
-  termType scope (Assume _ _ _ body) = termType scope body
-  termType scope (Crash _ _) = Nothing
-  termType scope (CrashWith _ _) = Nothing
-  termType scope (NewWorld _) = Just WorldT
-  termType scope (Tensor _ op) = Just (opType op)
-  termType scope (Tabulate _ t _ _) = Just t
-  termType scope (TabulateIO _ _ _ _ _ _ _) = Nothing
-  termType scope (Reduce _ _ _ _ t _ _ _ _ _) = Just t
-  termType scope (Tie _ t _ _) = Just t
-  termType scope (ReadBack _ e _ _ body) = termType (underTypes {k = 2} [Just e, Nothing] scope) body
-  termType scope (ExtentsBack {k} _ _ body) =
-    termType (underTypes {k = S k} (snoc (replicate k (Just (NatT IOpaque))) Nothing) scope) body
-  termType scope (Join _ _ targets body) = targetsType scope targets <|> termType scope body
-  termType scope (Jump _ _ _ _) = Nothing
+  termType : (dp : Nat) -> ScopeTypes n -> TermAt js n -> Maybe Ty
+  termType dp scope (Var _ x) = scope x
+  termType dp scope (Literal _ lit) = Just (literalType lit)
+  termType dp scope (PrimApp _ (Op _ r _) _ _) = Just r
+  termType dp scope (PrimApp _ _ _ _) = Nothing
+  termType dp scope (Effect _ _ _ _ _ _) = Nothing
+  termType dp scope (Call _ c _ is _) = Just (substTy is c.result)
+  termType dp scope (ConApp _ c bs _) = Just (conType c bs)
+  termType dp scope (Let _ _ (Checked b) _ body) = termType dp (underTypes {k = 1} [Just b.type] scope) body
+  termType dp scope (Let _ _ (OfValue _) v body) = termType dp (underTypes {k = 1} [termType dp scope v] scope) body
+  termType dp scope (Case _ _ _ arms) = armsType dp scope arms
+  termType dp scope (CaseLit _ _ arms) = litArmsType dp scope arms
+  termType dp scope (CaseNat _ _ (OnlyZero z)) = termType dp scope z
+  termType dp scope (CaseNat _ _ (OnlySucc _ s)) = termType dp (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
+  termType dp scope (CaseNat _ _ (Both z _ s)) =
+    termType dp scope z <|> termType dp (underTypes {k = 1} [Just (NatT IOpaque)] scope) s
+  termType dp scope (Lam _ _ b r _) = Just (FunT b r)
+  termType dp scope (App _ _ r _ _) = Just r
+  termType dp scope (Suspend _ t _) = Just (LazyT t)
+  termType dp scope (Resume _ t _) = Just t
+  termType dp scope (Unreachable _) = Nothing
+  termType dp scope (Assume _ _ _ body) = termType dp scope body
+  termType dp scope (Crash _ _) = Nothing
+  termType dp scope (CrashWith _ _) = Nothing
+  termType dp scope (NewWorld _) = Just WorldT
+  termType dp scope (Tensor _ op) = Just (opType op)
+  termType dp scope (Tabulate _ t _ _) = Just t
+  termType dp scope (TabulateIO _ _ _ _ _ _ _) = Nothing
+  termType dp scope (Reduce _ _ _ _ t _ _ _ _ _) = Just t
+  termType dp scope (Tie _ t _ _) = Just t
+  termType dp scope (ReadBack _ e _ _ body) = termType dp (underTypes {k = 2} [Just e, Nothing] scope) body
+  termType dp scope (ExtentsBack {k} _ _ body) =
+    termType dp (underTypes {k = S k} (snoc (replicate k (Just (NatT IOpaque))) Nothing) scope) body
+  termType dp scope (Join _ _ targets body) = targetsType dp scope targets <|> termType dp scope body
+  termType dp scope (Jump _ _ _ _) = Nothing
 
-  altsType : ScopeTypes n -> List (AltAt js n) -> Maybe Ty
-  altsType scope [] = Nothing
-  altsType scope (MkAlt {k} _ _ body :: alts) =
-    termType (underTypes {k} (replicate k Nothing) scope) body <|> altsType scope alts
+  altsType : (dp : Nat) -> ScopeTypes n -> List (AltAt js n) -> Maybe Ty
+  altsType dp scope [] = Nothing
+  altsType dp scope (MkAlt {k} c _ body :: alts) =
+    termType (dp + length c.binders) (underTypes {k} (map (Just . (.type)) (fieldsAt dp c)) scope) body
+      <|> altsType dp scope alts
 
-  armsType : ScopeTypes n -> CaseArmsOf (AltAt js n) (TermAt js n) -> Maybe Ty
-  armsType scope (Defaulted alts d) = altsType scope alts <|> termType scope d
-  armsType scope (Exhaustive alts) = altsType scope (forget alts)
+  armsType : (dp : Nat) -> ScopeTypes n -> CaseArmsOf (AltAt js n) (TermAt js n) -> Maybe Ty
+  armsType dp scope (Defaulted alts d) = altsType dp scope alts <|> termType dp scope d
+  armsType dp scope (Exhaustive alts) = altsType dp scope (forget alts)
 
-  keyedType : ScopeTypes n -> List (kt, TermAt js n) -> Maybe Ty
-  keyedType scope [] = Nothing
-  keyedType scope ((_, t) :: rest) = termType scope t <|> keyedType scope rest
+  keyedType : (dp : Nat) -> ScopeTypes n -> List (kt, TermAt js n) -> Maybe Ty
+  keyedType dp scope [] = Nothing
+  keyedType dp scope ((_, t) :: rest) = termType dp scope t <|> keyedType dp scope rest
 
-  litArmsType : ScopeTypes n -> LitMatch (TermAt js n) -> Maybe Ty
-  litArmsType scope (OnlyDefault d) = termType scope d
-  litArmsType scope (OnInts _ (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
-  litArmsType scope (OnInts _ (LitNoDefault alts)) = keyedType scope (forget alts)
-  litArmsType scope (OnChars (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
-  litArmsType scope (OnChars (LitNoDefault alts)) = keyedType scope (forget alts)
-  litArmsType scope (OnStrings (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
-  litArmsType scope (OnStrings (LitNoDefault alts)) = keyedType scope (forget alts)
-  litArmsType scope (OnBigs (LitDefault alts d)) = keyedType scope (forget alts) <|> termType scope d
-  litArmsType scope (OnBigs (LitNoDefault alts)) = keyedType scope (forget alts)
+  litArmsType : (dp : Nat) -> ScopeTypes n -> LitMatch (TermAt js n) -> Maybe Ty
+  litArmsType dp scope (OnlyDefault d) = termType dp scope d
+  litArmsType dp scope (OnInts _ (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
+  litArmsType dp scope (OnInts _ (LitNoDefault alts)) = keyedType dp scope (forget alts)
+  litArmsType dp scope (OnChars (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
+  litArmsType dp scope (OnChars (LitNoDefault alts)) = keyedType dp scope (forget alts)
+  litArmsType dp scope (OnStrings (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
+  litArmsType dp scope (OnStrings (LitNoDefault alts)) = keyedType dp scope (forget alts)
+  litArmsType dp scope (OnBigs (LitDefault alts d)) = keyedType dp scope (forget alts) <|> termType dp scope d
+  litArmsType dp scope (OnBigs (LitNoDefault alts)) = keyedType dp scope (forget alts)
 
-  targetsType : ScopeTypes n -> All (Target s n) ts -> Maybe Ty
-  targetsType scope [] = Nothing
-  targetsType scope (MkTarget {k} _ _ _ _ params body :: rest) =
-    termType (underTypes {k} (map (Just . (.type)) params) scope) body <|> targetsType scope rest
+  targetsType : (dp : Nat) -> ScopeTypes n -> All (Target s n) ts -> Maybe Ty
+  targetsType dp scope [] = Nothing
+  targetsType dp scope (MkTarget {k} _ _ sorts _ params body :: rest) =
+    termType (dp + length sorts) (underTypes {k} (map (Just . (.type)) params) scope) body
+      <|> targetsType dp scope rest
 
 ------------------------------------------------------------------------------
 -- Join points the program as written makes

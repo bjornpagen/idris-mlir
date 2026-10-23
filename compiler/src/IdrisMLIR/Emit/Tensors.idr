@@ -186,10 +186,9 @@ fit ix l slot v = case fitting slot v.type v.refinement of
   -- type of the value it gives (`Term.termType`), but no proof that the two
   -- agree but for the extents and index terms a cast or a reindex fixes. A
   -- term is not indexed by its type: a `let` of a value the translation
-  -- binds (`OfValue`), a field of a value taken apart and a value a
-  -- settled term computes are typed by what makes them, not by a binder of
-  -- the scope, so what makes a value and what holds it are two readings
-  -- of one Idris type.
+  -- binds (`OfValue`) and a value a settled term computes are typed by what
+  -- makes them, not by a binder of the scope, so what makes a value and
+  -- what holds it are two readings of one Idris type.
   Mismatch what expected =>
     internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
 

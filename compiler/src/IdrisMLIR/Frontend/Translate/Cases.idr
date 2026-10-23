@@ -1011,20 +1011,23 @@ mutual
     -- layout's arguments hold, each named as the tree names its argument.
     let k = fieldCount info.args
     dead <- excludedBy shape (fullname def)
-    let infos = argsBound (fieldAt k) args info.args bound (shapeArgs shape)
+    -- Each field is of its type in scope (`fieldsAt`), the constructor's
+    -- binders at the levels its region binds them at, as `Emit` reads it,
+    -- and the region's terms stand that many levels deeper.
+    let infos = argsBound (fieldAt (fieldsAt ctx.depth info.con)) args info.args bound (shapeArgs shape)
     alt <- if dead then pure Nothing else do
-      body <- tree ctx (under {k} infos env) (afterCon args scrutinee cls) rhs
+      body <- tree ({ depth $= (+ length info.con.binders) } ctx) (under {k} infos env) (afterCon args scrutinee cls) rhs
       pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
     (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest (nextCon cons)
     pure (insert cid others, maybe alts (:: alts) alt, fallback)
     where
-      -- Runtime field `i` is the alternative's `Bound i`, with what the
-      -- value's shape says of it.
-      fieldAt : (k : Nat) -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin (Under k nv))
-      fieldAt k i b ity s = case natToFin i k of
-        Just f => case s of
-          Just s' => shaped (Bound {n = nv} f) b.type ity s'
-          Nothing => Runtime (Bound {n = nv} f) (BothTypes b.type ity)
+      -- Runtime field `i` is the alternative's `Bound i`, of its type in
+      -- scope, with what the value's shape says of it.
+      fieldAt : {k : Nat} -> Vect k Binder -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin (Under k nv))
+      fieldAt {k} inScope i _ ity s = case natToFin i k of
+        Just f => let t = (index f inScope).type in case s of
+          Just s' => shaped (Bound {n = nv} f) t ity s'
+          Nothing => Runtime (Bound {n = nv} f) (BothTypes t ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
   conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) _ =
     if every then pure (empty, [], Absent)
