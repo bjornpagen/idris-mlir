@@ -683,3 +683,17 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   unclaimed cell and another building from words cannot share one open
   type (L18); `tests/open-copy-keeps-refined-index` can hold words again
   (L19).
+- From L16ek: the checker's TTC keeps a case tree's `scTy` unscoped
+  (pattern variables as names, `{pat1::6}`; free indices captured under
+  binders, `(arg : Int) -> arg[0]`), so a reader of it refused 20 valid
+  fixtures (L17: keep it scoped as the term it is); C228's (b) and (c)
+  need `Types.coreTypeIn` to return the Core and Idris types together
+  (L16ej); D112.1's Terms (held values gone: `classifyKeys` returns what
+  it read), Cases 954 and Choices 567 (`request`'s signature tied to the
+  kinds requested, C234) and Shapes 300 (`InstanceSig` keeping the
+  binders the classification admitted) are L16ej's threading pass's;
+  C217's "form type" refusal is reached by a program whose choices are
+  fixed (`/tmp/l16ek/repro/form-delay`: the implementation entries carry
+  their Idris type); `runtime-closure-poly-rewrapped` still refused (C217);
+  `Terms.idr` checks in 918 s against 674 s, almost all Idris's
+  termination check of its mutual block (measured, one session).
