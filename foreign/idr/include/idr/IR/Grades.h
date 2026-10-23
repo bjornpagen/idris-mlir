@@ -214,6 +214,20 @@ bool forgets(mlir::Type from, mlir::Type to);
 // the linear cast.
 bool holdFits(mlir::Type from, mlir::Type to);
 
+// The type at which a value of `given` crosses the edge `edge` makes into a
+// place of `asked`: a call's argument into its parameter, a returned value
+// into its function's result, a yielded one into its region branch's
+// result, a jump's into its join region's parameter. Where the program
+// `edge` stands in is at a stage whose edges pass any hold that fits
+// (StageEdgeHolds::Fit), and the two are the same carrier at the same uses
+// whose holds differ but fit (forgets: static data where a value claiming
+// nothing is asked, or a claim forgotten), `given` at the hold asked;
+// anywhere else, `given` itself. So each edge's own comparison (equality, a
+// refinement, an instance, the scope's) reads what crosses through it, and
+// from the stage before counting on, which reads off each edge's type what
+// it passes, no edge gives a place what its type does not say it holds.
+mlir::Type crossedAs(mlir::Operation *edge, mlir::Type given, mlir::Type asked);
+
 // How far a value's claim on its own cells reaches into a field whose
 // declared type is `declared`, read off the family's declaration once:
 // through a field of the value's own family (a `self[...]` field); through

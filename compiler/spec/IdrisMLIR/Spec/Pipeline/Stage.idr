@@ -103,6 +103,17 @@ data StageTails = TailsPromised | TailsDecided
 public export
 data StageTailLayouts = LayoutsPending | LayoutsAgree
 
+||| Whether a value crosses an edge (a call's argument into its parameter, a
+||| returned value into its function's result, a yielded one into its region
+||| branch's result, a jump's into its join region's parameter) at the very
+||| hold the place asks, or at any hold that fits it by the grade order:
+||| fitting while the frontend's static data and fresh values' claims stand
+||| where a value claiming nothing is asked and the specializer may still key
+||| each call by the hold its argument is passed at; exact from the stage
+||| before counting on, which reads off each edge's type what it passes.
+public export
+data StageEdgeHolds = HoldsFit | HoldsExact
+
 public export
 closuresClosed : Closed StageClosures
 closuresClosed = MkClosed
@@ -164,6 +175,18 @@ tailLayoutsClosed = MkClosed
   , doc = brief (line "whether a tail call's result layouts agree with its caller's") }
 
 public export
+edgeHoldsClosed : Closed StageEdgeHolds
+edgeHoldsClosed = MkClosed
+  { name = ident "StageEdgeHolds", shape = OneOf, every = HoldsFit ::: [HoldsExact]
+  , complete = \case
+      HoldsFit => Here
+      HoldsExact => There Here
+  , describe = \case
+      HoldsFit => MkCase (ident "Fit") (word "fit" ::: []) (line "a value crosses an edge at any hold that fits the one asked, until the specializer keys each call by it")
+      HoldsExact => MkCase (ident "Exact") (word "exact" ::: []) (line "a value crosses an edge at the hold asked")
+  , doc = brief (line "whether a value crosses an edge at the hold asked or at one that fits it") }
+
+public export
 closuresAt : Stage -> StageClosures
 closuresAt Higher = ClosuresRemain
 closuresAt _ = FirstOrder
@@ -190,6 +213,12 @@ tailLayoutsAt Higher = LayoutsPending
 tailLayoutsAt First = LayoutsPending
 tailLayoutsAt _ = LayoutsAgree
 
+public export
+edgeHoldsAt : Stage -> StageEdgeHolds
+edgeHoldsAt Higher = HoldsFit
+edgeHoldsAt First = HoldsFit
+edgeHoldsAt _ = HoldsExact
+
 ||| What each stage implies, one row per stage: only the five stages have a
 ||| row, so no combination of facts a stage cannot have is written.
 public export
@@ -200,4 +229,5 @@ stageFacts = table stageClosed
   , MkColumn (ident "functionsAt") (EnumColumn (enumDef functionsClosed)) (\s => CaseCell (caseRef functionsClosed (functionsAt s))) (line "whose functions the program holds")
   , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's tail fact is decided")
   , MkColumn (ident "tailLayoutsAt") (EnumColumn (enumDef tailLayoutsClosed)) (\s => CaseCell (caseRef tailLayoutsClosed (tailLayoutsAt s))) (line "whether a tail call's result layouts agree with its caller's")
+  , MkColumn (ident "edgeHoldsAt") (EnumColumn (enumDef edgeHoldsClosed)) (\s => CaseCell (caseRef edgeHoldsClosed (edgeHoldsAt s))) (line "whether a value crosses an edge at the hold asked or at one that fits it")
   ]

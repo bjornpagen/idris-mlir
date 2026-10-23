@@ -220,9 +220,12 @@ void JoinOp::getPredecessors(mlir::RegionSuccessor successor,
 // A jump's arguments are typed in the jump's scope and a parameter in its
 // join region's, whose erased binders the jump instantiates: an argument
 // is an instance of its parameter's pattern. The jump's verifier and the
-// function's scope walk check the exact instance.
+// function's scope walk check the exact instance. Each value crosses at
+// the hold of the place it enters where the program's stage lets a hold
+// that fits stand (crossedAs).
 bool JoinOp::areTypesCompatible(mlir::Type lhs, mlir::Type rhs) {
-  return lhs == rhs || families::instanceOf(lhs, rhs);
+  mlir::Type crossed = crossedAs(getOperation(), lhs, rhs);
+  return crossed == rhs || families::instanceOf(crossed, rhs);
 }
 
 mlir::Region *JoinOp::getTarget(mlir::BlockArgument token) { return targetOf(*this, token); }
@@ -282,7 +285,8 @@ void LoopOp::getPredecessors(mlir::RegionSuccessor successor,
 }
 
 bool LoopOp::areTypesCompatible(mlir::Type lhs, mlir::Type rhs) {
-  return lhs == rhs || families::instanceOf(lhs, rhs);
+  mlir::Type crossed = crossedAs(getOperation(), lhs, rhs);
+  return crossed == rhs || families::instanceOf(crossed, rhs);
 }
 
 mlir::Region *LoopOp::getTarget(mlir::BlockArgument token) { return targetOf(*this, token); }

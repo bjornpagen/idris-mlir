@@ -9,8 +9,10 @@
 // from the collection MLIR shares among every symbol user, holds the call
 // to its callee: its types are the callee's signature at its index
 // arguments, a tensor operand meeting its parameter by MLIR's shape
-// compatibility at the axes the callee's extents name and a lifetime of
-// any kind standing where a view is asked; its copies are the callee's;
+// compatibility at the axes the callee's extents name, a lifetime of any
+// kind standing where a view is asked and, until the specializer keys the
+// call by it, an argument whose hold fits its parameter's crossing at the
+// parameter's; its copies are the callee's;
 // what its callee puts into a lifetime its caller passes on fits what the
 // caller says it puts; and a tail call passes its caller's cursors each in
 // its own place, its callee gives back the same result components, and
@@ -224,7 +226,10 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   // whole, since no cast keeps a grade and bufferizing the call could not
   // reconcile two graded shapes. A lifetime of any kind may stand where a
   // view is asked, nothing happening to a view at run time, and any other
-  // kind only where it is asked.
+  // kind only where it is asked. Before the specializer has keyed each call
+  // by the hold its argument is passed at, an argument whose hold fits its
+  // parameter's crosses at the parameter's (crossedAs): static data where
+  // the callee counts, a fresh value's claim where it claims nothing.
   IndexBindersAttr binders = fn.getBindersAttr();
   IndexArgsAttr args = getIndexArgsAttr();
   std::size_t binding = binders ? binders.getSorts().size() : 0;
@@ -240,7 +245,8 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   ExtentsAttr extents = fn.getExtentsAttr();
   for (auto [index, pair] : llvm::enumerate(llvm::zip_equal(getArgs().getTypes(), inputs))) {
     auto [given, asked] = pair;
-    if (!meets(given, asked, extents, ExtentSide::Input, static_cast<std::uint32_t>(index)) &&
+    if (!meets(crossedAs(getOperation(), given, asked), asked, extents, ExtentSide::Input,
+               static_cast<std::uint32_t>(index)) &&
         !lifetimes::passesAs(given, asked))
       return emitOpError("passes ") << given << " as argument " << index << " of " << name
                                     << ", which takes " << asked;
@@ -311,6 +317,8 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
+// A return gives its function's results at their own types, or, before the
+// specializer, at a hold that fits each (crossedAs).
 LogicalResult idr::ReturnOp::verify() {
   auto fn = cast<FuncOp>((*this)->getParentOp());
   auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
@@ -319,7 +327,7 @@ LogicalResult idr::ReturnOp::verify() {
     return emitOpError("returns ") << getNumOperands() << " values, but " << name << " returns "
                                    << results.size();
   for (auto [index, pair] : llvm::enumerate(llvm::zip_equal(getOperandTypes(), results)))
-    if (std::get<0>(pair) != std::get<1>(pair))
+    if (crossedAs(getOperation(), std::get<0>(pair), std::get<1>(pair)) != std::get<1>(pair))
       return emitOpError("returns ") << std::get<0>(pair) << " as result " << index << ", but "
                                      << name << " returns " << std::get<1>(pair);
   return success();

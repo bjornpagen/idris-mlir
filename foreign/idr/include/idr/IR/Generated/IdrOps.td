@@ -106,7 +106,10 @@ def Idr_CallOp : Idr_Op<"call", [
     callee's change; its symbol-use verifier holds the four equal to the
     callee's, and its operand types to the callee's parameters, a ranked
     tensor meeting one whose shape MLIR finds compatible (`?` meeting any
-    size) and a lifetime of any kind standing where a view is asked.
+    size), a lifetime of any kind standing where a view is asked and,
+    until the specializer keys the call by it, an operand whose hold fits
+    its parameter's standing at the parameter's (static data where the
+    callee counts, a claim forgotten), as the program's stage says.
     Where it stands is the tail calls' to decide and check; a tail call's
     callee takes as many cursors as its caller and gives back the same
     result components.
@@ -539,7 +542,7 @@ def Idr_DataMatchOp : Idr_Op<"data.match", [
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
     RecursivelySpeculatable,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "getEntrySuccessorOperands", "areTypesCompatible"]>,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "areTypesCompatible", "getEntrySuccessorOperands"]>,
     DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]>,
     DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_ErasedBinderOpInterface, ["getBoundSorts", "getRefinement"]>,
@@ -584,7 +587,7 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
     RecursivelySpeculatable,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "getEntrySuccessorOperands"]>,
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds", "getSuccessorInputs", "areTypesCompatible", "getEntrySuccessorOperands"]>,
     DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]>,
     DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,

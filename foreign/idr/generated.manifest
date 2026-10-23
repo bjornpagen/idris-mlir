@@ -1,9 +1,9 @@
-specification bd3c71a934b2be5a
+specification 86a8943c71846c33
 generator 4e16f972cacc3161
 3807f07f0c94afec foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 260f35458dcaaa6e foreign/idr/include/idr/IR/Generated/IdrTypes.td
-07384312f400258b foreign/idr/include/idr/IR/Generated/IdrOps.td
+4eec14646ee0256f foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 23484a216f8d66f1 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 61b2d8eaa5e2ce8a foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -48,7 +48,7 @@ a5f8d8a5b2c9d611 foreign/idr/include/idr/IR/Generated/ShownOutput.h.inc
 3b295e435b4ca2db foreign/idr/include/idr/IR/Generated/ListElement.h.inc
 e961abb446ea9612 foreign/idr/include/idr/IR/Generated/Rules.h.inc
 997ee58402212daf foreign/idr/include/idr/IR/Generated/Words.h.inc
-95bf2e6746733d56 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
+c007172702ee9849 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
 a310756d6c6cb9f6 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
 38b8278a11b17e45 foreign/idr/include/idr/IR/Generated/Families.h.inc

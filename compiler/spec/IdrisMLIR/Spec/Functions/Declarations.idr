@@ -331,7 +331,10 @@ callOp = MkOp
       callee's change; its symbol-use verifier holds the four equal to the
       callee's, and its operand types to the callee's parameters, a ranked
       tensor meeting one whose shape MLIR finds compatible (`?` meeting any
-      size) and a lifetime of any kind standing where a view is asked.
+      size), a lifetime of any kind standing where a view is asked and,
+      until the specializer keys the call by it, an operand whose hold fits
+      its parameter's standing at the parameter's (static data where the
+      callee counts, a claim forgotten), as the program's stage says.
       Where it stands is the tail calls' to decide and check; a tail call's
       callee takes as many cursors as its caller and gives back the same
       result components.

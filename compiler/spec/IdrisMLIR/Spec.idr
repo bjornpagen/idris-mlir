@@ -260,7 +260,8 @@ core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
                     , MkHeader "StageFacts"
                         [(DialectNamespace, [ EnumOf (enumDef closuresClosed), EnumOf (enumDef countingClosed)
                                             , EnumOf (enumDef functionsClosed), EnumOf (enumDef tailsClosed)
-                                            , EnumOf (enumDef tailLayoutsClosed), TableOf stageFacts ])]
+                                            , EnumOf (enumDef tailLayoutsClosed), EnumOf (enumDef edgeHoldsClosed)
+                                            , TableOf stageFacts ])]
                         (brief "what each stage of a program implies of its functions")
                     , verdictHeader ]
        } nothing

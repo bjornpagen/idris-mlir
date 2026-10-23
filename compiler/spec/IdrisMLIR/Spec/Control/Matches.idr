@@ -159,12 +159,13 @@ defaultCase = MkDirective "DefaultCase" [RegionArg]
 ------------------------------------------------------------------------------
 
 ||| What both matches declare of upstream's control-flow interface: their
-||| successors, the regions a known key takes, the regions' bounds, and
-||| what enters each region.
+||| successors, the regions a known key takes, the regions' bounds, what
+||| enters each region, and what a value crossing an edge may be typed at,
+||| which the program's stage decides for a yield.
 branchMethods : List Ident
 branchMethods =
   [ "getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds"
-  , "getSuccessorInputs" ]
+  , "getSuccessorInputs", "areTypesCompatible" ]
 
 ||| `idr.data.match`: the scrutinee and the forwarded values enter every
 ||| region refined, which upstream's interface reads as the region's entry
@@ -184,8 +185,7 @@ matchOp = MkOp
   , regions = [MkRegion "default_region" OneRegion (AtMost 1), sizedRegions "case_regions" 1]
   , traits = [SingleBlock, PropagateControlFlowBreak, OurTrait eliminatesOperand]
   , interfaces =
-      [ Declares RegionBranch
-          (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])
+      [ Declares RegionBranch (branchMethods ++ ["getEntrySuccessorOperands"])
       , Implements matchInterface ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]
       , Implements valueSourceInterface ["getValueSource"]
       , Implements erasedBinderInterface ["getBoundSorts", "getRefinement"]

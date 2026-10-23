@@ -148,11 +148,17 @@ Match keepCasesOf(Match op, mlir::RewriterBase &rewriter, llvm::ArrayRef<unsigne
 
 // A region gives the match's results at their own types: what a case
 // learned of a value leaves it only through a cast its scope checks.
+// Before the specializer a yielded value whose hold fits its result's
+// crosses at the result's (crossedAs), as static data or a fresh value's
+// claim the frontend gives where the match's result claims nothing.
 inline mlir::LogicalResult verifyYields(mlir::Operation *op) {
   for (mlir::Region &region : op->getRegions())
     if (!region.empty())
       if (auto yield = llvm::dyn_cast<YieldOp>(region.front().getTerminator());
-          yield && mlir::TypeRange(yield.getResults()) != op->getResultTypes())
+          yield && !llvm::equal(yield.getResults().getTypes(), op->getResultTypes(),
+                                [&](mlir::Type given, mlir::Type asked) {
+                                  return crossedAs(op, given, asked) == asked;
+                                }))
         return op->emitOpError("region #")
                << region.getRegionNumber() << " yields " << yield.getResults().getTypes()
                << " for results of types " << op->getResultTypes();

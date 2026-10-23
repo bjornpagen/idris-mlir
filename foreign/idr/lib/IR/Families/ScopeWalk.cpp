@@ -354,7 +354,9 @@ LogicalResult DataReindexOp::verifyScopeRule(ScopeQuery &scope) {
 
 // A jump's arguments are its target's parameters with the target's index
 // variables replaced by the jump's terms: the target's op encloses the
-// jump, so its depth is on the walk's stack.
+// jump, so its depth is on the walk's stack. Each crosses at its
+// parameter's hold where the program's stage lets a hold that fits stand
+// (crossedAs).
 LogicalResult JumpOp::verifyScopeRule(ScopeQuery &scope) {
   auto token = cast<BlockArgument>(getTarget());
   Operation *owner = token.getOwner()->getParentOp();
@@ -367,10 +369,12 @@ LogicalResult JumpOp::verifyScopeRule(ScopeQuery &scope) {
   families::LevelMap map;
   for (auto [level, term] : llvm::enumerate(families::termsOf(terms.getTerms(), terms.getCount())))
     map.replace(*depth + static_cast<uint32_t>(level), term);
-  for (auto [arg, parameter] : llvm::zip(getArgs(), points.getParameters(*target)))
-    if (!scope.sameHere(arg.getType(), families::mapLevels(parameter.getType(), map), Narrowing::Exact))
+  for (auto [arg, parameter] : llvm::zip(getArgs(), points.getParameters(*target))) {
+    Type asked = families::mapLevels(parameter.getType(), map);
+    if (!scope.sameHere(crossedAs(getOperation(), arg.getType(), asked), asked, Narrowing::Exact))
       return emitOpError("passes ") << arg.getType() << " to a parameter of type " << parameter.getType()
                                     << " at its terms";
+  }
   return success();
 }
 

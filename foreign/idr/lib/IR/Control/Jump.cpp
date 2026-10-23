@@ -11,6 +11,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 using namespace idr;
@@ -22,7 +23,8 @@ using namespace idr;
 // the target's parameters: equal, where the target binds no index
 // variable; an instance under the jump's terms otherwise, which the
 // function's scope walk checks, since the substitution reads the depth of
-// the scope.
+// the scope. Each crosses at its parameter's hold where the program's stage
+// lets a hold that fits stand (crossedAs).
 LogicalResult JumpOp::verify() {
   // A token producer of another dialect may define its token as a result.
   auto token = dyn_cast<BlockArgument>(getTarget());
@@ -39,7 +41,9 @@ LogicalResult JumpOp::verify() {
     return emitOpError("passes ") << getArgs().size() << " arguments to a join region of "
                                   << parameters.size() << " parameters";
   if (cast<ErasedBinderOpInterface>(owner).getBoundSorts(*target).empty() &&
-      TypeRange(getArgs()) != TypeRange(parameters))
+      !llvm::equal(getArgs().getTypes(), parameters.getTypes(), [&](Type given, Type asked) {
+        return crossedAs(getOperation(), given, asked) == asked;
+      }))
     return emitOpError("passes arguments of types ")
            << getArgs().getTypes() << " to parameters of types " << parameters.getTypes();
   return success();

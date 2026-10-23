@@ -11,9 +11,14 @@
 #include "idr/Support/Enum.h"
 #include "idr/Support/Match.h"
 
+// Whether a value crosses an edge at the hold asked or at one that fits it
+// (StageEdgeHolds), by the program's stage.
+#include "idr/IR/Generated/StageFacts.h.inc"
+
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/StringExtras.h"
 
+#include <cassert>
 #include <optional>
 
 using namespace mlir;
@@ -217,6 +222,21 @@ bool idr::holdFits(Type from, Type to) {
   std::optional<Hold> held = holdOf(from);
   std::optional<Hold> asked = holdOf(to);
   return held == asked || (held && asked && held->fits(*asked));
+}
+
+Type idr::crossedAs(Operation *edge, Type given, Type asked) {
+  std::optional<Hold> held = holdOf(given);
+  std::optional<Hold> slot = holdOf(asked);
+  if (!held || !slot || *held == *slot || !held->fits(*slot) || usesOf(given) != usesOf(asked))
+    return given;
+  // Essential: the stage is the program's, which an op's verifier and an
+  // interface's comparison of two types meet only by climbing to it. It is
+  // read only for two holds that differ, which no edge of a program past
+  // the specializer has.
+  auto fn = edge->getParentOfType<FuncOp>();
+  assert(fn && "an edge stands in a function, whose program's stage says what it passes");
+  return edgeHoldsAt[fn.getProgram().getStage()] == StageEdgeHolds::Fit ? atHold(given, *slot)
+                                                                         : given;
 }
 
 // The declaration says it: a type of ours answers for its own fields (a

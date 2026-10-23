@@ -108,6 +108,14 @@ ValueRange LitMatchOp::getSuccessorInputs(RegionSuccessor successor) {
   return successor.getSuccessor()->getArguments();
 }
 
+// The scrutinee enters each region at its own type, and a yield gives the
+// match's results at theirs; each crosses at the hold of the place it
+// enters where the program's stage lets a hold that fits stand
+// (crossedAs).
+bool LitMatchOp::areTypesCompatible(Type lhs, Type rhs) {
+  return crossedAs(getOperation(), lhs, rhs) == rhs;
+}
+
 namespace {
 
 // The region a constant scrutinee takes: the case whose key is that very

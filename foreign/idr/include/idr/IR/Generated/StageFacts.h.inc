@@ -56,6 +56,14 @@ enum class StageTailLayouts : std::uint8_t {
   Agree,
 };
 
+// whether a value crosses an edge at the hold asked or at one that fits it
+enum class StageEdgeHolds : std::uint8_t {
+  // a value crosses an edge at any hold that fits the one asked, until the specializer keys each call by it
+  Fit,
+  // a value crosses an edge at the hold asked
+  Exact,
+};
+
 
 } // namespace idr
 
@@ -89,6 +97,12 @@ template <>
 struct EnumTraits<::idr::StageTailLayouts> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"pending", "agree"}};
+};
+
+template <>
+struct EnumTraits<::idr::StageEdgeHolds> {
+  static constexpr std::size_t count = 2;
+  static constexpr std::array<std::string_view, 2> names{{"fit", "exact"}};
 };
 
 
@@ -139,6 +153,15 @@ inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageTailLayouts> tailLay
     ::idr::StageTailLayouts::Agree,
     ::idr::StageTailLayouts::Agree,
     ::idr::StageTailLayouts::Agree,
+}};
+
+// whether a value crosses an edge at the hold asked or at one that fits it
+inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageEdgeHolds> edgeHoldsAt{{
+    ::idr::StageEdgeHolds::Fit,
+    ::idr::StageEdgeHolds::Fit,
+    ::idr::StageEdgeHolds::Exact,
+    ::idr::StageEdgeHolds::Exact,
+    ::idr::StageEdgeHolds::Exact,
 }};
 
 

@@ -150,9 +150,12 @@ ValueRange IndexAssumeOp::getSuccessorInputs(RegionSuccessor successor) {
 }
 
 // A value enters refined and leaves cast back: the scope walk checks each
-// against the equation, which no context-free comparison sees.
+// against the equation, which no context-free comparison sees. Each
+// crosses at the hold of the place it enters where the program's stage
+// lets a hold that fits stand (crossedAs).
 bool IndexAssumeOp::areTypesCompatible(Type lhs, Type rhs) {
-  return lhs == rhs || refines(lhs, rhs) || refines(rhs, lhs);
+  Type crossed = crossedAs(getOperation(), lhs, rhs);
+  return crossed == rhs || refines(crossed, rhs) || refines(rhs, crossed);
 }
 
 // `idr.index.assume <lhs = rhs> (%v : T) -> (R) { ^bb0(%w : T'): ... }`.

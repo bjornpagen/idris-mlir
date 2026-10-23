@@ -255,9 +255,11 @@ ValueRange DataMatchOp::getSuccessorInputs(RegionSuccessor successor) {
 // A value enters a region refined: as itself, or at its family with fewer
 // constructors possible or at an index the case's equation fixes. A yield
 // gives the match's results at their own types, which the op's verifier
-// holds it to.
+// holds it to. Each crosses at the hold of the place it enters where the
+// program's stage lets a hold that fits stand (crossedAs).
 bool DataMatchOp::areTypesCompatible(Type lhs, Type rhs) {
-  return lhs == rhs || families::refines(rhs, lhs);
+  Type crossed = crossedAs(getOperation(), lhs, rhs);
+  return crossed == rhs || families::refines(rhs, crossed);
 }
 
 void DataMatchOp::getEntrySuccessorRegions(ArrayRef<Attribute> operands,
