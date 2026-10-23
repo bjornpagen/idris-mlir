@@ -290,3 +290,6 @@ definition in `Describes`' drawn arc; then `graphDefinition` and
 `TyConFacts.constructors`; Sites' `nodeValues` keeps two internal
 errors; R-o2's typed local definitions rest on an Idris behaviour L06d
 is confirming.
+- (L16df, by reading) `Types.familyIn`/`constructor` re-read a type's
+  constructors from `TCon` and test `DCon` again with two refusals, the
+  fact `TyConFacts.constructors` now holds: read it there.
