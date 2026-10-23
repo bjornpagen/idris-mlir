@@ -1,0 +1,8 @@
+# isEven and isOdd call each other in tail position, and main calls each
+# where its result is still to be shown, so each returns to more than one
+# place and neither becomes part of the other: each calls the other by a
+# tail call. Each also recurses, so wherever it is inlined into main a call
+# of it is left there, and the Bool it gives main is laid out as it returns
+# it, in place, with nothing re-packed after the call.
+owned: tail-calls=@Main.isEven:@Main.isOdd tail-calls=@Main.isOdd:@Main.isEven
+owned: calls=@Main.main:@Main.isEven results-as-given=@Main.main:@Main.isEven

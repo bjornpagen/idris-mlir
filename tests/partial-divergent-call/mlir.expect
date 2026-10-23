@@ -1,3 +1,7 @@
 # A closed call runs at run time, so after optimization main still calls
 # spin, which never returns, and collatz, which is not known to.
 owned: calls=@Main.main:@Main.spin calls=@Main.main:@Main.collatz
+# Idris proved neither spin's recursion nor collatz's to end, so each may
+# never end however the recursion is compiled, a cycle of calls or a loop,
+# and main, which calls both, may never end either.
+owned: may-diverge=@Main.spin may-diverge=@Main.collatz may-diverge=@Main.main

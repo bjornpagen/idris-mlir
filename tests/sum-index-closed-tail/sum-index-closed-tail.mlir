@@ -3,8 +3,8 @@
 // with a count it may wait first: it moves its vector onto its
 // accumulator, so its result's length is the sum of its two, a term of
 // the index language. @later waits, then tail-calls it, at the same two
-// lengths. @main calls @later at 0 and 3, so the copy of @later at those
-// lengths returns three words in place, since 0 + 3 is 3: a sum whose
+// lengths. @main calls @later at 0 and 3, twice, so the copy of @later at
+// those lengths returns three words in place, since 0 + 3 is 3: a sum whose
 // levels became naturals is the natural they add to. So does the copy of
 // @reverseOnto it tail-calls: inside it each step's call passes the length
 // its match fixed (a cons of 3 has a tail of 2), so it keys the copy at 1
@@ -16,7 +16,11 @@
 // re-packs in place. As written, a step casts the sum `v0 + v2 + 1` to
 // `v0 + v1` under the case's `v1 = v2 + 1`, which the scope rule reads as
 // one term, learning nothing of the sum's parts. Each function recurses,
-// so each copy stays a function wherever another is inlined into it.
+// so each copy stays a function wherever another is inlined into it; and
+// @main calls the copy of @later twice and the copy of @reverseOnto at 0
+// and 3 itself, each where no tail is lost, so each returns to more than
+// one place and neither becomes a join point of its one tail caller, which
+// would leave the properties no call to read.
 #Vect = #idr.family<"Vect" [nat] {
     @Nil where 0 ()
     @Cons <nat> where v0 + 1 (i64, !idr.self[v0])
@@ -37,6 +41,10 @@ idr.program @reversal root(@main) stage(first) {
     %v3 = idr.data.con(%x : i64, %v2 : !V2) : !V3
     %k = arith.constant 2 : i64
     %r = idr.call @later(%nil, %v3, %k) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
+    %once = arith.constant 1 : i64
+    %s = idr.call @later(%nil, %v3, %once) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
+    %now = arith.constant 0 : i64
+    %t = idr.call @reverseOnto(%nil, %v3, %now) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
     idr.return
   }
   idr.func <{binders = #idr.index_binders<[nat, nat]>}> @later(%acc: !Acc, %xs: !Xs, %k: i64) -> !Both {
