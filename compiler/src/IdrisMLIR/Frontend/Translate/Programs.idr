@@ -493,7 +493,7 @@ joinLocals fc root fns = do
 ||| to decide, from each type, once.
 assemble : FC -> Facts -> TFn -> Front Source
 assemble fc t root = do
-  let fams = mapMaybe (\f => lookup f t.families) (t.familyOrder <>> [])
+  let fams = mapMaybe (declaredIn t) (t.familyOrder <>> [])
       fns = mapMaybe (\n => lookup n t.fns) (t.fnOrder <>> [])
   (root', others) <- joinLocals fc root fns
   pure (MkSource (groupsOf fams) root' others)

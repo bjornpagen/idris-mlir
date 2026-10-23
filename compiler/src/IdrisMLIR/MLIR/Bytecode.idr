@@ -422,10 +422,13 @@ spanNumber w file s = do
     number1 : Int -> Nat
     number1 n = cast (n + 1)
 
-||| Where code is, as a location of builtin's records: a span of a file; or,
-||| in no file, `UnknownLoc`, since a location names a file.
+||| Where code is, as a location of builtin's records: a span of a file; a
+||| span of a module the session never read, as the location gives it, the
+||| module's name standing for its file (`Text.placeText`); or, in no file,
+||| `UnknownLoc`, since a location names a file.
 placeNumber : Writer -> Located -> W AttrRef
 placeNumber w (InModule _ (Just file) s) = spanNumber w file s
+placeNumber w (InUnreadModule m s) = spanNumber w (show m) s
 placeNumber w (InPackage file s) = spanNumber w file s
 placeNumber w (InModule _ Nothing _) = attrEntry w BuiltinDialect encodeUnknownLoc
 placeNumber w Unlocated = attrEntry w BuiltinDialect encodeUnknownLoc

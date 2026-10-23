@@ -32,9 +32,10 @@ import Data.Vect
 ------------------------------------------------------------------------------
 
 ||| A definition's place in the context: its index, and the index's bits,
-||| the lowest first, which a walk's tree is entered by. Only `placementOf`
-||| makes one, so every placement is of a non-negative index, and its path
-||| is that index's.
+||| the lowest first, which a walk's tree is entered by. Only `placementAt`
+||| and `placementOf` make one, each of an index known not to be negative,
+||| so every placement is of a non-negative index, and its path is that
+||| index's.
 export
 record Placement where
   constructor MkPlacement
@@ -47,11 +48,18 @@ bitsOf : {d : Nat} -> Int -> Vect d Bool
 bitsOf {d = Z} _ = []
 bitsOf {d = S k} i = (mod i 2 == 1) :: bitsOf (div i 2)
 
-||| The placement of a context index. An `Int` is 64 bits, so a
-||| non-negative one is its 63 lowest bits, and two indices have two paths.
-||| A negative index is no place: Idris's terms carry a bare `Int`
-||| (`Resolved`, a nested name's parent), which the type does not keep
-||| from being negative, so that case is the problem's, not this type's.
+||| The placement of a context index known not to be negative: an `Int` is
+||| 64 bits, so a non-negative one is its 63 lowest bits, and two indices
+||| have two paths. A reader that holds the entry a name resolved to, with
+||| the evidence that it is not negative, places it with no second lookup.
+export
+placementAt : (i : Int) -> (0 _ : (i < 0) = False) -> Placement
+placementAt i _ = MkPlacement i (bitsOf i)
+
+||| The placement of a context index (`placementAt`). A negative index is
+||| no place: Idris's terms carry a bare `Int` (`Resolved`, a nested name's
+||| parent), which the type does not keep from being negative, so that
+||| case is the problem's, not this type's.
 export
 placementOf : Int -> Maybe Placement
 placementOf i = if i < 0 then Nothing else Just (MkPlacement i (bitsOf i))

@@ -3381,6 +3381,14 @@ export
 0 definedPlaced : Defines ctx n d -> (i : Int ** (getNameID n (gamma (defsOf ctx)) = Just i, (i < 0) = False))
 definedPlaced (AtEntry {i} (ResolvedAs found) held) = (i ** (found, entryPlaced {ctx} {i} held))
 
+||| The entry a name resolved to, where the context defines it, is at a
+||| non-negative index: the definition is at the one entry the name
+||| resolves to. A reader that holds the entry `definitionIn` found places
+||| it with no second resolution.
+export
+0 resolvedPlaced : Resolves ctx n i -> Defines ctx n d -> (i < 0) = False
+resolvedPlaced r (AtEntry {i = j} r' held) = replace {p = \k => (k < 0) = False} (resolvesOnce r' r) (entryPlaced {ctx} {i = j} held)
+
 0 resolvedInjective : Resolved i = Resolved j -> i = j
 resolvedInjective Refl = Refl
 

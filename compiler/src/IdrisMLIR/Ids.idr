@@ -38,15 +38,16 @@ record FamilyId where
   constructor MkFamilyId
   index : Nat
 
-||| A constructor of a family instance: the family, and the constructor's
-||| position among its type's constructors, which is Idris's tag for it.
-||| Its name is printed from the context that declares it (`Con.name`).
+||| A constructor of a family instance of `tags` constructors: the family,
+||| and the constructor's position among them, which is Idris's tag for it,
+||| so a constructor's identity is read off its family's table at that
+||| position and at no other. Its name is printed from the context that
+||| declares it (`Con.name`).
 public export
-record ConId where
+record ConId (tags : Nat) where
   constructor MkConId
   family : FamilyId
-  {0 arity : Nat}
-  index : Fin arity
+  index : Fin tags
 
 ||| A strongly connected component of Idris's own call graph, whose
 ||| size-change graphs Idris keeps: by its place in the table of components
@@ -167,11 +168,11 @@ export Eq FamilyId where a == b = a.index == b.index
 export Ord FamilyId where compare a b = compare a.index b.index
 export Show FamilyId where show f = "family " ++ show f.index
 
-export Eq ConId where a == b = a.family == b.family && finToNat a.index == finToNat b.index
-export Ord ConId where compare a b = compare (a.family, finToNat a.index) (b.family, finToNat b.index)
+export Eq (ConId tags) where a == b = a.family == b.family && a.index == b.index
+export Ord (ConId tags) where compare a b = compare (a.family, a.index) (b.family, b.index)
 -- The identity, for the compiler's own errors: what a user or a test reads
 -- names a constructor by `Con.name`.
-export Show ConId where show c = show c.family ++ "#" ++ show (finToNat c.index)
+export Show (ConId tags) where show c = show c.family ++ "#" ++ show (finToNat c.index)
 
 export Eq ComponentId where a == b = a.index == b.index
 export Ord ComponentId where compare a b = compare a.index b.index

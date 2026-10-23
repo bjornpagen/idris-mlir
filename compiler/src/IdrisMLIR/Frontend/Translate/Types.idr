@@ -364,32 +364,27 @@ shortName : Name -> String
 shortName (NS _ n) = shortName n
 shortName n = show n
 
-||| A constructor's identity in a family instance: its tag as a position
-||| among the constructors of the type its result is. Nothing when the
-||| definition is no constructor, its type's constructors are not known,
-||| or its tag is past them.
+-- The position a tag names among a family's constructors, when it names
+-- one.
+tagIn : Integer -> Vect n a -> Maybe (Fin n)
+tagIn _ [] = Nothing
+tagIn 0 (_ :: _) = Just FZ
+tagIn t (_ :: xs) = FS <$> tagIn (t - 1) xs
+
+||| A definition as a constructor of a data family, with its layout: the
+||| constructor at the position its tag names (Idris's tag is its place
+||| among its type's constructors, which the family's layouts are in),
+||| when the layout there is this definition's. Nothing for a definition
+||| that is no constructor of the family: no constructor at all, a tag
+||| past the family's constructors, or another type's constructor.
 export
-conIdOf : {auto c : Ref Ctxt Defs} -> FamilyId -> Defined -> Front (Maybe ConId)
-conIdOf inst con = do
-  let DCon tag _ _ = definition con.def
-    | _ => pure Nothing
-  -- The type as written may hide its binders behind a definition (`a -@ b`
-  -- is `(1 _ : a) -> b`), so the type constructor is read off its normal
-  -- form, as `constructor` reads the layout.
-  Just tn <- built <$> normaliseClosed con.type
-    | Nothing => pure Nothing
-  Just tc <- defined tn
-    | Nothing => pure Nothing
-  let TCon _ _ _ _ _ (Just cons) _ = definition tc.def
-    | _ => pure Nothing
-  pure (MkConId inst <$> integerToFin (cast tag) (length cons))
-  where
-    -- The type constructor a constructor's type ends in, under its binders.
-    built : TT vs -> Maybe Name
-    built (Bind _ _ (Pi {}) sc) = built sc
-    built tm = case getFnArgs tm of
-      (Ref _ (TyCon _) tn, _) => Just tn
-      _ => Nothing
+constructorIn : (df : DataFamily) -> Defined -> Maybe (ConId df.tags, ConLayout)
+constructorIn df con = case definition con.def of
+  DCon tag _ _ => do
+    at <- tagIn (cast tag) df.layouts
+    let layout = Data.Vect.index at df.layouts
+    if layout.name == fullname con.def then Just (MkConId df.id at, layout) else Nothing
+  _ => Nothing
 
 ||| Is a value of a type at an instance a member, by the one rule the member
 ||| table is read by (`Boundary.choiceHolding` and kin)? At an instance's
@@ -456,7 +451,9 @@ compileTimeBinder rig ty = case use rig of
     polymorphicType ty
 
 ||| A choice registered by what it is a choice of, once, with no
-||| constructor yet: a choice no value is ever made of is uninhabited.
+||| constructor yet: a choice no value is ever made of is uninhabited. Its
+||| family is declared from the choice itself (`choiceDeclared`), its
+||| constructors its members.
 registeredChoice : {auto s : Ref TState TS} -> ChoiceKey -> InstanceKey -> ClosedTerm -> Loc -> Front Choice
 registeredChoice k key ty loc = do
   st <- getState
@@ -464,10 +461,9 @@ registeredChoice k key ty loc = do
     Just choice => pure choice
     Nothing => do
       let fam = MkFamilyId st.derived.facts.nextFamily
-      let choice = MkChoice fam ty [<]
+      let choice = MkChoice fam key ty loc [<]
       updateState (derive { choiceIds $= insert k fam, nextFamily $= S
                           , choices $= insert fam choice
-                          , families $= insert fam (MkFamily fam key None [] [] loc)
                           , familyOrder $= (:< fam) })
       pure choice
 
@@ -537,19 +533,29 @@ Descending reg = Accessible (Extends (Universe forms addresses reg.sizes) id) (l
 offEmpty Here impossible
 offEmpty (There _) impossible
 
--- Whether a link is on the chain: the identity minted for it there, or
--- that it is not on it.
+-- Whether a link is on the chain: the identity minted for it there, which
+-- only a chain with a link on it has, or that it is not on it.
 data OnChain : Link Form -> List (Link Form, FamilyId) -> Type where
-  Minted : FamilyId -> OnChain l ls
+  Minted : FamilyId -> (0 _ : NonEmpty ls) -> OnChain l ls
   Fresh : (0 _ : Not (Elem l (linksOf ls))) -> OnChain l ls
 
 onChain : (l : Link Form) -> (ls : List (Link Form, FamilyId)) -> OnChain l ls
 onChain l [] = Fresh offEmpty
 onChain l ((k, fam) :: ks) = case elemLink l [k] of
-  Yes _ => Minted fam
+  Yes _ => Minted fam IsNonEmpty
   No notK => case onChain l ks of
-    Minted f => Minted f
+    Minted f _ => Minted f IsNonEmpty
     Fresh ne => Fresh (neitherHereNorThere (\eq => notK (replace {p = \x => Elem l [x]} eq Here)) ne)
+
+||| The data family a type is an instance of, as registering finds it:
+||| entered in the table whole, or being registered further up the chain
+||| (the type is the family itself, or one whose fields name it, met while
+||| its constructors are read), with only the identity minted for it, its
+||| record made once its last constructor is read. Only a chain with a link
+||| on it has a family being registered.
+data Registration : List (Link Form, FamilyId) -> Type where
+  Entered : DataFamily -> Registration ls
+  Underway : FamilyId -> (0 _ : NonEmpty ls) -> Registration ls
 
 -- A chain of links keyed by themselves is itself.
 0 keyedBySelf : (ls : List (Link Form)) -> map Prelude.Basics.id ls = ls
@@ -779,20 +785,22 @@ mutual
     (Local {}, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => do reject fc owner rule ("unsupported runtime type " ++ !(showTT (close g tm)))
 
-  ||| Registers a family instance, once, and gives the type of a value of
-  ||| it at the index terms its arguments give. A family is the type
-  ||| constructor at the arguments its key holds; its indices are the
+  ||| Registers a family instance, once, and gives it and the type of a
+  ||| value of it at the index terms its arguments give. A family is the
+  ||| type constructor at the arguments its key holds; its indices are the
   ||| positions the key does not hold, each read into an index term
   ||| (`indexTerm`). Its identity is minted before its constructors are
-  ||| read, so a field of the family itself finds it: a recursive family
-  ||| names itself. Registering descends on the room the chain leaves among
-  ||| the links within the growth check's bounds (`Descending`): a new
-  ||| instance is checked against those bounds and pushed. A data type
-  ||| whose fields need ever larger instances of itself (`data T a = L a |
-  ||| N (T (a, a))`) is refused before translation, by the growth phase.
+  ||| read and kept on the chain, so a field of the family itself finds it
+  ||| there (`Underway`): a recursive family names itself. Its record is
+  ||| made, and entered in the table, once its last constructor is read.
+  ||| Registering descends on the room the chain leaves among the links
+  ||| within the growth check's bounds (`Descending`): a new instance is
+  ||| checked against those bounds and pushed. A data type whose fields
+  ||| need ever larger instances of itself (`data T a = L a | N (T (a,
+  ||| a))`) is refused before translation, by the growth phase.
   familyIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (chain : Registering) -> (0 _ : Descending chain) ->
-             FC -> String -> Name -> List ClosedTerm -> Front (FamilyId, Ty)
+             FC -> String -> Name -> List ClosedTerm -> Front (Registration chain.links, Ty)
   familyIn chain (Access rec) fc owner tcon args0 = do
     tc <- lookupDef fc owner tcon
     let def = tc.def
@@ -813,15 +821,15 @@ mutual
     indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
     (address, found) <- instanceKey fc owner (fullname def) (.form) statics
     st <- getState
-    case lookupFact (.familyIds) found.link st of
-      Just fam => pure (fam, DataT fam indices)
+    case lookupFact (.familiesAt) found.link st of
+      Just df => pure (Entered df, DataT df.id indices)
       Nothing => case onChain found.link chain.links of
         -- A link on the chain had its identity minted before its
         -- constructors were read, which the chain keeps with it.
-        Minted fam => pure (fam, DataT fam indices)
+        Minted fam onIt => pure (Underway fam onIt, DataT fam indices)
         Fresh fresh => do
           let fam = MkFamilyId st.derived.facts.nextFamily
-          updateState (derive { familyIds $= insert found.link fam, nextFamily $= S })
+          updateState (derive { nextFamily $= S })
           let what = keyText found.key ++ ", registered,"
           boundsHold fc what address statics
           inside <- sizedWithin fc what chain.sizes found.link
@@ -831,18 +839,20 @@ mutual
             | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
           loc <- toLoc (location def)
           sorts <- indexSorts tc (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
-          conList <- traverse (constructor (MkRegistering chain.sizes ((found.link, fam) :: chain.links))
-                                           (rec (found.link :: linksOf chain.links)
-                                                (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
-                                                        inside.member))
-                                           fc owner fam found.link args params roles)
-                              datacons
-          let sorted = sortBy (\(a, _), (b, _) => compare (snd a).tag (snd b).tag) conList
-          let cons = map fst sorted
-          promise <- promised tname (namedHooks tc.registered).sumShape cons
-          updateState (derive { families $= insert fam (MkFamily fam found.key promise sorts cons loc)
+          -- Each constructor is read at its place in the type's list, which
+          -- is its tag (`constructor`), so the layouts are in tag order.
+          layouts <- traverse (\(place, dcon) =>
+                                 constructor (MkRegistering chain.sizes ((found.link, fam) :: chain.links))
+                                             (rec (found.link :: linksOf chain.links)
+                                                  (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
+                                                          inside.member))
+                                             fc owner fam place found.link args params roles dcon)
+                              (Data.Vect.zip (allFins (length datacons)) (Data.Vect.fromList datacons))
+          promise <- promised tname (namedHooks tc.registered).sumShape (toList (map layoutCon layouts))
+          let df = MkDataFamily fam found.key promise sorts layouts loc
+          updateState (derive { familiesAt $= insert found.link df, dataFamilies $= insert fam df
                               , familyOrder $= (:< fam) })
-          pure (fam, DataT fam indices)
+          pure (Entered df, DataT fam indices)
     where
       -- What the registry promises of the family's values, where its entry
       -- meets the family's constructors: a promise to rebuild them in
@@ -868,25 +878,31 @@ mutual
             if elem i ps then (:: rest) <$> sortOfType !(normaliseClosed (close g a)) else pure rest
           go g i _ = pure []
 
-  ||| A constructor of a family being registered, with its arguments'
-  ||| kinds, registered too: its erased binders (the quantity-0 arguments an
-  ||| index of its result or a field's type names, renumbered as levels of
-  ||| its own scope in order), its equation (the index terms its result
-  ||| type gives) and its fields. The translation holds a field's type with
-  ||| the constructor's levels outside the language, since a field read in
-  ||| a body is at the scope's levels, which the match gives it.
+  ||| A constructor of a family being registered, at its place among its
+  ||| type's constructors, as its layout: its arguments' kinds, its erased
+  ||| binders (the quantity-0 arguments an index of its result or a field's
+  ||| type names, renumbered as levels of its own scope in order), its
+  ||| equation (the index terms its result type gives) and its fields. The
+  ||| translation holds a field's type with the constructor's levels
+  ||| outside the language, since a field read in a body is at the scope's
+  ||| levels, which the match gives it.
   constructor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (chain : Registering) -> (0 _ : Descending chain) ->
-                FC -> String -> FamilyId -> Link Form -> List ClosedTerm -> List Nat -> List Role -> Name ->
-                Front ((k ** Con k), List ArgKind)
-  constructor chain acc fc owner fam link targs ps roles dcon = do
+                FC -> String -> FamilyId -> {0 tags : Nat} -> Fin tags -> Link Form -> List ClosedTerm -> List Nat ->
+                List Role -> Name -> Front ConLayout
+  constructor chain acc fc owner fam place link targs ps roles dcon = do
     dc <- lookupDef fc owner dcon
     let def = dc.def
     let cname = show (fullname def)
-    DCon _ arity _ <- pure (definition def)
+    DCon tag arity _ <- pure (definition def)
       | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
-    Just cid <- conIdOf fam dc
-      | Nothing => reject fc owner CompiledModule (cname ++ " is not a constructor")
+    -- Idris tags a type's constructors in the order its declaration lists
+    -- them, from 0, and a match or an application reads a constructor's
+    -- layout at its tag: one listed at another place than its tag is
+    -- refused, as the compiled module it is.
+    unless (tag == cast (finToNat place)) $
+      reject fc owner CompiledModule (cname ++ " has the tag " ++ show tag ++ ", but its type lists it at " ++
+                                      show (finToNat place))
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
@@ -916,10 +932,9 @@ mutual
     let fields = map (\b => { type $= relevelTy renumber } b) fields0
         equation = relevelTerms renumber equation0
         unlinkedKinds = map unlinked walked.kinds
-        con = MkCon cid (shortName (fullname def)) binders equation
+        con = MkCon (MkConId fam place) (shortName (fullname def)) binders equation
                     (replace {p = \n => Vect n Binder} (sym (unlinkedCount walked.kinds)) fields) loc
-    updateState (derive { cons $= insert cid (MkConLayout unlinkedKinds (fullname def) con) })
-    pure ((fieldCount unlinkedKinds ** con), unlinkedKinds)
+    pure (MkConLayout unlinkedKinds (fullname def) con)
     where
       findIndex' : Nat -> List Nat -> Maybe Nat
       findIndex' k ks = finToNat <$> findIndex (== k) ks
@@ -952,23 +967,6 @@ mutual
         pure ({ kinds $= (ErasedArg ::), erasedTypes $= ((at, close g a) ::) } w)
   walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkWalked [] [] (close g t))
 
-  ||| The family a type names, when it is a data type and not a natural, a
-  ||| machine word or an array of either kind: the family, and the type of
-  ||| its values at the type's index terms.
-  dataOfIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (chain : Registering) -> (0 _ : Descending chain) ->
-             Given vars -> FC -> String -> TT vars -> Front (Maybe (FamilyId, Ty))
-  dataOfIn chain acc g fc owner tm = case getFnArgs tm of
-    (Ref _ (TyCon _) n, args) => do
-      tc <- lookupDef fc owner n
-      let hs = namedHooks tc.registered
-      case (!(tyConFacts tc)).natness of
-        Chain => pure Nothing
-        _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
-               args' <- traverse (normaliseClosed . close g) args
-               Just <$> familyIn chain acc fc owner n args'
-    _ => pure Nothing
-
   ||| The binder of a position of this type at this quantity: the Core type
   ||| at the quantity Idris gave the position.
   coreBinderIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -993,12 +991,33 @@ coreType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            {cat : Category} -> FC -> String -> Rule cat -> ClosedTerm -> Front Ty
 coreType fc owner rule = outermost (\chain, acc, g => coreTypeIn chain acc g fc owner rule)
 
-||| The family a closed type names, when it is a data type and not a
-||| natural, a machine word or an array of either kind (`dataOfIn`).
+-- A chain with no link on it has no family being registered.
+wholeAtStart : Registration [] -> DataFamily
+wholeAtStart (Entered df) = df
+wholeAtStart (Underway _ IsNonEmpty) impossible
+
+||| The data family a closed type names, when it is a data type and not a
+||| natural, a machine word or an array of either kind: read from the start
+||| of a registration, where no family is being registered, so registered
+||| whole (`familyIn`), with the type of its values at the type's index
+||| terms.
 export
 dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         FC -> String -> ClosedTerm -> Front (Maybe (FamilyId, Ty))
-dataOf fc owner = outermost (\chain, acc, g => dataOfIn chain acc g fc owner)
+         FC -> String -> ClosedTerm -> Front (Maybe (DataFamily, Ty))
+dataOf fc owner ty = do
+  b <- (.sizes) <$> getState
+  tm <- normaliseClosed ty
+  case getFnArgs tm of
+    (Ref _ (TyCon _) n, args) => do
+      tc <- lookupDef fc owner n
+      let hs = namedHooks tc.registered
+      case (!(tyConFacts tc)).natness of
+        Chain => pure Nothing
+        _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
+               args' <- traverse (normaliseClosed . close none) args
+               (found, t) <- familyIn (MkRegistering b []) (started b) fc owner n args'
+               pure (Just (wholeAtStart found, t))
+    _ => pure Nothing
 
 ||| The binder of a position of a closed type at the quantity its value is
 ||| used at (`coreBinderIn`). A position of quantity 0 binds no runtime

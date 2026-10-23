@@ -18,6 +18,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry.Libraries
+import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -539,11 +540,50 @@ record ConLayout where
   name : Name
   con : Con (fieldCount args)
 
+||| A constructor as Emit's term holds it, with its count of fields.
+export
+layoutCon : ConLayout -> (k ** Con k)
+layoutCon l = (fieldCount l.args ** l.con)
+
+%prefix_record_projections off
+
+||| A data family as the translation registered it: what Emit declares of
+||| it (its identity, its key, what its library promises of its values,
+||| the sorts of its erased indices, its location), and each constructor's
+||| layout, in tag order, so that a constructor's tag is its position
+||| among them (`ConId tags`) and its layout is read there. The record is
+||| made once its last constructor is read: a family its own fields name
+||| has an identity before it has a record (`Types.familyIn`). What crosses
+||| into Emit's term is its declaration (`dataDeclared`), which holds no TT.
+public export
+record DataFamily where
+  constructor MkDataFamily
+  id : FamilyId
+  key : InstanceKey
+  promise : Promise
+  indices : List Sort
+  {0 tags : Nat}
+  layouts : Vect tags ConLayout
+  loc : Loc
+
+%prefix_record_projections on
+
+||| A data family as Emit declares it: its constructors are its layouts'.
+export
+dataDeclared : DataFamily -> Family
+dataDeclared df = MkFamily df.id df.key df.promise df.indices (toList (map layoutCon df.layouts)) df.loc
+
 ||| The constructor of a member of a choice: one with no field, for an
 ||| implementation that closes over no runtime value, or one whose one
 ||| field holds the values it captures (`Holes`), as a closure's does.
 public export
 data MemberCon = Bare (Con 0) | Capturing Holes (Con 1)
+
+||| A member's constructor, whatever its field.
+export
+memberCon : MemberCon -> (k ** Con k)
+memberCon (Bare c) = (0 ** c)
+memberCon (Capturing _ c) = (1 ** c)
 
 ||| An implementation the program fixes as a value of its interface type,
 ||| one constructor of that type's choice (`Choices`): its form, the
@@ -578,16 +618,27 @@ Ord ChoiceKey where
 
 ||| The closed sum of the implementations of one interface type, or of the
 ||| polymorphic functions of one function type, that the program fixes as
-||| runtime values: its family, the type, and its members in the order the
-||| translation found them, each the next constructor. It only grows, and
-||| a dispatch on it is built once the translation has found every member
-||| (`Choices.dispatchers`).
+||| runtime values: its family, numbered with the data families, and the
+||| key and location Emit declares it with, the type, and its members in
+||| the order the translation found them, each the next constructor. It
+||| only grows, and a dispatch on it is built once the translation has
+||| found every member (`Choices.dispatchers`). Its members are its only
+||| constructors: no layout is read of a choice, since no Idris
+||| constructor builds or matches one.
 public export
 record Choice where
   constructor MkChoice
   family : FamilyId
+  key : InstanceKey
   type : ClosedTerm
+  loc : Loc
   members : SnocList ChoiceMember
+
+||| A choice as Emit declares it: a family that promises nothing and has no
+||| index, its constructors its members' so far.
+export
+choiceDeclared : Choice -> Family
+choiceDeclared ch = MkFamily ch.family ch.key None [] (map (\m => memberCon m.con) (ch.members <>> [])) ch.loc
 
 ||| The parameter a dispatch finds its choice in, as its kind holds it: the
 ||| parameter takes the choice, of this binder and type (`Given`), and the
@@ -996,9 +1047,10 @@ definedIn r n = case readOf r n of
 %prefix_record_projections on
 
 ||| What the translation derives of the program, each fact by its
-||| content: the family instances, each by its link, its identity numbered
-||| once (the next number `nextFamily`), each by its identity, and in the
-||| order registered; their constructors; the function instances
+||| content: the data family instances (`DataFamily`, which holds its
+||| constructors' layouts), each by its link and by its identity, numbered
+||| once (the next number `nextFamily`) with the choices', and every
+||| family in the order registered; the function instances
 ||| requested, each by its identity, which is its content (requesting one
 ||| derives it, and nothing mints it), with its signature, read once where
 ||| it was first requested, in the order first requested, and the
@@ -1021,11 +1073,10 @@ definedIn r n = case readOf r n of
 public export
 record Facts where
   constructor MkFacts
-  familyIds : SortedMap (Link Form) FamilyId
+  familiesAt : SortedMap (Link Form) DataFamily
   nextFamily : Nat
-  families : SortedMap FamilyId Family
+  dataFamilies : SortedMap FamilyId DataFamily
   familyOrder : SnocList FamilyId
-  cons : SortedMap ConId ConLayout
   instances : SortedMap FnId InstanceSig
   fnOrder : SnocList FnId
   fns : SortedMap FnId TFn
@@ -1040,7 +1091,7 @@ record Facts where
 ||| No fact.
 export
 noFacts : Facts
-noFacts = MkFacts empty 0 empty [<] empty empty [<] empty empty empty empty empty empty empty empty
+noFacts = MkFacts empty 0 empty [<] empty [<] empty empty empty empty empty empty empty empty
 
 ||| What one step of the translation derived (`Programs.step`): the facts it
 ||| made or changed, among them its instance's function, by its identity,
@@ -1068,8 +1119,8 @@ export
 merged : Facts -> Derived -> Facts
 merged t d =
   let f = d.facts in
-  MkFacts (over f.familyIds t.familyIds) f.nextFamily (over f.families t.families) (t.familyOrder ++ f.familyOrder)
-          (over f.cons t.cons) (over f.instances t.instances)
+  MkFacts (over f.familiesAt t.familiesAt) f.nextFamily (over f.dataFamilies t.dataFamilies) (t.familyOrder ++ f.familyOrder)
+          (over f.instances t.instances)
           (t.fnOrder ++ f.fnOrder) (over f.fns t.fns) (over f.named t.named) (over f.keyLinks t.keyLinks)
           (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatchesOn t.dispatchesOn)
           (over f.dispatchArms t.dispatchArms) (over f.readings t.readings)
@@ -1147,11 +1198,18 @@ export
 requestedBefore : FnId -> TS -> Maybe InstanceSig
 requestedBefore = lookupFact (.instances)
 
-||| A family registered, by its identity, as the step being run reads it
-||| (`lookupFact`).
+||| A family registered, by its identity, as Emit declares it: a data
+||| family's (`dataDeclared`), or a choice's with the members found so far
+||| (`choiceDeclared`).
+export
+declaredIn : Facts -> FamilyId -> Maybe Family
+declaredIn t fam = (dataDeclared <$> lookup fam t.dataFamilies) <|> (choiceDeclared <$> lookup fam t.choices)
+
+||| A family registered, by its identity, as Emit declares it, as the step
+||| being run reads it (`lookupFact`).
 export
 familyOf : FamilyId -> TS -> Maybe Family
-familyOf = lookupFact (.families)
+familyOf fam st = (dataDeclared <$> lookupFact (.dataFamilies) fam st) <|> (choiceDeclared <$> lookupFact (.choices) fam st)
 
 ||| The state with what the step being run has derived changed by `f`: the
 ||| one write of the instance table's facts a step makes.

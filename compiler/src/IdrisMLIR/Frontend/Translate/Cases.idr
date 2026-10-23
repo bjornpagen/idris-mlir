@@ -574,20 +574,18 @@ mutual
       -- value's own, or, where its binder gives none (a suspension's
       -- value, a value a settled term computes), the type Idris's tree
       -- gives the value it matches, which every match carries.
-      instanceOf : VarInfo kc OfTree (Fin nv) -> Defined -> Front FamilyId
+      instanceOf : VarInfo kc OfTree (Fin nv) -> Defined -> Front DataFamily
       instanceOf v con = do
         st <- getState
         let cn = fullname con.def
-        fromCore <- case coreTyOf v of
-                      Just (DataT d _) => do
-                        Just cid <- conIdOf d con
-                          | Nothing => pure Nothing
-                        pure (case lookupFact (.cons) cid st of
-                                Just layout => if layout.name == cn then Just d else Nothing
-                                Nothing => Nothing)
-                      _ => pure Nothing
+        -- The Core type may name a choice, or the family of the one field
+        -- a value of a type with one runtime field has, neither of which
+        -- has this constructor: the Idris type names its family then.
+        let fromCore = case coreTyOf v of
+                         Just (DataT d _) => lookupFact (.dataFamilies) d st >>= \df => df <$ constructorIn df con
+                         _ => Nothing
         case fromCore of
-          Just d => pure d
+          Just df => pure df
           Nothing => do
             ity' <- normaliseClosed (maybe (closeWritten ctx.fc env scTy) id (idrisTypeOf v))
             -- A constructor's type that names no family is one the
@@ -595,7 +593,7 @@ mutual
             -- abstract, which only the functions the registry knows open,
             -- their bodies not translated; an ordered array or a machine
             -- word likewise.
-            Just (inst, _) <- dataOf ctx.fc ctx.owner ity'
+            Just (df, _) <- dataOf ctx.fc ctx.owner ity'
               | Nothing => do
                   Just _ <- arrayView ity'
                     | Nothing => reject ctx.fc ctx.owner HookShape
@@ -603,7 +601,7 @@ mutual
                                     "its constructor is matched")
                   reject ctx.fc ctx.owner HookShape
                          ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
-            pure inst
+            pure df
 
       -- A match on a runtime value's constructors, the first `cn`.
       constructors : Loc -> VarInfo kc OfTree (Fin nv) -> Fin nv -> (cn : Name) -> (as : List (CaseAlt vars)) ->
@@ -620,20 +618,18 @@ mutual
             ity <- valueType v
             natCase ctx env cls scrutinee shape loc i ity as cons
           _ => do
-            inst <- instanceOf v con
+            df <- instanceOf v con
             every <- coversAll as
             built <- builtNamed shape as
-            (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst as cons
+            (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df as cons
             -- The constructors a tree with no default leaves out are one
             -- default: impossible when the definition is covering, a
             -- crash otherwise.
             let crashing = case (fallback, ctx.complete) of
-                             (Absent, False) => case familyOf inst !(getState) of
-                               Just f => if all (\(_ ** c) => contains c.id named) f.cons
-                                           then Absent else Present (missingCase ctx loc)
-                               Nothing => Absent
+                             (Absent, False) => if all (\l => contains l.con.tag named) df.layouts
+                                                  then Absent else Present (missingCase ctx loc)
                              _ => fallback
-            pure (armsOf loc inst i conAlts crashing)
+            pure (armsOf loc df.id i conAlts crashing)
 
       -- A match on a runtime value, by what its alternatives match
       -- (`route`): a suspension's form, constructors (a natural's, one
@@ -983,25 +979,20 @@ mutual
   ||| is no possible one.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-                    Maybe ClosedTerm -> Bool -> Bool -> FamilyId ->
+                    Maybe ClosedTerm -> Bool -> Bool -> DataFamily ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
-                    Front (SortedSet ConId, List (Alt nv), Arm (Term nv))
-  conAlternatives ctx env cls scrutinee shape every built inst [] _ = pure (empty, [], Absent)
-  conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) cons = do
+                    Front (SortedSet Nat, List (Alt nv), Arm (Term nv))
+  conAlternatives ctx env cls scrutinee shape every built df [] _ = pure (empty, [], Absent)
+  conAlternatives ctx env cls scrutinee shape every built df (ConCase cn _ args rhs :: rest) cons = do
     found <- lookupDef ctx.fc ctx.owner cn
     let def = found.def
-    -- Its tag is its place among its type's constructors, which the family
-    -- was registered with: Idris's numbering. The checked module's tree is
+    -- Its tag is its place among its type's constructors, where the family
+    -- holds its layout: Idris's numbering. The checked module's tree is
     -- where the frontend first reads the constructor a match names, so one
     -- its type does not list is refused here, as the compiled module it is.
-    Just cid <- conIdOf inst found
+    let Just (cid, info) = constructorIn df found
       | Nothing => reject ctx.fc ctx.owner CompiledModule
                           ("a match names " ++ show (fullname def) ++ ", which its type does not list as a constructor")
-    -- The family's registration wrote a layout for each of its
-    -- constructors, in a table its identities key, whose type does not say
-    -- every identity it mints has one.
-    let Just info = lookupFact (.cons) cid !(getState)
-      | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
     let Yes bound = decEq (length info.args) (length args)
       | No _ => reject ctx.fc ctx.owner CompiledModule
                        ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
@@ -1016,8 +1007,8 @@ mutual
     alt <- if dead then pure Nothing else do
       body <- tree ({ depth $= (+ length info.con.binders) } ctx) (under {k} infos env) (afterCon args scrutinee cls) rhs
       pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
-    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest (nextCon cons)
-    pure (insert cid others, maybe alts (:: alts) alt, fallback)
+    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df rest (nextCon cons)
+    pure (insert (finToNat cid.index) others, maybe alts (:: alts) alt, fallback)
     where
       -- Runtime field `i` is the alternative's `Bound i`, of its type in
       -- scope, with what the value's shape says of it.
@@ -1027,14 +1018,14 @@ mutual
           Just s' => shaped (Bound {n = nv} f) t ity s'
           Nothing => Runtime (Bound {n = nv} f) (BothTypes t ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
-  conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) _ =
+  conAlternatives ctx env cls scrutinee shape every built df (DefaultCase rhs :: _) _ =
     if every then pure (empty, [], Absent)
       else if built then pure (empty, [], Dead)
       else (\d => (empty, [], Present d)) <$> tree ctx env cls rhs
   -- A constant: no constructor's value takes its alternative.
-  conAlternatives ctx env cls scrutinee shape every built inst (ConstCase _ _ :: rest) cons =
-    conAlternatives ctx env cls scrutinee shape every built inst rest (nextConst cons)
-  conAlternatives ctx env cls scrutinee shape every built inst (DelayCase {} :: _) _ impossible
+  conAlternatives ctx env cls scrutinee shape every built df (ConstCase _ _ :: rest) cons =
+    conAlternatives ctx env cls scrutinee shape every built df rest (nextConst cons)
+  conAlternatives ctx env cls scrutinee shape every built df (DelayCase {} :: _) _ impossible
 
   ||| The alternatives of a match on literals, each keyed by its constant,
   ||| and the default when one runs.

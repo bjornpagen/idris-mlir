@@ -8,6 +8,7 @@ module IdrisMLIR.Frontend.Translate.Definitions
 
 import Core.Context
 import Core.Core
+import Idris.Host
 
 import IdrisMLIR.Frontend.Walk
 
@@ -32,6 +33,15 @@ export
                            (a : Address ** definitionAddress ctx n = Just a)
 addressedWhereResolved resolved nonNegative = case placedWhereResolved resolved nonNegative of
   (p ** placed) => (addressOf p ** cong (map addressOf) placed)
+
+||| The address of the entry a name the frozen context defines is at, the
+||| one `definitionIn` found: the entry is at a non-negative index
+||| (`Host.resolvedPlaced`), placed as it is (`Walk.placementAt`), so the
+||| name is not resolved again and no case is left for an entry without an
+||| address.
+export
+definedAddress : (i : Int) -> (0 _ : Resolves ctx n i) -> (0 _ : Defines ctx n d) -> Address
+definedAddress i resolved defines = addressOf (placementAt i (resolvedPlaced resolved defines))
 
 ||| The index of the context an address is (`Walk.addressOf`'s inverse): the
 ||| index whose eight bytes, the low byte first, it is.

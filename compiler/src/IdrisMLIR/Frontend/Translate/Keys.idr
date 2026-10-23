@@ -451,22 +451,6 @@ missingIn ctx tms = firstMissing (foldr namesOf [] tms)
       NotDefined _ => Just n
       DefinedAs {} => firstMissing ns
 
--- A name a frozen context defines resolves to an entry at a non-negative
--- index (`Host.definedPlaced`), which has an address.
-0 addressedWhereDefined : {0 ctx : Context} -> {0 n : Name} ->
-                          definitionAddress ctx n = Nothing ->
-                          (i : Int ** (getNameID n ctx = Just i, (i < 0) = False)) -> Void
-addressedWhereDefined none (i ** (resolved, nonNegative)) = case addressedWhereResolved resolved nonNegative of
-  (a ** addressed) => absurd (trans (sym none) addressed)
-
-||| The address of a name the frozen context defines: every entry the
-||| context reads is at a non-negative index, so a defined name has one,
-||| and no case is left for one without.
-definedAddress : (ctx : Frozen) -> (n : Name) -> (0 _ : Defines ctx n d) -> Address
-definedAddress ctx n defines with (definitionAddress (gamma (defsOf ctx)) n) proof found
-  _ | Just a = a
-  _ | Nothing = void (addressedWhereDefined found (definedPlaced defines))
-
 ||| The zeros and successors of `Nat`-like types the terms name, by address:
 ||| the constructors of no argument and of one that Idris flags as such
 ||| (`natRole`, its metadata, never a name), whose runs `write` writes and
@@ -1100,9 +1084,9 @@ instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 instanceKey fc owner n term given = do
   full <- fullNames n
   ctx <- frozenContext
-  let DefinedAs _ _ _ defines = definitionIn ctx full
+  let DefinedAs i resolved _ defines = definitionIn ctx full
     | NotDefined _ => reject fc owner CompiledModule ("missing definition " ++ show full)
-  let address = definedAddress ctx full defines
+  let address = definedAddress i resolved defines
   (address,) <$> instanceAt fc (show full) (ADefinition address) (keyOrigin full) term given
 
 ||| The instance of a member at a use's types (`AtUse uses`) at its

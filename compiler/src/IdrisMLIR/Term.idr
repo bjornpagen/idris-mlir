@@ -91,7 +91,8 @@ record ConBinder where
   argument : Nat
 
 ||| A constructor of a family instance, of `k` fields: its identity (the
-||| family and its position, Idris's tag), its name within its type, as the
+||| family and its position among the family's constructors, as many as
+||| `familyTags`, Idris's tag), its name within its type, as the
 ||| module labels it (`Types.shortName`); its erased binders, the levels
 ||| `0 .. j-1` of its own scope (Idris's quantity-0 arguments that an index
 ||| of its result or a field's type refers to; a proof no index reads is no
@@ -102,7 +103,8 @@ record ConBinder where
 public export
 record Con (k : Nat) where
   constructor MkCon
-  id : ConId
+  {0 familyTags : Nat}
+  id : ConId familyTags
   name : String
   binders : List ConBinder
   equation : List ITerm

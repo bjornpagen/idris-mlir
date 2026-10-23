@@ -15,11 +15,14 @@ record Span where
   constructor MkSpan
   startLine, startCol, endLine, endCol : Int
 
-||| Where code is: a span of a module, as Idris names the module, and the
-||| module's source file when it is installed; a span of a package's file,
-||| which is in no module; or nowhere, code the compiler generated.
+||| Where code is: a span of a module the session read, as Idris names the
+||| module, and the module's source file when it is installed; a span of a
+||| module the session never read, by the name the location gives it
+||| (reflection can make up a location in any module), with no source; a
+||| span of a package's file, which is in no module; or nowhere, code the
+||| compiler generated.
 public export
-data Located = InModule Shown (Maybe String) Span | InPackage String Span | Unlocated
+data Located = InModule Shown (Maybe String) Span | InUnreadModule Shown Span | InPackage String Span | Unlocated
 
 ||| A location: where the code comes from, as the registry classified its
 ||| module (`origin`, what code tests), and where it is.
@@ -39,6 +42,7 @@ export
 locFile : Loc -> Maybe String
 locFile l = case l.located of
   InModule _ file _ => file
+  InUnreadModule _ _ => Nothing
   InPackage file _ => Just file
   Unlocated => Nothing
 
@@ -48,6 +52,7 @@ export
 locModule : Loc -> Maybe Shown
 locModule l = case l.located of
   InModule m _ _ => Just m
+  InUnreadModule m _ => Just m
   InPackage _ _ => Nothing
   Unlocated => Nothing
 
@@ -56,17 +61,19 @@ export
 locSpan : Loc -> Maybe Span
 locSpan l = case l.located of
   InModule _ _ s => Just s
+  InUnreadModule _ s => Just s
   InPackage _ s => Just s
   Unlocated => Nothing
 
 ||| `file:line:column`, 1-based, for messages; a library module whose
-||| source is not installed is named by its module, and generated code by
-||| no place.
+||| source is not installed, and a module the session never read, is named
+||| by its module, and generated code by no place.
 export
 Show Loc where
   show l = case l.located of
     InModule _ (Just file) s => file ++ at s
     InModule m Nothing s => show m ++ at s
+    InUnreadModule m s => show m ++ at s
     InPackage file s => file ++ at s
     Unlocated => "generated code"
     where

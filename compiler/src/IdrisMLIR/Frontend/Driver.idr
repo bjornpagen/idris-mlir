@@ -292,13 +292,24 @@ refusalOf main r@(ByIdris e) = (Refusal Elaboration, siteOf main r, show e)
 ||| at `out`, in the order found, with no Core and nothing printed, since
 ||| idris-mlir reads and reports them; the status says the program was
 ||| refused. Each refusal's module is the one the modules already read
-||| (none, when Idris could not build the program) hold, or is read at the
-||| home Idris found it in (`moduleRefusals`).
-refusing : {auto c : Ref Ctxt Defs} -> Modules -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
-refusing loaded main out rs = do
-  homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
-  writeRefused out !(moduleRefusals (\m => fromMaybe Project (lookup m homes)) loaded (map (refusalOf main) rs))
+||| (none, when Idris could not build the program) hold, or what `lacking`
+||| says, once the session is done, a module they lack is
+||| (`moduleRefusals`).
+refusing : {auto c : Ref Ctxt Defs} -> Modules -> (lacking : Core (ModuleIdent -> Lacked)) -> (main : NonEmptyFC) ->
+           (out : String) -> List1 Rejection -> Core ()
+refusing loaded lacking main out rs = do
+  lacked <- lacking
+  writeRefused out !(moduleRefusals lacked loaded (map (refusalOf main) rs))
   coreLift (exitWith (ExitFailure 3))
+
+||| What a module a refusal of a session that loaded no program names is,
+||| where no table holds it: one Idris found, read at the home it found it
+||| in; one it found nowhere is the project's module it failed to build,
+||| which it was elaborating when it erred, read as the project's.
+building : {auto c : Ref Ctxt Defs} -> Core (ModuleIdent -> Lacked)
+building = do
+  homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
+  pure (\m => FoundAt (fromMaybe Project (lookup m homes)))
 
 ||| Idris shows an error's location with the lines of the source it read
 ||| last, which is the error's own only for an error found while its file
@@ -321,13 +332,15 @@ perform : {auto c : Ref Ctxt Defs} ->
 perform (Compile timing out source) = do
   main <- mainSite source
   Reloaded m <- built source
-    | NotBuilt errs => refusing SortedMap.empty main out (map ByIdris errs)
+    | NotBuilt errs => refusing SortedMap.empty building main out (map ByIdris errs)
   -- The program loaded, each module's origin, source and name are read
   -- once, before anything locates a term in it: every module the session
   -- read, the main module among them.
   loaded <- modulesOf SortedMap.empty (map (\(ident, home, _) => (ident, home)) !loadedModules)
+  -- The table holds every module the session loaded, so a refusal's
+  -- module it lacks is one the session never read.
   [] <- program loaded m.ident m.file timing out
-    | (r :: rs) => refusing loaded main out (r ::: rs)
+    | (r :: rs) => refusing loaded (pure (const Unloaded)) main out (r ::: rs)
   pure ()
 perform (Check source) = do
   Reloaded _ <- built source
@@ -367,7 +380,7 @@ frontend r = do
     (Compile _ _ _ _, InternalError _) => do
       update ROpts { verbosity := ErrorLvl }
       printed err
-    (Compile _ _ out source, _) => refusing SortedMap.empty !(mainSite source) out (singleton (ByIdris err))
+    (Compile _ _ out source, _) => refusing SortedMap.empty building !(mainSite source) out (singleton (ByIdris err))
     _ => printed err
   where
     printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->

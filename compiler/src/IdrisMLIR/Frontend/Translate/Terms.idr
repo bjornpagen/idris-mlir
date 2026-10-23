@@ -1930,20 +1930,15 @@ mutual
                               "gives it: its constructor is applied")
             reject fc (show (fullname def)) HookShape
                    ("the array type of " ++ show (fullname def) ++ " is opaque: its constructor is applied")
-          (_, Just (inst, _)) => do
-            -- Its tag is its place among its type's constructors, which
-            -- the family was registered with: Idris's numbering. The
+          (_, Just (df, _)) => do
+            -- Its tag is its place among its type's constructors, where
+            -- the family holds its layout: Idris's numbering. The
             -- application is where the frontend first reads the
             -- constructor it builds with, so one its type does not list is
             -- refused here, as the compiled module it is.
-            Just cid <- conIdOf inst d
+            let Just (_, info) = constructorIn df d
               | Nothing => reject fc ctx.owner CompiledModule
                                   ("an application of " ++ show (fullname def) ++ ", which its type does not list as a constructor")
-            -- The family's registration wrote a layout for each of its
-            -- constructors, in a table its identities key, whose type does
-            -- not say every identity it mints has one.
-            let Just info = lookupFact (.cons) cid !(getState)
-              | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
             -- Its fields are the call's runtime arguments, as many as its
             -- layout has, by construction (`asFields`): an implementation
             -- the constructor holds is a field like any other, the value of

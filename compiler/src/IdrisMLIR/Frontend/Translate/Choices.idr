@@ -144,11 +144,6 @@ without Z (_ :: ys) = ys
 without (S i) (y :: ys) = y :: without i ys
 without _ [] = []
 
-||| A member's constructor, whatever its field.
-conOf : MemberCon -> (k ** Con k)
-conOf (Bare c) = (0 ** c)
-conOf (Capturing _ c) = (1 ** c)
-
 ||| What a callee is given at a member: the implementation it is, and the
 ||| values it closes over when it closes over any.
 memberKind : ChoiceMember -> PKind
@@ -176,17 +171,14 @@ withArm : FnId -> Nat -> DispatchArm -> TS -> TS
 withArm inst i arm st =
   derive { dispatchArms $= insert inst (insert i arm (fromMaybe empty (lookupFact (.dispatchArms) inst st))) } st
 
-||| A choice with one more member, and its family with the member's
-||| constructor after the others, as the step being run derives them: each
-||| as the step reads it (`lookupFact`), changed, superseding the table's.
+||| A choice with one more member, its family's next constructor (its
+||| family is declared from its members, `choiceDeclared`), as the step
+||| being run derives it: as the step reads it (`lookupFact`), changed,
+||| superseding the table's.
 withMember : FamilyId -> ChoiceMember -> TS -> TS
-withMember fam m st =
-  let st' = case lookupFact (.choices) fam st of
-              Just ch => derive { choices $= insert fam ({ members $= (:< m) } ch) } st
-              Nothing => st in
-  case familyOf fam st' of
-    Just f => derive { families $= insert fam ({ cons $= (++ [conOf m.con]) } f) } st'
-    Nothing => st'
+withMember fam m st = case lookupFact (.choices) fam st of
+  Just ch => derive { choices $= insert fam ({ members $= (:< m) } ch) } st
+  Nothing => st
 
 %prefix_record_projections off
 

@@ -169,11 +169,14 @@ fileSpan file s =
      else if sl == el then fastConcat [start, " to :", show ec]
      else fastConcat [start, " to ", show el, ":", show ec]
 
-||| Where code is, as MLIR writes it: a span of a file; or, in no file (a
-||| module whose source is not installed, generated code), `unknown`, which
-||| is what a location names no file by.
+||| Where code is, as MLIR writes it: a span of a file; a span of a module
+||| the session never read, as the location gives it, the module's name
+||| standing for its file, which names no file a diagnostic can show; or,
+||| in no file (a module whose source is not installed, generated code),
+||| `unknown`, which is what a location names no file by.
 placeText : Located -> Maybe String
 placeText (InModule _ (Just file) s) = Just (fileSpan file s)
+placeText (InUnreadModule m s) = Just (fileSpan (show m) s)
 placeText (InPackage file s) = Just (fileSpan file s)
 placeText (InModule _ Nothing _) = Nothing
 placeText Unlocated = Nothing

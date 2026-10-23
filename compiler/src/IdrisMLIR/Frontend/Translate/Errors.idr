@@ -284,19 +284,24 @@ export
 rejections : {auto s : Ref TState TS} -> Core (List Rejection)
 rejections = pure ((!(get TState)).rejected <>> [])
 
+||| A module read at the home Idris found it in: its origin, the registry's
+||| classification of its home and path; its source file, which only the
+||| project's modules have; its printed name.
+moduleReadAt : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Home -> Core LoadedModule
+moduleReadAt m home = do
+  file <- case home of
+            Project => moduleSource EmptyFC m
+            _ => pure Nothing
+  pure (MkLoadedModule (moduleOrigin home (modulePath m)) file (shown (show m)))
+
 ||| A module as a table of modules holds it, and the table: what the table
-||| holds, or, for a module it lacks, what the module is read here at the
-||| home Idris found it in (its origin, the registry's classification of
-||| its home and path; its source file, which only the project's modules
-||| have; its printed name), added to it.
+||| holds, or, for a module it lacks, the module read at the home Idris
+||| found it in (`moduleReadAt`), added to it.
 moduleIn : {auto c : Ref Ctxt Defs} -> Modules -> ModuleIdent -> Home -> Core (Modules, LoadedModule)
 moduleIn ms m home = case lookup m ms of
   Just loaded => pure (ms, loaded)
   Nothing => do
-    file <- case home of
-              Project => moduleSource EmptyFC m
-              _ => pure Nothing
-    let loaded = MkLoadedModule (moduleOrigin home (modulePath m)) file (shown (show m))
+    loaded <- moduleReadAt m home
     pure (insert m loaded ms, loaded)
 
 ||| A table of modules with some modules added, each given with where Idris
@@ -332,41 +337,55 @@ placed (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = InIdrisModule id
 placed (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = InNoModule (MkLoc Generated (InPackage file (MkSpan sl sc el ec)))
 placed _ = InNoModule noLoc
 
-||| A span of a module as a Core location, at what the module is.
-spanIn : LoadedModule -> Span -> Loc
-spanIn m sp = MkLoc m.origin (InModule m.printed m.source sp)
+||| The module a site's span is in: one the session read, with where its
+||| code comes from and its source, as a table of modules holds them; or
+||| one the session never read, by its name alone. Essential: reflection
+||| can give a term a location in any module, one the session never loaded
+||| among them, and nothing is known of such a module but the name the
+||| location gives.
+data SiteModule = ReadModule LoadedModule | UnreadModule ModuleIdent
 
-||| An Idris location as a Core location, what its module is read from a
-||| table; nothing for a module the table lacks.
-located : Modules -> FC -> Maybe Loc
-located ms fc = case placed fc of
-  InIdrisModule ident sp => (\m => spanIn m sp) <$> lookup ident ms
-  InNoModule loc => Just loc
+||| A span of a site's module as a Core location. A module the session
+||| never read is located as the location gives it, by its name, with no
+||| source to show a span of (`InUnreadModule`), and its code is at a
+||| location Idris does not have, so it comes from no module the registry
+||| classified (`Generated`).
+spanIn : SiteModule -> Span -> Loc
+spanIn (ReadModule m) sp = MkLoc m.origin (InModule m.printed m.source sp)
+spanIn (UnreadModule ident) sp = MkLoc Generated (InUnreadModule (shown (show ident)) sp)
 
-||| An Idris location as a Core location, what its module is read from the
-||| session's table (`TS.modules`). A location Idris gives a term is in the
-||| module that term was elaborated in, which the session loaded to hold
-||| the term, and the frontend locates its own refusals in the modules it
-||| reads: a location outside the table is the compiler's error.
+||| An Idris location as a Core location, its module read from the
+||| session's table (`TS.modules`), which holds every module the session
+||| loaded: a location in a module the table lacks is in one the session
+||| never read (`UnreadModule`).
 export
 toLoc : RunsCore m => {auto s : Ref TState TS} -> FC -> m Loc
 toLoc fc = core $ do
   st <- get TState
-  case located st.modules fc of
-    Just loc => Core.pure loc
-    Nothing => internal fc "a location in a module the session did not load"
+  Core.pure (case placed fc of
+               InIdrisModule ident sp => spanIn (maybe (UnreadModule ident) ReadModule (lookup ident st.modules)) sp
+               InNoModule loc => loc)
+
+||| What a module a refusal's site is in, and the table of modules lacks,
+||| is: one Idris found at a home, read there (a build that failed never
+||| loaded the module it was elaborating, one of the project's); or, once
+||| the table holds every module the session loaded, one it never read.
+public export
+data Lacked = FoundAt Home | Unloaded
 
 ||| A refusal as the module of a refused program carries it, at its site,
 ||| and the table of modules: the site's module as the table holds it, or,
-||| where the table lacks it, read at the home `homeAt` gives it and added
-||| (`moduleIn`). Essential: Idris locates an error in the module it was
-||| elaborating, which it may never have loaded, and a module it could not
-||| load is one of the project's it failed to build.
-moduleRefusal : {auto c : Ref Ctxt Defs} -> (homeAt : ModuleIdent -> Home) -> Modules -> SomeRule -> NonEmptyFC ->
+||| where the table lacks it, as `lacked` says it is (read at its home and
+||| added, or never read).
+moduleRefusal : {auto c : Ref Ctxt Defs} -> (lacked : ModuleIdent -> Lacked) -> Modules -> SomeRule -> NonEmptyFC ->
                 String -> Core (Modules, ModuleRefusal)
-moduleRefusal homeAt ms rule site message = case placed (justFC site) of
+moduleRefusal lacked ms rule site message = case placed (justFC site) of
   InIdrisModule ident sp => do
-    (ms', m) <- moduleIn ms ident (homeAt ident)
+    (ms', m) <- case lookup ident ms of
+                  Just held => pure (ms, ReadModule held)
+                  Nothing => case lacked ident of
+                    FoundAt home => (\loaded => (insert ident loaded ms, ReadModule loaded)) <$> moduleReadAt ident home
+                    Unloaded => pure (ms, UnreadModule ident)
     pure (ms', MkModuleRefusal rule (spanIn m sp) message)
   InNoModule loc => pure (ms, MkModuleRefusal rule loc message)
 
@@ -374,14 +393,14 @@ moduleRefusal homeAt ms rule site message = case placed (justFC site) of
 ||| order given, each located as `moduleRefusal` locates it, in the table
 ||| the refusals before it completed.
 export
-moduleRefusals : {auto c : Ref Ctxt Defs} -> (homeAt : ModuleIdent -> Home) -> Modules ->
+moduleRefusals : {auto c : Ref Ctxt Defs} -> (lacked : ModuleIdent -> Lacked) -> Modules ->
                  List1 (SomeRule, NonEmptyFC, String) -> Core (List1 ModuleRefusal)
-moduleRefusals homeAt ms ((rule, site, message) ::: rest) = do
-  (ms', r) <- moduleRefusal homeAt ms rule site message
+moduleRefusals lacked ms ((rule, site, message) ::: rest) = do
+  (ms', r) <- moduleRefusal lacked ms rule site message
   (r :::) <$> others ms' rest
   where
     others : Modules -> List (SomeRule, NonEmptyFC, String) -> Core (List ModuleRefusal)
     others ms [] = pure []
     others ms ((rule, site, message) :: rs) = do
-      (ms', r) <- moduleRefusal homeAt ms rule site message
+      (ms', r) <- moduleRefusal lacked ms rule site message
       (r ::) <$> others ms' rs
