@@ -151,3 +151,16 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
   requested kinds, so `dispatchOn` takes the dispatch position by type
   (`Choices.idr:458`'s internal error, moved into `dispatchOn`).
 - Cases' internal errors left: 920, 946, 1014.
+
+## From L16co
+
+- `Errors.idr:357`: a site in a module the session never read (reflection
+  can make up such a location) reaches the lookup of its home and source,
+  an internal error a program can reach. A site's module is a sum,
+  read or not read, and a refusal at an unread module prints its location
+  as given, with no source excerpt.
+- `NotBuilt` carries no main module, so a failed build's site still
+  converts a path to a namespace (L17, if the checker should hand it over).
+- `Walk` exports the placement of a non-negative index, so
+  `definedAddress` takes its address from the entry `definitionIn` found
+  rather than resolving the name again.
