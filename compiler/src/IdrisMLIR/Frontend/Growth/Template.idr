@@ -2531,7 +2531,7 @@ chainReduces ChainErased r = case erasedReduces IsPlaceholder r of
   (_ ** same) => rewrite same in ChainErased
 chainReduces (ChainUnsaid none) r = case inertAlone InertBound r of
   (_ ** same) => rewrite same in ChainUnsaid none
-chainReduces (ChainUnknown nowhere) r = case undefinedReduces nowhere r of
+chainReduces (ChainUnknown nowhere) r = case inertAlone (InertUndefined nowhere) r of
   (_ ** same) => rewrite same in ChainUnknown nowhere
 
 -- Contraction rewrites no reference.

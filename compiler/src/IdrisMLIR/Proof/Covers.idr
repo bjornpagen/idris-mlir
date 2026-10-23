@@ -34,9 +34,11 @@
 |||   instance form holds no redex (`coversAtRoot`), at a marker
 |||   (`markerWrites`), at a constant, a universe and an erased part, which
 |||   the host's steps only move (`atConstant`, `atUniverse`, `atErased`),
-|||   at a closed run the site reads as its leaf (`runCovers`), and at a
-|||   data constructor, read node by node or as a closed run's leaf by the
-|||   instance (`dataCovers`); the host's reduction of a lone lambda or
+|||   at a closed run the site reads as its leaf (`runCovers`), at a data
+|||   constructor, read node by node or as a closed run's leaf by the
+|||   instance (`dataCovers`), and at a function the context defines as
+|||   nothing, read as a part over its arguments by site and instance alike
+|||   (`undefinedCovers`); the host's reduction of a lone lambda or
 |||   function type keeps the binder (`lambdaReduces`, `piReduces`);
 ||| - at a head the host rewrites by its shape, where the site's form takes
 |||   no such step, as a form read off the host's normal form takes none
@@ -75,10 +77,18 @@
 |||   instance's normal form of the leaf related to the site's reading of
 |||   it (`Idris.Host.reachesNormalForm` with putting values in commuting
 |||   with the normaliser's steps);
-||| - a name the context gives no address (`SNoDefinition`): that it has no
-|||   definition (`undefinedReduces`'s premise) needs `Idris.Host` to state
-|||   that a name it resolves (`Resolves`, whose evidence is the host's own)
-|||   resolves to a non-negative entry, where `Walk.placementIn` places it;
+||| - a name the context gives no address (`SNoDefinition`): the induction
+|||   there is proved from the context defining the name as nothing
+|||   (`undefinedCovers`), which follows from every defined name having an
+|||   address (`unaddressedUndefined`, over `PlacedWhereDefined`). That
+|||   fact is the host's and no module states it: `Idris.Host` stating that
+|||   a name it defines resolves to an entry that is not negative (its
+|||   frozen entries are read from entry 0 up, but `IntMap` states nothing
+|||   of a lookup after an insert, so the host carries the fact where it
+|||   reads them), and `Walk.placementIn` and
+|||   `Definitions.definitionAddress` giving an address to a name resolved
+|||   to such an entry; a site's skeleton, which cuts the part to a leaf,
+|||   is not covered by it;
 ||| - a dictionary and a shape a constructor heads, read as written: their
 |||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
 |||   normality, and where the term has no unknown it is the term itself
@@ -1678,6 +1688,81 @@ dataCovers {ns} {bs} {vs} sp at covers steps normal contracted maximal r read =
           (a' ** ts' ** (Refl, at', reads)) => case trans (sym at') at of
             Refl => AtHead (coversAll covers rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal)
                               (replace {p = \zs => AllReadAs (InstanceMode ctx) [] zs ts'} (appendNilRightNeutral _) reads))
+
+------------------------------------------------------------------------------
+-- A function the context gives no address
+------------------------------------------------------------------------------
+
+0 runNotFunc : Run u k -> Spine u (Ref fc Func n) args -> Void
+runNotFunc Literals.RunZero Host.Head impossible
+runNotFunc Literals.RunZero (Host.Applied _) impossible
+runNotFunc (RunSucc _) Host.Head impossible
+runNotFunc (RunSucc _) (Host.Applied Host.Head) impossible
+runNotFunc (RunSucc _) (Host.Applied (Host.Applied _)) impossible
+
+-- An instance reads a function its context gives no address as a part
+-- over its arguments' readings; one the context gives an address it reads
+-- as the call, which the two addresses rule out.
+0 undefinedSpine : AddressedAs (InstanceMode ctx) n Nothing -> SpineAs (InstanceMode ctx) env (Ref fc Func n) as r ->
+                   (ts : List Template ** (r = partOf EveryNode (Leaf 1) ts, AllReadAs (InstanceMode ctx) env as ts))
+undefinedSpine none (SNoDefinition _ rs) = (_ ** (Refl, rs))
+undefinedSpine none (SKept at _) = void (nothingNotJust (trans (sym none) at))
+
+||| An instance's reading of a term a function its context gives no
+||| address heads: a part over its arguments' readings, never a closed
+||| run's leaf.
+export
+0 undefinedRead : AddressedAs (InstanceMode ctx) n Nothing -> Spine u (Ref fc Func n) args -> ReadAs (InstanceMode ctx) env u r ->
+                  (ts : List Template ** (r = partOf EveryNode (Leaf 1) ts, AllReadAs (InstanceMode ctx) env args ts))
+undefinedRead none s (ARun run) = void (runNotFunc run s)
+undefinedRead {args} none s (ASpine sp) = case undefinedSpine none (spineRead s sp) of
+  (ts ** (same, rs)) => (ts ** (same, replace {p = \zs => AllReadAs (InstanceMode ctx) env zs ts} (appendNilRightNeutral args) rs))
+
+-- A part over what each argument writes writes the part over what each
+-- argument's reading reads.
+0 partWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} ->
+               AllWrite m s ts ws -> Writes m s (partOf EveryNode (Leaf 1) ts) (partOf EveryNode (Leaf 1) ws)
+partWrites [] = AtLeaf
+partWrites (w :: rest) = AtHead (AtLeaf :: w :: rest)
+
+||| The induction at a function the context defines as nothing, applied,
+||| in a form that keeps every node: putting values in keeps the function,
+||| the host's steps reduce only its arguments
+||| (`Proof.Inversion.InertUndefined`), contraction keeps it, and the
+||| instance reads it as the site does, a part over what each argument
+||| writes, by the induction at each.
+export
+0 undefinedCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+                    {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                    (0 none : (d : GlobalDef) -> Not (Defines ctx n d)) -> (0 at : AddressedAs (InstanceMode ctx) n Nothing) ->
+                    Spine u (Ref fc Func n) args -> AllNodeCovers m s ev ctx bs vs args ts -> {0 w, v : ClosedTerm} ->
+                    Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) w -> Irreducible ev ctx w ->
+                    EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+                    Writes m s (partOf EveryNode (Leaf 1) ts) r
+undefinedCovers {ns} {bs} {vs} none at sp covers steps normal contracted maximal r read =
+  case inertPutIn SizeOf.zero (mkSizeOf ns) bs vs (InertUndefined none) KeptFunc sp steps of
+    ReducedUnder sw rs => case refContracts sw contracted of
+      ContractedUnder sv cs => case undefinedRead at sv read of
+        (outs ** (Refl, reads)) =>
+          partWrites (coversAll covers rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal) reads)
+
+||| That every name a frozen context defines has an address: what the
+||| induction needs where a site's term holds a function the context gives
+||| none (`undefinedCovers`). It is the host's fact: the frozen entries are
+||| read from entry 0 up, so a defined name resolves to a non-negative
+||| entry, which `Walk.placementIn` places. No module states it yet; this
+||| is its statement, which `Idris.Host` is to prove.
+public export
+0 PlacedWhereDefined : Frozen -> Type
+PlacedWhereDefined ctx = {0 n : Name} -> {0 d : GlobalDef} -> Defines ctx n d -> (a : Address ** AddressedAs (InstanceMode ctx) n (Just a))
+
+||| A name the context gives no address it defines as nothing, wherever
+||| every name it defines has an address.
+export
+0 unaddressedUndefined : PlacedWhereDefined ctx -> AddressedAs (InstanceMode ctx) n Nothing ->
+                         (d : GlobalDef) -> Not (Defines ctx n d)
+unaddressedUndefined placed none d defines = case placed defines of
+  (a ** addressed) => nothingNotJust (trans (sym none) addressed)
 
 ------------------------------------------------------------------------------
 -- Binders, inverted

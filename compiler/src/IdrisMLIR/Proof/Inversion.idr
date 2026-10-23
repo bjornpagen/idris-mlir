@@ -7,20 +7,20 @@
 ||| A site's reading and an instance's reading of one static argument are
 ||| related node by node, the instance's term being the site's with a value
 ||| put in for each marker, normalised and contracted. At a node headed by
-||| a bound name (a marker, a hole, a runtime part), a data constructor, or
-||| a type constructor that takes arguments, no step of the evaluator
-||| applies at the root (`noRootStep`), so every reduction of it, however
-||| its steps are chained, keeps the head and reduces each argument
+||| a bound name (a marker, a hole, a runtime part), a data constructor, a
+||| type constructor that takes arguments, or a function the context
+||| defines as nothing, no step of the evaluator applies at the root
+||| (`noRootStep`), so every reduction of it, however its steps are
+||| chained, keeps the head and reduces each argument
 ||| (`inertReduces`); an argument of a normal form is normal
 ||| (`argumentIrreducible`); and contraction, which rewrites only a
 ||| lambda, keeps the head and contracts each argument (`refContracts`).
 ||| So the instance's form at such a node is the same head over the forms
 ||| of its arguments, which the reading lemma's induction descends into.
 ||| Alone, or applied to one argument, such a head reduces to itself over
-||| what the argument reduces to (`inertAlone`, `inertOne`); and two heads
-||| no step rewrites either, an erased part no dot holds and a name the
-||| context defines as nothing, reduce only to themselves
-||| (`erasedReduces`, `undefinedReduces`).
+||| what the argument reduces to (`inertAlone`, `inertOne`); and an erased
+||| part no dot holds, which no step rewrites either, reduces only to
+||| itself (`erasedReduces`).
 |||
 ||| A site's term and an instance's are related by putting the instance's
 ||| values in for the site's markers (`Idris.Host.putIn`), which rebuilds an
@@ -126,35 +126,38 @@ droppedHead DropsAtDelay s = notDelay s
 -- Inert heads
 ------------------------------------------------------------------------------
 
-||| A head no step of the evaluator rewrites, whatever it is applied to: a
-||| bound name, which no step reads (a step reads a function, a
-||| constructor or a family through its kind and its entry); a data
-||| constructor; or a type constructor that takes arguments. A type
-||| constructor of none is the universe or a primitive type by its name,
-||| which a step rewrites, and a function is what steps unfold: neither is
-||| one.
+||| A head no step of the evaluator rewrites in a context, whatever it is
+||| applied to: a bound name, which no step reads (a step reads a function,
+||| a constructor or a family through its kind and its entry); a data
+||| constructor; a type constructor that takes arguments; or a function the
+||| context defines as nothing, which no step can unfold, since a step that
+||| unfolds a name or computes a primitive reads the definition the context
+||| gives it. A type constructor of none is the universe or a primitive type
+||| by its name, which a step rewrites, and a function the context defines
+||| is what steps unfold: neither is one.
 public export
-data Inert : NameType -> Type where
-  InertBound : Inert Bound
-  InertData : Inert (DataCon tag arity)
-  InertFamily : Inert (TyCon (S arity))
+data Inert : Frozen -> NameType -> Name -> Type where
+  InertBound : Inert ctx Bound n
+  InertData : Inert ctx (DataCon tag arity) n
+  InertFamily : Inert ctx (TyCon (S arity)) n
+  InertUndefined : (0 _ : (d : GlobalDef) -> Not (Defines ctx n d)) -> Inert ctx Func n
 
 export
-Uninhabited (Inert Func) where
+Uninhabited (Inert ctx (TyCon Z) n) where
   uninhabited InertBound impossible
   uninhabited InertData impossible
   uninhabited InertFamily impossible
+  uninhabited (InertUndefined _) impossible
 
-export
-Uninhabited (Inert (TyCon Z)) where
-  uninhabited InertBound impossible
-  uninhabited InertData impossible
-  uninhabited InertFamily impossible
+-- An inert function defines nothing.
+0 inertUndefined : Inert ctx Func n -> Defines ctx n d -> Void
+inertUndefined (InertUndefined none) defines = none _ defines
 
--- A function's spine is no inert head's.
-0 funcHead : Inert nt -> Spine t (Ref fc nt n) args -> Spine t (Ref fc' Func n') args' -> Void
-funcHead inert s s' = case refSpines s s' of
-  (Refl, _) => absurd inert
+-- A step that unfolds a function, by the definition the context gives it,
+-- is no step at an inert head.
+0 funcHead : Inert ctx nt n -> Spine t (Ref fc nt n) args -> Spine t (Ref fc' Func n') args' -> Defines ctx n' d -> Void
+funcHead inert s s' defines = case refSpines s s' of
+  (Refl, _) => inertUndefined inert defines
 
 ||| No step of the evaluator applies at the root of a term an inert head
 ||| heads: each step's left side is a lambda or a `let` applied or alone,
@@ -163,13 +166,13 @@ funcHead inert s s' = case refSpines s s' of
 ||| type constructor of no arguments alone.
 export
 0 noRootStep : {0 ev : Evaluation} -> {0 ctx : Frozen} ->
-               Inert nt -> Spine t (Ref fc nt n) args -> Contracts ev ctx t u -> Void
+               Inert ctx nt n -> Spine t (Ref fc nt n) args -> Contracts ev ctx t u -> Void
 noRootStep inert Head Beta impossible
 noRootStep inert (Applied s) Beta = notBind s
 noRootStep inert s (Zeta _) = notBind s
-noRootStep inert s (Unfold s' _ _ _ _ _ _ _) = funcHead inert s s'
+noRootStep inert s (Unfold s' defines _ _ _ _ _ _) = funcHead inert s s' defines
 noRootStep inert s (Solve s' _ _ _ _ _ _ _ _) = refNotMeta s s'
-noRootStep inert s (Primitive s' _ _ _ _ _) = funcHead inert s s'
+noRootStep inert s (Primitive s' defines _ _ _ _) = funcHead inert s s' defines
 noRootStep inert s ForceDelay = notForce s
 noRootStep inert s (RemoveAs _) = notAs s
 noRootStep inert Head (FloatAs _) impossible
@@ -220,7 +223,7 @@ data InertReduct : {0 vs : Scope} -> Evaluation -> Frozen -> NameType -> Name ->
 ||| the reference, and a chain of reductions chains what each makes of the
 ||| arguments.
 export
-0 inertReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert nt ->
+0 inertReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert ctx nt n ->
                  Spine t (Ref fc nt n) args -> Reduces ev ctx t u -> InertReduct ev ctx nt n args u
 inertReduces inert s (Then r r') = case inertReduces inert s r of
   ReducedUnder s' rs => case inertReduces inert s' r' of
@@ -275,7 +278,7 @@ oneApplied (Applied {fc} {a} {args = xs} s) eq = case snocOne xs eq of
 
 ||| What an inert head alone reduces to: itself, at some location.
 export
-0 inertAlone : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert nt ->
+0 inertAlone : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert ctx nt n ->
                Reduces ev ctx (Ref fc nt n) v -> (fc' : FC ** v = Ref fc' nt n)
 inertAlone inert r = case inertReduces inert Head r of
   ReducedUnder s NoneLeft => (_ ** headOnly s Refl)
@@ -283,7 +286,7 @@ inertAlone inert r = case inertReduces inert Head r of
 ||| What an inert head applied to one argument reduces to: the head, at
 ||| some location, applied to what the argument reduces to.
 export
-0 inertOne : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert nt ->
+0 inertOne : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Inert ctx nt n ->
              Reduces ev ctx (App fc (Ref rfc nt n) a) v ->
              (fc' : FC ** rfc' : FC ** a' : Term vs ** (v = App fc' (Ref rfc' nt n) a', Reduces ev ctx a a'))
 inertOne inert r = case inertReduces inert (Applied Head) r of
@@ -322,27 +325,6 @@ erasedReduces u (Then r r') = case erasedReduces u r of
 erasedReduces u (Contract c) = void (erasedNoStep c)
 erasedReduces IsPlaceholder (AnErased APlaceholder) = (_ ** Refl)
 erasedReduces IsImpossible (AnErased AnImpossible) = (_ ** Refl)
-
--- No step of the evaluator applies at a name the context defines as
--- nothing: a step that unfolds a name or computes a primitive unfolds the
--- definition the context gives it, and a function is no unknown.
-0 undefinedNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> ((d : GlobalDef) -> Not (Defines ctx n d)) ->
-                    Contracts ev ctx (Ref fc Func n) u -> Void
-undefinedNoStep none (Unfold s defines _ _ _ _ _ _) = case refSpines Head s of
-  (Refl, _) => none _ defines
-undefinedNoStep none (Solve s _ _ _ _ _ _ _ _) = refNotMeta Head s
-undefinedNoStep none (Primitive s defines _ _ _ _) = case refSpines Head s of
-  (Refl, _) => none _ defines
-
-||| What a name the context defines as nothing reduces to: itself, at
-||| some location.
-export
-0 undefinedReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> ((d : GlobalDef) -> Not (Defines ctx n d)) ->
-                     Reduces ev ctx (Ref fc Func n) v -> (fc' : FC ** v = Ref fc' Func n)
-undefinedReduces none (Then r r') = case undefinedReduces none r of
-  (_ ** Refl) => undefinedReduces none r'
-undefinedReduces none (Contract c) = void (undefinedNoStep none c)
-undefinedReduces none ARef = (_ ** Refl)
 
 ------------------------------------------------------------------------------
 -- A normal form's arguments
@@ -420,12 +402,13 @@ refContracts s (EtaDotted _) = void (notErased s)
 ------------------------------------------------------------------------------
 
 ||| A head putting values in keeps: a data constructor, a type constructor,
-||| or a bound name the bounds do not replace (a runtime part, a hole, an
-||| argument of a family's value).
+||| a function, or a bound name the bounds do not replace (a runtime part,
+||| a hole, an argument of a family's value).
 public export
 data KeptHead : Bounds ns -> NameType -> Name -> Type where
   KeptData : KeptHead bs (DataCon tag arity) n
   KeptFamily : KeptHead bs (TyCon arity) n
+  KeptFunc : KeptHead bs Func n
   KeptBound : (0 _ : replaces bs n = False) -> KeptHead bs Bound n
 
 ||| Putting values in rebuilds an application from its parts put in:
@@ -445,6 +428,8 @@ putInHead o sz None vs KeptData = Refl
 putInHead o sz (Add new old rest) vs KeptData = Refl
 putInHead o sz None vs KeptFamily = Refl
 putInHead o sz (Add new old rest) vs KeptFamily = Refl
+putInHead o sz None vs KeptFunc = Refl
+putInHead o sz (Add new old rest) vs KeptFunc = Refl
 putInHead o sz bs vs (KeptBound none) = putInUnreplaced o sz bs vs none
 
 -- One more element at the end, mapped.
@@ -472,7 +457,7 @@ putInSpine o sz bs vs (Applied {fc} {f} {a} {args} s) =
 export
 0 inertPutIn : {0 ev : Evaluation} -> {0 ctx : Frozen} ->
                (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-               Inert nt -> KeptHead bs nt n -> Spine u (Ref fc nt n) args ->
+               Inert ctx nt n -> KeptHead bs nt n -> Spine u (Ref fc nt n) args ->
                Reduces ev ctx (putIn o sz bs vs u) w -> InertReduct ev ctx nt n (map (putIn o sz bs vs) args) w
 inertPutIn o sz bs vs inert kept s r = inertReduces inert (headAs (putInSpine o sz bs vs s) (putInHead o sz bs vs kept)) r
 

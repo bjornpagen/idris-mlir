@@ -812,30 +812,374 @@ intoClosed l (Just m0) eq = case joinedClosed l m0 (sameJust eq) of
   (x ** y ** (Refl, Refl, Refl)) =>
     ((x ** (Refl, maximumLeftUpperBound x y)), \m, same => (y ** (sym (sameJust same), maximumRightUpperBound x y)))
 
--- A landing joined in at its position.
-landedAt : {0 n : Nat} -> Fin n -> Landing -> LandingTable n -> LandingTable n
-landedAt p l t = replaceAt p (landInto l (Vect.index p t)) t
+||| A position's number with the place it was first met at, which the
+||| number counts to: the number a table is indexed by, and the place
+||| landings are ordered by, read without counting the number out again.
+record PlacedNumber (n : Nat) where
+  constructor MkPlacedNumber
+  number : Fin n
+  place : Nat
+  0 counts : finToNat number = place
 
-||| Each landing joined in at its position, the last first.
-landedTable : {n : Nat} -> List (Fin n, Landing) -> LandingTable n
-landedTable [] = replicate n Nothing
-landedTable ((p, l) :: rest) = landedAt p l (landedTable rest)
+-- A place counted out as a number below n counts back to it.
+0 countedTo : (j : Nat) -> (0 prf : LT j n) -> finToNat (natToFinLT j {prf}) = j
+countedTo Z (LTESucc _) = Refl
+countedTo (S k) (LTESucc p) = cong S (countedTo k p)
+
+||| What a writing lands as, at its position.
+record LandingAt (n : Nat) where
+  constructor MkLandingAt
+  at : PlacedNumber n
+  landing : Landing
+
+-- The place a landing is at.
+landedPlace : {0 n : Nat} -> LandingAt n -> Nat
+landedPlace x = x.at.place
+
+------------------------------------------------------------------------------
+-- The landings ordered by place
+------------------------------------------------------------------------------
+
+-- What comparing two places says of them.
+0 orderedFirst : (a, b : Nat) -> compareNat a b === LT -> LTE a b
+orderedFirst Z b _ = LTEZero
+orderedFirst (S a) Z Refl impossible
+orderedFirst (S a) (S b) eq = LTESucc (orderedFirst a b eq)
+
+0 takenFirst : (a, b : Nat) -> compareNat a b === EQ -> LTE a b
+takenFirst Z Z _ = LTEZero
+takenFirst Z (S b) Refl impossible
+takenFirst (S a) Z Refl impossible
+takenFirst (S a) (S b) eq = LTESucc (takenFirst a b eq)
+
+0 takenSecond : (a, b : Nat) -> compareNat a b === GT -> LTE b a
+takenSecond Z Z Refl impossible
+takenSecond Z (S b) Refl impossible
+takenSecond (S a) Z _ = LTEZero
+takenSecond (S a) (S b) eq = LTESucc (takenSecond a b eq)
+
+-- Landings ascending by place from `lo`: each placed no lower than the one
+-- before it, the first no lower than `lo`.
+data Ascending : {0 n : Nat} -> Nat -> List (LandingAt n) -> Type where
+  Ended : Ascending lo []
+  Rising : {0 x : LandingAt n} -> {0 xs : List (LandingAt n)} ->
+           LTE lo (landedPlace x) -> Ascending (landedPlace x) xs -> Ascending lo (x :: xs)
+
+mutual
+  -- Two runs ascending by place merged into one, the first run's landing
+  -- first where two are placed alike, so that the landings at one place
+  -- stay in the order they were written in.
+  mergePlaced : {0 n : Nat} -> List (LandingAt n) -> List (LandingAt n) -> List (LandingAt n)
+  mergePlaced [] ys = ys
+  mergePlaced (x :: xs) ys = mergeInto x xs ys
+
+  -- A run's first landing and the rest of it merged into another run.
+  mergeInto : {0 n : Nat} -> LandingAt n -> List (LandingAt n) -> List (LandingAt n) -> List (LandingAt n)
+  mergeInto x xs [] = x :: xs
+  mergeInto x xs (y :: ys) = mergeStep (compareNat (landedPlace x) (landedPlace y)) x xs y ys
+
+  -- The lower of two first landings taken, the first run's on a tie.
+  mergeStep : {0 n : Nat} -> Ordering -> LandingAt n -> List (LandingAt n) -> LandingAt n -> List (LandingAt n) ->
+              List (LandingAt n)
+  mergeStep LT x xs y ys = x :: mergePlaced xs (y :: ys)
+  mergeStep EQ x xs y ys = x :: mergePlaced xs (y :: ys)
+  mergeStep GT x xs y ys = y :: mergeInto x xs ys
+
+-- Each landing a run of its own.
+singles : List a -> List (List a)
+singles [] = []
+singles (x :: xs) = [x] :: singles xs
+
+-- Runs merged two by two, in order.
+pairedRuns : {0 n : Nat} -> List (List (LandingAt n)) -> List (List (LandingAt n))
+pairedRuns [] = []
+pairedRuns [r] = [r]
+pairedRuns (r :: r' :: rs) = mergePlaced r r' :: pairedRuns rs
+
+0 pairedNoLonger : (rs : List (List (LandingAt n))) -> LTE (length (pairedRuns rs)) (length rs)
+pairedNoLonger [] = LTEZero
+pairedNoLonger [r] = LTESucc LTEZero
+pairedNoLonger (r :: r' :: rs) = lteSuccRight (LTESucc (pairedNoLonger rs))
+
+-- Merging two by two leaves fewer runs, where there were two or more.
+0 pairedShorter : (r, r' : List (LandingAt n)) -> (rs : List (List (LandingAt n))) ->
+                  LT (length (pairedRuns (r :: r' :: rs))) (length (r :: r' :: rs))
+pairedShorter r r' rs = LTESucc (LTESucc (pairedNoLonger rs))
+
+-- Runs merged two by two until one is left: each round leaves fewer, the
+-- measure it recurses on.
+mergeAll : {0 n : Nat} -> (rs : List (List (LandingAt n))) -> (0 _ : Accessible LT (length rs)) -> List (LandingAt n)
+mergeAll [] _ = []
+mergeAll [r] _ = r
+mergeAll (r :: r' :: rs) (Access more) = mergeAll (pairedRuns (r :: r' :: rs)) (more _ (pairedShorter r r' rs))
+
+||| The landings ordered by place, those placed alike in the order they
+||| were written in: a merge sort, its comparisons of places the machine's.
+byPlace : {0 n : Nat} -> List (LandingAt n) -> List (LandingAt n)
+byPlace xs = mergeAll (singles xs) (wellFounded _)
+
+-- A run ascending from a place ascends from any lower one.
+0 ascendingLower : LTE lo lo' -> Ascending lo' xs -> Ascending lo xs
+ascendingLower le Ended = Ended
+ascendingLower le (Rising here rest) = Rising (transitive le here) rest
+
+mutual
+  -- Two runs ascending from a place merge into one that does.
+  0 mergeAscending : (xs, ys : List (LandingAt n)) -> Ascending lo xs -> Ascending lo ys -> Ascending lo (mergePlaced xs ys)
+  mergeAscending [] ys _ ay = ay
+  mergeAscending (x :: xs) ys (Rising lx axs) ay = intoAscending x xs ys lx axs ay
+
+  0 intoAscending : (x : LandingAt n) -> (xs, ys : List (LandingAt n)) -> LTE lo (landedPlace x) ->
+                    Ascending (landedPlace x) xs -> Ascending lo ys -> Ascending lo (mergeInto x xs ys)
+  intoAscending x xs [] lx axs Ended = Rising lx axs
+  intoAscending x xs (y :: ys) lx axs (Rising ly ays) =
+    stepAscending x xs y ys (compareNat (landedPlace x) (landedPlace y)) Refl lx axs ly ays
+
+  0 stepAscending : (x : LandingAt n) -> (xs : List (LandingAt n)) -> (y : LandingAt n) -> (ys : List (LandingAt n)) ->
+                    (o : Ordering) -> compareNat (landedPlace x) (landedPlace y) = o ->
+                    LTE lo (landedPlace x) -> Ascending (landedPlace x) xs -> LTE lo (landedPlace y) ->
+                    Ascending (landedPlace y) ys -> Ascending lo (mergeStep o x xs y ys)
+  stepAscending x xs y ys LT lt lx axs ly ays =
+    Rising lx (mergeAscending xs (y :: ys) axs (Rising (orderedFirst _ _ lt) ays))
+  stepAscending x xs y ys EQ eq lx axs ly ays =
+    Rising lx (mergeAscending xs (y :: ys) axs (Rising (takenFirst _ _ eq) ays))
+  stepAscending x xs y ys GT gt lx axs ly ays =
+    Rising ly (intoAscending x xs ys (takenSecond _ _ gt) axs ays)
+
+mutual
+  -- A landing of the first run is in the merge.
+  0 mergeKeepsLeft : (xs, ys : List (LandingAt n)) -> Elem z xs -> Elem z (mergePlaced xs ys)
+  mergeKeepsLeft [] ys e = absurd e
+  mergeKeepsLeft (x :: xs) ys Here = intoKeepsHead x xs ys
+  mergeKeepsLeft (x :: xs) ys (There e) = intoKeepsTail x xs ys e
+
+  0 intoKeepsHead : (x : LandingAt n) -> (xs, ys : List (LandingAt n)) -> Elem x (mergeInto x xs ys)
+  intoKeepsHead x xs [] = Here
+  intoKeepsHead x xs (y :: ys) = stepKeepsHead x xs y ys (compareNat (landedPlace x) (landedPlace y))
+
+  0 stepKeepsHead : (x : LandingAt n) -> (xs : List (LandingAt n)) -> (y : LandingAt n) -> (ys : List (LandingAt n)) ->
+                    (o : Ordering) -> Elem x (mergeStep o x xs y ys)
+  stepKeepsHead x xs y ys LT = Here
+  stepKeepsHead x xs y ys EQ = Here
+  stepKeepsHead x xs y ys GT = There (intoKeepsHead x xs ys)
+
+  0 intoKeepsTail : (x : LandingAt n) -> (xs, ys : List (LandingAt n)) -> Elem z xs -> Elem z (mergeInto x xs ys)
+  intoKeepsTail x xs [] e = There e
+  intoKeepsTail x xs (y :: ys) e = stepKeepsTail x xs y ys (compareNat (landedPlace x) (landedPlace y)) e
+
+  0 stepKeepsTail : (x : LandingAt n) -> (xs : List (LandingAt n)) -> (y : LandingAt n) -> (ys : List (LandingAt n)) ->
+                    (o : Ordering) -> Elem z xs -> Elem z (mergeStep o x xs y ys)
+  stepKeepsTail x xs y ys LT e = There (mergeKeepsLeft xs (y :: ys) e)
+  stepKeepsTail x xs y ys EQ e = There (mergeKeepsLeft xs (y :: ys) e)
+  stepKeepsTail x xs y ys GT e = There (intoKeepsTail x xs ys e)
+
+mutual
+  -- A landing of the second run is in the merge.
+  0 mergeKeepsRight : (xs, ys : List (LandingAt n)) -> Elem z ys -> Elem z (mergePlaced xs ys)
+  mergeKeepsRight [] ys e = e
+  mergeKeepsRight (x :: xs) ys e = intoKeepsRight x xs ys e
+
+  0 intoKeepsRight : (x : LandingAt n) -> (xs, ys : List (LandingAt n)) -> Elem z ys -> Elem z (mergeInto x xs ys)
+  intoKeepsRight x xs [] e = absurd e
+  intoKeepsRight x xs (y :: ys) e = stepKeepsRight x xs y ys (compareNat (landedPlace x) (landedPlace y)) e
+
+  0 stepKeepsRight : (x : LandingAt n) -> (xs : List (LandingAt n)) -> (y : LandingAt n) -> (ys : List (LandingAt n)) ->
+                     (o : Ordering) -> Elem z (y :: ys) -> Elem z (mergeStep o x xs y ys)
+  stepKeepsRight x xs y ys LT e = There (mergeKeepsRight xs (y :: ys) e)
+  stepKeepsRight x xs y ys EQ e = There (mergeKeepsRight xs (y :: ys) e)
+  stepKeepsRight x xs y ys GT Here = Here
+  stepKeepsRight x xs y ys GT (There e) = There (intoKeepsRight x xs ys e)
+
+0 singlesKeep : (xs : List a) -> Elem z xs -> Any (Elem z) (singles xs)
+singlesKeep (x :: xs) Here = Here Here
+singlesKeep (x :: xs) (There e) = There (singlesKeep xs e)
+
+0 pairedKeeps : (rs : List (List (LandingAt n))) -> Any (Elem z) rs -> Any (Elem z) (pairedRuns rs)
+pairedKeeps [] (Here _) impossible
+pairedKeeps [] (There _) impossible
+pairedKeeps [r] e = e
+pairedKeeps (r :: r' :: rs) (Here e) = Here (mergeKeepsLeft r r' e)
+pairedKeeps (r :: r' :: rs) (There (Here e)) = Here (mergeKeepsRight r r' e)
+pairedKeeps (r :: r' :: rs) (There (There e)) = There (pairedKeeps rs e)
+
+0 allKeeps : (rs : List (List (LandingAt n))) -> (acc : Accessible LT (length rs)) -> Any (Elem z) rs -> Elem z (mergeAll rs acc)
+allKeeps [] _ (Here _) impossible
+allKeeps [] _ (There _) impossible
+allKeeps [r] _ (Here e) = e
+allKeeps [r] _ (There (Here _)) impossible
+allKeeps [r] _ (There (There _)) impossible
+allKeeps (r :: r' :: rs) (Access more) e =
+  allKeeps (pairedRuns (r :: r' :: rs)) (more _ (pairedShorter r r' rs)) (pairedKeeps (r :: r' :: rs) e)
+
+0 singlesAscending : (xs : List (LandingAt n)) -> All (Ascending 0) (singles xs)
+singlesAscending [] = []
+singlesAscending (x :: xs) = Rising LTEZero Ended :: singlesAscending xs
+
+0 pairedAscending : (rs : List (List (LandingAt n))) -> All (Ascending 0) rs -> All (Ascending 0) (pairedRuns rs)
+pairedAscending [] [] = []
+pairedAscending [r] [a] = [a]
+pairedAscending (r :: r' :: rs) (a :: a' :: as) = mergeAscending r r' a a' :: pairedAscending rs as
+
+0 allAscending : (rs : List (List (LandingAt n))) -> (acc : Accessible LT (length rs)) -> All (Ascending 0) rs ->
+                 Ascending 0 (mergeAll rs acc)
+allAscending [] _ [] = Ended
+allAscending [r] _ [a] = a
+allAscending (r :: r' :: rs) (Access more) as =
+  allAscending (pairedRuns (r :: r' :: rs)) (more _ (pairedShorter r r' rs)) (pairedAscending (r :: r' :: rs) as)
+
+-- The landings by place ascend from the first place, and lose none.
+0 byPlaceAscending : (xs : List (LandingAt n)) -> Ascending 0 (byPlace xs)
+byPlaceAscending xs = allAscending (singles xs) _ (singlesAscending xs)
+
+0 byPlaceKeeps : (xs : List (LandingAt n)) -> Elem z xs -> Elem z (byPlace xs)
+byPlaceKeeps xs e = allKeeps (singles xs) _ (singlesKeep xs e)
+
+------------------------------------------------------------------------------
+-- The table, made once
+------------------------------------------------------------------------------
+
+mutual
+  -- The landings at the front of a list placed at c, as written.
+  frontAt : {0 n : Nat} -> Nat -> List (LandingAt n) -> List Landing
+  frontAt c [] = []
+  frontAt c (x :: xs) = frontIf (landedPlace x == c) c x xs
+
+  frontIf : {0 n : Nat} -> Bool -> Nat -> LandingAt n -> List (LandingAt n) -> List Landing
+  frontIf True c x xs = x.landing :: frontAt c xs
+  frontIf False c x xs = []
+
+mutual
+  -- The landings past those at the front placed at c.
+  pastAt : {0 n : Nat} -> Nat -> List (LandingAt n) -> List (LandingAt n)
+  pastAt c [] = []
+  pastAt c (x :: xs) = pastIf (landedPlace x == c) c x xs
+
+  pastIf : {0 n : Nat} -> Bool -> Nat -> LandingAt n -> List (LandingAt n) -> List (LandingAt n)
+  pastIf True c x xs = pastAt c xs
+  pastIf False c x xs = x :: xs
+
+-- What some landings land as, joined, the first outermost.
+joinedAll : List Landing -> Maybe Landing
+joinedAll [] = Nothing
+joinedAll (l :: ls) = landInto l (joinedAll ls)
+
+-- The table from place c on, k places of it: at each, what the landings
+-- at the front placed there land as, joined, the rest passed on. They
+-- ascend by place from c, so each place's are at the front at its turn.
+sweep : {0 n : Nat} -> (c, k : Nat) -> List (LandingAt n) -> Vect k (Maybe Landing)
+sweep c Z _ = []
+sweep c (S k) xs = joinedAll (frontAt c xs) :: sweep (S c) k (pastAt c xs)
+
+||| Each landing joined in at its position, the table made once: the
+||| landings grouped by ordering them by place (`byPlace`), and each
+||| place's joined where the sweep meets it, in the order they were written
+||| in, so no landing rebuilds the table.
+landedTable : {n : Nat} -> List (LandingAt n) -> LandingTable n
+landedTable xs = sweep 0 n (byPlace xs)
+
+-- A place compared with itself, and with another.
+0 sameAt : (a : Nat) -> (a == a) = True
+sameAt Z = Refl
+sameAt (S a) = sameAt a
+
+0 equalAt : (a, b : Nat) -> (a == b) = True -> a = b
+equalAt Z Z _ = Refl
+equalAt Z (S b) Refl impossible
+equalAt (S a) Z Refl impossible
+equalAt (S a) (S b) eq = cong S (equalAt a b eq)
+
+0 equalFrom : {b : Nat} -> a = b -> (a == b) = True
+equalFrom Refl = sameAt b
+
+0 unS : the Nat (S a) = S b -> a = b
+unS Refl = Refl
+
+0 bothWays : LTE a b -> LTE b a -> a = b
+bothWays LTEZero LTEZero = Refl
+bothWays (LTESucc p) (LTESucc q) = cong S (bothWays p q)
+
+-- A place past c that is not c is above it.
+0 pastPlace : {a, c : Nat} -> LTE c a -> Not (a = c) -> LTE (S c) a
+pastPlace {a = Z} LTEZero ne = void (ne Refl)
+pastPlace {a = S a'} LTEZero ne = LTESucc LTEZero
+pastPlace (LTESucc p) ne = LTESucc (pastPlace p (\same => ne (cong S same)))
+
+-- A place some places past c is not c.
+0 pastSelf : (c, m : Nat) -> Not (c + S m = c)
+pastSelf Z m Refl impossible
+pastSelf (S c) m eq = pastSelf c m (unS eq)
+
+-- Every landing of a run ascending from a place is placed no lower.
+0 ascendingBelow : Ascending lo xs -> Elem y xs -> LTE lo (landedPlace y)
+ascendingBelow (Rising here _) Here = here
+ascendingBelow (Rising here rest) (There e) = transitive here (ascendingBelow rest e)
+
+mutual
+  -- A landing placed at c, among landings ascending from c, is at the
+  -- front.
+  0 frontHere : (c : Nat) -> (xs : List (LandingAt n)) -> Ascending c xs -> {0 y : LandingAt n} -> Elem y xs ->
+                landedPlace y = c -> Elem y.landing (frontAt c xs)
+  frontHere c [] Ended e at = absurd e
+  frontHere c (x :: xs) (Rising lx axs) e at = frontIfHere c x xs (landedPlace x == c) Refl lx axs e at
+
+  0 frontIfHere : (c : Nat) -> (x : LandingAt n) -> (xs : List (LandingAt n)) -> (b : Bool) -> (landedPlace x == c) = b ->
+                  LTE c (landedPlace x) -> Ascending (landedPlace x) xs -> {0 y : LandingAt n} -> Elem y (x :: xs) ->
+                  landedPlace y = c -> Elem y.landing (frontIf b c x xs)
+  frontIfHere c x xs True eq lx axs Here at = Here
+  frontIfHere c x xs True eq lx axs (There e) at =
+    There (frontHere c xs (replace {p = \k => Ascending k xs} (equalAt (landedPlace x) c eq) axs) e at)
+  frontIfHere c x xs False ne lx axs Here at = absurd (trans (sym (equalFrom at)) ne)
+  frontIfHere c x xs False ne lx axs (There e) at =
+    absurd (trans (sym (equalFrom (bothWays (replace {p = LTE (landedPlace x)} at (ascendingBelow axs e)) lx))) ne)
+
+mutual
+  -- A landing not placed at c is past the front placed there.
+  0 pastKeeps : (c : Nat) -> (xs : List (LandingAt n)) -> {0 y : LandingAt n} -> Elem y xs -> Not (landedPlace y = c) ->
+                Elem y (pastAt c xs)
+  pastKeeps c [] e _ = absurd e
+  pastKeeps c (x :: xs) e off = pastIfKeeps c x xs (landedPlace x == c) Refl e off
+
+  0 pastIfKeeps : (c : Nat) -> (x : LandingAt n) -> (xs : List (LandingAt n)) -> (b : Bool) -> (landedPlace x == c) = b ->
+                  {0 y : LandingAt n} -> Elem y (x :: xs) -> Not (landedPlace y = c) -> Elem y (pastIf b c x xs)
+  pastIfKeeps c x xs True eq Here off = void (off (equalAt (landedPlace x) c eq))
+  pastIfKeeps c x xs True eq (There e) off = pastKeeps c xs e off
+  pastIfKeeps c x xs False _ e off = e
+
+mutual
+  -- Past the front placed at c, what is left ascends from past c.
+  0 pastAscending : (c : Nat) -> (xs : List (LandingAt n)) -> Ascending c xs -> Ascending (S c) (pastAt c xs)
+  pastAscending c [] Ended = Ended
+  pastAscending c (x :: xs) (Rising lx axs) = pastIfAscending c x xs (landedPlace x == c) Refl lx axs
+
+  0 pastIfAscending : (c : Nat) -> (x : LandingAt n) -> (xs : List (LandingAt n)) -> (b : Bool) -> (landedPlace x == c) = b ->
+                      LTE c (landedPlace x) -> Ascending (landedPlace x) xs -> Ascending (S c) (pastIf b c x xs)
+  pastIfAscending c x xs True eq lx axs =
+    pastAscending c xs (replace {p = \k => Ascending k xs} (equalAt (landedPlace x) c eq) axs)
+  pastIfAscending c x xs False ne lx axs = Rising (pastPlace lx (\same => absurd (trans (sym (equalFrom same)) ne))) axs
+
+-- What landings joined hold bounds each of them.
+0 joinedBounds : (ls : List Landing) -> Elem l ls -> (m : Landing ** (joinedAll ls = Just m, BoundedBy l (Just m)))
+joinedBounds (l :: ls) Here = landsInto l (joinedAll ls)
+joinedBounds {l} (l' :: ls) (There e) = case joinedBounds ls e of
+  (m ** (eq, bounded)) => (joinLanding l' m ** (cong (landInto l') eq, joinedOver l l' m bounded))
+
+-- A landing, among landings ascending from c, placed q places past c, is
+-- bounded by what the table from c holds there.
+0 sweepBounds : (c, k : Nat) -> (xs : List (LandingAt n)) -> Ascending c xs -> {0 y : LandingAt n} -> Elem y xs ->
+                (q : Fin k) -> landedPlace y = c + finToNat q ->
+                (m : Landing ** (Vect.index q (sweep c k xs) = Just m, BoundedBy y.landing (Just m)))
+sweepBounds c Z xs asc e q at = absurd q
+sweepBounds c (S k) xs asc e FZ at = joinedBounds (frontAt c xs) (frontHere c xs asc e (trans at (plusZeroRightNeutral c)))
+sweepBounds c (S k) xs asc e (FS q) at =
+  sweepBounds (S c) k (pastAt c xs) (pastAscending c xs asc)
+              (pastKeeps c xs e (\same => pastSelf c (finToNat q) (trans (sym at) same)))
+              q (trans at (sym (plusSuccRightSucc c (finToNat q))))
 
 -- Every landing joined into the table is bounded by its position's entry,
 -- which something landed in.
-0 landedBounds : {n : Nat} -> (xs : List (Fin n, Landing)) -> Elem (p, l) xs ->
-                 (m : Landing ** (Vect.index p (landedTable xs) = Just m, BoundedBy l (Just m)))
-landedBounds ((p, l) :: rest) Here = case landsInto l (Vect.index p (landedTable rest)) of
-  (m ** (into, bounded)) =>
-    (m ** (trans (replaceAtSameIndex (landedTable rest) p (landInto l (Vect.index p (landedTable rest)))) into, bounded))
-landedBounds {p} {l} ((q, l') :: rest) (There el) = case landedBounds rest el of
-  (m ** (atP, bounded)) => case decEq p q of
-    Yes Refl => (joinLanding l' m **
-                 (trans (replaceAtSameIndex (landedTable rest) p (landInto l' (Vect.index p (landedTable rest))))
-                        (cong (landInto l') atP),
-                  joinedOver l l' m bounded))
-    No ne => (m ** (trans (replaceAtDiffIndexPreserves (landedTable rest) p q ne (landInto l' (Vect.index q (landedTable rest)))) atP,
-                    bounded))
+0 landedBounds : {n : Nat} -> (xs : List (LandingAt n)) -> {0 y : LandingAt n} -> Elem y xs ->
+                 (m : Landing ** (Vect.index y.at.number (landedTable xs) = Just m, BoundedBy y.landing (Just m)))
+landedBounds {y} xs e = sweepBounds 0 n (byPlace xs) (byPlaceAscending xs) (byPlaceKeeps xs e) y.at.number (sym y.at.counts)
 
 -- Joining Open in leaves no closed value.
 0 openNotClosed : (m : Landing) -> Not (joinLanding Open m = Closed k)
@@ -962,7 +1306,7 @@ record Carrying (n : Nat) where
   onward : SortedMap Nat (List (Fin n))
   back : SortedMap Nat (List (Fin n))
 
-carried : {0 n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
+carried : {0 n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
           List (Node, List (Sites.Site, Reached)) -> Carrying n
 carried number nodes leads walked =
   let cs = eachPlaced (\acc, w, s, callee, pl =>
@@ -979,7 +1323,7 @@ carried number nodes leads walked =
 
     carry : Spot -> Spot -> Carrying n -> Carrying n
     carry p q cs = case (lookup p number, lookup q number) of
-      (Just a, Just b) => MkCarrying (add a b cs.onward) (add b a cs.back)
+      (Just a, Just b) => MkCarrying (add a.number b.number cs.onward) (add b.number a.number cs.back)
       _ => cs
 
 -- The templates of the values of a type an argument's lists hold, each
@@ -996,9 +1340,9 @@ heldTemplates x = x.holds >>= \l => forget l >>= typed
 -- The numbered positions an applied family's reading reads the landing
 -- of (`applyingIn`), at the nodes whose sites apply it, in an argument or
 -- in a value of a type its lists hold.
-applying : {0 n : Nat} -> SortedMap Spot (Fin n) -> List (Node, List (Sites.Site, Reached)) -> List (Fin n)
+applying : {0 n : Nat} -> SortedMap Spot (PlacedNumber n) -> List (Node, List (Sites.Site, Reached)) -> List (Fin n)
 applying number =
-  eachPlaced (\acc, w, s, _, pl => mapMaybe (\i => lookup (spotAt w s.params i) number)
+  eachPlaced (\acc, w, s, _, pl => mapMaybe (\i => (.number) <$> lookup (spotAt w s.params i) number)
                                             ((pl.argument.template :: heldTemplates pl.argument) >>= applyingIn) ++ acc) []
 
 -- How many positions a walk has not visited.
@@ -1047,7 +1391,7 @@ computes _ = False
 -- reads, or one that carries on to it, is asked, so the carrying runs over
 -- those alone: a type's marker passed on carries no family, and nothing
 -- applies it. With no computing value written there is nothing to carry.
-carriedTo : {n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
+carriedTo : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
             List (Node, List (Sites.Site, Reached)) -> LandingTable n -> List (Fin n)
 carriedTo number nodes leads walked t = case findIndices computes t of
   [] => []
@@ -1062,7 +1406,7 @@ carriedTo number nodes leads walked t = case findIndices computes t of
     spread onward (replicate n False) (wellFounded _) [] (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
 
 -- A table with a computing value carried on from where one lands.
-carriedFrom : {n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
+carriedFrom : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> SortedMap Address (List Node) -> Leads ->
               List (Node, List (Sites.Site, Reached)) -> LandingTable n -> LandingTable n
 carriedFrom number nodes leads walked t = computedAt (carriedTo number nodes leads walked t) t
 
@@ -1070,26 +1414,28 @@ carriedFrom number nodes leads walked t = computedAt (carriedTo number nodes lea
 ||| joined at its position (`landedTable`), what lands at a capped one
 ||| besides (`openedTable`), and a computing value carried on
 ||| (`carriedTo`).
-tableOf : {n : Nat} -> SortedMap Spot (Fin n) -> Vect n (Maybe Nat) -> SortedMap Address (List Node) -> Leads ->
-          List (Node, List (Sites.Site, Reached)) -> List (Fin n, Landing) -> LandingTable n
+tableOf : {n : Nat} -> SortedMap Spot (PlacedNumber n) -> Vect n (Maybe Nat) -> SortedMap Address (List Node) -> Leads ->
+          List (Node, List (Sites.Site, Reached)) -> List (LandingAt n) -> LandingTable n
 tableOf number caps nodes leads walked written = carriedFrom number nodes leads walked (openedTable caps (landedTable written))
 
 -- Every landing written is bounded by what the table holds at its
 -- position.
-0 tableBounds : {n : Nat} -> (number : SortedMap Spot (Fin n)) -> (caps : Vect n (Maybe Nat)) -> (nodes : SortedMap Address (List Node)) ->
-                (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) -> (written : List (Fin n, Landing)) ->
-                Elem (p, l) written -> BoundedBy l (Vect.index p (tableOf number caps nodes leads walked written))
-tableBounds {p} number caps nodes leads walked written el k eq =
+0 tableBounds : {n : Nat} -> (number : SortedMap Spot (PlacedNumber n)) -> (caps : Vect n (Maybe Nat)) ->
+                (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) ->
+                (written : List (LandingAt n)) -> {0 y : LandingAt n} -> Elem y written ->
+                BoundedBy y.landing (Vect.index y.at.number (tableOf number caps nodes leads walked written))
+tableBounds {y} number caps nodes leads walked written el k eq =
   case landedBounds written el of
     (m ** (atP, bounded)) =>
       bounded k (trans (sym atP)
-                       (snd (openedClosed caps (landedTable written) p
+                       (snd (openedClosed caps (landedTable written) y.at.number
                                (computedClosed (carriedTo number nodes leads walked (openedTable caps (landedTable written)))
-                                               (openedTable caps (landedTable written)) p eq))))
+                                               (openedTable caps (landedTable written)) y.at.number eq))))
 
 -- A position only closed values land at in the table is uncapped.
-0 tableUncapped : {n : Nat} -> (number : SortedMap Spot (Fin n)) -> (caps : Vect n (Maybe Nat)) -> (nodes : SortedMap Address (List Node)) ->
-                  (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) -> (written : List (Fin n, Landing)) ->
+0 tableUncapped : {n : Nat} -> (number : SortedMap Spot (PlacedNumber n)) -> (caps : Vect n (Maybe Nat)) ->
+                  (nodes : SortedMap Address (List Node)) -> (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) ->
+                  (written : List (LandingAt n)) ->
                   (p : Fin n) -> Vect.index p (tableOf number caps nodes leads walked written) = Just (Closed k) ->
                   Vect.index p caps = Nothing
 tableUncapped number caps nodes leads walked written p eq =
@@ -1790,26 +2136,26 @@ record Meeting (n : Nat) (rest : List Spot) where
   constructor MkMeeting
   place : Nat
   0 left : place + length rest = n
-  seen : SortedMap Spot (Fin n)
+  seen : SortedMap Spot (PlacedNumber n)
   firsts : SnocList (Fin n)
 
 -- Position x, met at the next place: the number it was first met at, or,
--- met for the first time, this place's.
-meet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Spot) -> Meeting n (x :: rest) -> (Fin n, Meeting n rest)
+-- met for the first time, this place's, each with the place it counts to.
+meet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Spot) -> Meeting n (x :: rest) -> (PlacedNumber n, Meeting n rest)
 meet x (MkMeeting j left seen firsts) =
   let 0 next = trans (plusSuccRightSucc j (length rest)) left in
   case lookup x seen of
     Just f => (f, MkMeeting (S j) next seen firsts)
     -- Essential: a position's first meeting is the one that numbers it.
-    Nothing => let f = natToFinLT j {prf = runBelow j left} in
-               (f, MkMeeting (S j) next (insert x f seen) (firsts :< f))
+    Nothing => let f = MkPlacedNumber (natToFinLT j {prf = runBelow j left}) j (countedTo j (runBelow j left)) in
+               (f, MkMeeting (S j) next (insert x f seen) (firsts :< f.number))
 
 -- Positions met at the next places, in order.
 meetAll : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Spot) -> Meeting n (xs ++ rest) -> (List (Fin n), Meeting n rest)
 meetAll [] m = ([], m)
 meetAll (x :: xs) m = let (f, m') = meet x m
                           (fs, m'') = meetAll xs m' in
-                      (f :: fs, m'')
+                      (f.number :: fs, m'')
 
 -- Parameter i listed with the position met for it, and every parameter
 -- listed before.
@@ -1830,15 +2176,16 @@ meetEach [] reads m = (Element [] (\el => absurd el), m)
 meetEach (i :: is) reads m =
   let (p, m') = meet (reads i) m
       (Element ws listed, m'') = meetEach is reads m' in
-  (Element ((i, p) :: ws) (listedOn listed), m'')
+  (Element ((i, p.number) :: ws) (listedOn listed), m'')
 
 -- A writing with its positions numbered, before anything that lands is
--- read: the position it lands at, and where its writer reads each
--- parameter its template names, every one of them listed.
+-- read: the position it lands at, with the place it counts to, and where
+-- its writer reads each parameter its template names, every one of them
+-- listed.
 record Numbered (n : Nat) where
   constructor MkNumbered
   written : Written
-  target : Fin n
+  lands : PlacedNumber n
   writers : List (Nat, Fin n)
   0 named : {i : Nat} -> Elem i (namedIn written.template) -> (p : Fin n ** Elem (i, p) writers)
 
@@ -1850,6 +2197,10 @@ numberedMet x m =
       (Element ws listed, m'') = meetEach (namedOf x) x.reads m' in
   (MkNumbered x t ws (\el => listed (namedCovered x el)), m'')
 
+-- The position a numbered writing lands at.
+(.target) : {0 n : Nat} -> Numbered n -> Fin n
+(.target) x = x.lands.number
+
 -- Writings numbered, in order, each at its places.
 numberedAll : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Written) -> Meeting n (allSlots xs ++ rest) ->
               (List (Numbered n), Meeting n rest)
@@ -1860,8 +2211,8 @@ numberedAll (x :: xs) m =
   (here :: later, m'')
 
 -- What a numbered writing lands as, at its position.
-landedPair : Numbered n -> (Fin n, Landing)
-landedPair x = (x.target, landedBy x.written.wrote)
+landedPair : Numbered n -> LandingAt n
+landedPair x = MkLandingAt x.lands (landedBy x.written.wrote)
 
 ||| A site of the model with what made it, whose maker's evidence holds of
 ||| the site's template (`DrawnBy`).
@@ -2194,7 +2545,7 @@ build main = do
                                       (replace {p = Meeting (length slots0)} (sym (appendNilRightNeutral slots0))
                                                (MkMeeting 0 Refl empty [<]))
   let table0 = tableOf met0.seen (map (\p => lookup p capped) (Vect.fromList slots0)) nodes leads walked0 (map landedPair numbered0)
-  let landing0 = \spot => maybe Open (\p => fromMaybe Open (Vect.index p table0)) (lookup spot met0.seen)
+  let landing0 = \spot => maybe Open (\p => fromMaybe Open (Vect.index p.number table0)) (lookup spot met0.seen)
   -- What a family given only closed values computes, evaluated at each.
   walked <- evaluated landing0 walked0
   let written = writtenBy walked (writings walked)
