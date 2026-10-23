@@ -394,3 +394,12 @@ L17ay settles whether Readings' marker names change):
   of the record, one level below its position: a rule of the growth
   model (`Proof.Bound`, `Proof.Describes`). Base has the shape too
   (`Monoid (SortedMap k v)`, `MonadWriter w (WriterT w m)`).
+
+## From L16eb
+
+- `Growth/Sites.holdingOf` repeats `Translate/Types.typeHolding` line for
+  line: Sites calls `typeHolding`, and its copy goes.
+- `Boundary.polymorphicHolding` still reads `Type -> Type` as a
+  polymorphic function's type; with C263 no parameter or lambda reaches
+  it, so the rule is dead there: delete it or make it read a universe as a
+  type parameter, as `keyingOf` does.
