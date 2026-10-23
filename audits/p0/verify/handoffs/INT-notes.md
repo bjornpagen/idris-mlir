@@ -185,3 +185,12 @@ handoff lists its own wiring.
   Closed's `Part` collision and the driver's scrutinee (a65c6591); State's
   import, R-e in Proof/Template and Describes, Graph's `Calls`/`Builds`
   arity and two ambiguities to L16dh; R-v and a lazy `if` (R-n) to L06e.
+
+- **INT-18's preconditions (2026-10-23).** Reinstall the toolchain's
+  stock Idris with 96 and 104 to 112 (`tools/bootstrap.sh idris`), then
+  build the checker (now carrying 104, 105, 107 to 112 as its own code)
+  and the frontend. `KcaseTy` is unused after L17aq's 107: remove it from
+  `compiler/checker/known/Vocabulary.idr` and rerun knowngen, its
+  generated `Known.idr` committed. The new `tests/checker-*` run in
+  `test-mlir-tools` on the owner's machines; their refusal tests' line
+  numbers are assumptions L17aq could not check.
