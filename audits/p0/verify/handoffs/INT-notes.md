@@ -224,3 +224,19 @@ handoff lists its own wiring.
   (`checkedLibrary` reading a point-free function's arity off its case
   tree), routed to L16dr. Neither `missedEntry` nor the dependent-map
   ambiguity was met.
+
+- **INT-20 (2026-10-23, at 9998e953; `build/int20/`).** The stock Idris
+  with 96 and 104 to 114 (111 amended) installs whole (466 s, 3.0 GiB),
+  every one of its twelve upstream checks passing; the checker builds
+  clean (208 modules, 638 s); `knowngen check` passes. The frontend builds
+  87 of 102 modules from HEAD, all with 3 scratch lines (Heads' H-1 and
+  H-2). Prelude (14 of 14) and base (136 of 136) install through
+  `idris-mlir-front` with no scratch, and it writes a program for hello,
+  bubble-sort, chars, bounded-family-head, bounded-method, call-pattern,
+  arity-raising, absurd-body, char-list-pipeline and most new checker
+  programs; the two refusal tests refuse. Every INT-19 root is cleared.
+  Routed: H-1, H-2 and F-4 (every use of Foldable List refused, its
+  default foldlM unfixed) to L16dw; F-3 (a polymorphic field read as a
+  dependent one), F-5 (`%search` refused by the profile, ruled in the
+  subset) and F-6 (a probe's name in a key taken for a definition) to
+  L16dx; T-1 (an ill-typed checker test) to L17av.
