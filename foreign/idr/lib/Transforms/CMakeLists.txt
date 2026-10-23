@@ -635,6 +635,7 @@ add_mlir_library(IdrExpect
 	Expect/ReusesInPlace.cpp
 	Expect/Stages.cpp
 	Expect/StructuredLoops.cpp
+	Expect/Tails.cpp
 	Expect/TestsNothing.cpp
 	Expect/Vectorized.cpp
 	Expect/Words.cpp

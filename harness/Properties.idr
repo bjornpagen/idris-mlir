@@ -179,6 +179,14 @@ properties =
   , property "calls" OfPair Stated
       [ "Some call in @f calls @g or a copy of it; after lowering @g may be"
       , "a function of the runtime, named by its symbol." ]
+  , property "tail-calls" OfPair Stated
+      [ "Some call in @f of @g or a copy of it is a tail call, which goes in"
+      , "its caller's place: a fact of the program's calls, before lowering." ]
+  , property "results-as-given" OfPair Stated
+      [ "Every call in @f of @g or a copy of it gives each result laid out as"
+      , "its callee returns it, and no op after the call re-packs one, where"
+      , "@f takes it or on its way to @f's return: none converts it between"
+      , "two layouts." ]
   , property "folded" OfFunctions Stated
       [ "No op left in a copy of @f is one a fold would replace: one with"
       , "results, no memory effect, no call and no constant of its own, whose"
