@@ -9,7 +9,11 @@ fix lands, the commit naming it. A bug in a pinned upstream is recorded
 here only until its patch is carried: then its report is
 `upstream/<bug>/README.md` and its status `PINS.md`'s.
 
-**Status, main at b8301ebe plus the Reuses change below (2026-10-21),
+**Status (2026-10-23): written at b8301ebe, before P0's cutover, and
+not rechecked since.** The cutover has rewritten most of the code these
+entries name; INT's build of the whole cutover rechecks each, and an
+entry its fix removed goes then. What follows is the status as it
+stood. **Main at b8301ebe plus the Reuses change below (2026-10-21),
 two cores throughout.** `make check` 34/34, `make test-mlir-tools`
 34/34, `make test-unit` passes; `make test-idr` rerunning. Stage 1's
 pipeline half OOMed three times (proposal 0001 §2): idr-frames'
