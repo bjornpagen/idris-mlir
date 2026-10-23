@@ -84,3 +84,11 @@ The generator emits the right signatures; the frontend's calls are wrong:
 - The `LandingTable` is a `Vect` updated once per writing, writings ×
   positions to build. Build it in one pass instead (the writings grouped by
   position, then the table made once), keeping `closedLandsOf`'s proof.
+
+## From L16cg's follow-up (C228, C231)
+
+- Tails in local-action regions (`Term.running`) still apply at the
+  definition's declared result type, not the value's by construction.
+- `libraryCall` compares the row's arity evidence with `Instances`' own
+  count, which carries no evidence: the request's arity should come as the
+  `Vect` length C249 gave it, so the two are one by type.
