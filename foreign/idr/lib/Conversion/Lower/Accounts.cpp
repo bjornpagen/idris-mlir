@@ -23,6 +23,7 @@
 #include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Func.h"
+#include "idr/IR/Tail.h"
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 #include "idr/Transforms/Counting/Bound.h"
@@ -63,13 +64,8 @@ struct TellReturn : Tells<ReturnOp> {
 struct TellTailCall : Tells<CallOp> {
   using Tells::Tells;
   LogicalResult matchAndRewrite(CallOp op, PatternRewriter &rewriter) const override {
-    switch (op.getTailKind()) {
-    case TailKind::tail:
-      break;
-    case TailKind::nontail:
-    case TailKind::modulo_context:
+    if (!tailCallOf(op))
       return failure();
-    }
     rewriter.setInsertionPoint(op);
     leaves(rewriter, op.getLoc());
     return success();

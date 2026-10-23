@@ -5,6 +5,7 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 
 #include "idr/Analysis/Solver/Components.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/Threading.h"
@@ -102,6 +103,7 @@ ProgramGraph::ProgramGraph(Operation *program, AnalysisManager &am) {
     if (order.size() != before)
       sccStart.push_back(static_cast<std::uint32_t>(order.size()));
   }
+  frame();
 }
 
 FunctionId ProgramGraph::id(FlatSymbolRefAttr callee) const {
@@ -161,6 +163,17 @@ void ProgramGraph::partition() {
     if (order.size() != before)
       sccStart.push_back(static_cast<std::uint32_t>(order.size()));
   }
+}
+
+// A member's call of a member that returns to it, read once per row: every
+// callee a row names is a function of the program, so its component is
+// one of the program's.
+void ProgramGraph::frame() {
+  framed = BitSet<SccId>(sccCount());
+  for (FunctionId f : functions())
+    for (const Call &call : callees(f))
+      if (returnsToCaller(call.kind) && sccOf(call.callee) == sccOf(f))
+        (void)framed.raise(sccOf(f));
 }
 
 Editor ProgramGraph::thaw() & {
@@ -229,6 +242,7 @@ void Editor::freeze() && {
   graph.byName = std::move(byName);
   graph.lay(std::move(rows));
   graph.partition();
+  graph.frame();
 }
 
 } // namespace idr::solver

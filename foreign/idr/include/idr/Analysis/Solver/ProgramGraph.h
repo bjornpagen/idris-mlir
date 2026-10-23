@@ -11,8 +11,9 @@
 // are upstream's, bottom-up, as ranges of one permutation. On top it holds
 // what upstream cannot, as tables indexed by those ids: each function's
 // row of distinct (callee, tail kind) with how many calls have it, the
-// callers, the cycles, and the editor through which the one restructuring
-// pass that changes calls edits it.
+// callers, the cycles, the components that run a call on a frame, and the
+// editor through which the one restructuring pass that changes calls edits
+// it.
 //
 // No row holds a call op: a pass that recreates a call without changing
 // its callee or kind (counting rewrites operands) leaves the graph exact,
@@ -140,6 +141,13 @@ public:
     return in.size() > 1 || callsItself(in.front());
   }
   bool onCycle(FunctionId f) const { return onCycle(sccOf(f)); }
+  // Whether component `c` runs a call on a frame: a member calls a member
+  // and the call returns to it, so the caller waits on the cycle while the
+  // callee runs. Asked of every component before any member's body is
+  // read, so it is laid once with the components, from the rows they were
+  // laid on: as exact as the rows, which nothing writes while the graph is
+  // frozen. The one place a component is decided to run calls on frames.
+  bool runsCallsOnFrames(SccId c) const { return framed.test(c); }
 
   // A fact per function, sized by the id space.
   template <class T>
@@ -155,11 +163,15 @@ private:
   friend class Editor;
   ProgramGraph() = default;
   std::uint32_t sccOrder() const { return static_cast<std::uint32_t>(sccStart.size() - 1); }
-  // Rows sorted and merged, then everything derived from them: callers,
-  // sites, self calls, and, unless upstream's components are given, the
-  // components of the rows.
+  // Rows sorted and merged, then everything derived from them alone:
+  // callers, sites, self calls.
   void lay(footprint::Vector<footprint::Vector<Call>> perFunction);
+  // The components of the rows, where upstream's are not given.
   void partition();
+  // What the rows and the components decide together, laid after both
+  // wherever the components came from: the components that run a call on
+  // a frame.
+  void frame();
 
   Count<FunctionId> count = detail::GraphIds::functions(0);
   footprint::Vector<std::uint32_t> live;
@@ -175,6 +187,7 @@ private:
   footprint::Vector<std::uint32_t> order;
   footprint::Vector<std::uint32_t> sccStart{0};
   footprint::Vector<std::uint32_t> scc;
+  BitSet<SccId> framed{detail::GraphIds::sccs(0)};
 };
 
 // The editable form, held by the one restructuring pass that thawed it.

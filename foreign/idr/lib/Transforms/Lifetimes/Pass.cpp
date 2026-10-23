@@ -76,7 +76,6 @@
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
-#include "idr/IR/Tail.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Lifetimes.h"
 #include "idr/Transforms/Pipeline.h"
@@ -116,18 +115,6 @@ std::optional<Copies> mostOf(FuncOp fn) {
   return most.results.empty() ? std::nullopt : std::optional(most);
 }
 
-// Whether `component` runs a call on a frame: a member calls a member, and
-// the call returns to it. Asked before any member is planned, of every
-// member at once, so read off the rows, which hold each call's kind
-// numbered once with no call op, and no member's body is walked for it.
-Framing framingOf(const solver::ProgramGraph &graph, solver::SccId component) {
-  for (FunctionId f : graph.members(component))
-    for (const solver::Call &call : graph.callees(f))
-      if (returnsToCaller(call.kind) && graph.sccOf(call.callee) == component)
-        return Framing::Framed;
-  return Framing::Unframed;
-}
-
 std::optional<Copies> copiesOf(const Plan &plan) {
   if (!plan.put)
     return std::nullopt;
@@ -151,7 +138,8 @@ struct IdrLifetimes : idr::impl::IdrLifetimesBase<IdrLifetimes> {
     IndexVector<FunctionId, Plan> ownPlans = graph.table(Plan{});
     for (solver::SccId component : graph.sccCount().ids()) {
       auto members = graph.members(component);
-      Framing framing = framingOf(graph, component);
+      Framing framing =
+          graph.runsCallsOnFrames(component) ? Framing::Framed : Framing::Unframed;
       for (FunctionId f : members)
         copies[f] = mostOf(graph.op(f));
       for (bool shrank = true; shrank;) {

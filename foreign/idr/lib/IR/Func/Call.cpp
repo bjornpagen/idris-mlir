@@ -270,7 +270,7 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   // A tail call and its caller lower to one return: each cursor comes back
   // in its place, and each gives back the same result components, so a
   // result one drops is dropped by both.
-  if (getTailKind() == TailKind::tail) {
+  if (tailCallOf(*this)) {
     if (failed(cursorsInPlace(*this, caller, inputs, name)))
       return failure();
     if (!llvm::equal(givenBackResults(caller), givenBackResults(fn)))

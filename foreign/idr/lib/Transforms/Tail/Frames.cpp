@@ -151,20 +151,11 @@ struct Frames : impl::IdrFramesBase<Frames> {
     ProgramGraph &graph = getAnalysis<ProgramGraph>();
     IRRewriter rewriter(ctx);
 
-    // The components with a call to frame, read before any change: a
-    // member's call of a member that returns to it. A question of every
-    // member at once, read off the rows, which hold each call's kind
-    // numbered once with no call op, so no member's body is walked for it.
+    // The components with a call to frame, read before any change.
     footprint::Vector<SccId> framing;
-    for (SccId scc : graph.sccCount().ids()) {
-      bool any = false;
-      for (FunctionId f : graph.members(scc))
-        any = any || llvm::any_of(graph.callees(f), [&](const solver::Call &call) {
-                return returnsToCaller(call.kind) && graph.sccOf(call.callee) == scc;
-              });
-      if (any)
+    for (SccId scc : graph.sccCount().ids())
+      if (graph.runsCallsOnFrames(scc))
         framing.push_back(scc);
-    }
     if (framing.empty())
       return markAllAnalysesPreserved();
 

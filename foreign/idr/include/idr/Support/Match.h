@@ -6,10 +6,11 @@
 // from one publicly, which the fold reads as that variant, as std::visit
 // does; a sum of pointer-sized handles is an llvm::PointerUnion, read by
 // the same fold; and a type of the dialect is an mlir::Type folded over the
-// classes the dialect's specification generates. MLIR's types are an open
-// set, the dialect's a closed one, so a fold over them is a fold over a
-// sum, and a type interface, MLIR's answer for an open set, is not used to
-// say what each of our types is.
+// classes the dialect's specification generates. What each of our types
+// is, a question every class answers, is a method of a type interface the
+// specification declares (ValueFactsTypeInterface and its kin), which each
+// class implements and the C++ asks; the fold reads a type only for a
+// question no interface declares.
 //
 // Every alternative must have a case and every case must give one type, or
 // the match does not compile, and says which: a sum that gains an
