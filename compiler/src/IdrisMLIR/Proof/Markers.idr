@@ -55,14 +55,6 @@ leafFresh fresh defines isDef tree = fresh defines isDef tree
 0 localUnnamed : LocalAt fc r i t -> mentions k bs t = False
 localUnnamed IsLocalAt = Refl
 
--- The marker at a variable of a scope is a bound reference to the name
--- its bounds replace there.
-0 markerNamed : (bs : Bounds ns) -> (w : Var ns) ->
-                Var.index (markersOf {vars} fc bs) w = Ref fc Bound (replacedAt bs w)
-markerNamed (Add _ old rest) (MkVar First) = Refl
-markerNamed (Add _ _ rest) (MkVar (Later v)) = markerNamed rest (MkVar v)
-markerNamed None (MkVar v) impossible
-
 0 orFalse : (a : Bool) -> (a || b) = False -> (a = False, b = False)
 orFalse False prf = (Refl, prf)
 orFalse True prf = absurd prf
@@ -74,9 +66,9 @@ orBoth Refl Refl = Refl
 -- below the binders or past the scope, or a marker, which is a bound
 -- reference, never an unknown. The local's location and kind are given to
 -- the substitution lemmas: their equations name a local of their own, which
--- is the goal's only once given as the goal's. `weakenRef` is given the
--- size it weakens past: weakening a reference computes to the reference
--- whatever the size, so nothing else fixes it.
+-- is the goal's only once given as the goal's. The host's marker lemma is
+-- given the scope past the markers and the markers' location: its
+-- equation names both, and neither of its explicit arguments fixes them.
 0 markedLocal : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) ->
                 (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
                 mentions UnknownOnly bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)) = False
@@ -85,8 +77,7 @@ markedLocal o sz bs p = case range (size o) (size sz) i of
   InSecond j eq lt =>
     let (w ** wj) = varAt sz j lt in
     rewrite substMiddle {fc = lfc} {r} o sz (markersOf {vars} fc bs) p w (trans eq (cong (size o +) (sym wj))) in
-    rewrite the (weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w))
-                (trans (cong (weakenNs o) (markerNamed bs w)) (weakenRef {s = o})) in
+    rewrite weakenMarker {vars} {fc} o bs w in
     Refl
   PastBoth k eq => localUnnamed (substPast {fc = lfc} {r} o sz (markersOf {vars} fc bs) p k eq)
 

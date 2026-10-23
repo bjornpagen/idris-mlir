@@ -1166,6 +1166,7 @@ firstAt (Add _ old rest) apart (MkVar (Later v))
               (firstAt rest (snd (andTrue (not (replaces rest old)) apart)) (MkVar v))
 firstAt None _ (MkVar v) impossible
 
+export
 0 weakenMarker : (o : SizeOf outer) -> (bs : Bounds ns) -> (w : Var ns) ->
                  weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w)
 -- `weakenRef` is given the size it weakens past: weakening a reference
