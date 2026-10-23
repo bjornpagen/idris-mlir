@@ -2,10 +2,13 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # P0 design: slow elaboration of linear Idris on the stock host
 
-Written 2026-10-21 at e96bb991. The coordinator stopped the work partway,
-so this file holds what was found by then. The cause is **not found**,
-there is **no fix**, and no upstream search was done. All scaffolding is
-in `/tmp/idris-linear-check/`.
+Written 2026-10-21 at e96bb991. **Resolved 2026-10-23** (L06h,
+`idris-linear-check-addendum.md`): the case here is two bugs of the stock
+Idris, both carried as patches. This module's own slow failure (a type
+error in `recanonRow`) is what `upstream/109-delayed-retry-doubling`
+fixes; the rest is not linearity but the size-change graph's comparison
+doubling with each case block, `upstream/115-size-change-as-pattern-doubling`.
+What follows is the record as it stood; §5's advice is struck.
 
 Grounds: *measured* (command and input given), *read* (path:line),
 *recalled*, *conjecture*. Tool: the stock `idris2 0.8.0-1c630e67c` on the
@@ -107,15 +110,8 @@ Each of these is *read* at the pin, `third_party/Idris2/src`:
   known whether the pin already carries a fix.
 - No fix, no patch, no `upstream/<bug>/` contents, no `PINS.md` line.
 
-## 5. What our libraries should avoid until this is fixed
+## 5. Struck (2026-10-23)
 
-This is *conjecture*, drawn from §1 and §2.
-
-- Constructor names that clash with the Prelude's: `Nil`, `(::)`,
-  `(#)`. Give a library's heterogeneous lists and pairs their own names,
-  as the prototype did with `:&`.
-- List-literal patterns over a type of ours inside pattern lambdas, or in
-  the clauses of functions that take such lambdas.
-- Linear `LPair`s nested inside result types. Use one linear record per
-  state, matched once in a top-level helper; that form checks at about
-  5.7 s for the 822-line prefix.
+The advice that stood here, shapes our libraries should avoid, is
+withdrawn: measured, none of them is a cause (the addendum), and both
+bugs are patched upstream of our code (D121).

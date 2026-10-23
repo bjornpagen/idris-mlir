@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/115-size-change-as-pattern-doubling, carried: building a
+# function's size-change graph, the stock Idris compared each argument of
+# a call with each of the function's argument patterns, which each case
+# block the call is nested in wraps in one more as pattern, and ran the
+# comparison of an as pattern's inner part again whenever it was known, so
+# the time doubled with every case block around the call. With the patch
+# the known result is kept: Binds.idr, a do block of thirty pattern binds,
+# and Machine.idr, linear continuations nested eight deep, check within a
+# limit their doubling passes many times over.
+step_limit=30
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/115-size-change-as-pattern-doubling
+for name in Binds Machine; do
+  cp "$dir/$name.idr" "$work/$name.idr"
+  (cd "$work" && pinned_idris --check "$name.idr") > "$work/$name.out" 2>&1
+  case $? in
+    0) say "$name: checked within the step limit" ;;
+    124) say "$name: still reproduces: not checked within the step limit" ;;
+    *) say "$name: the stock Idris fails on the reproducer, which is not this bug"
+       show "$work/$name.out" ;;
+  esac
+done

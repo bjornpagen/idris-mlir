@@ -1,0 +1,19 @@
+diff --git a/src/Core/Termination/CallGraph.idr b/src/Core/Termination/CallGraph.idr
+index 1ccfb0b..f05ac53 100644
+--- a/src/Core/Termination/CallGraph.idr
++++ b/src/Core/Termination/CallGraph.idr
+@@ -145,8 +145,13 @@ mutual
+                     else pure $ Ref fc Func n
+         conIfGuarded tm = pure tm
+ 
++  -- The first comparison's result if it is known, else the second's. A
++  -- known result is returned, not run again: the comparisons it guards
++  -- descend an as pattern, and each case block an argument is passed into
++  -- wraps its pattern in one more, so running the known side again at each
++  -- doubled the work at each case block a call is nested in.
+   knownOr : Core SizeChange -> Core SizeChange -> Core SizeChange
+-  knownOr x y = case !x of Unknown => y; _ => x
++  knownOr x y = case !x of Unknown => y; r => pure r
+ 
+   plusLazy : Core SizeChange -> Core SizeChange -> Core SizeChange
+   plusLazy x y = case !x of Smaller => pure Smaller; x => pure $ x |+| !y

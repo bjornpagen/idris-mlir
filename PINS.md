@@ -1634,3 +1634,24 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/114-let-delayed-elaborator-dropped; nothing sent
   (Idris takes no tool-written contribution)
 - status (2026-10-23): carried
+
+## size-change-as-pattern-doubling
+
+- symptom: building a definition's size-change graph, which the stock
+  Idris does for every definition whatever its totality, takes time
+  doubling with each case block around a call: each case block wraps the
+  definition's argument patterns in one more as pattern, and the
+  comparison of an argument with an as pattern runs its inner part again
+  whenever that part's result is known (`knownOr`), so a do block of
+  thirty pattern binds checks in 118 s of user time, and linear
+  continuations nested nine deep in 308 s (the e-graph prototype's slow
+  elaboration of nested linear patterns,
+  `audits/p0/design/idris-linear-check.md`)
+- sites: every definition the stock host checks: stage 0 and the libraries
+- workaround: `upstream/115-size-change-as-pattern-doubling/idris.patch`:
+  `knownOr` returns the known result instead of the comparison that gave
+  it; checked by tests/upstream-size-change-as-pattern-doubling
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/115-size-change-as-pattern-doubling; nothing sent
+  (Idris takes no tool-written contribution)
+- status (2026-10-23): carried
