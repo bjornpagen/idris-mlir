@@ -407,7 +407,7 @@ record Holed where
 ||| shape it mentions a hole marker, numbered by first occurrence, and every
 ||| dictionary known as a term that closes over values one marker too, as
 ||| the translation marks what an implementation closes over (`Holed`).
-holedAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front Holed
+holedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -> Env vs -> TT vs -> Front Holed
 holedAt env t = do
   let valued = positioned 0 env
       c = closeOver EmptyFC (map fst valued) t
@@ -457,7 +457,7 @@ holedAt env t = do
       _ => pure (ARuntime Nothing, Nothing)
 
 ||| A term closed as a dictionary's key holds it (`holedAt`).
-holed : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front ClosedTerm
+holed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -> Env vs -> TT vs -> Front ClosedTerm
 holed env t = do
   h <- holedAt env t
   pure h.key
@@ -929,32 +929,12 @@ readArgument stands j k memberOf t shown =
                             (Just t) stands memberOf (OffTerm r) [] shown)
     <$> rooted stands k t
 
-||| The pair Idris's `%pair` names, which holds a value and the rest of a
-||| list as one, and its two projections, each by its definition's address
-||| and as the boundary read it.
-public export
-record Pairing where
-  constructor MkPairing
-  pairAddress : Address
-  pairDefined : Defined
-  firstAddress : Address
-  firstDefined : Defined
-  secondAddress : Address
-  secondDefined : Defined
-
-||| The pairing, read off the context: nothing where it holds no definition
-||| of one of the pair's names.
+||| The pair Idris's `%pair` names and its two projections, as the boundary
+||| read them once (`State.Pairing`); nothing for a program that declares
+||| no `%pair`.
 export
 pairingOf : Front (Maybe Pairing)
-pairingOf = do
-  (pair, first, second) <- pairNames
-  Just (p, pd) <- definitionOf pair
-    | Nothing => pure Nothing
-  Just (f, fd) <- definitionOf first
-    | Nothing => pure Nothing
-  Just (s, sd) <- definitionOf second
-    | Nothing => pure Nothing
-  pure (Just (MkPairing p pd f fd s sd))
+pairingOf = (.pair) <$> reading
 
 ||| What holding values as one reaches: the pair that holds the first and
 ||| the rest, and its projections, which the holder takes them apart with
@@ -1805,7 +1785,7 @@ settledScope k (e :: es) env body =
 ||| applied by Idris's evaluator that runs no definition; and each runtime
 ||| value a variable of the settled term's scope (`settledScope`). With the
 ||| arguments computed where they are given.
-settledAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> FC -> Dict -> List (Arg vs) ->
+settledAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -> Env vs -> FC -> Dict -> List (Arg vs) ->
             Front (List (Arg vs), (ws : Scope ** (Env ws, TT ws)))
 settledAt env fc d args = do
   (value, own) <- formOf d
@@ -1886,7 +1866,7 @@ mutual
           here <- readType ph w acc at (entering BinderType ps) env ty
           body <- term ph w acc at (entering BinderScope ps) ((Runtime, x, Just typed) :: env) sc
           pure (value ++ here ++ body)
-  term ph w acc at ps env (Meta fc n i margs) = entered ph w acc at ps env fc n i margs []
+  term ph w acc at ps env (Meta fc _ i margs) = entered ph w acc at ps env fc i margs []
   term ph w acc at ps env (As _ _ _ pat) = term ph w acc at (entering PatternOfAs ps) env pat
   term ph w acc at ps env (TDelay _ _ _ arg) = term ph w acc at (entering DelayValue ps) env arg
   term ph w acc at ps env (TForce _ _ arg) = term ph w acc at (entering ForcedValue ps) env arg
@@ -1939,7 +1919,7 @@ mutual
     here <- static ph w acc at (entering BinderType ps) env ty
     body <- static ph w acc at (entering BinderScope ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
     pure (value ++ here ++ body)
-  static ph w acc at ps env (Meta fc n i margs) = staticEntered ph w acc at ps env fc n i margs []
+  static ph w acc at ps env (Meta fc _ i margs) = staticEntered ph w acc at ps env fc i margs []
   static ph w acc at ps env (As _ _ _ pat) = static ph w acc at (entering PatternOfAs ps) env pat
   static ph w acc at ps env (TDelayed _ _ t) = static ph w acc at (entering LazyOf ps) env t
   static ph w acc at ps env (TDelay _ _ t a) =
@@ -2026,7 +2006,7 @@ mutual
   staticSpine ph w acc at ps env (App _ f a) args =
     staticSpine ph w acc at (entering AppFunction ps) env f (argOf ph w acc at ps env a :: args)
   staticSpine ph w acc at ps env (Ref fc _ n) args = staticRef at ps env fc n args
-  staticSpine ph w acc at ps env (Meta fc n i margs) args = staticEntered ph w acc at ps env fc n i margs args
+  staticSpine ph w acc at ps env (Meta fc _ i margs) args = staticEntered ph w acc at ps env fc i margs args
   staticSpine ph w acc at ps env tm args = do
     here <- static ph w acc at ps env tm
     (here ++) <$> statics args
@@ -2064,7 +2044,7 @@ mutual
                 here <- readType ph w acc at (entering BinderType ps) env ty
                 pure ((Runtime, x, Just (close env ty)), value ++ here)
     (own ++) <$> spine ph w acc at (entering BinderScope ps) (entry :: env) sc (map overBinder rest)
-  applyHead ph w acc at ps env (Meta fc n i margs) args = entered ph w acc at ps env fc n i margs args
+  applyHead ph w acc at ps env (Meta fc _ i margs) args = entered ph w acc at ps env fc i margs args
   applyHead ph w acc at ps env (As _ _ _ pat) args = spine ph w acc at (entering PatternOfAs ps) env pat args
   applyHead ph w acc at ps env tm args = do
     here <- term ph w acc at ps env tm
@@ -2124,33 +2104,32 @@ mutual
     ((here >>= id) ++) <$> term next start (sizeAccessible start) at (entering SettledForm ps) env' body
 
   ||| A metavariable applied as code, as the solution the type checker gave
-  ||| it, entered once on the path: met again, its solution is being walked.
+  ||| it, read once at the boundary by the entry its term gives it
+  ||| (`State.solutionIn`), and entered once on the path, at that entry's
+  ||| place: met again, its solution is being walked. A hole writes nothing
+  ||| the growth check bounds: the translation refuses it where it meets it.
   entered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            At -> Pats -> Env vs -> FC -> Name -> Int -> List (TT vs) -> List (Arg vs) -> Front (List Site)
-  entered ph w acc@(Access rec) at ps env fc n i margs args = do
-    -- A negative index is no place, which Idris's bare `Int` allows.
-    let Just placement = placementOf i
-      | Nothing => pure []
+            At -> Pats -> Env vs -> FC -> Int -> List (TT vs) -> List (Arg vs) -> Front (List Site)
+  entered ph w acc@(Access rec) at ps env fc i margs args = do
+    r <- reading
+    SolvedAs tm placement _ _ _ _ <- core (solutionIn r i)
+      | Unsolved _ _ => pure []
     let Just (Element w' less) = enter placement w
       | Nothing => pure []
-    Just tm <- solution fc n margs
-      | Nothing => pure []
-    spine ph w' (rec w' less) at (entering MetaSolution ps) env tm args
+    spine ph w' (rec w' less) at (entering MetaSolution ps) env (solvedApplied fc tm margs) args
 
   ||| A metavariable applied in a type or a static argument, likewise.
   staticEntered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  At -> Pats -> Env vs -> FC -> Name -> Int -> List (TT vs) -> List (Arg vs) -> Front (List Site)
-  staticEntered ph w acc@(Access rec) at ps env fc n i margs args = do
-    -- A negative index is no place, which Idris's bare `Int` allows.
-    let Just placement = placementOf i
-      | Nothing => pure []
+                  At -> Pats -> Env vs -> FC -> Int -> List (TT vs) -> List (Arg vs) -> Front (List Site)
+  staticEntered ph w acc@(Access rec) at ps env fc i margs args = do
+    r <- reading
+    SolvedAs tm placement _ _ _ _ <- core (solutionIn r i)
+      | Unsolved _ _ => pure []
     let Just (Element w' less) = enter placement w
       | Nothing => pure []
-    Just tm <- solution fc n margs
-      | Nothing => pure []
-    staticSpine ph w' (rec w' less) at (entering MetaSolution ps) env tm args
+    staticSpine ph w' (rec w' less) at (entering MetaSolution ps) env (solvedApplied fc tm margs) args
 
 ||| A leaf at the writer's result: where its leaves give a member of a
 ||| type, a lambda there, under its `let`s, is that member

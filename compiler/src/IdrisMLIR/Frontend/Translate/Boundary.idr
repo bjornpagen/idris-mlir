@@ -25,7 +25,11 @@
 ||| constructor's constructors, the definition a block belongs to, the calls
 ||| Idris's size-change graphs keep, and the library functions the
 ||| registry's hooks of a definition name; and the pair Idris's `%pair`
-||| names, which the translation builds itself.
+||| names, which the translation builds itself. Once the context is
+||| frozen, each unknown met is read again by the entry its term gives it,
+||| as the solution the checker gave it or a hole (`Solution`), and the
+||| pair as its three definitions (`PairRead`), so no phase after looks
+||| either up by name.
 module IdrisMLIR.Frontend.Translate.Boundary
 
 import Core.Case.CaseTree
@@ -38,6 +42,7 @@ import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.TypeConstructors
@@ -69,24 +74,27 @@ import Decidable.Equality
 ------------------------------------------------------------------------------
 
 ||| A name a definition refers to, as a walk over what the program reaches
-||| follows it: a definition, or a metavariable, whose solution a walk that
-||| names blocks reads under the definition that refers to it
-||| (`nameUnder`).
+||| follows it: a definition, or a metavariable, by the entry its term
+||| gives it, which is the name Host's `Solve` unfolds, with the name the
+||| term shows it by, for a message. A walk that names blocks reads a
+||| metavariable's solution under the definition that refers to it
+||| (`nameUnder`), and the reading reads each one's solution by that entry
+||| once the context is frozen (`solutionAt`).
 public export
-data Referent = ARef Name | AMeta Name
+data Referent = ARef Name | AMeta Name Int
 
-||| The name a reference is to.
+||| The name a reference is to: a metavariable's, its entry.
 export
 referentName : Referent -> Name
 referentName (ARef n) = n
-referentName (AMeta n) = n
+referentName (AMeta _ i) = Resolved i
 
 mutual
   ||| The references of a term, left to right: a function before its
   ||| argument, a binder's type and value before its scope.
   termRefs : SnocList Referent -> Term vs -> SnocList Referent
   termRefs acc (Ref _ _ n) = acc :< ARef n
-  termRefs acc (Meta _ n _ args) = termsRefs (acc :< AMeta n) args
+  termRefs acc (Meta _ n i args) = termsRefs (acc :< AMeta n i) args
   termRefs acc (Bind _ _ b sc) = termRefs (binderRefs acc b) sc
   termRefs acc (App _ f a) = termRefs (termRefs acc f) a
   termRefs acc (As _ _ a p) = termRefs (termRefs acc a) p
@@ -201,13 +209,13 @@ record Unfrozen where
 %prefix_record_projections on
 
 ||| Every name the translation may meet through a definition it meets.
-referred : Unfrozen -> List Name
+referred : Unfrozen -> List Referent
 referred d =
-  map referentName (references d.matched d.type)
-  ++ constructors (definition d.def)
-  ++ maybe [] (:: []) (parentOf (fullname d.def))
-  ++ map (.fnCall) (sizeChange d.def)
-  ++ librariesOf d.registered
+  references d.matched d.type
+  ++ map ARef (constructors (definition d.def)
+               ++ maybe [] (:: []) (parentOf (fullname d.def))
+               ++ map (.fnCall) (sizeChange d.def)
+               ++ librariesOf d.registered)
   where
     constructors : Def -> List Name
     constructors (TCon _ _ _ _ _ cons _) = fromMaybe [] cons
@@ -530,8 +538,8 @@ mutual
               (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
               (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Core (Reached w)
   nameUnder r origin names ks w0 acc w p [] = pure (MkReached names ks w (noMore w))
-  nameUnder r origin names ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
-    Just d <- definedIn r m
+  nameUnder r origin names ks w0 acc@(Access rec) w p (AMeta _ i :: rest) = do
+    Just d <- definedIn r (Resolved i)
       | Nothing => nameUnder r origin names ks w0 acc w p rest
     case enter d.placement w of
       Nothing => nameUnder r origin names ks w0 acc w p rest
@@ -606,30 +614,51 @@ blockNamesOf r entry = do
 -- Reading the program
 ------------------------------------------------------------------------------
 
-||| Every definition met from the names, after those read so far, each read
-||| once and kept by its entry, then what it refers to read in turn. A
-||| definition is entered into a walk when it is read (`Walk`), and every
-||| one read leaves fewer to enter, which is why the reading ends; a name
-||| the context defines as nothing, a probe's or a binder's, is no
+%prefix_record_projections off
+
+||| What the reading before the freeze met: every definition, by its entry
+||| (`readFrom`), and every metavariable a term of one names, by the entry
+||| the term gives it, with the name it shows it by, whose solution is read
+||| by that entry once the context is frozen (`solutionsOf`).
+record Met where
+  constructor MkMet
+  found : SortedMap Int Unfrozen
+  metavariables : SortedMap Int Name
+
+%prefix_record_projections on
+
+||| Every definition met from the references, after those read so far,
+||| each read once and kept by its entry, then what it refers to read in
+||| turn. A definition is entered into a walk when it is read (`Walk`), and
+||| every one read leaves fewer to enter, which is why the reading ends; a
+||| name the context defines as nothing, a probe's or a binder's, is no
 ||| definition to read. A type constructor's constructor the context holds
 ||| nothing for is passed over here too, and refused once the reading is
-||| frozen, where the type's constructors are read (`constructorsRead`).
+||| frozen, where the type's constructors are read (`constructorsRead`);
+||| and so is a metavariable at no entry, which is noted, as every
+||| metavariable is, wherever a term names it, read or not, and refused
+||| once the context is frozen, where its solution is read (`solutionAt`).
 readFrom : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 _ : SizeAccessible w) ->
-           SortedMap Int Unfrozen -> List Name -> Core (SortedMap Int Unfrozen)
-readFrom w acc found [] = pure found
-readFrom w acc@(Access rec) found (n :: ns) = do
+           Met -> List Referent -> Core Met
+readFrom w acc met [] = pure met
+readFrom w acc@(Access rec) met (r :: rs) = do
+  let met' = noted r
   defs <- get Ctxt
-  Just (i, def) <- lookupCtxtExactI n (gamma defs)
-    | Nothing => readFrom w acc found ns
+  Just (i, def) <- lookupCtxtExactI (referentName r) (gamma defs)
+    | Nothing => readFrom w acc met' rs
   -- A negative entry is no place, which Idris's bare `Int` allows.
   let Just p = placementOf i
-    | Nothing => readFrom w acc found ns
+    | Nothing => readFrom w acc met' rs
   case enter p w of
     -- Read already.
-    Nothing => readFrom w acc found ns
+    Nothing => readFrom w acc met' rs
     Just (Element w' less) => do
       d <- readDefinition i p def
-      readFrom w' (rec w' less) (insert i d found) (referred d ++ ns)
+      readFrom w' (rec w' less) ({ found $= insert i d } met') (referred d ++ rs)
+  where
+    noted : Referent -> Met
+    noted (AMeta shownAs j) = { metavariables $= insert j shownAs } met
+    noted (ARef _) = met
 
 ||| The type a member at a use is applied as by (`AtUse`, `Application`),
 ||| its binders' names interned once.
@@ -863,23 +892,102 @@ constructorsRead fallback r tc = case definition tc.def of
       pure (Right (MkConstructorAt con place arity :: later))
 
 ||| The reading with every definition given its constructors
-||| (`constructorsRead`), the entry as every other; the first refusal stops
-||| it.
+||| (`constructorsRead`), the entry and the pair's as every other; the
+||| first refusal stops it.
 constructed : NonEmptyFC -> Reading () -> Core (Either Refusal (Reading Constructors))
 constructed fallback r = do
-  Right entryCons <- constructorsRead fallback r r.entry
+  Right entry <- given r.entry
+    | Left refusal => pure (Left refusal)
+  Right pair <- pairGiven r.pair
     | Left refusal => pure (Left refusal)
   Right ds <- each empty (SortedMap.toList r.definitions)
     | Left refusal => pure (Left refusal)
-  pure (Right (MkReading r.frozen (withNature entryCons r.entry) ds r.application r.interfaces))
+  pure (Right (MkReading r.frozen entry ds r.application r.interfaces r.solutions pair))
   where
+    given : DefinitionRead () -> Core (Either Refusal (DefinitionRead Constructors))
+    given d = map (\cons => withNature cons d) <$> constructorsRead fallback r d
+
+    pairGiven : Maybe (PairRead ()) -> Core (Either Refusal (Maybe (PairRead Constructors)))
+    pairGiven Nothing = pure (Right Nothing)
+    pairGiven (Just pg) = do
+      Right p <- given pg.pairDefined
+        | Left refusal => pure (Left refusal)
+      Right f <- given pg.firstDefined
+        | Left refusal => pure (Left refusal)
+      Right s <- given pg.secondDefined
+        | Left refusal => pure (Left refusal)
+      pure (Right (Just (MkPairRead pg.pairAddress p pg.firstAddress f pg.secondAddress s)))
+
     each : SortedMap Int (DefinitionRead Constructors) -> List (Int, DefinitionRead ()) ->
            Core (Either Refusal (SortedMap Int (DefinitionRead Constructors)))
     each done [] = pure (Right done)
     each done ((i, d) :: rest) = do
-      Right cons <- constructorsRead fallback r d
+      Right d' <- given d
         | Left refusal => pure (Left refusal)
-      each (insert i (withNature cons d) done) rest
+      each (insert i d' done) rest
+
+||| The solution of the metavariable at entry `i` (`Solution`), read once
+||| from the frozen context by that entry, which its term gives it and
+||| Host's `Solve` unfolds: the definition there, of no arguments and one
+||| leaf, at the entry's placement, or a hole. A metavariable at no entry,
+||| or at one of any other definition, is the compiled module's error,
+||| refused here at `fallback` by the name its term shows it by, as the
+||| boundary refuses other checked input it cannot read; the checker writes
+||| a solution in no other shape, so no program reaches it.
+solutionAt : (fz : Frozen) -> NonEmptyFC -> (i : Int) -> (shownAs : Name) -> Core (Either Refusal (Solution fz i))
+solutionAt fz fallback i shownAs = case definitionIn fz (Resolved i) of
+  NotDefined _ => pure (Left (refused "a metavariable at no entry"))
+  DefinedAs _ _ d defines => shaped d defines
+  where
+    refused : String -> Refusal
+    refused what = MkRefusal (Refusal CompiledModule) fallback (show shownAs ++ ": " ++ what)
+
+    shaped : (d : GlobalDef) -> (0 _ : Defines fz (Resolved i) d) -> Core (Either Refusal (Solution fz i))
+    shaped d defines with (definition d) proof held
+      shaped d defines | PMDef info [] body = do
+        Element (STerm leaf tm) treeOf <- readTreeOf body
+          | Element _ _ => pure (Left (refused "a metavariable whose solution matches"))
+        pure (Right (SolvedAs tm (placementAt i (resolvedPlaced resolvedItself defines)) defines held treeOf Refl))
+      shaped d defines | Hole locals flags = pure (Right (Unsolved defines held))
+      shaped d defines | _ = pure (Left (refused "a metavariable whose definition is neither a solution nor a hole"))
+
+||| The solution of every metavariable a term read names, by its entry
+||| (`solutionAt`): the table every walk that meets a metavariable reads
+||| (`State.solutionIn`). The first refusal stops it.
+solutionsOf : (fz : Frozen) -> NonEmptyFC -> List (Int, Name) -> Core (Either Refusal (Solutions fz))
+solutionsOf fz fallback = go noSolutions
+  where
+    go : Solutions fz -> List (Int, Name) -> Core (Either Refusal (Solutions fz))
+    go done [] = pure (Right done)
+    go done ((i, shownAs) :: rest) = do
+      Right s <- solutionAt fz fallback i shownAs
+        | Left refusal => pure (Left refusal)
+      go (withSolution i s done) rest
+
+||| The pair Idris's `%pair` names (`PairRead`), each of its three names
+||| read as the reading has it (`readIn`), by its entry's address
+||| (`definedAddress`); nothing for a program that declares no `%pair`. A
+||| declared one that names what the frozen context defines as nothing is
+||| the compiled module's error, refused here at `fallback`; the checker
+||| takes the pragma only of names it resolves, so no program reaches it.
+pairingIn : (fz : Frozen) -> SortedMap Int (DefinitionRead ()) -> NonEmptyFC -> Core (Either Refusal (Maybe (PairRead ())))
+pairingIn fz ds fallback = case pairnames (options (defsOf fz)) of
+  Nothing => pure (Right Nothing)
+  Just ns => do
+    Right (pa, pd) <- part (pairType ns)
+      | Left refusal => pure (Left refusal)
+    Right (fa, fd) <- part (fstName ns)
+      | Left refusal => pure (Left refusal)
+    Right (sa, sd) <- part (sndName ns)
+      | Left refusal => pure (Left refusal)
+    pure (Right (Just (MkPairRead pa pd fa fd sa sd)))
+  where
+    part : Name -> Core (Either Refusal (Address, DefinitionRead ()))
+    part n = do
+      ReadAs i resolved defines d <- readIn fz ds n
+        | NoDefinition _ => pure (Left (MkRefusal (Refusal CompiledModule) fallback
+                                                  (show n ++ ": named by %pair, and defined as nothing")))
+      pure (Right (definedAddress i resolved defines, d))
 
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
@@ -890,21 +998,23 @@ constructed fallback r = do
 ||| against it, and each definition's values that are members of a choice,
 ||| its binders with what it takes at each and their types, and the hook
 ||| that lowers its calls read off its type in normal form; the entry, as
-||| it was read, found once by its name; each type constructor's
-||| constructors read; and what follows from the definitions alone found
-||| once: each type constructor's facts, each definition's loops, and each
-||| block's name. A registry entry or row the loaded definitions
-||| contradict, and a type constructor whose constructors the context does
-||| not hold, are refused here, once, at their definition or else at
-||| `fallback`, and nothing after reads the registry's rows but as this
-||| read them.
+||| it was read, found once by its name; the solution of every
+||| metavariable a term read names, by its entry, and the pair `%pair`
+||| names, each read once; each type constructor's constructors read; and
+||| what follows from the definitions alone found once: each type
+||| constructor's facts, each definition's loops, and each block's name. A
+||| registry entry or row the loaded definitions contradict, a type
+||| constructor whose constructors the context does not hold, and a
+||| metavariable or a `%pair` the context does not define as one, are
+||| refused here, once, at their definition or else at `fallback`, and
+||| nothing after reads the registry's rows but as this read them.
 export
 readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) ->
               (fallback : NonEmptyFC) -> Core (Either Refusal Read)
 readProgram ifs entry fallback = do
   defs <- get Ctxt
-  let pair = maybe [] (\ns => [pairType ns, fstName ns, sndName ns]) (pairnames (options defs))
-  found <- readFrom start (sizeAccessible start) empty (entry :: pair)
+  let pair = maybe [] (\ns => map ARef [pairType ns, fstName ns, sndName ns]) (pairnames (options defs))
+  met <- readFrom start (sizeAccessible start) (MkMet empty empty) (ARef entry :: pair)
   -- The registry's entries the validation resolves, each definition's name
   -- interned while the context may still be written.
   sites <- registrySites
@@ -913,7 +1023,7 @@ readProgram ifs entry fallback = do
   fz <- host.freezeContext
   Nothing <- validate fz sites fallback
     | Just refusal => pure (Left refusal)
-  Right definitions <- frozenAll fz found empty (SortedMap.toList found)
+  Right definitions <- frozenAll fz met.found empty (SortedMap.toList met.found)
     | Left refusal => pure (Left refusal)
   -- The entry was read first, from its name: the definition the frozen
   -- context gives that name, found once here and held by the reading, so
@@ -922,12 +1032,20 @@ readProgram ifs entry fallback = do
   -- nothing is a program with no main, refused as one.
   ReadAs _ _ _ entryRead <- readIn fz definitions entry
     | NoDefinition _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback (programEntry ++ ": the program defines no main")))
+  -- Each metavariable met, and the pair, read once from the frozen
+  -- context by their entries, so no phase after looks either up by name:
+  -- the solutions with the evidence the evaluator's own step states, the
+  -- pair with its definitions as the reading has them.
+  Right solutions <- solutionsOf fz fallback (SortedMap.toList met.metavariables)
+    | Left refusal => pure (Left refusal)
+  Right pairing <- pairingIn fz definitions fallback
+    | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before
   -- any definition holds it: none of the three readings reads what the
   -- others find, and each definition is given all three at once. The type
   -- constructors' facts read their constructors, read first.
-  let fromDefinitions = MkReading fz entryRead definitions application ifs
+  let fromDefinitions = MkReading fz entryRead definitions application ifs solutions pairing
   Right withConstructors <- constructed fallback fromDefinitions
     | Left refusal => pure (Left refusal)
   proved <- loopsOf fromDefinitions

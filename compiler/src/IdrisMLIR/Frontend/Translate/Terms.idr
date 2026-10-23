@@ -932,33 +932,31 @@ mutual
   ||| them, marker 0, which stands for that variable, of the type that holds
   ||| them, so that a value at the form's head is applied as its own type
   ||| says (a choice, dispatched on).
-  standingFor : ClosedTerm -> Maybe (Fin nv, Holes) -> Front (ClosedTerm, List (Stand kc nv))
+  standingFor : {auto s : Ref TState TS} -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (ClosedTerm, List (Stand kc nv))
   standingFor t Nothing = pure (t, [])
   standingFor t (Just (x, hs)) = do
     values <- unpacked hs.types (holeMarker 0)
     pure (fillHoles values t, [AsVariable (Runtime x (BothTypes hs.binder.type !(packedType hs.types)))])
 
   ||| A metavariable applied, as the solution the type checker gave it,
-  ||| entered once on the path.
+  ||| read once at the boundary by the entry its term gives it
+  ||| (`State.solutionIn`), and entered once on the path, at that entry's
+  ||| place. The term's name shows it in a message.
   entered : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> (afc : FC) -> (fc : FC) -> Name -> Int -> List (TT vars) ->
             List (Arg vars nv) -> Front (Term nv)
   entered ph w acc@(Access rec) ctx env ex afc fc n i margs args = do
-    -- The metavariable's entry is Idris's bare `Int`, which a resolved
-    -- name of the checked module never makes negative; the term is where
-    -- the frontend first reads it, so a negative one is refused, as the
-    -- compiled module it is.
-    let Just place = placementOf i
-      | Nothing => reject (bestFC ctx fc) ctx.owner CompiledModule "a metavariable at a negative place"
+    r <- reading
+    -- A hole the source left is the escape hatch it is.
+    SolvedAs tm place _ _ _ _ <- core (solutionIn r i)
+      | Unsolved _ _ => reject (bestFC ctx fc) ctx.owner EscapeHatch ("the hole " ++ show n)
     -- Idris's occurs check keeps a solution from holding its own
     -- metavariable, which the walk is where the frontend first meets: a
     -- solution that holds it is refused, as the compiled module it is.
     let Just (Element w' less) = enter place w
       | Nothing => reject (bestFC ctx fc) ctx.owner CompiledModule "a metavariable met again on its own path"
-    Just tm <- solution (bestFC ctx fc) n margs
-      | Nothing => reject (bestFC ctx fc) ctx.owner EscapeHatch ("the hole " ++ show n)
-    spine ph w' (rec w' less) ctx env ex afc tm args
+    spine ph w' (rec w' less) ctx env ex afc (solvedApplied (bestFC ctx fc) tm margs) args
 
   ||| A value of the environment applied to arguments, its lambdas applied
   ||| and its solved metavariables filled in by Idris's evaluator that runs

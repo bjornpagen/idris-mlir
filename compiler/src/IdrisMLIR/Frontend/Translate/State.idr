@@ -31,8 +31,10 @@ import Data.List
 import Data.List1
 import Data.SnocList
 import Data.SortedMap
+import Data.SortedMap.Dependent
 import Data.SortedSet
 import Data.Vect
+import Decidable.Equality
 
 %default total
 
@@ -1109,6 +1111,33 @@ withNature : facts' -> DefinitionRead facts -> DefinitionRead facts'
 withNature n d =
   MkDefined d.placement d.def d.type d.matched d.ends d.registered d.loweredBy d.exitTypes d.places d.binders n
 
+||| The pair Idris's `%pair` names, which holds a value and the rest of a
+||| list as one, and its two projections, which take it apart: each by its
+||| definition's address and as the boundary read it, with what the whole
+||| program's definitions say of it (`facts`), as every definition read is.
+||| Read once, after the freeze (`Boundary.readProgram`), so no phase looks
+||| the pair's names up again.
+public export
+record PairRead (facts : Type) where
+  constructor MkPairRead
+  pairAddress : Address
+  pairDefined : DefinitionRead facts
+  firstAddress : Address
+  firstDefined : DefinitionRead facts
+  secondAddress : Address
+  secondDefined : DefinitionRead facts
+
+||| The pair as every phase after the boundary reads it (`PairRead`).
+public export
+Pairing : Type
+Pairing = PairRead Nature
+
+||| The pair with each of its definitions given what `f` says of it.
+export
+pairWith : (DefinitionRead facts -> DefinitionRead facts') -> PairRead facts -> PairRead facts'
+pairWith f pg =
+  MkPairRead pg.pairAddress (f pg.pairDefined) pg.firstAddress (f pg.firstDefined) pg.secondAddress (f pg.secondDefined)
+
 ||| What a definition takes at each binder of its type in normal form, in
 ||| order (`binders`).
 public export
@@ -1144,6 +1173,46 @@ applicationOver t f u =
           (Bind EmptyFC f (Pi EmptyFC top Explicit (Local EmptyFC Nothing 0 First))
                 (Local EmptyFC Nothing 1 (Later First))))
 
+||| What the checker made of a metavariable a term the boundary read names,
+||| read once, after the freeze, by the entry `i` the term gives it in the
+||| frozen context `fz`, the name Host's `Solve` unfolds
+||| (`Boundary.readProgram`): a solution, the definition at that entry, of
+||| no arguments and one leaf, which is the solution, held with the entry's
+||| placement, which a walk enters before it walks the solution, and with
+||| the premises `Solve` states of such a definition, at quantity 0; or a
+||| hole the source left, which the checker left unsolved. Essential: the
+||| problem has both, and a hole is no term. The checker writes a solution
+||| in no other shape, so the boundary refuses a metavariable at no entry,
+||| or at one of any other definition, as the compiled module it is, and
+||| no reader meets either.
+public export
+data Solution : Frozen -> Int -> Type where
+  SolvedAs : {0 fz : Frozen} -> {0 i : Int} -> {0 d : GlobalDef} -> {0 info : PMDefInfo} -> {0 body : Body []} ->
+             {0 leaf : Int} -> (solution : ClosedTerm) -> (placement : Placement) ->
+             (0 defines : Defines fz (Resolved i) d) -> (0 _ : definition d = PMDef info [] body) ->
+             (0 _ : TreeOf body (STerm leaf solution)) ->
+             (0 _ : placement = placementAt i (resolvedPlaced resolvedItself defines)) -> Solution fz i
+  Unsolved : {0 fz : Frozen} -> {0 i : Int} -> {0 d : GlobalDef} -> {0 locals : Nat} -> {0 flags : HoleFlags} ->
+             (0 _ : Defines fz (Resolved i) d) -> (0 _ : definition d = Hole locals flags) -> Solution fz i
+
+||| The solution of each metavariable a term the boundary read names, by
+||| its entry in the frozen context, each read at that entry (`Solution`).
+||| An entry is a key, not an index: Idris's terms carry a metavariable's
+||| entry as a bare `Int`, which says nothing of the table.
+public export
+Solutions : Frozen -> Type
+Solutions fz = SortedDMap Int (Solution fz)
+
+||| No solution read yet.
+export
+noSolutions : Solutions fz
+noSolutions = Data.SortedMap.Dependent.empty
+
+||| The table with the solution at an entry added.
+export
+withSolution : (i : Int) -> Solution fz i -> Solutions fz -> Solutions fz
+withSolution i s table = Data.SortedMap.Dependent.insert i s table
+
 ||| What the translation reads of the program: the context frozen once the
 ||| program and everything it imports are loaded and every termination
 ||| verdict it reaches is in it, which every normaliser reads; the
@@ -1156,10 +1225,14 @@ applicationOver t f u =
 ||| name, Idris's own table of them, since nothing the translation does
 ||| declares one (an implementation is a value of one of these types, or of
 ||| a pair of or a function to such values,
-||| `Boundary.implementationHolding`). Each definition holds what the whole
-||| program's definitions say of it (`facts`): nothing while they are being
-||| read, its constructors once they are, and its `Nature` once those are
-||| (`Read`). Nothing the translation does changes it.
+||| `Boundary.implementationHolding`); the solution of every metavariable a
+||| term read names, by its entry (`Solutions`), which every walk that
+||| meets one reads; and the pair Idris's `%pair` names (`PairRead`), which
+||| holds values as one, none for a program that declares no `%pair`. Each
+||| definition holds what the whole program's definitions say of it
+||| (`facts`): nothing while they are being read, its constructors once
+||| they are, and its `Nature` once those are (`Read`); the pair's, as
+||| every other's. Nothing the translation does changes it.
 public export
 record Reading (facts : Type) where
   constructor MkReading
@@ -1168,6 +1241,8 @@ record Reading (facts : Type) where
   definitions : SortedMap Int (DefinitionRead facts)
   application : Application
   interfaces : SortedSet Name
+  solutions : Solutions frozen
+  pair : Maybe (PairRead facts)
 
 ||| What every phase after the boundary reads of the program: each
 ||| definition with its `Nature`.
@@ -1197,7 +1272,7 @@ export
 natured : (DefinitionRead facts -> Nature) -> Reading facts -> Read
 natured nature r =
   MkReading r.frozen (withNature (nature r.entry) r.entry) (map (\d => withNature (nature d) d) r.definitions)
-            r.application r.interfaces
+            r.application r.interfaces r.solutions (map (pairWith (\d => withNature (nature d) d)) r.pair)
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to, with the entry and the evidence that the name resolves
@@ -1212,19 +1287,39 @@ data ReadOf : Frozen -> Name -> Type -> Type where
   NoDefinition : {0 ctx : Frozen} -> {0 n : Name} -> {0 facts : Type} ->
                  (0 _ : (g : GlobalDef) -> Not (Defines ctx n g)) -> ReadOf ctx n facts
 
+-- The one miss of the reading, a definition's (`readIn`) or a solution's
+-- (`solutionIn`): every definition a phase can meet, a metavariable among
+-- them, was read from what `main` reaches, so an entry the context defines
+-- and the reading missed is the compiler's error, which no program decides.
+missedEntry : Frozen -> Name -> Core a
+missedEntry fz n = throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn fz n)))
+
 ||| What was read of a name among the definitions read from what `main`
 ||| reaches, each by its entry in the frozen context (`ReadOf`): the one
 ||| reading of a name, which the boundary also finds the entry by before
 ||| the reading is whole. Every definition a phase can meet was read from
 ||| what `main` reaches, so an entry the context defines and the reading
-||| missed is the compiler's error.
+||| missed is the compiler's error (`missedEntry`).
 export
 readIn : (fz : Frozen) -> SortedMap Int (DefinitionRead facts) -> (n : Name) -> Core (ReadOf fz n facts)
 readIn fz ds n = case definitionIn fz n of
   NotDefined none => pure (NoDefinition none)
   DefinedAs i resolved _ defines => case lookup i ds of
     Just d => pure (ReadAs i resolved defines d)
-    Nothing => throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn fz n)))
+    Nothing => missedEntry fz n
+
+||| The solution the boundary read of the metavariable at entry `i`
+||| (`Solution`), from the reading's table, by the entry the walk's term
+||| gives it. Every term a phase walks is one the boundary read from what
+||| `main` reaches, or Idris's normal form of such terms, which names no
+||| metavariable they do not, and the boundary read the solution of every
+||| metavariable those name, so one the table misses is the reading's
+||| miss, as a definition's is (`missedEntry`).
+export
+solutionIn : (r : Reading facts) -> (i : Int) -> Core (Solution r.frozen i)
+solutionIn r i = case lookupPrecise i r.solutions of
+  Just s => pure s
+  Nothing => missedEntry r.frozen (Resolved i)
 
 ||| What was read of a name (`readIn`) in the reading.
 export

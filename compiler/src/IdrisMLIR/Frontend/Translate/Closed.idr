@@ -10,7 +10,6 @@ import Core.CompileExpr
 import Core.Context
 import Core.Core
 import Core.Env
-import Core.Options
 import Core.TT
 import Idris.Host
 import Libraries.Data.List.SizeOf
@@ -23,6 +22,7 @@ import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Reading
+import IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
@@ -416,22 +416,23 @@ solved tm = do
   ctx <- frozenContext
   (.fst) <$> solving ctx tm
 
-||| A metavariable applied to its arguments, as the solution the type checker
-||| gave it, which Idris's evaluator and its compilers follow too. Idris
-||| leaves a solved one in a checked term when it solved it after the term
-||| was elaborated (a lambda postponed until its type was known). The
-||| solution is a closed term: lambdas over the scope the metavariable was
-||| made in, the arguments, and `let`s for that scope's `let`s; both are
-||| substituted. `Nothing` for a metavariable without a solution, a hole.
+||| A solved metavariable applied to its arguments, as the solution the
+||| boundary read of it (`State.SolvedAs`), which Idris's evaluator and its
+||| compilers follow too. Idris leaves a solved one in a checked term when it
+||| solved it after the term was elaborated (a lambda postponed until its
+||| type was known). The solution is a closed term: lambdas over the scope
+||| the metavariable was made in, the arguments, and `let`s for that scope's
+||| `let`s; both are substituted. That is what the evaluation that runs
+||| everything (`OfNormalise`) makes of the application, where the program's
+||| visibility lets it see the solution: Host's `Solve`, whose premises for
+||| a definition of no arguments and one leaf the reading holds, then a
+||| `Beta` for each lambda an argument meets and a `Zeta` for each `let`.
+||| `Zeta` is a step only of an evaluation that runs everything, so the
+||| substitution is no reduct of the normaliser that runs holes alone
+||| (`OfNormaliseHoles`), which keeps a `let`.
 export
-solution : {vars : Scope} -> FC -> Name -> List (TT vars) -> Front (Maybe (TT vars))
-solution fc n args = do
-  Just d <- defined n
-    | Nothing => internal fc ("the metavariable " ++ show n ++ " is not in the context")
-  case d.matched of
-    Just (MkMatched [] (STerm _ tm) _ _) => pure (Just (apply (embedClosed tm) args zero Subst.empty))
-    Just _ => internal fc ("the solution of " ++ show n ++ " is not a term")
-    Nothing => pure Nothing
+solvedApplied : {vars : Scope} -> FC -> (solution : ClosedTerm) -> List (TT vars) -> TT vars
+solvedApplied fc solution args = apply (embedClosed solution) args zero Subst.empty
   where
     apply : {drop, vs : Scope} -> TT (drop ++ vs) -> List (TT vs) -> SizeOf drop -> SubstEnv drop vs -> TT vs
     apply (Bind _ _ (Lam {}) sc) (a :: as) drop env = apply sc as (suc drop) (a :: env)
@@ -935,13 +936,15 @@ mutual
           applied ph w acc field extras
 
   ||| A metavariable applied, as the solution Idris gave it: unfolded as a
-  ||| definition is, once on a path.
+  ||| definition is, once on a path, at the place of its entry the reading
+  ||| holds with its solution (`State.solutionIn`). A hole is stuck where it
+  ||| stands, as the normaliser leaves it.
   filledIn : Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Int -> Lazy ClosedTerm -> Front (Head Part)
   filledIn ph w acc@(Access rec) i tm = do
-    -- A negative index is no place, which Idris's bare `Int` allows.
-    let Just placement = placementOf i
-      | Nothing => again tm
+    r <- reading
+    SolvedAs _ placement _ _ _ _ <- core (solutionIn r i)
+      | Unsolved _ _ => pure (Stuck (OnValue tm))
     -- Entered already: met before on this path.
     case enter placement w of
       Nothing => again tm
@@ -1304,53 +1307,43 @@ refTo fc d = Ref fc (kind (definition d.def)) (fullname d.def)
     kind (TCon arity _ _ _ _ _ _) = TyCon arity
     kind _ = Func
 
-||| The pair Idris's `%pair` names: its type, its projections.
-export
-pairNames : Front (Name, Name, Name)
-pairNames = do
-  fz <- frozenContext
-  let Just ns = pairnames (options (defsOf fz))
-    | Nothing => throw (InternalError "no pair type")
-  pure (pairType ns, fstName ns, sndName ns)
+-- The type of the one value that holds values of these types, the first
+-- and those after it: the one type, or the pair of the first and the rest.
+packedBy : Pairing -> ClosedTerm -> List ClosedTerm -> ClosedTerm
+packedBy pg t [] = t
+packedBy pg t (u :: us) = App EmptyFC (App EmptyFC (refTo EmptyFC pg.pairDefined) t) (packedBy pg u us)
 
--- One of the names the pair names (`pairNames`), as the reading holds its
--- definition. The boundary reads the pair's definitions with the
--- program's, but the reading keeps no record of which they are, so each
--- name is resolved again where the pair is packed or unpacked, and one the
--- context defines as nothing is the compiler's error.
-pairPart : Name -> Front Defined
-pairPart n = do
-  Just d <- defined n
-    | Nothing => throw (InternalError ("no definition of " ++ show n))
-  pure d
+-- The pair the reading holds (`State.Pairing`), for values held as one:
+-- more than one value is held in the pair `%pair` names, so a program that
+-- declares none (one that does not import the prelude's `Builtin`, which
+-- declares it) cannot hold them, and is refused, naming the pair it needs.
+pairFor : {auto s : Ref TState TS} -> (count : Nat) -> Front Pairing
+pairFor count = do
+  r <- reading
+  let Just pg = r.pair
+    | Nothing => reject EmptyFC programEntry ProgramShape
+                        (show count ++ " values held as one, which need the pair a %pair pragma names, " ++
+                         "and the program declares none")
+  pure pg
 
 ||| The type of the one value that holds the values an implementation closes
 ||| over: the one type, or a pair of the first and the rest.
 export
-packedType : List1 ClosedTerm -> Front ClosedTerm
-packedType (t ::: ts) = packed t ts
-  where
-    packed : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
-    packed t [] = pure t
-    packed t (u :: us) = do
-      (pair, _, _) <- pairNames
-      p <- pairPart pair
-      pure (App EmptyFC (App EmptyFC (refTo EmptyFC p) t) !(packed u us))
+packedType : {auto s : Ref TState TS} -> List1 ClosedTerm -> Front ClosedTerm
+packedType (t ::: []) = pure t
+packedType types@(t ::: ts@(_ :: _)) = (\pg => packedBy pg t ts) <$> pairFor (length (forget types))
 
 ||| The values the one value holds (`packedType`), as projections of it.
 export
-unpacked : List1 ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
-unpacked (t ::: ts) v = projections t ts v
+unpacked : {auto s : Ref TState TS} -> List1 ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
+unpacked (t ::: []) v = pure [v]
+unpacked types@(t ::: ts@(_ :: _)) v = (\pg => projections pg t ts v) <$> pairFor (length (forget types))
   where
-    projections : ClosedTerm -> List ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
-    projections _ [] v = pure [v]
-    projections t (u :: us) v = do
-      (_, first, second) <- pairNames
-      f <- pairPart first
-      s <- pairPart second
-      rest <- packedType (u ::: us)
-      let proj = \p => App EmptyFC (App EmptyFC (App EmptyFC p t) rest) v
-      (proj (refTo EmptyFC f) ::) <$> projections u us (proj (refTo EmptyFC s))
+    projections : Pairing -> ClosedTerm -> List ClosedTerm -> ClosedTerm -> List ClosedTerm
+    projections pg _ [] v = [v]
+    projections pg t (u :: us) v =
+      let proj = \p => App EmptyFC (App EmptyFC (App EmptyFC p t) (packedBy pg u us)) v in
+      proj (refTo EmptyFC pg.firstDefined) :: projections pg u us (proj (refTo EmptyFC pg.secondDefined))
 
 ||| Does a term mention `holeMarker`?
 export
