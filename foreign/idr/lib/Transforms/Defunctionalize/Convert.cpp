@@ -99,7 +99,7 @@ Attribute Decision::constantOf(Attribute value, const Slot &slot) {
   // to go into.
   auto fieldsOf = [&](const Part &part) {
     SmallVector<Part> out;
-    match(
+    idr::match(
         closureHoldingOf(part.value),
         [&](AttrOf<ClosureAttr> held) {
           ClosureAttr closure = held.get();
@@ -136,7 +136,7 @@ Attribute Decision::constantOf(Attribute value, const Slot &slot) {
         return Descend::Into;
       },
       [&](const Part &part) {
-        Attribute result = match(
+        Attribute result = idr::match(
             closureHoldingOf(part.value),
             // A constant closure holds no index terms, so its label binds
             // none its family does not determine: a closure at terms folds

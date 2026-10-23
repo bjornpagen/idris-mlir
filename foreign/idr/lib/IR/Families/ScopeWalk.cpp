@@ -12,6 +12,7 @@
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Footprint.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"

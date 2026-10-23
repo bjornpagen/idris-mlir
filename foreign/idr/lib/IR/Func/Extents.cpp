@@ -122,7 +122,7 @@ enum class AtSize { Static, Kept };
 
 // Whether an array holds an axis whose size its type fixes.
 bool fixesAnAxis(RankedTensorType array) {
-  return array.getNumDynamicDims() != array.getRank();
+  return static_cast<std::int64_t>(array.getNumDynamicDims()) != array.getRank();
 }
 
 } // namespace
@@ -160,7 +160,8 @@ Type idr::returnedAs(Type type, std::uint32_t position, SmallVectorImpl<ExtentAt
                                       static_cast<std::uint32_t>(axis),
                                       ArrayRef<families::TermNode>(term)));
   }
-  return array.clone(SmallVector<std::int64_t>(array.getRank(), ShapedType::kDynamic));
+  return array.clone(
+      SmallVector<std::int64_t>(static_cast<std::size_t>(array.getRank()), ShapedType::kDynamic));
 }
 
 bool idr::meets(Type given, Type asked, ExtentsAttr extents, ExtentSide side,
