@@ -174,3 +174,14 @@ handoff lists its own wiring.
   Indexed), L16de (Instances, Cases, Choices, Programs) and L16df
   (Terms, Types, Readings with `SkeletonOf`'s positivity, Closed,
   Contraction, Keys). INT-17 rebuilds once they hand off.
+
+- **INT-17 (2026-10-23, at 7632b5ad; `build/int17/`).** The checker
+  builds clean (208 modules, 684 s, 5.5 GiB peak; spec 86 of 86). The
+  frontend builds 55 modules from HEAD before its first error (INT-16:
+  22), and with 226 marked scratch lines in 9 files all 102, the
+  executable and syntax-samples (498 s; Sites 176 s, Terms 129 s; the
+  executable's compile 5.9 GiB). Every INT-16 root is cleared but R-u
+  (patch 111, not yet installed) and one R-o2 site, now R-v. Routed:
+  Closed's `Part` collision and the driver's scrutinee (a65c6591); State's
+  import, R-e in Proof/Template and Describes, Graph's `Calls`/`Builds`
+  arity and two ambiguities to L16dh; R-v and a lazy `if` (R-n) to L06e.
