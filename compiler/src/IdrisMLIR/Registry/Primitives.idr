@@ -4,7 +4,7 @@
 ||| backend contract, which the compiler must implement. None of it is
 ||| privileged knowledge: Idris requires it of every backend.
 |||
-||| - The entry convention: the root of a program, and the function it runs.
+||| - The entry convention: the function a program runs.
 ||| - The IO primitives the libraries declare for backends, keyed by their
 |||   `%foreign` spec (their Idris name and type are the shape validated).
 ||| - Idris's builtins (`PrimFn`) are a closed type the frontend matches on
@@ -25,7 +25,7 @@ import IdrisMLIR.Types
 %default total
 
 ||| The function a program runs: the user's `main`, which the root runs
-||| under `unsafePerformIO` (`programRoot`).
+||| as `unsafePerformIO` would.
 export
 programEntry : String
 programEntry = "main"
@@ -51,9 +51,6 @@ export
 ioRes : Shape -> Shape
 ioRes a = Head (Def (MkQName ["PrimIO"] "IORes")) [a]
 
-io : Shape -> Shape
-io a = Head (Def (MkQName ["PrimIO"] "IO")) [a]
-
 ||| The type of an IO primitive: its arguments, each at quantity ω, then the
 ||| world, and the `IORes` of its result.
 ioType : List Shape -> Shape -> Shape
@@ -63,14 +60,6 @@ ioType (a :: as) r = Pi Mw a (ioType as r)
 ------------------------------------------------------------------------------
 -- The table
 ------------------------------------------------------------------------------
-
-||| `unsafePerformIO : {0 a : Type} -> IO a -> a`: the root of a program is
-||| its code, `unsafePerformIO programEntry`, which translateIOProgram
-||| writes.
-programRoot : AnyEntry
-programRoot = entry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
-                      (Coerced (Pi M0 TypeOfTypes (Pi Mw (io Hole) Hole)))
-                      ProgramRoot
 
 ||| An IO primitive of `Prelude.IO`, by its spec, with the name that
 ||| declares it and its type.
@@ -408,8 +397,7 @@ iterators =
 export
 primitives : List AnyEntry
 primitives =
-  [ programRoot
-  , ioPrimitive (MkSpec "C" "idris2_putStr") "prim__putStr"
+  [ ioPrimitive (MkSpec "C" "idris2_putStr") "prim__putStr"
                 (Pi Mw (Prim StringP) (Pi M1 world (ioRes unit))) (Runs putStrOp)
   , ioPrimitive (MkSpec "C" "putchar") "prim__putChar"
                 (Pi Mw (Prim CharP) (Pi M1 world (ioRes unit))) (Runs putCharOp)

@@ -372,10 +372,6 @@ data Hook : Kind -> Type where
   ||| runtime argument before it is not read (`nest`'s cell form). Handler:
   ||| `Frontend.Translate.application`.
   IdentityOnLastArgument : {auto 0 lowers : Lowers kd} -> Hook kd
-  ||| The head of a program's root, `unsafePerformIO main`, which the
-  ||| compiler writes as world-passing code. Handler:
-  ||| `Frontend.Translate.Programs.translateIOProgram`.
-  ProgramRoot : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A function on naturals whose calls compute what it means on the
   ||| representation of `Nat`, in constant time and stack, instead of its
   ||| unary recursion. Handler: `Frontend.Translate.application`.
@@ -431,7 +427,6 @@ record Hooks (lib : Type) where
   builds : Maybe PureOp
   alias : Maybe lib
   identityOnLast : Bool
-  programRoot : Bool
   natOperation : Maybe (NatMeaning lib)
   exits : Bool
   systemInfo : Maybe SystemFact
@@ -443,7 +438,7 @@ record Hooks (lib : Type) where
 export
 noHooks : Hooks lib
 noHooks = MkHooks Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing False Nothing Nothing
-                  False False Nothing False Nothing Nothing Nothing False
+                  False Nothing False Nothing Nothing Nothing False
 
 ||| The hooks with one more entry's, after those already there: an earlier
 ||| entry of the same kind stays.
@@ -465,7 +460,6 @@ withHook hs h = case h of
   Builds p => { builds $= keep (MkPureOp p) } hs
   Alias q => { alias $= keep q } hs
   IdentityOnLastArgument => { identityOnLast := True } hs
-  ProgramRoot => { programRoot := True } hs
   NatOperation m => { natOperation $= keep m } hs
   Exits => { exits := True } hs
   SystemInfo f => { systemInfo $= keep f } hs
@@ -485,7 +479,7 @@ readLibraries : Applicative m => (readOne : a -> m b) -> Hooks a -> m (Hooks b)
 readLibraries readOne hs =
   (\al, nat => MkHooks hs.pureCall hs.ioCall hs.arrayCall hs.orderedArray hs.valueArray hs.generating
                        hs.sumShape hs.primCall hs.handle hs.wordType hs.builds al hs.identityOnLast
-                       hs.programRoot nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash)
+                       nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash)
     <$> traverse readOne hs.alias <*> traverse natural hs.natOperation
   where
     natural : NatMeaning a -> m (NatMeaning b)
@@ -532,9 +526,9 @@ data Expect : Kind -> Key -> Type where
   ||| A definition with no body of its own at the key's name (an external
   ||| type, a builtin), whose type has this shape: the hook is its meaning.
   External : Shape -> Expect Contract (Def q)
-  ||| A definition at the key's name whose body only coerces (`believe_me`,
-  ||| or a world forged for the root), whose type has this shape: the hook
-  ||| is the meaning the coercion claims, which the backend contract gives.
+  ||| A definition at the key's name whose body only coerces
+  ||| (`believe_me`), whose type has this shape: the hook is the meaning the
+  ||| coercion claims, which the backend contract gives.
   Coerced : Shape -> Expect Contract (Def q)
   ||| A bodiless `%extern` declaration at the key's name: its own type is
   ||| what its calls take and give, their arity, quantities and erasure,

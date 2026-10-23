@@ -557,7 +557,7 @@ translateIOProgram fc main = do
   written <- dispatched !getState
   updateState { table $= \t => merged t written }
   let owner = show main
-  let mustBeIO = "main must have type IO ()"
+  let mustBeIO = "main must be an IO action"
   -- Main was requested first, so requesting it again reads the signature
   -- every call of it holds.
   sig <- mainInstance fc main
@@ -565,9 +565,9 @@ translateIOProgram fc main = do
   -- checked it at, which its signature holds: upstream runs `main` as
   -- `unsafePerformIO main`, which takes an `IO` of any type and nothing of
   -- another family, whatever its shape.
-  mainIO <- ioAt fc owner (\_ => reject fc owner ProgramShape mustBeIO) sig.result
+  mainIO <- ioAt fc owner (\found => reject fc owner ProgramShape (mustBeIO ++ ": " ++ found)) sig.result
   -- The root calls main with no argument; a `main` that takes one is no
-  -- `IO ()`.
+  -- IO action.
   let Yes noArgument = decEq (Runtimes sig.kinds) 0
     | No _ => reject fc owner ProgramShape mustBeIO
   st <- getState
@@ -581,7 +581,7 @@ translateIOProgram fc main = do
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
-  -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`. It
+  -- The root is `unsafePerformIO main`, written as world-passing code. It
   -- has no loop of its own; what main does is main's, which the passes find
   -- through the call.
   let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.family.gives)

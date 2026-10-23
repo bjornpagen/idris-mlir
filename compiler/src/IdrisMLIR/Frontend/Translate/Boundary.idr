@@ -1066,8 +1066,8 @@ pairingIn fz ds (Just placed) = do
     definedAt : PairPart fz -> Core (DefinitionRead facts)
     definedAt part = readEntry fz ds part.named part.entry part.resolved
 
-||| `IO`'s name, `PrimIO.IO`, as Idris's prelude declares it and the
-||| registry's program root takes it (`unsafePerformIO : IO a -> a`), from
+||| `IO`'s name, `PrimIO.IO`, as Idris's prelude declares it and a program
+||| runs its `main` by it (`unsafePerformIO : IO a -> a`), from
 ||| the known vocabulary: the one place `IO` is named, where its definition
 ||| is found once (`readProgram`).
 ioName : Name
@@ -1134,7 +1134,7 @@ readProgram ifs entry fallback = do
   -- the program shape it is.
   let DefinedAs ioEntry ioResolved _ ioDefines = definitionIn fz ioName
     | NotDefined _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback
-                                            (programEntry ++ ": main must have type IO (), and the program defines no IO")))
+                                            (programEntry ++ ": main must be an IO action, and the program defines no IO")))
   let ioAddress = definedAddress ioEntry ioResolved ioDefines
   -- Each metavariable met told by its entry from what the reading before
   -- the freeze decoded there, which the frozen context keeps, so no phase

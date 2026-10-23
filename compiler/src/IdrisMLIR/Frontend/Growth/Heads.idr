@@ -107,10 +107,28 @@ import Decidable.Equality
 Slot : Type
 Slot = (Fin 4, Address, Address)
 
--- How an argument splits the definition it lands at: a dictionary by the
--- implementations it can be, a family by the type constructors that can
--- head it. Any other kind splits nothing.
+-- How an argument splits the definition it lands at: by the
+-- implementations it can be, or by the type constructors that can head
+-- it.
 data Splitting = ByImplementation | ByTypeConstructor
+
+-- Which kind splits by which: a dictionary by the implementations it can
+-- be, a family by the type constructors that can head it.
+data SplitsBy : Static -> Splitting -> Type where
+  DictionarySplits : SplitsBy ADictionary ByImplementation
+  FamilySplits : SplitsBy AFamily ByTypeConstructor
+
+-- How an argument of a kind splits the definition it lands at, decided
+-- here alone: what an argument passed there splits it by (`splitterOf`),
+-- and what the flow's set at a callee's parameter keys it by
+-- (`keyingsOfKind`). Essential: only a dictionary and a family split a
+-- definition, so any other kind splits nothing.
+splitsBy : (k : Static) -> Maybe (Subset Splitting (SplitsBy k))
+splitsBy ADictionary = Just (Element ByImplementation DictionarySplits)
+splitsBy AFamily = Just (Element ByTypeConstructor FamilySplits)
+splitsBy AType = Nothing
+splitsBy AForm = Nothing
+splitsBy AShape = Nothing
 
 -- What a dictionary or a family of a kind that reaches a slot keys a
 -- callee it is given to by. A dictionary's: the implementation at its
@@ -612,17 +630,20 @@ splitArgument : Splitter k -> Argument
 splitArgument (ImplementationArgument x) = x
 splitArgument (FamilyArgument x _) = x
 
--- How an argument splits, read off what its kind's reader read of its
--- root: a dictionary's and a family's; any other kind splits nothing.
+-- How an argument splits, as its kind does (`splitsBy`), with what its
+-- kind's reader read of its root: of a family, the type constructors
+-- there.
 splitterOf : Argument -> Maybe (k : Splitting ** Splitter k)
-splitterOf x = byKind x.kind x.rootHeads
+splitterOf x = case splitsBy x.kind of
+    Just (Element how splits) => Just (how ** split x.kind splits x.rootHeads)
+    Nothing => Nothing
   where
-    byKind : (k : Static) -> HeadsRead k (rootAddresses x.root) -> Maybe (s : Splitting ** Splitter s)
-    byKind ADictionary DictionaryHeads = Just (ByImplementation ** ImplementationArgument x)
-    byKind AFamily (FamilyHeads ts) = Just (ByTypeConstructor ** FamilyArgument x ts)
-    byKind AType _ = Nothing
-    byKind AForm _ = Nothing
-    byKind AShape _ = Nothing
+    -- The kind is matched first, so that a family's reading is matched
+    -- where its kind is known; how each kind splits is the proof's, which
+    -- the kind matched forces.
+    split : (k : Static) -> (0 _ : SplitsBy k how) -> HeadsRead k (rootAddresses x.root) -> Splitter how
+    split ADictionary DictionarySplits _ = ImplementationArgument x
+    split AFamily FamilySplits (FamilyHeads ts) = FamilyArgument x ts
 
 -- What an argument that splits can be, written in a writer whose own
 -- parameters read as `own`.
@@ -1400,17 +1421,14 @@ keyings hs = mapMaybe keying (listHeads hs)
     keying (Headless ** _) = Just Nothing
     keying (Unsettled ** _) = Nothing
 
--- What keys a callee's parameter of a kind, read off the flow's set of
--- that kind at its slot (`keyings`): a dictionary's implementations, a
--- family's type constructors. Essential: only those two kinds split a
--- definition, so a parameter of any other kind, or one that keys nothing
--- statically, splits nothing.
+-- What keys a callee's parameter of a kind, read off the flow's set at its
+-- slot of the headings its kind splits by (`splitsBy`, `keyings`). A
+-- parameter of a kind that splits nothing, or one that keys nothing
+-- statically, is keyed by nothing.
 keyingsOfKind : View b -> Maybe Static -> Slot -> List (Maybe Address)
-keyingsOfKind v (Just ADictionary) s = keyings (at v ByImplementation s)
-keyingsOfKind v (Just AFamily) s = keyings (at v ByTypeConstructor s)
-keyingsOfKind v (Just AType) s = []
-keyingsOfKind v (Just AForm) s = []
-keyingsOfKind v (Just AShape) s = []
+keyingsOfKind v (Just k) s = case splitsBy k of
+    Just (Element how _) => keyings (at v how s)
+    Nothing => []
 keyingsOfKind v Nothing s = []
 
 -- A parameter with what keys it (`keyings`), each head holding the stuck
