@@ -4697,6 +4697,18 @@ C137.
   there; a default that binds nothing loses that fact, as an unrefined
   case did before D105. L09's specification takes Emit's form; L05's
   `sourceOf` maps the binding to its scrutinee.
+  *Amended* (2026-10-23, L07v's evidence under the one rule of when a
+  reference moves on, 74f9a18f): a literal case binds the scrutinee too,
+  its value equal to its key (`getRegionScrutinee` keeps `Equals{key}`),
+  as a data match's case binds its refined scrutinee. The match forwards
+  its operand into every region's binding, so the rule moves it at the op
+  and each binding dies in its region, with no per-edge path in the rule,
+  placement or linearity; a counted scrutinee no longer leaks on a case
+  path, and a case that reads the scrutinee reads its binding, moved in
+  with no dup. A word or Double case binds a word, which holds no
+  reference. Rejected: keeping a case unbound with a per-edge move, a
+  dup and a drop on each case path that reads the scrutinee, a special
+  case in three readers.
 - **C167** (2026-10-21; L10's finding that C38 and C96 disagree;
   amends C38's last sentence). `!idr.dest<T>` is a place a value of type
   `T` goes, linear by its own type, where `T` is any carrier that is not
