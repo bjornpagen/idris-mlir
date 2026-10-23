@@ -142,24 +142,31 @@ resultSize Dynamic otherwise = otherwise
 ------------------------------------------------------------------------------
 
 ||| How a value fits a slot: as it is; cast to the slot's type, a tensor
-||| whose type differs from the slot's only in which dimensions are static;
-||| reindexed to it (`idr.data.reindex`), a value of the slot's family at
-||| index terms the scope's refinements make equal to the slot's, one known
-||| to be a constructor the slot's type does not name, or a natural linked
-||| to another term than the slot's; or not at all, the
-||| frontend's error. Any other value is of the slot's type, but for the
-||| extents of the tensors in it, which a closure's type holds dynamic. A
-||| value of one family where its slot takes another is one type translated
-||| as two, and a match on the slot's would take the constructors the value
-||| was built with as never built.
-data Fitting = AsIs | CastTo Ty | Reindex Ty | Mismatch String Ty
+||| of the slot's element and rank whose type differs from the slot's only
+||| in which dimensions are static; reindexed to it (`idr.data.reindex`), a
+||| value of the slot's family at index terms the scope's refinements make
+||| equal to the slot's, one known to be a constructor the slot's type does
+||| not name, a natural linked to another term than the slot's, or a tensor
+||| of the slot's dimensions whose element is one of these to the slot's
+||| element; cast to the slot's dimensions and then so reindexed, a tensor
+||| that differs from the slot in both; or not at all, the frontend's
+||| error. Any other value is of the slot's type, but for the extents of
+||| the tensors in it, which a closure's type holds dynamic. A value of one
+||| family where its slot takes another is one type translated as two, and
+||| a match on the slot's would take the constructors the value was built
+||| with as never built; so is an array whose element no reindex makes the
+||| slot's, or a value that is no array where its slot takes one, since the
+||| op that takes the array reads each element at the slot's element type.
+data Fitting = AsIs | CastTo Ty | Reindex Ty | CastThenReindex Ty Ty | Mismatch String Ty
 
 fitting : Maybe Ty -> Ty -> Refinement -> Fitting
-fitting (Just (TensorT ds e)) (TensorT es e') _ =
-  if ds == es then AsIs
-  else if length ds == length es && e == e' then CastTo (TensorT ds e)
-  else Mismatch "an array" (TensorT ds e)
-fitting (Just (TensorT _ _)) _ _ = AsIs
+fitting (Just slot@(TensorT ds e)) (TensorT es e') _ =
+  if length ds /= length es then Mismatch "an array" slot
+  else if e == e' then (if ds == es then AsIs else CastTo slot)
+  else case fitting (Just e) e' AnyConstructor of
+    Reindex _ => if ds == es then Reindex slot else CastThenReindex (TensorT ds e') slot
+    _ => Mismatch "an array" slot
+fitting (Just slot@(TensorT _ _)) _ _ = Mismatch "a value" slot
 fitting (Just slot@(DataT f ts)) (DataT g us) r =
   if f /= g then Mismatch "a value" slot
   else case r of
@@ -169,36 +176,51 @@ fitting (Just slot@(NatT t)) (NatT u) _ = if t == u then AsIs else Reindex slot
 fitting (Just slot) t _ = if dynamicDims t == dynamicDims slot then AsIs else Mismatch "a value" slot
 fitting Nothing _ _ = AsIs
 
+||| `v` cast to `t`, a tensor type that differs from its own only in which
+||| extents are static, the variable `binder` bound to the cast.
+castTo : Index -> Loc -> Maybe Binding -> Ty -> Val -> E Val
+castTo ix l binder t v = do
+  r <- mlirValueAt (madeAt binder l Many) (mlirType ix t) (Tensor.castOp !(plainOperand ix l v))
+  pure (val r.name t Many made)
+
+||| `v` reindexed to `t`, the variable `binder` bound to the reindex.
+reindexTo : Index -> Loc -> Maybe Binding -> Ty -> Val -> E Val
+reindexTo ix l binder t v = do
+  let v' = { type := t, refinement := AnyConstructor } v
+  r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
+  pure ({ name := r.name } v')
+
+||| `v` where a slot takes it, as the fitting decided for the two fits it,
+||| the variable `binder` bound to the last op it is given.
+fitBy : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Fitting -> Val -> E Val
+fitBy ix l AsIs v = pure v
+fitBy ix l (CastTo t) v = castTo ix l binder t v
+fitBy ix l (Reindex t) v = reindexTo ix l binder t v
+fitBy ix l (CastThenReindex through t) v = reindexTo ix l binder t !(castTo ix l Nothing through v)
+-- Kept: the core term holds the type each slot takes, and each form the
+-- type of the value it gives (`Term.termType`), but no proof that the two
+-- agree but for the extents and index terms a cast or a reindex fixes. A
+-- term is not indexed by its type: a `let` of a value the translation
+-- binds (`OfValue`) and a value a settled term computes are typed by what
+-- makes them, not by a binder of the scope, so what makes a value and
+-- what holds it are two readings of one Idris type.
+fitBy ix l (Mismatch what expected) v = unfit (MkUnfit l what v.type expected)
+
 ||| `v` where a slot of type `slot` takes it, as `fitting` fits it, the
-||| variable `binder` bound to a cast it is given.
+||| variable `binder` bound to the last op it is given.
 export
 fit : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Maybe Ty -> Val -> E Val
-fit ix l slot v = case fitting slot v.type v.refinement of
-  AsIs => pure v
-  CastTo t => do
-    r <- mlirValueAt (madeAt binder l Many) (mlirType ix t) (Tensor.castOp !(plainOperand ix l v))
-    pure (val r.name t Many made)
-  Reindex t => do
-    let v' = { type := t, refinement := AnyConstructor } v
-    r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
-    pure ({ name := r.name } v')
-  -- Kept: the core term holds the type each slot takes, and each form the
-  -- type of the value it gives (`Term.termType`), but no proof that the two
-  -- agree but for the extents and index terms a cast or a reindex fixes. A
-  -- term is not indexed by its type: a `let` of a value the translation
-  -- binds (`OfValue`) and a value a settled term computes are typed by what
-  -- makes them, not by a binder of the scope, so what makes a value and
-  -- what holds it are two readings of one Idris type.
-  Mismatch what expected => unfit (MkUnfit l what v.type expected)
+fit ix l slot v = fitBy {binder} ix l (fitting slot v.type v.refinement) v
 
 ||| An op that makes a value of type `made`, where a slot of type `slot`
-||| takes it (`fit`), the variable `binder` bound to what the slot takes:
-||| the op's value, or the cast of it.
+||| takes it, fitted as `fitting` decides once for the two, the variable
+||| `binder` bound to what the slot takes: the op's value, or the last op
+||| that fits it.
 export
 fitted : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
 fitted ix l slot made build = case fitting slot made AnyConstructor of
   AsIs => value {binder} {stands} ix l made build
-  _ => fit {binder} ix l slot !(value {stands} ix l made build)
+  f => fitBy {binder} ix l f !(value {stands} ix l made build)
 
 ||| What a region gives where its op takes it: the value at the slot's
 ||| type, plain.
@@ -582,7 +604,8 @@ reduce ix l binder r acc elem rt xa axis z x body = do
 ||| of it and the type `own` it is made at: `?` at each axis either leaves
 ||| `?`, so an array more static than `tied` where `tied` states a size is
 ||| cast to say it, and one more dynamic, as a call's result is, is taken
-||| as it is. Two types of other ranks are left to `fit` to refuse.
+||| as it is. What else differs, the rank or the element, is left to
+||| `fit`.
 tiedAt : (tied, own : Ty) -> Ty
 tiedAt (TensorT ds e) (TensorT es _) =
   if length ds == length es then TensorT (zipWith axis ds es) e else TensorT ds e
