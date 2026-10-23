@@ -266,3 +266,8 @@ handoff lists its own wiring.
   self-spec refused: spec.ipkg's executable against the checker's
   Package.idr): L17bb.
 - The runner: fixed in d76f1b33 but for two stock-Idris bugs (L06i).
+- (L19q) INT-21's stock-check.sh and front-one.sh omit --no-prelude,
+  which the harness passes to every compile (tools/compile.sh, the
+  driver forwarding it, Compile.cpp:58): nbody's refusal was that, and
+  INT-22 reruns the fixture sweep with the flag before F-R2 to F-R4 are
+  worked as frontend refusals.
