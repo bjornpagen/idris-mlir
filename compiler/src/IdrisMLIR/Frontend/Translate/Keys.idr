@@ -321,22 +321,47 @@ quantity Erased = 0
 quantity (Used Once) = 1
 quantity (Used Many) = 2
 
-||| The runtime value a reference marks, by its number, if it marks one: a
-||| marker is a bound name (`Readings.markerName`, `Walk.probeTerm`), so a
-||| reference to a constructor or a definition is what it names, whatever
-||| its name.
+||| What a reference in a written term is (`writtenRef`): the marker of
+||| runtime value `i` an implementation closes over
+||| (`Readings.markerName`), by its number; or a reference, at its
+||| definition's address, which a probe of the frontend's has none of.
 public export
-holeAt : NameType -> Name -> Maybe Nat
-holeAt Bound n = markerOf n
-holeAt _ _ = Nothing
+data WrittenRef = MarkerOf Nat | Refers (Maybe Address)
 
-||| A reference by what its name is (`holeAt`): a marker of a runtime
-||| value an implementation closes over by its number, whose magnitude
-||| weighs itself as a literal's does, and any other name by its address.
+||| The address a reference that marks no runtime value is written at: a
+||| probe of the frontend's (`Walk.probeOf`), the runtime probe a value's
+||| cut stands at among them, is a name no definition has
+||| (`Walk.probeNamed`), so it is at none and never looked up in the
+||| context; any other name is at its definition's.
 public export
-referenceTo : Context -> Name -> Maybe Nat -> List (Token Form)
-referenceTo ctx n (Just i) = [Number (Shaped Marker) i]
-referenceTo ctx n Nothing = [Node (Shaped Reference) (definitionAddress ctx n) 0]
+addressOfName : Context -> Name -> Maybe Address
+addressOfName ctx n = case probeOf n of
+  Just _ => Nothing
+  Nothing => definitionAddress ctx n
+
+||| A bound reference, by the runtime value it marks, if it marks one.
+public export
+markedOr : Context -> Name -> Maybe Nat -> WrittenRef
+markedOr ctx n (Just i) = MarkerOf i
+markedOr ctx n Nothing = Refers (addressOfName ctx n)
+
+||| What a reference is, read off its name once (`WrittenRef`). A marker is
+||| a bound name (`Walk.probeTerm`), so a reference to a constructor or a
+||| definition marks nothing whatever its name; the runtime probe is a
+||| function's reference (`Walk.runtimeProbeTerm`).
+public export
+writtenRef : Context -> NameType -> Name -> WrittenRef
+writtenRef ctx Bound n = markedOr ctx n (markerOf n)
+writtenRef ctx _ n = Refers (addressOfName ctx n)
+
+||| A reference by what it is (`writtenRef`): a marker by its number,
+||| whose magnitude weighs itself as a literal's does, and any other at its
+||| address, a probe at none, as an instance reads a reference to no
+||| definition (a part, `Readings.referenceOf`).
+public export
+referenceTo : WrittenRef -> List (Token Form)
+referenceTo (MarkerOf i) = [Number (Shaped Marker) i]
+referenceTo (Refers a) = [Node (Shaped Reference) a 0]
 
 ||| A run of one successor before a written term: the successor's node,
 ||| and a magnitude, which for a run of one is 0.
@@ -374,7 +399,8 @@ mutual
   ||| as `\(_ : _) => v` (`Core.Unify.instantiate`). Written, it would make
   ||| one type two data instances, and a value built as one would reach a
   ||| match on the other, whose constructors no site builds.
-  ||| A name is its address in the context, a marker its number, a
+  ||| A name is its address in the context, a marker its number, another
+  ||| probe of the frontend's a reference at no address (`writtenRef`), a
   ||| metavariable the address of the entry it was read at (`Writer`); a
   ||| name the context defines as nothing is no instance's (`missingIn`),
   ||| and a request of one stops before it is written. A run of a
@@ -382,7 +408,7 @@ mutual
   ||| two symbols.
   write : Writer -> TT vs -> List (Token Form)
   write w (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
-  write w (Ref _ nt n) = referenceTo w.context n (holeAt nt n)
+  write w (Ref _ nt n) = referenceTo (writtenRef w.context nt n)
   write w (Meta _ _ i args) = Node (Shaped Hole) (lookup i w.metavariables) (length args) :: writeAll w args
   write w (Bind _ _ b sc) = writeBinder w b ++ write w sc
   write w (App _ f a) = writeApplication w (successorOf w f) f a
@@ -420,17 +446,21 @@ mutual
   writePassing w b q AutoImplicit = [node (Bound b (quantity (use q)) BySearch)]
   writePassing w b q (DefImplicit t) = node (Bound b (quantity (use q)) ByDefault) :: write w t
 
-||| What `write` writes by identity, the frontend's own markers aside: a
-||| reference, with its kind, which it writes by its definition's address;
-||| or a metavariable, by the entry its term gives it, which it writes by
-||| the address of the entry it was read at (`Writer`).
+||| What `write` writes by identity, the frontend's own probes aside (a
+||| marker, and every other, `Walk.probeOf`), which no definition has and
+||| no reader looks up: a reference to a name of the context, with its
+||| kind, which it writes by its definition's address; or a metavariable,
+||| by the entry its term gives it, which it writes by the address of the
+||| entry it was read at (`Writer`).
 data Identified = Referring NameType Name | Unknown Int
 
 mutual
   ||| What a term `write` writes by identity (`Identified`), in the order
   ||| it writes them, before `acc`.
   identifiedIn : TT vs -> List Identified -> List Identified
-  identifiedIn (Ref _ nt n) acc = maybe (Referring nt n :: acc) (const acc) (holeAt nt n)
+  identifiedIn (Ref _ nt n) acc = case probeOf n of
+    Just _ => acc
+    Nothing => Referring nt n :: acc
   identifiedIn (Meta _ _ i args) acc = Unknown i :: identifiedInAll args acc
   identifiedIn (Bind _ _ b sc) acc = identifiedInBinder b (identifiedIn sc acc)
   identifiedIn (App _ f a) acc = identifiedIn f (identifiedIn a acc)
@@ -559,14 +589,13 @@ constantFits WorldVal = [LTESucc LTEZero]
 0 headed : All (Fits (weighs ts + d)) ts -> All (Fits (S (weighs ts + d))) (node f :: ts)
 headed fs = LTESucc LTEZero :: fittingMore (lteSuccRight reflexive) fs
 
-0 referenceWeighs : (ctx : Context) -> (n : Name) -> (m : Maybe Nat) -> LTE 1 (weighs (referenceTo ctx n m))
-referenceWeighs ctx n (Just _) = LTESucc LTEZero
-referenceWeighs ctx n Nothing = LTESucc LTEZero
+0 referenceWeighs : (r : WrittenRef) -> LTE 1 (weighs (referenceTo r))
+referenceWeighs (MarkerOf _) = LTESucc LTEZero
+referenceWeighs (Refers _) = LTESucc LTEZero
 
-0 referenceFits : (ctx : Context) -> (n : Name) -> (m : Maybe Nat) ->
-                  All (Fits (weighs (referenceTo ctx n m) + d)) (referenceTo ctx n m)
-referenceFits ctx n (Just i) = [LTESucc (selfBelow _ _)]
-referenceFits ctx n Nothing = [LTESucc LTEZero]
+0 referenceFits : (r : WrittenRef) -> All (Fits (weighs (referenceTo r) + d)) (referenceTo r)
+referenceFits (MarkerOf i) = [LTESucc (selfBelow _ _)]
+referenceFits (Refers _) = [LTESucc LTEZero]
 
 -- A run of one weighs two more than what follows it, and its numbers are
 -- 0.
@@ -612,7 +641,7 @@ appliedWeighs w Nothing f a = LTESucc LTEZero
 mutual
   0 writeWeighs : (w : Writer) -> (t : TT vs) -> LTE 1 (weighs (write w t))
   writeWeighs w (Local _ _ _ _) = LTESucc LTEZero
-  writeWeighs w (Ref _ nt n) = referenceWeighs w.context n (holeAt nt n)
+  writeWeighs w (Ref _ nt n) = referenceWeighs (writtenRef w.context nt n)
   writeWeighs w (Meta _ _ _ _) = LTESucc LTEZero
   writeWeighs w (Bind _ _ b sc) =
     rewrite weighsAppend (writeBinder w b) (write w sc) in
@@ -676,7 +705,7 @@ argsWeigh w (t :: ts) =
 mutual
   0 writeFits : (w : Writer) -> (t : TT vs) -> All (Fits (weighs (write w t) + length vs)) (write w t)
   writeFits w (Local _ _ idx p) = [LTESucc (lteSuccLeft (varBelow p))]
-  writeFits w (Ref _ nt n) = referenceFits w.context n (holeAt nt n)
+  writeFits w (Ref _ nt n) = referenceFits (writtenRef w.context nt n)
   writeFits w (Meta _ _ _ args) =
     LTESucc (transitive (argsWeigh w args) (lteAddRight (weighs (writeAll w args))))
       :: fittingMore (lteSuccRight reflexive) (writeAllFits w args)
@@ -767,7 +796,7 @@ mutual
   public export
   0 keyTree : Writer -> TT vs -> KeyTree
   keyTree w (Local _ _ _ _) = KeyNode 1 []
-  keyTree w (Ref _ nt n) = KeyNode (weighs (referenceTo w.context n (holeAt nt n))) []
+  keyTree w (Ref _ nt n) = KeyNode (weighs (referenceTo (writtenRef w.context nt n))) []
   keyTree w (Meta _ _ _ args) = KeyNode 1 (keyTrees w args)
   keyTree w (Bind _ _ b sc) = KeyNode 1 (keyTree w sc :: binderTrees w b)
   keyTree w (App _ f a) = addChild (keyTree w f) (keyTree w a)
@@ -812,13 +841,14 @@ mutual
 export
 0 markerNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Just i ->
                keyTree {vs = []} w (Ref fc Bound n) = KeyNode (S i + 0) []
-markerNode w fc n found = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) found
+markerNode w fc n found = cong (\mo => KeyNode (weighs (referenceTo (markedOr w.context n mo))) []) found
 
-||| A bound reference marking no runtime value is one node of weight one.
+||| A bound reference marking no runtime value is one node of weight one,
+||| whatever address it is written at, a probe's none among them.
 export
 0 unmarkedNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Nothing ->
                  keyTree {vs = []} w (Ref fc Bound n) = KeyNode 1 []
-unmarkedNode w fc n none = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) none
+unmarkedNode w fc n none = cong (\mo => KeyNode (weighs (referenceTo (markedOr w.context n mo))) []) none
 
 -- A leaf charges its own weight.
 0 leafWithin : (n : Nat) -> LTE n (keyWeight (KeyNode n []))
@@ -869,7 +899,7 @@ mutual
   -- What a term's key weighs is at most what its tree charges.
   0 writeWithinTree : (w : Writer) -> (t : TT vs) -> LTE (weighs (write w t)) (keyWeight (keyTree w t))
   writeWithinTree w (Local _ _ _ _) = reflexive
-  writeWithinTree w (Ref _ nt n) = leafWithin (weighs (referenceTo w.context n (holeAt nt n)))
+  writeWithinTree w (Ref _ nt n) = leafWithin (weighs (referenceTo (writtenRef w.context nt n)))
   writeWithinTree w (Meta _ _ _ args) = LTESucc (allWithinTrees w args)
   writeWithinTree w (Bind _ _ b sc) =
     lteL (sym (weighsAppend (writeBinder w b) (write w sc))) $
@@ -1074,10 +1104,13 @@ instanceAt fc what head originOf term given = do
   let forms = map (map term) given
   -- A link writes each name a compile-time argument refers to by the
   -- address of the definition the frozen context gives it, but the
-  -- frontend's own markers, which are written by their numbers (`holeAt`).
-  -- A name the context defines as nothing is a definition the compiled
-  -- modules miss, refused before anything is written, as a request of one
-  -- is (`instanceKey`).
+  -- frontend's own probes, a marker by its number and any other at no
+  -- address (`writtenRef`): the runtime probe stands in a type argument
+  -- for the runtime value it names (`absurd` at `Elem k []`, `k` its
+  -- caller's runtime argument), which no definition is. A name of the
+  -- context it defines as nothing is a definition the compiled modules
+  -- miss, refused before anything is written, as a request of one is
+  -- (`instanceKey`).
   let present = catMaybes forms
   ctx <- frozenContext
   let Nothing = missingIn ctx present

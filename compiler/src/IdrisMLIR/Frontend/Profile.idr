@@ -89,12 +89,17 @@ firstForbidden (r :: rs) = do
 ||| Pragmas the pinned elaborator has already discharged before this
 ||| backend sees the term. `%default` is the totality it requires.
 ||| `%hide` and `%unhide` resolve names. `%logging` is the driver's log.
+||| `%search`, written as a term, is elaborated away: the checked term
+||| holds the implementation or proof the search found, and nothing of the
+||| search reaches run time (quoted, `(%search)` is base's `ISearch`, a
+||| value of the quoted syntax like any other).
 ||| The use is not a second copy of any of those.
 discharged : KwPragma -> Bool
 discharged KwDefault = True
 discharged KwHide = True
 discharged KwUnhide = True
 discharged KwLogging = True
+discharged KwSearch = True
 discharged _ = False
 
 ||| A user module's imports, as the session read them (`importsRead`), and
