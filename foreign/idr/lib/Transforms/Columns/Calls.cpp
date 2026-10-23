@@ -7,10 +7,15 @@
 
 #include "idr/Transforms/Columns.h"
 
+#include "idr/IR/Func.h"
+
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+
+#include <cstdint>
+#include <optional>
 
 using namespace mlir;
 
@@ -36,7 +41,8 @@ ArrayAttr expand(ArrayAttr attrs, ArrayRef<unsigned> counts) {
 // edits take it: each that converts to anything but itself has what it
 // becomes inserted after it, each taking its attributes, and is erased.
 // So every fact the signature states by position moves with its value, and
-// what an erased value alone was said to be goes with it.
+// what an erased value alone was said to be goes with it, but the sizes of
+// its axes, which its columns hold too (comesFrom).
 struct Expansion {
   // Before which original value each inserted one goes, its type, its
   // attributes (none when the signature has none) and the value it came
@@ -81,6 +87,18 @@ Expansion expansion(TypeRange types, ArrayRef<Type> converted, ArrayRef<unsigned
   return out;
 }
 
+// Of each value a signature's values become, the position of the value it
+// comes from, as many times as that value became values: a value kept is
+// itself, and each column of an array of records holds the array's axes,
+// the array's shape with a leaf at each index, so a size the array's
+// extents name is that size of each column.
+SmallVector<std::optional<std::uint32_t>> comesFrom(ArrayRef<unsigned> counts) {
+  SmallVector<std::optional<std::uint32_t>> from;
+  for (auto [position, count] : llvm::enumerate(counts))
+    from.append(count, static_cast<std::uint32_t>(position));
+  return from;
+}
+
 // The function remade without its body, so that its edits change only its
 // signature and what the signature states, then its body moved in and its
 // entry block converted to match, as upstream's function conversions make a
@@ -112,6 +130,12 @@ struct FuncColumns : OpConversionPattern<FuncOp> {
         failed(made.insertResults(outputs.before, outputs.types, outputs.attrs)) ||
         failed(made.eraseResults(outputs.erased)))
       return failure();
+    // The edits move a kept value's entries, and a column inserted has none
+    // of its own: each column keeps the array's, so the sizes Idris knew of
+    // the array stay known of its columns, and a call that passes a column
+    // at a known size still meets the signature where the array did.
+    made.setExtentsAttr(
+        extentsFrom(fn.getExtentsAttr(), comesFrom(inputCounts), comesFrom(resultCounts)));
     rewriter.inlineRegionBefore(fn.getBody(), made.getBody(), made.getBody().end());
     if (failed(rewriter.convertRegionTypes(&made.getBody(), *getTypeConverter(), &entry)))
       return failure();

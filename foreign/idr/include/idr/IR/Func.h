@@ -282,6 +282,20 @@ bool returnable(mlir::Type type);
 mlir::Type returnedAs(mlir::Type type, std::uint32_t position,
                       llvm::SmallVectorImpl<ExtentAttr> &entries);
 
+// The extents of a signature made of another's, whose extents are
+// `extents` (null for none): each input and result that `inputs` and
+// `results` say comes from a value of the other's (its position on the
+// same side) keeps that value's entries, axis for axis and term for term;
+// one that comes from none has none, its axes `?` and named by no term. A
+// value comes from another whose axes it holds at the same sizes: the same
+// value, taken by a function made of its function's code, or a column of
+// an array of records, which holds the array's axes. Several may come from
+// one, in any order, unlike a signature's edit (ExtentsAttr::renumber).
+// The new signature binds the other's binders first, so each term means
+// what it meant. Null where no entry is kept.
+ExtentsAttr extentsFrom(ExtentsAttr extents, llvm::ArrayRef<std::optional<std::uint32_t>> inputs,
+                        llvm::ArrayRef<std::optional<std::uint32_t>> results);
+
 // Whether a value of type `given` meets the value at `position` on `side`
 // of a signature whose extents are `extents` (null for none), which a call
 // or a closure sees at its terms as `asked`: the same type, or two ranked

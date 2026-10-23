@@ -270,7 +270,11 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
 
 // Its signature is its own, so it states where its scoped parameters live
 // as it is made, before any call of it is built, and gives nothing back
-// until the code it is given says so.
+// until the code it is given says so. It binds no index variable, and each
+// of `like`'s extents is a term over `like`'s binders at a position of
+// `like`'s signature, so none says anything of it: its axes are `?`, named
+// by no term. A maker that gives it `like`'s binders and signature gives it
+// `like`'s extents with them.
 FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType type,
               LivesInAttr lives) {
   auto fn = cast<FuncOp>(like->cloneWithoutRegions());
@@ -281,6 +285,7 @@ FuncOp beside(SymbolTable &symbols, FuncOp like, StringAttr name, FunctionType t
   fn.setUntouchedAttr(nullptr);
   fn.setBoundedAttr(nullptr);
   fn.setBindersAttr(IndexBindersAttr());
+  fn.setExtentsAttr(nullptr);
   fn.setLivesInAttr(lives);
   fn.setGivenBackAttr(nullptr);
   Block *entry = new Block();

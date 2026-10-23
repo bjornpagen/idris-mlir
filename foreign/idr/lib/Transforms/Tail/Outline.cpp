@@ -158,10 +158,11 @@ Operation *lendAgain(Operation *first) {
 // a result, `resultsIn`'s lifetime at its position. Owner's bounds between
 // its lifetimes hold between the same lifetimes here. Its row and
 // per-parameter record are the writer's to make exact; what owner gave back
-// names owner's positions and goes. A value taken or given that lives in a
-// lifetime ending with owner's call is one the decide step keeps out of a
-// function that runs a call on frames, so meeting one is its invariant
-// broken.
+// names owner's positions and goes; what owner's extents say of a value it
+// takes of owner's signature, or of a result, moves to its position. A
+// value taken or given that lives in a lifetime ending with owner's call is
+// one the decide step keeps out of a function that runs a call on frames,
+// so meeting one is its invariant broken.
 FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
                                         llvm::ArrayRef<Value> takes, TypeRange results,
                                         llvm::ArrayRef<Value> resultsIn,
@@ -204,10 +205,46 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
       outlives.push_back({*parameterFor(ownEntry.getArgument(bound.longer)),
                           *parameterFor(ownEntry.getArgument(bound.shorter))});
 
+  // It takes what its call passes, in order: the values, then owner's
+  // lifetimes.
+  llvm::SmallVector<Value> args(takes);
+  llvm::append_range(args, ownLifetimes);
   llvm::SmallVector<Type> inputs =
-      llvm::map_to_vector(takes, [](Value value) { return value.getType(); });
-  for (BlockArgument lifetime : ownLifetimes)
-    inputs.push_back(lifetime.getType());
+      llvm::map_to_vector(args, [](Value value) { return value.getType(); });
+
+  // Its extents are owner's for what it holds of owner's signature. An
+  // input that is a parameter of owner's keeps what owner says of it; one
+  // owner's code made has no entry, its axes `?` and named by no term,
+  // which its call meets, passing that very value: the less optimized
+  // form, never a wrong one. It is the rest of owner's activation,
+  // tail-called where owner's results are its own, so each result is
+  // owner's at its position and keeps owner's entries. It binds owner's
+  // binders first, then those of the ops around the code, and its call
+  // passes owner's levels for them, so every term means in it what it
+  // meant in owner.
+  llvm::ArrayRef<families::Sort> ownBinders = owner.getBoundSorts(owner.getBody());
+  assert(binders.size() >= ownBinders.size() &&
+         llvm::equal(ownBinders, binders.take_front(ownBinders.size())) &&
+         "a function made of owner's code binds owner's binders first");
+  assert(results.size() == owner.getNumResults() &&
+         llvm::all_of(llvm::zip_equal(results, owner.getResultTypes()),
+                      [](auto pair) {
+                        return unrestricted(std::get<0>(pair)) == unrestricted(std::get<1>(pair));
+                      }) &&
+         "a function made of owner's code gives what owner gives, each result at owner's carrier");
+  auto ownersParameter = [&](Value value) -> std::optional<std::uint32_t> {
+    auto parameter = dyn_cast<BlockArgument>(value);
+    if (!parameter || parameter.getOwner() != &ownEntry)
+      return std::nullopt;
+    return parameter.getArgNumber();
+  };
+  llvm::SmallVector<std::optional<std::uint32_t>> fromInputs =
+      llvm::map_to_vector(args, ownersParameter);
+  llvm::SmallVector<std::optional<std::uint32_t>> fromResults;
+  for (std::uint32_t at = 0, given = static_cast<std::uint32_t>(results.size()); at < given; ++at)
+    fromResults.push_back(at);
+  ExtentsAttr extents = extentsFrom(owner.getExtentsAttr(), fromInputs, fromResults);
+
   auto fn = cast<FuncOp>(owner->cloneWithoutRegions());
   fn.setSymNameAttr(StringAttr::get(ctx, owner.getSymName() + "." + kind));
   fn.setFunctionTypeAttr(TypeAttr::get(FunctionType::get(ctx, inputs, results)));
@@ -220,15 +257,14 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
                         : LivesInAttr::get(ctx, parameters, scopedResults, outlives));
   fn.setGivenBackAttr(nullptr);
   fn.setBindersAttr(binders.empty() ? IndexBindersAttr() : IndexBindersAttr::get(ctx, binders));
+  fn.setExtentsAttr(extents);
   Block *entry = new Block();
   fn.getBody().push_back(entry);
   for (Type input : inputs)
     entry->addArgument(input, owner.getLoc());
   symbols.insert(fn, std::next(owner->getIterator()));
 
-  Made out{fn, llvm::to_vector(takes)};
-  llvm::append_range(out.args, ownLifetimes);
-  return out;
+  return Made{fn, std::move(args)};
 }
 
 // The ops of `first`'s block from `first` on moved into a function of

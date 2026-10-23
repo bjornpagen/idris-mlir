@@ -234,6 +234,9 @@ struct Frames : impl::IdrFramesBase<Frames> {
         FuncOp run = beside(symbols, wrapper, StringAttr::get(ctx, wrapper.getSymName() + ".run"),
                             wrapper.getFunctionType(), wrapper.getLivesInAttr());
         run.setBindersAttr(wrapper.getBindersAttr());
+        // The run keeps the wrapper's binders and signature, so its extents
+        // are the wrapper's too; `beside` gives a copy none.
+        run.setExtentsAttr(wrapper.getExtentsAttr());
         run.setArgAttrsAttr(wrapper.getArgAttrsAttr());
         run.setResAttrsAttr(wrapper.getResAttrsAttr());
         run.getBody().takeBody(wrapper.getBody());

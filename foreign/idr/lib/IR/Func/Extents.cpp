@@ -3,13 +3,14 @@
 // The index term each unknown axis of a function's signature is
 // (`#idr.extents`, each entry its own `#idr.extent`, whose storage owns its
 // term's nodes): their syntax, what each entry and the list hold of
-// themselves, how an edit of the signature moves them, the one rule of
-// which axis a constant makes static, the one rule of the type a function
-// returns a value at, and the one rule of where a value meets a
-// signature's view by shape compatibility. What an entry names of
-// the signature and of the binders, and where a constant may stand, is the
-// function's verifier's. Their bytecode is printed from their wires; the
-// entries' list is written with the hooks the specification declares.
+// themselves, how an edit of the signature moves them and how a signature
+// made of another's keeps them, the one rule of which axis a constant
+// makes static, the one rule of the type a function returns a value at,
+// and the one rule of where a value meets a signature's view by shape
+// compatibility. What an entry names of the signature and of the binders,
+// and where a constant may stand, is the function's verifier's. Their
+// bytecode is printed from their wires; the entries' list is written with
+// the hooks the specification declares.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -18,13 +19,16 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
+#include <utility>
 
 using namespace mlir;
 using namespace idr;
@@ -212,6 +216,33 @@ ExtentsAttr ExtentsAttr::renumber(ArrayRef<std::optional<std::uint32_t>> paramet
       kept.push_back({{entry.at.side, *moved, entry.at.axis}, entry.term});
   }
   return get(getContext(), kept);
+}
+
+// Each side in the order the entries list them, and on it each value in
+// order, so what is kept comes out sorted however the values were drawn;
+// the entries of the value one comes from are one run of the sorted list,
+// found by a search that reads no term.
+ExtentsAttr idr::extentsFrom(ExtentsAttr extents, ArrayRef<std::optional<std::uint32_t>> inputs,
+                             ArrayRef<std::optional<std::uint32_t>> results) {
+  if (!extents)
+    return {};
+  ArrayRef<ExtentAttr> entries = extents.getEntries();
+  auto valueOf = [](ExtentAttr entry) { return std::pair(entry.getSide(), entry.getPosition()); };
+  SmallVector<Extent> kept;
+  for (unsigned at : llvm::seq_inclusive(0u, getMaxEnumValForExtentSide())) {
+    auto side = static_cast<ExtentSide>(at);
+    for (auto [position, from] : llvm::enumerate(onSide(side, inputs, results))) {
+      if (!from)
+        continue;
+      auto run = std::ranges::equal_range(entries, std::pair(side, *from), std::ranges::less(),
+                                          valueOf);
+      for (ExtentAttr attr : run) {
+        Extent entry = attr.extent();
+        kept.push_back({{side, static_cast<std::uint32_t>(position), entry.at.axis}, entry.term});
+      }
+    }
+  }
+  return kept.empty() ? ExtentsAttr() : ExtentsAttr::get(extents.getContext(), kept);
 }
 
 // The entries' text, `[input 0 axis 1 = v0, result 0 axis 0 = v0 + 1]`,
