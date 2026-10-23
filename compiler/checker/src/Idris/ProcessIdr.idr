@@ -360,7 +360,9 @@ processMod sourceFileName ttcFileName msg sourcecode origin
           (\err => pure (Just [err]))
 
 -- Process a file. Returns any errors, rather than throwing them, because there
--- might be lots of errors collected across a whole file.
+-- might be lots of errors collected across a whole file. The file's module
+-- and its TTC come from the caller, which named the module once: the path
+-- is only the source read.
 export
 process : {auto c : Ref Ctxt Defs} ->
           {auto m : Ref MD Metadata} ->
@@ -372,12 +374,12 @@ process : {auto c : Ref Ctxt Defs} ->
           (buildMsg : Doc IdrisAnn) ->
           FileName ->
           (moduleIdent : ModuleIdent) ->
+          (ttcFileName : String) ->
           Core (List Error)
-process msgPrefix buildMsg sourceFileName ident
+process msgPrefix buildMsg sourceFileName ident ttcFileName
     = do Right res <- coreLift (readFile sourceFileName)
                | Left err => pure [FileErr sourceFileName err]
-         catch (do ttcFileName <- getTTCFileName sourceFileName "ttc"
-                   Just errs <- logTime 1 ("Elaborating " ++ sourceFileName) $
+         catch (do Just errs <- logTime 1 ("Elaborating " ++ sourceFileName) $
                                    processMod sourceFileName ttcFileName
                                               (msgPrefix <++> "Building" <++> buildMsg)
                                               res ident
@@ -385,8 +387,7 @@ process msgPrefix buildMsg sourceFileName ident
                                      pure [] -- skipped it
                    if isNil errs
                       then
-                        do ns <- ctxtPathToNS sourceFileName
-                           makeBuildDirectory ns
+                        do makeBuildDirectory ident
                            writeToTTC !(get Syn) sourceFileName ttcFileName
                            pure []
                       else do pure errs)

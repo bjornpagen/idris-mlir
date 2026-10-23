@@ -269,12 +269,6 @@ built mainModule source = do
     | Left err => throw (FileErr source err)
   host.buildMain mainModule source
 
-||| The main file's first position, where a refusal Idris gives no location
-||| is: built from the main module, which `perform` names once from the
-||| file's path before anything is built.
-mainSite : ModuleIdent -> NonEmptyFC
-mainSite m = (PhysicalIdrSrc m, (0, 0), (0, 0))
-
 ||| Where a rejection is: a refusal's site, or the location of Idris's own
 ||| error, or the main file's start when it has none.
 siteOf : (main : NonEmptyFC) -> Rejection -> NonEmptyFC

@@ -514,9 +514,7 @@ prepareCompilation pkg opts =
 
     ignore $ preOptions opts
 
-    let toBuild = maybe (map snd (modules pkg))
-                        (\m => snd m :: map snd (modules pkg))
-                        (mainmod pkg)
+    let toBuild = maybe (modules pkg) (:: modules pkg) (mainmod pkg)
     buildAll toBuild
 
 assertIdrisCompatibility : PkgDesc -> Core ()

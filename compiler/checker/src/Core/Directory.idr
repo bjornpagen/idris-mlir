@@ -317,28 +317,6 @@ moduleFileName ns ext
          bdir <- ttcBuildDirectory
          pure $ bdir </> fname
 
--- Given a source file, return the name of the ttc file to generate
-export
-getTTCFileName : {auto c : Ref Ctxt Defs} ->
-                 String -> String -> Core String
-getTTCFileName inp ext
-    = do -- Get its namespace from the file relative to the working directory
-         -- and generate the ttc file from that
-         ns <- ctxtPathToNS inp
-         moduleFileName ns ext
-
--- Given a source file, return the name of the corresponding object file.
--- As above, but without the build directory
-export
-getObjFileName : {auto c : Ref Ctxt Defs} ->
-                 String -> String -> Core String
-getObjFileName inp ext
-    = do -- Get its namespace from the file relative to the working directory
-         -- and generate the ttc file from that
-         ns <- ctxtPathToNS inp
-         let fname = ModuleIdent.toPath ns <.> ext
-         pure $ fname
-
 -- Given a root executable name, return the name in the build directory
 export
 getExecFileName : {auto c : Ref Ctxt Defs} -> String -> Core String

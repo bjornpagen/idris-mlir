@@ -121,6 +121,16 @@ isUser : Origin -> Bool
 isUser User = True
 isUser _ = False
 
+||| The main file's first position, built from the main module alone, which
+||| the driver names once from the file's path before anything is built.
+||| It is where a refusal is that has no place of its own: one of Idris's
+||| errors that Idris gives no location, and `program`'s refusals before
+||| `main` is found. Both build it here from the one module, so neither can
+||| be given the start of another file.
+export
+mainSite : ModuleIdent -> NonEmptyFC
+mainSite m = (PhysicalIdrSrc m, (0, 0), (0, 0))
+
 ||| The function the program runs: `main` as Idris resolves it in the main
 ||| file, the one definition of that name visible there. That is the main
 ||| module's own `main` or one it imports; another module's private `main`
@@ -173,7 +183,7 @@ program loaded mainFile mainChecked timing mlirPath = do
   -- Idris keeps with their syntax rather than with their definitions.
   interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
   -- Until main is found, a refusal is at the main file's start.
-  let fileSite : NonEmptyFC = (PhysicalIdrSrc mainFile, (0, 0), (0, 0))
+  let fileSite = mainSite mainFile
   Right mainDef <- entryPoint fileSite
     | Left r => pure [Refused r]
   -- Idris has loaded the program and everything it imports. Once the entry

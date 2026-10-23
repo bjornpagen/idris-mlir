@@ -115,22 +115,22 @@ mkBuildMods mod
                                                (map nspace mod.deps) ::)
                           update DoneMod $ insert sf ()
 
--- Given a main file name, return the list of modules that need to be
--- built for that main file, in the order they need to be built
+-- Given a main file and its module, which the caller named once where the
+-- file entered it, return the list of modules that need to be built for
+-- that main file, in the order they need to be built
 -- Return an empty list if it turns out it's in the 'done' list
 export
 getBuildMods : {auto c : Ref Ctxt Defs} ->
                {auto o : Ref ROpts REPLOpts} ->
                FC -> (done : List BuildMod) ->
-               (mainFile : String) ->
+               (mainModule : ModuleIdent) -> (mainFile : String) ->
                Core (List BuildMod)
-getBuildMods loc done fname
+getBuildMods loc done mainModule fname
     = do a <- newRef AllMods []
-         fname_ns <- ctxtPathToNS fname
-         if fname_ns `elem` map buildNS done
+         if mainModule `elem` map buildNS done
             then pure []
             else
-              do t <- mkModTree {a} loc [] (Just fname) fname_ns
+              do t <- mkModTree {a} loc [] (Just fname) mainModule
                  dm <- newRef DoneMod empty
                  o <- newRef BuildOrder []
                  mkBuildMods {d=dm} {o} t
@@ -207,7 +207,7 @@ buildMod loc num len mod
 
         let sourceFile = buildFile mod
         let modNamespace = buildNS mod
-        ttcFile <- getTTCFileName sourceFile "ttc"
+        ttcFile <- moduleFileName modNamespace "ttc"
         -- We'd expect any errors in nsToPath to have been caught by now
         -- since the imports have been built! But we still have to check.
         depFilesE <- traverse (nsToPath loc) (imports mod)
@@ -236,7 +236,7 @@ buildMod loc num len mod
                   = pretty0 mod.buildNS
                     <++> parens (pretty0 sourceFile)
               log "import.file" 10 $ "Processing " ++ sourceFile
-              process {u} {dl} {m} msgPrefix buildMsg sourceFile modNamespace
+              process {u} {dl} {m} msgPrefix buildMsg sourceFile modNamespace ttcFile
 
         ws <- emitWarningsAndErrors (if null errs then ferrs else errs)
         pure (ws ++ if null errs then ferrs else ferrs ++ errs)
@@ -269,7 +269,7 @@ buildDeps : {auto c : Ref Ctxt Defs} ->
             (mainModule : ModuleIdent) -> (mainFile : String) ->
             Core Built
 buildDeps mainModule fname
-    = do mods <- getBuildMods EmptyFC [] fname
+    = do mods <- getBuildMods EmptyFC [] mainModule fname
          log "import" 20 $ "Needs to rebuild: " ++ show mods
          ok <- buildMods EmptyFC 1 (length mods) mods
          case ok of
@@ -304,21 +304,24 @@ buildMain mainModule mainFile
 getAllBuildMods : {auto c : Ref Ctxt Defs} ->
                   {auto o : Ref ROpts REPLOpts} ->
                   FC -> (done : List BuildMod) ->
-                  (allFiles : List String) ->
+                  (allMods : List (ModuleIdent, String)) ->
                   Core (List BuildMod)
 getAllBuildMods fc done [] = pure done
-getAllBuildMods fc done (f :: fs)
-    = do ms <- getBuildMods fc done f
+getAllBuildMods fc done ((m, f) :: fs)
+    = do ms <- getBuildMods fc done m f
          getAllBuildMods fc (ms ++ done) fs
 
+-- Every module is given with its file, as the caller holds them: a package
+-- names each module and finds its file from the name, so the module is not
+-- named again from the file.
 export
 buildAll : {auto c : Ref Ctxt Defs} ->
            {auto s : Ref Syn SyntaxInfo} ->
            {auto o : Ref ROpts REPLOpts} ->
-           (allFiles : List String) ->
+           (allMods : List (ModuleIdent, String)) ->
            Core (List Error)
-buildAll allFiles
-    = do mods <- getAllBuildMods EmptyFC [] allFiles
+buildAll allMods
+    = do mods <- getAllBuildMods EmptyFC [] allMods
          -- There'll be duplicates, so if something is already built, drop it
          let mods' = dropLater mods
          buildMods EmptyFC 1 (length mods') mods'
