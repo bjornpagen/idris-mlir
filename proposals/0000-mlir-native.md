@@ -5180,24 +5180,41 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: one, raised alone (L16dv's evidence, 2026-10-23). C262 keeps a tail call's array result in its slot's
-type; a data result has the same hazard. A family's layout follows from
-its type, a known index fixing its shape (the data-type ruling), so a
-callee returning `Vect 4 Int`, laid out in place, and a caller returning
-`Vect n Int`, in a cell, differ in layout, and the reindex between them
-after a tail call re-packs, taking the call out of tail position
-silently; the call verifier fixes a call's result type as the callee's at
-its index arguments, so Emit cannot avoid it. The choice: (A) a
-function's result is laid out as its type with every index the
-function's own (the open layout), whatever the call's index arguments,
-the data form of C262: a tail call keeps its slot's layout, and a result
-whose index is known costs the cell it would have saved; (B) a function
-with a known result index is specialized so caller and callee agree,
-where the specializer can (C239's keys), and a reindex that still re-packs
-at a tail is an internal error the build reports (AGENTS.md: a tail call
-the compiler fails to make), the programs that meet it refused until it
-is fixed; (C) leave layout as it is and accept the lost tail call where
-the layouts differ, against D30. Recommended: A.
+**Open**: one, raised alone (L16dv's evidence, 2026-10-23; the research
+lane's reading of upstream and prior art, the same day). C262 keeps a tail
+call's array result in its slot's type; a data result has the same
+hazard. A family's layout follows from its type, a known index fixing its
+shape (D58: `#Vect[3]` inline wherever its index is known, `Fin 256` a byte
+through calls; `Layout/Classes.cpp`), so a callee returning `Vect 4 Int` in
+place and a caller returning `Vect n Int` in a cell differ, and the
+reindex between them after a tail call re-packs (`Carry::Works`,
+`Refinement.cpp:88-96`), so `tailSource` takes the reindex for the tail
+and `verify(FuncOp)` passes silently (`Tail.cpp:188-208`). Upstream
+cannot make the agreement: LLVM's `musttail` demands identical return
+types even under `tailcc` (`Verifier.cpp:4400-4401`), and no MLIR
+mechanism chooses a result ABI per caller (the bare-pointer convention
+converts after the call; One-Shot Bufferize's boundary options ignore tail
+calls); upstream can only check it. Prior art: MLton unifies a tail
+call's return representations (`flatten.fun`), GHC's CPR reboxes and
+loses the tail call where its wrapper does not cancel, Lean boxes at the
+return and gives the tail call up. The choice: (A) every result in the
+open layout, the data form of C262: no analysis, but it undoes D58 at
+every function result (`Vect 3 Int` returned as cells, `Fin 256` as a
+natural); (B*) a tail call whose result layout differs from its caller's
+targets a copy of the callee keyed to the open layout (its result's
+closed indices `opaque`, its own tail calls asking for open in turn),
+never refusing, the key alphabet doubling, ending by construction, and
+the call verifier checks every tail call's result layout is its caller's
+beside `givenBack`, any residual an internal error (D30), every non-tail
+call keeping D58's in-place result; (D2) MLton's unification, one layout
+per group of functions tied by tail calls, no code growth, but every
+non-tail caller in a mixed group loses the in-place result and
+signatures are rewritten after Emit; (C) accept the lost tail call,
+against D30. Destination passing (`sret` with `musttail`) and
+worker/wrapper reduce to A or B*. Measured (crude, one-line signatures):
+1 of 30 signatures under `tests/` and `libs/` returns a closed `Vect` or
+`Fin`. The verifier check lands first whatever is chosen. Recommended:
+B* (the research lane), replacing the earlier A.
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
