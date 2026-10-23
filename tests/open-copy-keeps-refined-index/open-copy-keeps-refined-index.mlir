@@ -43,7 +43,7 @@ idr.program @vectors root(@main) stage(first) {
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @f(%n: i64) -> !Any {
     %r = idr.lit.match %n : i64 -> (!Any) {
-    case 0 {
+    case 0(%key0: i64) {
       %four = idr.index.assume #idr.equation<v0 = 4> () -> (!Any) {
         %v = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> !V4
         %c = idr.data.reindex %v : !V4 to !Any
@@ -62,7 +62,7 @@ idr.program @vectors root(@main) stage(first) {
   } loc("f")
   idr.func <{binders = #idr.index_binders<[nat]>}> @h(%n: i64) -> !Any {
     %r = idr.lit.match %n : i64 -> (!Any) {
-    case 1 {
+    case 1(%key1: i64) {
       %four = idr.index.assume #idr.equation<v0 = 4> () -> (!Any) {
         %v = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> !V4
         %c = idr.data.reindex %v : !V4 to !Any
@@ -81,7 +81,7 @@ idr.program @vectors root(@main) stage(first) {
   } loc("h")
   idr.func @g(%k: i64) -> !V4 {
     %r = idr.lit.match %k : i64 -> (!V4) {
-    case 0 {
+    case 0(%key2: i64) {
       %x = idr.constant !Str "x"
       %nil = idr.data.con() : !V0
       %v1 = idr.data.con(%x : !Str, %nil : !V0) : !V1

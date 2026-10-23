@@ -6,11 +6,12 @@
 // with idr.data.match is idr/IR/Control/MatchFamily.h.
 //
 // Its scrutinee is a word, a char, a double, a string, a big integer or a
-// natural, read in place and never taken apart: a case binds nothing, since
-// in it the scrutinee equals its literal (a double's zero key is taken by
-// either zero), and the default, which it always has since no set of
-// literals is exhaustive, binds the scrutinee, none of the keys, at its own
-// type. A condition is chosen on by scf.if.
+// natural, never taken apart. Every region binds it at its own type, as a
+// data match's regions bind theirs, so the match moves the scrutinee into
+// each region and each binding holds it there: in a case the binding
+// equals its literal (a double's zero key is taken by either zero), and in
+// the default, which the match always has since no set of literals is
+// exhaustive, it is none of the keys. A condition is chosen on by scf.if.
 
 #include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Control/Stated.h"
@@ -27,24 +28,20 @@ using namespace idr::control;
 
 // Keys are literals of the scrutinee's type, as the type says, each its
 // value's one literal, so two keys are one exactly when they are one
-// attribute. A case binds nothing, since in it the scrutinee equals its
-// literal; the default binds the scrutinee, none of the keys, at its own
-// type.
+// attribute. Every region binds the scrutinee at its own type: a case's
+// binding equals its literal, the default's is none of the keys.
 LogicalResult LitMatchOp::verify() {
-  auto literals = cast<LiteralTypeInterface>(unrestricted(getScrutinee().getType()));
+  Type scrutinee = getScrutinee().getType();
+  auto literals = cast<LiteralTypeInterface>(unrestricted(scrutinee));
   for (Attribute key : getCases())
     if (!literals.isLiteral(key))
       return emitOpError("has a key ") << key << " that is not a literal of " << literals;
   if (failed(verifyKeys(*this)))
     return failure();
-  for (Region &region : getCaseRegions())
-    if (region.getNumArguments())
+  for (Region &region : getOperation()->getRegions())
+    if (TypeRange(region.getArgumentTypes()) != TypeRange(scrutinee))
       return emitOpError("region #") << region.getRegionNumber()
-                                     << " binds an argument, and a literal case binds none";
-  Region &fallback = getDefaultRegion();
-  if (TypeRange(fallback.getArgumentTypes()) != TypeRange(getScrutinee().getType()))
-    return emitOpError("expects a default that binds its scrutinee, of type ")
-           << getScrutinee().getType();
+                                     << " must bind its scrutinee, of type " << scrutinee;
   return verifyYields(*this);
 }
 
@@ -62,16 +59,18 @@ Region &LitMatchOp::getCaseRegion(unsigned index) { return getCaseRegions()[inde
 
 unsigned LitMatchOp::caseOf(Region &region) { return region.getRegionNumber() - 1; }
 
-// A case binds nothing, and in it the scrutinee equals the case's literal;
-// the default binds the scrutinee at its own type, none of the keys.
+// A case's binding equals the case's literal, which is what a reader knows
+// of the scrutinee there; the default's binding is the scrutinee, none of
+// the keys.
 CaseScrutinee LitMatchOp::getRegionScrutinee(Region &region) {
   if (&region == &getDefaultRegion())
     return case_scrutinee::Bound{region.getArgument(0)};
   return case_scrutinee::Equals{getCases()[caseOf(region)]};
 }
 
-// The cases kept by their keys, and the default, which a literal match
-// always has: the scrutinee it binds is none of fewer keys still.
+// The cases kept by their keys, each binding the scrutinee as it did, and
+// the default, which a literal match always has: the scrutinee it binds is
+// none of fewer keys still.
 Operation *LitMatchOp::keepCases(RewriterBase &rewriter, ArrayRef<unsigned> kept,
                                  Region *fallback) {
   return keepCasesOf(*this, rewriter, kept, fallback, [&] {
@@ -97,11 +96,10 @@ void LitMatchOp::getSuccessorRegions(RegionBranchPoint point,
   successorsOf(*this, point, successors);
 }
 
-// The scrutinee enters the default alone; the lifetimes the match states,
-// its last operands, enter none.
-OperandRange LitMatchOp::getEntrySuccessorOperands(RegionSuccessor successor) {
-  return getOperation()->getOperands().take_front(
-      successor.getSuccessor() == &getDefaultRegion() ? 1 : 0);
+// The scrutinee enters every region, its binding; the lifetimes the match
+// states, its last operands, enter none.
+OperandRange LitMatchOp::getEntrySuccessorOperands(RegionSuccessor) {
+  return getOperation()->getOperands().take_front(1);
 }
 
 ValueRange LitMatchOp::getSuccessorInputs(RegionSuccessor successor) {

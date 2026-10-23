@@ -217,7 +217,9 @@ private:
 
   // The rewrite (PlacementRewrite.cpp).
   void apply();
+  void forgetClaims(mlir::RewriterBase &rewriter);
   mlir::Value supplied(ValueId part, mlir::Operation *at) const;
+  mlir::Value held(ValueId owner) const;
 
   FuncOp fn;
   solver::Numbering<ValueTag> numbering;
@@ -255,6 +257,10 @@ private:
   llvm::SmallVector<ValueId> elementDups;
   // What each supplied part became, for what gives it up later.
   llvm::SmallVector<std::pair<ValueId, mlir::Value>> partValues;
+  // Each owner the rewrite duplicates that was born claiming its cell
+  // unshared, given on with the claim forgotten where it is made: the value
+  // every use, and every record that names the owner, reads instead.
+  llvm::SmallVector<std::pair<ValueId, mlir::Value>> forgotten;
 };
 
 } // namespace idr::counting::placement

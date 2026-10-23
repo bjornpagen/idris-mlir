@@ -16,7 +16,7 @@ idr.program @rows root(@main) stage(first) {
   }
   idr.func <{row = ["divergence"]}> @descend(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 0 {
+      case 0(%key0: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %one = arith.constant 1 : i64
@@ -40,7 +40,7 @@ idr.program @rows root(@main) stage(first) {
   // expected-error @below {{which lack divergence}}
   idr.func <{row = []}> @descend(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 0 {
+      case 0(%key1: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %one = arith.constant 1 : i64
@@ -65,7 +65,7 @@ idr.program @rows root(@main) stage(first) {
   }
   idr.func <{row = []}> @descend(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 0>} {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 0 {
+      case 0(%key2: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %one = arith.constant 1 : i64

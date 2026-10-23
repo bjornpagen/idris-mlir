@@ -20,7 +20,7 @@ idr.program @contracts root(@main) stage(first) {
   // expected-error @+1 {{contract cycle-divergence-kept broken by}}
   idr.func <{row = ["divergence"]}> @down(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 0 {
+      case 0(%key0: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %one = arith.constant 1 : i64
@@ -35,7 +35,7 @@ idr.program @contracts root(@main) stage(first) {
   // expected-error @+1 {{contract cycle-divergence-kept broken by}}
   idr.func <{row = ["divergence"]}> @up(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 0 {
+      case 0(%key1: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %one = arith.constant 1 : i64

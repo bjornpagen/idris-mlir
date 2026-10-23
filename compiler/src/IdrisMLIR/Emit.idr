@@ -14,10 +14,11 @@
 ||| a use. A match is `idr.data.match`, a region per case, each case
 ||| binding the scrutinee refined to its constructor and its constructor's
 ||| erased binders, its fields reads of the refined value; a match on
-||| literals is `idr.lit.match`, its default binding the scrutinee refined
-||| to the complement of its keys; a lambda and a `Delay` are each a
-||| function of its own, which an `idr.fn.closure` or an `idr.lazy.suspend` names
-||| with its captures and its scope's levels; an array is made, folded and
+||| literals is `idr.lit.match`, each case binding the scrutinee, its key,
+||| and its default binding it refined to the complement of its keys; a
+||| lambda and a `Delay` are each a function of its own, which an
+||| `idr.fn.closure` or an `idr.lazy.suspend` names with its captures and
+||| its scope's levels; an array is made, folded and
 ||| scanned by the array ops, each a region from indices to an element; a
 ||| data type is its family's group and member applied to index terms.
 ||| Idris's world is no value of the module: IO is ordered by the effects

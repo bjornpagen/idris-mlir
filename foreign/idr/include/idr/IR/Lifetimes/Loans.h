@@ -7,9 +7,9 @@
 // buffer, through bufferization's aliasing for a tensor, and through what a
 // region branch forwards, each the interface upstream's own alias readers
 // take. No list of ops is kept: an op says what it aliases by those
-// interfaces, what it takes over by its consumption, what it adopts by its
-// trait (AdoptsCarrier) or, for an op of ours, by the moves its flow edges
-// declare, and what it stores by its effects. And an alias read where its
+// interfaces, what it adopts by its trait (AdoptsCarrier) or, for an op of
+// ours, by the moves its flow edges declare, and what it stores by its
+// effects. And an alias read where its
 // loan cannot stand is made again there, of another loan of the holder, by
 // one mechanism the lending and frames share (remakeAlias).
 #ifndef IDR_IR_LIFETIMES_LOANS_H

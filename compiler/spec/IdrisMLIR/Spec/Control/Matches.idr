@@ -17,11 +17,12 @@
 ||| no op walks its ancestors.
 |||
 ||| `idr.lit.match`'s scrutinee is a word (an integer of any width, a char),
-||| a double, a string, a big integer or a natural, read in place, its keys
-||| literals of its type: a case binds nothing, since in it the scrutinee
-||| equals its literal (a double's zero key is taken by either zero), and the
-||| default binds the scrutinee refined to the complement of the keys, at the
-||| scrutinee's type, as a data match's default does. It stays a literal
+||| a double, a string, a big integer or a natural, its keys literals of its
+||| type. Every region binds the scrutinee at its type, as a data match's
+||| regions bind theirs, so the match moves it into each region and each
+||| binding holds it there: a case's binding equals its literal (a double's
+||| zero key is taken by either zero), and the default's is refined to the
+||| complement of the keys, as a data match's default is. It stays a literal
 ||| match until the lowering, since no upstream op keeps that refinement or
 ||| the lifetimes the match states; a condition is chosen on by upstream's
 ||| `scf.if`.
@@ -55,12 +56,13 @@ matchable : Predicate
 matchable = MkPredicate "isMatchable" OnType
   (brief "a value of a data type, at any grade")
 
-||| A value of a type with literals, at any grade, read in place: a word, a
-||| double, a string, a big integer or a natural; never a condition.
+||| A value of a type with literals, at any grade, which the match moves
+||| into the binding of each of its regions: a word, a double, a string, a
+||| big integer or a natural; never a condition.
 export
 matchedLiteral : Predicate
 matchedLiteral = MkPredicate "isMatchedLiteral" OnType
-  (brief "a value of a type with literals that is no condition, read in place")
+  (brief "a value of a type with literals that is no condition, at any grade")
 
 ||| The lifetimes a control op states, one per scoped value it makes: its
 ||| scoped results, in result order, then the scoped values its regions
@@ -235,11 +237,11 @@ matchOp = MkOp
   }
 
 ||| `idr.lit.match`: a literal key per case and a default always, since no
-||| set of literals is exhaustive. The scrutinee enters the default, which
-||| binds it refined to the complement of the keys at its own type (a natural
-||| 0-versus-successor match computes `nat.pred` from it); the range
-||| analysis gives that binding the scrutinee's range with the keys cut from
-||| its ends. A case binds nothing.
+||| set of literals is exhaustive. The scrutinee enters every region, each
+||| binding it at its own type: a case's binding equals its key, and the
+||| default's is refined to the complement of the keys (a natural
+||| 0-versus-successor match computes `nat.pred` from it), which the range
+||| analysis gives the scrutinee's range with the keys cut from its ends.
 public export
 matchLitOp : Op 2 1 1 2
 matchLitOp = MkOp
@@ -281,13 +283,12 @@ matchLitOp = MkOp
   , laws = []
   , doc = MkDoc "branches on the value of a word, a double, a string, a big integer or a natural"
       """
-      The scrutinee is read in place; each case is one literal of its type,
-      and in that case the scrutinee equals that literal (a double's zero is
-      taken by either zero). The default binds the scrutinee, which there is
-      none of the keys.
+      Each case is one literal of its type; every region binds the
+      scrutinee, which in a case equals its literal (a double's zero is
+      taken by either zero) and in the default is none of the keys.
 
-      `%r = idr.lit.match %s : !idr.str -> (i64) { case "" {...} default(%t: !idr.str) {...} }`
-      `%r = idr.lit.match %c : i32 -> (i64) { case 97 {...} default(%d: i32) {...} }`
+      `%r = idr.lit.match %s : !idr.str -> (i64) { case ""(%e: !idr.str) {...} default(%t: !idr.str) {...} }`
+      `%r = idr.lit.match %c : i32 -> (i64) { case 97(%a: i32) {...} default(%d: i32) {...} }`
       """
   }
 

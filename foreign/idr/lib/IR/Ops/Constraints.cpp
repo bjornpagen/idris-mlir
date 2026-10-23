@@ -56,6 +56,8 @@ bool isNatValue(Type type) { return carried<NatType>(type); }
 // (NumericTypeInterface).
 bool isBigOrNatRead(Type type) { return isCarriedAsBig(type) && readInPlace(type); }
 bool isBigOrNatValue(Type type) { return isCarriedAsBig(type); }
+// A small: a word with no cell, so nothing frees it and no count writes it.
+bool isBigOrNatStatic(Type type) { return isBigOrNatRead(type) && freedBy(type, Release::Static); }
 
 bool isListOfChars(Type type) {
   return listOf(type, [](Type element) { return element.isInteger(32); });

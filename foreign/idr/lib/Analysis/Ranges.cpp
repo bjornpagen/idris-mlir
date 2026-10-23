@@ -40,6 +40,17 @@ SmallVector<APInt> integerKeys(idr::LitMatchOp match) {
   return keys;
 }
 
+// What a case of `key` binds of a scrutinee whose range is `known`: the
+// key's value, where it is an integer the scrutinee's width holds; else
+// all the scrutinee may be.
+IntegerValueRange keyed(const IntegerValueRange &known, Attribute key) {
+  unsigned width = known.getValue().smin().getBitWidth();
+  std::optional<APInt> integer = idr::keyInteger(key);
+  if (!integer || width == 0 || integer->getSignificantBits() > width)
+    return known;
+  return IntegerValueRange(ConstantIntRanges::constant(integer->sextOrTrunc(width)));
+}
+
 class SummarizedRanges : public IntegerRangeAnalysis {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SummarizedRanges)
@@ -73,27 +84,34 @@ public:
     return IntegerRangeAnalysis::visitOperation(op, operands, results);
   }
 
-  // A literal match's default binds its scrutinee, which it forwards, so
-  // upstream would join the binding with the scrutinee's whole range and
-  // never ask the op; but there the scrutinee is none of the keys, so the
-  // binding takes the scrutinee's range with each key cut where it is an
-  // end. The binding stays the scrutinee for every reader of forwarding.
-  // The default's one predecessor is the match, and a block is visited
-  // only once it is live. Every other region successor is upstream's.
+  // A literal match's every region binds its scrutinee, which it forwards,
+  // so upstream would join each binding with the scrutinee's whole range
+  // and never ask the op; but in a case the scrutinee is the case's key,
+  // so a case's binding takes the key's value where the key is an integer
+  // of the scrutinee's width, and in the default it is none of the keys, so
+  // the default's binding takes the scrutinee's range with each key cut
+  // where it is an end. A binding stays the scrutinee for every reader of
+  // forwarding. A region's one predecessor is the match, and a block is
+  // visited only once it is live. Every other region successor is
+  // upstream's.
   void visitRegionSuccessors(ProgramPoint *point, RegionBranchOpInterface branch,
                              RegionSuccessor successor,
                              ArrayRef<AbstractSparseLattice *> lattices) override {
     ++visits;
     auto match = dyn_cast<idr::LitMatchOp>(branch.getOperation());
-    if (!match || successor.getSuccessor() != &match.getDefaultRegion())
+    if (!match || successor.isOperation())
       return AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors(point, branch, successor,
                                                                           lattices);
     Value scrutinee = match.getScrutinee();
     const IntegerValueRange &known = getLatticeElementFor(point, scrutinee)->getValue();
     if (known.isUninitialized())
       return;
-    IntegerValueRange refined(
-        idr::ranges::excluding(scrutinee.getType(), known.getValue(), integerKeys(match)));
+    Region *entered = successor.getSuccessor();
+    IntegerValueRange refined =
+        entered == &match.getDefaultRegion()
+            ? IntegerValueRange(idr::ranges::excluding(scrutinee.getType(), known.getValue(),
+                                                       integerKeys(match)))
+            : keyed(known, match.getCases()[match.caseOf(*entered)]);
     auto *binding = static_cast<IntegerValueRangeLattice *>(lattices.front());
     propagateIfChanged(binding, binding->join(refined));
   }

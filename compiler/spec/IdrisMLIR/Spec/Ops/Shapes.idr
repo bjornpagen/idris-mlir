@@ -96,6 +96,13 @@ public export
 bigOrNatValueP : Predicate
 bigOrNatValueP = predicate "isBigOrNatValue" "an Integer or a natural at any grade"
 
+||| An Integer or a natural that is a small: a word with no cell, so
+||| nothing frees it and no count writes it, which is what static data is,
+||| used any number of times.
+public export
+bigOrNatStaticP : Predicate
+bigOrNatStaticP = predicate "isBigOrNatStatic" "an Integer or a natural held static, used any number of times"
+
 ||| Base's list, which pack and concat walk: a family of a nil and a cons
 ||| of an element and the list, read off its shape.
 public export
@@ -121,7 +128,7 @@ public export
 opPredicates : List Predicate
 opPredicates =
   [ strReadP, strValueP, strStaticP, bigReadP, bigValueP, natReadP, natValueP, bigOrNatReadP
-  , bigOrNatValueP, charListP, strListP, byteBufferP, rank1ArrayP ]
+  , bigOrNatValueP, bigOrNatStaticP, charListP, strListP, byteBufferP, rank1ArrayP ]
 
 public export
 strRead : TypeC
@@ -158,6 +165,10 @@ bigOrNatRead = SatisfiesType bigOrNatReadP
 public export
 bigOrNatValue : TypeC
 bigOrNatValue = SatisfiesType bigOrNatValueP
+
+public export
+bigOrNatStatic : TypeC
+bigOrNatStatic = SatisfiesType bigOrNatStaticP
 
 public export
 byteBuffer : TypeC

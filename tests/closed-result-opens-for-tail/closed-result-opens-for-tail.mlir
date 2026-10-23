@@ -39,7 +39,7 @@ idr.program @lengths root(@main) stage(first) {
   }
   idr.func @unknown(%xs: !Unknown, %k: i64) -> !Unknown {
     %r = idr.lit.match %k : i64 -> (!Unknown) {
-    case 0 {
+    case 0(%key0: i64) {
       idr.yield %xs : !Unknown
     }
     default(%d: i64) {
@@ -53,7 +53,7 @@ idr.program @lengths root(@main) stage(first) {
   } loc("unknown")
   idr.func <{binders = #idr.index_binders<[nat]>}> @sized(%xs: !Unknown, %k: i64) -> !Vn {
     %r = idr.lit.match %k : i64 -> (!Vn) {
-    case 0 {
+    case 0(%key1: i64) {
       %v = idr.call @unknown(%xs, %k) <{tail_kind = tail}> : (!Unknown, i64) -> !Unknown
       %c = idr.data.reindex %v : !Unknown to !Vn
       idr.yield %c : !Vn
@@ -69,7 +69,7 @@ idr.program @lengths root(@main) stage(first) {
   } loc("sized")
   idr.func @three(%xs: !Unknown, %k: i64) -> !V3 {
     %r = idr.lit.match %k : i64 -> (!V3) {
-    case 0 {
+    case 0(%key2: i64) {
       %v = idr.call @sized(%xs, %k) <{index_args = #idr.index_args<[3]>, tail_kind = tail}> : (!Unknown, i64) -> !V3
       idr.yield %v : !V3
     }
@@ -86,7 +86,7 @@ idr.program @lengths root(@main) stage(first) {
   } loc("three")
   idr.func @use(%v: !V3, %k: i64) -> i64 {
     %r = idr.lit.match %k : i64 -> (i64) {
-    case 0 {
+    case 0(%key3: i64) {
       %h = idr.data.field %v[0] : !V3 -> i64
       idr.yield %h : i64
     }

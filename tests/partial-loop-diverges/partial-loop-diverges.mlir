@@ -18,7 +18,7 @@ idr.program @inlined root(@main) stage(first) {
     } join tokens(%again)(%m: i64) {
       idr.may_loop
       %s = idr.lit.match %m : i64 -> (i64) {
-        case 1 {
+        case 1(%key0: i64) {
           idr.yield %m : i64
         } default(%d: i64) {
           %two = arith.constant 2 : i64
@@ -44,7 +44,7 @@ idr.program @inlined root(@main) stage(first) {
 idr.program @contified root(@main) stage(first) {
   idr.func @countdown(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 1 {
+      case 1(%key1: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %two = arith.constant 2 : i64

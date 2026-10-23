@@ -64,8 +64,9 @@ bool borrowed(mlir::Value value);
 // `read`, what the word is read from, the big itself, or, for a big used
 // once, the big cast out of its linear position, which moves what it holds
 // to the value the cast makes, since a value used once reaches a primitive
-// only through a cast to many; and what the use did with the big's
-// reference, by counting's one rule.
+// only through a cast to many, or the small a big given where a value its
+// count frees was asked is (given); and what the use did with the big's
+// reference, by counting's one rule, which moves none on from a small.
 struct Replaced {
   mlir::Value read;
   Reference reference;
@@ -74,6 +75,10 @@ struct Replaced {
 // The big `use` gives, held where the builder stands for a word to take its
 // place in `use`.
 Replaced replace(mlir::OpBuilder &b, mlir::Location loc, mlir::OpOperand &use);
+
+// Once a word took the place of `given` in the one use it was given for,
+// the ops that gave a small as a big, which nothing reads any more, go.
+void eraseGiven(mlir::RewriterBase &rewriter, mlir::Value given);
 
 // Where the builder stands, once the word of `replaced` is read: a use that
 // moved the big's reference on leaves it to the big, since the word in its
@@ -111,9 +116,11 @@ struct Analysed {
 };
 using ValueId = Id<Analysed>;
 
-// What a value is, as the walk numbered it: no big, a big made of a word
-// (an idr.big.small, whose word is its operand), or any other big.
-enum class Carrier : std::uint8_t { NoBig, SmallBig, Big };
+// What a value is, as the walk numbered it: no big, or a big. A small, a
+// big made of a word, is static, so no count op meets one: the rewrite's
+// own smalls stand where it rewrote, and the count ops of the bigs they
+// replaced are met by the values the walk numbered.
+enum class Carrier : std::uint8_t { NoBig, Big };
 
 // One class of a joint: the operands it forwards, each once, and the
 // values they become there, each once, in the order the joint forwards
@@ -243,11 +250,18 @@ private:
 // (a big made of a word, or of a narrower integer), the word of the
 // program's poison, or its value converted.
 mlir::Value word(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value);
-// The big of type `type` whose value is `word`, which fits a small: it
-// holds no reference, so counting skips it.
-mlir::Value big(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type, mlir::Value word);
-// Retypes the big block argument `arg` to i64: its uses get the big of it.
-void narrowArgument(mlir::RewriterBase &rewriter, mlir::BlockArgument arg);
+
+// The small of `word`, a word that fits, as a value of the carrier of
+// `type`: a word with no cell, so its type is static data's, which nothing
+// frees and no count writes, read in place at any hold.
+mlir::Value small(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type, mlir::Value word);
+
+// `small` as a use asks for a value of `type`, the type of the big it
+// stands for: itself at its own type; cast into a linear position where
+// `type` is used once; given by a share where `type` is freed by its count,
+// a word with no cell holding nothing the count it is given frees. Static
+// data stands only where a hold that claims nothing is asked.
+mlir::Value given(mlir::OpBuilder &b, mlir::Location loc, mlir::Value small, mlir::Type type);
 
 // What is decided: the values of the webs the joints carry, before the
 // rewrite (decideJoints); the results of each op made its word op, which
@@ -261,24 +275,45 @@ struct Decisions {
 // The webs the joints carry, each fitting web through one action
 // (Carried.cpp); whether any is.
 Changed decideJoints(const Facts &facts, Decisions &decided);
-// A joint's part of the rewrite as the walk enters it and as it leaves it.
-void enter(mlir::RewriterBase &rewriter, const Facts &facts, const Decisions &decided,
-           const Enter &step);
-void leave(mlir::RewriterBase &rewriter, const Facts &facts, const Decisions &decided,
-           const Leave &step);
 
 // The rewriter the word patterns are applied with: the facts and decisions
-// they read, and the step the rewrite is at, whose op MLIR dispatched to
-// the pattern. Only the rewrite applies them, always through this.
+// they read, the step the rewrite is at, whose op MLIR dispatched to the
+// pattern, and each small it put where a big stood. Only the rewrite
+// applies them, always through this.
 class WordRewriter : public mlir::PatternRewriter {
 public:
   WordRewriter(mlir::MLIRContext *ctx, const Facts &facts, Decisions &decided)
       : PatternRewriter(ctx), facts(facts), decided(decided) {}
 
+  // The small of `word`, made where the rewriter stands, standing for the
+  // big of type `type` it replaces, kept with that type: each use of it
+  // that would have moved that big's reference on is given it at that type
+  // once the walk is done (giveSmalls), after every op the walk rewrites
+  // has taken its word instead.
+  mlir::Value standIn(mlir::Location loc, mlir::Type type, mlir::Value word);
+
   const Facts &facts;
   Decisions &decided;
   const Word *step = nullptr;
+  footprint::Vector<std::pair<mlir::Value, mlir::Type>> smalls;
 };
+
+// Each use of a small the rewrite stood in for a big that the rule says
+// moves a reference on, were it one of the use's own (movesOf), given the
+// small at the big's type: the use takes over what a value its count frees
+// holds there, as a call's argument, a field or what a region gives does.
+// Every other use reads the small in place.
+void giveSmalls(WordRewriter &rewriter);
+
+// Retypes the big block argument `arg` to i64: its uses get the small of
+// it.
+void narrowArgument(WordRewriter &rewriter, mlir::BlockArgument arg);
+
+// A joint's part of the rewrite as the walk enters it and as it leaves it.
+void enter(WordRewriter &rewriter, const Facts &facts, const Decisions &decided,
+           const Enter &step);
+void leave(WordRewriter &rewriter, const Facts &facts, const Decisions &decided,
+           const Leave &step);
 
 // The patterns of the ops with a word form, MLIR's dispatch on them, each
 // rooted at its op (Ops.cpp): every big op whose word op the ODS names

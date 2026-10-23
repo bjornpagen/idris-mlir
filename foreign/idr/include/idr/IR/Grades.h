@@ -298,10 +298,10 @@ mlir::Value throughLinear(mlir::Value value);
 // result of an op that keeps its operand's value, its identity and its
 // sharing, Idr_SameValue; an argument a match's region binds, the operand
 // that enters it refined, a data match's scrutinee or what it forwards and
-// a literal match's scrutinee in its default; a loan's view and the owner
-// it gives back), a field of a constructor value (an idr.data.field, a memo
-// cell's included), or made here (anything else: an op's own result, a
-// parameter, a region's argument).
+// a literal match's scrutinee in each of its regions; a loan's view and
+// the owner it gives back), a field of a constructor value (an
+// idr.data.field, a memo cell's included), or made here (anything else: an
+// op's own result, a parameter, a region's argument).
 // idr.count.share keeps its operand's value but forgets its sharing, so its
 // result is made here: following it would prove a shared cell exclusive.
 struct Made {};

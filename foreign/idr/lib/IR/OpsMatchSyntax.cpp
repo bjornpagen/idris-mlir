@@ -6,8 +6,8 @@
 // scrutinee's family, written by its label (CtorRef), whose region binds
 // the refined scrutinee and the forwarded values; an idr.lit.match key is a
 // literal of the scrutinee's type, which the type reads
-// (LiteralTypeInterface), and its region binds nothing. A default binds its
-// scrutinee, refined.
+// (LiteralTypeInterface), and its region binds the scrutinee, equal to the
+// key. A default binds its scrutinee, refined.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -76,9 +76,10 @@ void printMatchCases(OpAsmPrinter &printer, Operation *op, Type scrutineeType,
   }
 }
 
-// `case <literal> {...}` per key, a literal of the value read, whatever its
-// grade. Only text can put a key on a type without literals, which its
-// verifier refuses too.
+// `case <literal>(%s: !Scrutinee) {...}` per key, a literal of the value
+// read, whatever its grade, and the scrutinee its region binds. Only text
+// can put a key on a type without literals, which its verifier refuses
+// too.
 ParseResult parseLiteralCases(OpAsmParser &parser, Type scrutineeType, ArrayAttr &cases,
                               SmallVectorImpl<std::unique_ptr<Region>> &caseRegions) {
   Type type = unrestricted(scrutineeType);
@@ -88,8 +89,10 @@ ParseResult parseLiteralCases(OpAsmParser &parser, Type scrutineeType, ArrayAttr
     if (!literals)
       return parser.emitError(parser.getCurrentLocation(), "a literal match on ")
              << type << " has no keys";
+    SmallVector<OpAsmParser::Argument> bound;
     if (literals.parseLiteral(parser, keys.emplace_back()) ||
-        parser.parseRegion(*caseRegions.emplace_back(std::make_unique<Region>())))
+        parser.parseArgumentList(bound, OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
+        parser.parseRegion(*caseRegions.emplace_back(std::make_unique<Region>()), bound))
       return failure();
   }
   cases = parser.getBuilder().getArrayAttr(keys);
@@ -102,7 +105,7 @@ void printLiteralCases(OpAsmPrinter &printer, Operation *, Type, ArrayAttr cases
     printer.printNewline();
     printer << "case ";
     printer.printAttributeWithoutType(key);
-    printer << ' ';
+    printArguments(printer, region);
     printer.printRegion(region, /*printEntryBlockArgs=*/false);
   }
 }

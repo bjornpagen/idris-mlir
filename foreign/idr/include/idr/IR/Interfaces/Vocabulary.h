@@ -246,7 +246,8 @@ ClosureHolding closureHoldingOf(mlir::Attribute value);
 // What a match's region knows of its scrutinee: the value it binds it as,
 // whose type says what it knows (a data match's case or default, refined; a
 // literal match's default, at the scrutinee's own type), or the literal the
-// scrutinee equals where the region binds nothing (a literal match's case).
+// scrutinee equals, which its type cannot say (a literal match's case,
+// whose binding is that literal).
 namespace case_scrutinee {
 struct Bound {
   mlir::BlockArgument value;

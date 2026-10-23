@@ -30,20 +30,21 @@ struct NarrowJointAction : support::TaggedAction<NarrowJointAction> {
   static constexpr std::string_view tag = ::idr::actions::narrowJoint;
 };
 
-// Retypes the big result `result` to i64: its uses get the big of it.
-void narrowResult(RewriterBase &rewriter, OpResult result) {
+// Retypes the big result `result` to i64: its uses get the small of it.
+void narrowResult(WordRewriter &rewriter, OpResult result) {
   Type type = result.getType();
   rewriter.modifyOpInPlace(result.getOwner(), [&] { result.setType(rewriter.getI64Type()); });
   rewriter.setInsertionPointAfter(result.getOwner());
-  Value made = big(rewriter, result.getLoc(), type, result);
+  Value made = rewriter.standIn(result.getLoc(), type, result);
   rewriter.replaceAllUsesExcept(result, made, made.getDefiningOp());
 }
 
 // Passes the word of `operand` instead of the big. The operands narrowed
 // here are forwarded where they are passed (a loop's start, a yield), which
 // moves a counted big's reference on, so the big gives it up there:
-// counting ran before, and the word takes nothing. A big made of a word
-// holds no count, so passing its word gives nothing up.
+// counting ran before, and the word takes nothing. A small holds no
+// reference, so the rule moves none on, and passing its word gives nothing
+// up; one given as the big the forwarding asked goes with the use.
 void passWord(RewriterBase &rewriter, OpOperand &operand) {
   Operation *owner = operand.getOwner();
   Location loc = owner->getLoc();
@@ -51,9 +52,9 @@ void passWord(RewriterBase &rewriter, OpOperand &operand) {
   Value value = operand.get();
   Replaced big = replace(rewriter, loc, operand);
   Value made = word(rewriter, loc, big.read);
-  if (!value.getDefiningOp<BigSmallOp>())
-    giveUp(rewriter, loc, big);
+  giveUp(rewriter, loc, big);
   rewriter.modifyOpInPlace(owner, [&] { operand.set(made); });
+  eraseGiven(rewriter, value);
 }
 
 bool carries(const Facts &facts, const Decisions &decided, const Carry &carry) {
@@ -70,12 +71,12 @@ bool givenByTailCall(const Facts &facts, const Pass &pass) {
 
 } // namespace
 
-void narrowArgument(RewriterBase &rewriter, BlockArgument arg) {
+void narrowArgument(WordRewriter &rewriter, BlockArgument arg) {
   Type type = arg.getType();
   rewriter.modifyOpInPlace(arg.getOwner()->getParentOp(),
                            [&] { arg.setType(rewriter.getI64Type()); });
   rewriter.setInsertionPointToStart(arg.getOwner());
-  Value made = big(rewriter, arg.getLoc(), type, arg);
+  Value made = rewriter.standIn(arg.getLoc(), type, arg);
   rewriter.replaceAllUsesExcept(arg, made, made.getDefiningOp());
 }
 
@@ -123,8 +124,8 @@ Changed decideJoints(const Facts &facts, Decisions &decided) {
 }
 
 // Entering a joint, each argument of its regions that a web carries
-// becomes a word, so that what runs inside reads the big of the word.
-void enter(RewriterBase &rewriter, const Facts &facts, const Decisions &decided,
+// becomes a word, so that what runs inside reads the small of the word.
+void enter(WordRewriter &rewriter, const Facts &facts, const Decisions &decided,
            const Enter &step) {
   for (ValueId v : facts.ownOf(step))
     if (decided.carried.test(v))
@@ -136,7 +137,7 @@ void enter(RewriterBase &rewriter, const Facts &facts, const Decisions &decided,
 // each carried result no class of its own holds. An argument a class holds
 // is a region's, made a word as the walk entered its op, or an enclosing
 // op's, made a word as the walk entered that op.
-void leave(RewriterBase &rewriter, const Facts &facts, const Decisions &decided,
+void leave(WordRewriter &rewriter, const Facts &facts, const Decisions &decided,
            const Leave &step) {
   auto own = [&](ValueId v) {
     auto result = dyn_cast<OpResult>(facts.value(v));

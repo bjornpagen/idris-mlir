@@ -17,6 +17,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Ranges.h"
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/STLExtras.h"
@@ -141,6 +142,12 @@ Value CountShareOp::getStatedLifetime(Value made) { return lifetimes::statedOute
 
 void CountShareOp::setStatedLifetime(Value made, Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
+}
+
+// The result is the operand's value, so its range is the operand's.
+void CountShareOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                                 SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
 }
 
 // That the stated lifetime is the operand's or one it encloses is the

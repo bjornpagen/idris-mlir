@@ -688,10 +688,12 @@ alg ix (CaseF l f x arms) sc w = do
 -- default impossible, the last possible alternative stands for it, and a
 -- match of one is that alternative. Each key is as `idr.lit.match` holds
 -- it, by the match's one kind: an integer at its type's width, a `Char` as
--- its code point, a string, a big integer or a natural as itself. In a
--- case the scrutinee is its literal; the default binds it refined to the
--- complement of the keys, so what a case proved of it (a divisor matched
--- against `0`) stays known where the default reads it.
+-- its code point, a string, a big integer or a natural as itself. Every
+-- region binds the scrutinee, and the variable that named it names the
+-- binding there, as in a data match: in a case the binding is its
+-- literal, and the default's is refined to the complement of the keys, so
+-- what a case proved of it (a divisor matched against `0`) stays known
+-- where the default reads it.
 alg ix (CaseLitF l x arms) sc w = case arms of
   OnlyDefault d => d.result sc w
   OnInts t keyed => literalsOf (\n => litAttr (LInt t n)) keyed
@@ -703,10 +705,10 @@ alg ix (CaseLitF l x arms) sc w = case arms of
     literals key [] d = d.result sc w
     literals key alts@(_ :: _) d = do
       scrut <- coerce ix l Many (standing (sc.vars x))
-      let inner = refining x scrut sc
       arms <- traverse (\(_, c) => do
-                          (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
-                          pure (MkCase 0 (MkArm [] res ops))) alts
+                          (inCase, arg) <- freshVal ix scrut.type Many
+                          (res, ops) <- collect (plain ix l (c.result (refining x inCase sc) ({ binder := Nothing } w)))
+                          pure (MkCase 0 (MkArm [MkArgument arg (At l)] res ops))) alts
       (back, arg) <- freshVal ix scrut.type Many
       (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
       match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map (key . fst) alts)) (operand ix scrut) [] dr (caseRegions cs) ts)
@@ -716,17 +718,20 @@ alg ix (CaseLitF l x arms) sc w = case arms of
     literalsOf key (LitDefault alts d) = literals key (forget alts) d
     literalsOf key (LitNoDefault alts) = literals key (init alts) (snd (last alts))
 -- The predecessor exists only where the value is not zero: the successor's
--- arm computes it from the value it binds, and only it binds it.
+-- arm computes it from the value it binds, which is not zero there. The
+-- zero arm binds the scrutinee too, which is zero there, as every region
+-- of a literal match binds it.
 alg ix (CaseNatF l x arms) sc w = case arms of
   OnlyZero z => z.result sc w
   OnlySucc p s => successor p s sc w !(coerce ix l Many (standing (sc.vars x)))
   Both z p s => do
     n <- coerce ix l Many (standing (sc.vars x))
-    (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
+    (atZero, zarg) <- freshVal ix (NatT IOpaque) Many
+    (zr, zops) <- collect (plain ix l (z.result (refining x atZero sc) ({ binder := Nothing } w)))
     (back, arg) <- freshVal ix (NatT IOpaque) Many
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
     match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
-          [MkCase 0 (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
+          [MkCase 0 (MkArm [MkArgument zarg (At l)] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
     successor : Shown -> Sub Em js (Under 1 nv) -> Scope js nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do

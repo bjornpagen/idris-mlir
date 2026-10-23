@@ -221,16 +221,19 @@ drop = countingOp "count.drop" [single "value" countedMany] [] [] []
 ||| is asked, as a rejoin's paths give theirs. Nothing at run time; its
 ||| result carries its operand, moved where the operand owns a count, so it
 ||| is no identity of its operand's, and a value it follows is never proved
-||| unique through it. A scoped result lives in the lifetime it states
-||| (`in %l`), its operand's or one that lifetime encloses, so its lifetime
-||| is read off the share in one step; the builder that takes no lifetime
-||| states the operand's.
+||| unique through it. Its result is its operand's value, so it has the
+||| operand's range: a small idr-narrow gives where a value its count frees
+||| is asked keeps the bound it was proved by. A scoped result lives in the
+||| lifetime it states (`in %l`), its operand's or one that lifetime
+||| encloses, so its lifetime is read off the share in one step; the
+||| builder that takes no lifetime states the operand's.
 public export
 share : Op 2 1 0 0
 share = countingOp "count.share"
   [single "value" (SatisfiesType heldValue), outers] [result "result" anyValue] [] []
   [OurTrait resultCarriesOperand]
-  [Implements flowInterface ["getFlowEdges"], Implements statesLifetime statedMethods]
+  [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime statedMethods
+  , Declares InferIntRange ["inferResultRangesFromOptional"] ]
   (Executes [] [Consumes 0, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))

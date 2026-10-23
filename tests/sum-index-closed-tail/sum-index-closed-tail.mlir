@@ -49,7 +49,7 @@ idr.program @reversal root(@main) stage(first) {
   }
   idr.func <{binders = #idr.index_binders<[nat, nat]>}> @later(%acc: !Acc, %xs: !Xs, %k: i64) -> !Both {
     %r = idr.lit.match %k : i64 -> (!Both) {
-    case 0 {
+    case 0(%key0: i64) {
       %moved = idr.call @reverseOnto(%acc, %xs, %k) <{index_args = #idr.index_args<[v0, v1]>, tail_kind = tail}> : (!Acc, !Xs, i64) -> !Both
       idr.yield %moved : !Both
     }
@@ -64,7 +64,7 @@ idr.program @reversal root(@main) stage(first) {
   } loc("later")
   idr.func <{binders = #idr.index_binders<[nat, nat]>}> @reverseOnto(%acc: !Acc, %xs: !Xs, %k: i64) -> !Both {
     %r = idr.lit.match %k : i64 -> (!Both) {
-    case 0 {
+    case 0(%key1: i64) {
       %step = idr.data.match %xs : !Xs -> (!Both) {
       case @Nil(%n: !idr.data<#Vect[v1] @Nil>) {
         %back = idr.data.reindex %acc : !Acc to !Both

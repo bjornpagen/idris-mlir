@@ -23,6 +23,8 @@
 #include "idr/IR/Generated/BigToWord.h.inc"
 
 #include <cassert>
+#include <cstdint>
+#include <optional>
 #include <type_traits>
 
 using namespace mlir;
@@ -94,10 +96,10 @@ arith::IntegerOverflowFlags noWrap(Sign sign) {
              : arith::IntegerOverflowFlags::nsw;
 }
 
-// Replaces `op`'s big result by the big of `word`.
-void replaceBig(RewriterBase &rewriter, Operation *op, Value word) {
+// Replaces `op`'s big result by the small of `word`.
+void replaceBig(WordRewriter &rewriter, Operation *op, Value word) {
   Value result = op->getResult(0);
-  rewriter.replaceOp(op, big(rewriter, op->getLoc(), result.getType(), word));
+  rewriter.replaceOp(op, rewriter.standIn(op->getLoc(), result.getType(), word));
 }
 
 // The word of what the big op `op` computes, on the words of its operands,
@@ -172,9 +174,9 @@ struct NarrowArith : OpRewritePattern<OpT> {
 };
 
 // A guard's result is its guarded operand, its first, so the guard of a big
-// that fits guards its word, and its result is the big of the checked word.
-// The guard took the big's reference; the word takes none, so the big gives
-// it up.
+// that fits guards its word, and its result is the small of the checked
+// word. The guard took the big's reference; the word takes none, so the big
+// gives it up.
 struct NarrowGuard : OpInterfaceRewritePattern<GuardOpInterface> {
   using OpInterfaceRewritePattern::OpInterfaceRewritePattern;
 
@@ -200,13 +202,12 @@ struct NarrowGuard : OpInterfaceRewritePattern<GuardOpInterface> {
   }
 };
 
-// Counting a big made of a word counts nothing, since it holds no
-// reference: each result of the op is the big of the same word, at its own
-// type, and the op goes. Any other big proved small keeps its count ops:
-// counting still tracks it (a call's result, a parameter), and on a small
-// they do nothing at run time. The operand is made of a word where the walk
-// met an idr.big.small, or where the rewrite has since put the big of a
-// word in its place.
+// Counting a big the rewrite put a small in the place of counts nothing,
+// since a small holds no reference: each result of the op is the small of
+// the same word, standing for the big of its own type, and the op goes.
+// Any other big proved small keeps its count ops: counting still tracks it
+// (a call's result, a parameter), and on a small they do nothing at run
+// time.
 template <typename OpT>
 struct NarrowCount : OpRewritePattern<OpT> {
   using OpRewritePattern<OpT>::OpRewritePattern;
@@ -216,16 +217,15 @@ struct NarrowCount : OpRewritePattern<OpT> {
     return narrowed(rewriter, op.getOperation(), Takes::Nothing, [&](llvm::ArrayRef<ValueId> ids) {
       ValueId value = ids.front();
       const Decisions &decided = rewriter.decided;
-      bool madeOfWord = rewriter.facts.carrier(value) == Carrier::SmallBig ||
-                        decided.carried.test(value) || decided.computed.test(value);
+      bool madeOfWord = decided.carried.test(value) || decided.computed.test(value);
       if (rewriter.facts.carrier(value) == Carrier::NoBig || !madeOfWord ||
           !allFit(rewriter.facts, ids))
         return false;
       rewriter.setInsertionPoint(op);
       Location loc = op.getLoc();
-      Value small = word(rewriter, loc, op->getOperand(0));
+      Value madeOf = word(rewriter, loc, op->getOperand(0));
       rewriter.replaceOp(op, llvm::map_to_vector(op->getResults(), [&](Value result) {
-                           return big(rewriter, loc, result.getType(), small);
+                           return rewriter.standIn(loc, result.getType(), madeOf);
                          }));
       return true;
     });
@@ -234,14 +234,15 @@ struct NarrowCount : OpRewritePattern<OpT> {
 
 // A literal match on a big matches its word when every key is a word and
 // the value its default binds, the scrutinee none of the keys, fits a
-// small: the scrutinee is then a word wherever the match reads it. Its
-// keys become words, and its default binds the word, whose uses read the
-// big of it, which holds no reference. The match forwards its scrutinee
-// into its default's binding, which moves a counted big's reference on, and
-// the word it then matches takes nothing of it, so the big gives it up
-// before the match. The bound asked is the default's binding, a value of
-// the joint the walk numbered, as the rewrite enters the joint before any
-// op of its regions is rewritten.
+// small: the scrutinee is then a word wherever the match reads it, a key in
+// each case and that value in the default. Its keys become words, and
+// every region binds the word, whose uses read the small of it, which holds
+// no reference. The match forwards its scrutinee into each region's
+// binding, which moves a counted big's reference on, and the word it then
+// matches takes nothing of it, so the big gives it up before the match.
+// The bound asked is the default's binding, a value of the joint the walk
+// numbered, as the rewrite enters the joint before any op of its regions is
+// rewritten.
 struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -251,40 +252,44 @@ struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
     if (!isCarriedAsBig(scrutinee.getType()))
       return failure();
     BlockArgument refined = match.getDefaultRegion().getArgument(0);
-    ValueId binding = rewriter.facts.at(refined);
-    if (!rewriter.facts.fits(binding))
+    if (!rewriter.facts.fits(rewriter.facts.at(refined)))
       return failure();
     // A big's and a natural's keys are big literals, as their types say.
+    // Each must be a small, since the case that takes it binds its small.
     SmallVector<Attribute> keys;
     for (Attribute key : match.getCases()) {
-      const APInt &value = cast<BigAttr>(key).getValue();
-      if (value.getSignificantBits() > 64)
+      std::optional<int64_t> value = cast<BigAttr>(key).getValue().trySExtValue();
+      if (!value || !ranges::bounded(*value, *value).fits())
         return failure();
-      keys.push_back(rewriter.getI64IntegerAttr(value.getSExtValue()));
+      keys.push_back(rewriter.getI64IntegerAttr(*value));
     }
-    // A binding of a view lived in the lifetime the match states for it,
-    // the last it states, since only its default binds; a word lives in
-    // none.
+    // Each region binds the scrutinee at its position, whose lifetime the
+    // match states once for every region, the last it states, where the
+    // binding is a view; a word lives in none.
     SmallVector<Value> outers(match.getOuters());
     if (borrowed(refined))
       outers.pop_back();
+    SmallVector<BlockArgument> bindings = llvm::map_to_vector(
+        match->getRegions(), [](Region &region) { return region.getArgument(0); });
     bool done = support::perform<NarrowWordAction>(match, [&] {
       rewriter.setInsertionPoint(match);
       Location loc = match.getLoc();
       Replaced big = replace(rewriter, loc, match.getScrutineeMutable());
-      Value small = word(rewriter, loc, big.read);
+      Value word = narrow::word(rewriter, loc, big.read);
       giveUp(rewriter, loc, big);
       rewriter.modifyOpInPlace(match, [&] {
-        match.getScrutineeMutable().set(small);
+        match.getScrutineeMutable().set(word);
         match.setCasesAttr(rewriter.getArrayAttr(keys));
         lifetimes::restateOuters(cast<StatesOutersOpInterface>(match.getOperation()), outers);
       });
-      narrowArgument(rewriter, refined);
+      for (BlockArgument binding : bindings)
+        narrowArgument(rewriter, binding);
     });
     if (!done)
       return failure();
-    // The binding is now made of a word, so counting it counts nothing.
-    (void)rewriter.decided.computed.raise(binding);
+    // Each binding is now made of a word, so counting it counts nothing.
+    for (BlockArgument binding : bindings)
+      (void)rewriter.decided.computed.raise(rewriter.facts.at(binding));
     return success();
   }
 };

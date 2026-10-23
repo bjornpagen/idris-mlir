@@ -121,6 +121,10 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
             if (succeeded(applicator.matchAndRewrite(reached.op, rewriter)))
               changed = Changed::Yes;
           });
+    // Every op the walk rewrites has taken its smalls' words; a use left
+    // that takes over what a value its count frees holds is given the small
+    // at the type of the big it stood for.
+    giveSmalls(rewriter);
 
     // A word made a big and back is the word, and a conversion of a
     // constant is its constant: each conversion is folded by its own

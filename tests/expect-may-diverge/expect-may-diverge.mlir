@@ -19,7 +19,7 @@ idr.program @rows root(@main) stage(first) {
     } join tokens(%again)(%m: i64) {
       idr.may_loop
       %s = idr.lit.match %m : i64 -> (i64) {
-        case 1 {
+        case 1(%key0: i64) {
           idr.yield %m : i64
         } default(%d: i64) {
           %two = arith.constant 2 : i64
@@ -37,7 +37,7 @@ idr.program @rows root(@main) stage(first) {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
       %s = idr.lit.match %m : i64 -> (i64) {
-        case 1 {
+        case 1(%key1: i64) {
           idr.yield %m : i64
         } default(%d: i64) {
           %two = arith.constant 2 : i64
@@ -61,7 +61,7 @@ idr.program @rows root(@main) stage(first) {
     } join tokens(%again)(%m: i64) {
       idr.may_loop
       %s = idr.lit.match %m : i64 -> (i64) {
-        case 1 {
+        case 1(%key2: i64) {
           idr.yield %m : i64
         } default(%d: i64) {
           %two = arith.constant 2 : i64
@@ -79,7 +79,7 @@ idr.program @rows root(@main) stage(first) {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
       %s = idr.lit.match %m : i64 -> (i64) {
-        case 1 {
+        case 1(%key3: i64) {
           idr.yield %m : i64
         } default(%d: i64) {
           %two = arith.constant 2 : i64

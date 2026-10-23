@@ -128,7 +128,7 @@ bool isLendable(::mlir::Type value);
 // a value of a data type, at any grade
 bool isMatchable(::mlir::Type value);
 
-// a value of a type with literals that is no condition, read in place
+// a value of a type with literals that is no condition, at any grade
 bool isMatchedLiteral(::mlir::Type value);
 
 // a value array's buffer, a memref in the default memory space, at any grade
@@ -163,6 +163,9 @@ bool isBigOrNatRead(::mlir::Type value);
 
 // an Integer or a natural at any grade
 bool isBigOrNatValue(::mlir::Type value);
+
+// an Integer or a natural held static, used any number of times
+bool isBigOrNatStatic(::mlir::Type value);
 
 // a list of characters, read in place
 bool isListOfChars(::mlir::Type value);

@@ -2,15 +2,17 @@
 // Copyright (c) 2026 Bjorn Pagen
 // resets-unshared: every run-time test of sharing finds its cell unshared,
 // as far as the function shows: no value it tests is one the function gave
-// another reference. Both are what the effect system's declarations say of
-// each operand: a test reads the count of a value it consumes and gives a
-// cell or a reuse token for what it took apart; another reference is a
-// write of a value's count by an op that does not consume it.
+// another reference. Both are what each op declares of each operand, its
+// effects and counting's rule of what it does with the operand's reference
+// (referenceAt): a test reads the count of a value whose reference it moves
+// on and gives a cell or a reuse token for what it took apart; another
+// reference is a write of a value's count by an op that keeps the
+// reference where it was.
 
 #include "idr/Transforms/Expect.h"
 
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Effects/Classify.h"
-#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -41,12 +43,12 @@ effects::Does onCountOf(Operation *op, Value value, effects::Kind kind) {
 }
 
 // Whether `operand`'s op tests the sharing of its value: it reads the
-// count of a value it consumes, and gives what it took apart as a cell's
-// memory (the cell, or the token that holds it, as the value's type says:
-// isCellMemory), as a result or to a region it runs.
+// count of a value whose reference it moves on, and gives what it took
+// apart as a cell's memory (the cell, or the token that holds it, as the
+// value's type says: isCellMemory), as a result or to a region it runs.
 bool testsSharing(OpOperand &operand) {
   Operation *op = operand.getOwner();
-  if (!effects::consumes(operand) ||
+  if (referenceAt(operand) == Reference::Kept ||
       onCountOf(op, operand.get(), effects::Kind::Read) == effects::Does::Avoids)
     return false;
   if (llvm::any_of(op->getResultTypes(), isCellMemory))
@@ -61,11 +63,12 @@ bool testsSharing(OpOperand &operand) {
 // Whether the function gives `value` another reference: an op writes the
 // count of it, or of the value it is the same as (sourceOf: the value it
 // moved in from, a match's refined scrutinee), or of a value it was read
-// from, whose cell then holds it shared, and does not consume it.
+// from, whose cell then holds it shared, and keeps the reference where it
+// was.
 bool givenAnotherReference(Value value) {
   auto referenced = [](Value view) {
     return llvm::any_of(view.getUses(), [&](OpOperand &use) {
-      return !effects::consumes(use) &&
+      return referenceAt(use) == Reference::Kept &&
              onCountOf(use.getOwner(), view, effects::Kind::Write) == effects::Does::Touches;
     });
   };

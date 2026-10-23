@@ -48,14 +48,24 @@ enum class Reference : std::uint8_t { Kept, MovedOn };
 // ends the owner its first operand is (EndsOwner: a take, an unpack, the
 // fused take, the test of sharing); and where it lends its first operand
 // and gives it back (RunsOnceGivingBack), which no region branch forwards.
-// A part moved out of a value says nothing of the value's own reference:
-// an op that takes a value apart ends its owner, and a memo cell's
-// exchange moves the captures out of a cell that keeps its reference.
+// A part an op moves out of a value it takes over moves the value's
+// reference on with it (a take's fields, a cell's elements put in a
+// buffer's slots); a part read out of a value the op only reads (a memo
+// cell's captures, an element taken out of a buffer that keeps its
+// reference) moves none.
 Reference referenceAt(mlir::OpOperand &use);
 
 // The rule at each operand of `op`, its moves read once: the operands whose
 // references it moves on.
 llvm::SmallBitVector movedOn(mlir::Operation *op);
+
+// What the rule reads off `op` alone, before it asks what each operand
+// holds: the operands whose reference it would move on, were it one of
+// their own. movedOn keeps those that hold one; a pass that puts a value
+// holding none (a small big, static) where one of its own stood asks it of
+// the uses that value takes over, each of which would have moved that
+// reference on.
+llvm::SmallBitVector movesOf(mlir::Operation *op);
 
 // Whether a value of `type` fills a field declared `field` of a value
 // built at hold `built` (none where the built value holds no reference):

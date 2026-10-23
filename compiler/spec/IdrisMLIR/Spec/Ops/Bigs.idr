@@ -472,18 +472,20 @@ bigFromInt sign = MkOp
   }
 
 ||| The big or natural of a word proved to fit the small range: idr-narrow
-||| writes it where values it proved small meet a big. A small holds no
-||| reference and acquires nothing. A word outside the range has no big
-||| here, as an overflowing nsw add has no sum: the pass that writes the op
-||| is the proof, so its fold, the runtime's function of a word it holds,
-||| meets only words that fit.
+||| writes it where values it proved small meet a big. A small is a word
+||| with no cell: it holds no reference and acquires nothing, so its type
+||| is static data's, which nothing frees and no count writes, and a use
+||| that asks for a value its count frees is given it by a share. A word
+||| outside the range has no big here, as an overflowing nsw add has no
+||| sum: the pass that writes the op is the proof, so its fold, the
+||| runtime's function of a word it holds, meets only words that fit.
 public export
 bigSmall : Op 1 1 0 0
 bigSmall = MkOp
   { home = InIdr
   , mnemonic = "big.small"
   , ins = [single "value" i64]
-  , outs = [result "result" bigOrNatValue]
+  , outs = [result "result" bigOrNatStatic]
   , attrs = []
   , regions = []
   , traits = []

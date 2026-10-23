@@ -9,13 +9,17 @@
 
 #include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Counting/Counting.h"
-#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 
 #include "llvm/ADT/STLExtras.h"
+
+#include <cassert>
+
+// Whether the program's references are counted (StageCounting).
+#include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
 using namespace idr;
@@ -75,11 +79,24 @@ void DataConOp::setStatedLifetime(Value made, Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
-// Moving it where it would not have run would take a field over, or use a
-// field used once, on a path that keeps that field for itself.
+// Moving it where it would not have run would use a field used once on a
+// path that keeps that field for itself; and, once the program's references
+// are counted, it would move a field's reference into the value on such a
+// path, as counting's rule says (referenceAt), whatever the field's uses.
+// Before counting no reference is placed yet, so a field used many times
+// takes its reference wherever the value ends up. The rule's moves are
+// read once for every field.
 Speculation::Speculatability DataConOp::getSpeculatability() {
   for (OpOperand &field : getFieldsMutable())
-    if (effects::consumes(field) || usesOf(field.get().getType()) == Uses::Once)
+    if (usesOf(field.get().getType()) == Uses::Once)
+      return Speculation::NotSpeculatable;
+  auto program = (*this)->getParentOfType<ProgramOp>();
+  assert(program && "a constructor stands in a program, whose stage says what is counted");
+  if (countingAt[program.getStage()] == StageCounting::Uncounted)
+    return Speculation::Speculatable;
+  llvm::SmallBitVector moved = movedOn(getOperation());
+  for (OpOperand &field : getFieldsMutable())
+    if (moved.test(field.getOperandNumber()))
       return Speculation::NotSpeculatable;
   return Speculation::Speculatable;
 }

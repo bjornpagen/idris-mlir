@@ -10,7 +10,7 @@
 
 #include "idr/IR/Lifetimes/Loans.h"
 
-#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
@@ -113,7 +113,10 @@ bool movesInto(OpOperand &use) {
         edge.move, [&](const FlowEdges::Flow &flow) { return fromUse(flow.from); },
         [&](const FlowEdges::Release &release) { return release.use == &use; },
         [&](const FlowEdges::Dispatch &dispatch) {
-          return llvm::is_contained(dispatch.call.getArgOperands(), given);
+          // The interface's accessors are not const, and its handle is a
+          // value: a copy of it reads them.
+          CallOpInterface call = dispatch.call;
+          return llvm::is_contained(call.getArgOperands(), given);
         },
         [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
                        FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant> auto &) {
@@ -125,16 +128,18 @@ bool movesInto(OpOperand &use) {
 } // namespace
 
 // A terminator that forwards an alias to no successor (the walk asks the
-// forwarding first) is its function's return. An op of ours takes a
-// reference over where it consumes the operand, makes one of its own where
-// its trait says, and holds or gives one where it moves the operand into a
-// place (movesInto); an op of upstream's stores the value it writes where
-// its effects name the memory and not the value.
+// forwarding first) is its function's return. An alias is a reference of
+// no one's, which no count follows, so what an op does with a reference it
+// holds is not the question: an op of ours adopts it where its trait makes
+// a reference of its own of it, or where its flow moves the operand into a
+// place it holds or gives (movesInto), every move counting's rule reads off
+// a flow among them (a use taken, a release); an op of upstream's stores
+// the value it writes where its effects name the memory and not the value.
 lifetimes::LoanUse idr::lifetimes::loanUseOf(OpOperand &use) {
   Operation *user = use.getOwner();
   if (user->hasTrait<OpTrait::ReturnLike>())
     return LoanUse::Returns;
-  if (effects::consumes(use) || user->hasTrait<AdoptsCarrier>() || movesInto(use))
+  if (user->hasTrait<AdoptsCarrier>() || movesInto(use))
     return LoanUse::Adopts;
   if (ownership::storedBy(use))
     return LoanUse::Stores;
@@ -166,12 +171,13 @@ bool idr::lifetimes::remakeable(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 // At each loan: the value lent outlives it, so once references are counted
-// no use of the value inside the loan's region gives it up; and every alias
-// of the loan stays in that region, is never returned, never stored as a
-// write's value, and never adopted by an op of ours. Before counting a use
-// that consumes the value inside the region is one placement keeps the
-// value alive across, duplicating it there, so only the counted program
-// holds that half of the rule.
+// no use of the value inside the loan's region moves its reference on, by
+// the rule counting places by (referenceAt); and every alias of the loan
+// stays in that region, is never returned, never stored as a write's value,
+// and never adopted by an op of ours. Before counting a use that moves the
+// value on inside the region is one placement keeps the value alive
+// across, duplicating it there, so only the counted program holds that half
+// of the rule.
 LogicalResult State::loans(Operation &op) {
   auto loan = dyn_cast<CarrierOp>(&op);
   if (!loan)
@@ -184,9 +190,10 @@ LogicalResult State::loans(Operation &op) {
 
   if (counting == StageCounting::Counted)
     for (OpOperand &use : loan.getValue().getUses())
-      if (extent->isAncestor(use.getOwner()->getParentRegion()) && effects::consumes(use))
+      if (extent->isAncestor(use.getOwner()->getParentRegion()) &&
+          referenceAt(use) == Reference::MovedOn)
         return lent(use.getOwner()->emitOpError(
-            "gives up a value lent to upstream's ops inside the region of the loan's lifetime, "
+            "moves on a value lent to upstream's ops inside the region of the loan's lifetime, "
             "which the value outlives"));
 
   LogicalResult judged = success();

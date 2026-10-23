@@ -118,9 +118,10 @@ void OwnGiveOp::getFlowEdges(FlowEdges &edges) {
 
 namespace {
 
-// The use an edge moves on whole or gives up: the source of a flow that is
-// the use itself, or the use a release gives up. A part moved out of a use
-// is no move of the use, and every other edge moves none.
+// The use an edge moves on or gives up: the source of a flow that is the
+// use itself, or a part of a use the op takes over, or the use a release
+// gives up. A part read out of a value the op only reads moves none, and
+// every other edge moves none.
 std::optional<OpOperand *> movedBy(const FlowEdges::Edge &edge) {
   using Moved = std::optional<OpOperand *>;
   return match(
@@ -128,8 +129,9 @@ std::optional<OpOperand *> movedBy(const FlowEdges::Edge &edge) {
       [](const FlowEdges::Flow &flow) -> Moved {
         return match(
             flow.from.at, [](const FlowSource::Taken &taken) -> Moved { return taken.use; },
-            [](const OneOf<FlowSource::Whole, FlowSource::Part, FlowSource::Parameter,
-                           FlowSource::Result> auto &) -> Moved { return std::nullopt; });
+            [](const FlowSource::Part &part) -> Moved { return part.taken(); },
+            [](const OneOf<FlowSource::Whole, FlowSource::Parameter, FlowSource::Result> auto &)
+                -> Moved { return std::nullopt; });
       },
       [](const FlowEdges::Release &release) -> Moved { return release.use; },
       [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh, FlowEdges::Overwrite,
@@ -140,7 +142,7 @@ std::optional<OpOperand *> movedBy(const FlowEdges::Edge &edge) {
 
 } // namespace
 
-llvm::SmallBitVector idr::movedOn(Operation *op) {
+llvm::SmallBitVector idr::movesOf(Operation *op) {
   llvm::SmallBitVector moved(op->getNumOperands());
   if (op->getNumOperands() != 0 &&
       (op->hasTrait<EndsOwner>() || op->hasTrait<RunsOnceGivingBack>()))
@@ -152,6 +154,11 @@ llvm::SmallBitVector idr::movedOn(Operation *op) {
       assert((*use)->getOwner() == op && "an op's edges move only its own uses");
       moved.set((*use)->getOperandNumber());
     }
+  return moved;
+}
+
+llvm::SmallBitVector idr::movedOn(Operation *op) {
+  llvm::SmallBitVector moved = movesOf(op);
   for (OpOperand &use : op->getOpOperands())
     if (!freedBy(use.get().getType(), Release::Counted))
       moved.reset(use.getOperandNumber());

@@ -592,15 +592,14 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
   ]> {
   let summary = "branches on the value of a word, a double, a string, a big integer or a natural";
   let description = [{
-    The scrutinee is read in place; each case is one literal of its type,
-    and in that case the scrutinee equals that literal (a double's zero is
-    taken by either zero). The default binds the scrutinee, which there is
-    none of the keys.
+    Each case is one literal of its type; every region binds the
+    scrutinee, which in a case equals its literal (a double's zero is
+    taken by either zero) and in the default is none of the keys.
 
-    `%r = idr.lit.match %s : !idr.str -> (i64) { case "" {...} default(%t: !idr.str) {...} }`
-    `%r = idr.lit.match %c : i32 -> (i64) { case 97 {...} default(%d: i32) {...} }`
+    `%r = idr.lit.match %s : !idr.str -> (i64) { case ""(%e: !idr.str) {...} default(%t: !idr.str) {...} }`
+    `%r = idr.lit.match %c : i32 -> (i64) { case 97(%a: i32) {...} default(%d: i32) {...} }`
   }];
-  let arguments = (ins Type<CPred<"::idr::isMatchedLiteral($_self)">, "a value of a type with literals that is no condition, read in place", "::mlir::Type">:$scrutinee, Variadic<Idr_LifetimeType>:$outers, ArrayAttr:$cases);
+  let arguments = (ins Type<CPred<"::idr::isMatchedLiteral($_self)">, "a value of a type with literals that is no condition, at any grade", "::mlir::Type">:$scrutinee, Variadic<Idr_LifetimeType>:$outers, ArrayAttr:$cases);
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$default_region, VariadicRegion<SizedRegion<1>>:$case_regions);
   let assemblyFormat = [{ $scrutinee (`in` `(` $outers^ `:` type($outers) `)`)? `:` type($scrutinee) `->` custom<ResultTypes>(type($results)) attr-dict-with-keyword `{` custom<LiteralCases>(ref(type($scrutinee)), $cases, $case_regions) custom<DefaultCase>($default_region) `}` }];
@@ -1461,7 +1460,7 @@ def Idr_BigSmallOp : Idr_Op<"big.small", [
   ]> {
   let summary = "the small big or natural of a word that fits";
   let arguments = (ins I64:$value);
-  let results = (outs Type<CPred<"::idr::isBigOrNatValue($_self)">, "an Integer or a natural at any grade", "::mlir::Type">:$result);
+  let results = (outs Type<CPred<"::idr::isBigOrNatStatic($_self)">, "an Integer or a natural held static, used any number of times", "::mlir::Type">:$result);
   let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
 }
 
@@ -2542,7 +2541,8 @@ def Idr_CountShareOp : Idr_Op<"count.share", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>
   ]> {
   let summary = "gives a value on with its claim of sharing forgotten";
   let arguments = (ins Type<CPred<"::idr::isHeldValue($_self)">, "a value that holds references", "::mlir::Type">:$value, Variadic<Idr_LifetimeType>:$outers);

@@ -19,7 +19,7 @@ idr.program @called root(@main) stage(first) {
   }
   idr.func @descend(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
-      case 1 {
+      case 1(%key0: i64) {
         idr.yield %n : i64
       } default(%d: i64) {
         %two = arith.constant 2 : i64

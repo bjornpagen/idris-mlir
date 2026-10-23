@@ -109,9 +109,10 @@ void lowerMatch(RewriterBase &rewriter, DataMatchOp op) {
 template <typename Test>
 concept KeyTest = std::is_invocable_r_v<Value, Test &, Location, Attribute>;
 
-// `case k0 {A} case k1 {B} default(%d) {C}` is `if s == k0 then A else (if
-// s == k1 then B else C[%d := s])`, each comparison made only where the one
-// before failed. The chain is built in the block of a scaffold made where the
+// `case k0(%a) {A} case k1(%b) {B} default(%d) {C}` is `if s == k0 then
+// A[%a := s] else (if s == k1 then B[%b := s] else C[%d := s])`, each
+// comparison made only where the one before failed: every region's binding
+// is the scrutinee, which has no other run-time form. The chain is built in the block of a scaffold made where the
 // match is: every link is made at the end of the block it continues, which
 // yields the link's results, and the link's else block is the next block
 // continued. The default ends the last block continued. The scaffold's
@@ -129,7 +130,7 @@ void lowerChain(RewriterBase &rewriter, LitMatchOp op, Test test) {
     auto link = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,
                                   /*addElseBlock=*/false);
     scf::YieldOp::create(rewriter, loc, link.getResults());
-    moveBody(rewriter, region, rewriter.createBlock(&link.getThenRegion()), ValueRange());
+    moveBody(rewriter, region, rewriter.createBlock(&link.getThenRegion()), op.getScrutinee());
     continued = rewriter.createBlock(&link.getElseRegion());
   }
   moveBody(rewriter, op.getDefaultRegion(), continued, op.getScrutinee());
@@ -148,9 +149,10 @@ void lowerChain(RewriterBase &rewriter, LitMatchOp op, Test test) {
 }
 
 // A word is switched on: scf.index_switch compares the word's index cast
-// with each key, sign-extended as the cast extends the word, and the
-// default is handed the scrutinee. The refinement the default binds and the
-// lifetimes the match states have no run-time form, and go with it.
+// with each key, sign-extended as the cast extends the word, and every
+// region is handed the scrutinee for its binding. The refinement the
+// default binds and the lifetimes the match states have no run-time form,
+// and go with it.
 void switchOnWord(RewriterBase &rewriter, LitMatchOp op, Value word) {
   Location loc = op.getLoc();
   Value index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), word);
@@ -160,7 +162,7 @@ void switchOnWord(RewriterBase &rewriter, LitMatchOp op, Value word) {
   auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, op.getResultTypes(), index, keys,
                                              static_cast<unsigned>(keys.size()));
   for (auto [region, to] : llvm::zip_equal(op.getCaseRegions(), switchOp.getCaseRegions()))
-    moveBody(rewriter, region, rewriter.createBlock(&to), ValueRange());
+    moveBody(rewriter, region, rewriter.createBlock(&to), op.getScrutinee());
   moveBody(rewriter, op.getDefaultRegion(), rewriter.createBlock(&switchOp.getDefaultRegion()),
            op.getScrutinee());
   rewriter.replaceOp(op, switchOp.getResults());

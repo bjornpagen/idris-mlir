@@ -3,12 +3,10 @@
 // A value's structural source (sourceOf) and each op's answer to it
 // (ValueSourceOpInterface), the values seen through the positions their
 // grades put them in, and, by them and upstream's buffer views, which
-// constructor has a cell, what a use does with a reference in the owned
-// stage, and what a view was read from: shared by the verifier and the
-// ownership passes, so each has one meaning.
+// constructor has a cell and what a view was read from: shared by the
+// verifier and the ownership passes, so each has one meaning.
 
 #include "idr/IR/Effects/Classify.h"
-#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -78,9 +76,9 @@ namespace {
 
 // A match enters each of its regions with the operands that enter it
 // refined, as upstream's region branch interface says (a data match its
-// scrutinee first, then what it forwards; a literal match its scrutinee, in
-// its default alone): each argument is the operand that enters it, at a
-// type that says more. A result is what a region yields, made here.
+// scrutinee first, then what it forwards; a literal match its scrutinee):
+// each argument is the operand that enters it, at a type that says more.
+// A result is what a region yields, made here.
 template <class Match>
 Source enteredAs(Match match, Value made) {
   auto arg = dyn_cast<BlockArgument>(made);
@@ -156,10 +154,6 @@ bool idr::fieldReadOnce(Value value, unsigned index) {
 bool idr::buildsCell(Type type, Tag tag) {
   DataType data = dataTypeOf(type);
   return data && data.layout() == Layout::Cell && !data.ctor(tag).fields.empty();
-}
-
-ownership::Use idr::ownership::useOf(OpOperand &operand) {
-  return effects::consumes(operand) ? Use::Consume : Use::Borrow;
 }
 
 namespace {

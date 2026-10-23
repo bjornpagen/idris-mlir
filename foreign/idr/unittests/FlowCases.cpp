@@ -208,8 +208,8 @@ private:
   }
 
   // A lit.match on the function's string: a default and up to two cases,
-  // each entered from the match. A case binds nothing; the default binds
-  // the scrutinee, which enters it.
+  // each entered from the match. Every region binds the scrutinee, which
+  // enters it: a case's binding equals its key, the default's none of them.
   mlir::Operation *match(mlir::TypeRange types, const Scope &outer) {
     llvm::SmallVector<mlir::Attribute> keys;
     for (unsigned cases = draws.below(3), k = 0; k < cases; ++k)
@@ -217,12 +217,13 @@ private:
     mlir::Location loc = named(kindNames[Kind::Match]);
     auto op = idr::LitMatchOp::create(b, loc, types, scrutinee, b.getArrayAttr(keys));
     for (mlir::Region &region : op->getRegions()) {
+      mlir::Block &block = region.emplaceBlock();
+      mlir::Value bound = block.addArgument(text, loc);
       pending.push_back(
-          {&region.emplaceBlock(), op, Kind::Match, Scope{outer.depth + 1, outer.targets, outer.values}});
+          {&block, op, Kind::Match, Scope{outer.depth + 1, outer.targets, outer.values}});
       meant.edges.push_back({op, &region});
+      meant.moves.push_back({&op->getOpOperand(0), bound});
     }
-    mlir::Value refined = op.getDefaultRegion().front().addArgument(text, loc);
-    meant.moves.push_back({&op->getOpOperand(0), refined});
     return op;
   }
 

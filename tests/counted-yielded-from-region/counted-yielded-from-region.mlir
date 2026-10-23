@@ -32,7 +32,7 @@ idr.program @yields root(@main) stage(graded) {
   }
   idr.func @pick(%k: i64, %a: !Cons, %b: !Cons) -> !Cons {
     %r = idr.lit.match %k : i64 -> (!Cons) {
-    case 0 {
+    case 0(%key0: i64) {
       idr.yield %a : !Cons
     }
     default(%d: i64) {

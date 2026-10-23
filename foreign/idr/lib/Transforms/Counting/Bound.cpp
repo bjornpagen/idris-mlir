@@ -26,7 +26,7 @@
 // native stack.
 #include "idr/Transforms/Counting/Bound.h"
 
-#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -127,18 +127,20 @@ bool keepsReference(const FlowEdges::Edge &edge, OpOperand &use) {
       });
 }
 
-// Whether `use` gives its value up: the op takes its reference over, gives
-// nothing of it back, and carries it whole into no callee, no caller and no
-// field. It ends it there (a drop, a store into memory no edge follows) or
-// takes it apart into its token and fields (a take, placement's where a
+// Whether `use` gives its value up: the op moves its reference on, by
+// counting's one rule (referenceAt), whatever the value's uses, gives
+// nothing of it back, and carries it whole into no callee, no caller and
+// no field. It ends it there (a drop, a store into memory no edge follows)
+// or takes it apart into its token and fields (a take, placement's where a
 // part outlives it, or reuse's where its cell is recycled, fused or not)
 // or into its fields (an unpack); the match on its uniqueness, the take's
-// expansion, takes it over and moves it into its shared region. A use that
-// reads it, lends it again, or moves it on without taking it over keeps it
-// needed.
+// expansion, takes it over and moves it into its shared region; and a
+// region branch moves it whole, its reference with it, into the value it
+// forwards it to. A use that reads it or lends it again keeps it needed.
 bool givesUp(OpOperand &use) {
   Operation *op = use.getOwner();
-  if (!effects::consumes(use) || (use.getOperandNumber() == 0 && givesOperandBack(op)))
+  if (referenceAt(use) == Reference::Kept ||
+      (use.getOperandNumber() == 0 && givesOperandBack(op)))
     return false;
   FlowEdges edges;
   flowEdgesOf(op, edges);

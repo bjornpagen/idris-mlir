@@ -1,9 +1,9 @@
-specification 1d8d635ae2bdb88d
+specification d1c5102cb1ad3099
 generator 49b31559a9ebc9e4
 a71d2825ad295531 foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 e2c1baf2a98be36d foreign/idr/include/idr/IR/Generated/IdrTypes.td
-aa4a32842758394a foreign/idr/include/idr/IR/Generated/IdrOps.td
+c8acb10496955ad5 foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 f8db0fc7099d73fd foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 ff6f48f99a642609 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -36,7 +36,7 @@ cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 a28a5a3603892fe5 foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 e47fa31130cf71be foreign/idr/include/idr/IR/Generated/Laws.h.inc
-b8f1f3664983583d foreign/idr/include/idr/IR/Generated/Hooks.h.inc
+c110427cf772eb4c foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 c0f0155d0efe0af1 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 f38d4637e8b8aa8b foreign/idr/include/idr/IR/Generated/Actions.h.inc

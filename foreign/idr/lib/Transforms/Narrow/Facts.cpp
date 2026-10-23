@@ -3,12 +3,14 @@
 // The facts of one function the word rewrite reads: its values numbered by
 // the body's one numbering, the steps of the rewrite recorded in its order,
 // each value's bounds read off the solve once, and the webs its joints
-// carry; the words and bigs that stand for each other; and how a big whose
-// place a word takes in a use is read and gives its reference up.
+// carry; the words and smalls that stand for each other, and a small given
+// where a value its count frees is asked; and how a big whose place a word
+// takes in a use is read and gives its reference up.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Traits.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -19,6 +21,7 @@
 
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <optional>
 
@@ -68,9 +71,41 @@ Bounds boundsOf(const Ranges::Solved &analysis, Value value) {
 // ends.
 bool borrowed(Value value) { return freedBy(value.getType(), Release::Scoped); }
 
+namespace {
+
+// The small `value` is given as, where it is one (given): a small cast
+// into a linear position or shared as a value its count frees, each an op
+// whose result carries its operand.
+std::optional<Value> givenSmall(Value value) {
+  for (Operation *def = value.getDefiningOp(); def; def = value.getDefiningOp()) {
+    if (isa<BigSmallOp>(def))
+      return value;
+    if (!def->hasTrait<ResultCarriesOperand>())
+      return std::nullopt;
+    value = def->getOperand(0);
+  }
+  return std::nullopt;
+}
+
+} // namespace
+
+// A small given as the big a use asks for is read as the small, which
+// holds nothing the use's rule could move on: the use it was given for is
+// the one a word now takes, and the ops that gave it go with it
+// (eraseGiven).
 Replaced replace(OpBuilder &b, Location loc, OpOperand &use) {
   Value big = use.get();
+  if (std::optional<Value> small = givenSmall(big))
+    return {*small, Reference::Kept};
   return {heldAs(b, loc, big, atUses(big.getType(), Uses::Many)), referenceAt(use)};
+}
+
+void eraseGiven(RewriterBase &rewriter, Value given) {
+  while (given.use_empty() && !given.getDefiningOp<BigSmallOp>() && givenSmall(given)) {
+    Operation *def = given.getDefiningOp();
+    given = def->getOperand(0);
+    rewriter.eraseOp(def);
+  }
 }
 
 void giveUp(OpBuilder &b, Location loc, const Replaced &replaced) {
@@ -98,18 +133,51 @@ Value word(OpBuilder &b, Location loc, Value value) {
   return BigToIntOp::create(b, loc, i64, value);
 }
 
-Value big(OpBuilder &b, Location loc, Type type, Value word) {
-  return BigSmallOp::create(b, loc, type, word);
+Value small(OpBuilder &b, Location loc, Type type, Value word) {
+  Type held = graded(Grade{Uses::Many, Hold::staticData()}, unrestricted(type));
+  return BigSmallOp::create(b, loc, held, word);
+}
+
+Value given(OpBuilder &b, Location loc, Value small, Type type) {
+  if (small.getType() == type)
+    return small;
+  if (usesOf(type) != Uses::Many)
+    return heldAs(b, loc, small, type);
+  return CountShareOp::create(b, loc, type, small);
+}
+
+Value WordRewriter::standIn(Location loc, Type type, Value word) {
+  Value made = small(*this, loc, type, word);
+  smalls.emplace_back(made, type);
+  return made;
+}
+
+void giveSmalls(WordRewriter &rewriter) {
+  for (auto [made, type] : rewriter.smalls) {
+    // A small with no use is erased with the other conversions no one
+    // reads; and only a value its count frees has a reference a use takes
+    // over.
+    if (!freedBy(type, Release::Counted))
+      continue;
+    // The uses first, since each small given adds a use of the small.
+    SmallVector<OpOperand *, 4> takers;
+    for (OpOperand &use : made.getUses())
+      if (movesOf(use.getOwner()).test(use.getOperandNumber()))
+        takers.push_back(&use);
+    for (OpOperand *use : takers) {
+      Operation *user = use->getOwner();
+      rewriter.setInsertionPoint(user);
+      Value held = given(rewriter, user->getLoc(), made, type);
+      rewriter.modifyOpInPlace(user, [&] { use->set(held); });
+    }
+  }
 }
 
 Facts::Facts(FuncOp fn, const Ranges::Solved &analysis)
     : numbering(fn), values(walk(fn)), carriers(values.size(),
                                  [&](ValueId v) {
-                                   Value value = values[v];
-                                   if (!isCarriedAsBig(value.getType()))
-                                     return Carrier::NoBig;
-                                   return value.getDefiningOp<BigSmallOp>() ? Carrier::SmallBig
-                                                                            : Carrier::Big;
+                                   return isCarriedAsBig(values[v].getType()) ? Carrier::Big
+                                                                              : Carrier::NoBig;
                                  }),
       bounded(read(analysis)), webs(join()) {}
 

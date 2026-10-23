@@ -133,7 +133,7 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   // read in place, so the comparison takes nothing of it.
   Value bound = ConstantOp::create(rewriter, loc, atHold(held.read.getType(), Hold::staticData()),
                                    BigAttr::get(ctx, max));
-  Value small = BigCmpOp::create(rewriter, loc, held.read, bound, CmpPredicate::lte);
+  Value fits = BigCmpOp::create(rewriter, loc, held.read, bound, CmpPredicate::lte);
   // The branch gives back the results something reads. A result nothing
   // reads is what the loop's condition forwards on the path not taken
   // (poison): left unread in each copy, it stays that, which the owned
@@ -145,10 +145,10 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
       read.push_back(result.getResultNumber());
       types.push_back(result.getType());
     }
-  auto given = [&](Operation *copy) {
+  auto resultsOf = [&](Operation *copy) {
     return llvm::map_to_vector(read, [&](unsigned at) { return Value(copy->getResult(at)); });
   };
-  auto branch = scf::IfOp::create(rewriter, loc, types, small, /*withElseRegion=*/true);
+  auto branch = scf::IfOp::create(rewriter, loc, types, fits, /*withElseRegion=*/true);
   // A branch that gives nothing back was built with its yields.
   auto yield = [&](ValueRange values) {
     if (!values.empty())
@@ -160,19 +160,21 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   Value mask =
       arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(IDRIS_RT_SMALL_MAX));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
-  Value start = BigSmallOp::create(rewriter, loc, nat, masked);
+  // A small, given as the natural the loop takes, which keeps the range
+  // the mask proved.
+  Value start = given(rewriter, loc, small(rewriter, loc, nat, masked), nat);
   // The copy starts from the word, so the natural it was read from gives up
   // the reference the loop would have taken.
   giveUp(rewriter, loc, held);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
-  yield(given(copy));
+  yield(resultsOf(copy));
 
   rewriter.setInsertionPointToStart(branch.elseBlock());
   Value back = heldAs(rewriter, loc, held.read, nat);
   Operation *otherwise = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(otherwise, [&] { otherwise->setOperand(index, back); });
-  yield(given(otherwise));
+  yield(resultsOf(otherwise));
   for (auto [at, result] : llvm::zip_equal(read, branch.getResults()))
     rewriter.replaceAllUsesWith(loop->getResult(at), result);
   rewriter.eraseOp(loop);

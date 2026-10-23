@@ -18,6 +18,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 
+#include <array>
+
 using namespace mlir;
 using namespace idr::control;
 using namespace idr::egraph;
@@ -47,8 +49,8 @@ Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
 }
 
 // A literal match's region in the match's place, the scrutinee for what
-// the default binds; what follows is dead where the region jumps or never
-// ends.
+// it binds, as every region binds it; what follows is dead where the
+// region jumps or never ends.
 void inlineLiteral(RewriterBase &rewriter, LitMatchOp op, Region &kept) {
   Block &block = kept.front();
   Operation *terminator = block.getTerminator();
@@ -105,14 +107,23 @@ bool inside(Region &region, OpOperand &use) {
   return region.isAncestor(use.getOwner()->getParentRegion());
 }
 
-// Whether the scrutinee's uses in the case of `key`, its region, may read
-// the key: some lie there, and the scrutinee is the key itself there.
-// Essential: a double's zero key is taken by both zeros, which ordered
-// equality does not tell apart.
-bool readsKeyIn(Value scrutinee, Attribute key, Region &region) {
+// The values that are the scrutinee in `region`, a case of a literal
+// match: the binding the case moved it into, and the scrutinee itself
+// where the region reads it from outside.
+std::array<Value, 2> scrutineesIn(LitMatchOp op, Region &region) {
+  return {region.getArgument(0), op.getScrutinee()};
+}
+
+// Whether the uses of what is the scrutinee in the case of `key`, its
+// region, may read the key: some lie there, and the scrutinee is the key
+// itself there. Essential: a double's zero key is taken by both zeros,
+// which ordered equality does not tell apart.
+bool readsKeyIn(LitMatchOp op, Attribute key, Region &region) {
   auto real = dyn_cast<FloatAttr>(key);
   return !(real && real.getValue().isZero()) &&
-         llvm::any_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); });
+         llvm::any_of(scrutineesIn(op, region), [&](Value read) {
+           return llvm::any_of(read.getUses(), [&](OpOperand &use) { return inside(region, use); });
+         });
 }
 
 // Whether no case of the match leaves a constructor for its non-empty
@@ -186,13 +197,13 @@ void egraph::TakenLiteral::rewrite(LitMatchOp op, const Rewrite &chosen,
     inlineLiteral(rewriter, op, op->getRegion(region));
 }
 
-// In case k of a literal match, the scrutinee is the literal k. The rule
-// chooses the cases whose regions read it.
+// In case k of a literal match, the scrutinee is the literal k, its
+// binding there and itself alike. The rule chooses the cases whose regions
+// read it.
 std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFacts &) {
-  Value scrutinee = op.getScrutinee();
   SmallVector<unsigned, 4> reading;
   for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
-    if (readsKeyIn(scrutinee, op.getCases()[i], op.getCaseRegions()[i]))
+    if (readsKeyIn(op, op.getCases()[i], op.getCaseRegions()[i]))
       reading.push_back(i);
   return choose(std::move(reading));
 }
@@ -204,21 +215,22 @@ std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFa
 // reads the key.
 void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &chosen,
                                     RewriterBase &rewriter) {
-  Value scrutinee = op.getScrutinee();
+  Type scrutinee = op.getScrutinee().getType();
   for (unsigned at : chosen.chosen) {
     if (at >= op.getNumCases())
       continue;
     Attribute key = op.getCases()[at];
     Region &region = op.getCaseRegions()[at];
-    if (!readsKeyIn(scrutinee, key, region))
+    if (!readsKeyIn(op, key, region))
       continue;
     rewriter.setInsertionPointToStart(&region.front());
     Operation *literal =
-        op->getDialect()->materializeConstant(rewriter, key, scrutinee.getType(), op.getLoc());
+        op->getDialect()->materializeConstant(rewriter, key, scrutinee, op.getLoc());
     if (!literal)
       continue;
-    rewriter.replaceUsesWithIf(scrutinee, literal->getResult(0),
-                               [&](OpOperand &use) { return inside(region, use); });
+    for (Value read : scrutineesIn(op, region))
+      rewriter.replaceUsesWithIf(read, literal->getResult(0),
+                                 [&](OpOperand &use) { return inside(region, use); });
   }
 }
 
