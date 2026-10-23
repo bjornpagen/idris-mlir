@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The lifetimes' rules of one function (verify::LifetimeRules), a rule of
-// the function's one walk: the scope it keeps as the walk enters and
-// leaves regions, and the rules each op is held to where it stands. Each
+// the function's one walk: the lifetimes open where it stands
+// (OpenLifetimes), kept as the walk enters and leaves regions, and the
+// rules each op is held to there. The rules every op keeps are the walk's;
+// an op with a rule of its own states it through LifetimeUseOpInterface,
+// which the walk asks with the lifetimes open around the op. Each rule
 // reads the op, the lifetimes its values state, a call's copy of its
 // callee's signature, and the lifetimes open around it.
 
@@ -20,6 +23,7 @@
 using namespace mlir;
 using namespace idr;
 using State = verify::LifetimeRules::State;
+using Discipline = OpenLifetimes::Discipline;
 
 static_assert(families::FunctionRule<verify::LifetimeRules>);
 
@@ -64,45 +68,46 @@ LogicalResult State::enter(Operation *op, Region &region) {
       !isa<StatesLifetimeOpInterface>(op))
     return success();
   Value lifetime = region.front().getArgument(0);
-  open.push_back({lifetime, depth() + 1,
-                  lifetimes::packedOf(lifetime) == Packed::FromStack ? Discipline::Stack
-                                                                     : Discipline::Free,
-                  again, &region});
+  open.push({lifetime, open.depth() + 1,
+             lifetimes::packedOf(lifetime) == Packed::FromStack ? Discipline::Stack
+                                                                : Discipline::Free,
+             again, &region});
   return success();
 }
 
 void State::leave() {
-  open.truncate(levels.back().openAt);
+  open.popTo(levels.back().openAt);
   levels.pop_back();
 }
 
-// This activation's lifetime is the rest of its region; then the op's own
-// rules, a loan's, and the frame-limited rule at each lifetime it uses.
+// The op's own rules, and a loan's; then each lifetime the op gives that
+// is its own extent (this activation's) is open for the rest of its
+// region, one derived from another (a view's cast, a reserved room) being
+// of its operand's extent, which is open already; then the frame-limited
+// rule at each lifetime the op uses.
 LogicalResult State::check(Operation &op) {
   if (failed(local(op)) || failed(loans(op)))
     return failure();
-  if (auto activation = dyn_cast<ActivationOp>(&op))
-    open.push_back({activation.getLifetime(), depth() + 1, Discipline::Free, levels.back().again,
-                    op.getParentRegion()});
+  for (Value given : op.getResults())
+    if (isa<LifetimeType>(given.getType()) && lifetimes::extentOf(given) == given)
+      open.push({given, open.depth() + 1, Discipline::Free, levels.back().again,
+                 op.getParentRegion()});
   return proof(op);
 }
 
-// The depth of a lifetime in scope: its extent's, a parameter's 0.
-std::optional<unsigned> State::depthOf(Value lifetime) const {
+std::optional<unsigned> OpenLifetimes::depthOf(Value lifetime) const {
   Value extent = lifetimes::extentOf(lifetime);
   if (auto arg = dyn_cast<BlockArgument>(extent); arg && arg.getOwner() == &entry)
     return 0u;
-  for (const Open &held : llvm::reverse(open))
-    if (held.lifetime == extent)
-      return held.depth;
+  for (const Open &each : llvm::reverse(held))
+    if (each.lifetime == extent)
+      return each.depth;
   return std::nullopt;
 }
 
-// Whether the parameter at `longer` lives at least as long as the one at
-// `shorter`, by the bounds the signature states, one after another. The
-// bounds are few, one per pair a caller must keep, so a pass over them per
-// step is the whole cost.
-bool State::bounded(unsigned longer, unsigned shorter) const {
+// The bounds are few, one per pair a caller must keep, so a pass over them
+// per step, one after another, is the whole cost.
+bool OpenLifetimes::bounded(unsigned longer, unsigned shorter) const {
   if (!lives || longer == shorter)
     return longer == shorter;
   SmallVector<unsigned, 4> reached{longer};
@@ -116,8 +121,7 @@ bool State::bounded(unsigned longer, unsigned shorter) const {
   return false;
 }
 
-// Whether `a` lives at least as long as `b`, both in scope.
-bool State::outlives(Value a, Value b) const {
+bool OpenLifetimes::outlives(Value a, Value b) const {
   Value ea = lifetimes::extentOf(a);
   Value eb = lifetimes::extentOf(b);
   if (ea == eb)
@@ -131,11 +135,32 @@ bool State::outlives(Value a, Value b) const {
   return *da < *db;
 }
 
-// The innermost open stack lifetime's depth, if one is open.
-std::optional<unsigned> State::stackDepth() const {
-  for (const Open &held : llvm::reverse(open))
-    if (held.discipline == Discipline::Stack)
-      return held.depth;
+bool OpenLifetimes::livesAsLong(Value value, Value into) const {
+  if (!freedBy(value.getType(), Release::Scoped))
+    return true;
+  Value from = lifetimes::statedLifetime(value);
+  return from && outlives(from, into);
+}
+
+Value OpenLifetimes::resultLifetime(unsigned index) const {
+  std::optional<std::uint32_t> in =
+      lives ? lives.lifetimeOfResult(static_cast<std::uint32_t>(index)) : std::nullopt;
+  return in ? Value(entry.getArgument(*in)) : Value();
+}
+
+std::optional<unsigned> OpenLifetimes::stackDepth() const {
+  for (const Open &each : llvm::reverse(held))
+    if (each.discipline == Discipline::Stack)
+      return each.depth;
+  return std::nullopt;
+}
+
+std::optional<OpenLifetimes::Open> OpenLifetimes::recordOf(Value lifetime) const {
+  if (auto arg = dyn_cast<BlockArgument>(lifetime); arg && arg.getOwner() == &entry)
+    return Open{lifetime, 0, Discipline::Free, 0, nullptr};
+  for (const Open &each : llvm::reverse(held))
+    if (each.lifetime == lifetime)
+      return each;
   return std::nullopt;
 }
 
@@ -153,18 +178,8 @@ bool State::states(Operation &op, Value lifetime) {
   });
 }
 
-// Whether `value` lives at least as long as `into`, the lifetime the place
-// it goes to names: a scoped value by its stated lifetime; any other value
-// outlives every lifetime, or its own count frees it.
-bool State::livesAsLong(Value value, Value into) const {
-  if (!freedBy(value.getType(), Release::Scoped))
-    return true;
-  Value from = lifetimes::statedLifetime(value);
-  return from && outlives(from, into);
-}
-
 //===----------------------------------------------------------------------===//
-// The rules of one op
+// The rules every op keeps
 //===----------------------------------------------------------------------===//
 
 LogicalResult State::local(Operation &op) {
@@ -183,7 +198,7 @@ LogicalResult State::local(Operation &op) {
   if (auto states = dyn_cast<StatesLifetimeOpInterface>(&op)) {
     auto closed = [&](Value made, Value own) {
       Value stated = states.getStatedLifetime(made);
-      return stated && stated != own && !depthOf(stated);
+      return stated && stated != own && !open.depthOf(stated);
     };
     if (llvm::any_of(op.getResults(), [&](Value made) { return closed(made, Value()); }))
       return op.emitOpError("states a lifetime that is not open where it stands");
@@ -196,39 +211,32 @@ LogicalResult State::local(Operation &op) {
       }
   }
 
-  // A slot is this frame's: its lifetime is bound in this function.
-  if (auto slot = dyn_cast<CellStackOp>(&op); slot && depthOf(slot.getLifetime()) == 0u)
-    return op.emitOpError("is a slot of a lifetime its function does not bind");
+  // The op's own rule, against the lifetimes open where it stands: a
+  // slot's, a cell's, a call's, a return's.
+  if (auto uses = dyn_cast<LifetimeUseOpInterface>(&op); uses && failed(uses.verifyLifetimeUse(open)))
+    return failure();
 
-  // A cell lives where its source says: a cell of a lifetime gives a value
-  // of that lifetime, holding no counted field, since a lifetime's end
-  // frees its memory and drops nothing; a cell its count frees gives a
-  // value its count frees.
-  if (auto init = dyn_cast<CellInitOp>(&op)) {
-    Value home = lifetimes::cellLifetime(init.getCell());
-    bool scoped = freedBy(init.getResult().getType(), Release::Scoped);
-    if (static_cast<bool>(home) != scoped ||
-        (home && init.getStatedLifetime(init.getResult()) != home))
-      return op.emitOpError(home ? "fills a cell of a lifetime but gives no value of it"
-                                 : "fills a cell its count frees but gives a scoped value");
-    if (home && llvm::any_of(init.getFields(), [](Value field) {
-          return freedBy(field.getType(), Release::Counted);
-        }))
-      return op.emitOpError("puts a counted field into a cell of a lifetime, which no end drops");
-  }
-
-  // Inside a stack lifetime, nothing is put into an older cursor: every
-  // put lands at the top of the stack.
-  if (std::optional<unsigned> stack = stackDepth(); stack && !isa<LifetimeForgetOp>(&op))
-    for (Value operand : op.getOperands())
-      if (isCursorLifetime(operand.getType()) && depthOf(operand) < stack && !states(op, operand))
+  // Inside a stack lifetime every put lands at the top of the stack: no op
+  // puts into an older cursor, takes a slot of it, passes it on or opens a
+  // stack on it, unless the cursor is where a value the op makes lives.
+  // Naming a cursor, as its view's cast does, puts nothing.
+  if (std::optional<unsigned> stack = open.stackDepth()) {
+    auto binder = dyn_cast<CursorBinderOpInterface>(&op);
+    Value base = binder ? binder.getCursorBase() : Value();
+    for (OpOperand &use : op.getOpOperands()) {
+      Value operand = use.get();
+      if (isCursorLifetime(operand.getType()) && open.depthOf(operand) < stack &&
+          !states(op, operand) &&
+          (operand == base || lifetimes::useOf(use) != LifetimeUse::Names))
         return op.emitOpError("puts into an older cursor inside a stack lifetime");
+    }
+  }
 
   // What an op makes of a scoped value lives no longer than it: a value it
   // passes through lives where its operand does or in a lifetime that one
   // encloses, and a constructor's scoped fields all outlive it. A call's
-  // results live where its callee's signature says (below), and a region
-  // op's results are its yields (the merges).
+  // results live where its callee's signature says (its own rule), and a
+  // region op's results are its yields (the merges).
   if (op.getNumRegions() == 0 && !isa<CallOpInterface>(&op) &&
       !op.hasTrait<OpTrait::IsTerminator>())
     for (Value result : op.getResults()) {
@@ -238,55 +246,8 @@ LogicalResult State::local(Operation &op) {
       if (!into)
         return op.emitOpError("makes a scoped value whose lifetime it states nowhere");
       for (Value operand : op.getOperands())
-        if (!livesAsLong(operand, into))
+        if (!open.livesAsLong(operand, into))
           return op.emitOpError("makes a value of a lifetime that outlives one it holds");
-    }
-
-  // A call passes each scoped argument into the lifetime its callee's
-  // signature names for it, and the lifetimes it passes keep the bounds
-  // that signature states: both read off the call's own copy of it.
-  if (auto call = dyn_cast<CallOp>(&op)) {
-    LivesInAttr callee = call.getLivesInAttr();
-    auto args = call.getArgs();
-    auto lifetimeAt = [&](std::uint32_t position) -> Value {
-      return position < args.size() && isa<LifetimeType>(args[position].getType())
-                 ? args[position]
-                 : Value();
-    };
-    for (auto [index, arg] : llvm::enumerate(args)) {
-      if (!freedBy(arg.getType(), Release::Scoped))
-        continue;
-      std::optional<std::uint32_t> in =
-          callee ? callee.lifetimeOfParameter(static_cast<std::uint32_t>(index)) : std::nullopt;
-      Value into = in ? lifetimeAt(*in) : Value();
-      if (!into)
-        return op.emitOpError("passes scoped argument ")
-               << index << ", whose lifetime its callee's signature names nowhere";
-      if (!livesAsLong(arg, into))
-        return op.emitOpError("passes argument ")
-               << index << " into a lifetime it does not live as long as";
-    }
-    if (callee)
-      for (const Outlives &bound : callee.getBounds()) {
-        Value longer = lifetimeAt(bound.longer);
-        Value shorter = lifetimeAt(bound.shorter);
-        if (!longer || !shorter || !outlives(longer, shorter))
-          return op.emitOpError("passes lifetimes ")
-                 << bound.longer << " and " << bound.shorter
-                 << ", which do not keep the bound its callee states between them";
-      }
-  }
-
-  // What the function gives back lives where its signature says.
-  if (isa<ReturnOp>(&op))
-    for (auto [index, operand] : llvm::enumerate(op.getOperands())) {
-      if (!freedBy(operand.getType(), Release::Scoped))
-        continue;
-      std::optional<std::uint32_t> in =
-          lives ? lives.lifetimeOfResult(static_cast<std::uint32_t>(index)) : std::nullopt;
-      if (!in || !livesAsLong(operand, entry.getArgument(*in)))
-        return op.emitOpError("returns result ")
-               << index << " from a lifetime that does not outlive the one its signature names";
     }
 
   // A value crosses a merge (a region's entry, a yield, a jump) only into a
@@ -303,8 +264,88 @@ LogicalResult State::local(Operation &op) {
     if (!into)
       merged = op.emitOpError("passes a scoped value on through a region op that states no "
                               "lifetime for it, as no upstream region op does");
-    else if (!livesAsLong(use.get(), into))
+    else if (!open.livesAsLong(use.get(), into))
       merged = op.emitOpError("passes a value on into a lifetime it does not outlive");
   });
   return merged;
+}
+
+//===----------------------------------------------------------------------===//
+// The rules of the ops that have their own
+//===----------------------------------------------------------------------===//
+
+// A slot is this frame's: its lifetime is bound in this function, never a
+// parameter, whose memory is its caller's.
+LogicalResult idr::CellStackOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  if (open.depthOf(getLifetime()) == 0u)
+    return emitOpError("is a slot of a lifetime its function does not bind");
+  return success();
+}
+
+// A cell lives where its source says: a cell of a lifetime gives a value
+// of that lifetime, holding no counted field, since a lifetime's end frees
+// its memory and drops nothing; a cell its count frees gives a value its
+// count frees.
+LogicalResult idr::CellInitOp::verifyLifetimeUse(const OpenLifetimes &) {
+  Value home = lifetimes::cellLifetime(getCell());
+  Value result = getResult();
+  if (!home) {
+    if (freedBy(result.getType(), Release::Scoped))
+      return emitOpError("fills a cell its count frees but gives a scoped value");
+    return success();
+  }
+  if (!freedBy(result.getType(), Release::Scoped) || getStatedLifetime(result) != home)
+    return emitOpError("fills a cell of a lifetime but gives no value of it");
+  if (llvm::any_of(getFields(),
+                   [](Value field) { return freedBy(field.getType(), Release::Counted); }))
+    return emitOpError("puts a counted field into a cell of a lifetime, which no end drops");
+  return success();
+}
+
+// A call passes each scoped argument into the lifetime its callee's
+// signature names for it, and the lifetimes it passes keep the bounds that
+// signature states: both read off the call's own copy of it.
+LogicalResult idr::CallOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  LivesInAttr callee = getLivesInAttr();
+  auto args = getArgs();
+  auto lifetimeAt = [&](std::uint32_t position) -> Value {
+    return position < args.size() && isa<LifetimeType>(args[position].getType()) ? args[position]
+                                                                                 : Value();
+  };
+  for (auto [index, arg] : llvm::enumerate(args)) {
+    if (!freedBy(arg.getType(), Release::Scoped))
+      continue;
+    std::optional<std::uint32_t> in =
+        callee ? callee.lifetimeOfParameter(static_cast<std::uint32_t>(index)) : std::nullopt;
+    Value into = in ? lifetimeAt(*in) : Value();
+    if (!into)
+      return emitOpError("passes scoped argument ")
+             << index << ", whose lifetime its callee's signature names nowhere";
+    if (!open.livesAsLong(arg, into))
+      return emitOpError("passes argument ")
+             << index << " into a lifetime it does not live as long as";
+  }
+  if (callee)
+    for (const Outlives &bound : callee.getBounds()) {
+      Value longer = lifetimeAt(bound.longer);
+      Value shorter = lifetimeAt(bound.shorter);
+      if (!longer || !shorter || !open.outlives(longer, shorter))
+        return emitOpError("passes lifetimes ")
+               << bound.longer << " and " << bound.shorter
+               << ", which do not keep the bound its callee states between them";
+    }
+  return success();
+}
+
+// What the function gives back lives where its signature says.
+LogicalResult idr::ReturnOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  for (auto [index, operand] : llvm::enumerate(getOperands())) {
+    if (!freedBy(operand.getType(), Release::Scoped))
+      continue;
+    Value into = open.resultLifetime(static_cast<unsigned>(index));
+    if (!into || !open.livesAsLong(operand, into))
+      return emitOpError("returns result ")
+             << index << " from a lifetime that does not outlive the one its signature names";
+  }
+  return success();
 }

@@ -21,6 +21,7 @@
 #define IDR_IR_LIFETIMES_H
 
 #include "idr/IR/Grades.h"
+#include "idr/IR/Interfaces/Vocabulary.h"
 #include "idr/Support/Enum.h"
 #include "idr/Support/Match.h"
 
@@ -208,8 +209,14 @@ std::optional<Opener> openerOf(mlir::Value lifetime);
 std::optional<Packed> packedOf(mlir::Value lifetime);
 
 // The cursor whose stack a stack lifetime is on: the base its opener, or the
-// unpack that reopens it, names; null for any other lifetime.
+// unpack that reopens it, names (CursorBinderOpInterface); null for any
+// other lifetime.
 mlir::Value baseOf(mlir::Value lifetime);
+
+// What the op that takes `lifetime` does with it (LifetimeUseOpInterface):
+// names it, is a slot of the frame stated in it, puts into it, or passes it
+// on to a callee. An op without the interface only names it.
+LifetimeUse useOf(mlir::OpOperand &lifetime);
 
 // The lifetime a cell is memory of: the one its source names (a slot of
 // the frame stated in it, a cell bumped into it); null for a cell its count

@@ -34,13 +34,8 @@ Value offsetRoom(OpBuilder &b, Location loc, Value room, uint64_t offset) {
   return UnrealizedConversionCastOp::create(b, loc, room.getType(), moved).getResult(0);
 }
 
-// What a put into a room takes of it: a cell's or a reserved room's bytes,
-// or what a callee given the room says it puts into it, its bound.
-FailureOr<uint64_t> putBytes(Operation *op, OpOperand &use, const solver::ProgramGraph &graph,
-                             const Layouts &layouts) {
-  if (auto putter = dyn_cast<LifetimePutOpInterface>(op))
-    return putter.getPutBytes(layouts);
-  auto call = cast<CallOp>(op);
+// What a callee given the room as `use` says it puts into it, its bound.
+FailureOr<uint64_t> passedBytes(CallOp call, OpOperand &use, const solver::ProgramGraph &graph) {
   FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
   ParameterParts parts(callee.getArgumentTypes());
   unsigned index = use.getOperandNumber();
@@ -58,15 +53,6 @@ FailureOr<uint64_t> putBytes(Operation *op, OpOperand &use, const solver::Progra
     return call.emitError() << "internal error: idr-lower: @" << callee.getSymName()
                             << " bounds nothing it puts into the room it is given";
   return *bound;
-}
-
-// Whether `op` puts into the lifetime it takes as `use`: a cell or a room
-// it makes there, or a call that gives it to its callee. A loan's or a
-// slot's stated lifetime, a cast to a view, a stack's base, are no puts.
-bool puts(Operation *op, OpOperand &use) {
-  if (auto putter = dyn_cast<LifetimePutOpInterface>(op))
-    return putter.getPutLifetime() == use.get();
-  return isa<CallOp>(op);
 }
 
 } // namespace
@@ -114,17 +100,30 @@ LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
   for (BlockArgument arg : entry.getArguments())
     if (isRoomLifetime(arg.getType()))
       rooms.push_back({arg, 0, {}});
+  fn.walk<WalkOrder::PreOrder>([&](LifetimeBlockOp opener) {
+    rooms.push_back({opener.getBody().front().getArgument(0), 0, opener});
+  });
   LogicalResult laid = success();
   fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (auto opener = dyn_cast<LifetimeBlockOp>(op)) {
-      rooms.push_back({opener.getBody().front().getArgument(0), 0, opener});
-      return WalkResult::advance();
-    }
     for (OpOperand &use : op->getOpOperands()) {
       auto room = llvm::find_if(rooms, [&](const Room &r) { return r.binder == use.get(); });
-      if (room == rooms.end() || !puts(op, use))
+      if (room == rooms.end())
         continue;
-      FailureOr<uint64_t> bytes = putBytes(op, use, graph, layouts);
+      // What the use takes of the room: a cell's or a reserved room's bytes,
+      // or what a callee given the room puts there. A loan's or a slot's
+      // stated lifetime, a cast to a view, a stack's base, put nothing.
+      FailureOr<uint64_t> bytes = failure();
+      switch (lifetimes::useOf(use)) {
+      case LifetimeUse::Names:
+      case LifetimeUse::Slot:
+        continue;
+      case LifetimeUse::Puts:
+        bytes = cast<LifetimePutOpInterface>(op).getPutBytes(layouts);
+        break;
+      case LifetimeUse::PassesOn:
+        bytes = passedBytes(cast<CallOp>(op), use, graph);
+        break;
+      }
       if (failed(bytes)) {
         laid = failure();
         return WalkResult::interrupt();

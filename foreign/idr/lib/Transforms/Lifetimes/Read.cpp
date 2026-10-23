@@ -2,17 +2,18 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The decide step's reading of one function: its ops numbered, and, in one
 // pass over them in order, what each op does with what its operands hold
-// (an edge of the flow graph, or a value that must be counted), the cells
-// a lifetime may take and the calls whose callee's copy may put into one.
-// Where an op stands (the run it is of, whether a slot fits there) is
-// carried down from the ops around it as the pass goes, never found by
-// walking up.
+// (an edge of the flow graph, or a value that must be counted) and where it
+// stands (the run it is of, whether a slot fits there), carried down from
+// the ops around it as the pass goes, never found by walking up; then, a
+// typed walk each, the calls (those whose callee's copy may put into a
+// lifetime among them) and the cells a lifetime may take.
 
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -166,18 +167,25 @@ Planner::Planner(FuncOp fn, FunctionId self, const solver::ProgramGraph &graph,
 }
 
 // Every op in order, each read where it stands: the ops around it, which
-// hold it, are those whose subtree has not yet ended.
+// hold it, are those whose subtree has not yet ended. Then the calls, the
+// fresh cells, and last the inits, which read whether their cell's box is
+// one a lifetime may take.
 void Planner::readAll() {
+  IndexVector<OpAt, Where> wheres(order.size());
   SmallVector<Around, 16> around;
   for (OpAt at : order.size().ids()) {
     while (!around.empty() && !(at < order.end(around.back().at)))
       around.pop_back();
     Operation *op = order.op(at);
     Where where = around.empty() ? Where{std::nullopt, SlotHere::Fits} : inside(around.back(), op);
-    read(op, at, where);
+    readMoves(op);
     if (op->getNumRegions() != 0)
       around.push_back({at, where});
+    wheres[at] = where;
   }
+  order.each<CallOp>([&](CallOp call, OpAt at) { read(call, at, wheres[at]); });
+  order.each<CellNewOp>([&](CellNewOp cell, OpAt at) { read(cell, at, wheres[at]); });
+  fn.walk([&](CellInitOp init) { read(init); });
 }
 
 // Where an op of a region of `holder` stands: in the region's run if it
@@ -211,11 +219,55 @@ void Planner::edge(Value from, Value to) {
   linkedEdges.edge(node(to), node(from));
 }
 
+// What a call does with what it gives: each result a copy of its callee
+// puts into a lifetime is one the call may put there, and every other is
+// counted.
+void Planner::read(CallOp call, OpAt at, const Where &where) {
+  FunctionId callee = graph.id(call.getCalleeAttr());
+  // A call that continues on a frame: on its function's own cycle, not in
+  // tail position, so the frames pass moves what follows it into a frame.
+  if (continuesOnFrame(graph, self, call))
+    framed.push_back(at);
+  // A call in tail position, which lowers to its caller's own return.
+  if (tailCallOf(call))
+    tails.push_back(at);
+  const std::optional<Copies> &theirs = copies[callee];
+  Call put{at, callee, {}, where.run};
+  for (OpResult result : call->getResults()) {
+    if (theirs && llvm::is_contained(theirs->results, result.getResultNumber()))
+      put.results.push_back(node(result));
+    else
+      mustCount(result);
+  }
+  // One copy is called or none: its results are counted together.
+  for (auto [a, b] : llvm::zip(put.results, llvm::drop_begin(put.results)))
+    edge(valueOf(a), valueOf(b));
+  if (!put.results.empty())
+    calls.push_back(std::move(put));
+}
+
+// A fresh cell whose one use is its init, where a slot fits, a lifetime may
+// take: its box is raised here, before any init is read.
+void Planner::read(CellNewOp cell, OpAt at, const Where &where) {
+  if (where.slot != SlotHere::Fits || !cell.getCell().hasOneUse() ||
+      !isa<CellInitOp>(*cell.getCell().user_begin()))
+    return;
+  Node box = node(cell.getCell().user_begin()->getResult(0));
+  if (boxes.raise(box) == Changed::Yes)
+    sites.push_back({at, box, where.run});
+}
+
+// An init whose box no lifetime may take gives a value that must be
+// counted.
+void Planner::read(CellInitOp init) {
+  if (!boxes.test(node(init.getResult())))
+    mustCount(init.getResult());
+}
+
 // What `op` does with what its operands hold: each move it declares, an
-// edge of the flow graph or a value that must be counted; each value it
-// makes that no op can state a lifetime for, one that must; each cell a
-// lifetime may take, and each call whose callee's copy may put into one.
-void Planner::read(Operation *op, OpAt at, const Where &where) {
+// edge of the flow graph or a value that must be counted; and each value it
+// makes that no op can state a lifetime for, one that must.
+void Planner::readMoves(Operation *op) {
   for (Value result : op->getResults())
     if (!statedBy(result))
       mustCount(result);
@@ -224,44 +276,6 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
       for (BlockArgument arg : block.getArguments())
         if (!statedBy(arg))
           mustCount(arg);
-
-  if (auto call = dyn_cast<CallOp>(op)) {
-    FunctionId callee = graph.id(call.getCalleeAttr());
-    // A call that continues on a frame: on its function's own cycle, not
-    // in tail position, so the frames pass moves what follows it into a
-    // frame.
-    if (continuesOnFrame(graph, self, call))
-      framed.push_back(at);
-    // A call in tail position, which lowers to its caller's own return.
-    if (call.getTailKind() == TailKind::tail)
-      tails.push_back(at);
-    const std::optional<Copies> &theirs = copies[callee];
-    Call put{at, callee, {}, where.run};
-    for (OpResult result : call->getResults()) {
-      if (theirs && llvm::is_contained(theirs->results, result.getResultNumber()))
-        put.results.push_back(node(result));
-      else
-        mustCount(result);
-    }
-    // One copy is called or none: its results are counted together.
-    for (auto [a, b] : llvm::zip(put.results, llvm::drop_begin(put.results)))
-      edge(valueOf(a), valueOf(b));
-    if (!put.results.empty())
-      calls.push_back(std::move(put));
-  }
-
-  // A fresh cell whose one use is its init, where a slot fits, a lifetime
-  // may take. Its init follows it in the order, so the init reads whether
-  // its box is one.
-  if (auto cell = dyn_cast<CellNewOp>(op); cell && where.slot == SlotHere::Fits &&
-                                           cell.getCell().hasOneUse() &&
-                                           isa<CellInitOp>(*cell.getCell().user_begin())) {
-    Node box = node(cell.getCell().user_begin()->getResult(0));
-    if (boxes.raise(box) == Changed::Yes)
-      sites.push_back({at, box, where.run});
-  }
-  if (auto init = dyn_cast<CellInitOp>(op); init && !boxes.test(node(init.getResult())))
-    mustCount(init.getResult());
 
   if (!declaresFlow(op)) {
     for (Value operand : op->getOperands())

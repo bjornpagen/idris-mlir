@@ -81,6 +81,15 @@ public:
     return first.index() <= at.index() && at.index() < ends[last.index()];
   }
 
+  // Each op of class `OpT` with its position, in order: MLIR's typed walk,
+  // over the function as numbered.
+  template <class OpT, std::invocable<OpT, OpAt> Visit>
+  void each(Visit &&visit) const {
+    for (OpAt at : size().ids())
+      if (auto op = llvm::dyn_cast<OpT>(ops[at.index()]))
+        visit(op, at);
+  }
+
   // The position of the first op of region `number` of the op at `holder`.
   OpAt firstIn(OpAt holder, unsigned number) const;
   // The positions of `first` and `last`, ops of `block` in that order, the
@@ -285,7 +294,10 @@ private:
   // Reading (Read.cpp).
   void readAll();
   static Where inside(const Around &holder, mlir::Operation *op);
-  void read(mlir::Operation *op, OpAt at, const Where &where);
+  void readMoves(mlir::Operation *op);
+  void read(CallOp call, OpAt at, const Where &where);
+  void read(CellNewOp cell, OpAt at, const Where &where);
+  void read(CellInitOp init);
   void mustCount(mlir::Value value);
   void edge(mlir::Value from, mlir::Value to);
 

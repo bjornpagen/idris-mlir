@@ -19,63 +19,29 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
-#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
 using State = verify::LifetimeRules::State;
 
-namespace {
-
-// What a use of a lifetime does with it: names it as where a value the op
-// makes lives, or as the base of a stack opened on it, or is the cast to its
-// view or the pack that ends its region, putting nothing into it; is a slot
-// of the frame stated in it; puts cells into it itself; or is a call that
-// may put into it what its results hold.
-struct Names {};
-struct Slot {};
-struct Puts {};
-struct PassesOn {
-  CallOp call;
-};
-using UseOf = std::variant<Names, Slot, Puts, PassesOn>;
-
-UseOf useOf(Operation &user) {
-  if (isa<CellStackOp>(&user))
-    return Slot{};
-  if (isa<LifetimePutOpInterface>(&user))
-    return Puts{};
-  if (auto call = dyn_cast<CallOp>(&user))
-    return PassesOn{call};
-  return Names{};
-}
-
-} // namespace
-
-// The lifetime itself as the walk holds it: open where it stands, or a
-// parameter of the function, whose extent is its caller's. A lifetime
-// derived from another by a view's cast is no lifetime this rule reads.
-std::optional<State::Open> State::recordOf(Value lifetime) const {
-  if (auto arg = dyn_cast<BlockArgument>(lifetime); arg && arg.getOwner() == &entry)
-    return Open{lifetime, 0, Discipline::Free, 0, nullptr};
-  for (const Open &held : llvm::reverse(open))
-    if (held.lifetime == lifetime)
-      return held;
-  return std::nullopt;
-}
-
+// What each use of a lifetime does with it is the op's answer
+// (LifetimeUseOpInterface): it names it, as where a value the op makes
+// lives, as the base of a stack opened on it, or as the cast to its view or
+// the pack that ends its region, putting nothing into it; it is a slot of
+// the frame stated in it; it puts cells into it itself; or it is a call
+// that may put into it what its results hold.
 LogicalResult State::proof(Operation &user) {
-  for (Value target : user.getOperands()) {
+  for (OpOperand &use : user.getOpOperands()) {
+    Value target = use.get();
     if (!isa<LifetimeType>(target.getType()))
       continue;
     auto reserved = target.getDefiningOp<LifetimeReserveOp>();
     Value lifetime = reserved ? reserved.getLifetime() : target;
-    std::optional<Open> held = recordOf(lifetime);
+    std::optional<OpenLifetimes::Open> held = open.recordOf(lifetime);
     if (!held)
       continue;
     LifetimeKind kind = lifetimes::kindOf(target);
@@ -89,10 +55,7 @@ LogicalResult State::proof(Operation &user) {
     auto intoResult = [&]() -> LogicalResult {
       if (!states(user, target))
         return success();
-      auto returnedHere = [&](unsigned result) {
-        std::optional<std::uint32_t> in = lives ? lives.lifetimeOfResult(result) : std::nullopt;
-        return in && entry.getArgument(*in) == lifetime;
-      };
+      auto returnedHere = [&](unsigned result) { return open.resultLifetime(result) == lifetime; };
       for (Value made : user.getResults())
         if (holdsReferences(made.getType()) && inLifetime(made) &&
             !verify::takenIntoResult(made, inLifetime, returnedHere))
@@ -116,42 +79,40 @@ LogicalResult State::proof(Operation &user) {
       return opened(*held->region);
     };
 
-    LogicalResult checked = match(
-        useOf(user),
-        [&](Slot) -> LogicalResult {
-          if (again)
-            return user.emitOpError("is a slot in a region that runs again inside its lifetime");
-          return success();
-        },
-        // Naming a lifetime puts nothing into it; only a parameter's takes
-        // in what the op makes there.
-        [&](Names) -> LogicalResult {
-          if (!kind.admitsPuts() || kind.isRoom() || held->region)
-            return success();
-          return intoResult();
-        },
-        [&](Puts) {
-          return put([&](Region &) -> LogicalResult {
-            if (again && !keptHere(user, target))
-              return user.emitOpError("puts cells again into a lifetime that nothing it still uses "
-                                      "reaches");
-            return success();
-          });
-        },
-        [&](const PassesOn &passes) {
-          return put([&](Region &region) -> LogicalResult {
-            Block &top = region.front();
-            if (user.getBlock() != &top)
-              return user.emitOpError("puts into a lifetime of its function from inside a region "
-                                      "the lifetime holds");
-            for (Value result : passes.call->getResults())
-              if (inLifetime(result) &&
-                  !verify::usedAfterEveryAllocation(result, top.getTerminator()))
-                return user.emitOpError("puts into a lifetime a value that is dead there while "
-                                        "memory is taken");
-            return success();
-          });
-        });
+    LogicalResult checked = success();
+    switch (lifetimes::useOf(use)) {
+    case LifetimeUse::Slot:
+      if (again)
+        checked = user.emitOpError("is a slot in a region that runs again inside its lifetime");
+      break;
+    // Naming a lifetime puts nothing into it; only a parameter's takes in
+    // what the op makes there.
+    case LifetimeUse::Names:
+      if (kind.admitsPuts() && !kind.isRoom() && !held->region)
+        checked = intoResult();
+      break;
+    case LifetimeUse::Puts:
+      checked = put([&](Region &) -> LogicalResult {
+        if (again && !keptHere(user, target))
+          return user.emitOpError("puts cells again into a lifetime that nothing it still uses "
+                                  "reaches");
+        return success();
+      });
+      break;
+    case LifetimeUse::PassesOn:
+      checked = put([&](Region &region) -> LogicalResult {
+        Block &top = region.front();
+        if (user.getBlock() != &top)
+          return user.emitOpError("puts into a lifetime of its function from inside a region "
+                                  "the lifetime holds");
+        for (Value result : user.getResults())
+          if (inLifetime(result) && !verify::usedAfterEveryAllocation(result, top.getTerminator()))
+            return user.emitOpError("puts into a lifetime a value that is dead there while "
+                                    "memory is taken");
+        return success();
+      });
+      break;
+    }
     if (failed(checked))
       return failure();
   }

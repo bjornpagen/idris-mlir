@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The questions every pass asks of a lifetime value (the lifetime a scoped
-// value lives in, where its memory comes from, the cursor a stack lies on),
-// and the hooks of the lifetime's ops: the region that runs once, which the
-// openers, the loan and the unpack share, what a loan and an unpack bind,
-// the pack that ends a per-level lifetime's region, and the cell bumped into
-// a lifetime. The kind itself is Kind.cpp's.
+// value lives in, where its memory comes from, the cursor a stack lies on,
+// what a use does with it), and the hooks of the lifetime's ops: the region
+// that runs once, which the openers, the loan and the unpack share, what a
+// loan and an unpack bind, the pack that ends a per-level lifetime's
+// region, the cell bumped into a lifetime, and how each op that does more
+// than name a lifetime uses it. The kind itself is Kind.cpp's.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -75,17 +76,20 @@ std::optional<Packed> idr::lifetimes::packedOf(Value lifetime) {
   return std::nullopt;
 }
 
-// A stack's opener and a stack package's unpack name the cursor below.
+// A stack's opener and a stack package's unpack name the cursor below
+// (CursorBinderOpInterface); a chain's unpack names none.
 Value idr::lifetimes::baseOf(Value lifetime) {
   auto arg = dyn_cast<BlockArgument>(lifetime);
   if (!arg || arg.getArgNumber() != 0)
     return nullptr;
-  Operation *binder = arg.getOwner()->getParentOp();
-  if (auto stack = dyn_cast<LifetimeStackOp>(binder))
-    return stack.getBase();
-  if (auto unpack = dyn_cast<LifetimeUnpackOp>(binder))
-    return unpack.getBase();
-  return nullptr;
+  auto binder = dyn_cast<CursorBinderOpInterface>(arg.getOwner()->getParentOp());
+  return binder ? binder.getCursorBase() : nullptr;
+}
+
+// An op without the interface only names the lifetime.
+LifetimeUse idr::lifetimes::useOf(OpOperand &lifetime) {
+  auto uses = dyn_cast<LifetimeUseOpInterface>(lifetime.getOwner());
+  return uses ? uses.getLifetimeUse(lifetime) : LifetimeUse::Names;
 }
 
 // A cell's source takes the lifetime it is memory of as its one lifetime
@@ -238,8 +242,11 @@ LogicalResult LifetimeUnpackOp::verifyRegions() {
 // idr.lifetime.reserve
 //===----------------------------------------------------------------------===//
 
-// A room reserved in a cursor puts its bytes into the cursor's lifetime.
+// A room reserved in a cursor puts its bytes into the cursor's lifetime,
+// its one lifetime operand.
 Value LifetimeReserveOp::getPutLifetime() { return getLifetime(); }
+
+LifetimeUse LifetimeReserveOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Puts; }
 
 std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
   return static_cast<std::uint64_t>(getBytes());
@@ -249,7 +256,10 @@ std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
 // idr.cell.arena
 //===----------------------------------------------------------------------===//
 
+// The cell is bumped into its one lifetime operand.
 Value CellArenaOp::getPutLifetime() { return getLifetime(); }
+
+LifetimeUse CellArenaOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Puts; }
 
 // The cell's allocation size, its constructor's in its family's cells.
 std::uint64_t CellArenaOp::getPutBytes(const Layouts &layouts) {
@@ -261,6 +271,22 @@ std::uint64_t CellArenaOp::getPutBytes(const Layouts &layouts) {
 // slot of the frame is: it is new to no one, so nothing is declared, and
 // the box its init makes is not fresh.
 void CellArenaOp::getFlowEdges(FlowEdges &) {}
+
+//===----------------------------------------------------------------------===//
+// idr.cell.stack
+//===----------------------------------------------------------------------===//
+
+// A slot of the frame, stated in its one lifetime operand, which it puts
+// nothing into.
+LifetimeUse CellStackOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Slot; }
+
+//===----------------------------------------------------------------------===//
+// idr.call
+//===----------------------------------------------------------------------===//
+
+// A lifetime a call takes is its callee's parameter, which its callee's
+// own uses decide.
+LifetimeUse idr::CallOp::getLifetimeUse(OpOperand &) { return LifetimeUse::PassesOn; }
 
 //===----------------------------------------------------------------------===//
 // idr.lifetime.pack
