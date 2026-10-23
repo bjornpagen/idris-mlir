@@ -5183,6 +5183,26 @@ types and MLIR does programs; eager evaluation binds an argument once;
 the proof stays over the code); its cost is code the C++ pipeline must
 now inline, measured at qualification.
 
+**Then** (L16dv's evidence, 2026-10-23; to be raised alone in turn,
+after the two above). C262 keeps a tail call's array result in its slot's
+type; a data result has the same hazard. A family's layout follows from
+its type, a known index fixing its shape (the data-type ruling), so a
+callee returning `Vect 4 Int`, laid out in place, and a caller returning
+`Vect n Int`, in a cell, differ in layout, and the reindex between them
+after a tail call re-packs, taking the call out of tail position
+silently; the call verifier fixes a call's result type as the callee's at
+its index arguments, so Emit cannot avoid it. The choice: (A) a
+function's result is laid out as its type with every index the
+function's own (the open layout), whatever the call's index arguments,
+the data form of C262: a tail call keeps its slot's layout, and a result
+whose index is known costs the cell it would have saved; (B) a function
+with a known result index is specialized so caller and callee agree,
+where the specializer can (C239's keys), and a reindex that still re-packs
+at a tail is an internal error the build reports (AGENTS.md: a tail call
+the compiler fails to make), the programs that meet it refused until it
+is fixed; (C) leave layout as it is and accept the lost tail call where
+the layouts differ, against D30. Recommended: A.
+
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
 approval (settled, below).
