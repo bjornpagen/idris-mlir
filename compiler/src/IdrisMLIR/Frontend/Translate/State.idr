@@ -342,8 +342,8 @@ etaExpand loc {k = S k'} (b :: rest) valueTy mk given =
 public export
 record Supplied (k : Nat) (nv : Nat) where
   constructor MkSupplied
-  {g : Nat}
-  {m : Nat}
+  {0 g : Nat}
+  {0 m : Nat}
   values : Vect g (IdrisMLIR.Term.Term nv)
   missing : Vect m Binder
   0 together : g + m = k
