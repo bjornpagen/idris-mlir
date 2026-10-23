@@ -39,14 +39,15 @@ Plan Planner::plan() {
   auto putHere = [&](Node n) { return reading == Reading::Put && reachesReturn.test(n); };
 
   footprint::Vector<Fate> siteFates(sites.size(), Fate::Open), callFates(calls.size(), Fate::Open);
-  // On a component that runs calls on frames, a member's call of a member
-  // is one of a copy's puts, given the parameter the copies share, or
-  // counted: a lifetime this function opens, given to a member, would be a
-  // second arrangement of lifetimes on the component's stack.
-  if (framing == Framing::Framed)
-    for (auto [at, call] : llvm::enumerate(calls))
-      if (graph.sccOf(call.callee) == graph.sccOf(self) && !putHere(call.results.front()))
-        callFates[at] = Fate::Counted;
+  // A call that stays on its component's stack of frames (a member's call
+  // of a member, on a component that runs calls on frames, whether it runs
+  // on a frame or passes the stack on) is one of a copy's puts, given the
+  // parameter the copies share, or counted: a lifetime this function
+  // opens, given to a member, would be a second arrangement of lifetimes
+  // on the component's stack.
+  for (auto [at, call] : llvm::enumerate(calls))
+    if (graph.onFrameStack(graph.sccOf(self), call.callee) && !putHere(call.results.front()))
+      callFates[at] = Fate::Counted;
   // One round: the cells and calls counted so far, and those they make
   // counted, then a lifetime for every run; nothing when a run's decision
   // made another cell or call counted.

@@ -138,16 +138,13 @@ struct IdrLifetimes : idr::impl::IdrLifetimesBase<IdrLifetimes> {
     IndexVector<FunctionId, Plan> ownPlans = graph.table(Plan{});
     for (solver::SccId component : graph.sccCount().ids()) {
       auto members = graph.members(component);
-      Framing framing =
-          graph.runsCallsOnFrames(component) ? Framing::Framed : Framing::Unframed;
       for (FunctionId f : members)
         copies[f] = mostOf(graph.op(f));
       for (bool shrank = true; shrank;) {
         shrank = false;
         for (FunctionId f : members)
           if (copies[f])
-            copyPlans[f] =
-                Planner(graph.op(f), f, graph, copies, Reading::Put, framing, work).plan();
+            copyPlans[f] = Planner(graph.op(f), f, graph, copies, Reading::Put, work).plan();
         for (FunctionId f : members)
           if (copies[f]) {
             std::optional<Copies> now = copiesOf(copyPlans[f]);
@@ -158,8 +155,7 @@ struct IdrLifetimes : idr::impl::IdrLifetimesBase<IdrLifetimes> {
           }
       }
       for (FunctionId f : members)
-        ownPlans[f] =
-            Planner(graph.op(f), f, graph, copies, Reading::Counted, framing, work).plan();
+        ownPlans[f] = Planner(graph.op(f), f, graph, copies, Reading::Counted, work).plan();
     }
 
     // The copies the program calls: those its functions' runs call, and

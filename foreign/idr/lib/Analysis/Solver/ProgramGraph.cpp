@@ -165,14 +165,18 @@ void ProgramGraph::partition() {
   }
 }
 
-// A member's call of a member that returns to it, read once per row: every
-// callee a row names is a function of the program, so its component is
-// one of the program's.
+bool ProgramGraph::runsOnFrame(SccId from, FunctionId callee, TailKind kind) const {
+  return returnsToCaller(kind) && sccOf(callee) == from;
+}
+
+// Each call of a row that runs on a frame, read once per row: every callee
+// a row names is a function of the program, so its component is one of
+// the program's.
 void ProgramGraph::frame() {
   framed = BitSet<SccId>(sccCount());
   for (FunctionId f : functions())
     for (const Call &call : callees(f))
-      if (returnsToCaller(call.kind) && sccOf(call.callee) == sccOf(f))
+      if (runsOnFrame(sccOf(f), call.callee, call.kind))
         (void)framed.raise(sccOf(f));
 }
 

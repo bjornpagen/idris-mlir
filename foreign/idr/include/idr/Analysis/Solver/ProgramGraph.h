@@ -11,9 +11,9 @@
 // are upstream's, bottom-up, as ranges of one permutation. On top it holds
 // what upstream cannot, as tables indexed by those ids: each function's
 // row of distinct (callee, tail kind) with how many calls have it, the
-// callers, the cycles, the components that run a call on a frame, and the
-// editor through which the one restructuring pass that changes calls edits
-// it.
+// callers, the cycles, which calls run on a frame and the components that
+// run one, and the editor through which the one restructuring pass that
+// changes calls edits it.
 //
 // No row holds a call op: a pass that recreates a call without changing
 // its callee or kind (counting rewrites operands) leaves the graph exact,
@@ -141,13 +141,35 @@ public:
     return in.size() > 1 || callsItself(in.front());
   }
   bool onCycle(FunctionId f) const { return onCycle(sccOf(f)); }
-  // Whether component `c` runs a call on a frame: a member calls a member
-  // and the call returns to it, so the caller waits on the cycle while the
-  // callee runs. Asked of every component before any member's body is
+  // Whether a call made in component `from`, of `callee`, whose fact is
+  // `kind`, runs on a frame: it returns to its caller (returnsToCaller),
+  // and its callee is a member of `from`, so the caller waits on the cycle
+  // while the callee runs, and idr-frames moves what follows the call into
+  // a frame of its own. The one place a call is decided to run on a frame:
+  // the components that do are laid from it, and every pass that treats
+  // such a call apart asks it (idr-frames, which splits its function
+  // there; the lifetimes' planner and loans, and borrow inference, which
+  // stand no region around it). The caller's component is given rather
+  // than read off the call: idr-frames asks it of code it has moved into
+  // functions the graph does not hold.
+  bool runsOnFrame(SccId from, FunctionId callee, TailKind kind) const;
+  bool runsOnFrame(SccId from, idr::CallOp call) const {
+    return runsOnFrame(from, id(call.getCalleeAttr()), call.getTailKind());
+  }
+  // Whether component `c` runs a call on a frame: a call a member makes
+  // runs on one. Asked of every component before any member's body is
   // read, so it is laid once with the components, from the rows they were
   // laid on: as exact as the rows, which nothing writes while the graph is
-  // frozen. The one place a component is decided to run calls on frames.
+  // frozen.
   bool runsCallsOnFrames(SccId c) const { return framed.test(c); }
+  // Whether a call made in component `from`, of `callee`, stays on the
+  // stack of frames `from` runs its calls on: the component runs calls on
+  // frames and the callee is a member, whether the call runs on a frame or
+  // is its caller's last act, which passes the stack on. Every function on
+  // that stack takes the component's lifetimes in one arrangement.
+  bool onFrameStack(SccId from, FunctionId callee) const {
+    return runsCallsOnFrames(from) && sccOf(callee) == from;
+  }
 
   // A fact per function, sized by the id space.
   template <class T>
@@ -169,8 +191,8 @@ private:
   // The components of the rows, where upstream's are not given.
   void partition();
   // What the rows and the components decide together, laid after both
-  // wherever the components came from: the components that run a call on
-  // a frame.
+  // wherever the components came from: the components with a call that
+  // runs on a frame.
   void frame();
 
   Count<FunctionId> count = detail::GraphIds::functions(0);

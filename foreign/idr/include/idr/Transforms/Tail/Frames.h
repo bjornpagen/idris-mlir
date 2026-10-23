@@ -128,16 +128,16 @@ public:
             const solver::ProgramGraph &graph, solver::SccId scc)
       : rewriter(rewriter), symbols(symbols), graph(graph), scc(scc) {}
 
-  // Whether `call` runs a function of the program's in this component:
-  // the graph names every function the program had, and the pass's own
-  // calls, which name the functions it made, are asked first.
+  // Whether `call` runs a function of the program's on this component's
+  // stack, and whether it runs on a frame there, as the graph decides
+  // both: the graph names every function the program had, and the pass's
+  // own calls, which name the functions it made, are asked first, and run
+  // on no frame.
   bool isMade(CallOp call) const { return llvm::is_contained(made, call); }
   bool isMember(CallOp call) const {
-    return !isMade(call) && graph.sccOf(graph.id(call.getCalleeAttr())) == scc;
+    return !isMade(call) && graph.onFrameStack(scc, graph.id(call.getCalleeAttr()));
   }
-  // A call to frame: of a function of the component, and one its caller
-  // goes on after.
-  bool frames(CallOp call) const { return !lastActOf(call) && isMember(call); }
+  bool frames(CallOp call) const { return !isMade(call) && graph.runsOnFrame(scc, call); }
 
   // Step 1 on `fn`: every call to frame ends its block in a tail of its
   // function, its rest a function of its own.

@@ -13,8 +13,9 @@
 // any kind standing where a view is asked; its copies are the callee's;
 // what its callee puts into a lifetime its caller passes on fits what the
 // caller says it puts; and a tail call passes its caller's cursors each in
-// its own place, and its callee gives back the same result components.
-// Where it stands in its function is the tail calls' to check.
+// its own place, its callee gives back the same result components, and
+// each result is laid out as its caller returns it. Where it stands in its
+// function is the tail calls' to check.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Families/Substitute.h"
@@ -268,14 +269,17 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto caller = (*this)->getParentOfType<FuncOp>();
 
   // A tail call and its caller lower to one return: each cursor comes back
-  // in its place, and each gives back the same result components, so a
-  // result one drops is dropped by both.
+  // in its place, each gives back the same result components, so a result
+  // one drops is dropped by both, and each result is laid out as its
+  // caller returns it, so no re-pack runs after the call.
   if (tailCallOf(*this)) {
     if (failed(cursorsInPlace(*this, caller, inputs, name)))
       return failure();
     if (!llvm::equal(givenBackResults(caller), givenBackResults(fn)))
       return emitOpError("is a tail call of ")
              << name << ", which gives back other result components than its caller";
+    if (failed(tail::verifyLayouts(*this, caller)))
+      return failure();
   }
 
   // What the callee puts into a lifetime its caller was given fits what

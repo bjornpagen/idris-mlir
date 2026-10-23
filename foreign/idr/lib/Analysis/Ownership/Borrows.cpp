@@ -156,13 +156,6 @@ private:
     });
   }
 
-  // Whether frames split the function at `call`: a call that returns to its
-  // caller, of a function on the caller's own cycle.
-  bool framed(CallOp call) const {
-    return !lastActOf(call) &&
-           graph.sccOf(graph.id(call.getCalleeAttr())) == graph.sccOf(*current);
-  }
-
   // The body's values numbered, its join parameters found, what each region
   // entry binds again, where a jump may lend, and the parameter each value
   // is or is read from, all before any use is judged; then every use.
@@ -178,13 +171,15 @@ private:
       (*joinOf)[numbering->at(arg)] = at;
     });
     IndexVector<BodyValue, std::optional<BodyValue>> rebinds(count);
+    solver::SccId home = graph.sccOf(id);
     fn.walk([&](Operation *op) {
       forwardedValues(op, [&](OpOperand &operand, Value input) {
         auto arg = dyn_cast<BlockArgument>(input);
         if (arg && arg.getOwner()->getParentOp() == op && !rebinds[numbering->at(arg)])
           rebinds[numbering->at(arg)] = numbering->at(operand.get());
       });
-      if (auto call = dyn_cast<CallOp>(op); call && framed(call))
+      // Frames split the function at a call that runs on a frame.
+      if (auto call = dyn_cast<CallOp>(op); call && graph.runsOnFrame(home, call))
         lendNothingAround(call);
     });
     solver::inWalkOrder(fn, [&](Value value) {
@@ -314,7 +309,10 @@ private:
 
   void readCall(CallOp call) {
     FunctionId callee = graph.id(call.getCalleeAttr());
-    Lend lend = !lastActOf(call) && !framed(call) ? Lend::AroundCall : Lend::Nowhere;
+    solver::SccId home = graph.sccOf(*current);
+    Lend lend = lastActOf(call) || graph.runsOnFrame(home, callee, call.getTailKind())
+                    ? Lend::Nowhere
+                    : Lend::AroundCall;
     for (auto [index, operand] : llvm::enumerate(call->getOpOperands()))
       readArgument(operand, params[callee][index], call, lend);
   }

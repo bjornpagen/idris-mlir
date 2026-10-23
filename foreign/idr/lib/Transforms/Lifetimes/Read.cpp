@@ -159,9 +159,9 @@ StatesLifetimeOpInterface idr::lifetimes::decide::statedBy(Value value) {
 
 Planner::Planner(FuncOp fn, FunctionId self, const solver::ProgramGraph &graph,
                  const IndexVector<FunctionId, std::optional<Copies>> &copies, Reading reading,
-                 Framing framing, solver::Work &work)
-    : fn(fn), self(self), graph(graph), copies(copies), reading(reading), framing(framing),
-      work(work), order(fn), numbering(fn), count(numbering.size()), flowEdges(count),
+                 solver::Work &work)
+    : fn(fn), self(self), graph(graph), copies(copies), reading(reading), work(work),
+      order(fn), numbering(fn), count(numbering.size()), flowEdges(count),
       linkedEdges(count), boxes(count) {
   solver::inWalkOrder(fn, [&](Value value) { values.push_back(value); });
 }
@@ -224,9 +224,9 @@ void Planner::edge(Value from, Value to) {
 // counted.
 void Planner::read(CallOp call, OpAt at, const Where &where) {
   FunctionId callee = graph.id(call.getCalleeAttr());
-  // A call that continues on a frame: on its function's own cycle, not in
-  // tail position, so the frames pass moves what follows it into a frame.
-  if (continuesOnFrame(graph, self, call))
+  // A call that runs on a frame, as the graph decides: the frames pass
+  // moves what follows it into a frame.
+  if (graph.runsOnFrame(graph.sccOf(self), callee, call.getTailKind()))
     framed.push_back(at);
   // A call in tail position, which lowers to its caller's own return.
   if (tailCallOf(call))

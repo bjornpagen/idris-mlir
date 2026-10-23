@@ -120,7 +120,7 @@ LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, Sc
              << first.getSymNameAttr();
     WalkResult walked = fn.walk([&](CallOp call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
-      if (graph.sccOf(callee) != scc)
+      if (!graph.onFrameStack(scc, callee))
         return WalkResult::advance();
       for (auto [place, param] : llvm::enumerate(lifetimesOf(graph.op(callee)))) {
         Value given = lifetimes::extentOf(call.getArgs()[param.getArgNumber()]);

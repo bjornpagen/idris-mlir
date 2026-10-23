@@ -21,6 +21,14 @@
 // its one result goes only into cells built for it whose value a tail
 // returns, so idr-trmc builds those cells first, the field a hole, and the
 // call fills the hole as its last act.
+//
+// A tail call and its caller lower to one return, so a tail call's result
+// is laid out as its caller returns it. A re-pack (an op that gives its
+// operand on but works to do so, converting between two layouts) is work
+// after the value it takes, so no tail passes it; a call whose value
+// reaches its function's return through one would be a tail but for the
+// two layouts, and the verifier reports it as an internal error naming
+// both, never as an ordinary call.
 #ifndef IDR_IR_TAIL_H
 #define IDR_IR_TAIL_H
 
@@ -62,7 +70,9 @@ bool inTailPosition(mlir::Operation *op);
 llvm::SmallVector<mlir::Block *> tailEnds(FuncOp fn);
 
 // The op whose results `block`'s terminator gives on unchanged, if one op
-// gives them all.
+// gives them all. A re-pack there is that op, so a block that ends in one
+// ends a tail with no call; a call whose value it re-packs is verify's to
+// report.
 mlir::Operation *tailSource(mlir::Block &block);
 
 // The op whose results `terminator` gives its operands to, one for one: the
@@ -140,10 +150,11 @@ TailKind decide(CallOp call);
 
 // The parts of `call`'s fact the call alone can show: a `tail` call's
 // results go unchanged to its block's terminator, which forwards them to
-// its function's return or to the results of a region op a break crosses;
-// no operand of a `tail` or `modulo_context` call is, or lives in, a
-// lifetime that ends with the call (this call's activation, or one opened
-// around it), so no lifetime is handed over at a tail call;
+// its function's return or to the results of a region op a break crosses,
+// and a re-pack on the way is reported with the two layouts it converts
+// between; no operand of a `tail` or `modulo_context` call is, or lives
+// in, a lifetime that ends with the call (this call's activation, or one
+// opened around it), so no lifetime is handed over at a tail call;
 // a `modulo_context` call is a self call contextOf admits, and once every
 // fact is decided, a self call it admits is `modulo_context`. Called by
 // idr.call's verifier.
@@ -151,10 +162,20 @@ mlir::LogicalResult verify(CallOp call);
 
 // The part of every call's fact only its function can show: each `tail`
 // call's block ends a tail of the function, and once every fact is
-// decided, each call whose block ends one is `tail`. One walk down the
-// regions in tail position, each region read once, called by idr.func's
-// region verifier.
+// decided, each call whose block ends one is `tail`, and no call's value
+// reaches the function's return through a re-pack, which would make a
+// tail of it but for the two layouts. One walk down the regions a tail or
+// a re-pack of one runs through, each region read once, called by
+// idr.func's region verifier.
 mlir::LogicalResult verify(FuncOp fn);
+
+// The layout a `tail` call shares with its caller: each result of `call`
+// is laid out as `caller` returns it, as families::layoutMatch says (the
+// reading by which a reindex is free or re-packs), since the two lower to
+// one return and a re-pack between them would run after the call. Called
+// by idr.call's symbol-use verifier, beside the result components the two
+// give back; a mismatch is an internal error naming both layouts.
+mlir::LogicalResult verifyLayouts(CallOp call, FuncOp caller);
 
 } // namespace idr::tail
 
