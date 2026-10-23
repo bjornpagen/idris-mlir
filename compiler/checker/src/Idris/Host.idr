@@ -3524,9 +3524,11 @@ record Host where
 
   ||| `Idris.ModTree.buildMain`: the elaborator, on a main file and what it
   ||| imports, from a fresh context and fresh elaboration states; the
-  ||| errors it reports, or the main module as it reloads it.
+  ||| errors it reports, or the main module as it reloads it. The main
+  ||| module is the one the file's path names, which the caller names once
+  ||| and gives with the path.
   buildMain : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
-              {auto o : Ref ROpts REPLOpts} -> String -> Core Built
+              {auto o : Ref ROpts REPLOpts} -> ModuleIdent -> String -> Core Built
   ||| `Idris.Package.processPackageOpts`: the elaborator, on a package.
   processPackageOpts : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
                        {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->

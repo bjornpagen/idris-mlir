@@ -285,16 +285,17 @@ buildDeps mainModule fname
 ||| own: a unification state, delayed elaborators and metadata made here,
 ||| and the context reset to the main module's origin, before `buildDeps`.
 ||| A driver that only builds a program never holds the session's state.
-||| The main module, named once from its path here, is the one reloaded.
+||| The main module is the one the main file's path names, which the
+||| driver names once, before the build, and gives here with the path: the
+||| one reloaded, and the origin the context is reset to.
 export
 buildMain : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto o : Ref ROpts REPLOpts} ->
-            (mainFile : String) ->
+            (mainModule : ModuleIdent) -> (mainFile : String) ->
             Core Built
-buildMain mainFile
-    = do mainModule <- ctxtPathToNS mainFile
-         u <- newRef UST initUState
+buildMain mainModule mainFile
+    = do u <- newRef UST initUState
          dl <- newRef DLY (the DelayedElabs [])
          m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
          resetContext (PhysicalIdrSrc mainModule)

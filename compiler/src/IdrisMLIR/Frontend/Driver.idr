@@ -57,6 +57,7 @@ import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Program
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Grades.Grade
@@ -255,24 +256,24 @@ session r = do
 
 ||| Builds the main file and the modules it imports, and loads the main
 ||| module from its TTC, as Idris recorded it once read (`Reloaded`, its
-||| module named as its path names it, its checked file); or the errors
-||| Idris reported, at least one, which it printed or not as the session's
-||| verbosity says. A main file that cannot be read is the program's error,
-||| as Idris reports it.
+||| module the one given, which the file's path names, its checked file);
+||| or the errors Idris reported, at least one, which it printed or not as
+||| the session's verbosity says. A main file that cannot be read is the
+||| program's error, as Idris reports it.
 built : {auto c : Ref Ctxt Defs} ->
         {auto s : Ref Syn SyntaxInfo} ->
         {auto o : Ref ROpts REPLOpts} ->
-        String -> Core Built
-built source = do
+        (mainModule : ModuleIdent) -> (source : String) -> Core Built
+built mainModule source = do
   Right _ <- readText source
     | Left err => throw (FileErr source err)
-  host.buildMain source
+  host.buildMain mainModule source
 
 ||| The main file's first position, where a refusal Idris gives no location
-||| is. Named from the file's path here, since a build that fails hands
-||| over its errors and no module.
-mainSite : {auto c : Ref Ctxt Defs} -> String -> Core NonEmptyFC
-mainSite source = (\m => (PhysicalIdrSrc m, (0, 0), (0, 0))) <$> ctxtPathToNS source
+||| is: built from the main module, which `perform` names once from the
+||| file's path before anything is built.
+mainSite : ModuleIdent -> NonEmptyFC
+mainSite m = (PhysicalIdrSrc m, (0, 0), (0, 0))
 
 ||| Where a rejection is: a refusal's site, or the location of Idris's own
 ||| error, or the main file's start when it has none.
@@ -288,19 +289,24 @@ refusalOf : (main : NonEmptyFC) -> Rejection -> (SomeRule, NonEmptyFC, String)
 refusalOf main r@(Refused refusal) = (refusal.rule, siteOf main r, refusal.message)
 refusalOf main r@(ByIdris e) = (Refusal Elaboration, siteOf main r, show e)
 
-||| The program refused: each rejection written as a refusal into the module
-||| at `out`, in the order found, with no Core and nothing printed, since
-||| idris-mlir reads and reports them; the status says the program was
-||| refused. Each refusal's module is the one the modules already read
-||| (none, when Idris could not build the program) hold, or what `lacking`
-||| says, once the session is done, a module they lack is
-||| (`moduleRefusals`).
+||| The program refused: its refusals written, in the order given, into the
+||| module at `out`, with no Core and nothing printed, since idris-mlir
+||| reads and reports them; the status says the program was refused.
+refusedAt : (out : String) -> List1 ModuleRefusal -> Core ()
+refusedAt out rs = do
+  writeRefused out rs
+  coreLift (exitWith (ExitFailure 3))
+
+||| The program refused for its rejections, each a refusal at its site
+||| (`refusalOf`) in the order found (`refusedAt`). Each refusal's module is
+||| the one the modules already read (none, when Idris could not build the
+||| program) hold, or what `lacking` says, once the session is done, a
+||| module they lack is (`moduleRefusals`).
 refusing : {auto c : Ref Ctxt Defs} -> Modules -> (lacking : Core (ModuleIdent -> Lacked)) -> (main : NonEmptyFC) ->
            (out : String) -> List1 Rejection -> Core ()
 refusing loaded lacking main out rs = do
   lacked <- lacking
-  writeRefused out !(moduleRefusals lacked loaded (map (refusalOf main) rs))
-  coreLift (exitWith (ExitFailure 3))
+  refusedAt out !(moduleRefusals lacked loaded (map (refusalOf main) rs))
 
 ||| What a module a refusal of a session that loaded no program names is,
 ||| where no table holds it: one Idris found, read at the home it found it
@@ -310,6 +316,24 @@ building : {auto c : Ref Ctxt Defs} -> Core (ModuleIdent -> Lacked)
 building = do
   homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
   pure (\m => FoundAt (fromMaybe Project (lookup m homes)))
+
+||| A compilation rejected before its main module is named, which only
+||| Idris's own error does: the session failed, or the main file's path
+||| names no module. It is refused at its own location, or, where Idris
+||| gives it none, at none (`noLoc`, as the translation places what Idris
+||| does not locate): there is no main file's start to put it at. Its rule
+||| and message are `refusalOf`'s for Idris's error. Essential: Idris
+||| locates the error or it does not.
+unnamed : {auto c : Ref Ctxt Defs} -> (out : String) -> Error -> Core ()
+unnamed out err = do
+  let rule : SomeRule = Refusal Elaboration
+      message = show err
+  refusals <- case getErrorLoc err >>= isNonEmptyFC of
+    Just site => do
+      lacked <- building
+      moduleRefusals lacked SortedMap.empty ((rule, site, message) ::: [])
+    Nothing => pure (MkModuleRefusal rule noLoc message ::: [])
+  refusedAt out refusals
 
 ||| Idris shows an error's location with the lines of the source it read
 ||| last, which is the error's own only for an error found while its file
@@ -330,20 +354,31 @@ perform : {auto c : Ref Ctxt Defs} ->
           {auto o : Ref ROpts REPLOpts} ->
           Task -> Core ()
 perform (Compile timing out source) = do
-  main <- mainSite source
-  Reloaded m <- built source
-    | NotBuilt errs => refusing SortedMap.empty building main out (map ByIdris errs)
-  -- The program loaded, each module's origin, source and name are read
-  -- once, before anything locates a term in it: every module the session
-  -- read, the main module among them.
-  loaded <- modulesOf SortedMap.empty (map (\(ident, home, _) => (ident, home)) !loadedModules)
-  -- The table holds every module the session loaded, so a refusal's
-  -- module it lacks is one the session never read.
-  [] <- program loaded m.ident m.file timing out
-    | (r :: rs) => refusing loaded (pure (const Unloaded)) main out (r ::: rs)
-  pure ()
+  -- The main module, named once from the file's path: the one built and
+  -- reloaded, and the main file's start, where each rejection from here
+  -- on that Idris gives no location is. An error before it is named is
+  -- `unnamed`'s, in `frontend`.
+  mainModule <- ctxtPathToNS source
+  let main = mainSite mainModule
+  catch (do Reloaded m <- built mainModule source
+              | NotBuilt errs => refusing SortedMap.empty building main out (map ByIdris errs)
+            -- The program loaded, each module's origin, source and name are
+            -- read once, before anything locates a term in it: every module
+            -- the session read, the main module among them.
+            loaded <- modulesOf SortedMap.empty (map (\(ident, home, _) => (ident, home)) !loadedModules)
+            -- The table holds every module the session loaded, so a
+            -- refusal's module it lacks is one the session never read.
+            [] <- program loaded m.ident m.file timing out
+              | (r :: rs) => refusing loaded (pure (const Unloaded)) main out (r ::: rs)
+            pure ())
+    $ \err => case err of
+        -- Essential: the compiler's own error is no refusal of the
+        -- program, and `frontend` prints it.
+        InternalError _ => throw err
+        _ => refusing SortedMap.empty building main out (singleton (ByIdris err))
 perform (Check source) = do
-  Reloaded _ <- built source
+  mainModule <- ctxtPathToNS source
+  Reloaded _ <- built mainModule source
     | NotBuilt errs => coreLift (exitWith (statusOfAll errs))
   pure ()
 perform (PackageCommand timing cmd file) = do
@@ -380,7 +415,10 @@ frontend r = do
     (Compile _ _ _ _, InternalError _) => do
       update ROpts { verbosity := ErrorLvl }
       printed err
-    (Compile _ _ out source, _) => refusing SortedMap.empty building !(mainSite source) out (singleton (ByIdris err))
+    -- Once the main module is named `perform` refuses each error but the
+    -- compiler's own, so a compilation's error here came before it was
+    -- named, or in refusing another.
+    (Compile _ _ out _, _) => unnamed out err
     _ => printed err
   where
     printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
