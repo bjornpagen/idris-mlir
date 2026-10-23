@@ -240,3 +240,29 @@ handoff lists its own wiring.
   dependent one), F-5 (`%search` refused by the profile, ruled in the
   subset) and F-6 (a probe's name in a key taken for a definition) to
   L16dx; T-1 (an ill-typed checker test) to L17av.
+
+## INT-21 (2026-10-23, export of 7878bda0; build/int21/)
+- C++ typecheck: HEAD stopped at its shared header (StaticForm.h deleted
+  by 0642ef67 with its include standing; cleared by aaa578c6); beneath it
+  22 roots that need the typecheck LLVM at the pin with the carried
+  patches, and 7 of ours: R2 (the interface defaults' hooks declared after
+  the interfaces; L07z), R3 (StaticForm incomplete; cleared by aaa578c6),
+  Convert's unqualified match, ScopeWalk's missing include and Extents'
+  signedness (fixed in d502a6a6), Lend.cpp:113 (cleared by 80f6e719),
+  Reuse.cpp's shadowed freed (L07z).
+- specgen check, knowngen check pass; the 19 dialect modules generated
+  by the typecheck tblgen are current, HEAD's committed 13 stale (D49/D51,
+  INT on the owner's machine).
+- Checker clean (208 modules); frontend 102/102 from HEAD; prelude, base,
+  linear, network, contrib, test and the four libs/ install through it.
+- Fixtures: 424 runs, 325 programs, 80 refused, 19 failed. F-F1 (16,
+  tabulate's Nat[_]) and F-F2 (3, a Vect method at a run-time length) at
+  Emit's fit: L16ei. F-R1 (System.File.Meta refused, fileTime's alias):
+  L16eg. F-R2 (Instances.idr:474 refuses definitions through rewrite or
+  replace whose motive the program fixes), F-R3 (Types.idr:853 refuses a
+  polymorphic field re-wrapped in a lambda), F-R4 (every-types-export's
+  Ord (Either a b), L16dz's gap): L16, after L16ej. F-R5 (five tests not
+  valid Idris): L19q. F-R6 (checker-double-nan-itself): L17bb. P-1 (make
+  self-spec refused: spec.ipkg's executable against the checker's
+  Package.idr): L17bb.
+- The runner: fixed in d76f1b33 but for two stock-Idris bugs (L06i).
