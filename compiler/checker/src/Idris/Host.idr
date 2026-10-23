@@ -3211,11 +3211,14 @@ public export
 fixedWidth : SizeBound arity
 fixedWidth = TwoToThe (AtMost widthExponent)
 
-||| The longest text of a double on the hosts that run this compiler: a
-||| sign, 17 digits, a point and an exponent such as `e-308`, 24 characters
-||| on each; and on the stock host, whose cast from String can read a
-||| complex number into a Double, a real and an imaginary part that long
-||| and an `i`.
+||| A bound on the text of a double the evaluator's table computes. The
+||| longest text of a double on the hosts that run this compiler is a sign,
+||| 17 digits, a point and an exponent such as `e-308`, 24 characters on
+||| each. The bound is looser: 49 allowed for a complex number the stock
+||| host's cast from String read into a Double, a real and an imaginary
+||| part that long and an `i`. The table reads no number from a String any
+||| more, and the bound stays 49, the number the frontend's proofs over it
+||| state.
 public export
 doubleText : Nat
 doubleText = 49
@@ -3236,12 +3239,14 @@ doubleText = 49
 ||| - a string operation gives a string of at most the characters it was
 |||   given (one more for `strCons`), their count, or a character;
 ||| - a double's operation gives a double;
-||| - a cast to Integer gives an integer's own value; a character's code or
-|||   a finite double's integer part, each below 2^1024; or what a string
-|||   reads: a literal in a base of at most 16, below 16^length, or on the
-|||   stock host a decimal with a point or an exponent, a finite double;
+||| - a cast to Integer gives an integer's own value, at most its size and
+|||   so below 2^(4 * size), or a character's code or a finite double's
+|||   integer part, each below 2^1024. The first term is looser than an
+|||   integer needs: it allowed for a string's number in a base of at most
+|||   16, below 16^length, which the table reads no more, and it stays, the
+|||   form the frontend's proofs over the bound are stated against;
 ||| - a cast to String gives an integer's sign and digits, at most its
-|||   magnitude and one more, a character, or a double's own text;
+|||   magnitude and one more, or a character;
 ||| - a cast to a fixed-width type gives the value, or wraps it below 2^64;
 ||| - `believe_me` gives its value unchanged;
 ||| - `crash` and a cast to the world compute nothing.
@@ -3340,10 +3345,9 @@ resultBoundMonotone op within = atSizesMonotone (boundOf op) within
 ||| each host: of idris-mlir's runtime, whose fixed-width results are of
 ||| their width and whose shift of an integer by a negative amount moves it
 ||| the other way; and of Chez Scheme, under the stock host, whose integers
-||| are exact, whose fixed-width arithmetic wraps, whose shift right of any
-||| width does not, and whose cast from String reads what Scheme reads. No
-||| operation of the table reads anything but its arguments (none reads the
-||| clock or the world), so none is left out.
+||| are exact, whose fixed-width arithmetic wraps, and whose shift right of
+||| any width does not. No operation of the table reads anything but its
+||| arguments (none reads the clock or the world), so none is left out.
 -- The measure mapped over the arguments is named in full: unqualified, a
 -- name in argument position of a type is bound as a fresh implicit, and
 -- the trust would hold of every function.

@@ -14,10 +14,14 @@ import Data.Vect
 -- its name: what `prim__add_Int` means while the compiler runs is what the
 -- runtime that runs the compiler gives it, not an Idris program written to
 -- agree with it. So each operation below applies `prim__...` of the same
--- name to the constants, and decides only whether it applies: a partial
--- primitive (division by zero, the head of an empty string), a cast of an
--- infinity, a NaN or a String, whose value on Chez is not the runtime's,
--- and a cast the compiler has never folded stay applied.
+-- name to the constants, and decides only whether it applies: it applies
+-- where every host computes the runtime's one meaning, and stays applied
+-- elsewhere. So a partial primitive (division by zero, the head of an
+-- empty string), a cast of an infinity, a NaN or a String, whose value on
+-- Chez is not the runtime's, a Double's text and a Double's function of
+-- the C library, which agree with the runtime only as far as two printers
+-- or two libraries happen to, and a cast the compiler has never folded
+-- stay applied.
 
 ||| A primitive: its name, its operation, its type and its totality.
 public export
@@ -45,18 +49,23 @@ unaryOp _ _ = Nothing
 -- zero (an Int wrapped modulo 2^64), which the primitive computes on either
 -- host. Of an infinity or NaN the cast crashes the program ("cast of a
 -- non-finite Double"), and on Chez it would raise in `inexact->exact` and
--- crash the compiler; and the runtime writes an infinity or NaN as `inf`,
--- `-inf` or `nan`, where Chez writes `+inf.0`, `-inf.0` and `+nan.0`. So
--- neither has a value here: it stays applied, and the program's run
--- reaches the runtime's meaning. A Double is finite exactly when it lies
--- strictly between the two infinities, by IEEE 754's comparisons, which
--- both hosts' Doubles have; NaN, ordered with no Double, lies between none.
+-- crash the compiler, so it has no value here: it stays applied, and the
+-- program's run reaches the runtime's meaning. A Double is finite exactly
+-- when it lies strictly between the two infinities, by IEEE 754's
+-- comparisons, which both hosts' Doubles have; NaN, ordered with no
+-- Double, lies between none.
 finite : Double -> Maybe Double
 finite x = if negate infinity < x && x < infinity then Just x else Nothing
   where
     infinity : Double
     infinity = 1.0 / 0.0
 
+-- A Double's text stays applied, finite or not. The runtime writes a
+-- finite Double in its shortest digits, laid out as the stock Chez backend
+-- lays them out, so Chez's `number->string` gives the runtime's text only
+-- because the runtime was written to match it: two printers that agree,
+-- not one meaning. An infinity or NaN they write differently (`inf`,
+-- where Chez writes `+inf.0`). The program's run writes the runtime's.
 castString : Vect 1 (NF vars) -> Maybe (NF vars)
 castString [NPrimVal fc (I i)] = Just (NPrimVal fc (Str (prim__cast_IntString i)))
 castString [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Str (prim__cast_Int8String i)))
@@ -69,7 +78,6 @@ castString [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Str (prim__cast_Bits16Stri
 castString [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Str (prim__cast_Bits32String i)))
 castString [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Str (prim__cast_Bits64String i)))
 castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (prim__cast_CharString i)))
-castString [NPrimVal fc (Db i)] = NPrimVal fc . Str . prim__cast_DoubleString <$> finite i
 castString _ = Nothing
 
 -- A String's number stays applied, cast to an Int, an Integer or a Double
@@ -503,39 +511,17 @@ gt (Ch x) (Ch y) = pure $ I (prim__gt_Char x y)
 gt (Db x) (Db y) = pure $ I (prim__gt_Double x y)
 gt _ _ = Nothing
 
+-- A Double's root, floor and ceiling fold: IEEE 754 defines each as one
+-- double, the root rounded correctly and the floor and ceiling exact, so
+-- the host computes the double the program computes on its target (Chez's
+-- `flsqrt`, `flfloor` and `flceiling` on the stock host; upstream's math
+-- ops on idris-mlir, as in the program). A Double's other functions (exp,
+-- log, pow, sin, cos, tan and their inverses) stay applied: each is the C
+-- library's, whose last digit IEEE 754 leaves to each library, so the
+-- host's library could give another double than the target's.
 doubleOp : (Double -> Double) -> Vect 1 (NF vars) -> Maybe (NF vars)
 doubleOp f [NPrimVal fc (Db x)] = Just (NPrimVal fc (Db (f x)))
 doubleOp f _ = Nothing
-
-doubleExp : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleExp = doubleOp (\x => prim__doubleExp x)
-
-doubleLog : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleLog = doubleOp (\x => prim__doubleLog x)
-
-doublePow : {vars : _ } -> Vect 2 (NF vars) -> Maybe (NF vars)
-doublePow = binOp pow'
-    where pow' : Constant -> Constant -> Maybe Constant
-          pow' (Db x) (Db y) = pure $ Db (prim__doublePow x y)
-          pow' _ _ = Nothing
-
-doubleSin : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleSin = doubleOp (\x => prim__doubleSin x)
-
-doubleCos : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleCos = doubleOp (\x => prim__doubleCos x)
-
-doubleTan : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleTan = doubleOp (\x => prim__doubleTan x)
-
-doubleASin : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleASin = doubleOp (\x => prim__doubleASin x)
-
-doubleACos : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleACos = doubleOp (\x => prim__doubleACos x)
-
-doubleATan : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleATan = doubleOp (\x => prim__doubleATan x)
 
 doubleSqrt : Vect 1 (NF vars) -> Maybe (NF vars)
 doubleSqrt = doubleOp (\x => prim__doubleSqrt x)
@@ -646,15 +632,6 @@ getOp StrAppend = strAppend
 getOp StrReverse = strReverse
 getOp StrSubstr = strSubstr
 
-getOp DoubleExp = doubleExp
-getOp DoubleLog = doubleLog
-getOp DoublePow = doublePow
-getOp DoubleSin = doubleSin
-getOp DoubleCos = doubleCos
-getOp DoubleTan = doubleTan
-getOp DoubleASin = doubleASin
-getOp DoubleACos = doubleACos
-getOp DoubleATan = doubleATan
 getOp DoubleSqrt = doubleSqrt
 getOp DoubleFloor = doubleFloor
 getOp DoubleCeiling = doubleCeiling
@@ -662,6 +639,8 @@ getOp DoubleCeiling = doubleCeiling
 getOp (Cast _ y) = castTo y
 getOp BelieveMe = believeMe
 
+-- Every other primitive stays applied: `crash`, and a Double's functions
+-- of the C library.
 getOp _ = const Nothing
 
 -- A cast from Integer to Double, when the Integer is a Double exactly (no
