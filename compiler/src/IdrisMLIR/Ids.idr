@@ -99,8 +99,9 @@ argumentsText (UpTo before final) = foldr (\p, rest => keyArgument p :: rest) [f
 
 ||| What a function or data instance is an instance of: the definition (its
 ||| printed full name), the compile-time values it was instantiated at, and
-||| what that print keeps of the identity. Emit writes it as #idr.instance;
-||| its symbol is `Term.keyText` of it.
+||| what that print keeps of the identity. No attribute holds it: Emit
+||| writes `Term.keyText` of it as a function's symbol and a family's
+||| label, and the definition's name as a function's `NameLoc`.
 public export
 record InstanceKey where
   constructor MkInstanceKey

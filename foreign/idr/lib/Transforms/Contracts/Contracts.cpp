@@ -44,6 +44,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <concepts>
+
 using namespace mlir;
 
 namespace idr {
@@ -57,13 +59,18 @@ enum class Relation : std::uint8_t { QuantitiesKept, LinearKept, CrashSitesNotAd
 struct RelationRow {
   Relation relation;
   llvm::StringLiteral name;
+  // How the test pass breaks it, the help of its option's value.
+  llvm::StringLiteral breaks;
 };
 
-// The one table of the relations' names.
+// The one table of the relations: each one's name, and how the test pass
+// breaks it.
 constexpr RelationRow relations[] = {
-    {Relation::QuantitiesKept, "quantities-kept"},
-    {Relation::LinearKept, "linear-kept"},
-    {Relation::CrashSitesNotAdded, "crash-sites-not-added"},
+    {Relation::QuantitiesKept, "quantities-kept",
+     "trade the identities of two binders of other uses"},
+    {Relation::LinearKept, "linear-kept", "give a linear result back unrestricted"},
+    {Relation::CrashSitesNotAdded, "crash-sites-not-added",
+     "make every function that could not crash crash"},
 };
 
 constexpr llvm::StringLiteral nameOf(Relation relation) {
@@ -226,8 +233,22 @@ void tradeIdentities(ProgramOp program) {
   }
 }
 
-// The relations the test pass breaks.
-enum class Breakable : std::uint8_t { QuantitiesKept, LinearKept, CrashSitesNotAdded };
+// An option whose parser reads a relation.
+template <class Opt>
+concept RelationOption = requires(Opt &option) {
+  { option.getParser() } -> std::convertible_to<llvm::cl::parser<Relation> &>;
+};
+
+// The option's values, one per row of the table: a modifier as
+// `llvm::cl::values` is, reading the rows where that one takes a list of
+// its own.
+struct EachRelation {
+  template <RelationOption Opt>
+  void apply(Opt &option) const {
+    for (const RelationRow &row : relations)
+      option.getParser().addLiteralOption(row.name, row.relation, row.breaks);
+  }
+};
 
 // The pass the contracts' own test runs, registered in idris-mlir-opt
 // alone: it breaks one relation on purpose and leaves a module that
@@ -245,25 +266,17 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
     return "Break one contract on purpose, keeping the module valid, for the contracts' own "
            "test: --idr-contracts must name this pass";
   }
-  Option<Breakable> relation{
-      *this, "relation", llvm::cl::desc("The contract to break"),
-      llvm::cl::init(Breakable::LinearKept),
-      llvm::cl::values(clEnumValN(Breakable::QuantitiesKept, nameOf(Relation::QuantitiesKept),
-                                  "trade the identities of two binders of other uses"),
-                       clEnumValN(Breakable::LinearKept, nameOf(Relation::LinearKept),
-                                  "give a linear result back unrestricted"),
-                       clEnumValN(Breakable::CrashSitesNotAdded,
-                                  nameOf(Relation::CrashSitesNotAdded),
-                                  "make every function that could not crash crash"))};
+  Option<Relation> relation{*this, "relation", llvm::cl::desc("The contract to break"),
+                            llvm::cl::init(Relation::LinearKept), EachRelation{}};
 
   void runOnOperation() override {
     ProgramOp program = getOperation();
     switch (relation.getValue()) {
-    case Breakable::QuantitiesKept:
+    case Relation::QuantitiesKept:
       return tradeIdentities(program);
-    case Breakable::LinearKept:
+    case Relation::LinearKept:
       return unrestrictResults(program);
-    case Breakable::CrashSitesNotAdded:
+    case Relation::CrashSitesNotAdded:
       return addCrashSites(program, getAnalysis<solver::ProgramGraph>());
     }
   }

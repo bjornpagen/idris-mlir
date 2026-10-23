@@ -71,17 +71,18 @@ makes builtin ranked tensors alone.
 ## Why it is carried
 
 A graded array, `!idr.graded<uses, hold, T>` over a tensor `T`, is
-tensor-like wherever `T` is, so One-Shot bufferizes graded values and
-signatures itself, and an array
-field is its buffer from the frontend on (proposals/0000 D43, C108). The
-cutover deleted the retyping idr-bufferize used to run after One-Shot
-(the old `idr::DataRemap`'s `buffers` kind), which this replaces; no code
-of it is left. A graded array that bufferizes out-of-place is
-then an OpOperand of a tensor-like type that is not a builtin tensor,
-which this patch copies through the dialect's hook where the pin wrote it
-in place. The per-instance tensor-likeness is the other half,
-`upstream/64-tensor-like-per-instance`, without which `!idr.graded`, one
-class for every `T`, could not be tensor-like for some `T` alone.
+tensor-like wherever `T` is (`GradedTensorLike`,
+`foreign/idr/lib/Transforms/Bufferize/Linear.cpp`), so One-Shot
+bufferizes graded values and signatures itself, and an array field is
+its buffer from the frontend on (proposals/0000 D43, C108). A graded
+array that bufferizes out-of-place is then an OpOperand of a tensor-like
+type that is not a builtin tensor, which the pin writes in place.
+idr-bufferize sets this patch's hook to copy it at its grade
+(`options.tensorAllocationFn`, `Bufferize/Bufferize.cpp`), so the
+compiler does not build without the patch. The per-instance
+tensor-likeness is the other half, `upstream/64-tensor-like-per-instance`,
+without which `!idr.graded`, one class for every `T`, could not be
+tensor-like for some `T` alone.
 
 ## Testing at the pin
 

@@ -11,6 +11,7 @@
 
 #include "idr/Transforms/Tail/Frames.h"
 
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
@@ -131,8 +132,11 @@ Operation *lendAgain(Operation *first) {
     for (Operation *op : llvm::reverse(standsOn)) {
       if (again.contains(op->getResult(0)))
         continue;
-      assert(isPure(op) &&
-             "a loan and a view of one are pure, so made again they mean what they meant");
+      // Whether it may run anywhere is upstream's speculation, which no
+      // effect states: a guarded op has no effect and runs below its guard.
+      assert(effects::whole(op) == effects::EffectSet{} && mlir::isSpeculatable(op) &&
+             "a loan and a view of one have no effect and may run anywhere, so made again they "
+             "mean what they meant");
       Operation *made = b.clone(*op, again);
       if (start == first)
         start = made;

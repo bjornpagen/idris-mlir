@@ -20,7 +20,8 @@ a limit on the programs the compiler accepts.
 What reaches it in this repository: idr-constants' propagation and the
 integer range solves (the ranges analysis, idr-narrow's copies), each
 loading dead-code analysis; and idr-inline, which runs upstream's
-inliner. Nothing of ours builds a `SymbolUserMap` any more.
+inliner. The third caller is not reached: nothing in the tree, and no
+upstream pass the pipeline runs, builds a `SymbolUserMap`.
 `tests/upstream-dead-code-iterative-initialization` shows it: its
 10,000-deep nest on a 256 KiB thread overflows here, after patch 92 has
 made the rest of dead-code analysis's initialization iterative.

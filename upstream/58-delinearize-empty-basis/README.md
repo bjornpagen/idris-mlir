@@ -39,15 +39,20 @@ generic form.
 
 ## Why there is no patch
 
-Nothing in this repository reaches the bug. idr-structure-loops built one
-for an array domain of no dimension, where the loop over the cells after
-the first has no index to delinearize; it now builds no loop there, since
-such a domain has one cell, the first (`StructureLoops/Nests.cpp`, the
-`rank == 0` case). That case is the problem's, not a workaround: with the
-fix, an op with no result is still one the verifier refuses. So the fix is
-kept as a submission, and tests/upstream-delinearize-empty-basis checks
-that the pinned mlir-opt still has the bug: when it fails, upstream has
-fixed it, and this directory and the check go.
+Nothing in this repository reaches the bug. No code of ours builds an
+`affine.delinearize_index` (foreign/idr names the op nowhere): the
+generating ops' loops are upstream's, convert-linalg-to-loops lowering
+idr-structure-loops' linalg ops and `lowerToLoopsUsingSCFForOp` making
+idr-ordered-loops' loops, each with an induction variable per dimension,
+so a domain of no dimension has no index to delinearize. Of upstream's
+passes and patterns the pipeline runs, none builds one from an empty
+basis. idr-structure-loops once built one for such a domain, and stopped
+because the domain has one cell, which is the problem's case, not a
+workaround: with the fix, an op with no result is still one the verifier
+refuses. So the fix is kept as a submission, and
+tests/upstream-delinearize-empty-basis checks that the pinned mlir-opt
+still has the bug: when it fails, upstream has fixed it, and this
+directory and the check go.
 
 ## Testing at the pin
 
