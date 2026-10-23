@@ -204,3 +204,25 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
   matches the host's normal form for `HeldNormal`.
 - `State.PKind.DictParam` carries `FixedValue`, so `Cases.idr:947` reads it
   and `staticReading` carries it.
+
+## Audit at db4bcb11 (2026-10-22)
+
+Every item above checked against the tree: 34 done, 4 obsolete, the C222
+cluster, and these open.
+- `Shapes.idr:300`: `InstanceSig`'s binders, one walk (Shapes, State,
+  Instances, Terms:1642, Programs:151,165).
+- `Terms.idr:549, 657, 667`: C228's last three checks, which a Core term
+  indexed by its type removes.
+- `Program.idr:84`: Emit's typed `Unfit` (`Emit/Tensors.idr:192`), the same
+  missing index.
+- `Driver.idr:274`: a failed build's site named from the path again
+  (L17am: the main module named once, in the driver).
+- D112 in Growth: `Growth.idr:318, 652`, `Caps.idr:176`, `Fields.idr:135`,
+  `Graph.idr:2507, 2530, 2533`, `Sites.idr:2551, 2553`, `Finite.idr:224`;
+  and `Closed.idr:402, 405, 1288, 1302`, `State.idr:1103`,
+  `Programs.idr:396`, `Choices.idr:533` (the last likely C222's).
+- The C222 cluster: `Cases.idr:921, 947`, `Terms.idr:496, 1498, 1617`,
+  `Finite.idr:172`, with Covers' induction.
+- Kept as run-time facts: `Keys.idr:1080`'s hash collision; the checker's
+  one `assert_total`, `Idris/Host.idr`'s `host`, the trust the frontend
+  takes in Idris's covering functions, stated once.
