@@ -1,0 +1,107 @@
+--- a/src/Core/Case/CaseBuilder.idr
++++ b/src/Core/Case/CaseBuilder.idr
+@@ -29,11 +29,30 @@
+ 
+ %hide Symbols.equals
+ 
++||| The order a compile-time tree splits the arguments in. The tree a
++||| definition is evaluated by takes them from the left. The tree an erased
++||| function's coverage is checked by takes first the arguments a run would
++||| keep, from the left, then the erased ones from the right: a later
++||| argument's type names the earlier ones, so the later determine the
++||| earlier (an index is bound before the argument whose type it is in, and
++||| a case block's environment before its scrutinee). Where that tree split
++||| an index first, it ended at every value of the index no clause has with
++||| the arguments that determine it unsplit, a case the coverage check
++||| cannot refute without splitting them, and it walked the rest of the
++||| tree again for every constructor such a default stands for.
+ public export
+-data Phase = CompileTime RigCount | RunTime
++data SplitOrder = FromLeft | KeptFirst
+ 
++Eq SplitOrder where
++  FromLeft == FromLeft = True
++  KeptFirst == KeptFirst = True
++  _ == _ = False
++
++public export
++data Phase = CompileTime RigCount SplitOrder | RunTime
++
+ Eq Phase where
+-  CompileTime r == CompileTime r' = r == r'
++  CompileTime r o == CompileTime r' o' = r == r' && o == o'
+   RunTime == RunTime = True
+   _ == _ = False
+ 
+@@ -336,7 +355,7 @@
+     clauseType' _                 = Nothing
+ 
+     getClauseType : Phase -> (p : Pat) -> ArgType vars -> Maybe (IsConPat p)
+-    getClauseType (CompileTime cr) (PCon _ _ _ a xs) (Known r t)
++    getClauseType (CompileTime cr _) (PCon _ _ _ a xs) (Known r t)
+         = if (isErased r && not (isErased cr) &&
+              all (namesIn (pvars ++ concatMap namesFrom (getPatInfo rest))) xs)
+              then Nothing
+@@ -736,6 +755,24 @@
+ applyHeuristics x [] = highScoreIdx x
+ applyHeuristics x (f :: fs) = highScoreIdx x <|> applyHeuristics (f x) fs
+ 
++||| The rightmost argument.
++lastArg : {p : _} -> {ps : _} -> NamedPats (p :: ps) ns -> (n ** NVar n (p :: ps))
++lastArg {ps = []} _ = (p ** MkNVar First)
++lastArg {ps = q :: qs} (_ :: rest)
++    = let (n ** MkNVar v) = lastArg rest in (n ** MkNVar (Later v))
++
++||| The leftmost argument a run keeps, if there is one.
++firstKept : {ps : _} -> NamedPats ps ns -> Maybe (n ** NVar n ps)
++firstKept [] = Nothing
++firstKept {ps = p :: _} (pinf :: rest)
++    = if kept (argType pinf)
++         then Just (p ** MkNVar First)
++         else map (\ (n ** MkNVar v) => (n ** MkNVar (Later v))) (firstKept rest)
++  where
++    kept : ArgType vs -> Bool
++    kept (Known r _) = not (isErased r)
++    kept _ = False
++
+ ||| Based only on the heuristic-score of columns, get the index of
+ ||| the column that should be processed next.
+ |||
+@@ -747,8 +784,10 @@
+                  Phase ->
+                  List01 True (NamedPats (p :: ps) ns) ->
+                  (n ** NVar n (p :: ps))
++nextIdxByScore _ (CompileTime _ KeptFirst) (np :: _)
++    = fromMaybe (lastArg np) (firstKept np)
+ nextIdxByScore False _ _            = (_ ** (MkNVar First))
+-nextIdxByScore _ (CompileTime _) _  = (_ ** (MkNVar First))
++nextIdxByScore _ (CompileTime _ FromLeft) _  = (_ ** (MkNVar First))
+ nextIdxByScore True RunTime xs      =
+   fromMaybe (_ ** (MkNVar First)) $
+     applyHeuristics (zeroedScore xs) [heuristicF, heuristicB, heuristicA]
+--- a/src/TTImp/ProcessDef.idr
++++ b/src/TTImp/ProcessDef.idr
+@@ -917,7 +917,7 @@
+ 
+          (cargs ** (tree_ct, unreachable)) <-
+              logTime 3 ("Building compile time case tree for " ++ show n) $
+-                getPMDef fc (CompileTime mult) n ty (rights cs)
++                getPMDef fc (CompileTime mult FromLeft) n ty (rights cs)
+ 
+          traverse_ warnUnreachable unreachable
+ 
+@@ -1052,8 +1052,13 @@
+                $ "Using clauses :"
+                :: map (("  " ++) . show) !(traverse toFullNames covcs')
+              let covcs = mapMaybe id covcs'
++             -- An erased function's tree may split its erased arguments, so
++             -- it takes the kept ones first. A kept function matches an
++             -- erased argument only where the patterns before it force it,
++             -- which its tree tells by taking the arguments from the left.
++             let order = if isErased mult then KeptFirst else FromLeft
+              (_ ** (ctree, _)) <-
+-                 getPMDef fc (CompileTime mult) (Resolved n) ty covcs
++                 getPMDef fc (CompileTime mult order) (Resolved n) ty covcs
+              logC "declare.def" 3 $ do pure $ "Working from " ++ show !(toFullNames ctree)
+              missCase <- if any catchAll covcs
+                             then do logC "declare.def" 3 $ do pure "Catch all case in \{show !(getFullName (Resolved n))}"

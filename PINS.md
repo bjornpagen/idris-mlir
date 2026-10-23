@@ -1495,9 +1495,11 @@ which the top-level CMake configure gate reads.
   `keep`, given a signature, and its `--threads` parse,
   `parsePositive {a = Nat}` with its comment naming this bug
 - workaround: `upstream/108-case-split-pattern-fragment/idris.patch`:
-  where an unsolved meta is applied to the variable a case splits, the
-  case function takes the variable twice, those metas applied to an
-  unsplit copy at quantity 0; checked by
+  where an unsolved meta is applied to the variable a case splits and
+  every clause splits it, the case function takes the variable twice,
+  those metas applied to an unsplit copy at quantity 0; a case with a
+  clause whose pattern there is a variable is left as the stock Idris
+  builds it, since that clause solves the metas; checked by
   tests/upstream-case-split-pattern-fragment
 - retire: when the Idris pin carries upstream's fix for #62
 - upstream: upstream/108-case-split-pattern-fragment; nothing sent (Idris
@@ -1519,5 +1521,26 @@ which the top-level CMake configure gate reads.
   tests/upstream-delayed-retry-doubling
 - retire: when the Idris pin carries an upstream fix
 - upstream: upstream/109-delayed-retry-doubling; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
+## coverage-erased-index-first
+
+- symptom: the stock Idris's coverage check of an erased function splits
+  its erased indices before the arguments that determine them, so it
+  reports impossible cases as missing, their explicit arguments all `_`
+  (the checker's `Idris/Host.idr`: eleven proofs over `Mapped`; the
+  frontend: 25 proofs and case blocks in `Proof/` and `Translate/`), and
+  walks the tree under nested defaults an exponential number of times
+  (`mappedContracts` past 300 s and 8 GiB)
+- sites: everything the stock host checks under `%default total` or
+  `covering`: stage 0 and the libraries
+- workaround: `upstream/110-coverage-erased-index-first/idris.patch`: an
+  erased function's coverage tree takes the arguments a run would keep,
+  from the left, then the erased ones from the right; the tree a
+  definition is evaluated by, and a kept function's coverage tree, are
+  unchanged; checked by tests/upstream-coverage-erased-index-first
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/110-coverage-erased-index-first; nothing sent (Idris
   takes no tool-written contribution)
 - status (2026-10-22): carried

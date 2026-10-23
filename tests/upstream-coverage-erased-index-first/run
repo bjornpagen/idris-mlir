@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/110-coverage-erased-index-first, carried: the stock Idris's
+# coverage check of an erased function split its erased indices before the
+# arguments that determine them, so it proposed cases with those arguments
+# unsplit, which it could not refute, and walked the tree under nested
+# defaults an exponential number of times. Marker.idr's, Contracts.idr's and
+# CaseBlock.idr's proofs are covering, and the patched check, splitting the
+# determining arguments first, accepts them under %default total.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+for case in Marker Contracts CaseBlock; do
+  cp "$root/upstream/110-coverage-erased-index-first/$case.idr" "$work/$case.idr"
+  if (cd "$work" && pinned_idris --check "$case.idr") > "$work/$case.out" 2>&1; then
+    say "$case: the total proof is accepted"
+  elif grep -q 'not covering' "$work/$case.out"; then
+    say "$case: still reproduces: the total proof is reported not covering"
+  else
+    say "$case: the stock Idris fails on the reproducer, which is not this bug"
+    show "$work/$case.out"
+  fi
+done

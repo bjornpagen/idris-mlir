@@ -1,6 +1,6 @@
 --- a/src/TTImp/Elab/Case.idr
 +++ b/src/TTImp/Elab/Case.idr
-@@ -135,6 +135,101 @@
+@@ -135,6 +135,107 @@
                 Nothing => n
                 Just n' => n'
  
@@ -82,6 +82,12 @@
 +-- function's type, applied, is the one it had; inside a clause the
 +-- metavariables see a variable, so the clause can solve them.
 +--
++-- Only a case whose every clause splits the variable is changed: a clause
++-- whose pattern there is a variable leaves the variable as it is, so it
++-- solves those metavariables without the copy, and with it could not,
++-- since what it solves them to may mention its own metavariables, which
++-- depend on its variable, not on the copy.
++--
 +-- Returns the type, and the name of the second binding if the variable at
 +-- that depth of its telescope is now taken twice.
 +splitTwice : {auto c : Ref Ctxt Defs} ->
@@ -102,7 +108,7 @@
  export
  caseBlock : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-@@ -202,6 +297,7 @@
+@@ -202,6 +303,7 @@
           -- big do it. It's the depth of stuck applications - 10 is already
           -- pretty much unreadable!
           casefnty <- normaliseSizeLimit defs 10 Env.empty casefnty
@@ -110,7 +116,7 @@
           (erasedargs, _) <- findErased casefnty
  
           logEnv "elab.case" 10 "Case env" env
-@@ -231,11 +327,9 @@
+@@ -231,11 +333,9 @@
  
           let applyEnv = applyToFull fc caseRef env
           let appTm : Term vars
@@ -124,16 +130,32 @@
           log "elab.case" 2 $ "Nested: " ++ show (map getNestData (names nest))
           log "elab.case" 2 $ "Generated alts: " ++ show alts'
           logTermNF "elab.case" 2 "Case application" env appTm
-@@ -266,6 +360,25 @@
+@@ -266,6 +366,41 @@
  
           pure (appTm, gnf env caseretty)
    where
++    -- Whether a pattern is a variable, which matches without splitting
++    varPattern : RawImp -> Bool
++    varPattern (Implicit _ _) = True
++    varPattern (IBindVar _ _) = True
++    varPattern (IAs _ _ _ _ p) = varPattern p
++    varPattern _ = False
++
++    -- Whether a clause leaves the variable the case is on as it is
++    keepsVar : ImpClause -> Bool
++    keepsVar (PatClause _ lhs _) = varPattern lhs
++    keepsVar (WithClause _ lhs _ _ _ _ _) = varPattern lhs
++    keepsVar (ImpossibleClause _ lhs) = varPattern lhs
++
 +    -- The case function's type, with the variable it splits taken twice
-+    -- where an unsolved metavariable is applied to it
++    -- where an unsolved metavariable is applied to it and every clause
++    -- splits it
 +    copySplit : Maybe (Var vars) -> ClosedTerm -> Core (ClosedTerm, Maybe Name)
 +    copySplit Nothing ty = pure (ty, Nothing)
 +    copySplit (Just (MkVar {varIdx = i} _)) ty
-+        = splitTwice (genVarName "split") (minus (length vars) (S i)) ty
++        = if any keepsVar alts
++             then pure (ty, Nothing)
++             else splitTwice (genVarName "split") (minus (length vars) (S i)) ty
 +
 +    -- The case function applied to the environment and the scrutinee, or,
 +    -- splitting a variable, to the environment, with that variable twice
@@ -150,7 +172,7 @@
      mkLocalEnv : Env Term vs -> Env Term vs
      mkLocalEnv [] = Env.empty
      mkLocalEnv (b :: bs)
-@@ -308,12 +421,18 @@
+@@ -308,12 +443,18 @@
          = x :: replace k lhs xs
      replace _ _ xs = xs
  
@@ -172,7 +194,7 @@
  
      -- Names used in the pattern we're matching on, so don't bind them
      -- in the generated case block
-@@ -336,25 +455,25 @@
+@@ -336,25 +477,25 @@
          = let fc = getFC lhs in
                substNames [] (map (nestLHS fc) (names nest)) lhs
  
