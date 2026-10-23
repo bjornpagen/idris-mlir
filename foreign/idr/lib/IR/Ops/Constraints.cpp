@@ -17,25 +17,22 @@ namespace idr {
 
 namespace {
 
-// A value of carrier `T` at any grade, and one used any number of times:
-// what an op makes, and what it reads in place. A value used once reaches a
-// primitive only through a cast to many.
-template <typename... T>
+// A value of carrier `T` at any grade: what an op makes.
+template <typename T>
 bool carried(Type type) {
-  return isa<T...>(unrestricted(type));
+  return isa<T>(unrestricted(type));
 }
 
-template <typename... T>
-bool readInPlace(Type type) {
-  return carried<T...>(type) && usesOf(type) == Uses::Many;
-}
+// A value used any number of times: what an op reads in place. A value used
+// once reaches a primitive only through a cast to many.
+bool readInPlace(Type type) { return usesOf(type) == Uses::Many; }
 
 // A list read in place whose element is `element`: a family of base's
 // list's shape, a constructor with no field and one of an element and the
 // list, read off its declaration.
 template <typename Element>
 bool listOf(Type type, Element element) {
-  if (usesOf(type) != Uses::Many)
+  if (!readInPlace(type))
     return false;
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data)
@@ -48,15 +45,17 @@ bool listOf(Type type, Element element) {
 
 } // namespace
 
-bool isStrRead(Type type) { return readInPlace<StrType>(type); }
+bool isStrRead(Type type) { return carried<StrType>(type) && readInPlace(type); }
 bool isStrValue(Type type) { return carried<StrType>(type); }
-bool isStrStatic(Type type) { return readInPlace<StrType>(type) && freedBy(type, Release::Static); }
-bool isBigRead(Type type) { return readInPlace<BigType>(type); }
+bool isStrStatic(Type type) { return isStrRead(type) && freedBy(type, Release::Static); }
+bool isBigRead(Type type) { return carried<BigType>(type) && readInPlace(type); }
 bool isBigValue(Type type) { return carried<BigType>(type); }
-bool isNatRead(Type type) { return readInPlace<NatType>(type); }
+bool isNatRead(Type type) { return carried<NatType>(type) && readInPlace(type); }
 bool isNatValue(Type type) { return carried<NatType>(type); }
-bool isBigOrNatRead(Type type) { return readInPlace<BigType, NatType>(type); }
-bool isBigOrNatValue(Type type) { return carried<BigType, NatType>(type); }
+// An Integer or a natural, the values the big ops take, as the type answers
+// (NumericTypeInterface).
+bool isBigOrNatRead(Type type) { return isCarriedAsBig(type) && readInPlace(type); }
+bool isBigOrNatValue(Type type) { return isCarriedAsBig(type); }
 
 bool isListOfChars(Type type) {
   return listOf(type, [](Type element) { return element.isInteger(32); });

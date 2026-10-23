@@ -57,6 +57,35 @@ constexpr Uses times(Uses a, Uses b) {
   return usesTimes[static_cast<unsigned>(a)][static_cast<unsigned>(b)];
 }
 
+// Whether `release` frees exactly one hold at each claim, by the
+// specification's tables of who frees a hold and what it claims.
+consteval bool freesOneHoldPerClaim(Release release) {
+  for (Unique unique : allOf<Unique>()) {
+    unsigned holds = 0;
+    for (HoldCase kase : allOf<HoldCase>())
+      if (holdRelease[kase] == release && holdClaim[kase] == unique)
+        ++holds;
+    if (holds != 1)
+      return false;
+  }
+  return true;
+}
+
+// The holds `release` frees, by their claim: the inverse of the
+// specification's holdRelease and holdClaim, computed when the compiler is
+// built. Asked only of a release that frees one hold at each claim, counted
+// and scoped; static data claims nothing.
+template <Release release>
+inline constexpr EnumArray<Unique, HoldCase> holdsFreedBy = [] {
+  static_assert(freesOneHoldPerClaim(release),
+                "the release frees one hold at each claim, so its holds invert");
+  EnumArray<Unique, HoldCase> holds{};
+  for (HoldCase kase : allOf<HoldCase>())
+    if (holdRelease[kase] == release)
+      holds[holdClaim[kase]] = kase;
+  return holds;
+}();
+
 // What a value that holds references holds: one of the seven holds of the
 // specification (HoldCase), each fact of it a load from the specification's
 // table. Built from a case of that set or by its three constructors, and the
@@ -68,11 +97,11 @@ public:
   static constexpr Hold fromCase(HoldCase kase) { return Hold(kase); }
   // Freed by its count, with what is known of its sharing.
   static constexpr Hold counted(Unique unique = Unique::None) {
-    return Hold(countedCases[static_cast<unsigned>(unique)]);
+    return Hold(holdsFreedBy<Release::Counted>[unique]);
   }
   // Freed when the lifetime of the op that made it ends.
   static constexpr Hold scoped(Unique unique = Unique::None) {
-    return Hold(scopedCases[static_cast<unsigned>(unique)]);
+    return Hold(holdsFreedBy<Release::Scoped>[unique]);
   }
   // Static data, never freed, shared by definition.
   static constexpr Hold staticData() { return Hold(HoldCase::Static); }
@@ -112,10 +141,6 @@ public:
   friend llvm::hash_code hash_value(Hold hold) { return llvm::hash_value(hold.index()); }
 
 private:
-  static constexpr HoldCase countedCases[] = {HoldCase::Counted, HoldCase::CountedSelf,
-                                              HoldCase::CountedDeep};
-  static constexpr HoldCase scopedCases[] = {HoldCase::Scoped, HoldCase::ScopedSelf,
-                                             HoldCase::ScopedDeep};
   constexpr explicit Hold(HoldCase c) : c(c) {}
   constexpr unsigned index() const { return static_cast<unsigned>(c); }
   HoldCase c;

@@ -292,30 +292,31 @@ void Writer::spread() {
 
 // The loans `fn` needs: a call that passes a counted value to a parameter
 // its callee takes as a view lends it around the call; a jump that passes
-// one to a join parameter made a view lends it around the join point.
+// one to a join parameter made a view lends it around the join point. Each
+// is found by its own walk, the calls' first: a call's loan and a join
+// point's never share a site, and each loan reads its owner when it is
+// made, through what the loans made before it gave back.
 LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
   FuncOp op = graph.op(fn);
-  LogicalResult found = success();
-  op.walk([&](Operation *at) {
-    if (auto call = dyn_cast<CallOp>(at)) {
-      const llvm::SmallBitVector &bits = viewed[graph.id(call.getCalleeAttr())];
-      for (OpOperand &operand : call->getOpOperands()) {
-        unsigned index = operand.getOperandNumber();
-        if (index >= bits.size() || !bits.test(index) || !isCountedValue(operand.get().getType()))
-          continue;
-        if (lastActOf(call)) {
-          found = call.emitOpError("internal error: borrowing lends argument ")
-                  << index << " of a call in tail position, which nothing may follow";
-          return WalkResult::interrupt();
-        }
-        addLoan(loans, call, operand);
+  WalkResult calls = op.walk([&](CallOp call) {
+    const llvm::SmallBitVector &bits = viewed[graph.id(call.getCalleeAttr())];
+    for (OpOperand &operand : call->getOpOperands()) {
+      unsigned index = operand.getOperandNumber();
+      if (index >= bits.size() || !bits.test(index) || !isCountedValue(operand.get().getType()))
+        continue;
+      if (lastActOf(call)) {
+        call.emitOpError("internal error: borrowing lends argument ")
+            << index << " of a call in tail position, which nothing may follow";
+        return WalkResult::interrupt();
       }
-      return WalkResult::advance();
+      addLoan(loans, call, operand);
     }
-    auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(at);
-    if (!terminator)
-      return WalkResult::advance();
-    SmallVector<Attribute> constants(at->getNumOperands());
+    return WalkResult::advance();
+  });
+  if (calls.wasInterrupted())
+    return failure();
+  WalkResult jumps = op.walk([&](RegionBranchTerminatorOpInterface terminator) {
+    SmallVector<Attribute> constants(terminator->getNumOperands());
     SmallVector<RegionSuccessor> successors;
     terminator.getSuccessorRegions(constants, successors);
     for (const RegionSuccessor &successor : successors) {
@@ -330,13 +331,13 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
       for (auto [index, input] : llvm::enumerate(inputs)) {
         if (index >= forwarded.size())
           break;
-        OpOperand &position = at->getOpOperand(first + static_cast<unsigned>(index));
+        OpOperand &position = terminator->getOpOperand(first + static_cast<unsigned>(index));
         auto arg = dyn_cast<BlockArgument>(input);
         if (!arg || !freedBy(arg.getType(), Release::Scoped) || !borrows::isJoinParameter(arg) ||
             !isCountedValue(position.get().getType()))
           continue;
         if (join->isAncestor(position.get().getParentBlock()->getParentOp())) {
-          found = at->emitOpError("internal error: borrowing lends a value made inside the join "
+          terminator->emitOpError("internal error: borrowing lends a value made inside the join "
                                   "point its jump enters, which no loan around it can hold");
           return WalkResult::interrupt();
         }
@@ -345,7 +346,7 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
     }
     return WalkResult::advance();
   });
-  return found;
+  return failure(jumps.wasInterrupted());
 }
 
 // The loan: `site` moves into the loan's region, each position takes the

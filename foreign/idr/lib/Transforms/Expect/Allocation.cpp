@@ -42,8 +42,7 @@ LogicalResult noHeapAllocation(const Request<Roots> &request) {
     using Node = typename N::Node;
     SmallVector<Node> roots;
     if (scope)
-      for (FunctionOpInterface fn : scope->functions)
-        roots.push_back(numbering.id(fn));
+      roots = idsOf(numbering, scope->functions);
     else
       for (Node fn : numbering.functions())
         roots.push_back(fn);

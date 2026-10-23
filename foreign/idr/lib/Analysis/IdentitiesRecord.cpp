@@ -41,14 +41,10 @@ Represents representation(Type a, Type b) {
   return Represents::Differently;
 }
 
-// A big is an APInt of whatever width it was written at, so two bigs are
-// one literal when their values are one.
-bool operator==(const KnownLiteral &a, const KnownLiteral &b) {
-  if (a.literal == b.literal)
-    return true;
-  auto x = dyn_cast<BigAttr>(a.literal), y = dyn_cast<BigAttr>(b.literal);
-  return x && y && APInt::isSameValue(x.getValue(), y.getValue());
-}
+// Each carrier admits one literal per value (a big's is keyed by its integer
+// at its fewest bits, whatever width it was written at), so two literals
+// are one value exactly when they are one attribute.
+bool operator==(const KnownLiteral &a, const KnownLiteral &b) { return a.literal == b.literal; }
 
 namespace {
 

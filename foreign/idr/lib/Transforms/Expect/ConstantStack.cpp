@@ -35,7 +35,9 @@ struct Reference {
 // The functions the body of each function refers to, read once per
 // function, each function's row at its id. What the function's own
 // attributes name (the clone it is) is provenance, not a call; a symbol of
-// something other than a function (a global) is no reference to one.
+// something other than a function (a global) is no reference to one. A
+// function is looked up as the numbering's own, which every function it
+// numbers is.
 template <FunctionNumbering N>
 class Graph {
 public:
@@ -54,7 +56,7 @@ public:
     if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&body))
       for (const SymbolTable::SymbolUse &use : *uses)
         if (auto target =
-                symbols.lookup<FunctionOpInterface>(use.getSymbolRef().getRootReference()))
+                symbols.lookup<typename N::Function>(use.getSymbolRef().getRootReference()))
           out.push_back({numbering.id(target), throughOf(use.getUser())});
     return out;
   }
@@ -93,8 +95,7 @@ LogicalResult constantStack(const Request<Functions> &request) {
         // Every function the named ones may call, themselves included, each
         // taken once.
         Graph<N> graph(numbering, symbols);
-        SmallVector<Node> roots = llvm::map_to_vector(
-            request.argument.functions, [&](FunctionOpInterface fn) { return numbering.id(fn); });
+        SmallVector<Node> roots = idsOf(numbering, request.argument.functions);
         auto edges = [&](Node fn) { return graph.targets(fn); };
         // The cycle each function is on, by its id: cycles are disjoint, so
         // one table answers whether a reference stays in its caller's cycle.

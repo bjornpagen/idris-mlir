@@ -35,20 +35,25 @@ namespace {
 // prefix) is a template parameter.
 using EmitError = function_ref<InFlightDiagnostic()>;
 
-// The index sorts of member `member` of the group a sort or a term names,
-// `own` for a null group; none for a member the group does not have.
-std::optional<ArrayRef<Sort>> sortsOfMember(Attribute payload, uint32_t member,
+// The index sorts of member `member` of `group`, of `own` where the group is
+// null, the one being declared; none for a member the group does not have.
+std::optional<ArrayRef<Sort>> sortsOfMember(FamilyAttr group, uint32_t member,
                                             ArrayRef<Member> own) {
-  if (!payload) {
+  if (!group) {
     if (member >= own.size())
       return std::nullopt;
     return storage::indicesOf(own[member]);
   }
-  auto group = cast<FamilyAttr>(payload);
   if (member >= group.getMembers().size())
     return std::nullopt;
   return group.indices(member);
 }
+
+// The group a family sort names, null for the one it is declared in. A
+// sort holds its payload as an attribute of any kind, a scalar's type or a
+// family's group, which its parser and its bytecode reader admit at a
+// family sort only as a family.
+FamilyAttr groupOf(const Sort &sort) { return cast_if_present<FamilyAttr>(sort.payload); }
 
 // Whether a binder of sort `binder` may stand where `position` is asked: a
 // natural's position takes a natural's binder; a family's, a binder of
@@ -165,7 +170,7 @@ LogicalResult verifyField(EmitError emitError, StringRef label, Type field,
   // A member named by position is one of this group's, applied to indices
   // of its sorts over the binders in scope.
   walker.addWalk([&](SelfType self) {
-    std::optional<ArrayRef<Sort>> sorts = sortsOfMember(Attribute(), self.getMember(), own);
+    std::optional<ArrayRef<Sort>> sorts = sortsOfMember(FamilyAttr(), self.getMember(), own);
     if (!sorts)
       result = emitError() << "@" << label << " names member " << self.getMember()
                            << " of a group of " << own.size();
@@ -188,7 +193,7 @@ LogicalResult verifyCtor(EmitError emitError, StringRef label, ArrayRef<Sort> bi
   if (failed(verifyEquation(emitError, label, equation, indices, binders)))
     return failure();
   for (const Sort &sort : binders)
-    if (sort.kind == SortKind::FamilySort && !sortsOfMember(sort.payload, sort.member, own))
+    if (sort.kind == SortKind::FamilySort && !sortsOfMember(groupOf(sort), sort.member, own))
       return emitError() << "@" << label << " binds a member its group does not have";
   llvm::SmallDenseSet<uint64_t> named;
   for (const TermNode &node : equation)
@@ -220,7 +225,8 @@ LogicalResult FamilyAttr::verify(EmitError emitError, ArrayRef<Member> members) 
                          << "\"";
     ArrayRef<Sort> indices = storage::indicesOf(member);
     for (const Sort &sort : indices)
-      if (sort.kind == SortKind::FamilySort && !sortsOfMember(sort.payload, sort.member, members))
+      if (sort.kind == SortKind::FamilySort &&
+          !sortsOfMember(groupOf(sort), sort.member, members))
         return emitError() << "\"" << memberLabel
                            << "\" is indexed by a member its group does not have";
     llvm::SmallDenseSet<StringRef> labels{memoRunning, memoForced};

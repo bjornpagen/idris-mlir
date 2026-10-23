@@ -101,8 +101,6 @@ void endStack(OpBuilder &b, Location loc, const Runtime &runtime, RegionEnd end,
 
 namespace {
 
-LifetimeKind kindOf(Type type) { return cast<LifetimeType>(type).getKind(); }
-
 // The slot of the home of site `site`: its entry in the thread's array of
 // home cursors, a static datum.
 Value homeSlot(OpBuilder &b, Location loc, uint32_t site) {
@@ -113,10 +111,11 @@ Value homeSlot(OpBuilder &b, Location loc, uint32_t site) {
 
 // The cursor's slot that a put into `lifetime`, converted to `converted`,
 // bumps: a cursor's own, or a home's, which has no value of its own.
-Value cursorSlot(OpBuilder &b, Location loc, Type lifetime, ValueRange converted) {
-  return kindOf(lifetime).fold([&]() -> Value { return {}; }, [&]() -> Value { return {}; },
-                               [&]() -> Value { return converted.front(); },
-                               [&](uint32_t site) -> Value { return homeSlot(b, loc, site); });
+Value cursorSlot(OpBuilder &b, Location loc, Value lifetime, ValueRange converted) {
+  return lifetimes::kindOf(lifetime).fold(
+      [&]() -> Value { return {}; }, [&]() -> Value { return {}; },
+      [&]() -> Value { return converted.front(); },
+      [&](uint32_t site) -> Value { return homeSlot(b, loc, site); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -134,8 +133,8 @@ struct LowerCellArena : IdrPattern<CellArenaOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     const layout::Cell &cell = cellLayoutOf(layouts, cast<CellType>(op.getCell().getType()));
-    Type lifetime = op.getLifetime().getType();
-    Value place = kindOf(lifetime).isRoom()
+    Value lifetime = op.getLifetime();
+    Value place = lifetimes::kindOf(lifetime).isRoom()
                       ? adaptor.getLifetime().front()
                       : bump(rewriter, loc, runtime,
                              cursorSlot(rewriter, loc, lifetime, adaptor.getLifetime()), cell.size);
@@ -181,7 +180,7 @@ struct LowerReserve : IdrPattern<LifetimeReserveOp> {
   LogicalResult matchAndRewrite(LifetimeReserveOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value slot = cursorSlot(rewriter, loc, op.getLifetime().getType(), adaptor.getLifetime());
+    Value slot = cursorSlot(rewriter, loc, op.getLifetime(), adaptor.getLifetime());
     rewriter.replaceOp(op,
                        bump(rewriter, loc, runtime, slot, static_cast<uint64_t>(op.getBytes())));
     return success();
@@ -275,7 +274,7 @@ struct LowerHomeOpener : IdrPattern<LifetimeHomeOp> {
   LogicalResult matchAndRewrite(LifetimeHomeOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    uint32_t site = kindOf(op.getBody().front().getArgument(0).getType())
+    uint32_t site = lifetimes::kindOf(op.getBody().front().getArgument(0))
                         .fold([] { return 0u; }, [] { return 0u; }, [] { return 0u; },
                               [](uint32_t k) { return k; });
     return runRegion(op, rewriter, *getTypeConverter(), {}, {}, {}, [&] {

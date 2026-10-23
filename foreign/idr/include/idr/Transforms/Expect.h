@@ -199,37 +199,36 @@ ProgramOp firstOrderProgram(mlir::ModuleOp module);
 
 // What a check reads of the program's functions: how many ids there are,
 // the size of every bit set and table it keeps of them; the functions, by
-// id; a function's id; and the function an id names. Every set or fact a
-// check holds of functions is a bit set or a table indexed by these ids, so
-// no check keeps a map of functions.
+// id; a function's id; and the function an id names, as the numbering's own
+// function op. Every set or fact a check holds of functions is a bit set or
+// a table indexed by these ids, so no check keeps a map of functions.
 template <class N>
 concept FunctionNumbering =
-    requires(const N &numbering, typename N::Node f, mlir::FunctionOpInterface fn) {
+    requires(const N &numbering, typename N::Node f, typename N::Function fn) {
       requires std::same_as<typename N::Node,
                             Id<typename N::Node::tag, typename N::Node::rep>>;
+      requires std::convertible_to<typename N::Function, mlir::FunctionOpInterface>;
       { numbering.size() } -> std::same_as<Count<typename N::Node>>;
       { numbering.functions() } -> std::ranges::input_range;
-      { numbering.op(f) } -> std::same_as<mlir::FunctionOpInterface>;
+      { numbering.op(f) } -> std::same_as<typename N::Function>;
       { numbering.id(fn) } -> std::same_as<typename N::Node>;
     };
 
 // Where the program graph exists: its function ids, the one numbering of a
-// first-order program's functions, which its passes read too. Its id space
-// has gaps (upstream's external nodes), which `functions` skips and no
-// function's id names.
+// first-order program's functions, which its passes read too, each an
+// idr.func. Its id space has gaps (upstream's external nodes), which
+// `functions` skips and no function's id names.
 class GraphNumbering {
 public:
   using Node = solver::FunctionId;
+  using Function = FuncOp;
 
   explicit GraphNumbering(const solver::ProgramGraph &graph) : graph(graph) {}
 
   Count<Node> size() const { return graph.size(); }
   IdRange<Node> functions() const { return graph.functions(); }
-  mlir::FunctionOpInterface op(Node f) const { return graph.op(f); }
-  // Every function of a first-order program is an idr.func the graph holds.
-  Node id(mlir::FunctionOpInterface fn) const {
-    return graph.id(llvm::cast<FuncOp>(fn.getOperation()));
-  }
+  FuncOp op(Node f) const { return graph.op(f); }
+  Node id(FuncOp fn) const { return graph.id(fn); }
 
 private:
   const solver::ProgramGraph &graph;
@@ -253,6 +252,8 @@ struct WalkedFunction {
 class WalkNumbering {
 public:
   using Node = Id<detail::WalkedFunction>;
+  // Any function op: before the lowering an idr.func, after it LLVM's.
+  using Function = mlir::FunctionOpInterface;
 
   explicit WalkNumbering(mlir::Operation *holder);
 
@@ -283,6 +284,24 @@ mlir::LogicalResult withNumbering(mlir::ModuleOp module, mlir::AnalysisManager &
     return std::invoke(check, GraphNumbering(
                                   analyses.nest(program).getAnalysis<solver::ProgramGraph>()));
   return std::invoke(check, walkOf(module, analyses));
+}
+
+// The ids of `functions`, the functions a request named. A request is read
+// before its check runs, and so before the stage chooses the numbering: it
+// holds them as any function op, which the walk's numbering takes as they
+// are. Under the program graph each becomes an idr.func here, the one test
+// of what it is: every function of a first-order program is one.
+template <FunctionNumbering N>
+llvm::SmallVector<typename N::Node> idsOf(const N &numbering,
+                                          llvm::ArrayRef<mlir::FunctionOpInterface> functions) {
+  llvm::SmallVector<typename N::Node> ids;
+  for (mlir::FunctionOpInterface fn : functions) {
+    if constexpr (std::same_as<typename N::Function, mlir::FunctionOpInterface>)
+      ids.push_back(numbering.id(fn));
+    else
+      ids.push_back(numbering.id(llvm::cast<typename N::Function>(fn.getOperation())));
+  }
+  return ids;
 }
 
 // The functions the body of `fn` names by a symbol use (a call, a closure,

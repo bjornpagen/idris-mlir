@@ -217,7 +217,7 @@ SmallVector<Value> flatten(ArrayRef<ValueRange> values) {
 // A join point's op with its results' and its regions' arguments converted,
 // one value to its components; its regions moved into the new op, which
 // states no lifetime: what it makes is lowered, and no longer scoped.
-template <typename Group>
+template <JoinFamily Group>
 struct ConvertGroupTypes : OpConversionPattern<Group> {
   using OpConversionPattern<Group>::OpConversionPattern;
   using OneToNOpAdaptor = typename OpConversionPattern<Group>::OneToNOpAdaptor;
@@ -279,7 +279,7 @@ struct ConvertGroupYieldTypes : OpConversionPattern<YieldOp> {
 // match and every inner join point in them is blocks already, and every
 // jump to this op and every yield of it ends a block of its regions; a jump
 // to an enclosing op stays for that op's lowering.
-template <typename Group>
+template <JoinFamily Group>
 struct LowerGroup : OpConversionPattern<Group> {
   using OpConversionPattern<Group>::OpConversionPattern;
   void initialize() { this->setHasBoundedRewriteRecursion(); }
@@ -292,33 +292,36 @@ struct LowerGroup : OpConversionPattern<Group> {
         return rewriter.notifyMatchFailure(op, "a region did not lower");
     }
     Location loc = op.getLoc();
-    auto points = cast<JoinPointsOpInterface>(op.getOperation());
     SmallVector<Block *> entries;
     SmallVector<unsigned> tokens;
-    SmallVector<YieldOp> yields;
-    // Each jump to this op with its target's entry block, read while the
-    // tokens are still the regions' own.
-    SmallVector<std::pair<JumpOp, Block *>> jumps;
     for (Region &region : op->getRegions()) {
       entries.push_back(&region.front());
-      tokens.push_back(static_cast<unsigned>(points.getTokens(region).size()));
+      tokens.push_back(static_cast<unsigned>(op.getTokens(region).size()));
     }
-    // Essential: a block leaves by a yield of this op, which gives its
-    // results, or by a jump, which names its join region by its token,
-    // each read through its own op's accessors; every other end (a branch
-    // between the blocks the regions became, one that never ends, a jump to
-    // an enclosing op) stays.
+    // Each exit of this op's own, read while the tokens are still the
+    // regions' own. Where control goes when a block ends is its
+    // terminator's answer (upstream's region-branch terminator): an exit of
+    // this op leaves for one of its successors, after the op with its
+    // results (a yield) or into a join region with that region's parameters
+    // (a jump to it). Every other end stays: a branch between the blocks the
+    // regions became, one that never ends, an exit through this op to an
+    // enclosing one, which that op's lowering reads.
+    struct Exit {
+      RegionBranchTerminatorOpInterface terminator;
+      RegionSuccessor successor;
+    };
+    SmallVector<Exit> exits;
     for (Region &region : op->getRegions())
       for (Block &block : region) {
-        Operation *terminator = block.getTerminator();
-        if (auto yield = dyn_cast<YieldOp>(terminator)) {
-          yields.push_back(yield);
+        auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(block.getTerminator());
+        if (!terminator)
           continue;
-        }
-        auto jump = dyn_cast<JumpOp>(terminator);
-        auto token = jump ? cast<BlockArgument>(jump.getTarget()) : BlockArgument();
-        if (token && token.getOwner()->getParentOp() == op)
-          jumps.emplace_back(jump, entries[points.getTarget(token)->getRegionNumber()]);
+        SmallVector<RegionSuccessor, 1> successors;
+        terminator.getSuccessorRegions(SmallVector<Attribute>(terminator->getNumOperands()),
+                                       successors);
+        RegionSuccessor successor = llvm::getSingleElement(successors);
+        if (getRegionBranchSuccessorOwner(successor).getOperation() == op.getOperation())
+          exits.push_back({terminator, successor});
       }
     Block *before = rewriter.getInsertionBlock();
     Block *after = rewriter.splitBlock(before, rewriter.getInsertionPoint());
@@ -326,16 +329,19 @@ struct LowerGroup : OpConversionPattern<Group> {
                         SmallVector<Location>(op->getNumResults(), loc));
     for (Region &region : op->getRegions())
       rewriter.inlineRegionBefore(region, after);
-    for (YieldOp yield : yields) {
-      rewriter.setInsertionPoint(yield);
-      cf::BranchOp::create(rewriter, yield.getLoc(), after, yield.getResults());
-      rewriter.eraseOp(yield);
-    }
-    for (auto [jump, entry] : jumps) {
-      rewriter.setInsertionPoint(jump);
-      cf::BranchOp::create(rewriter, jump.getLoc(), entry, jump.getArgs());
-      jump->setOperands({});
-      rewriter.eraseOp(jump);
+    // Each exit a branch with what it passes, to the block after the op or
+    // to its join region's entry, upstream's two successors; its own
+    // operands are dropped before it goes, so a jump's token goes with its
+    // region's leading arguments.
+    for (Exit &leaving : exits) {
+      Block *into = leaving.successor.isOperation()
+                        ? after
+                        : entries[leaving.successor.getSuccessor()->getRegionNumber()];
+      rewriter.setInsertionPoint(leaving.terminator);
+      cf::BranchOp::create(rewriter, leaving.terminator.getLoc(), into,
+                           leaving.terminator.getSuccessorOperands(leaving.successor));
+      leaving.terminator->setOperands({});
+      rewriter.eraseOp(leaving.terminator);
     }
     for (auto [entry, leading] : llvm::zip_equal(entries, tokens))
       entry->eraseArguments(0, leading);
@@ -346,6 +352,29 @@ struct LowerGroup : OpConversionPattern<Group> {
   }
 };
 
+// Every member of the join family converts its types by the one pattern,
+// and is legal once its types are and it states no lifetime, its operands
+// being only those it states.
+template <JoinFamily... Groups>
+void convertGroupTypes(const TypeConverter &converter, RewritePatternSet &patterns,
+                       ConversionTarget &target) {
+  patterns.add<ConvertGroupTypes<Groups>...>(converter, patterns.getContext());
+  target.addDynamicallyLegalOp<Groups...>([&converter](Operation *op) {
+    return op->getNumOperands() == 0 && converter.isLegal(op->getResultTypes()) &&
+           llvm::all_of(op->getRegions(), [&](Region &region) {
+             return converter.isLegal(region.getArgumentTypes());
+           });
+  });
+}
+
+// Every member of the join family becomes blocks by the one pattern, and
+// none is left after.
+template <JoinFamily... Groups>
+void lowerGroups(RewritePatternSet &patterns, ConversionTarget &target) {
+  patterns.add<LowerGroup<Groups>...>(patterns.getContext());
+  target.addIllegalOp<Groups...>();
+}
+
 } // namespace
 
 void populateMatchPatterns(RewritePatternSet &patterns) {
@@ -354,17 +383,11 @@ void populateMatchPatterns(RewritePatternSet &patterns) {
 
 void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternSet &patterns,
                                  ConversionTarget &target) {
-  patterns.add<ConvertGroupTypes<JoinOp>, ConvertGroupTypes<LoopOp>, ConvertJumpTypes,
-               ConvertGroupYieldTypes>(converter, patterns.getContext());
-  // A join point's op is legal once its types are and it states no
-  // lifetime, its operands being only those it states.
-  auto groupLegal = [&converter](Operation *op) {
-    return op->getNumOperands() == 0 && converter.isLegal(op->getResultTypes()) &&
-           llvm::all_of(op->getRegions(), [&](Region &region) {
-             return converter.isLegal(region.getArgumentTypes());
-           });
-  };
-  target.addDynamicallyLegalOp<JoinOp, LoopOp>(groupLegal);
+  convertGroupTypes<
+#define GET_JOIN_POINTS_FAMILY_LIST
+#include "idr/IR/Generated/JoinPointsFamily.h.inc"
+      >(converter, patterns, target);
+  patterns.add<ConvertJumpTypes, ConvertGroupYieldTypes>(converter, patterns.getContext());
   target.addDynamicallyLegalOp<JumpOp>(
       [&converter](JumpOp op) { return converter.isLegal(op->getOperandTypes()); });
   target.addDynamicallyLegalOp<YieldOp>(
@@ -374,10 +397,13 @@ void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternS
 ControlFlowLowering::ControlFlowLowering(MLIRContext &context) : target(context) {
   RewritePatternSet set(&context);
   populateSCFToControlFlowConversionPatterns(set);
-  set.add<LowerGroup<JoinOp>, LowerGroup<LoopOp>>(&context);
+  lowerGroups<
+#define GET_JOIN_POINTS_FAMILY_LIST
+#include "idr/IR/Generated/JoinPointsFamily.h.inc"
+      >(set, target);
   patterns = FrozenRewritePatternSet(std::move(set));
   target.addIllegalOp<scf::ForallOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, scf::LoopOp,
-                      scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp, JoinOp, LoopOp>();
+                      scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp>();
   target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 }
 

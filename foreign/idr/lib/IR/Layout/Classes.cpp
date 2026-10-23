@@ -252,13 +252,15 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
       return std::nullopt;
     return unfolded->part();
   };
-  // Essential, two types, each read in its own context: a member named by
-  // position is of the group being unfolded, its declared layout the one
-  // that group's member has at unknown indices; a data type names its own
-  // group and is laid out by its own slots.
-  if (auto self = dyn_cast<SelfType>(value))
-    return member(app.group, self.getMember(), self.getIndices(),
-                  atUnknown(app.group, self.getMember()).part());
+  // Essential, two contexts a field names a member in: a member named by
+  // position is of the group being unfolded, at the one run of terms it
+  // names, its declared layout the one that group's member has at unknown
+  // indices; a data type names its own group and is laid out by its own
+  // slots.
+  auto indexed = dyn_cast<IndexedTypeInterface>(value);
+  if (std::optional<uint32_t> position = indexed ? indexed.getPositionalMember() : std::nullopt)
+    return member(app.group, *position, indexed.getIndexTermRuns().front(),
+                  atUnknown(app.group, *position).part());
   if (auto data = dyn_cast<DataType>(value))
     return member(data.getGroup(), data.getMember(), data.getIndices(),
                   Part{flatWords(data.slots()),
