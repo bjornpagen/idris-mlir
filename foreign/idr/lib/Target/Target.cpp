@@ -4,7 +4,8 @@
 // The triple and the program's CPU with its features are the target
 // entry's description (idr/TargetEntry.h); LLVM derives the rest, the data
 // layout and the width of the vector registers, so nothing about a target
-// is decided here.
+// is decided here, and a module made for another target is an error, never
+// retargeted.
 
 #include "idr/Target/Target.h"
 
@@ -14,16 +15,22 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Target/LLVMIR/Import.h"
 #include "mlir/Target/LLVMIR/Transforms/TargetUtils.h"
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/TargetParser/Triple.h"
+
+#include <array>
+#include <utility>
 
 using namespace mlir;
 
@@ -58,8 +65,11 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
 
   // The steps of LLVM's target-to-data-layout pass, written out: nested,
   // it and this pass after it would verify the whole unoptimized module
-  // again. The pass sets only the module's own attributes, so it preserves
-  // every analysis and the manager skips the verifier after it.
+  // again. Unlike it, the pass never combines a data layout the module
+  // holds with the target's: a module holds each fact of the target as the
+  // build has it, or not at all. The pass sets only the module's own
+  // attributes, so it preserves every analysis and the manager skips the
+  // verifier after it.
   void runOnOperation() override {
     ModuleOp module = getOperation();
     MLIRContext *ctx = &getContext();
@@ -71,18 +81,11 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
       module.emitError() << "failed to obtain llvm::TargetMachine for " << target;
       return signalPassFailure();
     }
-    module->setAttr(LLVM::LLVMDialect::getTargetAttrName(), target);
-
     FailureOr<llvm::DataLayout> layout = LLVM::detail::getDataLayout(target);
     if (failed(layout)) {
       module.emitError() << "failed to obtain llvm::DataLayout for " << target;
       return signalPassFailure();
     }
-    DataLayoutSpecInterface spec = translateDataLayout(*layout, ctx);
-    if (auto existing = module->getAttrOfType<DataLayoutSpecInterface>(DLTIDialect::kDataLayoutAttrName))
-      spec = existing.combineWith({spec});
-    module->setAttr(DLTIDialect::kDataLayoutAttrName, spec);
-
     // The facts the schedules read, held once, in the module: the CPU's
     // vector width, which the lanes of a loop over an array follow.
     auto width = DataLayoutEntryAttr::get(
@@ -91,7 +94,42 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
                          static_cast<std::int64_t>(vectorWidth(**machine))));
     auto cpu = DataLayoutEntryAttr::get(StringAttr::get(ctx, idr::target::cpuDevice),
                                         TargetDeviceSpecAttr::get(ctx, {width}));
-    module->setAttr(DLTIDialect::kTargetSystemDescAttrName, TargetSystemSpecAttr::get(ctx, {cpu}));
+
+    // The build's target as the module holds it: LLVM's target, the data
+    // layout LLVM derives for it, and the facts of its CPU.
+    const std::array<NamedAttribute, 3> built{
+        NamedAttribute(LLVM::LLVMDialect::getTargetAttrName(), target),
+        NamedAttribute(DLTIDialect::kDataLayoutAttrName, translateDataLayout(*layout, ctx)),
+        NamedAttribute(DLTIDialect::kTargetSystemDescAttrName,
+                       TargetSystemSpecAttr::get(ctx, {cpu}))};
+
+    // A module the frontend writes holds none of them and gets the build's.
+    // One that holds any of them otherwise (a module written for
+    // idris-mlir-opt, or one another build targeted) was made for another
+    // target, and retargeting it would compile something other than what
+    // it says, so that a test written for one target would check another
+    // on every other host: it is an error that names each fact it holds
+    // otherwise, as it holds it and as the build has it.
+    SmallVector<std::pair<NamedAttribute, Attribute>, 3> others;
+    for (NamedAttribute fact : built)
+      if (Attribute held = module->getDiscardableAttr(fact.getName());
+          held && held != fact.getValue())
+        others.emplace_back(fact, held);
+    if (!others.empty()) {
+      InFlightDiagnostic error = module.emitError()
+                                 << "the module is for another target than idris-mlir";
+      llvm::StringRef separator = ": ";
+      for (auto [fact, held] : others) {
+        error << separator << "its " << fact.getName().getValue() << " is " << held
+              << ", and idris-mlir's " << fact.getValue();
+        separator = "; ";
+      }
+      return signalPassFailure();
+    }
+    // A fact the module holds is the build's already, so setting it leaves
+    // the module as it was.
+    for (NamedAttribute fact : built)
+      module->setDiscardableAttr(fact.getName(), fact.getValue());
     markAllAnalysesPreserved();
   }
 };
