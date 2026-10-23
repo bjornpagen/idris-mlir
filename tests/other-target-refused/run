@@ -1,0 +1,78 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A module made for another target than the build's is refused by the
+# rule for it: the driver writes its own target on a module before its
+# first step, and refuses one that holds another, since compiling it for
+# the build's would compile something other than what it says. other.mlir
+# names a triple none of the targets has: idris-mlir refuses it, with a
+# refusal's status, by that rule alone, at the module, naming the triple
+# the module holds and the build's. none.mlir names no target, as the
+# frontend's modules name none: it takes the build's and compiles.
+# built.mlir is the module the driver makes of none.mlir before any other
+# step, the first a compilation of it prints, which holds the build's
+# target as the driver writes it: it compiles again, so the driver refuses
+# only another target, never its own. No pass is named: the driver targets
+# every module itself.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+triple=$("$idris_mlir" --print-target-triple)
+
+cat > "$work/none.mlir" << 'EOF_MODULE'
+idr.program @targets root(@main) stage(higher) {
+  idr.func @main() {
+    idr.return
+  }
+}
+EOF_MODULE
+{
+  say 'module attributes {llvm.target = #llvm.target<triple = "sparc64-unknown-netbsd", chip = "generic">} {'
+  cat "$work/none.mlir"
+  say '}'
+} > "$work/other.mlir"
+
+# compile NAME [OPTION...]: idris-mlir compiles NAME.mlir of the work
+# directory, from there, to an archive of its objects, its report beside
+# it; the status in $status, the outputs in NAME.out and NAME.err.
+compile() {
+  name=$1
+  shift
+  (cd "$work" && bounded "$idris_mlir" -c "$name.mlir" -o "$name.a" --report="$name.report" "$@") \
+    > "$work/$name.out" 2> "$work/$name.err"
+  status=$?
+}
+
+compile other
+say "another target: exit $status"
+if grep -qx 'verdict: refused' "$work/other.report" &&
+   [ "$(grep -c '^diagnostic: error ' "$work/other.report")" -eq 1 ] &&
+   grep -q '^diagnostic: error target \(.*/\)\{0,1\}other\.mlir:1$' "$work/other.report"; then
+  say "another target: refused by unsupported (target), the only error, at the module"
+else
+  say "another target: not refused by unsupported (target) alone, at the module"
+  show "$work/other.report" "$work/other.err"
+fi
+if grep -qF 'sparc64-unknown-netbsd' "$work/other.err" && grep -qF "$triple" "$work/other.err"; then
+  say "another target: the refusal names the triple the module holds and the build's"
+else
+  say "another target: the refusal does not name both triples"
+  show "$work/other.err"
+fi
+
+compile none
+say "no target: exit $status"
+[ "$status" -eq 0 ] || show "$work/none.err"
+
+# none.mlir compiled again, printing the module after each step, on one
+# thread, so the first module printed, the driver's own target written on
+# it, is whole before any other.
+cp "$work/none.mlir" "$work/printed.mlir" || exit 1
+compile printed --num-threads=1 --mlir-print-ir-after-all
+awk '/^\/\/ -----\/\/ IR Dump / { dumps++; next } dumps == 1' "$work/printed.err" > "$work/built.mlir"
+if grep -qF "triple = \"$triple\"" "$work/built.mlir"; then
+  compile built
+  say "the build's target, as the driver wrote it: exit $status"
+  [ "$status" -eq 0 ] || show "$work/built.err"
+else
+  say "the build's target: the first module the driver printed names no target of the build's"
+  show "$work/built.mlir"
+fi

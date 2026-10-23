@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The specification's generated files are committed, output and never a
-# second source: specgen, built by the pinned Idris from compiler/spec,
-# finds every committed output and the manifest what it would write, and
-# writes them, into a tree that holds none of them, byte for byte; and no
-# file sits in the generated directory that no output is. On copies it
-# finds what breaks that:
+# second source: specgen, built by the pinned Idris against the
+# specification's library as `make specgen` builds it (specgen.ipkg over
+# spec.ipkg), finds every committed output and the manifest what it would
+# write, and writes them, into a tree that holds none of them, byte for
+# byte; and no file sits in the generated directory that no output is. On
+# copies it finds what breaks that:
 #   - a generated file edited by hand: that file alone;
 #   - a comment in the specification, specgen built again from it:
 #     nothing, since the manifest fingerprints the specification's printed
@@ -25,16 +26,39 @@ test_limit=1800
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 spec_manifest=$("$runtests" --spec-manifest)
 
+# The pinned Idris's own packages, its prelude and base among them.
+pinned_packages=$(pinned_idris --libdir) || exit 1
+
+# specgen_built DIR NAME: specgen, from the specification at DIR, as `make
+# specgen` builds it: the library (spec.ipkg) installed by the pinned Idris
+# into the work directory's prefix NAME.prefix, since the pinned prefix,
+# which every checkout shares, takes no package of ours; then specgen.ipkg
+# built at DIR against that library, on the pinned prefix, whose support
+# code specgen runs on. Both build in DIR's build directory, so specgen's
+# build compiles only its executable, from the library's TTCs; an
+# executable an earlier build left there is removed first, so the one
+# found is this build's. The output in $work/NAME.out; success when DIR
+# holds specgen's executable.
+specgen_built() {
+  rm -rf "$1/build/exec" && mkdir -p "$work/$2.prefix" || return 1
+  (cd "$1" && IDRIS2_PREFIX=$work/$2.prefix && IDRIS2_PACKAGE_PATH=$pinned_packages &&
+     export IDRIS2_PREFIX IDRIS2_PACKAGE_PATH && bounded "$idris2" --install spec.ipkg) \
+    > "$work/$2.out" 2>&1 &&
+    spec_packages=$(IDRIS2_PREFIX=$work/$2.prefix && export IDRIS2_PREFIX && bounded "$idris2" --libdir) &&
+    (cd "$1" && IDRIS2_PACKAGE_PATH=$spec_packages && export IDRIS2_PACKAGE_PATH &&
+       pinned_idris --build specgen.ipkg) >> "$work/$2.out" 2>&1 &&
+    [ -x "$1/build/exec/specgen" ]
+}
+
 # specgen, by the pinned Idris, in a copy of the specification's sources,
 # so that its build is the test's and never the checkout's.
 spec_sources "$root" "$work/built" || exit 1
 spec_build=$work/built/compiler/spec
-if (cd "$spec_build" && pinned_idris --build spec.ipkg) > "$work/build.out" 2>&1 &&
-   [ -x "$spec_build/build/exec/specgen" ]; then
+if specgen_built "$spec_build" built; then
   say "specgen: built by the pinned Idris"
 else
   say "specgen: not built"
-  show "$work/build.out"
+  show "$work/built.out"
   exit 0
 fi
 specgen=$spec_build/build/exec/specgen
@@ -82,7 +106,7 @@ spec_named "a generated file edited by hand" "$edited"
 planted_tree spec-comment
 rm -rf "$tree/compiler/spec" && cp -R "$spec_build" "$tree/compiler/spec" || exit 1
 say '-- a comment no output holds' >> "$tree/compiler/spec/IdrisMLIR/Spec.idr"
-if ! (cd "$tree/compiler/spec" && pinned_idris --build spec.ipkg) > "$work/comment.out" 2>&1; then
+if ! specgen_built "$tree/compiler/spec" comment; then
   say "a comment in the specification: specgen not built again"
   show "$work/comment.out"
 else
@@ -90,8 +114,8 @@ else
   spec_named "a comment in the specification"
 fi
 
-# The generator's first module the package lists gains a definition no
-# output reads, so it writes what it wrote.
+# The first generator module the library's package (spec.ipkg) lists gains
+# a definition no output reads, so it writes what it wrote.
 planted_tree generator
 generator_module=$(sed -n 's/.*\(IdrisMLIR\.Spec\.Generator\.[A-Za-z0-9]*\).*/\1/p' \
   "$root/compiler/spec/spec.ipkg" | head -n 1)
@@ -115,7 +139,7 @@ awk 'done || !/summary = "/ { print; next } { sub(/summary = "/, "summary = \"Pl
   cp "$work/Spec.idr" "$tree/compiler/spec/IdrisMLIR/Spec.idr"
 if ! grep -q 'summary = "Planted, ' "$tree/compiler/spec/IdrisMLIR/Spec.idr"; then
   say "the specification changed: no dialect summary in IdrisMLIR/Spec.idr to change"
-elif ! (cd "$tree/compiler/spec" && pinned_idris --build spec.ipkg) > "$work/rebuild.out" 2>&1; then
+elif ! specgen_built "$tree/compiler/spec" rebuild; then
   say "the specification changed: specgen not built again"
   show "$work/rebuild.out"
 else

@@ -149,10 +149,10 @@ dataOf alias = typeName dataType ++ "<#" ++ alias ++ ">"
 refinedTo : String -> String -> String
 refinedTo alias label = typeName dataType ++ "<#" ++ alias ++ " @" ++ label ++ ">"
 
-||| A closure of one word to one word. The closures' type is not yet a
-||| declaration of the specification's, so its name is written here.
+||| A closure of one word to one word: `!idr.fn<(i64) -> (i64)>`, each list
+||| between its parentheses, as the type's syntax has them.
 closure : String
-closure = "!" ++ idr ++ ".fn<(i64) -> i64>"
+closure = typeName fnType ++ "<(i64) -> (i64)>"
 
 ------------------------------------------------------------------------------
 -- Printing a program
