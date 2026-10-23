@@ -176,6 +176,33 @@ exitWith = entry (Def (MkQName ["System"] "exitWith"))
     exitCode = Head (Def (MkQName ["System"] "ExitCode")) []
 
 ------------------------------------------------------------------------------
+-- What a trusted library holds
+------------------------------------------------------------------------------
+
+||| A definition of `PrimIO` it admits, whose library admits nothing else
+||| (`Libraries`). The admission does not depend on the type, so the shape
+||| is a hole: validation checks that the library still defines it.
+admitted : String -> AnyEntry
+admitted name = entry (Def (MkQName ["PrimIO"] name)) (Ruled Hole) Admission
+
+||| What `PrimIO` admits: the IO types and their operations, and the
+||| pointers, which are the runtime's handles, with their operations.
+||| Threads and collector finalizers are outside the language, refused by
+||| name; anything else of `PrimIO` is not admitted.
+fromPrimIO : List AnyEntry
+fromPrimIO = map admitted
+  [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"
+  , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
+  , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr", "Ptr", "prim__nullAnyPtr"
+  , "prim__getNullAnyPtr", "prim__castPtr", "prim__forgetPtr", "prim__nullPtr" ]
+
+||| The totality assertions, which a trusted library's own definitions may
+||| hold. The trust does not depend on the type either.
+assertions : List AnyEntry
+assertions =
+  map (\n => entry (Def (MkQName ["Builtin"] n)) (Ruled Hole) TotalityAssertion) ["assert_total", "assert_smaller"]
+
+------------------------------------------------------------------------------
 -- Outside the language
 ------------------------------------------------------------------------------
 
@@ -267,4 +294,5 @@ recognized =
   -- corrupt length). The spelling above still rejects it in user source,
   -- and a user definition that reaches the function is rejected because
   -- the reach is not from a trusted definition.
-  , entry (Def (MkQName ["Builtin"] "idris_crash")) (External Hole) LibraryCrash ]
+  , entry (Def (MkQName ["Builtin"] "idris_crash")) (External Hole) LibraryCrash ] ++
+  fromPrimIO ++ assertions

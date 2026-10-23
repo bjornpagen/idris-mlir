@@ -19,6 +19,7 @@ import public IdrisMLIR.Registry.Entry
 import public IdrisMLIR.Registry.Name
 import public IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Registry.Faster
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Registry.Recognized
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Types
@@ -79,6 +80,15 @@ foreignHook q specs = do
   pure (case site e of
           Just (declared, _) => if declared == q then Right (withHook noHooks e.entry.hook) else Left (e, DeclaredBy q)
           Nothing => Right (withHook noHooks e.entry.hook))
+
+||| Is a definition of this origin admitted, by the hooks of its name, or
+||| for a case or with block its parent's: its library admits every
+||| definition of it, or its entry admits it. `Builtin`'s escape hatches
+||| are admitted like the rest of it: Idris flags them (`isEscapeHatch`),
+||| and the escape-hatch check rejects them on that flag first.
+export
+admits : Origin -> Hooks lib -> Bool
+admits o hs = covers Admitted o || hs.admission
 
 ||| Is a registry name in one of these modules (given by their paths,
 ||| outermost first)? Every entry's definition is in the module its

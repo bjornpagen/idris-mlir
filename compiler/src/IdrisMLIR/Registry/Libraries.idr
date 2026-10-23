@@ -2,13 +2,10 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The library table: where code comes from, and what each purpose of the
 ||| compiler makes of each library. The purposes differ: `Admitted` covers
-||| `PrimIO` only for what it lists, and `ReportAtCaller` leaves out base
-||| and the packages this compiler ships.
+||| `PrimIO` only for the definitions the registry's entries admit
+||| (`Admission`), and `ReportAtCaller` leaves out base and the packages
+||| this compiler ships.
 module IdrisMLIR.Registry.Libraries
-
-import IdrisMLIR.Registry.Name
-
-import Data.SortedSet
 
 %default total
 
@@ -59,7 +56,7 @@ record Row where
   trusted, admitted, reportAtCaller : Bool
 
 ||| The table, one row per library. `Admitted` is off for `PrimIO`, which
-||| admits only what `admittedFromPrimIO` lists.
+||| admits only the definitions the registry's entries admit (`Admission`).
 |||
 |||                          trusted admitted report
 row : Lib -> Row
@@ -110,34 +107,3 @@ moduleOrigin _ _ = Untrusted
 export
 defaultPackages : List String
 defaultPackages = ["prelude", "base"]
-
-------------------------------------------------------------------------------
--- Policy by definition
-------------------------------------------------------------------------------
-
-||| What `PrimIO` admits: the IO types and their operations, and the
-||| pointers, which are the runtime's handles, with their operations.
-||| Threads and collector finalizers are outside the language, refused by
-||| name; anything else of `PrimIO` is not admitted.
-admittedFromPrimIO : SortedSet String
-admittedFromPrimIO = SortedSet.fromList
-  [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"
-  , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
-  , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr", "Ptr", "prim__nullAnyPtr"
-  , "prim__getNullAnyPtr", "prim__castPtr", "prim__forgetPtr", "prim__nullPtr" ]
-
-||| Is a definition of this origin admitted? The name is the
-||| definition's own, or for a case or with block its parent's. `Builtin`'s
-||| escape hatches are admitted like the rest of it: Idris flags them
-||| (`isEscapeHatch`), and the escape-hatch check rejects them on that flag
-||| first.
-export
-admits : Origin -> QName -> Bool
-admits o q = covers Admitted o || (q.space == ["PrimIO"] && contains q.name admittedFromPrimIO)
-
-||| A totality assertion, an escape hatch that changes no value.
-||| A trusted library's own are trusted; the user's are rejected on Idris's
-||| flag like any other escape hatch.
-export
-assertion : QName -> Bool
-assertion q = q.space == ["Builtin"] && elem q.name ["assert_total", "assert_smaller"]

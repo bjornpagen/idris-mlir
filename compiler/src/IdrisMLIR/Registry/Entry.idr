@@ -266,10 +266,12 @@ data Reached = WhereverReached | WhereUserCodeNames
 ||| body is no meaning (an external type, an `%extern`, a builtin, a body
 ||| that only coerces): Idris's backend contract, which every backend
 ||| implements. A faster entry lowers a definition with a body to another
-||| form of the same meaning; a stricter one adds a refusal. Removing a
-||| faster or stricter entry may change speed or which programs are
-||| refused, never a program's result, so a build without the faster
-||| entries runs every program the same; a contract is never removed.
+||| form of the same meaning; a stricter one adds a refusal, or bounds one
+||| the compiler makes of a trusted library (what of `PrimIO` it admits,
+||| which escape hatches of its own it may hold). Removing a faster or
+||| stricter entry may change speed or which programs are refused, never a
+||| program's result, so a build without the faster entries runs every
+||| program the same; a contract is never removed.
 public export
 data Kind = Contract | Faster | Stricter
 
@@ -399,6 +401,17 @@ data Hook : Kind -> Type where
   ||| the program with that string. A user's call stays rejected. Handler:
   ||| `Frontend.Profile.checkReachable`, `Frontend.Translate.primitive`.
   LibraryCrash : {auto 0 lowers : Lowers kd} -> Hook kd
+  ||| Admitted from a trusted library that admits only the definitions its
+  ||| entries name (`PrimIO`). Any other definition of it is refused where
+  ||| the program reaches it; a case or with block is admitted as its
+  ||| parent is. Handler: `Frontend.Profile.checkReachable`.
+  Admission : Hook Stricter
+  ||| A totality assertion (`assert_total`, `assert_smaller`), an escape
+  ||| hatch that changes no value. A trusted library's own are trusted: the
+  ||| walk of what the program reaches does not enter one from a trusted
+  ||| definition. The user's are rejected on Idris's flag like any other
+  ||| escape hatch. Handler: `Frontend.Profile.checkReachable`.
+  TotalityAssertion : Hook Stricter
 
 ||| What sum a data type is, by the registry: base's list, a type whose
 ||| cells are rebuilt in place, or Idris's equality. One field holds them,
@@ -433,12 +446,14 @@ record Hooks (lib : Type) where
   forbidden : Maybe (Reached, SomeRule)
   deprecated : Maybe String
   libraryCrash : Bool
+  admission : Bool
+  totalityAssertion : Bool
 
 ||| A definition no entry names.
 export
 noHooks : Hooks lib
 noHooks = MkHooks Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing False Nothing Nothing
-                  False Nothing False Nothing Nothing Nothing False
+                  False Nothing False Nothing Nothing Nothing False False False
 
 ||| The hooks with one more entry's, after those already there: an earlier
 ||| entry of the same kind stays.
@@ -466,6 +481,8 @@ withHook hs h = case h of
   Forbidden at r => { forbidden $= keep (at, r) } hs
   Deprecated m => { deprecated $= keep m } hs
   LibraryCrash => { libraryCrash := True } hs
+  Admission => { admission := True } hs
+  TotalityAssertion => { totalityAssertion := True } hs
   where
     keep : a -> Maybe a -> Maybe a
     keep x Nothing = Just x
@@ -479,7 +496,8 @@ readLibraries : Applicative m => (readOne : a -> m b) -> Hooks a -> m (Hooks b)
 readLibraries readOne hs =
   (\al, nat => MkHooks hs.pureCall hs.ioCall hs.arrayCall hs.orderedArray hs.valueArray hs.generating
                        hs.sumShape hs.primCall hs.handle hs.wordType hs.builds al hs.identityOnLast
-                       nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash)
+                       nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash hs.admission
+                       hs.totalityAssertion)
     <$> traverse readOne hs.alias <*> traverse natural hs.natOperation
   where
     natural : NatMeaning a -> m (NatMeaning b)
@@ -520,8 +538,8 @@ data Expect : Kind -> Key -> Type where
   ||| A definition with a body, at the key's name, whose type has this
   ||| shape: the body is its meaning, which the hook computes another way.
   Typed : Shape -> Expect Faster (Def q)
-  ||| A definition at the key's name, of this shape, body or not, which the
-  ||| hook refuses.
+  ||| A definition at the key's name, of this shape, body or not, on which
+  ||| the hook rules: a refusal, or where one stops.
   Ruled : Shape -> Expect Stricter (Def q)
   ||| A definition with no body of its own at the key's name (an external
   ||| type, a builtin), whose type has this shape: the hook is its meaning.
