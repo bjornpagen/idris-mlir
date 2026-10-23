@@ -52,7 +52,7 @@ processParams {vars} {c} {m} {u} nest env fc ps ds
          -- name in the source, so its position is given a machine name in
          -- the current namespace, which nothing a user writes can name and
          -- where nothing is ever defined.
-         pidx <- resolveName !(genName (known KIParameters))
+         pidx <- resolveName !(genName (known KparamBlock))
          u <- uniVar fc
          pty <- checkTerm pidx InType []
                           nest env pty_imp (gType fc u)
