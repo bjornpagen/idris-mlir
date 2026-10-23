@@ -836,7 +836,7 @@ arrangement : {todo : _} -> List01 True (NamedPats todo vars) ->
               (now ** after ** Arrangement now after todo)
 arrangement {todo = []} rows = (_ ** _ ** NoColumns)
 arrangement {todo = _ :: _} rows
-    = let (_ ** _ ** placed) = arrangement (map tail rows) in
+    = let (_ ** _ ** placed) = arrangement (map CaseBuilder.tail rows) in
           case foldr (both . firstUse) Binds rows of
                Fixed => (_ ** _ ** Postponed placed)
                _ => (_ ** _ ** InPlace placed)

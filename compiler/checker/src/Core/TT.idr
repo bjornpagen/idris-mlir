@@ -501,6 +501,19 @@ resolveMisses p q None NoneHere = Refl
 resolveMisses p q (Add new old rest) (NotThis differs none)
     = trans (matchedOff p q rest (n == old) differs) (resolveMisses p (q :< new) rest none)
 
+||| The variable a name stands for, searched from the first bound, with no
+||| bound before it.
+-- Exported, not public: the search starts at the empty snoc-list's size,
+-- a definition of a module that a module importing this one does not
+-- load, so a proof there that unfolded the start would name what Idris
+-- has not loaded. Such a proof reads what `mkLocals` makes of a reference
+-- through `mkLocalsMarker`, `mkLocalsUnreplaced` and `mkLocalsUnknown`,
+-- which unfold it here.
+export
+resolveFirst : {0 outer, bound, vars : Scope} ->
+               SizeOf outer -> Bounds bound -> FC -> Name -> Maybe (Var (outer ++ (bound ++ vars)))
+resolveFirst p bs fc n = resolveRef {vars} p [<] bs fc n
+
 %default covering
 
 ||| A name that resolves to a variable is the local at it; one that
@@ -513,7 +526,8 @@ resolvedOr t fc (Just (MkVar p)) = Local fc Nothing _ p
 -- Each kind of node that holds terms is traversed by a function of its
 -- own, so that every recursive call is on a part of its argument; each
 -- public, so that a proof over a term whose names are turned into
--- variables reads off what each node becomes.
+-- variables reads off what each node becomes, and a reference's search,
+-- `resolveFirst`, through the lemmas below.
 mutual
   public export
   mkLocalsPi : SizeOf outer -> Bounds bound ->
@@ -550,11 +564,11 @@ mutual
   mkLocals outer bs (Local fc r idx p)
       = localAt fc r (addVars outer bs (MkNVar p))
   mkLocals outer bs (Ref fc Bound name)
-      = resolvedOr (Ref fc Bound name) fc (resolveRef outer [<] bs fc name)
+      = resolvedOr (Ref fc Bound name) fc (resolveFirst outer bs fc name)
   mkLocals outer bs (Ref fc nt name)
       = Ref fc nt name
   mkLocals outer bs (Meta fc name y xs)
-      = resolvedOr (Meta fc name y (mkLocalsTerms outer bs xs)) fc (resolveRef outer [<] bs fc name)
+      = resolvedOr (Meta fc name y (mkLocalsTerms outer bs xs)) fc (resolveFirst outer bs fc name)
   mkLocals outer bs (Bind fc x b scope)
       = Bind fc x (mkLocalsBinder outer bs b)
              (mkLocals (suc outer) bs scope)

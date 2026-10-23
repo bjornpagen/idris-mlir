@@ -71,6 +71,10 @@ import Idris.REPL.Opts
 import Idris.SetOptions
 import Idris.Syntax
 
+-- Nothing here names a length's constructors, but proofs here unfold the
+-- sizes' public definitions (`SizeOf.zero` is `MkSizeOf Z Z` over them),
+-- and Idris unfolds only what an import loads.
+import Data.List.HasLength
 import Data.Nat
 import Data.Vect
 import Decidable.Equality
@@ -1395,7 +1399,7 @@ export
                        substs (mkSizeOf ns) vs (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed {outer = vars} t)))
                          = substs (mkSizeOf ns) vs (embed {outer = vars} t)
 substitutesMarkers None [] t _ _ = substNothing zero (mkSizeOf []) (substs (mkSizeOf []) [] (embed t))
-substitutesMarkers {ns} (Add new old rest) vs t apart none
+substitutesMarkers (Add new old rest) vs t apart none
     = markersPutBack zero (mkSizeOf ns) (Add new old rest) vs apart (embed t)
                      (trans (mentionsEmbed BoundOrUnknown (Add new old rest) t) none)
 
@@ -1879,6 +1883,8 @@ shiftedWeaken s v = insertShifted zero s v
 -- matched in one clause and bound in the others leaves the coverage check
 -- a tree for that clause's split and another for the rest, and the second
 -- splits the local cases again without what the first had already taken.
+-- Each use names the binder: the count reads no name, so no unification
+-- solves it.
 0 sizeSuc : (o : SizeOf xs) -> size (suc {a} o) = S (size o)
 sizeSuc (MkSizeOf _ _) = Refl
 
@@ -1906,8 +1912,8 @@ mutual
           (PastCut k past (trans ix (trans (cong (size s +) same) (insertedPast c e m k (size s)))))
   shiftedInsert c e m o s eq ShRef = ShRef
   shiftedInsert c e m o s eq (ShMeta ts) = ShMeta (shiftedInsertAll c e m o s eq ts)
-  shiftedInsert c e m o s eq (ShBind b sc) =
-    ShBind (shiftedInsertBinder c e m o s eq b) (shiftedInsert (S c) e m (suc o) s (trans (sizeSuc o) (cong S eq)) sc)
+  shiftedInsert c e m o s eq (ShBind {y} b sc) =
+    ShBind (shiftedInsertBinder c e m o s eq b) (shiftedInsert (S c) e m (suc o) s (trans (sizeSuc {a = y} o) (cong S eq)) sc)
   shiftedInsert c e m o s eq (ShApp f a) = ShApp (shiftedInsert c e m o s eq f) (shiftedInsert c e m o s eq a)
   shiftedInsert c e m o s eq (ShAs n t) = ShAs (shiftedInsert c e m o s eq n) (shiftedInsert c e m o s eq t)
   shiftedInsert c e m o s eq (ShDelayed t) = ShDelayed (shiftedInsert c e m o s eq t)
@@ -1959,8 +1965,8 @@ mutual
                   (PastCut k past (keptPast c e m k eq))
   shiftedSubst c e m o s env eq ShRef = ShRef
   shiftedSubst c e m o s env eq (ShMeta ts) = ShMeta (shiftedSubstAll c e m o s env eq ts)
-  shiftedSubst c e m o s env eq (ShBind b sc) =
-    ShBind (shiftedSubstBinder c e m o s env eq b) (shiftedSubst (S c) e m (suc o) s env (trans (sizeSuc o) (cong S eq)) sc)
+  shiftedSubst c e m o s env eq (ShBind {y} b sc) =
+    ShBind (shiftedSubstBinder c e m o s env eq b) (shiftedSubst (S c) e m (suc o) s env (trans (sizeSuc {a = y} o) (cong S eq)) sc)
   shiftedSubst c e m o s env eq (ShApp f a) = ShApp (shiftedSubst c e m o s env eq f) (shiftedSubst c e m o s env eq a)
   shiftedSubst c e m o s env eq (ShAs n t) = ShAs (shiftedSubst c e m o s env eq n) (shiftedSubst c e m o s env eq t)
   shiftedSubst c e m o s env eq (ShDelayed t) = ShDelayed (shiftedSubst c e m o s env eq t)
@@ -2937,7 +2943,7 @@ mutual
 0 putInMapped : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                 (t : Term (outer ++ vars)) -> mentions UnknownOnly bs t = False ->
                 Mapped KeepsLocals bs vs (size o) t (putIn o sz bs vs t)
-putInMapped o sz None [] t _ = rewrite substNothing o sz t in mappedItself t
+putInMapped {vars} o sz None [] t _ = rewrite substNothing {vars} o sz t in mappedItself t
 putInMapped o sz (Add x old rest) vs t none = putInMappedAdd o sz rest vs t none
 
 mutual

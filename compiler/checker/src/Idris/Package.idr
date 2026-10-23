@@ -696,7 +696,9 @@ clean pkg opts -- `opts` is not used but might be in the future
                                     v = Builtin.snd ksv
                                   in
                                 insertWith (reverse ks) (maybe [v] (v::)) trie) empty toClean
-         foldWithKeysM @{Monad.CORE} (deleteFolder builddir)
+         -- The fold takes its monad and monoid as one pair; Core's monad is
+         -- named, so it is given, and unit's monoid found.
+         foldWithKeysM @{(Monad.CORE, %search)} (deleteFolder builddir)
                        (\ks => map concat . traverse (deleteBin builddir ks))
                        pkgTrie
          deleteFolder builddir []
