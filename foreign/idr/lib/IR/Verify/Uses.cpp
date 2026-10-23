@@ -6,6 +6,7 @@
 // constructor has a cell and what a view was read from: shared by the
 // verifier and the ownership passes, so each has one meaning.
 
+#include "idr/Analysis/Ownership/Facts.h"
 #include "idr/IR/Effects/Classify.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -229,7 +230,9 @@ Value idr::ownership::readFrom(Value value) {
 Value idr::ownership::viewRoot(Value value) { return definitionChain(value, viewedFrom).back(); }
 
 // A result is made by its op, and an argument of a region by the region's
-// op, which declares what moves into it.
+// op, which declares what moves into it. Whether the value moved out of a
+// part holds the reference its place held is what that place holds after
+// the op (placeAfter), the question exclusivity and the local rule ask too.
 std::optional<Value> idr::ownership::ownerOfPart(Value value) {
   Operation *op = isa<OpResult>(value) ? value.getDefiningOp()
                                        : cast<BlockArgument>(value).getOwner()->getParentOp();
@@ -237,14 +240,8 @@ std::optional<Value> idr::ownership::ownerOfPart(Value value) {
     return std::nullopt;
   FlowEdges edges;
   flowEdgesOf(op, edges);
-  using Read = std::optional<Value>;
-  Read owner;
+  std::optional<Value> owner;
   enum class Given : std::uint8_t { Borrowed, OwnReference } given = Given::Borrowed;
-  auto partRead = [](const FlowSource::Part &part) {
-    return match(
-        part.of, [](const FlowSource::Taken &) -> Read { return std::nullopt; },
-        [](const FlowSource::Whole &whole) -> Read { return whole.value; });
-  };
   for (const FlowEdges::Edge &edge : edges.edges())
     match(
         edge.move,
@@ -254,20 +251,32 @@ std::optional<Value> idr::ownership::ownerOfPart(Value value) {
               [](const OneOf<FlowPlace::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
                 return false;
               });
-          Read from = match(
-              flow.from.at, partRead,
+          if (!intoValue)
+            return;
+          match(
+              flow.from.at,
+              // A view of the whole where the place keeps the reference it
+              // held; that reference itself where the op empties the place.
+              [&](const FlowSource::Part &part) {
+                switch (placeAfter(edges, part)) {
+                case PlaceAfter::Kept:
+                  owner = part.value();
+                  return;
+                case PlaceAfter::Emptied:
+                  given = Given::OwnReference;
+                  return;
+                }
+              },
               [](const OneOf<FlowSource::Taken, FlowSource::Whole, FlowSource::Parameter,
-                             FlowSource::Result> auto &) -> Read { return std::nullopt; });
-          if (intoValue && from)
-            owner = from;
+                             FlowSource::Result> auto &) {});
         },
         [&](const FlowEdges::Fresh &fresh) {
           if (fresh.to == value)
             given = Given::OwnReference;
         },
-        [&](const FlowEdges::Overwrite &) { given = Given::OwnReference; },
-        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release, FlowEdges::Fill,
-                       FlowEdges::Constant, FlowEdges::Dispatch> auto &) {});
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release,
+                       FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant,
+                       FlowEdges::Dispatch> auto &) {});
   if (given == Given::OwnReference)
     return std::nullopt;
   return owner;

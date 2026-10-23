@@ -100,33 +100,6 @@ struct Term {
   Unique held = Unique::None;
 };
 
-// What the place a part is read from holds once the op has read it, as the
-// op's edges say: nothing, the reference it held moved out with the part,
-// where the op takes over the whole the part is of, or keeps the whole and
-// declares the place overwritten (an array's take, a memo cell's exchange:
-// the place holds nothing until a later write fills it); or the reference
-// it held, which the part only views.
-enum class PlaceAfter : std::uint8_t { Emptied, Kept };
-
-// The place `part` is read from among `edges`, the edges of the op that
-// reads it.
-inline PlaceAfter placeAfter(const FlowEdges &edges, const FlowSource::Part &part) {
-  if (reachOf(part) == Reach::Taken)
-    return PlaceAfter::Emptied;
-  mlir::Value whole = part.value();
-  bool overwritten = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
-    return match(
-        edge.move,
-        [&](const FlowEdges::Overwrite &over) {
-          return over.place.of == whole && over.place.anchor == part.anchor;
-        },
-        [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
-                       FlowEdges::Release, FlowEdges::Fill, FlowEdges::Constant,
-                       FlowEdges::Dispatch> auto &) { return false; });
-  });
-  return overwritten ? PlaceAfter::Emptied : PlaceAfter::Kept;
-}
-
 // Whether an op makes the value new, or the value is moved into from
 // elsewhere, or no edge of the op explains it.
 enum class Origin : std::uint8_t { Unexplained, Fresh, Flows };

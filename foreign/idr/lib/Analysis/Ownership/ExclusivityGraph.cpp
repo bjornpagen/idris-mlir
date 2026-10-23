@@ -4,9 +4,9 @@
 // solved (ExclusivityDetail.h): its followed values numbered by the walk,
 // the edges along which sharing moves between them, the values shared in
 // every context, its calls and its return, the views it takes a reference
-// of, and its moves into and out of memo labels' fields. Every edge is read
-// off the flow interface and upstream's region interfaces, each op's edges
-// enumerated once.
+// of, its moves into memo labels' fields and the parts it moves or reads
+// out of them. Every edge is read off the flow interface and upstream's
+// region interfaces, each op's edges enumerated once.
 //
 // A block that ends where control never leaves back to its parent (a
 // crash, an exit, ub.unreachable) forwards nothing, so it gives the
@@ -18,7 +18,6 @@
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
-#include "idr/Analysis/Ownership/Local.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/Flow.h"
@@ -279,16 +278,18 @@ private:
       anchors.share(anchor);
   }
 
-  // A capture moved out of a memo label's field, its place emptied, holds
-  // what the field held, whatever else holds the cell; read with the field
-  // keeping its reference, and used, a second reference to it may be taken
-  // there, so the field is shared.
+  // A part of a memo label's field holds what the field holds, whatever
+  // else holds the cell, so it is linked to the field either way. Moved out,
+  // its place emptied, the move explains the value it moves into. Read with
+  // the field keeping its reference, and used, a second reference to what
+  // the field holds may be taken there: the field is shared, and through
+  // the link the value read with it.
   void outOfAnchor(ownership::PlaceAfter place, Anchor anchor, Value to) {
+    if (Local at = localOf(to); at != noLocal)
+      body.outOfAnchors.push_back({anchor, at});
     switch (place) {
     case ownership::PlaceAfter::Emptied:
       explain(to);
-      if (Local at = localOf(to); at != noLocal)
-        body.outOfAnchors.push_back({anchor, at});
       return;
     case ownership::PlaceAfter::Kept:
       if (!to.use_empty())

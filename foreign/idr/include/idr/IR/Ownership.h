@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the ownership passes share: which constructor has a cell, what a use
-// does with a reference, and what a value was read from. Whether a value is
+// What the ownership passes share: which constructor has a cell, which
+// memory a store hands a reference to, and what a value was read from. Whether a value is
 // static data is its grade's (`static`), read off its type, never searched
 // for along its definitions.
 #ifndef IDR_IR_OWNERSHIP_H
@@ -26,18 +26,6 @@ bool buildsCell(mlir::Type type, Tag tag);
 
 namespace idr::ownership {
 
-// What a use does with a reference in the owned stage: consumes one, or
-// only needs the value to be alive.
-enum class Use { Consume, Borrow };
-
-// The op that uses `operand` declares which (effects::consumes): returns,
-// scf's yields, a call's counted parameters and the operands ODS names
-// beside each idr op consume; everything else borrows, the closure an apply
-// calls included. A force is placement's: counting gives it its cell
-// counted where the cell dies, and there it takes the cell over; anywhere
-// else it reads a view.
-Use useOf(mlir::OpOperand &operand);
-
 // Whether an op of upstream's writes the value `operand` holds into memory
 // (a memref.store's value): the memory then holds it, and the reference
 // with it.
@@ -57,10 +45,10 @@ mlir::Value viewRoot(mlir::Value value);
 // The owner `value` is a part of, read with no reference of its own (a
 // field read, an element view, a lent element), as the op that makes it
 // declares its moves: it moves whole out of a part of a value the op only
-// reads, and the op neither empties a place (a take moves what it holds
-// out with its reference) nor makes the value fresh (a copy gives it one
-// of its own). None for any other value. Such a part is given up with its
-// owner, never on its own.
+// reads, and the op neither empties the place it moves out of (a take
+// moves what it holds out with its reference) nor makes the value fresh
+// (a copy gives it one of its own). None for any other value. Such a part
+// is given up with its owner, never on its own.
 std::optional<mlir::Value> ownerOfPart(mlir::Value value);
 
 } // namespace idr::ownership

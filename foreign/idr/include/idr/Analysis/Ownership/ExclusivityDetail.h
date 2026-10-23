@@ -99,7 +99,8 @@ struct Body {
   // Views a reference is taken of here, by root.
   footprint::Vector<ViewRoot> viewsCopied;
   footprint::Vector<Call> calls;
-  // Moves into and out of memo labels' fields.
+  // Moves into memo labels' fields, and the parts moved or read out of
+  // them, each holding what its field holds.
   footprint::Vector<std::pair<Local, Anchor>> intoAnchors;
   footprint::Vector<std::pair<Anchor, Local>> outOfAnchors;
 };
