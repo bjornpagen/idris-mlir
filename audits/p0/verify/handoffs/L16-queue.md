@@ -190,3 +190,17 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
 - The induction at shapes: the request cuts before solving and contraction,
   the site after (Covers' header).
 - L17 exports `putInMapped`, `mappedShows`, `mappedSpine` (L17aj).
+
+## From L16cr (C222's threading, as found)
+
+- C222 needs the term walk to know its site: Graph exports the site table,
+  `Growth.checkGrowth` stores it in `TS`, and Terms, Choices, Cases and
+  Programs pass the site to `request`, which then carries `HeldAs` with
+  the membership.
+- The induction at shapes still lacks: the translation's argument is the
+  site's term with the values put in (C222); `Closed.solved` agrees with
+  `Template.solvedIn`; contraction carries through putting values in; the
+  runtime probe's name has no place in the context; `closeNormalise`
+  matches the host's normal form for `HeldNormal`.
+- `State.PKind.DictParam` carries `FixedValue`, so `Cases.idr:947` reads it
+  and `staticReading` carries it.
