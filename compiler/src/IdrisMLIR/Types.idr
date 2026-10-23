@@ -319,10 +319,12 @@ dynamicDims t = t
 ||| each with that term, by axis. A tensor type has no symbolic dimension,
 ||| so the link from an array's extent to its index rides here, beside the
 ||| signature, into the function's `extents`, where specialization
-||| substitutes a call's terms into it. An
-||| axis a number fixes is static in the type and is not here, nor is one
-||| no term names; a parameter's place is its position in the vector, so
-||| no entry names a parameter the function lacks.
+||| substitutes a call's terms into it. A parameter's axis a number fixes
+||| is static in its type and is not here; a result's axes are `?` whatever
+||| their term, so one a number fixes is here as that constant, which Emit
+||| writes (`Declarations.resultAxes`), and no cast follows a call. An axis
+||| no term names is not here; a parameter's place is its position in the
+||| vector, so no entry names a parameter the function lacks.
 public export
 record Extents (arity : Nat) where
   constructor MkExtents
