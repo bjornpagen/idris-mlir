@@ -611,3 +611,11 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   reproducer `/private/tmp/l16ei/repro/compose-index`. From L16ei:
   Emit's `fitting` (`Tensors.idr:163-166`) passes two tensors of equal
   dimensions with no comparison of their element types.
+- L16eg's second pass (the fileTime validator reading types as the
+  reading does, and the registry's hooks keyed by context entry) is in
+  the working tree (`Registry.idr`, `Resolve.idr`, `Profile.idr`),
+  committed with L16ek's `Boundary.idr` and L16ej's `Closed.idr`, which
+  carry its seams. From it: `exit-with` and `harness-cases` refused in
+  translation ("PrimIO.MkIORes: a field type that depends on another
+  argument of its constructor", L16); validation compares a row's type
+  names as printed text, `inModules` module paths as text.
