@@ -15,8 +15,9 @@ import Data.Vect
 -- runtime that runs the compiler gives it, not an Idris program written to
 -- agree with it. So each operation below applies `prim__...` of the same
 -- name to the constants, and decides only whether it applies: a partial
--- primitive (division by zero, the head of an empty string) and a cast the
--- compiler has never folded stay applied.
+-- primitive (division by zero, the head of an empty string), a cast of an
+-- infinity, a NaN or a String, whose value on Chez is not the runtime's,
+-- and a cast the compiler has never folded stay applied.
 
 ||| A primitive: its name, its operation, its type and its totality.
 public export
@@ -40,6 +41,22 @@ unaryOp fn [NPrimVal fc x]
     = map (NPrimVal fc) (fn x)
 unaryOp _ _ = Nothing
 
+-- The runtime casts a finite Double to an integer by truncating it toward
+-- zero (an Int wrapped modulo 2^64), which the primitive computes on either
+-- host. Of an infinity or NaN the cast crashes the program ("cast of a
+-- non-finite Double"), and on Chez it would raise in `inexact->exact` and
+-- crash the compiler; and the runtime writes an infinity or NaN as `inf`,
+-- `-inf` or `nan`, where Chez writes `+inf.0`, `-inf.0` and `+nan.0`. So
+-- neither has a value here: it stays applied, and the program's run
+-- reaches the runtime's meaning. A Double is finite exactly when it lies
+-- strictly between the two infinities, by IEEE 754's comparisons, which
+-- both hosts' Doubles have; NaN, ordered with no Double, lies between none.
+finite : Double -> Maybe Double
+finite x = if negate infinity < x && x < infinity then Just x else Nothing
+  where
+    infinity : Double
+    infinity = 1.0 / 0.0
+
 castString : Vect 1 (NF vars) -> Maybe (NF vars)
 castString [NPrimVal fc (I i)] = Just (NPrimVal fc (Str (prim__cast_IntString i)))
 castString [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Str (prim__cast_Int8String i)))
@@ -52,8 +69,18 @@ castString [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Str (prim__cast_Bits16Stri
 castString [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Str (prim__cast_Bits32String i)))
 castString [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Str (prim__cast_Bits64String i)))
 castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (prim__cast_CharString i)))
-castString [NPrimVal fc (Db i)] = Just (NPrimVal fc (Str (prim__cast_DoubleString i)))
+castString [NPrimVal fc (Db i)] = NPrimVal fc . Str . prim__cast_DoubleString <$> finite i
 castString _ = Nothing
+
+-- A String's number stays applied, cast to an Int, an Integer or a Double
+-- as to every other type. The runtime reads only its own numerals in a
+-- string: an integer literal, and for a Double a decimal, an infinity or
+-- NaN; any other string is 0. Chez's primitive reads any Scheme number, so
+-- there `"1.5"` is the Int 1, `"1/2"` the Double 0.5, and `"1+2i"` a
+-- complex number held as a Double, which the next comparison of it raises
+-- on; and the integer casts truncate what it reads exactly, raising on
+-- `"1e309"`. Either raise crashes the compiler. Reading the runtime's
+-- numerals here would be a second implementation of them.
 
 castInteger : Vect 1 (NF vars) -> Maybe (NF vars)
 castInteger [NPrimVal fc (I i)] = Just (NPrimVal fc (BI (prim__cast_IntInteger i)))
@@ -66,8 +93,7 @@ castInteger [NPrimVal fc (B16 i)] = Just (NPrimVal fc (BI (prim__cast_Bits16Inte
 castInteger [NPrimVal fc (B32 i)] = Just (NPrimVal fc (BI (prim__cast_Bits32Integer i)))
 castInteger [NPrimVal fc (B64 i)] = Just (NPrimVal fc (BI (prim__cast_Bits64Integer i)))
 castInteger [NPrimVal fc (Ch i)] = Just (NPrimVal fc (BI (prim__cast_CharInteger i)))
-castInteger [NPrimVal fc (Db i)] = Just (NPrimVal fc (BI (prim__cast_DoubleInteger i)))
-castInteger [NPrimVal fc (Str i)] = Just (NPrimVal fc (BI (prim__cast_StringInteger i)))
+castInteger [NPrimVal fc (Db i)] = NPrimVal fc . BI . prim__cast_DoubleInteger <$> finite i
 castInteger _ = Nothing
 
 castInt : Vect 1 (NF vars) -> Maybe (NF vars)
@@ -80,9 +106,8 @@ castInt [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I (prim__cast_Bits8Int i)))
 castInt [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I (prim__cast_Bits16Int i)))
 castInt [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I (prim__cast_Bits32Int i)))
 castInt [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I (prim__cast_Bits64Int i)))
-castInt [NPrimVal fc (Db i)] = Just (NPrimVal fc (I (prim__cast_DoubleInt i)))
+castInt [NPrimVal fc (Db i)] = NPrimVal fc . I . prim__cast_DoubleInt <$> finite i
 castInt [NPrimVal fc (Ch i)] = Just (NPrimVal fc (I (prim__cast_CharInt i)))
-castInt [NPrimVal fc (Str i)] = Just (NPrimVal fc (I (prim__cast_StringInt i)))
 castInt _ = Nothing
 
 -- The casts to a fixed-width integer below fold from an integer only, as
@@ -195,7 +220,6 @@ castDouble [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Db (prim__cast_Bits16Doubl
 castDouble [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Db (prim__cast_Bits32Double i)))
 castDouble [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Db (prim__cast_Bits64Double i)))
 castDouble [NPrimVal fc (BI i)] = Just (NPrimVal fc (Db (prim__cast_IntegerDouble i)))
-castDouble [NPrimVal fc (Str i)] = Just (NPrimVal fc (Db (prim__cast_StringDouble i)))
 castDouble _ = Nothing
 
 castChar : Vect 1 (NF vars) -> Maybe (NF vars)
