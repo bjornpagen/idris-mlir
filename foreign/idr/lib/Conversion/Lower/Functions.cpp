@@ -19,6 +19,7 @@
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Mangle.h"
 #include "idr/Conversion/Words.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -59,12 +60,13 @@ SmallVector<NamedAttribute> destinationFacts(Builder &b, const Layouts &layouts,
 }
 
 // The facts of each component of a value of `type`, laid out as
-// `components`, which the types say and the LLVM types no longer do: each
-// address of a destination; then, of a value's first component, a cell's
-// pointer; the pointer to memory its holder alone reaches (an exclusive
-// counted cell, a quantity-1 buffer's cell), which nothing else the call
-// reaches aliases; an in-place sum's tag, below its number of constructors.
-// No other component has any. A buffer crosses a call as its cell's pointer
+// `components`, which the types say and the LLVM types no longer do, read
+// off what the value is at run time: each address of a destination; then,
+// of any other value's first component, a cell's pointer; the pointer to
+// memory its holder alone reaches (an exclusive counted cell, a quantity-1
+// buffer's cell), which nothing else the call reaches aliases; and, of a
+// data type's, an in-place sum's tag, below its number of constructors. No
+// other component has any. A buffer crosses a call as its cell's pointer
 // alone, the one every free of it goes through; its elements' address is
 // that pointer past the array's header, made inside the function. So every
 // access to it and its free are based on the one `noalias` argument, and
@@ -72,33 +74,42 @@ SmallVector<NamedAttribute> destinationFacts(Builder &b, const Layouts &layouts,
 SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type> components,
                                                         const Layouts &layouts, Builder &b,
                                                         unsigned headerBytes) {
+  namespace words = run_time_words;
   SmallVector<SmallVector<NamedAttribute>> facts(components.size());
-  if (auto dest = dyn_cast<DestType>(type)) {
-    for (auto [each, written] : llvm::zip_equal(facts, layouts.components(dest.getValue())))
-      each = destinationFacts(b, layouts, written.type);
-    return facts;
-  }
-  SmallVector<NamedAttribute> &first = facts.front();
-  if (isCellPointer(type))
-    first = cellFacts(b, headerBytes);
-  if (admitsWrite(type) && isa<LLVM::LLVMPointerType>(components.front()))
-    first.push_back(b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()));
-  if (!first.empty())
-    return facts;
-  DataType data = dataTypeOf(type);
-  if (!data || data.layout() != Layout::InPlace)
-    return facts;
-  std::optional<IntegerType> tag = layouts.sum(data).tag;
-  if (!tag)
-    return facts;
-  unsigned width = tag->getWidth();
-  uint64_t count = data.declaredCount();
-  // A tag type its constructors fill has no range to state.
-  if (count >= (uint64_t{1} << width))
-    return facts;
-  first.push_back(b.getNamedAttr(
-      LLVM::LLVMDialect::getRangeAttrName(),
-      LLVM::ConstantRangeAttr::get(b.getContext(), width, 0, static_cast<int64_t>(count))));
+  // The facts of the first component of a value that is no destination;
+  // whether it has any.
+  auto firstFacts = [&] {
+    SmallVector<NamedAttribute> &first = facts.front();
+    if (isCellPointer(type))
+      first = cellFacts(b, headerBytes);
+    if (admitsWrite(type) && isa<LLVM::LLVMPointerType>(components.front()))
+      first.push_back(b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()));
+    return !first.empty();
+  };
+  match(
+      runTimeWordsOf(type),
+      [&](const words::Addresses &places) {
+        for (auto [each, written] : llvm::zip_equal(facts, layouts.components(places.of)))
+          each = destinationFacts(b, layouts, written.type);
+      },
+      [&](const words::Held &held) {
+        DataType data = held.data.get();
+        if (firstFacts() || data.layout() != Layout::InPlace)
+          return;
+        std::optional<IntegerType> tag = layouts.sum(data).tag;
+        if (!tag)
+          return;
+        unsigned width = tag->getWidth();
+        uint64_t count = data.declaredCount();
+        // A tag type its constructors fill has no range to state.
+        if (count >= (uint64_t{1} << width))
+          return;
+        facts.front().push_back(b.getNamedAttr(
+            LLVM::LLVMDialect::getRangeAttrName(),
+            LLVM::ConstantRangeAttr::get(b.getContext(), width, 0, static_cast<int64_t>(count))));
+      },
+      [&](const OneOf<words::Pointer, words::Integer, words::Itself, words::NoWord,
+                      words::Descriptor> auto &) { (void)firstFacts(); });
   return facts;
 }
 

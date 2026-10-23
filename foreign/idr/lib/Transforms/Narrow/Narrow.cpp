@@ -130,20 +130,18 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // of a word that every reader now takes as the word, with each cast of
     // such a big into or out of a linear position; a big constant whose
     // readers now read its word, the program's poison among them), these
-    // ops and no other. What made a big says, through its interface or its
-    // trait; the integer read out of a big is the one op `word` writes.
-    // Essential, three things with no meaning in common: a constant is no
-    // conversion, and a trait over the ops that make a big of a word and the
-    // one that reads the word back would restate the interface's members.
+    // ops and no other. A conversion between a big and its word says so,
+    // either way, through its interface; a big constant through its trait.
+    // Essential, two things with no meaning in common: a constant is no
+    // conversion.
     footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
       if (!op)
         return false;
-      if (isa<BigOfIntegerOpInterface>(op))
+      if (isa<BigWordOpInterface>(op))
         return true;
-      if (op->hasTrait<OpTrait::ConstantLike>())
-        return isCarriedAsBig(op->getResult(0).getType());
-      return isa<BigToIntOp>(op);
+      return op->hasTrait<OpTrait::ConstantLike>() &&
+             isCarriedAsBig(op->getResult(0).getType());
     };
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (op->getNumResults() == 1 &&

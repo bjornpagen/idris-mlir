@@ -66,7 +66,8 @@ destType = MkTypeDef
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted MayBeOtherWord)
+  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted MayBeOtherWord ByParameters
+                      (Always NoLabels) NotMemory)
   , doc = brief "a place to be written once with a value of its type"
   }
 

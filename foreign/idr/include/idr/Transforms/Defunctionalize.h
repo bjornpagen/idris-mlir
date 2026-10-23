@@ -35,6 +35,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/EGraph.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -43,6 +44,7 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <memory>
 #include <optional>
@@ -65,10 +67,16 @@ struct Key {
   bool operator==(const Key &) const = default;
 };
 
-// Whether a key is a suspension's, whose family is a memo family.
-enum class Carrier : bool { Closure, Lazy };
-inline Carrier carrierOf(const Key &key) {
-  return llvm::isa<LazyType>(key.carrier) ? Carrier::Lazy : Carrier::Closure;
+// What a key's carrier is, a closure or a suspension, as its type answers
+// (carryingOf): a closure's key becomes a closure family, a suspension's a
+// memo family. A key is made only of a slot whose type carries labels.
+inline LabelCarrier labelCarrierOf(const Key &key) {
+  return match(
+      carryingOf(key.carrier), [](const LabelCarrier &labels) { return labels; },
+      [](OneOf<carrying::Reference, carrying::Nothing> auto) -> LabelCarrier {
+        llvm::reportFatalInternalError(
+            "a key of a slot whose type carries no labels, which no slot keys");
+      });
 }
 
 // A slot: a key, or no key where the slot holds neither.

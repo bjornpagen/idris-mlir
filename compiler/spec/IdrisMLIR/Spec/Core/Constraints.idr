@@ -17,7 +17,12 @@ import Data.List1
 
 %default total
 
-||| A type constraint.
+||| A type constraint: an upstream one; one of the dialect's types; a
+||| choice among constraints, or all of them; a hand predicate on any type;
+||| or one of the dialect's types that a hand predicate narrows (a lifetime
+||| of a kind), whose value ODS holds at the type's own class, so its
+||| accessor gives the type, and whose class it checks before it calls the
+||| predicate.
 public export
 data TypeC
   = UpstreamType UpType
@@ -25,6 +30,7 @@ data TypeC
   | AnyOfTypes (List1 TypeC) Line
   | AllOfTypes (List1 TypeC) Line
   | SatisfiesType Predicate
+  | OurTypeSatisfying AnyTypeDef Predicate
 
 ||| An attribute constraint.
 public export

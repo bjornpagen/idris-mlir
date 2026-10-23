@@ -1073,13 +1073,21 @@ rangeEntry NoRange = "std::nullopt"
 neverFolded : Admitted -> Bool
 neverFolded a = case a.folding of
   NeverFolded => True
+  ComputedOnDoubles => False
+  UpstreamFold => False
+
+||| Whether the e-graph computes an admitted op on its own Double values.
+computedOnDoubles : Admitted -> Bool
+computedOnDoubles a = case a.folding of
+  ComputedOnDoubles => True
+  NeverFolded => False
   UpstreamFold => False
 
 ||| The e-graph's rules as the engine reads them: the patterns in preorder,
 ||| the conditions, the rules grouped by root kind with each kind's offset,
-||| the kinds and each one's range function, the admitted ops never folded,
-||| the skeleton rules, and the budget, all compile-time constants, so
-||| nothing is built per function.
+||| the kinds and each one's range function, the admitted ops never folded
+||| and those computed on Doubles, the skeleton rules, and the budget, all
+||| compile-time constants, so nothing is built per function.
 ||| The rules are the specification's, its ops' laws' and its admitted ops'
 ||| laws'.
 export
@@ -1094,6 +1102,9 @@ rewritesHeader rws ops admitted skeleton =
          ( ["using Kinds = table::OpList<" ++ joinWith ", " (map (.cls) kinds) ++ ">;", ""]
            ++ slashComment [ "The admitted ops whose fold would compute on the compiling machine, which the graph never folds." ]
            ++ ["using NeverFolded = table::OpList<" ++ joinWith ", " (map admittedAlias (filter neverFolded admitted)) ++ ">;", ""]
+           ++ slashComment [ "The admitted ops on Doubles whose result IEEE 754 fixes, which the graph computes on its own Double"
+                           , "values by the APFloat operation each one's upstream fold applies." ]
+           ++ ["using ComputedOnDoubles = table::OpList<" ++ joinWith ", " (map admittedAlias (filter computedOnDoubles admitted)) ++ ">;", ""]
            ++ slashComment [ "Each kind's interval from its operands', by the kind's number, for a node a rule built, where no op"
                            , "stands to be asked: upstream's range function for an admitted op, an inline meaning over intervals for"
                            , "one of ours, none for any other kind." ]

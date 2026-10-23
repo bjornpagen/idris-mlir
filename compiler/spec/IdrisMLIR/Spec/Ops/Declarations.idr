@@ -32,7 +32,8 @@ declarations =
   , types := [SomeType strType, SomeType bigType, SomeType natType]
   , attributes := [SomeAttr siteAttr, SomeAttr bigAttr]
   , enums := [enumDef comparisonClosed, enumDef fileTimeFieldClosed]
-  , interfaces := [ literalType, crashSiteInterface, guardInterface, bigOfIntegerInterface, numericTypeInterface
+  , interfaces := [ literalType, crashSiteInterface, guardInterface, bigWordInterface, bigOfIntegerInterface
+                  , wordOfBigInterface, numericTypeInterface
                   , constantAttrInterface, integerKeyAttrInterface ]
   , traits := [neverEmpty, noRuntimeForm]
   , predicates := opPredicates

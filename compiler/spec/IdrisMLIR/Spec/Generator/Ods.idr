@@ -180,6 +180,9 @@ mutual
     "Type<And<[" ++ joinWith ", " (map (++ ".predicate") (typeCs ts)) ++ "]>, " ++ quoted (lineText s) ++ ", \"::mlir::Type\">"
   typeC (SatisfiesType p) =
     "Type<CPred<\"::idr::" ++ identText p.name ++ "($_self)\">, " ++ quoted (lineText p.doc.summary) ++ ", \"::mlir::Type\">"
+  typeC (OurTypeSatisfying t p) =
+    "Type<And<[" ++ typeRecordOf t ++ ".predicate, CPred<\"::idr::" ++ identText p.name ++ "($_self)\">]>, "
+      ++ quoted (lineText p.doc.summary) ++ ", " ++ typeRecordOf t ++ ".cppType>"
 
   ||| The records of a run of constraints, matched on the run itself and
   ||| never on a conversion of it, so every call is on a part of the
@@ -703,8 +706,33 @@ truth : Bool -> String
 truth True = "true"
 truth False = "false"
 
+||| A type's run-time words, as the one return of its method: a pointer of
+||| a kind of word, or a big's word.
+wordsDefinition : RunTimeWord -> String
+wordsDefinition w =
+  "  ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return " ++ answer w ++ "; }"
+  where
+    answer : RunTimeWord -> String
+    answer UncountedPointer = "::idr::run_time_words::Pointer{::idr::layout::Word::Uncounted}"
+    answer CellAddress = "::idr::run_time_words::Pointer{::idr::layout::Word::Cell}"
+    answer BigWord = "::idr::run_time_words::Integer{64, ::idr::layout::Word::Big}"
+
+||| What a type's values carry, as the one return of its method: no label
+||| beside a counted reference, or beside none; or its own labels, a
+||| closure's or a suspension's, held as the type itself at its own class,
+||| so a type that is neither cannot claim them.
+labelsDefinition : (h : Holding) -> Labels h -> String
+labelsDefinition h l = "  ::idr::Carrying $cppClass::getCarrying() const { return " ++ answer h l ++ "; }"
+  where
+    answer : (h : Holding) -> Labels h -> String
+    answer HoldsReferences NoLabels = "::idr::carrying::Reference{}"
+    answer HoldsNoReference NoLabels = "::idr::carrying::Nothing{}"
+    answer HoldsReferences ClosureLabels = "::idr::LabelCarrier(::idr::carrying::Closure{::idr::TypeOf<$cppClass>{*this}})"
+    answer HoldsReferences SuspensionLabels = "::idr::LabelCarrier(::idr::carrying::Suspension{::idr::TypeOf<$cppClass>{*this}})"
+
 ||| The answers a type gives the value facts, as the methods' definitions:
-||| each one return of a constant, so nothing is decided here.
+||| each one return of a constant, so nothing is decided here. An answer its
+||| parameters decide has no definition here; a hand unit writes it.
 export
 factsDefinition : ValueFacts -> Lines
 factsDefinition f =
@@ -712,8 +740,11 @@ factsDefinition f =
   , "  bool $cppClass::holdsReferences() const { return " ++ truth (holds f.holding) ++ "; }"
   , "  ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::" ++ byTypeCase f.byType ++ "; }"
   , "  bool $cppClass::isCounted() const { return " ++ truth (counted f.counting) ++ "; }"
-  , "  bool $cppClass::isCellPointer() const { return " ++ truth (cell f.word) ++ "; }"
-  , "}];" ]
+  , "  bool $cppClass::isCellPointer() const { return " ++ truth (cell f.word) ++ "; }" ]
+  ++ printed wordsDefinition f.words
+  ++ printed (labelsDefinition f.holding) f.labels
+  ++ [ "  bool $cppClass::isCellMemory() const { return " ++ truth (memory f.memory) ++ "; }"
+     , "}];" ]
   where
     holds : Holding -> Bool
     holds HoldsReferences = True
@@ -728,6 +759,12 @@ factsDefinition f =
     cell : CellWord -> Bool
     cell AlwaysCell = True
     cell MayBeOtherWord = False
+    memory : Memory -> Bool
+    memory CellMemory = True
+    memory NotMemory = False
+    printed : (a -> String) -> Answer a -> Lines
+    printed definition (Always x) = [definition x]
+    printed _ ByParameters = []
 
 ||| The value facts' interface, its methods declared on the type's class by
 ||| ODS: none of them has a default, and their definitions are printed with

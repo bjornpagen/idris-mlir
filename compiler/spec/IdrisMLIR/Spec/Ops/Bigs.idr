@@ -59,23 +59,58 @@ public export
 noRuntimeForm : TraitDef
 noRuntimeForm = MkTraitDef "NoRuntimeForm" (says "its result is its first operand's word at run time")
 
+||| `BigWordOpInterface`: a conversion between a big and its word, either
+||| way, and the value it converts (`getValue`, the operand's own accessor).
+||| Which side its word is on is the interface it takes besides: a big made
+||| of an integer has its word as its operand (`BigOfIntegerOpInterface`),
+||| an integer read out of a big as its result (`WordOfBigOpInterface`). A
+||| pass that takes bigs back to their words finds every conversion by
+||| asking this, and lists none.
+public export
+bigWordInterface : InterfaceDef
+bigWordInterface = MkInterfaceDef
+  { name = "BigWordOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::mlir::Value" "getValue" [] EveryImplementer
+          "the value it converts: the integer a big is made of, or the big an integer is read out of" ]
+  , verifier = Unverified
+  , doc = says "a conversion between a big and its word, either way"
+  }
+
 ||| `BigOfIntegerOpInterface`: an Integer or a natural made of an integer,
-||| the integer its operand (`getValue`, the operand's own accessor) and how
-||| the integer is read (`getSignedness`, the constant of its class,
-||| `BigOfInteger<Op>`), so a pass that takes a big back to its word asks
-||| the op and lists none.
+||| the word side of the conversion its operand, the integer
+||| (`BigWordOpInterface`'s `getValue`), and how the integer is read
+||| (`getSignedness`, the constant of its class, `BigOfInteger<Op>`), so a
+||| pass that takes a big back to its word asks the op and lists none.
 public export
 bigOfIntegerInterface : InterfaceDef
 bigOfIntegerInterface = MkInterfaceDef
   { name = "BigOfIntegerOpInterface"
   , subject = OverOps
-  , bases = []
+  , bases = [bigWordInterface]
   , methods =
-      [ MkMethod PerObject "::mlir::Value" "getValue" [] EveryImplementer "the integer the big is made of"
-      , MkMethod PerObject "::idr::numeric::Signedness" "getSignedness" [] (DelegatesByClass "signednessOfOp")
+      [ MkMethod PerObject "::idr::numeric::Signedness" "getSignedness" [] (DelegatesByClass "signednessOfOp")
           "how the integer is read: its top bit its sign, or the natural its bits are" ]
   , verifier = Unverified
   , doc = says "a big made of an integer, and how the integer is read"
+  }
+
+||| `WordOfBigOpInterface`: an integer read out of a big or a natural, the
+||| word side of the conversion its result (`getResult`, the result's own
+||| accessor), the big its operand (`BigWordOpInterface`'s `getValue`).
+public export
+wordOfBigInterface : InterfaceDef
+wordOfBigInterface = MkInterfaceDef
+  { name = "WordOfBigOpInterface"
+  , subject = OverOps
+  , bases = [bigWordInterface]
+  , methods =
+      [ MkMethod PerObject "::mlir::Value" "getResult" [] EveryImplementer
+          "the integer read out of the big, wrapped to its width: the conversion's word" ]
+  , verifier = Unverified
+  , doc = says "an integer read out of a big, its word the result"
   }
 
 ||| The constant of a big made of an integer: how it reads the integer.
@@ -479,7 +514,7 @@ bigToInt = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements wordOfBigInterface []]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always

@@ -48,6 +48,14 @@ enum class StageTails : std::uint8_t {
   Decided,
 };
 
+// whether a tail call's result layouts agree with its caller's
+enum class StageTailLayouts : std::uint8_t {
+  // a tail call may still re-pack its results, until the specializer redirects it
+  Pending,
+  // every tail call's results are laid out as its caller's
+  Agree,
+};
+
 
 } // namespace idr
 
@@ -75,6 +83,12 @@ template <>
 struct EnumTraits<::idr::StageTails> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"promised", "decided"}};
+};
+
+template <>
+struct EnumTraits<::idr::StageTailLayouts> {
+  static constexpr std::size_t count = 2;
+  static constexpr std::array<std::string_view, 2> names{{"pending", "agree"}};
 };
 
 
@@ -116,6 +130,15 @@ inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageTails> tailsAt{{
     ::idr::StageTails::Decided,
     ::idr::StageTails::Decided,
     ::idr::StageTails::Decided,
+}};
+
+// whether a tail call's result layouts agree with its caller's
+inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageTailLayouts> tailLayoutsAt{{
+    ::idr::StageTailLayouts::Pending,
+    ::idr::StageTailLayouts::Pending,
+    ::idr::StageTailLayouts::Agree,
+    ::idr::StageTailLayouts::Agree,
+    ::idr::StageTailLayouts::Agree,
 }};
 
 

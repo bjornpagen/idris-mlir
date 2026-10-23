@@ -15,7 +15,10 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
     InterfaceMethod<"whether a value holds a reference", "bool", "holdsReferences", (ins)>,
     InterfaceMethod<"how the type fixes its values' uses: once, freely, or as their grade says", "::idr::ByType", "getByType", (ins)>,
     InterfaceMethod<"whether a reference a value holds is counted", "bool", "isCounted", (ins)>,
-    InterfaceMethod<"whether a value's word is always a cell's address", "bool", "isCellPointer", (ins)>
+    InterfaceMethod<"whether a value's word is always a cell's address", "bool", "isCellPointer", (ins)>,
+    InterfaceMethod<"what a value is at run time, its words, held at `hold` where a grade around it says so", "::idr::RunTimeWords", "getRunTimeWords", (ins "::std::optional<::idr::Hold>":$hold)>,
+    InterfaceMethod<"what a value carries where it moves: a closure's or a suspension's labels, a counted reference alone, or nothing", "::idr::Carrying", "getCarrying", (ins)>,
+    InterfaceMethod<"whether a value is a cell's memory: a cell before its init, or a reuse token", "bool", "isCellMemory", (ins)>
   ];
 }
 
@@ -119,7 +122,7 @@ def Idr_DerivesLifetimeOpInterface : OpInterface<"DerivesLifetimeOpInterface"> {
 def Idr_LifetimePutOpInterface : OpInterface<"LifetimePutOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [
-    InterfaceMethod<"the lifetime this op puts into", "::mlir::Value", "getPutLifetime", (ins)>,
+    InterfaceMethod<"the lifetime this op puts into", "::mlir::TypedValue<::idr::LifetimeType>", "getPutLifetime", (ins)>,
     InterfaceMethod<"the bytes this op puts there, as the module's layouts lay them out", "std::uint64_t", "getPutBytes", (ins "const ::idr::Layouts &":$layouts)>,
     InterfaceMethod<"the cell this op puts there; null for a put of bytes and no cell", "::mlir::TypedValue<::idr::CellType>", "getPutCell", (ins), [{}], [{ return ::idr::putsNoCell($_op); }]>
   ];
@@ -228,11 +231,26 @@ def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
   ];
 }
 
-def Idr_BigOfIntegerOpInterface : OpInterface<"BigOfIntegerOpInterface"> {
+def Idr_BigWordOpInterface : OpInterface<"BigWordOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [
-    InterfaceMethod<"the integer the big is made of", "::mlir::Value", "getValue", (ins)>,
+    InterfaceMethod<"the value it converts: the integer a big is made of, or the big an integer is read out of", "::mlir::Value", "getValue", (ins)>
+  ];
+}
+
+def Idr_BigOfIntegerOpInterface : OpInterface<"BigOfIntegerOpInterface"> {
+  let cppNamespace = "::idr";
+  let baseInterfaces = [Idr_BigWordOpInterface];
+  let methods = [
     InterfaceMethod<"how the integer is read: its top bit its sign, or the natural its bits are", "::idr::numeric::Signedness", "getSignedness", (ins), [{}], [{ return ::idr::signednessOfOp($_op); }]>
+  ];
+}
+
+def Idr_WordOfBigOpInterface : OpInterface<"WordOfBigOpInterface"> {
+  let cppNamespace = "::idr";
+  let baseInterfaces = [Idr_BigWordOpInterface];
+  let methods = [
+    InterfaceMethod<"the integer read out of the big, wrapped to its width: the conversion's word", "::mlir::Value", "getResult", (ins)>
   ];
 }
 

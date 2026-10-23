@@ -378,10 +378,10 @@ def Idr_LifetimeStackOp : Idr_Op<"lifetime.stack", [
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "opens a lifetime on its base cursor's stack";
-  let arguments = (ins Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">:$base, Variadic<Idr_LifetimeType>:$outers);
+  let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$base, Variadic<Idr_LifetimeType>:$outers);
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{ `on` $base `:` type($base) (`in` $outers^ `:` type($outers))? attr-dict-with-keyword (`->` type($results)^)? $body }];
+  let assemblyFormat = [{ `on` $base `:` qualified(type($base)) (`in` $outers^ `:` type($outers))? attr-dict-with-keyword (`->` type($results)^)? $body }];
 }
 
 def Idr_LifetimeChainOp : Idr_Op<"lifetime.chain", [
@@ -409,7 +409,7 @@ def Idr_ActivationOp : Idr_Op<"activation", [
   ]> {
   let summary = "this activation's lifetime: a view, the extent of the rest of its region";
   let arguments = (ins);
-  let results = (outs Res<Type<CPred<"::idr::isViewLifetime($_self)">, "a view lifetime", "::mlir::Type">, "", [MemAlloc<Idr_IdentityResource>]>:$lifetime);
+  let results = (outs Res<Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isViewLifetime($_self)">]>, "a view lifetime", Idr_LifetimeType.cppType>, "", [MemAlloc<Idr_IdentityResource>]>:$lifetime);
   let assemblyFormat = [{ attr-dict custom<ViewLifetime>(type($lifetime)) }];
 }
 
@@ -445,9 +445,9 @@ def Idr_CarrierOp : Idr_Op<"carrier", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "a tensor or a buffer lent to upstream's ops under a lifetime";
-  let arguments = (ins Type<CPred<"::idr::isLendable($_self)">, "a tensor or a buffer that holds references, at any grade", "::mlir::Type">:$value, Type<CPred<"::idr::isViewLifetime($_self)">, "a view lifetime", "::mlir::Type">:$lifetime);
+  let arguments = (ins Type<CPred<"::idr::isLendable($_self)">, "a tensor or a buffer that holds references, at any grade", "::mlir::Type">:$value, Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isViewLifetime($_self)">]>, "a view lifetime", Idr_LifetimeType.cppType>:$lifetime);
   let results = (outs AnyTypeOf<[AnyTensor, AnyRankedOrUnrankedMemRef], "a bare tensor or buffer">:$result);
-  let assemblyFormat = [{ $value `in` $lifetime attr-dict `:` type($value) `,` type($lifetime) }];
+  let assemblyFormat = [{ $value `in` $lifetime attr-dict `:` type($value) `,` qualified(type($lifetime)) }];
 }
 
 def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
@@ -459,7 +459,7 @@ def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
   ]> {
   let summary = "the view of a lifetime, of its extent";
   let arguments = (ins Idr_LifetimeType:$lifetime);
-  let results = (outs Type<CPred<"::idr::isViewLifetime($_self)">, "a view lifetime", "::mlir::Type">:$view);
+  let results = (outs Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isViewLifetime($_self)">]>, "a view lifetime", Idr_LifetimeType.cppType>:$view);
   let assemblyFormat = [{ $lifetime attr-dict `:` type($lifetime) custom<ViewLifetime>(type($view)) }];
 }
 
@@ -471,9 +471,9 @@ def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
     Idr_DerivesLifetimeOpInterface
   ]> {
   let summary = "a room reserved in a cursor lifetime";
-  let arguments = (ins Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">:$lifetime, I64Attr:$bytes);
-  let results = (outs Res<Type<CPred<"::idr::isRoomLifetime($_self)">, "a room lifetime", "::mlir::Type">, "", [MemAlloc<Idr_HeapResource>]>:$room);
-  let assemblyFormat = [{ $lifetime `,` $bytes attr-dict `:` type($lifetime) custom<RoomLifetime>(type($room)) }];
+  let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$lifetime, I64Attr:$bytes);
+  let results = (outs Res<Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isRoomLifetime($_self)">]>, "a room lifetime", Idr_LifetimeType.cppType>, "", [MemAlloc<Idr_HeapResource>]>:$room);
+  let assemblyFormat = [{ $lifetime `,` $bytes attr-dict `:` qualified(type($lifetime)) custom<RoomLifetime>(type($room)) }];
 }
 
 def Idr_CellStackOp : Idr_Op<"cell.stack", [
@@ -494,18 +494,18 @@ def Idr_CellArenaOp : Idr_Op<"cell.arena", [
     DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
   ]> {
   let summary = "a cell bumped in a lifetime something may allocate into";
-  let arguments = (ins Type<CPred<"::idr::admitsPuts($_self)">, "a lifetime something may allocate into", "::mlir::Type">:$lifetime);
+  let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::admitsPuts($_self)">]>, "a lifetime something may allocate into", Idr_LifetimeType.cppType>:$lifetime);
   let results = (outs Res<Idr_CellType, "", [MemAlloc<Idr_HeapResource>]>:$cell);
-  let assemblyFormat = [{ $lifetime `:` type($lifetime) attr-dict `->` qualified(type($cell)) }];
+  let assemblyFormat = [{ $lifetime `:` qualified(type($lifetime)) attr-dict `->` qualified(type($cell)) }];
 }
 
 def Idr_LifetimePackOp : Idr_Op<"lifetime.pack", [
     Idr_DeclaredEffectsOpInterface
   ]> {
   let summary = "packs a per-level lifetime and the values it holds";
-  let arguments = (ins Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">:$lifetime, Variadic<AnyType>:$held);
+  let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$lifetime, Variadic<AnyType>:$held);
   let results = (outs Res<Idr_LifetimePackageType, "", [MemAlloc<Idr_IdentityResource>]>:$package);
-  let assemblyFormat = [{ $lifetime (`(` $held^ `:` type($held) `)`)? attr-dict `:` type($lifetime) `->` type($package) }];
+  let assemblyFormat = [{ $lifetime (`(` $held^ `:` type($held) `)`)? attr-dict `:` qualified(type($lifetime)) `->` type($package) }];
   let hasVerifier = 1;
 }
 
@@ -523,7 +523,7 @@ def Idr_LifetimeUnpackOp : Idr_Op<"lifetime.unpack", [
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "reopens a packed lifetime, binding it, what it holds and what entered its base since";
-  let arguments = (ins Idr_LifetimePackageType:$package, Optional<Type<CPred<"::idr::isCursorLifetime($_self)">, "a cursor lifetime", "::mlir::Type">>:$base, Variadic<AnyType>:$entering, Variadic<Idr_LifetimeType>:$outers);
+  let arguments = (ins Idr_LifetimePackageType:$package, Optional<Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>>:$base, Variadic<AnyType>:$entering, Variadic<Idr_LifetimeType>:$outers);
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$body);
   let assemblyFormat = [{ $package `:` type($package) (`on` $base^ `:` type($base))? (`entering` `(` $entering^ `:` type($entering) `)`)? (`in` $outers^ `:` type($outers))? attr-dict-with-keyword (`->` type($results)^)? $body }];
@@ -710,6 +710,17 @@ def Idr_JumpOp : Idr_Op<"jump", [
   let results = (outs);
   let assemblyFormat = [{ $target (`<` $terms^ `>`)? (`(` $args^ `:` type($args) `)`)? attr-dict }];
   let hasVerifier = 1;
+}
+
+def Idr_MayLoopOp : Idr_Op<"may_loop", [
+    HasParent<"::idr::LoopOp">,
+    MemoryEffects<[MemWrite<Idr_DivergenceResource>]>,
+    Idr_DeclaredEffectsOpInterface
+  ]> {
+  let summary = "the divergence of a loop Idris did not prove to end, at a join region's entry";
+  let arguments = (ins);
+  let results = (outs);
+  let assemblyFormat = [{ attr-dict }];
 }
 
 def Idr_ArrayTabulateOp : Idr_Op<"array.tabulate", [
@@ -1459,6 +1470,7 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
+    Idr_WordOfBigOpInterface,
     Idr_RuntimeFolds
   ]> {
   let summary = "a big or a natural as an integer, wrapped to its width";
@@ -2506,7 +2518,7 @@ def Idr_CountDupOp : Idr_Op<"count.dup", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "one more reference to a counted value";
-  let arguments = (ins Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">:$value);
+  let arguments = (ins Type<And<[Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">.predicate, Type<CPred<"::idr::isUsedMany($_self)">, "a value used any number of times", "::mlir::Type">.predicate]>, "a value its count frees, used any number of times", "::mlir::Type">:$value);
   let results = (outs AnyType:$result);
   let assemblyFormat = [{ $value attr-dict `:` type($value) custom<CountedResult>(type($result), ref(type($value))) }];
   let hasVerifier = 1;

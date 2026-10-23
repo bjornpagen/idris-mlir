@@ -100,10 +100,13 @@ void Decision::note(ArrayRef<Slot> slots, ArrayRef<Type> types) {
     if (!slot || !ids.try_emplace(*slot, static_cast<KeyId>(families.size())).second)
       continue;
     families.push_back(Family{*slot, DataType(), DataType(), Dispatcher{}});
-    if (carrierOf(*slot) == Carrier::Lazy) {
-      auto lazy = cast<LazyType>(slot->carrier);
-      push({anchorKey(FlowAnchor::forcedOf(lazy))}, {lazy.getValue()});
-    }
+    // A suspension's forced value is a slot of its own.
+    match(
+        labelCarrierOf(*slot), [](const carrying::Closure &) {},
+        [&](const carrying::Suspension &suspension) {
+          LazyType lazy = suspension.type.get();
+          push({anchorKey(FlowAnchor::forcedOf(lazy))}, {lazy.getValue()});
+        });
   }
 }
 
@@ -275,18 +278,24 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   // cell's indices, the index terms its key's carrier names, which every
   // slot of the key holds.
   for (Family &family : d.families) {
-    if (carrierOf(family.key) != Carrier::Lazy)
-      continue;
-    FailureOr<FuncOp> force = d.defineForce(family);
-    if (failed(force))
+    LogicalResult defined = match(
+        labelCarrierOf(family.key), [](const carrying::Closure &) { return success(); },
+        [&](const carrying::Suspension &) -> LogicalResult {
+          FailureOr<FuncOp> force = d.defineForce(family);
+          if (failed(force))
+            return failure();
+          auto indices =
+              IndexArgsAttr::get(d.ctx, family.at.getIndices(),
+                                 family.at.getGroup().indices(family.at.getMember()).size());
+          FunctionType at =
+              families::substitute(force->getFunctionType(), force->getExtentsAttr(), indices);
+          family.force = Dispatcher{*force, FlatSymbolRefAttr::get(force->getSymNameAttr()),
+                                    indices, at.getInput(0), at.getResult(0)};
+          d.made.push_back(*force);
+          return success();
+        });
+    if (failed(defined))
       return failure();
-    auto indices = IndexArgsAttr::get(d.ctx, family.at.getIndices(),
-                                      family.at.getGroup().indices(family.at.getMember()).size());
-    FunctionType at =
-        families::substitute(force->getFunctionType(), force->getExtentsAttr(), indices);
-    family.force = Dispatcher{*force, FlatSymbolRefAttr::get(force->getSymNameAttr()), indices,
-                              at.getInput(0), at.getResult(0)};
-    d.made.push_back(*force);
   }
   // Each function's edits, in the program's order, every type and
   // attribute they build made here.

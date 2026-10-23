@@ -202,7 +202,8 @@ lifetimeType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsNoReference UsedFreelyByType Uncounted MayBeOtherWord)
+  , facts = Answers (MkValueFacts HoldsNoReference UsedFreelyByType Uncounted MayBeOtherWord ByParameters
+                      (Always NoLabels) NotMemory)
   , doc = brief (line "a lifetime: what it is at run time is its kind; its opener says where its memory comes from")
   }
 
@@ -231,7 +232,8 @@ packageType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted MayBeOtherWord)
+  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted MayBeOtherWord
+                      (Always UncountedPointer) (Always NoLabels) NotMemory)
   , doc = brief (line "a per-level lifetime packed around a framed call, with the values it holds")
   }
 
@@ -258,22 +260,30 @@ roomPredicate = predicate (ident "isRoomLifetime") (line "a room lifetime")
 viewPredicate : Predicate
 viewPredicate = predicate (ident "isViewLifetime") (line "a view lifetime")
 
+||| A lifetime of a kind: the lifetime type, narrowed by its kind's
+||| predicate, so its value is held at the lifetime type's class and every
+||| accessor of it gives a lifetime. A format writes such a value's type
+||| qualified, `!idr.lifetime<cursor>`, since ODS prints a value held at a
+||| class of a dialect in its stripped form, `<cursor>`, otherwise.
+ofKind : Predicate -> TypeC
+ofKind = OurTypeSatisfying (SomeType lifetimeType)
+
 ||| A lifetime something may allocate into: what `idr.cell.arena` takes,
 ||| so an allocation into a view cannot be written.
 export
 putLifetime : TypeC
-putLifetime = SatisfiesType putsPredicate
+putLifetime = ofKind putsPredicate
 
 export
 cursorLifetime : TypeC
-cursorLifetime = SatisfiesType cursorPredicate
+cursorLifetime = ofKind cursorPredicate
 
 export
 viewLifetime : TypeC
-viewLifetime = SatisfiesType viewPredicate
+viewLifetime = ofKind viewPredicate
 
 roomLifetime : TypeC
-roomLifetime = SatisfiesType roomPredicate
+roomLifetime = ofKind roomPredicate
 
 anyValue : TypeC
 anyValue = UpstreamType AnyTypeC
@@ -404,7 +414,7 @@ putsIntoLifetime = MkInterfaceDef
   , subject = OverOps
   , bases = []
   , methods =
-      [ MkMethod PerObject (code "::mlir::Value") (ident "getPutLifetime") [] EveryImplementer
+      [ MkMethod PerObject (code "::mlir::TypedValue<::idr::LifetimeType>") (ident "getPutLifetime") [] EveryImplementer
           (line "the lifetime this op puts into")
       , MkMethod PerObject (code "std::uint64_t") (ident "getPutBytes")
           [param (code "const ::idr::Layouts &") (ident "layouts")] EveryImplementer
@@ -594,7 +604,7 @@ stackOpener = MkOp
   , meaning = NoFold
   , verify = DeclarationOnly
   , format = Declared
-      [ Lit (line "on"), ValueOf (OperandRef FZ), Lit (line ":"), TypeOf (OfGroup (OperandRef FZ))
+      [ Lit (line "on"), ValueOf (OperandRef FZ), Lit (line ":"), QualifiedTypeOf (OfGroup (OperandRef FZ))
       , OptionalGroup [Lit (line "in")] (ValueOf (OperandRef (FS FZ)))
           [Lit (line ":"), TypeOf (OfGroup (OperandRef (FS FZ)))]
       , AttrDictWithKeyword
@@ -700,7 +710,7 @@ carrier = op "carrier" [single "value" lendable, single "lifetime" viewLifetime]
   [InfersTypes InferredOnly, Declares ViewLike ["getViewSource"], Implements flowInterface ["getFlowEdges"]]
   noEffects AlwaysSpeculatable (between First Owned) DeclarationOnly
   (Declared [ ValueOf (OperandRef FZ), Lit "in", ValueOf (OperandRef (FS FZ)), AttrDict, Lit ":"
-            , TypeOf (OfGroup (OperandRef FZ)), Lit ",", TypeOf (OfGroup (OperandRef (FS FZ))) ]) []
+            , TypeOf (OfGroup (OperandRef FZ)), Lit ",", QualifiedTypeOf (OfGroup (OperandRef (FS FZ))) ]) []
   (brief "a tensor or a buffer lent to upstream's ops under a lifetime")
 
 ||| `idr.lifetime.forget %l : !idr.lifetime<K>`, C++ `LifetimeForgetOp`: the
@@ -729,7 +739,7 @@ reserve = op "lifetime.reserve" [single "lifetime" cursorLifetime] [result "room
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), Lit ",", ValueOf (AttrRef FZ), AttrDict, Lit ":",
-             TypeOf (OfGroup (OperandRef FZ)), Custom roomOf [TypeOfGroup (ResultRef FZ)]]) []
+             QualifiedTypeOf (OfGroup (OperandRef FZ)), Custom roomOf [TypeOfGroup (ResultRef FZ)]]) []
   (brief "a room reserved in a cursor lifetime")
 
 --------------------------------------------------------------------------------
@@ -771,7 +781,7 @@ cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell]
   , Implements lifetimeUseInterface ["getLifetimeUse"] ]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
-  (Declared [ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ)), AttrDict,
+  (Declared [ValueOf (OperandRef FZ), Lit ":", QualifiedTypeOf (OfGroup (OperandRef FZ)), AttrDict,
              Lit "->", QualifiedTypeOf (OfGroup (ResultRef FZ))]) []
   (brief "a cell bumped in a lifetime something may allocate into")
 
@@ -795,7 +805,7 @@ pack = op "lifetime.pack" [single "lifetime" cursorLifetime, variadic "held" any
   (Declared [ ValueOf (OperandRef FZ)
             , OptionalGroup [Lit "("] (ValueOf (OperandRef (FS FZ)))
                 [Lit ":", TypeOf (OfGroup (OperandRef (FS FZ))), Lit ")"]
-            , AttrDict, Lit ":", TypeOf (OfGroup (OperandRef FZ)), Lit "->"
+            , AttrDict, Lit ":", QualifiedTypeOf (OfGroup (OperandRef FZ)), Lit "->"
             , TypeOf (OfGroup (ResultRef FZ)) ]) []
   (brief "packs a per-level lifetime and the values it holds")
 

@@ -6,16 +6,29 @@
 // answers' types. The dialect's header includes this before the generated
 // interfaces, so a method's signature names them; a type an answer names
 // by reference is declared here and defined beside the code that builds
-// it.
+// it. mlir-tblgen defines each interface's model out of line, before the
+// attributes and types are, so every answer returned by value is complete
+// here, and holds what the dialect generates later by a handle.
 #ifndef IDR_IR_INTERFACES_VOCABULARY_H
 #define IDR_IR_INTERFACES_VOCABULARY_H
 
+#include "idr/IR/Grades.h"
+
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 
 #include <cstdint>
+#include <optional>
 #include <variant>
+
+// The kind of word a runtime component is (layout::Word), which a value's
+// run-time words name.
+#include "idr/IR/Generated/Words.h.inc"
 
 namespace idr {
 
@@ -32,10 +45,6 @@ class OpenLifetimes;
 // or as a word's bits.
 enum class NumericReading : std::uint8_t { Integer, Natural, Bits };
 
-// How a constant value is laid out as static data: a closed sum, defined
-// after the attributes its alternatives hold (Interfaces/StaticForm.h).
-struct StaticForm;
-
 // An attribute of a class the dialect generates after this header, held
 // as itself: the handle is complete before its class is, so a closed sum
 // an attribute interface returns by value, whose interface is generated
@@ -48,8 +57,173 @@ struct AttrOf {
   A get() const { return llvm::cast<A>(held); }
 };
 
+// A type of a class the dialect generates after this header, held as
+// itself, as AttrOf holds an attribute: made only of a type of its class,
+// which `get` asserts.
+template <class T>
+struct TypeOf {
+  mlir::Type held;
+  T get() const { return llvm::cast<T>(held); }
+};
+
+class BigAttr;
 class ClosureAttr;
 class ConAttr;
+class DataType;
+class FnType;
+class LazyType;
+
+//===----------------------------------------------------------------------===//
+// What a value of a type is at run time
+//===----------------------------------------------------------------------===//
+
+// The answer of ValueFactsTypeInterface::getRunTimeWords, each type's own:
+// one pointer, of a kind of word (a cell's address, a cell before its
+// init); one integer `bits` wide, a big's word; a builtin scalar or vector,
+// its own word, of which no count is kept; no word, a lifetime whose kind
+// is erased at run time; one address no count is kept of per component of
+// a value of `of`, each that component's slot in the place it is written
+// (a destination); an array's cell and what of its descriptor its type
+// leaves to the value; or a data type's words, the ones it computed when it
+// was made. Every count of a value's components folds this, so a way of
+// being at run time a type gains is refused at every reader that forgot it.
+namespace run_time_words {
+struct Pointer {
+  layout::Word word;
+};
+struct Integer {
+  unsigned bits;
+  layout::Word word;
+};
+struct Itself {
+  mlir::Type type;
+};
+struct NoWord {};
+struct Addresses {
+  mlir::Type of;
+};
+struct Descriptor {
+  mlir::ShapedType array;
+};
+struct Held {
+  TypeOf<DataType> data;
+};
+} // namespace run_time_words
+
+struct RunTimeWords
+    : std::variant<run_time_words::Pointer, run_time_words::Integer, run_time_words::Itself,
+                   run_time_words::NoWord, run_time_words::Addresses, run_time_words::Descriptor,
+                   run_time_words::Held> {
+  using variant::variant;
+};
+
+// The words of a value of `type`, held at `hold` where a grade around it
+// says so, as its type answers (ValueFactsTypeInterface). A type no model
+// answers for is of another dialect, which only the lowering makes: no
+// value of the program, it is its own word.
+RunTimeWords runTimeWordsOf(mlir::Type type, std::optional<Hold> hold = std::nullopt);
+
+//===----------------------------------------------------------------------===//
+// What a value of a type carries where it moves
+//===----------------------------------------------------------------------===//
+
+// The carrier of labels a value is, a closure or a suspension, each by its
+// type: a closure's label is called with the closure's inputs besides its
+// captures, its arity; a suspension's with none, every parameter of a
+// suspended function being a capture. Either is a cell, a counted
+// reference too.
+namespace carrying {
+struct Closure {
+  TypeOf<FnType> type;
+  unsigned arity() const;
+};
+struct Suspension {
+  TypeOf<LazyType> type;
+  unsigned arity() const { return 0; }
+};
+} // namespace carrying
+
+struct LabelCarrier : std::variant<carrying::Closure, carrying::Suspension> {
+  using variant::variant;
+};
+
+// A counted reference and no label; or nothing a reader of moves follows.
+namespace carrying {
+struct Reference {};
+struct Nothing {};
+} // namespace carrying
+
+// What a value of a type carries where it moves, for the label solve and
+// for counting's flow, the answer of ValueFactsTypeInterface::getCarrying:
+// a closure's or a suspension's labels, a counted reference alone, or
+// nothing. Each alternative is a state a value is in, so no answer holds a
+// label without its cell's reference, or two labels at once.
+struct Carrying : std::variant<LabelCarrier, carrying::Reference, carrying::Nothing> {
+  using variant::variant;
+};
+
+// What a value of `type` carries, at any grade, as its type answers. A type
+// no model answers for is of another dialect, and carries nothing.
+Carrying carryingOf(mlir::Type type);
+
+// Whether a value of `type`, at any grade, is a cell's memory, a cell
+// before its init or a reuse token, as its type answers: what counting
+// builds into and what a test of sharing gives for what it took apart.
+bool isCellMemory(mlir::Type type);
+
+//===----------------------------------------------------------------------===//
+// How a constant is laid out as static data
+//===----------------------------------------------------------------------===//
+
+// The answer of ConstantAttrInterface::getStaticForm for an attribute of
+// ours, and of staticFormOf for any constant: a string's bytes, at the
+// string's own datum; an Integer or a natural, at a big's datum or in its
+// word; a numeral, its value at its place, a word of its layout's width or
+// a natural where its place is laid out as one; an integer or a Double,
+// its own type's literal; poison, which stands for a cell pointer only; a
+// constructor of a family laid out in place, its fields in its words; or a
+// constructor in a cell of its own. A closure reaches static data only as
+// its label's constructor, defunctionalization having rewritten it. Each
+// writer of static data folds it with `match`, so a form it gains is
+// refused at every writer that forgot it.
+namespace static_form {
+struct Text {
+  llvm::StringRef bytes;
+};
+struct Big {
+  AttrOf<BigAttr> value;
+};
+struct Numeral {
+  TypeOf<DataType> place;
+  std::uint64_t value;
+};
+struct Word {
+  mlir::TypedAttr literal;
+};
+struct Nothing {};
+struct InPlace {
+  AttrOf<ConAttr> con;
+};
+struct Cell {
+  AttrOf<ConAttr> con;
+};
+} // namespace static_form
+
+struct StaticForm
+    : std::variant<static_form::Text, static_form::Big, static_form::Numeral, static_form::Word,
+                   static_form::Nothing, static_form::InPlace, static_form::Cell> {
+  using variant::variant;
+};
+
+// How `value`, held at `held`, is laid out as static data: an attribute of
+// ours answers through ConstantAttrInterface, and the upstream attributes a
+// constant holds are classified where it is defined, the one place they are
+// named.
+StaticForm staticFormOf(mlir::Attribute value, mlir::Type held);
+
+//===----------------------------------------------------------------------===//
+// How a constant holds closures
+//===----------------------------------------------------------------------===//
 
 // A constant that holds no closure: a big, or an attribute that is no
 // constant of ours (a string, an integer, a Double).

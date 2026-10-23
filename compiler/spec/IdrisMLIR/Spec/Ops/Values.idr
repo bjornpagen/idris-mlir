@@ -63,13 +63,15 @@ scalarInterfaces =
   , Implements literalType ["isLiteral", "parseLiteral", "buildKeyTest"] ]
 
 ||| What a value of a runtime value's type holds: a reference, counted, and
-||| none is used once by its type; what its word is, the type says.
-scalarFacts : CellWord -> TypeFacts
-scalarFacts word = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted word)
+||| none is used once by its type; it carries no label and is no cell's
+||| memory; what its word is, and so what it is at run time, the type says.
+scalarFacts : CellWord -> RunTimeWord -> TypeFacts
+scalarFacts word words =
+  Answers (MkValueFacts HoldsReferences UsedAsGraded Counted word (Always words) (Always NoLabels) NotMemory)
 
 ||| A runtime value's type with no parameter.
-scalarType : Mnemonic -> CellWord -> Doc -> TypeDef 0
-scalarType m word d = MkTypeDef
+scalarType : Mnemonic -> CellWord -> RunTimeWord -> Doc -> TypeDef 0
+scalarType m word words d = MkTypeDef
   { mnemonic = m
   , params = []
   , syntax = Declarative []
@@ -77,20 +79,20 @@ scalarType m word d = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = scalarFacts word
+  , facts = scalarFacts word words
   , doc = d
   }
 
 ||| A string's word is always its cell.
 public export
 strType : TypeDef 0
-strType = scalarType "str" AlwaysCell (says "a string (UTF-8)")
+strType = scalarType "str" AlwaysCell CellAddress (says "a string (UTF-8)")
 
-||| An Integer's word is a small in the word, or a cell.
+||| An Integer's word is a big's: a small in the word, or a cell.
 public export
 bigType : TypeDef 0
 bigType = { interfaces $= (++ [Implements numericTypeInterface ["getNumericReading", "isCarriedAsBig"]]) }
-            (scalarType "big" MayBeOtherWord (says "an Integer"))
+            (scalarType "big" MayBeOtherWord BigWord (says "an Integer"))
 
 ||| Nat, and every type Idris shapes like it: a big at run time, never
 ||| negative. Every op that makes one keeps it so, and the one way in from
@@ -118,7 +120,7 @@ natType = MkTypeDef
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
-  , facts = scalarFacts MayBeOtherWord
+  , facts = scalarFacts MayBeOtherWord BigWord
   , doc = says "a natural number: an Integer never negative, linked to its index term"
   }
 
@@ -208,9 +210,10 @@ constantOp = MkOp
 ------------------------------------------------------------------------------
 
 ||| The operating system the module's target triple names, in the spelling
-||| Idris's Scheme backends share and base tests for: "darwin", "unix",
-||| "windows" or "unknown". Folded from the triple, the target's one place;
-||| a module that names no target keeps the op. Its text is static data,
+||| Idris's Scheme backends share and base tests for: "darwin" for macOS
+||| and "unix" for Linux, the only operating systems our targets have.
+||| Folded from the triple, the target's one place; a module that names no
+||| target of ours keeps the op. Its text is static data,
 ||| which its result's type holds, so the constant it folds to stands
 ||| where it stood.
 public export

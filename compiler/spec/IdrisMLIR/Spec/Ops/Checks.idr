@@ -5,8 +5,8 @@
 ||| trusted library's crash of a string it computed (`idr.crash.message`).
 ||| Each source of a crash's message is its own op, since the runtime takes
 ||| each its own way: a cause by its position in the runtime's table, a
-||| string as itself. A loop that may not end carries its divergence in its
-||| own effects, so no op marks it.
+||| string as itself. A loop that may not end carries its divergence on an
+||| op of its own, `idr.may_loop` (Control.Joins), not on a crash.
 |||
 ||| A crash's site is an inherent property, written by the frontend from
 ||| the source and never read from the op's location, which an equivalence

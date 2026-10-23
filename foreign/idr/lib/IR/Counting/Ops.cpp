@@ -34,6 +34,9 @@ namespace idr {
 // verifier, and a bare carrier's grade), so the release alone answers.
 bool isCountedValue(Type value) { return freedBy(value, Release::Counted); }
 
+// A value its uses do not bound: one a dup may copy, never a linear one.
+bool isUsedMany(Type value) { return usesOf(value) == Uses::Many; }
+
 bool isTokenValue(Type value) {
   return isa<ReuseTokenType>(unrestricted(value)) && usesOf(value) == Uses::Once;
 }

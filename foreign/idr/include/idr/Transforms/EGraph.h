@@ -55,7 +55,9 @@ namespace egraph {
 // rulesOfKind[k + 1])), `Kinds` (an OpList of every op kind a pattern
 // names, a kind's number its position), `intRanges` (each kind's range
 // function, by its number), `NeverFolded` (an OpList of the ops whose fold
-// would compute on the compiling machine), `SkeletonRules` (a RuleList of
+// would compute on the compiling machine), `ComputedOnDoubles` (an OpList
+// of upstream's float ops whose result IEEE 754 fixes, which the graph
+// computes on its Double values), `SkeletonRules` (a RuleList of
 // the hand skeleton rule classes) and `nodesPerOp`. Nothing is built per
 // function from them: the engine reads them where the compiler is built.
 namespace table {

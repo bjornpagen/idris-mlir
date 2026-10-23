@@ -215,11 +215,12 @@ numericTypeInterface = MkInterfaceDef
 
 ||| `ConstantAttrInterface`: a constant value of ours, at which types
 ||| idr.constant holds it, how it is laid out as static data, that it agrees
-||| with what it names, and how it holds closures: a closed sum
-||| (`::idr::ClosureHolding`, which the vocabulary's header defines before
-||| the interfaces, each attribute it holds by a handle complete before its
-||| class), so a reader that walks a constant's closures folds the answer
-||| and names no attribute.
+||| with what it names, and how it holds closures. The layout and the
+||| closures are closed sums (`::idr::StaticForm`, `::idr::ClosureHolding`),
+||| which the vocabulary's header defines before the interfaces, each
+||| attribute or type they hold by a handle complete before its class, so a
+||| writer of static data and a reader that walks a constant's closures fold
+||| the answer and name no attribute.
 public export
 constantAttrInterface : InterfaceDef
 constantAttrInterface = MkInterfaceDef

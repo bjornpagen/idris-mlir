@@ -25,19 +25,25 @@ using namespace idr;
 // The vocabulary
 //===----------------------------------------------------------------------===//
 
+// As the type answers (carryingOf), at any grade: a closure's or a
+// suspension's labels, each in a cell, a counted reference too; a counted
+// reference alone; or nothing. A cell answers for the box its init makes of
+// it.
 Carriers Carriers::of(Type type) {
-  // A cell is the one type that is another value before it exists: the box
-  // its init makes of it, a data value, which its type holds to be no cell.
-  if (auto cell = dyn_cast<CellType>(type))
-    type = cell.getValue();
-  Carriers carriers;
-  if (isClosureType(type))
-    carriers = carriers | Carrier::Closure;
-  if (isLazyType(type))
-    carriers = carriers | Carrier::Suspension;
-  if (holdsReferences(type))
-    carriers = carriers | Carrier::Reference;
-  return carriers;
+  return idr::match(
+      carryingOf(type),
+      [](const LabelCarrier &labels) {
+        return idr::match(
+            labels,
+            [](const carrying::Closure &) {
+              return Carriers(Carrier::Closure) | Carrier::Reference;
+            },
+            [](const carrying::Suspension &) {
+              return Carriers(Carrier::Suspension) | Carrier::Reference;
+            });
+      },
+      [](carrying::Reference) { return Carriers(Carrier::Reference); },
+      [](carrying::Nothing) { return Carriers(); });
 }
 
 std::optional<Type> FlowAnchor::slot() const {

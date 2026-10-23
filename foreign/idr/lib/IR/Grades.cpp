@@ -9,6 +9,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Enum.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/StringExtras.h"
@@ -128,6 +129,14 @@ bool GradedType::holdsReferences() const { return idr::holdsReferences(getCarrie
 ByType GradedType::getByType() const { return ByType::UsedAsGraded; }
 bool GradedType::isCounted() const { return idr::isCounted(getCarrier()); }
 bool GradedType::isCellPointer() const { return idr::isCellPointer(getCarrier()); }
+// What it is at run time is its carrier's at the grade's hold, a reuse
+// token's word the hold decides; what it carries and whether it is a cell's
+// memory are its carrier's.
+RunTimeWords GradedType::getRunTimeWords(std::optional<Hold>) const {
+  return runTimeWordsOf(getCarrier(), getHold());
+}
+Carrying GradedType::getCarrying() const { return carryingOf(getCarrier()); }
+bool GradedType::isCellMemory() const { return idr::isCellMemory(getCarrier()); }
 
 // A value at a grade is its carrier's value, so it prints with the name its
 // carrier gives one; a carrier that names none leaves it upstream's number.
@@ -235,9 +244,30 @@ Type idr::fieldType(Type scrutinee, Type carrier, Uses uses, FieldReach reach) {
   return graded(read, carrier);
 }
 
-bool idr::isClosureType(Type type) { return isa<FnType>(unrestricted(type)); }
+// The constraints the closure ops' values are declared with: a value,
+// at any grade, whose type answers that it carries a closure's labels, or a
+// suspension's, the one answer of what a type carries.
+bool idr::isClosureType(Type type) {
+  return match(
+      carryingOf(type),
+      [](const LabelCarrier &labels) {
+        return match(
+            labels, [](const carrying::Closure &) { return true; },
+            [](const carrying::Suspension &) { return false; });
+      },
+      [](OneOf<carrying::Reference, carrying::Nothing> auto) { return false; });
+}
 
-bool idr::isLazyType(Type type) { return isa<LazyType>(unrestricted(type)); }
+bool idr::isLazyType(Type type) {
+  return match(
+      carryingOf(type),
+      [](const LabelCarrier &labels) {
+        return match(
+            labels, [](const carrying::Closure &) { return false; },
+            [](const carrying::Suspension &) { return true; });
+      },
+      [](OneOf<carrying::Reference, carrying::Nothing> auto) { return false; });
+}
 
 //===----------------------------------------------------------------------===//
 // The types a field may have

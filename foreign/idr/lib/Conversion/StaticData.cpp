@@ -78,8 +78,9 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
         [&](const static_form::InPlace &in) {
           // A field and its type are read at one position of two arrays
           // alike.
-          ArrayRef<Attribute> fields = in.con.getFields().getValue();
-          ArrayRef<Type> types = layouts.fieldTypes(in.con.getData(), in.con.getTag());
+          ConAttr con = in.con.get();
+          ArrayRef<Attribute> fields = con.getFields().getValue();
+          ArrayRef<Type> types = layouts.fieldTypes(con.getData(), con.getTag());
           assert(fields.size() == types.size() && "a constructor's fields and their types pair up");
           for (size_t field = fields.size(); field-- > 0;)
             left.push_back({fields[field], types[field]});
@@ -94,22 +95,24 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
     SmallVector<Value> components = match(
         form,
         [&](const static_form::InPlace &in) -> SmallVector<Value> {
+          ConAttr con = in.con.get();
           SmallVector<SmallVector<Value>> fields;
-          for (size_t field = 0, n = in.con.getFields().size(); field < n; ++field)
+          for (size_t field = 0, n = con.getFields().size(); field < n; ++field)
             fields.push_back(made.pop_back_val());
           SmallVector<ValueRange> words(fields.begin(), fields.end());
-          return unboxedSum(b, loc, layouts.sum(in.con.getData()), in.con.getTag(), words);
+          return unboxedSum(b, loc, layouts.sum(con.getData()), con.getTag(), words);
         },
         [&](const static_form::Text &text) -> SmallVector<Value> {
           return {staticAddress(b, loc, StaticNames::string(text.bytes))};
         },
         [&](const static_form::Big &big) -> SmallVector<Value> {
-          return {bigConstant(b, loc, big.value)};
+          return {bigConstant(b, loc, big.value.get())};
         },
         [&](const static_form::Numeral &numeral) -> SmallVector<Value> {
-          if (numeral.place.layout() == Layout::Natural)
+          DataType place = numeral.place.get();
+          if (place.layout() == Layout::Natural)
             return {bigConstant(b, loc, BigAttr::get(b.getContext(), APInt(64, numeral.value)))};
-          Type word = layouts.components(numeral.place).front().type;
+          Type word = layouts.components(place).front().type;
           return {LLVM::ConstantOp::create(
               b, loc, word, IntegerAttr::get(word, static_cast<int64_t>(numeral.value)))};
         },
@@ -122,7 +125,7 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
           return {staticAddress(b, loc, StaticNames::nothing())};
         },
         [&](const static_form::Cell &cell) -> SmallVector<Value> {
-          return {staticAddress(b, loc, StaticNames::cell(cell.con, 0))};
+          return {staticAddress(b, loc, StaticNames::cell(cell.con.get(), 0))};
         });
     made.push_back(std::move(components));
   }
@@ -138,11 +141,11 @@ void StaticData::constant(Attribute value, Type type) {
     match(
         staticFormOf(held.value, held.type),
         [&](const static_form::Text &text) { string(text.bytes); },
-        [&](const static_form::Big &number) { big(number.value); },
+        [&](const static_form::Big &number) { big(number.value.get()); },
         // A numeral held as a natural past the small range is a big's
         // datum; at a word's width it is its value, no datum.
         [&](const static_form::Numeral &numeral) {
-          if (numeral.place.layout() == Layout::Natural)
+          if (numeral.place.get().layout() == Layout::Natural)
             big(BigAttr::get(at.getContext(), APInt(64, numeral.value)));
         },
         // An integer or a Double is its own type's literal, no datum.
@@ -151,12 +154,13 @@ void StaticData::constant(Attribute value, Type type) {
           if (isCellPointer(held.type))
             nothing();
         },
-        [&](const static_form::Cell &cell) { cells(cell.con, left); },
+        [&](const static_form::Cell &cell) { cells(cell.con.get(), left); },
         // A sum held in place is its words, each field's datum made at the
         // type its slot is laid out at.
         [&](const static_form::InPlace &in) {
-          for (auto [field, fieldType] : llvm::zip_equal(
-                   in.con.getFields(), layouts.fieldTypes(in.con.getData(), in.con.getTag())))
+          ConAttr con = in.con.get();
+          for (auto [field, fieldType] :
+               llvm::zip_equal(con.getFields(), layouts.fieldTypes(con.getData(), con.getTag())))
             left.push_back({field, fieldType});
         });
   };

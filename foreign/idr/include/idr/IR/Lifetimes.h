@@ -199,9 +199,6 @@ mlir::Value statedLifetime(mlir::Value scoped);
 // otherwise.
 mlir::Value extentOf(mlir::Value lifetime);
 
-// Where `lifetime`'s memory comes from, if an opener binds it.
-std::optional<Opener> openerOf(mlir::Value lifetime);
-
 // What a per-level lifetime's package holds, if its lifetime may be per
 // level: a stack lifetime's mark, or a chain, by its opener or by the
 // package an unpack reopened. A block in the opener's frame is never per

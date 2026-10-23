@@ -50,6 +50,7 @@ enum class OpIndex : std::uint16_t {
   JoinOp,
   LoopOp,
   JumpOp,
+  MayLoopOp,
   ArrayTabulateOp,
   ArrayFoldLastOp,
   ArrayScanLastOp,
@@ -293,7 +294,7 @@ enum class OpIndex : std::uint16_t {
 
 template <>
 struct EnumTraits<OpIndex> {
-  static constexpr std::size_t count = 272;
+  static constexpr std::size_t count = 273;
 };
 
 // The index of an op's class; no primary definition, so a class outside the set has none.
@@ -366,6 +367,8 @@ template <>
 struct IndexOf<::idr::LoopOp> : std::integral_constant<OpIndex, OpIndex::LoopOp> {};
 template <>
 struct IndexOf<::idr::JumpOp> : std::integral_constant<OpIndex, OpIndex::JumpOp> {};
+template <>
+struct IndexOf<::idr::MayLoopOp> : std::integral_constant<OpIndex, OpIndex::MayLoopOp> {};
 template <>
 struct IndexOf<::idr::ArrayTabulateOp> : std::integral_constant<OpIndex, OpIndex::ArrayTabulateOp> {};
 template <>

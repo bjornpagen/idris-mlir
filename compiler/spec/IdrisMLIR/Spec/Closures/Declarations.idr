@@ -57,7 +57,8 @@ fnType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted AlwaysCell)
+  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted AlwaysCell (Always CellAddress)
+                      (Always ClosureLabels) NotMemory)
   , doc = brief "a closure: a cell holding its captures"
   }
 
@@ -76,7 +77,8 @@ lazyType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
-  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted AlwaysCell)
+  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted AlwaysCell (Always CellAddress)
+                      (Always SuspensionLabels) NotMemory)
   , doc = brief "a suspension of one value, forced once into its cell"
   }
 

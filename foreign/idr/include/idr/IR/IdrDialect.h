@@ -92,21 +92,6 @@ class TagSet;
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
 
-// How a constant is laid out as static data, after the attributes and
-// types its alternatives hold, which the constant interface answers in.
-#include "idr/IR/Interfaces/StaticForm.h"
-
-// The dialect's types as the closed list a match over an mlir::Type folds:
-// every class mlir-tblgen generates, from the list it prints beside their
-// definitions, so a class the specification adds joins every match.
-#include "idr/Support/Match.h"
-namespace idr {
-struct DialectTypes : TypeClasses<
-#define GET_TYPEDEF_LIST
-#include "idr/IR/IdrTypes.cpp.inc"
-                          > {};
-} // namespace idr
-
 // What the C++ reads of a family and a data type beyond their generated
 // classes, which it names. Among it, the refinement a region assumes as it
 // is entered, which the hooks and the erased-binder interface return by

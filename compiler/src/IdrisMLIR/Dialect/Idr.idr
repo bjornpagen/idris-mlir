@@ -170,6 +170,12 @@ jumpOp : {default Nothing terms' : Maybe MlirAttr} -> Value -> List Value -> Op
 jumpOp {terms'} target' args' =
   MkOp (MkOpName Dialect.Idr "jump") ([target'] ++ args') (attrIf "terms" id terms') ([]) [] ([])
 
+||| `idr.may_loop`: the divergence of a loop Idris did not prove to end, at a join region's entry
+export
+mayLoopOp : Op
+mayLoopOp =
+  MkOp (MkOpName Dialect.Idr "may_loop") ([]) ([]) ([]) [] ([])
+
 ||| `idr.array.tabulate`: each destination written at each index with what the region gives there
 export
 arrayTabulateOp : List Value -> Region -> List MlirType -> Op

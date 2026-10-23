@@ -4,13 +4,12 @@
 // alternative the sum holds to the one case that takes it. A sum of our own
 // data is a std::variant, or a class with members of its own that derives
 // from one publicly, which the fold reads as that variant, as std::visit
-// does; a sum of pointer-sized handles is an llvm::PointerUnion, read by
-// the same fold; and a type of the dialect is an mlir::Type folded over the
-// classes the dialect's specification generates. What each of our types
+// does; and a sum of pointer-sized handles is an llvm::PointerUnion, read
+// by the same fold. A type of the dialect is no sum: what each of our types
 // is, a question every class answers, is a method of a type interface the
 // specification declares (ValueFactsTypeInterface and its kin), which each
-// class implements and the C++ asks; the fold reads a type only for a
-// question no interface declares.
+// class implements and the C++ asks, often for an answer that is itself a
+// closed sum this fold reads.
 //
 // Every alternative must have a case and every case must give one type, or
 // the match does not compile, and says which: a sum that gains an
@@ -36,11 +35,8 @@
 #ifndef IDR_SUPPORT_MATCH_H
 #define IDR_SUPPORT_MATCH_H
 
-#include "mlir/IR/Types.h"
-#include "mlir/Support/TypeID.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
 
 #include <concepts>
 #include <cstddef>
@@ -63,17 +59,6 @@ struct Cases : Fs... {
 // passed, is one of `Alternatives`.
 template <class T, class... Alternatives>
 concept OneOf = (std::same_as<std::remove_cvref_t<T>, Alternatives> || ...);
-
-// The classes of a closed set of MLIR types, in the order a list generated
-// for them gives.
-template <class... Ts>
-struct TypeClasses {};
-
-// The dialect's types: the classes its specification generates, as a
-// TypeClasses, completed beside their generated declarations. The dialect's
-// own header includes this one before it declares them, so the fold below
-// reads the list only where a match is instantiated.
-struct DialectTypes;
 
 namespace detail {
 
@@ -177,69 +162,6 @@ R foldHandles(C &cases, llvm::PointerUnion<PTs...> handle) {
   }
 }
 
-// `List`, named through the cases of a match, so a list completed after
-// this header is read where the match is instantiated and not where the
-// fold is defined.
-template <class List, class...>
-struct Late {
-  using type = List;
-};
-
-// One compare per class against the type's id, read once, the case of the
-// class that holds run once. A type of no class of the list is of another
-// dialect, which the caller asks before it folds.
-template <class R, class C, class... Ts>
-R foldTypes(C &cases, mlir::Type type, TypeClasses<Ts...>) {
-  mlir::TypeID id = type.getTypeID();
-  auto other = [] {
-    llvm::reportFatalInternalError("a type of another dialect folded over the dialect's types");
-  };
-  if constexpr (std::is_void_v<R>) {
-    if (!((id == mlir::TypeID::get<Ts>() && (std::invoke(cases, llvm::cast<Ts>(type)), true)) ||
-          ...))
-      other();
-  } else if constexpr (std::is_reference_v<R>) {
-    std::remove_reference_t<R> *out = nullptr;
-    if (!((id == mlir::TypeID::get<Ts>() &&
-           (out = std::addressof(named(std::invoke(cases, llvm::cast<Ts>(type)))), true)) ||
-          ...))
-      other();
-    return static_cast<R>(*out);
-  } else {
-    std::optional<R> out;
-    if (!((id == mlir::TypeID::get<Ts>() &&
-           (out.emplace(std::invoke(cases, llvm::cast<Ts>(type))), true)) ||
-          ...))
-      other();
-    return *std::move(out);
-  }
-}
-
-// A case taking mlir::Type, or anything built from one, takes every class,
-// as a generic case does, so mlir::Type is the probe. A case for several
-// classes names them, by a list or by what they share and mlir::Type lacks
-// (a type interface they each declare, whose constructor from mlir::Type
-// is explicit).
-template <class... Ts, class... Fs>
-decltype(auto) matchTypes(mlir::Type type, TypeClasses<Ts...>, Fs &&...fs) {
-  using C = Cases<std::remove_cvref_t<Fs>...>;
-  constexpr bool eachNamed = !std::invocable<C &, mlir::Type>;
-  static_assert(eachNamed, "no case of a match takes every type");
-  if constexpr (eachNamed) {
-    static_assert((std::invocable<C &, Ts> && ...),
-                  "a match has a case for every type of the dialect");
-    if constexpr ((std::invocable<C &, Ts> && ...)) {
-      using R = std::invoke_result_t<C &, Ts...[0]>;
-      static_assert((std::same_as<std::invoke_result_t<C &, Ts>, R> && ...),
-                    "every case of a match gives one type");
-      if constexpr ((std::same_as<std::invoke_result_t<C &, Ts>, R> && ...)) {
-        C cases{std::forward<Fs>(fs)...};
-        return foldTypes<R>(cases, type, TypeClasses<Ts...>{});
-      }
-    }
-  }
-}
-
 } // namespace detail
 
 template <class S>
@@ -288,15 +210,6 @@ decltype(auto) match(llvm::PointerUnion<PTs...> handle, Fs &&...fs) {
       }
     }
   }
-}
-
-// A type of the dialect, handed to the case of its class. Every class the
-// specification generates must have a case, so a class it adds is refused
-// at every match that forgot it. The type must be the dialect's.
-template <class... Fs>
-decltype(auto) match(mlir::Type type, Fs &&...fs) {
-  return detail::matchTypes(type, typename detail::Late<DialectTypes, Fs...>::type{},
-                            std::forward<Fs>(fs)...);
 }
 
 } // namespace idr

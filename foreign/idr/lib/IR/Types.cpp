@@ -290,6 +290,17 @@ ByType DataType::getByType() const {
 }
 bool DataType::isCounted() const { return holdsReferences(); }
 bool DataType::isCellPointer() const { return layout() == Layout::Cell; }
+// At run time a data type is the words it computed when it was made. Its
+// values carry no label of their own: a closure a field holds is the
+// field's, an anchor of its own; they carry a counted reference where they
+// hold one. A value is no cell's memory, which counting makes beside it.
+RunTimeWords DataType::getRunTimeWords(std::optional<Hold>) const {
+  return run_time_words::Held{{*this}};
+}
+Carrying DataType::getCarrying() const {
+  return holdsReferences() ? Carrying(carrying::Reference{}) : Carrying(carrying::Nothing{});
+}
+bool DataType::isCellMemory() const { return false; }
 
 // A numeral whose indices fix its bound is a word of its layout's width,
 // read as its bits; one whose index is open is laid out as a natural, and

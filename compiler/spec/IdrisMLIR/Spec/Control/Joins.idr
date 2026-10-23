@@ -19,8 +19,13 @@
 ||| `idr.loop` begins every region with them, so a join region may jump to
 ||| itself or a sibling, and its regions repeat. A recursive join point is a
 ||| loop, and an op whose regions cannot repeat is never one. A loop of code
-||| Idris did not prove to end may run forever, which its function's row
-||| holds from Idris's proof, so no op of the loop marks it.
+||| Idris did not prove to end may run forever: `idr.may_loop` stands at the
+||| entry of each of its join regions and writes divergence, so the row
+||| derived from the ops holds it wherever the loop is inlined or
+||| contified, and nothing deletes the loop as unused or moves it past a
+||| crash or an effect on the outside. The family itself declares no
+||| divergence: repetition is the difference between its members, and a
+||| loop Idris proved to end carries none.
 |||
 ||| Each scoped value an op of the family makes lives in the lifetime its
 ||| own entry of `outers` states: its scoped results, in result order, then
@@ -186,6 +191,44 @@ joinPoints scope = MkOp
 public export
 joinPointOps : List AnyOp
 joinPointOps = map (\scope => SomeOp (joinPoints scope)) [InBody, InEveryRegion]
+
+------------------------------------------------------------------------------
+-- A loop that may not end
+------------------------------------------------------------------------------
+
+||| `idr.may_loop`: the divergence of a loop of code Idris did not prove to
+||| end, standing at the entry of each join region of its `idr.loop`. Its
+||| one effect is a write of divergence, so the function's derived row
+||| holds the loop's divergence through every pass that moves its body
+||| (inlining, contification), the loop is never deleted as unused (eager
+||| evaluation runs it), and it stays ordered with crashes, `exit` and
+||| output. It takes and gives nothing, and runs nothing at run time: the
+||| row it leaves is what tells LLVM the function may not return.
+public export
+mayLoopOp : Op 0 0 0 0
+mayLoopOp = MkOp
+  { home = InIdr
+  , mnemonic = "may_loop"
+  , ins = []
+  , outs = []
+  , attrs = []
+  , regions = []
+  , traits = [HasParent (memberName InEveryRegion ::: [])]
+  , interfaces = []
+  , effects = Executes [OnState Write Divergence] [] Covered Untouched
+  , speculation = NotSpeculatable
+  , stages = Always
+  , meaning = NoFold
+  , verify = DeclarationOnly
+  , format = Declared [AttrDict]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "the divergence of a loop Idris did not prove to end, at a join region's entry"
+  }
 
 ------------------------------------------------------------------------------
 -- The jump

@@ -16,6 +16,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -36,8 +37,13 @@ using namespace idr;
 
 bool ConAttr::isBuildableAt(Type type) const { return dataTypeOf(type) == getData(); }
 
+// A constant closure is held at a type whose values carry labels, a
+// closure's or a suspension's, as its type answers; verifyParts holds it to
+// the one it is.
 bool ClosureAttr::isBuildableAt(Type type) const {
-  return isClosureType(type) || isLazyType(type);
+  return match(
+      carryingOf(type), [](const LabelCarrier &) { return true; },
+      [](OneOf<carrying::Reference, carrying::Nothing> auto) { return false; });
 }
 
 // A big is a literal of the types that say a big is one of theirs: an
@@ -89,43 +95,68 @@ LogicalResult ClosureAttr::verifyParts(Operation *holder, SymbolTableCollection 
   if (captures > inputs.size())
     return holder->emitOpError("has a closure with more captures than ")
            << getCallee() << " has parameters";
-  if (auto lazy = dyn_cast<LazyType>(type)) {
-    // A suspension's function has no arguments past its captures: the cell
-    // is the whole value, and forcing it passes nothing more. Counting
-    // grades the function's return; the constant stays a plain cell, and
-    // the carrier is what the two still share.
-    if (captures != inputs.size() || results.size() != 1 ||
-        unrestricted(results[0]) != unrestricted(lazy.getValue()))
-      return holder->emitOpError("has a suspension of ")
-             << getCallee() << ", where " << type << " is expected";
-  } else {
-    // The function's signature carries the grades reference counting
-    // added. The constant names carriers that meet them at the quantities
-    // Idris proved, each by the one rule a call's operands meet their
-    // callee by, at the function's value from `first` on its `side`: an
-    // axis the function's extents name may be static in its signature, while
-    // the constant keeps the `?` Idris's type gives it.
-    ExtentsAttr extents = fn.getExtentsAttr();
-    auto partsMeet = [&](ExtentSide side, std::size_t first, ArrayRef<Type> view,
-                         ArrayRef<Type> stated) {
-      return view.size() == stated.size() &&
-             llvm::all_of(llvm::enumerate(llvm::zip_equal(view, stated)), [&](auto indexed) {
-               auto [index, pair] = indexed;
-               auto [theirs, mine] = pair;
-               return usesOf(theirs) == usesOf(mine) &&
-                      meets(unrestricted(mine), unrestricted(theirs), extents, side,
-                            static_cast<std::uint32_t>(first + index));
-             });
-    };
-    auto actual = dyn_cast<FnType>(unrestricted(type));
-    if (!actual ||
-        !partsMeet(ExtentSide::Input, captures, inputs.drop_front(captures), actual.getInputs()) ||
-        !partsMeet(ExtentSide::Result, 0, results, actual.getResults()))
-      return holder->emitOpError("has a closure of ")
-             << getCallee() << ", of type "
-             << FnType::get(getContext(), inputs.drop_front(captures), results) << ", where "
-             << type << " is expected";
-  }
+  // The type it is held at carries a closure's labels or a suspension's,
+  // which isBuildableAt has said; a type that carries neither is refused as
+  // one no closure of this function is.
+  auto misplaced = [&]() -> LogicalResult {
+    return holder->emitOpError("has a closure of ")
+           << getCallee() << ", of type "
+           << FnType::get(getContext(), inputs.drop_front(captures), results) << ", where "
+           << type << " is expected";
+  };
+  LogicalResult agrees = match(
+      carryingOf(type),
+      [&](const LabelCarrier &labels) {
+        return match(
+            labels,
+            [&](const carrying::Suspension &suspension) -> LogicalResult {
+              // A suspension's function has no arguments past its captures:
+              // the cell is the whole value, and forcing it passes nothing
+              // more. Counting grades the function's return; the constant
+              // stays a plain cell, and the carrier is what the two still
+              // share.
+              LazyType lazy = suspension.type.get();
+              if (captures != inputs.size() || results.size() != 1 ||
+                  unrestricted(results[0]) != unrestricted(lazy.getValue()))
+                return holder->emitOpError("has a suspension of ")
+                       << getCallee() << ", where " << type << " is expected";
+              return success();
+            },
+            [&](const carrying::Closure &closure) -> LogicalResult {
+              // The function's signature carries the grades reference
+              // counting added. The constant names carriers that meet them
+              // at the quantities Idris proved, each by the one rule a
+              // call's operands meet their callee by, at the function's
+              // value from `first` on its `side`: an axis the function's
+              // extents name may be static in its signature, while the
+              // constant keeps the `?` Idris's type gives it.
+              ExtentsAttr extents = fn.getExtentsAttr();
+              auto partsMeet = [&](ExtentSide side, std::size_t first, ArrayRef<Type> view,
+                                   ArrayRef<Type> stated) {
+                return view.size() == stated.size() &&
+                       llvm::all_of(llvm::enumerate(llvm::zip_equal(view, stated)),
+                                    [&](auto indexed) {
+                                      auto [index, pair] = indexed;
+                                      auto [theirs, mine] = pair;
+                                      return usesOf(theirs) == usesOf(mine) &&
+                                             meets(unrestricted(mine), unrestricted(theirs),
+                                                   extents, side,
+                                                   static_cast<std::uint32_t>(first + index));
+                                    });
+              };
+              FnType actual = closure.type.get();
+              if (!partsMeet(ExtentSide::Input, captures, inputs.drop_front(captures),
+                             actual.getInputs()) ||
+                  !partsMeet(ExtentSide::Result, 0, results, actual.getResults()))
+                return misplaced();
+              return success();
+            });
+      },
+      [&](OneOf<carrying::Reference, carrying::Nothing> auto) -> LogicalResult {
+        return misplaced();
+      });
+  if (failed(agrees))
+    return failure();
   // A constant fills a linear capture as its plain value.
   for (auto [capture, input] : llvm::zip(getCaptures(), inputs.take_front(captures)))
     part(capture, unrestricted(input));
@@ -191,14 +222,14 @@ StaticForm ConAttr::getStaticForm(Type held) const {
   Layout layout = con.getData().layout();
   if (families::isNumber(layout)) {
     assert(place && "a numeral is held at a data type");
-    return static_form::Numeral{place, families::numeralValue(con)};
+    return static_form::Numeral{{place}, families::numeralValue(con)};
   }
   if (layout == Layout::InPlace)
-    return static_form::InPlace{con};
+    return static_form::InPlace{{con}};
   // The constructor's verifier refuses a frame stack's family, so what is
   // left is a cell.
   assert(layout == Layout::Cell && "a constant constructor is a number, in place or in a cell");
-  return static_form::Cell{con};
+  return static_form::Cell{{con}};
 }
 
 // A closure reaches static data only as its label's constructor:
@@ -210,7 +241,7 @@ StaticForm ClosureAttr::getStaticForm(Type) const {
       "constructor first");
 }
 
-StaticForm BigAttr::getStaticForm(Type) const { return static_form::Big{*this}; }
+StaticForm BigAttr::getStaticForm(Type) const { return static_form::Big{{*this}}; }
 
 // Upstream's constants hold no interface of ours, so they are named here,
 // the one place: a string's literal, an integer's or a Double's, and poison,

@@ -133,9 +133,10 @@ def IdrColumns : Pass<"idr-columns", "::idr::ProgramOp"> {
 def IdrSimplify : Pass<"idr-simplify", "::idr::FuncOp"> {
   let summary = "Simplify a function on an e-graph over its ops, where our ops are";
   let description = [{
-    Rules from the specification applied at insertion, effectful ops in a skeleton
-    ordered per resource, extraction by cost; a call is deleted or moved only where its
-    row carries neither crash nor divergence. Its budget is nodes per op from the program
+    Rules from the specification run in rounds, each over the graph as the round found
+    it, a rebuild restoring congruence after each; effectful ops in a skeleton ordered
+    per resource, extraction by cost; a call is deleted or moved only where its row
+    carries neither crash nor divergence. Its budget is nodes per op from the program
     alone: a spent budget leaves the function less simplified, never refused.
   }];
   let baseClass = "::mlir::OperationPass<::idr::FuncOp>";

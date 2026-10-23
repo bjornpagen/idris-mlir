@@ -40,30 +40,20 @@ effects::Does onCountOf(Operation *op, Value value, effects::Kind kind) {
   return walked == effects::Walked::Stopped ? effects::Does::Touches : effects::Does::Avoids;
 }
 
-// Whether a value of `type` is what a test gives for what it took apart:
-// the cell, or the token that holds it. These are counting's two kinds of a
-// cell's memory, and no value fact says "a cell's memory": the cell holds
-// nothing yet and is used once by its type, while the token holds its cell,
-// counted, at the uses its grade says. So the two are named here, the one
-// place that asks.
-bool givenForReuse(Type type) {
-  Type carrier = unrestricted(type);
-  return isa<CellType, ReuseTokenType>(carrier);
-}
-
 // Whether `operand`'s op tests the sharing of its value: it reads the
-// count of a value it consumes, and gives a cell or a token, as a result or
-// to a region it runs.
+// count of a value it consumes, and gives what it took apart as a cell's
+// memory (the cell, or the token that holds it, as the value's type says:
+// isCellMemory), as a result or to a region it runs.
 bool testsSharing(OpOperand &operand) {
   Operation *op = operand.getOwner();
   if (!effects::consumes(operand) ||
       onCountOf(op, operand.get(), effects::Kind::Read) == effects::Does::Avoids)
     return false;
-  if (llvm::any_of(op->getResultTypes(), givenForReuse))
+  if (llvm::any_of(op->getResultTypes(), isCellMemory))
     return true;
   for (Region &region : op->getRegions())
     for (Block &block : region)
-      if (llvm::any_of(block.getArgumentTypes(), givenForReuse))
+      if (llvm::any_of(block.getArgumentTypes(), isCellMemory))
         return true;
   return false;
 }

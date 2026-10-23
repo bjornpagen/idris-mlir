@@ -75,7 +75,11 @@ dialect : DialectDef
 dialect = MkDialectDef
   { summary = "Monomorphic Idris programs: families, closures, matches, strings and bigs"
   , description = "The dialect holds only what upstream's dialects do not mean: Idris's data\nas the families it checked, its grades in types, lifetimes as values, join\npoints, counting, and the runtime's values. Every fact a pass reads is an\nop's property or a type, never a discardable attribute."
-  , loads = [LoadsArith, LoadsUB, LoadsLLVM]
+  -- Bufferization with the rest: a builtin tensor is tensor-like, its
+  -- aliases followed through bufferization's interfaces, only once that
+  -- dialect is loaded, so a module read as text holds what the loan check
+  -- follows as one read by the pipeline does.
+  , loads = [LoadsArith, LoadsUB, LoadsLLVM, LoadsBufferization]
   , members =
       [ MkMember OnObject "void" "registerTypes" []
       , MkMember OnObject "void" "registerValueFacts" [] ]
@@ -256,7 +260,7 @@ core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
                     , MkHeader "StageFacts"
                         [(DialectNamespace, [ EnumOf (enumDef closuresClosed), EnumOf (enumDef countingClosed)
                                             , EnumOf (enumDef functionsClosed), EnumOf (enumDef tailsClosed)
-                                            , TableOf stageFacts ])]
+                                            , EnumOf (enumDef tailLayoutsClosed), TableOf stageFacts ])]
                         (brief "what each stage of a program implies of its functions")
                     , verdictHeader ]
        } nothing

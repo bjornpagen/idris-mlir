@@ -2,14 +2,19 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What a value of each type holds, asked through ValueFactsTypeInterface:
 // every type of the dialect answers from the facts its specification
-// declares, printed into its class, so no answer is written here; the
-// builtin types a value may have answer as external models, attached when
-// the dialect registers its types, with the literals of the builtin integers
-// and of f64 and the test a literal match makes of each. The free functions
-// are the one way a reader asks (Grades.h).
+// declares, printed into its class where they are the same for every value
+// of it; an answer its parameters decide is written here (a lifetime's
+// words, a reuse token's, a destination's, a cell's carrying), beside the
+// type's whose answers are all computed (a grade's, Grades.cpp; a data
+// type's, Types.cpp). The builtin types a value may have answer as external
+// models, attached when the dialect registers its types, with the literals
+// of the builtin integers and of f64 and the test a literal match makes of
+// each. The free functions are the one way a reader asks (Grades.h,
+// Interfaces/Vocabulary.h).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
@@ -19,25 +24,44 @@ using namespace idr;
 namespace {
 
 // What a builtin scalar or vector holds: no reference, and it is used as
-// often as its grade says. A vector's elements are scalars.
+// often as its grade says. A vector's elements are scalars. It is its own
+// word at run time, and it carries nothing a reader of moves follows.
 template <typename T>
 struct ScalarFacts : ValueFactsTypeInterface::ExternalModel<ScalarFacts<T>, T> {
   bool holdsReferences(Type) const { return false; }
   ByType getByType(Type) const { return ByType::UsedAsGraded; }
   bool isCounted(Type) const { return false; }
   bool isCellPointer(Type) const { return false; }
+  RunTimeWords getRunTimeWords(Type type, std::optional<Hold>) const {
+    return run_time_words::Itself{type};
+  }
+  Carrying getCarrying(Type) const { return carrying::Nothing{}; }
+  bool isCellMemory(Type) const { return false; }
 };
+
+// What an array is at run time: a ranked one, its cell and what of its
+// descriptor its type leaves to the value; an unranked one, whose shape no
+// type states, its cell's address.
+run_time_words::Descriptor arrayWords(MemRefType array) { return {array}; }
+run_time_words::Descriptor arrayWords(RankedTensorType array) { return {array}; }
+run_time_words::Pointer arrayWords(UnrankedMemRefType) { return {layout::Word::Cell}; }
+run_time_words::Pointer arrayWords(UnrankedTensorType) { return {layout::Word::Cell}; }
 
 // An array's cell is a reference, used as often as its grade says. A
 // buffer is counted; a value array is counted as its buffer, after
 // bufferization. Its value is a descriptor, the cell with what of its shape
-// the type leaves open, not one pointer.
+// the type leaves open, not one pointer. It carries its cell's reference.
 template <typename T, bool counted>
 struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T, counted>, T> {
   bool holdsReferences(Type) const { return true; }
   ByType getByType(Type) const { return ByType::UsedAsGraded; }
   bool isCounted(Type) const { return counted; }
   bool isCellPointer(Type) const { return false; }
+  RunTimeWords getRunTimeWords(Type type, std::optional<Hold>) const {
+    return arrayWords(cast<T>(type));
+  }
+  Carrying getCarrying(Type) const { return carrying::Reference{}; }
+  bool isCellMemory(Type) const { return false; }
 };
 
 // A literal of an integer type is an integer of that type, written as a
@@ -157,3 +181,56 @@ bool idr::isCellPointer(Type type) {
   auto facts = dyn_cast<ValueFactsTypeInterface>(type);
   return facts && facts.isCellPointer();
 }
+
+// A type no model answers for is of another dialect, which only the
+// lowering makes: its own word, carrying nothing, no cell's memory.
+RunTimeWords idr::runTimeWordsOf(Type type, std::optional<Hold> hold) {
+  auto facts = dyn_cast<ValueFactsTypeInterface>(type);
+  return facts ? facts.getRunTimeWords(hold) : RunTimeWords(run_time_words::Itself{type});
+}
+
+Carrying idr::carryingOf(Type type) {
+  auto facts = dyn_cast<ValueFactsTypeInterface>(type);
+  return facts ? facts.getCarrying() : Carrying(carrying::Nothing{});
+}
+
+bool idr::isCellMemory(Type type) {
+  auto facts = dyn_cast<ValueFactsTypeInterface>(type);
+  return facts && facts.isCellMemory();
+}
+
+// A closure's label is called with the closure's inputs besides its
+// captures.
+unsigned carrying::Closure::arity() const {
+  return static_cast<unsigned>(type.get().getInputs().size());
+}
+
+//===----------------------------------------------------------------------===//
+// The answers a type's parameters decide
+//===----------------------------------------------------------------------===//
+
+// A lifetime is what its kind lowers to: nothing, for a lifetime nothing
+// allocates into, else a pointer no count is kept of.
+RunTimeWords LifetimeType::getRunTimeWords(std::optional<Hold>) const {
+  if (getKind().lowered() == Lowered::NoValue)
+    return run_time_words::NoWord{};
+  return run_time_words::Pointer{layout::Word::Uncounted};
+}
+
+// A reuse token is its cell's address, which is never null where its grade
+// says it holds its cell, and is null where its take found the cell shared.
+RunTimeWords ReuseTokenType::getRunTimeWords(std::optional<Hold> hold) const {
+  return run_time_words::Pointer{hold && hold->claims(Unique::Deep) ? layout::Word::Cell
+                                                                    : layout::Word::MaybeCell};
+}
+
+// A destination is an address per component of what it takes, each that
+// component's slot in the place it is written.
+RunTimeWords DestType::getRunTimeWords(std::optional<Hold>) const {
+  return run_time_words::Addresses{getValue()};
+}
+
+// A cell carries what the box its init makes of it carries: it is that box
+// before it is one, so whether a box is new to anyone is whether its cell
+// was.
+Carrying CellType::getCarrying() const { return carryingOf(getValue()); }

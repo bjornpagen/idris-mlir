@@ -94,6 +94,15 @@ data StageFunctions = OurFunctions | LoweredFunctions
 public export
 data StageTails = TailsPromised | TailsDecided
 
+||| Whether a tail call's results are laid out as its caller's, so it
+||| returns them with no re-pack: pending while defunctionalization decides
+||| the tail facts and the specializer may still redirect a call that would
+||| re-pack to a copy whose layouts agree, and agreeing from the stage
+||| before counting on, where a pass that lost a tail to a re-pack is
+||| caught.
+public export
+data StageTailLayouts = LayoutsPending | LayoutsAgree
+
 public export
 closuresClosed : Closed StageClosures
 closuresClosed = MkClosed
@@ -143,6 +152,18 @@ tailsClosed = MkClosed
   , doc = brief (line "whether every call's tail fact is decided") }
 
 public export
+tailLayoutsClosed : Closed StageTailLayouts
+tailLayoutsClosed = MkClosed
+  { name = ident "StageTailLayouts", shape = OneOf, every = LayoutsPending ::: [LayoutsAgree]
+  , complete = \case
+      LayoutsPending => Here
+      LayoutsAgree => There Here
+  , describe = \case
+      LayoutsPending => MkCase (ident "Pending") (word "pending" ::: []) (line "a tail call may still re-pack its results, until the specializer redirects it")
+      LayoutsAgree => MkCase (ident "Agree") (word "agree" ::: []) (line "every tail call's results are laid out as its caller's")
+  , doc = brief (line "whether a tail call's result layouts agree with its caller's") }
+
+public export
 closuresAt : Stage -> StageClosures
 closuresAt Higher = ClosuresRemain
 closuresAt _ = FirstOrder
@@ -163,6 +184,12 @@ tailsAt : Stage -> StageTails
 tailsAt Higher = TailsPromised
 tailsAt _ = TailsDecided
 
+public export
+tailLayoutsAt : Stage -> StageTailLayouts
+tailLayoutsAt Higher = LayoutsPending
+tailLayoutsAt First = LayoutsPending
+tailLayoutsAt _ = LayoutsAgree
+
 ||| What each stage implies, one row per stage: only the five stages have a
 ||| row, so no combination of facts a stage cannot have is written.
 public export
@@ -172,4 +199,5 @@ stageFacts = table stageClosed
   , MkColumn (ident "countingAt") (EnumColumn (enumDef countingClosed)) (\s => CaseCell (caseRef countingClosed (countingAt s))) (line "whether references are counted")
   , MkColumn (ident "functionsAt") (EnumColumn (enumDef functionsClosed)) (\s => CaseCell (caseRef functionsClosed (functionsAt s))) (line "whose functions the program holds")
   , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's tail fact is decided")
+  , MkColumn (ident "tailLayoutsAt") (EnumColumn (enumDef tailLayoutsClosed)) (\s => CaseCell (caseRef tailLayoutsClosed (tailLayoutsAt s))) (line "whether a tail call's result layouts agree with its caller's")
   ]

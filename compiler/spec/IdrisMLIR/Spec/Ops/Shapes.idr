@@ -313,43 +313,58 @@ public export
 indexCastUI : Admitted
 indexCastUI = arithOp "Arith_IndexCastUIOp" [] Nothing
 
+||| An op on Doubles, or into them, whose result IEEE 754 fixes: an arith
+||| op whose upstream fold is that operation on `APFloat`, which the e-graph
+||| computes on its own Double values by the same operation.
+doubleOp : Ident -> Admitted
+doubleOp r = { folding := ComputedOnDoubles } (arithOp r [] Nothing)
+
+||| An unsigned or a signed word as a Double, rounded to nearest, ties to
+||| even: upstream's `UIToFPOp::fold` and `SIToFPOp::fold` are
+||| `APFloat::convertFromAPInt` at that rounding. Every word has one, so no
+||| guard narrows it.
 public export
 uiToFP : Admitted
-uiToFP = arithOp "Arith_UIToFPOp" [] Nothing
+uiToFP = doubleOp "Arith_UIToFPOp"
 
 public export
 siToFP : Admitted
-siToFP = arithOp "Arith_SIToFPOp" [] Nothing
+siToFP = doubleOp "Arith_SIToFPOp"
 
 -- A Double's arithmetic is IEEE 754's binary64 as upstream's arith means
 -- it: rounded to nearest, ties to even, and written with no fast-math flag,
 -- so no rewrite assumes an algebra IEEE does not have. The runtime's
 -- Doubles are the same arithmetic, built without contraction on every
--- target.
+-- target. Each upstream fold is the IEEE operation on `APFloat`, at the
+-- op's rounding mode, nearest-even when it names none: `AddFOp::fold`
+-- `add`, `SubFOp::fold` `subtract`, `MulFOp::fold` `multiply`,
+-- `DivFOp::fold` `divide`, `NegFOp::fold` the sign flipped, and
+-- `CmpFOp::fold` the predicate over `compare`, unordered where either
+-- operand is a NaN.
 
 public export
 addF : Admitted
-addF = arithOp "Arith_AddFOp" [] Nothing
+addF = doubleOp "Arith_AddFOp"
 
 public export
 subF : Admitted
-subF = arithOp "Arith_SubFOp" [] Nothing
+subF = doubleOp "Arith_SubFOp"
 
 public export
 mulF : Admitted
-mulF = arithOp "Arith_MulFOp" [] Nothing
+mulF = doubleOp "Arith_MulFOp"
 
 public export
 divF : Admitted
-divF = arithOp "Arith_DivFOp" [] Nothing
+divF = doubleOp "Arith_DivFOp"
 
 public export
 negF : Admitted
-negF = arithOp "Arith_NegFOp" [] Nothing
+negF = doubleOp "Arith_NegFOp"
 
 public export
 cmpF : Admitted
-cmpF = arithOp "Arith_CmpFOp" [] Nothing
+cmpF = doubleOp "Arith_CmpFOp"
 
 -- A Double's functions of the C library and its exact ones (a root, a
 -- floor, a ceiling) are IEEE 754's binary64 as upstream's math means them,
@@ -366,6 +381,13 @@ cmpF = arithOp "Arith_CmpFOp" [] Nothing
 ||| differ from what the target computes and removing the fold would change
 ||| a result; such an op is never folded and runs on the target as written.
 ||| A root, a floor and a ceiling are exact under IEEE, so their folds stay.
+||| A floor's and a ceiling's are `APFloat::roundToIntegral` toward the
+||| lower or the upper side (upstream's `FloorOp::fold`, `CeilOp::fold`),
+||| which the e-graph computes on its own Double values too. A root's is no
+||| `APFloat` operation: `SqrtOp::fold` calls the compiling machine's C
+||| library `sqrt`, which IEEE requires to round correctly, so upstream's
+||| fold may run, but the e-graph has no operation of its own to compute it
+||| by and leaves it applied.
 ||| Its record's name carries its dialect, so it is its own alias.
 mathOp : UpFold -> Ident -> Admitted
 mathOp f r = MkAdmitted
@@ -410,11 +432,11 @@ sqrtF = mathOp UpstreamFold "Math_SqrtOp"
 
 public export
 floorF : Admitted
-floorF = mathOp UpstreamFold "Math_FloorOp"
+floorF = mathOp ComputedOnDoubles "Math_FloorOp"
 
 public export
 ceilF : Admitted
-ceilF = mathOp UpstreamFold "Math_CeilOp"
+ceilF = mathOp ComputedOnDoubles "Math_CeilOp"
 
 public export
 powF : Admitted

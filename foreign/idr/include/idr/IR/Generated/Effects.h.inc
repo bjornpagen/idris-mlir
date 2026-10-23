@@ -268,6 +268,14 @@ struct Declared<::idr::JumpOp> {
 };
 
 template <>
+struct Declared<::idr::MayLoopOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Write, ::idr::effects::ResourceId::Divergence, ::idr::effects::Subject::op()}}};
+  using Rules = std::tuple<>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::ArrayTabulateOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 0> effects{{}};

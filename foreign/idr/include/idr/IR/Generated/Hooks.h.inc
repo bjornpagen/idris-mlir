@@ -179,6 +179,9 @@ bool isRank1Array(::mlir::Type value);
 // a value its count frees
 bool isCountedValue(::mlir::Type value);
 
+// a value used any number of times
+bool isUsedMany(::mlir::Type value);
+
 // a counted value refined to a constructor with a cell
 bool isTakeable(::mlir::Type value);
 

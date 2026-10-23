@@ -281,6 +281,37 @@ data Counting = Counted | Uncounted
 public export
 data CellWord = AlwaysCell | MayBeOtherWord
 
+||| What every value of a type is at run time, where the type's parameters
+||| decide nothing: one pointer no count is kept of (a cell before its
+||| init, a package), one cell's address (a string, a closure, a
+||| suspension), or one big's word of 64 bits, a small integer or a cell's
+||| address (an Integer, a natural).
+public export
+data RunTimeWord = UncountedPointer | CellAddress | BigWord
+
+||| What a value of a type carries for the label solve besides the
+||| reference it holds: no label, or the labels of a closure or of a
+||| suspension, which are cells, so only a type that holds references
+||| carries them.
+public export
+data Labels : Holding -> Type where
+  NoLabels : Labels holding
+  ClosureLabels : Labels HoldsReferences
+  SuspensionLabels : Labels HoldsReferences
+
+||| Whether a value of a type is a cell's memory, what counting builds a
+||| constructor into and a test of sharing gives for what it took apart (a
+||| cell before its init, a reuse token), or a value.
+public export
+data Memory = CellMemory | NotMemory
+
+||| One answer of a type to the value facts: the same for every value of
+||| it, which the generator prints as the method's body; or one its
+||| parameters decide (a lifetime's words are its kind's, a cell's labels
+||| its value's), which a hand unit defines.
+public export
+data Answer a = Always a | ByParameters
+
 ||| A type's answers to `ValueFactsTypeInterface`, printed as its methods,
 ||| so no hand answer restates them.
 public export
@@ -290,19 +321,25 @@ record ValueFacts where
   byType : ByType
   counting : Counting
   word : CellWord
+  words : Answer RunTimeWord
+  labels : Answer (Labels holding)
+  memory : Memory
 
-||| Whether a type answers the value facts: none; its answers, the same for
-||| every value of it, which the generator prints as the methods' bodies; or
-||| answers computed from its parameters (a grade's are its carrier's, a data
-||| type's its family's), which a hand unit defines. A type that answers
+||| Whether a type answers the value facts: none; its answers, each the same
+||| for every value of it, which the generator prints as the method's body,
+||| or one its parameters decide, which a hand unit defines; or answers all
+||| computed from its parameters (a grade's are its carrier's, a data type's
+||| its family's), which a hand unit defines. A type that answers
 ||| takes the interface through this field alone, its methods declared on its
 ||| class by ODS, so no type lists the interface or restates its methods.
 public export
 data TypeFacts = NoValueFacts | Answers ValueFacts | HandAnswers
 
 ||| The interface every type that answers the value facts takes, through its
-||| facts: what a value of it holds, read by counting, the lifetimes and the
-||| lowering.
+||| facts: what a value of it holds, what it is at run time, what it carries
+||| where it moves and whether it is a cell's memory, read by counting, the
+||| lifetimes, the label solve and the lowering, so none of them tests a
+||| type's class.
 public export
 valueFactsInterface : InterfaceDef
 valueFactsInterface = MkInterfaceDef
@@ -314,6 +351,13 @@ valueFactsInterface = MkInterfaceDef
       , MkMethod PerObject (MkCode "::idr::ByType" Oh) (MkIdent "getByType" Oh) [] EveryImplementer (MkLine "how the type fixes its values' uses: once, freely, or as their grade says" Oh)
       , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isCounted" Oh) [] EveryImplementer (MkLine "whether a reference a value holds is counted" Oh)
       , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isCellPointer" Oh) [] EveryImplementer (MkLine "whether a value's word is always a cell's address" Oh)
+      , MkMethod PerObject (MkCode "::idr::RunTimeWords" Oh) (MkIdent "getRunTimeWords" Oh)
+          [MkParam (MkCode "::std::optional<::idr::Hold>" Oh) (MkIdent "hold" Oh)] EveryImplementer
+          (MkLine "what a value is at run time, its words, held at `hold` where a grade around it says so" Oh)
+      , MkMethod PerObject (MkCode "::idr::Carrying" Oh) (MkIdent "getCarrying" Oh) [] EveryImplementer
+          (MkLine "what a value carries where it moves: a closure's or a suspension's labels, a counted reference alone, or nothing" Oh)
+      , MkMethod PerObject (MkCode "bool" Oh) (MkIdent "isCellMemory" Oh) [] EveryImplementer
+          (MkLine "whether a value is a cell's memory: a cell before its init, or a reuse token" Oh)
       ]
   , verifier = Unverified
   , doc = MkDoc (MkLine "what a value of a type holds" Oh) (MkProse "" Oh)

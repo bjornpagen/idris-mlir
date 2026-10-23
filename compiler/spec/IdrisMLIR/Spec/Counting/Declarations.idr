@@ -67,6 +67,17 @@ predicate n d = MkPredicate n OnType (brief d)
 countedValue : Predicate
 countedValue = predicate "isCountedValue" "a value its count frees"
 
+||| Used any number of times, as Idris proved it: a value a dup may give one
+||| more reference to. A value used once has one owner, and a second
+||| reference to it would make two.
+usedMany : Predicate
+usedMany = predicate "isUsedMany" "a value used any number of times"
+
+||| What a dup takes: a value its count frees, used any number of times.
+duplicable : TypeC
+duplicable = AllOfTypes (SatisfiesType countedValue ::: [SatisfiesType usedMany])
+  "a value its count frees, used any number of times"
+
 ||| Freed by its count and refined to one constructor that has a cell: a
 ||| value a take takes out of its cell.
 takeable : Predicate
@@ -152,12 +163,14 @@ explicit : Legal
 explicit = between First Owned
 
 ||| `count.dup %v : T`, C++ `CountDupOp`: one more reference to a counted
-||| value; the result holds it, counted claiming nothing unless written. A
-||| fresh identity, never merged with another dup. Given a bare carrier it
-||| makes a reference of its own, so a loan's alias never enters one.
+||| value used any number of times, never one used once, whose one owner a
+||| second reference would make two; the result holds it, counted claiming
+||| nothing unless written. A fresh identity, never merged with another
+||| dup. Given a bare carrier it makes a reference of its own, so a loan's
+||| alias never enters one.
 public export
 dup : Op 1 1 0 0
-dup = countingOp "count.dup" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
+dup = countingOp "count.dup" [single "value" duplicable] [result "result" anyValue] [] []
   [OurTrait adoptsCarrier] [Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Read Count (Operands 0), OnValues Write Count (Operands 0)] [NewIdentity 0] Covered Untouched)
   counted VerifiesOp
@@ -479,6 +492,6 @@ declarations =
            , SomeOp tokenFree, SomeOp tokenNull, SomeOp tokenRebuild, SomeOp adopt, SomeOp give ]
   , types := [SomeType cellType, SomeType reuseTokenType]
   , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
-  , predicates := [countedValue, takeable, unpackable, tokenValue, heldValue]
+  , predicates := [countedValue, usedMany, takeable, unpackable, tokenValue, heldValue]
   , interfaces := [reuseSourceInterface, reuseSinkInterface]
   } nothing

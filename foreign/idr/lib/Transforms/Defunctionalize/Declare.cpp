@@ -34,6 +34,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -52,12 +53,12 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// The arguments a label of `carrier` is called with besides its captures:
-// a closure's, or none, since every parameter of a suspended function is a
-// capture.
-unsigned arity(Type carrier) {
-  auto fn = dyn_cast<FnType>(carrier);
-  return fn ? static_cast<unsigned>(fn.getInputs().size()) : 0;
+// The arguments a label of `carrier` is called with besides its captures,
+// as the carrier answers: a closure's inputs, or none for a suspension.
+unsigned arity(const LabelCarrier &carrier) {
+  return match(carrier, [](const OneOf<carrying::Closure, carrying::Suspension> auto &labels) {
+    return labels.arity();
+  });
 }
 
 // The name of a key's family: its kind and the digest of the key, its
@@ -71,7 +72,9 @@ StringAttr nameOf(MLIRContext *ctx, const Key &key) {
   for (auto [at, word] : llvm::enumerate(words))
     llvm::support::endian::write64le(bytes.data() + 8 * at, word);
   llvm::XXH128_hash_t digest = llvm::xxh3_128bits(bytes);
-  llvm::SmallString<40> name(carrierOf(key) == Carrier::Lazy ? "lazy." : "fn.");
+  llvm::SmallString<40> name(match(
+      labelCarrierOf(key), [](const carrying::Closure &) -> llvm::StringRef { return "fn."; },
+      [](const carrying::Suspension &) -> llvm::StringRef { return "lazy."; }));
   llvm::raw_svector_ostream os(name);
   os << llvm::format_hex_no_prefix(digest.high64, 16)
      << llvm::format_hex_no_prefix(digest.low64, 16);
@@ -157,21 +160,26 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
         node,
         [&](ForKey key) {
           const Key &k = families[static_cast<unsigned>(key.key)].key;
+          LabelCarrier carrier = labelCarrierOf(k);
           for (auto label : k.labels.getAsRange<FlatSymbolRefAttr>()) {
             const Signature &sig = signature(graph.id(label));
             FuncOp fn = labels.function(label.getAttr());
-            unsigned n = fn.getNumArguments() - arity(k.carrier);
+            unsigned n = fn.getNumArguments() - arity(carrier);
             SmallVector<Field> captures;
             for (unsigned i = 0; i < n; ++i)
               captures.push_back({fn.getArgumentTypes()[i], sig.arguments[i]});
             out.push_back(std::move(captures));
           }
-          if (carrierOf(k) == Carrier::Lazy) {
-            auto lazy = cast<LazyType>(k.carrier);
-            out.push_back({});
-            out.push_back(
-                {{overPositions(lazy.getValue()), anchorKey(FlowAnchor::forcedOf(lazy))}});
-          }
+          // A memo family's two states follow its labels: the unforced,
+          // which holds nothing, and the forced, which holds the value.
+          match(
+              carrier, [](const carrying::Closure &) {},
+              [&](const carrying::Suspension &suspension) {
+                LazyType lazy = suspension.type.get();
+                out.push_back({});
+                out.push_back(
+                    {{overPositions(lazy.getValue()), anchorKey(FlowAnchor::forcedOf(lazy))}});
+              });
         },
         [&](ForData data) {
           DataType member = DataType::get(ctx, data.group, data.member,
@@ -259,6 +267,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
           nodes[node],
           [&](ForKey key) -> families::Member {
             const Key &k = families[static_cast<unsigned>(key.key)].key;
+            LabelCarrier carrier = labelCarrierOf(k);
             SmallVector<families::LabelDecl> &decls = labelStore.emplace_back();
             SmallVector<families::MemoLabelDecl> &memos = memoStore.emplace_back();
             // The family's indices: each place of an index term the key's
@@ -274,29 +283,42 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
               // its results, in its own variables; its equation the terms it
               // names at the family's places.
               FunctionType type = fn.getFunctionType();
-              unsigned n = type.getNumInputs() - arity(k.carrier);
-              Type own = carrierOf(k) == Carrier::Lazy
-                             ? Type(LazyType::get(ctx, type.getResult(0)))
-                             : Type(FnType::get(ctx, type.getInputs().drop_front(n), type.getResults()));
+              unsigned n = type.getNumInputs() - arity(carrier);
+              Type own = match(
+                  carrier,
+                  [&](const carrying::Closure &) -> Type {
+                    return FnType::get(ctx, type.getInputs().drop_front(n), type.getResults());
+                  },
+                  [&](const carrying::Suspension &) -> Type {
+                    return LazyType::get(ctx, type.getResult(0));
+                  });
               SmallVector<families::TermNode> &terms =
                   termStore.emplace_back(indexTermsOf(own).nodes);
               ArrayRef<families::Sort> binders;
               if (IndexBindersAttr bound = fn.getBindersAttr())
                 binders = bound.getSorts();
               families::LabelDecl decl{label.getAttr(), label, binders, terms, fields};
-              if (carrierOf(k) == Carrier::Lazy)
-                memos.push_back({atoms[graph.id(label)].contains(effects::Atom::io)
-                                     ? Mode::ByName
-                                     : Mode::Memoized,
-                                 decl});
-              else
-                decls.push_back(decl);
+              match(
+                  carrier, [&](const carrying::Closure &) { decls.push_back(decl); },
+                  [&](const carrying::Suspension &) {
+                    memos.push_back({atoms[graph.id(label)].contains(effects::Atom::io)
+                                         ? Mode::ByName
+                                         : Mode::Memoized,
+                                     decl});
+                  });
             }
             StringAttr name = nameOf(ctx, k);
-            if (carrierOf(k) == Carrier::Closure)
-              return families::ClosuresMember{name, indices, decls};
-            Type forced = ctors.back().empty() ? Type() : inGroup(ctors.back().front().type, ctors.back().front().slot);
-            return families::MemoMember{name, indices, memos, forced};
+            return match(
+                carrier,
+                [&](const carrying::Closure &) -> families::Member {
+                  return families::ClosuresMember{name, indices, decls};
+                },
+                [&](const carrying::Suspension &) -> families::Member {
+                  Type forced = ctors.back().empty()
+                                    ? Type()
+                                    : inGroup(ctors.back().front().type, ctors.back().front().slot);
+                  return families::MemoMember{name, indices, memos, forced};
+                });
           },
           [&](ForData data) -> families::Member {
             // The member as declared, each field remade for its slot. Only

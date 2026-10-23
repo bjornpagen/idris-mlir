@@ -50,10 +50,11 @@ bool names(Type type) {
 
 } // namespace idr::families::storage
 
-// A data type answers with its family's fact, computed when the family was
-// made, so the walk never enters one; a member of the group being made is
-// no data type yet and adds nothing, since the group's answer is the union
-// over its members.
+// A type whose values carry labels, a closure or a suspension at any grade,
+// reaches one, as the type answers (carryingOf). A data type answers with
+// its family's fact, computed when the family was made, so the walk never
+// enters one; a member of the group being made is no data type yet and adds
+// nothing, since the group's answer is the union over its members.
 ClosureReach idr::families::closureReach(Type type) {
   AttrTypeWalker walker;
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
@@ -62,8 +63,12 @@ ClosureReach idr::families::closureReach(Type type) {
     out = ClosureReach::ReachesClosure;
     return WalkResult::interrupt();
   };
-  walker.addWalk([&](FnType) { return reaches(); });
-  walker.addWalk([&](LazyType) { return reaches(); });
+  walker.addWalk([&](Type part) {
+    return match(
+        carryingOf(part), [&](const LabelCarrier &) { return reaches(); },
+        [](OneOf<carrying::Reference, carrying::Nothing> auto) { return WalkResult::advance(); });
+  });
+  // Registered last, so asked first.
   walker.addWalk([&](DataType data) {
     if (data.getGroup().closureReach() == ClosureReach::NoClosure)
       return WalkResult::skip();

@@ -290,7 +290,7 @@ simplify : Pass
 simplify = MkPass ("simplify" ::: []) OnFunction AnyStage Apply Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
   [LoadsIdr, LoadsArith, LoadsUB] Registered
   (MkDoc "Simplify a function on an e-graph over its ops, where our ops are"
-     "Rules from the specification applied at insertion, effectful ops in a skeleton\nordered per resource, extraction by cost; a call is deleted or moved only where its\nrow carries neither crash nor divergence. Its budget is nodes per op from the program\nalone: a spent budget leaves the function less simplified, never refused.")
+     "Rules from the specification run in rounds, each over the graph as the round found\nit, a rebuild restoring congruence after each; effectful ops in a skeleton ordered\nper resource, extraction by cost; a call is deleted or moved only where its row\ncarries neither crash nor divergence. Its budget is nodes per op from the program\nalone: a spent budget leaves the function less simplified, never refused.")
 
 ||| The simplification's budget: the nodes a function's e-graph may hold per
 ||| op of the function, its arena fixed before its search starts. A spent

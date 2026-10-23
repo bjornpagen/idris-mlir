@@ -45,7 +45,7 @@ def Idr_Dialect : Dialect {
   let hasConstantMaterializer = 1;
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect"];
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect", "::mlir::bufferization::BufferizationDialect"];
   let extraClassDeclaration = [{
     void registerTypes();
     void registerValueFacts();

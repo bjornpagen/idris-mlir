@@ -78,6 +78,8 @@ def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [DeclareTypeInterfaceMet
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedFreelyByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Nothing{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -90,6 +92,9 @@ def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [D
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Pointer{::idr::layout::Word::Uncounted}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Nothing{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -102,6 +107,9 @@ def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTyp
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Pointer{::idr::layout::Word::Cell}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Reference{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -114,6 +122,9 @@ def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTyp
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Integer{64, ::idr::layout::Word::Big}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Reference{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -127,6 +138,9 @@ def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTyp
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Integer{64, ::idr::layout::Word::Big}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Reference{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -144,6 +158,8 @@ def Idr_CellType : Idr_Type<"Cell", "cell", [DeclareTypeInterfaceMethods<Idr_Val
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return true; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Pointer{::idr::layout::Word::Uncounted}; }
+    bool $cppClass::isCellMemory() const { return true; }
   }];
 }
 
@@ -161,6 +177,8 @@ def Idr_ReuseTokenType : Idr_Type<"ReuseToken", "reuse_token", [DeclareTypeInter
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Reference{}; }
+    bool $cppClass::isCellMemory() const { return true; }
   }];
 }
 
@@ -173,6 +191,9 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeIn
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Pointer{::idr::layout::Word::Cell}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::LabelCarrier(::idr::carrying::Closure{::idr::TypeOf<$cppClass>{*this}}); }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -185,6 +206,9 @@ def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface, Declare
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedAsGraded; }
     bool $cppClass::isCounted() const { return true; }
     bool $cppClass::isCellPointer() const { return true; }
+    ::idr::RunTimeWords $cppClass::getRunTimeWords(::std::optional<::idr::Hold>) const { return ::idr::run_time_words::Pointer{::idr::layout::Word::Cell}; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::LabelCarrier(::idr::carrying::Suspension{::idr::TypeOf<$cppClass>{*this}}); }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 
@@ -198,6 +222,8 @@ def Idr_DestType : Idr_Type<"Dest", "dest", [DeclareTypeInterfaceMethods<Idr_Val
     ::idr::ByType $cppClass::getByType() const { return ::idr::ByType::UsedOnceByType; }
     bool $cppClass::isCounted() const { return false; }
     bool $cppClass::isCellPointer() const { return false; }
+    ::idr::Carrying $cppClass::getCarrying() const { return ::idr::carrying::Nothing{}; }
+    bool $cppClass::isCellMemory() const { return false; }
   }];
 }
 

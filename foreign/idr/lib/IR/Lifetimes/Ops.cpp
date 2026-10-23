@@ -232,7 +232,7 @@ LogicalResult LifetimeUnpackOp::verifyRegions() {
 
 // A room reserved in a cursor puts its bytes into the cursor's lifetime,
 // its one lifetime operand.
-Value LifetimeReserveOp::getPutLifetime() { return getLifetime(); }
+TypedValue<LifetimeType> LifetimeReserveOp::getPutLifetime() { return getLifetime(); }
 
 LifetimeUse LifetimeReserveOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Puts; }
 
@@ -246,7 +246,7 @@ std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
 
 // The cell is bumped into its one lifetime operand, and is what it puts
 // there.
-Value CellArenaOp::getPutLifetime() { return getLifetime(); }
+TypedValue<LifetimeType> CellArenaOp::getPutLifetime() { return getLifetime(); }
 
 TypedValue<CellType> CellArenaOp::getPutCell() { return getCell(); }
 

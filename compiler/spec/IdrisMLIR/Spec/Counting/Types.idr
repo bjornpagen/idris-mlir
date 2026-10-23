@@ -32,7 +32,8 @@ cellType = MkTypeDef
   , members =
       [ MkMember OnObjectConst "::idr::DataType" "getData" []
       , MkMember OnObjectConst "::idr::Tag" "getTag" [] ]
-  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted AlwaysCell)
+  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted AlwaysCell (Always UncountedPointer)
+                      ByParameters CellMemory)
   , doc = brief "the memory of one cell of a constructor, its header written, its fields not yet"
   }
 
@@ -61,6 +62,7 @@ reuseTokenType = MkTypeDef
   , members =
       [ MkMember OnClass "::idr::ReuseTokenType" "of" [param "::idr::DataType" "source"]
       , MkMember OnClass "::idr::ReuseTokenType" "merged" [param "::llvm::ArrayRef<::idr::ReuseTokenType>" "tokens"] ]
-  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted MayBeOtherWord)
+  , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted MayBeOtherWord ByParameters
+                      (Always NoLabels) CellMemory)
   , doc = brief "the memory of a cell whose fields a take moved out, or null"
   }
