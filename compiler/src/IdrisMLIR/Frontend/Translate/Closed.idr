@@ -1274,9 +1274,7 @@ mutual
 
 ||| What a shape leaves unknown of a runtime value, where a type is asked
 ||| whether it needs it: a reference to a definition that does not exist,
-||| at which reduction stops exactly where it would need the value. Idris's
-||| quotation gives such a function back as it was, where it would take a
-||| bound machine name for one of the binders it makes, by its number.
+||| at which reduction stops exactly where it would need the value.
 export
 unknownPart : ClosedTerm
 unknownPart = probeTerm ProbeUnknown

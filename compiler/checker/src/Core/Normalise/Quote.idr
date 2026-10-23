@@ -120,22 +120,18 @@ mutual
       addLater (x :: xs) isv
           = let MkVar isv' = addLater xs isv in
                 MkVar (Later isv')
-  quoteHead q opts defs fc bounds env (NRef Bound (MN n i))
-      = pure $ case findName bounds of
-             Just (MkVar p) => Local fc Nothing _ (embedIsVar p)
-             Nothing => Ref fc Bound (MN n i)
-    where
-      findName : Bounds bound' -> Maybe (Var bound')
-      findName None = Nothing
-      findName (Add x (MN n' i') ns)
-          = if i == i' -- this uniquely identifies it, given how we
-                       -- generated the names, and is a faster test!
-               then Just first
-               else do MkVar p <-findName ns
-                       Just (MkVar (Later p))
-      findName (Add x _ ns)
-          = do MkVar p <-findName ns
-               Just (MkVar (Later p))
+  -- A bound reference is one of this quote's binders only when it is that
+  -- binder's name, compared whole, as every other reader resolves a bound
+  -- name (`refsToLocals`). The conversion check, the unifier, the case
+  -- builder and the compiler's frontend make bound machine names of their
+  -- own, each numbering from zero as this quote numbers its binders, so a
+  -- number alone took such a name for the binder of that number: the
+  -- conversion check's eta step equated `\x => \z => k (\y => y) z` with
+  -- `\x => k (\y => x)`. Identifiers are interned, so the whole comparison
+  -- is two comparisons of integers. The binders are the names `genName`
+  -- makes, machine names, so a name of another form is none of them.
+  quoteHead {free} q opts defs fc bounds env (NRef Bound n@(MN {}))
+      = pure $ refsToLocals {vars = free} bounds (Ref fc Bound n)
   quoteHead q opts defs fc bounds env (NRef nt n) = pure $ Ref fc nt n
   quoteHead q opts defs fc bounds env (NMeta n i args)
       = do args' <- quoteArgs q opts defs bounds env args

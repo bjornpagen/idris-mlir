@@ -281,13 +281,12 @@ along (k :: ks) n = Nested (cast k, 0) (along ks n)
 ||| own identifier, a constant of the compiler's known vocabulary that the
 ||| session's table holds at a fixed id from its start, so no probe is ever
 ||| interned or looked up. Its spelling (`idris-mlir-hole` and kin) is no
-||| text an Idris identifier can be, so no name of a program meets it. Each
-||| family keeps the constructor of `Name` it has always had: a machine name
-||| (`MN`) where no normaliser meets it under a binder, a name nested around
-||| a user name where one does, since Idris's quotation takes a bound
-||| machine name for the binder of that number
-||| (`Core.Normalise.Quote.quoteHead`). An axis is two references, whose
-||| head this is (`probeTerm`).
+||| text an Idris identifier can be, so no name of a program meets it. A
+||| family's name is a machine name (`MN`) or a name nested around a user
+||| name; either passes under a normaliser's binders as itself, since a
+||| quotation takes a bound name for one of its binders only when it is
+||| that binder's whole name (`Core.Normalise.Quote.quoteHead`). An axis is
+||| two references, whose head this is (`probeTerm`).
 export
 probeName : Probe -> Name
 probeName (ProbeBinder i) = MN (known KProbeBinder) (cast i)
