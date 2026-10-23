@@ -1,10 +1,10 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| One sample of every type and attribute of the `idr` dialect the
-||| frontend writes, each its bytecode entry, and of the attributes of
-||| `arith`, `ub` and `linalg`, which it writes as text, and of the builtin
-||| ones it writes (IdrisMLIR.MLIR), and ops of every shape the frontend's
-||| builders make (IdrisMLIR.Dialect.*), written as the frontend writes
+||| One sample of every type and attribute of the `idr` dialect, each its
+||| bytecode entry, and of the attributes of `arith`, `ub` and `linalg`,
+||| which the frontend writes as text, and of the builtin ones it writes
+||| (IdrisMLIR.MLIR), and ops of every shape the frontend's builders make
+||| (IdrisMLIR.Dialect.*), written as the frontend writes
 ||| them: one MLIR bytecode file (IdrisMLIR.MLIR.Bytecode), at the path its
 ||| command line names. The module's discardable attributes hold the type
 ||| and attribute samples; its program holds functions of op samples: a
@@ -38,8 +38,10 @@ import IdrisMLIR.MLIR.Bytecode
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Functions.Extents
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Lifetimes.Kind
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Syntax.Arith
@@ -70,18 +72,27 @@ nat3 = Idr (NatType [TermNodeNatural 3])
 i64 : MlirType
 i64 = IntegerType 64
 
-||| A family of naturals' lists, recursive through itself: its cons names
-||| the group's one member by `self`, at its binder's level.
+||| A cons's tail as its declaration names it: the group's one member, by
+||| `self`, at the cons's binder's level.
+consTail : MlirType
+consTail = Idr (SelfType 0 [TermNodeLevel 0])
+
+||| A family of naturals' lists, recursive through itself.
 natLists : MlirAttr
 natLists = Idr (FamilyAttr
   [ MemberOfData (MkDataMember "List[Nat]" None (LocAttr (At noLoc)) [SortOfNatSort]
       [ MkCtorDecl "Nil" [] [TermNodeNatural 0] []
       , MkCtorDecl "Cons" [SortOfNatSort] [TermNodeSuccessor 1, TermNodeLevel 0]
-          [nat, Idr (SelfType 0 [TermNodeLevel 0])] ]) ])
+          [nat, consTail] ]) ])
+
+||| A vector of naturals of the length given: no refinement, since a known
+||| length leaves one constructor possible.
+vecOf : Nat -> MlirType
+vecOf n = Idr (DataType natLists 0 [TermNodeNatural n] Nothing [])
 
 ||| A vector of naturals of three, and of any length.
 vec3 : MlirType
-vec3 = Idr (DataType natLists 0 [TermNodeNatural 3] Nothing [])
+vec3 = vecOf 3
 
 vecAny : MlirType
 vecAny = Idr (DataType natLists 0 [TermNodeOpaque] Nothing [])
@@ -92,13 +103,29 @@ consCell = Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [1
 
 types : List MlirType
 types =
-  [ str, big, nat, nat3, vec3, vecAny, consCell
+  [ str, big, nat, nat3, vec3, vecAny, consCell, consTail
   , Idr (FnType [] [])
   , Idr (FnType [i64] [i64])
   , Idr (LazyType nat)
   , Idr (GradedType Once Nothing i64)
   , Idr (GradedType Once (Just (Hold.Counted None)) str)
   , Idr (GradedType Many (Just Hold.Static) str)
+    -- A lifetime of each kind: a view, a room, a cursor, and the home of a
+    -- site, the one kind that holds a number.
+  , Idr (LifetimeType (LifetimeKindOfView MkLifetimeKindView))
+  , Idr (LifetimeType (LifetimeKindOfRoom MkLifetimeKindRoom))
+  , Idr (LifetimeType (LifetimeKindOfCursor MkLifetimeKindCursor))
+  , Idr (LifetimeType (LifetimeKindOfHome (MkLifetimeKindHome 3)))
+    -- A package of each per-level lifetime, a stack's and a chain's, with
+    -- the values held in it.
+  , Idr (LifetimePackageType FromStack [vecAny])
+  , Idr (LifetimePackageType FromChain [vecAny, str])
+    -- A cons's memory, and a token that may be the cell of a cons of any
+    -- length or of three, whose length leaves no other constructor.
+  , Idr (CellType consCell)
+  , Idr (ReuseTokenType [consCell, vec3])
+    -- A place a list's tail is written into once, at the grade it keeps.
+  , Idr (DestType (Idr (GradedType Once (Just (Hold.Counted None)) vecAny)))
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
   , MemRefType [Dynamic] (IntegerType 8) (Just (Idr MutableAttr))
@@ -130,6 +157,27 @@ linalgAttrs =
   , TypeFnAttr TypeFn.CastSigned
   , IteratorTypeAttr IteratorType.Parallel ]
 
+||| Result 1's field 0 is argument 0's field 1.
+givenBackField : MlirAttr
+givenBackField = Idr (GivenBackEntryAttr 1 [0] 0 [1])
+
+||| Axis 1 of argument 0 is the term `v0`.
+inputTerm : MlirAttr
+inputTerm = Idr (ExtentAttr OnInput 0 1 [TermNodeLevel 0])
+
+||| Axis 0 of result 0 is the constant 3: a result keeps every axis `?` in
+||| its type, and a known size is its entry.
+resultConstant : MlirAttr
+resultConstant = Idr (ExtentAttr OnResult 0 0 [TermNodeNatural 3])
+
+||| The constant list `[1, 2]`, its naturals bigs: a run of two cons cells
+||| along the tail, the last holding the constant nil, each at the length
+||| that fixes its constructor.
+constantList : MlirAttr
+constantList =
+  let nil = Idr (ConAttr (vecOf 0) [ArrayAttr []] 0)
+  in Idr (ConAttr (vecOf 2) [ArrayAttr [Idr (BigAttr 1)], ArrayAttr [Idr (BigAttr 2), nil]] 1)
+
 attrs : List MlirAttr
 attrs =
   [ natLists
@@ -140,6 +188,23 @@ attrs =
   , Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof))
   , Idr (IndexBindersAttr [SortOfNatSort, SortOfTypeSort, SortOfOpaqueSort])
   , Idr (IndexArgsAttr [TermNodeNatural 3, TermNodeLevel 0, TermNodeSuccessor 2, TermNodeLevel 0, TermNodeOpaque] 4)
+  , Idr (EquationAttr [TermNodeLevel 0] [TermNodeSuccessor 1, TermNodeLevel 1])
+    -- The binder at position 2 of `@sample`, as a location names it.
+  , Idr (BinderAttr (SymbolRefAttr (MkSymbolRef "sample" [])) 2)
+    -- A signature's facts: the bounded puts, where its scoped values live
+    -- and a bound between two lifetimes, what it gives back of its
+    -- arguments, and its unknown axes, a term's and a constant's.
+  , Idr (PutBoundsAttr [MkPutBound 0 64, MkPutBound 2 128])
+  , Idr (LivesInAttr [MkLivesIn 2 0, MkLivesIn 3 0] [MkLivesIn 0 0] [MkOutlives 0 1])
+  , givenBackField
+  , Idr (GivenBackAttr [Idr (GivenBackEntryAttr 0 [] 2 []), givenBackField])
+  , inputTerm
+  , resultConstant
+  , Idr (ExtentsAttr [inputTerm, resultConstant])
+    -- Constants of a constructor and of a closure of `@callee`, its one
+    -- parameter captured.
+  , constantList
+  , Idr (ClosureAttr (SymbolRefAttr (MkSymbolRef "callee" [])) (ArrayAttr [int 1]))
   , UnitAttr
   , BoolAttr True
     -- A Double of each kind IEEE 754 has, each crossing as its bits: a
