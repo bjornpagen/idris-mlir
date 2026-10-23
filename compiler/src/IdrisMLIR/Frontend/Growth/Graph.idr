@@ -114,7 +114,8 @@ chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
 ||| implementation's method field, which placed the implementation's
 ||| parameter, the arc's source, among the method function's (a leading
 ||| arc); field k of the definition that gives a dictionary, as it was
-||| read, whose template it is; or the values
+||| read, whose template it is, with the definitions of the recursions it
+||| holds; or the values
 ||| a dictionary's place holds, the arc's source, written on as their
 ||| packing says: into the pairs that hold a list of several, at most the
 ||| held count of them (`heldPackings`), or into the list another place is
@@ -123,18 +124,20 @@ chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
 public export
 data Wrote = FromArgument Sites.Site Argument
            | ThroughMethod
-           | InField GlobalDef Nat Template
+           | InField GlobalDef Nat TemplateRead
            | PacksHeld Packing
 
 ||| What made an arc, with the template the arc is drawn from: a leading
 ||| arc passes its parameter on unchanged, so it draws a marker, and a held
 ||| packing draws the chain its packing names. An argument's and a field's
-||| template is any. So each leading arc and each packing is measured
-||| wherever it is drawn (`Proof.Describes.measuredDrawn`).
+||| template is any that holds the recursions its reading holds, in their
+||| order, whose definitions the reading gives (`recursionAt`). So each
+||| leading arc and each packing is measured wherever it is drawn
+||| (`Proof.Describes.measuredDrawn`).
 public export
 data DrawnBy : Wrote -> Template -> Type where
-  ArgumentDraws : DrawnBy (FromArgument s a) t
-  FieldDraws : DrawnBy (InField j k f) t
+  ArgumentDraws : (0 _ : recursions t = recursions a.template) -> DrawnBy (FromArgument s a) t
+  FieldDraws : (0 _ : recursions t = recursions f.template) -> DrawnBy (InField j k f) t
   MarkerDraws : (p : Nat) -> DrawnBy ThroughMethod (Template.Var p 0)
   ChainDraws : (k : Packing) -> DrawnBy (PacksHeld k) (packingTemplate k)
 
@@ -151,6 +154,45 @@ methodMeasured (MarkerDraws p) = markerMeasured p 0
 -- A held packing's template draws measured arcs only.
 0 packedMeasured : DrawnBy (PacksHeld k) t -> DrawsMeasured t
 packedMeasured (ChainDraws k) = packingMeasured k
+
+-- A chain of pairs holds no recursion: pairs and a marker under them.
+0 chainUnrecursive : (a : Address) -> (n : Nat) -> recursions (pairChain a n) = []
+chainUnrecursive a Z = Refl
+chainUnrecursive a (S n) = rewrite chainUnrecursive a n in Refl
+
+0 listedUnrecursive : (a : Address) -> (m : Nat) -> Elem t (pairChainsUpTo a m) -> recursions t = []
+listedUnrecursive a Z el = absurd el
+listedUnrecursive a (S m) Here = chainUnrecursive a (S m)
+listedUnrecursive a (S m) (There el) = listedUnrecursive a m el
+
+-- The template a packing writes holds no recursion.
+0 packingUnrecursive : (k : Packing) -> recursions (packingTemplate k) = []
+packingUnrecursive AsTheyAre = Refl
+packingUnrecursive (Chained a m chain listed) = listedUnrecursive a m listed
+
+-- A template a leading arc or a held packing draws holds no recursion.
+0 markerNone : DrawnBy ThroughMethod t -> Elem r (recursions t) -> Void
+markerNone (MarkerDraws p) el = absurd el
+
+0 packedNone : DrawnBy (PacksHeld k) t -> Elem r (recursions t) -> Void
+packedNone (ChainDraws k) el = absurd (replace {p = Elem r} (packingUnrecursive k) el)
+
+0 argumentRecursions : DrawnBy (FromArgument s x) t -> recursions t = recursions x.template
+argumentRecursions (ArgumentDraws same) = same
+
+0 fieldRecursions : DrawnBy (InField j k f) t -> recursions t = recursions f.template
+fieldRecursions (FieldDraws same) = same
+
+||| The definition of a recursion of the template an arc is drawn from, as
+||| what made the arc read it: an argument's and a field's reading give
+||| one for each recursion, in the order the drawn template holds them; a
+||| leading arc's marker and a held packing's chain hold none.
+export
+recursionAt : (wrote : Wrote) -> (0 _ : DrawnBy wrote t) -> Elem r (recursions t) -> RecursionDef r
+recursionAt (FromArgument _ x) drawn el = indexAll (replace {p = Elem r} (argumentRecursions drawn) el) x.recursionsRead
+recursionAt (InField _ _ f) drawn el = indexAll (replace {p = Elem r} (fieldRecursions drawn) el) f.recursionsRead
+recursionAt ThroughMethod drawn el = void (markerNone drawn el)
+recursionAt (PacksHeld _) drawn el = void (packedNone drawn el)
 
 ||| A site's writers list every parameter its template weighs with an arc,
 ||| with the position its writer reads it at: the positions its own arcs
@@ -243,6 +285,10 @@ record Built where
   drawing : Vect (length graph.arcs) (Drawn graph.size, Wrote)
   ||| Each arc as drawn is the graph's arc at its index.
   0 drawnAs : (a : Fin (length graph.arcs)) -> arcOf (Vect.index a drawing) = arc graph a
+  ||| What made each arc holds of the template it was drawn from: an
+  ||| argument's or a field's reading gives the definition of each
+  ||| recursion the template holds (`recursionAt`).
+  0 drawnBy : (a : Fin (length graph.arcs)) -> DrawnBy (snd (Vect.index a drawing)) (fst (Vect.index a drawing)).drawnFrom
   ||| The most children of any template's node.
   arity : Nat
   ||| The definitions of the nodes above each on the walk from main, as
@@ -1597,8 +1643,8 @@ packingRead c (Chained a m _ listed) = chainsRead c a m listed
 -- families land: an argument's and a field's template is any, and a
 -- leading arc's marker and a held packing's chain apply no family.
 0 drawnRead : (c : Nat -> Landing) -> DrawnBy w t -> DrawnBy w (withClosedFamilies c t)
-drawnRead c ArgumentDraws = ArgumentDraws
-drawnRead c FieldDraws = FieldDraws
+drawnRead c {t} (ArgumentDraws same) = ArgumentDraws (trans (landedRecursions c t) same)
+drawnRead c {t} (FieldDraws same) = FieldDraws (trans (landedRecursions c t) same)
 drawnRead c (MarkerDraws p) = MarkerDraws p
 drawnRead c (ChainDraws k) = replace {p = DrawnBy (PacksHeld k)} (sym (packingRead c k)) (ChainDraws k)
 
@@ -1634,7 +1680,7 @@ writings =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWritten (spotAt w s.params) (writerSpotRead s.writerDef w s.params) pl.argument.template (AtNode w s.params)
                           (landsAt callee pl.parameter) (calleeSpotRead callee pl.parameter)
-                          (FromArgument s pl.argument) ArgumentDraws (argumentLands s pl.argument) :: acc) []
+                          (FromArgument s pl.argument) (ArgumentDraws Refl) (argumentLands s pl.argument) :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
 -- writes at M's leading parameters. The parameters of M its `leading`
@@ -1670,12 +1716,12 @@ leadingWritings nodes leads =
 fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List Written
 fieldWritings nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWritten (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly) t (AtNode jn OwnOnly)
-                (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t) FieldDraws
-                (openLands (InField fields.givenBy k t) Refl t)
+    [ MkWritten (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly) t.template (AtNode jn OwnOnly)
+                (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t) (FieldDraws Refl)
+                (openLands (InField fields.givenBy k t) Refl t.template)
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
-    numbered : Nat -> List Template -> List (Nat, Template)
+    numbered : Nat -> List TemplateRead -> List (Nat, TemplateRead)
     numbered k [] = []
     numbered k (t :: ts) = (k, t) :: numbered (S k) ts
 
@@ -1869,7 +1915,7 @@ heldWritings count pg choices walked =
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
       [ MkContribution (spotAt w s.params) (writerSpotRead s.writerDef w s.params) x.template (AtNode w s.params) OneValue
-                       (FromArgument s x) ArgumentDraws (argumentLands s x)
+                       (FromArgument s x) (ArgumentDraws Refl) (argumentLands s x)
       | x <- forget xs ]
     contributions w s (PackedBy h) =
       fromOwn (ownPlace w s h) AsItself AsTheyAre OneValue ::
@@ -2829,6 +2875,11 @@ build main = do
   -- and so into requests, as an argument's is.
   pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position positionRead firsts
                 (drawnVect arcs) (drawnIndexed arcs)
+                (\a => case drawnFromSite {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
+                                          (drawnAmong arcs a) of
+                         ((st, x) ** (el, (fromSite, tagged))) =>
+                           replace {p = \w => DrawnBy w (fst (Vect.index a (drawnVect arcs))).drawnFrom} (sym tagged)
+                                   (replace {p = DrawnBy x} (sym fromSite) (fst (indexAll el (snd keptEvidence)))))
                 (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers entered.breadth
                 (foldl (\m, x => max m (Template.heaviest (fst x).template)) count sites)
                 (modelOf positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept)

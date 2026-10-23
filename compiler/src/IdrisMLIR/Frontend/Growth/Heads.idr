@@ -509,18 +509,18 @@ runs ds v j k = case fieldAt ds.holding j k of
 -- there is rooted at, what that holds, the field the path takes, the head
 -- of the choice that field's type is, a dictionary's, and that type over
 -- the constructor's arguments, which a match that finds the field stuck
--- holds it at.
+-- holds it at, with the definitions of the recursions it holds.
 record Level where
   constructor MkLevel
   rootedAt : Address
   holds : Fields
   taken : Nat
   choiceOf : ChoiceHead
-  heldType : Template
+  heldType : TemplateRead
 
 -- The head of the choice field k is, and its type, where it is a
 -- dictionary, the one kind of field a match takes apart.
-heldDictionary : Fields -> Nat -> Maybe (ChoiceHead, Template)
+heldDictionary : Fields -> Nat -> Maybe (ChoiceHead, TemplateRead)
 heldDictionary f k = case head' (drop k f.inOrder) of
   Just (Dictionary _ _ h ty) => Just (h, ty)
   _ => Nothing
@@ -558,48 +558,78 @@ chains ds v (j :: js) k rest = here ++ chains ds v js k rest
 -- rebuilt, and at the last level a member of the field's choice
 -- (`Member`), which the place that made the member wrote at the choice's
 -- positions. With what each rebuilt constructor's fields then hold, by
--- constructor, by its address and as it was read, and field.
+-- constructor, by its address and as it was read, and field. The part is
+-- the dictionary's marker or a field of it, so none of these holds a
+-- recursion.
 record Rebuilt where
   constructor MkRebuilt
   template : Template
-  fillings : List (Address, GlobalDef, Nat, Template)
+  0 unrecursive : recursions template = []
+  fillings : List Filled
+
+-- A rebuilt constructor's field: the constructor, by its address and as
+-- it was read, the field, and what it holds there, which holds no
+-- recursion.
+record Filled where
+  constructor MkFilled
+  con : Address
+  conRead : GlobalDef
+  field : Nat
+  template : Template
+  0 unrecursive : recursions template = []
+
+-- A template that holds no recursion.
+Unrecursive : Type
+Unrecursive = Subset Template (\t => recursions t = [])
+
+-- The templates of some that hold no recursion.
+unrecursiveTemplates : List Unrecursive -> List Template
+unrecursiveTemplates [] = []
+unrecursiveTemplates (Element t _ :: cs) = t :: unrecursiveTemplates cs
+
+-- Templates that each hold no recursion hold none together.
+0 noneIn : (cs : List Unrecursive) -> recursionsIn (unrecursiveTemplates cs) = []
+noneIn [] = Refl
+noneIn (Element t none :: cs) = rewrite none in noneIn cs
 
 -- A level's fields read off its part, the one the path takes the next
 -- level rebuilt, or at the last a member of its choice.
-cellsFrom : (part : Template) -> Level -> Maybe Rebuilt -> (c : Nat) -> List Field -> List Template
+cellsFrom : (part : Unrecursive) -> Level -> Maybe Rebuilt -> (c : Nat) -> List Field -> List Unrecursive
 cellsFrom part l inner c [] = []
-cellsFrom part l inner c (_ :: fs) = (if c == l.taken then onward inner else Template.Field c part) :: cellsFrom part l inner (S c) fs
+cellsFrom part l inner c (_ :: fs) =
+  (if c == l.taken then onward inner else Element (Template.Field c part.fst) part.snd) :: cellsFrom part l inner (S c) fs
   where
-    onward : Maybe Rebuilt -> Template
-    onward (Just r) = r.template
-    onward Nothing = Template.Member l.choiceOf
+    onward : Maybe Rebuilt -> Unrecursive
+    onward (Just r) = Element r.template r.unrecursive
+    onward Nothing = Element (Template.Member l.choiceOf) Refl
 
 -- A constructor's fields as rebuilt, by number.
-filled : Address -> GlobalDef -> (c : Nat) -> List Template -> List (Address, GlobalDef, Nat, Template)
+filled : Address -> GlobalDef -> (c : Nat) -> List Unrecursive -> List Filled
 filled con def c [] = []
-filled con def c (t :: ts) = (con, def, c, t) :: filled con def (S c) ts
+filled con def c (Element t none :: ts) = MkFilled con def c t none :: filled con def (S c) ts
 
 mutual
-  rebuilt : (part : Template) -> Level -> List Level -> Rebuilt
+  rebuilt : (part : Unrecursive) -> Level -> List Level -> Rebuilt
   rebuilt part l ls =
     let inner = deeper part l ls
         cells = cellsFrom part l inner 0 l.holds.inOrder in
-    MkRebuilt (Template.Head (Just l.holds.builtBy) cells) (filled l.holds.builtBy l.holds.builtAs 0 cells ++ further inner)
+    MkRebuilt (Template.Head (Just l.holds.builtBy) (unrecursiveTemplates cells)) (noneIn cells)
+              (filled l.holds.builtBy l.holds.builtAs 0 cells ++ further inner)
 
-  further : Maybe Rebuilt -> List (Address, GlobalDef, Nat, Template)
+  further : Maybe Rebuilt -> List Filled
   further (Just r) = r.fillings
   further Nothing = []
 
-  deeper : Template -> Level -> List Level -> Maybe Rebuilt
+  deeper : Unrecursive -> Level -> List Level -> Maybe Rebuilt
   deeper part l [] = Nothing
-  deeper part l (n :: ns) = Just (rebuilt (Template.Field l.taken part) n ns)
+  deeper part l (n :: ns) = Just (rebuilt (Element (Template.Field l.taken part.fst) part.snd) n ns)
 
 -- The last level of a chain and the part it takes apart: the dictionary
 -- itself at the first, and below it the field each level above takes, as
 -- the rebuilt dictionary reads it (`deeper`).
-lastOf : Template -> Level -> List Level -> (Template, Level)
+lastOf : Unrecursive -> Level -> List Level -> (Unrecursive, Level)
 lastOf part l [] = (part, l)
-lastOf part l (n :: ns) = lastOf (Template.Field l.taken part) n ns
+lastOf part l (n :: ns) = lastOf (Element (Template.Field l.taken part.fst) part.snd) n ns
 
 -- A constructor's field type over its arguments (`Var c 0` its argument
 -- c), read over the part a level takes apart: each argument the part's
@@ -626,6 +656,31 @@ mutual
   overParts : Template -> List Template -> List Template
   overParts part [] = []
   overParts part (t :: ts) = overPart part t :: overParts part ts
+
+-- A type over a part that holds no recursion holds the type's own
+-- recursions: each argument becomes a field of the part, and every other
+-- node is kept.
+mutual
+  0 overPartKeeps : (part : Template) -> recursions part = [] -> (t : Template) -> recursions (overPart part t) = recursions t
+  overPartKeeps part none (Template.Var c _) = none
+  overPartKeeps part none (Template.Head a ts) = overPartsKeep part none ts
+  overPartKeeps part none (Template.Opaque a ts) = rewrite overPartsKeep part none ts in Refl
+  overPartKeeps part none (Template.Choice m ls) = rewrite overPartKeeps part none m in rewrite overPartsKeep part none ls in Refl
+  overPartKeeps part none (Template.Field k r) = overPartKeeps part none r
+  overPartKeeps part none (Template.Leaf h) = Refl
+  overPartKeeps part none (Template.Token k) = Refl
+  overPartKeeps part none (Template.Formal j a) = Refl
+  overPartKeeps part none (Template.Member k) = Refl
+  overPartKeeps part none (Template.Applied c _ ts) = appliedOverPart part none c ts
+  overPartKeeps part none (Template.Computing c _ ts) = appliedOverPart part none c ts
+
+  0 overPartsKeep : (part : Template) -> recursions part = [] -> (ts : List Template) -> recursionsIn (overParts part ts) = recursionsIn ts
+  overPartsKeep part none [] = Refl
+  overPartsKeep part none (t :: ts) = rewrite overPartKeeps part none t in rewrite overPartsKeep part none ts in Refl
+
+  0 appliedOverPart : (part : Template) -> recursions part = [] -> (c : Nat) -> (ts : List Template) ->
+                      recursions (markedOf (Template.Field c part) (overParts part ts)) = recursionsIn ts
+  appliedOverPart part none c ts = trans (markedHolds (Template.Field c part) (overParts part ts) none) (overPartsKeep part none ts)
 
 -- What each rebuilt constructor's fields hold in the flow: what the
 -- level's root holds there, and where the path goes on, the constructor
@@ -730,7 +785,7 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
     numbered j k (field :: rest) =
-      let (t, r) = fieldRead field in Into (fieldSlot j k) j OwnOnly r t :: numbered j (S k) rest
+      let (t, r) = fieldRead field in Into (fieldSlot j k) j OwnOnly r t.template :: numbered j (S k) rest
 
     fromFields : (Address, Fields) -> List Equation
     fromFields (j, fields) = numbered j 0 fields.inOrder
@@ -1504,17 +1559,21 @@ reaches fl v s = from s.reach
     -- A field of a rebuilt constructor, as what the dictionary's argument
     -- writes there: the field holds what its dictionary holds, no list of
     -- its own.
-    filling : Argument -> (Address, GlobalDef, Nat, Template) -> Reached ()
-    filling x (con, def, c, t) =
-      MkReached (Filling con def) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) c]
+    filling : Argument -> Filled -> Reached ()
+    filling x f =
+      MkReached (Filling f.con f.conRead)
+                [MkPlaced ({ position := f.field, template := f.template, recursionsRead := noRecursions {t = f.template} f.unrecursive
+                           , root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) f.field]
                 Called
 
     -- The field the last level takes, as a value held (`Cases.heldHere`):
-    -- its type over that level's part (`overPart`).
-    stuckField : Argument -> (Template, Level) -> Argument
+    -- its type over that level's part (`overPart`), which holds the type's
+    -- recursions.
+    stuckField : Argument -> (Unrecursive, Level) -> Argument
     stuckField x (part, l) =
-      { position := 0, kind := AType, template := overPart part l.heldType, root := Unrooted, term := Nothing
-      , memberOf := Nothing, writtenAs := NoTerm, holds := [] } x
+      { position := 0, kind := AType, template := overPart part.fst l.heldType.template
+      , recursionsRead := replace {p = All RecursionDef} (sym (overPartKeeps part.fst part.snd l.heldType.template)) l.heldType.recursionsRead
+      , root := Unrooted, term := Nothing, memberOf := Nothing, writtenAs := NoTerm, holds := [] } x
 
     -- The writer again, its dictionary parameter, whose argument is `x`,
     -- rebuilt down a chain to the stuck path `path`, which the writer's
@@ -1530,11 +1589,12 @@ reaches fl v s = from s.reach
     rebuiltAt : Argument -> (path : List1 Nat) -> (held : List (List1 Nat)) -> (0 _ : Not (Elem path held)) -> Chain ->
                 List (Reached ())
     rebuiltAt x path held fresh (l ::: ls) =
-      let r = rebuilt (Template.Var x.position 0) l ls
-          final = lastOf (Template.Var x.position 0) l ls
+      let r = rebuilt (Element (Template.Var x.position 0) Refl) l ls
+          final = lastOf (Element (Template.Var x.position 0) Refl) l ls
           lists = [ EachOf x.position ::: [OfType (stuckField x final ::: [])]
                   , EachOf x.position ::: [MembersOf (snd final).choiceOf] ]
-          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
+          dictionary = MkPlaced ({ template := r.template, recursionsRead := noRecursions {t = r.template} r.unrecursive, root := Unrooted
+                                 , term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
           settled = rebuiltHead l.holds.builtBy path held fresh
           target = MkVisit v.definition (headedAt x.position settled v.heads) in
       MkReached (Entering target ()) (atOwnPositions s.arguments ++ [dictionary]) Called ::

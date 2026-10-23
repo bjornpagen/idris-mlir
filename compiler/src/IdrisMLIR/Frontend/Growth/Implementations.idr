@@ -28,31 +28,33 @@ import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
 import Data.List
+import Data.List.Quantifiers
 import Data.SortedMap
 import Data.Vect
 
 %default total
 
 ||| One field of a dictionary, over the parameters of the definition that
-||| gives it (`Var i 0` is its parameter i). A method's field that Idris
-||| wrote also says where its method function M takes each argument: M's
-||| parameters do not start with the implementation's, since a method's
-||| own implicit type variables come first (`map_Functor_(EitherT e m)` is
-||| `{b} {a} {e} {m} {Functor m} func x`), so the placement is read off the
-||| field, never assumed.
+||| gives it (`Var i 0` is its parameter i), each template with the
+||| definition of each recursion it holds, as its reading met it. A
+||| method's field that Idris wrote also says where its method function M
+||| takes each argument: M's parameters do not start with the
+||| implementation's, since a method's own implicit type variables come
+||| first (`map_Functor_(EitherT e m)` is `{b} {a} {e} {m} {Functor m} func
+||| x`), so the placement is read off the field, never assumed.
 public export
 data Field : Type where
   -- an eta-wrapped method field: its method function m, its template, and where each argument lands in m.
   -- own: for each of the method's own arguments (the field's lambdas, in order), its parameter index in m;
   -- leading: for each implementation parameter p, its index in m. Its root is m, by construction.
-  Method : (m : Address) -> Template -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
+  Method : (m : Address) -> TemplateRead -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
   -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot, the
   -- head of the choice its type is, and that type over the constructor's arguments (`Var c 0` its argument c): a
   -- match takes it apart, and finds a member of that choice where the running program chose it, holding it at that
   -- type until then.
-  Dictionary : Template -> Root -> ChoiceHead -> (type : Template) -> Field
+  Dictionary : TemplateRead -> Root -> ChoiceHead -> (type : TemplateRead) -> Field
   -- any other field: a type, a hand-built dictionary's lambda, with its dictionaryRoot
-  Plain : Template -> Root -> Field
+  Plain : TemplateRead -> Root -> Field
 
 ||| What a definition that gives a dictionary holds, over its own
 ||| parameters: the definition itself, as it was read, which a message
@@ -84,7 +86,7 @@ fieldAt fs j k = lookup j fs >>= \f => fieldIn f k
 ||| What every field gives the flow, method or not: its template and its
 ||| root. A method field's root is its function.
 export
-fieldRead : Field -> (Template, Root)
+fieldRead : Field -> (TemplateRead, Root)
 fieldRead (Method m t _ _) = (t, Rooted m)
 fieldRead (Dictionary t r _ _) = (t, r)
 fieldRead (Plain t r) = (t, r)
@@ -190,14 +192,14 @@ methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> ClosedTerm -> Front Field
 methodField owner field = do
   let Just (m, passed, own) = etaWrapper Refl 0 field
-    | Nothing => pure (Plain (Leaf 1) Unrooted)
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) []) Unrooted)
   Just md <- defined m
-    | Nothing => pure (Plain (Leaf 1) Unrooted)
+    | Nothing => pure (Plain (MkTemplateRead (Leaf 1) []) Unrooted)
   let am = addressOf md.placement
   let xs = map value passed
   (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
   ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList (map staticOf kinds)) xs))
-  pure (Method am (Head (Just am) ts) own (leadingOf passed))
+  pure (Method am (MkTemplateRead (Head (Just am) (templatesOf ts)) (allRead ts)) own (leadingOf passed))
   where
     value : Passed -> ClosedTerm
     value (Own _) = Erased EmptyFC Placeholder
@@ -207,7 +209,7 @@ methodField owner field = do
 ||| the constructor's arguments: each earlier binder its argument's marker
 ||| (`Var c 0`), so that a field read of the dictionary the constructor
 ||| builds reads each (`Heads.overPart`).
-typeOverArguments : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front Template
+typeOverArguments : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front TemplateRead
 typeOverArguments ty =
   templateOf [] AType (closeOver EmptyFC (markersOf vs) ty)
   where
@@ -228,7 +230,7 @@ fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
   r <- dictionaryRoot a
   head <- choiceHeadOf ty
-  Dictionary (asGiven (Just head) (t, r)) r head <$> typeOverArguments ty
+  Dictionary (givenRead (Just head) t r) r head <$> typeOverArguments ty
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a
@@ -292,7 +294,7 @@ fieldsOf d = case (definition d.def, d.matched) of
     arguments Z j _ = pure []
     arguments (S n) j (Bind _ _ (Pi _ rig _ a) sc) = do
       here <- case !(bindingOf rig a) of
-        Reads ADictionary => Dictionary (Var j 0) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
-        _ => pure (Plain (Var j 0) (Parameter j 0))
+        Reads ADictionary => Dictionary (MkTemplateRead (Var j 0) []) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
+        _ => pure (Plain (MkTemplateRead (Var j 0) []) (Parameter j 0))
       (here ::) <$> arguments n (S j) sc
-    arguments (S n) j _ = pure (map (\q => Plain (Var q 0) (Parameter q 0)) (iterateN (S n) S j))
+    arguments (S n) j _ = pure (map (\q => Plain (MkTemplateRead (Var q 0) []) (Parameter q 0)) (iterateN (S n) S j))

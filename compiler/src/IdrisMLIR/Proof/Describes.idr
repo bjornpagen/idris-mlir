@@ -47,29 +47,30 @@ import Data.So
 
 ||| Where a part of a site's template is read: what an arc from an
 ||| implementation an applied family gives into the site weighs there, with
-||| what passes it on (its passage, which alone is held at run time), and
-||| how many levels down the part is.
+||| what passes it on (its passage, which alone is held at run time, a
+||| computation of the site's template), and how many levels down the part
+||| is.
 public export
-record Depth where
+record Depth (whole : Template) where
   constructor MkDepth
   0 arcWeight : Weight
-  passage : Passage arcWeight
+  passage : Passage whole arcWeight
   depth : Nat
 
 ||| A site's template, where it lands.
 public export
-atTop : Depth
+atTop : Depth whole
 atTop = MkDepth (Finite 1 0) (ByHeads 1 0) 0
 
 ||| A head's child.
 public export
-underHead : Depth -> Depth
+underHead : Depth whole -> Depth whole
 underHead at = MkDepth (plus at.arcWeight (Finite 1 0)) (plusPassage at.passage 1 0) (S at.depth)
 
 -- What passes on what a computation's child carries: the outermost
 -- computation it is under.
 export
-enterComputation : Computation -> Passage w -> Passage Stuck
+enterComputation : Computation whole -> Passage whole w -> Passage whole Stuck
 enterComputation c (ByHeads _ _) = ByComputation c
 enterComputation c (ByComputation outer) = ByComputation outer
 
@@ -77,7 +78,7 @@ enterComputation c (ByComputation outer) = ByComputation outer
 ||| family: a level down, and what an arc carries there unbounded, passed
 ||| on by the outermost computation it is under.
 public export
-underComputation : Computation -> Depth -> Depth
+underComputation : Computation whole -> Depth whole -> Depth whole
 underComputation c at = MkDepth Stuck (enterComputation c at.passage) (S at.depth)
 
 ||| What an arc from a field's position, or a choice's, into the site
@@ -85,90 +86,92 @@ underComputation c at = MkDepth Stuck (enterComputation c at.passage) (S at.dept
 ||| is read, a level above the arguments of an implementation an applied
 ||| family gives there.
 public export
-0 fieldWeight : Depth -> Weight
+0 fieldWeight : Depth whole -> Weight
 fieldWeight at = plus at.arcWeight (Finite 0 1)
 
-||| A weight with what passes it on: the passage alone is held at run
-||| time, and it says the weight.
+||| A weight with what passes it on in a site's template: the passage alone
+||| is held at run time, and it says the weight.
 public export
-record Weighed where
+record Weighed (whole : Template) where
   constructor MkWeighed
   0 atWeight : Weight
-  passage : Passage atWeight
+  passage : Passage whole atWeight
 
 ||| What an arc from an implementation an applied family gives weighs where
 ||| the family is read, with what passes it on.
 public export
-weighedAt : Depth -> Weighed
+weighedAt : Depth whole -> Weighed whole
 weighedAt at = MkWeighed at.arcWeight at.passage
 
 ||| What an arc from a field's or a choice's position weighs where the
 ||| field or the member is read (`fieldWeight`), with what passes it on.
 public export
-fieldWeighed : Depth -> Weighed
+fieldWeighed : Depth whole -> Weighed whole
 fieldWeighed at = MkWeighed (fieldWeight at) (plusPassage at.passage 0 1)
 
 ------------------------------------------------------------------------------
 -- What a template's fields, members and applied families carry
 ------------------------------------------------------------------------------
 
-||| What a template's fields, choices and applied families carry: each
-||| field's position, an implementation's field k, with the weight of its
-||| arc; each implementation an applied family can give, with the weight of
-||| the arcs from its positions; each choice a member is read from, with the
-||| weight of the arc from its position; each weight with what passes it on.
+||| What a part of a site's template's fields, choices and applied families
+||| carry: each field's position, an implementation's field k, with the
+||| weight of its arc; each implementation an applied family can give,
+||| with the weight of the arcs from its positions; each choice a member is
+||| read from, with the weight of the arc from its position; each weight
+||| with what passes it on.
 public export
-record Carried where
+record Carried (whole : Template) where
   constructor MkCarried
-  fields : List ((Address, Nat), Weighed)
-  held : List (Address, Weighed)
-  choices : List (ChoiceHead, Weighed)
+  fields : List ((Address, Nat), Weighed whole)
+  held : List (Address, Weighed whole)
+  choices : List (ChoiceHead, Weighed whole)
 
 public export
-noneCarried : Carried
+noneCarried : Carried whole
 noneCarried = MkCarried [] [] []
 
 public export
-alsoCarried : Carried -> Carried -> Carried
+alsoCarried : Carried whole -> Carried whole -> Carried whole
 alsoCarried x y = MkCarried (x.fields ++ y.fields) (x.held ++ y.held) (x.choices ++ y.choices)
 
 ||| Each implementation a template can be, with the weight of the arcs from
 ||| its positions here.
 public export
-heldRoots : (Template -> List Address) -> Depth -> Template -> List (Address, Weighed)
+heldRoots : (Template -> List Address) -> Depth whole -> Template -> List (Address, Weighed whole)
 heldRoots rts at t = map (\j => (j, weighedAt at)) (rts t)
 
 ||| Field k of each implementation a record can be, with the weight of the
 ||| arc from its position here.
 public export
-fieldRoots : (Template -> List Address) -> Depth -> Nat -> Template -> List ((Address, Nat), Weighed)
+fieldRoots : (Template -> List Address) -> Depth whole -> Nat -> Template -> List ((Address, Nat), Weighed whole)
 fieldRoots rts at k rec = map (\j => ((j, k), fieldWeighed at)) (rts rec)
 
 mutual
-  ||| Every field's, member's and applied family's value in a template read
-  ||| here: what an applied family gives is a head over its
-  ||| implementation's arguments, a level down; a field is what its
+  ||| Every field's, member's and applied family's value in a part of a
+  ||| site's template read here: what an applied family gives is a head over
+  ||| its implementation's arguments, a level down; a field is what its
   ||| position holds, whatever its record writes; a member is what a
-  ||| position its members are read from holds.
+  ||| position its members are read from holds. A recursion is named by its
+  ||| place in the whole.
   public export
-  carriedAt : (Template -> List Address) -> Depth -> Template -> Carried
-  carriedAt rts at (Field k rec) = MkCarried (fieldRoots rts at k rec) [] []
-  carriedAt rts at (Member k) = MkCarried [] [] [(k, fieldWeighed at)]
-  carriedAt rts at t@(Applied j _ ts) =
-    alsoCarried (MkCarried [] (heldRoots rts at t) []) (carriedAll rts (underComputation (AppliedFamily j) at) ts)
-  carriedAt rts at (Head _ ts) = carriedAll rts (underHead at) ts
-  carriedAt rts at (Opaque r ts) = carriedAll rts (underComputation (StuckRecursion r) at) ts
-  carriedAt rts at (Computing j _ ts) = carriedAll rts (underComputation (AppliedFamily j) at) ts
-  carriedAt rts at (Choice _ ts) = carriedAll rts at ts
-  carriedAt rts at (Var _ _) = noneCarried
-  carriedAt rts at (Leaf _) = noneCarried
-  carriedAt rts at (Token _) = noneCarried
-  carriedAt rts at (Formal _ _) = noneCarried
+  carriedAt : (Template -> List Address) -> Depth whole -> (t : Template) -> InWhole (recursions t) whole -> Carried whole
+  carriedAt rts at (Field k rec) w = MkCarried (fieldRoots rts at k rec) [] []
+  carriedAt rts at (Member k) w = MkCarried [] [] [(k, fieldWeighed at)]
+  carriedAt rts at (Applied j d ts) w =
+    alsoCarried (MkCarried [] (heldRoots rts at (Applied j d ts)) []) (carriedAll rts (underComputation (AppliedFamily j) at) ts w)
+  carriedAt rts at (Head _ ts) w = carriedAll rts (underHead at) ts w
+  carriedAt rts at (Opaque r ts) w = carriedAll rts (underComputation (StuckRecursion (placedHere w)) at) ts (placedUnder w)
+  carriedAt rts at (Computing j _ ts) w = carriedAll rts (underComputation (AppliedFamily j) at) ts w
+  carriedAt rts at (Choice s ts) w = carriedAll rts at ts (placedRest (recursions s) w)
+  carriedAt rts at (Var _ _) w = noneCarried
+  carriedAt rts at (Leaf _) w = noneCarried
+  carriedAt rts at (Token _) w = noneCarried
+  carriedAt rts at (Formal _ _) w = noneCarried
 
   public export
-  carriedAll : (Template -> List Address) -> Depth -> List Template -> Carried
-  carriedAll rts at [] = noneCarried
-  carriedAll rts at (t :: ts) = alsoCarried (carriedAt rts at t) (carriedAll rts at ts)
+  carriedAll : (Template -> List Address) -> Depth whole -> (ts : List Template) -> InWhole (recursionsIn ts) whole -> Carried whole
+  carriedAll rts at [] w = noneCarried
+  carriedAll rts at (t :: ts) w = alsoCarried (carriedAt rts at t (placedFirst w)) (carriedAll rts at ts (placedRest (recursions t) w))
 
 ------------------------------------------------------------------------------
 -- What a site draws
@@ -197,19 +200,19 @@ varArcs t ws ((i, w) :: rest) = arcsInto t (labelOf w) (writersOf i ws) ++ varAr
 ||| The arcs of implementations with their weights, each from every
 ||| position of its nodes.
 public export
-0 heldArcs : Fin n -> (Address -> List (Fin n)) -> List (Address, Weighed) -> List (Arc n)
+0 heldArcs : Fin n -> (Address -> List (Fin n)) -> List (Address, Weighed whole) -> List (Arc n)
 heldArcs t ps [] = []
 heldArcs t ps ((j, c) :: rest) = arcsInto t (labelOf c.atWeight) (ps j) ++ heldArcs t ps rest
 
 ||| The arcs of fields with their weights, each from its position.
 public export
-0 fieldArcs : Fin n -> (Address -> Nat -> List (Fin n)) -> List ((Address, Nat), Weighed) -> List (Arc n)
+0 fieldArcs : Fin n -> (Address -> Nat -> List (Fin n)) -> List ((Address, Nat), Weighed whole) -> List (Arc n)
 fieldArcs t fps [] = []
 fieldArcs t fps (((j, k), c) :: rest) = arcsInto t (labelOf c.atWeight) (fps j k) ++ fieldArcs t fps rest
 
 ||| The arcs of choices with their weights, each from its position.
 public export
-0 choiceArcs : Fin n -> (ChoiceHead -> List (Fin n)) -> List (ChoiceHead, Weighed) -> List (Arc n)
+0 choiceArcs : Fin n -> (ChoiceHead -> List (Fin n)) -> List (ChoiceHead, Weighed whole) -> List (Arc n)
 choiceArcs t cps [] = []
 choiceArcs t cps ((k, c) :: rest) = arcsInto t (labelOf c.atWeight) (cps k) ++ choiceArcs t cps rest
 
@@ -218,15 +221,21 @@ public export
 ownArcs : Site n -> List (Arc n)
 ownArcs s = varArcs s.target s.writers (weights s.template)
 
+||| What a site's template carries, read where it lands, each recursion by
+||| its place among the template's own.
+public export
+siteCarried : (s : Site n) -> Carried s.template
+siteCarried s = carriedAt s.roots atTop s.template asWhole
+
 ||| A site's arcs from what its applied families can give, then from its
 ||| fields' positions, then from its choices'.
 public export
 0 projectedArcs : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
                   Site n -> List (Arc n)
 projectedArcs ps fps cps s =
-  heldArcs s.target ps (carriedAt s.roots atTop s.template).held ++
-  fieldArcs s.target fps (carriedAt s.roots atTop s.template).fields ++
-  choiceArcs s.target cps (carriedAt s.roots atTop s.template).choices
+  heldArcs s.target ps (siteCarried s).held ++
+  fieldArcs s.target fps (siteCarried s).fields ++
+  choiceArcs s.target cps (siteCarried s).choices
 
 ||| A list for each element, joined.
 public export
@@ -252,55 +261,58 @@ topOf b (k :: ks) = maximum k (topOf b ks)
 public export
 data ArcSource = WriterBinds | WriterProjects
 
-||| An arc as a site draws it: whether the writer binds its source, and
-||| what passes the source on to the target, the weight the arc is drawn
-||| at: heads alone, which its label measures, or, where it is Unmeasured,
-||| the computation that made it so.
+||| An arc as a site draws it: whether the writer binds its source, the
+||| site's template it was drawn from, and what passes the source on to the
+||| target there, the weight the arc is drawn at: heads alone, which its
+||| label measures, or, where it is Unmeasured, the computation of that
+||| template that made it so.
 public export
 record Drawn (n : Nat) where
   constructor MkDrawn
   drawnArc : Arc n
   sourceRead : ArcSource
-  weighing : Weighed
+  0 drawnFrom : Template
+  weighing : Weighed drawnFrom
   0 labelled : labelOf weighing.atWeight = Just drawnArc.label
 
 ||| Arcs into a target from each of some positions, their source read as
-||| given, each at the weight given with what passes it on.
+||| given, each at the weight given with what passes it on, in the
+||| template it is of.
 public export
-drawnInto : Fin n -> ArcSource -> Weighed -> List (Fin n) -> List (Drawn n)
+drawnInto : {0 whole : Template} -> Fin n -> ArcSource -> Weighed whole -> List (Fin n) -> List (Drawn n)
 drawnInto t src c [] = []
-drawnInto t src c (q :: qs) =
-  MkDrawn (MkArc q t (passageLabel c.passage)) src c (passageLabelled c.passage) :: drawnInto t src c qs
+drawnInto {whole} t src c (q :: qs) =
+  MkDrawn (MkArc q t (passageLabel c.passage)) src whole c (passageLabelled c.passage) :: drawnInto t src c qs
 
 ||| A site's parameters' arcs, each from the positions the writer reads it
 ||| at, at the weight its occurrences join to with what passes it on.
 public export
-varDrawn : Fin n -> List (Nat, Fin n) -> Passages vs -> List (Drawn n)
+varDrawn : Fin n -> List (Nat, Fin n) -> Passages whole vs -> List (Drawn n)
 varDrawn t ws NonePassed = []
 varDrawn t ws (PassedOn i p rest) = drawnInto t WriterBinds (MkWeighed _ p) (writersOf i ws) ++ varDrawn t ws rest
 
 ||| The arcs of implementations an applied family gives, as drawn.
 public export
-heldDrawn : Fin n -> (Address -> List (Fin n)) -> List (Address, Weighed) -> List (Drawn n)
+heldDrawn : Fin n -> (Address -> List (Fin n)) -> List (Address, Weighed whole) -> List (Drawn n)
 heldDrawn t ps [] = []
 heldDrawn t ps ((j, c) :: rest) = drawnInto t WriterProjects c (ps j) ++ heldDrawn t ps rest
 
 ||| The arcs of fields, as drawn.
 public export
-fieldDrawn : Fin n -> (Address -> Nat -> List (Fin n)) -> List ((Address, Nat), Weighed) -> List (Drawn n)
+fieldDrawn : Fin n -> (Address -> Nat -> List (Fin n)) -> List ((Address, Nat), Weighed whole) -> List (Drawn n)
 fieldDrawn t fps [] = []
 fieldDrawn t fps (((j, k), c) :: rest) = drawnInto t WriterProjects c (fps j k) ++ fieldDrawn t fps rest
 
 ||| The arcs of choices, as drawn.
 public export
-choiceDrawn : Fin n -> (ChoiceHead -> List (Fin n)) -> List (ChoiceHead, Weighed) -> List (Drawn n)
+choiceDrawn : Fin n -> (ChoiceHead -> List (Fin n)) -> List (ChoiceHead, Weighed whole) -> List (Drawn n)
 choiceDrawn t cps [] = []
 choiceDrawn t cps ((k, c) :: rest) = drawnInto t WriterProjects c (cps k) ++ choiceDrawn t cps rest
 
 ||| What a template's applied families, fields and choices carry, drawn.
 public export
 carriedDrawn : Fin n -> (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
-               Carried -> List (Drawn n)
+               Carried whole -> List (Drawn n)
 carriedDrawn t ps fps cps c = heldDrawn t ps c.held ++ fieldDrawn t fps c.fields ++ choiceDrawn t cps c.choices
 
 ||| A site's own arcs as drawn: its arcs (`ownArcs`), drawn from what passes
@@ -314,7 +326,7 @@ drawnOwn s = varDrawn s.target s.writers (weightPassages s.template)
 public export
 drawnProjected : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
                  Site n -> List (Drawn n)
-drawnProjected ps fps cps s = carriedDrawn s.target ps fps cps (carriedAt s.roots atTop s.template)
+drawnProjected ps fps cps s = carriedDrawn s.target ps fps cps (siteCarried s)
 
 -- A weight drawn as Unmeasured is Stuck.
 0 unmeasuredStuck : (w : Weight) -> labelOf w = Just Unmeasured -> w = Stuck
@@ -323,15 +335,15 @@ unmeasuredStuck (Finite _ _) Refl impossible
 unmeasuredStuck Stuck _ = Refl
 
 -- What passes a Stuck weight on is a computation.
-passedBy : {0 w : Weight} -> Passage w -> (0 _ : w = Stuck) -> Computation
+passedBy : {0 w : Weight} -> Passage whole w -> (0 _ : w = Stuck) -> Computation whole
 passedBy (ByComputation c) _ = c
 passedBy (ByHeads _ _) Refl impossible
 
-||| The computation that passed on an arc nothing bounds: drawn
-||| Unmeasured, its weight is Stuck, and what passes a Stuck weight on is
-||| a computation.
+||| The computation that passed on an arc nothing bounds, of the template
+||| it was drawn from: drawn Unmeasured, its weight is Stuck, and what
+||| passes a Stuck weight on is a computation.
 export
-throughOf : (d : Drawn n) -> (0 _ : d.drawnArc.label = Unmeasured) -> Computation
+throughOf : (d : Drawn n) -> (0 _ : d.drawnArc.label = Unmeasured) -> Computation d.drawnFrom
 throughOf d unmeasured =
   passedBy d.weighing.passage (unmeasuredStuck d.weighing.atWeight (trans d.labelled (cong Just unmeasured)))
 
@@ -422,19 +434,19 @@ varArcsHas Here wp eq = elemAppendLeft (arcsIntoHas (labelOf w) eq (writersOfHas
 varArcsHas {vs = (j, v) :: rest} (There el) wp eq =
   elemAppendRight (arcsInto t (labelOf v) (writersOf j ws)) (varArcsHas el wp eq)
 
-0 heldArcsHas : {t : Fin n} -> {ps : Address -> List (Fin n)} -> {hs : List (Address, Weighed)} ->
+0 heldArcsHas : {t : Fin n} -> {ps : Address -> List (Fin n)} -> {hs : List (Address, Weighed whole)} ->
                 Elem (j, c) hs -> Elem p (ps j) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (heldArcs t ps hs)
 heldArcsHas Here inJ eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inJ)
 heldArcsHas {hs = (j', c') :: rest} (There el) inJ eq =
   elemAppendRight (arcsInto t (labelOf c'.atWeight) (ps j')) (heldArcsHas el inJ eq)
 
-0 fieldArcsHas : {t : Fin n} -> {fps : Address -> Nat -> List (Fin n)} -> {fs : List ((Address, Nat), Weighed)} ->
+0 fieldArcsHas : {t : Fin n} -> {fps : Address -> Nat -> List (Fin n)} -> {fs : List ((Address, Nat), Weighed whole)} ->
                  Elem ((j, k), c) fs -> Elem p (fps j k) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (fieldArcs t fps fs)
 fieldArcsHas Here inF eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inF)
 fieldArcsHas {fs = ((j', k'), c') :: rest} (There el) inF eq =
   elemAppendRight (arcsInto t (labelOf c'.atWeight) (fps j' k')) (fieldArcsHas el inF eq)
 
-0 choiceArcsHas : {t : Fin n} -> {cps : ChoiceHead -> List (Fin n)} -> {cs : List (ChoiceHead, Weighed)} ->
+0 choiceArcsHas : {t : Fin n} -> {cps : ChoiceHead -> List (Fin n)} -> {cs : List (ChoiceHead, Weighed whole)} ->
                   Elem (k, c) cs -> Elem p (cps k) -> labelOf c.atWeight = Just lab -> Elem (MkArc p t lab) (choiceArcs t cps cs)
 choiceArcsHas Here inC eq = elemAppendLeft (arcsIntoHas (labelOf c.atWeight) eq inC)
 choiceArcsHas {cs = (k', c') :: rest} (There el) inC eq =
@@ -451,38 +463,38 @@ bothAppended Refl Refl = Refl
 arcsAppend [] ys = Refl
 arcsAppend (x :: xs) ys = cong (\r => x.drawnArc :: r) (arcsAppend xs ys)
 
-0 drawnIntoMapped : (t : Fin n) -> (src : ArcSource) -> (c : Weighed) -> (qs : List (Fin n)) ->
+0 drawnIntoMapped : (t : Fin n) -> (src : ArcSource) -> (c : Weighed whole) -> (qs : List (Fin n)) ->
                     map (.drawnArc) (drawnInto t src c qs) = map (\q => MkArc q t (passageLabel c.passage)) qs
 drawnIntoMapped t src c [] = Refl
 drawnIntoMapped t src c (q :: qs) = cong (\r => MkArc q t (passageLabel c.passage) :: r) (drawnIntoMapped t src c qs)
 
 -- Arcs drawn at a weight are the arcs at its label.
-0 drawnIntoArcs : (t : Fin n) -> (src : ArcSource) -> (c : Weighed) -> (qs : List (Fin n)) ->
+0 drawnIntoArcs : (t : Fin n) -> (src : ArcSource) -> (c : Weighed whole) -> (qs : List (Fin n)) ->
                   map (.drawnArc) (drawnInto t src c qs) = arcsInto t (labelOf c.atWeight) qs
 drawnIntoArcs t src c qs = rewrite passageLabelled c.passage in drawnIntoMapped t src c qs
 
-0 varDrawnArcs : (t : Fin n) -> (ws : List (Nat, Fin n)) -> {0 vs : List (Nat, Weight)} -> (pv : Passages vs) ->
+0 varDrawnArcs : (t : Fin n) -> (ws : List (Nat, Fin n)) -> {0 vs : List (Nat, Weight)} -> (pv : Passages whole vs) ->
                  map (.drawnArc) (varDrawn t ws pv) = varArcs t ws vs
 varDrawnArcs t ws NonePassed = Refl
 varDrawnArcs t ws (PassedOn i p rest) =
   trans (arcsAppend (drawnInto t WriterBinds (MkWeighed _ p) (writersOf i ws)) (varDrawn t ws rest))
         (bothAppended (drawnIntoArcs t WriterBinds (MkWeighed _ p) (writersOf i ws)) (varDrawnArcs t ws rest))
 
-0 heldDrawnArcs : (t : Fin n) -> (ps : Address -> List (Fin n)) -> (hs : List (Address, Weighed)) ->
+0 heldDrawnArcs : (t : Fin n) -> (ps : Address -> List (Fin n)) -> (hs : List (Address, Weighed whole)) ->
                   map (.drawnArc) (heldDrawn t ps hs) = heldArcs t ps hs
 heldDrawnArcs t ps [] = Refl
 heldDrawnArcs t ps ((j, c) :: rest) =
   trans (arcsAppend (drawnInto t WriterProjects c (ps j)) (heldDrawn t ps rest))
         (bothAppended (drawnIntoArcs t WriterProjects c (ps j)) (heldDrawnArcs t ps rest))
 
-0 fieldDrawnArcs : (t : Fin n) -> (fps : Address -> Nat -> List (Fin n)) -> (fs : List ((Address, Nat), Weighed)) ->
+0 fieldDrawnArcs : (t : Fin n) -> (fps : Address -> Nat -> List (Fin n)) -> (fs : List ((Address, Nat), Weighed whole)) ->
                    map (.drawnArc) (fieldDrawn t fps fs) = fieldArcs t fps fs
 fieldDrawnArcs t fps [] = Refl
 fieldDrawnArcs t fps (((j, k), c) :: rest) =
   trans (arcsAppend (drawnInto t WriterProjects c (fps j k)) (fieldDrawn t fps rest))
         (bothAppended (drawnIntoArcs t WriterProjects c (fps j k)) (fieldDrawnArcs t fps rest))
 
-0 choiceDrawnArcs : (t : Fin n) -> (cps : ChoiceHead -> List (Fin n)) -> (cs : List (ChoiceHead, Weighed)) ->
+0 choiceDrawnArcs : (t : Fin n) -> (cps : ChoiceHead -> List (Fin n)) -> (cs : List (ChoiceHead, Weighed whole)) ->
                     map (.drawnArc) (choiceDrawn t cps cs) = choiceArcs t cps cs
 choiceDrawnArcs t cps [] = Refl
 choiceDrawnArcs t cps ((k, c) :: rest) =
@@ -490,7 +502,7 @@ choiceDrawnArcs t cps ((k, c) :: rest) =
         (bothAppended (drawnIntoArcs t WriterProjects c (cps k)) (choiceDrawnArcs t cps rest))
 
 0 carriedDrawnArcs : (t : Fin n) -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
-                     (cps : ChoiceHead -> List (Fin n)) -> (c : Carried) ->
+                     (cps : ChoiceHead -> List (Fin n)) -> (c : Carried whole) ->
                      map (.drawnArc) (carriedDrawn t ps fps cps c) =
                      heldArcs t ps c.held ++ fieldArcs t fps c.fields ++ choiceArcs t cps c.choices
 carriedDrawnArcs t ps fps cps c =
@@ -509,7 +521,7 @@ export
 0 projectedDrawnArcs : (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
                        (cps : ChoiceHead -> List (Fin n)) -> (s : Site n) ->
                        map (.drawnArc) (drawnProjected ps fps cps s) = projectedArcs ps fps cps s
-projectedDrawnArcs ps fps cps s = carriedDrawnArcs s.target ps fps cps (carriedAt s.roots atTop s.template)
+projectedDrawnArcs ps fps cps s = carriedDrawnArcs s.target ps fps cps (siteCarried s)
 
 -- An arc of a drawing is a drawn arc's.
 0 drawnHas : {ds : List (Drawn n)} -> Elem a (map (.drawnArc) ds) -> (d : Drawn n ** (Elem d ds, d.drawnArc = a))
@@ -664,40 +676,42 @@ appliedCarries fe e d ts drawn wa with (allSelfBounded ts) proof closed
   _ | False = void (stuckRefuted fe drawn wa)
 
 -- What a site's carried parts draw, as the graph holds it.
-record Drawing (g : Graph) (m : Model g) (s : Site g.size) (whole : Carried) where
+record Drawing (g : Graph) (m : Model g) (s : Site g.size) (whole : Carried s.template) where
   constructor MkDrawing
   0 projections : (a : Arc g.size) -> Elem a (heldArcs s.target m.positionsOf whole.held) -> Elem a g.arcs
   0 fielded : (a : Arc g.size) -> Elem a (fieldArcs s.target m.fieldPositions whole.fields) -> Elem a g.arcs
   0 chosen : (a : Arc g.size) -> Elem a (choiceArcs s.target m.choicePositions whole.choices) -> Elem a g.arcs
 
 -- What a part carries is among what the whole site carries.
-record Part (c : Carried) (whole : Carried) where
+record Part {0 top : Template} (c : Carried top) (whole : Carried top) where
   constructor MkPart
-  0 partFields : (x : ((Address, Nat), Weighed)) -> Elem x c.fields -> Elem x whole.fields
-  0 partHeld : (x : (Address, Weighed)) -> Elem x c.held -> Elem x whole.held
-  0 partChoices : (x : (ChoiceHead, Weighed)) -> Elem x c.choices -> Elem x whole.choices
+  0 partFields : (x : ((Address, Nat), Weighed top)) -> Elem x c.fields -> Elem x whole.fields
+  0 partHeld : (x : (Address, Weighed top)) -> Elem x c.held -> Elem x whole.held
+  0 partChoices : (x : (ChoiceHead, Weighed top)) -> Elem x c.choices -> Elem x whole.choices
 
 -- A list's first template carries a part of what the list does.
-0 firstPart : (rts : Template -> List Address) -> (at : Depth) -> (t : Template) -> (ts : List Template) ->
-              Part (carriedAll rts at (t :: ts)) whole -> Part (carriedAt rts at t) whole
-firstPart rts at t ts p =
+0 firstPart : (rts : Template -> List Address) -> (at : Depth top) -> (t : Template) -> (ts : List Template) ->
+              (w : InWhole (recursionsIn (t :: ts)) top) ->
+              Part (carriedAll rts at (t :: ts) w) whole -> Part (carriedAt rts at t (placedFirst w)) whole
+firstPart rts at t ts w p =
   MkPart (\a, el => p.partFields a (elemAppendLeft el))
          (\a, el => p.partHeld a (elemAppendLeft el))
          (\a, el => p.partChoices a (elemAppendLeft el))
 
 -- And the rest of the list.
-0 restPart : (rts : Template -> List Address) -> (at : Depth) -> (t : Template) -> (ts : List Template) ->
-             Part (carriedAll rts at (t :: ts)) whole -> Part (carriedAll rts at ts) whole
-restPart rts at t ts p =
-  MkPart (\a, el => p.partFields a (elemAppendRight (carriedAt rts at t).fields el))
-         (\a, el => p.partHeld a (elemAppendRight (carriedAt rts at t).held el))
-         (\a, el => p.partChoices a (elemAppendRight (carriedAt rts at t).choices el))
+0 restPart : (rts : Template -> List Address) -> (at : Depth top) -> (t : Template) -> (ts : List Template) ->
+             (w : InWhole (recursionsIn (t :: ts)) top) ->
+             Part (carriedAll rts at (t :: ts) w) whole -> Part (carriedAll rts at ts (placedRest (recursions t) w)) whole
+restPart rts at t ts w p =
+  MkPart (\a, el => p.partFields a (elemAppendRight (carriedAt rts at t (placedFirst w)).fields el))
+         (\a, el => p.partHeld a (elemAppendRight (carriedAt rts at t (placedFirst w)).held el))
+         (\a, el => p.partChoices a (elemAppendRight (carriedAt rts at t (placedFirst w)).choices el))
 
 -- The arcs from what an applied family can give.
 0 rootsCarried : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-                 {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
-                 (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (t : Template) ->
-                 ((x : (Address, Weighed)) -> Elem x (heldRoots s.roots at t) -> Elem x whole.held) ->
+                 {s : Site g.size} -> {whole : Carried s.template} -> Drawing g m s whole ->
+                 (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (t : Template) ->
+                 ((x : (Address, Weighed s.template)) -> Elem x (heldRoots s.roots at t) -> Elem x whole.held) ->
                  (j : Address) -> Elem j (s.roots t) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                  Carries g p' 0 (S at.depth) s.target
 rootsCarried fe dr at aw t held j el p' inJ =
@@ -706,9 +720,9 @@ rootsCarried fe dr at aw t held j el p' inJ =
 -- The arcs from a field's position of each implementation its record can
 -- be.
 0 fieldsCarried : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-                  {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
-                  (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (k : Nat) -> (rec : Template) ->
-                  ((x : ((Address, Nat), Weighed)) -> Elem x (fieldRoots s.roots at k rec) -> Elem x whole.fields) ->
+                  {s : Site g.size} -> {whole : Carried s.template} -> Drawing g m s whole ->
+                  (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (k : Nat) -> (rec : Template) ->
+                  ((x : ((Address, Nat), Weighed s.template)) -> Elem x (fieldRoots s.roots at k rec) -> Elem x whole.fields) ->
                   (j : Address) -> Elem j (s.roots rec) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
                   Carries g p 0 at.depth s.target
 fieldsCarried fe dr at aw k rec fields j el p inField =
@@ -717,9 +731,9 @@ fieldsCarried fe dr at aw k rec fields j el p inField =
 
 -- The arcs from the position of the choice a member is read from.
 0 choicesCarried : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-                   {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
-                   (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (k : ChoiceHead) ->
-                   ((x : (ChoiceHead, Weighed)) -> Elem x [(k, fieldWeighed at)] -> Elem x whole.choices) ->
+                   {s : Site g.size} -> {whole : Carried s.template} -> Drawing g m s whole ->
+                   (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (k : ChoiceHead) ->
+                   ((x : (ChoiceHead, Weighed s.template)) -> Elem x [(k, fieldWeighed at)] -> Elem x whole.choices) ->
                    (p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 at.depth s.target
 choicesCarried fe dr at aw k chosen p inChoice =
   rootCarries fe (fieldOver aw) (\lab, eq => dr.chosen _ (choiceArcsHas (chosen _ Here) inChoice eq))
@@ -769,47 +783,48 @@ mutual
   -- induction on the part: each marker by its arcs or, where they are
   -- Stuck, by the feasible potential none satisfies.
   0 coverAt : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-              {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
-              (r : Reading) -> (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) ->
-              (t : Template) -> Answered g s r at.depth t -> Part (carriedAt s.roots at t) whole ->
-              CoveredAt m s at.depth t
-  coverAt fe dr AtDepth at aw (Var j d) ans part =
+              {s : Site g.size} -> {whole : Carried s.template} -> Drawing g m s whole ->
+              (r : Reading) -> (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) ->
+              (t : Template) -> (w : InWhole (recursions t) s.template) -> Answered g s r at.depth t ->
+              Part (carriedAt s.roots at t w) whole -> CoveredAt m s at.depth t
+  coverAt fe dr AtDepth at aw (Var j d) w ans part =
     CVar (\p, wa => drawnCarries fe (ans j (Finite at.depth d) Here) wa)
-  coverAt fe dr UnderComputation at aw (Var j d) ans part =
+  coverAt fe dr UnderComputation at aw (Var j d) w ans part =
     CVar (\p, wa => void (stuckRefuted fe (ans j Stuck Here) wa))
-  coverAt fe dr r at aw (Head a ts) ans part =
-    CHead (coverAll fe dr r (underHead at) (headOver aw) ts (headAnswered r ans) part)
-  coverAt fe dr r at aw (Opaque a ts) ans part =
-    COpaque (coverAll fe dr UnderComputation (underComputation (StuckRecursion a) at) OverAll ts (opaqueAnswered r ans) part)
-  coverAt fe dr r at aw (Choice c ls) ans part =
-    CChoice (coverAll fe dr r at aw ls (choiceAnswered r ans) part)
-  coverAt fe dr r at aw (Leaf h) ans part = CLeaf
-  coverAt fe dr r at aw (Token h) ans part = CToken
-  coverAt fe dr r at aw (Formal j k) ans part = CFormal
-  coverAt fe dr AtDepth at aw (Applied j d ts) ans part =
+  coverAt fe dr r at aw (Head a ts) w ans part =
+    CHead (coverAll fe dr r (underHead at) (headOver aw) ts w (headAnswered r ans) part)
+  coverAt fe dr r at aw (Opaque a ts) w ans part =
+    COpaque (coverAll fe dr UnderComputation (underComputation (StuckRecursion (placedHere w)) at) OverAll ts (placedUnder w)
+                      (opaqueAnswered r ans) part)
+  coverAt fe dr r at aw (Choice c ls) w ans part =
+    CChoice (coverAll fe dr r at aw ls (placedRest (recursions c) w) (choiceAnswered r ans) part)
+  coverAt fe dr r at aw (Leaf h) w ans part = CLeaf
+  coverAt fe dr r at aw (Token h) w ans part = CToken
+  coverAt fe dr r at aw (Formal j k) w ans part = CFormal
+  coverAt fe dr AtDepth at aw (Applied j d ts) w ans part =
     CApplied (\p, wa => appliedCarries fe at.depth d ts (ans j (appliedWeight at.depth d ts) Here) wa)
              (rootsCarried fe dr at aw (Applied j d ts) (\x, el => part.partHeld x (elemAppendLeft el)))
-  coverAt fe dr UnderComputation at aw (Applied j d ts) ans part =
+  coverAt fe dr UnderComputation at aw (Applied j d ts) w ans part =
     CApplied (\p, wa => void (stuckRefuted fe (ans j Stuck Here) wa))
              (rootsCarried fe dr at aw (Applied j d ts) (\x, el => part.partHeld x (elemAppendLeft el)))
-  coverAt fe dr AtDepth at aw (Computing j d ts) ans part =
+  coverAt fe dr AtDepth at aw (Computing j d ts) w ans part =
     CComputing (\p, wa => stuckRefuted fe (ans j Stuck Here) wa)
-  coverAt fe dr UnderComputation at aw (Computing j d ts) ans part =
+  coverAt fe dr UnderComputation at aw (Computing j d ts) w ans part =
     CComputing (\p, wa => stuckRefuted fe (ans j Stuck Here) wa)
-  coverAt fe dr r at aw (Member k) ans part =
+  coverAt fe dr r at aw (Member k) w ans part =
     CMember (choicesCarried fe dr at aw k (\x, el => part.partChoices x el))
-  coverAt fe dr r at aw (Field k rec) ans part =
+  coverAt fe dr r at aw (Field k rec) w ans part =
     CField (fieldsCarried fe dr at aw k rec (\x, el => part.partFields x el))
 
   0 coverAll : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
-               {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
-               (r : Reading) -> (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) ->
-               (ts : List Template) -> AnsweredIn g s r at.depth ts -> Part (carriedAll s.roots at ts) whole ->
-               AllCovered m s at.depth ts
-  coverAll fe dr r at aw [] ans part = []
-  coverAll {s} fe dr r at aw (t :: ts) ans part =
-    coverAt fe dr r at aw t (firstAnswered r ans) (firstPart s.roots at t ts part) ::
-    coverAll fe dr r at aw ts (restAnswered r ans) (restPart s.roots at t ts part)
+               {s : Site g.size} -> {whole : Carried s.template} -> Drawing g m s whole ->
+               (r : Reading) -> (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) ->
+               (ts : List Template) -> (w : InWhole (recursionsIn ts) s.template) -> AnsweredIn g s r at.depth ts ->
+               Part (carriedAll s.roots at ts w) whole -> AllCovered m s at.depth ts
+  coverAll fe dr r at aw [] w ans part = []
+  coverAll {s} fe dr r at aw (t :: ts) w ans part =
+    coverAt fe dr r at aw t (placedFirst w) (firstAnswered r ans) (firstPart s.roots at t ts w part) ::
+    coverAll fe dr r at aw ts (placedRest (recursions t) w) (restAnswered r ans) (restPart s.roots at t ts w part)
 
 -- The graph covers a site whose arcs it holds.
 0 siteCovered : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
@@ -817,17 +832,19 @@ mutual
                 ((a : Arc g.size) -> Elem a (projectedArcs m.positionsOf m.fieldPositions m.choicePositions s) -> Elem a g.arcs) ->
                 CoveredAt m s 0 s.template
 siteCovered {m} fe s own projected =
-  coverAt {whole = carriedAt s.roots atTop s.template} fe
+  coverAt {whole = siteCarried s} fe
           (MkDrawing (\a, el => projected a (elemAppendLeft el))
-                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held)
+                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf
+                                                                         (siteCarried s).held)
                                                               (elemAppendLeft el)))
-                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held)
+                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf
+                                                                         (siteCarried s).held)
                                                               (elemAppendRight (fieldArcs s.target m.fieldPositions
-                                                                                          (carriedAt s.roots atTop s.template).fields)
+                                                                                          (siteCarried s).fields)
                                                                                el))))
-          AtDepth atTop (dominatesSelf (Finite 1 0)) s.template
-          (\i, w, el => case weightsCover s.template el of
-             (v ** (inW, dom)) => (v ** (dom, \p, wa, lab, leq => own _ (varArcsHas inW wa leq))))
+          AtDepth atTop (dominatesSelf (Finite 1 0)) s.template asWhole
+          (\i, v, el => case weightsCover s.template el of
+             (u ** (inW, dom)) => (u ** (dom, \p, wa, lab, leq => own _ (varArcsHas inW wa leq))))
           (MkPart (\x, el => el) (\x, el => el) (\x, el => el))
 
 ------------------------------------------------------------------------------
@@ -842,9 +859,12 @@ public export
 record DrawsMeasured (t : Template) where
   constructor MkDrawsMeasured
   0 weighed : All (\x => MeasuredWeight (snd x)) (weights t)
-  0 noFields : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).fields = []
-  0 noHeld : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).held = []
-  0 noChoices : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).choices = []
+  0 noFields : (rts : Template -> List Address) -> {0 top : Template} -> (at : Depth top) -> (w : InWhole (recursions t) top) ->
+               (carriedAt rts at t w).fields = []
+  0 noHeld : (rts : Template -> List Address) -> {0 top : Template} -> (at : Depth top) -> (w : InWhole (recursions t) top) ->
+             (carriedAt rts at t w).held = []
+  0 noChoices : (rts : Template -> List Address) -> {0 top : Template} -> (at : Depth top) -> (w : InWhole (recursions t) top) ->
+                (carriedAt rts at t w).choices = []
 
 -- An arc into a target at a label has that label.
 0 intoLabel : {l : Maybe Label} -> {ps : List (Fin n)} -> Elem a (arcsInto t l ps) -> l = Just a.label
@@ -874,12 +894,12 @@ ownMeasured s m el = case varArcsLabel el of
 -- A site whose template carries nothing projects no arc.
 0 noneProjected : (s : Site n) -> DrawsMeasured s.template -> Elem a (projectedArcs ps fps cps s) -> Void
 noneProjected s m el =
-  let held = m.noHeld s.roots atTop
-      fields = m.noFields s.roots atTop
-      choices = m.noChoices s.roots atTop in
-  case appendElem (heldArcs s.target ps (carriedAt s.roots atTop s.template).held) el of
+  let held = m.noHeld s.roots atTop (asWhole {t = s.template})
+      fields = m.noFields s.roots atTop (asWhole {t = s.template})
+      choices = m.noChoices s.roots atTop (asWhole {t = s.template}) in
+  case appendElem (heldArcs s.target ps (siteCarried s).held) el of
     Left inHeld => absurd (replace {p = \hs => Elem a (heldArcs s.target ps hs)} held inHeld)
-    Right rest => case appendElem (fieldArcs s.target fps (carriedAt s.roots atTop s.template).fields) rest of
+    Right rest => case appendElem (fieldArcs s.target fps (siteCarried s).fields) rest of
       Left inFields => absurd (replace {p = \fs => Elem a (fieldArcs s.target fps fs)} fields inFields)
       Right inChoices => absurd (replace {p = \cs => Elem a (choiceArcs s.target cps cs)} choices inChoices)
 
@@ -922,20 +942,82 @@ measuredDrawn p measured el px = case appendElem (allOf ownTagged ss) el of
                             (replace {p = Elem (fst e).drawnArc} (projectedDrawnArcs ps fps cps s)
                                      (elemMap (.drawnArc) inProjected)))
 
+-- Every arc of a list is drawn from one template.
+0 DrawnFrom : Template -> List (Drawn n) -> Type
+DrawnFrom whole ds = (d : Drawn n) -> Elem d ds -> d.drawnFrom = whole
+
+0 intoFrom : (t : Fin n) -> (src : ArcSource) -> (c : Weighed whole) -> (qs : List (Fin n)) -> DrawnFrom whole (drawnInto t src c qs)
+intoFrom t src c [] d el = absurd el
+intoFrom t src c (q :: qs) _ Here = Refl
+intoFrom t src c (q :: qs) d (There el) = intoFrom t src c qs d el
+
+0 bothFrom : (xs : List (Drawn n)) -> DrawnFrom whole xs -> DrawnFrom whole ys -> DrawnFrom whole (xs ++ ys)
+bothFrom xs fromXs fromYs d el = case appendElem xs el of
+  Left inXs => fromXs d inXs
+  Right inYs => fromYs d inYs
+
+0 varFrom : (t : Fin n) -> (ws : List (Nat, Fin n)) -> (pv : Passages whole vs) -> DrawnFrom whole (varDrawn t ws pv)
+varFrom t ws NonePassed d el = absurd el
+varFrom t ws (PassedOn i p rest) d el =
+  bothFrom (drawnInto t WriterBinds (MkWeighed _ p) (writersOf i ws)) (intoFrom t WriterBinds (MkWeighed _ p) (writersOf i ws))
+           (varFrom t ws rest) d el
+
+0 heldFrom : (t : Fin n) -> (ps : Address -> List (Fin n)) -> (hs : List (Address, Weighed whole)) -> DrawnFrom whole (heldDrawn t ps hs)
+heldFrom t ps [] d el = absurd el
+heldFrom t ps ((j, c) :: rest) d el =
+  bothFrom (drawnInto t WriterProjects c (ps j)) (intoFrom t WriterProjects c (ps j)) (heldFrom t ps rest) d el
+
+0 fieldFrom : (t : Fin n) -> (fps : Address -> Nat -> List (Fin n)) -> (fs : List ((Address, Nat), Weighed whole)) ->
+              DrawnFrom whole (fieldDrawn t fps fs)
+fieldFrom t fps [] d el = absurd el
+fieldFrom t fps (((j, k), c) :: rest) d el =
+  bothFrom (drawnInto t WriterProjects c (fps j k)) (intoFrom t WriterProjects c (fps j k)) (fieldFrom t fps rest) d el
+
+0 choiceFrom : (t : Fin n) -> (cps : ChoiceHead -> List (Fin n)) -> (cs : List (ChoiceHead, Weighed whole)) ->
+               DrawnFrom whole (choiceDrawn t cps cs)
+choiceFrom t cps [] d el = absurd el
+choiceFrom t cps ((k, c) :: rest) d el =
+  bothFrom (drawnInto t WriterProjects c (cps k)) (intoFrom t WriterProjects c (cps k)) (choiceFrom t cps rest) d el
+
+0 carriedFrom : (t : Fin n) -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
+                (cps : ChoiceHead -> List (Fin n)) -> (c : Carried whole) -> DrawnFrom whole (carriedDrawn t ps fps cps c)
+carriedFrom t ps fps cps c d el =
+  bothFrom (heldDrawn t ps c.held) (heldFrom t ps c.held)
+           (bothFrom (fieldDrawn t fps c.fields) (fieldFrom t fps c.fields) (choiceFrom t cps c.choices)) d el
+
+||| An arc drawn from sites, with its tag, is drawn from one of them: from
+||| that site's template, and tagged as that site is. A site draws its own
+||| arcs and what its carried parts project, each from its template, which
+||| the weights the arcs are drawn at are of.
+export
+0 drawnFromSite : {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
+                  {cps : ChoiceHead -> List (Fin n)} -> {ss : List (Site n, tag)} -> Elem e (drawn ps fps cps ss) ->
+                  (y : (Site n, tag) ** (Elem y ss, ((fst e).drawnFrom = (fst y).template, snd e = snd y)))
+drawnFromSite {e} el = case appendElem (allOf ownTagged ss) el of
+  Left own => case fromSome ownTagged ss own of
+    ((s, y) ** (inSs, tagged)) => case untagged tagged of
+      (same, inOwn) =>
+        ((s, y) ** (inSs, (varFrom s.target s.writers (weightPassages s.template) (fst e) inOwn, same)))
+  Right projected => case fromSome (projectedTagged ps fps cps) ss projected of
+    ((s, y) ** (inSs, tagged)) => case untagged tagged of
+      (same, inProjected) =>
+        ((s, y) ** (inSs, (carriedFrom s.target ps fps cps (siteCarried s) (fst e) inProjected, same)))
+
 ||| A marker alone draws measured arcs only: a held value written as
 ||| itself, a leading arc's parameter passed on unchanged.
 export
 0 markerMeasured : (i, d : Nat) -> DrawsMeasured (Var i d)
-markerMeasured i d = MkDrawsMeasured [MeasuredBy] (\_, _ => Refl) (\_, _ => Refl) (\_, _ => Refl)
+markerMeasured i d = MkDrawsMeasured [MeasuredBy] (\_, _, _ => Refl) (\_, _, _ => Refl) (\_, _, _ => Refl)
 
 -- A chain of pairs carries nothing: pairs and a marker under them.
-0 chainCarriesNothing : (pa : Address) -> (n : Nat) -> (rts : Template -> List Address) -> (at : Depth) ->
-                        ( (carriedAt rts at (pairChain pa n)).fields = []
-                        , (carriedAt rts at (pairChain pa n)).held = []
-                        , (carriedAt rts at (pairChain pa n)).choices = [] )
-chainCarriesNothing pa Z rts at = (Refl, Refl, Refl)
-chainCarriesNothing pa (S n) rts at =
-  let (f, h, c) = chainCarriesNothing pa n rts (underHead at) in
+0 chainCarriesNothing : (pa : Address) -> (n : Nat) -> (rts : Template -> List Address) -> (at : Depth top) ->
+                        (w : InWhole (recursions (pairChain pa n)) top) ->
+                        ( (carriedAt rts at (pairChain pa n) w).fields = []
+                        , (carriedAt rts at (pairChain pa n) w).held = []
+                        , (carriedAt rts at (pairChain pa n) w).choices = [] )
+chainCarriesNothing pa Z rts at w = (Refl, Refl, Refl)
+chainCarriesNothing pa (S n) rts at w =
+  let (f, h, c) = chainCarriesNothing pa n rts (underHead at) (placedFirst (placedRest [] w)) in
   (cong (\l => l ++ []) f, cong (\l => l ++ []) h, cong (\l => l ++ []) c)
 
 ||| A chain of pairs that packs held values draws measured arcs only
@@ -944,9 +1026,9 @@ export
 0 chainDrawsMeasured : (pa : Address) -> (n : Nat) -> DrawsMeasured (pairChain pa n)
 chainDrawsMeasured pa n =
   MkDrawsMeasured (chainMeasured pa n)
-             (\rts, at => fst (chainCarriesNothing pa n rts at))
-             (\rts, at => fst (snd (chainCarriesNothing pa n rts at)))
-             (\rts, at => snd (snd (chainCarriesNothing pa n rts at)))
+             (\rts, at, w => fst (chainCarriesNothing pa n rts at w))
+             (\rts, at, w => fst (snd (chainCarriesNothing pa n rts at w)))
+             (\rts, at, w => snd (snd (chainCarriesNothing pa n rts at w)))
 
 0 listedChain : (pa : Address) -> (m : Nat) -> Elem t (pairChainsUpTo pa m) -> (n : Nat ** t = pairChain pa n)
 listedChain pa Z el = absurd el

@@ -13,6 +13,9 @@ module IdrisMLIR.Proof.Template
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 
+import Data.List
+import Data.List.Elem
+import Data.List.Quantifiers
 import Data.Nat
 import Data.So
 
@@ -172,6 +175,119 @@ mutual
   heaviest (Formal _ _) = 0
 
 ------------------------------------------------------------------------------
+-- The recursions a template holds
+------------------------------------------------------------------------------
+
+mutual
+  ||| Every recursion a template holds (`Opaque`), in order, a choice's
+  ||| scrutinee's and a field's record's among them: a reading gives, beside
+  ||| its template, the definition of each.
+  public export
+  recursions : Template -> List Address
+  recursions (Opaque a ts) = a :: recursionsIn ts
+  recursions (Head _ ts) = recursionsIn ts
+  recursions (Applied _ _ ts) = recursionsIn ts
+  recursions (Computing _ _ ts) = recursionsIn ts
+  recursions (Choice s ts) = recursions s ++ recursionsIn ts
+  recursions (Field _ s) = recursions s
+  recursions (Var _ _) = []
+  recursions (Leaf _) = []
+  recursions (Token _) = []
+  recursions (Formal _ _) = []
+  recursions (Member _) = []
+
+  ||| Every recursion some templates hold, in order.
+  public export
+  recursionsIn : List Template -> List Address
+  recursionsIn [] = []
+  recursionsIn (t :: ts) = recursions t ++ recursionsIn ts
+
+||| The recursions a template holds, where there is one.
+public export
+maybeRecursions : Maybe Template -> List Address
+maybeRecursions Nothing = []
+maybeRecursions (Just t) = recursions t
+
+||| Two lists of templates hold the first's recursions, then the second's.
+export
+0 recursionsJoined : (xs, ys : List Template) -> recursionsIn (xs ++ ys) = recursionsIn xs ++ recursionsIn ys
+recursionsJoined [] ys = Refl
+recursionsJoined (x :: xs) ys =
+  rewrite recursionsJoined xs ys in appendAssociative (recursions x) (recursionsIn xs) (recursionsIn ys)
+
+||| Heads raised above a template hold its recursions and no other.
+export
+0 recursionsRaised : (c : Nat) -> (t : Template) -> recursions (raise c t) = recursions t
+recursionsRaised Z t = Refl
+recursionsRaised (S c) t = rewrite recursionsRaised c t in appendNilRightNeutral (recursions t)
+
+||| What holds of each of two lists, the first's first.
+public export
+allJoined : All p xs -> All p ys -> All p (xs ++ ys)
+allJoined [] qs = qs
+allJoined (q :: ps) qs = q :: allJoined ps qs
+
+||| What holds of each of a list joined before another, of the first.
+public export
+allBefore : (xs : List a) -> All p (xs ++ ys) -> All p xs
+allBefore [] _ = []
+allBefore (_ :: xs) (q :: qs) = q :: allBefore xs qs
+
+||| What holds of each of a list joined after another, of the second.
+public export
+allAfter : (xs : List a) -> All p (xs ++ ys) -> All p ys
+allAfter [] qs = qs
+allAfter (_ :: xs) (_ :: qs) = allAfter xs qs
+
+||| A list's element, at its place in the list joined before another.
+public export
+elemBefore : Elem x xs -> Elem x (xs ++ ys)
+elemBefore Here = Here
+elemBefore (There e) = There (elemBefore e)
+
+||| A list's element, at its place in the list joined after another.
+public export
+elemAfter : (xs : List a) -> Elem x ys -> Elem x (xs ++ ys)
+elemAfter [] e = e
+elemAfter (_ :: xs) e = There (elemAfter xs e)
+
+||| Where a part's recursions sit among those of the template a site
+||| writes, the whole: each is one of the whole's, at its place there. A
+||| recursion that passes an occurrence on is named by that place
+||| (`StuckRecursion`), and the site's reading gives a definition for each
+||| of the whole's recursions, by place.
+public export
+record InWhole (rs : List Address) (whole : Template) where
+  constructor MkInWhole
+  toWhole : {0 a : Address} -> Elem a rs -> Elem a (recursions whole)
+
+||| A template is its own whole.
+public export
+asWhole : InWhole (recursions t) t
+asWhole = MkInWhole (\el => el)
+
+||| A recursion's place in the whole.
+public export
+placedHere : InWhole (a :: rs) whole -> Elem a (recursions whole)
+placedHere w = w.toWhole Here
+
+||| The recursions a recursion's arguments hold, in the whole.
+public export
+placedUnder : InWhole (a :: rs) whole -> InWhole rs whole
+placedUnder w = MkInWhole (\el => w.toWhole (There el))
+
+||| The recursions of a list's first part, in the whole.
+public export
+placedFirst : InWhole (xs ++ ys) whole -> InWhole xs whole
+placedFirst w = MkInWhole (\el => w.toWhole (elemBefore el))
+
+||| The recursions of a list's rest, after those of its first part, in the
+||| whole.
+public export
+placedRest : (xs : List Address) -> InWhole (xs ++ ys) whole -> InWhole ys whole
+placedRest xs w = MkInWhole (\el => w.toWhole (elemAfter xs el))
+
+------------------------------------------------------------------------------
 -- What a template carries
 ------------------------------------------------------------------------------
 
@@ -300,52 +416,57 @@ weights t = map settledEntry (joinAll [] (occurrences 0 t))
 -- What passes an occurrence on
 ------------------------------------------------------------------------------
 
-||| A type-level computation a value passes through, which nothing bounds:
-||| a recursive definition stuck on what its arguments hold (`Opaque`), or
-||| a family the writer is given, applied (`Applied`, `Computing`), which
+||| A type-level computation a value passes through, which nothing bounds,
+||| in the template a site writes: a recursive definition stuck on what its
+||| arguments hold (`Opaque`), named by its place among the template's
+||| recursions, the place the site's reading gives its definition at; or a
+||| family the writer is given, applied (`Applied`, `Computing`), which
 ||| every instance beta-reduces. Two cases the problem has: a definition's
 ||| own unfolding, and a value's.
 public export
-data Computation = StuckRecursion Address | AppliedFamily Nat
+data Computation : Template -> Type where
+  StuckRecursion : {0 t : Template} -> {0 a : Address} -> Elem a (recursions t) -> Computation t
+  AppliedFamily : {0 t : Template} -> Nat -> Computation t
 
-||| What passes an occurrence on to where it is written, indexed by the
-||| weight it is drawn at: heads alone, which raise it by the finite weight
-||| they measure; or a computation, where its weight is Stuck. So a Stuck
-||| weight always says what computation made it so, and a finite one never
-||| names one.
+||| What passes an occurrence on to where it is written, in the template a
+||| site writes, indexed by the weight it is drawn at: heads alone, which
+||| raise it by the finite weight they measure; or a computation of the
+||| template's, where its weight is Stuck. So a Stuck weight always says
+||| what computation made it so, and a finite one never names one.
 public export
-data Passage : Weight -> Type where
-  ByHeads : (gain, loss : Nat) -> Passage (Finite gain loss)
-  ByComputation : Computation -> Passage Stuck
+data Passage : Template -> Weight -> Type where
+  ByHeads : {0 t : Template} -> (gain, loss : Nat) -> Passage t (Finite gain loss)
+  ByComputation : {0 t : Template} -> Computation t -> Passage t Stuck
 
 ||| What passes on each of a list of weights by parameter: the list itself,
 ||| each weight with its passage, so it cannot disagree with the weights
 ||| it is indexed by.
 public export
-data Passages : List (Nat, Weight) -> Type where
-  NonePassed : Passages []
-  PassedOn : {0 w : Weight} -> {0 xs : List (Nat, Weight)} -> (i : Nat) -> Passage w -> Passages xs -> Passages ((i, w) :: xs)
+data Passages : Template -> List (Nat, Weight) -> Type where
+  NonePassed : {0 t : Template} -> Passages t []
+  PassedOn : {0 t : Template} -> {0 w : Weight} -> {0 xs : List (Nat, Weight)} -> (i : Nat) -> Passage t w -> Passages t xs ->
+             Passages t ((i, w) :: xs)
 
 ||| The label of the arc a passage draws.
 public export
-passageLabel : Passage w -> Label
+passageLabel : Passage t w -> Label
 passageLabel (ByHeads gain loss) = Measured gain loss
 passageLabel (ByComputation _) = Unmeasured
 
 ||| A passage draws the arc of the weight it passes on.
 export
-0 passageLabelled : (p : Passage w) -> labelOf w = Just (passageLabel p)
+0 passageLabelled : (p : Passage t w) -> labelOf w = Just (passageLabel p)
 passageLabelled (ByHeads _ _) = Refl
 passageLabelled (ByComputation _) = Refl
 
 ||| What passes on a weight raised by a finite one (`plus`).
 export
-plusPassage : Passage w -> (gain, loss : Nat) -> Passage (plus w (Finite gain loss))
+plusPassage : Passage t w -> (gain, loss : Nat) -> Passage t (plus w (Finite gain loss))
 plusPassage (ByHeads g l) gain loss = ByHeads (g + gain) (l + loss)
 plusPassage (ByComputation c) _ _ = ByComputation c
 
 -- One list's passages before another's.
-alsoPassedOn : {0 xs, ys : List (Nat, Weight)} -> Passages xs -> Passages ys -> Passages (xs ++ ys)
+alsoPassedOn : {0 xs, ys : List (Nat, Weight)} -> Passages t xs -> Passages t ys -> Passages t (xs ++ ys)
 alsoPassedOn NonePassed qs = qs
 alsoPassedOn (PassedOn i p ps) qs = PassedOn i p (alsoPassedOn ps qs)
 
@@ -353,44 +474,45 @@ alsoPassedOn (PassedOn i p ps) qs = PassedOn i p (alsoPassedOn ps qs)
 -- arguments where they are closed, and otherwise the family, where what
 -- beta makes of them is a sum of two heights. It splits on the weight's
 -- own test (`appliedAt`).
-appliedPassage : (j, e, d : Nat) -> (ts : List Template) -> Passage (appliedWeight e d ts)
-appliedPassage j e d ts = atClosed (allSelfBounded ts)
+appliedPassage : {0 whole : Template} -> (j, e, d : Nat) -> (ts : List Template) -> Passage whole (appliedWeight e d ts)
+appliedPassage {whole} j e d ts = atClosed (allSelfBounded ts)
   where
-    atClosed : (closed : Bool) -> Passage (appliedAt closed e d ts)
+    atClosed : (closed : Bool) -> Passage whole (appliedAt closed e d ts)
     atClosed True = ByHeads (e + tallest ts) d
     atClosed False = ByComputation (AppliedFamily j)
 
 mutual
-  ||| What passes on each occurrence of a template read e heads deep
-  ||| (`occurrences`), where the occurrence's weight is made: heads alone
-  ||| for a marker, and for an applied family's own marker where its
-  ||| arguments are closed; the family itself for its own marker
+  ||| What passes on each occurrence of a part of a site's template read e
+  ||| heads deep (`occurrences`), where the occurrence's weight is made:
+  ||| heads alone for a marker, and for an applied family's own marker where
+  ||| its arguments are closed; the family itself for its own marker
   ||| otherwise, and for a computing family's; and for every other marker
-  ||| under a computation, the outermost computation it is under.
+  ||| under a computation, the outermost computation it is under, a
+  ||| recursion by its place in the whole.
   export
-  passagesOf : (e : Nat) -> (t : Template) -> Passages (occurrences e t)
-  passagesOf e (Var j d) = PassedOn j (ByHeads e d) NonePassed
-  passagesOf e (Head _ ts) = passagesIn (S e) ts
-  passagesOf e (Opaque r ts) = passedThroughAll (StuckRecursion r) ts
-  passagesOf e (Applied j d ts) = PassedOn j (appliedPassage j e d ts) (passedThroughAll (AppliedFamily j) ts)
-  passagesOf e (Computing j _ ts) = PassedOn j (ByComputation (AppliedFamily j)) (passedThroughAll (AppliedFamily j) ts)
-  passagesOf e (Choice _ ts) = passagesIn e ts
-  passagesOf e (Field _ _) = NonePassed
-  passagesOf e (Leaf _) = NonePassed
-  passagesOf e (Token _) = NonePassed
-  passagesOf e (Member _) = NonePassed
-  passagesOf e (Formal _ _) = NonePassed
+  passagesOf : (e : Nat) -> (t : Template) -> InWhole (recursions t) whole -> Passages whole (occurrences e t)
+  passagesOf e (Var j d) w = PassedOn j (ByHeads e d) NonePassed
+  passagesOf e (Head _ ts) w = passagesIn (S e) ts w
+  passagesOf e (Opaque r ts) w = passedThroughAll (StuckRecursion (placedHere w)) ts
+  passagesOf e (Applied j d ts) w = PassedOn j (appliedPassage j e d ts) (passedThroughAll (AppliedFamily j) ts)
+  passagesOf e (Computing j _ ts) w = PassedOn j (ByComputation (AppliedFamily j)) (passedThroughAll (AppliedFamily j) ts)
+  passagesOf e (Choice s ts) w = passagesIn e ts (placedRest (recursions s) w)
+  passagesOf e (Field _ _) w = NonePassed
+  passagesOf e (Leaf _) w = NonePassed
+  passagesOf e (Token _) w = NonePassed
+  passagesOf e (Member _) w = NonePassed
+  passagesOf e (Formal _ _) w = NonePassed
 
   export
-  passagesIn : (e : Nat) -> (ts : List Template) -> Passages (occurrencesIn e ts)
-  passagesIn e [] = NonePassed
-  passagesIn e (t :: ts) = alsoPassedOn (passagesOf e t) (passagesIn e ts)
+  passagesIn : (e : Nat) -> (ts : List Template) -> InWhole (recursionsIn ts) whole -> Passages whole (occurrencesIn e ts)
+  passagesIn e [] w = NonePassed
+  passagesIn e (t :: ts) w = alsoPassedOn (passagesOf e t (placedFirst w)) (passagesIn e ts (placedRest (recursions t) w))
 
   ||| What passes on each marker under a computation (`stuck`): that
   ||| computation, the outermost one the marker is under, but for an
   ||| applied or computing family's own marker, which its family passes on.
   export
-  passedThrough : Computation -> (t : Template) -> Passages (stuck t)
+  passedThrough : Computation whole -> (t : Template) -> Passages whole (stuck t)
   passedThrough c (Var j _) = PassedOn j (ByComputation c) NonePassed
   passedThrough c (Field _ _) = NonePassed
   passedThrough c (Head _ ts) = passedThroughAll c ts
@@ -404,13 +526,13 @@ mutual
   passedThrough c (Formal _ _) = NonePassed
 
   export
-  passedThroughAll : Computation -> (ts : List Template) -> Passages (stuckIn ts)
+  passedThroughAll : Computation whole -> (ts : List Template) -> Passages whole (stuckIn ts)
   passedThroughAll c [] = NonePassed
   passedThroughAll c (t :: ts) = alsoPassedOn (passedThrough c t) (passedThroughAll c ts)
 
 -- What passes on a weight joined into another (`join`): the first Stuck
 -- one's computation, or the finite weight the join keeps.
-joinPassage : {0 v, w : Weight} -> Passage v -> Passage w -> Passage (join v w)
+joinPassage : {0 v, w : Weight} -> Passage t v -> Passage t w -> Passage t (join v w)
 joinPassage (ByComputation c) (ByComputation _) = ByComputation c
 joinPassage (ByComputation c) (ByHeads _ _) = ByComputation c
 joinPassage (ByHeads _ _) (ByComputation c) = ByComputation c
@@ -419,8 +541,8 @@ joinPassage (ByHeads g l) (ByHeads g' l') with (g + l' <= g' + l)
   _ | False = ByHeads g l
 
 -- What passes on a weight joined into a list of them (`insertJoin`).
-insertPassage : {0 w : Weight} -> {0 acc : List (Nat, Weight)} -> (i : Nat) -> Passage w -> Passages acc ->
-                Passages (insertJoin i w acc)
+insertPassage : {0 w : Weight} -> {0 acc : List (Nat, Weight)} -> (i : Nat) -> Passage t w -> Passages t acc ->
+                Passages t (insertJoin i w acc)
 insertPassage i p NonePassed = PassedOn i p NonePassed
 insertPassage i p (PassedOn j q qs) with (i == j)
   _ | True = PassedOn j (joinPassage q p) qs
@@ -429,27 +551,28 @@ insertPassage i p (PassedOn j q qs) with (i == j)
     _ | False = PassedOn j q (insertPassage i p qs)
 
 -- What passes on weights joined in, one at a time (`joinAll`).
-joinPassages : {0 acc, xs : List (Nat, Weight)} -> Passages acc -> Passages xs -> Passages (joinAll acc xs)
+joinPassages : {0 acc, xs : List (Nat, Weight)} -> Passages t acc -> Passages t xs -> Passages t (joinAll acc xs)
 joinPassages ps NonePassed = ps
 joinPassages ps (PassedOn i q qs) = joinPassages (insertPassage i q ps) qs
 
 -- What passes on a weight written with one side 0 (`settled`).
-settledPassage : {0 w : Weight} -> Passage w -> Passage (settled w)
+settledPassage : {0 w : Weight} -> Passage t w -> Passage t (settled w)
 settledPassage (ByHeads g l) = ByHeads (minus g l) (minus l g)
 settledPassage (ByComputation c) = ByComputation c
 
-settledPassages : {0 xs : List (Nat, Weight)} -> Passages xs -> Passages (map Template.settledEntry xs)
+settledPassages : {0 xs : List (Nat, Weight)} -> Passages t xs -> Passages t (map Template.settledEntry xs)
 settledPassages NonePassed = NonePassed
 settledPassages (PassedOn i p ps) = PassedOn i (settledPassage p) (settledPassages ps)
 
 ||| What passes on each parameter a template grows (`weights`), at the
 ||| weight its occurrences join to: where that is Stuck, the computation
-||| of its first Stuck occurrence. It is the weights themselves, computed
-||| with what passes each on, so the graph draws a parameter's arcs from
-||| it and knows, where an arc is Unmeasured, what made it so.
+||| of its first Stuck occurrence, a recursion by its place among the
+||| template's. It is the weights themselves, computed with what passes
+||| each on, so the graph draws a parameter's arcs from it and knows, where
+||| an arc is Unmeasured, what made it so.
 export
-weightPassages : (t : Template) -> Passages (weights t)
-weightPassages t = settledPassages (joinPassages NonePassed (passagesOf 0 t))
+weightPassages : (t : Template) -> Passages t (weights t)
+weightPassages t = settledPassages (joinPassages NonePassed (passagesOf 0 t asWhole))
 
 ------------------------------------------------------------------------------
 -- Every occurrence is listed

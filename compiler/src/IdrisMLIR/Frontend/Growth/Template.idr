@@ -331,6 +331,73 @@ mutual
 -- The readings
 ------------------------------------------------------------------------------
 
+||| A template a reading read, with what the reading says of it and the
+||| definition of each recursion it holds, read where the reading met it.
+public export
+record TemplateReading (says : Template -> Type) where
+  constructor MkTemplateReading
+  template : Template
+  0 described : says template
+  recursionsRead : All RecursionDef (recursions template)
+
+||| Templates a reading read, in turn, with what the reading says of them
+||| and the definition of each recursion they hold.
+public export
+record TemplatesReading (says : List Template -> Type) where
+  constructor MkTemplatesReading
+  templates : List Template
+  0 described : says templates
+  recursionsRead : All RecursionDef (recursionsIn templates)
+
+||| What a reading read where it may read nothing, with what the reading
+||| says of it and the definition of each recursion it holds.
+public export
+record MaybeReading (says : Maybe Template -> Type) where
+  constructor MkMaybeReading
+  template : Maybe Template
+  0 described : says template
+  recursionsRead : All RecursionDef (maybeRecursions template)
+
+||| A template with the definition of each recursion it holds, as its
+||| reading met it: what a site writes at a static argument, and every part
+||| of it the growth graph draws from.
+public export
+record TemplateRead where
+  constructor MkTemplateRead
+  template : Template
+  recursionsRead : All RecursionDef (recursions template)
+
+||| The templates of some read, in order.
+public export
+templatesOf : List TemplateRead -> List Template
+templatesOf [] = []
+templatesOf (r :: rs) = r.template :: templatesOf rs
+
+||| Templates read hold each one's recursions, in order.
+public export
+allRead : (rs : List TemplateRead) -> All RecursionDef (recursionsIn (templatesOf rs))
+allRead [] = []
+allRead (r :: rs) = allJoined r.recursionsRead (allRead rs)
+
+||| Each of some templates with the definitions of the recursions it holds,
+||| read off those of the list.
+public export
+eachRead : (ts : List Template) -> All RecursionDef (recursionsIn ts) -> List TemplateRead
+eachRead [] _ = []
+eachRead (t :: ts) held = MkTemplateRead t (allBefore (recursions t) held) :: eachRead ts (allAfter (recursions t) held)
+
+-- A node over children (`nodeOf`) holds its children's recursions, or
+-- none in a skeleton's hole.
+nodeOver : (k : Keeping) -> (0 h : Maybe Address) -> (0 ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+           All RecursionDef (recursions (nodeOf k (Head h ts)))
+nodeOver k h ts held = nodeRecursions {t = Head h ts} k held
+
+-- A part that holds no recursion, applied (`partOf`), holds its
+-- arguments'.
+leafPart : (k : Keeping) -> (0 t : Template) -> (0 _ : recursions t = []) -> (ts : List Template) ->
+           All RecursionDef (recursionsIn ts) -> All RecursionDef (recursions (partOf k t ts))
+leafPart k t none ts held = partRecursions {t} k ts (noRecursions {t} none) held
+
 ||| An argument met on a spine: the term, as a closed term for what
 ||| substitutes it, and its reading; each computed when it is needed.
 record Arg {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) where
@@ -338,7 +405,7 @@ record Arg {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) where
   term : TT vs
   value : Lazy ClosedTerm
   0 closedAs : Force value = closeBy Readings.substituted stand term
-  reading : Lazy (Front (Subset Template (ReadAs m stand term)))
+  reading : Lazy (Front (TemplateReading (ReadAs m stand term)))
 
 ||| The terms of some arguments.
 termsOf : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} -> List (Arg m stand) -> List (TT vs)
@@ -354,12 +421,12 @@ closedTerms (a :: as) = cong2 (::) a.closedAs (closedTerms as)
 
 ||| The arguments' readings, in order.
 readings : {0 vs : Scope} -> {0 m : Mode} -> {0 stand : Values Substitute vs} ->
-           (args : List (Arg m stand)) -> Front (Subset (List Template) (AllReadAs m stand (termsOf args)))
-readings [] = pure (Element [] [])
+           (args : List (Arg m stand)) -> Front (TemplatesReading (AllReadAs m stand (termsOf args)))
+readings [] = pure (MkTemplatesReading [] [] [])
 readings (a :: as) = do
   r <- Force a.reading
   rs <- readings as
-  pure (Element (r.fst :: rs.fst) (r.snd :: rs.snd))
+  pure (MkTemplatesReading (r.template :: rs.templates) (r.described :: rs.described) (allJoined r.recursionsRead rs.recursionsRead))
 
 ||| Whether a term mentions one of the walk's markers, each of which an
 ||| instance puts a value in for: the writer's parameter, a part of one a
@@ -439,22 +506,24 @@ formalsFrom j (k :: ks) (S n) = FormalArgument j k :: formalsFrom (S j) ks n
 ||| runtime part; in an instance's, which holds no marker, a runtime part.
 siteBound : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT vs)} ->
             (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Readings.markerOf n = Nothing) -> (0 _ : NotFormal n) ->
-            (ts : List Template) -> (0 _ : AllReadAs m stand as ts) ->
-            Subset Template (SpineAs m stand (Ref fc Bound n) as)
-siteBound (MkMode (OfSite stands) kp cl ctx) fc n none plain ts rs with (walkMarker stands n) proof found
-  _ | Just t = Element (markedOf t ts) (SMarker found rs)
-  _ | Nothing = Element (partOf kp (Leaf 1) ts) (SPart none plain rs)
-siteBound (MkMode OfInstance kp cl ctx) fc n none plain ts rs = Element (partOf kp (Leaf 1) ts) (SPart none plain rs)
+            (ts : List Template) -> (0 _ : AllReadAs m stand as ts) -> All RecursionDef (recursionsIn ts) ->
+            TemplateReading (SpineAs m stand (Ref fc Bound n) as)
+siteBound (MkMode (OfSite stands) kp cl ctx) fc n none plain ts rs held with (walkMarker stands n) proof found
+  _ | Just t = MkTemplateReading (markedOf t ts) (SMarker found rs) (markedRecursions t ts (markerUnrecursive stands n found) held)
+  _ | Nothing = MkTemplateReading (partOf kp (Leaf 1) ts) (SPart none plain rs) (leafPart kp (Leaf 1) Refl ts held)
+siteBound (MkMode OfInstance kp cl ctx) fc n none plain ts rs held =
+  MkTemplateReading (partOf kp (Leaf 1) ts) (SPart none plain rs) (leafPart kp (Leaf 1) Refl ts held)
 
 ||| A bound name that is no hole marker, read: an argument of a family's
 ||| value its own; any other as `siteBound` reads it.
 boundName : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT vs)} ->
             (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Readings.markerOf n = Nothing) ->
-            (ts : List Template) -> (0 _ : AllReadAs m stand as ts) ->
-            Subset Template (SpineAs m stand (Ref fc Bound n) as)
-boundName m fc n none ts rs = case formalView n of
-  IsFormal j k formal => Element (partOf m.keeping (Formal j k) ts) (SFormal none formal rs)
-  NotFormalName plain => siteBound m fc n none plain ts rs
+            (ts : List Template) -> (0 _ : AllReadAs m stand as ts) -> All RecursionDef (recursionsIn ts) ->
+            TemplateReading (SpineAs m stand (Ref fc Bound n) as)
+boundName m fc n none ts rs held = case formalView n of
+  IsFormal j k formal =>
+    MkTemplateReading (partOf m.keeping (Formal j k) ts) (SFormal none formal rs) (leafPart m.keeping (Formal j k) Refl ts held)
+  NotFormalName plain => siteBound m fc n none plain ts rs held
 
 ||| A site's call beside its unfolding: as written, which every instance
 ||| that leaves it stuck writes, and what the unfolding gives the others;
@@ -462,12 +531,15 @@ boundName m fc n none ts rs = case formalView n of
 besides : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT vs)} -> {0 fc : FC} -> {0 n : Name} ->
           {0 ctx : Frozen} -> (stands : List StandIn) -> (kp : Keeping) -> (cl : Calling) -> (a : Address) ->
           (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) -> (ts : List Template) ->
-          (0 _ : AllReadAs (MkMode (OfSite stands) kp cl ctx) stand as ts) -> (unfolded : Template) ->
+          (0 _ : AllReadAs (MkMode (OfSite stands) kp cl ctx) stand as ts) -> All RecursionDef (recursionsIn ts) ->
+          (unfolded : Template) -> All RecursionDef (recursions unfolded) ->
           (0 _ : Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy Readings.substituted stand) as)
                           (nodeOf kp (Head (Just a) ts)) unfolded) ->
-          Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) as)
-besides stands kp WalksAlone a at ts rs t r = Element t (SWalked at rs r)
-besides stands kp cl a at ts rs t r = Element (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t]) (SBeside at rs r)
+          TemplateReading (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) as)
+besides stands kp WalksAlone a at ts rs held t tRead r = MkTemplateReading t (SWalked at rs r) tRead
+besides stands kp cl a at ts rs held t tRead r =
+  MkTemplateReading (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t]) (SBeside at rs r)
+                    (allJoined (nodeOver kp (Just a) ts held) (allJoined tRead []))
 
 ||| What a site's reading makes of a definition left applied, at its
 ||| arguments as closed terms: the call as written, which every instance
@@ -476,16 +548,20 @@ besides stands kp cl a at ts rs t r = Element (Choice (Leaf 1) [nodeOf kp (Head 
 data CallRead : Mode -> Address -> Name -> List ClosedTerm -> Template -> Type where
   AsWritten : CallRead m a n terms written
   Recurs : CallRead m a n terms written
-  Unfolded : (t : Template) -> (0 _ : Reducing m a n terms written t) -> CallRead m a n terms written
+  Unfolded : (t : Template) -> All RecursionDef (recursions t) -> (0 _ : Reducing m a n terms written t) ->
+             CallRead m a n terms written
 
 ||| A kept lambda chain read (`EtaChain`): its call's address, the
 ||| templates of the call's own arguments, and what an instance that
-||| unfolds the call makes of it under the lambdas.
+||| unfolds the call makes of it under the lambdas, each with the
+||| definitions of the recursions it holds.
 record ChainRead {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) (t : TT vs) where
   constructor MkChainRead
   address : Address
   own : List Template
+  ownRead : All RecursionDef (recursionsIn own)
   unfolded : Maybe Template
+  unfoldedRead : All RecursionDef (maybeRecursions unfolded)
   0 chain : EtaChain m stand t address own unfolded
 
 ||| The call at the bottom of a kept lambda chain read (`CallUnfolds`), at
@@ -494,7 +570,9 @@ record UnfoldsRead {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) (t :
   constructor MkUnfoldsRead
   address : Address
   own : List Template
+  ownRead : All RecursionDef (recursionsIn own)
   unfolded : Maybe Template
+  unfoldedRead : All RecursionDef (maybeRecursions unfolded)
   0 call : CallUnfolds m stand t as address own unfolded
 
 ||| A list cut before its last elements, the parts making it up.
@@ -532,34 +610,65 @@ partedTerms (MkParted f b joined) = rewrite sym joined in termsJoined f b
 ||| more or fewer arguments, is no reading of this one's.
 believed : {0 vs : Scope} -> (m : Mode) -> {0 stand : Values Substitute vs} -> (fc : FC) -> (n : Name) -> (a : Address) ->
            (0 _ : AddressedAs m n (Just a)) -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
-           (args : List (Arg m stand)) -> Subset (List Template) (AllReadAs m stand (termsOf args)) ->
-           Maybe (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
-believed (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) fc n a at def defines [x1, x2, x3] (Element [ra, rb, rv] read) =
+           (args : List (Arg m stand)) -> TemplatesReading (AllReadAs m stand (termsOf args)) ->
+           Maybe (TemplateReading (SpineAs m stand (Ref fc Func n) (termsOf args)))
+believed (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) fc n a at def defines [x1, x2, x3] (MkTemplatesReading [ra, rb, rv] read held) =
   case (inspected (definition def), mentionedAmong [Force x1.value, Force x2.value, Force x3.value]) of
     (Element (Builtin BelieveMe) belief, Mentioned) =>
-      Just (Element (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv]) (SBelieved at defines belief read))
+      -- The value given back is read where it is given, a part of the
+      -- call as written: its recursions are those it holds there.
+      let valueHeld = allBefore (recursions rv) (allAfter (recursions rb) (allAfter (recursions ra) held)) in
+      Just (MkTemplateReading (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv]) (SBelieved at defines belief read)
+                              (allJoined held (allJoined valueHeld [])))
     _ => Nothing
 believed _ _ _ _ _ _ _ _ _ = Nothing
+
+-- The unfolding under a kept chain's lambda, where an instance unfolds the
+-- call, holds the lambda's parts' recursions, then the unfolding's.
+underLambda : (k : Keeping) -> (0 ps : List Template) -> All RecursionDef (recursionsIn ps) -> (0 t : Template) ->
+              All RecursionDef (recursions t) -> (r : Maybe Template) -> All RecursionDef (maybeRecursions r) ->
+              All RecursionDef (maybeRecursions (map (\s => nodeOf k (Head Nothing (ps ++ [t, s]))) r))
+underLambda k ps psRead t tRead Nothing _ = []
+underLambda k ps psRead t tRead (Just s) held =
+  nodeOver k Nothing (ps ++ [t, s]) (joinedRecursions ps [t, s] psRead (allJoined tRead (allJoined held [])))
+
+-- An alternative's leaf, where it has one, holds its recursions before
+-- the other alternatives' leaves hold theirs.
+alsoAlternative : (0 ls : List Template) -> (r : Maybe Template) -> All RecursionDef (maybeRecursions r) ->
+                  All RecursionDef (recursionsIn ls) -> All RecursionDef (recursionsIn (maybe ls (\u => u :: ls) r))
+alsoAlternative ls Nothing _ rest = rest
+alsoAlternative ls (Just u) here rest = allJoined here rest
+
+-- The marker a structural recursion raises holds no recursion.
+0 raisedNone : (c, j, d : Nat) -> recursionsIn [raise c (Var j d)] = []
+raisedNone c j d = rewrite recursionsRaised c (Var j d) in Refl
+
+-- A structural recursion's reading holds its other leaves' recursions,
+-- and the marker it raises none.
+raisedRecursions : (0 leaves : List Template) -> (0 c, j, d : Nat) -> All RecursionDef (recursionsIn leaves) ->
+                   All RecursionDef (recursions (Choice (Var j d) (leaves ++ [raise c (Var j d)])))
+raisedRecursions leaves c j d held =
+  joinedRecursions leaves [raise c (Var j d)] held (replace {p = All RecursionDef} (sym (raisedNone c j d)) [])
 
 mutual
   ||| A term read as its key writes it, each variable by its substitute (a
   ||| placeholder, or a lambda's argument), with what the reading says of it.
   ||| A closed run of a Nat-like type is its run's height (`closedRun`).
   read : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         (stand : Values Substitute vs) -> (t : TT vs) -> Front (Subset Template (ReadAs m stand t))
+         (stand : Values Substitute vs) -> (t : TT vs) -> Front (TemplateReading (ReadAs m stand t))
   read m w acc stand t = do
     Just run <- closedRun t
-      | Nothing => (\r => Element r.fst (ASpine r.snd)) <$> spine m w acc stand t []
-    pure (Element (Leaf (S run.count)) (ARun run.run))
+      | Nothing => (\r => MkTemplateReading r.template (ASpine r.described) r.recursionsRead) <$> spine m w acc stand t []
+    pure (MkTemplateReading (Leaf (S run.count)) (ARun run.run) [])
 
   ||| Terms read, each in turn.
   readAll : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            (stand : Values Substitute vs) -> (ts : List (TT vs)) -> Front (Subset (List Template) (AllReadAs m stand ts))
-  readAll m w acc stand [] = pure (Element [] [])
+            (stand : Values Substitute vs) -> (ts : List (TT vs)) -> Front (TemplatesReading (AllReadAs m stand ts))
+  readAll m w acc stand [] = pure (MkTemplatesReading [] [] [])
   readAll m w acc stand (t :: ts) = do
     r <- read m w acc stand t
     rs <- readAll m w acc stand ts
-    pure (Element (r.fst :: rs.fst) (r.snd :: rs.snd))
+    pure (MkTemplatesReading (r.template :: rs.templates) (r.described :: rs.described) (allJoined r.recursionsRead rs.recursionsRead))
 
   ||| A term applied to arguments, read by its head. A dot is a node of the
   ||| key, and so of the template. A runtime part is one key node, in every
@@ -571,34 +680,43 @@ mutual
   ||| and its arguments in one node, as the key writes it.
   spine : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           (stand : Values Substitute vs) -> (t : TT vs) -> (args : List (Arg m stand)) ->
-          Front (Subset Template (SpineAs m stand t (termsOf args)))
+          Front (TemplateReading (SpineAs m stand t (termsOf args)))
   spine m w acc stand (App _ f a) args =
-    (\r => Element r.fst (SApp r.snd))
+    (\r => MkTemplateReading r.template (SApp r.described) r.recursionsRead)
       <$> spine m w acc stand f (MkArg a (closeBy substituted stand a) Refl (read m w acc stand a) :: args)
   spine m w acc stand (Erased _ (Dotted u)) args = do
     r <- read m w acc stand u
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (r.fst :: rs.fst))) (SDot r.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (r.template :: rs.templates))) (SDot r.described rs.described)
+                            (nodeOver m.keeping Nothing (r.template :: rs.templates) (allJoined r.recursionsRead rs.recursionsRead)))
   spine m w acc stand (Erased _ Placeholder) args = do
     rs <- readings args
-    pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SPlaceholder rs.snd))
+    pure (MkTemplateReading (partOf m.keeping (Leaf 1) rs.templates) (SPlaceholder rs.described)
+                            (leafPart m.keeping (Leaf 1) Refl rs.templates rs.recursionsRead))
   spine m w acc stand (Erased _ Impossible) args = do
     rs <- readings args
-    pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SImpossible rs.snd))
+    pure (MkTemplateReading (partOf m.keeping (Leaf 1) rs.templates) (SImpossible rs.described)
+                            (leafPart m.keeping (Leaf 1) Refl rs.templates rs.recursionsRead))
   spine m w acc stand (Local _ _ idx p) args = do
     rs <- readings args
-    pure (Element (partOf m.keeping (substituteTemplate (valueAt stand idx p)) rs.fst) (SLocal rs.snd))
+    pure (MkTemplateReading (partOf m.keeping (substituteTemplate (valueAt stand idx p)) rs.templates) (SLocal rs.described)
+                            (substituteRecursions m.keeping (valueAt stand idx p) rs.templates rs.recursionsRead))
   spine m w acc stand (Meta _ _ _ margs) args = do
     ms <- readAll m w acc stand margs
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (ms.fst ++ rs.fst))) (SMeta ms.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (ms.templates ++ rs.templates))) (SMeta ms.described rs.described)
+                            (nodeOver m.keeping Nothing (ms.templates ++ rs.templates)
+                                      (joinedRecursions ms.templates rs.templates ms.recursionsRead rs.recursionsRead)))
   spine m w acc stand (Ref fc nt n) args = reference m w acc stand fc nt n args
   spine m w acc stand (TType _ _) args = do
     rs <- readings args
-    pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SUniverse rs.snd))
+    pure (MkTemplateReading (partOf m.keeping (Leaf 1) rs.templates) (SUniverse rs.described)
+                            (leafPart m.keeping (Leaf 1) Refl rs.templates rs.recursionsRead))
   spine m w acc stand (PrimVal _ k) args = do
     rs <- readings args
-    pure (Element (nodeOf m.keeping (appliedConstant k rs.fst)) (SConstant rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (appliedConstant k rs.templates)) (SConstant rs.described)
+                            (nodeRecursions {t = appliedConstant k rs.templates} m.keeping
+                                            (constantRecursions k rs.templates rs.recursionsRead)))
   spine m w acc stand (Bind fc x (Lam lfc rig info ty) sc) args = lambdaSpine m w acc stand fc x lfc rig info ty sc args
   spine m w acc stand (Bind fc x b@(Let _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodeLet sc args
   spine m w acc stand (Bind fc x b@(Pi _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodePi sc args
@@ -608,21 +726,29 @@ mutual
   spine m w acc stand (TDelayed _ _ u) args = do
     t <- read m w acc stand u
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (t.fst :: rs.fst))) (SDelayed t.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (t.template :: rs.templates))) (SDelayed t.described rs.described)
+                            (nodeOver m.keeping Nothing (t.template :: rs.templates) (allJoined t.recursionsRead rs.recursionsRead)))
   spine m w acc stand (TDelay _ _ ty a) args = do
     t <- read m w acc stand ty
     v <- read m w acc stand a
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (t.fst :: v.fst :: rs.fst))) (SDelay t.snd v.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (t.template :: v.template :: rs.templates)))
+                            (SDelay t.described v.described rs.described)
+                            (nodeOver m.keeping Nothing (t.template :: v.template :: rs.templates)
+                                      (allJoined t.recursionsRead (allJoined v.recursionsRead rs.recursionsRead))))
   spine m w acc stand (TForce _ _ u) args = do
     t <- read m w acc stand u
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (t.fst :: rs.fst))) (SForce t.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (t.template :: rs.templates))) (SForce t.described rs.described)
+                            (nodeOver m.keeping Nothing (t.template :: rs.templates) (allJoined t.recursionsRead rs.recursionsRead)))
   spine m w acc stand (As _ _ a p) args = do
     t <- read m w acc stand a
     v <- read m w acc stand p
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing (t.fst :: v.fst :: rs.fst))) (SAs t.snd v.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing (t.template :: v.template :: rs.templates)))
+                            (SAs t.described v.described rs.described)
+                            (nodeOver m.keeping Nothing (t.template :: v.template :: rs.templates)
+                                      (allJoined t.recursionsRead (allJoined v.recursionsRead rs.recursionsRead))))
 
   ||| A lambda applied to arguments. A lambda chain a site's type keeps
   ||| around a call (`Contraction.CallsKept`), alone, is read as both its forms
@@ -637,7 +763,7 @@ mutual
   lambdaSpine : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                 (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
                 (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
-                Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
+                Front (TemplateReading (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
   -- The site's mode is written out where it is used: the alternatives
   -- below are case blocks, which see a name bound by an as pattern as a
   -- variable apart from the mode it matched.
@@ -648,7 +774,8 @@ mutual
         KeptAround => do
           Just r <- chainLambda (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand 0 fc x lfc rig info ty sc
             | Nothing => plainLambda (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc []
-          pure (Element (keptChain r.address r.own r.unfolded) (SEta steps r.chain))
+          pure (MkTemplateReading (keptChain r.address r.own r.unfolded) (SEta steps r.chain)
+                                  (chainRecursions {a = r.address} {ts = r.own} r.unfolded r.ownRead r.unfoldedRead))
   lambdaSpine m w acc stand fc x lfc rig info ty sc args = plainLambda m w acc stand fc x lfc rig info ty sc args
 
   ||| A lambda applied to arguments, read as a lambda: a head above its
@@ -656,15 +783,20 @@ mutual
   plainLambda : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                 (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
                 (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
-                Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
+                Front (TemplateReading (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
   plainLambda {vs} m w acc stand fc x lfc rig info ty sc args = do
     ps <- passing m w acc stand info
     t <- read m w acc stand ty
     k <- arityOf (closeBy substituted stand ty)
     s <- read m w acc (FormalArgument (length vs) k :: stand) sc
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [t.fst, s.fst]) ++ rs.fst)))
-                  (SLambda ps.snd t.snd s.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing ((ps.templates ++ [t.template, s.template]) ++ rs.templates)))
+                            (SLambda ps.described t.described s.described rs.described)
+                            (nodeOver m.keeping Nothing ((ps.templates ++ [t.template, s.template]) ++ rs.templates)
+                                      (joinedRecursions (ps.templates ++ [t.template, s.template]) rs.templates
+                                                        (joinedRecursions ps.templates [t.template, s.template] ps.recursionsRead
+                                                                          (allJoined t.recursionsRead (allJoined s.recursionsRead [])))
+                                                        rs.recursionsRead)))
 
   ||| A lambda of a chain a site keeps around a call, `peeled` lambdas
   ||| below the chain's outermost: its implicitness and its type, then
@@ -679,8 +811,9 @@ mutual
     k <- arityOf (closeBy substituted stand ty)
     Just r <- chainBelow m w acc (FormalArgument (length vs) k :: stand) (S peeled) sc
       | Nothing => pure Nothing
-    pure (Just (MkChainRead r.address r.own (map (\s => nodeOf m.keeping (Head Nothing (ps.fst ++ [t.fst, s]))) r.unfolded)
-                            (ChainLambda ps.snd t.snd r.chain)))
+    pure (Just (MkChainRead r.address r.own r.ownRead (map (\s => nodeOf m.keeping (Head Nothing (ps.templates ++ [t.template, s]))) r.unfolded)
+                            (underLambda m.keeping ps.templates ps.recursionsRead t.template t.recursionsRead r.unfolded r.unfoldedRead)
+                            (ChainLambda ps.described t.described r.chain)))
 
   ||| Below a lambda of a kept chain: a further lambda of it, or the call at
   ||| its bottom, the last `peeled` of whose arguments are the chain's
@@ -690,7 +823,7 @@ mutual
                (stand : Values Substitute vs) -> (peeled : Nat) -> (t : TT vs) -> Front (Maybe (ChainRead m stand t))
   chainBelow m w acc stand peeled (Bind fc x (Lam lfc rig info ty) sc) = chainLambda m w acc stand peeled fc x lfc rig info ty sc
   chainBelow m w acc stand peeled t =
-    map (\r => MkChainRead r.address r.own r.unfolded (ChainCall r.call)) <$> callUnfolds m w acc stand peeled t []
+    map (\r => MkChainRead r.address r.own r.ownRead r.unfolded r.unfoldedRead (ChainCall r.call)) <$> callUnfolds m w acc stand peeled t []
 
   ||| The call at the bottom of a kept chain, read down its spine with the
   ||| arguments met so far (`CallUnfolds`).
@@ -698,7 +831,7 @@ mutual
                 (stand : Values Substitute vs) -> (peeled : Nat) -> (t : TT vs) -> (args : List (Arg m stand)) ->
                 Front (Maybe (UnfoldsRead m stand t (termsOf args)))
   callUnfolds m w acc stand peeled (App _ f a) args =
-    map (\r => MkUnfoldsRead r.address r.own r.unfolded (UnfoldsApplied r.call))
+    map (\r => MkUnfoldsRead r.address r.own r.ownRead r.unfolded r.unfoldedRead (UnfoldsApplied r.call))
       <$> callUnfolds m w acc stand peeled f (MkArg a (closeBy substituted stand a) Refl (read m w acc stand a) :: args)
   callUnfolds m w acc stand peeled (Ref fc Func n) args with (definitionAddress (gamma (defsOf m.inContext)) n) proof found
     _ | Just d = Just <$> calledWith m w acc stand peeled fc n d found args
@@ -716,75 +849,91 @@ mutual
     let parts = partedBefore peeled args
     rs <- readings parts.front
     fs <- readings parts.back
-    let stays = MkUnfoldsRead d rs.fst Nothing
-                  (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst Nothing} (sym (partedTerms parts))
-                           (CallStays {vars = termsOf parts.back} at rs.snd))
+    let stays = MkUnfoldsRead d rs.templates rs.recursionsRead Nothing []
+                  (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.templates Nothing} (sym (partedTerms parts))
+                           (CallStays {vars = termsOf parts.back} at rs.described))
     let Just (MkInFrozen placement def defines) = inFrozen m.inContext n
       | Nothing => pure stays
     -- A local definition, never a let binding: the evidence below states
     -- the template itself, and a let-bound name does not unfold in a
     -- type, where a definition does.
     let written : Template
-        written = nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
-    outcome <- callRead m w acc d n placement def defines (map (\x => Force x.value) args) written
+        written = nodeOf m.keeping (Head (Just d) (rs.templates ++ fs.templates))
+    let argumentsRead = joinedRecursions rs.templates fs.templates rs.recursionsRead fs.recursionsRead
+    -- The definition met here, which a recursion met again on its own
+    -- unfolding is: what a message names it by.
+    let self = MkRecursionDef m.inContext n def at defines
+    outcome <- callRead m w acc d n placement def defines self (map (\x => Force x.value) args) written
+                        (nodeOver m.keeping (Just d) (rs.templates ++ fs.templates) argumentsRead)
     pure (case outcome of
             AsWritten => stays
             Recurs =>
-              MkUnfoldsRead d rs.fst (Just (Opaque d (rs.fst ++ fs.fst)))
-                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst (Just (Opaque d (rs.fst ++ fs.fst)))}
-                         (sym (partedTerms parts)) (CallAgain at rs.snd fs.snd))
-            Unfolded t r =>
-              MkUnfoldsRead d rs.fst (Just t)
-                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst (Just t)} (sym (partedTerms parts))
-                         (CallWalked at rs.snd fs.snd
+              MkUnfoldsRead d rs.templates rs.recursionsRead (Just (Opaque d (rs.templates ++ fs.templates))) (self :: argumentsRead)
+                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.templates (Just (Opaque d (rs.templates ++ fs.templates)))}
+                         (sym (partedTerms parts)) (CallAgain at rs.described fs.described))
+            Unfolded t held r =>
+              MkUnfoldsRead d rs.templates rs.recursionsRead (Just t) held
+                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.templates (Just t)} (sym (partedTerms parts))
+                         (CallWalked at rs.described fs.described
                             (replace {p = \ts => Reducing m d n ts written t}
                                      (trans (closedTerms args) (cong (map (closeBy substituted stand)) (partedTerms parts))) r))))
 
   ||| What a binder's implicitness holds: a default, which the key writes.
   passing : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            (stand : Values Substitute vs) -> (info : PiInfo (TT vs)) -> Front (Subset (List Template) (PassingAs m stand info))
-  passing m w acc stand Implicit = pure (Element [] PImplicit)
-  passing m w acc stand Explicit = pure (Element [] PExplicit)
-  passing m w acc stand AutoImplicit = pure (Element [] PAuto)
-  passing m w acc stand (DefImplicit d) = (\r => Element [r.fst] (PDefault r.snd)) <$> read m w acc stand d
+            (stand : Values Substitute vs) -> (info : PiInfo (TT vs)) -> Front (TemplatesReading (PassingAs m stand info))
+  passing m w acc stand Implicit = pure (MkTemplatesReading [] PImplicit [])
+  passing m w acc stand Explicit = pure (MkTemplatesReading [] PExplicit [])
+  passing m w acc stand AutoImplicit = pure (MkTemplatesReading [] PAuto [])
+  passing m w acc stand (DefImplicit d) =
+    (\r => MkTemplatesReading [r.template] (PDefault r.described) (allJoined r.recursionsRead [])) <$> read m w acc stand d
 
   ||| A binder that is no lambda, applied: a head above its parts, its scope,
   ||| in which its variable is a placeholder, and the arguments.
   nodeBinder : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (b : TTBinder (TT vs)) -> (0 _ : NodeBinder b) ->
                (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
-               Front (Subset Template (SpineAs m stand (Bind fc x b sc) (termsOf args)))
+               Front (TemplateReading (SpineAs m stand (Bind fc x b sc) (termsOf args)))
   nodeBinder m w acc stand fc x b node sc args = do
     ps <- binder m w acc stand b node
     s <- read m w acc (Placeholding :: stand) sc
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [s.fst]) ++ rs.fst))) (SBinder ps.snd s.snd rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head Nothing ((ps.templates ++ [s.template]) ++ rs.templates)))
+                            (SBinder ps.described s.described rs.described)
+                            (nodeOver m.keeping Nothing ((ps.templates ++ [s.template]) ++ rs.templates)
+                                      (joinedRecursions (ps.templates ++ [s.template]) rs.templates
+                                                        (joinedRecursions ps.templates [s.template] ps.recursionsRead
+                                                                          (allJoined s.recursionsRead []))
+                                                        rs.recursionsRead)))
 
   ||| A binder's parts, of a binder that is no lambda: its default, its type,
   ||| and a `let`'s value before it.
   binder : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            (stand : Values Substitute vs) -> (b : TTBinder (TT vs)) -> (0 _ : NodeBinder b) ->
-           Front (Subset (List Template) (BinderAs m stand b))
+           Front (TemplatesReading (BinderAs m stand b))
   binder m w acc stand (Lam _ _ _ _) node = void (lambdaNoNode node)
   binder m w acc stand (Let _ _ v ty) _ = do
     tv <- read m w acc stand v
     t <- read m w acc stand ty
-    pure (Element [tv.fst, t.fst] (BLet tv.snd t.snd))
+    pure (MkTemplatesReading [tv.template, t.template] (BLet tv.described t.described)
+                             (allJoined tv.recursionsRead (allJoined t.recursionsRead [])))
   binder m w acc stand (Pi _ _ info ty) _ = do
     ps <- passing m w acc stand info
     t <- read m w acc stand ty
-    pure (Element (ps.fst ++ [t.fst]) (BPi ps.snd t.snd))
+    pure (MkTemplatesReading (ps.templates ++ [t.template]) (BPi ps.described t.described)
+                             (joinedRecursions ps.templates [t.template] ps.recursionsRead (allJoined t.recursionsRead [])))
   binder m w acc stand (PVar _ _ info ty) _ = do
     ps <- passing m w acc stand info
     t <- read m w acc stand ty
-    pure (Element (ps.fst ++ [t.fst]) (BPVar ps.snd t.snd))
+    pure (MkTemplatesReading (ps.templates ++ [t.template]) (BPVar ps.described t.described)
+                             (joinedRecursions ps.templates [t.template] ps.recursionsRead (allJoined t.recursionsRead [])))
   binder m w acc stand (PLet _ _ v ty) _ = do
     tv <- read m w acc stand v
     t <- read m w acc stand ty
-    pure (Element [tv.fst, t.fst] (BPLet tv.snd t.snd))
+    pure (MkTemplatesReading [tv.template, t.template] (BPLet tv.described t.described)
+                             (allJoined tv.recursionsRead (allJoined t.recursionsRead [])))
   binder m w acc stand (PVTy _ _ ty) _ = do
     t <- read m w acc stand ty
-    pure (Element [t.fst] (BPVTy t.snd))
+    pure (MkTemplatesReading [t.template] (BPVTy t.described) (allJoined t.recursionsRead []))
 
   ||| A reference applied, in every reading: a hole marker its token, an
   ||| argument of a family's value its own, a site's marker its family's
@@ -793,23 +942,28 @@ mutual
   ||| constructor in a type's.
   reference : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
               (stand : Values Substitute vs) -> (fc : FC) -> (nt : NameType) -> (n : Name) -> (args : List (Arg m stand)) ->
-              Front (Subset Template (SpineAs m stand (Ref fc nt n) (termsOf args)))
+              Front (TemplateReading (SpineAs m stand (Ref fc nt n) (termsOf args)))
   reference m w acc stand fc Bound n args = do
     rs <- readings args
     pure (case holeView n of
-            IsHole i hole => Element (partOf m.keeping (Token (S i)) rs.fst) (SHole hole rs.snd)
-            NotHole none => boundName m fc n none rs.fst rs.snd)
+            IsHole i hole => MkTemplateReading (partOf m.keeping (Token (S i)) rs.templates) (SHole hole rs.described)
+                                               (leafPart m.keeping (Token (S i)) Refl rs.templates rs.recursionsRead)
+            NotHole none => boundName m fc n none rs.templates rs.described rs.recursionsRead)
   reference m w acc stand fc (DataCon tag arity) n args = do
     rs <- readings args
-    pure (Element (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.fst) (SData Refl rs.snd))
+    pure (MkTemplateReading (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.templates) (SData Refl rs.described)
+                            rs.recursionsRead)
   reference m w acc stand fc (TyCon arity) n args = do
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.fst)) (STypeCon Refl rs.snd))
+    pure (MkTemplateReading (nodeOf m.keeping (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.templates))
+                            (STypeCon Refl rs.described)
+                            (nodeOver m.keeping (definitionAddress (gamma (defsOf m.inContext)) n) rs.templates rs.recursionsRead))
   reference m w acc stand fc Func n args with (definitionAddress (gamma (defsOf m.inContext)) n) proof found
     _ | Just a = ofDefinition m w acc stand fc n a found args
     _ | Nothing = do
       rs <- readings args
-      pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SNoDefinition found rs.snd))
+      pure (MkTemplateReading (partOf m.keeping (Leaf 1) rs.templates) (SNoDefinition found rs.described)
+                              (leafPart m.keeping (Leaf 1) Refl rs.templates rs.recursionsRead))
 
   ||| A definition with a place, applied. In a site's type, a projection of a
   ||| record that is no constructor is, at an instance, one of two things:
@@ -822,7 +976,7 @@ mutual
   ofDefinition : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
                  (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
-                 Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
+                 Front (TemplateReading (SpineAs m stand (Ref fc Func n) (termsOf args)))
   ofDefinition (MkMode (OfSite stands) EveryNode cl ctx) w acc stand fc n a at args = do
     -- The mode written out, not named by an as pattern: the alternative
     -- below is a case block, which would see that name apart from it.
@@ -831,17 +985,22 @@ mutual
     matched <- Force projected.reading
     rs <- readings args
     es <- readings extras
-    pure (Element (Choice matched.fst [Head (Just a) rs.fst, partOf EveryNode (Template.Field k matched.fst) es.fst])
-                  (SProjected at matched.snd rs.snd es.snd))
+    pure (MkTemplateReading (Choice matched.template [Head (Just a) rs.templates, partOf EveryNode (Template.Field k matched.template) es.templates])
+                            (SProjected at matched.described rs.described es.described)
+                            (allJoined matched.recursionsRead
+                                       (allJoined rs.recursionsRead
+                                                  (allJoined (partRecursions {t = Template.Field k matched.template} EveryNode es.templates
+                                                                             matched.recursionsRead es.recursionsRead)
+                                                             []))))
   ofDefinition m w acc stand fc n a at args = call m w acc stand fc n a at args
 
   call : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
          (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
          (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
-         Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
+         Front (TemplateReading (SpineAs m stand (Ref fc Func n) (termsOf args)))
   call (MkMode wh kp KeepsCall ctx) w acc stand fc n a at args = do
     rs <- readings args
-    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
+    pure (MkTemplateReading (nodeOf kp (Head (Just a) rs.templates)) (SKept at rs.described) (nodeOver kp (Just a) rs.templates rs.recursionsRead))
   call m w acc stand fc n a at args = applied m w acc stand fc n a at args
 
   ||| A definition left applied in a site's normal form or shape. The
@@ -861,29 +1020,34 @@ mutual
   applied : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
             (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
             (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
-            Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
+            Front (TemplateReading (SpineAs m stand (Ref fc Func n) (termsOf args)))
   applied (MkMode OfInstance kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
-    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
+    pure (MkTemplateReading (nodeOf kp (Head (Just a) rs.templates)) (SKept at rs.described) (nodeOver kp (Just a) rs.templates rs.recursionsRead))
   applied (MkMode (OfSite stands) kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
     -- A local definition, never a let binding: the evidence below is
     -- indexed by the template itself, and a let-bound name does not unfold
     -- in a type, where a definition does.
     let written : Template
-        written = nodeOf kp (Head (Just a) rs.fst)
-    let folded = the (Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) (termsOf args)))
-                     (Element written (SKept at rs.snd))
+        written = nodeOf kp (Head (Just a) rs.templates)
+    let writtenRead = nodeOver kp (Just a) rs.templates rs.recursionsRead
+    let folded = the (TemplateReading (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) (termsOf args)))
+                     (MkTemplateReading written (SKept at rs.described) writtenRead)
     let Just (MkInFrozen placement def defines) = inFrozen ctx n
       | Nothing => pure folded
     let Nothing = believed (MkMode (OfSite stands) kp cl ctx) fc n a at def defines args rs
       | Just belief => pure belief
-    outcome <- callRead (MkMode (OfSite stands) kp cl ctx) w acc a n placement def defines (map (\x => Force x.value) args) written
+    -- The definition met here, which a recursion met again on its own
+    -- unfolding is: what a message names it by.
+    let self = MkRecursionDef ctx n def at defines
+    outcome <- callRead (MkMode (OfSite stands) kp cl ctx) w acc a n placement def defines self (map (\x => Force x.value) args)
+                        written writtenRead
     pure (case outcome of
             AsWritten => folded
-            Recurs => Element (Opaque a rs.fst) (SRecurs at rs.snd)
-            Unfolded t r =>
-              besides stands kp cl a at rs.fst rs.snd t
+            Recurs => MkTemplateReading (Opaque a rs.templates) (SRecurs at rs.described) (self :: rs.recursionsRead)
+            Unfolded t held r =>
+              besides stands kp cl a at rs.templates rs.described rs.recursionsRead t held
                       (replace {p = \ts => Reducing (MkMode (OfSite stands) kp cl ctx) a n ts written t} (closedTerms args) r))
 
   ||| A site's call of a definition the frozen context gives, at its
@@ -900,29 +1064,30 @@ mutual
   ||| (`believed`), and given any other count it is as written.
   callRead : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              (a : Address) -> (n : Name) -> Placement -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
-             (terms : List ClosedTerm) -> (written : Template) -> Front (CallRead m a n terms written)
-  callRead m w acc@(Access rec) a n placement def defines terms written = case inspected (definition def) of
+             (self : RecursionDef a) -> (terms : List ClosedTerm) -> (written : Template) -> All RecursionDef (recursions written) ->
+             Front (CallRead m a n terms written)
+  callRead m w acc@(Access rec) a n placement def defines self terms written writtenRead = case inspected (definition def) of
     Element (PMDef _ pargs body) isDef => do
       tree <- caseTreeOf body
       case inspected (bindParams pargs terms) of
         Element Nothing short => do
-          Just t <- given m w acc placement a terms !(typeOfDefinition def) pargs tree.fst written
+          Just t <- given m w acc placement a self terms !(typeOfDefinition def) pargs tree.fst written writtenRead
             | Nothing => pure AsWritten
-          pure (Unfolded t.fst (ByGiven defines isDef tree.snd short t.snd))
+          pure (Unfolded t.template t.recursionsRead (ByGiven defines isDef tree.snd short t.described))
         Element (Just (env, extras)) bound => case tree of
           Element (STerm _ _) _ => pure AsWritten
           Element tr inTree => case enter placement w of
             Nothing => pure Recurs
             Just (Element w' less) => do
               Nothing <- structural m w' (rec w' less) a terms env tr extras
-                | Just t => pure (Unfolded t.fst (ByStructure defines isDef inTree bound t.snd))
-              Element (Just t) walked <- walk m w' (rec w' less) a written env tr extras
-                | Element Nothing _ => pure AsWritten
-              pure (Unfolded t (ByWalk defines isDef inTree bound walked))
+                | Just t => pure (Unfolded t.template t.recursionsRead (ByStructure defines isDef inTree bound t.described))
+              MkMaybeReading (Just t) walked held <- walk m w' (rec w' less) a self written writtenRead env tr extras
+                | MkMaybeReading Nothing _ _ => pure AsWritten
+              pure (Unfolded t held (ByWalk defines isDef inTree bound walked))
     Element (Builtin BelieveMe) _ => pure AsWritten
     Element (Builtin {arity} op) isBuiltin => case (m, mentionedAmong terms) of
       (MkMode _ EveryNode UnfoldsBeside _, Mentioned) => case decEq (length terms) arity of
-        Yes saturated => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin saturated))
+        Yes saturated => pure (Unfolded (Leaf 2) [] (ByBuiltin defines isBuiltin saturated))
         -- Essential: the host computes a primitive applied to as many
         -- arguments as it takes, and no other (`Idris.Host.Primitive`); a
         -- builtin applied to more is `believe_me` or `crash`, neither of
@@ -940,23 +1105,24 @@ mutual
   ||| nothing bounds. A skeleton keeps it as written: no value's skeleton is
   ||| applied.
   given : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Placement -> (a : Address) -> (terms : List ClosedTerm) -> (type : ClosedTerm) -> (pargs : Scope) ->
-          (tree : CaseTree pargs) -> (written : Template) ->
-          Front (Maybe (Subset Template (GivenUnfolds m a written terms pargs tree)))
-  given (MkMode _ Skeleton _ _) w acc placement a terms ty pargs tree written = pure Nothing
+          Placement -> (a : Address) -> (self : RecursionDef a) -> (terms : List ClosedTerm) -> (type : ClosedTerm) ->
+          (pargs : Scope) -> (tree : CaseTree pargs) -> (written : Template) -> All RecursionDef (recursions written) ->
+          Front (Maybe (TemplateReading (GivenUnfolds m a written terms pargs tree)))
+  given (MkMode _ Skeleton _ _) w acc placement a self terms ty pargs tree written writtenRead = pure Nothing
   -- The mode written out where the walk is given it, inside case blocks,
   -- which would see a name bound by an as pattern apart from it.
-  given (MkMode wh EveryNode cl ctx) w acc@(Access rec) placement a terms ty pargs tree written = do
+  given (MkMode wh EveryNode cl ctx) w acc@(Access rec) placement a self terms ty pargs tree written writtenRead = do
     arities <- binderArities ty
     let lacking := formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
     case inspected (bindParams pargs (terms ++ map substituted lacking)) of
       Element Nothing _ => pure Nothing
       Element (Just (env, extras)) bound => case enter placement w of
-        Nothing => pure (Just (Element (Opaque a (map substituteTemplate lacking)) GivenAgain))
+        Nothing => pure (Just (MkTemplateReading (Opaque a (map substituteTemplate lacking)) GivenAgain
+                                                 (self :: replace {p = All RecursionDef} (sym (substitutesHold lacking)) [])))
         Just (Element w' less) => do
-          Element (Just t) walked <- walk (MkMode wh EveryNode cl ctx) w' (rec w' less) a written env tree extras
-            | Element Nothing _ => pure Nothing
-          pure (Just (Element t (GivenWalked bound walked)))
+          MkMaybeReading (Just t) walked held <- walk (MkMode wh EveryNode cl ctx) w' (rec w' less) a self written writtenRead env tree extras
+            | MkMaybeReading Nothing _ _ => pure Nothing
+          pure (Just (MkTemplateReading t (GivenWalked bound walked) held))
 
   ||| A recursion structural on one Nat-like argument, read as the
   ||| argument raised by its leaves' height: `Choice (Var j e)` of the other
@@ -974,7 +1140,7 @@ mutual
   ||| level.
   structural : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                (self : Address) -> (args : List ClosedTerm) -> (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
-               List ClosedTerm -> Front (Maybe (Subset Template (Structural m self args env tree)))
+               List ClosedTerm -> Front (Maybe (TemplateReading (Structural m self args env tree)))
   structural m w acc self args env (Case idx p ty alts) extras =
     case inspected (bareMarker (standsOf m) (valueAt env idx p)) of
       Element Nothing _ => pure Nothing
@@ -987,7 +1153,13 @@ mutual
           Element (Just (bases, kids)) shaped => do
             leaves <- readAll (unfolding m) w acc [] bases
             children <- readAll (unfolding m) w acc [] kids
-            pure (Just (Element _ (Raised marked shaped leaves.snd children.snd)))
+            pure (Just (MkTemplateReading
+                          (Choice (Var j (length path))
+                                  (leaves.templates ++ [raise (minus (max (tallest leaves.templates) (tallest children.templates)) 1)
+                                                              (Var j (length path))]))
+                          (Raised marked shaped leaves.described children.described)
+                          (raisedRecursions leaves.templates (minus (max (tallest leaves.templates) (tallest children.templates)) 1)
+                                            j (length path) leaves.recursionsRead)))
     where
       normalisedArm : Arm -> Front Arm
       normalisedArm (Step t) = Step . (.readForm) . (.reading) <$> readNormal EveryRedex m.inContext (applyTo t extras)
@@ -1006,135 +1178,170 @@ mutual
   ||| what it computes depends on what beta substitutes there. What it read
   ||| comes with how (`Unfolds`).
   walk : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
-         (extras : List ClosedTerm) -> Front (Subset (Maybe Template) (Unfolds m self written env tree extras))
-  walk m w acc self written env (STerm _ rhs) extras = do
+         (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+         (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
+         (extras : List ClosedTerm) -> Front (MaybeReading (Unfolds m self written env tree extras))
+  walk m w acc self selfRead written writtenRead env (STerm _ rhs) extras = do
     r <- readNormal (contractingFor (unfolding m)) m.inContext (applyTo (close env rhs) extras)
     t <- read (unfolding m) w acc [] r.reading.readForm
-    pure (Element (Just t.fst) (ULeaf r t.snd))
+    pure (MkMaybeReading (Just t.template) (ULeaf r t.described) t.recursionsRead)
   -- A partial definition stops where it does not match, at every instance.
-  walk m w acc self written env (Unmatched _) extras = pure (Element (Just written) UUnmatched)
-  walk m w acc self written env Impossible extras = pure (Element Nothing UImpossible)
-  walk m w acc self written env (Case idx p ty alts) extras =
+  walk m w acc self selfRead written writtenRead env (Unmatched _) extras = pure (MkMaybeReading (Just written) UUnmatched writtenRead)
+  walk m w acc self selfRead written writtenRead env Impossible extras = pure (MkMaybeReading Nothing UImpossible [])
+  walk m w acc self selfRead written writtenRead env (Case idx p ty alts) extras =
     case inspected (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) of
       Element (Constructed h c sargs _ _) found =>
-        (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env h c sargs alts extras
-      Element (Literal k _) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
+        (\r => MkMaybeReading r.template (UConstructed found r.described) r.recursionsRead)
+          <$> chosen m w acc self selfRead written writtenRead env h c sargs alts extras
+      Element (Literal k _) found =>
+        (\r => MkMaybeReading r.template (ULiteral found r.described) r.recursionsRead)
+          <$> literal m w acc self selfRead written writtenRead env k alts extras
       Element (Suspended dty da _) found =>
-        (\r => Element r.fst (USuspended found r.snd)) <$> delayed m w acc self written env dty da alts extras
+        (\r => MkMaybeReading r.template (USuspended found r.described) r.recursionsRead)
+          <$> delayed m w acc self selfRead written writtenRead env dty da alts extras
       -- A constructor's argument is a part of the matched value, one level
       -- deeper, at its own field.
       Element (Matched i path) found =>
-        (\r => Element (Just (Choice (Var i (length path)) r.fst)) (UMatched found r.snd))
-          <$> everyAlt m w acc self written env (PartsOf i path) alts extras
+        (\r => MkMaybeReading (Just (Choice (Var i (length path)) r.templates)) (UMatched found r.described) r.recursionsRead)
+          <$> everyAlt m w acc self selfRead written writtenRead env (PartsOf i path) alts extras
       -- An argument of a family's value: as written, which every key of
       -- the value holds and an argument at run time leaves stuck; or, once
       -- beta substitutes the argument, what the match computes from it,
-      -- which nothing bounds (`beta` says the value computes).
-      Element (OnFormal j k) found => pure (Element (Just (Choice (Formal j k) [written, Opaque self [Formal j k]])) (UOnFormal found))
-      Element AtRuntime found => pure (Element (Just written) (UAtRuntime found))
+      -- which nothing bounds (`beta` says the value computes), a recursion
+      -- of the definition walked, by what it was read as.
+      Element (OnFormal j k) found =>
+        pure (MkMaybeReading (Just (Choice (Formal j k) [written, Opaque self [Formal j k]])) (UOnFormal found)
+                             (allJoined writtenRead [selfRead]))
+      Element AtRuntime found => pure (MkMaybeReading (Just written) (UAtRuntime found) writtenRead)
       -- A constructor's argument is a part of the value, so the value
       -- bounds it.
       Element StuckInTurn found => do
         t <- read (unfolding m) w acc [] (valueAt env idx p)
-        r <- everyAlt m w acc self written env (AllOf (valueAt env idx p)) alts extras
-        pure (Element (Just (Choice t.fst r.fst)) (UStuck found t.snd r.snd))
+        r <- everyAlt m w acc self selfRead written writtenRead env (AllOf (valueAt env idx p)) alts extras
+        pure (MkMaybeReading (Just (Choice t.template r.templates)) (UStuck found t.described r.described)
+                             (allJoined t.recursionsRead r.recursionsRead))
 
   ||| The alternative a constructor takes, by the entry its name resolves
   ||| to, as the host's step takes it: the context's comparison of entries
   ||| (`Idris.Host.compareEntries`) gives the step's own evidence, and an
   ||| alternative at another entry is passed only where the host misses it.
   chosen : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (h : ConstructorHead) ->
+           (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+           (env : Values ClosedTerm vs) -> (h : ConstructorHead) ->
            (name : Name) -> (sargs : List ClosedTerm) -> (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-           Front (Subset (Maybe Template) (TakenBy m self written env h name sargs alts extras))
-  chosen m w acc self written env h c sargs (ConCase con tag cargs sc :: alts) extras =
+           Front (MaybeReading (TakenBy m self written env h name sargs alts extras))
+  chosen m w acc self selfRead written writtenRead env h c sargs (ConCase con tag cargs sc :: alts) extras =
     case compareEntries m.inContext c con of
       BothAt same => case inspected (bindEach cargs sargs) of
         Element (Just bound) binds =>
-          (\r => Element r.fst (TakesThis same binds r.snd)) <$> walk m w acc self written (extend bound env) sc extras
+          (\r => MkMaybeReading r.template (TakesThis same binds r.described) r.recursionsRead)
+            <$> walk m w acc self selfRead written writtenRead (extend bound env) sc extras
         -- Essential: the evaluator's walk of the tree is stuck where a
         -- constructor meets an alternative at its entry binding other than
         -- its arguments, so every instance leaves the definition there.
-        Element Nothing differs => pure (Element (Just written) (ArityDiffers same differs))
+        Element Nothing differs => pure (MkMaybeReading (Just written) (ArityDiffers same differs) writtenRead)
       Apart apart => case anotherEntry h tag of
         Passed missed =>
-          (\r => Element r.fst (PassesThis apart missed r.snd)) <$> chosen m w acc self written env h c sargs alts extras
+          (\r => MkMaybeReading r.template (PassesThis apart missed r.described) r.recursionsRead)
+            <$> chosen m w acc self selfRead written writtenRead env h c sargs alts extras
         -- Essential: the host's walk is stuck where a data constructor
         -- meets an alternative of its tag at another entry.
-        Blocked shared => pure (Element (Just written) (TagShared apart shared))
-  chosen m w acc self written env h c sargs (DefaultCase sc :: _) extras =
-    (\r => Element r.fst (TakesDefault r.snd)) <$> walk m w acc self written env sc extras
+        Blocked shared => pure (MkMaybeReading (Just written) (TagShared apart shared) writtenRead)
+  chosen m w acc self selfRead written writtenRead env h c sargs (DefaultCase sc :: _) extras =
+    (\r => MkMaybeReading r.template (TakesDefault r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead env sc extras
   -- Essential: a constructor neither matches nor misses an alternative of
   -- a delay or a constant, and the host's walk is stuck there.
-  chosen m w acc self written env h c sargs (DelayCase _ _ _ :: _) extras = pure (Element (Just written) MeetsDelay)
-  chosen m w acc self written env h c sargs (ConstCase _ _ :: _) extras = pure (Element (Just written) MeetsConstant)
-  chosen m w acc self written env h c sargs [] extras = pure (Element (Just written) NoneTaken)
+  chosen m w acc self selfRead written writtenRead env h c sargs (DelayCase _ _ _ :: _) extras =
+    pure (MkMaybeReading (Just written) MeetsDelay writtenRead)
+  chosen m w acc self selfRead written writtenRead env h c sargs (ConstCase _ _ :: _) extras =
+    pure (MkMaybeReading (Just written) MeetsConstant writtenRead)
+  chosen m w acc self selfRead written writtenRead env h c sargs [] extras = pure (MkMaybeReading (Just written) NoneTaken writtenRead)
 
   literal : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (k : Constant) ->
+            (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+            (env : Values ClosedTerm vs) -> (k : Constant) ->
             (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-            Front (Subset (Maybe Template) (TakesLiteral m self written env k alts extras))
+            Front (MaybeReading (TakesLiteral m self written env k alts extras))
   -- A constant alternative and a primitive type's are compared with the
   -- literal by the evaluator's own comparison, the one its step decides
   -- by, so the walk takes the alternative every instance's evaluation
   -- takes.
-  literal m w acc self written env k (ConstCase k' t :: alts) extras with (k' == k) proof compared
-    _ | True = (\r => Element r.fst (LiteralMeets compared r.snd)) <$> walk m w acc self written env t extras
-    _ | False = (\r => Element r.fst (LiteralPasses compared r.snd)) <$> literal m w acc self written env k alts extras
-  literal m w acc self written env k (ConCase cn tag [] t :: alts) extras with (map PrT (isConstantType (dropNS cn)) == Just k) proof named
-    _ | True = (\r => Element r.fst (LiteralNamesType named r.snd)) <$> walk m w acc self written env t extras
-    _ | False = (\r => Element r.fst (LiteralOtherType named r.snd)) <$> literal m w acc self written env k alts extras
-  literal m w acc self written env k (ConCase cn tag (_ :: _) t :: alts) extras =
-    (\r => Element r.fst (LiteralFields r.snd)) <$> literal m w acc self written env k alts extras
-  literal m w acc self written env k (DefaultCase t :: _) extras =
-    (\r => Element r.fst (LiteralDefault r.snd)) <$> walk m w acc self written env t extras
+  literal m w acc self selfRead written writtenRead env k (ConstCase k' t :: alts) extras with (k' == k) proof compared
+    _ | True = (\r => MkMaybeReading r.template (LiteralMeets compared r.described) r.recursionsRead)
+                 <$> walk m w acc self selfRead written writtenRead env t extras
+    _ | False = (\r => MkMaybeReading r.template (LiteralPasses compared r.described) r.recursionsRead)
+                  <$> literal m w acc self selfRead written writtenRead env k alts extras
+  literal m w acc self selfRead written writtenRead env k (ConCase cn tag [] t :: alts) extras with (map PrT (isConstantType (dropNS cn)) == Just k) proof named
+    _ | True = (\r => MkMaybeReading r.template (LiteralNamesType named r.described) r.recursionsRead)
+                 <$> walk m w acc self selfRead written writtenRead env t extras
+    _ | False = (\r => MkMaybeReading r.template (LiteralOtherType named r.described) r.recursionsRead)
+                  <$> literal m w acc self selfRead written writtenRead env k alts extras
+  literal m w acc self selfRead written writtenRead env k (ConCase cn tag (_ :: _) t :: alts) extras =
+    (\r => MkMaybeReading r.template (LiteralFields r.described) r.recursionsRead)
+      <$> literal m w acc self selfRead written writtenRead env k alts extras
+  literal m w acc self selfRead written writtenRead env k (DefaultCase t :: _) extras =
+    (\r => MkMaybeReading r.template (LiteralDefault r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead env t extras
   -- Essential: a literal neither matches nor misses a delay's
   -- alternative, and the host's walk is stuck there.
-  literal m w acc self written env k (DelayCase _ _ _ :: _) extras = pure (Element (Just written) LiteralMeetsDelay)
-  literal m w acc self written env k [] extras = pure (Element (Just written) NoLiteral)
+  literal m w acc self selfRead written writtenRead env k (DelayCase _ _ _ :: _) extras =
+    pure (MkMaybeReading (Just written) LiteralMeetsDelay writtenRead)
+  literal m w acc self selfRead written writtenRead env k [] extras = pure (MkMaybeReading (Just written) NoLiteral writtenRead)
 
   delayed : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (dty, da : ClosedTerm) ->
+            (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+            (env : Values ClosedTerm vs) -> (dty, da : ClosedTerm) ->
             (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-            Front (Subset (Maybe Template) (TakesDelay m self written env dty da alts extras))
-  delayed m w acc self written env dty da (DelayCase _ _ t :: _) extras =
-    (\r => Element r.fst (DelayThis r.snd)) <$> walk m w acc self written (dty :: da :: env) t extras
-  delayed m w acc self written env dty da (DefaultCase t :: _) extras =
-    (\r => Element r.fst (DelayDefault r.snd)) <$> walk m w acc self written env t extras
+            Front (MaybeReading (TakesDelay m self written env dty da alts extras))
+  delayed m w acc self selfRead written writtenRead env dty da (DelayCase _ _ t :: _) extras =
+    (\r => MkMaybeReading r.template (DelayThis r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead (dty :: da :: env) t extras
+  delayed m w acc self selfRead written writtenRead env dty da (DefaultCase t :: _) extras =
+    (\r => MkMaybeReading r.template (DelayDefault r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead env t extras
   -- Essential: a delay neither matches nor misses an alternative of a
   -- constructor or a constant, and the host's walk is stuck there.
-  delayed m w acc self written env dty da (ConCase _ _ _ _ :: _) extras = pure (Element (Just written) DelayMeetsConstructor)
-  delayed m w acc self written env dty da (ConstCase _ _ :: _) extras = pure (Element (Just written) DelayMeetsConstant)
-  delayed m w acc self written env dty da [] extras = pure (Element (Just written) NoDelay)
+  delayed m w acc self selfRead written writtenRead env dty da (ConCase _ _ _ _ :: _) extras =
+    pure (MkMaybeReading (Just written) DelayMeetsConstructor writtenRead)
+  delayed m w acc self selfRead written writtenRead env dty da (ConstCase _ _ :: _) extras =
+    pure (MkMaybeReading (Just written) DelayMeetsConstant writtenRead)
+  delayed m w acc self selfRead written writtenRead env dty da [] extras = pure (MkMaybeReading (Just written) NoDelay writtenRead)
 
   ||| Every alternative's leaves, each argument a constructor or a delay
   ||| binds as the match binds it (`FieldsOf`); an absurd one gives none.
   everyAlt : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
+             (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+             (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
              (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-             Front (Subset (List Template) (Alternatives m self written env f alts extras))
-  everyAlt m w acc self written env f [] extras = pure (Element [] NoAlternatives)
-  everyAlt m w acc self written env f (alt :: alts) extras = do
-    here <- alternative m w acc self written env f alt extras
-    rest <- everyAlt m w acc self written env f alts extras
-    pure (Element (maybe rest.fst (\u => u :: rest.fst) here.fst) (WithAlternative here.snd rest.snd))
+             Front (TemplatesReading (Alternatives m self written env f alts extras))
+  everyAlt m w acc self selfRead written writtenRead env f [] extras = pure (MkTemplatesReading [] NoAlternatives [])
+  everyAlt m w acc self selfRead written writtenRead env f (alt :: alts) extras = do
+    here <- alternative m w acc self selfRead written writtenRead env f alt extras
+    rest <- everyAlt m w acc self selfRead written writtenRead env f alts extras
+    pure (MkTemplatesReading (maybe rest.templates (\u => u :: rest.templates) here.template) (WithAlternative here.described rest.described)
+                             (alsoAlternative rest.templates here.template here.recursionsRead rest.recursionsRead))
 
   alternative : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
+                (self : Address) -> RecursionDef self -> (written : Template) -> All RecursionDef (recursions written) ->
+                (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
                 (alt : CaseAlt vs) -> (extras : List ClosedTerm) ->
-                Front (Subset (Maybe Template) (AlternativeUnfolds m self written env f alt extras))
-  alternative m w acc self written env f (ConCase _ _ cargs t) extras =
-    (\r => Element r.fst (ConstructorAlternative r.snd)) <$> walk m w acc self written (extend (boundFields f 0 cargs) env) t extras
-  alternative m w acc self written env f (DelayCase _ _ t) extras =
-    (\r => Element r.fst (DelayAlternative r.snd)) <$> walk m w acc self written (fieldOf f 0 :: fieldOf f 1 :: env) t extras
-  alternative m w acc self written env f (ConstCase _ t) extras =
-    (\r => Element r.fst (ConstantAlternative r.snd)) <$> walk m w acc self written env t extras
-  alternative m w acc self written env f (DefaultCase t) extras =
-    (\r => Element r.fst (DefaultAlternative r.snd)) <$> walk m w acc self written env t extras
+                Front (MaybeReading (AlternativeUnfolds m self written env f alt extras))
+  alternative m w acc self selfRead written writtenRead env f (ConCase _ _ cargs t) extras =
+    (\r => MkMaybeReading r.template (ConstructorAlternative r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead (extend (boundFields f 0 cargs) env) t extras
+  alternative m w acc self selfRead written writtenRead env f (DelayCase _ _ t) extras =
+    (\r => MkMaybeReading r.template (DelayAlternative r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead (fieldOf f 0 :: fieldOf f 1 :: env) t extras
+  alternative m w acc self selfRead written writtenRead env f (ConstCase _ t) extras =
+    (\r => MkMaybeReading r.template (ConstantAlternative r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead env t extras
+  alternative m w acc self selfRead written writtenRead env f (DefaultCase t) extras =
+    (\r => MkMaybeReading r.template (DefaultAlternative r.described) r.recursionsRead)
+      <$> walk m w acc self selfRead written writtenRead env t extras
 
 ||| A closed term read on a walk that has entered nothing yet.
-readFromStart : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (t : ClosedTerm) -> Front (Subset Template (ReadAs m [] t))
+readFromStart : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (t : ClosedTerm) -> Front (TemplateReading (ReadAs m [] t))
 readFromStart m t = read m start (sizeAccessible start) [] t
 
 mutual
@@ -1144,31 +1351,41 @@ mutual
   ||| part (`Lin`, the writer's marker, a computation) as it is, and each
   ||| leaf of a choice so. A form's height is then the key's, whatever
   ||| extents are written, so that a key and the bound on it are read alike.
-  formedReading : {auto c : Ref Ctxt Defs} -> (t : Template) -> Front (Subset Template (KeyForm t))
+  ||| An extent erased takes its recursions with it; every other part keeps
+  ||| its own.
+  formedReading : {auto c : Ref Ctxt Defs} -> (t : Template) -> All RecursionDef (recursions t) -> Front (TemplateReading (KeyForm t))
   -- The template written out where it is read as itself: the alternatives
   -- are case blocks, which would see a name bound by an as pattern apart
   -- from the template it matched.
-  formedReading (Head (Just a) [e, rest, x]) = do
+  formedReading (Head (Just a) [e, rest, x]) held = do
     ctx <- frozenContext
     let Just def = atAddress ctx a
-      | Nothing => pure (Element (Head (Just a) [e, rest, x]) AsRead)
+      | Nothing => pure (MkTemplateReading (Head (Just a) [e, rest, x]) AsRead held)
     case definition def of
-      DCon 1 _ _ => (\r => Element (Head (Just a) [e, r.fst, Leaf 1]) (ExtentErased r.snd)) <$> formedReading rest
-      _ => pure (Element (Head (Just a) [e, rest, x]) AsRead)
-  formedReading (Choice s ls) = (\r => Element (Choice s r.fst) (LeavesFormed r.snd)) <$> formedReadings ls
-  formedReading t = pure (Element t AsRead)
+      DCon 1 _ _ =>
+        let extentHeld = allBefore (recursions e) held
+            restHeld = allBefore (recursions rest) (allAfter (recursions e) held) in
+        (\r => MkTemplateReading (Head (Just a) [e, r.template, Leaf 1]) (ExtentErased r.described)
+                                 (allJoined extentHeld (allJoined r.recursionsRead [])))
+          <$> formedReading rest restHeld
+      _ => pure (MkTemplateReading (Head (Just a) [e, rest, x]) AsRead held)
+  formedReading (Choice s ls) held =
+    (\r => MkTemplateReading (Choice s r.templates) (LeavesFormed r.described) (allJoined (allBefore (recursions s) held) r.recursionsRead))
+      <$> formedReadings ls (allAfter (recursions s) held)
+  formedReading t held = pure (MkTemplateReading t AsRead held)
 
-  formedReadings : {auto c : Ref Ctxt Defs} -> (ts : List Template) -> Front (Subset (List Template) (AllKeyForm ts))
-  formedReadings [] = pure (Element [] NoneFormed)
-  formedReadings (t :: ts) = do
-    r <- formedReading t
-    rs <- formedReadings ts
-    pure (Element (r.fst :: rs.fst) (EachFormed r.snd rs.snd))
+  formedReadings : {auto c : Ref Ctxt Defs} -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+                   Front (TemplatesReading (AllKeyForm ts))
+  formedReadings [] _ = pure (MkTemplatesReading [] NoneFormed [])
+  formedReadings (t :: ts) held = do
+    r <- formedReading t (allBefore (recursions t) held)
+    rs <- formedReadings ts (allAfter (recursions t) held)
+    pure (MkTemplatesReading (r.template :: rs.templates) (EachFormed r.described rs.described) (allJoined r.recursionsRead rs.recursionsRead))
 
 ||| A shape's template as a key holds its form (`formedReading`).
 export
-formedTemplate : {auto c : Ref Ctxt Defs} -> Template -> Front Template
-formedTemplate t = (.fst) <$> formedReading t
+formedTemplate : {auto c : Ref Ctxt Defs} -> TemplateRead -> Front TemplateRead
+formedTemplate t = (\r => MkTemplateRead r.template r.recursionsRead) <$> formedReading t.template t.recursionsRead
 
 ------------------------------------------------------------------------------
 -- A static argument read
@@ -1204,7 +1421,8 @@ dictionaryForm ctx t = do
 ||| context and the evidence that the contraction it was read by left no
 ||| redex it contracts (`contractingFor`), the template it reads as with
 ||| what that says of the form, and what the site writes there, the
-||| template with a form's extents as its key holds them.
+||| template with a form's extents as its key holds them, with the
+||| definition of each recursion that holds, read where the reading met it.
 public export
 record SiteReading (k : Readings.Static) (t : ClosedTerm) where
   constructor MkSiteReading
@@ -1216,13 +1434,14 @@ record SiteReading (k : Readings.Static) (t : ClosedTerm) where
   0 describes : ReadAs mode [] form read
   template : Template
   0 formed : KeyForm read template
+  recursionsRead : All RecursionDef (recursions template)
 
 ||| A term of a site's read off its normal form, in the mode's context.
 normalSite : {auto c : Ref Ctxt Defs} -> {0 k : Readings.Static} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading k t)
 normalSite m t = do
   n <- readNormal (contractingFor m) m.inContext t
   r <- readFromStart m n.reading.readForm
-  pure (MkSiteReading m n.reading.readForm (FromNormalForm n.reading) n.maximal r.fst r.snd r.fst AsRead)
+  pure (MkSiteReading m n.reading.readForm (FromNormalForm n.reading) n.maximal r.template r.described r.template AsRead r.recursionsRead)
 
 ||| What a site, a field or a cap writes at a static argument of kind k, a
 ||| term whose stand-ins are `stands`, read as its key writes it there
@@ -1250,14 +1469,15 @@ siteReading stands AForm t = do
   ctx <- frozenContext
   n <- readNormal (contractingFor (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx)) ctx t
   r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.reading.readForm
-  f <- formedReading r.fst
+  f <- formedReading r.template r.recursionsRead
   pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.reading.readForm (FromNormalForm n.reading)
-                      n.maximal r.fst r.snd f.fst f.snd)
+                      n.maximal r.template r.described f.template f.described f.recursionsRead)
 siteReading stands ADictionary t = do
   ctx <- frozenContext
   d <- dictionaryForm ctx t
   r <- readFromStart (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form
-  pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form d.formFrom d.maximal r.fst r.snd r.fst AsRead)
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form d.formFrom d.maximal r.template r.described r.template AsRead
+                      r.recursionsRead)
 siteReading stands AShape t = do
   ctx <- frozenContext
   s <- solving ctx t
@@ -1266,13 +1486,14 @@ siteReading stands AShape t = do
       let c = contracted s.fst
       r <- readFromStart (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
       pure (MkSiteReading (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
-                          (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.fst r.snd r.fst AsRead)
+                          (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.template r.described r.template AsRead r.recursionsRead)
     _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside ctx) t
 
-||| What a site writes at a static argument (`siteReading`).
+||| What a site writes at a static argument (`siteReading`), with the
+||| definition of each recursion it holds.
 export
-templateOf : {auto c : Ref Ctxt Defs} -> List StandIn -> Readings.Static -> ClosedTerm -> Front Template
-templateOf stands k t = (.template) <$> siteReading stands k t
+templateOf : {auto c : Ref Ctxt Defs} -> List StandIn -> Readings.Static -> ClosedTerm -> Front TemplateRead
+templateOf stands k t = (\r => MkTemplateRead r.template r.recursionsRead) <$> siteReading stands k t
 
 ||| Where a type matches on its writer's parameters: its normal form read
 ||| with every stuck definition's case tree walked, and nothing beside it.
@@ -1522,6 +1743,41 @@ withClosedFamilies c t = (readLanded c t).template
 public export
 allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
 allWithClosed c ts = (readAllLanded c ts).templates
+
+-- An applied family read where it lands holds its arguments' recursions,
+-- whichever of the three it reads as: computing, heads raised above its
+-- arguments, or still applied, each over its arguments as they are.
+0 landedAsRecursions : (l : Landing) -> (b : Beta) -> (i, d : Nat) -> (ts : List Template) ->
+                       recursions (landedAs l b i d ts).template = recursionsIn ts
+landedAsRecursions Computed _ i d ts = Refl
+landedAsRecursions (Evaluable _) _ i d ts = Refl
+landedAsRecursions (Closed _) Computes i d ts = Refl
+landedAsRecursions Open Computes i d ts = Refl
+landedAsRecursions (Closed k) Inert i d ts = recursionsRaised k (Head Nothing ts)
+landedAsRecursions Open Inert i d ts = Refl
+
+mutual
+  ||| A template read where its writer's families land holds the recursions
+  ||| it holds as written: reading a family where it lands keeps its
+  ||| arguments, in all three outcomes (`landedAs`).
+  export
+  0 landedRecursions : (c : Nat -> Landing) -> (t : Template) -> recursions (withClosedFamilies c t) = recursions t
+  landedRecursions c (Applied i d ts) =
+    trans (landedAsRecursions (c i) (argumentsBeta c (allWithClosed c ts)) i d (allWithClosed c ts)) (allLandedRecursions c ts)
+  landedRecursions c (Computing i d ts) = allLandedRecursions c ts
+  landedRecursions c (Head a ts) = allLandedRecursions c ts
+  landedRecursions c (Opaque a ts) = rewrite allLandedRecursions c ts in Refl
+  landedRecursions c (Choice t ts) = rewrite landedRecursions c t in rewrite allLandedRecursions c ts in Refl
+  landedRecursions c (Field k t) = landedRecursions c t
+  landedRecursions c (Var _ _) = Refl
+  landedRecursions c (Leaf _) = Refl
+  landedRecursions c (Token _) = Refl
+  landedRecursions c (Member _) = Refl
+  landedRecursions c (Formal _ _) = Refl
+
+  0 allLandedRecursions : (c : Nat -> Landing) -> (ts : List Template) -> recursionsIn (allWithClosed c ts) = recursionsIn ts
+  allLandedRecursions c [] = Refl
+  allLandedRecursions c (t :: ts) = rewrite landedRecursions c t in rewrite allLandedRecursions c ts in Refl
 
 ------------------------------------------------------------------------------
 -- Roots and requests
@@ -1898,6 +2154,23 @@ asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
 asGiven (Just k) (t, Chosen _) = Choice (Leaf 1) [t, Member k]
 asGiven _ (t, _) = t
 
+||| A dictionary read as a callee is given it (`asGiven`) holds the
+||| recursions it holds as written: a member beside it holds none.
+public export
+givenRecursions : (k : Maybe ChoiceHead) -> (0 t : Template) -> (root : Root) -> All RecursionDef (recursions t) ->
+                  All RecursionDef (recursions (asGiven k (t, root)))
+givenRecursions (Just k) t (Chosen _) held = allJoined held []
+givenRecursions (Just k) t (Rooted _) held = held
+givenRecursions (Just k) t (Gives _) held = held
+givenRecursions (Just k) t (Parameter _ _) held = held
+givenRecursions (Just k) t Unrooted held = held
+givenRecursions Nothing t _ held = held
+
+||| A template read as a callee is given it (`asGiven`).
+public export
+givenRead : Maybe ChoiceHead -> TemplateRead -> Root -> TemplateRead
+givenRead k t root = MkTemplateRead (asGiven k (t.template, root)) (givenRecursions k t.template root t.recursionsRead)
+
 
 ------------------------------------------------------------------------------
 -- An instance's static argument
@@ -1914,7 +2187,7 @@ normalInstance ctx rootOfForm t = do
   n <- readNormal EveryRedex ctx t
   r <- readFromStart (InstanceMode ctx) n.reading.readForm
   root <- rootOfForm n.reading.readForm
-  pure (MkInstanceReading n.reading.readForm (FromNormalForm n.reading) n.maximal r.fst r.snd root)
+  pure (MkInstanceReading n.reading.readForm (FromNormalForm n.reading) n.maximal r.template r.described root)
 
 -- A form and a shape split nothing.
 noRoot : ClosedTerm -> Front Root
@@ -1936,14 +2209,14 @@ readInstance ctx ADictionary t = do
   d <- dictionaryForm ctx t
   r <- readFromStart (InstanceMode ctx) d.form
   root <- dictionaryRoot t
-  pure (MkInstanceReading d.form d.formFrom d.maximal r.fst r.snd root)
+  pure (MkInstanceReading d.form d.formFrom d.maximal r.template r.described root)
 readInstance ctx AShape t = do
   s <- solving ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (InstanceMode ctx) c.etaForm
-      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.fst r.snd Unrooted)
+      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape s.snd c.etaSteps) c.etaNormal r.template r.described Unrooted)
     _ => normalInstance ctx noRoot t
 
 -- What the translation keeps of an instance's reading: the reading itself,

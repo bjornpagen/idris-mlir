@@ -24,6 +24,7 @@ import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Describes
@@ -325,14 +326,6 @@ definitionName def = nameKey <$> fullNames (fullname def)
 interfaceName : {auto c : Ref Ctxt Defs} -> Name -> Front String
 interfaceName n = nameKey <$> fullNames n
 
-||| The definition at a stuck recursion's address, and its name as a
-||| message prints it: a template holds a recursion by its address alone.
-graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Front (GlobalDef, String)
-graphDefinition fc a = do
-  Just def <- core (definitionAt a)
-    | Nothing => internal fc "the growth graph names an address no definition has"
-  (def,) <$> definitionName def
-
 ||| A definition's i-th parameter, by the name its source gives it
 ||| (`parameterNames`), or its number past the binders its type shows: a
 ||| type may show its binders only once normalised.
@@ -566,7 +559,9 @@ unmeasuredBy b a stuck with (snd (index a b.drawing)) proof wrote
 ||| A type-level computation a static argument passes through, which
 ||| nothing bounds, reported at its place: what passes the argument,
 ||| through which computation, to whom. The arc was drawn with that
-||| computation (`Proof.Describes.throughOf`), where its weight was made.
+||| computation (`Proof.Describes.throughOf`), where its weight was made: a
+||| recursion by its place among the drawn template's, whose definition
+||| what made the arc read (`Graph.recursionAt`).
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> Name -> (b : Built) -> (a : Fin (length b.graph.arcs)) -> (0 _ : StuckArc b.graph a) -> Front ()
 refuseOpaque fc main b a stuck = do
@@ -578,7 +573,8 @@ refuseOpaque fc main b a stuck = do
         FieldWrote j => (j, j)
   ((), place) <- located fc main b src (((), src) ::: [((), to)])
   through <- case throughOf (fst (index a b.drawing)) (trans (cong (.label) (b.drawnAs a)) (stuckLabel stuck)) of
-    StuckRecursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
+    StuckRecursion el =>
+      ("the type-level recursion " ++) <$> definitionName (recursionAt (snd (index a b.drawing)) (b.drawnBy a) el).def
     AppliedFamily j => ("its type family " ++) <$> parameter j writer
   targetName <- holderText (index to b.position) (readAtPlace to b.positionRead)
   homeName <- definitionName home

@@ -31,6 +31,7 @@ import IdrisMLIR.Proof.Template
 
 import Data.DPair
 import Data.List
+import Data.List.Quantifiers
 import Data.List1
 import Data.Vect
 
@@ -423,18 +424,68 @@ applyTo = foldl (App EmptyFC)
 -- What every reading and every match sees
 ------------------------------------------------------------------------------
 
+||| The field path a probe is, the writer's dictionary parameter's: nothing
+||| for any other probe.
+public export
+fieldPathOf : Probe -> Maybe (Nat, List1 Nat)
+fieldPathOf (ProbeFieldPath i path) = Just (i, path)
+fieldPathOf _ = Nothing
+
+||| A field of a record's value, as a fold along a path takes it.
+public export
+fieldOfRecord : Template -> Nat -> Template
+fieldOfRecord t k = Field k t
+
+||| The writer's marker a probe is (`walkMarker`), by its field path: a
+||| field of the writer's dictionary along it, below the dictionary's
+||| marker; or, for a probe that is no field path, the part it stands for.
+public export
+markerAlong : List StandIn -> Probe -> Maybe (Nat, List1 Nat) -> Maybe Template
+markerAlong stands q (Just (i, path)) = Just (foldl fieldOfRecord (Var i 0) path)
+markerAlong stands q Nothing = uncurry Template.Var . partDepth <$> partOfProbe stands q
+
+||| The writer's marker a probe is, if a name is one (`walkMarker`).
+public export
+markerOfProbe : List StandIn -> Maybe Probe -> Maybe Template
+markerOfProbe stands (Just q) = markerAlong stands q (fieldPathOf q)
+markerOfProbe stands Nothing = Nothing
+
 ||| The writer's marker a bound name is, as a site reads it: a part of the
 ||| writer's parameter, `Var i` as many matches deep as its path is long; a
 ||| field of its dictionary along a path, below the dictionary's marker,
 ||| which no match makes a part; or one of the site's stand-ins, as the
 ||| part of the parameter it stands for. A stand-in the site being read did
 ||| not make is no part of its writer's, as any other bound name is none.
+||| It is stated over what the probe is (`markerOfProbe`), so that a proof
+||| splits on that, which needs nothing of how a name is read as a probe.
 public export
 walkMarker : List StandIn -> Name -> Maybe Template
-walkMarker stands n = case probeOf n of
-  Just (ProbeFieldPath i path) => Just (foldl (\t, k => Field k t) (Var i 0) path)
-  Just q => uncurry Template.Var . partDepth <$> partOfProbe stands q
-  Nothing => Nothing
+walkMarker stands n = markerOfProbe stands (probeOf n)
+
+-- A field along a path of a value that holds no recursion holds none.
+0 fieldsUnrecursive : (t : Template) -> recursions t = [] -> (path : List Nat) -> recursions (foldl Readings.fieldOfRecord t path) = []
+fieldsUnrecursive t none [] = none
+fieldsUnrecursive t none (k :: ks) = fieldsUnrecursive (Field k t) none ks
+
+-- A part read off a probe holds no recursion.
+0 partUnrecursive : (part : Maybe (Nat, List Nat)) -> map (uncurry Template.Var . Readings.partDepth) part = Just t -> recursions t = []
+partUnrecursive (Just (i, path)) Refl = Refl
+partUnrecursive Nothing Refl impossible
+
+0 alongUnrecursive : (stands : List StandIn) -> (q : Probe) -> (path : Maybe (Nat, List1 Nat)) -> markerAlong stands q path = Just t ->
+                     recursions t = []
+alongUnrecursive stands q (Just (i, k ::: ks)) Refl = fieldsUnrecursive (Field k (Var i 0)) Refl ks
+alongUnrecursive stands q Nothing found = partUnrecursive (partOfProbe stands q) found
+
+0 probeUnrecursive : (stands : List StandIn) -> (q : Maybe Probe) -> markerOfProbe stands q = Just t -> recursions t = []
+probeUnrecursive stands (Just q) found = alongUnrecursive stands q (fieldPathOf q) found
+probeUnrecursive stands Nothing Refl impossible
+
+||| A writer's marker holds no recursion: a part of its parameter, or a
+||| field of its dictionary along a path.
+export
+0 markerUnrecursive : (stands : List StandIn) -> (n : Name) -> walkMarker stands n = Just t -> recursions t = []
+markerUnrecursive stands n found = probeUnrecursive stands (probeOf n) found
 
 ||| Whether a bound name is a marker of a runtime value an implementation
 ||| closes over (`Readings.markerName`), with the evidence either way.
@@ -921,6 +972,137 @@ public export
 keptChain : Address -> List Template -> Maybe Template -> Template
 keptChain a ts Nothing = Head (Just a) ts
 keptChain a ts (Just t) = Choice (Leaf 1) [Head (Just a) ts, t]
+
+------------------------------------------------------------------------------
+-- The recursions a site's reading holds
+------------------------------------------------------------------------------
+
+||| The definition a site's reading met a recursion at, by the recursion's
+||| address: what the reading's frozen context defines the name the
+||| recursion is called by as, the name the context gives that address. A
+||| message names the recursion by it.
+public export
+record RecursionDef (a : Address) where
+  constructor MkRecursionDef
+  0 frozenIn : Frozen
+  0 calledBy : Name
+  def : GlobalDef
+  0 addressed : definitionAddress (gamma (defsOf frozenIn)) calledBy = Just a
+  0 definedAs : Defines frozenIn calledBy def
+
+||| A template that holds no recursion has none to define.
+public export
+noRecursions : (0 _ : recursions t = []) -> All RecursionDef (recursions t)
+noRecursions none = replace {p = All RecursionDef} (sym none) []
+
+||| Two lists of templates hold the first's recursions, then the second's.
+public export
+joinedRecursions : (0 xs, ys : List Template) -> All RecursionDef (recursionsIn xs) -> All RecursionDef (recursionsIn ys) ->
+                   All RecursionDef (recursionsIn (xs ++ ys))
+joinedRecursions xs ys here rest = replace {p = All RecursionDef} (sym (recursionsJoined xs ys)) (allJoined here rest)
+
+||| A part that is no head of its own holds each recursion it reads in a
+||| type's node, and none in a skeleton's hole, which cuts it.
+public export
+nodeRecursions : (k : Keeping) -> All RecursionDef (recursions t) -> All RecursionDef (recursions (nodeOf k t))
+nodeRecursions EveryNode held = held
+nodeRecursions Skeleton _ = []
+
+||| A part applied (`partOf`) holds the part's recursions, then its
+||| arguments'.
+public export
+partRecursions : (k : Keeping) -> (ts : List Template) -> All RecursionDef (recursions t) -> All RecursionDef (recursionsIn ts) ->
+                 All RecursionDef (recursions (partOf k t ts))
+partRecursions k [] here _ = here
+partRecursions k (u :: us) here rest = nodeRecursions k (allJoined here rest)
+
+||| A template that holds no recursion, applied as one of the writer's
+||| markers is (`markedOf`), holds its arguments' recursions: a family
+||| applied, or a head above it and them.
+export
+0 markedHolds : (t : Template) -> (ts : List Template) -> recursions t = [] -> recursions (markedOf t ts) = recursionsIn ts
+markedHolds t [] none = none
+markedHolds (Var _ _) (u :: us) none = Refl
+markedHolds (Head _ xs) (u :: us) none = rewrite none in Refl
+markedHolds (Opaque _ _) (u :: us) Refl impossible
+markedHolds (Applied _ _ xs) (u :: us) none = rewrite none in Refl
+markedHolds (Computing _ _ xs) (u :: us) none = rewrite none in Refl
+markedHolds (Choice s xs) (u :: us) none = rewrite none in Refl
+markedHolds (Field _ s) (u :: us) none = rewrite none in Refl
+markedHolds (Leaf _) (u :: us) none = Refl
+markedHolds (Token _) (u :: us) none = Refl
+markedHolds (Formal _ _) (u :: us) none = Refl
+markedHolds (Member _) (u :: us) none = Refl
+
+||| One of the writer's markers applied (`markedOf`) holds its arguments'
+||| recursions, the marker holding none.
+public export
+markedRecursions : (0 t : Template) -> (0 ts : List Template) -> (0 _ : recursions t = []) -> All RecursionDef (recursionsIn ts) ->
+                   All RecursionDef (recursions (markedOf t ts))
+markedRecursions t ts none held = replace {p = All RecursionDef} (sym (markedHolds t ts none)) held
+
+-- A part that holds no recursion, applied, holds its arguments'.
+0 partHolds : (t : Template) -> recursions t = [] -> (ts : List Template) -> recursions (partOf EveryNode t ts) = recursionsIn ts
+partHolds t none [] = none
+partHolds t none (u :: us) = rewrite none in Refl
+
+-- The leaves a constant is spelt with hold no recursion.
+0 speltHolds : (cs : List Char) -> recursionsIn (spelt cs) = []
+speltHolds [] = Refl
+speltHolds (_ :: cs) = speltHolds cs
+
+-- A constant applied holds its arguments' recursions, the constant none.
+-- Every constructor is listed: the last case of `constant` covers all but a
+-- string's, a double's and a few leaves', and a constant left a variable
+-- unfolds to none of them.
+0 constantHolds : (c : Constant) -> (ts : List Template) -> recursions (appliedConstant c ts) = recursionsIn ts
+constantHolds (Str x) ts = rewrite recursionsJoined (spelt (unpack x)) ts in rewrite speltHolds (unpack x) in Refl
+constantHolds (Db x) ts = rewrite recursionsJoined (spelt (unpack (show x))) ts in rewrite speltHolds (unpack (show x)) in Refl
+constantHolds (I v) ts = partHolds (constant (I v)) Refl ts
+constantHolds (I8 v) ts = partHolds (constant (I8 v)) Refl ts
+constantHolds (I16 v) ts = partHolds (constant (I16 v)) Refl ts
+constantHolds (I32 v) ts = partHolds (constant (I32 v)) Refl ts
+constantHolds (I64 v) ts = partHolds (constant (I64 v)) Refl ts
+constantHolds (BI v) ts = partHolds (constant (BI v)) Refl ts
+constantHolds (B8 v) ts = partHolds (constant (B8 v)) Refl ts
+constantHolds (B16 v) ts = partHolds (constant (B16 v)) Refl ts
+constantHolds (B32 v) ts = partHolds (constant (B32 v)) Refl ts
+constantHolds (B64 v) ts = partHolds (constant (B64 v)) Refl ts
+constantHolds (Ch v) ts = partHolds (constant (Ch v)) Refl ts
+constantHolds (PrT v) ts = partHolds (constant (PrT v)) Refl ts
+constantHolds WorldVal ts = partHolds (constant WorldVal) Refl ts
+
+||| A constant applied (`appliedConstant`) holds its arguments' recursions.
+public export
+constantRecursions : (0 c : Constant) -> (0 ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+                     All RecursionDef (recursions (appliedConstant c ts))
+constantRecursions c ts held = replace {p = All RecursionDef} (sym (constantHolds c ts)) held
+
+||| A kept chain (`keptChain`) holds its call's arguments' recursions, then
+||| those of the unfolding beside it, where an instance unfolds the call.
+public export
+chainRecursions : (r : Maybe Template) -> All RecursionDef (recursionsIn ts) -> All RecursionDef (maybeRecursions r) ->
+                  All RecursionDef (recursions (keptChain a ts r))
+chainRecursions Nothing own _ = own
+chainRecursions (Just t) own unfolded = allJoined own (allJoined unfolded [])
+
+-- A substitute holds no recursion: an argument of a family's value, or a
+-- placeholder's leaf.
+0 substituteHolds : (s : Substitute) -> recursions (substituteTemplate s) = []
+substituteHolds (FormalArgument _ _) = Refl
+substituteHolds Placeholding = Refl
+
+||| Substitutes hold no recursion.
+export
+0 substitutesHold : (ss : List Substitute) -> recursionsIn (map Readings.substituteTemplate ss) = []
+substitutesHold [] = Refl
+substitutesHold (s :: ss) = rewrite substituteHolds s in substitutesHold ss
+
+||| A substitute applied (`partOf`) holds its arguments' recursions.
+public export
+substituteRecursions : (k : Keeping) -> (0 s : Substitute) -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+                       All RecursionDef (recursions (partOf k (substituteTemplate s) ts))
+substituteRecursions k s ts held = partRecursions {t = substituteTemplate s} k ts (noRecursions (substituteHolds s)) held
 
 mutual
   ||| What a reading says of a term over a scope, each variable by its

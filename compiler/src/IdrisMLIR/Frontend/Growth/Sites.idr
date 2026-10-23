@@ -52,6 +52,7 @@ import IdrisMLIR.Registry
 import Control.WellFounded
 import Data.DPair
 import Data.List
+import Data.List.Quantifiers
 import Data.List1
 import Data.SortedSet
 import Data.String
@@ -120,7 +121,8 @@ writtenReading (OffTerm r) = (r ** Refl)
 
 ||| One argument a site writes, whole: the target's parameter it is at (of
 ||| a dispatched method, its own, in the order its field's lambdas take
-||| them), its kind, the template written there and its root, as its
+||| them), its kind, the template written there, with the definition of
+||| each recursion it holds as the reading met it, and its root, as its
 ||| kind's one reading gives them (`rooted`) and as the target is given it
 ||| (`asGiven`), the closed term it was read off, over the writer's markers
 ||| and the site's stand-ins (none for a part of a type already read),
@@ -139,6 +141,7 @@ record Argument where
   position : Nat
   kind : Static
   template : Template
+  recursionsRead : All RecursionDef (recursions template)
   root : Root
   term : Maybe ClosedTerm
   stands : List StandIn
@@ -591,43 +594,51 @@ mutual
   ||| unfolding made alike: an `Index` as a closed part, a `Formed` shape as
   ||| its form (`formedTemplate`), and any other as itself. The data key
   ||| holds no more than this of each argument (`Types.argumentKey`), so a
-  ||| height read here bounds the key's.
-  eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Template -> Front Template
-  eraseIn (Head (Just a) cs) = do
+  ||| height read here bounds the key's. A part read as a closed part takes
+  ||| its recursions with it; every other part keeps its own.
+  eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (t : Template) -> All RecursionDef (recursions t) ->
+            Front TemplateRead
+  eraseIn (Head (Just a) cs) held = do
     Just (_, facts) <- typeConstructorAt a
-      | Nothing => Head (Just a) <$> eraseAll cs
-    Head (Just a) <$> erasedAt facts.roles 0 cs
-  eraseIn (Head Nothing cs) = Head Nothing <$> eraseAll cs
-  eraseIn (Choice t ls) = Choice <$> eraseIn t <*> eraseAll ls
-  eraseIn (Opaque a cs) = Opaque a <$> eraseAll cs
-  eraseIn (Applied i d cs) = Applied i d <$> eraseAll cs
-  eraseIn (Computing i d cs) = Computing i d <$> eraseAll cs
-  eraseIn (Field k t) = Field k <$> eraseIn t
-  eraseIn t@(Var _ _) = pure t
-  eraseIn t@(Leaf _) = pure t
-  eraseIn t@(Token _) = pure t
-  eraseIn t@(Formal _ _) = pure t
-  eraseIn t@(Member _) = pure t
+      | Nothing => (\rs => MkTemplateRead (Head (Just a) (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
+    (\rs => MkTemplateRead (Head (Just a) (templatesOf rs)) (allRead rs)) <$> erasedAt facts.roles 0 cs held
+  eraseIn (Head Nothing cs) held = (\rs => MkTemplateRead (Head Nothing (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
+  eraseIn (Choice t ls) held = do
+    x <- eraseIn t (allBefore (recursions t) held)
+    rs <- eraseAll ls (allAfter (recursions t) held)
+    pure (MkTemplateRead (Choice x.template (templatesOf rs)) (allJoined x.recursionsRead (allRead rs)))
+  eraseIn (Opaque a cs) (def :: held) = (\rs => MkTemplateRead (Opaque a (templatesOf rs)) (def :: allRead rs)) <$> eraseAll cs held
+  eraseIn (Applied i d cs) held = (\rs => MkTemplateRead (Applied i d (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
+  eraseIn (Computing i d cs) held = (\rs => MkTemplateRead (Computing i d (templatesOf rs)) (allRead rs)) <$> eraseAll cs held
+  eraseIn (Field k t) held = (\x => MkTemplateRead (Field k x.template) x.recursionsRead) <$> eraseIn t held
+  eraseIn (Var i d) held = pure (MkTemplateRead (Var i d) held)
+  eraseIn (Leaf h) held = pure (MkTemplateRead (Leaf h) held)
+  eraseIn (Token k) held = pure (MkTemplateRead (Token k) held)
+  eraseIn (Formal j k) held = pure (MkTemplateRead (Formal j k) held)
+  eraseIn (Member k) held = pure (MkTemplateRead (Member k) held)
 
-  eraseAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Template -> Front (List Template)
-  eraseAll [] = pure []
-  eraseAll (t :: ts) = (::) <$> eraseIn t <*> eraseAll ts
+  eraseAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (ts : List Template) -> All RecursionDef (recursionsIn ts) ->
+             Front (List TemplateRead)
+  eraseAll [] _ = pure []
+  eraseAll (t :: ts) held = (::) <$> eraseIn t (allBefore (recursions t) held) <*> eraseAll ts (allAfter (recursions t) held)
 
-  erasedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Role -> Nat -> List Template -> Front (List Template)
-  erasedAt rs j [] = pure []
-  erasedAt rs j (t :: ts) = (::) <$> asRole (roleAt j rs) t <*> erasedAt rs (S j) ts
+  erasedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Role -> Nat -> (ts : List Template) ->
+             All RecursionDef (recursionsIn ts) -> Front (List TemplateRead)
+  erasedAt rs j [] _ = pure []
+  erasedAt rs j (t :: ts) held =
+    (::) <$> asRole (roleAt j rs) (MkTemplateRead t (allBefore (recursions t) held)) <*> erasedAt rs (S j) ts (allAfter (recursions t) held)
 
-  asRole : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Role -> Template -> Front Template
-  asRole Keyed t = eraseIn t
+  asRole : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Role -> TemplateRead -> Front TemplateRead
+  asRole Keyed t = eraseIn t.template t.recursionsRead
   asRole Formed t = formedTemplate t
-  asRole Held t = eraseIn t
-  asRole Index _ = pure (Leaf 1)
+  asRole Held t = eraseIn t.template t.recursionsRead
+  asRole Index _ = pure (MkTemplateRead (Leaf 1) [])
 
 ||| The site a type constructor's head writes: `Builds` of it, as it was
 ||| read, at the arguments a value of it represents, each already read
-||| without what no value represents; none for a head that is no type
-||| constructor.
-built : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Address -> List Template -> Front (List Site)
+||| without what no value represents, with the definitions of the
+||| recursions it holds; none for a head that is no type constructor.
+built : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Address -> List TemplateRead -> Front (List Site)
 built at fc a cs = do
   Just (d, facts) <- typeConstructorAt a
     | Nothing => pure []
@@ -635,36 +646,43 @@ built at fc a cs = do
   pure [siteAt at fc (Builds a d) args]
   where
     -- A part of a type already read, with no term of its own to root.
-    argument : (Nat, Template) -> Argument
-    argument (j, t) = MkArgument j AType t Unrooted Nothing [] Nothing NoTerm [] (TemplateText at.writerDef t)
+    argument : (Nat, TemplateRead) -> Argument
+    argument (j, t) = MkArgument j AType t.template t.recursionsRead Unrooted Nothing [] Nothing NoTerm [] (TemplateText at.writerDef t.template)
 
 mutual
   ||| The sites at every type constructor of a template, at any depth: in a
   ||| stuck definition's leaves, in an unfolded synonym, under a binder.
-  buildsIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Template -> Front (List Site)
-  buildsIn at fc (Head (Just a) cs) = (++) <$> built at fc a cs <*> buildsAll at fc cs
-  buildsIn at fc (Head Nothing cs) = buildsAll at fc cs
-  buildsIn at fc (Choice t ls) = (++) <$> buildsIn at fc t <*> buildsAll at fc ls
-  buildsIn at fc (Opaque _ cs) = buildsAll at fc cs
-  buildsIn at fc (Applied _ _ cs) = buildsAll at fc cs
-  buildsIn at fc (Computing _ _ cs) = buildsAll at fc cs
-  buildsIn at fc (Field _ t) = buildsIn at fc t
-  buildsIn at fc (Var _ _) = pure []
-  buildsIn at fc (Leaf _) = pure []
-  buildsIn at fc (Token _) = pure []
-  buildsIn at fc (Formal _ _) = pure []
-  buildsIn at fc (Member _) = pure []
+  buildsIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> (t : Template) -> All RecursionDef (recursions t) ->
+             Front (List Site)
+  buildsIn at fc (Head (Just a) cs) held = (++) <$> built at fc a (eachRead cs held) <*> buildsAll at fc cs held
+  buildsIn at fc (Head Nothing cs) held = buildsAll at fc cs held
+  buildsIn at fc (Choice t ls) held =
+    (++) <$> buildsIn at fc t (allBefore (recursions t) held) <*> buildsAll at fc ls (allAfter (recursions t) held)
+  buildsIn at fc (Opaque _ cs) (_ :: held) = buildsAll at fc cs held
+  buildsIn at fc (Applied _ _ cs) held = buildsAll at fc cs held
+  buildsIn at fc (Computing _ _ cs) held = buildsAll at fc cs held
+  buildsIn at fc (Field _ t) held = buildsIn at fc t held
+  buildsIn at fc (Var _ _) _ = pure []
+  buildsIn at fc (Leaf _) _ = pure []
+  buildsIn at fc (Token _) _ = pure []
+  buildsIn at fc (Formal _ _) _ = pure []
+  buildsIn at fc (Member _) _ = pure []
 
-  buildsAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> List Template -> Front (List Site)
-  buildsAll at fc [] = pure []
-  buildsAll at fc (t :: ts) = (++) <$> buildsIn at fc t <*> buildsAll at fc ts
+  buildsAll : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> (ts : List Template) ->
+              All RecursionDef (recursionsIn ts) -> Front (List Site)
+  buildsAll at fc [] _ = pure []
+  buildsAll at fc (t :: ts) held =
+    (++) <$> buildsIn at fc t (allBefore (recursions t) held) <*> buildsAll at fc ts (allAfter (recursions t) held)
 
 ||| What a closed type, a term of a site whose stand-ins are `stands`,
 ||| builds: its canonical form as data instances compare type arguments,
 ||| its template, and that without what no value of each type constructor
 ||| in it represents, so that a head inside an index builds nothing.
 builds : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List StandIn -> FC -> ClosedTerm -> Front (List Site)
-builds at stands fc t = buildsIn at fc !(eraseIn !(templateOf stands AType !(canonicalTypeArg t)))
+builds at stands fc t = do
+  written <- templateOf stands AType !(canonicalTypeArg t)
+  erased <- eraseIn written.template written.recursionsRead
+  buildsIn at fc erased.template erased.recursionsRead
 
 ------------------------------------------------------------------------------
 -- Sites of calls
@@ -907,7 +925,9 @@ export
 readArgument : {auto c : Ref Ctxt Defs} -> List StandIn -> Nat -> Static -> (memberOf : Maybe ChoiceHead) -> ClosedTerm ->
                ArgumentText -> Front Argument
 readArgument stands j k memberOf t shown =
-  (\(r, root) => MkArgument j k (asGiven memberOf (r.template, root)) root (Just t) stands memberOf (OffTerm r) [] shown) <$> rooted stands k t
+  (\(r, root) => MkArgument j k (asGiven memberOf (r.template, root)) (givenRecursions memberOf r.template root r.recursionsRead) root
+                            (Just t) stands memberOf (OffTerm r) [] shown)
+    <$> rooted stands k t
 
 ||| The pair Idris's `%pair` names, which holds a value and the rest of a
 ||| list as one, and its two projections, each by its definition's address
@@ -1419,7 +1439,7 @@ useAt at ps env fc t form args = do
 heldApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> List (Arg vs) -> Front (List Site)
 heldApplication at ps env fc t args =
-  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) (Chosen AtRunTimeAlways) Nothing [] (Just ArrowHead) NoTerm []
+  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) [] (Chosen AtRunTimeAlways) Nothing [] (Just ArrowHead) NoTerm []
                                     (TemplateText at.writerDef (Member ArrowHead)))
         args
 
