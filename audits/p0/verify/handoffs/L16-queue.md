@@ -647,3 +647,12 @@ L19w, L05x (D124's frame case), the sources lane (C13). Waiting:
   IdrisMLIR.Spec.Generator.Main` and `executable = specgen`, built by the
   stock Idris; under self-host the driver compiles specgen as any program
   (L03 with INT's Makefile).
+- From L02y: a cycle of several functions whose divergence every member
+  dropped together passes the per-function verifier; a contracts relation
+  (`Contracts.cpp`, L19's) checked after every pass from the module alone
+  runs `addCycles` over the current rows and reports a member whose row
+  would grow, its breaking test pass dropping divergence from every member
+  of one unproved cycle and their calls. From L19p: `expect-coverage`
+  reads only `mlir.expect` lines and harness scripts, so `reached` (asked
+  from `Universal.idr`) and `folded` (asked by fixtures) count as stated by
+  no test (L19).
