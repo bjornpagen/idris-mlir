@@ -2590,6 +2590,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   Rejected: erasing a closure type's indices, which loses what the type
   states, lays closure arguments out as at unknown indices, and needs
   opaque-to-level reindexes inside lambdas the scope rule refuses.
+- **C275** (2026-10-23; L12w's stop, under AGENTS.md's "nothing static
+  built on a worker's hot path"). Whether a reindex or a field read builds
+  a cell is one function, decided from what the types already store and
+  their index terms, as the layout classes decide a class, making no type
+  or attribute (`families::builds` and `fieldReadBuilds` today build field
+  types through `determinedFields` where words differ). The reindex's
+  verifier, its flow, the field read's flow and the lowering's repack ask
+  it. Rejected: storing the answer on the op (a second copy of a fact the
+  types hold) and splitting the reindex by whether it builds (the
+  distinction is derived from its types, not chosen).
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
