@@ -13,7 +13,7 @@
 // point of @main.
 idr.program @inlined root(@main) stage(first) {
   idr.func @collatz(%n: i64) -> i64 {
-    %r = idr.loop tokens(%k) -> (i64) {
+    %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
       idr.may_loop

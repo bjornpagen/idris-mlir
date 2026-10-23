@@ -194,6 +194,12 @@ properties =
   , property "no-guards" OfFunctions Stated
       [ "No guard is left in @f: every condition its partial primitives need"
       , "is proven where it runs." ]
+  , property "may-diverge" OfFunctions Stated
+      [ "Every function of @f, its copies among them, may never end, as its"
+      , "row says: the row holds divergence, which a loop Idris did not prove"
+      , "to end puts there wherever a pass moves it, as a call of a function"
+      , "that may never end does: a fact of the program's functions, before"
+      , "lowering." ]
   , property "word-loop" OfFunctions Stated
       [ "Some loop of @f computes on words alone: no value defined or bound"
       , "in it is a big or a natural." ]

@@ -623,6 +623,7 @@ add_mlir_library(IdrExpect
 	Expect/InPlace.cpp
 	Expect/LabelsLeast.cpp
 	Expect/Lookup.cpp
+	Expect/MayDiverge.cpp
 	Expect/MovesOut.cpp
 	Expect/Named.cpp
 	Expect/NarrowedLanes.cpp
