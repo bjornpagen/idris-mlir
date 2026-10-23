@@ -440,3 +440,22 @@ L17ay settles whether Readings' marker names change):
   only for its result count; holding the count removes Chains' last
   `cast<CallOp>`. INT should check the tests that read gives-back facts,
   which the analysis now produces for the first time.
+
+## D126 round 2c (left by round 2b-T)
+
+- A type method on `ValueFactsTypeInterface` in the specification:
+  `getRunTimeWords(std::optional<Hold>) -> RunTimeWords`, today's `Words`
+  sum moved to `Interfaces/Vocabulary.h`; `GradedType` asks its carrier
+  with its own hold, the builtin types answer through `ValueFacts.cpp`'s
+  attachments, `SelfType` has none (its fatal arm goes). Then
+  `IR/Layout/Components.cpp`'s `wordsOf` template fold goes, and
+  `Lower/Functions.cpp:76`'s `componentFacts` folds over the answer (its
+  `DestType` test and `dataTypeOf` go). Dispatch after round 2b-S lands
+  its regeneration.
+- `Frames.cpp:154-164` and `Lifetimes/Pass.cpp`'s `framingOf` ask one
+  question of a component twice ("does a member call a member and get
+  control back?"): one answer in `ProgramGraph`, beside `onCycle`.
+- `Support/Match.h`'s header says a type interface is not used to say
+  what each of our types is, which D126 contradicts.
+- Hand readings of the tail kind outside Tail.h: `Accounts.cpp:66`,
+  `Func/Call.cpp:273`, and `EGraph/Build.cpp:64` (L14x's).
