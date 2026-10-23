@@ -2571,6 +2571,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   The ops that end an owner (drop, take, take_into, match_unique,
   unpack) carry one trait in the specification, which linearity reads to
   count such a use as the cell's alone.
+- **C271** (2026-10-23; L17bb's stop, under C55 and D12; for the owner's
+  review). A `%transform` in a trusted library (prelude and base write 16)
+  is elaborated as upstream elaborates it, both sides checked against
+  each other, and kept nowhere: its meaning is an equality the optimizer
+  may use, which changes no program, and this compiler's optimizer is the
+  C++ pipeline over MLIR. So a wrong rule is refused as upstream refuses
+  it, and nothing reads a rule: `addTransform`, the `transforms` field, its
+  TTC section and `%transform`'s rounds go. A user module's `%transform`
+  stays refused as `unsupported` (`tests/pragma-transform`). The rules an
+  implementation's methods generate are not pragmas and go with what
+  reads them.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
