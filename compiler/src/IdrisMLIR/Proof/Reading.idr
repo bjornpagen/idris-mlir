@@ -19,7 +19,7 @@
 ||| normaliser can return. So contraction is the frontend's own relation
 ||| (`EtaContracts`), what a reader reads is the host's normal form
 ||| followed by it (`ReadOff`), and the frontend's contraction
-||| (`Closed.contractedBy`) gives its result with that evidence and with
+||| (`Contraction.contractedBy`) gives its result with that evidence and with
 ||| the evidence that no redex it contracts is left. What contraction gives
 ||| is never taller than what it was given (`contractionHeight`), so
 ||| whatever bounds the normal form bounds what the readers read; and it

@@ -53,6 +53,7 @@ import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Frontend.Growth.Implementations
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Growth
@@ -77,6 +78,10 @@ import Data.Vect
 import Decidable.Equality
 
 %default total
+
+-- What splits a node here is an argument's kind (`splitting` below), not
+-- the head a request's root names.
+%hide IdrisMLIR.Frontend.Translate.Readings.splitting
 
 ------------------------------------------------------------------------------
 -- Slots
@@ -359,9 +364,14 @@ mutual
   -- and nothing applies as a dictionary.
   byTemplate v own u (Var _ (S _)) = unread u
   byTemplate v own u (Applied _ (S _) _) = unread u
-  -- Met in the graph's field values, whose records are parts of a
-  -- template read at a node (`withClosedFamilies`).
-  byTemplate v own u (Computing _ _ _) = unread u
+  -- Met in a template read at a node (`withClosedFamilies`): a use of the
+  -- writer's parameter applied where what beta makes of it computes. A
+  -- dictionary applied gives one of the implementations the parameter can
+  -- be whatever its arguments compute, so it reads as the use applied
+  -- does, and a field's record read there roots what the record as
+  -- written roots.
+  byTemplate v own u (Computing i Z _) = own.ofApplied i
+  byTemplate v own u (Computing _ (S _) _) = unread u
 
   byLeaves : View -> Own -> Unread -> List Template -> Headings
   byLeaves v own u [] = NoHeading
@@ -854,10 +864,11 @@ dictionaryAt fl w ps i = case parameterOf ps i of
 
 -- What a use of a function that gives an implementation reaches, by what
 -- lands at its parameter. Essential: such a use is a member the flow found
--- only where the graph can read the use applied. Where only closed values
--- land, the graph reads it as heads above its arguments, beta of a value
--- landed there, a part of that value and no member; where a value that
--- computes lands, as computing, which nothing an instance writes reaches.
+-- only where values not all closed land there, whatever its arguments
+-- compute. Where only closed values land, the graph reads it as heads
+-- above its arguments, beta of a value landed there, a part of that value
+-- and no member; where a value that computes lands, as computing, which
+-- nothing an instance writes reaches.
 appliedWhere : Landing -> Lazy (SortedSet Heading) -> Headings
 appliedWhere Open hs = ReachedBy hs
 appliedWhere (Closed _) _ = NoHeading
@@ -866,7 +877,8 @@ appliedWhere (Evaluable _) _ = NoHeading
 
 -- What a use of the writer's parameter i, applied, reaches at a node: a
 -- family applied, nothing, since beta applies it and no implementation
--- is; a dictionary, what it can be where the graph reads the use applied.
+-- is; a dictionary, what it can be where values not all closed land at
+-- it.
 usedApplied : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Nat -> Headings
 usedApplied fl families w ps landing i =
   if elem i families then NoHeading else appliedWhere (landing i) (dictionaryAt fl w ps i)
@@ -882,8 +894,9 @@ ownAt fl families w ps landing = MkOwn (dictionaryAt fl w ps) (usedApplied fl fa
 ||| writer's families by index and what lands at each parameter: a
 ||| dictionary parameter by what it can be (`dictionaryAt`); one applied by
 ||| what it can be only where values not all closed land at it, the one
-||| landing at which the graph reads a use of it applied
-||| (`Template.withClosedFamilies`); a family applied, nothing. Sorted and
+||| landing at which the graph reads a use of it applied as no closed
+||| value's part (`Template.withClosedFamilies`), whatever its arguments
+||| compute; a family applied, nothing. Sorted and
 ||| without duplicates.
 export
 roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> (landing : Nat -> Landing) -> Template ->
@@ -908,16 +921,6 @@ AppliedRoots c rs = (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Ele
 eitherNothing True _ = Refl
 eitherNothing False none = none
 
--- A reading that reaches nothing where its test holds reaches nothing.
-0 thenNothing : (b : Bool) -> {0 h : Headings} -> b = True -> (if b then NoHeading else h) = NoHeading
-thenNothing True _ = Refl
-thenNothing False held = absurd held
-
--- A test, with what it is.
-0 decided : (b : Bool) -> Either (b = True) (b = False)
-decided True = Left Refl
-decided False = Right Refl
-
 -- A use of the writer's parameter where no value that can be a member
 -- lands reaches nothing.
 0 nothingAt : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
@@ -939,19 +942,13 @@ appliedRootsOf fl families w ps c i Z ts j el =
    \ts' => el)
 appliedRootsOf fl families w ps c i (S d) ts j el = absurd el
 
-||| Where reading a template at a node (`withClosedFamilies`) drops roots
-||| the template as written reaches: a use of the writer's parameter i, no
-||| family, applied with nothing matched out of it where values not all
-||| closed land, to arguments beta computes, which the reading reads as
-||| computing (`Computing`) and so as reaching nothing, though the use as
-||| written reaches what the parameter can be; at a place the roots are
-||| read off, a choice's leaf or a field's record.
+||| What the roots a site reads off a template say of a field's record, at
+||| a node where `c` says what lands at each parameter: every root the
+||| record reaches as written, it reaches read where the node's families
+||| land.
 public export
-data DropsReach : (Nat -> Landing) -> (families : List Nat) -> Template -> Type where
-  DroppedAtUse : (0 _ : elem i families = False) -> (0 _ : c i = Open) ->
-                 (0 _ : argumentsBeta c (allWithClosed c ts) = Computes) -> DropsReach c families (Applied i Z ts)
-  DroppedInLeaf : Elem t ls -> DropsReach c families t -> DropsReach c families (Choice s ls)
-  DroppedInRecord : DropsReach c families r -> DropsReach c families (Field k r)
+0 RecordRoots : (Nat -> Landing) -> (Template -> List Address) -> Type
+RecordRoots c rs = (r : Template) -> (j : Address) -> Elem j (rs r) -> Elem j (rs (withClosedFamilies c r))
 
 -- k heads above a head reach what the head does.
 0 raisedReaches : (k : Nat) -> byTemplate v own u (raise k (Head a ts)) = unread u
@@ -959,71 +956,63 @@ raisedReaches Z = Refl
 raisedReaches (S k) = Refl
 
 mutual
-  -- Reading a template at a node keeps what it reaches, where it drops
-  -- no root (`DropsReach`).
+  -- Reading a template at a node keeps what it reaches.
   0 readReaches : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
-                  (t : Template) -> Not (DropsReach c families t) ->
+                  (t : Template) ->
                   byTemplate fl.solution (ownAt fl families w ps c) OfChosen (withClosedFamilies c t) =
                   byTemplate fl.solution (ownAt fl families w ps c) OfChosen t
-  readReaches fl families w ps c (Var i d) _ = Refl
-  readReaches fl families w ps c (Leaf h) _ = Refl
-  readReaches fl families w ps c (Token k) _ = Refl
-  readReaches fl families w ps c (Formal j k) _ = Refl
-  readReaches fl families w ps c (Member k) _ = Refl
-  readReaches fl families w ps c (Head a ts) _ = Refl
-  readReaches fl families w ps c (Opaque a ts) _ = Refl
-  readReaches fl families w ps c (Computing i d ts) _ = Refl
-  readReaches fl families w ps c (Field k r) no =
-    cong (fieldsReached fl.solution k) (readReaches fl families w ps c r (\dropped => no (DroppedInRecord dropped)))
-  readReaches fl families w ps c (Choice s ls) no =
-    leavesReach fl families w ps c ls (\el, dropped => no (DroppedInLeaf el dropped))
-  readReaches fl families w ps c (Applied i d ts) no =
-    appliedReaches fl families w ps c i d ts (c i) Refl (argumentsBeta c (allWithClosed c ts)) Refl no
+  readReaches fl families w ps c (Var i d) = Refl
+  readReaches fl families w ps c (Leaf h) = Refl
+  readReaches fl families w ps c (Token k) = Refl
+  readReaches fl families w ps c (Formal j k) = Refl
+  readReaches fl families w ps c (Member k) = Refl
+  readReaches fl families w ps c (Head a ts) = Refl
+  readReaches fl families w ps c (Opaque a ts) = Refl
+  readReaches fl families w ps c (Computing i Z ts) = Refl
+  readReaches fl families w ps c (Computing i (S d) ts) = Refl
+  readReaches fl families w ps c (Field k r) = cong (fieldsReached fl.solution k) (readReaches fl families w ps c r)
+  readReaches fl families w ps c (Choice s ls) = leavesReach fl families w ps c ls
+  readReaches fl families w ps c (Applied i d ts) =
+    appliedReaches fl families w ps c i d ts (c i) Refl (argumentsBeta c (allWithClosed c ts))
 
   0 leavesReach : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
-                  (ls : List Template) -> ({t : Template} -> Elem t ls -> Not (DropsReach c families t)) ->
+                  (ls : List Template) ->
                   byLeaves fl.solution (ownAt fl families w ps c) OfChosen (allWithClosed c ls) =
                   byLeaves fl.solution (ownAt fl families w ps c) OfChosen ls
-  leavesReach fl families w ps c [] _ = Refl
-  leavesReach fl families w ps c (t :: ts) no =
-    cong2 joined (readReaches fl families w ps c t (no Here)) (leavesReach fl families w ps c ts (\el => no (There el)))
+  leavesReach fl families w ps c [] = Refl
+  leavesReach fl families w ps c (t :: ts) =
+    cong2 joined (readReaches fl families w ps c t) (leavesReach fl families w ps c ts)
 
   -- A use of the writer's parameter applied, read as what lands at its
-  -- position and what beta makes of its arguments say.
+  -- position and what beta makes of its arguments say: computing or not,
+  -- a use applied reads as the parameter, and only heads above its
+  -- arguments, where closed values land, read as no member, as the use
+  -- does where they land.
   0 appliedReaches : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
-                     (i, d : Nat) -> (ts : List Template) -> (l : Landing) -> c i = l ->
-                     (b : Beta) -> argumentsBeta c (allWithClosed c ts) = b -> Not (DropsReach c families (Applied i d ts)) ->
+                     (i, d : Nat) -> (ts : List Template) -> (l : Landing) -> c i = l -> (b : Beta) ->
                      byTemplate fl.solution (ownAt fl families w ps c) OfChosen (landedAs l b i d (allWithClosed c ts)).template =
                      byTemplate fl.solution (ownAt fl families w ps c) OfChosen (Applied i d ts)
-  appliedReaches fl families w ps c i (S d) ts Computed _ b _ _ = Refl
-  appliedReaches fl families w ps c i (S d) ts (Evaluable _) _ b _ _ = Refl
-  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Computes _ _ = Refl
-  appliedReaches fl families w ps c i (S d) ts Open _ Computes _ _ = Refl
-  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Inert _ _ = raisedReaches k
-  appliedReaches fl families w ps c i (S d) ts Open _ Inert _ _ = Refl
-  appliedReaches fl families w ps c i Z ts Open _ Inert _ _ = Refl
-  appliedReaches fl families w ps c i Z ts (Closed k) landed Inert _ _ =
+  appliedReaches fl families w ps c i (S d) ts Computed _ b = Refl
+  appliedReaches fl families w ps c i (S d) ts (Evaluable _) _ b = Refl
+  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Computes = Refl
+  appliedReaches fl families w ps c i (S d) ts Open _ Computes = Refl
+  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Inert = raisedReaches k
+  appliedReaches fl families w ps c i (S d) ts Open _ Inert = Refl
+  appliedReaches fl families w ps c i Z ts Computed _ b = Refl
+  appliedReaches fl families w ps c i Z ts (Evaluable _) _ b = Refl
+  appliedReaches fl families w ps c i Z ts (Closed k) _ Computes = Refl
+  appliedReaches fl families w ps c i Z ts Open _ Computes = Refl
+  appliedReaches fl families w ps c i Z ts Open _ Inert = Refl
+  appliedReaches fl families w ps c i Z ts (Closed k) landed Inert =
     trans (raisedReaches k) (sym (nothingAt fl families w ps c i (Closed k) landed Refl))
-  appliedReaches fl families w ps c i Z ts (Closed k) landed Computes _ _ =
-    sym (nothingAt fl families w ps c i (Closed k) landed Refl)
-  appliedReaches fl families w ps c i Z ts Computed landed b _ _ =
-    sym (nothingAt fl families w ps c i Computed landed Refl)
-  appliedReaches fl families w ps c i Z ts (Evaluable es) landed b _ _ =
-    sym (nothingAt fl families w ps c i (Evaluable es) landed Refl)
-  appliedReaches fl families w ps c i Z ts Open landed Computes computes no = case decided (elem i families) of
-    Left family => sym (trans (cong (\x => if elem i families then NoHeading else appliedWhere x (dictionaryAt fl w ps i)) landed)
-                              (thenNothing (elem i families) family))
-    Right other => void (no (DroppedAtUse other landed computes))
 
 ||| The roots a field's record reaches, as `roots` reads them at a node,
-||| are kept by reading the record there (`withClosedFamilies`), wherever
-||| the reading drops none (`DropsReach`).
+||| are kept by reading the record there (`withClosedFamilies`).
 export
 0 recordRootsOf : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
-                  (r : Template) -> Not (DropsReach c families r) -> (j : Address) ->
-                  Elem j (roots fl families w ps c r) -> Elem j (roots fl families w ps c (withClosedFamilies c r))
-recordRootsOf fl families w ps c r no j el =
-  replace {p = \h => Elem j (headsOf h)} (sym (readReaches fl families w ps c r no)) el
+                  RecordRoots c (roots fl families w ps c)
+recordRootsOf fl families w ps c r j el =
+  replace {p = \h => Elem j (headsOf h)} (sym (readReaches fl families w ps c r)) el
 
 ------------------------------------------------------------------------------
 -- Visits
@@ -1416,7 +1405,7 @@ reaches fl v s = from s.reach
     -- its own.
     filling : Argument -> (Address, Nat, Template) -> Reached
     filling x (con, c, t) =
-      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, holds := [] } x) c]
+      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := [] } x) c]
                 Called
 
     -- The field the last level takes, as a value held (`Cases.heldHere`):
@@ -1424,7 +1413,7 @@ reaches fl v s = from s.reach
     stuckField : Argument -> (Template, Level) -> Argument
     stuckField x (part, l) =
       { position := 0, kind := AType, template := overPart part l.heldType, root := Unrooted, term := Nothing
-      , memberOf := Nothing, holds := [] } x
+      , memberOf := Nothing, writtenAs := NoTerm, holds := [] } x
 
     -- The writer again, its dictionary parameter, whose argument is `x`,
     -- rebuilt down a chain to the stuck path `path`, which the writer's
@@ -1444,7 +1433,7 @@ reaches fl v s = from s.reach
           final = lastOf (Template.Var x.position 0) l ls
           lists = [ EachOf x.position ::: [OfType (stuckField x final ::: [])]
                   , EachOf x.position ::: [MembersOf (snd final).choiceOf] ]
-          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, holds := lists } x) x.position
+          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, writtenAs := NoTerm, holds := lists } x) x.position
           settled = rebuiltHead l.holds.builtBy path held fresh
           target = MkVisit v.definition (headedAt x.position settled v.heads) in
       MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called ::

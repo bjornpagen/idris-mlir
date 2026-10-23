@@ -81,6 +81,7 @@ import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Literals
 import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Bound
@@ -1996,30 +1997,32 @@ formRoot ctx form = case getFnArgs form of
   (Ref _ Bound n, _) => maybe Unrooted (uncurry Parameter . partDepth) (Template.markerOf n)
   _ => Unrooted
 
--- A site's type read once: its template, as `siteReading` reads it, and
--- its root, off the same form.
-typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> ClosedTerm -> Front (Template, Root)
-typeReading stands t = do
+-- A site's type or family read once: its reading (`siteReading`), and
+-- its root, off the form that reading read.
+typeReading : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, Root)
+typeReading stands k t = do
   ctx <- frozenContext
-  r <- siteReading stands AType t
-  pure (r.template, formRoot (gamma (defsOf ctx)) r.form)
+  r <- siteReading stands k t
+  pure (r, formRoot (gamma (defsOf ctx)) r.form)
 
-||| A static argument read once at its kind: its template (`templateOf`),
-||| and its root, the definition that splits the node it is given to. A
-||| dictionary's is the implementation that runs (`dictionaryRoot`). A
-||| type's is the type constructor at its head, which only a family's value
-||| has (`formRoot`), off the normal form its template reads; a request's
-||| type parameter is a type or a family alike, so every type is read for
-||| one. A form and a shape split nothing. The one reading of a site's
-||| argument and of a request's, so the graph and the requests split a
-||| definition by the same heads.
+||| A static argument read once at its kind: its reading (`siteReading`),
+||| whose template is what a site writes there, and its root, the
+||| definition that splits the node it is given to. A dictionary's is the
+||| implementation that runs (`dictionaryRoot`). A type's is the type
+||| constructor at its head, which only a family's value has (`formRoot`),
+||| off the normal form its template reads; a request's type parameter is a
+||| type or a family alike, so every type is read for one. A form and a
+||| shape split nothing. The one reading of a site's argument and of a
+||| request's, so the graph and the requests split a definition by the same
+||| heads; the reading itself comes back with the root, so that what a site
+||| writes is known to be its template (`Sites.WrittenAs`).
 export
-rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> Readings.Static -> ClosedTerm -> Front (Template, Root)
-rooted stands AType t = typeReading stands t
-rooted stands AFamily t = typeReading stands t
-rooted stands AForm t = (, Unrooted) <$> templateOf stands AForm t
-rooted stands AShape t = (, Unrooted) <$> templateOf stands AShape t
-rooted stands ADictionary t = (,) <$> templateOf stands ADictionary t <*> dictionaryRoot t
+rooted : {auto c : Ref Ctxt Defs} -> List StandIn -> (k : Readings.Static) -> (t : ClosedTerm) -> Front (SiteReading k t, Root)
+rooted stands AType t = typeReading stands AType t
+rooted stands AFamily t = typeReading stands AFamily t
+rooted stands AForm t = (, Unrooted) <$> siteReading stands AForm t
+rooted stands AShape t = (, Unrooted) <$> siteReading stands AShape t
+rooted stands ADictionary t = (,) <$> siteReading stands ADictionary t <*> dictionaryRoot t
 
 ||| The head of a choice's type (`ChoiceHead`), its normal form: the arrow
 ||| of a function type, the type constructor any other applies; for a type

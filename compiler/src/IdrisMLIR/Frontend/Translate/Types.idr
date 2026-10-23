@@ -20,6 +20,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Given
 import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.TypeConstructors
@@ -50,6 +51,10 @@ import Data.SortedSet
 import Data.String
 
 %default total
+
+-- A term is closed here over what a given scope holds (`Given.close`),
+-- never over a reading's values.
+%hide IdrisMLIR.Frontend.Translate.Readings.close
 
 ||| A term read in another scope: each level's stand-in replaced by the
 ||| closed term given for it there, and erased where none is given, since a

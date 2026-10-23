@@ -102,7 +102,11 @@ import IdrisMLIR.Frontend.Growth.Graph
 import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Contraction
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Literals
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Bound
@@ -165,21 +169,21 @@ spineReadBack {as} (Host.Applied {args = pre} {a} sp) s =
 -- A closed run is a data constructor's spine: no type constructor, no
 -- bound name and no constant heads one.
 0 runNotFamily : Run u k -> Spine u (Ref fc (TyCon arity) n) args -> Void
-runNotFamily Keys.RunZero Host.Head impossible
-runNotFamily Keys.RunZero (Host.Applied _) impossible
+runNotFamily Literals.RunZero Host.Head impossible
+runNotFamily Literals.RunZero (Host.Applied _) impossible
 runNotFamily (RunSucc _) Host.Head impossible
 runNotFamily (RunSucc _) (Host.Applied Host.Head) impossible
 runNotFamily (RunSucc _) (Host.Applied (Host.Applied _)) impossible
 
 0 runNotBound : Run u k -> Spine u (Ref fc Bound n) args -> Void
-runNotBound Keys.RunZero Host.Head impossible
-runNotBound Keys.RunZero (Host.Applied _) impossible
+runNotBound Literals.RunZero Host.Head impossible
+runNotBound Literals.RunZero (Host.Applied _) impossible
 runNotBound (RunSucc _) Host.Head impossible
 runNotBound (RunSucc _) (Host.Applied Host.Head) impossible
 runNotBound (RunSucc _) (Host.Applied (Host.Applied _)) impossible
 
 0 runNotConstant : Run (PrimVal fc c) k -> Void
-runNotConstant Keys.RunZero impossible
+runNotConstant Literals.RunZero impossible
 runNotConstant (RunSucc _) impossible
 
 ||| An instance's reading of a term a data constructor heads: a closed
@@ -227,9 +231,9 @@ familyRead {args} s (ASpine sp) = case familySpine (spineRead s sp) of
 ||| other name one node.
 public export
 data BoundRead : Name -> List Template -> Template -> Type where
-  HoleRead : (0 _ : Closed.markerOf n = Just i) -> BoundRead n ts (partOf EveryNode (Token (S i)) ts)
+  HoleRead : (0 _ : Readings.markerOf n = Just i) -> BoundRead n ts (partOf EveryNode (Token (S i)) ts)
   FormalRead : (0 _ : probeOf n = Just (ProbeFormal j k)) -> BoundRead n ts (partOf EveryNode (Formal j k) ts)
-  PartRead : (0 _ : Closed.markerOf n = Nothing) -> (0 _ : NotFormal n) -> BoundRead n ts (partOf EveryNode (Leaf 1) ts)
+  PartRead : (0 _ : Readings.markerOf n = Nothing) -> (0 _ : NotFormal n) -> BoundRead n ts (partOf EveryNode (Leaf 1) ts)
 
 0 boundSpine : SpineAs (InstanceMode ctx) env (Ref fc Bound n) as r ->
                (ts : List Template ** (BoundRead n ts r, AllReadAs (InstanceMode ctx) env as ts))
@@ -566,7 +570,7 @@ computedMeasured op cs computed = transitive (snd (constantMeasured c)) (compute
 ||| leaf of.
 export
 0 asGivenWrites : (k : Maybe ChoiceHead) -> (root : Root) -> Writes m s t w -> Writes m s (asGiven k (t, root)) w
-asGivenWrites (Just k) (Template.Chosen _) wr = Bound.Chosen Here wr
+asGivenWrites (Just k) (Readings.Chosen _) wr = Bound.Chosen Here wr
 asGivenWrites (Just k) (Rooted _) wr = wr
 asGivenWrites (Just k) (Gives _) wr = wr
 asGivenWrites (Just k) (Parameter _ _) wr = wr
@@ -677,33 +681,25 @@ mutual
 |||   at the position its values land at, which `Beta`, `GivenPart` and
 |||   `closedLands` name;
 ||| - only closed values no higher than k land at each position the writer
-|||   reads a family landing closed at (`closedLands`): what lands at a
-|||   position is joined from every writing there, each argument's closed
-|||   landing an unmarked template no higher than k
-|||   (`closedSelfBounded`), and a position some writing no argument made
-|||   lands at is open;
+|||   reads a family landing closed at (`closedLands`): the site's landing
+|||   is read off the graph's table of what landed at each numbered
+|||   position (`Graph.SiteLanding`'s `readsTable`), where a closed entry
+|||   leaves the position uncapped (`Graph.Built.uncappedLanded`) and
+|||   bounds every site into it (`Graph.Built.targetsBounded`), each
+|||   argument's closed landing an unmarked template no higher than k
+|||   (`Graph.closedSelfBounded`);
 ||| - an applied parameter whose reading roots an implementation lands
 |||   other than closed, and the roots it is read with are read off its
 |||   head, whatever its arguments (`appliedRoots`): `Heads.roots` reads an
 |||   applied marker by its index alone, and roots it only where it lands
 |||   open (`Heads.appliedRootsOf`);
 ||| - the roots a field's record gives are kept by the rewrite
-|||   (`recordRoots`), which `Heads.recordRootsOf` proves wherever the
-|||   reading drops no root (`Heads.DropsReach`). A use of the writer's
-|||   dictionary parameter applied in a record where values not all closed
-|||   land, whose arguments compute, is read as computing, which roots
-|||   nothing: there the record gives roots the rewritten record does not,
-|||   the graph draws no arc for the field read, and only the run-time
-|||   re-check stands.
-||| The graph's builder gives a built graph's sites their own arcs
-||| (`Graph.Built.ownDrawn`), their writers (`Graph.Built.writersListed`)
-||| and, at a node, their roots' word on an applied use
-||| (`Graph.SiteLanding`); the checker's success gives the feasibility.
-||| `closedLands` holds of the builder's code (`Graph.landedAt`,
-||| `Graph.closedAt`, the numbering `Graph.meet`) but rests on what base's
-||| `SortedMap` holds after an insert, which base states nowhere a proof can
-||| read, so it stays a premise, and `recordRoots` stays one for the case
-||| above.
+|||   (`recordRoots`, `Heads.recordRootsOf`): a use of the writer's
+|||   dictionary parameter applied reads as the parameter whatever its
+|||   arguments compute, so a record read as computing roots what it did
+|||   as written, and the graph draws the field read's arcs.
+||| A built graph gives each of its sites all of these but the
+||| feasibility, which the checker's success gives (`builtLandings`).
 ||| A family read as computing is then never reached where an instance
 ||| writes (`computingUnreached`): it weighs its parameter Stuck, the arc
 ||| from the position the writer reads it at is Unmeasured, and no feasible
@@ -717,24 +713,37 @@ record LandingsWrite {g : Graph} (m : Model g) (s : Bound.Site g.size) (c : Nat 
   0 writersListed : WritersListed s
   0 closedLands : (i, k : Nat) -> c i = Closed k -> (p : Fin g.size) -> Elem (i, p) s.writers -> Lands g m p k
   0 appliedRoots : AppliedRoots c s.roots
-  0 recordRoots : (r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))
+  0 recordRoots : RecordRoots c s.roots
 
-||| What a built graph gives the rewrite of one of its sites read at a
-||| node: its own arcs (`Built.ownDrawn`), its writers listing every
-||| parameter its template weighs with an arc (`Built.writersListed`), and,
-||| where the site was read at a node whose families land as `c` says, its
-||| roots' word on an applied use (`Graph.SiteLanding`'s `LandedAtNode`);
-||| the graph's feasibility, which the check's success gives, and the
-||| landings' other two facts are the premises still to be kept.
+||| Only closed values no higher than k land at a position a site of a
+||| built graph reads a parameter at where its landing reads closed values
+||| no higher than k: the table it read that landing off holds closed
+||| values no higher there, which leaves the position uncapped and bounds
+||| every site into it.
 export
-0 builtLandings : (b : Built) -> {s : Bound.Site b.graph.size} -> Elem s b.model.sites ->
-                  (c : Nat -> Landing) -> AppliedRoots c s.roots ->
+0 closedLandsOf : (b : Built) -> {s : Bound.Site b.graph.size} -> (inModel : Elem s b.model.sites) ->
+                  (i, k : Nat) -> (b.landedSites s inModel).atParameter i = Closed k ->
+                  (p : Fin b.graph.size) -> Elem (i, p) s.writers -> Lands b.graph b.model p k
+closedLandsOf b {s} inModel i k read p wrote = case (b.landedSites s inModel).readsTable i k read p wrote of
+  (k' ** (atP, le)) =>
+    MkLands (b.uncappedLanded p k' atP)
+            (\s', el, toP => case b.targetsBounded s' el k' (replace {p = \q => Vect.index q b.landings = Just (Closed k')} (sym toP) atP) of
+                              (um, high) => (um, transitive high le))
+
+||| What a built graph gives the rewrite of one of its sites, read where
+||| its writer's parameters land as its table says (`Graph.SiteLanding`):
+||| its own arcs (`Built.ownDrawn`), its writers listing every parameter
+||| its template weighs with an arc (`Built.writersListed`), what lands
+||| where its landing reads closed values (`closedLandsOf`), and its roots'
+||| word on an applied use and on a field's record; the graph's
+||| feasibility is the checker's success.
+export
+0 builtLandings : (b : Built) -> {s : Bound.Site b.graph.size} -> (inModel : Elem s b.model.sites) ->
                   (pot : Vect b.graph.size Nat) -> Feasible b.graph pot ->
-                  ((i, k : Nat) -> c i = Closed k -> (p : Fin b.graph.size) -> Elem (i, p) s.writers -> Lands b.graph b.model p k) ->
-                  ((r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))) ->
-                  LandingsWrite b.model s c
-builtLandings b {s} inModel c applied pot fe lands record =
-  MkLandingsWrite pot fe (b.ownDrawn s inModel) (b.writersListed s inModel) lands applied record
+                  LandingsWrite b.model s (b.landedSites s inModel).atParameter
+builtLandings b {s} inModel pot fe =
+  MkLandingsWrite pot fe (b.ownDrawn s inModel) (b.writersListed s inModel) (closedLandsOf b inModel)
+                  (b.landedSites s inModel).appliedRoots (b.landedSites s inModel).recordRoots
 
 ||| A family read as computing is reached nowhere an instance writes in a
 ||| site's template: reached, it weighs its parameter Stuck
@@ -748,43 +757,6 @@ computingUnreached ls r = case weightsCover s.template (reachedOccurs {e = 0} r)
   (v ** (inW, dom)) => case overStuck dom of
     Refl => case ls.writersListed i Stuck inW Unmeasured Refl of
       (p ** wp) => stuckUnread ls.feasible s ls.ownDrawn inW wp
-
--- Two booleans whose conjunction holds.
-0 bothHold : (a, b : Bool) -> (a && b) = True -> (a = True, b = True)
-bothHold True True _ = (Refl, Refl)
-bothHold True False eq = absurd eq
-bothHold False _ eq = absurd eq
-
-mutual
-  ||| What an argument's closed landing gives `Lands`: a self-bounded
-  ||| template (`landingOf`'s `Closed`) read at a node is unmarked and as
-  ||| high as it was. Its leaves hold no applied family; a choice's
-  ||| scrutinee may, which the rewrite reads, but neither unmarkedness nor
-  ||| height reads a scrutinee.
-  export
-  0 closedSelfBounded : (c : Nat -> Landing) -> (t : Template) -> selfBounded t = True ->
-                        (Unmarked (withClosedFamilies c t), height (withClosedFamilies c t) = height t)
-  closedSelfBounded c (Head a ts) sb = case allClosedSelfBounded c ts sb of
-    (um, high) => (UnmarkedHead um, cong S high)
-  closedSelfBounded c (Opaque a ts) sb = case allClosedSelfBounded c ts sb of
-    (um, high) => (UnmarkedOpaque um, cong S high)
-  closedSelfBounded c (Choice x ts) sb = case allClosedSelfBounded c ts sb of
-    (um, high) => (UnmarkedChoice um, high)
-  closedSelfBounded c (Leaf h) _ = (UnmarkedLeaf, Refl)
-  closedSelfBounded c (Token k) _ = (UnmarkedToken, Refl)
-  closedSelfBounded c (Formal j k) _ = (UnmarkedFormal, Refl)
-  closedSelfBounded c (Var _ _) sb = absurd sb
-  closedSelfBounded c (Applied _ _ _) sb = absurd sb
-  closedSelfBounded c (Computing _ _ _) sb = absurd sb
-  closedSelfBounded c (Field _ _) sb = absurd sb
-  closedSelfBounded c (Member _) sb = absurd sb
-
-  0 allClosedSelfBounded : (c : Nat -> Landing) -> (ts : List Template) -> allSelfBounded ts = True ->
-                           (AllUnmarked (allWithClosed c ts), tallest (allWithClosed c ts) = tallest ts)
-  allClosedSelfBounded c [] _ = ([], Refl)
-  allClosedSelfBounded c (t :: ts) sb = case bothHold (selfBounded t) (allSelfBounded ts) sb of
-    (here, rest) => case (closedSelfBounded c t here, allClosedSelfBounded c ts rest) of
-      ((um, high), (ums, highs)) => (um :: ums, cong2 maximum high highs)
 
 ||| What writes a family of the writer's applied, its arguments' writes
 ||| already carried to the rewritten arguments.
@@ -931,7 +903,7 @@ constantAlike (PrT _) rs = partAlike RereadSame rs
 constantAlike WorldVal rs = partAlike RereadSame rs
 
 0 runOnce : Run u k -> Run u k' -> k = k'
-runOnce Keys.RunZero Keys.RunZero = Refl
+runOnce Literals.RunZero Literals.RunZero = Refl
 runOnce (RunSucc r) (RunSucc r') = cong S (runOnce r r')
 
 -- No binder an instance reads as a node is a lambda.
@@ -950,7 +922,7 @@ mutual
   runRead run (ASpine s) = runSpineRead run s
 
   0 runSpineRead : Run u k -> SpineAs (InstanceMode ctx) env u [] t -> RunRead (S k) t
-  runSpineRead Keys.RunZero (SData _ []) = RunReadZero
+  runSpineRead Literals.RunZero (SData _ []) = RunReadZero
   runSpineRead (RunSucc run) (SApp (SData _ (r :: []))) = RunReadSucc (runRead run r)
 
 mutual
@@ -1102,7 +1074,7 @@ lambdaNoBinder (NormalPVTy _) impossible
 
 mutual
   ||| Contraction is maximal: a term that holds no redex a contraction of
-  ||| every redex contracts (`Closed.EtaNormal`, which `Closed.contractedBy`
+  ||| every redex contracts (`Contraction.EtaNormal`, which `Contraction.contractedBy`
   ||| gives what it returns) contracts to nothing but itself. An instance's
   ||| form is contracted so, so reading it again reads it as it is.
   export
@@ -1164,7 +1136,7 @@ rootHolds (MkVar (Later _)) _ _ _ _ _ impossible
 ||| requesting instance's site gives (`siteWritesRead`).
 public export
 data ArgumentFrom : {g : Graph} -> Model g -> Bound.Site g.size -> Frozen -> (i, d : Nat) -> ClosedTerm -> Type where
-  WrittenArgument : {0 k : State.Static} -> {0 t : ClosedTerm} -> (p : Fin g.size) -> Elem (i, p) s.writers ->
+  WrittenArgument : {0 k : Readings.Static} -> {0 t : ClosedTerm} -> (p : Fin g.size) -> Elem (i, p) s.writers ->
                     (inst : InstanceReading ctx k t) -> SiteWrites m p inst.template -> (0 _ : d = 0) -> (0 _ : v = inst.form) ->
                     ArgumentFrom m s ctx i d v
 
@@ -1194,8 +1166,8 @@ requestHolds from x i d marked u read = case from x i d marked of
 ||| (`ReadAs`), proves of each node of the form: where the node, closed by
 ||| its substitutes and the instance's values put in, reduces by an
 ||| evaluation's steps to a term that takes no step further, which the
-||| instance contracts to an eta-normal term (`Closed.EtaNormal`, what
-||| `Closed.contractedBy` gives) and reads, the node's template writes that
+||| instance contracts to an eta-normal term (`Contraction.EtaNormal`, what
+||| `Contraction.contractedBy` gives) and reads, the node's template writes that
 ||| reading. `ReadingCovers` is this at the root, whose instance reading is
 ||| the form an `InstanceReading` holds.
 public export
@@ -1224,9 +1196,9 @@ markerWrites held x marked read = case held x i d marked u read of
 ------------------------------------------------------------------------------
 
 ||| The kinds read off the host's normal form alone: a type, a family, a
-||| form; no reading reads one as written (`Template.ReadAsWritten`).
+||| form; no reading reads one as written (`Readings.ReadAsWritten`).
 public export
-data ReadOffNormal : State.Static -> Type where
+data ReadOffNormal : Readings.Static -> Type where
   TypeReadNormal : ReadOffNormal AType
   FamilyReadNormal : ReadOffNormal AFamily
   FormReadNormal : ReadOffNormal AForm
@@ -1259,7 +1231,7 @@ formCovers nk covers from maximal r read = case normalOnly nk from of
 ||| The reading lemma at the root, from its induction (`NodeCovers`), for
 ||| a kind read off the host's normal form: the instance's form is that
 ||| normal form of the site's term with the values put in, contracted, and
-||| it holds no redex (`Template.InstanceReading`'s `maximal`), so the
+||| it holds no redex (`Readings.InstanceReading`'s `maximal`), so the
 ||| induction's premises are the instance reading's own. A dictionary and
 ||| a shape a constructor heads are read as written, which no normal form
 ||| relates to the site's: theirs is a separate obligation.
@@ -1282,19 +1254,22 @@ landedWrites ls same wr =
 
 ||| What a site of the model writes at a request's argument, of any kind,
 ||| from the reading lemma at the site the request read: the graph's site
-||| holds its reading's template read where its writer's families land
-||| (`Graph.SiteLanding`), and the lemma gives what it writes at the
-||| instance's reading of the argument, which that reading keeps
-||| (`landedWrites`).
+||| holds the template the argument was written as read where its writer's
+||| families land (`Graph.SiteLanding`), which is its reading's template as
+||| the target is given it (`Sites.writtenReading`), and the lemma gives what it
+||| writes at the instance's reading of the argument, which giving it to
+||| the target (`asGivenWrites`) and that reading keep (`landedWrites`).
 export
 0 siteWritesRead : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {c : Nat -> Landing} -> (s : SiteOf m p) ->
-                   (r : SiteReading k t) -> LandingsWrite m s.site c -> s.site.template = withClosedFamilies c r.template ->
+                   (r : SiteReading k t) -> (given : Maybe ChoiceHead) -> (root : Root) -> LandingsWrite m s.site c ->
+                   s.site.template = withClosedFamilies c (asGiven given (r.template, root)) ->
                    ReadingCovers m s.site stands k t r ->
                    (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
                    MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
                    (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
                    SiteWrites m p inst.template
-siteWritesRead s r ls same covers mk vs held inst = siteWritten s (landedWrites ls same (covers mk vs held inst))
+siteWritesRead s r given root ls same covers mk vs held inst =
+  siteWritten s (landedWrites ls same (asGivenWrites given root (covers mk vs held inst)))
 
 ------------------------------------------------------------------------------
 -- Templates that name nothing
@@ -1438,11 +1413,11 @@ putInErased o sz (Add new old rest) env IsPlaceholder = Refl
 putInErased o sz (Add new old rest) env IsImpossible = Refl
 
 0 runNotUniverse : Run (TType fc u) k -> Void
-runNotUniverse Keys.RunZero impossible
+runNotUniverse Literals.RunZero impossible
 runNotUniverse (RunSucc _) impossible
 
 0 runNotErased : Run (Erased fc why) k -> Void
-runNotErased Keys.RunZero impossible
+runNotErased Literals.RunZero impossible
 runNotErased (RunSucc _) impossible
 
 -- What an instance reads a universe and an erased part no dot holds as:
@@ -1510,7 +1485,7 @@ atErased {ns} {bs} {vs} {w} undotted steps normal contracted maximal r read =
 export
 0 putInRun : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (env : SubstEnv ns vars) -> Run u k ->
              putIn o sz bs env u = u
-putInRun o sz bs env Keys.RunZero = putInHead o sz bs env KeptData
+putInRun o sz bs env Literals.RunZero = putInHead o sz bs env KeptData
 putInRun o sz bs env (RunSucc {fc} {rfc} {tag} {arity} {s} {a} run) =
   trans (putInApp {fc} o sz bs env (Ref rfc (DataCon tag arity) s) a)
         (cong2 (App fc) (putInHead o sz bs env KeptData) (putInRun o sz bs env run))
@@ -1519,8 +1494,8 @@ putInRun o sz bs env (RunSucc {fc} {rfc} {tag} {arity} {s} {a} run) =
 ||| (`Proof.Inversion.inertAlone`, `Proof.Inversion.inertOne`).
 export
 0 runReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Run u k -> Reduces ev ctx u w -> Run w k
-runReduces Keys.RunZero r = case inertAlone InertData r of
-  (_ ** Refl) => Keys.RunZero
+runReduces Literals.RunZero r = case inertAlone InertData r of
+  (_ ** Refl) => Literals.RunZero
 runReduces (RunSucc run) r = case inertOne InertData r of
   (_ ** _ ** _ ** (Refl, ra)) => RunSucc (runReduces run ra)
 
@@ -1652,8 +1627,8 @@ coversAll (EachCovers covers rest) (Each red reds) (irr :: irrs) (EachContracted
 
 -- A closed run's spine has one argument at most.
 0 longRun : Run v k -> Spine v h (x :: y :: zs) -> Void
-longRun Keys.RunZero Host.Head impossible
-longRun Keys.RunZero (Host.Applied _) impossible
+longRun Literals.RunZero Host.Head impossible
+longRun Literals.RunZero (Host.Applied _) impossible
 longRun (RunSucc _) Host.Head impossible
 longRun (RunSucc _) (Host.Applied Host.Head) impossible
 longRun (RunSucc _) (Host.Applied (Host.Applied _)) impossible
@@ -1669,7 +1644,7 @@ longRun (RunSucc _) (Host.Applied (Host.Applied _)) impossible
                      EtaNormal EveryRedex v -> Run v k -> Writes m s (Head a ts) (Leaf (S k))
 runAtConstructor NoneCovers NoneLeft [] NoneContracted sv _ run = case headOnly sv Refl of
   Refl => case run of
-    Keys.RunZero => AtCut (AtHead []) (LTESucc LTEZero)
+    Literals.RunZero => AtCut (AtHead []) (LTESucc LTEZero)
 runAtConstructor (EachCovers covers NoneCovers) (Each red NoneLeft) [irr] (EachContracted ck NoneContracted) sv maximal run =
   case oneApplied sv Refl of
     (_ ** Refl) => case maximal of

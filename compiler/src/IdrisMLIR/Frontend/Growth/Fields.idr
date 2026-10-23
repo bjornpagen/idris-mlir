@@ -19,6 +19,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Given
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Types
@@ -27,6 +28,10 @@ import IdrisMLIR.Proof.Requests
 import Data.List
 
 %default total
+
+-- A term is closed here over what a given scope holds (`Given.close`),
+-- never over a reading's values.
+%hide IdrisMLIR.Frontend.Translate.Readings.close
 
 -- A stand-in for the `k`th binder of a constructor's type, so that the
 -- return type can say which binder it holds where. Only the match below

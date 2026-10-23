@@ -15,7 +15,7 @@
 |||
 ||| The cap is read off the very type the key is cut against, the same way:
 ||| the rest of the callee's type with the parameter standing for its value
-||| (`Template.markerAt`), read by the template walk with every stuck
+||| (`Readings.markerAt`), read by the template walk with every stuck
 ||| definition's case tree walked and nothing beside it (`capTemplate`),
 ||| which normalises as `neededShape` does and records each match it meets
 ||| as a `Choice` on what it matched. A key reading also keeps the call as
@@ -42,6 +42,7 @@ import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests

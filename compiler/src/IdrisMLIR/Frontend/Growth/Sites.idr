@@ -17,7 +17,7 @@
 ||| writes `S (S m)` with `m` a part one level down, and a default clause,
 ||| expanded into the constructors it stands for, writes the constructor it
 ||| matched. Each part a match binds has a stand-in of its own
-||| (`Template.StandIn`), kept as its own marker up to the reading, so that
+||| (`Readings.StandIn`), kept as its own marker up to the reading, so that
 ||| a site's term is an instance's argument with a value put in for each
 ||| marker. A dictionary keeps its marker through every match, since its
 ||| root is the writer's head, which the flow reads.
@@ -36,8 +36,10 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Cases
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Walk
@@ -53,6 +55,12 @@ import Data.SortedSet
 import Data.String
 
 %default total
+
+-- A site closes a term over its environment (`close`) and names what a
+-- constructor's application gives (`Constructed`), neither of them a
+-- reading's.
+%hide IdrisMLIR.Frontend.Translate.Readings.close
+%hide IdrisMLIR.Frontend.Translate.Readings.Constructed
 
 ||| Where a site's writer reads its parameters: all its own; or, in the
 ||| walk of a member's application at a use, its own below `from` and from
@@ -109,6 +117,23 @@ data ArgumentText : Type
 public export
 data HeldItem : Type
 
+||| How an argument's template was written: off a term, at its kind, as its
+||| target is given it (`asGiven`) over that term's one reading (`rooted`),
+||| so what the site writes is that reading's template wherever the target
+||| is given it as written; or off no term, a part of a type already read,
+||| or a choice's member the walk names itself.
+public export
+data WrittenAs : Static -> Maybe ClosedTerm -> Maybe ChoiceHead -> Template -> Root -> Type where
+  OffTerm : (r : SiteReading k t) -> WrittenAs k (Just t) given (asGiven given (r.template, root)) root
+  NoTerm : WrittenAs k Nothing given w root
+
+||| What a site wrote off a term is that term's reading's template, as its
+||| target is given it, the equation the reading lemma at the site is
+||| carried through (`Proof.Covers.siteWritesRead`).
+export
+0 writtenReading : WrittenAs k (Just t) given w root -> (r : SiteReading k t ** w = asGiven given (r.template, root))
+writtenReading (OffTerm r) = (r ** Refl)
+
 ||| One argument a site writes, whole: the target's parameter it is at (of
 ||| a dispatched method, its own, in the order its field's lambdas take
 ||| them), its kind, the template written there and its root, as its
@@ -122,7 +147,8 @@ data HeldItem : Type
 ||| instance may give the target with it (none where it holds none, and
 ||| for every other kind), and what a message shows it by. Only a refusal
 ||| prints that, and most arguments are in none, so it is read where a
-||| message is made (`showArgument`).
+||| message is made (`showArgument`). How the template was written is kept
+||| beside it (`WrittenAs`).
 public export
 record Argument where
   constructor MkArgument
@@ -133,6 +159,7 @@ record Argument where
   term : Maybe ClosedTerm
   stands : List StandIn
   memberOf : Maybe ChoiceHead
+  0 writtenAs : WrittenAs kind term memberOf template root
   holds : List (List1 HeldItem)
   shown : ArgumentText
 
@@ -613,7 +640,7 @@ built at fc a cs = do
   where
     -- A part of a type already read, with no term of its own to root.
     argument : (Nat, Template) -> Argument
-    argument (j, t) = MkArgument j AType t Unrooted Nothing [] Nothing [] (TemplateText at.writerDef t)
+    argument (j, t) = MkArgument j AType t Unrooted Nothing [] Nothing NoTerm [] (TemplateText at.writerDef t)
 
 mutual
   ||| The sites at every type constructor of a template, at any depth: in a
@@ -806,7 +833,7 @@ mentioningIn statics t =
 heldAs : List (Maybe Static) -> (holders : List Marked) -> Name -> Maybe InSpine
 heldAs statics holders n = case dictionaryParameter statics n of
   Just i => Just (ValuesOf (OwnParameter i))
-  Nothing => Closed.markerOf n >>= \r => getAt r holders >>= holder
+  Nothing => Readings.markerOf n >>= \r => getAt r holders >>= holder
   where
     holder : Marked -> Maybe InSpine
     holder (AHolder b _) = Just (ValuesOf (OwnBinding b))
@@ -884,7 +911,7 @@ export
 readArgument : {auto c : Ref Ctxt Defs} -> List StandIn -> Nat -> Static -> (memberOf : Maybe ChoiceHead) -> ClosedTerm ->
                ArgumentText -> Front Argument
 readArgument stands j k memberOf t shown =
-  (\(tm, root) => MkArgument j k (asGiven memberOf (tm, root)) root (Just t) stands memberOf [] shown) <$> rooted stands k t
+  (\(r, root) => MkArgument j k (asGiven memberOf (r.template, root)) root (Just t) stands memberOf (OffTerm r) [] shown) <$> rooted stands k t
 
 ||| The pair Idris's `%pair` names, which holds a value and the rest of a
 ||| list as one, and its two projections, each by its definition's address.
@@ -1392,7 +1419,7 @@ useAt at ps env fc t form args = do
 heldApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   At -> Pats -> Env vs -> FC -> (t : ClosedTerm) -> List (Arg vs) -> Front (List Site)
 heldApplication at ps env fc t args =
-  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) (Chosen AtRunTimeAlways) Nothing [] (Just ArrowHead) []
+  useAt at ps env fc t (MkArgument 1 ADictionary (Member ArrowHead) (Chosen AtRunTimeAlways) Nothing [] (Just ArrowHead) NoTerm []
                                     (TemplateText at.writerDef (Member ArrowHead)))
         args
 
@@ -1544,14 +1571,14 @@ methodRecord d gs = do
 dispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> Projected -> Given vs -> ClosedTerm -> List (Arg vs) -> Front (List Site)
 dispatch at ps env fc p dict rest extras = do
-  read <- rooted ps.made ADictionary !(solved !(holed env dict.offer.arg.written))
-  tm <- (\head => asGiven (Just head) read) <$> choiceAt dict.binder
+  (r, root) <- rooted ps.made ADictionary !(solved !(holed env dict.offer.arg.written))
+  tm <- (\head => asGiven (Just head) (r.template, root)) <$> choiceAt dict.binder
   -- The method's own arguments are those its type shows binders for; any
   -- past them applies its result.
   positions <- argumentsIn rest
   let n = min (length extras) (length positions)
   (gs, after) <- taken at ps env rest positions (take n extras)
-  site <- callSite at ps env fc (Dispatches tm (snd read) p.field) gs
+  site <- callSite at ps env fc (Dispatches tm root p.field) gs
   now <- walkedAt at ps env fc AFunction (const ByInstance) gs
   later <- overType at ps env fc (Just after) (drop n extras)
   pure (site ++ now ++ later)
@@ -2467,9 +2494,9 @@ dictionaryProjection kinds t = do
 ||| the one value it holds (`Terms.holed`).
 projectionSite : {auto c : Ref Ctxt Defs} -> At -> Pats -> List (Maybe Static, Standing) -> Projected -> Front Site
 projectionSite at ps params p = do
-  (tm, root) <- rooted [] ADictionary (markerAt p.matched [])
+  (r, root) <- rooted [] ADictionary (markerAt p.matched [])
   args <- traverse own (mapMaybe static (zip [0 .. length p.params] p.params))
-  pure (siteAt at at.loc (Dispatches tm root p.field) args)
+  pure (siteAt at at.loc (Dispatches r.template root p.field) args)
   where
     static : (Nat, Maybe Nat) -> Maybe (Nat, Nat, Static, ClosedTerm)
     static (q, Just j) = case getAt j params of

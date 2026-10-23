@@ -16,7 +16,9 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk

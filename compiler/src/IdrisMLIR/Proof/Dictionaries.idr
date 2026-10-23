@@ -4,7 +4,7 @@
 ||| steps (`Idris.Host.Reduces`), and what a projection of it takes.
 |||
 ||| A dictionary the growth check roots at an implementation J
-||| (`Frontend.Growth.Template.Rooted`) is J applied to as many arguments as
+||| (`Frontend.Translate.Readings.Rooted`) is J applied to as many arguments as
 ||| its one right-hand side binds. The growth check reads J's fields over
 ||| J's own parameters (`Frontend.Growth.Implementations.fieldsOf`): the
 ||| right-hand side with the walk's marker in for each parameter, reduced

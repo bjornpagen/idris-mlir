@@ -19,6 +19,7 @@ import Idris.Host
 import Libraries.Data.SparseMatrix
 
 import IdrisMLIR.Frontend.Walk
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Ids

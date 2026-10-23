@@ -18,6 +18,7 @@ import Idris.Host
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Given
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Registry
@@ -30,6 +31,10 @@ import Data.Nat
 import Data.SortedMap
 
 %default total
+
+-- A term is closed here over what a given scope holds (`Given.close`),
+-- never over a reading's values.
+%hide IdrisMLIR.Frontend.Translate.Readings.close
 
 ------------------------------------------------------------------------------
 -- Stand-ins

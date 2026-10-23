@@ -21,6 +21,7 @@ import IdrisMLIR.Frontend.Growth.Graph
 import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Loc

@@ -249,7 +249,7 @@ mutual
   allRenumberedHeight NoneRenumbered = Refl
   allRenumberedHeight (EachRenumbered x xs) = cong2 maximum (renumberedHeight x) (allRenumberedHeight xs)
 
-||| What a constant's template is (`Template.constant`): one token, one
+||| What a constant's template is (`Readings.constant`): one token, one
 ||| leaf, or a node with a leaf per character.
 public export
 data ConstantForm : Template -> Type where

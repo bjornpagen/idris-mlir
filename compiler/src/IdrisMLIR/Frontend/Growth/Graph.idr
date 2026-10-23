@@ -32,7 +32,10 @@
 ||| is capped instead: its cap is its bound, and no site into it is drawn.
 ||| Each position is numbered where the graph first meets it, at the place
 ||| of that meeting among every place it meets one, so no position is
-||| looked up once numbered; that is where a position becomes a `Fin`.
+||| looked up once numbered; that is where a position becomes a `Fin`. The
+||| numbering comes before anything that lands is read: what lands at each
+||| position is a table by number (`LandingTable`), which every site's
+||| reading reads and every proof of what lands there reads too.
 module IdrisMLIR.Frontend.Growth.Graph
 
 import Core.Context
@@ -47,7 +50,9 @@ import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Fields
 import IdrisMLIR.Frontend.Growth.Caps
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Finite
@@ -72,6 +77,7 @@ import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.Vect
+import Decidable.Equality
 
 %default total
 
@@ -151,23 +157,50 @@ public export
 WritersListed {n} s = (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.template) -> (lab : Label) -> labelOf w = Just lab ->
                       (p : Fin n ** Elem (i, p) s.writers)
 
-||| How a site's template was read off what its writer wrote: at a walked
-||| node, the template written there read where the node's families land
-||| (`withClosedFamilies` at `c`, what lands at each of the writer's
-||| parameters), its writers listing every family that reading landed
-||| closed, which the template no longer names, with the position its
-||| writer reads it at, and its roots read there, which root a use of the
-||| writer's parameter applied only where values not all closed land and
-||| whatever the use is applied to (`Heads.appliedRootsOf`); or, at a held
-||| position, a packing's chain as written, which applies no family.
+||| What has landed at each numbered position: nothing yet, or what every
+||| writing there landed as, joined. Positions are numbered before anything
+||| that lands is read, so what lands where is read off this table by
+||| number, and what the table holds at a number is a fact a proof reads.
 public export
-data SiteLanding : {n : Nat} -> Bound.Site n -> Type where
-  LandedAtNode : {0 s : Bound.Site n} -> (c : Nat -> Landing) -> (written : Template) ->
-                 s.template = withClosedFamilies c written ->
-                 ((i : Nat) -> Elem i (readLanded c written).landed -> (p : Fin n ** Elem (i, p) s.writers)) ->
-                 AppliedRoots c s.roots ->
-                 SiteLanding s
-  HeldAsWritten : SiteLanding s
+LandingTable : Nat -> Type
+LandingTable n = Vect n (Maybe Landing)
+
+||| What a site's landing at its writer's parameters says of the table: a
+||| parameter read as closed values no higher than k is read at positions
+||| where closed values no higher than k landed.
+public export
+0 ReadsTable : {n : Nat} -> LandingTable n -> List (Nat, Fin n) -> (Nat -> Landing) -> Type
+ReadsTable t ws c = (i, k : Nat) -> c i = Closed k -> (p : Fin n) -> Elem (i, p) ws ->
+                    (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
+
+||| What the table says of a site's template: where only closed values no
+||| higher than k land at its target, it is unmarked and no higher than k.
+public export
+0 TargetBounded : {n : Nat} -> LandingTable n -> Bound.Site n -> Type
+TargetBounded t s = (k : Nat) -> Vect.index s.target t = Just (Closed k) -> (Unmarked s.template, LTE (height s.template) k)
+
+||| How a site's template was read off what its writer wrote: the template
+||| written there read where what lands at each of the writer's parameters
+||| says (`withClosedFamilies` at `atParameter`), its writers listing every
+||| family that reading landed closed, which the template no longer names,
+||| with the position its writer reads it at; its roots read at the same
+||| landing, which root a use of the writer's parameter applied only where
+||| values not all closed land, whatever the use is applied to
+||| (`Heads.appliedRootsOf`), and keep, read there, what a field's record
+||| roots as written (`Heads.recordRootsOf`); and that landing read off the
+||| table at the positions its writers list. A held position's packing
+||| chain applies no family, so reading it anywhere leaves it as written,
+||| and it roots nothing.
+public export
+record SiteLanding {n : Nat} (t : LandingTable n) (s : Bound.Site n) where
+  constructor MkSiteLanding
+  atParameter : Nat -> Landing
+  written : Template
+  0 readOff : s.template = withClosedFamilies atParameter written
+  0 landedListed : (i : Nat) -> Elem i (readLanded atParameter written).landed -> (p : Fin n ** Elem (i, p) s.writers)
+  0 appliedRoots : AppliedRoots atParameter s.roots
+  0 recordRoots : RecordRoots atParameter s.roots
+  0 readsTable : ReadsTable t s.writers atParameter
 
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
@@ -213,10 +246,18 @@ record Built where
   ||| Each site's writers list every parameter its template weighs with an
   ||| arc, with the position its writer reads it at.
   0 writersListed : (s : Bound.Site graph.size) -> Elem s model.sites -> WritersListed s
-  ||| How each site was read off what its writer wrote: where its node's
-  ||| families land, every family the reading landed closed among its
-  ||| writers, and its roots read at the same landing.
-  0 landedSites : (s : Bound.Site graph.size) -> Elem s model.sites -> SiteLanding s
+  ||| What landed at each position, the table every site's landing reads.
+  0 landings : LandingTable graph.size
+  ||| A position only closed values land at is uncapped: a capped one holds
+  ||| every value of its cap's height.
+  0 uncappedLanded : (p : Fin graph.size) -> (k : Nat) -> Vect.index p landings = Just (Closed k) ->
+                     Vect.index p graph.caps = Nothing
+  ||| How each site was read off what its writer wrote: where its writer's
+  ||| parameters land, read off the table, every family the reading landed
+  ||| closed among its writers, and its roots read at the same landing.
+  0 landedSites : (s : Bound.Site graph.size) -> Elem s model.sites -> SiteLanding landings s
+  ||| Each site's template is bounded by what lands at its target.
+  0 targetsBounded : (s : Bound.Site graph.size) -> Elem s model.sites -> TargetBounded landings s
 
 ------------------------------------------------------------------------------
 -- The definitions
@@ -636,25 +677,73 @@ joinLanding _ Computed = Computed
 joinLanding (Evaluable a) (Evaluable b) = Evaluable (a ++ b)
 joinLanding (Evaluable _) _ = Computed
 joinLanding _ (Evaluable _) = Computed
-joinLanding (Closed a) (Closed b) = Closed (max a b)
+joinLanding (Closed a) (Closed b) = Closed (maximum a b)
 joinLanding _ _ = Open
 
--- What an argument is, landing: a choice of implementation made at run
--- time, or a function that gives one at each use (a rank-2 dictionary),
--- which an application of it does not beta-reduce but gives one of its
--- members of, so it lands as a value no closed reading bounds; a closed
+-- A join of closed values joined two closed landings, as high as the
+-- taller.
+0 joinedClosed : (a, b : Landing) -> joinLanding a b = Closed k ->
+                 (x : Nat ** y : Nat ** (a = Closed x, b = Closed y, k = maximum x y))
+joinedClosed (Closed x) (Closed y) Refl = (x ** y ** (Refl, Refl, Refl))
+joinedClosed (Closed _) Open Refl impossible
+joinedClosed (Closed _) Computed Refl impossible
+joinedClosed (Closed _) (Evaluable _) Refl impossible
+joinedClosed Open (Closed _) Refl impossible
+joinedClosed Open Open Refl impossible
+joinedClosed Open Computed Refl impossible
+joinedClosed Open (Evaluable _) Refl impossible
+joinedClosed Computed _ Refl impossible
+joinedClosed (Evaluable _) (Closed _) Refl impossible
+joinedClosed (Evaluable _) Open Refl impossible
+joinedClosed (Evaluable _) Computed Refl impossible
+joinedClosed (Evaluable _) (Evaluable _) Refl impossible
+
+-- What an argument that is no choice of implementation lands as: a closed
 -- value that computes (`beta`), which is its term; any other that
 -- computes; a closed one no higher than its height; or one whose height
 -- an arc carries.
+valueLanding : Template.Beta -> Bool -> Maybe ClosedTerm -> Template -> Landing
+valueLanding Computes True (Just tm) _ = Evaluable [tm]
+valueLanding Computes True Nothing _ = Computed
+valueLanding Computes False _ _ = Computed
+valueLanding Inert True _ t = Closed (height t)
+valueLanding Inert False _ _ = Open
+
+-- What an argument is, landing, by its root: a choice of implementation
+-- made at run time, or a function that gives one at each use (a rank-2
+-- dictionary), which an application of it does not beta-reduce but gives
+-- one of its members of, so it lands as a value no closed reading bounds;
+-- any other as its value does.
+landingBy : Root -> Template.Beta -> Bool -> Maybe ClosedTerm -> Template -> Landing
+landingBy (Readings.Chosen _) _ _ _ _ = Open
+landingBy (Readings.Gives _) _ _ _ _ = Open
+landingBy (Rooted _) b sb tm t = valueLanding b sb tm t
+landingBy (Parameter _ _) b sb tm t = valueLanding b sb tm t
+landingBy Unrooted b sb tm t = valueLanding b sb tm t
+
+-- What an argument is, landing (`landingBy`).
 landingOf : Argument -> Landing
-landingOf x = case x.root of
-  Template.Chosen _ => Open
-  Template.Gives _ => Open
-  _ => case (beta x.template, selfBounded x.template, x.term) of
-    (Computes, True, Just tm) => Evaluable [tm]
-    (Computes, _, _) => Computed
-    (Inert, True, _) => Closed (height x.template)
-    (Inert, False, _) => Open
+landingOf x = landingBy x.root (beta x.template) (selfBounded x.template) x.term x.template
+
+-- A value landing closed is a template no marker holds, as high as it
+-- lands.
+0 valueClosed : (b : Template.Beta) -> (sb : Bool) -> (tm : Maybe ClosedTerm) -> (t : Template) -> valueLanding b sb tm t = Closed k ->
+                (sb = True, height t = k)
+valueClosed Inert True _ t Refl = (Refl, Refl)
+valueClosed Inert False _ _ Refl impossible
+valueClosed Computes True (Just _) _ Refl impossible
+valueClosed Computes True Nothing _ Refl impossible
+valueClosed Computes False _ _ Refl impossible
+
+-- An argument landing closed is a template no marker holds, as high as it
+-- lands.
+0 closedBy : (r : Root) -> (b : Template.Beta) -> (sb : Bool) -> (tm : Maybe ClosedTerm) -> (t : Template) ->
+             landingBy r b sb tm t = Closed k -> (sb = True, height t = k)
+closedBy (Readings.Chosen _) _ _ _ _ Refl impossible
+closedBy (Readings.Gives _) _ _ _ _ Refl impossible
+closedBy (Rooted _) b sb tm t eq = valueClosed b sb tm t eq
+closedBy (Parameter _ _) b sb tm t eq = valueClosed b sb tm t eq
+closedBy Unrooted b sb tm t eq = valueClosed b sb tm t eq
 
 -- The walked edges' one traversal, which every reading of what they place
 -- shares: each argument placed, in the walk's order, with the node whose
@@ -682,22 +771,192 @@ leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
     -- function's node.
     lead m _ = m
 
--- A value landing at a position, with what landed there before.
-put : Spot -> Landing -> SortedMap Spot Landing -> SortedMap Spot Landing
-put p l m = insert p (maybe l (joinLanding l) (lookup p m)) m
+------------------------------------------------------------------------------
+-- The table of landings
+------------------------------------------------------------------------------
 
--- Where values no writing states land as well, so nothing there is
--- closed: at a capped position, every value of the cap's height.
-opened : List Spot -> SortedMap Spot Landing -> SortedMap Spot Landing
-opened ps m = foldl (\acc, p => put p Open acc) m ps
+0 sameJust : Just x = Just y -> x = y
+sameJust Refl = Refl
+
+0 noneNotJust : Nothing = Just x -> Void
+noneNotJust Refl impossible
+
+-- A landing joined into what landed at its position before.
+landInto : Landing -> Maybe Landing -> Maybe Landing
+landInto l Nothing = Just l
+landInto l (Just m) = Just (joinLanding l m)
+
+||| What an entry of the table says of a landing joined into it: where the
+||| entry is closed values no higher than k, so is the landing.
+0 BoundedBy : Landing -> Maybe Landing -> Type
+BoundedBy l m = (k : Nat) -> m = Just (Closed k) -> (k' : Nat ** (l = Closed k', LTE k' k))
+
+-- A landing joined in is bounded by what it was joined into.
+0 landsInto : (l : Landing) -> (old : Maybe Landing) -> (m : Landing ** (landInto l old = Just m, BoundedBy l (Just m)))
+landsInto l Nothing = (l ** (Refl, \k, eq => (k ** (sameJust eq, reflexive))))
+landsInto l (Just m0) = (joinLanding l m0 ** (Refl, \k, eq => case joinedClosed l m0 (sameJust eq) of
+                                                  (x ** y ** (Refl, _, Refl)) => (x ** (Refl, maximumLeftUpperBound x y))))
+
+-- A landing stays bounded by an entry another is joined into.
+0 joinedOver : (l, l' : Landing) -> (m : Landing) -> BoundedBy l (Just m) -> BoundedBy l (landInto l' (Just m))
+joinedOver l l' m bounded k eq = case joinedClosed l' m (sameJust eq) of
+  (x ** y ** (_, Refl, Refl)) => case bounded y Refl of
+    (k' ** (same, le)) => (k' ** (same, transitive le (maximumRightUpperBound x y)))
+
+-- A closed join holds closed values no higher than its height on both
+-- sides: what is joined in, and what was there.
+0 intoClosed : (l : Landing) -> (old : Maybe Landing) -> landInto l old = Just (Closed k) ->
+               ((x : Nat ** (l = Closed x, LTE x k)), (m : Landing) -> old = Just m -> (y : Nat ** (m = Closed y, LTE y k)))
+intoClosed {k} l Nothing eq = ((k ** (sameJust eq, reflexive)), \m, none => void (noneNotJust none))
+intoClosed l (Just m0) eq = case joinedClosed l m0 (sameJust eq) of
+  (x ** y ** (Refl, Refl, Refl)) =>
+    ((x ** (Refl, maximumLeftUpperBound x y)), \m, same => (y ** (sym (sameJust same), maximumRightUpperBound x y)))
+
+-- A landing joined in at its position.
+landedAt : {0 n : Nat} -> Fin n -> Landing -> LandingTable n -> LandingTable n
+landedAt p l t = replaceAt p (landInto l (Vect.index p t)) t
+
+||| Each landing joined in at its position, the last first.
+landedTable : {n : Nat} -> List (Fin n, Landing) -> LandingTable n
+landedTable [] = replicate n Nothing
+landedTable ((p, l) :: rest) = landedAt p l (landedTable rest)
+
+-- Every landing joined into the table is bounded by its position's entry,
+-- which something landed in.
+0 landedBounds : {n : Nat} -> (xs : List (Fin n, Landing)) -> Elem (p, l) xs ->
+                 (m : Landing ** (Vect.index p (landedTable xs) = Just m, BoundedBy l (Just m)))
+landedBounds ((p, l) :: rest) Here = case landsInto l (Vect.index p (landedTable rest)) of
+  (m ** (into, bounded)) =>
+    (m ** (trans (replaceAtSameIndex (landedTable rest) p (landInto l (Vect.index p (landedTable rest)))) into, bounded))
+landedBounds {p} {l} ((q, l') :: rest) (There el) = case landedBounds rest el of
+  (m ** (atP, bounded)) => case decEq p q of
+    Yes Refl => (joinLanding l' m **
+                 (trans (replaceAtSameIndex (landedTable rest) p (landInto l' (Vect.index p (landedTable rest))))
+                        (cong (landInto l') atP),
+                  joinedOver l l' m bounded))
+    No ne => (m ** (trans (replaceAtDiffIndexPreserves (landedTable rest) p q ne (landInto l' (Vect.index q (landedTable rest)))) atP,
+                    bounded))
+
+-- Joining Open in leaves no closed value.
+0 openNotClosed : (m : Landing) -> Not (joinLanding Open m = Closed k)
+openNotClosed (Closed _) Refl impossible
+openNotClosed Open Refl impossible
+openNotClosed Computed Refl impossible
+openNotClosed (Evaluable _) Refl impossible
+
+||| Where values no writing states land as well, so nothing there is
+||| closed: at a capped position, every value of the cap's height.
+openedTable : Vect n (Maybe Nat) -> LandingTable n -> LandingTable n
+openedTable [] [] = []
+openedTable (Nothing :: caps) (l :: ls) = l :: openedTable caps ls
+openedTable (Just _ :: caps) (l :: ls) = landInto Open l :: openedTable caps ls
+
+-- Where only closed values land in the opened table, the position is
+-- uncapped and they landed there before.
+0 openedClosed : (caps : Vect n (Maybe Nat)) -> (t : LandingTable n) -> (p : Fin n) ->
+                 Vect.index p (openedTable caps t) = Just (Closed k) -> (Vect.index p caps = Nothing, Vect.index p t = Just (Closed k))
+openedClosed [] [] p _ = absurd p
+openedClosed (Nothing :: caps) (l :: ls) FZ eq = (Refl, eq)
+openedClosed (Just _ :: caps) (Nothing :: ls) FZ Refl impossible
+openedClosed (Just _ :: caps) (Just m :: ls) FZ eq = void (openNotClosed m (sameJust eq))
+openedClosed (Nothing :: caps) (l :: ls) (FS p) eq = openedClosed caps ls p eq
+openedClosed (Just _ :: caps) (l :: ls) (FS p) eq = openedClosed caps ls p eq
+
+0 computedNotClosed : Not (Just Computed = Just (Closed k))
+computedNotClosed Refl impossible
+
+||| A value that computes, at each of some positions.
+computedAt : List (Fin n) -> LandingTable n -> LandingTable n
+computedAt [] t = t
+computedAt (x :: xs) t = computedAt xs (replaceAt x (Just Computed) t)
+
+-- Where only closed values land after, they landed there before.
+0 computedClosed : (xs : List (Fin n)) -> (t : LandingTable n) -> (p : Fin n) ->
+                   Vect.index p (computedAt xs t) = Just (Closed k) -> Vect.index p t = Just (Closed k)
+computedClosed [] t p eq = eq
+computedClosed (x :: xs) t p eq = case decEq p x of
+  Yes Refl => void (computedNotClosed (trans (sym (replaceAtSameIndex t p (Just Computed)))
+                                             (computedClosed xs (replaceAt p (Just Computed) t) p eq)))
+  No ne => trans (sym (replaceAtDiffIndexPreserves t p x ne (Just Computed))) (computedClosed xs (replaceAt x (Just Computed) t) p eq)
+
+-- A parameter read at a position nothing landed at reads no closed value.
+readIf : Bool -> Landing -> Maybe Landing -> Maybe Landing
+readIf True l rest = landInto l rest
+readIf False _ rest = rest
+
+||| What lands where a writer reads parameter i, off the table: what landed
+||| at each position its writers list i at, joined, a position nothing
+||| landed at no closed value; nothing where none is listed.
+readAt : LandingTable n -> List (Nat, Fin n) -> Nat -> Maybe Landing
+readAt t [] i = Nothing
+readAt t ((j, p) :: ws) i = readIf (j == i) (fromMaybe Open (Vect.index p t)) (readAt t ws i)
+
+||| What lands where a writer reads each parameter, off the table; nothing
+||| listed is no closed value.
+readLanding : LandingTable n -> List (Nat, Fin n) -> Nat -> Landing
+readLanding t ws i = fromMaybe Open (readAt t ws i)
+
+-- A landing read as closed values was read so off a closed entry.
+0 fromMaybeClosed : (m : Maybe Landing) -> fromMaybe Open m = Closed x -> m = Just (Closed x)
+fromMaybeClosed Nothing Refl impossible
+fromMaybeClosed (Just l) eq = cong Just eq
+
+-- A landing joined into anything is something.
+0 landedJust : (l : Landing) -> (old : Maybe Landing) -> (m : Landing ** landInto l old = Just m)
+landedJust l Nothing = (l ** Refl)
+landedJust l (Just o) = (joinLanding l o ** Refl)
+
+-- A parameter its writers list here is read.
+0 listedHere : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (p : Fin n) -> (b : Bool) -> b = True ->
+               (m : Landing ** readIf b (fromMaybe Open (Vect.index p t)) (readAt t ws i) = Just m)
+listedHere t ws i p True _ = landedJust (fromMaybe Open (Vect.index p t)) (readAt t ws i)
+listedHere t ws i p False no = absurd no
+
+-- A parameter read below is read here too.
+0 listedLater : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> (q : Fin n) -> (b : Bool) ->
+                (m : Landing ** readAt t ws i = Just m) ->
+                (m : Landing ** readIf b (fromMaybe Open (Vect.index q t)) (readAt t ws i) = Just m)
+listedLater t ws i q True _ = landedJust (fromMaybe Open (Vect.index q t)) (readAt t ws i)
+listedLater t ws i q False later = later
+
+-- A parameter its writers list is read.
+0 listedRead : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> Elem (i, p) ws -> (m : Landing ** readAt t ws i = Just m)
+listedRead t ((i, p) :: ws) Here = listedHere t ws i p (i == i) (soToEq (equalSelf i))
+listedRead {i} t ((j, q) :: ws) (There el) = listedLater t ws i q (j == i) (listedRead t ws el)
+
+mutual
+  -- What a site reads off the table: a parameter read as closed values no
+  -- higher than k is read at positions where closed values no higher than
+  -- k landed.
+  0 tableRead : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> (i : Nat) -> readAt t ws i = Just (Closed k) ->
+                Elem (i, p) ws -> (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
+  tableRead t [] i eq el = absurd el
+  tableRead t ((j, q) :: ws) i eq el = tableReadAt t j q ws i (j == i) Refl eq el
+
+  0 tableReadAt : (t : LandingTable n) -> (j : Nat) -> (q : Fin n) -> (ws : List (Nat, Fin n)) -> (i : Nat) ->
+                  (b : Bool) -> (j == i) = b -> readIf b (fromMaybe Open (Vect.index q t)) (readAt t ws i) = Just (Closed k) ->
+                  Elem (i, p) ((j, q) :: ws) -> (k' : Nat ** (Vect.index p t = Just (Closed k'), LTE k' k))
+  tableReadAt t j q ws i True _ eq Here = case intoClosed (fromMaybe Open (Vect.index q t)) (readAt t ws i) eq of
+    ((x ** (here, le)), _) => (x ** (fromMaybeClosed (Vect.index q t) here, le))
+  tableReadAt t j q ws i True _ eq (There el) = case intoClosed (fromMaybe Open (Vect.index q t)) (readAt t ws i) eq of
+    (_, rest) => case listedRead t ws el of
+      (m ** later) => case rest m later of
+        (y ** (Refl, le)) => case tableRead t ws i later el of
+          (k' ** (atP, le')) => (k' ** (atP, transitive le' le))
+  tableReadAt t j q ws i False same eq Here = absurd (trans (sym (soToEq (equalSelf i))) same)
+  tableReadAt t j q ws i False _ eq (There el) = tableRead t ws i eq el
+
+||| A site's landing read off the table reads it.
+0 landingReads : (t : LandingTable n) -> (ws : List (Nat, Fin n)) -> ReadsTable t ws (readLanding t ws)
+landingReads t ws i k read p el = tableRead t ws i (fromMaybeClosed (readAt t ws i) read) el
 
 -- Where each numbered position carries a family's value on, keyed by the
 -- source's number and by the target's: from each position of the writer
 -- whose family an argument passes on or applies (`familiesIn`), into the
 -- argument's position; and from each position of an implementation J,
 -- into the method function's position its leading placement gives, from
--- every walked node of J, which can only carry more. A position where
--- nothing lands has no number, and nothing computing to carry.
+-- every walked node of J, which can only carry more. A position the
+-- numbering never met has no number, and nothing computing to carry.
 record Carrying (n : Nat) where
   constructor MkCarrying
   onward : SortedMap Nat (List (Fin n))
@@ -775,43 +1034,68 @@ spread next vis (Access rec) found (x :: xs) = case flag (Vect.index x vis) of
   Left _ => spread next vis (Access rec) found xs
   Right fresh => spread next (mark x vis) (rec _ (visitLeaves x vis fresh)) (x :: found) (next x ++ xs)
 
--- What lands at every position, from what lands where it is written
--- (`landedAt`, `opened`), with a computing value carried on to every
--- position that carries a family's value on from where one lands: a
--- family whose value can be one there may compute when it is applied,
--- wherever the value was written. Only a position an applied family's
--- reading reads, or one that carries on to it, is asked, so the carrying
--- runs over those alone: a type's marker passed on carries no family, and
--- nothing applies it. With no computing value written there is nothing to
--- carry.
-landings : SortedMap Address (List Node) -> Leads -> List (Node, List (Sites.Site, Reached)) ->
-           SortedMap Spot Landing -> SortedMap Spot Landing
-landings nodes leads walked at =
-  let ps = keys at
-      number = SortedMap.fromList (zip ps (indices ps))
-      seeds = mapMaybe (\(p, l) => case l of
-                                      Computed => lookup p number
-                                      Evaluable _ => lookup p number
-                                      _ => Nothing) (SortedMap.toList at) in
-  case seeds of
-    [] => at
-    _ :: _ =>
-      let cs = carried number nodes leads walked
-          asked = spread (\x => fromMaybe [] (lookup (finToNat x) cs.back)) (replicate (length ps) False) (wellFounded _) []
-                         (applying number walked)
-          askedSet = SortedSet.fromList (map finToNat asked)
-          onward = \x => filter (\y => contains (finToNat y) askedSet) (fromMaybe [] (lookup (finToNat x) cs.onward))
-          -- What a computing value is carried on to: a position it lands
-          -- at as written keeps its landing (an evaluable one its values).
-          found = spread onward (replicate (length ps) False) (wellFounded _) []
-                         (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
-          byNumber = Vect.fromList ps in
-      foldl (\m, x => insert (Vect.index x byNumber) Computed m) at found
+-- A landing that computes, which carries on.
+computes : Maybe Landing -> Bool
+computes (Just Computed) = True
+computes (Just (Evaluable _)) = True
+computes _ = False
 
--- At node w, what lands at each parameter as `ps` reads it (`Landing`);
--- nothing landed is no closed value.
-closedAt : SortedMap Spot Landing -> Node -> Parameters -> Nat -> Landing
-closedAt ls w ps i = fromMaybe Open (lookup (spotAt w ps i) ls)
+-- Where a computing value is carried on to from where one lands: every
+-- position that carries a family's value on from there, since a family
+-- whose value can be one there may compute when it is applied, wherever
+-- the value was written. Only a position an applied family's reading
+-- reads, or one that carries on to it, is asked, so the carrying runs over
+-- those alone: a type's marker passed on carries no family, and nothing
+-- applies it. With no computing value written there is nothing to carry.
+carriedTo : {n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
+            List (Node, List (Sites.Site, Reached)) -> LandingTable n -> List (Fin n)
+carriedTo number nodes leads walked t = case findIndices computes t of
+  [] => []
+  seeds@(_ :: _) =>
+    let cs = carried number nodes leads walked
+        asked = spread (\x => fromMaybe [] (lookup (finToNat x) cs.back)) (replicate n False) (wellFounded _) []
+                       (applying number walked)
+        askedSet = SortedSet.fromList (map finToNat asked)
+        onward = \x => filter (\y => contains (finToNat y) askedSet) (fromMaybe [] (lookup (finToNat x) cs.onward)) in
+    -- What a computing value is carried on to: a position it lands at as
+    -- written keeps its landing (an evaluable one its values).
+    spread onward (replicate n False) (wellFounded _) [] (filter (\x => contains (finToNat x) askedSet) seeds >>= onward)
+
+-- A table with a computing value carried on from where one lands.
+carriedFrom : {n : Nat} -> SortedMap Spot (Fin n) -> SortedMap Address (List Node) -> Leads ->
+              List (Node, List (Sites.Site, Reached)) -> LandingTable n -> LandingTable n
+carriedFrom number nodes leads walked t = computedAt (carriedTo number nodes leads walked t) t
+
+||| What lands at every numbered position: what each writing lands as,
+||| joined at its position (`landedTable`), what lands at a capped one
+||| besides (`openedTable`), and a computing value carried on
+||| (`carriedTo`).
+tableOf : {n : Nat} -> SortedMap Spot (Fin n) -> Vect n (Maybe Nat) -> SortedMap Address (List Node) -> Leads ->
+          List (Node, List (Sites.Site, Reached)) -> List (Fin n, Landing) -> LandingTable n
+tableOf number caps nodes leads walked written = carriedFrom number nodes leads walked (openedTable caps (landedTable written))
+
+-- Every landing written is bounded by what the table holds at its
+-- position.
+0 tableBounds : {n : Nat} -> (number : SortedMap Spot (Fin n)) -> (caps : Vect n (Maybe Nat)) -> (nodes : SortedMap Address (List Node)) ->
+                (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) -> (written : List (Fin n, Landing)) ->
+                Elem (p, l) written -> BoundedBy l (Vect.index p (tableOf number caps nodes leads walked written))
+tableBounds {p} number caps nodes leads walked written el k eq =
+  case landedBounds written el of
+    (m ** (atP, bounded)) =>
+      bounded k (trans (sym atP)
+                       (snd (openedClosed caps (landedTable written) p
+                               (computedClosed (carriedTo number nodes leads walked (openedTable caps (landedTable written)))
+                                               (openedTable caps (landedTable written)) p eq))))
+
+-- A position only closed values land at in the table is uncapped.
+0 tableUncapped : {n : Nat} -> (number : SortedMap Spot (Fin n)) -> (caps : Vect n (Maybe Nat)) -> (nodes : SortedMap Address (List Node)) ->
+                  (leads : Leads) -> (walked : List (Node, List (Sites.Site, Reached))) -> (written : List (Fin n, Landing)) ->
+                  (p : Fin n) -> Vect.index p (tableOf number caps nodes leads walked written) = Just (Closed k) ->
+                  Vect.index p caps = Nothing
+tableUncapped number caps nodes leads walked written p eq =
+  fst (openedClosed caps (landedTable written) p
+         (computedClosed (carriedTo number nodes leads walked (openedTable caps (landedTable written)))
+                         (openedTable caps (landedTable written)) p eq))
 
 -- Where a writing's writer is read: at a walked node, its parameters as
 -- its site reads them, where the node's families land and the flow roots
@@ -819,23 +1103,6 @@ closedAt ls w ps i = fromMaybe Open (lookup (spotAt w ps i) ls)
 -- on, at the held position they come from, whose template applies no
 -- family and holds no dictionary of its own.
 data WriterAt = AtNode Node Parameters | AtHeld
-
--- What one template wrote, before its writer's families are read where
--- they land: where its writer reads each of its parameters, the template
--- as written, where its writer is (`WriterAt`), the position it lands at,
--- and what wrote it, with the template it draws. What lands at a position
--- is read off these, every writing the model holds among them
--- (`landedAt`), and only then is each read where its writer is
--- (`readAtWriter`), so no writing lands unseen by the landing it is read
--- at.
-record Written where
-  constructor MkWritten
-  reads : Nat -> Spot
-  template : Template
-  writer : WriterAt
-  target : Spot
-  wrote : Wrote
-  0 draws : DrawnBy wrote template
 
 -- What a writing lands as at its position: an argument as its landing
 -- reads it (`landingOf`); a leading arc's marker, a field's template, a
@@ -847,44 +1114,47 @@ landedBy ThroughMethod = Open
 landedBy (InField _ _ _) = Open
 landedBy (PacksHeld _) = Open
 
--- What lands at each position, joined from every writing there: a
--- position is closed only where every writing there is an argument whose
--- own landing is closed.
-landedAt : List Written -> SortedMap Spot Landing
-landedAt xs = foldl (\m, x => put x.target (landedBy x.wrote) m) empty xs
+-- What a writing's landing says of its template: landing closed values no
+-- higher than k, it is a template no marker holds, k high.
+0 LandsAs : Wrote -> Template -> Type
+LandsAs wr t = (k : Nat) -> landedBy wr = Closed k -> (selfBounded t = True, height t = k)
+
+-- An argument lands as its template says.
+0 argumentLands : (x : Argument) -> LandsAs (FromArgument s x) x.template
+argumentLands x k eq = closedBy x.root (beta x.template) (selfBounded x.template) x.term x.template eq
+
+-- A leading arc's marker, a field's template and a held value land as no
+-- closed value.
+0 methodLands : LandsAs ThroughMethod t
+methodLands k Refl impossible
+
+0 fieldLands : LandsAs (InField j f r) t
+fieldLands k Refl impossible
+
+0 heldLands : LandsAs (PacksHeld p) t
+heldLands k Refl impossible
+
+-- What one template wrote, before its writer's families are read where
+-- they land: where its writer reads each of its parameters, the template
+-- as written, where its writer is (`WriterAt`), the position it lands at,
+-- and what wrote it, with the template it draws and what its landing says
+-- of the template. What lands at a position is read off these, every
+-- writing the model holds among them (`tableOf`), and only then is each
+-- read where its writer is (`siteRead`), so no writing lands unseen by the
+-- landing it is read at.
+record Written where
+  constructor MkWritten
+  reads : Nat -> Spot
+  template : Template
+  writer : WriterAt
+  target : Spot
+  wrote : Wrote
+  0 draws : DrawnBy wrote template
+  0 landsAs : LandsAs wrote template
 
 -- The positions some writings land at, each once.
 targetsOf : List Written -> List Spot
 targetsOf xs = SortedSet.toList (foldl (\acc, x => insert x.target acc) empty xs)
-
--- Where a writing's template was read, with the families that reading
--- landed closed and the roots read with it: at a walked node, the
--- template written there read where the node's families land
--- (`readLanded`), its roots read at the same landing (`Heads.roots`); or,
--- at a held position, a packing's chain as written, which lands none.
-data ReadAt : Template -> List Nat -> (Template -> List Address) -> Type where
-  ReadAtNode : (c : Nat -> Landing) -> (written : Template) -> AppliedRoots c rts ->
-               ReadAt (readLanded c written).template (readLanded c written).landed rts
-  ReadAsHeld : ReadAt t [] rts
-
--- What the graph draws for one template, read where its writer is
--- (`readAtWriter`): where its writer reads each of its parameters (a walked
--- node's position, as the site reads its parameters; for values a
--- dictionary holds written on, the held position they come from), the
--- template, read where a node's families hold what lands at them
--- (`withClosedFamilies`), the roots the flow gives its dictionaries there,
--- the position it lands at, and what wrote it, with the template it draws;
--- and the families its reading landed closed, with where it was read.
-record Writing where
-  constructor MkWriting
-  reads : Nat -> Spot
-  template : Template
-  roots : Template -> List Address
-  target : Spot
-  wrote : Wrote
-  0 draws : DrawnBy wrote template
-  landed : List Nat
-  0 readAt : ReadAt template landed roots
 
 -- A pair's chain applies no family, so reading it where a node's
 -- families land leaves it as it is.
@@ -916,26 +1186,25 @@ drawnRead c (ChainDraws k) = replace {p = DrawnBy (PacksHeld k)} (sym (packingRe
 familiesOf : SortedMap Address (List Nat) -> Node -> List Nat
 familiesOf families w = fromMaybe [] (lookup w.definition families)
 
--- A writing at a node, its template read once where the node's families
--- land (`readLanded`): the template the graph draws and the families that
--- reading landed closed are the one reading's, and its roots are read at
--- the same landing.
-landedWriting : (Nat -> Spot) -> (rts : Template -> List Address) -> Spot -> (wr : Wrote) -> (c : Nat -> Landing) ->
-                (0 _ : AppliedRoots c rts) -> (t : Template) -> (0 _ : DrawnBy wr t) -> Writing
-landedWriting rs rts tgt wr c applied t made = fromReading (readLanded c t) (ReadAtNode c t applied) (drawnRead c made)
-  where
-    fromReading : (r : LandedReading) -> (0 _ : ReadAt r.template r.landed rts) -> (0 _ : DrawnBy wr r.template) -> Writing
-    fromReading r at drawn = MkWriting rs r.template rts tgt wr drawn r.landed at
+-- The roots a writing's template gives where its writer is: at a node, as
+-- the flow found its dictionaries there, a use of one applied only where
+-- values not all closed land at it (`Heads.roots`); at a held position,
+-- none.
+rootsAt : Flow -> SortedMap Address (List Nat) -> (Nat -> Landing) -> WriterAt -> Template -> List Address
+rootsAt fl families c (AtNode w ps) = roots fl (familiesOf families w) w ps c
+rootsAt fl families c AtHeld = const []
 
--- A writing read where its writer is: at a node, its template read where
--- the node's families land, and its dictionaries rooted as the flow found
--- them there, a use of one only where the template still applies it
--- (`Heads.roots`); at a held position, as written, rooting nothing.
-readAtWriter : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> Written -> Writing
-readAtWriter fl families ls (MkWritten rs t (AtNode w ps) tgt wr made) =
-  let c = closedAt ls w ps in
-  landedWriting rs (roots fl (familiesOf families w) w ps c) tgt wr c (appliedRootsOf fl (familiesOf families w) w ps c) t made
-readAtWriter fl families ls (MkWritten rs t AtHeld tgt wr made) = MkWriting rs t (const []) tgt wr made [] ReadAsHeld
+-- What those roots say of a use of the writer's parameter applied.
+0 rootsApplied : (fl : Flow) -> (families : SortedMap Address (List Nat)) -> (c : Nat -> Landing) -> (wr : WriterAt) ->
+                 AppliedRoots c (rootsAt fl families c wr)
+rootsApplied fl families c (AtNode w ps) = appliedRootsOf fl (familiesOf families w) w ps c
+rootsApplied fl families c AtHeld = \i, d, ts, j, el => absurd el
+
+-- What those roots say of a field's record.
+0 rootsRecorded : (fl : Flow) -> (families : SortedMap Address (List Nat)) -> (c : Nat -> Landing) -> (wr : WriterAt) ->
+                  RecordRoots c (rootsAt fl families c wr)
+rootsRecorded fl families c (AtNode w ps) = recordRootsOf fl (familiesOf families w) w ps c
+rootsRecorded fl families c AtHeld = \r, j, el => absurd el
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
@@ -943,7 +1212,7 @@ writings : List (Node, List (Sites.Site, Reached)) -> List Written
 writings =
   eachPlaced (\acc, w, s, callee, pl =>
                 MkWritten (spotAt w s.params) pl.argument.template (AtNode w s.params) (landsAt callee pl.parameter)
-                          (FromArgument s pl.argument) ArgumentDraws :: acc) []
+                          (FromArgument s pl.argument) ArgumentDraws (argumentLands pl.argument) :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
 -- writes at M's leading parameters. The parameters of M its `leading`
@@ -956,6 +1225,7 @@ leadingWritings : SortedMap Address (List Node) -> Leads -> List Written
 leadingWritings nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
     [ MkWritten (spotAt jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly) (OfParameter (OfNode m) q) ThroughMethod (MarkerDraws p)
+                methodLands
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -971,13 +1241,13 @@ leadingWritings nodes leads =
 -- What each implementation's fields write at their positions: at each
 -- walked node of the implementation, each field's template over the
 -- node's parameters, read where the node's families hold what lands at
--- them (`readAtWriter`), into that field's position. A field read
--- anywhere takes its value from there, so a nested field read is arcs
--- between these positions.
+-- them (`siteRead`), into that field's position. A field read anywhere
+-- takes its value from there, so a nested field read is arcs between
+-- these positions.
 fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List Written
 fieldWritings nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField j k t) FieldDraws
+    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField j k t) FieldDraws fieldLands
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
     numbered : Nat -> List Template -> List (Nat, Template)
@@ -1062,7 +1332,7 @@ heldPackings count (Just pg) places = case pred count of
     written : Nat -> HeldBy -> List Written
     written n place =
       [ MkWritten (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) AtHeld
-                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k)
+                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k) heldLands
       | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
       , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
 
@@ -1080,7 +1350,7 @@ itemKind (MembersOf _) = AnyNumber
 -- One way a value of a list is written at a held position: where its
 -- template reads its variables, the template, where its writer is
 -- (`WriterAt`), how many values it brings (`Proof.Held.Brings`), and what
--- wrote it, with the template it draws.
+-- wrote it, with the template it draws and what its landing says of it.
 record Contribution where
   constructor MkContribution
   reads : Nat -> Spot
@@ -1089,6 +1359,7 @@ record Contribution where
   brings : Brings
   wrote : Wrote
   0 draws : DrawnBy wrote template
+  0 landsAs : LandsAs wrote template
 
 -- The held positions a way of writing a value lands at, where `firm`
 -- other values of its list are always there and `others` are there in
@@ -1145,7 +1416,7 @@ heldWritings count pg choices walked =
   where
     fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
     fromHeld place p k b =
-      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k)
+      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k) heldLands
 
     -- The place a dictionary of the writer's that holds values as one is
     -- at, at the writer's node.
@@ -1156,6 +1427,7 @@ heldWritings count pg choices walked =
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
       [ MkContribution (spotAt w s.params) x.template (AtNode w s.params) OneValue (FromArgument s x) ArgumentDraws
+                       (argumentLands x)
       | x <- forget xs ]
     contributions w s (PackedBy h) =
       fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
@@ -1179,7 +1451,7 @@ heldWritings count pg choices walked =
     listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Written
     listAt w s place es =
       es >>= \e => contributions w s e >>= \c =>
-        map (\p => MkWritten c.reads c.template c.writer (OfHeld (MkHeldValues place p)) c.wrote c.draws)
+        map (\p => MkWritten c.reads c.template c.writer (OfHeld (MkHeldValues place p)) c.wrote c.draws c.landsAs)
             (landing (besides e (alwaysIn (map itemKind es))) (pred (length es)) c.brings)
 
     -- The list a dictionary the writer binds closes over, written at its
@@ -1196,31 +1468,6 @@ pairedPlaces ws = SortedSet.toList (foldl (\acc, x => case x.target of
                                              _ => acc)
                                           empty ws)
 
--- A parameter kept where its weight is an arc's.
-keptWhere : Maybe Label -> Nat -> List Nat -> List Nat
-keptWhere (Just _) i is = i :: is
-keptWhere Nothing _ is = is
-
--- The parameters some weights draw an arc from, in order: those whose
--- weight is an arc's (`labelOf`).
-weighed : List (Nat, Weight) -> List Nat
-weighed [] = []
-weighed ((i, w) :: rest) = keptWhere (labelOf w) i (weighed rest)
-
-0 keptHere : (l : Maybe Label) -> l = Just lab -> Elem i (keptWhere l i is)
-keptHere (Just _) _ = Here
-keptHere Nothing Refl impossible
-
-0 keptBelow : (l : Maybe Label) -> Elem j is -> Elem j (keptWhere l i is)
-keptBelow (Just _) el = There el
-keptBelow Nothing el = el
-
--- A parameter weighed with an arc is one its weights draw an arc from.
-0 weighedHas : (ws : List (Nat, Weight)) -> Elem (i, w) ws -> labelOf w = Just lab -> Elem i (weighed ws)
-weighedHas [] el _ = absurd el
-weighedHas ((_, v) :: _) Here drawn = keptHere (labelOf v) drawn
-weighedHas ((_, v) :: rest) (There el) drawn = keptBelow (labelOf v) (weighedHas rest el drawn)
-
 -- Whether a parameter is among some, as the machine compares naturals.
 amongParameters : (i : Nat) -> (is : List Nat) -> Decided (Elem i is)
 amongParameters i [] = No (\el => absurd el)
@@ -1234,34 +1481,21 @@ amongParameters i (j :: js) = case choose (i == j) of
 
 -- The parameters of a list not already among some, each once: every one
 -- of the list is among those, or kept.
-unweighed : (seen : List Nat) -> (is : List Nat) ->
-            Subset (List Nat) (\ks => {i : Nat} -> Elem i is -> Either (Elem i seen) (Elem i ks))
-unweighed seen [] = Element [] (\el => absurd el)
-unweighed seen (i :: is) = case amongParameters i seen of
-  Yes here => let (Element ks covered) = unweighed seen is in
+unseen : (seen : List Nat) -> (is : List Nat) ->
+         Subset (List Nat) (\ks => {i : Nat} -> Elem i is -> Either (Elem i seen) (Elem i ks))
+unseen seen [] = Element [] (\el => absurd el)
+unseen seen (i :: is) = case amongParameters i seen of
+  Yes here => let (Element ks covered) = unseen seen is in
               Element ks (\el => case el of
                                    Here => Left here
                                    There e => covered e)
-  No _ => let (Element ks covered) = unweighed (i :: seen) is in
+  No _ => let (Element ks covered) = unseen (i :: seen) is in
           Element (i :: ks) (\el => case el of
                                        Here => Right Here
                                        There e => case covered e of
                                          Left Here => Right Here
                                          Left (There inSeen) => Left inSeen
                                          Right kept => Right (There kept))
-
--- The parameters some weights draw an arc from, then those a reading
--- landed closed that they draw none from, each once.
-sourcesFrom : List Nat -> List Nat -> List Nat
-sourcesFrom ws landed = ws ++ (unweighed ws landed).fst
-
--- The writer's parameters a writing reads at positions: those its
--- template holds with a weight that is an arc, each once, whose arcs the
--- graph draws from there, then each family its reading landed closed that
--- the template no longer weighs, from which no arc is drawn, but where
--- what an instance writes at the rewritten node comes from.
-sourcesOf : Writing -> List Nat
-sourcesOf x = sourcesFrom (weighed (weights x.template)) x.landed
 
 0 inFront : Elem x xs -> Elem x (xs ++ ys)
 inFront Here = Here
@@ -1271,24 +1505,279 @@ inFront (There el) = There (inFront el)
 behind [] el = el
 behind (_ :: xs) el = There (behind xs el)
 
--- Every family a writing's reading landed closed is among the parameters
--- it reads at positions: weighed with an arc, or kept after them.
-0 landedSources : (x : Writing) -> Elem i x.landed -> Elem i (sourcesOf x)
-landedSources x el = case (unweighed (weighed (weights x.template)) x.landed).snd el of
-  Left inW => inFront inW
-  Right kept => behind (weighed (weights x.template)) kept
+0 splitElem : (xs : List a) -> Elem x (xs ++ ys) -> Either (Elem x xs) (Elem x ys)
+splitElem [] el = Right el
+splitElem (_ :: xs) Here = Left Here
+splitElem (_ :: xs) (There el) = case splitElem xs el of
+  Left here => Left (There here)
+  Right later => Right later
 
--- Where a writing's writer reads parameter i.
-readsAt : Writing -> Nat -> Spot
-readsAt x i = x.reads i
+------------------------------------------------------------------------------
+-- What a template names
+------------------------------------------------------------------------------
+
+mutual
+  -- Every parameter of the writer's a template names, wherever: a reading
+  -- of it at a node weighs or lands closed none other, whatever lands
+  -- where, so its writer's positions for these are numbered before
+  -- anything that lands is read.
+  namedIn : Template -> List Nat
+  namedIn (Var i _) = [i]
+  namedIn (Applied i _ ts) = i :: namedAll ts
+  namedIn (Computing i _ ts) = i :: namedAll ts
+  namedIn (Head _ ts) = namedAll ts
+  namedIn (Opaque _ ts) = namedAll ts
+  namedIn (Choice s ts) = namedIn s ++ namedAll ts
+  namedIn (Field _ r) = namedIn r
+  namedIn (Leaf _) = []
+  namedIn (Token _) = []
+  namedIn (Member _) = []
+  namedIn (Formal _ _) = []
+
+  namedAll : List Template -> List Nat
+  namedAll [] = []
+  namedAll (t :: ts) = namedIn t ++ namedAll ts
+
+mutual
+  -- An occurrence names its parameter.
+  0 occursNamed : (e : Nat) -> (t : Template) -> Elem (i, w) (occurrences e t) -> Elem i (namedIn t)
+  occursNamed e (Var j d) Here = Here
+  occursNamed e (Var j d) (There el) = absurd el
+  occursNamed e (Head _ ts) el = occursNamedAll (S e) ts el
+  occursNamed e (Opaque _ ts) el = stuckNamedAll ts el
+  occursNamed e (Applied j d ts) Here = Here
+  occursNamed e (Applied j d ts) (There el) = There (stuckNamedAll ts el)
+  occursNamed e (Computing j d ts) Here = Here
+  occursNamed e (Computing j d ts) (There el) = There (stuckNamedAll ts el)
+  occursNamed e (Choice s ts) el = behind (namedIn s) (occursNamedAll e ts el)
+  occursNamed e (Field _ _) el = absurd el
+  occursNamed e (Leaf _) el = absurd el
+  occursNamed e (Token _) el = absurd el
+  occursNamed e (Member _) el = absurd el
+  occursNamed e (Formal _ _) el = absurd el
+
+  0 occursNamedAll : (e : Nat) -> (ts : List Template) -> Elem (i, w) (occurrencesIn e ts) -> Elem i (namedAll ts)
+  occursNamedAll e [] el = absurd el
+  occursNamedAll e (t :: ts) el = case splitElem (occurrences e t) el of
+    Left here => inFront (occursNamed e t here)
+    Right later => behind (namedIn t) (occursNamedAll e ts later)
+
+  0 stuckNamed : (t : Template) -> Elem (i, w) (stuck t) -> Elem i (namedIn t)
+  stuckNamed (Var j d) Here = Here
+  stuckNamed (Var j d) (There el) = absurd el
+  stuckNamed (Head _ ts) el = stuckNamedAll ts el
+  stuckNamed (Opaque _ ts) el = stuckNamedAll ts el
+  stuckNamed (Applied j d ts) Here = Here
+  stuckNamed (Applied j d ts) (There el) = There (stuckNamedAll ts el)
+  stuckNamed (Computing j d ts) Here = Here
+  stuckNamed (Computing j d ts) (There el) = There (stuckNamedAll ts el)
+  stuckNamed (Choice s ts) el = behind (namedIn s) (stuckNamedAll ts el)
+  stuckNamed (Field _ _) el = absurd el
+  stuckNamed (Leaf _) el = absurd el
+  stuckNamed (Token _) el = absurd el
+  stuckNamed (Member _) el = absurd el
+  stuckNamed (Formal _ _) el = absurd el
+
+  0 stuckNamedAll : (ts : List Template) -> Elem (i, w) (stuckIn ts) -> Elem i (namedAll ts)
+  stuckNamedAll [] el = absurd el
+  stuckNamedAll (t :: ts) el = case splitElem (stuck t) el of
+    Left here => inFront (stuckNamed t here)
+    Right later => behind (namedIn t) (stuckNamedAll ts later)
+
+-- An entry of a list a weight was joined into is the weight's or was
+-- there before.
+0 insertJoinFrom : (i : Nat) -> (w : Weight) -> (m : List (Nat, Weight)) -> Elem (k, u) (insertJoin i w m) ->
+                   Either (k = i) (v : Weight ** Elem (k, v) m)
+insertJoinFrom i w [] Here = Left Refl
+insertJoinFrom i w [] (There el) = absurd el
+insertJoinFrom i w ((j, v) :: rest) el with (i == j)
+  _ | True = case el of
+    Here => Right (v ** Here)
+    There later => Right (_ ** There later)
+  _ | False with (i < j)
+    _ | True = case el of
+      Here => Left Refl
+      There Here => Right (v ** Here)
+      There (There later) => Right (_ ** There later)
+    _ | False = case el of
+      Here => Right (v ** Here)
+      There later => case insertJoinFrom i w rest later of
+        Left same => Left same
+        Right (v' ** before) => Right (v' ** There before)
+
+-- An entry of weights joined in is one of them, or was there before.
+0 joinAllFrom : (acc, xs : List (Nat, Weight)) -> Elem (k, u) (joinAll acc xs) ->
+                Either (v : Weight ** Elem (k, v) acc) (v : Weight ** Elem (k, v) xs)
+joinAllFrom acc [] el = Left (_ ** el)
+joinAllFrom acc ((i, w) :: xs) el = case joinAllFrom (insertJoin i w acc) xs el of
+  Right (v ** later) => Right (v ** There later)
+  Left (v ** joined) => case insertJoinFrom i w acc joined of
+    Left Refl => Right (w ** Here)
+    Right before => Left before
+
+-- An entry settled is the entry's parameter.
+0 settledFrom : (m : List (Nat, Weight)) -> Elem (i, w) (map Template.settledEntry m) -> (v : Weight ** Elem (i, v) m)
+settledFrom [] el = absurd el
+settledFrom ((j, u) :: rest) Here = (u ** Here)
+settledFrom (_ :: rest) (There el) = case settledFrom rest el of
+  (v ** later) => (v ** There later)
+
+-- A parameter a template's weights list, it names.
+0 weightsNamed : (t : Template) -> Elem (i, w) (weights t) -> Elem i (namedIn t)
+weightsNamed t el = case settledFrom (joinAll [] (occurrences 0 t)) el of
+  (v ** joined) => case joinAllFrom [] (occurrences 0 t) joined of
+    Left (_ ** none) => absurd none
+    Right (u ** occurs) => occursNamed 0 t occurs
+
+-- k heads above a head name what its arguments name.
+0 raisedNamed : (k : Nat) -> (ts : List Template) -> Elem i (namedIn (raise k (Head Nothing ts))) -> Elem i (namedAll ts)
+raisedNamed Z ts el = el
+raisedNamed (S k) ts el = case splitElem (namedIn (raise k (Head Nothing ts))) el of
+  Left here => raisedNamed k ts here
+  Right none => absurd none
+
+-- A family applied, read as its landing says, names it or what its
+-- arguments name.
+0 landedAsNamed : (l : Landing) -> (b : Template.Beta) -> (j, d : Nat) -> (ts : List Template) ->
+                  Elem i (namedIn (landedAs l b j d ts).template) -> Either (i = j) (Elem i (namedAll ts))
+landedAsNamed Computed b j d ts Here = Left Refl
+landedAsNamed Computed b j d ts (There el) = Right el
+landedAsNamed (Evaluable _) b j d ts Here = Left Refl
+landedAsNamed (Evaluable _) b j d ts (There el) = Right el
+landedAsNamed (Closed _) Computes j d ts Here = Left Refl
+landedAsNamed (Closed _) Computes j d ts (There el) = Right el
+landedAsNamed Open Computes j d ts Here = Left Refl
+landedAsNamed Open Computes j d ts (There el) = Right el
+landedAsNamed (Closed k) Inert j d ts el = Right (raisedNamed k ts el)
+landedAsNamed Open Inert j d ts Here = Left Refl
+landedAsNamed Open Inert j d ts (There el) = Right el
+
+-- What a family applied, read as its landing says, lands closed is the
+-- family.
+0 landedAsLanded : (l : Landing) -> (b : Template.Beta) -> (j, d : Nat) -> (ts : List Template) ->
+                   Elem i (landedAs l b j d ts).landed -> i = j
+landedAsLanded (Closed k) Inert j d ts Here = Refl
+landedAsLanded (Closed k) Inert j d ts (There el) = absurd el
+landedAsLanded (Closed _) Computes _ _ _ el = absurd el
+landedAsLanded Open Inert _ _ _ el = absurd el
+landedAsLanded Open Computes _ _ _ el = absurd el
+landedAsLanded Computed _ _ _ _ el = absurd el
+landedAsLanded (Evaluable _) _ _ _ _ el = absurd el
+
+mutual
+  -- A template read at a node names nothing it did not.
+  0 landedNamed : (c : Nat -> Landing) -> (t : Template) -> Elem i (namedIn (readLanded c t).template) -> Elem i (namedIn t)
+  landedNamed c (Applied j d ts) el =
+    case landedAsNamed (c j) (argumentsBeta c (allWithClosed c ts)) j d (allWithClosed c ts) el of
+      Left Refl => Here
+      Right later => There (allLandedNamed c ts later)
+  landedNamed c (Computing j d ts) Here = Here
+  landedNamed c (Computing j d ts) (There el) = There (allLandedNamed c ts el)
+  landedNamed c (Head a ts) el = allLandedNamed c ts el
+  landedNamed c (Opaque a ts) el = allLandedNamed c ts el
+  landedNamed c (Choice s ts) el = case splitElem (namedIn (readLanded c s).template) el of
+    Left here => inFront (landedNamed c s here)
+    Right later => behind (namedIn s) (allLandedNamed c ts later)
+  landedNamed c (Field k r) el = landedNamed c r el
+  landedNamed c (Var j d) el = el
+  landedNamed c (Leaf h) el = el
+  landedNamed c (Token k) el = el
+  landedNamed c (Member k) el = el
+  landedNamed c (Formal j k) el = el
+
+  0 allLandedNamed : (c : Nat -> Landing) -> (ts : List Template) -> Elem i (namedAll (allWithClosed c ts)) -> Elem i (namedAll ts)
+  allLandedNamed c [] el = el
+  allLandedNamed c (t :: ts) el = case splitElem (namedIn (readLanded c t).template) el of
+    Left here => inFront (landedNamed c t here)
+    Right later => behind (namedIn t) (allLandedNamed c ts later)
+
+mutual
+  -- A family a template's reading at a node lands closed, the template
+  -- names.
+  0 landedFamiliesNamed : (c : Nat -> Landing) -> (t : Template) -> Elem i (readLanded c t).landed -> Elem i (namedIn t)
+  landedFamiliesNamed c (Applied j d ts) el =
+    case splitElem (landedAs (c j) (argumentsBeta c (allWithClosed c ts)) j d (allWithClosed c ts)).landed el of
+      Left here => case landedAsLanded (c j) (argumentsBeta c (allWithClosed c ts)) j d (allWithClosed c ts) here of
+        Refl => Here
+      Right later => There (allFamiliesNamed c ts later)
+  landedFamiliesNamed c (Computing j d ts) el = There (allFamiliesNamed c ts el)
+  landedFamiliesNamed c (Head a ts) el = allFamiliesNamed c ts el
+  landedFamiliesNamed c (Opaque a ts) el = allFamiliesNamed c ts el
+  landedFamiliesNamed c (Choice s ts) el = case splitElem (readLanded c s).landed el of
+    Left here => inFront (landedFamiliesNamed c s here)
+    Right later => behind (namedIn s) (allFamiliesNamed c ts later)
+  landedFamiliesNamed c (Field k r) el = landedFamiliesNamed c r el
+  landedFamiliesNamed c (Var _ _) el = absurd el
+  landedFamiliesNamed c (Leaf _) el = absurd el
+  landedFamiliesNamed c (Token _) el = absurd el
+  landedFamiliesNamed c (Member _) el = absurd el
+  landedFamiliesNamed c (Formal _ _) el = absurd el
+
+  0 allFamiliesNamed : (c : Nat -> Landing) -> (ts : List Template) -> Elem i (readAllLanded c ts).allLanded -> Elem i (namedAll ts)
+  allFamiliesNamed c [] el = absurd el
+  allFamiliesNamed c (t :: ts) el = case splitElem (readLanded c t).landed el of
+    Left here => inFront (landedFamiliesNamed c t here)
+    Right later => behind (namedIn t) (allFamiliesNamed c ts later)
+
+-- Two booleans whose conjunction holds.
+0 bothHold : (a, b : Bool) -> (a && b) = True -> (a = True, b = True)
+bothHold True True _ = (Refl, Refl)
+bothHold True False eq = absurd eq
+bothHold False _ eq = absurd eq
+
+mutual
+  ||| What an argument's closed landing gives `Proof.Bound.Lands`: a
+  ||| self-bounded template (`landingOf`'s `Closed`) read at a node is
+  ||| unmarked and as high as it was. Its leaves hold no applied family; a
+  ||| choice's scrutinee may, which the reading reads, but neither
+  ||| unmarkedness nor height reads a scrutinee.
+  export
+  0 closedSelfBounded : (c : Nat -> Landing) -> (t : Template) -> selfBounded t = True ->
+                        (Unmarked (withClosedFamilies c t), height (withClosedFamilies c t) = height t)
+  closedSelfBounded c (Head a ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedHead um, cong S high)
+  closedSelfBounded c (Opaque a ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedOpaque um, cong S high)
+  closedSelfBounded c (Choice x ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedChoice um, high)
+  closedSelfBounded c (Leaf h) _ = (UnmarkedLeaf, Refl)
+  closedSelfBounded c (Token k) _ = (UnmarkedToken, Refl)
+  closedSelfBounded c (Formal j k) _ = (UnmarkedFormal, Refl)
+  closedSelfBounded c (Var _ _) sb = absurd sb
+  closedSelfBounded c (Applied _ _ _) sb = absurd sb
+  closedSelfBounded c (Computing _ _ _) sb = absurd sb
+  closedSelfBounded c (Field _ _) sb = absurd sb
+  closedSelfBounded c (Member _) sb = absurd sb
+
+  export
+  0 allClosedSelfBounded : (c : Nat -> Landing) -> (ts : List Template) -> allSelfBounded ts = True ->
+                           (AllUnmarked (allWithClosed c ts), tallest (allWithClosed c ts) = tallest ts)
+  allClosedSelfBounded c [] _ = ([], Refl)
+  allClosedSelfBounded c (t :: ts) sb = case bothHold (selfBounded t) (allSelfBounded ts) sb of
+    (here, rest) => case (closedSelfBounded c t here, allClosedSelfBounded c ts rest) of
+      ((um, high), (ums, highs)) => (um :: ums, cong2 maximum high highs)
+
+------------------------------------------------------------------------------
+-- Numbering, and the sites
+------------------------------------------------------------------------------
+
+-- The parameters a writing's template names, each once.
+namedOf : Written -> List Nat
+namedOf x = (unseen [] (namedIn x.template)).fst
+
+-- Every parameter a writing's template names is among them.
+0 namedCovered : (x : Written) -> Elem i (namedIn x.template) -> Elem i (namedOf x)
+namedCovered x el = case (unseen [] (namedIn x.template)).snd el of
+  Left none => absurd none
+  Right kept => kept
 
 -- The places a writing meets positions at: where it lands, then where its
--- writer reads each parameter it draws from.
-slotsOf : Writing -> List Spot
-slotsOf x = x.target :: map (readsAt x) (sourcesOf x)
+-- writer reads each parameter its template names.
+slotsOf : Written -> List Spot
+slotsOf x = x.target :: map x.reads (namedOf x)
 
 -- The places some writings meet positions at, in order.
-allSlots : List Writing -> List Spot
+allSlots : List Written -> List Spot
 allSlots [] = []
 allSlots (x :: xs) = slotsOf x ++ allSlots xs
 
@@ -1343,50 +1832,84 @@ meetEach (i :: is) reads m =
       (Element ws listed, m'') = meetEach is reads m' in
   (Element ((i, p) :: ws) (listedOn listed), m'')
 
+-- A writing with its positions numbered, before anything that lands is
+-- read: the position it lands at, and where its writer reads each
+-- parameter its template names, every one of them listed.
+record Numbered (n : Nat) where
+  constructor MkNumbered
+  written : Written
+  target : Fin n
+  writers : List (Nat, Fin n)
+  0 named : {i : Nat} -> Elem i (namedIn written.template) -> (p : Fin n ** Elem (i, p) writers)
+
+-- A writing numbered at its places: where it lands, then where its writer
+-- reads each parameter its template names.
+numberedMet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Written) -> Meeting n (slotsOf x ++ rest) -> (Numbered n, Meeting n rest)
+numberedMet x m =
+  let (t, m') = meet x.target m
+      (Element ws listed, m'') = meetEach (namedOf x) x.reads m' in
+  (MkNumbered x t ws (\el => listed (namedCovered x el)), m'')
+
+-- Writings numbered, in order, each at its places.
+numberedAll : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Written) -> Meeting n (allSlots xs ++ rest) ->
+              (List (Numbered n), Meeting n rest)
+numberedAll [] m = ([], m)
+numberedAll (x :: xs) m =
+  let (here, m') = numberedMet x (replace {p = Meeting n} (sym (appendAssociative (slotsOf x) (allSlots xs) rest)) m)
+      (later, m'') = numberedAll xs m' in
+  (here :: later, m'')
+
+-- What a numbered writing lands as, at its position.
+landedPair : Numbered n -> (Fin n, Landing)
+landedPair x = (x.target, landedBy x.written.wrote)
+
 ||| A site of the model with what made it, whose maker's evidence holds of
 ||| the site's template (`DrawnBy`).
 public export
 SiteDrawn : (Bound.Site n, Wrote) -> Type
 SiteDrawn x = DrawnBy (snd x) (fst x).template
 
--- What a site met keeps of how it was made: what made it holds of its
+-- What a site read keeps of how it was made: what made it holds of its
 -- template, its writers list every parameter its template weighs with an
--- arc, and how it was read off what its writer wrote.
-0 SiteMet : {n : Nat} -> (Bound.Site n, Wrote) -> Type
-SiteMet {n} x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding {n} (fst x))
+-- arc, how it was read off what its writer wrote and the table, and its
+-- template bounded by what lands at its target.
+0 SiteMet : {n : Nat} -> LandingTable n -> (Bound.Site n, Wrote) -> Type
+SiteMet {n} t x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding t (fst x), TargetBounded t (fst x))
 
--- How a site met from a writing was read: as the writing's template was,
--- each family its reading landed closed listed among the site's writers,
--- its roots the writing's.
-0 siteLanded : {0 n : Nat} -> {s : Bound.Site n} -> (t : Template) -> s.template = t -> ReadAt t landed s.roots ->
-               ((i : Nat) -> Elem i landed -> (p : Fin n ** Elem (i, p) s.writers)) -> SiteLanding s
-siteLanded _ same (ReadAtNode c written applied) listed = LandedAtNode c written same listed applied
-siteLanded _ same ReadAsHeld _ = HeldAsWritten
+-- A numbered writing read where its writer is, as a site of the model: its
+-- template read where the table says each of its writer's parameters
+-- lands (`readLanding`), its roots read at the same landing (`rootsAt`);
+-- its writers every parameter its template names, so every one its
+-- reading weighs or lands closed; and, its own landing bounded by what
+-- lands at its target, its template bounded there too.
+siteRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> (t : LandingTable n) -> (x : Numbered n) ->
+           (0 _ : BoundedBy (landedBy x.written.wrote) (Vect.index x.target t)) -> Subset (Bound.Site n, Wrote) (SiteMet t)
+siteRead fl families t x bounded =
+  let c = readLanding t x.writers
+      rts = rootsAt fl families c x.written.writer in
+  Element (Bound.MkSite x.target (withClosedFamilies c x.written.template) x.writers rts, x.written.wrote)
+          (drawnRead c x.written.draws,
+           \i, w, inW, lab, drawn => x.named (landedNamed c x.written.template (weightsNamed (withClosedFamilies c x.written.template) inW)),
+           MkSiteLanding c x.written.template Refl
+                         (\i, el => x.named (landedFamiliesNamed c x.written.template el))
+                         (rootsApplied fl families c x.written.writer)
+                         (rootsRecorded fl families c x.written.writer)
+                         (landingReads t x.writers),
+           \k, atTarget => case bounded k atTarget of
+             (k' ** (closed, le)) => case x.written.landsAs k' closed of
+               (sb, high) => case closedSelfBounded c x.written.template sb of
+                 (um, kept) => (um, replace {p = \h => LTE h k} (sym (trans kept high)) le))
 
--- A writing as a site of the model, its positions met at its places: where
--- it lands, then where its writer reads each parameter it reads at a
--- position; the site's template is the writing's, so its maker's evidence
--- holds of it, and how it was read; and its writers are each such
--- parameter paired with the position met for it, so they list every one
--- its template weighs with an arc and every one its reading landed closed.
-siteMet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Writing) ->
-          Meeting n (slotsOf x ++ rest) -> (Subset (Bound.Site n, Wrote) SiteMet, Meeting n rest)
-siteMet x m =
-  let (t, m') = meet x.target m
-      (Element ws listed, m'') = meetEach (sourcesOf x) (readsAt x) m' in
-  (Element (Bound.MkSite t x.template ws x.roots, x.wrote)
-           (x.draws,
-            \i, w, inW, lab, drawn => listed (inFront (weighedHas (weights x.template) inW drawn)),
-            siteLanded x.template Refl x.readAt (\i, el => listed (landedSources x el))), m'')
-
--- Writings as sites of the model, in order, each met at its places.
-sitesMet : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Writing) ->
-           Meeting n (allSlots xs ++ rest) -> (Subset (List (Bound.Site n, Wrote)) (All SiteMet), Meeting n rest)
-sitesMet [] m = (Element [] [], m)
-sitesMet (x :: xs) m =
-  let (Element here madeHere, m') = siteMet x (replace {p = Meeting n} (sym (appendAssociative (slotsOf x) (allSlots xs) rest)) m)
-      (Element later madeLater, m'') = sitesMet xs m' in
-  (Element (here :: later) (madeHere :: madeLater), m'')
+-- Numbered writings read as sites, in order, each bounded by the table at
+-- its target.
+sitesRead : {n : Nat} -> Flow -> SortedMap Address (List Nat) -> (t : LandingTable n) -> (xs : List (Numbered n)) ->
+            (0 _ : {x : Numbered n} -> Elem x xs -> BoundedBy (landedBy x.written.wrote) (Vect.index x.target t)) ->
+            Subset (List (Bound.Site n, Wrote)) (All (SiteMet t))
+sitesRead fl families t [] _ = Element [] []
+sitesRead fl families t (x :: xs) bounds =
+  let (Element here made) = siteRead fl families t x (bounds Here)
+      (Element later madeLater) = sitesRead fl families t xs (\el => bounds (There el)) in
+  Element (here :: later) (made :: madeLater)
 
 0 allFirst : All p (x :: xs) -> p x
 allFirst (px :: _) = px
@@ -1397,9 +1920,9 @@ allRest (_ :: pxs) = pxs
 -- The sites that land at uncapped positions, with the evidence of each and
 -- of what made each, and those that land at capped ones: a capped
 -- position's cap is its bound, so no site into it is drawn.
-uncappedDrawn : (caps : Vect n (Maybe Nat)) -> (ss : List (Bound.Site n, Wrote)) -> (0 _ : All SiteMet ss) ->
+uncappedDrawn : (caps : Vect n (Maybe Nat)) -> (ss : List (Bound.Site n, Wrote)) -> (0 _ : All (SiteMet t) ss) ->
                 (Subset (List (Bound.Site n, Wrote))
-                        (\ks => (All (\x => Vect.index (fst x).target caps = Nothing) ks, All SiteMet ks)),
+                        (\ks => (All (\x => Vect.index (fst x).target caps = Nothing) ks, All (SiteMet t) ks)),
                  List (Bound.Site n, Wrote))
 uncappedDrawn caps [] _ = (Element [] ([], []), [])
 uncappedDrawn caps (x :: xs) made with (Vect.index (fst x).target caps) proof here
@@ -1409,16 +1932,23 @@ uncappedDrawn caps (x :: xs) made with (Vect.index (fst x).target caps) proof he
 
 -- A site of the model is one of the kept sites, whose writers list every
 -- parameter its template weighs with an arc.
-0 listedAmong : {ks : List (Bound.Site n, Wrote)} -> All SiteMet ks -> Elem s (map Builtin.fst ks) -> WritersListed s
+0 listedAmong : {ks : List (Bound.Site n, Wrote)} -> All (SiteMet t) ks -> Elem s (map Builtin.fst ks) -> WritersListed s
 listedAmong {ks = []} [] el = absurd el
 listedAmong {ks = (_, _) :: _} (made :: _) Here = fst (snd made)
 listedAmong {ks = _ :: _} (_ :: made) (There el) = listedAmong made el
 
 -- A site of the model is one of the kept sites, read as its writing was.
-0 landedAmong : {ks : List (Bound.Site n, Wrote)} -> All SiteMet ks -> Elem s (map Builtin.fst ks) -> SiteLanding s
+0 landedAmong : {ks : List (Bound.Site n, Wrote)} -> All (SiteMet t) ks -> Elem s (map Builtin.fst ks) -> SiteLanding t s
 landedAmong {ks = []} [] el = absurd el
-landedAmong {ks = (_, _) :: _} (made :: _) Here = snd (snd made)
+landedAmong {ks = (_, _) :: _} (made :: _) Here = fst (snd (snd made))
 landedAmong {ks = _ :: _} (_ :: made) (There el) = landedAmong made el
+
+-- A site of the model is one of the kept sites, bounded by what lands at
+-- its target.
+0 boundedAmong : {ks : List (Bound.Site n, Wrote)} -> All (SiteMet t) ks -> Elem s (map Builtin.fst ks) -> TargetBounded t s
+boundedAmong {ks = []} [] el = absurd el
+boundedAmong {ks = (_, _) :: _} (made :: _) Here = snd (snd (snd made))
+boundedAmong {ks = _ :: _} (_ :: made) (There el) = boundedAmong made el
 
 ------------------------------------------------------------------------------
 -- Positions, caps and the numbering
@@ -1547,10 +2077,11 @@ evaluable _ = Nothing
 ||| written: the arc it draws is the one the check refuses. A value of a
 ||| type an argument's lists hold, or a binding's list, is evaluated as an
 ||| argument is, and the argument's every reading holds the lists so
-||| evaluated.
-evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Spot Landing ->
+||| evaluated. What lands at a position is read off the walk's own
+||| numbering (`landingAt`), what the writings as written land as.
+evaluated : {auto c : Ref Ctxt Defs} -> (landingAt : Spot -> Landing) ->
             List (Node, List (Sites.Site, Reached)) -> Front (List (Node, List (Sites.Site, Reached)))
-evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w st e) edges)
+evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w st e) edges)
   where
     -- One closed reading of an argument at a choice of values: nothing
     -- when the reading still holds a marker or applies a family.
@@ -1561,7 +2092,7 @@ evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$>
 
     evaluate : Node -> Sites.Site -> Argument -> Front (List Argument)
     evaluate w st x = case (x.term, applyingIn x.template) of
-      (Just tm, fs@(_ :: _)) => case traverse (\i => (i,) <$> evaluable (closedAt ls w st.params i)) (nub fs) of
+      (Just tm, fs@(_ :: _)) => case traverse (\i => (i,) <$> evaluable (landingAt (spotAt w st.params i))) (nub fs) of
         Nothing => pure [x]
         Just values => do
           reads <- traverse (readingAt x tm) (choices values)
@@ -1654,29 +2185,40 @@ build main = do
   let args0 = writings walked0
   capped <- capsOf (targetsOf args0)
   -- What lands at each position is joined from every writing there, and a
-  -- capped position holds every value of its cap's height.
-  let lands0 = landings nodes leads walked0 (opened (keys capped) (landedAt (writtenBy walked0 args0)))
+  -- capped position holds every value of its cap's height: the writings
+  -- as written are numbered at their places, and what lands is read off
+  -- that numbering, by the spot a writer reads.
+  let written0 = writtenBy walked0 args0
+  let slots0 = allSlots written0
+  let (numbered0, met0) = numberedAll {rest = []} written0
+                                      (replace {p = Meeting (length slots0)} (sym (appendNilRightNeutral slots0))
+                                               (MkMeeting 0 Refl empty [<]))
+  let table0 = tableOf met0.seen (map (\p => lookup p capped) (Vect.fromList slots0)) nodes leads walked0 (map landedPair numbered0)
+  let landing0 = \spot => maybe Open (\p => fromMaybe Open (Vect.index p table0)) (lookup spot met0.seen)
   -- What a family given only closed values computes, evaluated at each.
-  walked <- evaluated lands0 walked0
+  walked <- evaluated landing0 walked0
   let written = writtenBy walked (writings walked)
-  let lands = landings nodes leads walked (opened (keys capped) (landedAt written))
-  -- Each writing read where its writer is, over what lands where.
-  let every = map (readAtWriter fl entered.families lands) written
   -- The places positions are met at: where each writing lands and where
-  -- its writer reads each parameter it draws from, then every represented
-  -- argument of a reachable data type. Every place an argument lands is a
-  -- writing's. A position is numbered at the place it is first met, and
-  -- each site is built as its places are met, so no site looks a position
-  -- up.
-  let slots = allSlots every ++ entered.datas
+  -- its writer reads each parameter its template names, then every
+  -- represented argument of a reachable data type. Every place an argument
+  -- lands is a writing's. A position is numbered at the place it is first
+  -- met, before anything that lands is read, so what lands where is a
+  -- table by number, and no site looks a position up.
+  let slots = allSlots written ++ entered.datas
   let position = Vect.fromList slots
-  let start : Meeting (length slots) (allSlots every ++ entered.datas)
+  let start : Meeting (length slots) (allSlots written ++ entered.datas)
       start = MkMeeting 0 Refl empty [<]
-  let (Element sites sitesDrawn, met) = sitesMet {rest = entered.datas} every start
+  let (numbered, met) = numberedAll {rest = entered.datas} written start
   let (_, done) = meetAll {rest = []} entered.datas
                           (replace {p = Meeting (length slots)} (sym (appendNilRightNeutral entered.datas)) met)
   let firsts = done.firsts <>> []
   let caps = map (\p => lookup p capped) position
+  -- What lands at each position, and each writing read where its writer
+  -- is over it.
+  let landed = map landedPair numbered
+  let table = tableOf done.seen caps nodes leads walked landed
+  let (Element sites sitesDrawn) = sitesRead fl entered.families table numbered
+                                             (\el => tableBounds done.seen caps nodes leads walked landed (elemMap landedPair el))
   -- Each definition's positions, each field's and each choice's, read off
   -- the first meetings themselves.
   let byDefinitionAt = the (SortedMap Address (List (Fin (length slots))))
@@ -1720,8 +2262,8 @@ build main = do
   -- A field's template is written into the values of every field read,
   -- and so into requests, as an argument's is.
   pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) position firsts (wrotes arcs)
-                (foldl (\m, x => max m (Template.arity x.template)) 0 every) found.reachers entered.breadth
-                (foldl (\m, x => max m (Template.heaviest x.template)) count every)
+                (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers entered.breadth
+                (foldl (\m, x => max m (Template.heaviest (fst x).template)) count sites)
                 (modelOf positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept)
                 (\pot, fe => describes positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept
                                        (fst keptEvidence) fe)
@@ -1738,4 +2280,7 @@ build main = do
                 (\st, el => ownDrawnOf {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {positionOf}
                                        {held = count} {beyond} {caps} {ss = kept} el)
                 (\st, el => listedAmong (snd keptEvidence) el)
-                (\st, el => landedAmong (snd keptEvidence) el))
+                table
+                (\q, k, atQ => tableUncapped done.seen caps nodes leads walked landed q atQ)
+                (\st, el => landedAmong (snd keptEvidence) el)
+                (\st, el => boundedAmong (snd keptEvidence) el))
