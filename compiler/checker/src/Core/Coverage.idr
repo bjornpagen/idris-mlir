@@ -9,7 +9,10 @@ import Core.Env
 import Core.Normalise
 import Core.Value
 
+import Control.WellFounded
 import Data.Maybe
+import Data.Nat
+import Data.So
 import Data.String
 
 import Libraries.Data.NameMap
@@ -72,21 +75,107 @@ conflictMatch ((x, tm) :: ms) = conflictArgs x tm ms || conflictMatch ms
     conflictArgs n tm ((x, tm') :: ms)
         = (n == x && conflictTm tm tm') || conflictArgs n tm ms
 
--- Return whether any part of the type conflicts in such a way that they
--- can't possibly be equal (i.e. mismatched constructor)
-conflict : {vars : _} ->
-           {auto c : Ref Ctxt Defs} ->
-           Defs -> Env Term vars -> NF vars -> Name -> Core Bool
-conflict defs env nfty n
+-- The nodes of a term, which bound how far 'isEmpty' looks into a type.
+-- Each kind of node that holds terms is counted by a function of its own,
+-- so that every recursive call is on a part of its argument.
+mutual
+  total
+  sizePi : PiInfo (Term vars) -> Nat
+  sizePi (DefImplicit t) = termSize t
+  sizePi _ = 0
+
+  total
+  sizeBinder : Binder (Term vars) -> Nat
+  sizeBinder (Lam _ _ p ty) = sizePi p + termSize ty
+  sizeBinder (Let _ _ val ty) = termSize val + termSize ty
+  sizeBinder (Pi _ _ p ty) = sizePi p + termSize ty
+  sizeBinder (PVar _ _ p ty) = sizePi p + termSize ty
+  sizeBinder (PLet _ _ val ty) = termSize val + termSize ty
+  sizeBinder (PVTy _ _ ty) = termSize ty
+
+  total
+  sizeTerms : List (Term vars) -> Nat
+  sizeTerms [] = 0
+  sizeTerms (t :: ts) = termSize t + sizeTerms ts
+
+  total
+  termSize : Term vars -> Nat
+  termSize (Meta _ _ _ args) = S (sizeTerms args)
+  termSize (Bind _ _ b sc) = S (sizeBinder b + termSize sc)
+  termSize (App _ f a) = S (termSize f + termSize a)
+  termSize (As _ _ a p) = S (termSize a + termSize p)
+  termSize (TDelayed _ _ t) = S (termSize t)
+  termSize (TDelay _ _ ty a) = S (termSize ty + termSize a)
+  termSize (TForce _ _ t) = S (termSize t)
+  termSize _ = 1
+
+-- A fresh name for a binder of a constructor's type, numbered `i`, in case
+-- a user has bound the same name twice somehow: both references could
+-- appear in one result. A user name's printed form is its identifier's
+-- text, so only another name's is interned.
+freshName : {auto c : Ref Ctxt Defs} -> Name -> Int -> Core Name
+freshName (UN (Basic j)) i = pure (MN j i)
+freshName x i = pure (MN !(intern (show x)) i)
+
+-- A constructor's type with each of its `arity` arguments a fresh name,
+-- numbered from `i`: the arguments' types, the type it returns, and the
+-- next number. The arity is the count of the binders of the type's normal
+-- form, which the constructor was declared with, so the walk descends it.
+instantiate : {auto c : Ref Ctxt Defs} ->
+              Defs -> (arity : Nat) -> Int -> ClosedNF ->
+              Core (List ClosedTerm, ClosedNF, Int)
+instantiate defs (S k) i (NBind fc x b sc)
+    = do x' <- freshName x i
+         ty <- quote defs Env.empty (binderType b)
+         (tys, ret, next) <- instantiate defs k (i + 1)
+                               !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x')))
+         pure (ty :: tys, ret, next)
+instantiate defs _ i ret = pure ([], ret, i)
+
+-- What a constructor's type says of building a value of a given type: it
+-- cannot, its return type conflicting with the type, or it may, and then
+-- takes arguments of these types, each argument its return type
+-- determines replaced by what the type has there (an argument it does not
+-- determine stays a fresh name, which conflicts with nothing), with the
+-- next number for a fresh name.
+data Fit : Scoped where
+     Conflicts : Fit vars
+     Fits : (argTypes : List (Term vars)) -> (next : Int) -> Fit vars
+
+-- How a constructor builds a value of the type, if it can: whether any
+-- part of the type conflicts with the constructor's return type in such a
+-- way that they can't possibly be equal (i.e. mismatched constructor), and
+-- otherwise the types of its arguments, their fresh names numbered from
+-- `base`. A name that is no data constructor tells nothing, so it fits,
+-- with nothing to look into.
+fitting : {vars : _} ->
+          {auto c : Ref Ctxt Defs} ->
+          Defs -> Env Term vars -> (base : Int) -> NF vars -> Name -> Core (Fit vars)
+fitting defs env base nfty n
     = do Just gdef <- lookupCtxtExact n (gamma defs)
-              | Nothing => pure False
+              | Nothing => pure (Fits [] base)
          case definition gdef of
-              DCon t arity _
-                  => do Nothing <- conflictNF 0 nfty !(nf defs Env.empty !(typeOf gdef))
-                            | Just ms => pure $ conflictMatch ms
-                        pure True
-              _ => pure False
+              DCon _ arity _
+                  => do (argtys, ret, next) <- instantiate defs arity base
+                                                 !(nf defs Env.empty !(typeOf gdef))
+                        Just ms <- conflictNF next nfty ret
+                            | Nothing => pure Conflicts
+                        pure $ if conflictMatch ms
+                                  then Conflicts
+                                  else Fits (map (argTypeIn ms) argtys) next
+              _ => pure (Fits [] base)
   where
+    -- The fresh names are numbered past those of every type the caller is
+    -- inside, so what one is replaced by mentions no other of them.
+    substAll : List (Name, Term vars) -> Term vars -> Term vars
+    substAll [] tm = tm
+    substAll ((x, v) :: ms) tm = substAll ms (substName x v tm)
+
+    -- An argument's type in the scope of the type built, each argument the
+    -- constructor's return type determines replaced by what the type has.
+    argTypeIn : List (Name, Term vars) -> ClosedTerm -> Term vars
+    argTypeIn ms ty = substAll ms (embed ty)
+
     mutual
       conflictArgs : Int -> List (Closure vars) -> List ClosedClosure ->
                      Core (Maybe (List (Name, Term vars)))
@@ -110,14 +199,7 @@ conflict defs env nfty n
       conflictNF : Int -> NF vars -> ClosedNF ->
                    Core (Maybe (List (Name, Term vars)))
       conflictNF i t (NBind fc x b sc)
-          -- invent a fresh name, in case a user has bound the same name
-          -- twice somehow both references appear in the result it's unlikely
-          -- put possible. A user name's printed form is its identifier's
-          -- text, so only another name's is interned.
-          = do stem <- case x of
-                            UN (Basic j) => pure j
-                            _ => intern (show x)
-               let x' = MN stem i
+          = do x' <- freshName x i
                conflictNF (i + 1) t
                       !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x')))
       conflictNF i nf (NApp _ (NRef Bound n) [])
@@ -136,22 +218,77 @@ conflict defs env nfty n
                else pure Nothing
       conflictNF _ _ _ = pure (Just [])
 
--- Return whether the given type is definitely empty (due to there being
--- no constructors which can possibly match it.)
+-- A type that is a family applied to its indices: the only kind 'isEmpty'
+-- takes apart, since only a family has constructors to try.
+data OfFamily : NF vars -> Type where
+     FamilyApplied : OfFamily (NTCon fc n a args)
+
+-- Whether a type of a family, of `nodes` nodes, is empty: no constructor of
+-- the family can build a value of it. Its arguments' types are looked into
+-- only while they have fewer nodes, so the search descends the nodes, whose
+-- accessibility it carries; the fresh names of its constructors' arguments
+-- are numbered from `base`.
+mutual
+  emptyFrom : {vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+              Defs -> Env Term vars -> (base : Int) ->
+              (nfty : NF vars) -> (0 _ : OfFamily nfty) ->
+              (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Core Bool
+  emptyFrom defs env base nfty@(NTCon _ n _ _) _ nodes acc
+      = do Just nty <- lookupDefExact n (gamma defs)
+             | _ => pure False
+           case nty of
+                TCon _ _ _ flags _ (Just cons) _
+                     => if not (external flags)
+                           then allM (cannotBuild defs env base nfty nodes acc) cons
+                           else pure False
+                _ => pure False
+
+  -- No value of the type is built by the constructor: its return type
+  -- conflicts with the type, or one of the arguments it takes has a type
+  -- that is empty there.
+  cannotBuild : {vars : _} ->
+                {auto c : Ref Ctxt Defs} ->
+                Defs -> Env Term vars -> (base : Int) -> NF vars ->
+                (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Name -> Core Bool
+  cannotBuild defs env base nfty nodes acc con
+      = case !(fitting defs env base nfty con) of
+             Conflicts => pure True
+             Fits argtys next => anyM (emptyArg defs env next nodes acc) argtys
+
+  -- An argument's type is empty, looked into only when it has fewer nodes
+  -- than the type it is an argument of: the search's bound, so that a
+  -- family whose arguments do not get smaller is not taken apart again.
+  emptyArg : {vars : _} ->
+             {auto c : Ref Ctxt Defs} ->
+             Defs -> Env Term vars -> (next : Int) ->
+             (nodes : Nat) -> (0 _ : Accessible LT nodes) -> Term vars -> Core Bool
+  emptyArg defs env next nodes (Access rec) ty
+      = do argnf@(NTCon {}) <- nf defs env ty
+             | _ => pure False
+           argNodes <- termSize <$> quote defs env argnf
+           case choose (argNodes < nodes) of
+                Left lt => emptyFrom defs env next argnf FamilyApplied argNodes
+                                     (rec argNodes (ltOpReflectsLT argNodes nodes lt))
+                Right _ => pure False
+
+-- Return whether the given type is definitely empty: no constructor can
+-- build a value of it, since its return type conflicts with the type, or
+-- one of its arguments has a type which is itself empty there (a pair
+-- whose second part is `0 = 1`; `LTE (S (S k)) (S Z)`, whose `LTESucc`
+-- takes an `LTE (S k) Z`). A pattern variable of such a type is the
+-- evidence a missing case is impossible, wherever in the variable's type
+-- the conflict is. An argument's type is looked into only while it is
+-- smaller than the type it is an argument of, so the search ends: a family
+-- whose arguments do not get smaller, a stream with no end, is not taken
+-- apart again. A type that is no family's has no constructor to try.
 export
 isEmpty : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
           Defs -> Env Term vars -> NF vars -> Core Bool
-isEmpty defs env (NTCon fc n a args)
-  = do Just nty <- lookupDefExact n (gamma defs)
-         | _ => pure False
-       case nty of
-            TCon _ _ _ flags _ Nothing _ => pure False
-            TCon _ _ _ flags _ (Just cons) _
-                 => if not (external flags)
-                       then allM (conflict defs env (NTCon fc n a args)) cons
-                       else pure False
-            _ => pure False
+isEmpty defs env nfty@(NTCon {})
+    = do nodes <- termSize <$> quote defs env nfty
+         emptyFrom defs env 0 nfty FamilyApplied nodes (wellFounded nodes)
 isEmpty defs env _ = pure False
 
 altMatch : CaseAlt vars -> CaseAlt vars -> Bool

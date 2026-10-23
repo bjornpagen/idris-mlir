@@ -735,7 +735,15 @@ known only when the checker runs.
   splits), 55-lazy-case-scrutinee (a case block where a delayed value is
   expected is delayed whole, its scrutinee with it) and
   59-literal-partial-fold (a literal's conversion is folded only to a
-  value, never to a stuck partial normal form).
+  value, never to a stuck partial normal form). Two more the stock Idris
+  that bootstraps is patched for, and the checker has as its own code, so
+  that both hosts accept the same definitions:
+  110-coverage-erased-index-first (the tree an erased definition's coverage
+  is checked by takes next, of the columns `arrange` splits now, the first
+  one a run keeps, or else the last) and 111-coverage-nested-empty-type (a
+  type is empty also when each constructor that fits it takes an argument
+  of an empty type, looked into only while it has fewer nodes, a descent
+  the search carries as the accessibility of the count).
 
 ### What a TTC keeps
 

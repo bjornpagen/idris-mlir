@@ -38,15 +38,40 @@ export
 arrowConName : Name
 arrowConName = knownUN KArrow
 
--- The tree built is the compile-time tree of a definition of this
--- multiplicity: the one the frontend translates, and Idris's checks read.
--- Upstream built a second, for run time, with erasure and its rewrites
--- applied, for back ends this compiler does not have.
+-- Which of a definition's compile-time trees is built: the tree it is
+-- evaluated by, which the frontend translates and Idris's checks read, or
+-- the tree its coverage is checked by, which only proposes the cases its
+-- clauses leave.
 public export
-data Phase = CompileTime RigCount
+data TreeFor = Evaluating | CheckingCoverage
 
-Eq Phase where
-  CompileTime r == CompileTime r' = r == r'
+-- The tree built is a compile-time tree of a definition of this
+-- multiplicity. Upstream built another, for run time, with erasure and its
+-- rewrites applied, for back ends this compiler does not have.
+public export
+data Phase = CompileTime RigCount TreeFor
+
+-- The order a tree takes the columns in, among those `arrange` splits
+-- first. The tree a definition is evaluated by takes them from the left,
+-- and so does the tree a kept definition's coverage is checked by: a kept
+-- definition matches an erased argument only where the patterns before it
+-- force it (`getClauseType`), which only the order from the left tells. The
+-- tree an erased definition's coverage is checked by splits an erased
+-- argument wherever a clause matches it, and takes first the columns a run
+-- would keep, from the left, then the erased ones from the right: a later
+-- argument's type names the earlier ones, so the later determine the
+-- earlier (an index is bound before the argument whose type it is in).
+-- Split first, an index would end at each of its values no clause has with
+-- the arguments that determine it unsplit, a case the coverage check cannot
+-- refute without splitting them, and the walk of the missing cases would
+-- repeat the rest of the tree for every constructor such a default stands
+-- for.
+data SplitOrder = FromLeft | KeptFirst
+
+total
+splitOrder : Phase -> SplitOrder
+splitOrder (CompileTime r CheckingCoverage) = if isErased r then KeptFirst else FromLeft
+splitOrder (CompileTime _ Evaluating) = FromLeft
 
 data ArgType : Scoped where
      Known : RigCount -> (ty : Term vars) -> ArgType vars -- arg has type 'ty'
@@ -386,8 +411,8 @@ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     -- variable, unless it is a constructor: a type it solved (the `a` of
     -- `[] {a}`) is the only one the argument's type allows.
     matchesErased : Phase -> Source -> Bool
-    matchesErased (CompileTime cr) Written = isErased cr
-    matchesErased (CompileTime cr) _ = False
+    matchesErased (CompileTime cr _) Written = isErased cr
+    matchesErased (CompileTime cr _) _ = False
 
     -- used when we are tempted to split on a constructor: is
     -- this actually a fully applied one?
@@ -404,7 +429,7 @@ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     clauseType' _                 = Nothing
 
     getClauseType : Phase -> (p : Pat) -> ArgType vars -> Maybe (IsConPat p)
-    getClauseType (CompileTime cr) (PCon _ _ _ a xs) (Known r t)
+    getClauseType (CompileTime cr _) (PCon _ _ _ a xs) (Known r t)
         = if (isErased r && not (isErased cr) &&
              all (namesIn (pvars ++ concatMap namesFrom (getPatInfo rest))) xs)
              then Nothing
@@ -864,6 +889,40 @@ typed (p :: ps)
            Known {} => typed ps
            _ => False
 
+-- The column a tree that takes the columns a run keeps first splits next,
+-- of a group of columns: the first one a run keeps, or, where it keeps none
+-- of them, the last.
+total
+keptOrLast : {p, ps : _} -> NamedPats (p :: ps) vars -> (n ** NVar n (p :: ps))
+keptOrLast {ps = []} _ = (_ ** MkNVar First)
+keptOrLast {ps = _ :: _} (pinf :: rest)
+    = if kept (argType pinf)
+         then (_ ** MkNVar First)
+         else let (n ** MkNVar v) = keptOrLast rest in (n ** MkNVar (Later v))
+  where
+    kept : ArgType vs -> Bool
+    kept (Known r _) = not (isErased r)
+    kept _ = False
+
+-- The column a tree that takes the columns a run keeps first splits next:
+-- of those `arrangement` splits now, if there are any, else of those it
+-- splits after them, so that a column postponed still comes after the
+-- others.
+total
+keptFirstIn : {now, after : _} -> Arrangement now after (p :: ps) ->
+              NamedPats now vars -> NamedPats after vars -> (n ** NVar n (now ++ after))
+keptFirstIn _ soon@(_ :: _) _ = let (n ** v) = keptOrLast soon in (n ** embedNVar v)
+keptFirstIn (Postponed _) [] late = keptOrLast late
+
+-- The clauses with the column a tree of this order splits next moved
+-- first, where pickNextViable takes it if it can. From the left, the first
+-- column already is the next.
+inOrder : {todo : _} -> SplitOrder -> Lazy (n ** NVar n todo) ->
+          List01 True (PatClause todo vars) ->
+          (todo' ** List01 True (PatClause todo' vars))
+inOrder FromLeft _ cs = (_ ** cs)
+inOrder KeptFirst next cs = let (nm ** MkNVar el) = Force next in (_ ** shuffleVars el <$> cs)
+
 -- The clauses' own tests come before what unification fixed from them. A
 -- column the clauses only bind, and some bind to what unification found
 -- from the patterns they write (an implicit of the definition or of a
@@ -872,17 +931,24 @@ typed (p :: ps)
 -- every step. Split before the patterns that fix it, it leaves branches
 -- that only the emptiness of a later column's type rules out (`All IsF
 -- (A :: xs)`, when `IsF A` has no constructor), which the coverage check
--- does not look into; split after them, those branches are impossible by
--- unification. It is still split: a leaf binds what its pattern names, and
--- a column whose type computes on it (`Lifted r xs y z`) waits for it
--- (pickNextViable).
-arrange : {todo : _} -> List01 True (PatClause todo vars) ->
+-- finds only by looking into that type, and only while what it looks into
+-- gets smaller (`isEmpty`); split after them, those branches are impossible
+-- by unification. It is still split: a leaf binds what its pattern names,
+-- and a column whose type computes on it (`Lifted r xs y z`) waits for it
+-- (pickNextViable). Of the columns split now (all of them, where the
+-- columns keep their order), the one the tree's order takes next is moved
+-- first (`SplitOrder`).
+arrange : {todo : _} -> SplitOrder -> List01 True (PatClause todo vars) ->
           (todo' ** List01 True (PatClause todo' vars))
-arrange cs@(c :: _)
+arrange {todo = []} _ cs = (_ ** cs)
+arrange {todo = _ :: _} order cs@(c :: _)
     = if typed (getNPs c)
          then let (_ ** _ ** placed) = arrangement (getNPs <$> cs) in
-                  (_ ** arranged placed <$> cs)
-         else (_ ** cs)
+                  inOrder order
+                          (let (soon, late) = arrangePats placed (getNPs c) in
+                               keptFirstIn placed soon late)
+                          (arranged placed <$> cs)
+         else inOrder order (keptOrLast (getNPs c)) cs
 
 mutual
   {- 'PatClause' contains a list of patterns still to process (that's the
@@ -899,7 +965,7 @@ mutual
           IMaybe ne (CaseTree vars) ->
           Core (CaseTree vars)
   match fc fn phase clauses err
-      = let (_ ** clauses') = arrange clauses in
+      = let (_ ** clauses') = arrange (splitOrder phase) clauses in
             step fc fn phase clauses' err
 
   step : {vars, todo : _} ->

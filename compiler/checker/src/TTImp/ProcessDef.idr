@@ -377,11 +377,12 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
              extendEnv env Refl nest lhstm_lin lhsty_lin
          pure (lhs, (vars' ** (sub', env', nest', lhstm', lhsty', unifiedArgs marks lhs)))
 
--- Return whether any of the pattern variables are in a trivially empty
--- type, where trivally empty means one of:
+-- Return whether any of the pattern variables are in an empty type, where
+-- empty means that no constructor of the family can build a value of it:
 --  * No constructors
 --  * Every constructor of the family has a return type which conflicts with
---    the given constructor's type
+--    the given constructor's type, or an argument of a type which is empty
+--    in the same way (Core.Coverage.isEmpty)
 hasEmptyPat : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               Defs -> Env Term vars -> Term vars -> Core Bool
@@ -833,7 +834,7 @@ processDef opts nest env fc n_in cs_in
 
          (cargs ** (tree_ct, clausePats, unreachable)) <-
              logTime 3 ("Building compile time case tree for " ++ show n) $
-                getPMDef fc (CompileTime mult) n ty (map (saved mult) (rights cs))
+                getPMDef fc (CompileTime mult Evaluating) n ty (map (saved mult) (rights cs))
 
          traverse_ warnUnreachable unreachable
 
@@ -963,7 +964,7 @@ processDef opts nest env fc n_in cs_in
                :: map (("  " ++) . show) !(traverse toFullNames covcs')
              let covcs = mapMaybe id covcs'
              (_ ** (ctree, _, _)) <-
-                 getPMDef fc (CompileTime mult) (Resolved n) ty covcs
+                 getPMDef fc (CompileTime mult CheckingCoverage) (Resolved n) ty covcs
              logC "declare.def" 3 $ do pure $ "Working from " ++ show !(toFullNames ctree)
              missCase <- if any catchAll covcs
                             then do logC "declare.def" 3 $ do pure "Catch all case in \{show !(getFullName (Resolved n))}"
