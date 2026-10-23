@@ -445,13 +445,11 @@ Type takenType(Type inferred, Type had) {
   return hold ? atHold(kept, *hold) : kept;
 }
 
-// The types `infer`'s op takes from its operands as they now are: its own
-// where they still agree with that inference by the op's own compatibility,
-// since they may be more precise; otherwise each result as takenType makes
-// it, where the op's own compatibility accepts those. None where inference
-// refuses the operands, or where the op accepts a result only at a carrier
-// no cast takes back. Inference is asked with no location, so a refusal
-// reports nothing.
+} // namespace
+
+// Its own types where they still agree with the inference by the op's own
+// compatibility; otherwise each result as takenType makes it, where that
+// compatibility accepts those.
 std::optional<SmallVector<Type>> takenTypes(InferTypeOpInterface infer) {
   Operation *op = infer.getOperation();
   SmallVector<Type> inferred;
@@ -468,6 +466,8 @@ std::optional<SmallVector<Type>> takenTypes(InferTypeOpInterface infer) {
     return std::nullopt;
   return taken;
 }
+
+namespace {
 
 // The body under the copy's signature. Each argument a size made static
 // takes its static type, and every type derived from the parameters follows

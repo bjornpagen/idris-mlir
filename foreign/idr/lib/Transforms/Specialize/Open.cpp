@@ -38,11 +38,12 @@
 // what the rule rewrites.
 //
 // A tail gives the open type by one reindex from what the reindexes that
-// made its value cast, at the grade that reindex gives (a fresh cell,
-// counted and claiming its own cells, where it builds one from words; the
-// operand's hold where it builds nothing), and its claim forgotten by
-// idr.count.share, the one op that forgets a claim, which the stage table
-// admits from the first-order program on, where the open type claims less.
+// made its value cast, at the grade that reindex gives (the hold every
+// building reindex gives, a fresh cell claiming its own cells, where it
+// builds one from words; the operand's hold where it builds nothing), and
+// its claim forgotten by idr.count.share, the one op that forgets a claim,
+// which the stage table admits from the first-order program on, where the
+// open type claims less.
 // So an opened result is at the weakest hold its tails give, which every
 // tail fits: one that gives a cell no one claims and one that builds from
 // words share it.
@@ -52,16 +53,25 @@
 // one: the cast back after the call gives what its reindex gives, and the
 // values of the caller that carry the result on are re-graded down where
 // the call stands, each by its own op's rule (regrade). The walk stops
-// where a grade is fixed exactly. At a call, the callee's parameter: the
-// next round keys a copy of the callee to the hold it is passed. At the
+// where a grade is fixed exactly. At a call, the callee's parameter, which
+// the caller's decision takes up when the caller is taken up. A final
+// callee's copy is keyed to the hold it is passed, and each result the
+// callee gives back that operand as is keyed with it (keyGivenBack, read
+// off the facts the callee's component published), so the call takes the
+// key's results then, before the copy is built, and the walk goes on from
+// them (keyCalls). A member of the caller's own component, which no copy
+// is keyed for until the component is final, takes the weakest hold its
+// component passes it as its parameter's, its body re-graded and every
+// call of it sharing a stronger operand down (lowerParameters). At the
 // return, the caller's own signature: the caller's result takes that hold
 // by the result rule when the caller is decided, beside opening, and every
 // call of it is converted as a call of an opened function is. A layout
-// opens once and a hold only descends a finite order, so the rule still
-// ends by construction.
+// opens once and a hold only descends a finite order, so every decision
+// still ends by construction.
 
 #include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -109,14 +119,15 @@ Value uncast(Value value) {
 
 // The type a reindex of a value of `from` to the carrier of `to` gives, by
 // the reindex's own rule: the operand's uses; and where the carrier holds
-// references, a fresh value, counted and claiming its own cells, where the
-// re-pack builds a cell or an array, the operand's hold where it builds
-// nothing, its memory the operand's.
+// references, the hold every building reindex gives (families::builtHold, a
+// fresh value claiming no more than its own cells) where the re-pack builds
+// a cell or an array, the operand's hold where it builds nothing, its
+// memory the operand's.
 Type reindexed(Type from, Type to) {
   Type carrier = unrestricted(to);
   std::optional<Hold> hold;
   if (holdsReferences(carrier)) {
-    hold = families::builds(from, carrier) ? Hold::counted(Unique::Self) : holdOf(from);
+    hold = families::builds(from, carrier) ? families::builtHold(Unique::None) : holdOf(from);
     assert(hold && "a re-pack into a value that holds references either builds it or holds "
                    "what its operand held");
   }
@@ -259,32 +270,6 @@ void joinDown(Value input, Lower &lower) {
   }
 }
 
-// The types `infer`'s op gives its results from its operands as they now
-// are, each result's carrier its own and its hold the inferred one: its own
-// types where they still agree with that inference by the op's own
-// compatibility; none where the op refuses its operands, or its results at
-// those holds, which is the op's own problem and keeps what it had.
-// Inference is asked with no location, so a refusal reports nothing.
-std::optional<SmallVector<Type>> regradedResults(InferTypeOpInterface infer) {
-  Operation *op = infer.getOperation();
-  SmallVector<Type> inferred;
-  if (failed(infer.inferReturnTypes(op->getContext(), std::nullopt, op->getOperands(),
-                                    op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
-                                    op->getRegions(), inferred)))
-    return std::nullopt;
-  SmallVector<Type> own(op->getResultTypes());
-  if (infer.isCompatibleReturnTypes(inferred, own))
-    return own;
-  SmallVector<Type> taken;
-  for (auto [type, had] : llvm::zip_equal(inferred, own)) {
-    std::optional<Hold> hold = holdOf(type);
-    taken.push_back(hold ? atHold(had, *hold) : had);
-  }
-  if (!infer.isCompatibleReturnTypes(inferred, taken))
-    return std::nullopt;
-  return taken;
-}
-
 // Each value `op` makes, its results and its regions' arguments, built of
 // `value` among others, held to what the local rule of exclusivity gives it
 // from the edges `op` declares, each source's claim its type's: a value
@@ -329,12 +314,13 @@ void lowerMade(Operation *op, Value value, Lower &lower) {
 
 } // namespace
 
-void regrade(FuncOp fn, ArrayRef<Value> lowered) {
+SmallVector<CallOp> regrade(FuncOp fn, ArrayRef<Value> lowered) {
   // The body's return, where it returns: a body that ends otherwise gives
   // no result.
   Operation *returned = fn.getBody().front().getTerminator();
   if (!returned->hasTrait<OpTrait::ReturnLike>())
     returned = nullptr;
+  SmallVector<CallOp> reached;
   SmallVector<Value> work(lowered.begin(), lowered.end());
   auto lower = [&](Value value, Type type) {
     if (value.getType() == type)
@@ -369,11 +355,16 @@ void regrade(FuncOp fn, ArrayRef<Value> lowered) {
         }
         continue;
       }
-      // A call passes each operand at its callee's parameter's type: the
-      // next round of the caller keys a copy of the callee to the hold it is
-      // passed (signatureOf).
-      if (isa<CallOp>(op))
+      // A call passes each operand at its callee's parameter's type, so the
+      // walk stops there, and the call is the caller's decision's: a final
+      // callee's copy is keyed to the hold the operand is passed at
+      // (signatureOf), whose results the call takes first (keyCalls); a
+      // member of the caller's own component takes that hold as its
+      // parameter's (lowerParameters).
+      if (auto call = dyn_cast<CallOp>(op)) {
+        reached.push_back(call);
         continue;
+      }
       // A value a branch forwards is its input, at the input's grade.
       bool forwarded = false;
       forwardedValues(op, [&](OpOperand &operand, Value input) {
@@ -400,9 +391,11 @@ void regrade(FuncOp fn, ArrayRef<Value> lowered) {
         lower(cast.getResult(), reindexed(value.getType(), cast.getType()));
         continue;
       }
-      // An op that infers its results has them inferred again.
+      // An op that infers its results has them inferred again, by the one
+      // rule substitution follows an operand by too; one that refuses is the
+      // op's own problem and keeps what it had.
       if (auto infer = dyn_cast<InferTypeOpInterface>(op)) {
-        if (std::optional<SmallVector<Type>> types = regradedResults(infer))
+        if (std::optional<SmallVector<Type>> types = families::takenTypes(infer))
           for (auto [result, type] : llvm::zip_equal(op->getResults(), *types))
             lower(result, type);
         continue;
@@ -412,6 +405,43 @@ void regrade(FuncOp fn, ArrayRef<Value> lowered) {
       // what the local rule gives it.
       lowerMade(op, value, lower);
     }
+  }
+  return reached;
+}
+
+SmallVector<std::optional<Hold>> passedHolds(CallOp call, TypeRange params) {
+  assert(call.getArgs().size() == params.size() &&
+         "a call passes one argument per parameter of its callee");
+  SmallVector<std::optional<Hold>> passed;
+  for (auto [arg, param] : llvm::zip_equal(call.getArgs().getTypes(), params)) {
+    std::optional<Hold> held = holdOf(arg);
+    std::optional<Hold> asked = holdOf(param);
+    passed.push_back(held && asked && *held != *asked ? held : std::nullopt);
+  }
+  return passed;
+}
+
+void keyGivenBack(std::span<const identities::GivesBack> given,
+                  ArrayRef<std::optional<Hold>> passed, MutableArrayRef<Type> results) {
+  for (const identities::GivesBack &fact : given) {
+    assert(fact.argument.index < passed.size() && fact.result.index < results.size() &&
+           "what a function gives back names its parameters and its results");
+    Type &result = results[fact.result.index];
+    std::optional<Hold> at = passed[fact.argument.index];
+    std::optional<Hold> own = holdOf(result);
+    // A parameter passed at its own hold gives back what the callee's type
+    // already says; a result whose carrier holds no reference has no claim
+    // to lower.
+    if (!at || !own)
+      continue;
+    // The parameter itself claims what it is passed at; a part of it, what
+    // that claim reaches into the part, which the part's field decides and
+    // is at least nothing at the same release.
+    Hold reaches = fact.argument.fields.empty() ? *at : at->refined(Unique::None);
+    std::optional<Hold> hold = weakest({*own, reaches});
+    assert(hold && "a callee's result and what it gives back are freed by one release, or one is "
+                   "static data a share gives where nothing is claimed");
+    result = atHold(result, *hold);
   }
 }
 
@@ -676,68 +706,211 @@ void convertCall(CallOp call, FuncOp callee) {
     if (back.getType() != type)
       lowered.push_back(back);
   }
-  regrade(call->getParentOfType<FuncOp>(), lowered);
+  // The calls the walk reaches are the caller's decision's when it is
+  // decided: here where it is of the callee's component, which is read
+  // again, and when it is taken up otherwise.
+  (void)regrade(call->getParentOfType<FuncOp>(), lowered);
+}
+
+// Every call of `id`, by the function that holds it: its own first, then
+// each caller's, each holder once. A caller of a function not final waits
+// on it, so between waves nothing reads what a decision rewrites in it.
+SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> callsOf(const optimize::Schedule &schedule,
+                                                                FunctionId id) {
+  SmallVector<FunctionId> holders{id};
+  for (FunctionId caller : schedule.callersOf(id))
+    if (!llvm::is_contained(holders, caller))
+      holders.push_back(caller);
+  StringAttr name = schedule.symbolOf(id);
+  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls;
+  for (FunctionId holder : holders) {
+    assert(!schedule.final(holder) && "a caller of a function not final waits on it");
+    SmallVector<CallOp> held;
+    schedule.function(holder).getBody().walk([&](CallOp call) {
+      if (call.getCalleeAttr().getAttr() == name)
+        held.push_back(call);
+    });
+    calls.emplace_back(holder, std::move(held));
+  }
+  return calls;
+}
+
+//===----------------------------------------------------------------------===//
+// The decisions taken when a function is taken up
+//===----------------------------------------------------------------------===//
+
+// `id`'s parameters, each at the weakest hold the calls of its own
+// component pass it, by the one order holds fit in: no copy of a member is
+// keyed until its component is final, so a member a call of its component
+// passes less than its parameter claims takes that claim itself, as its
+// result takes the hold its return gives. Its body is re-graded from each
+// parameter lowered. Then each call of it passes an operand that fits its
+// parameter at the parameter's hold, shared down to it, the operand's
+// carrier kept, which is the parameter's at the call's index arguments
+// since a hold names no index variable. The two kinds of caller differ in
+// what they may still key: a call within the component keys nothing, so
+// every operand that fits is shared down, static data included; a caller
+// outside keys a copy once the component is final, to a weaker hold or to
+// static data where the parameter counts, so there only a claim stronger
+// than the parameter's, which no key may raise, is shared down.
+void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
+  FuncOp fn = schedule.function(id);
+  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
+  SmallVector<Type> inputs(fn.getArgumentTypes());
+  for (auto [position, input] : llvm::enumerate(inputs)) {
+    std::optional<Hold> own = holdOf(input);
+    if (!own)
+      continue;
+    SmallVector<Hold> holds{*own};
+    for (auto &[holder, held] : calls) {
+      if (!schedule.sameComponent(holder, id))
+        continue;
+      for (CallOp call : held)
+        if (std::optional<Hold> hold =
+                holdOf(call.getArgs()[static_cast<unsigned>(position)].getType()))
+          holds.push_back(*hold);
+    }
+    std::optional<Hold> joined = weakest(holds);
+    assert(joined && "what a parameter is passed within its component is freed by one release, or "
+                     "is static data a share gives where nothing is claimed");
+    input = atHold(input, *joined);
+  }
+  SmallVector<unsigned> lowered = differing(fn.getArgumentTypes(), inputs);
+  if (!lowered.empty()) {
+    fn.setFunctionType(FunctionType::get(fn.getContext(), inputs, fn.getResultTypes()));
+    Block &entry = fn.getBody().front();
+    SmallVector<Value> parameters;
+    for (unsigned position : lowered) {
+      BlockArgument parameter = entry.getArgument(position);
+      parameter.setType(inputs[position]);
+      parameters.push_back(parameter);
+    }
+    // The calls the walk reaches in its own body are decided next, by
+    // keyCalls and by passOn.
+    (void)regrade(fn, parameters);
+  }
+  auto sharedDown = [&](FunctionId holder, Hold given, Hold asked) {
+    if (given == asked || !given.fits(asked))
+      return false;
+    return schedule.sameComponent(holder, id) || given.claim() != asked.claim();
+  };
+  for (auto &[holder, held] : calls)
+    for (CallOp call : held)
+      for (auto [operand, input] : llvm::zip_equal(call.getArgsMutable(), inputs)) {
+        std::optional<Hold> given = holdOf(operand.get().getType());
+        std::optional<Hold> asked = holdOf(input);
+        if (!given || !asked || !sharedDown(holder, *given, *asked))
+          continue;
+        OpBuilder b(call);
+        operand.set(
+            heldAs(b, call.getLoc(), operand.get(), atHold(operand.get().getType(), *asked)));
+      }
+}
+
+// Each call in `fn` of a final function that passes an operand at another
+// hold than its parameter's takes, at each result its callee gives back
+// that operand as, the hold the callee's copy keyed to the operands'
+// (keyGivenBack, the one rule signatureOf keys by) will give it, read off
+// what the callee's component published it gives back: so the caller reads
+// the key's results before the copy is built, as a call of an opened
+// function takes the opened type, and the redirect that calls the copy
+// changes no result. The values the call's results carry on are re-graded
+// down, and each call that walk reaches is decided in turn; a hold only
+// descends, so the work ends. A call of a member of the caller's component
+// waits for that member's parameters instead (lowerParameters).
+void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
+  SmallVector<CallOp> work;
+  fn.getBody().walk([&](CallOp call) { work.push_back(call); });
+  while (!work.empty()) {
+    CallOp call = work.pop_back_val();
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    assert(callee && "between waves every copy a call names is placed");
+    std::optional<optimize::Readable> known = schedule.final(*callee);
+    if (!known)
+      continue;
+    SmallVector<std::optional<Hold>> passed = passedHolds(call, known->fn.getArgumentTypes());
+    SmallVector<Type> results(call.getResultTypes());
+    keyGivenBack(schedule.callees.of(call.getCalleeAttr()), passed, results);
+    SmallVector<Value> lowered;
+    for (auto [result, type] : llvm::zip_equal(call->getResults(), results)) {
+      if (result.getType() == type)
+        continue;
+      result.setType(type);
+      lowered.push_back(result);
+    }
+    llvm::append_range(work, regrade(fn, lowered));
+  }
+}
+
+// The result rule for `id`, a function the program held (openedResults):
+// its results retyped where its tails no longer agree with them, every call
+// of it converted, and each holder of its component, which may have lost a
+// tail to the cast or had its return re-graded, put on `work` to be decided
+// again; one outside is decided when it is taken up.
+void decideResults(const optimize::Schedule &schedule, FunctionId id,
+                   SmallVectorImpl<FunctionId> &work) {
+  FuncOp fn = schedule.function(id);
+  Spine spine = spineOf(fn);
+  std::optional<SmallVector<Type>> results = openedResults(fn, spine);
+  if (!results)
+    return;
+  SmallVector<unsigned> changed = differing(fn.getResultTypes(), *results);
+  fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), *results));
+  // Every call of it, its own first: its own calls take the new types
+  // before its tails give them, so a tail that a call of its own gives
+  // gives that call's result, which is the new type, cast no more.
+  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
+  for (auto &[holder, held] : calls)
+    for (CallOp call : held)
+      convertCall(call, fn);
+  giveTails(*results, changed, spine);
+  // Only what follows each converted call changed: a cast back after it,
+  // or a cast on gone, and the shares re-grading put where its values
+  // join, which give their operands on freely. Each is a tail call where
+  // its caller's tails now reach it freely, a tail lost to a layout where
+  // a cast back re-packs it, and ends no tail anywhere else.
+  for (auto &[holder, held] : calls) {
+    SmallVector<Operation *> reached = tail::sourcesOf(schedule.function(holder));
+    for (CallOp call : held)
+      call.setTailKind(llvm::is_contained(reached, call.getOperation())
+                           ? TailKind::tail
+                           : tail::withContext(call));
+  }
+  for (auto &[holder, held] : calls)
+    if (schedule.sameComponent(holder, id))
+      work.push_back(holder);
+}
+
+// Each member of `id`'s component, the function the program held, that a
+// call in `id` passes an operand at another hold than its parameter's, put
+// on `work`: its parameters are decided again. A copy's parameters are its
+// key's, which its callers read, so none of a copy is.
+void passOn(const optimize::Schedule &schedule, FunctionId id, SmallVectorImpl<FunctionId> &work) {
+  schedule.function(id).getBody().walk([&](CallOp call) {
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    assert(callee && "between waves every copy a call names is placed");
+    if (!schedule.sameComponent(*callee, id) || schedule.originOf(*callee) != *callee)
+      return;
+    if (llvm::any_of(passedHolds(call, schedule.function(*callee).getArgumentTypes()),
+                     [](const std::optional<Hold> &passed) { return passed.has_value(); }))
+      work.push_back(*callee);
+  });
 }
 
 } // namespace
 
 void openResults(optimize::Schedule &schedule, ArrayRef<FunctionId> starters) {
-  // The functions the program held: a copy's results are its key's, which
-  // its owner's type, decided when the owner was taken up, gave it.
-  SmallVector<FunctionId> work;
-  for (FunctionId id : starters)
-    if (schedule.originOf(id) == id)
-      work.push_back(id);
+  SmallVector<FunctionId> work(starters.begin(), starters.end());
   while (!work.empty()) {
     FunctionId id = work.pop_back_val();
-    FuncOp fn = schedule.function(id);
-    Spine spine = spineOf(fn);
-    std::optional<SmallVector<Type>> results = openedResults(fn, spine);
-    if (!results)
-      continue;
-    SmallVector<unsigned> changed = differing(fn.getResultTypes(), *results);
-    fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), *results));
-    // Every call of it, its own first: its component's and its callers',
-    // each of which waits on it. Its own calls take the new types before
-    // its tails give them, so a tail that a call of its own gives gives
-    // that call's result, which is the new type, cast no more.
-    SmallVector<FunctionId> holders{id};
-    for (FunctionId caller : schedule.callersOf(id))
-      if (!llvm::is_contained(holders, caller))
-        holders.push_back(caller);
-    StringAttr name = fn.getSymNameAttr();
-    SmallVector<std::pair<FuncOp, SmallVector<CallOp>>> converted;
-    for (FunctionId holder : holders) {
-      assert(!schedule.final(holder) && "a caller of a function not final waits on it");
-      FuncOp caller = schedule.function(holder);
-      SmallVector<CallOp> calls;
-      caller.getBody().walk([&](CallOp call) {
-        if (call.getCalleeAttr().getAttr() == name)
-          calls.push_back(call);
-      });
-      for (CallOp call : calls)
-        convertCall(call, fn);
-      converted.emplace_back(caller, std::move(calls));
-    }
-    giveTails(*results, changed, spine);
-    // Only what follows each converted call changed: a cast back after it,
-    // or a cast on gone, and the shares re-grading put where its values
-    // join, which give their operands on freely. Each is a tail call where
-    // its caller's tails now reach it freely, a tail lost to a layout where
-    // a cast back re-packs it, and ends no tail anywhere else.
-    for (auto &[caller, calls] : converted) {
-      SmallVector<Operation *> reached = tail::sourcesOf(caller);
-      for (CallOp call : calls)
-        call.setTailKind(llvm::is_contained(reached, call.getOperation())
-                             ? TailKind::tail
-                             : tail::withContext(call));
-    }
-    // A holder of its component, the function itself among them, may have
-    // lost a tail to the cast or had its return re-graded, and is read
-    // again now; one outside is read when it is taken up.
-    for (FunctionId holder : holders)
-      if (schedule.sameComponent(holder, id) && schedule.originOf(holder) == holder)
-        work.push_back(holder);
+    // A copy's parameters and results are its key's, which its callers read
+    // before it was built; only what its calls give it is decided.
+    if (schedule.originOf(id) == id)
+      lowerParameters(schedule, id);
+    keyCalls(schedule, schedule.function(id));
+    if (schedule.originOf(id) == id)
+      decideResults(schedule, id, work);
+    passOn(schedule, id, work);
   }
 }
 

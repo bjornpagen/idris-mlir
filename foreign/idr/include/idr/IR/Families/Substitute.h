@@ -7,9 +7,9 @@
 // indices make impossible pruned in the same rewrite, each bare tensor
 // argument's axis its extents name made static where its term becomes a
 // size, and every type derived from the parameters inferred again), and a
-// region's levels renumbered where it moves to another depth. Every type is
-// mapped by upstream's AttrTypeReplacer; index terms are written in normal
-// form.
+// region's levels renumbered where it moves to another depth; and the one
+// rule by which an op's results follow its operands. Every type is mapped by
+// upstream's AttrTypeReplacer; index terms are written in normal form.
 #ifndef IDR_IR_FAMILIES_SUBSTITUTE_H
 #define IDR_IR_FAMILIES_SUBSTITUTE_H
 
@@ -17,6 +17,9 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Region.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
+
+#include <optional>
 
 namespace idr {
 
@@ -97,6 +100,23 @@ mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, Inde
 // binder becomes in the copy, which keeps it. The sorts of the binders that
 // stay, which the caller sets on its op.
 mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args);
+
+// The types `infer`'s op takes from its operands as they now are: the one
+// rule by which an op's results follow its operands wherever one of their
+// types changed, an axis made static by substitution or a claim lowered by
+// the specializer's re-grading alike. Its own types where they still agree
+// with that inference by the op's own compatibility, since they may be more
+// precise; otherwise each result at its inferred grade, and at its inferred
+// carrier only where a tensor.cast takes it back to the one it had, a bare
+// tensor made more static: no cast keeps a grade, and a call compares graded
+// types exactly, so a graded value keeps its carrier while its grade
+// follows. A change that leaves every carrier as it was (a claim lowered)
+// gives each result its own carrier, since inference reads the same
+// carriers it was made from. None where inference refuses the operands, or
+// where the op accepts a result only at a carrier no cast takes back, which
+// is the op's own problem and leaves it the types it had. Inference is
+// asked with no location, so a refusal reports nothing.
+std::optional<llvm::SmallVector<mlir::Type>> takenTypes(mlir::InferTypeOpInterface infer);
 
 // Moves the levels [from, from + count) of every type under `region` to
 // [to, to + count), and every level past them by as much: what a function

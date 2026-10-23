@@ -191,7 +191,8 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
     if (std::optional<optimize::Readable> known = schedule.final(*callee)) {
       CallSite site = siteOf(schedule, self, requester, *callee);
       want = decide(nodes.arena(), nodes.forms(), call, requester, known->fn, *callee,
-                    nodes.find(*callee), seenBy(site, *known), site, standingOf(call));
+                    nodes.find(*callee), schedule.callees.of(call.getCalleeAttr()),
+                    seenBy(site, *known), site, standingOf(call));
     } else if (schedule.sameComponent(self, *callee)) {
       // The beta step: closures built for this call alone, applied to a
       // member of the component, keyed by those closures, so their cells

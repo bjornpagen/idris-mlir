@@ -12,21 +12,23 @@
 // finitely many by construction. The layout class of a call's index
 // arguments, the hold an argument is passed at where its parameter's
 // differs (static data where the callee would count, or a claim re-grading
-// lowered), the layout each result is returned at, a lifetime's mode and a
-// grade copy of counting's are each drawn from a finite alphabet. A result
-// is returned as its class lays it out (closed: `#Vect[4]` in place, every
-// non-tail call's) or, for a tail call whose caller lays it out otherwise,
-// at the open layout, its type marked open, its indices kept: a copy keyed
-// open returns that, so the two lower to one return. A copy keyed open asks
-// only open: each of its tails gives the open layout, so each tail call in
-// it whose callee gives a closed result asks that callee open in turn, at
-// the grade the copy returns it at. A result's open form is its type marked
-// open at that grade, the mark one of two, so the axis at most doubles the
-// keys of each class and hold, and the copies end with no budget and no
-// fixpoint. A result no copy could give closed, since a tail of its owner
-// gives it at what no substitution closes, is no key's: the owner's own
-// type marks it open (openResults), every copy returns it open by the
-// substitution, which keeps the mark, and its class lays it out open.
+// lowered) and the hold a result that gives such an argument back is
+// returned at with it, the layout each result is returned at, a lifetime's
+// mode and a grade copy of counting's are each drawn from a finite
+// alphabet. A result is returned as its class lays it out (closed:
+// `#Vect[4]` in place, every non-tail call's) or, for a tail call whose
+// caller lays it out otherwise, at the open layout, its type marked open,
+// its indices kept: a copy keyed open returns that, so the two lower to one
+// return. A copy keyed open asks only open: each of its tails gives the
+// open layout, so each tail call in it whose callee gives a closed result
+// asks that callee open in turn, at the grade the copy returns it at. A
+// result's open form is its type marked open at that grade, the mark one of
+// two, so the axis at most doubles the keys of each class and hold, and the
+// copies end with no budget and no fixpoint. A result no copy could give
+// closed, since a tail of its owner gives it at what no substitution
+// closes, is no key's: the owner's own type marks it open (openResults),
+// every copy returns it open by the substitution, which keeps the mark, and
+// its class lays it out open.
 //
 // A size an axis becomes is not drawn from a finite alphabet: the naturals
 // are unbounded. A size keys a copy only from a call outside its callee's call
@@ -52,6 +54,7 @@
 #define IDR_TRANSFORMS_SPECIALIZE_H
 
 #include "idr/Analysis/BindingTimes.h"
+#include "idr/Analysis/Identities.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
@@ -208,7 +211,8 @@ struct RaiseKey {
 // argument's layout class fixed (a closed index term where the owner's
 // layout changes under it), a bare tensor argument's axis made static
 // where the index term naming it becomes a constant, a parameter's hold
-// made the one the caller passes where the two differ, a result at the open
+// made the one the caller passes where the two differ and each result that
+// gives that parameter back keyed with it (keyGivenBack), a result at the open
 // layout where a tail call's caller returns it so, a lifetime parameter's
 // kind fixed, a grade copy's grades. The target signature and the index
 // terms substituted are the key, so a result's layout is read off its type
@@ -233,46 +237,88 @@ struct SignatureKey {
 mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // `fn` returning `results`, which differ from its own results only where
-// one opens: every tail of it gives that result at the open type, what it
-// gave there cast to it once at the grade that cast gives and shared down
-// to the open type's claim where it claims less, and each call in it takes
-// the tail fact its place now gives it.
+// one opens or claims less (a copy's result keyed to a lowered parameter it
+// gives back, keyGivenBack): every tail of it gives that result at the new
+// type, what it gave there cast to it once at the grade that cast gives and
+// shared down to the new type's claim where it claims less, and each call
+// in it takes the tail fact its place now gives it.
 void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 
-// The one rule for a result a tail of its function gives at a layout the
-// function's own type cannot agree with, in the function or in a copy whose
-// classes would close it, whatever closed them: the function's result is
-// marked open in its own type, at the weakest hold its tails give, so each
-// tail fits it, one that claims more through a share; its tails give it
-// open, and every call of it takes the open type and casts it back after
-// itself, at the hold the cast gives where that claims less than the call
-// was given, the caller re-graded down from there (regrade). Its other
-// half: a result its return gives at a weaker hold, which re-grading
-// brought there, takes that hold, its layout kept, every call of it
-// converted the same way. Decided for each function the program held when
-// the schedule takes it up, between waves, for `starters`, each a member a
-// turn of the coming wave starts: its callers outside its component wait
-// on it, and a member of its component, itself among them, that loses a
-// tail to the cast or has its return re-graded is decided again in turn.
-// A layout opens once and a hold only descends, so the rule ends. Every
-// copy keeps the mark its owner's type gives it.
+// The hold each argument of `call` is passed at where it differs from its
+// parameter's among `params`, the callee's own inputs, whose holds name no
+// index variable; none where the two agree, or where the argument holds no
+// reference.
+llvm::SmallVector<std::optional<Hold>> passedHolds(CallOp call, mlir::TypeRange params);
+
+// `results`, a callee's results (its own, or a call's view of them), as its
+// copy keyed to the holds `passed` names (passedHolds; none where a
+// parameter keeps its own) gives them, read off what the callee's component
+// published it gives back (`given`, through egraph::CalleeFacts), never
+// worked out again: a result that is a lowered parameter on every path that
+// returns claims no more than that parameter is passed at, so it takes the
+// weakest of its own hold and that one; a result that is a part of one, the
+// weakest of its own and that hold claiming nothing, since how far a claim
+// reaches into a part is the part's field's. Every other result keeps its
+// own. The one rule a copy's key is made by (signatureOf) and its caller
+// reads the call's results by before the copy is built (openResults).
+void keyGivenBack(std::span<const identities::GivesBack> given,
+                  llvm::ArrayRef<std::optional<Hold>> passed,
+                  llvm::MutableArrayRef<mlir::Type> results);
+
+// What a function's signature and its calls are decided to be when the
+// schedule takes it up, between waves, for `starters`, each a member a turn
+// of the coming wave starts, and for each member of their components a
+// decision reaches; holds only descend, by one finite order, and a layout
+// opens once, so the decisions end. Its callers outside its component wait
+// on it, so nothing reads what they rewrite. Three decisions, in order:
+// - Its parameters, for a function the program held: each takes the
+//   weakest hold the calls of its own component pass it, as no copy of a
+//   member is keyed while its component is not final; its body is
+//   re-graded from there, and every call of it shares a stronger operand
+//   down to it.
+// - Its calls of final functions: each that passes an operand lowered
+//   takes, at each result the callee gives back that operand as, the hold
+//   the callee's copy keyed to it will give (keyGivenBack), so it reads the
+//   key's results before the copy is built and the values they carry on
+//   are re-graded down.
+// - Its results, for a function the program held: the one rule for a
+//   result a tail of its function gives at a layout the function's own
+//   type cannot agree with, in the function or in a copy whose classes
+//   would close it, whatever closed them: the function's result is marked
+//   open in its own type, at the weakest hold its tails give, so each tail
+//   fits it, one that claims more through a share; its tails give it open,
+//   and every call of it takes the open type and casts it back after
+//   itself, at the hold the cast gives where that claims less than the call
+//   was given, the caller re-graded down from there (regrade). Its other
+//   half: a result its return gives at a weaker hold, which re-grading
+//   brought there, takes that hold, its layout kept, every call of it
+//   converted the same way.
+// A member of its component that loses a tail to the cast, has its return
+// re-graded or is passed an operand at another hold than its parameter's
+// is decided again in turn. A copy's parameters and results are its key's,
+// which its callers read, and every copy keeps the mark its owner's type
+// gives it.
 void openResults(optimize::Schedule &schedule, llvm::ArrayRef<FunctionId> starters);
 
 // The values of `fn` that carry one of `lowered` on, each of which now
-// claims less than its uses were given (a call's result opened at a weaker
-// hold, a copy's parameter keyed at the hold its caller passes), re-graded
-// down in one walk of their uses, no claim ever raised: a value a region
-// branch forwards takes the weakest hold its input is given, each operand
-// that claims more shared down where it is given; an op that only changes
-// a grade gives on the weaker of its two; a reindex, the grade its rule
-// gives; an op that infers its results, the inferred grade; and any other
-// op's values built of it, what the local rule of exclusivity gives them
-// from the edges the op declares. The walk stops where a grade is fixed
-// exactly: a call's operand stays at its own hold, which the next round
-// keys the callee's copy to; the return is shared down to the function's
-// result where it claims more, and otherwise left for the result rule
-// (openResults) to give the function's result.
-void regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
+// claims less than its uses were given (a call's result opened or keyed at
+// a weaker hold, a parameter lowered to the hold its callers pass),
+// re-graded down in one walk of their uses, no claim ever raised: a value a
+// region branch forwards takes the weakest hold its input is given, each
+// operand that claims more shared down where it is given; an op that only
+// changes a grade gives on the weaker of its two; a reindex, the grade its
+// rule gives; an op that infers its results, the types it takes from its
+// operands as they now are (families::takenTypes); and any other op's
+// values built of it, what the local rule of exclusivity gives them from
+// the edges the op declares. The walk stops where a grade is fixed exactly:
+// a call's operand stays at its own hold, the call being the decision's of
+// the function it is in (openResults): the callee's copy is keyed to that
+// hold, or a member of the function's component takes it as its
+// parameter's; the return is shared down to the function's result where it
+// claims more, and otherwise left for the result rule to give the
+// function's result. The calls it stopped at, each an operand of which it
+// lowered.
+llvm::SmallVector<CallOp> regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
 
 // The arena of one run: every pattern and key it made, freed with it.
 // Interning is under one lock: a request interns its key once, after it

@@ -19,7 +19,9 @@
 // result the key opens is given open by every tail of the copy: what the
 // copy builds where its index is known it still builds in place, and casts
 // at the end of each tail, at the grade the cast gives, shared down to the
-// grade the key asks where it claims less.
+// grade the key asks where it claims less. A result the key gives at a
+// lowered parameter's hold, since it gives that parameter back, is given at
+// it by every tail the same way.
 
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Grades.h"
@@ -139,19 +141,33 @@ LogicalResult Signatures::edit(Key key, FuncOp clone) {
     regraded.push_back(arg);
   }
   clone.setFunctionType(FunctionType::get(clone.getContext(), inputs, clone.getResultTypes()));
-  regrade(clone, regraded);
-  // A parameter's weaker claim that reached the return would ask the copy's
-  // result for less than the key gave its callers, who read the key's
-  // signature before the copy was built.
+  // Each call the walk stops at, an operand of which it lowered, takes the
+  // results its callee's copy will give when this copy is taken up
+  // (openResults), as every caller's calls do.
+  (void)regrade(clone, regraded);
+  // The key's results are what its callers read before the copy was built:
+  // a result it gives back a lowered parameter as is keyed at no more than
+  // that parameter's hold (keyGivenBack), so a parameter's weaker claim
+  // reaches the return no further than the key says. A result the key keeps
+  // at its layout is checked here; one it opens is given by a re-pack at
+  // the hold the key asks, which giveAs checks. What a function gives back
+  // holds on every path that returns, so a parameter that reaches a result
+  // on some paths only keys nothing, and is caught here.
   assert([&] {
     Operation *end = entry.getTerminator();
     if (!end->hasTrait<OpTrait::ReturnLike>())
       return true;
-    return llvm::all_of(llvm::zip_equal(end->getOperandTypes(), clone.getResultTypes()),
-                        [](auto pair) { return holdFits(std::get<0>(pair), std::get<1>(pair)); });
+    return llvm::all_of(
+        llvm::zip_equal(end->getOperandTypes(), clone.getResultTypes(),
+                        key->signature.getResults()),
+        [](auto each) {
+          auto [given, own, keyed] = each;
+          return unrestricted(own) != unrestricted(keyed) || holdFits(given, keyed);
+        });
   }() && "a copy keyed at the hold its caller passes gives no less at its result than its key "
          "says");
-  // Each result the key opens, given open by every tail.
+  // Each result the key opens, or keys to a lowered parameter it gives
+  // back, given so by every tail.
   openTails(clone, key->signature.getResults());
   // The call's view of the copy, read off the same mapping before the copy
   // was built and opened where the key opens a result, is the copy's type.

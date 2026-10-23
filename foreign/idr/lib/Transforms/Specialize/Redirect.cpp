@@ -18,10 +18,12 @@
 // passes it, as a call of a built function takes its callee's, so each
 // result is the type the call gave: a result the owner's type marks open
 // the call took open already, converting it after itself where its own
-// type closed it (openResults). The one result type a copy changes is a
-// result keyed open for a tail lost to a layout: the call gives it at its
-// caller's layout, so the cast after it, which re-packed, now builds
-// nothing.
+// type closed it (openResults), and a result keyed to the hold of a lowered
+// parameter it gives back the call took at that hold already, when its
+// caller was taken up (openResults again). The one result type a copy
+// changes is a result keyed open for a tail lost to a layout: the call
+// gives it at its caller's layout, so the cast after it, which re-packed,
+// now builds nothing.
 //
 // A copy called where the call was stands at the call's place, so it keeps
 // the call's tail fact; where it gives a result open, the re-pack it waited
@@ -122,6 +124,13 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   // caller's levels: the view substitutes the one by the other, a result
   // keeping its type but for them.
   FunctionType seen = indices ? families::substitute(type, ExtentsAttr(), indices) : type;
+  assert(llvm::all_of(llvm::zip_equal(seen.getResults(), call.getResultTypes()),
+                      [](auto pair) {
+                        auto [keyed, had] = pair;
+                        return keyed == had || unrestricted(keyed) != unrestricted(had);
+                      }) &&
+         "a copy gives each result at the hold its call took when its caller was taken up; only "
+         "a result keyed open differs from it");
   bool opened = !llvm::equal(seen.getResults(), call.getResultTypes());
   assert((!opened || !lastActOf(call)) &&
          "a copy gives each result as its call did, but one keyed open for a tail lost to a "
