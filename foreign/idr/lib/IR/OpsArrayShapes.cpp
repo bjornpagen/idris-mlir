@@ -3,15 +3,20 @@
 // The sizes of arrays: a natural as the extent of an array to be made,
 // idr.nat.to_extent, with its fold and its range; and the tie of an array's
 // dimensions to sizes across calls, idr.array.tie_shape, with its fold,
-// what value bounds reads of the dimensions it ties, and that it gives its
-// array on with no run-time work.
+// what value bounds reads of the dimensions it ties, that it gives its
+// array on with no run-time work, and its type, its operand's.
 
 #include "idr/IR/Arrays.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Ranges.h"
 
+#include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <optional>
 
 // The runtime's C ABI: the largest small natural.
 #include "idris_rt.h"
@@ -55,13 +60,23 @@ void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 // Dimensions across calls
 //===----------------------------------------------------------------------===//
 
-// One size per dynamic dimension.
-LogicalResult ArrayTieShapeOp::verify() {
-  auto type = cast<ShapedType>(getType());
-  if (getDims().size() != static_cast<size_t>(type.getNumDynamicDims()))
-    return emitOpError("takes ") << getDims().size() << " sizes for " << type
-                                 << ", which has " << type.getNumDynamicDims()
-                                 << " dynamic dimensions";
+// The same array at its operand's type, given one size per dynamic
+// dimension of it. Operands the sizes do not number have no result: where
+// a re-inference made the array more static (a copy's input made static)
+// the tie refuses it, and keeps its type reading its operand cast back,
+// the less optimized form and never a wrong one. The interface's verifier
+// runs this at the op, so it holds the result to the operand's type and
+// the sizes to its dimensions. The operand's constraint makes it a ranked
+// tensor or a value array's buffer, at a grade only on the buffer, so its
+// carrier is shaped.
+LogicalResult ArrayTieShapeOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
+                                                Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  Type array = adaptor.getValue().getType();
+  auto shape = cast<ShapedType>(unrestricted(array));
+  if (adaptor.getDims().size() != static_cast<size_t>(shape.getNumDynamicDims()))
+    return emitOptionalError(location, "takes ", adaptor.getDims().size(), " sizes for ", array,
+                             ", which has ", shape.getNumDynamicDims(), " dynamic dimensions");
+  inferred.push_back(array);
   return success();
 }
 

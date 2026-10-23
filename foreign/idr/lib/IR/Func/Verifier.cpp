@@ -3,8 +3,9 @@
 // idr.func's two verifiers. Its op verifier holds what its signature
 // states beyond its types (its record, where each scoped value lives and
 // the bounds between lifetimes, what it gives back, the index term each
-// unknown axis is) to that signature and its binders: a local fact of the
-// op, checked before its body. Its region verifier runs the rules of one
+// unknown axis is) to that signature and its binders, and keeps every axis
+// of a result's array `?`: a local fact of the op, checked before its
+// body. Its region verifier runs the rules of one
 // function, after the ops of its body are verified and in parallel with
 // every other function's: its stage's and its row's in its one walk, then
 // its tail calls'.
@@ -18,6 +19,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
@@ -116,6 +118,30 @@ LogicalResult givenBackFits(FuncOp fn) {
   return success();
 }
 
+// Every axis of a result's array is `?`, whatever its term, a literal
+// included: a size the function knows of a result is its extents' constant
+// entry, and a return of a static value casts before the return. So the
+// type a call gives is the type its slot takes, and no cast follows a call:
+// an array's words are its cell and one word per dynamic size, so a cast
+// between ranked types re-packs them, and one after a tail call would take
+// it out of tail position. A graded array's carrier is held to it too. The
+// buffer bufferization makes of a result keeps its tensor's axes, so the
+// rule read on the tensor holds of the buffer.
+LogicalResult resultAxesFit(FuncOp fn) {
+  for (auto [position, type] : llvm::enumerate(fn.getResultTypes())) {
+    auto array = dyn_cast<RankedTensorType>(unrestricted(type));
+    if (!array)
+      continue;
+    for (auto [axis, size] : llvm::enumerate(array.getShape()))
+      if (!ShapedType::isDynamic(size))
+        return fn.emitOpError("holds axis ")
+               << axis << " of result " << position << " static, at " << size
+               << ", though a result keeps every axis `?` and a known size is its extents' "
+                  "constant";
+  }
+  return success();
+}
+
 // Each extent names an axis its signature's type leaves `?`, by a term over
 // the function's own binders, or by a constant where the type keeps that
 // axis `?` on purpose. The attributes hold the rest themselves: the
@@ -162,12 +188,15 @@ LogicalResult extentsFit(FuncOp fn) {
 } // namespace
 
 // What the function's attributes say of its signature names what the
-// signature has, and its extents' terms what it binds: a local fact of the
-// op, checked before its body, so the derivation reads the record by
-// position with no bound to test.
+// signature has, and its extents' terms what it binds; and its results'
+// arrays keep their axes `?`, checked before the extents, so a static
+// result axis is named as that and not as an axis no entry may name: a
+// local fact of the op, checked before its body, so the derivation reads
+// the record by position with no bound to test.
 LogicalResult idr::FuncOp::verify() {
   if (failed(recordFits(*this, ParameterParts(getArgumentTypes()))) ||
-      failed(signatureFits(*this)) || failed(givenBackFits(*this)))
+      failed(signatureFits(*this)) || failed(givenBackFits(*this)) ||
+      failed(resultAxesFit(*this)))
     return failure();
   return extentsFit(*this);
 }

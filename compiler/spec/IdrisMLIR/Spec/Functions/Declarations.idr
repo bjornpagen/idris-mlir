@@ -172,9 +172,11 @@ programOp = MkOp
 ||| program's root. Its body is one block. Its verifier checks that its
 ||| record, its `lives_in`, its `given_back` and its `extents` name only
 ||| what its signature and its binders have, an extent's constant never at
-||| an axis its type would hold static; its region verifier, that its
-||| row and record cover what its body does, and where its calls stand. It
-||| states its parameters' lifetimes.
+||| an axis its type would hold static, and that no result's array holds an
+||| axis static, its known size being its extents' constant, so the type a
+||| call gives is the type its slot takes and no cast follows a call; its
+||| region verifier, that its row and record cover what its body does, and
+||| where its calls stand. It states its parameters' lifetimes.
 ||| Inserting and erasing parameters and results are its own implementations
 ||| of the function interface's methods, so whoever edits its signature,
 ||| through the op or the interface, one item or many, moves what it states

@@ -8,9 +8,11 @@
 ||| fixes the size, and a specialized copy whose term becomes a size has
 ||| that axis static where it is a bare tensor input's. Where the type keeps
 ||| the axis `?` on purpose (a result, a graded array), the copy's entry
-||| holds the constant, so a known size is never dropped. An entry says
-||| which term a `?` is and nothing the type says: there is none for a
-||| static axis, and none for an axis no term names. Bufferization makes
+||| holds the constant, so a known size is never dropped. A result keeps
+||| every axis `?`, a literal size too, its known size a constant entry, so
+||| no cast follows a call. An entry says which term a `?` is and nothing
+||| the type says: there is none for a static axis, and none for an axis no
+||| term names. Bufferization makes
 ||| the tensor a buffer with the same axes, so an entry names an axis of
 ||| either.
 |||

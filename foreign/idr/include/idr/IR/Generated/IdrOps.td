@@ -988,13 +988,13 @@ def Idr_ArrayTieShapeOp : Idr_Op<"array.tie_shape", [
     DeclareOpInterfaceMethods<ViewLikeOpInterface, ["getViewSource"]>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>,
-    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>,
+    InferTypeOpAdaptor
   ]> {
   let summary = "an array whose dynamic dimensions are the given sizes";
   let arguments = (ins AnyTypeOf<[AnyRankedTensor, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "a ranked tensor or a value array's buffer">:$value, Variadic<Index>:$dims);
   let results = (outs AnyTypeOf<[AnyRankedTensor, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "a ranked tensor or a value array's buffer">:$result);
   let assemblyFormat = [{ $value `dims` `(` $dims `)` attr-dict `:` type($value) `->` type($result) }];
-  let hasVerifier = 1;
   let hasFolder = 1;
 }
 
