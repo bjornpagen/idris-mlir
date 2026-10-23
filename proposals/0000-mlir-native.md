@@ -2042,8 +2042,8 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   nested in it) occurs only as the head of a saturated application in
   tail position, of the function or of the binder's own body. Emit reads
   that off the checked term: a syntactic test, total, with no budget.
-  A binder that passes it and is emitted as anything else is an internal
-  error. Contify stays what D75 calls optimization, finding the rest
+  A binder that passes it and is emitted as anything else cannot be
+  stated: the test and the rewrite are one (C261, amended here). Contify stays what D75 calls optimization, finding the rest
   after inlining, and stops calling itself a promise; the audit's worry
   that idr-deduplicate merges two source continuations before contify
   sees them goes, since a join is local to its function and no pass
@@ -2289,6 +2289,33 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   reduct, and never reduced again; a member whose form does not reduce
   cannot be registered, so no arm meets one, and Cases' whole-parameter
   internal error and its second reduction go.
+- **C260** (2026-10-23; the design reader on L16di's stop; under D112,
+  D68). A metavariable's solution is read once, at the boundary, by its
+  entry. `Reading` holds a table of solutions, filled by `readProgram`
+  after the freeze from every metavariable a reached term names, each
+  `SolvedAs` its term with its placement and, at quantity 0, Host's
+  `Solve` premises for a definition with no arguments and one leaf, or
+  `Open`; a metavariable at no entry or of any other shape is refused
+  there as `CompiledModule`, as the boundary refuses other malformed
+  checked input, which no program reaches (the checker writes a solution
+  only in that shape). `Closed.solution` reads the table by the term's
+  entry, so its two internal errors and the placement checks in Terms and
+  Sites go; no trust is added, the substitution of a solution's `let`s
+  stated against the normaliser that runs them. The builtin pair is read
+  the same way, into `Reading.pair` (L16's queue).
+- **C261** (2026-10-23; the same reader; under C240, C248, D112). Which
+  local functions are a body's join points is decided once per body, and
+  the body rewritten once: one view of a tail's head (a call, or one
+  applied to the world, through ties) feeds a fold that gives each body
+  its callees at tail heads and elsewhere, `jumpedBy` and `fitsRuns`
+  become membership in those sets, and `joinsIn` turns each member's tail
+  head into its jump with every inner slot left as it is, total by
+  construction, so `throughAll`, the rewrite run on its own outputs, and
+  Programs' internal error go, with `Continuation`'s call arms. That no
+  dropped member is still called stays held by the one decision and
+  checked by MLIR's symbol table, not by an Idris type, until calls are
+  typed by their functions. *C240 amended in place*: a passing binder
+  emitted as anything else is unrepresentable, not an internal error.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
