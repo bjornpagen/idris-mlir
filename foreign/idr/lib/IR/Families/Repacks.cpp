@@ -6,7 +6,8 @@
 // from what the two types stored when they were made and from their index
 // terms, as the class rule decides a class (lib/IR/Layout/Classes.cpp), and
 // it makes no type or attribute, so a lowering worker asks it as a verifier
-// does.
+// does. Beside it, the hold what such a re-pack builds is given, which the
+// reindex's verifier and every builder of a reindex read (builtHold).
 //
 // Two applications of one member are compared by their placements
 // (layoutMatch). The same words build nothing, and neither does a number
@@ -34,6 +35,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <algorithm>
 #include <cassert>
 #include <optional>
 #include <utility>
@@ -262,9 +264,10 @@ bool repackBuilds(Pair first) {
 
 } // namespace
 
-// Two data types are walked; an array whose elements lay out apart is
-// copied into a fresh one, by its two element types' stored facts; any
-// other value holds no layout an index decides.
+// Two data types are walked; a buffer whose elements lay out apart is
+// copied into a fresh one, by its two element types' stored facts; a
+// tensor's re-pack builds only once it is a buffer; any other value holds
+// no layout an index decides.
 bool builds(Type from, Type to) {
   Type source = unrestricted(from);
   Type target = unrestricted(to);
@@ -274,6 +277,11 @@ bool builds(Type from, Type to) {
     return repackBuilds(Pair{madeApplied(sourceData), madeApplied(targetData), Repacked::Value});
   return isa<MemRefType>(target) && layoutMatch(source, target) == LayoutMatch::OtherLayout;
 }
+
+// A stated claim beyond the value's own cells stands: a builder that gives
+// its operand up keeps, of the cells the operand reached, what the operand
+// claimed of them.
+Hold builtHold(Unique stated) { return Hold::counted(std::max(stated, Unique::Self)); }
 
 // The slot is the field as the container's layout lays it out, under the
 // substitution its unfolding solved where it is one; the read is the field

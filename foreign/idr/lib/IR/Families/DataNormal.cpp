@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // A data type's one spelling: its builders normalize a refinement (the
 // constructors the indices exclude are dropped, a refinement to every
-// constructor the indices allow is none, binders the indices determine are
-// not kept), its verifier refuses any other, and the parser's and the
+// constructor the indices allow is none unless it keeps a constructor's
+// binders' terms, binders the indices determine are not kept), its verifier
+// refuses any other, and the parser's and the
 // bytecode's builder makes what it read in that form. Refining keeps the
 // layout mark: the indices decide what is possible, and the mark how the
 // value is laid out, which a case's refined value shares with what it
@@ -18,6 +19,10 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
+
+#include <cassert>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -26,25 +31,38 @@ using namespace idr::families;
 namespace {
 
 // The terms of constructor `tag`'s binders its application's indices
-// determine: one-way, the binders the unknowns and the application's
-// levels rigid. None where one stays unbound.
-std::optional<SmallVector<TermNode>> determined(FamilyAttr group, uint32_t member,
-                                                ArrayRef<TermNode> indices, Tag tag) {
+// solve, one-way, the binders the unknowns and the application's levels
+// rigid, written into `out`, each one they leave unbound as itself; and
+// whether they left one unbound. None where the indices clash with the
+// constructor's equation.
+std::optional<Instance> solveBinders(FamilyAttr group, uint32_t member,
+                                     ArrayRef<TermNode> indices, Tag tag,
+                                     SmallVector<TermNode> &out) {
   CtorView ctor = group.ctor(member, tag);
   size_t count = group.indices(member).size();
   Subst subst(freeLevelsOf(indices), static_cast<uint32_t>(ctor.binders.size()), Freedom::Rigid,
               Freedom::Unknown, Opacity::MeetsAnything, group);
   if (unifyAll(subst, indices, ctor.equation, count) == Unified::Clash)
     return std::nullopt;
-  SmallVector<TermNode> out;
   TermWriter write(out);
   TermNode level{TermKind::Level, 0, 0, 0, Attribute()};
+  Instance instance = Instance::Determined;
   for (uint32_t binder = 0; binder < ctor.binders.size(); ++binder) {
     level.value = binder;
     if (subst.write(write, Term(ArrayRef<TermNode>(level)), Side::Constructor, 0) ==
         Instance::Undetermined)
-      return std::nullopt;
+      instance = Instance::Undetermined;
   }
+  return instance;
+}
+
+// The terms of constructor `tag`'s binders its application's indices
+// determine. None where one stays unbound.
+std::optional<SmallVector<TermNode>> determined(FamilyAttr group, uint32_t member,
+                                                ArrayRef<TermNode> indices, Tag tag) {
+  SmallVector<TermNode> out;
+  if (solveBinders(group, member, indices, tag, out) != Instance::Determined)
+    return std::nullopt;
   return out;
 }
 
@@ -118,7 +136,10 @@ checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint3
 // A type as its builders make it, its one spelling: what it was checked
 // for, and its refinement in normal form, ascending, to constructors its
 // indices leave possible and fewer than all of them, its binders kept only
-// where the indices leave them undetermined.
+// where the indices leave them undetermined. A refinement to one
+// constructor that keeps its binders' terms says what the unrefined type
+// cannot, so it stands where that constructor is the only one possible
+// (refinedTo makes it so).
 LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
                                uint32_t at, ArrayRef<TermNode> indices,
                                DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders,
@@ -132,9 +153,10 @@ LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, Fam
   SmallVector<Tag> possible = possibleAt(group, at, indices);
   if ((*tags)->size() != refinement.asArrayRef().size() ||
       !llvm::all_of(**tags, [&](Tag tag) { return llvm::is_contained(possible, tag); }) ||
-      (*tags)->size() == possible.size())
+      ((*tags)->size() == possible.size() && binders.empty()))
     return emitError() << "is refined to constructors not in normal form: ascending, once each, "
-                       << "each one its indices leave possible, and fewer than all of them";
+                       << "each one its indices leave possible, and fewer than all of them "
+                       << "unless it keeps one constructor's binders' terms";
   if (!binders.empty() && determined(group, at, indices, (*tags)->front()))
     return emitError() << "keeps binders' terms its indices determine";
   return success();
@@ -165,6 +187,22 @@ std::optional<SmallVector<TermNode>> DataType::bindersOf(Tag tag) const {
   if (!getBinders().empty() && singleTag() == tag)
     return SmallVector<TermNode>(getBinders());
   return determined(getGroup(), getMember(), getIndices(), tag);
+}
+
+// A closed application names no level of its own, so a binder its indices
+// leave open, written as itself, is the constructor's own binder in the
+// field it is written into, as the class rule's unfolding writes it.
+SmallVector<TermNode> idr::families::solvedBinders(FamilyAttr group, uint32_t member,
+                                                   ArrayRef<TermNode> indices, Tag tag) {
+  assert(llvm::all_of(termsOf(indices, group.indices(member).size()),
+                      [](Term term) { return term.isClosed(); }) &&
+         "a binder left open is the constructor's own only where the application names no "
+         "level");
+  SmallVector<TermNode> out;
+  if (!solveBinders(group, member, indices, tag, out))
+    llvm::reportFatalInternalError(
+        "the binders of a constructor its application's indices leave impossible");
+  return out;
 }
 
 // The fields of `tag` at this application: each field type with the

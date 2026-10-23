@@ -322,17 +322,18 @@ public:
   // The element layout of an array of `element`.
   layout::Element element(mlir::Type element) const;
 
+private:
   // The constructors a value of `type` is laid out over, and the field
   // types of constructor `tag` there: a closed application held in place
-  // is its own unfolding, over the constructors its indices leave possible
-  // at the fields they determine; any other value of a member is laid out
-  // as the member at an unknown index, over every constructor at its own
-  // fields, so all such applications of the member are the same words.
-  // The second makes types: a lowering worker reads fieldTypes instead.
+  // is its own unfolding, over the constructors its indices leave possible,
+  // each field at the binders they solve (families::solvedBinders); any
+  // other value of a member is laid out as the member at an unknown index,
+  // over every constructor at its own fields, so all such applications of
+  // the member are the same words. The second makes types, so only the
+  // constructor asks it, and every reader takes fieldTypes.
   static families::TagSet tagsLaidOut(DataType type);
   static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
 
-private:
   // By declared tag, the types of each constructor's fields as the layout
   // lays them out; none for a constructor it is not laid out over.
   using FieldTypes = llvm::SmallVector<llvm::SmallVector<mlir::Type>>;

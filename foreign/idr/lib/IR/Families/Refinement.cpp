@@ -41,12 +41,12 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
 // index term, so what refines is the carriers, and the grade the result
 // takes is the cast's own, by what its re-pack does. Either way the value
 // is the one Idris proved, so its uses are kept. A reindex that builds a
-// cell or an array gives a fresh value, counted and claimed unique
-// whatever the operand's hold, none among them (words in place hold no
-// reference), which counting frees as any fresh value. One that builds
-// nothing, free or not (a cell taken apart in place, a numeral widened),
-// keeps the operand's hold, its result's memory the operand's, wherever
-// both hold references. Whether it builds is the one answer the lowering's
+// cell or an array gives a fresh value at the hold every builder of one
+// writes (builtHold): counted and claimed unique whatever the operand's
+// hold, none among them (words in place hold no reference), which counting
+// frees as any fresh value. One that builds nothing, free or not (a cell
+// taken apart in place, a numeral widened), keeps the operand's hold, its
+// result's memory the operand's, wherever both hold references. Whether it builds is the one answer the lowering's
 // re-pack and the cast's flow read too, from its two types' stored facts
 // and index terms; a re-pack that works builds nothing where it only takes
 // a cell apart, so whether the cast is free does not decide it.
@@ -61,7 +61,8 @@ LogicalResult DataReindexOp::verify() {
   if (usesOf(from) != usesOf(to))
     return emitOpError("casts one value, so it keeps its uses; ") << from << " is given as " << to;
   if (families::builds(from, to)) {
-    if (!freedBy(to, Release::Counted) || !claims(to, Unique::Self))
+    std::optional<Hold> made = holdOf(to);
+    if (!made || *made != builtHold(made->claim()))
       return emitOpError("builds a cell or an array, a fresh value, so its result is counted and ")
              << "claimed unique; it gives " << to;
   } else if (std::optional<Hold> given = holdOf(from), made = holdOf(to);

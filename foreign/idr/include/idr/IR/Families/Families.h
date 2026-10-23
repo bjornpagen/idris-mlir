@@ -17,8 +17,9 @@
 // what idr.data.con builds and what idr.data.field reads is such a refined value. The
 // refinement is normalized when the type is made: the constructors the
 // indices exclude are dropped, a refinement to every constructor the
-// indices allow is none, and binders the indices determine are not kept, so
-// one value set has one type.
+// indices allow is none unless it keeps a constructor's binders' terms, and
+// binders the indices determine are not kept, so one value set has one
+// type.
 
 // This header is the part of the dialect's header that follows the
 // generated classes, which its declarations and ConAttr's walk name. A unit
@@ -187,6 +188,16 @@ std::pair<Class, Layout> classAt(FamilyAttr group, uint32_t member,
 llvm::SmallVector<Tag> possibleAt(FamilyAttr group, uint32_t member,
                                   llvm::ArrayRef<TermNode> indices);
 
+// The terms constructor `tag`'s binders take where member `member` of
+// `group`, at the closed `indices`, lays the constructor's fields out as
+// its own unfolding: each binder the indices solve its term, one-way, and
+// each they leave open itself, the constructor's own. So a field naming
+// only solved binders is at closed terms and one naming an open binder at
+// an index no unfolding closes, as the class rule laid each out when the
+// application's type was made. A constructor the indices leave possible.
+llvm::SmallVector<TermNode> solvedBinders(FamilyAttr group, uint32_t member,
+                                          llvm::ArrayRef<TermNode> indices, Tag tag);
+
 // Reads a constructor's label into its tag in `group`, checking its arity:
 // the one place a label becomes a tag.
 mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAttr group,
@@ -216,9 +227,10 @@ struct Placed {
 Placed placedOf(DataType type);
 
 // Whether a value of `from` and one of `to` are the same words at run time:
-// two applications by their placements, an array as its elements are, any
-// other two where their words agree. What decides whether a reindex between
-// them is free or re-packs, and so the re-pack's effects. Makes no type.
+// two applications by their placements, an array, a tensor or a memref
+// alike, as its elements are, any other two where their words agree. What
+// decides whether a reindex between them is free or re-packs, and so the
+// re-pack's effects. Makes no type.
 LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
 LayoutMatch layoutMatch(const Placed &from, const Placed &to);
 
@@ -227,10 +239,19 @@ LayoutMatch layoutMatch(const Placed &from, const Placed &to);
 // any other reindex's memory is its operand's: decided from what the two
 // types stored when they were made and from their index terms, as the class
 // rule decides a class, down the fields of the values held in place, each
-// at the terms its holder's substitution writes. Makes no type or
-// attribute, so a lowering worker asks it as the reindex's verifier and its
-// flow do: the one answer all of them read.
+// at the terms its holder's substitution writes. A tensor is a value with
+// no memory of its own, so re-packing its elements builds nothing here: the
+// fresh array is its buffer's, which bufferization makes where it puts the
+// re-pack. Makes no type or attribute, so a lowering worker asks it as the
+// reindex's verifier and its flow do: the one answer all of them read.
 bool builds(mlir::Type from, mlir::Type to);
+
+// The hold of what a re-pack that builds gives: a fresh value, so freed by
+// its count and claiming at least its own cells unshared, whatever its
+// operand's hold; `stated`, the claim its type states, where that claims
+// more. The one rule the reindex's verifier holds a building reindex to and
+// every builder of one writes.
+Hold builtHold(Unique stated);
 
 // The value of `numeral`, a constant of a family of numeral shape: the
 // number of its successor's layers, read off its run of cells.

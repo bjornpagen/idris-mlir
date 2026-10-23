@@ -43,7 +43,7 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   // value, counted and claimed unique whatever the container's hold, so
   // counting frees it as any fresh value.
   if (families::fieldReadBuilds(value, index))
-    return atHold(read, Hold::counted(Unique::Self));
+    return atHold(read, families::builtHold(Unique::None));
   return read;
 }
 

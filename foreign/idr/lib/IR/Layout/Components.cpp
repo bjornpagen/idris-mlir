@@ -170,9 +170,13 @@ idr::LayoutMatch idr::families::layoutMatch(const Placed &from, const Placed &to
 }
 
 // One type at two grades is the same words; two data types are as their
-// placements say; two arrays, upstream's memrefs, are where their elements
-// are and their descriptors' words agree; any other two where their words
-// agree. Makes no type: the lowering asks it of every field it reads.
+// placements say; two arrays are where their elements are and their
+// descriptors' words agree; any other two where their words agree. An
+// array is upstream's shaped type, a tensor before bufferization and a
+// memref after, and its elements are what it holds either way, so a
+// reindex between two arrays is free or re-packs as the same answer on
+// both sides of bufferization. Makes no type: the lowering asks it of every
+// field it reads.
 idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
   Type fromValue = unrestricted(from);
   Type toValue = unrestricted(to);
@@ -182,8 +186,8 @@ idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
   DataType toData = dataTypeOf(toValue);
   if (fromData && toData)
     return layoutMatch(placedOf(fromData), placedOf(toData));
-  if (std::optional<std::pair<MemRefType, MemRefType>> arrays =
-          pairOf<MemRefType>(fromValue, toValue);
+  if (std::optional<std::pair<ShapedType, ShapedType>> arrays =
+          pairOf<ShapedType>(fromValue, toValue);
       arrays && layoutMatch(arrays->first.getElementType(), arrays->second.getElementType()) ==
                     LayoutMatch::OtherLayout)
     return LayoutMatch::OtherLayout;

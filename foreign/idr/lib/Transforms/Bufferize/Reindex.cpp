@@ -12,13 +12,13 @@
 // is only read, and the result is a new buffer.
 #include "idr/Transforms/BufferizeModels.h"
 
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 
 #include "llvm/Support/ErrorHandling.h"
 
-#include <algorithm>
 #include <cassert>
 #include <concepts>
 #include <optional>
@@ -77,17 +77,6 @@ struct SameWords {
   }
 };
 
-// `cell` as a re-pack gives it: a fresh array, counted, claiming its own
-// cells or what more `cell` claims. A reindex that builds nothing on
-// tensors keeps its operand's hold, so `cell` claims what the operand
-// does, which the re-pack keeps: each element it places gains the
-// reference the operand, given up, loses.
-Type freshOf(Type cell) {
-  std::optional<idr::Hold> hold = idr::holdOf(cell);
-  assert(hold && "an array's buffer holds its cell's reference");
-  return idr::atHold(cell, idr::Hold::counted(std::max(hold->claim(), idr::Unique::Self)));
-}
-
 // A reindex whose element lays out apart: every element of its operand
 // read, re-packed and placed in a fresh array, so the operand is read and
 // nothing else, and the result is a new buffer whose every slot the
@@ -107,16 +96,20 @@ struct Repacked {
     return idr::bufferize::cellType(cast<TensorLikeType>(op.getType()));
   }
 
-  // The re-pack gives a fresh array, which the reindex's own rule holds to
-  // a counted hold claiming its own cells; the claim the result's tensor
-  // does not state is forgotten after it.
+  // The re-pack gives a fresh array, at the hold every building reindex
+  // gives; the claim the result's tensor does not state is forgotten after
+  // it. A reindex of tensors builds nothing, so it kept its operand's hold
+  // and the cell claims what the operand did, which the re-pack keeps: each
+  // element it places gains the reference the operand, given up, loses.
   LogicalResult bufferize(RewriterBase &rewriter, const BufferizationOptions &options,
                           BufferizationState &state) {
     FailureOr<Value> buffer = idr::bufferize::cellBuffer(rewriter, op.getValue(), options, state);
     if (failed(buffer))
       return failure();
     Type cell = idr::bufferize::cellType(cast<TensorLikeType>(op.getType()));
-    Type fresh = freshOf(cell);
+    std::optional<idr::Hold> stated = idr::holdOf(cell);
+    assert(stated && "an array's buffer holds its cell's reference");
+    Type fresh = idr::atHold(cell, idr::families::builtHold(stated->claim()));
     Location loc = op.getLoc();
     Value made = DataReindexOp::create(rewriter, loc, fresh, *buffer).getResult();
     if (fresh != cell)

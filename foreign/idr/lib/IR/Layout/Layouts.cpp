@@ -68,16 +68,20 @@ families::TagSet Layouts::tagsLaidOut(DataType type) {
   return families::TagSet::every(type.declaredCount());
 }
 
-// Unfolded, at the binders its indices determine, or at the constructor's
-// own binders where they leave one open; any other value at the
-// constructor's own binders. Either way a member of the group named by
-// position is its data type, laid out as a value of that type is, by its
-// class.
+// Unfolded, each field at the binders its indices solve, a binder they
+// leave open the constructor's own, field by field as the class rule laid
+// the type's slots out, so a field's type is the one its slots hold; any
+// other value at the constructor's own binders. Either way a member of the
+// group named by position is its data type, laid out as a value of that
+// type is, by its class.
 SmallVector<Type> Layouts::fieldsAt(DataType type, Tag tag) {
-  if (unfolded(type))
-    if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag))
-      return std::move(*fields);
-  return families::instantiateFields(type.getGroup(), type.ctor(tag).fields, {});
+  families::CtorView ctor = type.ctor(tag);
+  if (!unfolded(type))
+    return families::instantiateFields(type.getGroup(), ctor.fields, {});
+  SmallVector<families::TermNode> binders =
+      families::solvedBinders(type.getGroup(), type.getMember(), type.getIndices(), tag);
+  return families::instantiateFields(type.getGroup(), ctor.fields,
+                                     families::termsOf(binders, ctor.binders.size()));
 }
 
 Layouts::FieldTypes Layouts::fieldTypesOf(DataType type) {

@@ -263,29 +263,6 @@ uint32_t DataType::components() const { return getImpl()->facts.slots.count(); }
 const Slots &DataType::slots() const { return getImpl()->facts.slots; }
 std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts.bound; }
 
-// The same words where the two are one application at one mark,
-// refinements aside; or numbers of one layout, each its layout's word; or
-// two values of one member the layouts lay out as the member at an unknown
-// index, which every cell, frame stack and value in place at an unknown
-// class of it is, an open one among them, at its constructors' own fields,
-// an array field's elements included, so the two share every word they
-// reach. A closed application held in place is its own unfolding, so only
-// that application has its words, and the same application open is none.
-// Asked of every field a lowering worker reads, so it reads only the two
-// types' own parameters and stored facts, and makes no type.
-LayoutMatch DataType::layoutMatch(DataType other) const {
-  if (getGroup() != other.getGroup() || getMember() != other.getMember())
-    return LayoutMatch::OtherLayout;
-  if (getIndices() == other.getIndices() && getMark() == other.getMark())
-    return LayoutMatch::SameLayout;
-  if (layout() != other.layout())
-    return LayoutMatch::OtherLayout;
-  auto unfolded = [](DataType type) {
-    return type.layout() == Layout::InPlace && type.cls() == Class::Closed;
-  };
-  return unfolded(*this) || unfolded(other) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
-}
-
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }
 ArrayRef<MemberRef> DataType::selfCells() const {
   return getGroup().selfCells(getImpl()->member);
