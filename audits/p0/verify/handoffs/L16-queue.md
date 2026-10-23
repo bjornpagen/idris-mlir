@@ -424,3 +424,9 @@ L17ay settles whether Readings' marker names change):
 - Unit A: `IR/Lifetimes/Ops.cpp`'s `extentOf` (forget, reserve) and
   `packedOf` (unpack, opener) each test two op classes; `Proof.cpp`'s
   `keptHere` tests for `CellArenaOp`: interface methods.
+- Unit H: the tail kind is still tested by hand outside Tail.h:
+  `Analysis/LabelSites.cpp:302`, `PlacementUses.cpp:50, 71`,
+  `Narrow/Carried.cpp:65`, `Contify.cpp:162, 260`, `EGraph/Build.cpp:64`,
+  `TrmcRewrite.cpp:221`, `TailLoops.cpp:129`, `AccumulatorPlan.cpp:281`,
+  `Tail/Frames.h:139`, `Analysis/Ownership/Borrows.cpp:161, 316`: each
+  calls `tailCallOf` or `lastActOf`.
