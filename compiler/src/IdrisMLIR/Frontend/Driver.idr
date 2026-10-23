@@ -394,7 +394,7 @@ frontend r = do
   -- module holds. Checking and the package commands print Idris's
   -- progress, warnings and errors.
   let (mainFile, verbosity) = case r.task of
-        Compile _ _ _ source => (Just source, NoneLvl)
+        Compile _ _ source => (Just source, NoneLvl)
         Check source => (Just source, InfoLvl)
         _ => (Nothing, InfoLvl)
   o <- newRef ROpts (defaultOpts mainFile verbosity)
@@ -406,13 +406,13 @@ frontend r = do
   catch (do session r; perform r.task) $ \err => case (r.task, err) of
     -- The compiler's own error is printed whatever the task. Essential:
     -- the refusal and the compiler's failure are two outcomes (3 and 1).
-    (Compile _ _ _ _, InternalError _) => do
+    (Compile _ _ _, InternalError _) => do
       update ROpts { verbosity := ErrorLvl }
       printed err
     -- Once the main module is named `perform` refuses each error but the
     -- compiler's own, so a compilation's error here came before it was
     -- named, or in refusing another.
-    (Compile _ _ out _, _) => unnamed out err
+    (Compile _ out _, _) => unnamed out err
     _ => printed err
   where
     printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
