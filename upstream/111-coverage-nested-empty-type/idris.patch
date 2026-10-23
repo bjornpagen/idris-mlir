@@ -1,0 +1,166 @@
+diff --git a/src/Core/Coverage.idr b/src/Core/Coverage.idr
+index b62b4e5..c4e63f8 100644
+--- a/src/Core/Coverage.idr
++++ b/src/Core/Coverage.idr
+@@ -70,21 +70,65 @@ conflictMatch ((x, tm) :: ms) = conflictArgs x tm ms || conflictMatch ms
+     conflictArgs n tm ((x, tm') :: ms)
+         = (n == x && conflictTm tm tm') || conflictArgs n tm ms
+ 
+--- Return whether any part of the type conflicts in such a way that they
+--- can't possibly be equal (i.e. mismatched constructor)
+-conflict : {vars : _} ->
+-           {auto c : Ref Ctxt Defs} ->
+-           Defs -> Env Term vars -> NF vars -> Name -> Core Bool
+-conflict defs env nfty n
++-- The nodes of a term, which bound how far 'isEmpty' looks into a type.
++termSize : Term vars -> Nat
++termSize (Meta _ _ _ args) = S (foldr (\t, acc => termSize t + acc) 0 args)
++termSize (Bind _ _ b sc) = S (foldr (\t, acc => termSize t + acc) 0 b + termSize sc)
++termSize (App _ f a) = S (termSize f + termSize a)
++termSize (As _ _ a p) = S (termSize a + termSize p)
++termSize (TDelayed _ _ t) = S (termSize t)
++termSize (TDelay _ _ ty a) = S (termSize ty + termSize a)
++termSize (TForce _ _ t) = S (termSize t)
++termSize _ = 1
++
++-- What a constructor's type says of building a value of a given type: it
++-- cannot, its return type conflicting with the type, or it may, and then
++-- takes arguments of these types, each argument its return type
++-- determines replaced by what the type has there (an argument it does not
++-- determine stays a fresh name, which conflicts with nothing). Also the
++-- next number for a fresh name.
++data Build : Scope -> Type where
++     Conflicts : Build vars
++     Fits : List (Term vars) -> Int -> Build vars
++
++-- How a constructor builds a value of the type, if it can: whether any
++-- part of the type conflicts with the constructor's return type in such a
++-- way that they can't possibly be equal (i.e. mismatched constructor), and
++-- otherwise the types of its arguments. Their fresh names are numbered
++-- from 'base'.
++build : {vars : _} ->
++        {auto c : Ref Ctxt Defs} ->
++        Defs -> Env Term vars -> Int -> NF vars -> Name -> Core (Build vars)
++build defs env base nfty n
+     = do Just gdef <- lookupCtxtExact n (gamma defs)
+-              | Nothing => pure False
++              | Nothing => pure (Fits [] base)
+          case (definition gdef, type gdef) of
+               (DCon t arity _, dty)
+-                  => do Nothing <- conflictNF 0 nfty !(nf defs Env.empty dty)
+-                            | Just ms => pure $ conflictMatch ms
+-                        pure True
+-              _ => pure False
++                  => do (argtys, ret, next) <- instantiate base !(nf defs Env.empty dty)
++                        Just ms <- conflictNF next nfty ret
++                            | Nothing => pure Conflicts
++                        pure $ if conflictMatch ms
++                                  then Conflicts
++                                  else Fits (map (substAll ms . embed) argtys) next
++              _ => pure (Fits [] base)
+   where
++    -- The constructor's type with each argument a fresh name, numbered
++    -- from i: the arguments' types, the type it returns, and the next
++    -- number.
++    instantiate : Int -> ClosedNF -> Core (List ClosedTerm, ClosedNF, Int)
++    instantiate i (NBind fc x b sc)
++        = do let x' = MN (show x) i
++             ty <- quote defs Env.empty !(evalClosure defs (binderType b))
++             (tys, ret, next) <- instantiate (i + 1)
++                                   !(sc defs (toClosure defaultOpts Env.empty (Ref fc Bound x')))
++             pure (ty :: tys, ret, next)
++    instantiate i ret = pure ([], ret, i)
++
++    -- The fresh names are numbered past those of every type the caller
++    -- is inside, so what one is replaced by mentions no other of them.
++    substAll : List (Name, Term vars) -> Term vars -> Term vars
++    substAll ms tm = foldl (\t, (x, v) => substName x v t) tm ms
++
+     mutual
+       conflictArgs : Int -> List (Closure vars) -> List ClosedClosure ->
+                      Core (Maybe (List (Name, Term vars)))
+@@ -130,23 +174,51 @@ conflict defs env nfty n
+                else pure Nothing
+       conflictNF _ _ _ = pure (Just [])
+ 
+--- Return whether the given type is definitely empty (due to there being
+--- no constructors which can possibly match it.)
++-- Return whether the given type is definitely empty: no constructor can
++-- build a value of it, since its return type conflicts with the type, or
++-- one of its arguments has a type which is itself empty there (a pair
++-- whose second part is `0 = 1`; `LTE (S (S k)) (S Z)`, whose `LTESucc`
++-- takes an `LTE (S k) Z`). A pattern variable of such a type is the
++-- evidence a missing case is impossible, wherever in the variable's type
++-- the conflict is. An argument's type is looked into only while it is
++-- smaller than the type it is an argument of, so the search ends: a family
++-- whose arguments do not get smaller, a stream with no end, is not taken
++-- apart again.
+ export
+ isEmpty : {vars : _} ->
+           {auto c : Ref Ctxt Defs} ->
+           Defs -> Env Term vars -> NF vars -> Core Bool
+-isEmpty defs env (NTCon fc n a args)
+-  = do Just nty <- lookupDefExact n (gamma defs)
+-         | _ => pure False
+-       case nty of
+-            TCon _ _ _ flags _ Nothing _ => pure False
+-            TCon _ _ _ flags _ (Just cons) _
+-                 => if not (external flags)
+-                       then allM (conflict defs env (NTCon fc n a args)) cons
+-                       else pure False
+-            _ => pure False
+-isEmpty defs env _ = pure False
++isEmpty defs env = emptyFrom 0
++  where
++    emptyFrom : Int -> NF vars -> Core Bool
++    emptyFrom base nfty@(NTCon fc n a args)
++      = do Just nty <- lookupDefExact n (gamma defs)
++             | _ => pure False
++           case nty of
++                TCon _ _ _ flags _ Nothing _ => pure False
++                TCon _ _ _ flags _ (Just cons) _
++                     => if not (external flags)
++                           then allM cannotBuild cons
++                           else pure False
++                _ => pure False
++      where
++        emptyArg : Nat -> Int -> Term vars -> Core Bool
++        emptyArg size next ty
++            = do argnf@(NTCon {}) <- nf defs env ty
++                   | _ => pure False
++                 if termSize !(quote defs env argnf) < size
++                    then emptyFrom next argnf
++                    else pure False
++
++        cannotBuild : Name -> Core Bool
++        cannotBuild con
++            = case !(build defs env base nfty con) of
++                   Conflicts => pure True
++                   Fits [] _ => pure False
++                   Fits argtys next
++                       => do size <- termSize <$> quote defs env nfty
++                             anyM (emptyArg size next) argtys
++    emptyFrom _ _ = pure False
+ 
+ altMatch : CaseAlt vars -> CaseAlt vars -> Bool
+ altMatch _ (DefaultCase _) = True
+diff --git a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
+index b867ec6..ab5da16 100644
+--- a/src/TTImp/ProcessDef.idr
++++ b/src/TTImp/ProcessDef.idr
+@@ -350,11 +350,12 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
+          ext <- extendEnv env Refl nest lhstm_lin lhsty_lin
+          pure (lhs, ext)
+ 
+--- Return whether any of the pattern variables are in a trivially empty
+--- type, where trivally empty means one of:
++-- Return whether any of the pattern variables are in an empty type, where
++-- empty means that no constructor of the family can build a value of it:
+ --  * No constructors
+ --  * Every constructor of the family has a return type which conflicts with
+---    the given constructor's type
++--    the given constructor's type, or an argument of a type which is empty
++--    in the same way (Core.Coverage.isEmpty)
+ hasEmptyPat : {vars : _} ->
+               {auto c : Ref Ctxt Defs} ->
+               Defs -> Env Term vars -> Term vars -> Core Bool

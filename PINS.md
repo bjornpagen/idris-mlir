@@ -1544,3 +1544,26 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/110-coverage-erased-index-first; nothing sent (Idris
   takes no tool-written contribution)
 - status (2026-10-22): carried
+
+## coverage-nested-empty-type
+
+- symptom: the stock Idris's coverage check refutes a missing case only
+  by a pattern variable whose type no constructor's return type fits, so
+  where a `Refl` matched inside a pair, or inside a case block's
+  scrutinee, refines an argument, the tree splits that argument and
+  reports its other values missing, with the argument that holds the
+  equation unsplit (the frontend: `Held`'s `aloneWritten` and
+  `lteSuccCases`, `Graph`'s `landsInto`, `joinedOver` and `intoClosed`,
+  `Covers`' case blocks at 1252, 1733 and 1834)
+- sites: everything the stock host checks under `%default total` or
+  `covering`: stage 0 and the libraries
+- workaround: `upstream/111-coverage-nested-empty-type/idris.patch`: a
+  type is empty also when each constructor that fits it takes an argument
+  of an empty type, the arguments its return type determines replaced by
+  what the type has there; an argument's type is looked into only while
+  it is smaller than the type it is an argument of; checked by
+  tests/upstream-coverage-nested-empty-type
+- retire: when the Idris pin carries an upstream fix
+- upstream: upstream/111-coverage-nested-empty-type; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-23): carried
