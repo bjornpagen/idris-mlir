@@ -1249,19 +1249,44 @@ useArguments at ty member = do
         Nothing => pure Nothing
       (closedArg x ::) <$> arguments n (S j) rest
 
+||| The member a variable that holds the writer's own dictionary (its
+||| parameter, or a field matched out of it) makes where a binder takes
+||| one: each instance fixes that dictionary, and settles it where it is
+||| written as the implementation it is there, a member of its type's
+||| choice (`Translate.Terms.implementationAt`, `Choices.memberBare`). It
+||| is written at its choice's position as the writer's argument there,
+||| over the writer's markers, holding the values the writer was given it
+||| with, as a dictionary argument holds them (`argument`). Any other
+||| variable makes none here: a dictionary the running program chose is a
+||| member of its choice already, and one known as a term is settled and
+||| walked as code, where a definition applied gives its own
+||| (`definitionMember`).
+ownMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+            At -> Pats -> Env vs -> FC -> (ty : ClosedTerm) -> TT vs -> Front (List Site)
+ownMember at ps env fc ty written@(Local _ _ idx p) = case lookupVar idx p env of
+  (Holds (Own _ _), _, _) => do
+    (k ** named) <- choiceReadOf !(normaliseClosed (undelayed ty))
+    h <- holedAt env written
+    d <- solved h.key
+    shaped <- solved (close env written)
+    memberAt at ps env fc k named d !(packings at ps.made fc h shaped) written
+  _ => pure []
+ownMember at ps env fc ty _ = pure []
+
 ||| The member an argument at a binder of type `ty` that takes one makes: a
-||| lambda there, or one delayed, is that member; anything else makes its
-||| member as code, where a definition applied gives its own
-||| (`definitionMember`). A member of a polymorphic function's choice is
-||| applied at each use of the choice, so its use's walk is made here,
-||| once (`Arg.asUse`).
+||| lambda there, or one delayed, is that member; a variable that holds the
+||| writer's own dictionary makes the one each instance fixes it to
+||| (`ownMember`); anything else makes its member as code, where a
+||| definition applied gives its own (`definitionMember`). A member of a
+||| polymorphic function's choice is applied at each use of the choice, so
+||| its use's walk is made here, once (`Arg.asUse`).
 memberMade : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
              At -> Pats -> Env vs -> FC -> (ty : ClosedTerm) -> Arg vs -> Front (List Site)
 memberMade at ps env fc ty a = do
   made <- case a.written of
     lam@(Bind lfc _ (Lam {}) _) => lambdaAt at ps env lfc lam
     TDelay _ _ _ lam@(Bind lfc _ (Lam {}) _) => lambdaAt at ps env lfc lam
-    _ => pure []
+    other => ownMember at ps env fc ty other
   used <- whereApplied !(choiceAt ty) (a.asUse (undelayed ty))
   pure (made ++ used)
 
