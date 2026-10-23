@@ -137,3 +137,17 @@ Done: `Defined.binders`, `program`'s main module, `moduleRefusal`. Seams:
   (`PhysicalIdrSrc ModuleIdent`) already names its module, so read it
   there, with no change to what reflection sees (L17, if the checker's
   side needs it).
+
+## From L16cl
+
+- `Term.Family` cannot hold `ConLayout`: its `ArgKind` and `Name` are TT,
+  which Emit's term stays free of, and choice families have no layouts. A
+  frontend family record split into data and choice families, with a
+  family identity indexing the table (`Cases.idr:1014`).
+- The split of `Defined` (C255) needs callers in Growth (`tyConFacts` in
+  Caps, Sites, Graph), and `readOf` keeps a "defines nothing" case at
+  `keyOrigin` the split alone does not remove.
+- `instanceSig`/`request` returns evidence that `sig.kinds` equals the
+  requested kinds, so `dispatchOn` takes the dispatch position by type
+  (`Choices.idr:458`'s internal error, moved into `dispatchOn`).
+- Cases' internal errors left: 920, 946, 1014.
