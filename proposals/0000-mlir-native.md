@@ -3291,6 +3291,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   dictionary: a cycle is bounded where one argument it passes strictly
   decreases on every turn, whatever another grows by. It lands with C281's
   fold, which reworks the growth model's nodes.
+- **C309** (2026-10-24; L18ai's finding, under "make invalid states
+  unrepresentable" and the never-line on a guard filtering a state the
+  representation still allows). A type never holds a fact the program
+  can falsify: a cell of a family with identity (memo state, which a
+  force elsewhere changes) is built at its family's type, never refined
+  to a label, so `idr.data.con` of such a family gives the family type
+  and the widening reindex that defunctionalization and Emit write after
+  it goes. Today only that immediate widening keeps a program from
+  holding a label's refinement past a force.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
