@@ -961,3 +961,7 @@ INT rerun of the five (build/int24/scripts), each new refusal routed by
 owner; then the fold (C281) and D133's certifying normaliser, which change
 what the frontend reads of the checker, rerun the five again. Every lane
 touching the frontend or the checker reruns the five on its export.
+- From L18aa (8b2cd180): three builders of reindexes pick the result type
+  themselves instead of asking `DataReindexOp::givenType`:
+  `Tail/Accumulate.cpp:81` (L10), `Defunctionalize/Walk.cpp:109` (L10),
+  `Bufferize/Reindex.cpp:114` (L12) — each asks the op's one rule.
