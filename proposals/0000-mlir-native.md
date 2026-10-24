@@ -2824,6 +2824,26 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   question is whether a refactor of our code (the frontend, its proofs,
   the checker, C281's fold) makes it unneeded; then evidence a function
   returns; then a proof. Our code is reshaped as far as that takes.
+- **C289** (2026-10-23; L17bh's design, `handoffs/D133-design.md`, under
+  D133 and C288; for the owner's review). The checker declares its one
+  evaluator's own big-step semantics (`Evaluates`, `Walks`, `ReadsBack`,
+  `Normalises`), replacing D68's small-step `Reduces`, and the evaluator
+  returns its derivation at quantity 0; it reads definitions through a
+  `Source` parameter, its binder scopes are data and read-back goes by de
+  Bruijn levels; the frontend's own head reduction is replaced by the
+  evaluator's, so one evaluator serves both (0010 D3). Proving the present
+  evaluator against a small-step relation (3,000 to 5,000 lines for a
+  relation nothing then needs) and a second, certifying normaliser for the
+  frontend are refused. Entries and constructor tags are `Nat`, decided by
+  one comparison whose soundness is proved and erased; markers and key
+  holes are de Bruijn variables; each definition is read once from the
+  frozen context; the partial primitives are reached through the
+  prelude's total functions; a TTC integer is written by a recursion
+  proved to descend over `Nat`'s division, never as decimal text. A key
+  keeps a primitive applied to a marker as the call, so no bound on a
+  primitive's result is needed (`computedWithin` goes); the 429 fixtures'
+  instance counts are measured first, and a material loss of sharing comes
+  back to the owner.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
