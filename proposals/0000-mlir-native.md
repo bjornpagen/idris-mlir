@@ -3016,6 +3016,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `syntax-samples.ipkg` depend on it. Its modules add `Format`,
   `Admitted`, `Families`, `Bytecode`, `Constraints`, `Interfaces` and
   `Traits`; `tests/registry-only` gains `compiler/spec/` as a second home.
+  *Amended* (2026-10-23, recheck 6; P-1, L03aa): `spec.ipkg` is a library,
+  generated from the specification's typed module list
+  (`Generator/Package.idr`) and fingerprinted, which the frontend installs
+  for `make self`; `specgen.ipkg` is a separate package depending on it,
+  `main = IdrisMLIR.Spec.Generator.Main`, built by the stock Idris.
 - **C8** (2026-10-21; §8's suspected bugs; revised under the owner's
   word and their standing "fix bugs aggressively") (amended by D98,
   D100: the canonicalize passes `maxNumRewrites` configures go, so C48's
@@ -3873,7 +3878,8 @@ C137.
   totality removes divergence only; the deletion rule stands). Divergence
   follows Idris's
   components: `Termination = Terminates ComponentId | MayDiverge (List1
-  Name)`, decided per Idris component; Emit writes the component on
+  Name)` (*amended* 2026-10-23, recheck 6: `MayDiverge` holds no names,
+  which nothing read, 29153f20), decided per Idris component; Emit writes the component on
   `idr.func`, a lifted lambda taking its owner's, and a component of ours
   is marked non-diverging only when every member terminates in one and
   the same Idris component, since specialization and defunctionalization
@@ -4751,6 +4757,8 @@ C137.
   `data.match`, `lit.match`, `fn.closure`, `lazy.force`, `count.dup`,
   `int.div_s`, `nat.pred`, `array.tabulate` and kin). Reason: C11's rule,
   D28's "named for what a thing is", and the names the owner fixed in D90.
+  *Amended* (2026-10-23, recheck 6): `idr.may_loop` (C65) acts on no type
+  or resource and shapes the region it begins, so it is bare too.
 - **C159** (2026-10-21; D61's reach, L02's question). D61's write part
   exists on a parameter that is `counted unique self` as well as `unique
   deep`: an in-place rebuild writes only the family's own cells, which
