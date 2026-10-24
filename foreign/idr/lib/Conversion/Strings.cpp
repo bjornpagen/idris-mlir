@@ -18,10 +18,12 @@
 // the text is formatted into the output and no string is made.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Counting/Traits.h"
 #include "idr/IR/Effects/Declared.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Traits.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Lower/Lower.h"
 #include "idr/Conversion/Patterns.h"
@@ -70,33 +72,41 @@ Lives livesOf(Type type) {
 // The one output of the string `maker` makes, where every other use of the
 // string gives it up and the output may still read what the maker read: a
 // string made only to be written, which the output writes from the maker's
-// operands instead. An operand something may give up is still held where
-// the output follows the maker in its block and nothing between them uses
-// it: only a use gives up a count, and a lifetime ends at the end of its
-// region, which holds both or neither. None where anything else reads the
-// string, or an operand may be gone by the output.
-IoPutStrOp writtenOnly(Operation *maker) {
-  IoPutStrOp output;
-  for (Operation *user : maker->getResult(0).getUsers()) {
-    if (isa<CountDropOp>(user))
+// operands instead. Each use is what its op declares of its first operand,
+// so no op is named: the output eliminates the string, writing it being all
+// it does with it (EliminatesOperand: a string's output, as raising reads
+// it), and a use that ends the string's owner only gives its reference up,
+// a string having no fields to move out (EndsOwner), so it goes with the
+// string. The string as any other operand is handed on, as into a match's
+// case. An operand something may give up is still held where the output
+// follows the maker in its block and nothing between them uses it: only a
+// use gives up a count, and a lifetime ends at the end of its region, which
+// holds both or neither. None where anything else reads the string, or an
+// operand may be gone by the output.
+Operation *writtenOnly(Operation *maker) {
+  Operation *output = nullptr;
+  for (OpOperand &use : maker->getResult(0).getUses()) {
+    Operation *user = use.getOwner();
+    if (use.getOperandNumber() != 0)
+      return nullptr;
+    if (user->hasTrait<EndsOwner>())
       continue;
-    auto put = dyn_cast<IoPutStrOp>(user);
-    if (!put || output)
-      return {};
-    output = put;
+    if (!user->hasTrait<EliminatesOperand>() || output)
+      return nullptr;
+    output = user;
   }
   if (!output)
-    return {};
+    return nullptr;
   Block *block = maker->getBlock();
   for (Value operand : maker->getOperands()) {
     if (livesOf(operand.getType()) == Lives::Always)
       continue;
     if (output->getBlock() != block)
-      return {};
+      return nullptr;
     for (Operation *user : operand.getUsers())
       if (Operation *at = block->findAncestorOpInBlock(*user);
           at && maker->isBeforeInBlock(at) && at->isBeforeInBlock(output))
-        return {};
+        return nullptr;
   }
   return output;
 }
@@ -197,9 +207,9 @@ struct LowerStringOfList : IdrPattern<OpT> {
     Location loc = op.getLoc();
     List list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
-    if (IoPutStrOp output = writtenOnly(op)) {
+    if (Operation *output = writtenOnly(op)) {
       rewriter.setInsertionPoint(output);
-      walk(rewriter, output.getLoc(), this->layouts, this->runtime, list, cell, {},
+      walk(rewriter, output->getLoc(), this->layouts, this->runtime, list, cell, {},
            [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
              this->runtime.call(b, l, Element::output, head.front());
              return SmallVector<Value>{};
@@ -249,7 +259,7 @@ struct LowerShownOutput : IdrPattern<ShowOp> {
 
   LogicalResult matchAndRewrite(ShowOp op, typename IdrPattern<ShowOp>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    IoPutStrOp output = writtenOnly(op);
+    Operation *output = writtenOnly(op);
     if (!output)
       return rewriter.notifyMatchFailure(op, "its string is not made only to be written");
     rewriter.setInsertionPoint(output);
