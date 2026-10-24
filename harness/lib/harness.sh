@@ -153,9 +153,10 @@ run_program() {
 # status in $compiled, and its output in $work/compile.out and
 # $work/compile.err; spec_check leaves specgen's status in $spec_status;
 # runtime_fact leaves the fact's text in $runtime_fact_value, or says
-# that the build wrote none and fails; planted_frontend leaves the
-# planted frontend in $planted_front and the idris-mlir beside it in
-# $planted_compiler.
+# that the build wrote none and fails; planted reads the planted trees of
+# the test's own directory, $here, wherever the script has moved since;
+# planted_frontend leaves the planted frontend in $planted_front and the
+# idris-mlir beside it in $planted_compiler.
 show() { "$runtests" --show "$@"; }
 empty() { "$runtests" --empty "$1" "$2"; }
 first_word() { "$runtests" --first-word "$1"; }
@@ -188,7 +189,7 @@ cpp_lex() { "$runtests" --cpp-lex "$@"; }
 runtime_fact() {
   runtime_fact_value=$("$runtests" --runtime-fact "$dev_prefix" "$1") || { say "$runtime_fact_value"; return 1; }
 }
-planted() { serve planted "$1"; }
+planted() { serve planted "$1" "$here"; }
 planted_frontend() {
   serve planted-frontend "$@" || return 1
   { IFS= read -r planted_front; IFS= read -r planted_compiler; } < "$work/planted-frontend"

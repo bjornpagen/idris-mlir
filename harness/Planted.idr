@@ -49,28 +49,31 @@ plantedFiles tree = do
 names : List String -> String -> Bool
 names findings file = any (\f => isPrefixOf (file ++ ":") (ltrim f)) findings
 
-||| The rule's check, the run script's function CHECK, on a tree, its
-||| findings in the work directory's planted.<tree> and what it said on
-||| standard error in planted.err.
-checked : Env -> (check, tree : String) -> IO (List String)
-checked e check tree = do
+||| The rule's check, the run script's function CHECK, on the tree of the
+||| test's directory `dir`, its findings in the work directory's
+||| planted.<tree> and what it said on standard error in planted.err.
+checked : Env -> (check, dir, tree : String) -> IO (List String)
+checked e check dir tree = do
   let found = inWork e ("planted." ++ tree)
-  _ <- run e.session (MkCommand (RuleCheck check) [e.tools.here ++ "/" ++ tree] e.tools.here NoInput
+  _ <- run e.session (MkCommand (RuleCheck check) [dir ++ "/" ++ tree] e.tools.here NoInput
                                 (ToFile found) (Apart (ToFile (inWork e "planted.err"))) [])
   lines . fromMaybe "" <$> readIfThere found
 
-||| `planted CHECK`: CHECK run on the test's witness/ and near-miss/, one
-||| line for each: every file of witness/ is named by a finding, and
-||| near-miss/ has none. A tree missing is said, and fails.
+||| `planted CHECK DIR`: CHECK run on witness/ and near-miss/ of DIR, the
+||| test's own directory, which the glue passes (`$here`, where one.sh
+||| starts the script), since the script may have moved since, as one whose
+||| rule walks the repository from its root does. One line for each: every
+||| file of witness/ is named by a finding, and near-miss/ has none. A tree
+||| missing is said, and fails.
 export
-planted : Env -> (check : String) -> IO ()
-planted e check = do
-  missing <- filterM' (\t => not <$> isDirectory (e.tools.here ++ "/" ++ t)) ["witness", "near-miss"]
+planted : Env -> (check, dir : String) -> IO ()
+planted e check dir = do
+  missing <- filterM' (\t => not <$> isDirectory (dir ++ "/" ++ t)) ["witness", "near-miss"]
   case missing of
     (tree :: _) => tell e ("planted: no " ++ tree ++ "/ beside the check")
     [] => do
-      findings <- checked e check "witness"
-      files <- plantedFiles (e.tools.here ++ "/witness")
+      findings <- checked e check dir "witness"
+      files <- plantedFiles (dir ++ "/witness")
       case (files, filter (not . names findings) files) of
         ([], _) => tell e "witness: nothing planted"
         (_, []) => tell e "witness: each planted file is found"
@@ -78,8 +81,8 @@ planted e check = do
           tell e "witness: planted files the check does not find:"
           tellAll e (map ("  " ++) missed)
           showIn e [inWork e "planted.err"]
-      near <- checked e check "near-miss"
-      nearFiles <- plantedFiles (e.tools.here ++ "/near-miss")
+      near <- checked e check dir "near-miss"
+      nearFiles <- plantedFiles (dir ++ "/near-miss")
       case (nearFiles, near) of
         ([], _) => tell e "near miss: nothing planted"
         (_, []) => tell e "near miss: nothing found"

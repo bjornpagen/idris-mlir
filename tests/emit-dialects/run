@@ -7,10 +7,14 @@
 # dialects are idr and the upstream dialects the specification lists as the
 # ones the frontend writes, in its output WrittenDialects.txt. So
 #   - each generated module builds ops of one dialect of the contract, and
-#     the contract's dialects each have one. An op's name is the
-#     specification's dialect and a name within it (`MkOpName Arith
-#     "addi"`), and the dialect's namespace is the specification's
-#     (`namespaceWord`), read from it;
+#     the contract's dialects each have one. An op a module builds is one
+#     it makes, `MkOp (MkOpName Arith "addi") ...`: its name is the
+#     specification's dialect and a name within it, and the dialect's
+#     namespace is the specification's (`namespaceWord`), read from it. A
+#     partial op's builder also names the check of each guard it gives the
+#     op (`Checking (MkOpName Idr "check.nonzero") ...`), which it does not
+#     make: Emit writes that check before the op, so it is an op of the
+#     contract too;
 #   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr,
 #     the modules that write a module, spells a name of a contract
 #     dialect: `<dialect>.<name>`, or the prefix `<dialect>.` that code
@@ -45,20 +49,26 @@ src=compiler/src/IdrisMLIR
 sed -n 's/^namespaceWord \([A-Za-z]*\) = word "\([a-z_]*\)"$/\1 \2/p' \
   compiler/spec/IdrisMLIR/Spec/Core/Dialect.idr > "$work/namespaces"
 
+# named ROLE FILE: the dialect of each op FILE's code names right after
+# ROLE (an extended regular expression), one a line, each once: the
+# constructor the op's name holds, however qualified, as the namespace the
+# specification gives it; one the specification has not is said by its
+# constructor.
+named() {
+  idris_lex code "$2" | grep -oE "$1"' \(MkOpName ([A-Za-z]*\.)*[A-Z][A-Za-z]*' |
+    sed 's/.*(MkOpName //; s/.*\.//' | sort -u | while IFS= read -r constructor; do
+      awk -v c="$constructor" '$1 == c { print $2; found = 1 } END { if (!found) print c }' "$work/namespaces"
+    done | sort -u
+}
+
 : > "$work/built"
+: > "$work/checks"
 for file in "$src"/Dialect/*.idr; do
   module=${file##*/}
-  # grep reads all of the lexer's output: one that stops at the first match
-  # closes the pipe on awk, which says so on stderr.
-  idris_lex code "$file" | grep 'MkOpName' > /dev/null || { say "IdrisMLIR.Dialect.${module%.idr}: builds no op"; continue; }
-  # The dialect of each op is the constructor its name holds, however
-  # qualified, as the namespace the specification gives it; one the
-  # specification has not is said by its constructor.
-  dialects=$(idris_lex code "$file" | grep -o 'MkOpName \([A-Za-z]*\.\)*[A-Z][A-Za-z]*' |
-    sed 's/^MkOpName //; s/.*\.//' | sort -u | while IFS= read -r constructor; do
-      awk -v c="$constructor" '$1 == c { print $2; found = 1 } END { if (!found) print c }' "$work/namespaces"
-    done | sort -u | tr '\n' ' ')
+  dialects=$(named 'MkOp' "$file" | tr '\n' ' ')
+  named '(Checking|checkingEach)' "$file" >> "$work/checks"
   case $dialects in
+    '') say "IdrisMLIR.Dialect.${module%.idr}: builds no op" ;;
     *' '?*) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of several dialects: $dialects" ;;
     *)
       dialect=${dialects% }
@@ -72,6 +82,18 @@ done
 for dialect in $contract; do
   grep -qx "$dialect" "$work/built" || say "$dialect: built by no module"
 done
+: > "$work/outside"
+sort -u "$work/checks" | while IFS= read -r dialect; do
+  case " $contract " in
+    *" $dialect "*) ;;
+    *) printf '%s\n' "$dialect" >> "$work/outside" ;;
+  esac
+done
+if [ -s "$work/outside" ]; then
+  say "guards: checks of dialects outside the contract: $(tr '\n' ' ' < "$work/outside")"
+else
+  say "guards: each check an op of the contract"
+fi
 
 # literals ROOT: the string literals of the Idris under ROOT that spell a
 # name of a contract dialect where only generated code may: in a module

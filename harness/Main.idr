@@ -52,7 +52,7 @@
 |||       determinism FIXTURE [INPUT]... | determinism-threads FIXTURE   (Determinism.idr)
 |||       fuzz SEED | fuzz-lazy SEED   (FuzzRun.idr)
 |||       lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER   (Lit.idr)
-|||       planted CHECK | planted-frontend MODULE FILE   (Planted.idr)
+|||       planted CHECK DIR | planted-frontend MODULE FILE   (Planted.idr)
 |||       scale-compile FIXTURE FACTOR [OPTION]... | scale-relation FIXTURE   (ScaleRun.idr)
 |||       bench-smoke DIR   (Bench.idr)
 |||       spec-sources|spec-tree ROOT DEST | spec-check|spec-written SPECGEN ROOT   (SpecFiles.idr)
@@ -362,7 +362,7 @@ usage = unlines
   , "       runtests --serve <dir> determinism FIXTURE [INPUT]... | determinism-threads FIXTURE"
   , "       runtests --serve <dir> fuzz SEED | fuzz-lazy SEED"
   , "       runtests --serve <dir> lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER"
-  , "       runtests --serve <dir> planted CHECK | planted-frontend MODULE FILE | bench-smoke DIR"
+  , "       runtests --serve <dir> planted CHECK DIR | planted-frontend MODULE FILE | bench-smoke DIR"
   , "       runtests --serve <dir> scale-compile FIXTURE FACTOR [OPTION]... | scale-relation FIXTURE"
   , "       runtests --serve <dir> spec-sources|spec-tree ROOT DEST | spec-check|spec-written SPECGEN ROOT"
   , "       runtests --show FILE... | --empty NAME FILE | --first-word FILE | --package-options DIR"
@@ -447,7 +447,7 @@ serve e ["fuzz-lazy", seed] = fuzzLazy e seed
 serve e ["lit", file] = litLines e file >>= traverse_ (tell e)
 serve e ["lit-fixture"] = litFixture e
 serve e ("lit-differential" :: file :: modules) = litDifferential e file modules >>= exitAs
-serve e ["planted", check] = planted e check
+serve e ["planted", check, dir] = planted e check dir
 serve e ["planted-frontend", module', file] = plantedFrontend e module' file >>= exitAs
 serve e ("scale-compile" :: fixture :: factor :: options) = scaleCompile e fixture factor options >>= exitWith'
 serve e ["scale-relation", fixture] = scaleRelation e fixture
