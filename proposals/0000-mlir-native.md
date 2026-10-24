@@ -1980,6 +1980,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   callee to its caller's closed layout with nothing proving the sum (B),
   and opening every such caller (C). What a sum cannot express stays
   `opaque`: C267.
+- **D132** (2026-10-23; the owner; L14u's finding on the two folders).
+  "yes, absouletly. delete duplication." (A): one folder. The e-graph
+  takes idr-constants' duties and idr-constants goes, with
+  `SummarizedConstantPropagation`, its summaries and its hand folds: the
+  constants a finished callee returns are facts the graph reads beside
+  what a callee gives back; joins on live paths (region results, block
+  arguments, loop-invariant values) are region rules of the graph; each
+  hand fold is the op's meaning, which the graph reads; a multi-result op
+  is folded by its meaning per result. Two propagators folding the same
+  ops each round had already drifted (NaN; `math.sqrt` folded by one and
+  left by the other; the byte budget binding one).
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -5602,18 +5613,9 @@ or its decision in §3.
    redistribution (the sources lane's finding, C13): (A) each becomes a
    link with its citation, (B) they are kept, or (C) `sources/` is kept
    out of the public tree. Asked 2026-10-23.
-2. Two folders of the same ops (L14u's finding): idr-constants
-   (summarized constant propagation over upstream's dataflow) and the
-   e-graph both fold them, each round, and have drifted (NaN; `math.sqrt`
-   folded by one and left by the other; the byte budget binding one).
-   (A) One folder: the e-graph takes idr-constants' duties (constants a
-   finished callee returns, joins on live paths, the hand folds,
-   multi-result ops) and idr-constants goes; (B) idr-constants folds only
-   the specification's lists, two propagators kept. Waits on 1.
 
-The last settled, a tail call's data result (L16dv's evidence,
-2026-10-23), is D129 (B*: a copy of the callee keyed to the open layout,
-the tail call's layout checked by the call's verifier).
+The last settled, the two folders (L14u's finding, 2026-10-23), is D132
+((A): the e-graph alone folds; idr-constants goes).
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
