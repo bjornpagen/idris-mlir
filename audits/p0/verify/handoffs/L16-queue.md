@@ -1250,3 +1250,7 @@ to L16ev. Waiting:
   (a missed optimization, L12). For review: the op's name and home
   (`idr.array.open`, `Spec/Arrays/Memory.idr`), its memo-read effect as
   `data.field`'s, `to_tensor` admitted for passes alone from First.
+- From L14af: the walk through a value's grade changes is written three
+  times (`fieldReadOnce`, `captures::forEachEnd`, `builtStateHolds`): one
+  walker in `Grades.h` (L05 with L14); `neverEmpty` and `GuardRepeated`
+  (`Ops/Rules.cpp`) still read operands without going through casts (L14).
