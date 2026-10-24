@@ -372,7 +372,9 @@ every target, the full suites green on each, and this file's sweep.
   bufferization's repetitive-region queries for arrays in loops;
   `insideMutuallyExclusiveRegions` of an op in a join op's body and one in
   the join region a jump nested in the body enters (the in-place rule's
-  `ownership::entryOf`, bufferization's `mayRunAfter`)
+  `ownership::entryOf`, bufferization's `mayRunAfter`), and
+  `isRegionReachable` from that body to that region
+  (`ownership::runsAfter`, region-branch-reachability)
 - workaround: `upstream/70-early-exit-region-graph/llvm.patch`: only the
   op's regions are nodes, and nested exits landing on it are edges;
   checked by tests/upstream-early-exit-region-graph

@@ -31,6 +31,10 @@ ours ask it there: the in-place rule (`ownership::entryOf`), which would
 skip the jump that hands a value on to the cast entering it, and
 bufferization's `mayRunAfter` (`Bufferize/Releases.cpp`), which would let a
 write in the join region take the buffer a release in the body handed on.
+`isRegionReachable` (`upstream/119-region-branch-reachability`), the same
+walk exported, meets it in the order of the two regions: without the patch
+`ownership::runsAfter` answers that a use in the join region never runs
+after a call in the body.
 On upstream's own ops the case has no form: every op an exit lands on
 (`scf.loop`, the test dialect's breakable loop) has one region.
 
