@@ -1121,3 +1121,24 @@ to L16ev. Waiting:
   machine). `.toolchain/llvm-project` and `build/llvm-project` carry none
   of patches 65 to 71: the typecheck toolchain cannot check behaviour the
   early-exit patches give (INT).
+- From L03af (29e5191f4): `/tmp/l03af/takes.patch` (TakesStr and strRead
+  one fact: `Taken` operand groups with their kind, `RuntimeFunction`
+  giving `operandsOf` and `asCall`, about 100 hand vectors deleted) lands
+  after L13z's K10 releases `Spec/Ops/{Shapes,IO,Bigs,Scalars}.idr`
+  (`Scalars.over-K13.patch` is its Scalars part over the cull);
+  `/tmp/l03af/dialects.sh.patch` after L03ad releases `tools/dialects.sh`.
+  Seams: the result side's `result "r" i64` beside `Returns GivesInt64`;
+  `Generator/Cpp.idr`'s `functionsOf` pairs `c.takes` with `op.ins` by
+  position (needs `Meaning` holding the function, `Core/Op.idr`, after
+  L12ab); `Outputs.idr:364` finds the string-eliminating op by comparing
+  `strReadP`'s name as text (after L03ad).
+- From L06l (35a2dc049): `Bufferize/Releases.cpp:188`'s `mayRunAfter`
+  could ask the order (`isRegionReachable`) instead of the symmetric
+  query (L12); upstream's walk re-walks visited regions for nested exits
+  per query, `runsAfter` asks once per use, unmeasured (INT).
+- Dispatched after recheck 8 (f0568c373): P8 (the proposal's upkeep as a
+  patch: the cull's unrecorded amendments of C113, C146, C160, C18, C34,
+  C15, C194, C187; §5.5's stale line; §6's landed deletions; the
+  rederivation plan's carrier decisions from C310; QB settled by C297),
+  L19ae (C246's three scripts, the re-pack at `index.assume` seen by a
+  property), L12ac (C295). C258 and `Keys.idr:409` ride C281 steps 2-6.
