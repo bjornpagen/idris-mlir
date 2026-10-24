@@ -1195,3 +1195,10 @@ to L16ev. Waiting:
   return its new value and type (L04 with L14). L03ae's deferred
   `namedBy` patch (`/tmp/l03ae/deferred.patch`) now lands: `Families/`
   is free after K12.
+- From L19af (K17): `tests/rules-covered` fails at HEAD as with K17: no
+  fixture or `without-fixture` line covers the rule `target` (OtherTarget,
+  653608e8b) (L19: a fixture of a module made for another target, refused
+  at idr-target, or its line); spec-self is now the first test in which
+  idris-mlir compiles `Spec/Pipeline/Properties.idr` (INT). HEAD's
+  `harness/RuntimeEffects.idr` fails its coverage check (`callRow`, `held`
+  and others); L16ev's working copy fixes it (lands with L16ev).
