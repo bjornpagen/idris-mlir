@@ -1,0 +1,126 @@
+Subject: [PATCH] [mlir] Expose region reachability on RegionBranchOpInterface
+
+`isRegionReachable`, the walk of a region branch op's region graph that
+answers `isRepetitiveRegion` and `insideMutuallyExclusiveRegions`, is
+static to ControlFlowInterfaces.cpp. A client that needs the order of two
+regions of one op (may region B run after region A?) cannot ask it:
+`insideMutuallyExclusiveRegions` is symmetric, and `isRepetitiveRegion`
+answers only for one region, so the client walks the region graph again.
+
+Make it a member of `RegionBranchOpInterface` beside
+`isRepetitiveRegion`, taking region numbers as that one does:
+`isRegionReachable(from, to)`. `isRepetitiveRegion(index)` is
+`isRegionReachable(index, index)`, and `insideMutuallyExclusiveRegions`
+asks it both ways, as before. No behavior changes.
+---
+diff --git a/mlir/include/mlir/Interfaces/ControlFlowInterfaces.td b/mlir/include/mlir/Interfaces/ControlFlowInterfaces.td
+index da79de5..f58909f 100644
+--- a/mlir/include/mlir/Interfaces/ControlFlowInterfaces.td
++++ b/mlir/include/mlir/Interfaces/ControlFlowInterfaces.td
+@@ -368,6 +368,12 @@ def RegionBranchOpInterface : OpInterface<"RegionBranchOpInterface"> {
+     /// other regions.)
+     bool isRepetitiveRegion(unsigned index);
+ 
++    /// Return `true` if control flow originating from region `from` may
++    /// eventually branch to region `to`, i.e., if `to` may run after `from`.
++    /// (Maybe after passing through other regions.) For `from == to`, this is
++    /// `isRepetitiveRegion`.
++    bool isRegionReachable(unsigned from, unsigned to);
++
+     /// Return `true` if there is a loop in the region branching graph. Only
+     /// reachable regions (starting from the entry regions) are considered.
+     bool hasLoop();
+diff --git a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+index 3bf4ca2..6884265 100644
+--- a/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
++++ b/mlir/lib/Interfaces/ControlFlowInterfaces.cpp
+@@ -344,15 +344,15 @@ static bool traverseRegionGraph(Region *begin,
+   return false;
+ }
+ 
+-/// Return `true` if region `r` is reachable from region `begin` according to
+-/// the RegionBranchOpInterface (by taking a branch).
+-static bool isRegionReachable(Region *begin, Region *r) {
+-  assert(begin->getParentOp() == r->getParentOp() &&
+-         "expected that both regions belong to the same op");
+-  return traverseRegionGraph(begin,
++bool RegionBranchOpInterface::isRegionReachable(unsigned from, unsigned to) {
++  LDBG() << "Checking if region #" << to << " is reachable from region #"
++         << from << " in operation " << getOperation()->getName();
++
++  Region *target = &getOperation()->getRegion(to);
++  return traverseRegionGraph(&getOperation()->getRegion(from),
+                              [&](Region *nextRegion, ArrayRef<bool> visited) {
+-                               // Interrupt traversal if `r` was reached.
+-                               return nextRegion == r;
++                               // Interrupt traversal if `to` was reached.
++                               return nextRegion == target;
+                              });
+ }
+ 
+@@ -409,8 +409,10 @@ bool mlir::insideMutuallyExclusiveRegions(Operation *a, Operation *b) {
+     // `a` and `b` are in mutually exclusive regions if both regions are
+     // distinct and neither region is reachable from the other region.
+     bool regionsAreDistinct = (regionA != regionB);
+-    bool aNotReachableFromB = !isRegionReachable(regionA, regionB);
+-    bool bNotReachableFromA = !isRegionReachable(regionB, regionA);
++    bool aNotReachableFromB = !branchOp.isRegionReachable(
++        regionA->getRegionNumber(), regionB->getRegionNumber());
++    bool bNotReachableFromA = !branchOp.isRegionReachable(
++        regionB->getRegionNumber(), regionA->getRegionNumber());
+ 
+     LDBG() << "Regions distinct: " << regionsAreDistinct
+            << ", A not reachable from B: " << aNotReachableFromB
+@@ -434,8 +436,7 @@ bool RegionBranchOpInterface::isRepetitiveRegion(unsigned index) {
+   LDBG() << "Checking if region #" << index << " is repetitive in operation "
+          << getOperation()->getName();
+ 
+-  Region *region = &getOperation()->getRegion(index);
+-  bool isRepetitive = isRegionReachable(region, region);
++  bool isRepetitive = isRegionReachable(index, index);
+ 
+   LDBG() << "Region #" << index << " is repetitive: " << isRepetitive;
+   return isRepetitive;
+diff --git a/mlir/unittests/Interfaces/ControlFlowInterfacesTest.cpp b/mlir/unittests/Interfaces/ControlFlowInterfacesTest.cpp
+index 5b5da05..acc2bfd 100644
+--- a/mlir/unittests/Interfaces/ControlFlowInterfacesTest.cpp
++++ b/mlir/unittests/Interfaces/ControlFlowInterfacesTest.cpp
+@@ -284,3 +284,38 @@ TEST(RegionBranchOpInterface, NotRecursiveRegions) {
+   EXPECT_EQ(getEnclosingRepetitiveRegion(op1), nullptr);
+   EXPECT_EQ(getEnclosingRepetitiveRegion(op2), nullptr);
+ }
++
++TEST(RegionBranchOpInterface, RegionReachability) {
++  const char *ir = R"MLIR(
++"cftest.sequential_regions_op"() (
++      {"cftest.dummy_op"() : () -> ()},
++      {"cftest.dummy_op"() : () -> ()}
++  ) : () -> ()
++"cftest.double_loop_regions_op"() (
++      {"cftest.dummy_op"() : () -> ()},
++      {"cftest.dummy_op"() : () -> ()}
++  ) : () -> ()
++  )MLIR";
++
++  DialectRegistry registry;
++  registry.insert<CFTestDialect>();
++  MLIRContext ctx(registry);
++
++  OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(ir, &ctx);
++  Block *body = module->getBody();
++  auto sequentialOp = cast<RegionBranchOpInterface>(&body->front());
++  auto doubleLoopOp = cast<RegionBranchOpInterface>(&body->back());
++
++  // Region 1 may run after region 0, but region 0 never runs after region 1,
++  // though `insideMutuallyExclusiveRegions` is false for both orders.
++  EXPECT_TRUE(sequentialOp.isRegionReachable(0, 1));
++  EXPECT_FALSE(sequentialOp.isRegionReachable(1, 0));
++  EXPECT_FALSE(sequentialOp.isRegionReachable(0, 0));
++  EXPECT_FALSE(sequentialOp.isRegionReachable(1, 1));
++
++  // Each region branches back to itself only.
++  EXPECT_TRUE(doubleLoopOp.isRegionReachable(0, 0));
++  EXPECT_TRUE(doubleLoopOp.isRegionReachable(1, 1));
++  EXPECT_FALSE(doubleLoopOp.isRegionReachable(0, 1));
++  EXPECT_FALSE(doubleLoopOp.isRegionReachable(1, 0));
++}

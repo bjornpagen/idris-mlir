@@ -389,6 +389,20 @@ every target, the full suites green on each, and this file's sweep.
   checked by tests/upstream-early-exit-index-switch
 - retire: with early-exits, or when #166688 covers it
 
+## region-branch-reachability
+
+- sites: `ownership::runsAfter`
+  (foreign/idr/include/idr/Analysis/Ownership/Facts.h), the order of two
+  regions of one region branch op (a join region after the body that
+  jumps to it), read by the in-place rule (`ownership::entryOf`) and the
+  borrow inference (`usedAfter`)
+- workaround: `upstream/119-region-branch-reachability/llvm.patch`: the
+  region graph's walk is exported as
+  `RegionBranchOpInterface::isRegionReachable(from, to)`, beside
+  `isRepetitiveRegion`; applies after 70, whose edges it keeps; checked by
+  tests/upstream-region-branch-reachability
+- retire: when the pin exports the directional query
+
 ## scc-iterator-node-numbers
 
 - sites: the solver layer's components (the program graph over

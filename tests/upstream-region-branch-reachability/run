@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/119-region-branch-reachability: a region branch op answers
+# whether one of its regions may run after another, in each direction, as
+# the ownership facts ask of a join op's body and its join regions. An op
+# of the check's own, two regions run one after the other, answers that
+# the second may run after the first, the first never after the second,
+# and neither after itself: built against the toolchain's MLIR,
+# statically, the program prints "ok". At the pin the walk is static to
+# ControlFlowInterfaces.cpp and it does not build.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "a region branch op answers which of its regions may run after which" \
+  "$root/upstream/119-region-branch-reachability/reachable.cpp"

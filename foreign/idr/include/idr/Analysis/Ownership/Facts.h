@@ -24,7 +24,6 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
@@ -282,42 +281,12 @@ inline mlir::Region &regionHolding(mlir::Operation *op, mlir::Operation *inner) 
   llvm_unreachable("an op nested in another stands in one of its regions");
 }
 
-// Whether `branch` may enter its region `to` once its region `from` has run:
-// what enters `to`, as the op answers (its predecessors), read back through
-// the regions those stand in until `from` is met. The op itself enters only
-// at its start. Read here because upstream's walk of an op's region graph
-// is file-local, behind the questions whether a region repeats and whether
-// two ops exclude each other (insideMutuallyExclusiveRegions), and answers
-// no order of two regions.
-inline bool entersAfter(mlir::RegionBranchOpInterface branch, mlir::Region &from,
-                        mlir::Region &to) {
-  llvm::SmallVector<bool> seen(branch->getNumRegions(), false);
-  llvm::SmallVector<mlir::Region *> work{&to};
-  seen[to.getRegionNumber()] = true;
-  while (!work.empty()) {
-    llvm::SmallVector<mlir::RegionBranchPoint> predecessors;
-    branch.getPredecessors(mlir::RegionSuccessor(work.pop_back_val()), predecessors);
-    for (mlir::RegionBranchPoint point : predecessors) {
-      if (point.isParent())
-        continue;
-      mlir::Region &in = regionHolding(branch.getOperation(),
-                                       point.getTerminatorPredecessorOrNull().getOperation());
-      if (&in == &from)
-        return true;
-      if (!seen[in.getRegionNumber()]) {
-        seen[in.getRegionNumber()] = true;
-        work.push_back(&in);
-      }
-    }
-  }
-  return false;
-}
-
 // Whether `use`, an op, may run after `call` on some path: later in a block
 // that holds the call, anywhere in a region that runs again around it, or
-// in a region of a branch that the branch may enter once the call's region
-// has run (a join region after the body that jumps to it, never the body
-// after one of its join regions, nor one alternative after another).
+// in a region of a branch that the branch's region graph reaches from the
+// call's region (upstream's isRegionReachable: a join region after the body
+// that jumps to it, never the body after one of its join regions, nor one
+// alternative after another).
 inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
   for (mlir::Operation *at = call; at && !llvm::isa<FuncOp>(at); at = at->getParentOp()) {
     if (mlir::Operation *holder = at->getBlock()->findAncestorOpInBlock(*use)) {
@@ -331,10 +300,10 @@ inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
       // alternatives, and the use may follow.
       auto branch = llvm::dyn_cast<mlir::RegionBranchOpInterface>(at);
       if (branch && use != at && call != at) {
-        mlir::Region &from = regionHolding(at, call);
-        mlir::Region &to = regionHolding(at, use);
-        if (&from != &to)
-          return entersAfter(branch, from, to);
+        unsigned from = regionHolding(at, call).getRegionNumber();
+        unsigned to = regionHolding(at, use).getRegionNumber();
+        if (from != to)
+          return branch.isRegionReachable(from, to);
       }
       return true;
     }
