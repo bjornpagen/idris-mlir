@@ -144,7 +144,7 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
     llvm::append_range(args, ownLifetimes);
     IndexArgsAttr terms = concatArgs(ctx, families::levelArgs(ctx, 0, depth), jump.getTermsAttr());
     rewriter.setInsertionPoint(jump);
-    auto call = CallOp::create(rewriter, jump.getLoc(), to.fn, terms, args, TailKind::tail);
+    auto call = TailCallOp::create(rewriter, jump.getLoc(), to.fn, terms, args);
     YieldOp::create(rewriter, jump.getLoc(), call.getResults());
     made.push_back(call);
     rewriter.eraseOp(jump);

@@ -38,7 +38,7 @@ idr.program @holders root(@main) stage(graded) {
     %list = idr.cell.init %c : !idr.cell<!Cons> (%one : i64, %nil : !Nil) -> !Cons
     %inner = idr.data.con(%two : i64, %list : !Cons) : !Inner
     %outer = idr.data.con(%three : i64, %inner : !Inner) : !Outer
-    %r:3 = idr.call @nested(%outer) <{tail_kind = nontail}> : (!Outer) -> (i64, i64, !List)
+    %r:3 = idr.call @nested(%outer) : (!Outer) -> (i64, i64, !List)
     idr.return
   }
   idr.func @nested(%o: !Outer) -> (i64, i64, !List) {

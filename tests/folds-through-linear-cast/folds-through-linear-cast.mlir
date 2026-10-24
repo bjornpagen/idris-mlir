@@ -139,7 +139,7 @@ idr.program @memoField root(@main) stage(first) {
 !Str = !idr.graded<many, static, !idr.str>
 idr.program @returned root(@main) stage(first) {
   idr.func @two() -> (!F1, !I1) {
-    %again:2 = idr.call @two() <{tail_kind = nontail}> : () -> (!F1, !I1)
+    %again:2 = idr.call @two() : () -> (!F1, !I1)
     %a = arith.constant 2.0 : f64
     %b = arith.constant 3 : i64
     %a1 = idr.lin.cast %a : f64 -> !F1
@@ -147,7 +147,7 @@ idr.program @returned root(@main) stage(first) {
     idr.return %a1, %b1 : !F1, !I1
   }
   idr.func @main() {
-    %r:2 = idr.call @two() <{tail_kind = nontail}> : () -> (!F1, !I1)
+    %r:2 = idr.call @two() : () -> (!F1, !I1)
     %x = idr.lin.cast %r#0 : !F1 -> f64
     %y = idr.lin.cast %r#1 : !I1 -> i64
     %real = arith.sitofp %y : i64 to f64

@@ -6,8 +6,8 @@
 // and every other call keeps its callee's result as the callee lays it
 // out: the first property states the tail such a copy makes, the second
 // that a call pays no re-pack for its result. Both read the calls by
-// upstream's call interface, and the tail fact through Tail.h's one
-// reading of it, never the attribute; a result's two types are compared
+// upstream's call interface, and a tail call as the member it is; a
+// result's two types are compared
 // as the layouts compare them, the comparison by which a reindex between
 // them is free or re-packs, and a value follows into a region by
 // upstream's region-branch interface, so a region that takes it in at
@@ -16,7 +16,7 @@
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/Families/Families.h"
-#include "idr/IR/Tail.h"
+#include "idr/IR/IdrDialect.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -104,17 +104,16 @@ std::optional<Repack> repackOfUse(CallOpInterface call) {
 
 } // namespace
 
-// Some call in a function of @f of @g or a copy of it is a tail call, as
-// Tail.h reads one. A tail call is a fact of the program's calls, so after
-// lowering, where none is left, the property fails. Where it fails, each
+// Some call in a function of @f of @g or a copy of it is a tail call, the
+// call family's member. A tail call is a fact of the program's calls, so
+// after lowering, where none is left, the property fails. Where it fails, each
 // call of @g there is reported, or @f where it calls no @g.
 LogicalResult tailCalls(const Request<Pair> &request) {
   const Pair &pair = request.argument;
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   SmallVector<CallOpInterface> found = callsOf(pair, symbols);
-  if (llvm::any_of(found, [](CallOpInterface call) {
-        return static_cast<bool>(tailCallOf(call.getOperation()));
-      }))
+  if (llvm::any_of(found,
+                   [](CallOpInterface call) { return isa<TailCallOp>(call.getOperation()); }))
     return success();
   if (found.empty())
     return fail(pair.caller.functions.front()->getLoc(), request.property)

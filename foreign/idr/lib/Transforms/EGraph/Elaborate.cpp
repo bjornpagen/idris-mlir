@@ -24,8 +24,8 @@
 // made there, its operands first, so a value is computed in each scope
 // that needs it and never above a match that does not. The skeleton's
 // edits are carried out as their ops are reached. Then every floating op
-// left unused is erased (sweep), and every call takes the tail fact its new
-// place gives it. The placements and the regions' stack are the
+// left unused is erased (sweep), and every call becomes the member its new
+// place makes. The placements and the regions' stack are the
 // footprint's; a demand's postorder is the shared depth-first walk's.
 //
 // A demand is of a class at a use, and the use decides how it takes the
@@ -115,7 +115,7 @@ bool isField(const structural::Built &built, unsigned operand) {
 // data where the op's runtime function borrows it, or where the op builds a
 // constructor of which it is a field; at its own type anywhere else.
 Admits admitsAt(const Kinds &kinds, Admits atCalls, Operation *op, unsigned operand) {
-  if (isa<CallOp>(op))
+  if (isa<FunctionCallOpInterface>(op))
     return atCalls;
   if (kinds.of(op).borrowed.has(operand))
     return Admits::StaticData;
@@ -485,9 +485,9 @@ void Function::elaborate(RewriterBase &rewriter) {
   // a call that floated was made again itself, and an edit or a merge
   // erased the op it stood for, an op that holds no fact of where it stood.
   // So a call may now end a tail, or its result flow into cells built for
-  // it: the function was written back whole, and its calls take their
-  // facts off its tails, once. Before the program is first order its calls
-  // promise nothing, and no pass writes one.
+  // it: the function was written back whole, and its calls become the
+  // members its tails make, once. Before the program is first order its
+  // calls promise nothing, and no pass makes one another member.
   if (tail::decided(fn))
     (void)optimize::decideTails(fn);
 }

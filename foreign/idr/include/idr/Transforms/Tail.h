@@ -17,7 +17,7 @@
 //     frame on a typed, linear, uncounted stack and becomes a tail call;
 //     the rest runs when a resume pops the frame (a promise).
 //   - idr-tail-loops: a function's self tail calls become one loop.
-// Tail position itself is idr/IR/Tail.h's, one fact on each call.
+// Tail position itself is idr/IR/Tail.h's, held as each call's member.
 //
 //===----------------------------------------------------------------------===//
 
@@ -96,7 +96,8 @@ using Combination = std::variant<Law, ShortCircuit>;
 // A self call whose one result `combine`, the tail, takes with another
 // value that no self call computes, by `by`: `f(...) ⊕ g` or `g ⊕ f(...)`,
 // where `combine` is the law's op or the short circuit's match (the call
-// then on the left).
+// then on the left). An ordinary call, since its caller goes on to
+// combine.
 struct Combined {
   CallOp call;
   mlir::Operation *combine;
@@ -105,7 +106,7 @@ struct Combined {
 };
 // A self call of a function of accumulator tails: a tail call, which
 // passes the combination on unchanged, or one a tail combines.
-using Site = std::variant<CallOp, Combined>;
+using Site = std::variant<TailCallOp, Combined>;
 
 // What becomes of a function whose every self call is a site and one at
 // least is combined, every combination by one operation on one side (or

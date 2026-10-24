@@ -23,7 +23,7 @@
 idr.program @words root(@main) stage(first) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
-    %v = idr.call @make(%seven) <{tail_kind = nontail}> : (i64) -> !Open
+    %v = idr.call @make(%seven) : (i64) -> !Open
     %head = idr.data.field %v[0] : !Open -> i64
     %text = idr.str.show_sint %head : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()

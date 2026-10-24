@@ -173,7 +173,7 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
     for (FunctionId fn : functions)
       for (auto [version, op] : llvm::zip_equal(solved.versions(fn), versionOps[fn])) {
         unsigned site = 0;
-        idr::ownership::forEachCall(op, [&](idr::CallOp call) {
+        idr::ownership::forEachCall(op, [&](idr::FunctionCallOpInterface call) {
           FunctionId callee = graph.id(call.getCalleeAttr());
           idr::FuncOp target = versionOps[callee][version.callTargets[site++]];
           call.setCalleeAttr(FlatSymbolRefAttr::get(target.getSymNameAttr()));

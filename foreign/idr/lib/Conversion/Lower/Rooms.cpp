@@ -35,7 +35,8 @@ Value offsetRoom(OpBuilder &b, Location loc, Value room, uint64_t offset) {
 }
 
 // What a callee given the room as `use` says it puts into it, its bound.
-FailureOr<uint64_t> passedBytes(CallOp call, OpOperand &use, const solver::ProgramGraph &graph) {
+FailureOr<uint64_t> passedBytes(FunctionCallOpInterface call, OpOperand &use,
+                                const solver::ProgramGraph &graph) {
   FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
   ParameterParts parts(callee.getArgumentTypes());
   unsigned index = use.getOperandNumber();
@@ -121,7 +122,7 @@ LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
         bytes = cast<LifetimePutOpInterface>(op).getPutBytes(layouts);
         break;
       case LifetimeUse::PassesOn:
-        bytes = passedBytes(cast<CallOp>(op), use, graph);
+        bytes = passedBytes(cast<FunctionCallOpInterface>(op), use, graph);
         break;
       }
       if (failed(bytes)) {

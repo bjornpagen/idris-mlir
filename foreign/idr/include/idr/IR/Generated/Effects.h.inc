@@ -36,6 +36,22 @@ struct Declared<::idr::CallOp> {
 };
 
 template <>
+struct Declared<::idr::TailCallOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 0> effects{{}};
+  using Rules = std::tuple<::idr::effects::Summarized<::idr::effects::OnOp>, ::idr::effects::Consumes<::idr::effects::OnOperand<0>>, ::idr::effects::NewIdentity<::idr::effects::OnResult<0>>>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
+struct Declared<::idr::ContextCallOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 0> effects{{}};
+  using Rules = std::tuple<::idr::effects::Summarized<::idr::effects::OnOp>, ::idr::effects::Consumes<::idr::effects::OnOperand<0>>, ::idr::effects::NewIdentity<::idr::effects::OnResult<0>>>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::ReturnOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 0> effects{{}};

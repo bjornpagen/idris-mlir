@@ -28,12 +28,12 @@ idr.program @calls root(@main) stage(higher) {
     idr.return %m : i64
   }
   idr.func @jumps(%n: i64) -> i64 {
-    %r = idr.call @next(%n) <{tail_kind = tail}> : (i64) -> i64
+    %r = idr.tail_call @next(%n) : (i64) -> i64
     idr.return %r : i64
   }
   idr.func @adds(%n: i64) -> i64 {
     // expected-error @below {{expected tail-calls: }}
-    %r = idr.call @next(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @next(%n) : (i64) -> i64
     %one = arith.constant 1 : i64
     %s = arith.addi %r, %one : i64
     idr.return %s : i64
@@ -50,22 +50,22 @@ idr.program @calls root(@main) stage(higher) {
     idr.return %xs : !V4
   } loc("g")
   idr.func @given(%xs: !V4) -> i64 {
-    %r = idr.call @g_4(%xs) <{tail_kind = nontail}> : (!V4) -> !V4
-    %t = idr.call @use(%r) <{tail_kind = tail}> : (!V4) -> i64
+    %r = idr.call @g_4(%xs) : (!V4) -> !V4
+    %t = idr.tail_call @use(%r) : (!V4) -> i64
     idr.return %t : i64
   }
   idr.func @unspecialized(%xs: !V4) -> i64 {
     // expected-error @below {{expected results-as-given: }}
-    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[4]>, tail_kind = nontail}> : (!V4) -> !V4
-    %t = idr.call @use(%r) <{tail_kind = tail}> : (!V4) -> i64
+    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[4]>}> : (!V4) -> !V4
+    %t = idr.tail_call @use(%r) : (!V4) -> i64
     idr.return %t : i64
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @repacks(%xs: !Vn) -> i64 {
     %t = idr.index.assume #idr.equation<v0 = 4> () -> (i64) {
       // expected-error @below {{expected results-as-given: }}
-      %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (!Vn) -> !Vn
+      %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>}> : (!Vn) -> !Vn
       %p = idr.data.reindex %r : !Vn to !V4
-      %u = idr.call @use(%p) <{tail_kind = tail}> : (!V4) -> i64
+      %u = idr.tail_call @use(%p) : (!V4) -> i64
       idr.yield %u : i64
     }
     idr.return %t : i64

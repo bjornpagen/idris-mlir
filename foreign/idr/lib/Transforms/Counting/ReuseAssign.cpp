@@ -246,10 +246,11 @@ void Reuse::assign() {
       }
       return;
     }
-    // A call modulo a context keeps its tokens: its context, which follows
-    // it, may recycle one, and idr-trmc moves what follows the call before
-    // it, where no token is read by the call.
-    if (tailCallOf(op)) {
+    // A tail call frees what it holds, since nothing of its caller follows
+    // it; a self call modulo a context keeps its tokens: its context,
+    // which follows it, may recycle one, and idr-trmc moves what follows
+    // the call before it, where no token is read by the call.
+    if (isa<TailCallOp>(op)) {
       freeAll(path.held, op);
       return;
     }

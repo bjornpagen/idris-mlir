@@ -29,16 +29,18 @@
 // the copy gives (convertResults), which its caller read when it was taken
 // up.
 //
-// A copy called where the call was stands at the call's place, so it keeps
-// the call's tail fact; where it gives a result open, the re-pack it waited
-// for is gone, so a tail lost to a layout is a tail call. A call that names
-// its own function now (a copy's recursion keyed to the copy itself) takes
-// the context the rule reads off it, and one that no longer does loses its
-// context. A raise's call stands where the dispatch it replaces stood: a
-// tail call where the dispatch was a tail of its function and nothing
-// stands between the call and its block's end. Its row is what the call
-// and the consumer did, which its function contained already; the writer
-// derives the copy's own when its component is final.
+// A copy called where the call was stands at the call's place, so it is
+// the call's member: a tail call where the call was one; where it gives a
+// result open, the re-pack it waited for is gone, so a tail lost to a
+// layout is a tail call. Any other call that names its own function now (a
+// copy's recursion keyed to the copy itself) is a self call modulo the
+// context the rule reads off it, and one that no longer does is an
+// ordinary call. A raise's call stands where the dispatch it replaces
+// stood: a tail call where the dispatch was a tail of its function and
+// nothing stands between the call and its block's end but ops and region
+// ops that give its results on freely. Its row is what the call and the
+// consumer did, which its function contained already; the writer derives
+// the copy's own when its component is final.
 // It gives what the dispatch gave as a function returns it, `?` at every
 // axis of an array, so where the dispatch's type fixed a size the value
 // reaches the dispatch's uses cast back to that type, after the call. A
@@ -62,18 +64,18 @@ namespace idr::specialize::detail {
 namespace {
 
 // A call of a copy whose function is not built yet, so no builder can read
-// it: its properties set whole, its row the one the call it replaces held,
-// which its caller's row covers already, and no claim of which operands
-// it leaves untouched until the writer derives the copy's own.
-CallOp callOf(RewriterBase &rewriter, Location loc, FlatSymbolRefAttr target, TypeRange results,
-              IndexArgsAttr indices, ValueRange operands, TailKind tail, effects::Row row) {
-  CallOp::Properties properties;
+// it: the member `Call` of the call family, its properties set whole, its
+// row the one the call it replaces held, which its caller's row covers
+// already, and no claim of which operands it leaves untouched until the
+// writer derives the copy's own.
+template <CallFamily Call>
+Call callOf(RewriterBase &rewriter, Location loc, FlatSymbolRefAttr target, TypeRange results,
+            IndexArgsAttr indices, ValueRange operands, effects::Row row) {
+  typename Call::Properties properties;
   properties.callee = target;
   properties.index_args = indices;
   properties.row = row;
-  CallOp call = CallOp::create(rewriter, loc, results, operands, properties);
-  call.setTailKind(tail);
-  return call;
+  return Call::create(rewriter, loc, results, operands, properties);
 }
 
 // `operand` passed where a copy asks `input`. At every position but a bare
@@ -93,8 +95,9 @@ Value passedAs(OpBuilder &b, Location loc, Value operand, Type input) {
 
 } // namespace
 
-SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const PatternWant &want,
-                              const PatternKey &key, ArrayRef<Source> sources, FuncOp owner) {
+SmallVector<Value> operandsOf(RewriterBase &rewriter, FunctionCallOpInterface call,
+                              const PatternWant &want, const PatternKey &key,
+                              ArrayRef<Source> sources, FuncOp owner) {
   SmallVector<Type> types;
   for (auto [pattern, type] : llvm::zip_equal(key.params, owner.getArgumentTypes()))
     holeTypes(*pattern, type, types);
@@ -120,10 +123,11 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
 // caller's return took when it was last decided (keyCalls), so each cast is
 // made again from the copy's result (convertResults), shared down where
 // its readers claim less.
-CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
-                IndexArgsAttr indices, ArrayRef<Value> operands) {
+FunctionCallOpInterface redirect(RewriterBase &rewriter, FunctionCallOpInterface call,
+                                 FlatSymbolRefAttr target, FunctionType type,
+                                 IndexArgsAttr indices, ArrayRef<Value> operands) {
   Location loc = call.getLoc();
-  SmallVector<Type> took(call.getResultTypes());
+  SmallVector<Type> took(call->getResultTypes());
   rewriter.setInsertionPoint(call);
   SmallVector<Value> passed;
   for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs()))
@@ -132,28 +136,35 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   // caller's levels: the view substitutes the one by the other, a result
   // keeping its type but for them.
   FunctionType seen = indices ? families::substitute(type, ExtentsAttr(), indices) : type;
-  assert(llvm::all_of(llvm::zip_equal(seen.getResults(), call.getResultTypes()),
+  assert(llvm::all_of(llvm::zip_equal(seen.getResults(), call->getResultTypes()),
                       [](auto pair) {
                         auto [keyed, had] = pair;
                         return keyed == had || unrestricted(keyed) != unrestricted(had);
                       }) &&
          "a copy gives each result at the hold its call took when its caller was last decided; "
          "only a result keyed open differs from it");
-  bool opened = !llvm::equal(seen.getResults(), call.getResultTypes());
+  bool opened = !llvm::equal(seen.getResults(), call->getResultTypes());
   assert((!opened || !lastActOf(call)) &&
          "a copy gives each result as its call did, but one keyed open for a tail lost to a "
          "layout, which returns to its caller");
-  TailKind kind = opened || tailCallOf(call) ? TailKind::tail : TailKind::nontail;
-  CallOp fresh =
-      callOf(rewriter, loc, target, seen.getResults(), indices, passed, kind, call.getRow());
+  // A tail call stays one, and a tail lost to a layout becomes one; any
+  // other call is an ordinary call until its uses are its own, when the
+  // rule reads whether a context takes its result.
+  bool atTail = opened || isa<TailCallOp>(call.getOperation());
+  ArrayRef<Type> results = seen.getResults();
+  FunctionCallOpInterface fresh;
+  if (atTail)
+    fresh = callOf<TailCallOp>(rewriter, loc, target, results, indices, passed, call.getRow());
+  else
+    fresh = callOf<CallOp>(rewriter, loc, target, results, indices, passed, call.getRow());
   SmallVector<Value> old(call.getArgs());
-  rewriter.replaceOp(call, fresh.getResults());
+  rewriter.replaceOp(call, fresh->getResults());
   eraseUnused(rewriter, old);
   if (opened)
     convertResults(fresh, took);
-  if (!tailCallOf(fresh))
-    fresh.setTailKind(tail::withContext(fresh));
-  return fresh;
+  if (atTail)
+    return fresh;
+  return tail::restand(rewriter, fresh, tail::offTail(fresh));
 }
 
 namespace {
@@ -188,8 +199,9 @@ void giveAs(RewriterBase &rewriter, Location loc, Value given, Value had) {
 // A raise replaces what the dispatch returns; the steps from the call's
 // result to the dispatch, each the one use of the one before, go from the
 // dispatch back, and the call last.
-CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
-                const RaiseWant &want) {
+FunctionCallOpInterface redirect(RewriterBase &rewriter, FunctionCallOpInterface call,
+                                 FlatSymbolRefAttr target, FunctionType type,
+                                 const RaiseWant &want) {
   Operation *dispatch = want.consumer.dispatch;
   // Whether the dispatch is a tail of its function, read off the function's
   // tails before it goes: it holds no fact of its own.
@@ -199,8 +211,8 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   for (Operation *step : want.consumer.steps())
     row = row | effects::rowOf(step);
   rewriter.setInsertionPoint(dispatch);
-  CallOp fresh = callOf(rewriter, call.getLoc(), target, type.getResults(), call.getIndexArgsAttr(),
-                        want.operands, TailKind::nontail, row);
+  CallOp fresh = callOf<CallOp>(rewriter, call.getLoc(), target, type.getResults(),
+                                call.getIndexArgsAttr(), want.operands, row);
   SmallVector<Value> old(call.getArgs());
   for (auto [given, had] : llvm::zip_equal(fresh.getResults(), dispatch->getResults()))
     giveAs(rewriter, dispatch->getLoc(), given, had);
@@ -210,13 +222,11 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   rewriter.eraseOp(call);
   eraseUnused(rewriter, old);
   // The call gives on what the dispatch gave, from its block, which ends a
-  // tail where the dispatch was one: a tail call where nothing, no cast
-  // back, stands between the two.
-  if (atTail && tail::tailSource(*fresh->getBlock()) == fresh.getOperation())
-    fresh.setTailKind(TailKind::tail);
-  else
-    fresh.setTailKind(tail::withContext(fresh));
-  return fresh;
+  // tail where the dispatch was one: a tail call where nothing but ops that
+  // give its results on freely, no cast back, stands between the two, which
+  // the walk reads through region ops they pass through too.
+  bool ends = atTail && tail::tailSource(*fresh->getBlock()) == fresh.getOperation();
+  return tail::restand(rewriter, fresh, ends ? CallStanding::Tail : tail::offTail(fresh));
 }
 
 } // namespace idr::specialize::detail

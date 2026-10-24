@@ -8,6 +8,7 @@
 #include "idr/Transforms/Joins.h"
 
 #include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Effects.h"
 
@@ -208,9 +209,16 @@ Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Me
 
 JumpOp jumpAt(RewriterBase &rewriter, const Site &site, Value token) {
   Operation *passed = site.op->getBlock()->getTerminator();
+  // The way from the site to its block's end only gives the site's results
+  // on, with no run-time work, so the jump takes its place too; read before
+  // the terminator goes.
+  std::optional<SmallVector<Operation *>> way = tail::freeWayAfter(site.op);
+  assert(way && "a site's results reach its block's end with no run-time work");
   rewriter.setInsertionPoint(passed);
   auto jump = JumpOp::create(rewriter, site.op->getLoc(), token, site.args, site.terms);
   rewriter.eraseOp(passed);
+  for (Operation *op : llvm::reverse(*way))
+    rewriter.eraseOp(op);
   rewriter.eraseOp(site.op);
   return jump;
 }

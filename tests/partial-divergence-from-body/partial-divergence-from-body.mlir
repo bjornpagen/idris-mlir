@@ -14,7 +14,7 @@
 idr.program @called root(@main) stage(first) {
   idr.func @main() {
     %even = arith.constant 98 : i64
-    %a = idr.call @descend(%even) <{tail_kind = nontail}> : (i64) -> i64
+    %a = idr.call @descend(%even) : (i64) -> i64
     idr.return
   }
   idr.func @descend(%n: i64) -> i64 {
@@ -24,7 +24,7 @@ idr.program @called root(@main) stage(first) {
       } default(%d: i64) {
         %two = arith.constant 2 : i64
         %next = arith.subi %d, %two : i64
-        %t = idr.call @descend(%next) <{tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @descend(%next) : (i64) -> i64
         %one = arith.constant 1 : i64
         %s = arith.subi %t, %one : i64
         idr.yield %s : i64

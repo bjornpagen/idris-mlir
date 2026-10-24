@@ -18,8 +18,8 @@
 // would be made exact.
 //
 // Each call the body holds moves to where the call it replaces stood, so
-// its tail fact is the two facts composed: a tail of the body at a tail
-// call's place is a tail of the caller, and nothing else is.
+// where it stands is the two standings composed: a tail of the body at a
+// tail call's place is a tail of the caller, and nothing else is.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
@@ -29,8 +29,10 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <cassert>
 
@@ -69,22 +71,30 @@ struct IdrInlinerInterface : DialectInlinerInterface {
   // its own, so it is in tail position exactly where it was in the body and
   // the call it replaced was a tail call; anywhere else it is an ordinary
   // call, and a self call of the callee modulo a context, which calls the
-  // callee and not the caller, is none any more. Neither fact is read off
-  // the body's place, which upstream hands over while the body still ends
-  // in the callee's return: the two facts say it. No call the inliner takes
-  // calls its own function (a self call is a cycle, kept), so the replaced
-  // call is never one modulo a context. A self call of the caller the body
-  // brings in takes its context from the pass that inlined it, once the
-  // body stands where the call did. Of the dialect's calls, only idr.call
-  // names a function upstream resolves.
+  // callee and not the caller, is none any more. Neither standing is read
+  // off the body's place, which upstream hands over while the body still
+  // ends in the callee's return: the two members say it. No call the
+  // inliner takes calls its own function (a self call is a cycle, kept), so
+  // the replaced call is never one modulo a context. A self call of the
+  // caller the body brings in takes its context from the pass that inlined
+  // it, once the body stands where the call did. Each held call that moves
+  // to another standing is made again as an ordinary call: upstream hands
+  // the blocks over before it reads their terminators or collects their
+  // calls, so the call it collects is the one made here. Of the dialect's
+  // calls, only the call family names a function upstream resolves.
   void processInlinedCallBlocks(Operation *call,
                                 iterator_range<Region::iterator> inlined) const final {
-    assert(!contextCallOf(call) && "the inliner takes no self call");
-    CallOp replaced = tailCallOf(call);
+    assert(!isa<ContextCallOp>(call) && "the inliner takes no self call");
+    bool atTail = isa<TailCallOp>(call);
+    SmallVector<FunctionCallOpInterface> moved;
     for (Block &block : inlined)
-      block.walk([&](CallOp held) {
-        held.setTailKind(replaced && tailCallOf(held) ? TailKind::tail : TailKind::nontail);
+      block.walk([&](FunctionCallOpInterface held) {
+        if (!isa<CallOp>(held) && !(atTail && isa<TailCallOp>(held)))
+          moved.push_back(held);
       });
+    IRRewriter rewriter(call->getContext());
+    for (FunctionCallOpInterface held : moved)
+      (void)tail::restand<CallOp>(rewriter, held);
   }
 
   // A lifetime passed where a view is asked: the view of it. A value that

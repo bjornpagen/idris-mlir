@@ -179,7 +179,7 @@ private:
           rebinds[numbering->at(arg)] = numbering->at(operand.get());
       });
       // Frames split the function at a call that runs on a frame.
-      if (auto call = dyn_cast<CallOp>(op); call && graph.runsOnFrame(home, call))
+      if (auto call = dyn_cast<FunctionCallOpInterface>(op); call && graph.runsOnFrame(home, call))
         lendNothingAround(call);
     });
     solver::inWalkOrder(fn, [&](Value value) {
@@ -187,7 +187,7 @@ private:
       (*owners)[at] = derive(value, at, rebinds);
     });
     fn.walk([&](Operation *op) {
-      if (auto call = dyn_cast<CallOp>(op))
+      if (auto call = dyn_cast<FunctionCallOpInterface>(op))
         return readCall(call);
       readUses(op);
     });
@@ -196,7 +196,7 @@ private:
   // No loan may stand around a join op that holds `call` at any depth, so a
   // jump into any of its join points lends nothing. A join op whose join
   // points lend nothing already was climbed through, with all above it.
-  void lendNothingAround(CallOp call) {
+  void lendNothingAround(FunctionCallOpInterface call) {
     Operation *function = graph.op(*current);
     for (Operation *at = call->getParentOp(); at != function; at = at->getParentOp()) {
       bool climbed = false;
@@ -307,10 +307,10 @@ private:
     }
   }
 
-  void readCall(CallOp call) {
+  void readCall(FunctionCallOpInterface call) {
     FunctionId callee = graph.id(call.getCalleeAttr());
     solver::SccId home = graph.sccOf(*current);
-    Lend lend = lastActOf(call) || graph.runsOnFrame(home, callee, call.getTailKind())
+    Lend lend = lastActOf(call) || graph.runsOnFrame(home, callee, call.getStanding())
                     ? Lend::Nowhere
                     : Lend::AroundCall;
     for (auto [index, operand] : llvm::enumerate(call->getOpOperands()))

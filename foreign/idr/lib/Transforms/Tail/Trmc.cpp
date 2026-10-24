@@ -3,8 +3,8 @@
 //===- Trmc.cpp - idr-trmc ------------------------------------------------===//
 //
 // Every self call modulo a context becomes a tail call that writes its
-// result. The call's fact says it is one (`modulo_context`, which the
-// decider wrote where the program became first order and every pass kept,
+// result. The call's op says it is one (`idr.context_call`, which the
+// decider made where the program became first order and every pass kept,
 // the verifier holding each to the rule), so nothing here searches: each
 // call's context is read once, off the call, and executed.
 //
@@ -105,13 +105,10 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
     footprint::Vector<Plan> plans;
     for (FuncOp fn : program.getOps<FuncOp>()) {
       Plan plan{fn, {}, {}};
-      // idr.call's verifier, run after every pass, refuses a call modulo a
-      // context whose context the rule does not admit, so each one's is
-      // there to read.
-      fn.walk([&](CallOp call) {
-        if (contextCallOf(call))
-          plan.contexts.push_back(*contextOf(call));
-      });
+      // idr.context_call's verifier, run after every pass, refuses a self
+      // call modulo a context whose context the rule does not admit, so
+      // each one's is there to read.
+      fn.walk([&](ContextCallOp call) { plan.contexts.push_back(*contextOf(call)); });
       if (plan.contexts.empty())
         continue;
       if (failed(holeOf(plan)))
@@ -148,18 +145,17 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       if (failed(again.give(cloneReturned, 0, Written{clone.getArgument(arity)})) ||
           failed(first.give(returned, 0, Given{})))
         return signalPassFailure();
-      // Each call takes the kind its final place gives it, read off each
+      // Each call becomes the member its final place makes, read off each
       // function's tails, since the rewrite moved calls and the ops after
       // them throughout both: the clone's calls in its tails are tail
       // calls, the function's first level calls the clone and then returns
       // the value it built, and a call whose value a tail of the clone now
-      // writes returns to it. No call modulo a context is left.
+      // writes returns to it. No self call modulo a context is left.
       (void)optimize::decideTails(fn);
       (void)optimize::decideTails(clone);
       LogicalResult kinds = success();
-      auto settled = [&](CallOp call) {
-        if (contextCallOf(call))
-          kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
+      auto settled = [&](ContextCallOp call) {
+        kinds = call.emitOpError("internal error: idr-trmc left a call modulo a context");
       };
       fn.walk(settled);
       clone.walk(settled);

@@ -39,11 +39,11 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     idr::inlining::Profitability profitability(graph);
     InlinerConfig config;
     config.setDefaultPipeline([](OpPassManager &pm) { pm.addPass(idr::createIdrSimplify()); });
-    // Upstream runs this from its own workers. A function inlining changed
-    // takes its calls' tail facts where they now stand first, as every call
-    // the simplification is verified with must: an inlined body may leave a
-    // call of the caller's in tail position, or a self call where a context
-    // admits it, which no hook on the inlined body sees.
+    // Upstream runs this from its own workers. The calls of a function
+    // inlining changed first become the members their places make, as
+    // every call the simplification is verified with must: an inlined body
+    // may leave a call of the caller's in tail position, or a self call
+    // where a context admits it, which no hook on the inlined body sees.
     auto runPipeline = [&](Pass &, OpPassManager &pm, Operation *op) {
       auto fn = cast<idr::FuncOp>(op);
       if (profitability.inlinedInto(graph.id(fn)) != 0)
@@ -55,8 +55,9 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
                     [&](const Inliner::ResolvedCall &call) { return profitability(call); });
     if (failed(inliner.doInlining()))
       return signalPassFailure();
-    // The inlining's last step may have no simplification after it: each
-    // function it changed decides its calls' facts once more.
+    // The inlining's last step may have no simplification after it: the
+    // calls of each function it changed become the members their places
+    // make once more.
     for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
       if (profitability.inlinedInto(graph.id(fn)) != 0)
         (void)idr::optimize::decideTails(fn);

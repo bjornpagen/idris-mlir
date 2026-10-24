@@ -18,7 +18,7 @@ idr.program @narrowed root(@main) stage(graded) {
     %three = arith.constant 3 : i64
     %small = idr.big.small %three : (i64) -> !SmallNat
     %n = idr.lin.cast %small : !SmallNat -> !OnceNat
-    %b = idr.call @widen(%n) <{tail_kind = nontail}> : (!OnceNat) -> !idr.big
+    %b = idr.call @widen(%n) : (!OnceNat) -> !idr.big
     idr.return
   }
   idr.func @widen(%n: !OnceNat) -> !idr.big {

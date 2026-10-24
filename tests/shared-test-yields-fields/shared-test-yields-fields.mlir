@@ -25,8 +25,8 @@ idr.program @tests root(@main) stage(graded) {
     %nil = idr.data.con() : !Nil
     %c = idr.cell.new : !idr.cell<!Cons>
     %x = idr.cell.init %c : !idr.cell<!Cons> (%one : i64, %nil : !Nil) -> !Cons
-    %t1 = idr.call @tail(%x) <{tail_kind = nontail}> : (!Cons) -> !List
-    %t2 = idr.call @tail(%x) <{tail_kind = nontail}> : (!Cons) -> !List
+    %t1 = idr.call @tail(%x) : (!Cons) -> !List
+    %t2 = idr.call @tail(%x) : (!Cons) -> !List
     idr.return
   }
   idr.func @tail(%x: !Cons) -> !List {

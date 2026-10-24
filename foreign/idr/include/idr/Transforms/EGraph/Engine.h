@@ -750,11 +750,11 @@ private:
   // its operand's value (a function's fresh result is used once), the
   // result's class its own.
   using Returned = std::variant<ClassId, Facts>;
-  // What `call`'s result `result` is of the constant `callee` returns
-  // there (the callees' table, read from the constant op its final body
-  // returns), where the call's index arguments leave that result's carrier
-  // the constant's; none where it returns no constant there, or where a
-  // new node would pass the budget.
+  // What the ordinary call `call`'s result `result` is of the constant
+  // `callee` returns there (the callees' table, read from the constant op
+  // its final body returns), where the call's index arguments leave that
+  // result's carrier the constant's; none where it returns no constant
+  // there, or where a new node would pass the budget.
   std::optional<Returned> returnedBy(solver::FunctionId callee, CallOp call, unsigned result);
   // A class whose facts are one constant holds that constant.
   void joinConstant(ClassId c);

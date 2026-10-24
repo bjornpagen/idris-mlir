@@ -288,7 +288,7 @@ private:
   void readAll();
   static Where inside(const Around &holder, mlir::Operation *op);
   void readMoves(mlir::Operation *op);
-  void read(CallOp call, OpAt at, const Where &where);
+  void read(FunctionCallOpInterface call, OpAt at, const Where &where);
   void read(CellNewOp cell, OpAt at, const Where &where);
   void read(CellInitOp init);
   void mustCount(mlir::Value value);
@@ -412,7 +412,7 @@ public:
 private:
   struct Resolved {
     footprint::Vector<CellNewOp> sites;
-    footprint::Vector<std::pair<CallOp, FunctionId>> calls;
+    footprint::Vector<std::pair<FunctionCallOpInterface, FunctionId>> calls;
     footprint::Vector<mlir::Value> scoped;
   };
 

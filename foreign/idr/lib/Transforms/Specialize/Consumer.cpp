@@ -121,7 +121,7 @@ bool bindsLevels(Operation *root) {
 
 } // namespace
 
-std::optional<Elimination> consumerOf(CallOp call) {
+std::optional<Elimination> consumerOf(FunctionCallOpInterface call) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
@@ -157,7 +157,7 @@ std::optional<Elimination> consumerOf(CallOp call) {
   return e;
 }
 
-OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
+OwningOpRef<FuncOp> consumerFunction(FunctionCallOpInterface call, const Elimination &consumer,
                                      SmallVectorImpl<Value> &free) {
   MLIRContext *ctx = call.getContext();
   // The steps from the call's result to the dispatch, each the one use of
@@ -169,7 +169,7 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
   // operands first, but the one the steps hand it, which the copy makes
   // itself: the call's result and each step's are the one use of what
   // made them, so no other op of the dispatch reads one.
-  Value handed = steps.empty() ? call.getResult(0) : steps.back()->getResult(0);
+  Value handed = steps.empty() ? call->getResult(0) : steps.back()->getResult(0);
   llvm::SetVector<Value> outside;
   for (Value operand : dispatch->getOperands())
     if (operand != handed)
@@ -177,7 +177,7 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
   getUsedValuesDefinedAbove(dispatch->getRegions(), outside);
   llvm::append_range(free, outside);
 
-  SmallVector<Type> inputs{call.getResult(0).getType()};
+  SmallVector<Type> inputs{call->getResult(0).getType()};
   llvm::append_range(inputs, ValueRange(outside.getArrayRef()).getTypes());
   // It returns what the dispatch gives as a function returns it, `?` at
   // every axis of an array, each size the dispatch's type fixed kept as
@@ -198,7 +198,7 @@ OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
   auto fn = FuncOp::create(b, loc, TypeRange(), ValueRange(), properties);
   Block *entry = b.createBlock(&fn.getBody(), {}, inputs, SmallVector<Location>(inputs.size(), loc));
   IRMapping map;
-  map.map(call.getResult(0), entry->getArgument(0));
+  map.map(call->getResult(0), entry->getArgument(0));
   for (auto [value, arg] : llvm::zip_equal(outside, entry->getArguments().drop_front()))
     map.map(value, arg);
   for (Operation *step : steps)
@@ -271,7 +271,7 @@ SmallVector<Extent> keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallS
 
 } // namespace
 
-SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
+SmallVector<ResultLayout> layoutsAsked(FunctionCallOpInterface call, TailStanding standing) {
   SmallVector<ResultLayout> asked(call->getNumResults(), ResultLayout::AsGiven);
   if (standing == TailStanding::Elsewhere)
     return asked;
@@ -279,7 +279,7 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
   // to the return forwards each in its place.
   auto caller = call->getParentOfType<FuncOp>();
   for (auto [ask, given, returned] :
-       llvm::zip_equal(asked, call.getResultTypes(), caller.getResultTypes()))
+       llvm::zip_equal(asked, call->getResultTypes(), caller.getResultTypes()))
     if (families::layoutMatch(given, returned) == LayoutMatch::OtherLayout)
       ask = ResultLayout::AtOpen;
   return asked;
@@ -290,7 +290,7 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // argument's extent the callee names becomes a constant that `site` lets
 // key it, and each result its caller needs open, where `standing` is a tail
 // lost to a layout.
-SignatureRule signatureRule(CallOp call, FuncOp callee, FunctionId calleeId,
+SignatureRule signatureRule(FunctionCallOpInterface call, FuncOp callee, FunctionId calleeId,
                             identities::FactsView given, const CallSite &site,
                             TailStanding standing) {
   SmallVector<Extent> keying = keyedBy(callee.getExtentsAttr(), call.getIndexArgsAttr(), site);
@@ -340,7 +340,8 @@ const SignatureKey *SignatureRule::keyAt(Arena &arena,
   return arena.key(calleeId, signature, indices);
 }
 
-bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results) {
+bool readsAsKeyed(FunctionCallOpInterface call, ArrayRef<ResultLayout> layouts,
+                  TypeRange results) {
   auto caller = call->getParentOfType<FuncOp>();
   for (auto [index, layout] : llvm::enumerate(layouts)) {
     auto position = static_cast<unsigned>(index);
@@ -348,7 +349,7 @@ bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results
     if (!gives)
       continue;
     if (layout == ResultLayout::AsGiven) {
-      if (std::optional<Hold> took = holdOf(call.getResultTypes()[position]);
+      if (std::optional<Hold> took = holdOf(call->getResultTypes()[position]);
           took && *took != *gives)
         return false;
       continue;
@@ -360,8 +361,8 @@ bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results
   return true;
 }
 
-FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *requester,
-                                      FuncOp callee, FunctionId calleeId,
+FailureOr<std::optional<Want>> decide(Nodes &nodes, FunctionCallOpInterface call,
+                                      const Node *requester, FuncOp callee, FunctionId calleeId,
                                       const Node *calleeNode, identities::FactsView given,
                                       ArrayRef<BindingTime> seen, const CallSite &site,
                                       TailStanding standing) {

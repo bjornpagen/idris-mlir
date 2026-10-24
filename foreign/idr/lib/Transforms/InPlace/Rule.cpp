@@ -211,7 +211,7 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
     for (BlockArgument param : op.getBody().front().getArguments())
       if (std::optional<Asks> owed = boundaryAsks(param.getType()))
         seeds.push_back(node(fn, param.getArgNumber(), *owed));
-    ownership::forEachCall(op, [&](CallOp call) {
+    ownership::forEachCall(op, [&](FunctionCallOpInterface call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       FuncOp calleeOp = graph.op(callee);
       for (auto [param, arg] : llvm::enumerate(call->getOpOperands())) {

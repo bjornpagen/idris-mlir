@@ -447,7 +447,9 @@ public:
   // The function `call` calls, as the program graph's editor resolves the
   // symbol it names: read once where a call enters a reader, which then
   // reads its callee's facts by id; none for a copy its wave made, which
-  // the editor does not hold yet.
+  // the editor does not hold yet. An ordinary call: the members that are
+  // their caller's last act stay put in the graph, giving their results
+  // as they are.
   std::optional<solver::FunctionId> calleeOf(CallOp call) const;
 
   // What `callee` gives back on every path and what may reach its results,

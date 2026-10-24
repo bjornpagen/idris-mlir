@@ -75,7 +75,7 @@ LogicalResult unsplittable(CallOp site, Operation *op) {
 // it gives, and the op gives the continuation's results, each scoped one
 // where the call says it lives, so it is in tail position once its block
 // gives them.
-void Component::sinkInto(Operation *rejoin, CallOp call) {
+void Component::sinkInto(Operation *rejoin, TailCallOp call) {
   llvm::SmallVector<Operation *> ends;
   for (Region &region : rejoin->getRegions()) {
     if (region.empty())
@@ -90,7 +90,7 @@ void Component::sinkInto(Operation *rejoin, CallOp call) {
     IRMapping map;
     for (auto [result, given] : llvm::zip_equal(rejoin->getResults(), end->getOperands()))
       map.map(result, given);
-    auto copy = cast<CallOp>(rewriter.clone(*call, map));
+    auto copy = cast<TailCallOp>(rewriter.clone(*call, map));
     rewriter.modifyOpInPlace(end, [&] { end->setOperands(copy.getResults()); });
     made.push_back(copy);
   }
@@ -105,11 +105,12 @@ void Component::sinkInto(Operation *rejoin, CallOp call) {
   rewriter.eraseOp(rejoin);
 }
 
-// The changes of grade after each region op of the tail spine from `root`
-// moved into the op's regions, before each region's end: every region op
-// a tail runs through then gives what its function gives, type for type,
-// each scoped result where the change of grade stated it, so a
-// continuation made of the code after one gives it too.
+// The way after each region op of the tail spine from `root` (changes of
+// grade, and region ops the values pass through, which bind them at the
+// type their region asks) moved into the op's regions, before each
+// region's end: every region op a tail runs through then gives what its
+// function gives, type for type, each scoped result where the way stated
+// it, so a continuation made of the code after one gives it too.
 void Component::normalize(Block *root) {
   llvm::SmallVector<Block *, 8> spine{root};
   while (!spine.empty()) {
@@ -129,24 +130,37 @@ void Component::normalize(Block *root) {
     llvm::SmallVector<Type> types(source->getResultTypes());
     llvm::SmallVector<Value> livesIn = llvm::map_to_vector(
         source->getResults(), [](Value result) { return lifetimes::statedLifetime(result); });
-    llvm::SmallVector<Operation *> regrades;
-    for (Operation *op = source->getNextNode(); !op->hasTrait<OpTrait::IsTerminator>();
-         op = op->getNextNode())
-      regrades.push_back(op);
-    for (Operation *regrade : regrades) {
-      unsigned at = cast<OpResult>(regrade->getOperand(0)).getResultNumber();
+    // The source gives its results on freely, or it would be no tail.
+    llvm::SmallVector<Operation *> way = *freeWayAfter(source);
+    for (Operation *step : way) {
+      // A region op the values pass through gives them all back, each at
+      // its place; a change of grade gives on the one it takes. Each takes
+      // the source's results, the steps before it gone into the regions.
+      bool passesThrough = step->getNumRegions() != 0;
       for (Operation *end : ends) {
         rewriter.setInsertionPoint(end);
-        Operation *copy = rewriter.clone(*regrade);
-        copy->setOperand(0, end->getOperand(at));
-        rewriter.modifyOpInPlace(end, [&] { end->setOperand(at, copy->getResult(0)); });
+        IRMapping map;
+        for (auto [result, given] : llvm::zip_equal(source->getResults(), end->getOperands()))
+          map.map(result, given);
+        Operation *copy = rewriter.clone(*step, map);
+        rewriter.modifyOpInPlace(end, [&] {
+          if (passesThrough)
+            end->setOperands(copy->getResults());
+          else
+            end->setOperand(cast<OpResult>(step->getOperand(0)).getResultNumber(),
+                            copy->getResult(0));
+        });
       }
-      types[at] = regrade->getResult(0).getType();
-      livesIn[at] = lifetimes::statedLifetime(regrade->getResult(0));
-      rewriter.replaceAllUsesWith(regrade->getResult(0), source->getResult(at));
-      rewriter.eraseOp(regrade);
+      for (OpResult given : step->getResults()) {
+        unsigned at = passesThrough ? given.getResultNumber()
+                                    : cast<OpResult>(step->getOperand(0)).getResultNumber();
+        types[at] = given.getType();
+        livesIn[at] = lifetimes::statedLifetime(given);
+        rewriter.replaceAllUsesWith(given, source->getResult(at));
+      }
+      rewriter.eraseOp(step);
     }
-    if (!regrades.empty()) {
+    if (!way.empty()) {
       llvm::SmallVector<Value> outers;
       for (auto [type, lifetime] : llvm::zip_equal(types, livesIn))
         if (freedBy(type, Release::Scoped))
@@ -166,7 +180,8 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
   // into the cycle is no region frames split: it becomes its loops, join
   // points, first, which they do. Its region's calls are decided again
   // where they then stand.
-  if (failed(structure::joinCycles(rewriter, fn, [&](CallOp call) { return frames(call); })))
+  if (failed(structure::joinCycles(rewriter, fn,
+                                   [&](FunctionCallOpInterface call) { return frames(call); })))
     return failure();
   // A memo cell's exchange whose region calls into the cycle does
   // something as its region ends, the value moving into the cell, so no
@@ -174,7 +189,8 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
   // captures taken out, the region's code in place, the value stored after
   // it, which a continuation can begin with. An exchange inside another is
   // made its steps first. Its calls were ordinary calls in its region, and
-  // the store after them keeps each one so.
+  // the store after them keeps each one so. Only an ordinary call returns
+  // to its caller, so only one runs on a frame.
   llvm::SmallVector<MemoRunOp> exchanges;
   fn.walk<WalkOrder::PostOrder>([&](MemoRunOp run) {
     if (run->walk([&](CallOp call) {
@@ -224,7 +240,7 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
     // A join point holds no fact of where it stands: the function's tails,
     // read again after each round's move, say it.
     if (!llvm::is_contained(sourcesOf(fn), join)) {
-      FailureOr<CallOp> continuation =
+      FailureOr<TailCallOp> continuation =
           outline(fn, row, join->getNextNode(), join->getResults(), "k");
       if (failed(continuation))
         return failure();
@@ -274,7 +290,7 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
     // so the lifts end, one per op around the call at most.
     FailureOr<Operation *> lift = liftOf();
     for (; succeeded(lift) && *lift; lift = liftOf()) {
-      FailureOr<CallOp> continuation =
+      FailureOr<TailCallOp> continuation =
           outline(fn, row, (*lift)->getNextNode(), (*lift)->getResults(), "k");
       if (failed(continuation))
         return failure();
@@ -294,7 +310,8 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
         return failure();
       continue;
     }
-    FailureOr<CallOp> rest = outline(fn, row, site->getNextNode(), site->getResults(), "rest");
+    FailureOr<TailCallOp> rest =
+        outline(fn, row, site->getNextNode(), site->getResults(), "rest");
     if (failed(rest))
       return failure();
     framed.push_back({site, *rest});

@@ -56,8 +56,8 @@ Entry entryOf(Operation *op, const effects::EffectSet &does) {
 
 // Whether `op` stays where it is whatever its effects: a terminator, a
 // region op, an op of several results, and a call nothing of its caller
-// may follow (a tail call, and a self call modulo a context), whose fact a
-// promise reads.
+// may follow (a tail call, and a self call modulo a context), whose member
+// is a promise of where it stands.
 bool staysPut(Operation *op) {
   return op->hasTrait<OpTrait::IsTerminator>() || op->getNumRegions() != 0 ||
          op->getNumResults() != 1 || lastActOf(op);
@@ -217,12 +217,12 @@ void Function::build() {
       } else {
         for (Value result : op->getResults())
           classOf[numbering.at(result)] = leaf(result, region);
-        // A call's result is the constant its callee returns there, whatever
-        // else the call does, or holds it at another grade, as its facts say;
-        // but a call nothing of its caller may follow gives its caller's
-        // results as they are, and a use of them taking a constant instead
-        // would end the tail.
-        if (auto call = dyn_cast<CallOp>(op); call && callees && !lastActOf(op))
+        // An ordinary call's result is the constant its callee returns
+        // there, whatever else the call does, or holds it at another grade,
+        // as its facts say. A call nothing of its caller may follow is
+        // another member, which gives its caller's results as they are: a
+        // use of them taking a constant instead would end the tail.
+        if (auto call = dyn_cast<CallOp>(op); call && callees)
           if (std::optional<solver::FunctionId> callee = callees->calleeOf(call))
             for (auto [index, result] : llvm::enumerate(op->getResults()))
               if (std::optional<Returned> returned =

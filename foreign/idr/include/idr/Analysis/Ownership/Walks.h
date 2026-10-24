@@ -25,13 +25,14 @@
 
 namespace idr::ownership {
 
-// Every call of `fn`'s body, in the one order every reader of calls takes:
-// blocks in pre-order, and each block's calls in order.
+// Every call of `fn`'s body, whatever its standing, in the one order every
+// reader of calls takes: blocks in pre-order, and each block's calls in
+// order.
 template <typename Each>
-  requires std::invocable<Each &, CallOp>
+  requires std::invocable<Each &, FunctionCallOpInterface>
 void forEachCall(FuncOp fn, Each &&each) {
   fn->walk<mlir::WalkOrder::PreOrder>([&](mlir::Block *block) {
-    for (CallOp call : block->getOps<CallOp>())
+    for (FunctionCallOpInterface call : block->getOps<FunctionCallOpInterface>())
       each(call);
   });
 }

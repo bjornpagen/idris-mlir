@@ -25,9 +25,9 @@
 ||| (`copy`), which the specializer decides; and the most bytes
 ||| an active call of it holds that it no longer needs (`frame_bound`),
 ||| computed from types. A call carries its index arguments, its
-||| lifetime operands, its copy of its callee's `lives_in`, and where it
-||| stands in its function (`tail_kind`), written with no default by
-||| whoever makes the call.
+||| lifetime operands and its copy of its callee's `lives_in`; where it
+||| stands in its function is which of the call family's three members it
+||| is, made by whoever makes the call.
 module IdrisMLIR.Spec.Functions.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -255,7 +255,7 @@ funcOp = MkOp
   }
 
 ------------------------------------------------------------------------------
--- idr.call
+-- The call family: idr.call, idr.tail_call, idr.context_call
 ------------------------------------------------------------------------------
 
 ||| A call's effects: its row's ordering atoms and a write on each operand
@@ -265,24 +265,77 @@ funcOp = MkOp
 callEffects : Declaration 1 1
 callEffects = Executes [] [Summarized, Consumes FZ, NewIdentity FZ] Covered Untouched
 
+callStandingEnum : EnumDef
+callStandingEnum = enumDef callStandingClosed
+
+||| `FunctionCallOpInterface`: what a pass asks of a call of a function of
+||| the program whatever its standing, so a reader of every call names no
+||| member: its callee, index arguments and arguments, its copies of its
+||| callee's row, write part and `lives_in`, taken again from a callee that
+||| changed, and its standing, its member's constant.
+export
+functionCallInterface : InterfaceDef
+functionCallInterface = MkInterfaceDef
+  { name = "FunctionCallOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::mlir::FlatSymbolRefAttr" "getCalleeAttr" [] EveryImplementer
+          "the function it calls"
+      , MkMethod PerObject "void" "setCalleeAttr" [param "::mlir::FlatSymbolRefAttr" "callee"]
+          EveryImplementer "calls `callee` instead"
+      , MkMethod PerObject "::idr::IndexArgsAttr" "getIndexArgsAttr" [] EveryImplementer
+          "the index term it gives each of its callee's binders"
+      , MkMethod PerObject "::mlir::Operation::operand_range" "getArgs" [] EveryImplementer
+          "what it passes"
+      , MkMethod PerObject "::mlir::MutableOperandRange" "getArgsMutable" [] EveryImplementer
+          "what it passes, to edit"
+      , MkMethod PerObject "::idr::effects::Row" "getRow" [] EveryImplementer
+          "its copy of its callee's row"
+      , MkMethod PerObject "void" "setRow" [param "::idr::effects::Row" "row"] EveryImplementer
+          "takes `row` as its copy of its callee's row"
+      , MkMethod PerObject "::mlir::DenseI32ArrayAttr" "getUntouchedAttr" [] EveryImplementer
+          "its copy of what its callee never writes through"
+      , MkMethod PerObject "void" "setUntouchedAttr" [param "::mlir::DenseI32ArrayAttr" "untouched"]
+          EveryImplementer "takes `untouched` as its copy of what its callee never writes through"
+      , MkMethod PerObject "::idr::LivesInAttr" "getLivesInAttr" [] EveryImplementer
+          "its copy of where its callee's scoped results live"
+      , MkMethod PerObject "void" "setLivesInAttr" [param "::idr::LivesInAttr" "livesIn"]
+          EveryImplementer "takes `livesIn` as its copy of where its callee's scoped results live"
+      , MkMethod PerObject "void" "copyCallee" [param "const ::idr::FuncOp &" "callee"] EveryImplementer
+          "takes again every copy it holds of its callee's, its result types among them"
+      , MkMethod PerObject "::idr::CallStanding" "getStanding" []
+          (DelegatesByClass "callStandingOf") "where it stands: its member's constant" ]
+  , verifier = Unverified
+  , doc = brief "a call of a function of the program by name, whatever its standing"
+  }
+
+||| The carrier of the family's constant, specialized per member.
+callsFamily : CallStanding -> Specialized
+callsFamily standing = MkSpecialized "CallsFamily"
+  [("standing", EnumConstant (caseRef callStandingClosed standing))]
+
 ||| A call of a function by name, with its callee's result types, row,
 ||| write part and `lives_in`, so upstream's dead code, CSE and sinking, and
 ||| a pass on the caller, read a call alone: a result's grade says what the
 ||| callee's signature says of it. It states its scoped results' lifetimes.
+||| The members differ in where the call stands, which is what may follow
+||| it: a call that returns to its caller is followed by what its caller
+||| does next; nothing but ops that do nothing at run time follows a tail
+||| call on the way to its function's return, and only its context's
+||| constructors take a self call's result modulo a context. Whether one
+||| may run where it would not have is its row's, whatever its member; where
+||| it stands, the tail calls' own check holds after every pass.
 public export
-callOp : Op 1 1 8 0
-callOp = MkOp
+callOp : CallStanding -> Op 1 1 7 0
+callOp standing = MkOp
   { home = InIdr
-  , mnemonic = "call"
+  , mnemonic = callMember standing
   , ins = [MkOperand "args" Variadic (UpstreamType AnyTypeC)]
   , outs = [MkResult "results" Variadic (UpstreamType AnyTypeC)]
   , attrs =
       [ MkAttr "callee" (AnAttribute (UpstreamAttr FlatSymbolRefAttrC) Required)
       , MkAttr "index_args" indexArgs
-      , MkAttr "tail_kind"
-          (AProperty (EnumProperty (imported tailKindClosed
-             (MkSource ("IdrisMLIR" ::: ["Spec", "Functions", "Tail"]) "TailKind"
-                       ("IdrisMLIR" ::: ["Spec", "Functions", "Tail"]) "tailKindClosed"))))
       , MkAttr "row" rowSlot
       , MkAttr "untouched" untouchedSlot
       , MkAttr "lives_in" livesInSlot
@@ -294,6 +347,7 @@ callOp = MkOp
   , interfaces =
       [ Declares CallOp []
       , Declares SymbolUser ["verifySymbolUses"]
+      , Implements functionCallInterface []
       , Implements flowInterface ["getFlowEdges"]
       , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
       , Implements lifetimeUseInterface ["getLifetimeUse", "verifyLifetimeUse"] ]
@@ -307,8 +361,7 @@ callOp = MkOp
       , Lit ":", FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
   , builders = [MkBuilder [ param "FuncOp" "callee"
                           , param "::idr::IndexArgsAttr" "indexArgs"
-                          , param "::mlir::ValueRange" "args"
-                          , param "::idr::TailKind" "tail" ]]
+                          , param "::mlir::ValueRange" "args" ]]
   , defaultBuilders = WithDefaults
   , members =
       [ MkMember OnObject "::mlir::CallInterfaceCallable" "getCallableForCallee" []
@@ -318,9 +371,13 @@ callOp = MkOp
       , MkMember OnObject "::mlir::MutableOperandRange" "getArgOperandsMutable" []
       , MkMember OnObject "void" "copyCallee" [param "FuncOp" "callee"] ]
   , guards = []
-  , specializations = []
+  , specializations = [callsFamily standing]
   , laws = []
-  , doc = MkDoc "a call of a function by name, with its callee's row"
+  , doc = docOf standing
+  }
+  where
+    docOf : CallStanding -> Doc
+    docOf Returns = MkDoc "a call of a function by name that returns to its caller"
       """
       Built of a callee, it takes the callee's result types at its index
       arguments, row, write part and lives_in, and takes them again when the
@@ -331,10 +388,27 @@ callOp = MkOp
       until the specializer keys the call by it, an operand whose hold fits
       its parameter's standing at the parameter's (static data where the
       callee counts, a claim forgotten), as the program's stage says.
-      Where it stands is the tail calls' to decide and check; a tail call's
-      callee takes as many cursors as its caller.
       """
-  }
+    docOf Tail = MkDoc "a call in tail position: its results are its caller's, so it is a jump"
+      """
+      Built and held to its callee as an ordinary call is. Its results go to
+      its function's return unchanged, through ops that do nothing at run
+      time and the rejoins of region ops a break crosses, and each is laid
+      out as its caller returns it; its callee takes as many cursors as its
+      caller, each in its place.
+      """
+    docOf ModuloContext = MkDoc "a self call whose one result fills a field of cells built for it"
+      """
+      Built and held to its callee as an ordinary call is. Its one result
+      goes only into cells built for it, which its function returns, so
+      idr-trmc builds them first and the call fills the hole as its last
+      act.
+      """
+
+||| The family's members, from the list of its standings.
+public export
+callOps : List AnyOp
+callOps = map (\standing => SomeOp (callOp standing)) [Returns, Tail, ModuloContext]
 
 ------------------------------------------------------------------------------
 -- idr.return
@@ -376,13 +450,14 @@ returnOp = MkOp
 public export
 declarations : Declarations
 declarations =
-  { ops := [SomeOp programOp, SomeOp funcOp, SomeOp callOp, SomeOp returnOp]
+  { ops := [SomeOp programOp, SomeOp funcOp] ++ callOps ++ [SomeOp returnOp]
   , attributes :=
       [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
       , SomeAttr extentAttr, SomeAttr extentsAttr ]
   , enums :=
-      [ enumDef tailKindClosed, enumDef copyKindClosed
+      [ callStandingEnum, enumDef copyKindClosed
       , enumDef extentSideClosed ]
+  , interfaces := [functionCallInterface]
   , traits := [checkedRoot]
   , headers := [terminationHeader]
   } nothing

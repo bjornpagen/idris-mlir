@@ -12,7 +12,6 @@ import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Pipeline.Stage
-import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
@@ -59,11 +58,23 @@ funcOp : {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_a
 funcOp {arg_attrs'} {res_attrs'} {binders'} {extents'} {row'} {untouched'} {bounded'} {terminates'} {lives_in'} {copy'} {frame_bound'} sym_name' function_type' body' =
   MkOp (MkOpName Dialect.Idr "func") ([]) ([("sym_name", sym_name')] ++ [("function_type", function_type')] ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs' ++ attrIf "binders" id binders' ++ attrIf "extents" id extents' ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "bounded" id bounded' ++ attrIf "terminates" id terminates' ++ attrIf "lives_in" id lives_in' ++ attrIf "copy" id copy' ++ attrIf "frame_bound" id frame_bound') ([body']) [] ([])
 
-||| `idr.call`: a call of a function by name, with its callee's row
+||| `idr.call`: a call of a function by name that returns to its caller
 export
-callOp : {default Nothing index_args' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> MlirAttr -> IdrisMLIR.Spec.Functions.Tail.TailKind -> List Value -> List MlirType -> Op
-callOp {index_args'} {row'} {untouched'} {lives_in'} {arg_attrs'} {res_attrs'} callee' tail_kind' args' results' =
-  MkOp (MkOpName Dialect.Idr "call") (args') ([("callee", callee')] ++ attrIf "index_args" id index_args' ++ [("tail_kind", enumAttr IdrisMLIR.Spec.Functions.Tail.tailKindClosed tail_kind')] ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "lives_in" id lives_in' ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs') ([]) [] (results')
+callOp : {default Nothing index_args' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> MlirAttr -> List Value -> List MlirType -> Op
+callOp {index_args'} {row'} {untouched'} {lives_in'} {arg_attrs'} {res_attrs'} callee' args' results' =
+  MkOp (MkOpName Dialect.Idr "call") (args') ([("callee", callee')] ++ attrIf "index_args" id index_args' ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "lives_in" id lives_in' ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs') ([]) [] (results')
+
+||| `idr.tail_call`: a call in tail position: its results are its caller's, so it is a jump
+export
+tailCallOp : {default Nothing index_args' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> MlirAttr -> List Value -> List MlirType -> Op
+tailCallOp {index_args'} {row'} {untouched'} {lives_in'} {arg_attrs'} {res_attrs'} callee' args' results' =
+  MkOp (MkOpName Dialect.Idr "tail_call") (args') ([("callee", callee')] ++ attrIf "index_args" id index_args' ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "lives_in" id lives_in' ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs') ([]) [] (results')
+
+||| `idr.context_call`: a self call whose one result fills a field of cells built for it
+export
+contextCallOp : {default Nothing index_args' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> MlirAttr -> List Value -> List MlirType -> Op
+contextCallOp {index_args'} {row'} {untouched'} {lives_in'} {arg_attrs'} {res_attrs'} callee' args' results' =
+  MkOp (MkOpName Dialect.Idr "context_call") (args') ([("callee", callee')] ++ attrIf "index_args" id index_args' ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "lives_in" id lives_in' ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs') ([]) [] (results')
 
 ||| `idr.return`: returns from a function
 export

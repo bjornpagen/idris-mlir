@@ -52,8 +52,9 @@ void holeTypes(const Pattern &pattern, mlir::Type type, llvm::SmallVectorImpl<ml
 // the call sees them: a pattern key over the owner's parameters, or none.
 // `own` is the callee's key when the callee is a pattern copy, its holes
 // filled with the call's shapes.
-std::optional<PatternWant> composeKey(Arena &arena, CallOp call, FunctionId owner,
-                                      const PatternKey *own, llvm::ArrayRef<BindingTime> seen);
+std::optional<PatternWant> composeKey(Arena &arena, FunctionCallOpInterface call,
+                                      FunctionId owner, const PatternKey *own,
+                                      llvm::ArrayRef<BindingTime> seen);
 
 // What a pattern key fixes when it fixes closures alone: the labels of
 // those closures, none of them capturing, at any depth, a closure of its
@@ -68,14 +69,15 @@ Fixes fixes(const PatternKey &key, mlir::TypeRange params);
 
 // Whether `call` passes a closure, or one a constructor it passes holds,
 // that something else uses too.
-bool sharesClosure(CallOp call);
+bool sharesClosure(FunctionCallOpInterface call);
 // Where the call applies to a member of its own component closures built
 // for it alone: fixed there, varying elsewhere.
-std::optional<llvm::SmallVector<BindingTime>> appliesBuiltClosures(CallOp call);
+std::optional<llvm::SmallVector<BindingTime>> appliesBuiltClosures(FunctionCallOpInterface call);
 
 // Raising.
-std::optional<Elimination> consumerOf(CallOp call);
-mlir::OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
+std::optional<Elimination> consumerOf(FunctionCallOpInterface call);
+mlir::OwningOpRef<FuncOp> consumerFunction(FunctionCallOpInterface call,
+                                           const Elimination &consumer,
                                            llvm::SmallVectorImpl<mlir::Value> &free);
 FuncOp buildRaise(FuncOp callee, const RaiseKey &key, mlir::StringAttr name, const Forms &forms);
 
@@ -108,7 +110,9 @@ CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node 
 enum class TailStanding : std::uint8_t { Elsewhere, LostToLayout };
 
 // The calls of `fn` that are tails lost to a layout: each whose results
-// reach `fn`'s return through a re-pack, read off its tails once.
+// reach `fn`'s return through a re-pack, read off its tails once. Each is
+// an ordinary call: a tail call gives its results on freely, and a self
+// call modulo a context gives its result into a cell.
 llvm::SmallVector<CallOp> lostTails(FuncOp fn);
 
 // The layout a call asks a result of its callee at: as the callee's type
@@ -125,7 +129,8 @@ enum class ResultLayout : std::uint8_t { AsGiven, AtOpen };
 // callee could give closed is marked open in the callee's own type, decided
 // once when the callee was taken up (openResults), so it reaches the copy
 // by the substitution, which keeps the mark, and no call asks for it.
-llvm::SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing);
+llvm::SmallVector<ResultLayout> layoutsAsked(FunctionCallOpInterface call,
+                                             TailStanding standing);
 
 // The results of `callee`'s copy keyed to `layouts` and to the holds
 // `passed` names (passedHolds), on the callee's own types, before the key's
@@ -152,7 +157,7 @@ llvm::SmallVector<mlir::Type> keyedResults(FuncOp callee, llvm::ArrayRef<ResultL
 // waves reads it (openResults), both off the table (Nodes::signatureOf,
 // Nodes::read).
 struct SignatureRule {
-  CallOp call;
+  FunctionCallOpInterface call;
   FuncOp callee;
   FunctionId calleeId;
   identities::FactsView given;
@@ -165,7 +170,7 @@ struct SignatureRule {
   // the classes; null where nothing changes the callee.
   const SignatureKey *keyAt(Arena &arena, llvm::ArrayRef<std::optional<Hold>> passed) const;
 };
-SignatureRule signatureRule(CallOp call, FuncOp callee, FunctionId calleeId,
+SignatureRule signatureRule(FunctionCallOpInterface call, FuncOp callee, FunctionId calleeId,
                             identities::FactsView given, const CallSite &site,
                             TailStanding standing);
 
@@ -183,7 +188,8 @@ SignatureRule signatureRule(CallOp call, FuncOp callee, FunctionId calleeId,
 // result (static data placed at the argument), which would re-grade the
 // caller past its decided return, so such a key is not granted; nor in
 // idr-specialize's round, which decides no caller again.
-bool readsAsKeyed(CallOp call, llvm::ArrayRef<ResultLayout> layouts, mlir::TypeRange results);
+bool readsAsKeyed(FunctionCallOpInterface call, llvm::ArrayRef<ResultLayout> layouts,
+                  mlir::TypeRange results);
 
 // What holds the signature a key's copy gives, read where a call is judged:
 // idr-optimize's table (Nodes::signatureOf: the copy's node's, which the
@@ -207,7 +213,8 @@ concept KeySignatures = requires(const T &table, const SignatureKey *key) {
 // hold its argument cannot cross at, a claim weaker than its parameter's.
 // Its keys are interned in `arena`.
 template <KeySignatures T>
-std::optional<SignatureWant> signatureOf(Arena &arena, const T &table, CallOp call, FuncOp callee,
+std::optional<SignatureWant> signatureOf(Arena &arena, const T &table,
+                                         FunctionCallOpInterface call, FuncOp callee,
                                          FunctionId calleeId, identities::FactsView given,
                                          const CallSite &site, TailStanding standing) {
   SignatureRule rule = signatureRule(call, callee, calleeId, given, site, standing);
@@ -241,8 +248,9 @@ std::optional<SignatureWant> signatureOf(Arena &arena, const T &table, CallOp ca
 // the copy `nodes` holds for its key gives (Nodes::signatureOf); else its
 // raise; else its pattern key. Keys and forms are interned in `nodes`'
 // arena and table of forms.
-mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *requester,
-                                            FuncOp callee, FunctionId calleeId,
+mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, FunctionCallOpInterface call,
+                                            const Node *requester, FuncOp callee,
+                                            FunctionId calleeId,
                                             const Node *calleeNode, identities::FactsView given,
                                             llvm::ArrayRef<BindingTime> seen,
                                             const CallSite &site, TailStanding standing);
@@ -253,15 +261,18 @@ mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Nod
 // is made by reads it; none where a class is fixed, the key's term closed.
 IndexArgsAttr keptArgs(mlir::MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr classes);
 
-// Calling a node.
-llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, CallOp call,
-                                          const PatternWant &want, const PatternKey &key,
-                                          llvm::ArrayRef<Source> sources, FuncOp owner);
-CallOp redirect(mlir::RewriterBase &rewriter, CallOp call, mlir::FlatSymbolRefAttr target,
-                mlir::FunctionType type, IndexArgsAttr indices,
-                llvm::ArrayRef<mlir::Value> operands);
-CallOp redirect(mlir::RewriterBase &rewriter, CallOp call, mlir::FlatSymbolRefAttr target,
-                mlir::FunctionType type, const RaiseWant &want);
+// Calling a node. A redirect erases `call` and gives the call of the copy
+// that stands in its place, the member of the call family its place makes.
+llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter,
+                                          FunctionCallOpInterface call, const PatternWant &want,
+                                          const PatternKey &key, llvm::ArrayRef<Source> sources,
+                                          FuncOp owner);
+FunctionCallOpInterface redirect(mlir::RewriterBase &rewriter, FunctionCallOpInterface call,
+                                 mlir::FlatSymbolRefAttr target, mlir::FunctionType type,
+                                 IndexArgsAttr indices, llvm::ArrayRef<mlir::Value> operands);
+FunctionCallOpInterface redirect(mlir::RewriterBase &rewriter, FunctionCallOpInterface call,
+                                 mlir::FlatSymbolRefAttr target, mlir::FunctionType type,
+                                 const RaiseWant &want);
 
 } // namespace detail
 } // namespace idr::specialize

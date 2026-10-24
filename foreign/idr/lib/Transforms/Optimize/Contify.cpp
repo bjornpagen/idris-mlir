@@ -77,7 +77,7 @@ struct Function {
   FunctionId fn;
 };
 struct Continuation {
-  idr::CallOp call;
+  idr::FunctionCallOpInterface call;
   FunctionId in;
 };
 using Node = std::variant<Root, Function, Continuation>;
@@ -160,9 +160,9 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   idr::footprint::Vector<SmallVector<unsigned, 2>> succ(nodes.size());
   succ[0].push_back(nodeOf(graph.id(program.getRootAttr())));
   for (FunctionId self : graph.functions())
-    graph.op(self).walk([&](idr::CallOp call) {
+    graph.op(self).walk([&](idr::FunctionCallOpInterface call) {
       unsigned callee = nodeOf(graph.id(call.getCalleeAttr()));
-      if (idr::tailCallOf(call)) {
+      if (isa<idr::TailCallOp>(call.getOperation())) {
         succ[nodeOf(self)].push_back(callee);
         return;
       }
@@ -237,17 +237,27 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   // other call ends no tail, and one of `host` itself, a self call now,
   // takes its context where it now stands. Every other call stands where it
   // stood. A body moved again by a group placed later is written again
-  // there.
+  // there. A call made again is a new op: a continuation the return graph
+  // names by the old one is named by the new, since a group placed later
+  // may stand at it.
   enum class Place : std::uint8_t { KeepsTails, Continuation };
-  auto placeMoved = [](Region &moved, idr::FuncOp host, Place place) {
-    moved.walk([&](idr::CallOp call) {
-      if (place == Place::KeepsTails && idr::tailCallOf(call))
-        return;
-      if (call.getCalleeAttr().getAttr() == host.getSymNameAttr())
-        call.setTailKind(idr::tail::withContext(call));
-      else
-        call.setTailKind(idr::TailKind::nontail);
-    });
+  auto placeMoved = [&](Region &moved, idr::FuncOp host, Place place) {
+    SmallVector<idr::FunctionCallOpInterface> calls;
+    moved.walk([&](idr::FunctionCallOpInterface call) { calls.push_back(call); });
+    for (idr::FunctionCallOpInterface call : calls) {
+      if (place == Place::KeepsTails && isa<idr::TailCallOp>(call.getOperation()))
+        continue;
+      idr::CallStanding standing = call.getCalleeAttr().getAttr() == host.getSymNameAttr()
+                                       ? idr::tail::offTail(call)
+                                       : idr::CallStanding::Returns;
+      if (standing == call.getStanding())
+        continue;
+      Operation *was = call.getOperation();
+      idr::FunctionCallOpInterface made = idr::tail::restand(rewriter, call, standing);
+      for (Node &node : nodes)
+        if (auto *k = std::get_if<Continuation>(&node); k && k->call.getOperation() == was)
+          k->call = made;
+    }
   };
   unsigned placed = 0;
   // Each function's place among the members of the group being placed, by
@@ -270,9 +280,9 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
     SmallVector<idr::joins::Site> sites;
     SmallVector<idr::joins::Edge> edges;
     auto sitesIn = [&](Region &region, std::optional<unsigned> from, unsigned shift) {
-      region.walk([&](idr::CallOp call) {
+      region.walk([&](idr::TailCallOp call) {
         std::optional<unsigned> target = memberOf[graph.id(call.getCalleeAttr())];
-        if (!target || !idr::tailCallOf(call))
+        if (!target)
           return;
         sites.push_back(idr::joins::Site{call, *target + shift, call.getArgs(),
                                          call.getIndexArgsAttr()});
@@ -334,10 +344,11 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
             // body, which runs it and gives on what it gives. The node is
             // read through a const reference and the call it names is
             // rewritten: its handle is copied out, as an op is passed.
-            idr::CallOp call = k.call;
+            idr::FunctionCallOpInterface call = k.call;
             for (auto [i, fn] : llvm::enumerate(members))
               sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i), 0);
-            sites.push_back(idr::joins::Site{call, *memberOf[graph.id(call.getCalleeAttr())],
+            sites.push_back(idr::joins::Site{call.getOperation(),
+                                             *memberOf[graph.id(call.getCalleeAttr())],
                                              call.getArgs(), call.getIndexArgsAttr()});
             // The function the call stands in now, which a group placed
             // earlier may have moved it into.

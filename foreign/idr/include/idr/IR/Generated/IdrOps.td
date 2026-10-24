@@ -96,12 +96,13 @@ def Idr_CallOp : Idr_Op<"call", [
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     CallOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
+    Idr_FunctionCallOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>,
     Idr_LegalAt<"Higher", "Owned">
   ]> {
-  let summary = "a call of a function by name, with its callee's row";
+  let summary = "a call of a function by name that returns to its caller";
   let description = [{
     Built of a callee, it takes the callee's result types at its index
     arguments, row, write part and lives_in, and takes them again when the
@@ -112,15 +113,84 @@ def Idr_CallOp : Idr_Op<"call", [
     until the specializer keys the call by it, an operand whose hold fits
     its parameter's standing at the parameter's (static data where the
     callee counts, a claim forgotten), as the program's stage says.
-    Where it stands is the tail calls' to decide and check; a tail call's
-    callee takes as many cursors as its caller.
   }];
-  let arguments = (ins Variadic<AnyType>:$args, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args, EnumProp<Idr_TailKind>:$tail_kind, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
+  let arguments = (ins Variadic<AnyType>:$args, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
   let results = (outs Variadic<AnyType>:$results);
   let assemblyFormat = [{ $callee `(` $args `)` prop-dict attr-dict `:` functional-type($args, $results) }];
   let hasVerifier = 1;
   let builders = [
-    OpBuilder<(ins "FuncOp":$callee, "::idr::IndexArgsAttr":$indexArgs, "::mlir::ValueRange":$args, "::idr::TailKind":$tail)>,
+    OpBuilder<(ins "FuncOp":$callee, "::idr::IndexArgsAttr":$indexArgs, "::mlir::ValueRange":$args)>,
+  ];
+  let extraClassDeclaration = [{
+    ::mlir::CallInterfaceCallable getCallableForCallee();
+    void setCalleeFromCallable(::mlir::CallInterfaceCallable callee);
+    ::mlir::Operation::operand_range getArgOperands();
+    ::mlir::MutableOperandRange getArgOperandsMutable();
+    void copyCallee(FuncOp callee);
+  }];
+}
+
+def Idr_TailCallOp : Idr_Op<"tail_call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    Idr_DeclaredEffectsOpInterface,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+    CallOpInterface,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
+    Idr_FunctionCallOpInterface,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>,
+    Idr_LegalAt<"Higher", "Owned">
+  ]> {
+  let summary = "a call in tail position: its results are its caller's, so it is a jump";
+  let description = [{
+    Built and held to its callee as an ordinary call is. Its results go to
+    its function's return unchanged, through ops that do nothing at run
+    time and the rejoins of region ops a break crosses, and each is laid
+    out as its caller returns it; its callee takes as many cursors as its
+    caller, each in its place.
+  }];
+  let arguments = (ins Variadic<AnyType>:$args, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = [{ $callee `(` $args `)` prop-dict attr-dict `:` functional-type($args, $results) }];
+  let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "FuncOp":$callee, "::idr::IndexArgsAttr":$indexArgs, "::mlir::ValueRange":$args)>,
+  ];
+  let extraClassDeclaration = [{
+    ::mlir::CallInterfaceCallable getCallableForCallee();
+    void setCalleeFromCallable(::mlir::CallInterfaceCallable callee);
+    ::mlir::Operation::operand_range getArgOperands();
+    ::mlir::MutableOperandRange getArgOperandsMutable();
+    void copyCallee(FuncOp callee);
+  }];
+}
+
+def Idr_ContextCallOp : Idr_Op<"context_call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    Idr_DeclaredEffectsOpInterface,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+    CallOpInterface,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
+    Idr_FunctionCallOpInterface,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>,
+    Idr_LegalAt<"Higher", "Owned">
+  ]> {
+  let summary = "a self call whose one result fills a field of cells built for it";
+  let description = [{
+    Built and held to its callee as an ordinary call is. Its one result
+    goes only into cells built for it, which its function returns, so
+    idr-trmc builds them first and the call fills the hole as its last
+    act.
+  }];
+  let arguments = (ins Variadic<AnyType>:$args, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = [{ $callee `(` $args `)` prop-dict attr-dict `:` functional-type($args, $results) }];
+  let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "FuncOp":$callee, "::idr::IndexArgsAttr":$indexArgs, "::mlir::ValueRange":$args)>,
   ];
   let extraClassDeclaration = [{
     ::mlir::CallInterfaceCallable getCallableForCallee();

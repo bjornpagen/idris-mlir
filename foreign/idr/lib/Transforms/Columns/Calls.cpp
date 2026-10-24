@@ -144,18 +144,21 @@ struct FuncColumns : OpConversionPattern<FuncOp> {
   }
 };
 
-struct CallColumns : OpConversionPattern<CallOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult matchAndRewrite(CallOp call, OneToNOpAdaptor adaptor,
+// A call of any member is remade as that member, where it stood: its
+// columns flow where the array did.
+template <CallFamily Call>
+struct CallColumns : OpConversionPattern<Call> {
+  using OpConversionPattern<Call>::OpConversionPattern;
+  using Adaptor = typename OpConversionPattern<Call>::OneToNOpAdaptor;
+  LogicalResult matchAndRewrite(Call call, Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     SmallVector<Type> results;
     SmallVector<unsigned> counts;
-    if (failed(convertEach(*getTypeConverter(), call->getResultTypes(), results, counts)))
+    if (failed(convertEach(*this->getTypeConverter(), call->getResultTypes(), results, counts)))
       return failure();
     SmallVector<unsigned> argCounts = llvm::map_to_vector(
         adaptor.getArgs(), [](ValueRange arg) { return static_cast<unsigned>(arg.size()); });
-    auto made = cast<CallOp>(
-        remakeOp(rewriter, call, flatten(adaptor.getOperands()), results));
+    auto made = cast<Call>(remakeOp(rewriter, call, flatten(adaptor.getOperands()), results));
     rewriter.modifyOpInPlace(made, [&] {
       if (ArrayAttr attrs = made.getArgAttrsAttr())
         made.setArgAttrsAttr(expand(attrs, argCounts));
@@ -167,6 +170,15 @@ struct CallColumns : OpConversionPattern<CallOp> {
     return success();
   }
 };
+
+// Each member of the call family, its pattern and its legality: a fold
+// over the family's list.
+template <CallFamily... Members>
+void addCallColumns(const TypeConverter &converter, RewritePatternSet &patterns,
+                    ConversionTarget &target,
+                    const ConversionTarget::DynamicLegalityCallbackFn &legal) {
+  (addColumns<CallColumns<Members>, Members>(converter, patterns, target, legal), ...);
+}
 
 // A terminator whose every operand moves on: each array of records moves
 // on as its columns.
@@ -196,7 +208,10 @@ void populateCallColumnPatterns(const TypeConverter &converter, RewritePatternSe
                                     return converter.isSignatureLegal(fn.getFunctionType()) &&
                                            converter.isLegal(&fn.getBody());
                                   });
-  addColumns<CallColumns, CallOp>(converter, patterns, target, legal);
+  addCallColumns<
+#define GET_CALLS_FAMILY_LIST
+#include "idr/IR/Generated/CallsFamily.h.inc"
+      >(converter, patterns, target, legal);
   addColumns<TerminatorColumns<ReturnOp>, ReturnOp>(converter, patterns, target, legal);
   addColumns<TerminatorColumns<YieldOp>, YieldOp>(converter, patterns, target, legal);
   addColumns<ResultColumns<DataMatchOp>, DataMatchOp>(converter, patterns, target, legal);

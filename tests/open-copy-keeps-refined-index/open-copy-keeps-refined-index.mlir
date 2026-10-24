@@ -35,10 +35,10 @@ idr.program @vectors root(@main) stage(first) {
   idr.func <{binders = #idr.index_binders<[nat]>}> @main() {
     %three = arith.constant 3 : i64
     %five = arith.constant 5 : i64
-    %a = idr.call @f(%three) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
-    %b = idr.call @f(%five) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
-    %c = idr.call @h(%three) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
-    %d = idr.call @h(%five) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
+    %a = idr.call @f(%three) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
+    %b = idr.call @f(%five) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
+    %c = idr.call @h(%three) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
+    %d = idr.call @h(%five) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
     %ta = idr.data.tag %a : !Any
     %tb = idr.data.tag %b : !Any
     %tc = idr.data.tag %c : !Any
@@ -54,7 +54,7 @@ idr.program @vectors root(@main) stage(first) {
     %r = idr.lit.match %n : i64 -> (!Any) {
     case 0(%key0: i64) {
       %four = idr.index.assume #idr.equation<v0 = 4> () -> (!Any) {
-        %v = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> !V4
+        %v = idr.call @g(%n) : (i64) -> !V4
         %c = idr.data.reindex %v : !V4 to !Any
         idr.yield %c : !Any
       }
@@ -63,7 +63,7 @@ idr.program @vectors root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %d, %one : i64
-      %v = idr.call @f(%m) <{index_args = #idr.index_args<[v0]>, tail_kind = tail}> : (i64) -> !Any
+      %v = idr.tail_call @f(%m) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
       idr.yield %v : !Any
     }
     }
@@ -73,7 +73,7 @@ idr.program @vectors root(@main) stage(first) {
     %r = idr.lit.match %n : i64 -> (!Any) {
     case 1(%key1: i64) {
       %four = idr.index.assume #idr.equation<v0 = 4> () -> (!Any) {
-        %v = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> !V4
+        %v = idr.call @g(%n) : (i64) -> !V4
         %c = idr.data.reindex %v : !V4 to !Any
         idr.yield %c : !Any
       }
@@ -82,7 +82,7 @@ idr.program @vectors root(@main) stage(first) {
     default(%d: i64) {
       %two = arith.constant 2 : i64
       %m = arith.subi %d, %two : i64
-      %v = idr.call @h(%m) <{index_args = #idr.index_args<[v0]>, tail_kind = tail}> : (i64) -> !Any
+      %v = idr.tail_call @h(%m) <{index_args = #idr.index_args<[v0]>}> : (i64) -> !Any
       idr.yield %v : !Any
     }
     }
@@ -102,7 +102,7 @@ idr.program @vectors root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %k1 = arith.subi %d, %one : i64
-      %v = idr.call @g(%k1) <{tail_kind = tail}> : (i64) -> !V4
+      %v = idr.tail_call @g(%k1) : (i64) -> !V4
       idr.yield %v : !V4
     }
     }

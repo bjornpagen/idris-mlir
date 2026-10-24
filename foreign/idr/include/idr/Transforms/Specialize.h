@@ -249,22 +249,25 @@ struct SignatureKey {
 // read claimed), it gives that, and the values of the caller that read it
 // are re-graded down (regrade). A result whose layout stayed needs no cast,
 // only its readers re-graded.
-void convertResults(CallOp call, llvm::ArrayRef<mlir::Type> had);
+void convertResults(FunctionCallOpInterface call, llvm::ArrayRef<mlir::Type> had);
 
 // `fn` returning `results`, which differ from its own results only where
 // one opens or claims less (a copy's result keyed to a lowered parameter
 // that may reach it, keyGivenBack, or opened at the hold its tails give,
 // keyedResults): every tail of it gives that result at the new type, what
 // it gave there cast to it once at the grade that cast gives and shared
-// down to the new type's claim where it claims less, and each call in it
-// takes the tail fact its place now gives it.
+// down to the new type's claim where it claims less, and each call at a
+// tail of it is made the member its place now makes: a tail call where its
+// results reach the return freely, an ordinary call where a re-pack stands
+// on the way.
 void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 
 // The hold each argument of `call` is passed at where it differs from its
 // parameter's among `params`, the callee's own inputs, whose holds name no
 // index variable; none where the two agree, or where the argument holds no
 // reference.
-llvm::SmallVector<std::optional<Hold>> passedHolds(CallOp call, mlir::TypeRange params);
+llvm::SmallVector<std::optional<Hold>> passedHolds(FunctionCallOpInterface call,
+                                                   mlir::TypeRange params);
 
 // What a function's signature and its calls are decided to be when the
 // schedule takes it up, between waves, for `starters`, each a member a turn
@@ -359,7 +362,8 @@ FunctionId place(ProgramOp program, FuncOp anchor, FuncOp copy, solver::Editor &
 // shared down to the function's result where it claims more, and otherwise
 // left for the result rule to give the function's result. The calls it
 // stopped at, each an operand of which it lowered.
-llvm::SmallVector<CallOp> regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
+llvm::SmallVector<FunctionCallOpInterface> regrade(FuncOp fn,
+                                                   llvm::ArrayRef<mlir::Value> lowered);
 
 // The arena of one run: every pattern and key it made, freed with it.
 // Interning is under one lock, each key once; a key is interned as it is

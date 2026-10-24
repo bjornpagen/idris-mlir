@@ -127,7 +127,7 @@ public:
   // A call, before its reader reads what its callee runs: a call of the
   // function itself closes a cycle of one, and holds the divergence Idris's
   // proof of the function leaves it.
-  void cycleOfOne(CallOp call);
+  void cycleOfOne(FunctionCallOpInterface call);
   // One effect of an op, attributed by where it lands.
   void effect(const effects::Effect &effect);
   // A write through `value`: a call's operand its callee writes through.
@@ -174,11 +174,12 @@ private:
 enum class Read : std::uint8_t { ByDeclaration, ByReader };
 
 // How the derivation reads what runs other functions. `call` reads each
-// idr.call: the calls' copies of their callees' rows, a record of the call
-// for a solve, or a label solve's own table. `other` may take any other op
-// before its declaration is read.
+// call, whatever its standing: the calls' copies of their callees' rows, a
+// record of the call for a solve, or a label solve's own table. `other` may
+// take any other op before its declaration is read.
 template <class R>
-concept CallReader = requires(R &reader, CallOp call, mlir::Operation *op, Fold &fold, Runs runs) {
+concept CallReader = requires(R &reader, FunctionCallOpInterface call, mlir::Operation *op,
+                              Fold &fold, Runs runs) {
   { reader.call(call, fold, runs) } -> std::same_as<void>;
   { reader.other(op, fold, runs) } -> std::same_as<Read>;
 };
@@ -209,7 +210,7 @@ public:
   // A call's cycle of one is the fold's, read before any reader takes the
   // call, so no reader can leave it out.
   mlir::LogicalResult check(mlir::Operation *op) {
-    if (auto call = llvm::dyn_cast<CallOp>(op)) {
+    if (auto call = llvm::dyn_cast<FunctionCallOpInterface>(op)) {
       fold.cycleOfOne(call);
       reader.call(call, fold, runs.back());
     } else if (reader.other(op, fold, runs.back()) == Read::ByDeclaration) {
@@ -242,7 +243,7 @@ Derived derive(FuncOp fn, R &reader) {
 // row, and a write through each operand its callee writes through. Its
 // puts are checked at the call, which sees its callee.
 struct CallCopies {
-  void call(CallOp call, Fold &fold, Runs runs);
+  void call(FunctionCallOpInterface call, Fold &fold, Runs runs);
   Read other(mlir::Operation *, Fold &, Runs) { return Read::ByDeclaration; }
 };
 

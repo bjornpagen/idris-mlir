@@ -1,12 +1,12 @@
-specification d3e39377e775fcae
+specification f7230a68ed6cdcce
 generator 10a7a6000f47d03a
-a6c63ff6743b4dc9 foreign/idr/include/idr/IR/Generated/IdrBase.td
-c8b2861ba8132e5b foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
+f8bd7f8b1d71f6c4 foreign/idr/include/idr/IR/Generated/IdrBase.td
+00fbca982f281f79 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 0b94527e324a4bce foreign/idr/include/idr/IR/Generated/IdrTypes.td
-534a4d239eaed929 foreign/idr/include/idr/IR/Generated/IdrOps.td
+5c79bb072050152b foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 278eede8584fe5a4 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
-53f75d5812790683 foreign/idr/include/idr/IR/Generated/IdrPasses.td
+88df87b5e198ed0f foreign/idr/include/idr/IR/Generated/IdrPasses.td
 e48bb5d00da3d404 foreign/idr/include/idr/IR/Generated/IdrInnerPasses.td
 64c8bbede3169129 foreign/idr/include/idr/IR/Generated/IdrAdmittedBase.td
 19a4abb28f4509e9 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
@@ -23,7 +23,7 @@ d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 9bdfe4856578a846 foreign/idr/include/idr/IR/Generated/AdmittedStages.h.inc
 80b03d6a86af45de foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
 55c584f288af8c58 foreign/idr/include/idr/IR/Generated/WrittenDialects.h.inc
-429296596c0c8835 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
+bc812209f970d7ef foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 4d113ce9ed659891 foreign/idr/include/idr/IR/Generated/Defaults.h.inc
 db27a03c6d5426eb foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
@@ -32,8 +32,8 @@ d44a454a09df116f foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 ac30b3cefaf91f3a foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
 8793d717b838fa1c runtime/Generated/idris_rt_ops.h
 eee0d68f3a0d55b7 foreign/idr/include/idr/IR/Generated/Resources.h.inc
-847849d564fe0675 foreign/idr/include/idr/IR/Generated/Effects.h.inc
-99d3350da48e1351 foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
+1181cc6e3b77853a foreign/idr/include/idr/IR/Generated/Effects.h.inc
+3dec9d0a0f09eb5a foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 76fd1ab5afc6b13b foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 04252be77897a84d foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
@@ -43,6 +43,7 @@ b96e0f4f478d6c3f foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 646d0650f34d56aa foreign/idr/include/idr/IR/Generated/Actions.h.inc
 75b437e521dc3007 foreign/idr/include/idr/IR/Generated/ExpectProperties.inc
+85848c88fbba461b foreign/idr/include/idr/IR/Generated/CallsFamily.h.inc
 b9b3a045589df4e9 foreign/idr/include/idr/IR/Generated/LifetimeOpener.h.inc
 9601328429529006 foreign/idr/include/idr/IR/Generated/JoinPointsFamily.h.inc
 e89e7543ccf3a10b foreign/idr/include/idr/IR/Generated/BigToWord.h.inc
@@ -51,7 +52,7 @@ a5f8d8a5b2c9d611 foreign/idr/include/idr/IR/Generated/ShownOutput.h.inc
 3b295e435b4ca2db foreign/idr/include/idr/IR/Generated/ListElement.h.inc
 31b4bf859aea6346 foreign/idr/include/idr/IR/Generated/Rules.h.inc
 997ee58402212daf foreign/idr/include/idr/IR/Generated/Words.h.inc
-c007172702ee9849 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
+e4c766f210425341 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
 fccbad4a5693fea5 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
 63c74d66b7535a85 foreign/idr/include/idr/IR/Generated/Termination.h.inc
@@ -65,7 +66,7 @@ beb8a76a4770f358 foreign/idr/include/idr/IR/Generated/RuntimeLayout.h.inc
 be6d7fa54983ad20 foreign/idr/include/idr/IR/Generated/NumericEnums.h.inc
 b135473c4ae3ece4 foreign/idr/include/idr/IR/Generated/FileTimes.h.inc
 fbffe30a4c38c232 foreign/idr/include/idr/IR/Generated/Carry.h.inc
-1d9e83bb1e7fedd5 compiler/src/IdrisMLIR/Dialect/Idr.idr
+a9efec41247ac5d9 compiler/src/IdrisMLIR/Dialect/Idr.idr
 aae61e8722f20e72 compiler/src/IdrisMLIR/Encoding/Wire.idr
 22cd6d0de65e8f0a compiler/src/IdrisMLIR/Encoding/Idr.idr
 0c293e8edb41c416 compiler/spec/spec.ipkg

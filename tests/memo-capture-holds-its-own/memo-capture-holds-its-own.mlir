@@ -37,9 +37,9 @@ idr.program @memo root(@main) stage(graded) {
     %s = idr.cell.new : !idr.cell<!Pending>
     %t = idr.cell.init %s : !idr.cell<!Pending> (%xs : !List) -> !Pending
     %l = idr.data.reindex %t : !Pending to !Lazy
-    %a = idr.call @force(%l) <{tail_kind = nontail}> : (!Lazy) -> i64
-    %b = idr.call @force(%l) <{tail_kind = nontail}> : (!Lazy) -> i64
-    %h = idr.call @head(%xs) <{tail_kind = nontail}> : (!List) -> i64
+    %a = idr.call @force(%l) : (!Lazy) -> i64
+    %b = idr.call @force(%l) : (!Lazy) -> i64
+    %h = idr.call @head(%xs) : (!List) -> i64
     idr.return
   }
   idr.func @head(%xs: !List) -> i64 {
@@ -60,7 +60,7 @@ idr.program @memo root(@main) stage(graded) {
     case @head(%p: !Pending) {
       %x = idr.memo.run %p : !Pending -> i64 {
       ^bb0(%xs: !List):
-        %h = idr.call @head(%xs) <{tail_kind = nontail}> : (!List) -> i64
+        %h = idr.call @head(%xs) : (!List) -> i64
         idr.memo.yield %h : i64 then %h : i64
       }
       idr.yield %x : i64

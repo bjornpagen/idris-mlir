@@ -42,7 +42,7 @@ idr.program @kept root(@main) stage(first) {
         case @single(%p: !Single) {
           %x = idr.memo.run %p : !Single -> i64 {
           ^bb0(%c: i64):
-            %h = idr.call @single(%c) <{tail_kind = nontail}> : (i64) -> i64
+            %h = idr.call @single(%c) : (i64) -> i64
             idr.memo.yield %h : i64 then %h : i64
           }
           %two = arith.constant 2.0 : f64
@@ -62,7 +62,7 @@ idr.program @kept root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %j = arith.subi %d, %one : i64
-        %t = idr.call @use(%cell, %j) <{tail_kind = nontail}> : (!Single, i64) -> f64
+        %t = idr.call @use(%cell, %j) : (!Single, i64) -> f64
         %onef = arith.constant 1.0 : f64
         %s = arith.addf %t, %onef : f64
         idr.yield %s : f64
@@ -78,12 +78,12 @@ idr.program @kept root(@main) stage(first) {
     %cell = idr.data.con(%n : i64) : !Single1
     %many = idr.lin.cast %cell : !Single1 -> !Single
     %lazy = idr.data.reindex %many : !Single to !Lazy
-    %used = idr.call @use(%many, %k) <{tail_kind = nontail}> : (!Single, i64) -> f64
+    %used = idr.call @use(%many, %k) : (!Single, i64) -> f64
     %r = idr.data.match %lazy : !Lazy -> (f64) {
     case @single(%p: !Single) {
       %x = idr.memo.run %p : !Single -> i64 {
       ^bb0(%c: i64):
-        %h = idr.call @single(%c) <{tail_kind = nontail}> : (i64) -> i64
+        %h = idr.call @single(%c) : (i64) -> i64
         idr.memo.yield %h : i64 then %h : i64
       }
       %two = arith.constant 2.0 : f64
@@ -129,7 +129,7 @@ idr.program @moved root(@main) stage(first) {
         case @single(%p: !Single) {
           %x = idr.memo.run %p : !Single -> i64 {
           ^bb0(%c: i64):
-            %h = idr.call @single(%c) <{tail_kind = nontail}> : (i64) -> i64
+            %h = idr.call @single(%c) : (i64) -> i64
             idr.memo.yield %h : i64 then %h : i64
           }
           %two = arith.constant 2.0 : f64
@@ -150,7 +150,7 @@ idr.program @moved root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %j = arith.subi %d, %one : i64
-        %t = idr.call @use(%cell, %j) <{tail_kind = nontail}> : (!Single, i64) -> f64
+        %t = idr.call @use(%cell, %j) : (!Single, i64) -> f64
         %onef = arith.constant 1.0 : f64
         %s = arith.addf %t, %onef : f64
         idr.yield %s : f64
@@ -165,7 +165,7 @@ idr.program @moved root(@main) stage(first) {
     %k = arith.extui %count : i32 to i64
     %cell = idr.data.con(%n : i64) : !Single1
     %many = idr.lin.cast %cell : !Single1 -> !Single
-    %used = idr.call @use(%many, %k) <{tail_kind = nontail}> : (!Single, i64) -> f64
+    %used = idr.call @use(%many, %k) : (!Single, i64) -> f64
     %text = idr.str.show_double %used : (f64) -> !Str
     idr.io.put_str %text : (!Str) -> ()
     idr.return

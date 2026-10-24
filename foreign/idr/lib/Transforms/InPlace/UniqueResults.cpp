@@ -237,7 +237,7 @@ private:
         change(value, idr::ownership::claiming(value.getType(), body.claims[at]));
     };
     // A call's results are its callee's again where the callee's changed.
-    auto recall = [&](idr::CallOp call) {
+    auto recall = [&](idr::FunctionCallOpInterface call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       if (resultsChanged[callee] == Touched::No)
         return;
@@ -255,7 +255,7 @@ private:
         raise(arg);
       // The block's calls, a typed range over its ops in their order, each
       // met as the walk reaches it.
-      auto calls = block->getOps<idr::CallOp>();
+      auto calls = block->getOps<idr::FunctionCallOpInterface>();
       auto nextCall = calls.begin();
       for (Operation &op : *block) {
         if (nextCall != calls.end() && (*nextCall).getOperation() == &op) {

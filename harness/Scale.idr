@@ -194,24 +194,13 @@ resultTypes : List String -> String
 resultTypes [t] = t
 resultTypes ts = "(" ++ sepBy ", " ts ++ ")"
 
-||| The property a call writes its tail fact under, as the specification
-||| names it: the one of the call's attributes whose cases are the tail
-||| kinds.
-tailFact : String
-tailFact = concatMap named (toList callOp.attrs)
-  where
-    named : Attr -> String
-    named (MkAttr n (AProperty (EnumProperty d))) =
-      if d.enum.name == (enumDef tailKindClosed).name then identText n else ""
-    named _ = ""
-
 ||| A call whose result something after it uses, so the call is no tail
-||| call, which its fact says.
+||| call: the member of the call family that returns to its caller.
 call : (results : String) -> (callee : String) -> (args : List (String, String)) -> List String -> String
 call r callee args results =
-  bindAs r (length results) ++ " = " ++ opName callOp ++ " @" ++ callee
-  ++ "(" ++ sepBy ", " (map fst args) ++ ") <{" ++ tailFact ++ " = " ++ spelled tailKindClosed NonTail
-  ++ "}> : (" ++ sepBy ", " (map snd args) ++ ") -> " ++ resultTypes results
+  bindAs r (length results) ++ " = " ++ opName (callOp Returns) ++ " @" ++ callee
+  ++ "(" ++ sepBy ", " (map fst args) ++ ") : (" ++ sepBy ", " (map snd args) ++ ") -> "
+  ++ resultTypes results
 
 ||| ` -> T`, or nothing for a function of no results.
 arrow : List String -> String

@@ -26,7 +26,7 @@
 !Forced = !idr.data<#Lazy @forced>
 idr.program @memo root(@main) stage(graded) {
   idr.func @main() {
-    %r:2 = idr.call @make() <{tail_kind = nontail}> : () -> (i64, !Lazy)
+    %r:2 = idr.call @make() : () -> (i64, !Lazy)
     idr.return
   }
   idr.func @single(%n: i64) -> !List {

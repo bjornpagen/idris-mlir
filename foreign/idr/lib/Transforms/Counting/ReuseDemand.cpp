@@ -121,7 +121,7 @@ void Reuse::demands() {
         walk.demand[*index] = std::min(walk.demand[*index] + 1, cap[*index]);
     if (auto source = dyn_cast<ReuseSourceOpInterface>(op); source && sourceBytes(source))
       trail.push_back(walk.demand);
-    if (tailCallOf(op))
+    if (isa<TailCallOp>(op))
       walk.demand = none();
     if (op->getNumRegions() != 0) {
       trail.push_back(walk.demand);

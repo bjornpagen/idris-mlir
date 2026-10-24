@@ -21,7 +21,7 @@ idr.program @rows root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        %t = idr.call @descend(%next) <{row = ["divergence"], tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @descend(%next) <{row = ["divergence"]}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }
@@ -46,7 +46,7 @@ idr.program @rows root(@main) stage(first) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
         // expected-note @below {{}}
-        %t = idr.call @descend(%next) <{row = [], tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @descend(%next) <{row = []}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }
@@ -70,7 +70,7 @@ idr.program @rows root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        %t = idr.call @descend(%next) <{row = [], tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @descend(%next) <{row = []}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }

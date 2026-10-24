@@ -154,8 +154,8 @@ Value identityAt(RewriterBase &rewriter, Location loc, const Combination &by, Ty
 // precede (they only compute, on every path). Each call among them ends no
 // tail where it now stands, before the match whose region gave its value
 // on, and calls no self call (mayLead), so it holds no context: an
-// ordinary call. Where that value then takes the match's place, the block's
-// tails are read again (exitWhenDecided).
+// ordinary call, made again so. Where that value then takes the match's
+// place, the block's tails are read again (exitWhenDecided).
 Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
   return idr::match(
       site.by,
@@ -169,8 +169,11 @@ Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
           rewriter.moveOpBefore(&op, at);
           moved.push_back(&op);
         }
+        llvm::SmallVector<FunctionCallOpInterface> calls;
         for (Operation *op : moved)
-          op->walk([](CallOp call) { call.setTailKind(TailKind::nontail); });
+          op->walk([&](FunctionCallOpInterface call) { calls.push_back(call); });
+        for (FunctionCallOpInterface call : calls)
+          (void)restand<CallOp>(rewriter, call);
         return body.getTerminator()->getOperand(0);
       });
 }
@@ -178,11 +181,11 @@ Value otherOf(RewriterBase &rewriter, const Combined &site, Operation *at) {
 // A tail call of `clone` in place of `old`, passing `carried` after the
 // call's arguments, at the same index terms: the clone is the same
 // recursion with the same facts, and the call takes its row.
-CallOp callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, Value carried) {
+TailCallOp callClone(RewriterBase &rewriter, FunctionCallOpInterface old, FuncOp clone,
+                     Value carried) {
   llvm::SmallVector<Value> args(old.getArgs());
   args.push_back(carried);
-  return CallOp::create(rewriter, old.getLoc(), clone, old.getIndexArgsAttr(), args,
-                        TailKind::tail);
+  return TailCallOp::create(rewriter, old.getLoc(), clone, old.getIndexArgsAttr(), args);
 }
 
 // The clone of `fn` that carries the combination, entered right after it;
@@ -201,8 +204,8 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   for (const Site &site : plan.sites)
     idr::match(
         site,
-        [&](CallOp call) {
-          auto inClone = cast<CallOp>(mapping.lookup(call.getOperation()));
+        [&](TailCallOp call) {
+          auto inClone = cast<TailCallOp>(mapping.lookup(call.getOperation()));
           rewriter.setInsertionPoint(inClone);
           rewriter.replaceOp(inClone, callClone(rewriter, inClone, clone, carried));
         },
@@ -230,7 +233,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
     Operation *terminator = end->getTerminator();
     if (terminator->getNumOperands() != 1)
       continue;
-    auto call = dyn_cast_or_null<CallOp>(tailSource(*end));
+    auto call = dyn_cast_or_null<TailCallOp>(tailSource(*end));
     if (call && call.getCalleeAttr().getAttr() == clone.getSymNameAttr())
       continue;
     rewriter.setInsertionPoint(terminator);
@@ -241,7 +244,7 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
                       : combine(rewriter, loc, plan.by, carriedType, carried, value);
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperand(0, given); });
     if (call)
-      call.setTailKind(TailKind::nontail);
+      (void)restand<CallOp>(rewriter, call);
   }
 
   // The function the program calls starts the clone at the identity.
@@ -254,8 +257,8 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   args.push_back(identity);
   unsigned own = static_cast<unsigned>(
       cast<ErasedBinderOpInterface>(fn.getOperation()).getBoundSorts(fn.getBody()).size());
-  auto call = CallOp::create(rewriter, fn.getLoc(), clone, families::levelArgs(ctx, 0, own), args,
-                             TailKind::tail);
+  auto call = TailCallOp::create(rewriter, fn.getLoc(), clone, families::levelArgs(ctx, 0, own),
+                                 args);
   ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
 }
 
@@ -273,13 +276,13 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
 // gives: the self call where it stays, from its place or from the region
 // of the match that replaces the combination; or, where the operand
 // absorbs, the operand itself, which a call moved out of the other region
-// may give. Each call the block's tails reach takes the fact its place
-// gives it, read down from that block once the edit is made.
+// may give. Each call the block's tails reach becomes the member its place
+// makes, read down from that block once the edit is made.
 void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
                      const ShortCircuit &circuit) {
   for (const Site &site : plan.sites)
     idr::match(
-        site, [](CallOp) {},
+        site, [](TailCallOp) {},
         [&](const Combined &combined) {
           CallOp call = combined.call;
           Operation *at = combined.combine;
@@ -303,8 +306,9 @@ void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
             rewriter.replaceOp(at, decided);
           }
           for (const Tail &each : tailsOf(*end))
-            if (auto reached = dyn_cast<CallOp>(each.source))
-              reached.setTailKind(each.repack ? withContext(reached) : TailKind::tail);
+            if (auto reached = dyn_cast<FunctionCallOpInterface>(each.source))
+              (void)restand(rewriter, reached,
+                            each.repack ? offTail(reached) : CallStanding::Tail);
         });
 }
 
@@ -341,7 +345,7 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
         ++numFunctions;
         numTails += static_cast<uint64_t>(llvm::count_if(plan.sites, [](const Site &site) {
           return idr::match(
-              site, [](CallOp) { return false; }, [](const Combined &) { return true; });
+              site, [](TailCallOp) { return false; }, [](const Combined &) { return true; });
         }));
       });
     if (performed == 0)

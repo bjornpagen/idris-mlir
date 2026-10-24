@@ -438,7 +438,7 @@ struct OutsideCycle {
   solver::SccId cycle;
   rows::CallCopies copies;
 
-  void call(CallOp call, rows::Fold &fold, Runs runs) {
+  void call(FunctionCallOpInterface call, rows::Fold &fold, Runs runs) {
     if (graph.sccOf(graph.id(call.getCalleeAttr())) != cycle)
       copies.call(call, fold, runs);
   }
@@ -474,7 +474,7 @@ void breakCycleDivergenceKept(ProgramOp program, AnalysisManager analyses) {
       continue;
     for (FuncOp fn : members)
       fn.setRow(fn.getRow() - divergence);
-    program.walk([&](CallOp call) {
+    program.walk([&](FunctionCallOpInterface call) {
       if (graph.sccOf(graph.id(call.getCalleeAttr())) == component)
         call.setRow(call.getRow() - divergence);
     });

@@ -270,6 +270,8 @@ LifetimeUse CellStackOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Slot;
 // A lifetime a call takes is its callee's parameter, which its callee's
 // own uses decide.
 LifetimeUse idr::CallOp::getLifetimeUse(OpOperand &) { return LifetimeUse::PassesOn; }
+LifetimeUse idr::TailCallOp::getLifetimeUse(OpOperand &) { return LifetimeUse::PassesOn; }
+LifetimeUse idr::ContextCallOp::getLifetimeUse(OpOperand &) { return LifetimeUse::PassesOn; }
 
 //===----------------------------------------------------------------------===//
 // idr.lifetime.pack

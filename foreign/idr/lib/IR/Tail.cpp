@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Tail position: the one reading of where a function's tails are, down from
-// its body; the call's own check of its fact and of its result layout, its
-// function's; and the one reading of the fact a call holds. Tail position
-// modulo a context is Tail/Context.cpp's.
+// its body; each call member's own check of where it stands and a tail
+// call's of its result layout, its function's; the one map from a standing
+// to its member; and the one reading of whether code may follow a call.
+// Tail position modulo a context is Tail/Context.cpp's.
 
 #include "idr/IR/Tail.h"
 
@@ -14,6 +15,7 @@
 #include "idr/Support/Enum.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
@@ -53,13 +55,78 @@ bool carriesOn(Operation *op) { return carryOf(op) == Carry::Free; }
 
 namespace {
 
+// The region a value may pass through `op` by, if `op` is a region op a
+// break crosses that runs one region once: entered from the op with every
+// operand it takes, each bound to an argument of the region's one block,
+// which ends by giving its op's results back (rejoinOf). What enters is
+// bound at the type the region asks, the value's own words where the two
+// lay out alike (an `idr.index.assume` only states the equation its region
+// assumes). Null for any other op.
+Region *passedRegion(Operation *op) {
+  auto branch = dyn_cast<RegionBranchOpInterface>(op);
+  if (!branch || op->getNumRegions() != 1 ||
+      !op->hasTrait<OpTrait::PropagateControlFlowBreak>())
+    return nullptr;
+  Region &region = op->getRegion(0);
+  if (!region.hasOneBlock())
+    return nullptr;
+  SmallVector<RegionSuccessor, 2> entered;
+  branch.getSuccessorRegions(RegionBranchPoint::parent(), entered);
+  if (entered.size() != 1 || entered.front().getSuccessor() != &region)
+    return nullptr;
+  OperandRange forwarded = branch.getEntrySuccessorOperands(entered.front());
+  if (forwarded.size() != op->getNumOperands() || forwarded.size() != region.getNumArguments() ||
+      rejoinOf(region.front().getTerminator()) != op)
+    return nullptr;
+  return &region;
+}
+
+// Whether each value enters `op`'s region at its own layout, so entering
+// does no run-time work.
+bool entersFreely(Operation *op, Region &region) {
+  return llvm::all_of(llvm::zip_equal(op->getOperands(), region.getArguments()), [](auto pair) {
+    auto [operand, bound] = pair;
+    return families::layoutMatch(operand.getType(), bound.getType()) == LayoutMatch::SameLayout;
+  });
+}
+
+// What an op on the way to a block's end may cost: nothing at run time, or
+// work, which a re-pack does.
+enum class Passing : std::uint8_t { Freely, AtAnyCost };
+
+// Whether `op` only gives values on toward its block's end, at no more
+// than `passing`: an op that gives its operand on, or a region op values
+// pass through whose region's ops only give values on in turn, entered at
+// the values' own layouts where nothing may cost. What each takes is
+// passageOf's to read; this reads the ops alone, one region at a time.
+bool givesOnOnly(Operation *op, Passing passing) {
+  SmallVector<Operation *, 4> pending{op};
+  while (!pending.empty()) {
+    Operation *next = pending.pop_back_val();
+    if (std::optional<Carry> carry = carryOf(next)) {
+      if (passing == Passing::Freely && *carry == Carry::Works)
+        return false;
+      continue;
+    }
+    Region *region = passedRegion(next);
+    if (!region || (passing == Passing::Freely && !entersFreely(next, *region)))
+      return false;
+    for (Operation &inner : region->front().without_terminator())
+      pending.push_back(&inner);
+  }
+  return true;
+}
+
 // The way from `op`'s results to its block's terminator, when the ops after
-// `op` only give those values on, each taking one as its first operand, and
-// the terminator forwards exactly the values given, which `values` then
-// holds: the terminator, and the first op on the way that re-packs the
-// value it gives on, null where every one is free. None when another op
-// runs after `op`, so that what `op` gives is not yet what the block gives,
-// or when the terminator forwards anything else.
+// `op` only give those values on, each that gives its operand on taking one
+// as its first operand and each region op the values pass through taking
+// only them, bound in its region, whose end gives them back as its
+// results; and the terminator forwards exactly the values given, which
+// `values` then holds: the terminator, and the first op on the way that
+// re-packs a value it gives on (an op that works to give it on, or a
+// region op it enters at another layout), null where every one is free.
+// None when another op runs after `op`, so that what `op` gives is not yet
+// what the block gives, or when the terminator forwards anything else.
 struct Passage {
   Operation *terminator;
   Operation *repack;
@@ -68,17 +135,44 @@ struct Passage {
 std::optional<Passage> passageOf(Operation *op, SmallVectorImpl<Value> &values) {
   values.assign(op->result_begin(), op->result_end());
   Operation *repack = nullptr;
+  // The region ops the way has entered and not yet left, innermost last.
+  SmallVector<Operation *, 2> entered;
   Operation *next = op->getNextNode();
-  for (; next && !next->hasTrait<OpTrait::IsTerminator>(); next = next->getNextNode()) {
-    std::optional<Carry> carry = carryOf(next);
-    if (!carry)
+  while (next) {
+    if (next->hasTrait<OpTrait::IsTerminator>()) {
+      if (entered.empty())
+        break;
+      // The region's end gives the values back as its op's results.
+      if (!llvm::equal(next->getOperands(), values))
+        return std::nullopt;
+      Operation *left = entered.pop_back_val();
+      values.assign(left->result_begin(), left->result_end());
+      next = left->getNextNode();
+      continue;
+    }
+    if (std::optional<Carry> carry = carryOf(next)) {
+      auto *carried = llvm::find(values, next->getOperand(0));
+      if (carried == values.end())
+        return std::nullopt;
+      *carried = next->getResult(0);
+      if (*carry == Carry::Works && !repack)
+        repack = next;
+      next = next->getNextNode();
+      continue;
+    }
+    Region *region = passedRegion(next);
+    if (!region)
       return std::nullopt;
-    auto *carried = llvm::find(values, next->getOperand(0));
-    if (carried == values.end())
-      return std::nullopt;
-    *carried = next->getResult(0);
-    if (*carry == Carry::Works && !repack)
+    for (auto [operand, bound] : llvm::zip_equal(next->getOperands(), region->getArguments())) {
+      auto *carried = llvm::find(values, operand);
+      if (carried == values.end())
+        return std::nullopt;
+      *carried = bound;
+    }
+    if (!repack && !entersFreely(next, *region))
       repack = next;
+    entered.push_back(next);
+    next = &region->front().front();
   }
   if (!next || !llvm::equal(next->getOperands(), values))
     return std::nullopt;
@@ -109,15 +203,27 @@ void nameLayout(InFlightDiagnostic &diag, Type type) {
   diag << " (laid out " << name(data.layout()) << ", its class " << name(data.cls()) << ")";
 }
 
+// The two types `repack` converts a value between: an op that works to
+// give its operand on converts its operand into its result; a region op
+// re-packs the first value it binds at another layout.
+std::pair<Type, Type> repackedTypes(Operation *repack) {
+  if (Region *region = passedRegion(repack))
+    for (auto [operand, bound] : llvm::zip_equal(repack->getOperands(), region->getArguments()))
+      if (families::layoutMatch(operand.getType(), bound.getType()) != LayoutMatch::SameLayout)
+        return {operand.getType(), bound.getType()};
+  return {repack->getOperand(0).getType(), repack->getResult(0).getType()};
+}
+
 // A call where a tail would be but for `repack`, which converts the value
 // it gives between two layouts after it: the call's result layout is not
 // its caller's, so it is a jump the compiler fails to make.
-LogicalResult lostToRepack(CallOp call, Operation *repack) {
+LogicalResult lostToRepack(Operation *call, Operation *repack) {
   InFlightDiagnostic diag =
-      call.emitOpError("internal error: a call in tail position but for a re-pack after it, of ");
-  nameLayout(diag, repack->getOperand(0).getType());
+      call->emitOpError("internal error: a call in tail position but for a re-pack after it, of ");
+  auto [from, to] = repackedTypes(repack);
+  nameLayout(diag, from);
   diag << " as ";
-  nameLayout(diag, repack->getResult(0).getType());
+  nameLayout(diag, to);
   diag << ": its result layout is not its caller's, a jump the compiler fails to make";
   diag.attachNote(repack->getLoc()) << "the re-pack";
   return diag;
@@ -152,10 +258,21 @@ Operation *rejoinOf(Operation *terminator) {
 Operation *tailSource(Block &block) {
   Operation *terminator = block.getTerminator();
   Operation *source = terminator->getPrevNode();
-  while (source && carriesOn(source))
+  while (source && givesOnOnly(source, Passing::Freely))
     source = source->getPrevNode();
   llvm::SmallVector<Value, 4> values;
   return source && passesOn(source, values) == terminator ? source : nullptr;
+}
+
+std::optional<llvm::SmallVector<Operation *>> freeWayAfter(Operation *op) {
+  llvm::SmallVector<Value, 4> values;
+  if (!passesOn(op, values))
+    return std::nullopt;
+  llvm::SmallVector<Operation *> way;
+  for (Operation *next = op->getNextNode(); !next->hasTrait<OpTrait::IsTerminator>();
+       next = next->getNextNode())
+    way.push_back(next);
+  return way;
 }
 
 namespace {
@@ -181,7 +298,7 @@ struct Given {
 
 std::optional<Given> givenBy(Block &block) {
   Operation *source = block.getTerminator()->getPrevNode();
-  while (source && carryOf(source))
+  while (source && givesOnOnly(source, Passing::AtAnyCost))
     source = source->getPrevNode();
   if (!source)
     return std::nullopt;
@@ -251,8 +368,31 @@ llvm::SmallVector<Operation *> sourcesOf(FuncOp fn) {
 
 // A tail call's result goes to its function's return, never into a cell,
 // so the rule admits a context only of a call that ends no tail.
-TailKind withContext(CallOp call) {
-  return contextOf(call) ? TailKind::modulo_context : TailKind::nontail;
+CallStanding offTail(FunctionCallOpInterface call) {
+  return contextOf(call) ? CallStanding::ModuloContext : CallStanding::Returns;
+}
+
+namespace {
+
+// The member of `Members` whose constant is `standing`, made of `call`:
+// a fold over the family's list, so no member is named here.
+template <CallFamily... Members>
+FunctionCallOpInterface restandAmong(RewriterBase &rewriter, FunctionCallOpInterface call,
+                                     CallStanding standing) {
+  FunctionCallOpInterface made;
+  ((standingOf<Members> == standing ? (void)(made = restand<Members>(rewriter, call)) : (void)0),
+   ...);
+  return made;
+}
+
+} // namespace
+
+FunctionCallOpInterface restand(RewriterBase &rewriter, FunctionCallOpInterface call,
+                                CallStanding standing) {
+  return restandAmong<
+#define GET_CALLS_FAMILY_LIST
+#include "idr/IR/Generated/CallsFamily.h.inc"
+      >(rewriter, call, standing);
 }
 
 bool decided(FuncOp fn) { return tailsAt[fn.getProgram().getStage()] == StageTails::Decided; }
@@ -283,11 +423,11 @@ bool endsWithCall(Value operand, FuncOp fn) {
   return !root || root.getOwner() != &fn.getBody().front();
 }
 
-// The lifetime rule for a call that becomes a jump.
-LogicalResult verifyOperands(CallOp call, FuncOp fn) {
+// The lifetime rule for a call that is its caller's last act.
+LogicalResult verifyOperands(Operation *call, FuncOp fn) {
   for (OpOperand &operand : call->getOpOperands())
     if (endsWithCall(operand.get(), fn))
-      return call.emitOpError("internal error: operand #")
+      return call->emitOpError("internal error: operand #")
              << operand.getOperandNumber()
              << " is or lives in a lifetime that ends with this call, which goes in its place";
   return success();
@@ -295,35 +435,32 @@ LogicalResult verifyOperands(CallOp call, FuncOp fn) {
 
 } // namespace
 
+// A self call the rule admits, left an ordinary call, is a loop with a
+// destination the compiler fails to make. One in tail position is its
+// function's to show.
 LogicalResult verify(CallOp call) {
-  auto fn = call->getParentOfType<FuncOp>();
-  switch (call.getTailKind()) {
-  case TailKind::nontail:
-    // A self call the rule admits, left an ordinary call, is a loop with a
-    // destination the compiler fails to make. One in tail position is its
-    // function's to show.
-    if (decided(fn) && contextOf(call))
-      return call.emitOpError("internal error: a call modulo a context left nontail, a loop with "
-                              "a destination the compiler fails to make");
-    return success();
-  case TailKind::tail: {
-    llvm::SmallVector<Value, 4> values;
-    std::optional<Passage> passage = passageOf(call, values);
-    if (!passage ||
-        (!returnsFromFunction(passage->terminator) && !rejoinOf(passage->terminator)))
-      return call.emitOpError(
-          "internal error: a tail call whose results its block does not give on unchanged");
-    if (passage->repack)
-      return lostToRepack(call, passage->repack);
-    return verifyOperands(call, fn);
-  }
-  case TailKind::modulo_context:
-    if (!contextOf(call))
-      return call.emitOpError("internal error: a call modulo a context whose result goes "
-                              "elsewhere than into cells built for it that its function returns");
-    return verifyOperands(call, fn);
-  }
+  if (decided(call->getParentOfType<FuncOp>()) && contextOf(call))
+    return call.emitOpError("internal error: a call modulo a context left an ordinary call, a "
+                            "loop with a destination the compiler fails to make");
   return success();
+}
+
+LogicalResult verify(TailCallOp call) {
+  llvm::SmallVector<Value, 4> values;
+  std::optional<Passage> passage = passageOf(call, values);
+  if (!passage || (!returnsFromFunction(passage->terminator) && !rejoinOf(passage->terminator)))
+    return call.emitOpError(
+        "internal error: a tail call whose results its block does not give on unchanged");
+  if (passage->repack)
+    return lostToRepack(call, passage->repack);
+  return verifyOperands(call, call->getParentOfType<FuncOp>());
+}
+
+LogicalResult verify(ContextCallOp call) {
+  if (!contextOf(call))
+    return call.emitOpError("internal error: a call modulo a context whose result goes "
+                            "elsewhere than into cells built for it that its function returns");
+  return verifyOperands(call, call->getParentOfType<FuncOp>());
 }
 
 LogicalResult verify(FuncOp fn) {
@@ -335,9 +472,9 @@ LogicalResult verify(FuncOp fn) {
   // compiler fails to make too, whichever fact it holds.
   bool exact = decided(fn);
   bool agree = layoutsAgree(fn);
-  llvm::SmallVector<CallOp> reached;
+  llvm::SmallVector<TailCallOp> reached;
   for (const Tail &each : tailsOf(fn)) {
-    auto call = dyn_cast<CallOp>(each.source);
+    auto call = dyn_cast<FunctionCallOpInterface>(each.source);
     if (!call)
       continue;
     if (each.repack) {
@@ -345,25 +482,22 @@ LogicalResult verify(FuncOp fn) {
         return lostToRepack(call, each.repack);
       continue;
     }
-    if (tailCallOf(call))
-      reached.push_back(call);
+    if (auto tail = dyn_cast<TailCallOp>(call.getOperation()))
+      reached.push_back(tail);
     else if (exact)
-      return call.emitOpError("internal error: a call in tail position that is no tail call, a "
-                              "jump the compiler fails to make");
+      return call->emitOpError("internal error: a call in tail position that is no tail call, a "
+                               "jump the compiler fails to make");
   }
   // Each tail reached is one tail call, so as many tail calls as reached
   // are each among them.
   unsigned tails = 0;
-  fn.walk([&](CallOp call) {
-    if (tailCallOf(call))
-      ++tails;
-  });
+  fn.walk([&](TailCallOp) { ++tails; });
   if (reached.size() == tails)
     return success();
   // Some tail call is no tail of the function: name it.
   LogicalResult result = success();
-  fn.walk([&](CallOp call) {
-    if (tailCallOf(call) && !llvm::is_contained(reached, call)) {
+  fn.walk([&](TailCallOp call) {
+    if (!llvm::is_contained(reached, call)) {
       result = call.emitOpError("internal error: a tail call that is not in tail position: an "
                                 "op runs after a region op around it");
       return WalkResult::interrupt();
@@ -375,7 +509,7 @@ LogicalResult verify(FuncOp fn) {
 
 // The two lower to one return, so the results of the one are the other's
 // as they are, one for one, as the call's own check of its fact holds.
-LogicalResult verifyLayouts(CallOp call, FuncOp caller) {
+LogicalResult verifyLayouts(TailCallOp call, FuncOp caller) {
   for (auto [index, types] :
        llvm::enumerate(llvm::zip_equal(call.getResultTypes(), caller.getResultTypes()))) {
     auto [given, returned] = types;
@@ -397,30 +531,9 @@ LogicalResult verifyLayouts(CallOp call, FuncOp caller) {
 
 namespace idr {
 
-CallOp tailCallOf(Operation *op) {
-  auto call = dyn_cast<CallOp>(op);
-  return call && call.getTailKind() == TailKind::tail ? call : CallOp();
-}
-
-CallOp lastActOf(Operation *op) {
-  auto call = dyn_cast<CallOp>(op);
-  return call && !returnsToCaller(call.getTailKind()) ? call : CallOp();
-}
-
-CallOp contextCallOf(Operation *op) {
-  auto call = dyn_cast<CallOp>(op);
-  return call && call.getTailKind() == TailKind::modulo_context ? call : CallOp();
-}
-
-bool returnsToCaller(TailKind kind) {
-  switch (kind) {
-  case TailKind::nontail:
-    return true;
-  case TailKind::tail:
-  case TailKind::modulo_context:
-    return false;
-  }
-  llvm_unreachable("a tail kind of no case");
+FunctionCallOpInterface lastActOf(Operation *op) {
+  auto call = dyn_cast<FunctionCallOpInterface>(op);
+  return call && !returnsToCaller(call.getStanding()) ? call : FunctionCallOpInterface();
 }
 
 } // namespace idr

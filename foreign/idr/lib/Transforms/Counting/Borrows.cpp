@@ -298,7 +298,7 @@ void Writer::spread() {
 // made, through what the loans made before it gave back.
 LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
   FuncOp op = graph.op(fn);
-  WalkResult calls = op.walk([&](CallOp call) {
+  WalkResult calls = op.walk([&](FunctionCallOpInterface call) {
     const llvm::SmallBitVector &bits = viewed[graph.id(call.getCalleeAttr())];
     for (OpOperand &operand : call->getOpOperands()) {
       unsigned index = operand.getOperandNumber();

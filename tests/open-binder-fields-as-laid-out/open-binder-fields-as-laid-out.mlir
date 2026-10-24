@@ -32,12 +32,12 @@
 idr.program @boxes root(@main) stage(graded) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
-    %box = idr.call @make(%seven) <{tail_kind = nontail}> : (i64) -> !Box
+    %box = idr.call @make(%seven) : (i64) -> !Box
     %ys = idr.data.field %box[1] : !Box -> !V2
     %y = idr.data.field %ys[0] : !V2 -> i64
     %shown = idr.str.show_sint %y : (i64) -> !idr.str
     idr.io.put_str %shown : (!idr.str) -> ()
-    %opened = idr.call @open(%box) <{tail_kind = nontail}> : (!Box) -> !Opened
+    %opened = idr.call @open(%box) : (!Box) -> !Opened
     %xs = idr.data.field %opened[0] : !Opened -> !V3
     %x = idr.data.field %xs[0] : !V3 -> i64
     %again = idr.str.show_sint %x : (i64) -> !idr.str

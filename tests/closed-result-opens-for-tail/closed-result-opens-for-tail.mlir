@@ -31,10 +31,10 @@ idr.program @lengths root(@main) stage(first) {
     %seed = idr.data.con() : !UnknownNil
     %nil = idr.data.reindex %seed : !UnknownNil to !Unknown
     %k = arith.constant 2 : i64
-    %xs = idr.call @unknown(%nil, %k) <{tail_kind = nontail}> : (!Unknown, i64) -> !Unknown
-    %two = idr.call @sized(%xs, %k) <{index_args = #idr.index_args<[2]>, tail_kind = nontail}> : (!Unknown, i64) -> !V2
-    %v = idr.call @three(%xs, %k) <{tail_kind = nontail}> : (!Unknown, i64) -> !V3
-    %h = idr.call @use(%v, %k) <{tail_kind = nontail}> : (!V3, i64) -> i64
+    %xs = idr.call @unknown(%nil, %k) : (!Unknown, i64) -> !Unknown
+    %two = idr.call @sized(%xs, %k) <{index_args = #idr.index_args<[2]>}> : (!Unknown, i64) -> !V2
+    %v = idr.call @three(%xs, %k) : (!Unknown, i64) -> !V3
+    %h = idr.call @use(%v, %k) : (!V3, i64) -> i64
     idr.return
   }
   idr.func @unknown(%xs: !Unknown, %k: i64) -> !Unknown {
@@ -45,7 +45,7 @@ idr.program @lengths root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %v = idr.call @unknown(%xs, %j) <{tail_kind = tail}> : (!Unknown, i64) -> !Unknown
+      %v = idr.tail_call @unknown(%xs, %j) : (!Unknown, i64) -> !Unknown
       idr.yield %v : !Unknown
     }
     }
@@ -54,14 +54,14 @@ idr.program @lengths root(@main) stage(first) {
   idr.func <{binders = #idr.index_binders<[nat]>}> @sized(%xs: !Unknown, %k: i64) -> !Vn {
     %r = idr.lit.match %k : i64 -> (!Vn) {
     case 0(%key1: i64) {
-      %v = idr.call @unknown(%xs, %k) <{tail_kind = tail}> : (!Unknown, i64) -> !Unknown
+      %v = idr.tail_call @unknown(%xs, %k) : (!Unknown, i64) -> !Unknown
       %c = idr.data.reindex %v : !Unknown to !Vn
       idr.yield %c : !Vn
     }
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %v = idr.call @sized(%xs, %j) <{index_args = #idr.index_args<[v0]>, tail_kind = tail}> : (!Unknown, i64) -> !Vn
+      %v = idr.tail_call @sized(%xs, %j) <{index_args = #idr.index_args<[v0]>}> : (!Unknown, i64) -> !Vn
       idr.yield %v : !Vn
     }
     }
@@ -70,15 +70,15 @@ idr.program @lengths root(@main) stage(first) {
   idr.func @three(%xs: !Unknown, %k: i64) -> !V3 {
     %r = idr.lit.match %k : i64 -> (!V3) {
     case 0(%key2: i64) {
-      %v = idr.call @sized(%xs, %k) <{index_args = #idr.index_args<[3]>, tail_kind = tail}> : (!Unknown, i64) -> !V3
+      %v = idr.tail_call @sized(%xs, %k) <{index_args = #idr.index_args<[3]>}> : (!Unknown, i64) -> !V3
       idr.yield %v : !V3
     }
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
       // expected-error @below {{expected results-as-given: }}
-      %w = idr.call @three(%xs, %j) <{tail_kind = nontail}> : (!Unknown, i64) -> !V3
-      %h = idr.call @use(%w, %j) <{tail_kind = nontail}> : (!V3, i64) -> i64
+      %w = idr.call @three(%xs, %j) : (!Unknown, i64) -> !V3
+      %h = idr.call @use(%w, %j) : (!V3, i64) -> i64
       idr.yield %w : !V3
     }
     }
@@ -93,7 +93,7 @@ idr.program @lengths root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %s = idr.call @use(%v, %j) <{tail_kind = tail}> : (!V3, i64) -> i64
+      %s = idr.tail_call @use(%v, %j) : (!V3, i64) -> i64
       idr.yield %s : i64
     }
     }

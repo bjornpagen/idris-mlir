@@ -3,8 +3,8 @@
 // The box of the program graph (idr::solver::ProgramGraph), the one index
 // of a program's calls, against the calls a program was built with. Each
 // case is a program of up to four functions built from a seed, each body
-// its calls in order, the last of them in tail position or not. Each
-// function's row is every distinct callee and tail kind of its calls with
+// its calls in order, the last of them a tail call or not. Each
+// function's row is every distinct callee and standing of its calls with
 // how many calls have it; its callers are the functions that call it, each
 // once; it calls itself exactly when one of its calls names it. Two
 // functions share a component exactly when each reaches the other; a
@@ -42,7 +42,7 @@
 
 namespace {
 
-using idr::TailKind;
+using idr::CallStanding;
 using idr::box::Draws;
 using idr::solver::FunctionId;
 using idr::solver::ProgramGraph;
@@ -55,14 +55,14 @@ constexpr unsigned most = 4;
 // A call of a program: its callee's index and where it stands.
 struct Call {
   unsigned callee;
-  TailKind kind;
+  CallStanding standing;
 };
 
 // A program, as data: each function's calls in order.
 using Program = std::vector<std::vector<Call>>;
 
 // The program of a seed: up to as many calls per body as the seed allows,
-// to any function, the last in tail position as often as not.
+// to any function, the last a tail call as often as not.
 Program programOf(std::uint64_t seed) {
   Draws draws(seed);
   unsigned functions = 1 + draws.below(most);
@@ -70,27 +70,29 @@ Program programOf(std::uint64_t seed) {
   Program program(functions);
   for (std::vector<Call> &calls : program) {
     for (unsigned c = draws.below(busiest); c > 0; --c)
-      calls.push_back({draws.below(functions), TailKind::nontail});
-    const TailKind last[] = {TailKind::nontail, TailKind::tail};
+      calls.push_back({draws.below(functions), CallStanding::Returns});
+    const CallStanding last[] = {CallStanding::Returns, CallStanding::Tail};
     if (!calls.empty())
-      calls.back().kind = last[draws.below(std::size(last))];
+      calls.back().standing = last[draws.below(std::size(last))];
   }
   return program;
 }
 
 std::string nameOf(unsigned f) { return "f" + std::to_string(f); }
 
-// The IR of `program`, at the first stage, f0 its root: each function
-// taking and giving nothing, its body its calls, then its return, so a
-// last call in tail position gives its function's return its results.
-// Every row is left whole, which says too much and never too little.
+// The IR of `program`, at the higher stage, where a call that stands in
+// tail position may still be an ordinary call, f0 its root: each function
+// taking and giving nothing, its body its calls, each the member of the
+// call family its standing makes, then its return, so a last call gives
+// its function's return its results. Every row is left whole, which says
+// too much and never too little.
 mlir::OwningOpRef<mlir::ModuleOp> built(mlir::MLIRContext &context, const Program &program,
                                         std::vector<idr::FuncOp> &functions) {
   mlir::OpBuilder b(&context);
   mlir::Location loc = b.getUnknownLoc();
   mlir::OwningOpRef<mlir::ModuleOp> module = mlir::ModuleOp::create(loc);
   b.setInsertionPointToEnd(module->getBody());
-  auto top = idr::ProgramOp::create(b, loc, "calls", nameOf(0), idr::Stage::First);
+  auto top = idr::ProgramOp::create(b, loc, "calls", nameOf(0), idr::Stage::Higher);
   b.setInsertionPointToEnd(&top.getBody().front());
   for (unsigned f = 0; f < program.size(); ++f) {
     mlir::OperationState state(loc, idr::FuncOp::getOperationName());
@@ -103,16 +105,27 @@ mlir::OwningOpRef<mlir::ModuleOp> built(mlir::MLIRContext &context, const Progra
   for (unsigned f = 0; f < program.size(); ++f) {
     b.createBlock(&functions[f].getBody());
     for (Call call : program[f])
-      idr::CallOp::create(b, loc, functions[call.callee], idr::IndexArgsAttr(), mlir::ValueRange(),
-                          call.kind);
+      switch (call.standing) {
+      case CallStanding::Returns:
+        idr::CallOp::create(b, loc, functions[call.callee], idr::IndexArgsAttr(),
+                            mlir::ValueRange());
+        break;
+      case CallStanding::Tail:
+        idr::TailCallOp::create(b, loc, functions[call.callee], idr::IndexArgsAttr(),
+                                mlir::ValueRange());
+        break;
+      case CallStanding::ModuloContext:
+        ADD_FAILURE() << "the box draws no self call modulo a context";
+        break;
+      }
     idr::ReturnOp::create(b, loc, mlir::ValueRange());
   }
   return module;
 }
 
-// A row of the graph or of a model: a callee, a kind and its count of
+// A row of the graph or of a model: a callee, a standing and its count of
 // calls, in one order.
-using Row = std::vector<std::tuple<unsigned, TailKind, std::uint32_t>>;
+using Row = std::vector<std::tuple<unsigned, CallStanding, std::uint32_t>>;
 
 // What a judge takes for the truth of a program: each function's row,
 // and reachability through one call or more. The box's is read off the
@@ -129,10 +142,10 @@ Model truth(const Program &program) {
     Row row;
     for (Call call : program[f]) {
       auto same = llvm::find_if(row, [&](const auto &entry) {
-        return std::get<0>(entry) == call.callee && std::get<1>(entry) == call.kind;
+        return std::get<0>(entry) == call.callee && std::get<1>(entry) == call.standing;
       });
       if (same == row.end())
-        row.emplace_back(call.callee, call.kind, 1);
+        row.emplace_back(call.callee, call.standing, 1);
       else
         ++std::get<2>(*same);
       model.reaches[f][call.callee] = true;
@@ -154,7 +167,7 @@ std::string describe(const Program &program) {
   for (unsigned f = 0; f < program.size(); ++f) {
     text += "\n  " + nameOf(f) + ":";
     for (Call call : program[f])
-      text += " " + nameOf(call.callee) + (call.kind == TailKind::tail ? "(tail)" : "");
+      text += " " + nameOf(call.callee) + (call.standing == CallStanding::Tail ? "(tail)" : "");
   }
   return text;
 }
@@ -214,7 +227,7 @@ unsigned judge(unsigned limit, Report report) {
           fail(nameOf(f) + " is a member " + std::to_string(membership[f]) + " times");
         Row row;
         for (const idr::solver::Call &call : graph.callees(id))
-          row.emplace_back(indexOf(call.callee), call.kind, call.sites);
+          row.emplace_back(indexOf(call.callee), call.standing, call.sites);
         std::ranges::sort(row);
         if (row != model.rows[f])
           fail(nameOf(f) + "'s row is not its calls");
@@ -262,17 +275,17 @@ TEST(ProgramGraph, EveryProgramAgainstItsCalls) {
   EXPECT_EQ(judge<truth>(10, Report::Each), 0u);
 }
 
-// A row keyed by its callee alone: a call in tail position and one that
-// is not are taken for one kind of call.
-Model kindsMerged(const Program &program) {
+// A row keyed by its callee alone: a tail call and an ordinary call are
+// taken for one member.
+Model standingsMerged(const Program &program) {
   Program merged = program;
   for (std::vector<Call> &calls : merged)
     for (Call &call : calls)
-      call.kind = TailKind::nontail;
+      call.standing = CallStanding::Returns;
   return truth(merged);
 }
 
-// A row counting a callee and kind once, however many calls have it.
+// A row counting a callee and standing once, however many calls have it.
 Model sitesOnce(const Program &program) {
   Model model = truth(program);
   for (Row &row : model.rows)
@@ -294,7 +307,7 @@ Model selfCallsAcyclic(const Program &program) {
 // The judgement can fail: each model with a planted fault disagrees with
 // the graph on some program.
 TEST(ProgramGraph, EachMutantModelIsCaught) {
-  EXPECT_GT(judge<kindsMerged>(1, Report::None), 0u);
+  EXPECT_GT(judge<standingsMerged>(1, Report::None), 0u);
   EXPECT_GT(judge<sitesOnce>(1, Report::None), 0u);
   EXPECT_GT(judge<selfCallsAcyclic>(1, Report::None), 0u);
 }

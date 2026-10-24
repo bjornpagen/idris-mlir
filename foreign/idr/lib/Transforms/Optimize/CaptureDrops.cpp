@@ -64,13 +64,13 @@ void drop(Schedule &schedule, const Unread &unread) {
 
   // The calls of each label give its dropped captures no more, and the
   // changes of grade that made them go.
-  SmallVector<CallOp> calls;
-  program.walk([&](CallOp call) {
+  SmallVector<FunctionCallOpInterface> calls;
+  program.walk([&](FunctionCallOpInterface call) {
     if (std::optional<unsigned> l = unread.labelOf[graph.id(call.getCalleeAttr()).index()];
         l && unread.dropped[*l].any())
       calls.push_back(call);
   });
-  for (CallOp call : calls) {
+  for (FunctionCallOpInterface call : calls) {
     const llvm::BitVector &bits =
         unread.dropped[*unread.labelOf[graph.id(call.getCalleeAttr()).index()]];
     unsigned begin = call.getArgs().getBeginOperandIndex();
@@ -108,13 +108,6 @@ void drop(Schedule &schedule, const Unread &unread) {
   for (MemoRunOp run : runs)
     if (const llvm::BitVector *bits = unread.droppedOf(ctorOf(run.getDataType(), run.getTag())))
       run.getRegion().front().eraseArguments(*bits);
-  // The calls of each function that lost a read take their tail facts
-  // again, and its row in the graph holds them.
-  llvm::sort(lost);
-  lost.erase(std::unique(lost.begin(), lost.end()), lost.end());
-  for (FunctionId id : lost)
-    if (FuncOp fn = schedule.function(id); decideTails(fn) == Facts::Changed)
-      schedule.graph.setCallees(id, solver::rowOf(fn, schedule.graph));
   // The constructors hold the dropped fields no more.
   SmallVector<DataConOp> cons;
   program.walk([&](DataConOp con) { cons.push_back(con); });
@@ -139,8 +132,16 @@ void drop(Schedule &schedule, const Unread &unread) {
       arguments.set(p);
     (void)fn.eraseArguments(arguments);
   }
-  for (CallOp call : calls)
+  for (FunctionCallOpInterface call : calls)
     call.copyCallee(schedule.function(graph.id(call.getCalleeAttr())));
+  // The calls of each function that lost a read become the members their
+  // places make, and its row in the graph holds them: last of the edits of
+  // calls, since a call made again leaves `calls` naming one no more.
+  llvm::sort(lost);
+  lost.erase(std::unique(lost.begin(), lost.end()), lost.end());
+  for (FunctionId id : lost)
+    if (FuncOp fn = schedule.function(id); decideTails(fn) == Facts::Changed)
+      schedule.graph.setCallees(id, solver::rowOf(fn, schedule.graph));
 
   // Each group a narrowed constructor is declared in, declared anew; then
   // every type, attribute and constant of the program through the new

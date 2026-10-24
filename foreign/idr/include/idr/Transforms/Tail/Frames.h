@@ -112,10 +112,11 @@ struct Made {
   llvm::SmallVector<mlir::Value> args;
 };
 
-// A call to frame and the tail call of its rest that follows it.
+// A call to frame, an ordinary call, and the tail call of its rest that
+// follows it.
 struct Framed {
   CallOp call;
-  CallOp rest;
+  TailCallOp rest;
 };
 
 // The component's state while the pass rebuilds it: its functions, the
@@ -132,12 +133,18 @@ public:
   // stack, and whether it runs on a frame there, as the graph decides
   // both: the graph names every function the program had, and the pass's
   // own calls, which name the functions it made, are asked first, and run
-  // on no frame.
-  bool isMade(CallOp call) const { return llvm::is_contained(made, call); }
-  bool isMember(CallOp call) const {
+  // on no frame, each a tail call.
+  bool isMade(FunctionCallOpInterface call) const {
+    return llvm::any_of(made, [&](TailCallOp each) {
+      return each.getOperation() == call.getOperation();
+    });
+  }
+  bool isMember(FunctionCallOpInterface call) const {
     return !isMade(call) && graph.onFrameStack(scc, graph.id(call.getCalleeAttr()));
   }
-  bool frames(CallOp call) const { return !isMade(call) && graph.runsOnFrame(scc, call); }
+  bool frames(FunctionCallOpInterface call) const {
+    return !isMade(call) && graph.runsOnFrame(scc, call);
+  }
 
   // Step 1 on `fn`: every call to frame ends its block in a tail of its
   // function, its rest a function of its own.
@@ -149,7 +156,7 @@ public:
     unsigned row;
   };
   footprint::Vector<Function> functions;
-  footprint::Vector<CallOp> made;
+  footprint::Vector<TailCallOp> made;
   footprint::Vector<Framed> framed;
   // How many of `functions`, the first, are the program's.
   unsigned members = 0;
@@ -165,9 +172,9 @@ private:
                                      llvm::ArrayRef<mlir::Value> resultsIn,
                                      llvm::ArrayRef<families::Sort> binders);
   mlir::LogicalResult adoptLifetimes(FuncOp owner, FuncOp fn, llvm::ArrayRef<mlir::Value> reads);
-  mlir::FailureOr<CallOp> outline(FuncOp owner, unsigned row, mlir::Operation *first,
-                                  mlir::ValueRange params, llvm::StringRef kind);
-  void sinkInto(mlir::Operation *rejoin, CallOp call);
+  mlir::FailureOr<TailCallOp> outline(FuncOp owner, unsigned row, mlir::Operation *first,
+                                      mlir::ValueRange params, llvm::StringRef kind);
+  void sinkInto(mlir::Operation *rejoin, TailCallOp call);
   void normalize(mlir::Block *root);
   mlir::LogicalResult dissolve(FuncOp owner, unsigned row, mlir::Operation *join);
   // `opener` binds the per-level lifetime directly around `site`, whose
@@ -219,11 +226,11 @@ public:
   mlir::LogicalResult frameCalls(llvm::ArrayRef<FrameKind> kinds);
 
 private:
-  // The function a tail call of a function of the component goes to on
-  // the stack: a function the pass made, as it is; the program's, its run.
-  FuncOp target(CallOp call) const;
+  // The function a call of a function of the component goes to on the
+  // stack: a function the pass made, as it is; the program's, its run.
+  FuncOp target(FunctionCallOpInterface call) const;
   // `call` made again with the stack after its arguments, giving nothing.
-  void passStack(CallOp call, mlir::Value stack);
+  void passStack(TailCallOp call, mlir::Value stack);
 
   mlir::RewriterBase &rewriter;
   Component &component;

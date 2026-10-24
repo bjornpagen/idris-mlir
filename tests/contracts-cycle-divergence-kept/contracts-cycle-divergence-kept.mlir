@@ -14,7 +14,7 @@
 idr.program @contracts root(@main) stage(first) {
   idr.func <{row = ["divergence"]}> @main() {
     %n = arith.constant 6 : i64
-    %r = idr.call @down(%n) <{row = ["divergence"], tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @down(%n) <{row = ["divergence"]}> : (i64) -> i64
     idr.return
   }
   // expected-error @+1 {{contract cycle-divergence-kept broken by}}
@@ -25,7 +25,7 @@ idr.program @contracts root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        %t = idr.call @up(%next) <{row = ["divergence"], tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @up(%next) <{row = ["divergence"]}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }
@@ -40,7 +40,7 @@ idr.program @contracts root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        %t = idr.call @down(%next) <{row = ["divergence"], tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @down(%next) <{row = ["divergence"]}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }

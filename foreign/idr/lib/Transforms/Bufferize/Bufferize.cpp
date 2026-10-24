@@ -6,14 +6,14 @@
 // analysis is the program's: upstream's module driver orders the functions
 // callee first, analyzes the functions of a cycle of calls together until
 // their boundaries are a fixpoint, and analyzes every other function once;
-// upstream's own function-boundary models read idr.func, idr.call and
-// idr.return through FunctionOpInterface, CallOpInterface and ReturnLike,
-// as they read func's, and the models of this directory tell it what every
-// other idr op does with a tensor. The driver's steps are written out
-// (empty tensor elimination, analysis, copies, rewrite) so that every
-// analysis of the program is this pass's, with its options, and a failed
-// one is reported here: an analysis that fails is the compiler's broken
-// invariant.
+// upstream's own function-boundary models read idr.func, each member of
+// the call family and idr.return through FunctionOpInterface,
+// CallOpInterface and ReturnLike, as they read func's, and the models of
+// this directory tell it what every other idr op does with a tensor. The
+// driver's steps are written out (empty tensor elimination, analysis,
+// copies, rewrite) so that every analysis of the program is this pass's,
+// with its options, and a failed one is reported here: an analysis that
+// fails is the compiler's broken invariant.
 //
 // A graded tensor is tensor-like where its value is a tensor, by its own
 // models, and its buffer keeps its grade: One-Shot bufferizes a linear
@@ -122,10 +122,25 @@ FailureOr<Value> idr::bufferize::cellBuffer(RewriterBase &rewriter, Value value,
   return castOrReallocMemRefValue(rewriter, *buffer, cast<MemRefType>(cell), options);
 }
 
+namespace {
+
+// Upstream's model of a call's boundary, on each member of the call
+// family, which differ only in where the call stands: a fold over the
+// family's list.
+template <idr::CallFamily... Members>
+void attachCallModels(MLIRContext *ctx) {
+  (Members::template attachInterface<calls::CallOpBufferizableModel<Members>>(*ctx), ...);
+}
+
+} // namespace
+
 void idr::bufferize::registerModels(DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, idr::IdrDialect *) {
     idr::FuncOp::attachInterface<calls::FuncOpBufferizableModel<idr::FuncOp>>(*ctx);
-    idr::CallOp::attachInterface<calls::CallOpBufferizableModel<idr::CallOp>>(*ctx);
+    attachCallModels<
+#define GET_CALLS_FAMILY_LIST
+#include "idr/IR/Generated/CallsFamily.h.inc"
+        >(ctx);
     idr::ReturnOp::attachInterface<calls::ReturnOpBufferizableModel<idr::ReturnOp>>(*ctx);
     attachGradedModels(ctx);
     attachLinearModels(ctx);
@@ -357,12 +372,12 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
         failed(placedFirst(program)))
       return signalPassFailure();
     moveElementsOut(program);
-    // One-Shot makes each call again on buffers as a clone of itself, its
-    // tail fact with it, where the call stood: what it folds away after a
-    // call is the conversion it put on the call's results, which stood
-    // nowhere before, so each fact still says where its call stands. A cast
-    // or a copy it leaves after a tail call loses the tail, which the
-    // verifier reports.
+    // One-Shot makes each call again on buffers as a clone of itself, the
+    // member it was, where the call stood: what it folds away after a call
+    // is the conversion it put on the call's results, which stood nowhere
+    // before, so each call's member still says where it stands. A cast or a
+    // copy it leaves after a tail call loses the tail, which the verifier
+    // reports.
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);

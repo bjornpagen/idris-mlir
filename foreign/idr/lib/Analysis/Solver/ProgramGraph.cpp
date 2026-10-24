@@ -5,7 +5,6 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 
 #include "idr/Analysis/Solver/Components.h"
-#include "idr/IR/Tail.h"
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/Threading.h"
@@ -24,16 +23,17 @@ namespace idr::solver {
 
 namespace {
 
-// A row in one order, each (callee, kind) once with its calls summed: what
-// every row of a frozen graph is, whoever wrote it, so equal rows are equal
-// bytes and nothing downstream depends on the order calls were met.
+// A row in one order, each (callee, standing) once with its calls summed:
+// what every row of a frozen graph is, whoever wrote it, so equal rows are
+// equal bytes and nothing downstream depends on the order calls were met.
 void normalize(footprint::Vector<Call> &row) {
   llvm::sort(row, [](const Call &a, const Call &b) {
-    return std::tuple(a.callee.index(), a.kind) < std::tuple(b.callee.index(), b.kind);
+    return std::tuple(a.callee.index(), a.standing) < std::tuple(b.callee.index(), b.standing);
   });
   footprint::Vector<Call> merged;
   for (const Call &call : row) {
-    if (!merged.empty() && merged.back().callee == call.callee && merged.back().kind == call.kind)
+    if (!merged.empty() && merged.back().callee == call.callee &&
+        merged.back().standing == call.standing)
       merged.back().sites += call.sites;
     else
       merged.push_back(call);
@@ -47,9 +47,9 @@ void normalize(footprint::Vector<Call> &row) {
 template <class Resolve>
 footprint::Vector<Call> rowFrom(FuncOp fn, const Resolve &resolve) {
   footprint::Vector<Call> row;
-  fn.getBody().walk([&](CallOp call) {
+  fn.getBody().walk([&](FunctionCallOpInterface call) {
     if (std::optional<FunctionId> callee = resolve(call.getCalleeAttr()))
-      row.push_back({*callee, call.getTailKind(), 1});
+      row.push_back({*callee, call.getStanding(), 1});
   });
   normalize(row);
   return row;
@@ -165,8 +165,8 @@ void ProgramGraph::partition() {
   }
 }
 
-bool ProgramGraph::runsOnFrame(SccId from, FunctionId callee, TailKind kind) const {
-  return returnsToCaller(kind) && sccOf(callee) == from;
+bool ProgramGraph::runsOnFrame(SccId from, FunctionId callee, CallStanding standing) const {
+  return returnsToCaller(standing) && sccOf(callee) == from;
 }
 
 // Each call of a row that runs on a frame, read once per row: every callee
@@ -176,7 +176,7 @@ void ProgramGraph::frame() {
   framed = BitSet<SccId>(sccCount());
   for (FunctionId f : functions())
     for (const Call &call : callees(f))
-      if (runsOnFrame(sccOf(f), call.callee, call.kind))
+      if (runsOnFrame(sccOf(f), call.callee, call.standing))
         (void)framed.raise(sccOf(f));
 }
 

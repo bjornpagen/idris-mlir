@@ -52,7 +52,7 @@ Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &
 // pipeline.
 LogicalResult Scheduler::round(FunctionId member) {
   FuncOp fn = schedule.function(member);
-  fn.getBody().walk([&](CallOp call) {
+  fn.getBody().walk([&](FunctionCallOpInterface call) {
     if (std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr()))
       if (std::optional<Readable> known = schedule.final(*callee))
         call.setRow(known->fn.getRow());

@@ -77,10 +77,11 @@ enum class Ending : std::uint8_t { Ends, MayNotEnd };
 // keeps the divergence it had.
 Ending endingOf(llvm::ArrayRef<FuncOp> functions);
 
-// An op that becomes a jump to member `target`: the last op of its block
-// before a terminator that passes on exactly its results. The jump passes
-// `args`, values of the site's scope, and `terms` for the target's
-// binders, the null attribute where it binds none.
+// An op that becomes a jump to member `target`: a tail call, whose way to
+// its block's terminator, which passes on exactly its results, does no
+// run-time work (tail::freeWayAfter), and which the jump takes the place
+// of with that way. The jump passes `args`, values of the site's scope, and
+// `terms` for the target's binders, the null attribute where it binds none.
 struct Site {
   mlir::Operation *op;
   unsigned target;

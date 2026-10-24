@@ -85,10 +85,10 @@ def IdrContify : Pass<"idr-contify", "::idr::ProgramOp"> {
   let summary = "Make each function every call of which returns to one continuation a join point there";
   let description = [{
     Fluet and Weeks on regions: one dominator tree over functions and their return points.
-    The pass knows the tail fact of each call it moves, and writes it: a tail call stays one
-    where the group's place keeps tails, a call of the function it moved into takes its
-    context where it now stands, and every other call it moves into a continuation is
-    nontail.
+    The pass knows where each call it moves stands, and makes it that member: a tail call
+    stays one where the group's place keeps tails, a call of the function it moved into
+    takes its context where it now stands, and every other call it moves into a
+    continuation is an ordinary call.
   }];
   let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::First, ::idr::Stage::First>";
   let statistics = [
@@ -410,8 +410,8 @@ def IdrNarrowLanes : Pass<"idr-narrow-lanes", "::mlir::LLVM::LLVMFuncOp"> {
 def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
   let summary = "End each musttail call's block with the return of its results";
   let description = [{
-    After the conversion to LLVM: the materialization of the tail fact each call already
-    carries; LLVM's verifier is the last check.
+    After the conversion to LLVM: the materialization of the musttail call each tail call
+    already is; LLVM's verifier is the last check.
   }];
   let baseClass = "::mlir::OperationPass<::mlir::ModuleOp>";
   let dependentDialects = ["::mlir::LLVM::LLVMDialect"];

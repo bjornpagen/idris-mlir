@@ -330,10 +330,10 @@ struct Version {
 struct Walk {
   explicit Walk(FuncOp fn) {
     solver::inWalkOrder(fn, [&](mlir::Value value) { values.push_back(value); });
-    ownership::forEachCall(fn, [&](CallOp call) { calls.push_back(call); });
+    ownership::forEachCall(fn, [&](FunctionCallOpInterface call) { calls.push_back(call); });
   }
   llvm::SmallVector<mlir::Value> values;
-  llvm::SmallVector<CallOp> calls;
+  llvm::SmallVector<FunctionCallOpInterface> calls;
 };
 
 // What a verdict makes of each function: its versions, the original first

@@ -36,6 +36,25 @@ def Idr_DeclaredEffectsOpInterface : OpInterface<"DeclaredEffectsOpInterface"> {
   ];
 }
 
+def Idr_FunctionCallOpInterface : OpInterface<"FunctionCallOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"the function it calls", "::mlir::FlatSymbolRefAttr", "getCalleeAttr", (ins)>,
+    InterfaceMethod<"calls `callee` instead", "void", "setCalleeAttr", (ins "::mlir::FlatSymbolRefAttr":$callee)>,
+    InterfaceMethod<"the index term it gives each of its callee's binders", "::idr::IndexArgsAttr", "getIndexArgsAttr", (ins)>,
+    InterfaceMethod<"what it passes", "::mlir::Operation::operand_range", "getArgs", (ins)>,
+    InterfaceMethod<"what it passes, to edit", "::mlir::MutableOperandRange", "getArgsMutable", (ins)>,
+    InterfaceMethod<"its copy of its callee's row", "::idr::effects::Row", "getRow", (ins)>,
+    InterfaceMethod<"takes `row` as its copy of its callee's row", "void", "setRow", (ins "::idr::effects::Row":$row)>,
+    InterfaceMethod<"its copy of what its callee never writes through", "::mlir::DenseI32ArrayAttr", "getUntouchedAttr", (ins)>,
+    InterfaceMethod<"takes `untouched` as its copy of what its callee never writes through", "void", "setUntouchedAttr", (ins "::mlir::DenseI32ArrayAttr":$untouched)>,
+    InterfaceMethod<"its copy of where its callee's scoped results live", "::idr::LivesInAttr", "getLivesInAttr", (ins)>,
+    InterfaceMethod<"takes `livesIn` as its copy of where its callee's scoped results live", "void", "setLivesInAttr", (ins "::idr::LivesInAttr":$livesIn)>,
+    InterfaceMethod<"takes again every copy it holds of its callee's, its result types among them", "void", "copyCallee", (ins "const ::idr::FuncOp &":$callee)>,
+    InterfaceMethod<"where it stands: its member's constant", "::idr::CallStanding", "getStanding", (ins), [{}], [{ return ::idr::callStandingOf($_op); }]>
+  ];
+}
+
 def Idr_ErasedBinderOpInterface : OpInterface<"ErasedBinderOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [

@@ -107,7 +107,7 @@ struct Held {
 
 // Whether `call` passes an operand at a hold its callee's parameter does not
 // take.
-bool crosses(CallOp call, FuncOp callee) {
+bool crosses(FunctionCallOpInterface call, FuncOp callee) {
   return llvm::any_of(passedHolds(call, callee.getArgumentTypes()),
                       [](const std::optional<Hold> &passed) { return passed.has_value(); });
 }
@@ -173,16 +173,17 @@ FailureOr<Keyed> keyCrossings(ProgramOp program, solver::ProgramGraph &frozen,
     // Where each call's results go, read off the function's tails once
     // before any redirect, which moves no other call's standing.
     SmallVector<CallOp> lost = lostTails(fn);
-    SmallVector<CallOp> calls;
-    fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+    SmallVector<FunctionCallOpInterface> calls;
+    fn.walk<WalkOrder::PreOrder>([&](FunctionCallOpInterface call) { calls.push_back(call); });
     Changed redirected = Changed::No;
-    for (CallOp call : calls) {
+    for (FunctionCallOpInterface call : calls) {
       FunctionId calleeId = editor.id(call.getCalleeAttr());
       Held callee = held[calleeId.index()];
       if (!crosses(call, callee.fn))
         continue;
-      TailStanding standing =
-          llvm::is_contained(lost, call) ? TailStanding::LostToLayout : TailStanding::Elsewhere;
+      TailStanding standing = llvm::is_contained(lost, call.getOperation())
+                                  ? TailStanding::LostToLayout
+                                  : TailStanding::Elsewhere;
       std::optional<SignatureWant> want =
           signatureOf(arena, KeyedCopies{}, call, callee.fn, calleeId, callee.given,
                       siteOf(self, calleeId), standing);
@@ -233,7 +234,7 @@ struct Round : impl::IdrSpecializeBase<Round> {
     SmallVector<FunctionId> crossing;
     for (FunctionId f : graph.functions())
       if (graph.op(f)
-              .walk([&](CallOp call) {
+              .walk([&](FunctionCallOpInterface call) {
                 return crosses(call, graph.op(graph.id(call.getCalleeAttr())))
                            ? WalkResult::interrupt()
                            : WalkResult::advance();

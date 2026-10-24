@@ -148,7 +148,7 @@ Span spanIn(Block *block, ArrayRef<OpOperand *> uses) {
 bool holdsCallOnFrame(Operation *op, FunctionId self, const solver::ProgramGraph &graph) {
   solver::SccId from = graph.sccOf(self);
   return op
-      ->walk([&](CallOp call) {
+      ->walk([&](FunctionCallOpInterface call) {
         return graph.runsOnFrame(from, call) ? WalkResult::interrupt() : WalkResult::advance();
       })
       .wasInterrupted();

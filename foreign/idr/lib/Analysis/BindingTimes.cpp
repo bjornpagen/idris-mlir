@@ -113,7 +113,7 @@ Calls readCalls(const solver::Editor &editor, ArrayRef<solver::Member> component
     out.slot.push_back(slots);
     slots += fn.getNumArguments();
     out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
-    fn.getBody().walk([&](CallOp call) {
+    fn.getBody().walk([&](FunctionCallOpInterface call) {
       std::optional<std::uint32_t> callee = positionOf(editor.id(call.getCalleeAttr()));
       if (!callee)
         return;

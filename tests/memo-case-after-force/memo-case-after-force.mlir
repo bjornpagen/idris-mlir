@@ -43,7 +43,7 @@ idr.program @byMatch root(@main) stage(first) {
     case @single(%p: !Single) {
       %v = idr.memo.run %p : !Single -> i64 {
       ^bb0(%c: i64):
-        %h = idr.call @single(%c) <{tail_kind = nontail}> : (i64) -> i64
+        %h = idr.call @single(%c) : (i64) -> i64
         idr.memo.yield %h : i64 then %h : i64
       }
       %two = arith.constant 2.0 : f64
@@ -101,7 +101,7 @@ idr.program @byCall root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        %t = idr.call @single(%next) <{tail_kind = nontail}> : (i64) -> i64
+        %t = idr.call @single(%next) : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64
       }
@@ -113,7 +113,7 @@ idr.program @byCall root(@main) stage(first) {
     case @single(%p: !Single) {
       %x = idr.memo.run %p : !Single -> i64 {
       ^bb0(%c: i64):
-        %h = idr.call @single(%c) <{tail_kind = nontail}> : (i64) -> i64
+        %h = idr.call @single(%c) : (i64) -> i64
         idr.memo.yield %h : i64 then %h : i64
       }
       idr.yield %x : i64
@@ -134,7 +134,7 @@ idr.program @byCall root(@main) stage(first) {
     %cell = idr.data.con(%n : i64) : !Single1
     %many = idr.lin.cast %cell : !Single1 -> !Single
     %lazy = idr.data.reindex %many : !Single to !Lazy
-    %forced = idr.call @force(%lazy) <{tail_kind = nontail}> : (!Lazy) -> i64
+    %forced = idr.call @force(%lazy) : (!Lazy) -> i64
     %r = idr.data.match %lazy : !Lazy -> (f64) {
     case @single(%p: !Single) {
       %one = arith.constant 1.0 : f64

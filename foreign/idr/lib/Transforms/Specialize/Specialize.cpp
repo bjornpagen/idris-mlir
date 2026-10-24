@@ -348,7 +348,8 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
                          llvm::none_of(closures.labels, [&](FlatSymbolRefAttr label) {
                            return schedule.sameComponent(schedule.graph.id(label), origin);
                          });
-          return outside && !sharesClosure(cast<CallOp>(at)) ? CopyKind::Beta : CopyKind::Step;
+          return outside && !sharesClosure(cast<FunctionCallOpInterface>(at)) ? CopyKind::Beta
+                                                                               : CopyKind::Step;
         });
   };
   std::optional<CopyKind> copy = idr::match(

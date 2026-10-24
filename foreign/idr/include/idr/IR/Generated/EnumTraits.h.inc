@@ -32,9 +32,9 @@ struct EnumTraits<::idr::Rule> {
 };
 
 template <>
-struct EnumTraits<::idr::TailKind> {
+struct EnumTraits<::idr::CallStanding> {
   static constexpr std::size_t count = 3;
-  static constexpr std::array<std::string_view, 3> names{{"nontail", "tail", "modulo_context"}};
+  static constexpr std::array<std::string_view, 3> names{{"returns", "tail", "modulo_context"}};
 };
 
 template <>

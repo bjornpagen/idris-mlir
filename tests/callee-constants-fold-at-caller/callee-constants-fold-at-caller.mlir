@@ -10,13 +10,13 @@
 !Str = !idr.graded<many, static, !idr.str>
 idr.program @returned root(@main) stage(first) {
   idr.func @two() -> (f64, f64) {
-    %again:2 = idr.call @two() <{tail_kind = nontail}> : () -> (f64, f64)
+    %again:2 = idr.call @two() : () -> (f64, f64)
     %a = arith.constant 2.0 : f64
     %b = arith.constant 3.0 : f64
     idr.return %a, %b : f64, f64
   }
   idr.func @main() {
-    %r:2 = idr.call @two() <{tail_kind = nontail}> : () -> (f64, f64)
+    %r:2 = idr.call @two() : () -> (f64, f64)
     // expected-error @below {{expected folded: }}
     %e = math.exp %r#0 : f64
     // expected-error @below {{expected folded: }}

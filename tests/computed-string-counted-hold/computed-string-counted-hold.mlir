@@ -29,7 +29,7 @@ idr.program @compared root(@ab) stage(first) {
 !Str = !idr.graded<many, static, !idr.str>
 idr.program @returned root(@main) stage(first) {
   idr.func @ab() -> !idr.str {
-    %again = idr.call @ab() <{tail_kind = nontail}> : () -> !idr.str
+    %again = idr.call @ab() : () -> !idr.str
     %a = idr.constant !Str "a"
     %b = idr.constant !Str "b"
     // expected-error @below {{expected folded: }}
@@ -37,7 +37,7 @@ idr.program @returned root(@main) stage(first) {
     idr.return %ab : !idr.str
   }
   idr.func @main() {
-    %given = idr.call @ab() <{tail_kind = nontail}> : () -> !idr.str
+    %given = idr.call @ab() : () -> !idr.str
     idr.io.put_str %given : (!idr.str) -> ()
     idr.return
   }

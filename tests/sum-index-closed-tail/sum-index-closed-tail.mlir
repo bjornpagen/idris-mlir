@@ -40,23 +40,23 @@ idr.program @reversal root(@main) stage(first) {
     %v2 = idr.data.con(%x : i64, %v1 : !V1) : !V2
     %v3 = idr.data.con(%x : i64, %v2 : !V2) : !V3
     %k = arith.constant 2 : i64
-    %r = idr.call @later(%nil, %v3, %k) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
+    %r = idr.call @later(%nil, %v3, %k) <{index_args = #idr.index_args<[0, 3]>}> : (!V0, !V3, i64) -> !V3
     %once = arith.constant 1 : i64
-    %s = idr.call @later(%nil, %v3, %once) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
+    %s = idr.call @later(%nil, %v3, %once) <{index_args = #idr.index_args<[0, 3]>}> : (!V0, !V3, i64) -> !V3
     %now = arith.constant 0 : i64
-    %t = idr.call @reverseOnto(%nil, %v3, %now) <{index_args = #idr.index_args<[0, 3]>, tail_kind = nontail}> : (!V0, !V3, i64) -> !V3
+    %t = idr.call @reverseOnto(%nil, %v3, %now) <{index_args = #idr.index_args<[0, 3]>}> : (!V0, !V3, i64) -> !V3
     idr.return
   }
   idr.func <{binders = #idr.index_binders<[nat, nat]>}> @later(%acc: !Acc, %xs: !Xs, %k: i64) -> !Both {
     %r = idr.lit.match %k : i64 -> (!Both) {
     case 0(%key0: i64) {
-      %moved = idr.call @reverseOnto(%acc, %xs, %k) <{index_args = #idr.index_args<[v0, v1]>, tail_kind = tail}> : (!Acc, !Xs, i64) -> !Both
+      %moved = idr.tail_call @reverseOnto(%acc, %xs, %k) <{index_args = #idr.index_args<[v0, v1]>}> : (!Acc, !Xs, i64) -> !Both
       idr.yield %moved : !Both
     }
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @later(%acc, %xs, %j) <{index_args = #idr.index_args<[v0, v1]>, tail_kind = tail}> : (!Acc, !Xs, i64) -> !Both
+      %again = idr.tail_call @later(%acc, %xs, %j) <{index_args = #idr.index_args<[v0, v1]>}> : (!Acc, !Xs, i64) -> !Both
       idr.yield %again : !Both
     }
     }
@@ -74,7 +74,7 @@ idr.program @reversal root(@main) stage(first) {
         %h = idr.data.field %c[0] : !idr.data<#Vect[v1] @Cons<v2>> -> i64
         %t = idr.data.field %c[1] : !idr.data<#Vect[v1] @Cons<v2>> -> !idr.data<#Vect[v2]>
         %grown = idr.data.con(%h : i64, %acc : !Acc) : !idr.data<#Vect[v0 + 1]>
-        %s = idr.call @reverseOnto(%grown, %t, %k) <{index_args = #idr.index_args<[v0 + 1, v2]>, tail_kind = tail}> : (!idr.data<#Vect[v0 + 1]>, !idr.data<#Vect[v2]>, i64) -> !idr.data<#Vect[v0 + v2 + 1]>
+        %s = idr.tail_call @reverseOnto(%grown, %t, %k) <{index_args = #idr.index_args<[v0 + 1, v2]>}> : (!idr.data<#Vect[v0 + 1]>, !idr.data<#Vect[v2]>, i64) -> !idr.data<#Vect[v0 + v2 + 1]>
         %back = idr.data.reindex %s : !idr.data<#Vect[v0 + v2 + 1]> to !Both
         idr.yield %back : !Both
       }
@@ -84,7 +84,7 @@ idr.program @reversal root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @reverseOnto(%acc, %xs, %j) <{index_args = #idr.index_args<[v0, v1]>, tail_kind = tail}> : (!Acc, !Xs, i64) -> !Both
+      %again = idr.tail_call @reverseOnto(%acc, %xs, %j) <{index_args = #idr.index_args<[v0, v1]>}> : (!Acc, !Xs, i64) -> !Both
       idr.yield %again : !Both
     }
     }

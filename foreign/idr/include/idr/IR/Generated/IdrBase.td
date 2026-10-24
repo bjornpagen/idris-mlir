@@ -208,15 +208,15 @@ def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
 def Idr_RuleAttr : EnumAttr<Idr_Dialect, Idr_Rule, "rule">;
 
 // where a call stands in its function
-def Idr_TailKind : I32EnumAttr<"TailKind", "where a call stands in its function", [
-    I32EnumAttrCase<"nontail", 0, "nontail">,
-    I32EnumAttrCase<"tail", 1, "tail">,
-    I32EnumAttrCase<"modulo_context", 2, "modulo_context">
+def Idr_CallStanding : I32EnumAttr<"CallStanding", "where a call stands in its function", [
+    I32EnumAttrCase<"Returns", 0, "returns">,
+    I32EnumAttrCase<"Tail", 1, "tail">,
+    I32EnumAttrCase<"ModuloContext", 2, "modulo_context">
   ]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
 }
-def Idr_TailKindAttr : EnumAttr<Idr_Dialect, Idr_TailKind, "tail_kind">;
+def Idr_CallStandingAttr : EnumAttr<Idr_Dialect, Idr_CallStanding, "call_standing">;
 
 // what a specialized copy is to its origin's recursion
 def Idr_CopyKind : I32EnumAttr<"CopyKind", "what a specialized copy is to its origin's recursion", [

@@ -23,20 +23,20 @@ idr.program @lengths root(@main) stage(first) {
   idr.func @main() {
     %seed = idr.data.con() : !UnknownNil
     %xs = idr.data.reindex %seed : !UnknownNil to !Unknown
-    %generic = idr.call @sized(%xs) <{index_args = #idr.index_args<[3]>, tail_kind = nontail}> : (!Unknown) -> !V3
-    %copy = idr.call @sized_3(%xs) <{tail_kind = nontail}> : (!Unknown) -> !V3Open
+    %generic = idr.call @sized(%xs) <{index_args = #idr.index_args<[3]>}> : (!Unknown) -> !V3
+    %copy = idr.call @sized_3(%xs) : (!Unknown) -> !V3Open
     idr.return
   }
   idr.func @unknown(%xs: !Unknown) -> !Unknown {
     idr.return %xs : !Unknown
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @sized(%xs: !Unknown) -> !Vn {
-    %v = idr.call @unknown(%xs) <{tail_kind = tail}> : (!Unknown) -> !Unknown
+    %v = idr.tail_call @unknown(%xs) : (!Unknown) -> !Unknown
     %c = idr.data.reindex %v : !Unknown to !Vn
     idr.return %c : !Vn
   }
   idr.func @sized_3(%xs: !Unknown) -> !V3Open {
-    %v = idr.call @unknown(%xs) <{tail_kind = tail}> : (!Unknown) -> !Unknown
+    %v = idr.tail_call @unknown(%xs) : (!Unknown) -> !Unknown
     %c = idr.data.reindex %v : !Unknown to !V3Open
     idr.return %c : !V3Open
   }

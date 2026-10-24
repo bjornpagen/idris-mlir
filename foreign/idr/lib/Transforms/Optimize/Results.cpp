@@ -36,7 +36,6 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Tail.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Joins/Rules.h"
 #include "idr/Transforms/OptimizeScheduler.h"
@@ -168,6 +167,18 @@ void releaseRejoins(RewriterBase &rewriter, FuncOp fn, ArrayRef<Value> released)
   }
 }
 
+// `state` takes `call`'s properties, as the member it is: the one of
+// `Members` that `call` is, read off the family's list, so the call made
+// again stands where it stood.
+template <CallFamily... Members>
+void takeProperties(OperationState &state, FunctionCallOpInterface call) {
+  ((isa<Members>(call.getOperation())
+        ? (void)(state.getOrAddProperties<typename Members::Properties>() =
+                     cast<Members>(call.getOperation()).getProperties())
+        : (void)0),
+   ...);
+}
+
 } // namespace
 
 void dropDeadResults(Schedule &schedule) {
@@ -182,16 +193,14 @@ void dropDeadResults(Schedule &schedule) {
     first.push_back(first.back() + (fn ? fn.getNumResults() : 0));
   }
   auto slot = [&](FunctionId fn, unsigned result) { return first[fn.index()] + result; };
-  auto calleeOf = [&](CallOp call) { return graph.id(call.getCalleeAttr()); };
+  auto calleeOf = [&](FunctionCallOpInterface call) { return graph.id(call.getCalleeAttr()); };
 
   // The classes: a tail call joins each of its callee's results to its
   // caller's at the same position.
   llvm::IntEqClasses joined(first.back());
   for (FunctionId self : graph.size().ids())
     if (FuncOp fn = fns[self.index()])
-      fn.getBody().walk([&](CallOp call) {
-        if (!tailCallOf(call))
-          return;
+      fn.getBody().walk([&](TailCallOp call) {
         for (unsigned r = 0, e = call->getNumResults(); r < e; ++r)
           joined.join(slot(self, r), slot(calleeOf(call), r));
       });
@@ -218,7 +227,7 @@ void dropDeadResults(Schedule &schedule) {
       if (fn.isRoot() || isLinearByType(type))
         mark(classOf(self, static_cast<unsigned>(r)));
     Followed followed(fn);
-    fn.getBody().walk([&](CallOp call) {
+    fn.getBody().walk([&](FunctionCallOpInterface call) {
       FunctionId callee = calleeOf(call);
       for (OpResult result : call->getResults()) {
         unsigned given = classOf(callee, result.getResultNumber());
@@ -272,22 +281,22 @@ void dropDeadResults(Schedule &schedule) {
     releaseRejoins(rewriter, fn, released);
   }
   // Then every call of a function that lost a result, made again without
-  // it.
-  SmallVector<CallOp> remade;
+  // it, the member it was.
+  SmallVector<FunctionCallOpInterface> remade;
   for (FunctionId self : graph.size().ids()) {
     FuncOp fn = fns[self.index()];
     if (!fn)
       continue;
-    SmallVector<CallOp> calls;
-    fn.getBody().walk([&](CallOp call) {
+    SmallVector<FunctionCallOpInterface> calls;
+    fn.getBody().walk([&](FunctionCallOpInterface call) {
       if (dead[calleeOf(call).index()].any())
         calls.push_back(call);
     });
-    for (CallOp call : calls) {
+    for (FunctionCallOpInterface call : calls) {
       const llvm::BitVector &bits = dead[calleeOf(call).index()];
       SmallVector<Type> kept;
       SmallVector<Attribute> keptAttrs;
-      ArrayAttr resAttrs = call.getResAttrsAttr();
+      ArrayAttr resAttrs = cast<CallOpInterface>(call.getOperation()).getResAttrsAttr();
       for (OpResult result : call->getResults())
         if (!bits.test(result.getResultNumber())) {
           kept.push_back(result.getType());
@@ -297,11 +306,15 @@ void dropDeadResults(Schedule &schedule) {
       rewriter.setInsertionPoint(call);
       OperationState state(call.getLoc(), call->getName(), call->getOperands(), kept,
                            call->getDiscardableAttrDictionary().getValue());
-      state.getOrAddProperties<CallOp::Properties>() = call.getProperties();
-      auto fresh = cast<CallOp>(rewriter.create(state));
+      takeProperties<
+#define GET_CALLS_FAMILY_LIST
+#include "idr/IR/Generated/CallsFamily.h.inc"
+          >(state, call);
+      auto fresh = cast<FunctionCallOpInterface>(rewriter.create(state));
       remade.push_back(fresh);
       if (resAttrs)
-        fresh.setResAttrsAttr(rewriter.getArrayAttr(keptAttrs));
+        cast<CallOpInterface>(fresh.getOperation())
+            .setResAttrsAttr(rewriter.getArrayAttr(keptAttrs));
       unsigned next = 0;
       for (OpResult result : call->getResults()) {
         if (!bits.test(result.getResultNumber())) {
@@ -323,7 +336,7 @@ void dropDeadResults(Schedule &schedule) {
       continue;
     (void)fn.eraseResults(dead[self.index()]);
   }
-  for (CallOp call : remade)
+  for (FunctionCallOpInterface call : remade)
     call.copyCallee(fns[calleeOf(call).index()]);
 }
 

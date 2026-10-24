@@ -17,13 +17,13 @@
 idr.program @crossings root(@main) stage(first) {
   idr.func @main() {
     %two = arith.constant 2 : i64
-    %a = idr.call @pick(%two) <{tail_kind = nontail}> : (i64) -> !idr.str
+    %a = idr.call @pick(%two) : (i64) -> !idr.str
     idr.io.put_str %a : (!idr.str) -> ()
-    %b = idr.call @pick(%two) <{tail_kind = nontail}> : (i64) -> !idr.str
+    %b = idr.call @pick(%two) : (i64) -> !idr.str
     idr.io.put_str %b : (!idr.str) -> ()
-    %c = idr.call @word(%two) <{tail_kind = nontail}> : (i64) -> !idr.str
+    %c = idr.call @word(%two) : (i64) -> !idr.str
     idr.io.put_str %c : (!idr.str) -> ()
-    %d = idr.call @word(%two) <{tail_kind = nontail}> : (i64) -> !idr.str
+    %d = idr.call @word(%two) : (i64) -> !idr.str
     idr.io.put_str %d : (!idr.str) -> ()
     idr.return
   }
@@ -36,7 +36,7 @@ idr.program @crossings root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @pick(%j) <{tail_kind = tail}> : (i64) -> !idr.str
+      %again = idr.tail_call @pick(%j) : (i64) -> !idr.str
       idr.yield %again : !idr.str
     }
     }

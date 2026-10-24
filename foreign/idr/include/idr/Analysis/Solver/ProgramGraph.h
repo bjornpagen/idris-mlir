@@ -3,20 +3,21 @@
 // The one call graph of an idr.program, from defunctionalization, where
 // every call becomes a direct call, to idr-lower, after which nothing reads
 // one (the native stack's bound reads LLVM's own graph of the final
-// module). It is an index of the program's idr.call ops: it holds no fact
-// the calls do not hold, and nothing reads a call's callee another way.
+// module). It is an index of the program's calls, every member of the
+// call family: it holds no fact the calls do not hold, and nothing reads a
+// call's callee another way.
 //
 // It wraps the analysis manager's one mlir::CallGraph and never builds a
 // second: a function's id is its node's dense index, and the components
 // are upstream's, bottom-up, as ranges of one permutation. On top it holds
 // what upstream cannot, as tables indexed by those ids: each function's
-// row of distinct (callee, tail kind) with how many calls have it, the
+// row of distinct (callee, standing) with how many calls have it, the
 // callers, the cycles, which calls run on a frame and the components that
 // run one, and the editor through which the one restructuring pass that
 // changes calls edits it.
 //
 // No row holds a call op: a pass that recreates a call without changing
-// its callee or kind (counting rewrites operands) leaves the graph exact,
+// its callee or standing (counting rewrites operands) leaves the graph exact,
 // and no pointer into freed IR can exist. A client that needs its own
 // function's calls walks its own body.
 //
@@ -83,11 +84,12 @@ class GraphIds {
 };
 } // namespace detail
 
-// One distinct (callee, tail kind) of a function, and how many of its
-// calls have it. The kind is the call's own fact, read off the call.
+// One distinct (callee, standing) of a function, and how many of its
+// calls have it. The standing is the call's member of the call family,
+// read off the call.
 struct Call {
   FunctionId callee;
-  TailKind kind;
+  CallStanding standing;
   std::uint32_t sites;
 };
 
@@ -140,8 +142,8 @@ public:
     return isCycle(members(c), [&](FunctionId lone) { return callsItself(lone); });
   }
   bool onCycle(FunctionId f) const { return onCycle(sccOf(f)); }
-  // Whether a call made in component `from`, of `callee`, whose fact is
-  // `kind`, runs on a frame: it returns to its caller (returnsToCaller),
+  // Whether a call made in component `from`, of `callee`, standing as
+  // `standing`, runs on a frame: it returns to its caller (returnsToCaller),
   // and its callee is a member of `from`, so the caller waits on the cycle
   // while the callee runs, and idr-frames moves what follows the call into
   // a frame of its own. The one place a call is decided to run on a frame:
@@ -151,9 +153,9 @@ public:
   // stand no region around it). The caller's component is given rather
   // than read off the call: idr-frames asks it of code it has moved into
   // functions the graph does not hold.
-  bool runsOnFrame(SccId from, FunctionId callee, TailKind kind) const;
-  bool runsOnFrame(SccId from, idr::CallOp call) const {
-    return runsOnFrame(from, id(call.getCalleeAttr()), call.getTailKind());
+  bool runsOnFrame(SccId from, FunctionId callee, CallStanding standing) const;
+  bool runsOnFrame(SccId from, FunctionCallOpInterface call) const {
+    return runsOnFrame(from, id(call.getCalleeAttr()), call.getStanding());
   }
   // Whether component `c` runs a call on a frame: a call a member makes
   // runs on one. Asked of every component before any member's body is
@@ -225,7 +227,7 @@ public:
   FunctionId insert(idr::FuncOp fn);
   // A function the pass erased: its row goes, and so do the edges into it.
   void erase(FunctionId f);
-  // `f`'s row, replaced whole: a (callee, kind) may appear once, with its
+  // `f`'s row, replaced whole: a (callee, standing) may appear once, with its
   // count of calls.
   void setCallees(FunctionId f, llvm::ArrayRef<Call> row);
   std::span<const Call> callees(FunctionId f) const { return rows[f.index()]; }
@@ -253,7 +255,7 @@ private:
 
 // `fn`'s row as its calls now are, what a restructuring pass gives
 // Editor::setCallees for each function it makes or changes: each distinct
-// (callee, tail kind) once with how many of its calls have it, in the one
+// (callee, standing) once with how many of its calls have it, in the one
 // order every row has, whoever writes it. A call of a copy the editor does
 // not hold yet is in no row until the copy is inserted and its caller's row
 // written again.

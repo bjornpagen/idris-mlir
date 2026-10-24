@@ -4,9 +4,10 @@
 //
 // A function's self tail calls become one loop: a recursive join point
 // whose region is the old body, each self tail call a jump back to it
-// (idr::joins::loopSelf, the one construction of join points). A call
-// whose fact is `tail` is in tail position by the verifier's word, so the
-// jump that replaces it is a tail transfer, and nothing after it runs.
+// (idr::joins::loopSelf, the one construction of join points). A tail
+// call is in tail position by the verifier's word, so the jump that
+// replaces it, and the way from it to its block's end, is a tail transfer,
+// and nothing after it runs.
 //
 // The loop is an optimization over the guarantee, not the guarantee: a
 // self tail call left a call is `musttail` at the lowering and grows no
@@ -127,8 +128,8 @@ struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
     // The self tail calls that pass the function's own lifetimes, each at
     // its own position: only those jump back.
     llvm::SmallVector<joins::Site> calls;
-    fn.walk([&](CallOp call) {
-      if (!tailCallOf(call) || call.getCalleeAttr().getAttr() != fn.getSymNameAttr())
+    fn.walk([&](TailCallOp call) {
+      if (call.getCalleeAttr().getAttr() != fn.getSymNameAttr())
         return;
       if (llvm::all_of(lifetimes, [&](unsigned position) {
             return call.getArgs()[position] == entry.getArgument(position);

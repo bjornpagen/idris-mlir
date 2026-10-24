@@ -26,8 +26,8 @@ idr.program @copied_result root(@main) stage(first) {
     memref.store %k, %m[] : memref<i64>
     %t = bufferization.to_tensor %m restrict : memref<i64> to tensor<i64>
     %a = idr.lin.cast %t : tensor<i64> -> !Linear
-    %fa = idr.call @fill(%a, %k) <{tail_kind = nontail}> : (!Linear, i64) -> !Linear
-    %fb = idr.call @fill(%fa, %k1) <{tail_kind = nontail}> : (!Linear, i64) -> !Linear
+    %fa = idr.call @fill(%a, %k) : (!Linear, i64) -> !Linear
+    %fb = idr.call @fill(%fa, %k1) : (!Linear, i64) -> !Linear
     %pb = idr.lin.cast %fb : !Linear -> tensor<i64>
     %eb = tensor.extract %pb[] : tensor<i64>
     %et = tensor.extract %t[] : tensor<i64>
@@ -47,7 +47,7 @@ idr.program @copied_result root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @fill(%a, %j) <{tail_kind = tail}> : (!Linear, i64) -> !Linear
+      %again = idr.tail_call @fill(%a, %j) : (!Linear, i64) -> !Linear
       idr.yield %again : !Linear
     }
     }

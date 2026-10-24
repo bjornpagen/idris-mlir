@@ -87,9 +87,10 @@ private:
   // need, which the rule proved may run there. The carries of the
   // producer's own results go, which the hole no longer reads.
   void buildBefore(mlir::Operation *producer);
-  // `call` made a call of the clone that fills `dest`. Its kind is decided
-  // once the function is whole (decide), where its place is final.
-  void fillByCall(CallOp call, mlir::Value dest);
+  // `call` made a call of the clone that fills `dest`. Which member it is
+  // is decided once the function is whole (decide), where its place is
+  // final.
+  void fillByCall(FunctionCallOpInterface call, mlir::Value dest);
   // The region op `rejoin`'s result `position` filled in each region, and
   // the op made again without that result once they have: their steps
   // pushed on `work` above the remake, so taken before it.

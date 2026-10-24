@@ -12,13 +12,13 @@ idr.program @reached root(@main) stage(first) {
     return %y : i64
   }
   idr.func @twice(%x: i64) -> i64 {
-    %y = idr.call @inc(%x) <{tail_kind = nontail}> : (i64) -> i64
+    %y = idr.call @inc(%x) : (i64) -> i64
     %z = arith.addi %y, %y : i64
     return %z : i64
   }
   idr.func @main() {
     %c = arith.constant 20 : i64
-    %y = idr.call @twice(%c) <{tail_kind = nontail}> : (i64) -> i64
+    %y = idr.call @twice(%c) : (i64) -> i64
     %z = arith.addi %y, %c : i64
     %text = idr.str.show_sint %z : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
@@ -36,13 +36,13 @@ idr.program @unreached root(@main) stage(first) {
   }
   // expected-error @below {{expected reached: }}
   idr.func @orphan(%x: i64) -> i64 {
-    %y = idr.call @inc(%x) <{tail_kind = nontail}> : (i64) -> i64
+    %y = idr.call @inc(%x) : (i64) -> i64
     %z = arith.addi %y, %y : i64
     return %z : i64
   }
   idr.func @main() {
     %c = arith.constant 20 : i64
-    %y = idr.call @inc(%c) <{tail_kind = nontail}> : (i64) -> i64
+    %y = idr.call @inc(%c) : (i64) -> i64
     %z = arith.addi %y, %c : i64
     %text = idr.str.show_sint %z : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()

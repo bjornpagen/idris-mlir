@@ -57,8 +57,8 @@ class IdrDialect;
 
 // Every call, op and region of the dialect may be inlined; a return becomes
 // the values it gives back, a lifetime given where a view is asked passes as
-// the view it is, and each call the body holds takes the tail fact its new
-// place gives it.
+// the view it is, and each call the body holds becomes the member of the
+// call family its new place makes.
 void addInlinerInterface(IdrDialect &dialect);
 
 //===----------------------------------------------------------------------===//

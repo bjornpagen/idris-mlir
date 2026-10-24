@@ -64,14 +64,14 @@ using namespace mlir;
 namespace idr::tail {
 namespace {
 
-bool isSelfCall(CallOp call, FuncOp fn) {
+bool isSelfCall(FunctionCallOpInterface call, FuncOp fn) {
   return call.getCalleeAttr().getAttr() == fn.getSymNameAttr();
 }
 
-// Whether `op`, or anything in it, calls `fn`.
+// Whether `op`, or anything in it, calls `fn`, wherever the call stands.
 bool callsItself(Operation *op, FuncOp fn) {
   return op
-      ->walk([&](CallOp call) {
+      ->walk([&](FunctionCallOpInterface call) {
         return isSelfCall(call, fn) ? WalkResult::interrupt() : WalkResult::advance();
       })
       .wasInterrupted();
@@ -100,7 +100,7 @@ bool before(Value value, CallOp call) {
 // computed before the call, or computing only on values that are. A self
 // call's result is no other operand but a site of its own (`f l ⊕ f r`).
 bool otherMayLead(Value other, CallOp call, FuncOp fn) {
-  auto from = other.getDefiningOp<CallOp>();
+  auto from = other.getDefiningOp<FunctionCallOpInterface>();
   if (other == call->getResult(0) || (from && isSelfCall(from, fn)))
     return false;
   if (before(other, call))
@@ -258,7 +258,7 @@ bool refersToItselfOnlyByCall(FuncOp fn) {
   std::optional<SymbolTable::UseRange> uses =
       SymbolTable::getSymbolUses(fn.getSymNameAttr(), &fn.getBody());
   return !uses || llvm::all_of(*uses, [](const SymbolTable::SymbolUse &use) {
-           return isa<CallOp>(use.getUser());
+           return isa<FunctionCallOpInterface>(use.getUser());
          });
 }
 
@@ -279,14 +279,19 @@ std::optional<Accumulator> accumulatorOf(FuncOp fn) {
   // What gives what the function gives, read once down from its body: a
   // combination holds no fact of where it stands.
   llvm::SmallVector<Operation *> tails = sourcesOf(fn);
-  WalkResult walk = fn.walk([&](CallOp call) {
+  WalkResult walk = fn.walk([&](FunctionCallOpInterface call) {
     if (!isSelfCall(call, fn))
       return WalkResult::advance();
-    if (tailCallOf(call)) {
-      sites.push_back(call);
+    if (auto tail = dyn_cast<TailCallOp>(call.getOperation())) {
+      sites.push_back(tail);
       return WalkResult::advance();
     }
-    std::optional<Combined> combined = combinedAt(call, fn, tails);
+    // A self call modulo a context fills a cell's field, which no tail
+    // combines.
+    auto ordinary = dyn_cast<CallOp>(call.getOperation());
+    if (!ordinary)
+      return WalkResult::interrupt();
+    std::optional<Combined> combined = combinedAt(ordinary, fn, tails);
     if (!combined)
       return WalkResult::interrupt();
     // One operation for every site, and one side unless it commutes.

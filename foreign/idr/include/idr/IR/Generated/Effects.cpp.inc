@@ -8,6 +8,16 @@ void ::idr::CallOp::getEffects(
   ::idr::effects::declare(*this, effects);
 }
 
+void ::idr::TailCallOp::getEffects(
+    ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
+  ::idr::effects::declare(*this, effects);
+}
+
+void ::idr::ContextCallOp::getEffects(
+    ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
+  ::idr::effects::declare(*this, effects);
+}
+
 void ::idr::ReturnOp::getEffects(
     ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
   ::idr::effects::declare(*this, effects);

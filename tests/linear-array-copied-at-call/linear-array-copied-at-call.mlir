@@ -29,10 +29,10 @@ idr.program @copies root(@main) stage(first) {
     %k = idr.str.length %line : (!idr.str) -> i64
     %one = arith.constant 1 : i64
     %k1 = arith.addi %k, %one : i64
-    %a = idr.call @view(%k) <{tail_kind = nontail}> : (i64) -> !Linear
-    %b = idr.call @view(%k1) <{tail_kind = nontail}> : (i64) -> !Linear
-    %fa = idr.call @fill(%a, %k) <{tail_kind = nontail}> : (!Linear, i64) -> !Linear
-    %fb = idr.call @fill(%b, %k1) <{tail_kind = nontail}> : (!Linear, i64) -> !Linear
+    %a = idr.call @view(%k) : (i64) -> !Linear
+    %b = idr.call @view(%k1) : (i64) -> !Linear
+    %fa = idr.call @fill(%a, %k) : (!Linear, i64) -> !Linear
+    %fb = idr.call @fill(%b, %k1) : (!Linear, i64) -> !Linear
     %pa = idr.lin.cast %fa : !Linear -> tensor<i64>
     %ea = tensor.extract %pa[] : tensor<i64>
     %pb = idr.lin.cast %fb : !Linear -> tensor<i64>
@@ -55,7 +55,7 @@ idr.program @copies root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @view(%j) <{tail_kind = tail}> : (i64) -> !Linear
+      %again = idr.tail_call @view(%j) : (i64) -> !Linear
       idr.yield %again : !Linear
     }
     }
@@ -72,7 +72,7 @@ idr.program @copies root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @fill(%a, %j) <{tail_kind = tail}> : (!Linear, i64) -> !Linear
+      %again = idr.tail_call @fill(%a, %j) : (!Linear, i64) -> !Linear
       idr.yield %again : !Linear
     }
     }

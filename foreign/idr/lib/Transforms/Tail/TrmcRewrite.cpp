@@ -61,7 +61,8 @@ Context mapped(const Context &context, const IRMapping &mapping) {
   auto into = [&](const Into &from) {
     return Into{op(from.op), from.operand, from.field, value(from.built)};
   };
-  Context to{cast<CallOp>(op(context.call)), {}, into(context.hole), {}};
+  Context to{cast<FunctionCallOpInterface>(op(context.call)), {},
+             into(context.hole), {}};
   for (const Approach &step : context.approach)
     to.approach.push_back(idr::match(
         step, [&](const Through &t) -> Approach { return Through{op(t.op)}; },
@@ -120,12 +121,11 @@ void Rewrite::buildBefore(Operation *producer) {
     rewriter.moveOpBefore(op, producer);
 }
 
-void Rewrite::fillByCall(CallOp call, Value dest) {
+void Rewrite::fillByCall(FunctionCallOpInterface call, Value dest) {
   rewriter.setInsertionPoint(call);
   llvm::SmallVector<Value> args(call.getArgs());
   args.push_back(dest);
-  CallOp::create(rewriter, call.getLoc(), clone, call.getIndexArgsAttr(), args,
-                 TailKind::nontail);
+  CallOp::create(rewriter, call.getLoc(), clone, call.getIndexArgsAttr(), args);
   // Its results' carries read nothing now.
   for (Value result : call->getResults())
     eraseUnreadCarries(rewriter, result);
@@ -216,12 +216,26 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
   Value dest = destOf(step.target);
 
   // A self call whose result is given unchanged: a tail call, or the call a
-  // rejoin's region gives into a hole. The clone's passes the destination on.
-  if (CallOp call = def ? lastActOf(def) : CallOp();
-      call && call.getCalleeAttr().getAttr() == fn.getSymNameAttr()) {
+  // rejoin's region gives into a hole. The clone's passes the destination
+  // on. A tail call gives its result on unchanged through region ops that
+  // only give it on too (an index assumption), which go with it.
+  FunctionCallOpInterface call = def ? lastActOf(def) : FunctionCallOpInterface();
+  llvm::SmallVector<Operation *> way;
+  if (!call)
+    if (auto tail = dyn_cast_or_null<TailCallOp>(tailSource(*terminator->getBlock()))) {
+      call = tail;
+      way = *freeWayAfter(tail);
+    }
+  if (call && call.getCalleeAttr().getAttr() == fn.getSymNameAttr()) {
     if (!dest)
       return success();
-    dropForwarded(terminator, position);
+    if (way.empty()) {
+      dropForwarded(terminator, position);
+    } else {
+      rewriter.modifyOpInPlace(terminator, [&] { terminator->eraseOperand(position); });
+      for (Operation *passed : llvm::reverse(way))
+        rewriter.eraseOp(passed);
+    }
     fillByCall(call, dest);
     return success();
   }
@@ -283,8 +297,8 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
       DestWriteOp::create(rewriter, terminator->getLoc(), dest, value);
       dropForwarded(terminator, position);
     }
-    if (auto call = dyn_cast<CallOp>(producer)) {
-      fillByCall(call, holeDest);
+    if (auto filling = dyn_cast<FunctionCallOpInterface>(producer)) {
+      fillByCall(filling, holeDest);
       return success();
     }
     fillByRegions(producer, cast<OpResult>(filler).getResultNumber(), holeDest, work);

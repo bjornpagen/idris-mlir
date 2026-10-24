@@ -39,7 +39,7 @@ struct Calls {
   const solver::ProgramGraph &graph;
   llvm::SmallVectorImpl<Site> &sites;
 
-  void call(CallOp call, Fold &fold, Runs runs) {
+  void call(FunctionCallOpInterface call, Fold &fold, Runs runs) {
     FunctionId callee = graph.id(call.getCalleeAttr());
     sites.push_back(siteOf(call, callee, callee.index(), graph.op(callee), fold, runs));
   }
@@ -154,7 +154,7 @@ void rows::write(ProgramOp program, const solver::ProgramGraph &graph, solver::W
     fn.setUntouchedAttr(untouched[f]);
     fn.setBoundedAttr(bounded[f]);
     for (const Site &site : own[f].sites) {
-      CallOp call = site.call;
+      FunctionCallOpInterface call = site.call;
       if (call.getRow() != joined[site.callee])
         call.setRow(joined[site.callee]);
       call.setUntouchedAttr(untouched[site.callee]);
@@ -171,7 +171,7 @@ void rows::widen(ProgramOp program, effects::Row atoms) {
   parallelForEach(program.getContext(), functions, [&](FuncOp fn) {
     fn.setRow(fn.getRow() | atoms);
     fn.setUntouchedAttr({});
-    fn.walk([&](CallOp call) {
+    fn.walk([&](FunctionCallOpInterface call) {
       call.setRow(call.getRow() | atoms);
       call.setUntouchedAttr({});
     });

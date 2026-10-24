@@ -327,13 +327,13 @@ void lowerMade(Operation *op, Value value, Lower &lower) {
 
 } // namespace
 
-SmallVector<CallOp> regrade(FuncOp fn, ArrayRef<Value> lowered) {
+SmallVector<FunctionCallOpInterface> regrade(FuncOp fn, ArrayRef<Value> lowered) {
   // The body's return, where it returns: a body that ends otherwise gives
   // no result.
   Operation *returned = fn.getBody().front().getTerminator();
   if (!returned->hasTrait<OpTrait::ReturnLike>())
     returned = nullptr;
-  SmallVector<CallOp> reached;
+  SmallVector<FunctionCallOpInterface> reached;
   SmallVector<Value> work(lowered.begin(), lowered.end());
   auto lower = [&](Value value, Type type) {
     if (value.getType() == type)
@@ -374,7 +374,7 @@ SmallVector<CallOp> regrade(FuncOp fn, ArrayRef<Value> lowered) {
       // (signatureOf), whose results the call takes first (keyCalls); a
       // member of the caller's own component takes that hold as its
       // parameter's (lowerParameters).
-      if (auto call = dyn_cast<CallOp>(op)) {
+      if (auto call = dyn_cast<FunctionCallOpInterface>(op)) {
         reached.push_back(call);
         continue;
       }
@@ -418,7 +418,7 @@ SmallVector<CallOp> regrade(FuncOp fn, ArrayRef<Value> lowered) {
   return reached;
 }
 
-SmallVector<std::optional<Hold>> passedHolds(CallOp call, TypeRange params) {
+SmallVector<std::optional<Hold>> passedHolds(FunctionCallOpInterface call, TypeRange params) {
   assert(call.getArgs().size() == params.size() &&
          "a call passes one argument per parameter of its callee");
   SmallVector<std::optional<Hold>> passed;
@@ -502,11 +502,23 @@ void keyGivenBack(identities::FactsView given, ArrayRef<std::optional<Hold>> pas
 // crosses whose results a tail gives on, in the order the walk meets them,
 // and each block where a tail ends, giving its function's results from its
 // own terminator. A block whose end never returns gives nothing, and is
-// neither.
+// neither. A region op the values pass through on their way to a block's
+// end is a rejoin of its own region here, as a match is, so the types the
+// walk changes go into it and only ops that give a value on freely stand
+// between a rejoin and its block's end.
 struct Spine {
   SmallVector<Operation *> rejoins;
   SmallVector<Block *> ends;
 };
+
+// The op `block`'s terminator gives the results of through ops that give a
+// value on freely alone, where its way there is free; null otherwise.
+Operation *givenFreely(Block &block) {
+  Operation *source = block.getTerminator()->getPrevNode();
+  while (source && tail::carriesOn(source))
+    source = source->getPrevNode();
+  return source && tail::freeWayAfter(source) ? source : nullptr;
+}
 
 Spine spineOf(FuncOp fn) {
   Spine spine;
@@ -516,7 +528,7 @@ Spine spineOf(FuncOp fn) {
     work.push_back(&body);
   while (!work.empty()) {
     Block *block = work.pop_back_val();
-    Operation *source = tail::tailSource(*block);
+    Operation *source = givenFreely(*block);
     if (!source || !source->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
       spine.ends.push_back(block);
       continue;
@@ -537,17 +549,17 @@ Spine spineOf(FuncOp fn) {
 // before its terminator (giveAs), so what the function gives at a tail it
 // gives in its own block at the new type, unless it gives that type
 // already. Only those blocks change what follows a call, and each ends a
-// tail, as the walk down found it: the tails below each say what each call
-// there now is. A call that reached the return through a re-pack now
-// reaches it through no cast, a tail call, and one that gave a closed value
-// on now gives it to a re-pack, a tail lost to a layout, which a copy's own
-// turn asks its callee open for; a region op that gave its value to a
-// re-pack and now gives it freely makes a tail of each region's end.
+// tail, as the walk down found it: the tails of the function say what each
+// call at one now is (standingsAtTails). A call that reached the return
+// through a re-pack now reaches it through no cast, a tail call, and one
+// that gave a closed value on now gives it to a re-pack, a tail lost to a
+// layout, which a copy's own turn asks its callee open for; a region op
+// that gave its value to a re-pack and now gives it freely makes a tail of
+// each region's end.
 void giveTails(ArrayRef<Type> results, ArrayRef<unsigned> changed, const Spine &spine) {
   for (Operation *source : spine.rejoins) {
     // The ops after it give its results on, each in its place, to the
-    // terminator, which forwards them in order: tailSource found the way
-    // so.
+    // terminator, which forwards them in order: spineOf found the way so.
     SmallVector<Value> values(source->getResults());
     for (unsigned position : changed)
       source->getResult(position).setType(results[position]);
@@ -584,10 +596,25 @@ void giveTails(ArrayRef<Type> results, ArrayRef<unsigned> changed, const Spine &
       eraseDeadCasts(given);
     }
   }
-  for (Block *end : spine.ends)
-    for (const tail::Tail &each : tail::tailsOf(*end))
-      if (auto call = dyn_cast<CallOp>(each.source))
-        call.setTailKind(each.repack ? TailKind::nontail : TailKind::tail);
+}
+
+// Each call at a tail of `fn`, with the member its place there makes: a
+// tail call where its results reach the return freely, an ordinary call
+// where a re-pack stands on the way, read off the function's tails once
+// before any call is made again.
+void standingsAtTails(FuncOp fn,
+                      SmallVectorImpl<std::pair<FunctionCallOpInterface, CallStanding>> &out) {
+  for (const tail::Tail &each : tail::tailsOf(fn))
+    if (auto call = dyn_cast<FunctionCallOpInterface>(each.source))
+      out.push_back({call, each.repack ? CallStanding::Returns : CallStanding::Tail});
+}
+
+// Each call made the member it is paired with, each once.
+void restandEach(MLIRContext *ctx,
+                 ArrayRef<std::pair<FunctionCallOpInterface, CallStanding>> standings) {
+  IRRewriter rewriter(ctx);
+  for (auto [call, standing] : standings)
+    (void)tail::restand(rewriter, call, standing);
 }
 
 // The positions where `types` differ from `had`.
@@ -608,6 +635,9 @@ void openTails(FuncOp fn, ArrayRef<Type> results) {
   Spine spine = spineOf(fn);
   fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), results));
   giveTails(results, opened, spine);
+  SmallVector<std::pair<FunctionCallOpInterface, CallStanding>> standings;
+  standingsAtTails(fn, standings);
+  restandEach(fn.getContext(), standings);
 }
 
 namespace {
@@ -675,7 +705,8 @@ std::optional<Hold> repackedInCopy(Value given, Type open, StringAttr self) {
   Type type = given.getType();
   if (!mayClose(type) && families::layoutMatch(type, open) == LayoutMatch::SameLayout)
     return std::nullopt;
-  if (auto call = given.getDefiningOp<CallOp>(); call && call.getCalleeAttr().getAttr() != self)
+  if (auto call = given.getDefiningOp<FunctionCallOpInterface>();
+      call && call.getCalleeAttr().getAttr() != self)
     return Hold::counted();
   return families::builtHold(usesOf(type), Unique::None);
 }
@@ -693,7 +724,7 @@ Hold openHold(FuncOp fn, const Spine &spine, unsigned position, Type open, Tails
   SmallVector<Hold> holds;
   for (Block *end : spine.ends) {
     Value given = uncast(end->getTerminator()->getOperand(position));
-    if (auto call = given.getDefiningOp<CallOp>();
+    if (auto call = given.getDefiningOp<FunctionCallOpInterface>();
         at == TailsGiven::InItself && call && call.getCalleeAttr().getAttr() == self)
       continue;
     std::optional<Hold> hold = holdOf(DataReindexOp::givenType(given.getType(), open));
@@ -757,12 +788,12 @@ std::optional<SmallVector<Type>> openedResults(FuncOp fn, const Spine &spine, La
   SmallVector<std::optional<Type>> opened(own.size());
   if (layouts == Layouts::Decided)
     for (const tail::Tail &each : tail::tailsOf(fn)) {
-      auto call = dyn_cast<CallOp>(each.source);
+      auto call = dyn_cast<FunctionCallOpInterface>(each.source);
       if (!call)
         continue;
       assert(call->getNumResults() == own.size() &&
              "a tail's results are its function's, one for one");
-      for (auto [position, given] : llvm::enumerate(call.getResultTypes()))
+      for (auto [position, given] : llvm::enumerate(call->getResultTypes()))
         if (disagrees(given, own[position]))
           opened[position] = laidOut(own[position]).opened();
     }
@@ -796,7 +827,7 @@ std::optional<SmallVector<Type>> openedResults(FuncOp fn, const Spine &spine, La
 
 } // namespace
 
-void convertResults(CallOp call, ArrayRef<Type> had) {
+void convertResults(FunctionCallOpInterface call, ArrayRef<Type> had) {
   OpBuilder b(call->getContext());
   b.setInsertionPointAfter(call);
   SmallVector<Value> lowered;
@@ -841,8 +872,8 @@ namespace {
 // `call`, a call of `callee` whose results changed, takes its callee's
 // types again, as every call holds its callee's, and gives what its uses
 // read as they read it (convertResults).
-void convertCall(CallOp call, FuncOp callee) {
-  SmallVector<Type> had(call.getResultTypes());
+void convertCall(FunctionCallOpInterface call, FuncOp callee) {
+  SmallVector<Type> had(call->getResultTypes());
   call.copyCallee(callee);
   convertResults(call, had);
 }
@@ -851,18 +882,18 @@ void convertCall(CallOp call, FuncOp callee) {
 // each other holder's (Schedule::holdersOf), each once. A caller of a
 // function not final waits on it or is of its component, so between waves
 // nothing reads what a decision rewrites in it.
-SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> callsOf(const optimize::Schedule &schedule,
-                                                                FunctionId id) {
+SmallVector<std::pair<FunctionId, SmallVector<FunctionCallOpInterface>>>
+callsOf(const optimize::Schedule &schedule, FunctionId id) {
   SmallVector<FunctionId> holders{id};
   for (FunctionId holder : schedule.holdersOf(id))
     if (!llvm::is_contained(holders, holder))
       holders.push_back(holder);
   StringAttr name = schedule.symbolOf(id);
-  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls;
+  SmallVector<std::pair<FunctionId, SmallVector<FunctionCallOpInterface>>> calls;
   for (FunctionId holder : holders) {
     assert(!schedule.final(holder) && "a caller of a function not final waits on it");
-    SmallVector<CallOp> held;
-    schedule.function(holder).getBody().walk([&](CallOp call) {
+    SmallVector<FunctionCallOpInterface> held;
+    schedule.function(holder).getBody().walk([&](FunctionCallOpInterface call) {
       if (call.getCalleeAttr().getAttr() == name)
         held.push_back(call);
     });
@@ -894,7 +925,8 @@ SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> callsOf(const optimize::
 // than the parameter's, which no key may raise, is shared down.
 void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
   FuncOp fn = schedule.function(id);
-  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
+  SmallVector<std::pair<FunctionId, SmallVector<FunctionCallOpInterface>>> calls =
+      callsOf(schedule, id);
   SmallVector<Type> inputs(fn.getArgumentTypes());
   for (auto [position, input] : llvm::enumerate(inputs)) {
     std::optional<Hold> own = holdOf(input);
@@ -904,7 +936,7 @@ void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
     for (auto &[holder, held] : calls) {
       if (!schedule.sameComponent(holder, id))
         continue;
-      for (CallOp call : held)
+      for (FunctionCallOpInterface call : held)
         if (std::optional<Hold> hold =
                 holdOf(call.getArgs()[static_cast<unsigned>(position)].getType()))
           holds.push_back(*hold);
@@ -934,7 +966,7 @@ void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
     return schedule.sameComponent(holder, id) || given.claim() != asked.claim();
   };
   for (auto &[holder, held] : calls)
-    for (CallOp call : held)
+    for (FunctionCallOpInterface call : held)
       for (auto [operand, input] : llvm::zip_equal(call.getArgsMutable(), inputs)) {
         std::optional<Hold> given = holdOf(operand.get().getType());
         std::optional<Hold> asked = holdOf(input);
@@ -985,13 +1017,13 @@ void keyCalls(const optimize::Schedule &schedule, Nodes &nodes, FunctionId id) {
     SmallVector<detail::ResultLayout> layouts;
     FunctionType gives;
   };
-  auto keyOf = [&](CallOp call) -> std::optional<Keyed> {
+  auto keyOf = [&](FunctionCallOpInterface call) -> std::optional<Keyed> {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     assert(callee && "between waves every copy a call names is placed");
     std::optional<optimize::Readable> known = schedule.final(*callee);
     if (!known)
       return std::nullopt;
-    detail::TailStanding standing = llvm::is_contained(lost, call)
+    detail::TailStanding standing = llvm::is_contained(lost, call.getOperation())
                                         ? detail::TailStanding::LostToLayout
                                         : detail::TailStanding::Elsewhere;
     detail::SignatureRule rule =
@@ -1005,12 +1037,12 @@ void keyCalls(const optimize::Schedule &schedule, Nodes &nodes, FunctionId id) {
   };
   // What each tail lost to a layout keys, as its call was last decided.
   SmallVector<std::optional<Keyed>> lostKeys(lost.size());
-  SmallVector<CallOp> work;
-  fn.getBody().walk([&](CallOp call) { work.push_back(call); });
+  SmallVector<FunctionCallOpInterface> work;
+  fn.getBody().walk([&](FunctionCallOpInterface call) { work.push_back(call); });
   while (!work.empty()) {
-    CallOp call = work.pop_back_val();
+    FunctionCallOpInterface call = work.pop_back_val();
     std::optional<Keyed> keyed = keyOf(call);
-    if (auto *at = llvm::find(lost, call); at != lost.end())
+    if (auto *at = llvm::find(lost, call.getOperation()); at != lost.end())
       lostKeys[static_cast<std::size_t>(std::distance(lost.begin(), at))] = keyed;
     if (!keyed)
       continue;
@@ -1092,23 +1124,36 @@ void decideResults(const optimize::Schedule &schedule, const Nodes &nodes, Funct
   // Every call of it, its own first: its own calls take the new types
   // before its tails give them, so a tail that a call of its own gives
   // gives that call's result, which is the new type, cast no more.
-  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
+  SmallVector<std::pair<FunctionId, SmallVector<FunctionCallOpInterface>>> calls =
+      callsOf(schedule, id);
   for (auto &[holder, held] : calls)
-    for (CallOp call : held)
+    for (FunctionCallOpInterface call : held)
       convertCall(call, fn);
   giveTails(*results, changed, spine);
   // Only what follows each converted call changed: a cast back after it,
   // or a cast on gone, and the shares re-grading put where its values
   // join, which give their operands on freely. Each is a tail call where
   // its caller's tails now reach it freely, a tail lost to a layout where
-  // a cast back re-packs it, and ends no tail anywhere else.
+  // a cast back re-packs it, and ends no tail anywhere else, as each call
+  // at a tail of the function itself is what its place there makes. Where
+  // each stands is read before any call is made again, each call once, so
+  // no handle held here is one a member made again replaced.
+  SmallVector<std::pair<FunctionCallOpInterface, CallStanding>> standings;
+  standingsAtTails(fn, standings);
   for (auto &[holder, held] : calls) {
     SmallVector<Operation *> reached = tail::sourcesOf(schedule.function(holder));
-    for (CallOp call : held)
-      call.setTailKind(llvm::is_contained(reached, call.getOperation())
-                           ? TailKind::tail
-                           : tail::withContext(call));
+    for (FunctionCallOpInterface call : held) {
+      CallStanding standing = llvm::is_contained(reached, call.getOperation())
+                                  ? CallStanding::Tail
+                                  : tail::offTail(call);
+      auto *had = llvm::find_if(standings, [&](const auto &each) { return each.first == call; });
+      if (had != standings.end())
+        had->second = standing;
+      else
+        standings.push_back({call, standing});
+    }
   }
+  restandEach(fn.getContext(), standings);
   const Node *node = nodes.find(id);
   auto asked = [&](FunctionId holder) {
     return node && llvm::is_contained(node->askers, holder);
@@ -1122,7 +1167,7 @@ void decideResults(const optimize::Schedule &schedule, const Nodes &nodes, Funct
 // a call in `id` passes an operand at another hold than its parameter's,
 // put on `work`: its parameters are decided again.
 void passOn(const optimize::Schedule &schedule, FunctionId id, SmallVectorImpl<FunctionId> &work) {
-  schedule.function(id).getBody().walk([&](CallOp call) {
+  schedule.function(id).getBody().walk([&](FunctionCallOpInterface call) {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     assert(callee && "between waves every copy a call names is placed");
     if (!schedule.sameComponent(*callee, id))
@@ -1136,7 +1181,7 @@ void passOn(const optimize::Schedule &schedule, FunctionId id, SmallVectorImpl<F
 // What resolves a call to the function it names: the table of names of the
 // run that shares its crossings down.
 template <class R>
-concept CalleeOf = requires(const R &calleeOf, CallOp call) {
+concept CalleeOf = requires(const R &calleeOf, FunctionCallOpInterface call) {
   { calleeOf(call) } -> std::same_as<FuncOp>;
 };
 
@@ -1156,7 +1201,7 @@ Changed shareWith(FuncOp fn, const R &calleeOf) {
   };
   fn.getBody().walk([&](Operation *op) {
     forwardedValues(op, [&](OpOperand &operand, Value input) { note(operand, input.getType()); });
-    if (auto call = dyn_cast<CallOp>(op))
+    if (auto call = dyn_cast<FunctionCallOpInterface>(op))
       for (auto [operand, parameter] :
            llvm::zip_equal(call.getArgsMutable(), calleeOf(call).getArgumentTypes()))
         note(operand, parameter);
@@ -1204,7 +1249,7 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
 }
 
 Changed shareCrossings(FuncOp fn, const optimize::Schedule &schedule) {
-  return shareWith(fn, [&](CallOp call) {
+  return shareWith(fn, [&](FunctionCallOpInterface call) {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     assert(callee && "once a component is final, every copy its calls name is placed");
     return schedule.function(*callee);
@@ -1212,7 +1257,9 @@ Changed shareCrossings(FuncOp fn, const optimize::Schedule &schedule) {
 }
 
 Changed shareCrossings(FuncOp fn, const solver::ProgramGraph &graph) {
-  return shareWith(fn, [&](CallOp call) { return graph.op(graph.id(call.getCalleeAttr())); });
+  return shareWith(fn, [&](FunctionCallOpInterface call) {
+    return graph.op(graph.id(call.getCalleeAttr()));
+  });
 }
 
 } // namespace idr::specialize

@@ -27,9 +27,9 @@
 idr.program @shares root(@main) stage(graded) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
-    %v = idr.call @make(%seven) <{tail_kind = nontail}> : (i64) -> !Shared
-    %a:2 = idr.call @keep(%v) <{tail_kind = nontail}> : (!Shared) -> (i64, !Shared)
-    %b:2 = idr.call @keep(%v) <{tail_kind = nontail}> : (!Shared) -> (i64, !Shared)
+    %v = idr.call @make(%seven) : (i64) -> !Shared
+    %a:2 = idr.call @keep(%v) : (!Shared) -> (i64, !Shared)
+    %b:2 = idr.call @keep(%v) : (!Shared) -> (i64, !Shared)
     %sum = arith.addi %a#0, %b#0 : i64
     %text = idr.str.show_sint %sum : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()

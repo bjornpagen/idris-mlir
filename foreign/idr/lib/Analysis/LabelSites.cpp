@@ -59,7 +59,7 @@ private:
   // `call`, a direct call among the tails of `caller`, gives its caller's
   // results: each result point of its callee that carries a label is one
   // set with its caller's.
-  void tailResults(Label caller, CallOp call);
+  void tailResults(Label caller, FunctionCallOpInterface call);
   void sink(OpOperand &use, const FlowPlace &target);
   void dispatch(CallOpInterface call);
   void moves(ValueRange values);
@@ -98,11 +98,11 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
 void Reading::tailCalls() {
   for (solver::FunctionId id : graph.functions())
     for (Operation *source : tails[id])
-      if (auto call = dyn_cast<CallOp>(source))
+      if (auto call = dyn_cast<FunctionCallOpInterface>(source))
         tailResults(out.points.labelOf(graph.op(id)), call);
 }
 
-void Reading::tailResults(Label caller, CallOp call) {
+void Reading::tailResults(Label caller, FunctionCallOpInterface call) {
   Label callee = out.points.labelOf(call.getCalleeAttr());
   for (auto [j, result] : llvm::enumerate(call->getResults()))
     if (carriesLabels(result.getType())) {

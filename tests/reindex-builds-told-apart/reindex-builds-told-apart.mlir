@@ -38,11 +38,11 @@
 idr.program @repacks root(@main) stage(graded) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
-    %open = idr.call @make(%seven) <{tail_kind = nontail}> : (i64) -> !S2Open
-    %strings = idr.call @apart(%open) <{tail_kind = nontail}> : (!S2Open) -> !S2
+    %open = idr.call @make(%seven) : (i64) -> !S2Open
+    %strings = idr.call @apart(%open) : (!S2Open) -> !S2
     %text = idr.data.field %strings[0] : !S2 -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
-    %words = idr.call @words(%seven) <{tail_kind = nontail}> : (i64) -> !V4Open
+    %words = idr.call @words(%seven) : (i64) -> !V4Open
     %head = idr.data.field %words[0] : !V4Open -> i64
     %shown = idr.str.show_sint %head : (i64) -> !idr.str
     idr.io.put_str %shown : (!idr.str) -> ()

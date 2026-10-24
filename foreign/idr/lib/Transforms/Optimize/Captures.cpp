@@ -123,7 +123,7 @@ std::optional<Unread> unread(Schedule &schedule) {
     unsigned l = owner->second;
     bool alone = true;
     walkUsesThroughGrades(value, [&](OpOperand &use) {
-      auto call = dyn_cast<CallOp>(use.getOwner());
+      auto call = dyn_cast<FunctionCallOpInterface>(use.getOwner());
       alone = alone && call && graph.id(call.getCalleeAttr()) == labels[l].fn &&
               use.getOperandNumber() - call.getArgs().getBeginOperandIndex() == field;
     });
@@ -162,7 +162,7 @@ std::optional<Unread> unread(Schedule &schedule) {
       BlockArgument param = fn.getArgument(p);
       bool seed = fn.isRoot() || isLinear(param.getType());
       walkUsesThroughGrades(param, [&](OpOperand &use) {
-        auto call = dyn_cast<CallOp>(use.getOwner());
+        auto call = dyn_cast<FunctionCallOpInterface>(use.getOwner());
         std::optional<unsigned> other =
             call ? labelOf[graph.id(call.getCalleeAttr()).index()] : std::nullopt;
         unsigned q = call ? use.getOperandNumber() - call.getArgs().getBeginOperandIndex() : 0;

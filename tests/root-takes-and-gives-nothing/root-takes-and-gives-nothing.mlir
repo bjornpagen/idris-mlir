@@ -9,7 +9,7 @@
 idr.program @ordinary root(@main) stage(first) {
   idr.func @main() {
     %one = arith.constant 1 : i64
-    %two = idr.call @step(%one) <{tail_kind = nontail}> : (i64) -> i64
+    %two = idr.call @step(%one) : (i64) -> i64
     idr.return
   }
   idr.func @step(%x: i64) -> i64 {

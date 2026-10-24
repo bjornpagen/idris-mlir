@@ -33,8 +33,8 @@ idr.program @inlined root(@main) stage(first) {
   idr.func @main() attributes {terminates = #idr.terminates} {
     %even = arith.constant 98 : i64
     %odd = arith.constant 27 : i64
-    %a = idr.call @collatz(%even) <{tail_kind = nontail}> : (i64) -> i64
-    %b = idr.call @collatz(%odd) <{tail_kind = nontail}> : (i64) -> i64
+    %a = idr.call @collatz(%even) : (i64) -> i64
+    %b = idr.call @collatz(%odd) : (i64) -> i64
     return
   }
 }
@@ -49,7 +49,7 @@ idr.program @contified root(@main) stage(first) {
       } default(%d: i64) {
         %two = arith.constant 2 : i64
         %next = arith.subi %d, %two : i64
-        %t = idr.call @countdown(%next) <{tail_kind = tail}> : (i64) -> i64
+        %t = idr.tail_call @countdown(%next) : (i64) -> i64
         idr.yield %t : i64
       }
     }
@@ -57,7 +57,7 @@ idr.program @contified root(@main) stage(first) {
   }
   idr.func @main() attributes {terminates = #idr.terminates} {
     %even = arith.constant 98 : i64
-    %a = idr.call @countdown(%even) <{tail_kind = nontail}> : (i64) -> i64
+    %a = idr.call @countdown(%even) : (i64) -> i64
     return
   }
 }

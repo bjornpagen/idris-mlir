@@ -83,9 +83,9 @@ private:
     Chains::Reached reached;
     for (const RebuildSite &site : verdict.sites[fn])
       chains.trace(site.taken, site.asks, reached);
-    ownership::forEachCall(op, [&](CallOp call) {
+    ownership::forEachCall(op, [&](FunctionCallOpInterface call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
-      for (auto [param, arg] : llvm::enumerate(call.getArgOperands()))
+      for (auto [param, arg] : llvm::enumerate(call.getArgs()))
         if (std::optional<Asks> owed = verdict.obligations[callee][param])
           chains.trace(arg, *owed, reached);
     });

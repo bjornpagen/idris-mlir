@@ -42,7 +42,7 @@ idr.program @beside root(@Prog.main) stage(higher) {
   }
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 21 : i64
-    %y = idr.call @twice(%c) <{tail_kind = nontail}> : (i64) -> i64
+    %y = idr.call @twice(%c) : (i64) -> i64
     return %y : i64
   }
 }

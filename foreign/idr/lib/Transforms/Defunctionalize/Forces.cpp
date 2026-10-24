@@ -123,7 +123,7 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
       SmallVector<Value> args;
       for (auto [capture, param] : llvm::zip_equal(captures, bound.getInputs()))
         args.push_back(givenAs(b, at_, capture, param));
-      auto called = CallOp::create(b, at_, target, given, args, TailKind::nontail);
+      auto called = CallOp::create(b, at_, target, given, args);
       return givenAs(b, at_, called.getResult(0), value);
     };
     switch (label.mode) {

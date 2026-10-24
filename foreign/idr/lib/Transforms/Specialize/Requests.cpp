@@ -123,7 +123,7 @@ FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want,
 // erased when the copy's component became final. A copy not final yet
 // takes them all; a call of it made now loses them with its callers' when
 // it is.
-FunctionType passing(CallOp call, const Node *made, FunctionType type,
+FunctionType passing(FunctionCallOpInterface call, const Node *made, FunctionType type,
                      SmallVectorImpl<Value> &operands) {
   if (made)
     idr::match(
@@ -160,16 +160,16 @@ FunctionType passing(CallOp call, const Node *made, FunctionType type,
 // every call), and otherwise each call of a final callee that passes an
 // operand at a hold its parameter does not take, which the first step
 // keyed, or found refused, at the hold it was passed then.
-SmallVector<CallOp> callsDecided(FuncOp fn, optimize::Schedule &schedule, FunctionId self,
-                                 InRound place) {
-  SmallVector<CallOp> calls;
+SmallVector<FunctionCallOpInterface> callsDecided(FuncOp fn, optimize::Schedule &schedule,
+                                                  FunctionId self, InRound place) {
+  SmallVector<FunctionCallOpInterface> calls;
   if (place == InRound::First) {
-    fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+    fn.walk<WalkOrder::PreOrder>([&](FunctionCallOpInterface call) { calls.push_back(call); });
     return calls;
   }
   if (schedule.requesterOf(self).asks() || schedule.inlinedLeaves(self))
     return calls;
-  fn.walk<WalkOrder::PreOrder>([&](CallOp call) {
+  fn.walk<WalkOrder::PreOrder>([&](FunctionCallOpInterface call) {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     if (!callee)
       return;
@@ -203,12 +203,13 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
   FunctionId self = schedule.graph.id(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
   Requester &asking = schedule.requesterOf(self);
   const Node *requester = nodes.find(self);
-  SmallVector<CallOp> calls = callsDecided(fn, schedule, self, place);
+  SmallVector<FunctionCallOpInterface> calls = callsDecided(fn, schedule, self, place);
   if (calls.empty())
     return 0u;
   SmallVector<CallOp> lost = lostTails(fn);
-  auto standingOf = [&](CallOp call) {
-    return llvm::is_contained(lost, call) ? TailStanding::LostToLayout : TailStanding::Elsewhere;
+  auto standingOf = [&](FunctionCallOpInterface call) {
+    return llvm::is_contained(lost, call.getOperation()) ? TailStanding::LostToLayout
+                                                         : TailStanding::Elsewhere;
   };
   auto count = static_cast<unsigned>(calls.size());
   llvm::BitVector erased(count);
@@ -217,7 +218,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
   for (unsigned at = 0; at < count; ++at) {
     if (erased.test(at))
       continue;
-    CallOp call = calls[at];
+    FunctionCallOpInterface call = calls[at];
     // A call of a copy made in this wave names no function of the schedule
     // until the wave ends: it is pending, and nothing is read of it.
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());

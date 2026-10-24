@@ -155,8 +155,8 @@ FuncOp buildRaise(FuncOp callee, const RaiseKey &key, StringAttr name, const For
                                              [&](Value v) { return map.lookup(v); }));
         });
   }
-  // The consumer now follows each call a tail of the copy made, so the
-  // copy's calls take their tail facts where they stand, before anything
+  // The consumer now follows each call a tail of the copy made, so each of
+  // the copy's calls is made the member its place makes, before anything
   // reads them; its redirect decides each call it makes again.
   (void)optimize::decideTails(clone);
   return clone;

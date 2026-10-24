@@ -40,11 +40,11 @@ enum class StageFunctions : std::uint8_t {
   Lowered,
 };
 
-// whether every call's tail fact is decided
+// whether every call's member is decided
 enum class StageTails : std::uint8_t {
-  // a tail or modulo_context call is a promise, and a nontail one makes none
+  // a tail call or a self call modulo a context is a promise, and an ordinary one makes none
   Promised,
-  // every call's tail fact is the decider's answer
+  // every call's member is the decider's answer
   Decided,
 };
 
@@ -137,7 +137,7 @@ inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageFunctions> functions
     ::idr::StageFunctions::Lowered,
 }};
 
-// whether every call's tail fact is decided
+// whether every call's member is decided
 inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageTails> tailsAt{{
     ::idr::StageTails::Promised,
     ::idr::StageTails::Decided,

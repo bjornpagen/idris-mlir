@@ -109,18 +109,24 @@ void numeralEdges(OpOperand &use, Value result, Type numeral, FlowEdges &edges) 
     edges.fresh(result);
 }
 
-} // namespace
-
 // A call moves its arguments into its callee's parameters, which take them
-// over where they are owned; its results are its callee's.
-void idr::CallOp::getFlowEdges(FlowEdges &edges) {
-  FlatSymbolRefAttr callee = getCalleeAttr();
-  MutableOperandRange args = getArgsMutable();
+// over where they are owned; its results are its callee's, wherever the
+// call stands.
+template <CallFamily Call>
+void callEdges(Call call, FlowEdges &edges) {
+  FlatSymbolRefAttr callee = call.getCalleeAttr();
+  MutableOperandRange args = call.getArgsMutable();
   for (unsigned i = 0, n = args.size(); i < n; ++i)
     edges.flow(FlowSource::of(args[i]), FlowPlace::parameter(callee, i));
-  for (OpResult result : getOperation()->getResults())
+  for (OpResult result : call->getResults())
     edges.flow(FlowSource::result(callee, result.getResultNumber()), FlowPlace::of(Value(result)));
 }
+
+} // namespace
+
+void idr::CallOp::getFlowEdges(FlowEdges &edges) { callEdges(*this, edges); }
+void idr::TailCallOp::getFlowEdges(FlowEdges &edges) { callEdges(*this, edges); }
+void idr::ContextCallOp::getFlowEdges(FlowEdges &edges) { callEdges(*this, edges); }
 
 void idr::ReturnOp::getFlowEdges(FlowEdges &edges) {
   auto fn = FlatSymbolRefAttr::get(cast<FuncOp>(getOperation()->getParentOp()).getSymNameAttr());

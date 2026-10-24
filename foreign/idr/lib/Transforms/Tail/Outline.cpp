@@ -269,8 +269,8 @@ FailureOr<Made> Component::makeFunction(FuncOp owner, llvm::StringRef kind,
 // reads, and gives what the block's terminator gives, each scoped value
 // where it goes; in their place a tail call of it, whose results the
 // terminator gives.
-FailureOr<CallOp> Component::outline(FuncOp owner, unsigned row, Operation *first,
-                                     ValueRange params, llvm::StringRef kind) {
+FailureOr<TailCallOp> Component::outline(FuncOp owner, unsigned row, Operation *first,
+                                         ValueRange params, llvm::StringRef kind) {
   MLIRContext *ctx = owner.getContext();
   first = lendAgain(first);
   Block *block = first->getBlock();
@@ -306,9 +306,9 @@ FailureOr<CallOp> Component::outline(FuncOp owner, unsigned row, Operation *firs
     return failure();
 
   rewriter.setInsertionPoint(terminator);
-  auto call = CallOp::create(rewriter, terminator->getLoc(), fn,
-                             families::levelArgs(ctx, 0, static_cast<uint32_t>(binders.size())),
-                             moved->args, TailKind::tail);
+  auto call = TailCallOp::create(rewriter, terminator->getLoc(), fn,
+                                 families::levelArgs(ctx, 0, static_cast<uint32_t>(binders.size())),
+                                 moved->args);
   rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(call.getResults()); });
   made.push_back(call);
   functions.push_back({fn, row});

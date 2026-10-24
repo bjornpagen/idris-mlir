@@ -35,7 +35,7 @@ idr.program @memo root(@main) stage(graded) {
     %s = idr.cell.new : !idr.cell<!Pending>
     %t = idr.cell.init %s : !idr.cell<!Pending> (%xs : !Cons) -> !Pending
     %l = idr.data.reindex %t : !Pending to !Lazy
-    %h = idr.call @force(%l) <{tail_kind = nontail}> : (!Lazy) -> i64
+    %h = idr.call @force(%l) : (!Lazy) -> i64
     idr.return
   }
   idr.func @head(%xs: !List) -> i64 {

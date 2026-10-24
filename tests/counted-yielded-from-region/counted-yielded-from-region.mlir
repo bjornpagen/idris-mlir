@@ -27,7 +27,7 @@ idr.program @yields root(@main) stage(graded) {
     %a = idr.cell.init %ca : !idr.cell<!Cons> (%one : i64, %nil : !Nil) -> !Cons
     %cb = idr.cell.new : !idr.cell<!Cons>
     %b = idr.cell.init %cb : !idr.cell<!Cons> (%two : i64, %nil : !Nil) -> !Cons
-    %r = idr.call @pick(%k, %a, %b) <{tail_kind = nontail}> : (i64, !Cons, !Cons) -> !Cons
+    %r = idr.call @pick(%k, %a, %b) : (i64, !Cons, !Cons) -> !Cons
     idr.return
   }
   idr.func @pick(%k: i64, %a: !Cons, %b: !Cons) -> !Cons {

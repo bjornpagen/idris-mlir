@@ -26,7 +26,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
-#include "idr/IR/Traits.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -59,13 +58,6 @@ void spineOf(FuncOp fn, llvm::SmallVectorImpl<Operation *> &ops,
   }
 }
 
-// The changes of grade at the end of `block` that nothing reads any more.
-void eraseDeadRegrades(RewriterBase &rewriter, Block *block) {
-  for (Operation &op : llvm::make_early_inc_range(llvm::reverse(*block)))
-    if (op.hasTrait<ResultCarriesOperand>() && op.use_empty())
-      rewriter.eraseOp(&op);
-}
-
 } // namespace
 
 unsigned rowIndex(Rows &rows, const Row &row) {
@@ -76,18 +68,18 @@ unsigned rowIndex(Rows &rows, const Row &row) {
   return static_cast<unsigned>(rows.size() - 1);
 }
 
-FuncOp Jumps::target(CallOp call) const {
+FuncOp Jumps::target(FunctionCallOpInterface call) const {
   if (component.isMade(call))
     return call->getParentOfType<ProgramOp>().lookupSymbol<FuncOp>(call.getCalleeAttr());
   return runs[memberOf[graph.id(call.getCalleeAttr())]];
 }
 
-void Jumps::passStack(CallOp call, Value stack) {
+void Jumps::passStack(TailCallOp call, Value stack) {
   llvm::SmallVector<Value> args(call.getArgs());
   args.push_back(stack);
   rewriter.setInsertionPoint(call);
-  auto made = CallOp::create(rewriter, call.getLoc(), target(call), call.getIndexArgsAttr(), args,
-                             TailKind::tail);
+  auto made =
+      TailCallOp::create(rewriter, call.getLoc(), target(call), call.getIndexArgsAttr(), args);
   if (auto at = llvm::find(component.made, call); at != component.made.end())
     *at = made;
   for (Framed &f : component.framed)
@@ -109,17 +101,25 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
   spineOf(fn, spine, blocks);
   llvm::SmallVector<Block *> ends = tailEnds(fn);
   // The tail call each tail ends in, where one op gives what it gives.
-  llvm::SmallVector<CallOp> calls = llvm::map_to_vector(ends, [](Block *end) {
+  llvm::SmallVector<TailCallOp> calls = llvm::map_to_vector(ends, [](Block *end) {
     Operation *source = tailSource(*end);
-    return source ? tailCallOf(source) : CallOp();
+    return source ? dyn_cast<TailCallOp>(source) : TailCallOp();
   });
+  // The way each block of the spine gives its tail's source's values on to
+  // its end (changes of grade, region ops they pass through), which goes
+  // where nothing is given any more: after a region op of the spine and
+  // after a tail call that passes the stack on.
+  llvm::SmallVector<std::pair<Operation *, llvm::SmallVector<Operation *>>> ways;
+  for (Block *block : blocks)
+    if (Operation *source = tailSource(*block))
+      ways.push_back({source, *freeWayAfter(source)});
   Value stack = fn.getArguments().back();
   llvm::SmallVector<BlockArgument> lifetimes = lifetimesOf(fn);
 
   // Each tail: a tail call within the component passes the stack on; a
   // value, a tail call out of it first returning here, goes to the resume
   // with the lifetimes it lives in among the component's.
-  llvm::SmallVector<CallOp> passing;
+  llvm::SmallVector<TailCallOp> passing;
   for (auto [end, call] : llvm::zip_equal(ends, calls)) {
     Operation *terminator = end->getTerminator();
     // A tail whose terminator returns nothing to its parent, a crash or an
@@ -134,29 +134,39 @@ void Jumps::onStack(FuncOp fn, unsigned row) {
     llvm::append_range(given, lifetimes);
     given.push_back(stack);
     rewriter.setInsertionPoint(terminator);
-    CallOp::create(rewriter, terminator->getLoc(), resumes[row], IndexArgsAttr::get(ctx, {}, 0),
-                   given, TailKind::tail);
+    TailCallOp::create(rewriter, terminator->getLoc(), resumes[row],
+                       IndexArgsAttr::get(ctx, {}, 0), given);
     // A call whose value goes to the resume returns here first, and calls
     // out of the component, never its own function, so it holds no
-    // context: an ordinary call.
+    // context: an ordinary call. No handle of it is kept.
     if (call)
-      call.setTailKind(TailKind::nontail);
+      (void)restand<CallOp>(rewriter, call);
   }
 
   // Nothing is given at any tail now: every block of the spine forwards
-  // nothing, and every region op on it, innermost first, gives nothing,
-  // stating lifetimes only for what its regions bind.
+  // nothing, the way to it after a region op of the spine or a call that
+  // passes the stack on goes, last first, and every region op on the
+  // spine, innermost first, gives nothing, stating lifetimes only for what
+  // its regions bind.
   for (Block *block : blocks) {
     Operation *terminator = block->getTerminator();
     rewriter.modifyOpInPlace(terminator, [&] { terminator->setOperands(ValueRange()); });
-    eraseDeadRegrades(rewriter, block);
+  }
+  for (auto &[source, way] : ways) {
+    bool given = llvm::is_contained(spine, source) ||
+                 llvm::any_of(passing, [&](TailCallOp call) {
+                   return call.getOperation() == source;
+                 });
+    if (given)
+      for (Operation *step : llvm::reverse(way))
+        rewriter.eraseOp(step);
   }
   for (Operation *op : llvm::reverse(spine)) {
     (void)remakeGiving(rewriter, op, TypeRange(), ValueRange());
     rewriter.eraseOp(op);
   }
 
-  for (CallOp call : passing)
+  for (TailCallOp call : passing)
     passStack(call, stack);
 }
 
@@ -177,8 +187,7 @@ LogicalResult Jumps::frameCalls(llvm::ArrayRef<FrameKind> kinds) {
     Value pushed = DataConOp::create(rewriter, f.call.getLoc(), frame, fields).getResult();
     llvm::SmallVector<Value> args(f.call.getArgs());
     args.push_back(pushed);
-    CallOp::create(rewriter, f.call.getLoc(), target(f.call), f.call.getIndexArgsAttr(), args,
-                   TailKind::tail);
+    TailCallOp::create(rewriter, f.call.getLoc(), target(f.call), f.call.getIndexArgsAttr(), args);
     rewriter.eraseOp(f.rest);
     if (!f.call->use_empty())
       return f.call.emitOpError(
@@ -227,7 +236,7 @@ void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const Row &
       llvm::append_range(args, parts.drop_back());
       llvm::append_range(args, lifetimes);
       args.push_back(parts.back());
-      CallOp::create(rewriter, loc, rest.fn, rest.terms, args, TailKind::tail);
+      TailCallOp::create(rewriter, loc, rest.fn, rest.terms, args);
     }
     YieldOp::create(rewriter, loc, ValueRange());
   }
@@ -263,7 +272,7 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
   llvm::SmallVector<Value> args(entry->getArguments());
   args.push_back(stack);
   auto own = static_cast<uint32_t>(wrapper.getBoundSorts(wrapper.getBody()).size());
-  CallOp::create(rewriter, loc, run, families::levelArgs(ctx, 0, own), args, TailKind::nontail);
+  CallOp::create(rewriter, loc, run, families::levelArgs(ctx, 0, own), args);
   YieldOp::create(rewriter, loc, ValueRange());
   rewriter.setInsertionPointAfter(slots);
   ReturnOp::create(rewriter, loc, slots.getResults());

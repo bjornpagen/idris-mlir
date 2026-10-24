@@ -41,10 +41,10 @@ idr.program @keyed root(@main) stage(higher) {
       idr.yield %b : !Str
     }
     }
-    %x = idr.call @twice(%c, %n) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
-    %y = idr.call @twice(%s, %n) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
-    %fx = idr.call @first(%x, %n) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
-    %fy = idr.call @first(%y, %n) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+    %x = idr.call @twice(%c, %n) : (!Str, i64) -> !Pair
+    %y = idr.call @twice(%s, %n) : (!Str, i64) -> !Pair
+    %fx = idr.call @first(%x, %n) : (!Pair, i64) -> !idr.str
+    %fy = idr.call @first(%y, %n) : (!Pair, i64) -> !idr.str
     idr.io.put_str %fx : (!idr.str) -> ()
     idr.io.put_str %fy : (!idr.str) -> ()
     idr.return
@@ -59,7 +59,7 @@ idr.program @keyed root(@main) stage(higher) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @twice(%s, %j) <{tail_kind = nontail}> : (!idr.str, i64) -> !Pair
+      %again = idr.call @twice(%s, %j) : (!idr.str, i64) -> !Pair
       idr.yield %again : !Pair
     }
     }
@@ -79,7 +79,7 @@ idr.program @keyed root(@main) stage(higher) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @first(%p, %j) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+      %again = idr.call @first(%p, %j) : (!Pair, i64) -> !idr.str
       idr.yield %again : !idr.str
     }
     }

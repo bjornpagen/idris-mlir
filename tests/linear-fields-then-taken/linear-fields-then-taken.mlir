@@ -27,7 +27,7 @@ idr.program @fields root(@main) stage(graded) {
     %end = idr.data.con() : !End
     %cell = idr.cell.new : !idr.cell<!Cell>
     %x = idr.cell.init %cell : !idr.cell<!Cell> (%a : i64, %b : i64, %end : !End) -> !Once
-    %s = idr.call @both(%x) <{tail_kind = nontail}> : (!Once) -> i64
+    %s = idr.call @both(%x) : (!Once) -> i64
     idr.return
   }
   idr.func @both(%x: !Once) -> i64 {

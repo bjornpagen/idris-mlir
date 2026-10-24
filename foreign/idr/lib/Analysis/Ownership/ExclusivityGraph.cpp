@@ -82,7 +82,7 @@ public:
         successorsBeforeLowering(op);
       readOp(op);
     });
-    ownership::forEachCall(fn, [&](CallOp call) { readCall(call); });
+    ownership::forEachCall(fn, [&](FunctionCallOpInterface call) { readCall(call); });
     readReturn();
     // Roots are read once every part read of the body is known.
     for (Value value : copiedValues)
@@ -306,9 +306,9 @@ private:
     }
   }
 
-  void readCall(CallOp call) {
+  void readCall(FunctionCallOpInterface call) {
     Call out{graph.id(call.getCalleeAttr()), {}, {}, {}};
-    for (auto [index, arg] : llvm::enumerate(call.getArgOperands())) {
+    for (auto [index, arg] : llvm::enumerate(call.getArgs())) {
       out.args.push_back(localOf(arg));
       // A view passed on: if the callee takes a reference of it, its owner
       // here is shared.

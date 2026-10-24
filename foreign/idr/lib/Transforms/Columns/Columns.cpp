@@ -62,8 +62,8 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
     // A function whose signature carries an array of records is remade
     // with its columns, its facts moved by position; each call holds
     // copies of its callee's, which it takes again once every signature
-    // is final. A call is remade where it stood, its tail fact with it, and
-    // its columns flow where the array did, so that fact still says where
+    // is final. A call is remade where it stood, as the member it was, and
+    // its columns flow where the array did, so its member still says where
     // it stands; a gather the conversion puts after a tail call would lose
     // the tail, which the verifier reports.
     bool remade = llvm::any_of(program.getOps<FuncOp>(), [&](FuncOp fn) {
@@ -78,7 +78,7 @@ struct Columns : idr::impl::IdrColumnsBase<Columns> {
       if (!remade)
         return;
       SymbolTable functions(program);
-      program.walk([&](CallOp call) {
+      program.walk([&](FunctionCallOpInterface call) {
         call.copyCallee(functions.lookup<FuncOp>(call.getCalleeAttr().getAttr()));
       });
     });

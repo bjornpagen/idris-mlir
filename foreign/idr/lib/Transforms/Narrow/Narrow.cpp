@@ -199,7 +199,8 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // What follows a call may have changed: a loop versioned, a count op or
     // a conversion after it gone. No web holding what a tail call gives was
     // carried, so what a call in tail position gives still goes straight to
-    // its tail; every call takes its fact again from the function's tails.
+    // its tail; every call becomes again the member the function's tails
+    // make.
     (void)optimize::decideTails(fn);
   }
 

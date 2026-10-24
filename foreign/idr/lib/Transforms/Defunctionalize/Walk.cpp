@@ -6,8 +6,8 @@
 //     match that rebuilds it in the other family;
 //   - replace: each closure op by what it means;
 //   - erase: the ops it replaced, at the end.
-// Its calls take their tail facts with every call of the program once
-// every function is rewritten.
+// Its calls become the members their places make with every call of the
+// program once every function is rewritten.
 // Every type and attribute an edit builds is the decision's, read through a
 // const reference; the walk makes ops and blocks and nothing in the
 // context, and reads no other function but through what the decision
@@ -29,17 +29,17 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// A call of a function the decision knows, its name, index arguments and
-// result types the decision's; what it holds of its callee (its row, its
-// write part, its lifetimes) copied as the callee states them, as the
-// call's own builder would, which makes the rest; a tail fact the one
-// definition of tail position rewrites once the program is first order.
+// An ordinary call of a function the decision knows, its name, index
+// arguments and result types the decision's; what it holds of its callee
+// (its row, its write part, its lifetimes) copied as the callee states
+// them, as the call's own builder would, which makes the rest. The one
+// definition of tail position makes it the member its place makes once
+// the program is first order.
 CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, FlatSymbolRefAttr name,
               IndexArgsAttr indices, TypeRange results, ValueRange args) {
   CallOp::Properties properties;
   properties.callee = name;
   properties.index_args = indices;
-  properties.tail_kind = TailKind::nontail;
   properties.row = callee.getRow();
   properties.untouched = callee.getUntouchedAttr();
   properties.lives_in = callee.getLivesInAttr();

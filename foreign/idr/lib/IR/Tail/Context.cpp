@@ -166,7 +166,7 @@ bool movableBefore(Operation *anchor, OnPath onPath) {
 
 } // namespace
 
-std::optional<Context> contextOf(CallOp call) {
+std::optional<Context> contextOf(FunctionCallOpInterface call) {
   auto fn = call->getParentOfType<FuncOp>();
   if (!fn || call.getCalleeAttr().getAttr() != fn.getSymNameAttr() || call->getNumResults() != 1 ||
       fn.getNumResults() != 1)
@@ -174,7 +174,7 @@ std::optional<Context> contextOf(CallOp call) {
   Context context{call, {}, {}, {}};
   // The anchors before which the transformation builds the context: the
   // call, then each region op a rejoin leaves, with the steps in its block.
-  llvm::SmallVector<Operation *, 2> anchors{call};
+  llvm::SmallVector<Operation *, 2> anchors{call.getOperation()};
 
   // From the call's result to the hole: carries and rejoins. Each step goes
   // to a result of an op that ends later than the last (the value's user,

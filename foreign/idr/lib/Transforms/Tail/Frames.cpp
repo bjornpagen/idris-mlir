@@ -119,7 +119,7 @@ LogicalResult shareLifetimes(Component &component, const ProgramGraph &graph, Sc
                  "lifetimes in one arrangement, but this one takes other lifetimes, or bounds "
                  "them otherwise, than ")
              << first.getSymNameAttr();
-    WalkResult walked = fn.walk([&](CallOp call) {
+    WalkResult walked = fn.walk([&](FunctionCallOpInterface call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       if (!graph.onFrameStack(scc, callee))
         return WalkResult::advance();
@@ -181,7 +181,10 @@ struct Frames : impl::IdrFramesBase<Frames> {
       // moves code into functions of its own, leaves a call where a join
       // point's jump or the code after a region op stood, and sinks calls
       // into regions, so each function of the component, the program's and
-      // those it made, takes the facts its tails give its calls.
+      // those it made, makes each of its calls the member its place makes.
+      // Each call the step made is a tail call where it stands, so the
+      // handles it keeps of them, and of each call to frame, which a tail
+      // call of its rest follows, stay the ops they are.
       for (size_t at = 0; at < component.functions.size(); ++at)
         if (failed(component.restructure(component.functions[at].fn, component.functions[at].row)))
           return signalPassFailure();

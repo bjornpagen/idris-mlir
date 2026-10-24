@@ -127,11 +127,11 @@ void splitUpdate(mlir::RewriterBase &rewriter, ArrayUpdateOp update);
 // an op of the generating set inside another is made its loops first, so
 // the outer op's step clones loops already, and no op is visited twice.
 template <typename OnCycle>
-  requires std::predicate<OnCycle &, CallOp>
+  requires std::predicate<OnCycle &, FunctionCallOpInterface>
 mlir::LogicalResult joinCycles(mlir::RewriterBase &rewriter, FuncOp fn, OnCycle &&onCycle) {
   auto holds = [&](mlir::Operation *op) {
     return op
-        ->walk([&](CallOp call) {
+        ->walk([&](FunctionCallOpInterface call) {
           return onCycle(call) ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
         })
         .wasInterrupted();

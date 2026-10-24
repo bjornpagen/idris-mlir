@@ -251,7 +251,7 @@ contify = MkPass ("contify" ::: []) OnProgram (At First) Edits
   [MkAction ("contify" ::: ["group"]) "a group of functions made join points where it returns"] []
   NoOptions [LoadsIdr] Registered
   (MkDoc "Make each function every call of which returns to one continuation a join point there"
-     "Fluet and Weeks on regions: one dominator tree over functions and their return points.\nThe pass knows the tail fact of each call it moves, and writes it: a tail call stays one\nwhere the group's place keeps tails, a call of the function it moved into takes its\ncontext where it now stands, and every other call it moves into a continuation is\nnontail.")
+     "Fluet and Weeks on regions: one dominator tree over functions and their return points.\nThe pass knows where each call it moves stands, and makes it that member: a tail call\nstays one where the group's place keeps tails, a call of the function it moved into\ntakes its context where it now stands, and every other call it moves into a\ncontinuation is an ordinary call.")
 
 -- Tensor: a copy whose index terms make an axis a constant takes that axis
 -- static, and the copy's body and every call redirected to it pass the
@@ -504,7 +504,7 @@ tailCalls : Pass
 tailCalls = MkPass ("tail" ::: ["calls"]) OnModule AnyStage Keeps [] [] [] NoOptions
   [LoadsLLVM] Registered
   (MkDoc "End each musttail call's block with the return of its results"
-     "After the conversion to LLVM: the materialization of the tail fact each call already\ncarries; LLVM's verifier is the last check.")
+     "After the conversion to LLVM: the materialization of the musttail call each tail call\nalready is; LLVM's verifier is the last check.")
 
 public export
 expect : Pass

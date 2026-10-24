@@ -524,7 +524,9 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
         given && at(forest.rootOf(*given)).type == type)
       return forest.find(*given);
   }
-  // A call's callee, resolved once here, whose facts are read by its id.
+  // A call's callee, resolved once here, whose facts are read by its id:
+  // an ordinary call's, since a call that is its caller's last act stays
+  // put and is no node.
   std::optional<solver::FunctionId> callee;
   std::optional<Facts> holds;
   if (auto call = dyn_cast<CallOp>(op.origin); call && callees) {

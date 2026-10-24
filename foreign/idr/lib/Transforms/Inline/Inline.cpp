@@ -9,8 +9,8 @@
 // caller ran through it before. What the callee may do the caller's row
 // already covered, since a call's row is its callee's; the writer derives
 // the caller's own once its component is final. A call the inlined body
-// holds keeps its tail fact only where the call it replaced was in tail
-// position: the dialect's inliner interface composes them.
+// holds stays a tail call only where the call it replaced was one: the
+// dialect's inliner interface composes the two.
 //
 // A callee that ends in ub.unreachable never returns: inlining leaves the
 // rest of the call's block unreachable, which goes once every call the
@@ -54,7 +54,7 @@ Body bodyOf(FuncOp fn) {
   Body body{0, Calls::None};
   fn.getBody().walk([&](Operation *op) {
     ++body.size;
-    if (isa<CallOp>(op))
+    if (isa<FunctionCallOpInterface>(op))
       body.calls = Calls::Some;
   });
   return body;
@@ -118,19 +118,21 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
       : schedule(schedule), numInlined(numInlined) {}
 
   // Each call the function holds when the step starts whose callee is
-  // final and a leaf, in walk order, while the caller stays within the
-  // cap. A body brought in calls nothing, so the step brings no call; but
-  // what follows a call changes where a leaf's body was less than its call,
-  // so the caller's calls take their tail facts again.
+  // final and a leaf, in walk order, whatever its member, while the caller
+  // stays within the cap. A body brought in calls nothing, so the step
+  // brings no call; but what follows a call changes where a leaf's body
+  // was less than its call, so the caller's calls become the members their
+  // places make again.
   void runOnOperation() override {
     FuncOp caller = getOperation();
-    SmallVector<CallOp> calls;
-    caller.getBody().walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+    SmallVector<FunctionCallOpInterface> calls;
+    caller.getBody().walk<WalkOrder::PreOrder>(
+        [&](FunctionCallOpInterface call) { calls.push_back(call); });
     std::int64_t size = bodyOf(caller).size;
     InlinerInterface interface(caller.getContext());
     InlinerConfig config;
     unsigned inlined = 0;
-    for (CallOp call : calls) {
+    for (FunctionCallOpInterface call : calls) {
       std::optional<solver::FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
       if (!callee)
         continue;
@@ -142,10 +144,11 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
         continue;
       FuncOp fn = known->fn;
       (void)support::perform<InlineAction>(call, [&] {
-        if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+        if (failed(inlineCall(interface, config.getCloneCallback(),
+                              cast<CallOpInterface>(call.getOperation()), fn, &fn.getBody(),
                               /*shouldCloneInlinedRegion=*/true)))
           return;
-        call.erase();
+        call->erase();
         size += body.size - 1;
         ++inlined;
       });

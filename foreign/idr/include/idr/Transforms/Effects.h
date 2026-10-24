@@ -127,7 +127,7 @@ struct PassedOn {
 // a write through each of its write-admitting operands lands for the
 // caller, in order; and each lifetime it passes on to a put parameter.
 struct Site {
-  CallOp call;
+  FunctionCallOpInterface call;
   solver::FunctionId callee;
   std::uint32_t ordinal;
   Runs runs;
@@ -145,8 +145,8 @@ struct Own {
 // read by `fold`: the part each parameter admits, by the callee's own
 // signature, since its index arguments change no grade and no lifetime's
 // kind.
-Site siteOf(CallOp call, solver::FunctionId callee, std::uint32_t ordinal, FuncOp fn,
-            const Fold &fold, Runs runs);
+Site siteOf(FunctionCallOpInterface call, solver::FunctionId callee, std::uint32_t ordinal,
+            FuncOp fn, const Fold &fold, Runs runs);
 
 class WriteNodes;
 struct WriteTag {

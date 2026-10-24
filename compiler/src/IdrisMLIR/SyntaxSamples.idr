@@ -10,7 +10,7 @@
 ||| and attribute samples; its program holds functions of op samples: a
 ||| family declared and applied, its constructor built and matched, each
 ||| case binding the scrutinee refined, its fields read; a call with its
-||| index arguments and its tail fact; a closure and a suspension of
+||| index arguments; a closure and a suspension of
 ||| functions; an array built, read, folded and transposed, and moved into
 ||| its buffer; a choice on a condition; a crash at its site. The round trip
 ||| (tests/dialect-syntax) has idris-mlir-opt read the file and print it, so
@@ -40,7 +40,6 @@ import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Layout
 import IdrisMLIR.Spec.Functions.Extents
-import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Runtime.Endings
@@ -322,7 +321,7 @@ sample =
                , binding 36 (SCF.ifOp (bound 35 (IntegerType 1))
                                       (block [] [stmt (SCF.yieldOp [x])])
                                       (block [] [stmt (SCF.yieldOp [bound 8 i64])]) [i64])
-               , binding 37 (Idr.callOp {index_args' = Just (Idr (IndexArgsAttr [TermNodeOpaque] 1))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
+               , binding 37 (Idr.callOp {index_args' = Just (Idr (IndexArgsAttr [TermNodeOpaque] 1))} (SymbolRefAttr (MkSymbolRef "callee" [])) [x] [i64])
                , stmt (Idr.returnOp [bound 37 i64])
                ]))
   where

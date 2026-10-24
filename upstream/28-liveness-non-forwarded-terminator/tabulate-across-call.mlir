@@ -20,8 +20,8 @@ idr.program @t root(@root) stage(first) {
   }
   idr.func @root() -> i64 {
     %c3 = arith.constant 3 : index
-    %t = idr.call @squares(%c3) <{tail_kind = 0 : i32}> : (index) -> tensor<?xi64>
-    %e = idr.call @first(%t) <{tail_kind = 1 : i32}> : (tensor<?xi64>) -> i64
+    %t = idr.call @squares(%c3) : (index) -> tensor<?xi64>
+    %e = idr.tail_call @first(%t) : (tensor<?xi64>) -> i64
     return %e : i64
   }
 }

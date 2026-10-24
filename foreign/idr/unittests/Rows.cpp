@@ -313,8 +313,7 @@ mlir::OwningOpRef<mlir::ModuleOp> programOf(mlir::MLIRContext &context, const Sh
   for (unsigned f = 0; f < rows.size(); ++f) {
     b.createBlock(&functions[f].getBody());
     for (unsigned callee : shape.calls[f])
-      idr::CallOp::create(b, loc, functions[callee], idr::IndexArgsAttr(), mlir::ValueRange(),
-                          idr::TailKind::nontail);
+      idr::CallOp::create(b, loc, functions[callee], idr::IndexArgsAttr(), mlir::ValueRange());
     loopsBuilt[shape.loops[f]](b, loc);
     idr::ReturnOp::create(b, loc, mlir::ValueRange());
   }
@@ -332,7 +331,7 @@ struct Rewrite : mlir::PassWrapper<Rewrite, mlir::OperationPass<idr::ProgramOp>>
     idr::ProgramOp program = getOperation();
     auto fn = llvm::cast<idr::FuncOp>(mlir::SymbolTable::lookupSymbolIn(program, function));
     fn.setRow(row);
-    program.walk([&](idr::CallOp call) {
+    program.walk([&](idr::FunctionCallOpInterface call) {
       if (call.getCalleeAttr().getAttr() == function)
         call.copyCallee(fn);
     });

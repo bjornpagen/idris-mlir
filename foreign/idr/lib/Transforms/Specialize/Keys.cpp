@@ -108,8 +108,9 @@ SmallVector<const Pattern *> fill(Arena &arena, const PatternKey &own, ArrayRef<
 
 } // namespace
 
-std::optional<PatternWant> composeKey(Arena &arena, CallOp call, FunctionId owner,
-                                      const PatternKey *own, ArrayRef<BindingTime> seen) {
+std::optional<PatternWant> composeKey(Arena &arena, FunctionCallOpInterface call,
+                                      FunctionId owner, const PatternKey *own,
+                                      ArrayRef<BindingTime> seen) {
   // A closed call is left to run at run time.
   if (llvm::all_of(call.getArgs(), isClosed))
     return std::nullopt;
@@ -261,11 +262,13 @@ bool sharedPart(Value value) {
 
 } // namespace
 
-bool sharesClosure(CallOp call) { return llvm::any_of(call.getArgs(), sharedPart); }
+bool sharesClosure(FunctionCallOpInterface call) {
+  return llvm::any_of(call.getArgs(), sharedPart);
+}
 
 // Every closure or suspension the call passes is a constructor its caller
 // built for this call alone, and one at least.
-std::optional<SmallVector<BindingTime>> appliesBuiltClosures(CallOp call) {
+std::optional<SmallVector<BindingTime>> appliesBuiltClosures(FunctionCallOpInterface call) {
   SmallVector<BindingTime> times;
   bool any = false;
   for (Value arg : call.getArgs()) {

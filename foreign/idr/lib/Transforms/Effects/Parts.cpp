@@ -33,8 +33,8 @@ using namespace idr::rows;
 using namespace idr::rows::writer;
 using solver::FunctionId;
 
-Site idr::rows::writer::siteOf(CallOp call, FunctionId callee, std::uint32_t ordinal, FuncOp fn,
-                               const Fold &fold, Runs runs) {
+Site idr::rows::writer::siteOf(FunctionCallOpInterface call, FunctionId callee,
+                               std::uint32_t ordinal, FuncOp fn, const Fold &fold, Runs runs) {
   Site site{call, callee, ordinal, runs, {}, {}};
   ParameterParts theirs(fn.getArgumentTypes());
   for (auto [index, operand] : llvm::enumerate(call.getArgs()))

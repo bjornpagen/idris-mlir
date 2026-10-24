@@ -88,17 +88,18 @@ data StageCounting = ReferencesUncounted | ReferencesCounted
 public export
 data StageFunctions = OurFunctions | LoweredFunctions
 
-||| Whether a call's tail fact is a promise, which the frontend makes and a
-||| call keeps, or the one decider's answer on every call, which the pass
-||| that makes the program first order writes and every pass after keeps.
+||| Whether a call's member of the call family is a promise, which a tail
+||| call or a self call modulo a context makes and keeps, or the one
+||| decider's answer on every call, which the pass that makes the program
+||| first order makes and every pass after keeps.
 public export
 data StageTails = TailsPromised | TailsDecided
 
 ||| Whether a tail call's results are laid out as its caller's, so it
 ||| returns them with no re-pack: pending while defunctionalization decides
-||| the tail facts and the specializer may still redirect a call that would
-||| re-pack to a copy whose layouts agree, and agreeing from the stage
-||| before counting on, where a pass that lost a tail to a re-pack is
+||| where each call stands and the specializer may still redirect a call
+||| that would re-pack to a copy whose layouts agree, and agreeing from the
+||| stage before counting on, where a pass that lost a tail to a re-pack is
 ||| caught.
 public export
 data StageTailLayouts = LayoutsPending | LayoutsAgree
@@ -158,9 +159,9 @@ tailsClosed = MkClosed
       TailsPromised => Here
       TailsDecided => There Here
   , describe = \case
-      TailsPromised => MkCase (ident "Promised") (word "promised" ::: []) (line "a tail or modulo_context call is a promise, and a nontail one makes none")
-      TailsDecided => MkCase (ident "Decided") (word "decided" ::: []) (line "every call's tail fact is the decider's answer")
-  , doc = brief (line "whether every call's tail fact is decided") }
+      TailsPromised => MkCase (ident "Promised") (word "promised" ::: []) (line "a tail call or a self call modulo a context is a promise, and an ordinary one makes none")
+      TailsDecided => MkCase (ident "Decided") (word "decided" ::: []) (line "every call's member is the decider's answer")
+  , doc = brief (line "whether every call's member is decided") }
 
 public export
 tailLayoutsClosed : Closed StageTailLayouts
@@ -227,7 +228,7 @@ stageFacts = table stageClosed
   [ MkColumn (ident "closuresAt") (EnumColumn (enumDef closuresClosed)) (\s => CaseCell (caseRef closuresClosed (closuresAt s))) (line "whether closures may remain")
   , MkColumn (ident "countingAt") (EnumColumn (enumDef countingClosed)) (\s => CaseCell (caseRef countingClosed (countingAt s))) (line "whether references are counted")
   , MkColumn (ident "functionsAt") (EnumColumn (enumDef functionsClosed)) (\s => CaseCell (caseRef functionsClosed (functionsAt s))) (line "whose functions the program holds")
-  , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's tail fact is decided")
+  , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's member is decided")
   , MkColumn (ident "tailLayoutsAt") (EnumColumn (enumDef tailLayoutsClosed)) (\s => CaseCell (caseRef tailLayoutsClosed (tailLayoutsAt s))) (line "whether a tail call's result layouts agree with its caller's")
   , MkColumn (ident "edgeHoldsAt") (EnumColumn (enumDef edgeHoldsClosed)) (\s => CaseCell (caseRef edgeHoldsClosed (edgeHoldsAt s))) (line "whether a value crosses an edge at the hold asked or at one that fits it")
   ]

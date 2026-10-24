@@ -373,13 +373,13 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     // A call of a merged function, in a function that stays, calls the one
     // kept, which may be its own function now. It stands where it stood, so
     // a tail call stays one; any other is a self call where it names its
-    // own function, which takes the context the rule reads off it once it
-    // names the one kept.
-    SmallVector<idr::CallOp> redirected;
+    // own function, so once it names the one kept it is made the member
+    // the rule's reading of its context gives.
+    SmallVector<idr::FunctionCallOpInterface> redirected;
     for (idr::FuncOp fn : fns)
       if (!keptAs[graph.id(fn)])
-        fn.walk([&](idr::CallOp call) {
-          if (renamed(call.getCalleeAttr()))
+        fn.walk([&](idr::FunctionCallOpInterface call) {
+          if (renamed(call.getCalleeAttr()) && !isa<idr::TailCallOp>(call.getOperation()))
             redirected.push_back(call);
         });
     // Every reference to a merged function names the one kept: in bodies,
@@ -394,9 +394,9 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
                                           /*replaceTypes=*/true);
     if (StringAttr root = renamed(program.getRootAttr()))
       program.setRootAttr(FlatSymbolRefAttr::get(root));
-    for (idr::CallOp call : redirected)
-      if (!idr::tailCallOf(call))
-        call.setTailKind(idr::tail::withContext(call));
+    IRRewriter rewriter(context);
+    for (idr::FunctionCallOpInterface call : redirected)
+      (void)idr::tail::restand(rewriter, call, idr::tail::offTail(call));
     for (idr::FuncOp fn : fns)
       if (keptAs[graph.id(fn)]) {
         fn->erase();

@@ -39,7 +39,7 @@ rows::Fold::Fold(FuncOp fn)
 // divergence of the cycle such a call closes is read here instead, off the
 // function, so a row that leaves it out is short of its body, as a row
 // short of any op's effect is.
-void rows::Fold::cycleOfOne(CallOp call) {
+void rows::Fold::cycleOfOne(FunctionCallOpInterface call) {
   if (call.getCalleeAttr().getAttr() == self)
     join(ownCycle);
 }
@@ -153,7 +153,7 @@ void rows::Fold::anything() {
     amount = Amount::unbounded();
 }
 
-void rows::CallCopies::call(CallOp call, Fold &fold, Runs) {
+void rows::CallCopies::call(FunctionCallOpInterface call, Fold &fold, Runs) {
   fold.join(call.getRow());
   forEachWritten(call, [&](OpOperand &operand) { fold.writeThrough(operand.get()); });
 }

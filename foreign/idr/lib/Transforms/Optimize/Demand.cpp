@@ -56,7 +56,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
   // A callee's place among the members, by the program's one numbering of
   // its functions: the members are in id order; none for a function of
   // another component.
-  auto memberAt = [&](CallOp call) -> std::optional<unsigned> {
+  auto memberAt = [&](FunctionCallOpInterface call) -> std::optional<unsigned> {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     if (!callee)
       return std::nullopt;
@@ -88,7 +88,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       unsigned p = param.getArgNumber();
       bool seed = !narrowable(m) || isLinear(param.getType());
       for (OpOperand &use : param.getUses()) {
-        auto call = dyn_cast<CallOp>(use.getOwner());
+        auto call = dyn_cast<FunctionCallOpInterface>(use.getOwner());
         std::optional<unsigned> callee = call ? memberAt(call) : std::nullopt;
         if (!callee) {
           seed = true;
@@ -118,7 +118,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
   // every member's before any parameter goes: an unread parameter's last
   // uses are operands at the dropped positions of its component's calls.
   SmallVector<llvm::BitVector> unread;
-  SmallVector<SmallVector<CallOp>> narrowed(fns.size());
+  SmallVector<SmallVector<FunctionCallOpInterface>> narrowed(fns.size());
   for (auto [at, fn] : llvm::enumerate(fns)) {
     llvm::BitVector bits = read[at];
     bits.flip();
@@ -127,7 +127,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       continue;
     StringAttr name = fn.getSymNameAttr();
     auto narrow = [&](FuncOp caller) {
-      caller.getBody().walk([&](CallOp call) {
+      caller.getBody().walk([&](FunctionCallOpInterface call) {
         if (call.getCalleeAttr().getAttr() != name)
           return;
         llvm::BitVector operands(call->getNumOperands());
@@ -154,7 +154,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     if (bits.none())
       continue;
     (void)fn.eraseArguments(bits);
-    for (CallOp call : calls)
+    for (FunctionCallOpInterface call : calls)
       call.copyCallee(fn);
     // A copy's key is asked again after it is final, by a requester taken
     // up later, whose call it gives the key's parameters: the copy's node

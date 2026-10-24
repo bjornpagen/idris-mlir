@@ -171,12 +171,13 @@ void Decision::widen() {
 
 // Each function's calls, and in its row beside them each label it runs,
 // with how many of its runs run it. A run is no call yet: the call an
-// apply's case makes takes its tail fact from the one definition where it
-// stands, once the program is first order, and a force becomes a call of
-// its dispatch function, not of the label. A row holds only calls, so a run
-// stands as a call within, which the atoms' join never reads and the
-// rewrite's calls replace; the row stays in the graph's one order, a
-// (callee, kind) once, merged with a direct call of the same label.
+// apply's case makes becomes the member its place makes by the one
+// definition, once the program is first order, and a force becomes a call
+// of its dispatch function, not of the label. A row holds only calls, so a
+// run stands as an ordinary call within, which the atoms' join never reads
+// and the rewrite's calls replace; the row stays in the graph's one order,
+// a (callee, standing) once, merged with a direct ordinary call of the
+// same label.
 void Decision::complete(
     IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran) {
   Count<solver::FunctionId> space = ran.size();
@@ -196,13 +197,13 @@ void Decision::complete(
         ++to;
       auto sites = static_cast<std::uint32_t>(to - from);
       from = to;
-      while (next < direct.size() && std::tuple(direct[next].callee, direct[next].kind) <
-                                         std::tuple(label, TailKind::nontail))
+      while (next < direct.size() && std::tuple(direct[next].callee, direct[next].standing) <
+                                         std::tuple(label, CallStanding::Returns))
         row.push_back(direct[next++]);
       if (next < direct.size() && direct[next].callee == label &&
-          direct[next].kind == TailKind::nontail)
+          direct[next].standing == CallStanding::Returns)
         sites += direct[next++].sites;
-      row.push_back({label, TailKind::nontail, sites});
+      row.push_back({label, CallStanding::Returns, sites});
     }
     row.append(direct.begin() + static_cast<std::ptrdiff_t>(next), direct.end());
     editor.setCallees(f, row);
@@ -216,7 +217,7 @@ namespace {
 // of its own, nor does a run of labels, since the graph holds both as
 // calls, whose callees' rows the join gives.
 struct ByGraph {
-  void call(CallOp, rows::Fold &, Runs) {}
+  void call(FunctionCallOpInterface, rows::Fold &, Runs) {}
   rows::Read other(Operation *op, rows::Fold &, Runs) {
     return isa<RunsLabelsOpInterface>(op) ? rows::Read::ByReader : rows::Read::ByDeclaration;
   }

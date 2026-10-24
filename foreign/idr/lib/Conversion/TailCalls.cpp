@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-tail-calls: the tail fact each call carries, made what LLVM obeys. A
-// call in tail position never grows the stack: the idr call holds the fact
-// (`tail`), its verifier held every pass to it, and idr-lower made it a
-// `musttail` call under `tailcc`, the convention every function of the
-// program takes. Nothing here decides which call is one, or keeps a call
-// it could not make: a `musttail` call LLVM cannot make fails to compile,
-// never silently a call.
+// idr-tail-calls: where each call stands, made what LLVM obeys. A call in
+// tail position never grows the stack: it is an idr.tail_call, whose
+// verifier held every pass to it, and idr-lower made it a `musttail` call
+// under `tailcc`, the convention every function of the program takes.
+// Nothing here decides which call is one, or keeps a call it could not
+// make: a `musttail` call LLVM cannot make fails to compile, never silently
+// a call.
 //
 //   - The return. The lowering gives a call's results back through the
 //     components it took apart and the branches the matches became, and

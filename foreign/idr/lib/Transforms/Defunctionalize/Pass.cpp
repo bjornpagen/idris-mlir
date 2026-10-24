@@ -18,10 +18,11 @@
 // Then the decision is made whole, serially, every type and attribute the
 // edits build with it, and each function makes its edits on its own, in
 // parallel, reading it. The program is first-order after it, and every
-// call of it takes its tail fact from the one definition, in one walk:
-// every run is a call of its own, so the graph takes the dispatch functions,
-// and the row of each function that ran labels or whose facts changed,
-// again from their calls, and every row is derived over it.
+// call of it becomes the member its place makes by the one definition, in
+// one walk: every run is a call of its own, so the graph takes the
+// dispatch functions, and the row of each function that ran labels or one
+// of whose calls became another member, again from their calls, and every
+// row is derived over it.
 
 #include "idr/Analysis/Labels.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -65,7 +66,7 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     });
     numFamilies += decided.numFamilies();
     // The program is first order: every call of it, each run's among them,
-    // takes its tail fact where it stands, in one walk, each function's
+    // becomes the member its place makes, in one walk, each function's
     // calls on their own, in parallel: the functions the program had, then
     // the dispatch functions.
     idr::footprint::Vector<idr::FuncOp> functions;
@@ -77,9 +78,9 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     parallelFor(&getContext(), 0, functions.size(),
                 [&](std::size_t at) { facts[at] = idr::optimize::decideTails(functions[at]); });
     // Each dispatch function joins the graph, and its row, and the row of
-    // each function whose calls changed (its runs became calls, or a fact
-    // did), are read from their calls, each turn writing its own function's
-    // row.
+    // each function whose calls changed (its runs became calls, or a call
+    // became another member), are read from their calls, each turn writing
+    // its own function's row.
     {
       idr::IndexVector<idr::solver::FunctionId, Facts> ran = graph.table<Facts>(Facts::Kept);
       for (const idr::defunctionalize::Runner &each : decided.runners())

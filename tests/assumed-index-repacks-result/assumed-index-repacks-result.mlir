@@ -27,7 +27,7 @@ idr.program @entries root(@main) stage(higher) {
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @repacked(%xs: !Vn) -> i64 {
     // expected-error @below {{expected results-as-given: }}
-    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (!Vn) -> !Vn
+    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>}> : (!Vn) -> !Vn
     %t = idr.index.assume #idr.equation<v0 = 4> (%r : !Vn) -> (i64) {
     ^bb0(%w: !V4):
       %tag = idr.data.tag %w : !V4
@@ -36,7 +36,7 @@ idr.program @entries root(@main) stage(higher) {
     idr.return %t : i64
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @kept(%xs: !Vn) -> i64 {
-    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (!Vn) -> !Vn
+    %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>}> : (!Vn) -> !Vn
     %t = idr.index.assume #idr.equation<v0 = 4> (%r : !Vn) -> (i64) {
     ^bb0(%w: !V4open):
       %tag = idr.data.tag %w : !V4open

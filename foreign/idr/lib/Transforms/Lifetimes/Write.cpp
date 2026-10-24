@@ -9,8 +9,10 @@
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
@@ -109,11 +111,12 @@ Writer::Resolved Writer::resolve(const OpOrder &order, const footprint::Vector<V
   for (OpAt site : sites)
     out.sites.push_back(cast<CellNewOp>(order.op(site)));
   for (const PutCall &call : calls)
-    out.calls.emplace_back(cast<CallOp>(order.op(call.call)), call.callee);
+    out.calls.emplace_back(cast<FunctionCallOpInterface>(order.op(call.call)), call.callee);
   for (Node n : scoped) {
     Value value = values[n.index()];
     auto result = dyn_cast<OpResult>(value);
-    if (result && llvm::any_of(out.calls, [&](std::pair<CallOp, FunctionId> call) {
+    if (result &&
+        llvm::any_of(out.calls, [&](std::pair<FunctionCallOpInterface, FunctionId> call) {
           return call.first.getOperation() == result.getOwner();
         }))
       continue;
@@ -193,8 +196,8 @@ Value idr::lifetimes::decide::openLifetime(Opening source, Operation *first, Ope
 }
 
 // The cells, as slots of the frame or bumped into `lifetime`; the calls,
-// to the copy of their callee for `mode`, given `lifetime`; then every
-// value that lives in it.
+// to the copy of their callee for `mode`, given `lifetime`, each standing
+// where the call it replaces stood; then every value that lives in it.
 void Writer::write(const Resolved &resolved, Value lifetime, Cells cells, CopyMode mode) {
   for (CellNewOp site : resolved.sites) {
     OpBuilder b(site);
@@ -207,13 +210,15 @@ void Writer::write(const Resolved &resolved, Value lifetime, Cells cells, CopyMo
   }
   for (auto [call, callee] : resolved.calls) {
     FuncOp copy = made[callee][static_cast<unsigned>(mode)];
-    OpBuilder b(call);
+    IRRewriter rewriter(call.getContext());
+    rewriter.setInsertionPoint(call);
     SmallVector<Value, 4> args(call.getArgs());
     args.push_back(lifetime);
-    auto put = CallOp::create(b, call.getLoc(), copy, call.getIndexArgsAttr(), args,
-                              call.getTailKind());
+    auto put = CallOp::create(rewriter, call.getLoc(), copy, call.getIndexArgsAttr(), args);
+    CallStanding standing = call.getStanding();
     call->replaceAllUsesWith(put->getResults());
-    call.erase();
+    call->erase();
+    (void)tail::restand(rewriter, put, standing);
   }
   for (Value value : resolved.scoped)
     scope(value, lifetime);

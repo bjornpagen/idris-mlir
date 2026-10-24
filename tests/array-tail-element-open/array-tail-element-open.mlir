@@ -49,14 +49,14 @@ idr.program @positions root(@main) stage(first) {
     %three = arith.constant 3 : i64
     %five = arith.constant 5 : i64
     %zero = arith.constant 0 : index
-    %a = idr.call @f(%xs, %three) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
-    %b = idr.call @f(%xs, %five) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
-    %c = idr.call @h(%xs, %three) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
-    %d = idr.call @h(%xs, %five) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
-    %e = idr.call @c(%ys, %three) <{tail_kind = nontail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
-    %g = idr.call @c(%ys, %five) <{tail_kind = nontail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
-    %u = idr.call @u(%ys, %three) <{tail_kind = nontail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
-    %v = idr.call @u(%ys, %five) <{tail_kind = nontail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
+    %a = idr.call @f(%xs, %three) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+    %b = idr.call @f(%xs, %five) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+    %c = idr.call @h(%xs, %three) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+    %d = idr.call @h(%xs, %five) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+    %e = idr.call @c(%ys, %three) : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
+    %g = idr.call @c(%ys, %five) : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
+    %u = idr.call @u(%ys, %three) : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
+    %v = idr.call @u(%ys, %five) : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
     %fa = tensor.extract %a[%zero] : tensor<?x!BelowAny>
     %fn = idr.numeral.to_nat %fa : !BelowAny -> !Nat
     %fb = idr.nat.to_big %fn : (!Nat) -> !idr.big
@@ -72,14 +72,14 @@ idr.program @positions root(@main) stage(first) {
   idr.func @f(%xs: tensor<?x!Below5>, %n: i64) -> tensor<?x!BelowAny> {
     %r = idr.lit.match %n : i64 -> (tensor<?x!BelowAny>) {
     case 0(%key0: i64) {
-      %v = idr.call @g(%xs, %n) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
+      %v = idr.call @g(%xs, %n) : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
       %w = idr.data.reindex %v : tensor<?x!Below5> to tensor<?x!BelowAny>
       idr.yield %w : tensor<?x!BelowAny>
     }
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %d, %one : i64
-      %v = idr.call @f(%xs, %m) <{tail_kind = tail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+      %v = idr.tail_call @f(%xs, %m) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
       idr.yield %v : tensor<?x!BelowAny>
     }
     }
@@ -88,14 +88,14 @@ idr.program @positions root(@main) stage(first) {
   idr.func @h(%xs: tensor<?x!Below5>, %n: i64) -> tensor<?x!BelowAny> {
     %r = idr.lit.match %n : i64 -> (tensor<?x!BelowAny>) {
     case 1(%key1: i64) {
-      %v = idr.call @g(%xs, %n) <{tail_kind = nontail}> : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
+      %v = idr.call @g(%xs, %n) : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
       %w = idr.data.reindex %v : tensor<?x!Below5> to tensor<?x!BelowAny>
       idr.yield %w : tensor<?x!BelowAny>
     }
     default(%d: i64) {
       %two = arith.constant 2 : i64
       %m = arith.subi %d, %two : i64
-      %v = idr.call @h(%xs, %m) <{tail_kind = tail}> : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
+      %v = idr.tail_call @h(%xs, %m) : (tensor<?x!Below5>, i64) -> tensor<?x!BelowAny>
       idr.yield %v : tensor<?x!BelowAny>
     }
     }
@@ -109,7 +109,7 @@ idr.program @positions root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %v = idr.call @g(%xs, %j) <{tail_kind = tail}> : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
+      %v = idr.tail_call @g(%xs, %j) : (tensor<?x!Below5>, i64) -> tensor<?x!Below5>
       idr.yield %v : tensor<?x!Below5>
     }
     }
@@ -118,14 +118,14 @@ idr.program @positions root(@main) stage(first) {
   idr.func @c(%ys: tensor<?x!BelowAny>, %n: i64) -> tensor<?x!Below5> {
     %r = idr.lit.match %n : i64 -> (tensor<?x!Below5>) {
     case 0(%key0: i64) {
-      %v = idr.call @u(%ys, %n) <{tail_kind = nontail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
+      %v = idr.call @u(%ys, %n) : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
       %w = idr.data.reindex %v : tensor<?x!BelowAny> to tensor<?x!Below5>
       idr.yield %w : tensor<?x!Below5>
     }
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %m = arith.subi %d, %one : i64
-      %v = idr.call @c(%ys, %m) <{tail_kind = tail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
+      %v = idr.tail_call @c(%ys, %m) : (tensor<?x!BelowAny>, i64) -> tensor<?x!Below5>
       idr.yield %v : tensor<?x!Below5>
     }
     }
@@ -139,7 +139,7 @@ idr.program @positions root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %v = idr.call @u(%ys, %j) <{tail_kind = tail}> : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
+      %v = idr.tail_call @u(%ys, %j) : (tensor<?x!BelowAny>, i64) -> tensor<?x!BelowAny>
       idr.yield %v : tensor<?x!BelowAny>
     }
     }

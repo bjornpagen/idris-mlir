@@ -122,7 +122,7 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type
 // a lifetime of another type only where a view is asked: the parameter is
 // the view of the lifetime given, as the inliner makes it.
 void viewsWhereAsked(ProgramOp program, const solver::ProgramGraph &graph) {
-  program.walk([&](CallOp call) {
+  program.walk([&](FunctionCallOpInterface call) {
     FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
     OpBuilder b(call);
     for (auto [operand, param] : llvm::zip_equal(call->getOpOperands(), callee.getArgumentTypes())) {
@@ -173,30 +173,22 @@ struct LowerEntryBlock : OpConversionPattern<LLVM::LLVMFuncOp> {
 };
 
 // A call of the program, under tailcc, as every function of the program is,
-// a call in tail position musttail: LLVM makes it a jump or fails to
-// compile, never silently a call. Each cursor it passes goes in as the
-// cursor its slot holds and comes back as one more result, which the slot
-// then holds; a tail call's come back as its caller's own return, since a
-// tail call passes on its caller's cursors in its caller's order, so the
-// last bump along a chain of tail calls returns to the first call that is
-// no tail, a resume's included. A call whose result fills a field of cells
-// built before it is a loop by now, idr-trmc's promise: one that reaches
-// here is the internal error of a promise missed.
-struct LowerCall : IdrPattern<CallOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(CallOp op, OneToNOpAdaptor adaptor,
+// a tail call musttail: LLVM makes it a jump or fails to compile, never
+// silently a call. Each cursor it passes goes in as the cursor its slot
+// holds and comes back as one more result, which the slot then holds; a
+// tail call's come back as its caller's own return, since a tail call
+// passes on its caller's cursors in its caller's order, so the last bump
+// along a chain of tail calls returns to the first call that is no tail, a
+// resume's included. One pattern per member that returns to its caller or
+// jumps, instantiated from the member's standing.
+template <CallFamily Call>
+struct LowerCall : IdrPattern<Call> {
+  using IdrPattern<Call>::IdrPattern;
+  using OneToNOpAdaptor = typename IdrPattern<Call>::OneToNOpAdaptor;
+  LogicalResult matchAndRewrite(Call op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    TailKind tail = op.getTailKind();
-    switch (tail) {
-    case TailKind::nontail:
-    case TailKind::tail:
-      break;
-    case TailKind::modulo_context:
-      return op.emitOpError("internal error: idr-lower: a call modulo its context that idr-trmc "
-                            "did not make a loop");
-    }
     Location loc = op.getLoc();
-    MLIRContext *ctx = getContext();
+    MLIRContext *ctx = this->getContext();
     Type ptr = ptrType(ctx);
     SmallVector<Value> args, slots;
     for (auto [operand, converted] : llvm::zip_equal(op.getArgs(), adaptor.getArgs())) {
@@ -211,7 +203,7 @@ struct LowerCall : IdrPattern<CallOp> {
     SmallVector<SmallVector<Type>> resultTypes(op->getNumResults());
     SmallVector<Type> flat;
     for (auto [type, converted] : llvm::zip_equal(op->getResultTypes(), resultTypes)) {
-      if (failed(getTypeConverter()->convertType(type, converted)))
+      if (failed(this->getTypeConverter()->convertType(type, converted)))
         return rewriter.notifyMatchFailure(op, "a result's type does not convert");
       llvm::append_range(flat, converted);
     }
@@ -223,7 +215,7 @@ struct LowerCall : IdrPattern<CallOp> {
     auto call = LLVM::CallOp::create(rewriter, loc, LLVM::LLVMFunctionType::get(result, params),
                                      op.getCalleeAttr(), args);
     call.setCConv(LLVM::cconv::CConv::Tail);
-    if (tail == TailKind::tail)
+    if constexpr (standingOf<Call> == CallStanding::Tail)
       call.setTailCallKind(LLVM::tailcallkind::TailCallKind::MustTail);
     // The call's components, one by one out of the struct LLVM returns.
     SmallVector<Value> given;
@@ -241,11 +233,23 @@ struct LowerCall : IdrPattern<CallOp> {
     }
     // A tail call's cursors come back as its caller's own results, which
     // the call gives as its caller's return: nothing follows it to keep them.
-    if (tail != TailKind::tail)
+    if constexpr (standingOf<Call> != CallStanding::Tail)
       for (auto [slot, cursor] : llvm::zip_equal(slots, rest))
         LLVM::StoreOp::create(rewriter, loc, cursor, slot);
     rewriter.replaceOpWithMultiple(op, std::move(results));
     return success();
+  }
+};
+
+// A call whose result fills a field of cells built before it is a loop by
+// now, idr-trmc's promise: one that reaches here is the internal error of
+// a promise missed.
+struct LowerContextCall : IdrPattern<ContextCallOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ContextCallOp op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &) const override {
+    return op.emitOpError("internal error: idr-lower: a call modulo its context that idr-trmc "
+                          "did not make a loop");
   }
 };
 
@@ -340,7 +344,8 @@ void populateFunctionPatterns(RewritePatternSet &patterns, const TypeConverter &
                               const Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerEntryBlock>(converter, ctx);
-  patterns.add<LowerCall, LowerReturn>(converter, ctx, layouts, runtime);
+  patterns.add<LowerCall<CallOp>, LowerCall<TailCallOp>, LowerContextCall, LowerReturn>(
+      converter, ctx, layouts, runtime);
 }
 
 } // namespace idr::conversion

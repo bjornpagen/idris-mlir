@@ -176,7 +176,8 @@ void Planner::readAll() {
       around.push_back({at, where});
     wheres[at] = where;
   }
-  order.each<CallOp>([&](CallOp call, OpAt at) { read(call, at, wheres[at]); });
+  order.each<FunctionCallOpInterface>(
+      [&](FunctionCallOpInterface call, OpAt at) { read(call, at, wheres[at]); });
   order.each<CellNewOp>([&](CellNewOp cell, OpAt at) { read(cell, at, wheres[at]); });
   fn.walk([&](CellInitOp init) { read(init); });
 }
@@ -216,14 +217,14 @@ void Planner::edge(Value from, Value to) {
 // What a call does with what it gives: each result a copy of its callee
 // puts into a lifetime is one the call may put there, and every other is
 // counted.
-void Planner::read(CallOp call, OpAt at, const Where &where) {
+void Planner::read(FunctionCallOpInterface call, OpAt at, const Where &where) {
   FunctionId callee = graph.id(call.getCalleeAttr());
   // A call that runs on a frame, as the graph decides: the frames pass
   // moves what follows it into a frame.
-  if (graph.runsOnFrame(graph.sccOf(self), callee, call.getTailKind()))
+  if (graph.runsOnFrame(graph.sccOf(self), callee, call.getStanding()))
     framed.push_back(at);
-  // A call in tail position, which lowers to its caller's own return.
-  if (tailCallOf(call))
+  // A tail call, which lowers to its caller's own return.
+  if (isa<TailCallOp>(call.getOperation()))
     tails.push_back(at);
   const std::optional<Copies> &theirs = copies[callee];
   Call put{at, callee, {}, where.run};

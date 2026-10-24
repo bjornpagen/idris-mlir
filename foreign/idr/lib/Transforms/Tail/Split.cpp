@@ -277,9 +277,9 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   llvm::append_range(passed, passedOuter);
   llvm::append_range(passed, lifetimesOf(owner));
   rewriter.setInsertionPoint(outerEnd);
-  auto call = CallOp::create(rewriter, loc, fn,
-                             families::levelArgs(ctx, 0, static_cast<uint32_t>(binders.size())),
-                             passed, TailKind::tail);
+  auto call = TailCallOp::create(rewriter, loc, fn,
+                                 families::levelArgs(ctx, 0, static_cast<uint32_t>(binders.size())),
+                                 passed);
   rewriter.modifyOpInPlace(outerEnd, [&] { outerEnd->setOperands(call.getResults()); });
   rewriter.eraseOp(opener);
   made.push_back(call);

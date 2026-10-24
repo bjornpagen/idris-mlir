@@ -7,19 +7,19 @@
 // continuation of @loop's and nothing is reported.
 idr.program @still root(@main) stage(first) {
   idr.func @loop(%n: i64) -> i64 {
-    %r = idr.call @step(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @step(%n) : (i64) -> i64
     %s = arith.addi %r, %n : i64
     return %s : i64
   }
   // expected-error @below {{expected contified: }}
   idr.func @step(%n: i64) -> i64 {
-    %r = idr.call @loop(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @loop(%n) : (i64) -> i64
     %s = arith.addi %r, %n : i64
     return %s : i64
   }
   idr.func @main() {
     %c = arith.constant 7 : i64
-    %r = idr.call @loop(%c) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @loop(%c) : (i64) -> i64
     %text = idr.str.show_sint %r : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
     return
@@ -30,7 +30,7 @@ idr.program @still root(@main) stage(first) {
 
 idr.program @leaf root(@main) stage(first) {
   idr.func @loop(%n: i64) -> i64 {
-    %r = idr.call @step(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @step(%n) : (i64) -> i64
     %s = arith.addi %r, %n : i64
     return %s : i64
   }
@@ -40,7 +40,7 @@ idr.program @leaf root(@main) stage(first) {
   }
   idr.func @main() {
     %c = arith.constant 7 : i64
-    %r = idr.call @loop(%c) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @loop(%c) : (i64) -> i64
     %text = idr.str.show_sint %r : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
     return

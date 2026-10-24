@@ -21,7 +21,6 @@ import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Control.Joins
 import IdrisMLIR.Spec.Runtime.Endings
-import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -647,7 +646,7 @@ alg ix (EffectF l p gives as world res) sc w = do
 -- one that uses it many times takes it cast out of its one use, after the
 -- call and never between the call and a return. Where it stands in its
 -- function is decided once, by the one definition of tail position, when
--- the program is first order: the frontend writes every call `nontail`,
+-- the program is first order: the frontend writes every call ordinary,
 -- which promises nothing, and the source states no other. A call the
 -- registry lowered a library definition's call to names it.
 alg ix (CallF l f stands is as) sc w = do
@@ -662,9 +661,9 @@ alg ix (CallF l f stands is as) sc w = do
   -- of the module, or one value.
   case rt of
     WorldT => do
-      placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee NonTail args [])
+      placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee args [])
       pure (Just worldVal)
-    _ => Just <$> fitted {binder = w.binder} {stands} ix l Once w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
+    _ => Just <$> fitted {binder = w.binder} {stands} ix l Once w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee args [t])
 -- A constructor's fields are checked at their types with its binders
 -- given.
 alg ix (ConAppF l c bs as) sc w = do

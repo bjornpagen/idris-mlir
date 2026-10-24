@@ -34,7 +34,7 @@ idr.program @positions root(@main) stage(first) {
     } -> tensor<3x!Below5>
     %ys = idr.data.reindex %xs : tensor<3x!Below5> to tensor<3x!BelowAny>
     %k = arith.constant 2 : i64
-    %r = idr.call @nth(%ys, %k) <{tail_kind = nontail}> : (tensor<3x!BelowAny>, i64) -> !Nat
+    %r = idr.call @nth(%ys, %k) : (tensor<3x!BelowAny>, i64) -> !Nat
     %b = idr.nat.to_big %r : (!Nat) -> !idr.big
     %text = idr.big.show %b : (!idr.big) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
@@ -51,7 +51,7 @@ idr.program @positions root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %v = idr.call @nth(%xs, %j) <{tail_kind = tail}> : (tensor<3x!BelowAny>, i64) -> !Nat
+      %v = idr.tail_call @nth(%xs, %j) : (tensor<3x!BelowAny>, i64) -> !Nat
       idr.yield %v : !Nat
     }
     }

@@ -78,7 +78,7 @@ Chains::Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &su
   for (const auto &[at, operand] : pending)
     forwards.push_back(operand);
   std::uint32_t place = 0;
-  ownership::forEachCall(fn, [&](CallOp call) {
+  ownership::forEachCall(fn, [&](FunctionCallOpInterface call) {
     if (call->getNumResults() != 0)
       callAt[values.at(call->getResult(0))] = place;
     ++place;

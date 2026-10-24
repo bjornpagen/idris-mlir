@@ -32,10 +32,10 @@ idr.program @inlined root(@main) stage(first) {
     %n = idr.str.length %line : (!idr.str) -> i64
     %one = arith.constant 1 : i64
     %m = arith.addi %n, %one : i64
-    %x = idr.call @wrap(%a, %n) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
-    %y = idr.call @wrap(%a, %m) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
-    %fx = idr.call @first(%x, %n) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
-    %fy = idr.call @first(%y, %m) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+    %x = idr.call @wrap(%a, %n) : (!Str, i64) -> !Pair
+    %y = idr.call @wrap(%a, %m) : (!Str, i64) -> !Pair
+    %fx = idr.call @first(%x, %n) : (!Pair, i64) -> !idr.str
+    %fy = idr.call @first(%y, %m) : (!Pair, i64) -> !idr.str
     idr.io.put_str %fx : (!idr.str) -> ()
     idr.io.put_str %fy : (!idr.str) -> ()
     idr.return
@@ -43,7 +43,7 @@ idr.program @inlined root(@main) stage(first) {
   idr.func @wrap(%s: !idr.str, %k: i64) -> !Pair {
     %b = idr.constant !Str "b"
     %sb = idr.str.append %s, %b : (!idr.str, !Str) -> !idr.str
-    %p = idr.call @twice(%sb, %k) <{tail_kind = tail}> : (!idr.str, i64) -> !Pair
+    %p = idr.tail_call @twice(%sb, %k) : (!idr.str, i64) -> !Pair
     idr.return %p : !Pair
   } loc("wrap")
   idr.func @twice(%s: !idr.str, %k: i64) -> !Pair {
@@ -56,7 +56,7 @@ idr.program @inlined root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @twice(%s, %j) <{tail_kind = tail}> : (!idr.str, i64) -> !Pair
+      %again = idr.tail_call @twice(%s, %j) : (!idr.str, i64) -> !Pair
       idr.yield %again : !Pair
     }
     }
@@ -76,7 +76,7 @@ idr.program @inlined root(@main) stage(first) {
     default(%d: i64) {
       %one = arith.constant 1 : i64
       %j = arith.subi %d, %one : i64
-      %again = idr.call @first(%p, %j) <{tail_kind = tail}> : (!Pair, i64) -> !idr.str
+      %again = idr.tail_call @first(%p, %j) : (!Pair, i64) -> !idr.str
       idr.yield %again : !idr.str
     }
     }

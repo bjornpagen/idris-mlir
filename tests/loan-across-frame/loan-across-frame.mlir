@@ -12,7 +12,7 @@
 idr.program @loans root(@main) stage(first) {
   idr.func @main() {
     %n = arith.constant 3 : i64
-    %r = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r = idr.call @g(%n) : (i64) -> i64
     %text = idr.str.show_sint %r : (i64) -> !idr.str
     idr.io.put_str %text : (!idr.str) -> ()
     idr.return
@@ -22,9 +22,9 @@ idr.program @loans root(@main) stage(first) {
     %c1 = arith.constant 1 : index
     %view = memref.subview %keep[1] [2] [1] : memref<4xi64> to memref<2xi64, strided<[1], offset: 1>>
     %a = memref.load %view[%c0] : memref<2xi64, strided<[1], offset: 1>>
-    %r1 = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r1 = idr.call @g(%n) : (i64) -> i64
     %b = memref.load %view[%c1] : memref<2xi64, strided<[1], offset: 1>>
-    %r2 = idr.call @g(%n) <{tail_kind = nontail}> : (i64) -> i64
+    %r2 = idr.call @g(%n) : (i64) -> i64
     %c = memref.load %keep[%c0] : memref<4xi64>
     %ab = arith.addi %a, %b : i64
     %abc = arith.addi %ab, %c : i64
@@ -34,7 +34,7 @@ idr.program @loans root(@main) stage(first) {
   }
   idr.func @g(%n: i64) -> i64 {
     %fresh = memref.alloc() : memref<4xi64>
-    %back, %r = idr.call @f(%fresh, %n) <{tail_kind = nontail}> : (memref<4xi64>, i64) -> (memref<4xi64>, i64)
+    %back, %r = idr.call @f(%fresh, %n) : (memref<4xi64>, i64) -> (memref<4xi64>, i64)
     idr.return %r : i64
   }
 }

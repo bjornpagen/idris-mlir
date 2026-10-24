@@ -23,7 +23,6 @@
 #include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Func.h"
-#include "idr/IR/Tail.h"
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 #include "idr/Transforms/Counting/Bound.h"
@@ -59,13 +58,10 @@ struct TellReturn : Tells<ReturnOp> {
   }
 };
 
-// A call in tail position, which ends the call as a jump; any other call
-// returns to it.
-struct TellTailCall : Tells<CallOp> {
+// A tail call, which ends the call as a jump; any other call returns to it.
+struct TellTailCall : Tells<TailCallOp> {
   using Tells::Tells;
-  LogicalResult matchAndRewrite(CallOp op, PatternRewriter &rewriter) const override {
-    if (!tailCallOf(op))
-      return failure();
+  LogicalResult matchAndRewrite(TailCallOp op, PatternRewriter &rewriter) const override {
     rewriter.setInsertionPoint(op);
     leaves(rewriter, op.getLoc());
     return success();

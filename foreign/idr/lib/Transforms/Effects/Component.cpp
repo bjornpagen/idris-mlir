@@ -55,7 +55,7 @@ struct ComponentCalls {
     return at->second;
   }
 
-  void call(CallOp call, Fold &fold, Runs runs) {
+  void call(FunctionCallOpInterface call, Fold &fold, Runs runs) {
     FunctionId callee = editor.id(call.getCalleeAttr());
     if (std::optional<unsigned> member = memberOf(callee)) {
       sites.push_back(siteOf(call, callee, *member, members[*member].fn, fold, runs));
@@ -137,7 +137,7 @@ void rows::writeComponent(std::span<const solver::Member> members, const solver:
     fn.setUntouchedAttr(untouched[index]);
     fn.setBoundedAttr(bounded[index]);
     for (const Site &site : own[index].sites) {
-      CallOp call = site.call;
+      FunctionCallOpInterface call = site.call;
       call.setRow(row);
       call.setUntouchedAttr(untouched[site.ordinal]);
     }

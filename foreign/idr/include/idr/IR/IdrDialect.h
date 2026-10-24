@@ -110,15 +110,17 @@ class TagSet;
 // link error.
 #include "idr/IR/Generated/Hooks.h.inc"
 
-// How a value moves and the join family's carrier, which the ops name,
-// after the types its anchors hold; the template a big made of an integer
-// reads its signedness from, which that interface's default calls; what
-// intervals know of a guard's condition, which the guard interface decides;
-// then the op interfaces, the flow interface among them. The control
-// flow's skeleton rules, which name the ops, are their own header's
-// (Control/Control.h).
+// How a value moves and the join and call families' carriers, which the
+// ops name, after the types its anchors hold, the call family's standing
+// being what the call interface's default answers; the template a big made
+// of an integer reads its signedness from, which that interface's default
+// calls; what intervals know of a guard's condition, which the guard
+// interface decides; then the op interfaces, the flow interface among
+// them. The control flow's skeleton rules, which name the ops, are their
+// own header's (Control/Control.h).
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Control/Family.h"
+#include "idr/IR/Calls.h"
 #include "idr/IR/Ops/BigOfInteger.h"
 #include "idr/IR/Numeric/Intervals.h"
 #include "idr/IR/IdrInterfaces.h.inc"

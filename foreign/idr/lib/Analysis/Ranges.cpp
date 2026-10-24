@@ -119,13 +119,13 @@ public:
     propagateIfChanged(binding, binding->join(refined));
   }
 
-  // A call's results are what its callee returns, as summarized; a result
-  // no return of the callee reached yet (a callee of the same component)
-  // starts at its type's range.
+  // A call's results are what its callee returns, as summarized, wherever
+  // the call stands; a result no return of the callee reached yet (a callee
+  // of the same component) starts at its type's range.
   void visitExternalCall(CallOpInterface call, ArrayRef<const IntegerValueRangeLattice *>,
                          ArrayRef<IntegerValueRangeLattice *> results) override {
     ++visits;
-    auto direct = cast<idr::CallOp>(call.getOperation());
+    auto direct = cast<idr::FunctionCallOpInterface>(call.getOperation());
     std::span<const IntegerValueRange> returned = summaries.returnsOf(direct.getCalleeAttr());
     for (auto [lattice, value] : llvm::zip_equal(results, returned)) {
       if (value.isUninitialized()) {
@@ -307,7 +307,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
           return IntegerValueRange();
         };
         footprint::Vector<Passed> &mine = passed[f];
-        fn.getBody().walk([&](CallOp call) {
+        fn.getBody().walk([&](FunctionCallOpInterface call) {
           solver::FunctionId callee = graph.id(call.getCalleeAttr());
           if (graph.sccOf(callee) == c)
             return;

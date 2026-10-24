@@ -294,10 +294,13 @@ LogicalResult idr::CellInitOp::verifyLifetimeUse(const OpenLifetimes &) {
 
 // A call passes each scoped argument into the lifetime its callee's
 // signature names for it, and the lifetimes it passes keep the bounds that
-// signature states: both read off the call's own copy of it.
-LogicalResult idr::CallOp::verifyLifetimeUse(const OpenLifetimes &open) {
-  LivesInAttr callee = getLivesInAttr();
-  auto args = getArgs();
+// signature states: both read off the call's own copy of it, wherever the
+// call stands.
+namespace {
+template <CallFamily Call>
+LogicalResult verifyCallLifetimes(Call call, const OpenLifetimes &open) {
+  LivesInAttr callee = call.getLivesInAttr();
+  auto args = call.getArgs();
   auto lifetimeAt = [&](std::uint32_t position) -> Value {
     return position < args.size() && isa<LifetimeType>(args[position].getType()) ? args[position]
                                                                                  : Value();
@@ -309,10 +312,10 @@ LogicalResult idr::CallOp::verifyLifetimeUse(const OpenLifetimes &open) {
         callee ? callee.lifetimeOfParameter(static_cast<std::uint32_t>(index)) : std::nullopt;
     Value into = in ? lifetimeAt(*in) : Value();
     if (!into)
-      return emitOpError("passes scoped argument ")
+      return call.emitOpError("passes scoped argument ")
              << index << ", whose lifetime its callee's signature names nowhere";
     if (!open.livesAsLong(arg, into))
-      return emitOpError("passes argument ")
+      return call.emitOpError("passes argument ")
              << index << " into a lifetime it does not live as long as";
   }
   if (callee)
@@ -320,11 +323,22 @@ LogicalResult idr::CallOp::verifyLifetimeUse(const OpenLifetimes &open) {
       Value longer = lifetimeAt(bound.longer);
       Value shorter = lifetimeAt(bound.shorter);
       if (!longer || !shorter || !open.outlives(longer, shorter))
-        return emitOpError("passes lifetimes ")
+        return call.emitOpError("passes lifetimes ")
                << bound.longer << " and " << bound.shorter
                << ", which do not keep the bound its callee states between them";
     }
   return success();
+}
+} // namespace
+
+LogicalResult idr::CallOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  return verifyCallLifetimes(*this, open);
+}
+LogicalResult idr::TailCallOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  return verifyCallLifetimes(*this, open);
+}
+LogicalResult idr::ContextCallOp::verifyLifetimeUse(const OpenLifetimes &open) {
+  return verifyCallLifetimes(*this, open);
 }
 
 // What the function gives back lives where its signature says.

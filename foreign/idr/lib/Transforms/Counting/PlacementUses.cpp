@@ -71,7 +71,7 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
 void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVector &consumed,
                             const llvm::BitVector *inside) {
   // A call nothing may follow, past which no drop can be placed.
-  CallOp last = lastActOf(op);
+  FunctionCallOpInterface last = lastActOf(op);
   // Whether a value `part` was read from holds it at `op`, up the chain of
   // what each was read from to its owner: one that lives there, the owner
   // or a part that took a reference of its own, keeps the memory the part
