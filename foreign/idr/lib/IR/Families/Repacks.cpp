@@ -150,32 +150,9 @@ Subst layoutSubst(const Applied &holder, Tag tag, FieldsAt at) {
   llvm_unreachable("a holder lays its fields out at solved binders or at its own");
 }
 
-// The application a declared field type names, over its constructor's
-// binders: a member of its holder's group named by position, or a data
-// type of a group of its own; and the constructors that type keeps. None
-// for any other type, whose words no index decides.
-struct Named {
-  FamilyAttr group;
-  uint32_t member;
-  ArrayRef<TermNode> terms;
-  LayoutMark mark;
-  TagSet kept;
-};
-
-std::optional<Named> namedBy(FamilyAttr holder, Type field) {
-  if (auto self = dyn_cast<SelfType>(field))
-    return Named{holder, self.getMember(), self.getIndices(), LayoutMark::ByIndices,
-                 TagSet::every(holder.tagCount(self.getMember()))};
-  if (auto data = dyn_cast<DataType>(field))
-    return Named{data.getGroup(), data.getMember(), data.getIndices(), data.getMark(),
-                 data.getRefinement() ? data.possibleTags()
-                                      : TagSet::every(data.getGroup().tagCount(data.getMember()))};
-  return std::nullopt;
-}
-
 // `named` at the terms `subst` writes for its own.
-Applied writtenApplied(const Named &named, const Subst &subst, Unfolding unfolding) {
-  Applied applied{named.group, named.member, {}, named.mark, Written{unfolding, named.kept}};
+Applied writtenApplied(const NamedApplication &named, const Subst &subst, Unfolding unfolding) {
+  Applied applied{named.group, named.member, {}, named.mark, Written{unfolding, named.kept()}};
   TermWriter write(applied.indices);
   for (Term term : termsOf(named.terms, named.group.indices(named.member).size()))
     (void)subst.write(write, term, Side::Constructor, 0);
@@ -207,7 +184,7 @@ std::optional<Pair> fieldPair(FamilyAttr holder, Type declared, const Subst &sou
     sourceBy = Unfolding::Run;
     targetBy = Unfolding::Run;
   }
-  std::optional<Named> named = namedBy(holder, field);
+  std::optional<NamedApplication> named = namedBy(holder, field);
   if (!named)
     return std::nullopt;
   Applied from = writtenApplied(*named, source, sourceBy);

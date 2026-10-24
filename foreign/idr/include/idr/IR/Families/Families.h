@@ -198,6 +198,37 @@ llvm::SmallVector<Tag> possibleAt(FamilyAttr group, uint32_t member,
 llvm::SmallVector<TermNode> solvedBinders(FamilyAttr group, uint32_t member,
                                           llvm::ArrayRef<TermNode> indices, Tag tag);
 
+// A field's type that names a member of the group the field is declared in
+// by position: no type was made for that application, so where its terms
+// are not closed its facts are its member's at an unknown index.
+struct ByPosition {};
+
+// The application a field's declared type names over its constructor's
+// binders: a member of the group the field is declared in, named by
+// position, at the one run of terms it names, laid out by them; or the
+// member of its own group a data type names, at its terms, laid out as its
+// mark says. And where the declared type's facts come from: none was made
+// for a member named by position; a data type stored its own when it was
+// made. The class rule's unfolding and a re-pack's walk read each field
+// through it.
+struct NamedApplication {
+  FamilyAttr group;
+  uint32_t member;
+  llvm::ArrayRef<TermNode> terms;
+  LayoutMark mark;
+  std::variant<ByPosition, DataType> declared;
+
+  // The constructors the declared type keeps: those a data type's
+  // refinement keeps, else every one its member declares.
+  TagSet kept() const;
+};
+
+// What `field`, the value type of a field declared in a member of `holder`,
+// names; none for any other type, whose words no index decides. Asked of
+// the index interface, which says which member a type names by position,
+// and of the data type.
+std::optional<NamedApplication> namedBy(FamilyAttr holder, mlir::Type field);
+
 // Reads a constructor's label into its tag in `group`, checking its arity:
 // the one place a label becomes a tag.
 mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAttr group,

@@ -18,7 +18,8 @@
 // runtime components every reader takes (SlotPlan.h); and, keeping no word,
 // the class and layout of an application no type was made for, a field at
 // the terms its holder's substitution writes, which a re-pack's walk asks
-// (classAt).
+// (classAt). Both read a field as the application its type names
+// (namedBy).
 //
 // Everything here reads the declarations and the storage of types that
 // exist already, and writes plain arrays: it runs inside a type's
@@ -29,8 +30,11 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Layout/SlotPlan.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -48,6 +52,29 @@ SmallVector<Tag> possibleAt(FamilyAttr group, uint32_t member, ArrayRef<TermNode
       out.push_back(Tag{t});
   }
   return out;
+}
+
+// Essential, two contexts a field names a member in: a member named by
+// position is of the group the field is declared in, which only the holder
+// knows, at the one run of terms it names; a data type names its own group.
+std::optional<NamedApplication> namedBy(FamilyAttr holder, Type field) {
+  auto indexed = dyn_cast<IndexedTypeInterface>(field);
+  if (std::optional<uint32_t> position = indexed ? indexed.getPositionalMember() : std::nullopt)
+    return NamedApplication{holder, *position, indexed.getIndexTermRuns().front(),
+                            LayoutMark::ByIndices, ByPosition{}};
+  if (auto data = dyn_cast<DataType>(field))
+    return NamedApplication{data.getGroup(), data.getMember(), data.getIndices(), data.getMark(),
+                            data};
+  return std::nullopt;
+}
+
+TagSet NamedApplication::kept() const {
+  return match(
+      declared,
+      [&](ByPosition) { return TagSet::every(group.tagCount(member)); },
+      [&](DataType data) {
+        return data.getRefinement() ? data.possibleTags() : TagSet::every(group.tagCount(member));
+      });
 }
 
 namespace {
@@ -228,25 +255,36 @@ std::optional<Laid> Unfolder::unfold(const Application &app) {
 
 std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, Type type) {
   Type value = unrestricted(type);
-  // A member of the field's group, at the field's index terms instantiated
-  // by the binders the equation solved; `declared` what the field's own
-  // type gives where those terms are not closed.
-  auto member = [&](FamilyAttr group, uint32_t index, ArrayRef<TermNode> terms, LayoutMark mark,
-                    Part declared) -> std::optional<Part> {
-    Application next{group, index, {}};
+  // A member the field names, at its index terms instantiated by the
+  // binders the equation solved.
+  if (std::optional<NamedApplication> named = namedBy(app.group, value)) {
+    size_t count = named->group.indices(named->member).size();
+    Application next{named->group, named->member, {}};
     TermWriter write(next.indices);
     Instance instance = Instance::Determined;
-    for (Term term : termsOf(terms, group.indices(index).size()))
+    for (Term term : termsOf(named->terms, count))
       if (subst.write(write, term, Side::Constructor, 0) == Instance::Undetermined)
         instance = Instance::Undetermined;
-    bool closed = mark == LayoutMark::ByIndices && instance == Instance::Determined &&
-                  llvm::all_of(termsOf(next.indices, group.indices(index).size()),
+    bool closed = named->mark == LayoutMark::ByIndices && instance == Instance::Determined &&
+                  llvm::all_of(termsOf(next.indices, count),
                                [](Term term) { return term.isClosed(); });
     if (!closed) {
+      // What the field's declared type gives: the layout its member has at
+      // unknown indices, for a member named by position, or the slots a
+      // data type stored.
+      Part declared = match(
+          named->declared,
+          [&](ByPosition) { return atUnknown(named->group, named->member).part(); },
+          [](DataType data) {
+            return Part{flatWords(data.slots()),
+                        data.holdsReferences() ? Refs::References : Refs::Words,
+                        layout::reachOf(data)};
+          });
       spent += static_cast<uint32_t>(declared.words.size());
       return declared;
     }
-    if (std::optional<Laid> fixed = fixedLayout(group, index, next.indices, Class::Closed)) {
+    if (std::optional<Laid> fixed =
+            fixedLayout(named->group, named->member, next.indices, Class::Closed)) {
       Part part = fixed->part();
       spent += static_cast<uint32_t>(part.words.size());
       return part;
@@ -255,21 +293,7 @@ std::optional<Part> Unfolder::field(const Application &app, const Subst &subst, 
     if (!unfolded)
       return std::nullopt;
     return unfolded->part();
-  };
-  // Essential, two contexts a field names a member in: a member named by
-  // position is of the group being unfolded, at the one run of terms it
-  // names, its declared layout the one that group's member has at unknown
-  // indices; a data type names its own group and is laid out by its own
-  // slots.
-  auto indexed = dyn_cast<IndexedTypeInterface>(value);
-  if (std::optional<uint32_t> position = indexed ? indexed.getPositionalMember() : std::nullopt)
-    return member(app.group, *position, indexed.getIndexTermRuns().front(), LayoutMark::ByIndices,
-                  atUnknown(app.group, *position).part());
-  if (auto data = dyn_cast<DataType>(value))
-    return member(data.getGroup(), data.getMember(), data.getIndices(), data.getMark(),
-                  Part{flatWords(data.slots()),
-                       data.holdsReferences() ? Refs::References : Refs::Words,
-                       layout::reachOf(data)});
+  }
   SmallVector<SlotWord> words = layout::slotWordsOf(type);
   spent += static_cast<uint32_t>(words.size());
   return Part{std::move(words), holdsReferences(value) ? Refs::References : Refs::Words,
