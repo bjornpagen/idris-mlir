@@ -4505,6 +4505,14 @@ C137.
   specification (each of `(a, b)`, `()` and `(x ** p)` as a type, as a
   value and under an unknown expected type, with upstream's default),
   and linearity in the tuple is a measurement.
+  *Clarified* (2026-10-23, L17bd's evidence): upstream's rule at the last
+  chance is its elaborator's, not the desugaring's default alone
+  (`Ambiguity.idr:360-405`, `Check.idr:529-659`): the one reading that
+  elaborates; else the one that adds no constraint; only if still
+  ambiguous, or none elaborates, the default; and an undefined name in
+  any reading abandons the choice. So `(x ** p)` under an unknown type
+  is the type where the pair's motive is unconstrained, and is refused
+  where `x` is unbound, as upstream refuses it.
 - **C127** (L17 I5, I8; review §9.3; within D54). A growth's case in
   `retryGuess` postpones in every mode but `LastChance`, where it throws
   its own refusal: the handler D54 cites postpones even at the last chance
