@@ -966,7 +966,7 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
       continue;
     SmallVector<std::optional<Hold>> passed = passedHolds(call, known->fn.getArgumentTypes());
     SmallVector<Type> results(call.getResultTypes());
-    keyGivenBack(schedule.callees.of(call.getCalleeAttr()), passed, results);
+    keyGivenBack(schedule.callees.of(*callee), passed, results);
     SmallVector<Value> lowered;
     for (auto [result, type] : llvm::zip_equal(call->getResults(), results)) {
       if (result.getType() == type)
@@ -988,7 +988,7 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
     SmallVector<detail::ResultLayout> layouts =
         detail::layoutsAsked(call, detail::TailStanding::LostToLayout);
     SmallVector<Type> keyed =
-        detail::keyedResults(known->fn, layouts, schedule.callees.of(call.getCalleeAttr()),
+        detail::keyedResults(known->fn, layouts, schedule.callees.of(*callee),
                              passedHolds(call, known->fn.getArgumentTypes()));
     for (auto [position, layout] : llvm::enumerate(layouts)) {
       if (layout == detail::ResultLayout::AsGiven)

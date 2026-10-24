@@ -61,6 +61,7 @@ add_mlir_dialect_library(IdrIR
 	Flow.cpp
 	FlowEdges.cpp
 	FlowOps.cpp
+	Fold/Parts.cpp
 	Fold/Scope.cpp
 	Fold/Values.cpp
 	Func/Call.cpp

@@ -227,14 +227,21 @@ unsigned ConAttr::fieldOfCell(unsigned cell, unsigned position) const {
   return cell + 1 == getRunLength() || position < getSpine() ? position : position + 1;
 }
 
-Attribute ConAttr::getField(unsigned index) const {
-  auto spine = static_cast<unsigned>(getSpine());
-  if (getRunLength() == 1)
-    return getCell(0)[index];
+Attribute idr::fold::fieldHeld(ConAttr constant, unsigned index) {
+  auto spine = static_cast<unsigned>(constant.getSpine());
+  if (constant.getRunLength() == 1)
+    return constant.getCell(0)[index];
   if (index != spine)
-    return getCell(0)[index < spine ? index : index - 1];
+    return constant.getCell(0)[index < spine ? index : index - 1];
+  return {};
+}
+
+Attribute ConAttr::getField(unsigned index) const {
+  if (Attribute held = fold::fieldHeld(*this, index))
+    return held;
   // The run from the second cell, canonical as this one is: its cells are
   // this one's, held already, so only the attribute is new.
+  auto spine = static_cast<unsigned>(getSpine());
   ArrayRef<Attribute> rest = getCells().drop_front();
   return get(getContext(), restOf(getData(), spine), rest, rest.size() == 1 ? 0 : uint64_t{spine});
 }

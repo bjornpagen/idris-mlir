@@ -133,22 +133,9 @@ LogicalResult DataConOp::verify() {
   return lifetimes::verifyOuters(*this, 0);
 }
 
-// A constructor of constants is a constant, where nothing reads which value
-// it is: not a memo cell, which a force writes, nor a value of a family
-// rebuilt in place or one used once, each of which is its own. A poison
-// field is the program's value where control never arrives, which no
-// constant holds, so the constructor stays an op around it.
+// Its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult DataConOp::fold(FoldAdaptor adaptor) {
-  DataType data = getDataType();
-  if (data.kind() != MemberKind::Data || data.promise() == Promise::InPlace ||
-      usesOf(getResult().getType()) == Uses::Once)
-    return {};
-  for (auto [field, operand] : llvm::zip_equal(adaptor.getFields(), getFields()))
-    if (!field || !ConstantOp::isBuildableWith(field, operand.getType()))
-      return {};
-  // Only a constant idr.constant holds at the result's type, so every
-  // folding driver can place what this gives.
-  ConAttr constant =
-      ConAttr::get(getContext(), data, ArrayAttr::get(getContext(), adaptor.getFields()));
-  return fold::held(constant, getResult().getType());
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }

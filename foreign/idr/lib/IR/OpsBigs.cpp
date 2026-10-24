@@ -232,10 +232,11 @@ bool NatPredOp::foldable(ArrayRef<Attribute> constants) {
   return value && !value.getValue().isZero();
 }
 
-// The constant is the same value under the other type, which the constant
-// that materializes it takes from the op's result, where it holds it there.
+// Its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
-  return fold::held(dyn_cast_or_null<BigAttr>(adaptor.getValue()), getResult().getType());
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 //===----------------------------------------------------------------------===//

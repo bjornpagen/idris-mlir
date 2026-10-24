@@ -248,6 +248,13 @@ buildsMeaning AClosure = HandFolder
 buildsMeaning ASuspension = NoFold
 buildsMeaning AnEvaluated = NoFold
 
+||| The hand folder's condition, the closure's: a closure of constants is the
+||| constant idr.constant holds at its type.
+buildsMembers : Builds -> List Member
+buildsMembers AClosure = [compositeMeaning "::idr::FnClosureOp"]
+buildsMembers ASuspension = []
+buildsMembers AnEvaluated = []
+
 ||| A member of a function is checked through the symbol it names, at its
 ||| index terms, and builds that function's label; an evaluated suspension,
 ||| which names none, checks its value against its type.
@@ -311,7 +318,7 @@ captureOp b = MkOp
   , format = formatOf (madeOf b)
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = buildsMembers b
   , guards = []
   , specializations = []
   , laws = []

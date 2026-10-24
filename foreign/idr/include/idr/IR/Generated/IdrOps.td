@@ -175,6 +175,7 @@ def Idr_DataConOp : Idr_Op<"data.con", [
     ::idr::DataType getDataType();
     ::idr::Tag getTag();
     static ::idr::Unique freshClaim(::idr::DataType carrier, ::mlir::TypeRange fields);
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::DataConOp op, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -201,6 +202,7 @@ def Idr_DataFieldOp : Idr_Op<"data.field", [
   let extraClassDeclaration = [{
     ::idr::DataType getDataType();
     ::idr::Tag getTag();
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::DataFieldOp op, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -216,6 +218,9 @@ def Idr_DataTagOp : Idr_Op<"data.tag", [
   let results = (outs I64:$result);
   let assemblyFormat = [{ $value attr-dict `:` type($value) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::DataTagOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_DataReindexOp : Idr_Op<"data.reindex", [
@@ -1066,6 +1071,9 @@ def Idr_PlatformOsOp : Idr_Op<"platform.os", [
   let results = (outs Type<CPred<"::idr::isStrStatic($_self)">, "a string held static, used any number of times", "::mlir::Type">:$result);
   let assemblyFormat = [{ attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::PlatformOsOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_IntDivSOp : Idr_Op<"int.div_s", [
@@ -1414,6 +1422,9 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [
   let results = (outs Type<CPred<"::idr::isBigValue($_self)">, "an Integer at any grade", "::mlir::Type">:$result);
   let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::NatToBigOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [
@@ -2764,6 +2775,9 @@ def Idr_FnClosureOp : Idr_Op<"fn.closure", [
   let results = (outs Type<CPred<"::idr::isClosureType($_self)">, "a closure, at any grade", "::mlir::Type">:$result);
   let assemblyFormat = [{ $callee `(` $captures `)` prop-dict attr-dict `:` functional-type($captures, $result) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::FnClosureOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_LazySuspendOp : Idr_Op<"lazy.suspend", [

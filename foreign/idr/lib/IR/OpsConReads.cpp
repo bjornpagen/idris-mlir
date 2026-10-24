@@ -88,45 +88,33 @@ void DataFieldOp::setStatedLifetime(Value made, Value lifetime) {
 }
 
 // A field of a known constructor: the field an idr.data.con was given
-// (givenField). Or a field of a constant, read in place: off a run's spine
-// that costs nothing however long the run is. A constant is no linear
-// value, so a linear field of one stays a read.
+// (givenField), which the e-graph reads as its rule FieldOfCon. Or a field
+// of a constant: its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult DataFieldOp::fold(FoldAdaptor adaptor) {
-  Value source = getValue();
-  if (auto con = source.getDefiningOp<DataConOp>()) {
+  if (auto con = getValue().getDefiningOp<DataConOp>()) {
     if (Value field = families::givenField(con, *this))
       return field;
     return {};
   }
-  if (isLinear(getType()) || !builtStateHolds(source, getOperation()))
-    return {};
-  auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
-  if (!con)
-    matchPattern(source, m_Constant(&con));
-  return con ? con.getField(static_cast<unsigned>(getIndex())) : Attribute();
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 //===----------------------------------------------------------------------===//
 // idr.data.tag
 //===----------------------------------------------------------------------===//
 
-// The one constructor the type leaves possible; else the constructor of a
-// constant, or of the idr.data.con that built the value where its state
-// still holds.
+// The constructor of the idr.data.con that built the value where its state
+// still holds. Else its meaning's attribute instance (Ops/Folds.h): the one
+// constructor the type leaves possible, or a constant's.
 OpFoldResult DataTagOp::fold(FoldAdaptor adaptor) {
-  auto data = dyn_cast<DataType>(unrestricted(getValue().getType()));
-  if (!data)
-    return {};
-  std::optional<Tag> tag = data.singleTag();
-  if (!tag && builtStateHolds(getValue(), getOperation())) {
-    if (auto con = getValue().getDefiningOp<DataConOp>())
-      tag = con.getTag();
-    else if (auto constant = dyn_cast_or_null<ConAttr>(adaptor.getValue()))
-      tag = constant.getTag();
-  }
-  if (!tag)
-    return {};
-  return IntegerAttr::get(getType(), static_cast<int64_t>(*tag));
+  if (auto con = getValue().getDefiningOp<DataConOp>();
+      con && builtStateHolds(getValue(), getOperation()))
+    return IntegerAttr::get(getType(), static_cast<int64_t>(con.getTag()));
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 // Within its possible constructors' tags: the least and the most of them.

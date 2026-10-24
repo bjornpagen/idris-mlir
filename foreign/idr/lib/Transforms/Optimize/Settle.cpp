@@ -170,9 +170,7 @@ void Scheduler::finalize(unsigned component) {
   footprint::Vector<identities::Facts> given =
       identities::givesBackOf(
           schedule.graph, members,
-          [&](FunctionId callee) {
-            return schedule.callees.of(FlatSymbolRefAttr::get(schedule.symbolOf(callee)));
-          },
+          [&](FunctionId callee) { return schedule.callees.of(callee); },
           spent);
   for (auto [id, facts] : llvm::zip_equal(ids, given)) {
     writeGivenBack(schedule.function(id), facts.givesBack);

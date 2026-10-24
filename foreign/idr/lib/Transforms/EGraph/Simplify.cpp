@@ -60,20 +60,23 @@ void CalleeFacts::publish(solver::FunctionId f, identities::Facts given, FuncOp 
   facts[f] = std::move(out);
 }
 
-const CalleeFacts::Published *CalleeFacts::find(FlatSymbolRefAttr callee) const {
-  std::optional<solver::FunctionId> f = names->find(callee);
-  if (!f || f->index() >= facts.size().value())
-    return nullptr;
-  return &facts[*f];
+std::optional<solver::FunctionId> CalleeFacts::calleeOf(CallOp call) const {
+  return names->find(call.getCalleeAttr());
 }
 
-identities::FactsView CalleeFacts::of(FlatSymbolRefAttr callee) const {
+const CalleeFacts::Published *CalleeFacts::find(solver::FunctionId callee) const {
+  if (callee.index() >= facts.size().value())
+    return nullptr;
+  return &facts[callee];
+}
+
+identities::FactsView CalleeFacts::of(solver::FunctionId callee) const {
   const Published *known = find(callee);
   return known ? known->given.view() : identities::FactsView();
 }
 
 llvm::ArrayRef<std::optional<ReturnedConstant>>
-CalleeFacts::returns(FlatSymbolRefAttr callee) const {
+CalleeFacts::returns(solver::FunctionId callee) const {
   const Published *known = find(callee);
   return known ? llvm::ArrayRef<std::optional<ReturnedConstant>>(known->returned)
                : llvm::ArrayRef<std::optional<ReturnedConstant>>();

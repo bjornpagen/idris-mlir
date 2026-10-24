@@ -13,6 +13,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Fold.h"
+#include "idr/IR/FoldParts.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Footprint.h"
@@ -35,15 +36,33 @@ using namespace idr;
 // At which types idr.constant holds a constant of ours
 //===----------------------------------------------------------------------===//
 
-bool ConAttr::isBuildableAt(Type type) const { return dataTypeOf(type) == getData(); }
+namespace {
+
+// A constructor of `data` is held at a type whose data type is `data`.
+bool holdsConstructor(DataType data, Type type) { return dataTypeOf(type) == data; }
 
 // A constant closure is held at a type whose values carry labels, a
 // closure's or a suspension's, as its type answers; verifyParts holds it to
 // the one it is.
-bool ClosureAttr::isBuildableAt(Type type) const {
+bool holdsClosure(Type type) {
   return match(
       carryingOf(type), [](const LabelCarrier &) { return true; },
       [](OneOf<carrying::Reference, carrying::Nothing> auto) { return false; });
+}
+
+} // namespace
+
+bool ConAttr::isBuildableAt(Type type) const { return holdsConstructor(getData(), type); }
+
+bool ClosureAttr::isBuildableAt(Type type) const { return holdsClosure(type); }
+
+// A constructor and a closure are static data, in a cell.
+bool idr::fold::constructorStandsAt(const DataType &data, Type type) {
+  return holdsConstructor(data, type) && constantStandsAt(type, Storage::Cell);
+}
+
+bool idr::fold::closureStandsAt(Type type) {
+  return holdsClosure(type) && constantStandsAt(type, Storage::Cell);
 }
 
 // A big is a literal of the types that say a big is one of theirs: an

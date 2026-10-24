@@ -214,11 +214,12 @@ void Function::build() {
         // else the call does; but a call nothing of its caller may follow
         // gives its caller's results as they are, and a use of them taking a
         // constant instead would end the tail.
-        if (auto call = dyn_cast<CallOp>(op); call && !lastActOf(op))
-          for (auto [index, result] : llvm::enumerate(op->getResults()))
-            if (std::optional<ClassId> constant =
-                    returnedBy(call, static_cast<unsigned>(index)))
-              (void)unite(*classOf[numbering.at(result)], *constant);
+        if (auto call = dyn_cast<CallOp>(op); call && callees && !lastActOf(op))
+          if (std::optional<solver::FunctionId> callee = callees->calleeOf(call))
+            for (auto [index, result] : llvm::enumerate(op->getResults()))
+              if (std::optional<ClassId> constant =
+                      returnedBy(*callee, call, static_cast<unsigned>(index)))
+                (void)unite(*classOf[numbering.at(result)], *constant);
         list.push_back({op, Kept{}, inner});
       }
     });

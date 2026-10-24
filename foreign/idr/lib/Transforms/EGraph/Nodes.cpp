@@ -501,9 +501,14 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
     if (found)
       return forest.find(classOfNode(*found));
   }
-  if (auto call = dyn_cast<CallOp>(op.origin))
-    if (std::optional<ClassId> constant = returnedBy(call, 0))
-      return *constant;
+  // A call's callee, resolved once here, whose facts are read by its id.
+  std::optional<solver::FunctionId> callee;
+  if (auto call = dyn_cast<CallOp>(op.origin); call && callees) {
+    callee = callees->calleeOf(call);
+    if (callee)
+      if (std::optional<ClassId> constant = returnedBy(*callee, call, 0))
+        return *constant;
+  }
   std::optional<Facts> computed = meant(op, type, operands);
   if (computed && placeable(*computed, type))
     if (std::optional<ClassId> is = constantOf(*computed, type))
@@ -513,8 +518,9 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
     (void)facts.meet(*computed);
   ClassId cls = classOfNode(make(Node{op, type, childrenFor(operands)}, std::move(facts)));
   joinConstant(cls);
-  if (std::optional<ClassId> given = giveBack(op, operands, type))
-    (void)unite(cls, *given);
+  if (callee)
+    if (std::optional<ClassId> given = giveBack(*callee, operands, type))
+      (void)unite(cls, *given);
   return cls;
 }
 
@@ -556,14 +562,9 @@ std::optional<ClassId> Function::insert(node::Built op, Type type,
 // A floating call of a function that gives back one of its arguments whole,
 // as the optimizer decided, is that argument: the call floats only where
 // its row carries neither crash nor divergence, so nothing is lost with it.
-std::optional<ClassId> Function::giveBack(const node::Input &op,
+std::optional<ClassId> Function::giveBack(solver::FunctionId callee,
                                           std::span<const ClassId> operands, Type type) {
-  if (!callees)
-    return std::nullopt;
-  auto call = dyn_cast<CallOp>(op.origin);
-  if (!call)
-    return std::nullopt;
-  for (const identities::GivesBack &fact : callees->of(call.getCalleeAttr()).givesBack)
+  for (const identities::GivesBack &fact : callees->of(callee).givesBack)
     if (fact.result.index == 0 && fact.result.fields.empty() && fact.argument.fields.empty() &&
         at(operands[fact.argument.index]).type == type)
       return operands[fact.argument.index];
@@ -574,11 +575,9 @@ std::optional<ClassId> Function::giveBack(const node::Input &op,
 // it, so it is a fact of the call's result, read as the attribute its
 // constant op holds; where the call's index arguments make its result's
 // type another than the callee's own, that constant is no value of it.
-std::optional<ClassId> Function::returnedBy(CallOp call, unsigned result) {
-  if (!callees)
-    return std::nullopt;
-  llvm::ArrayRef<std::optional<ReturnedConstant>> returned =
-      callees->returns(call.getCalleeAttr());
+std::optional<ClassId> Function::returnedBy(solver::FunctionId callee, CallOp call,
+                                            unsigned result) {
+  llvm::ArrayRef<std::optional<ReturnedConstant>> returned = callees->returns(callee);
   if (result >= returned.size() || !returned[result])
     return std::nullopt;
   const ReturnedConstant &constant = *returned[result];

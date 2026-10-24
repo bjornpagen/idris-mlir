@@ -125,7 +125,8 @@ conOp = MkOp
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
       , MkMember OnObject "::idr::Tag" "getTag" []
-      , MkMember OnClass "::idr::Unique" "freshClaim" [param "::idr::DataType" "carrier", param "::mlir::TypeRange" "fields"] ]
+      , MkMember OnClass "::idr::Unique" "freshClaim" [param "::idr::DataType" "carrier", param "::mlir::TypeRange" "fields"]
+      , compositeMeaning "::idr::DataConOp" ]
   , guards = []
   , specializations = []
   , laws = []
@@ -171,7 +172,8 @@ fieldOp = MkOp
   , defaultBuilders = WithDefaults
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
-      , MkMember OnObject "::idr::Tag" "getTag" [] ]
+      , MkMember OnObject "::idr::Tag" "getTag" []
+      , compositeMeaning "::idr::DataFieldOp" ]
   , guards = []
   , specializations = []
   , laws = []
@@ -200,7 +202,7 @@ tagOp = MkOp
   , format = Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = [compositeMeaning "::idr::DataTagOp"]
   , guards = []
   , specializations = []
   , laws = []

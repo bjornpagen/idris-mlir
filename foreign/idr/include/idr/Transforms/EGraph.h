@@ -271,9 +271,55 @@ private:
   idris_rt_big word;
 };
 
+struct Part;
+
+// A constructor or closure constant: one an op of the input holds, read as
+// the attribute it holds, or one the graph built of its parts, which the
+// write-back makes an attribute of where it places it, and nothing before.
+// Two are one constant where both are held as one attribute, or both built
+// alike; a built one and a held one equal to it are two, which only shares
+// less. A copy shares the parts.
+class Data {
+public:
+  // A constructor or closure constant an op of the input holds.
+  static Data held(mlir::Attribute value);
+  // `data`'s one constructor, with `fields`.
+  static Data constructor(DataType data, llvm::SmallVector<Part, 2> fields);
+  // A closure of `callee` with `captures`.
+  static Data closure(mlir::FlatSymbolRefAttr callee, llvm::SmallVector<Part, 2> captures);
+
+  // The attribute an op of the input holds; null for one the graph built.
+  mlir::Attribute heldValue() const;
+  // A built constructor's data type, null for any other.
+  DataType builtData() const;
+  // A built closure's function, null for any other.
+  mlir::FlatSymbolRefAttr builtCallee() const;
+  // A built constant's fields or captures, none for a held one.
+  llvm::ArrayRef<Part> parts() const;
+  // A constructor's tag, held or built; none for a closure.
+  std::optional<Tag> tag() const;
+  std::size_t hash() const;
+
+  friend bool operator==(const Data &a, const Data &b);
+
+private:
+  struct Node;
+  explicit Data(std::shared_ptr<const Node> node) : node(std::move(node)) {}
+  std::shared_ptr<const Node> node;
+};
+
 // What the graph knows a value to be where no interval says it: a string,
-// a Double, or a big past the small range.
-using Constant = std::variant<Text, Real, Big>;
+// a Double, a big past the small range, or a constructor or closure
+// constant.
+using Constant = std::variant<Text, Real, Big, Data>;
+
+// A field of a constructor constant or a capture of a closure constant the
+// graph built: the integer or the constant the operand it was built of is,
+// with that operand's type, at which the write-back makes its attribute.
+struct Part {
+  std::variant<llvm::APInt, Constant> value;
+  mlir::Type type;
+};
 
 // A constant a rule reads of a value, borrowed from its class while the
 // rule decides: an integer, the one value of its interval (a big in the
@@ -291,8 +337,12 @@ public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
   // The constant the value is, where the graph knows it, whether an op of
   // the input held it or the graph computed it; none where it is no one
-  // constant the graph reads (a data constant, a closure: see `held`).
+  // such constant (a data constant, a closure: see `held` and
+  // `constructorTag`).
   std::optional<KnownConstant> constant(mlir::Value value) const;
+  // The constructor of the constructor constant the value is, whether an op
+  // of the input held it or the graph built it; none where it is none.
+  std::optional<Tag> constructorTag(mlir::Value value) const;
   // The constant an op of a member holds, as it holds it; null where none
   // does. It is the one form of a constant the graph reads no value of (a
   // data constant, a closure), and what a hook that takes attributes is
@@ -391,22 +441,28 @@ public:
   // functions it made.
   void publish(solver::FunctionId f, identities::Facts given, FuncOp final);
 
+  // The function `call` calls, as the program graph's editor resolves the
+  // symbol it names: read once where a call enters a reader, which then
+  // reads its callee's facts by id; none for a copy its wave made, which
+  // the editor does not hold yet.
+  std::optional<solver::FunctionId> calleeOf(CallOp call) const;
+
   // What `callee` gives back on every path and what may reach its results,
   // both empty for a callee not final.
-  identities::FactsView of(mlir::FlatSymbolRefAttr callee) const;
+  identities::FactsView of(solver::FunctionId callee) const;
 
   // What each result of `callee` is where its final body returns a
   // constant there, one entry per result; empty for a callee not final.
-  llvm::ArrayRef<std::optional<ReturnedConstant>> returns(mlir::FlatSymbolRefAttr callee) const;
+  llvm::ArrayRef<std::optional<ReturnedConstant>> returns(solver::FunctionId callee) const;
 
 private:
   struct Published {
     identities::Facts given;
     llvm::SmallVector<std::optional<ReturnedConstant>, 1> returned;
   };
-  // `callee`'s record, none for a callee the editor does not hold yet (a
-  // copy its wave made) or one inserted since the table last grew.
-  const Published *find(mlir::FlatSymbolRefAttr callee) const;
+  // `callee`'s record, none for one inserted since the table last grew,
+  // which no component has published yet.
+  const Published *find(solver::FunctionId callee) const;
 
   const solver::Editor *names;
   IndexVector<solver::FunctionId, Published> facts;

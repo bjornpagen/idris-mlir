@@ -22,10 +22,13 @@
 // its kind's range function over its operands' intervals, from the
 // generated table, and its constant its kind's runtime meaning over
 // theirs. A constant is a value until the write-back makes its attribute,
-// of four kinds: an integer, the one value of an interval (a big in the
+// of five kinds: an integer, the one value of an interval (a big in the
 // small range among them, as the runtime holds it in its word); a string's
-// bytes; a Double's bits; and a big past the small range, as the runtime
-// holds it, in a cell, with the interval its sign gives. One is hash-consed
+// bytes; a Double's bits; a big past the small range, as the runtime holds
+// it, in a cell, with the interval its sign gives; and a constructor or a
+// closure, held as the attribute an op of the input holds, or built of its
+// parts by the composite folds (IR/FoldParts.h), made an attribute only
+// where the write-back places it. One is hash-consed
 // by its value, and has a node only at a type its constant op stands at;
 // an op of the input whose meaning computes such a constant is it, with no
 // node of its own. A call's result is the constant its callee returns
@@ -626,6 +629,7 @@ public:
   template <class OpT>
   OpT memberBuiltBy(mlir::Value value) const;
   std::optional<KnownConstant> knownOf(mlir::Value value) const;
+  std::optional<Tag> constructorOf(mlir::Value value) const;
   mlir::Attribute heldBy(mlir::Value value) const;
   numeric::Known decisionOf(GuardOpInterface guard) const;
   Cost costOf(mlir::Value value) const;
@@ -695,14 +699,15 @@ private:
   // What a node says of its value over its operands' facts as they are now:
   // its interval and what its meaning computes, met.
   Facts saysOf(NodeId n);
-  std::optional<ClassId> giveBack(const node::Input &op, std::span<const ClassId> operands,
+  // The argument `callee`, the function a floating call calls, gives back
+  // whole as its result, where that is of the call's result's type.
+  std::optional<ClassId> giveBack(solver::FunctionId callee, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // The class of the constant the callee of `call` returns as its result
-  // `result`, read once from the constant op its final body returns (the
-  // callees' table), where the call's result is of that constant's type;
-  // none where it returns no constant there, or where a new node would pass
-  // the budget.
-  std::optional<ClassId> returnedBy(CallOp call, unsigned result);
+  // The class of the constant `callee` returns as its result `result` (the
+  // callees' table, read from the constant op its final body returns),
+  // where `call`'s result is of that constant's type; none where it returns
+  // no constant there, or where a new node would pass the budget.
+  std::optional<ClassId> returnedBy(solver::FunctionId callee, CallOp call, unsigned result);
   // A class whose facts are one constant holds that constant.
   void joinConstant(ClassId c);
   // The region a node can be computed in, from its operands' reaches; none

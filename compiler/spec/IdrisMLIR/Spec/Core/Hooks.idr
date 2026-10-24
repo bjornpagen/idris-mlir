@@ -51,6 +51,23 @@ data Member : Type where
   MkTemplateMember : (typeParams : List1 TypeParam) -> (binding : Binding) -> (result : Code)
                   -> (name : Ident) -> (params : List Param) -> Member
 
+||| A fold of constants made of constants (a constructor's or a closure's
+||| construction, a constant constructor's tag and fields, a constant at
+||| another type, the platform), its condition written once over where its
+||| operands' constants live (`fold::Composite`): what the op gives where
+||| they make one, or nothing. Its own folder asks it of the constants ops
+||| hold, and the e-graph of its own values, which makes no attribute until
+||| the write-back places one. `opClass` is the op's class, whose own facts
+||| (its data type, its index) the condition reads; its definition is a hand
+||| header's, since a template is instantiated where it is used.
+public export
+compositeMeaning : (opClass : Code) -> Member
+compositeMeaning opClass =
+  MkTemplateMember (MkTypeParam "::idr::fold::Composite" "W" ::: []) OnClass
+    "::std::optional<typename W::Result>" "meaning"
+    [ param "W &" "where", param opClass "op"
+    , param "::llvm::ArrayRef<typename W::Operand>" "constants" ]
+
 ||| What one argument of a custom directive is, which decides the C++ type
 ||| its parse and print take: an operand, an operand group, its type, its
 ||| type list, an attribute, a region, a group of regions, or any of these

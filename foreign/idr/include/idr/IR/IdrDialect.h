@@ -125,6 +125,7 @@ class TagSet;
 // arithmetic, and the ops' own; and the one the ops that end an owner
 // carry.
 #include "idr/IR/Fold.h"
+#include "idr/IR/FoldParts.h"
 #include "idr/IR/Numeric/Trait.h"
 #include "idr/IR/Ops/Traits.h"
 #include "idr/IR/Counting/Traits.h"
@@ -283,5 +284,10 @@ void addBytecodeInterface(IdrDialect &dialect);
 } // namespace detail
 
 } // namespace idr
+
+// Each composite fold's condition, its `meaning` over where a constant
+// lives, defined after everything the conditions read: the classes that
+// declare it, and what the symbols' header says of values (Ops/Folds.h).
+#include "idr/IR/Ops/Folds.h"
 
 #endif // IDR_IR_IDRDIALECT_H

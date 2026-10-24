@@ -17,17 +17,14 @@
 using namespace mlir;
 using namespace idr;
 
-namespace {
-
-// The operating system of a target of ours, as Idris's Scheme backends
-// spell it for base: macOS is "darwin", Linux "unix". Every target entry
-// is one of the two (CMakeLists.txt), and idr-target writes the entry's
-// triple on a module that names none and refuses one that names another,
-// so a module the compiler compiles names one of them. A triple of any
-// other system reaches here only in a module written by hand for
-// idris-mlir-opt that skips idr-target: like a module that names no
-// target, it has no operating system of ours to fold to.
-std::optional<StringRef> osName(const llvm::Triple &triple) {
+// A triple of any other system than a target of ours reaches here only in
+// a module written by hand for idris-mlir-opt that skips idr-target: like
+// a module that names no target, it has no operating system of ours to
+// fold to. Every target entry is macOS or Linux (CMakeLists.txt), and
+// idr-target writes the entry's triple on a module that names none and
+// refuses one that names another, so a module the compiler compiles names
+// one of them; macOS is "darwin" and Linux "unix" to base.
+std::optional<StringRef> platform::osName(const llvm::Triple &triple) {
   if (triple.isMacOSX())
     return StringRef("darwin");
   if (triple.isOSLinux())
@@ -35,18 +32,20 @@ std::optional<StringRef> osName(const llvm::Triple &triple) {
   return std::nullopt;
 }
 
-} // namespace
-
-OpFoldResult PlatformOsOp::fold(FoldAdaptor) {
-  auto module = (*this)->getParentOfType<ModuleOp>();
+std::optional<llvm::Triple> platform::targetOf(Operation *op) {
+  auto module = op->getParentOfType<ModuleOp>();
   if (!module)
-    return {};
+    return std::nullopt;
   auto target =
       module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
   if (!target)
-    return {};
-  std::optional<StringRef> os = osName(llvm::Triple(target.getTriple().getValue()));
-  if (!os)
-    return {};
-  return StringAttr::get(getContext(), *os);
+    return std::nullopt;
+  return llvm::Triple(target.getTriple().getValue());
+}
+
+// Its meaning's attribute instance (Ops/Folds.h).
+OpFoldResult PlatformOsOp::fold(FoldAdaptor adaptor) {
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }

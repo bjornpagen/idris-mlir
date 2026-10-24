@@ -197,20 +197,11 @@ LogicalResult FnClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
-// A closure of constants is an immutable value nothing reads the identity
-// of, so it is the constant idr.constant holds at its type. A capture is a
-// constant the dialect builds at its type, never a poison, the program's
-// value where control never arrives, which no constant holds. Essential,
-// two closures: a constant closure holds no index terms, so one at terms
-// stays an op.
+// Its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult FnClosureOp::fold(FoldAdaptor adaptor) {
-  if (getIndexArgs().getCount() != 0)
-    return {};
-  for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
-    if (!capture || !fold::buildable(capture, operand.getType()))
-      return {};
-  auto captures = ArrayAttr::get(getContext(), adaptor.getCaptures());
-  return fold::held(ClosureAttr::get(getContext(), getCalleeAttr(), captures), getType());
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 //===----------------------------------------------------------------------===//

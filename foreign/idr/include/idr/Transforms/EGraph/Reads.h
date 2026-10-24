@@ -92,9 +92,19 @@ inline std::optional<KnownConstant> Function::knownOf(mlir::Value value) const {
   if (!facts.constant)
     return std::nullopt;
   return match(
-      *facts.constant, [](const Text &text) { return KnownConstant(&text); },
-      [](const Real &real) { return KnownConstant(real); },
-      [](const Big &big) { return KnownConstant(&big); });
+      *facts.constant,
+      [](const Text &text) -> std::optional<KnownConstant> { return KnownConstant(&text); },
+      [](const Real &real) -> std::optional<KnownConstant> { return KnownConstant(real); },
+      [](const Big &big) -> std::optional<KnownConstant> { return KnownConstant(&big); },
+      [](const Data &) -> std::optional<KnownConstant> { return std::nullopt; });
+}
+
+// The constructor of the constructor constant the value's class is, held or
+// built, whichever member said it.
+inline std::optional<Tag> Function::constructorOf(mlir::Value value) const {
+  const Facts &facts = classOfValue(value).facts;
+  const Data *data = facts.constant ? std::get_if<Data>(&*facts.constant) : nullptr;
+  return data ? data->tag() : std::nullopt;
 }
 
 // The constant an op of the input in the value's class holds, as it holds
@@ -132,6 +142,10 @@ namespace idr::egraph {
 
 inline std::optional<KnownConstant> OperandFacts::constant(mlir::Value value) const {
   return function.knownOf(value);
+}
+
+inline std::optional<Tag> OperandFacts::constructorTag(mlir::Value value) const {
+  return function.constructorOf(value);
 }
 
 inline mlir::Attribute OperandFacts::held(mlir::Value value) const {

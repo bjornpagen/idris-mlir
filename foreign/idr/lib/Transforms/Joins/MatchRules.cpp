@@ -28,19 +28,26 @@ namespace idr {
 
 namespace {
 
+// The region of `op` whose case is `tag`, else its default; none where it
+// has no default.
+Region *takenByTag(DataMatchOp op, Tag tag) {
+  for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
+    if (op.getCaseTag(i) == tag)
+      return &op.getCaseRegion(i);
+  Region &fallback = op.getDefaultRegion();
+  return fallback.empty() ? nullptr : &fallback;
+}
+
 // The region of `op` a known scrutinee takes, from what the e-graph knows
-// of it (the data constant an op holds, which the graph reads only from
-// it, or the idr.data.con that made its chosen form) or from its type's one
-// constructor; none where it is not known.
+// of it (the idr.data.con that made its chosen form, or the constructor
+// constant it is, held by an op or built by the graph) or from its type's
+// one constructor; none where it is not known.
 Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
-  if (DataConOp con = constructorOf(scrutinee, facts)) {
-    for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
-      if (op.getCaseTag(i) == con.getTag())
-        return &op.getCaseRegion(i);
-    Region &fallback = op.getDefaultRegion();
-    return fallback.empty() ? nullptr : &fallback;
-  }
+  if (DataConOp con = constructorOf(scrutinee, facts))
+    return takenByTag(op, con.getTag());
+  if (std::optional<Tag> tag = facts.constructorTag(scrutinee))
+    return takenByTag(op, *tag);
   SmallVector<RegionSuccessor> taken;
   SmallVector<Attribute> constants(op->getNumOperands(), Attribute());
   constants.front() = facts.held(scrutinee);
