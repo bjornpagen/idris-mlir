@@ -3300,6 +3300,12 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   and the widening reindex that defunctionalization and Emit write after
   it goes. Today only that immediate widening keeps a program from
   holding a label's refinement past a force.
+  Reopened 2026-10-24 (L04ac's stop): the constructor `idr.data.con`
+  reads from its refined result has nowhere to stand at the family type,
+  so the shape is §4's fifth question; nothing is built until it is
+  ruled. Programs stay safe meanwhile: defunctionalization widens every
+  memo cell at its construction, the frontend writes none, and L18ai's
+  rule keeps a copy from rebuilding a cell its caller keeps.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -6231,6 +6237,21 @@ or its decision in §3.
    pass resolves each into its op (readers before it accept the cast);
    (C) one reindex op stays (C275), its meaning read off its types by the
    one classifier, and C293 is reversed. Waits on 3.
+5. Where a memo cell's constructor stands once its type is the family's
+   (L04ac's stop on C309, 2026-10-24). A memo family has `running` and
+   `forced` beside its labels, so a refined label type claims a state a
+   force elsewhere can make false; today only defunctionalization's
+   immediate widening keeps a program from holding one past a force.
+   (A) one more op builds a cell with identity at its family's type, its
+   constructor a property (as `hw.union_create`), readers taking it
+   through the structure interface (about 27 files name `DataConOp`);
+   (B) `idr.data.con` takes its constructor as a property for every
+   family, its result type inferred from it, so no family holds its tag
+   twice; (C) no new shape: the verifier admits a memo label's refinement
+   only as a match region's binding of its scrutinee and as a con's result
+   whose one use widens it, and C309 narrows to that. Scope: memo families
+   alone (the specification's `MemoCell`), since an in-place family's
+   refinement cannot be falsified. Waits on 4.
 
 The last settled, the two folders (L14u's finding, 2026-10-23), is D132
 ((A): the e-graph alone folds; idr-constants goes).
