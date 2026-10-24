@@ -681,6 +681,34 @@ every target, the full suites green on each, and this file's sweep.
   traits gone; checked by tests/upstream-tensor-like-per-instance
 - retire: when the pin decides tensor-likeness per instance
 
+## kept-digest
+
+- symptom: upstream's storage is fixed when it is constructed, and the
+  mutable part of one changes only through `mutate`, under the uniquer's
+  write lock. But MLIR gives a storage its kind (its abstract attribute or
+  type, and through it its dialect) only after constructing it:
+  `StorageUniquer::get` runs the init function after `construct`. A deep
+  part's content digest is what its dialect's bytecode writes of it, so no
+  storage can compute its digest when it is made
+- sites: foreign/idr/include/idr/IR/Families/FamilyStorage.h (`KeptDigest`,
+  in the storages of a family and a constant constructor),
+  foreign/idr/lib/IR/Types.cpp (in a data type's storage), and
+  foreign/idr/lib/IR/ContentNames.cpp, which reads a digest from its
+  storage and keeps it there the first time it computes one (U08,
+  d73d79c20)
+- workaround: each of the three storages holds the digest beside its key,
+  in two atomic words and a flag, filled the first time the digest is
+  asked, outside `mutate`, and read with no lock ever after. Two workers
+  that ask at once each compute the one digest and keep it, and a reader
+  that sees it marked kept sees it whole. Not through `mutate`: a reader
+  would have to race it or take the uniquer's lock, and optimizer workers
+  queued on that lock for half of a ten-minute window when a data type's
+  facts were read that way (98c6315c). Not made eagerly either: most parts
+  are never digested
+- retire: when a storage can compute its digest as it is constructed, or
+  no digest is asked of these parts
+- upstream: none
+
 ## simdutf-constexpr-implementation
 
 - sites: runtime/Strings/Simd.h (`rt::strings::utf8`, a constant of the

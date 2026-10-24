@@ -7,7 +7,9 @@
 ||| so an edit that prints nothing new changes nothing, and the generator's
 ||| sources, read in the order the specification lists them
 ||| (`generatorSources`); the manifest holds both. Both first fail, writing
-||| nothing, naming each thing the generator refuses:
+||| nothing, naming each thing the generator refuses and each module under
+||| the specification's directory the package does not name, since Idris
+||| installs only the modules a package names:
 |||   specgen write <root>   rewrites each output whose bytes differ, and the manifest;
 |||   specgen check <root>   writes nothing, and fails naming each file that differs.
 module IdrisMLIR.Spec.Generator.Main
@@ -15,12 +17,14 @@ module IdrisMLIR.Spec.Generator.Main
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Generator.Manifest
 import IdrisMLIR.Spec.Generator.Outputs
+import IdrisMLIR.Spec.Generator.Package
 
 import Data.List
 import Data.List1
 import Data.Maybe
 import Data.String
 import System
+import System.Directory
 import System.File
 
 %default total
@@ -114,6 +118,52 @@ report (l :: ls) = do
   putStrLn l
   report ls
 
+||| A directory under the root, as its parts.
+dirText : String -> List String -> String
+dirText root dir = concat (intersperse "/" (root :: dir))
+
+-- Covering, not total: a walk follows each directory it lists, which a
+-- link back up the tree would never let end.
+||| Each `.idr` file under the directory whose parts under the root are
+||| `dir`, as its path under the root, in the order of its names; or the
+||| first directory that cannot be listed. A hidden name is passed over:
+||| no module's name starts with a dot, so an editor's file beside a module
+||| is none.
+export
+covering
+sourcesUnder : (root : String) -> (dir : List String) -> IO (Either String (List Path))
+sourcesUnder root dir = do
+  Right names <- listDir (dirText root dir)
+    | Left _ => pure (Left (concat (intersperse "/" dir)))
+  found <- traverse
+    (\n => do
+       Right d <- openDir (dirText root (dir ++ [n]))
+         | Left _ => pure (Right (if Data.String.isSuffixOf ".idr" n then [lappend dir (singleton n)] else []))
+       closeDir d
+       sourcesUnder root (dir ++ [n]))
+    (sort (filter (not . Data.String.isPrefixOf ".") names))
+  pure (concat <$> sequence found)
+
+||| Each module under the specification's directory the package does not
+||| name, said for the one who wrote it; or that the directory cannot be
+||| listed, which leaves its modules unchecked. The directory is the
+||| package file's, which is its source directory too (`sourcedir` is
+||| "."), so every module the package could name is a file under it.
+export
+covering
+unnamedModules : String -> IO (List String)
+unnamedModules root = do
+  found <- sourcesUnder root (init packagePath)
+  pure $ case found of
+    Left dir => [dir ++ ": cannot be listed, so no module under it is checked against the package"]
+    Right paths => map unnamed (filter (\p => not (elem p named)) paths)
+  where
+    named : List Path
+    named = map moduleSource (forget packageModules)
+
+    unnamed : Path -> String
+    unnamed p = pathText p ++ ": a module the package does not name (IdrisMLIR.Spec.Generator.Package lists them)"
+
 ||| Fails, naming each thing the generator refuses, where there is any.
 export
 refuse : List String -> IO ()
@@ -129,7 +179,8 @@ main = do
   args <- getArgs
   case args of
     [_, mode, root] => do
-      refuse refusals
+      unnamed <- unnamedModules root
+      refuse (refusals ++ unnamed)
       m <- manifestText root generate
       case mode of
         "write" => do
