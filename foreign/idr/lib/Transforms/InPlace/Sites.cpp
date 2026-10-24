@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The in-place rule's rebuild sites of one body (Rule.h), and the rewrite of
-// each into a take of the cell and a rebuild in it.
+// each into a take of the cell, its arrays opened, and a rebuild in it.
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cstdint>
 
 using namespace mlir;
 
@@ -68,31 +70,27 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn, const BodyValues &values)
   return sites;
 }
 
-void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction) {
-  Block &entry = match->getRegion(caseIndex).front();
-  BlockArgument cell = entry.getArgument(taken);
+namespace {
+
+// The rebuild at the case's entry, by a take `Take` of the cell: each read
+// of the cell becomes the take's result for the field it reads, a field
+// read's the field moved out, an opener's the array its field holds, at the
+// type each gives; and the construction becomes the rebuild in the cell
+// the take's token holds.
+template <TakesOutOfCell Take>
+void rebuildBy(Block &entry, BlockArgument cell, Location loc, DataConOp construction) {
   OpBuilder builder = OpBuilder::atBlockBegin(&entry);
-  auto take = CountTakeOp::create(builder, match.getLoc(), cell);
+  auto take = Take::create(builder, loc, cell);
+  auto movedOut = [&](Operation *read, std::uint64_t index) {
+    read->getResult(0).replaceAllUsesWith(take.getFields()[static_cast<unsigned>(index)]);
+    read->erase();
+  };
   for (OpOperand &use : llvm::make_early_inc_range(cell.getUses())) {
-    if (auto field = dyn_cast<DataFieldOp>(use.getOwner())) {
-      field.getResult().replaceAllUsesWith(
-          take.getFields()[static_cast<unsigned>(field.getIndex())]);
-      field.erase();
-      continue;
-    }
-    // A buffer the take moves out of the cell is the cell's field no more,
-    // so no opener reads it: its array is upstream's tensor of it, the only
-    // one of that buffer, which bufferization copies before a write, since
-    // no claim reaches an op of upstream's.
-    if (auto open = dyn_cast<ArrayOpenOp>(use.getOwner())) {
-      builder.setInsertionPoint(open);
-      Value moved = take.getFields()[static_cast<unsigned>(open.getIndex())];
-      Value bare = heldAs(builder, open.getLoc(), moved, unrestricted(moved.getType()));
-      auto array = bufferization::ToTensorOp::create(builder, open.getLoc(), open.getType(), bare,
-                                                     /*restrict=*/true);
-      open.getArray().replaceAllUsesWith(array.getResult());
-      open.erase();
-    }
+    Operation *user = use.getOwner();
+    if (auto field = dyn_cast<DataFieldOp>(user))
+      movedOut(user, field.getIndex());
+    else if (auto open = dyn_cast<ArrayOpenOp>(user))
+      movedOut(user, open.getIndex());
   }
   builder.setInsertionPoint(construction);
   auto rebuilt = TokenRebuildOp::create(builder, construction.getLoc(),
@@ -100,6 +98,21 @@ void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp co
                                         construction.getFields());
   construction.getResult().replaceAllUsesWith(rebuilt.getResult());
   construction.erase();
+}
+
+} // namespace
+
+// Essential, two cells: the cell is taken before bufferization, so where
+// it holds an array its take opens that array, whose claim is the cell's
+// (count.take_open, which bufferization makes a take); a cell that holds
+// none is taken by a take.
+void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction) {
+  Block &entry = match->getRegion(caseIndex).front();
+  BlockArgument cell = entry.getArgument(taken);
+  if (isTakeableWithArrays(cell.getType()))
+    rebuildBy<CountTakeOpenOp>(entry, cell, match.getLoc(), construction);
+  else
+    rebuildBy<CountTakeOp>(entry, cell, match.getLoc(), construction);
 }
 
 } // namespace idr::inplace

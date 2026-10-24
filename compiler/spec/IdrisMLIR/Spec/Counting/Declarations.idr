@@ -26,7 +26,9 @@
 ||| trait, which the linearity rule and counting's rule of what an op does
 ||| with a reference read. A rebuild the in-place rule
 ||| decided before counting is a token its check made, consumed by
-||| `token.rebuild`.
+||| `token.rebuild`: the check takes the cell apart before bufferization,
+||| so where the cell holds arrays its take opens them (`count.take_open`),
+||| which bufferization makes a take.
 |||
 ||| Where a reference crosses into upstream's buffers it is an op of its
 ||| own: a fresh buffer taken over by counting (`own.adopt`), a value stored
@@ -90,6 +92,13 @@ countedMany = AllOfTypes (SatisfiesType countedValue ::: [SatisfiesType usedMany
 ||| value a take takes out of its cell.
 takeable : Predicate
 takeable = predicate "isTakeable" "a counted value refined to a constructor with a cell"
+
+||| Takeable, and holding an array as the buffer of one of its fields: a
+||| value the take before bufferization takes apart, opening each such
+||| array. A cell that holds none is taken by a take.
+takeableWithArrays : Predicate
+takeableWithArrays = predicate "isTakeableWithArrays"
+  "a counted value refined to a constructor with a cell that holds an array"
 
 ||| Refined to one constructor held in place: a value an unpack takes apart.
 unpackable : Predicate
@@ -178,8 +187,9 @@ counted : Legal
 counted = between Graded Owned
 
 ||| From counting's first step, which makes memory explicit, to the
-||| lowering; a take, a rebuild and a share the in-place check writes right
-||| after defunctionalization, before counting.
+||| lowering; a rebuild and a share the in-place check writes right after
+||| defunctionalization, before counting, and the take bufferization makes
+||| of the check's.
 explicit : Legal
 explicit = between First Owned
 
@@ -263,6 +273,32 @@ take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   [ MkMember OnObject "::idr::DataType" "getDataType" []
   , MkMember OnObject "::idr::Tag" "getTag" [] ]
   (brief "takes a value out of its cell, giving its token and its fields")
+
+||| `count.take_open %v : T`, C++ `CountTakeOpenOp`: a take before
+||| bufferization of a cell that holds an array, which the in-place check
+||| writes where it rebuilds one: its token, then its fields, as a take
+||| gives them, but a field that holds an array as its buffer, which comes
+||| out as the array it is, the only array of that buffer while it lives,
+||| of the buffer's shape and element.
+||| The array may be written in place where the value claims its own cells
+||| unshared, a claim that covers the storage of a buffer one of them holds,
+||| never the elements in it: bufferization reads it off the operand's
+||| grade, as it reads an array's opener's (`array.open`), so the claim
+||| reaches the op that opens the array though the take ends the value, and
+||| no fact beside the grade says it. Bufferization makes it a take, each
+||| array the buffer the take moves out.
+public export
+takeOpen : Op 1 2 0 0
+takeOpen = countingOp "count.take_open" [single "value" (SatisfiesType takeableWithArrays)]
+  [result "token" token, results "fields" anyValue] [] []
+  [OurTrait endsOwner] [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
+  (Executes [] [Consumes 0, CountsIfShared (Operands 0), NewIdentity 0, NewIdentity 1] Covered Untouched)
+  (between First First) DeclarationOnly
+  (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
+  [] WithDefaults
+  [ MkMember OnObject "::idr::DataType" "getDataType" []
+  , MkMember OnObject "::idr::Tag" "getTag" [] ]
+  (brief "takes a value out of its cell before bufferization, its arrays opened")
 
 ||| `count.unpack %v : T in %l, … : L, …`, C++ `CountUnpackOp`: a value
 ||| refined to a constructor held in place taken apart, its fields inferred
@@ -526,12 +562,13 @@ give = countingOp "own.give" [single "value" (SatisfiesType countedValue)] [resu
 public export
 declarations : Declarations
 declarations =
-  { ops := [ SomeOp dup, SomeOp drop, SomeOp share, SomeOp take, SomeOp Counting.Declarations.unpack, SomeOp takeInto
+  { ops := [ SomeOp dup, SomeOp drop, SomeOp share, SomeOp take, SomeOp takeOpen
+           , SomeOp Counting.Declarations.unpack, SomeOp takeInto
            , SomeOp matchUnique, SomeOp cellNew, SomeOp cellInit, SomeOp cellRecycle
            , SomeOp tokenFree, SomeOp tokenNull, SomeOp tokenRebuild, SomeOp adopt, SomeOp give ]
   , types := [SomeType cellType, SomeType reuseTokenType]
   , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
-  , predicates := [countedValue, usedMany, takeable, unpackable, tokenValue, heldValue]
+  , predicates := [countedValue, usedMany, takeable, takeableWithArrays, unpackable, tokenValue, heldValue]
   , interfaces := [reuseSourceInterface, reuseSinkInterface]
   , traits := [endsOwner]
   } nothing

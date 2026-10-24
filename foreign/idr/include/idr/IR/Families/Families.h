@@ -353,6 +353,13 @@ struct RegionRefinement {
 // unpack) infers its result with it.
 std::optional<mlir::Type> fieldReadType(mlir::Type value, unsigned index);
 
+// The array field `index` of a value of type `value` holds as its buffer,
+// opened: the tensor of the buffer's shape and element, whatever grade a
+// read gives the buffer. None where the field holds no value array's
+// buffer. Every op that opens the array a field holds (idr.array.open, the
+// take before bufferization) infers it with this.
+std::optional<mlir::RankedTensorType> openedArrayType(mlir::Type value, unsigned index);
+
 // Each field of a constructor constant with its position in the
 // constructor, cell by cell along the run, each cell's fields read where
 // the cell holds them. The step is a template parameter, so each walk's is

@@ -65,17 +65,27 @@ void CellInitOp::getFlowEdges(FlowEdges &edges) {
                 FlowPlace::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(hole))));
 }
 
+namespace {
+
 // The value is taken over: its cell becomes the token, and each field
-// moves out of it.
-void CountTakeOp::getFlowEdges(FlowEdges &edges) {
-  OpOperand &value = getValueMutable();
-  DataType data = getDataType();
-  Tag tag = getTag();
-  edges.flow(FlowSource::of(value), FlowPlace::of(getToken()));
-  for (auto [index, field] : llvm::enumerate(getFields()))
+// moves out of it into its result, a field's value or the array a field
+// holds as its buffer, which is that buffer.
+template <TakesOutOfCell Op>
+void takenEdges(Op op, FlowEdges &edges) {
+  OpOperand &value = op.getValueMutable();
+  DataType data = op.getDataType();
+  Tag tag = op.getTag();
+  edges.flow(FlowSource::of(value), FlowPlace::of(op.getToken()));
+  for (auto [index, field] : llvm::enumerate(op.getFields()))
     edges.flow(FlowSource::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(index))),
                FlowPlace::of(Value(field)));
 }
+
+} // namespace
+
+void CountTakeOp::getFlowEdges(FlowEdges &edges) { takenEdges(*this, edges); }
+
+void CountTakeOpenOp::getFlowEdges(FlowEdges &edges) { takenEdges(*this, edges); }
 
 // The value, which has no cell of its own, is taken over: each field moves
 // out of it. A constructor none of whose fields holds a reference moves no

@@ -21,8 +21,9 @@
 // of one is an alloc_tensor of its value given at its uses, claiming what
 // the allocation's type states. A field of a cell holds its buffer from the
 // frontend on, which crosses into the tensor world through upstream's
-// to_buffer and idr.array.open, so no type of the program is retyped after
-// the analysis.
+// to_buffer, and idr.array.open or the take before bufferization
+// (idr.count.take_open), so no type of the program is retyped after the
+// analysis.
 //
 // On the buffers, a read of an element that holds references, whose place
 // the next write to the buffer overwrites, is the element's update

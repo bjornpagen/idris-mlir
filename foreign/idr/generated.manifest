@@ -1,9 +1,9 @@
-specification 1fbb051f05050b96
+specification 72410f94e9421cc3
 generator f7085ff6019d8f35
 ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 43182228949c54e1 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 917e4230f8800de9 foreign/idr/include/idr/IR/Generated/IdrTypes.td
-b3742f17ca9265ce foreign/idr/include/idr/IR/Generated/IdrOps.td
+af3d97929005f2a9 foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 566341460441fed2 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 207ba67b0d97b601 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -16,7 +16,7 @@ a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
 7a7fc82df2028a39 foreign/idr/include/idr/IR/Generated/IdrAdmittedTensor.td
 8e05240184a9371f foreign/idr/include/idr/IR/Generated/IdrAdmittedUB.td
 34e058edf5f00de8 foreign/idr/include/idr/IR/Generated/IdrAdmittedLinalg.td
-3f0f6cc02d83c86a foreign/idr/include/idr/IR/Generated/IdrAdmittedBufferization.td
+60dff4451bb90737 foreign/idr/include/idr/IR/Generated/IdrAdmittedBufferization.td
 84e83153b09209e0 foreign/idr/include/idr/IR/Generated/IdrAdmittedSCF.td
 746daf894f7601da foreign/idr/include/idr/IR/Generated/IdrBuiltinEntries.td
 d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
@@ -31,13 +31,13 @@ d44a454a09df116f foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 ac30b3cefaf91f3a foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
 8793d717b838fa1c runtime/Generated/idris_rt_ops.h
 eee0d68f3a0d55b7 foreign/idr/include/idr/IR/Generated/Resources.h.inc
-e215a4666fe32c7c foreign/idr/include/idr/IR/Generated/Effects.h.inc
-3a2ba27605c7ff75 foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
+8255b245464795d8 foreign/idr/include/idr/IR/Generated/Effects.h.inc
+99d3350da48e1351 foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 43500dd7146aa1c2 foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 04252be77897a84d foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 9437e560bf7938c7 foreign/idr/include/idr/IR/Generated/Laws.h.inc
-c3dc31a78dff27ee foreign/idr/include/idr/IR/Generated/Hooks.h.inc
+917513f058ac7f9b foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 eca576626466f437 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 646d0650f34d56aa foreign/idr/include/idr/IR/Generated/Actions.h.inc

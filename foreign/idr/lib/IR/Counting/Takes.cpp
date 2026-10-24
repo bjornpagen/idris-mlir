@@ -2,16 +2,18 @@
 // Copyright (c) 2026 Bjorn Pagen
 // A value taken apart, and one rebuilt in the cell its token holds: a take
 // of a value from its cell (count.take, fused with its recycle in
-// count.take_into), an unpack of a value held in place (count.unpack), the
-// one run-time test of sharing (count.match_unique), and the rebuild the
-// in-place rule decided (token.rebuild). Each reads its constructor off a
-// type refined to it and the fields off the declaration at its
-// application, each at the type a read of it gives, so nothing here reads
-// the module or names a constructor. An unpack passes a scoped value's
-// fields through, so it states the lifetime of each scoped field, one step
-// from it. Here too is where reuse finds a cell: a take whose cell its
-// free empties and a drop that can become such a take, each a source of a
-// dead cell, and the fresh cell a token of its size may stand in for.
+// count.take_into, and opening the arrays the cell holds before
+// bufferization in count.take_open), an unpack of a value held in place
+// (count.unpack), the one run-time test of sharing (count.match_unique),
+// and the rebuild the in-place rule decided (token.rebuild). Each reads
+// its constructor off a type refined to it and the fields off the
+// declaration at its application, each at the type a read of it gives, so
+// nothing here reads the module or names a constructor. An unpack passes a
+// scoped value's fields through, so it states the lifetime of each scoped
+// field, one step from it. Here too is where reuse finds a cell: a take
+// whose cell its free empties and a drop that can become such a take, each
+// a source of a dead cell, and the fresh cell a token of its size may
+// stand in for.
 
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Families/Families.h"
@@ -55,6 +57,19 @@ namespace idr {
 bool isTakeable(Type value) {
   DataType data = refinedData(value);
   return data && isCountedValue(value) && buildsCell(value, *data.singleTag()) && !data.memo();
+}
+
+// A cell one of whose fields holds an array as its buffer, which a take
+// before bufferization opens.
+bool isTakeableWithArrays(Type value) {
+  if (!isTakeable(value))
+    return false;
+  DataType data = refinedData(value);
+  unsigned count = static_cast<unsigned>(data.ctor(*data.singleTag()).fields.size());
+  for (unsigned index = 0; index < count; ++index)
+    if (openedArrayType(value, index))
+      return true;
+  return false;
 }
 
 bool isUnpackable(Type value) {
@@ -105,6 +120,16 @@ LogicalResult fieldsOf(std::optional<Location> location, Type type,
   return success();
 }
 
+// What a take of a value of `value` gives: its token, then its fields.
+LogicalResult takenTypes(std::optional<Location> location, Type value,
+                         SmallVectorImpl<Type> &inferred) {
+  if (!isTakeable(value))
+    return emitOptionalError(location, "takes ", value,
+                             ", which is no counted value refined to a constructor with a cell");
+  inferred.push_back(tokenOf(value));
+  return fieldsOf(location, value, inferred);
+}
+
 } // namespace
 
 DataType CountTakeOp::getDataType() { return takenData(*this); }
@@ -112,12 +137,27 @@ Tag CountTakeOp::getTag() { return *getDataType().singleTag(); }
 
 LogicalResult CountTakeOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                             Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  return takenTypes(location, adaptor.getValue().getType(), inferred);
+}
+
+DataType CountTakeOpenOp::getDataType() { return takenData(*this); }
+Tag CountTakeOpenOp::getTag() { return *getDataType().singleTag(); }
+
+// What a take gives, but the array a field holds as its buffer where the
+// field holds one: the array its opener gives (openedArrayType), so the
+// field's reads and openers become the take's results as they are.
+LogicalResult CountTakeOpenOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
+                                                Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   Type value = adaptor.getValue().getType();
-  if (!isTakeable(value))
-    return emitOptionalError(location, "takes ", value,
-                             ", which is no counted value refined to a constructor with a cell");
-  inferred.push_back(tokenOf(value));
-  return fieldsOf(location, value, inferred);
+  // The token, then each field in order from `first`.
+  size_t first = inferred.size() + 1;
+  if (failed(takenTypes(location, value, inferred)))
+    return failure();
+  for (size_t at = first; at < inferred.size(); ++at)
+    if (std::optional<RankedTensorType> array =
+            openedArrayType(value, static_cast<unsigned>(at - first)))
+      inferred[at] = *array;
+  return success();
 }
 
 DataType CountUnpackOp::getDataType() { return takenData(*this); }

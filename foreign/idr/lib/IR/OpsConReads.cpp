@@ -47,6 +47,14 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   return read;
 }
 
+std::optional<RankedTensorType> idr::openedArrayType(Type value, unsigned index) {
+  std::optional<Type> read = fieldReadType(value, index);
+  if (!read || !isValueBuffer(*read))
+    return std::nullopt;
+  auto buffer = cast<MemRefType>(unrestricted(*read));
+  return RankedTensorType::get(buffer.getShape(), buffer.getElementType());
+}
+
 //===----------------------------------------------------------------------===//
 // idr.data.field
 //===----------------------------------------------------------------------===//

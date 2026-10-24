@@ -9,7 +9,6 @@
 include "mlir/Dialect/Bufferization/IR/BufferizationOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_Bufferization_ToTensorOp : IdrAdmitted<Bufferization_ToTensorOp, "Bufferization_ToTensorOp", "First", "First", 0, []>;
 def IdrAdmitted_Bufferization_ToBufferOp : IdrAdmitted<Bufferization_ToBufferOp, "Bufferization_ToBufferOp", "Higher", "First", 1, []>;
 def IdrAdmitted_Bufferization_AllocTensorOp : IdrAdmitted<Bufferization_AllocTensorOp, "Bufferization_AllocTensorOp", "First", "First", 0, []>;
 #endif // IDR_GENERATED_ADMITTED_BUFFERIZATION

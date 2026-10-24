@@ -6,9 +6,10 @@
 // gives and the parameters it is owed; every version's values are graded
 // with their claims, its parameters with what they are owed, and each call
 // goes to the version of its callee it asks for. Each rebuild site becomes
-// a take of the cell at its case's entry, whose fields the case's reads
-// become, and an idr.token.rebuild that consumes its linear token in place
-// of the construction paired with it. The local rule then carries every
+// a take of the cell at its case's entry, opening the arrays the cell
+// holds, whose fields and arrays the case's reads and openers become, and
+// an idr.token.rebuild that consumes its linear token in place of the
+// construction paired with it. The local rule then carries every
 // claim written forward into what each value is taken or read into at a
 // linear position, and where a value graded with a claim meets a position
 // that takes less (an op of upstream's among them, which takes the bare

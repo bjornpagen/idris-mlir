@@ -4,9 +4,11 @@
 // with the reference a counted operand holds, which placement and the
 // linearity rule both read; the rule for what a field of a built value may
 // hold, which a cell's init, a rebuild and a constructor value all obey;
-// the destination of a cell's hole, which idr-trmc makes holes by; and the
+// the destination of a cell's hole, which idr-trmc makes holes by; the
 // size check of a recycle, which needs the target's layout and so runs
-// where the program's verifier holds one.
+// where the program's verifier holds one; and what the two takes of a
+// value out of its cell share, which their flow and the in-place rebuild
+// read.
 // The ops, their types, their predicates and their directives are the
 // specification's (Spec.Counting), declared by the generated headers
 // IdrDialect.h includes, with the class of the trait the ops that end an
@@ -17,12 +19,14 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallBitVector.h"
 
+#include <concepts>
 #include <cstdint>
 #include <optional>
 
@@ -87,6 +91,21 @@ mlir::FailureOr<DestType> destOf(std::optional<mlir::Location> location, CellTyp
 // Whether `recycle` gives a cell of the size of every cell its token may
 // hold, as `layouts` lays cells out on the target.
 mlir::LogicalResult verifyRecycle(CellRecycleOp recycle, const Layouts &layouts);
+
+// An op that takes a value out of its cell (idr.count.take, and the take
+// before bufferization that opens the arrays the cell holds,
+// idr.count.take_open): built of the value alone, its results inferred, it
+// gives the cell's token and a result per field.
+template <typename Op>
+concept TakesOutOfCell =
+    requires(Op op, mlir::OpBuilder &builder, mlir::Location loc, mlir::Value value) {
+      { Op::create(builder, loc, value) } -> std::same_as<Op>;
+      { op.getValueMutable() } -> std::same_as<mlir::OpOperand &>;
+      { op.getDataType() } -> std::same_as<DataType>;
+      { op.getTag() } -> std::same_as<Tag>;
+      { op.getToken() } -> std::convertible_to<mlir::Value>;
+      { op.getFields() } -> std::convertible_to<mlir::ValueRange>;
+    };
 
 } // namespace idr
 

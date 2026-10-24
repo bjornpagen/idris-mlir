@@ -70,13 +70,14 @@ tensorJoinsAdmitted = map (\r : Ident => admitNamed Tensor r (between Higher Fir
 
 ||| The crossings between a buffer and an array value, until
 ||| bufferization, which removes them: the buffer a constructor's field
-||| takes, which the frontend writes; the array of a buffer no cell holds,
-||| which the in-place check writes where it moves a cell's buffer out of
-||| the cell; and the fresh array bufferization's preparation makes.
+||| takes, which the frontend writes; and the fresh array bufferization's
+||| preparation makes. A buffer a cell holds is opened as an array by an op
+||| of ours that takes the value holding it (`array.open`, and the take
+||| before bufferization, `count.take_open`), never by upstream's
+||| `to_tensor`.
 bufferizationAdmitted : List Admitted
 bufferizationAdmitted =
-  [ admitNamed Bufferization "Bufferization_ToTensorOp" (between First First) PassesOnly
-  , admitNamed Bufferization "Bufferization_ToBufferOp" (between Higher First) FrontendWrites
+  [ admitNamed Bufferization "Bufferization_ToBufferOp" (between Higher First) FrontendWrites
   , admitNamed Bufferization "Bufferization_AllocTensorOp" (between First First) PassesOnly ]
 
 ||| A buffer's size, which the frontend reads, and the buffers bufferization

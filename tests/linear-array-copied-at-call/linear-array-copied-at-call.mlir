@@ -3,10 +3,11 @@
 // A linear array that a callee writes, passed where its buffer may not be
 // written, is copied before the call, and the copy takes the array's place
 // at the uses Idris proved of it, claiming what the tensor it is made of
-// states: nothing of its sharing. @view fills a buffer of one word and gives
-// it as a linear array through upstream's to_tensor, not writable, so its
-// callers may not write it; @fill writes the array it is given at its last
-// step and gives it back. @main reads a line, so no length it passes is a
+// states: nothing of its sharing. @view fills a buffer of one word, holds
+// it in a box that claims nothing of its sharing and gives the array the
+// box holds, opened, as a linear array, not writable, so its callers may
+// not write it; @fill writes the array it is given at its last step and
+// gives it back. @main reads a line, so no length it passes is a
 // constant, views two buffers and passes each view to @fill, so
 // bufferization copies each before its call, through the hook that makes a
 // graded array's copy. The module verifies as written and after every pass
@@ -17,6 +18,10 @@
 // another is inlined into it, and @main calls each twice where no tail is
 // lost, so each returns to more than one place and none becomes a join
 // point of one caller.
+#Box = #idr.family<"Box" [] {
+    @MkBox (memref<i64>)
+  }>
+!MkBox = !idr.data<#Box @MkBox>
 !Linear = !idr.graded<once, counted, tensor<i64>>
 idr.program @copies root(@main) stage(first) {
   idr.func @main() {
@@ -42,7 +47,8 @@ idr.program @copies root(@main) stage(first) {
     case 0(%zero: i64) {
       %m = memref.alloc() : memref<i64>
       memref.store %zero, %m[] : memref<i64>
-      %t = bufferization.to_tensor %m restrict : memref<i64> to tensor<i64>
+      %box = idr.data.con(%m : memref<i64>) : !MkBox
+      %t = idr.array.open %box[0] : !MkBox -> tensor<i64>
       %l = idr.lin.cast %t : tensor<i64> -> !Linear
       idr.yield %l : !Linear
     }

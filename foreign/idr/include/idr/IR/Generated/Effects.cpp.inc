@@ -393,6 +393,11 @@ void ::idr::CountTakeOp::getEffects(
   ::idr::effects::declare(*this, effects);
 }
 
+void ::idr::CountTakeOpenOp::getEffects(
+    ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
+  ::idr::effects::declare(*this, effects);
+}
+
 void ::idr::CountUnpackOp::getEffects(
     ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
   ::idr::effects::declare(*this, effects);

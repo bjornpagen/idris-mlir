@@ -2577,6 +2577,23 @@ def Idr_CountTakeOp : Idr_Op<"count.take", [
   }];
 }
 
+def Idr_CountTakeOpenOp : Idr_Op<"count.take_open", [
+    Idr_EndsOwnerTrait,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    Idr_DeclaredEffectsOpInterface,
+    InferTypeOpAdaptor,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+  ]> {
+  let summary = "takes a value out of its cell before bufferization, its arrays opened";
+  let arguments = (ins Type<CPred<"::idr::isTakeableWithArrays($_self)">, "a counted value refined to a constructor with a cell that holds an array", "::mlir::Type">:$value);
+  let results = (outs Type<CPred<"::idr::isTokenValue($_self)">, "a reuse token, used once", "::mlir::Type">:$token, Variadic<AnyType>:$fields);
+  let assemblyFormat = [{ $value attr-dict `:` type($value) }];
+  let extraClassDeclaration = [{
+    ::idr::DataType getDataType();
+    ::idr::Tag getTag();
+  }];
+}
+
 def Idr_CountUnpackOp : Idr_Op<"count.unpack", [
     Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,

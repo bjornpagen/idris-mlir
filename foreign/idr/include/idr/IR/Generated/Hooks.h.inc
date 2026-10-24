@@ -161,6 +161,9 @@ bool isUsedMany(::mlir::Type value);
 // a counted value refined to a constructor with a cell
 bool isTakeable(::mlir::Type value);
 
+// a counted value refined to a constructor with a cell that holds an array
+bool isTakeableWithArrays(::mlir::Type value);
+
 // a value refined to a constructor held in place
 bool isUnpackable(::mlir::Type value);
 

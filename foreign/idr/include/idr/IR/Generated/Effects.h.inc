@@ -1428,6 +1428,14 @@ struct Declared<::idr::CountTakeOp> {
 };
 
 template <>
+struct Declared<::idr::CountTakeOpenOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 0> effects{{}};
+  using Rules = std::tuple<::idr::effects::Consumes<::idr::effects::OnOperand<0>>, ::idr::effects::CountsIfShared<::idr::effects::OnOperand<0>>, ::idr::effects::NewIdentity<::idr::effects::OnResult<0>>, ::idr::effects::NewIdentity<::idr::effects::OnResult<1>>>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::CountUnpackOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 0> effects{{}};

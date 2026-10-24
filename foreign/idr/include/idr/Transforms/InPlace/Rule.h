@@ -170,9 +170,11 @@ struct RebuildSite {
 llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn, const BodyValues &values);
 
 // The rebuild of the cell case `caseIndex` of `match` binds as its argument
-// `taken`, by `construction`: a take of the cell at the case's entry, whose
-// fields the case's reads of the cell become, and an idr.token.rebuild that
-// consumes the take's token in place of the construction.
+// `taken`, by `construction`: a take of the cell at the case's entry that
+// opens the arrays the cell holds (idr.count.take_open), whose fields and
+// arrays the case's reads and openers of the cell become, and an
+// idr.token.rebuild that consumes the take's token in place of the
+// construction.
 void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction);
 
 // The reading of one body by the rule: which value meets a requirement

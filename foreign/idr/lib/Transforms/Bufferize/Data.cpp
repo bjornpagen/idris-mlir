@@ -10,9 +10,11 @@
 // A cell's field holds its buffer from the frontend on: idr.data.con takes
 // one through upstream's to_buffer, a release One-Shot already models, and
 // idr.array.open opens one as the array it is, taking the value that holds
-// it, so whether the array may be written in place is that value's claim,
-// read here off the opener's operand. So no other idr op that stores or
-// reads a cell needs a model of its own here. A value a
+// it, as does the take the in-place check makes before bufferization
+// (idr.count.take_open), which opens each array its cell holds: so whether
+// an array may be written in place is the claim of the value it is opened
+// from, read here off the opening op's operand by one rule for both. So no
+// other idr op that stores or reads a cell needs a model of its own here. A value a
 // terminator gives that goes to no result of its parent (a memo cell's
 // forced value) moves into memory the parent holds: a release.
 #include "idr/Transforms/BufferizeModels.h"
@@ -26,6 +28,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <concepts>
 #include <optional>
 
 using namespace mlir;
@@ -219,17 +222,25 @@ struct GivingModel : BufferizableOpInterface::ExternalModel<GivingModel<Op>, Op>
 // writes inside an element another holder may share.
 constexpr idr::Unique bufferClaim = idr::Unique::Self;
 
-// A field's buffer opened as the array it is: a buffer of its own to the
-// analysis, aliasing no tensor, and the only array of that buffer while it
-// lives. It is writable where the value it is opened from makes
+// An op that opens the arrays a value's buffers are, taking the value: an
+// opener of one field, or the take before bufferization.
+template <typename Op>
+concept OpensArraysOf = requires(Op op) {
+  { op.getValue() } -> std::convertible_to<Value>;
+};
+
+// What such an op answers of each array it opens: a buffer of its own to
+// the analysis, aliasing no tensor, and the only array of that buffer
+// while it lives. It is writable where the value it is opened from makes
 // bufferClaim, so One-Shot copies it only where the program reads it again
-// and writes its slots, never the elements they hold; one that claims less
-// gives an array One-Shot copies before any write. Bufferized, it is the
-// field read, at the bare carrier upstream's ops take: the buffer is a
-// whole cell's, of the identity layout every field has.
-struct OpenModel : BufferizableOpInterface::ExternalModel<OpenModel, idr::ArrayOpenOp> {
+// and writes its slots, never the elements they hold; one opened from a
+// value that claims less One-Shot copies before any write. Its buffer is a
+// whole cell's, of the identity layout every field has, at the bare
+// carrier upstream's ops take.
+template <typename Model, OpensArraysOf Op>
+struct OpensArrays : BufferizableOpInterface::ExternalModel<Model, Op> {
   bool isWritable(Operation *op, Value, const AnalysisState &) const {
-    return idr::claims(cast<idr::ArrayOpenOp>(op).getValue().getType(), bufferClaim);
+    return idr::claims(cast<Op>(op).getValue().getType(), bufferClaim);
   }
 
   FailureOr<BufferLikeType> getBufferType(Operation *, Value value, const BufferizationOptions &,
@@ -237,7 +248,11 @@ struct OpenModel : BufferizableOpInterface::ExternalModel<OpenModel, idr::ArrayO
                                           SmallVector<Value> &) const {
     return idr::bufferize::cellType(cast<TensorLikeType>(value.getType()));
   }
+};
 
+// A field's buffer opened as the array it is: bufferized, it is the field
+// read.
+struct OpenModel : OpensArrays<OpenModel, idr::ArrayOpenOp> {
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter, const BufferizationOptions &,
                           BufferizationState &) const {
     auto open = cast<idr::ArrayOpenOp>(op);
@@ -251,6 +266,27 @@ struct OpenModel : BufferizableOpInterface::ExternalModel<OpenModel, idr::ArrayO
   }
 };
 
+// The take before bufferization, its cell's arrays opened: bufferized, it
+// is the take, each array the buffer the take moves out of its field, and
+// every other result the take's own. Which results are arrays is the
+// cell's, field by field.
+struct TakeOpenModel : OpensArrays<TakeOpenModel, idr::CountTakeOpenOp> {
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter, const BufferizationOptions &,
+                          BufferizationState &) const {
+    auto open = cast<idr::CountTakeOpenOp>(op);
+    Location loc = open.getLoc();
+    auto take = idr::CountTakeOp::create(rewriter, loc, open.getValue());
+    SmallVector<Value> values{take.getToken()};
+    for (auto [moved, given] : llvm::zip_equal(take.getFields(), open.getFields())) {
+      auto array = dyn_cast<TensorLikeType>(given.getType());
+      values.push_back(array ? idr::heldAs(rewriter, loc, moved, idr::bufferize::cellType(array))
+                             : moved);
+    }
+    replaceOpWithBufferizedValues(rewriter, op, values);
+    return success();
+  }
+};
+
 } // namespace
 
 void idr::bufferize::attachDataModels(MLIRContext *ctx) {
@@ -260,4 +296,5 @@ void idr::bufferize::attachDataModels(MLIRContext *ctx) {
   idr::LifetimeOp::attachInterface<GivenModel<idr::LifetimeOp>>(*ctx);
   idr::YieldOp::attachInterface<GivingModel<idr::YieldOp>>(*ctx);
   idr::ArrayOpenOp::attachInterface<OpenModel>(*ctx);
+  idr::CountTakeOpenOp::attachInterface<TakeOpenModel>(*ctx);
 }

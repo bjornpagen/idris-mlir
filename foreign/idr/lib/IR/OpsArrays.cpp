@@ -241,12 +241,12 @@ void ArrayExtentOp::getFlowEdges(FlowEdges &edges) {
 LogicalResult ArrayOpenOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                             Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   Type value = adaptor.getValue().getType();
-  std::optional<Type> read = fieldReadType(value, static_cast<unsigned>(adaptor.getIndex()));
-  if (!read || !isValueBuffer(*read))
+  std::optional<RankedTensorType> array =
+      openedArrayType(value, static_cast<unsigned>(adaptor.getIndex()));
+  if (!array)
     return emitOptionalError(location, "opens field ", adaptor.getIndex(), " of ", value,
                              ", which holds no value array's buffer");
-  auto buffer = cast<MemRefType>(unrestricted(*read));
-  inferred.push_back(RankedTensorType::get(buffer.getShape(), buffer.getElementType()));
+  inferred.push_back(*array);
   return success();
 }
 
