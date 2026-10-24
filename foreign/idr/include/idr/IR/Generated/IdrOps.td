@@ -790,6 +790,7 @@ def Idr_ArrayFoldLastOp : Idr_Op<"array.fold_last", [
     unsigned getRank();
     unsigned getFrameRank();
     ::mlir::Block::BlockArgListType getAccumulators();
+    ::mlir::ValueRange getKeptSteps();
   }];
 }
 
@@ -826,6 +827,7 @@ def Idr_ArrayScanLastOp : Idr_Op<"array.scan_last", [
     unsigned getRank();
     unsigned getFrameRank();
     ::mlir::Block::BlockArgListType getAccumulators();
+    ::mlir::ValueRange getKeptSteps();
   }];
 }
 
@@ -1414,6 +1416,7 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [
 }
 
 def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [
+    Idr_LeavesNaturalsTrait,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,

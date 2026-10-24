@@ -44,7 +44,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <type_traits>
 
 // The grades and the lifetimes, which the generated types' builders and
 // constraints name.
@@ -166,12 +165,21 @@ namespace idr {
 // the generated definition names it with nothing else included.
 template <typename DerivedT, typename OpT, Stage Requires, Stage Sets>
 class StagedPass : public mlir::OperationPass<OpT> {
-  // A function pass runs beside its siblings, which read the program's
-  // stage; only a pass on the program or on the module may change it. The
-  // specification's pipeline type refuses the case before any C++ exists;
-  // this states the same of the class.
-  static_assert(Requires == Sets || std::is_same_v<OpT, ProgramOp> ||
-                    std::is_same_v<OpT, mlir::ModuleOp>,
+  // Where the program is from the anchor, as the anchor's ODS says: its
+  // parent, for an op whose parent the program is (HasParent: a function);
+  // the anchor itself, for the op of ours whose run covers the whole
+  // program (CheckedRoot); else one of the anchor's ops, the module's.
+  enum class Found : std::uint8_t { Parent, Anchor, AmongOps };
+  static constexpr Found found =
+      OpT::template hasTrait<mlir::OpTrait::HasParent<ProgramOp>::Impl>() ? Found::Parent
+      : OpT::template hasTrait<CheckedRoot>()                               ? Found::Anchor
+                                                                            : Found::AmongOps;
+
+  // A pass on an op inside the program runs beside its siblings, which
+  // read the program's stage; only a pass on an op that holds the whole
+  // program may change it. The specification's pipeline type refuses the
+  // case before any C++ exists; this states the same of the class.
+  static_assert(Requires == Sets || found != Found::Parent,
                 "a pass on a function leaves the stage it found");
 
 protected:
@@ -182,9 +190,11 @@ private:
   void runOnOperation() final {
     OpT anchor = this->getOperation();
     ProgramOp program;
-    if constexpr (std::is_same_v<OpT, ProgramOp>) {
+    if constexpr (found == Found::Parent) {
+      program = llvm::cast<ProgramOp>(anchor->getParentOp());
+    } else if constexpr (found == Found::Anchor) {
       program = anchor;
-    } else if constexpr (std::is_same_v<OpT, mlir::ModuleOp>) {
+    } else {
       // A module may hold any number of programs, as MLIR sees it; the
       // pass runs on its one.
       auto programs = anchor.template getOps<ProgramOp>();
@@ -195,8 +205,6 @@ private:
         return this->signalPassFailure();
       }
       program = *programs.begin();
-    } else {
-      program = llvm::cast<ProgramOp>(anchor->getParentOp());
     }
     if (program.getStage() != Requires) {
       anchor->emitError("internal error: ")

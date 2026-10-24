@@ -143,22 +143,23 @@ void lowerReduction(RewriterBase &rewriter, ArrayFoldLastOp op) {
   rewriter.replaceOp(op, generic.getResults());
 }
 
-// A fold carries its accumulators through the ordered loop; a scan carries
-// them and its destinations, each written at the step as its input's
-// slice. The two are told apart here once, by the op's class.
+// The ordered loop carries the accumulators and the arrays that keep every
+// step (getKeptSteps: a scan's destinations, none of a fold's), each kept
+// array written at the step with its accumulator, as its input's slice.
+// The op's results are its destinations written, carried last: a scan's
+// kept arrays, a fold's accumulators.
 template <typename Op>
 void lowerInterchange(RewriterBase &rewriter, Op op) {
-  constexpr bool scan = std::is_same_v<Op, ArrayScanLastOp>;
   Location loc = op.getLoc();
   MLIRContext *ctx = op.getContext();
   ValueRange inits = op.getInits();
+  ValueRange kept = op.getKeptSteps();
   Value length = op.getLength();
   unsigned frame = op.getFrameRank();
   auto count = static_cast<unsigned>(inits.size());
   rewriter.setInsertionPoint(op);
   SmallVector<Value> carried(inits);
-  if constexpr (scan)
-    llvm::append_range(carried, op.getOuts());
+  llvm::append_range(carried, kept);
   Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
   Value one = arith::ConstantIndexOp::create(rewriter, loc, 1);
   auto loop = scf::ForOp::create(rewriter, loc, zero, length, one, carried);
@@ -166,7 +167,7 @@ void lowerInterchange(RewriterBase &rewriter, Op op) {
   rewriter.setInsertionPointToStart(step);
   ValueRange accumulators = loop.getRegionIterArgs().take_front(count);
   ValueRange results = loop.getRegionIterArgs().drop_front(count);
-  // Each destination's slice at the step: the frame, the step's one index.
+  // Each kept array's slice at the step: the frame, the step's one index.
   auto sliceAt = [&](Value result) {
     SmallVector<OpFoldResult> sizes = tensor::getMixedSizes(rewriter, loc, result);
     sizes[frame] = rewriter.getIndexAttr(1);
@@ -176,12 +177,11 @@ void lowerInterchange(RewriterBase &rewriter, Op op) {
     return std::tuple(offsets, sizes, strides);
   };
   SmallVector<Value> outputs(accumulators);
-  if constexpr (scan)
-    for (auto [result, init] : llvm::zip_equal(results, inits)) {
-      auto [offsets, sizes, strides] = sliceAt(result);
-      outputs.push_back(tensor::ExtractSliceOp::create(
-          rewriter, loc, cast<RankedTensorType>(init.getType()), result, offsets, sizes, strides));
-    }
+  for (auto [result, init] : llvm::zip_first(results, inits)) {
+    auto [offsets, sizes, strides] = sliceAt(result);
+    outputs.push_back(tensor::ExtractSliceOp::create(
+        rewriter, loc, cast<RankedTensorType>(init.getType()), result, offsets, sizes, strides));
+  }
   SmallVector<AffineMap> maps(outputs.size(), AffineMap::getMultiDimIdentityMap(frame, ctx));
   // Held apart from the region, which the linalg op takes.
   SmallVector<Type> stepTypes(ValueRange(op.getAccumulators()).getTypes());
@@ -194,10 +194,10 @@ void lowerInterchange(RewriterBase &rewriter, Op op) {
         llvm::append_range(args, body->getArguments().drop_front(inputs).take_front(count));
         return args;
       },
+      // The accumulators, then each kept array's accumulator again.
       [&](ArrayRef<Value> given) {
         SmallVector<Value> yielded(given);
-        if constexpr (scan)
-          llvm::append_range(yielded, given);
+        llvm::append_range(yielded, given.take_front(kept.size()));
         return yielded;
       });
   SmallVector<Value> next(generic.getResults().take_front(count));
@@ -207,10 +207,7 @@ void lowerInterchange(RewriterBase &rewriter, Op op) {
         tensor::InsertSliceOp::create(rewriter, loc, written, result, offsets, sizes, strides));
   }
   scf::YieldOp::create(rewriter, loc, next);
-  if constexpr (scan)
-    rewriter.replaceOp(op, loop.getResults().drop_front(count));
-  else
-    rewriter.replaceOp(op, loop.getResults());
+  rewriter.replaceOp(op, loop.getResults().take_back(op->getNumResults()));
 }
 
 template void lowerInterchange<ArrayFoldLastOp>(RewriterBase &, ArrayFoldLastOp);

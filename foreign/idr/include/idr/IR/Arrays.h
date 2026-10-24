@@ -74,9 +74,11 @@ void destinationEdges(mlir::DestinationStyleOpInterface op, FlowEdges &edges);
 // fresh value, which nothing else reaches.
 bool onContents(const effects::Effect &each);
 
-// Whether `op`, with everything in it, may touch memory written in place,
-// or does what MLIR cannot say: what no op inside an update's region may
-// do, since the element's place is empty while it runs.
+// Whether `op`, with everything in it, may read or write the contents or a
+// state above them, or does what MLIR cannot say: what no op inside an
+// update's region may do, since the element's place is empty while it
+// runs. Any other effect passes: a free or an allocation on the heap, a
+// count, a fresh value's identity, memo state, a cell being filled.
 bool touchesInPlace(mlir::Operation *op);
 
 // A region of the generating set is entered from the op and from its own

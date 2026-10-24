@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/CastInterfaces.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
@@ -104,12 +105,14 @@ void replaceBig(WordRewriter &rewriter, Operation *op, Value word) {
 
 // The word of what the big op `op` computes, on the words of its operands,
 // each read from what `read` holds for it: the word op it names
-// (BigToWord) applied to them and, where it names one, to its constant
-// after them; the word itself where it names no op. A sum, difference or
-// product carries no wrap, and none unsigned when nothing is negative; a
-// comparison is its predicate on words, signed; a conversion to an integer
-// narrower than the word truncates; the larger of a value that is not
-// negative and 0 is the value.
+// (BigToWord) applied to them as the ODS says that op takes them and, where
+// the big op names a constant, to it after them; the word itself where it
+// names no op, and where the big op leaves a natural as it is
+// (LeavesNaturals) and nothing is negative. A conversion (CastOpInterface)
+// to an integer narrower than the word truncates; a comparison is the big
+// op's predicate on words, signed; a sum, difference or product
+// (ArithIntegerOverflowFlagsInterface) carries no wrap, and none unsigned
+// when nothing is negative.
 template <typename OpT>
 Value wordOf(RewriterBase &rewriter, OpT op, llvm::ArrayRef<Replaced> read, Sign sign) {
   using Word = typename BigToWord<OpT>::Op;
@@ -117,31 +120,30 @@ Value wordOf(RewriterBase &rewriter, OpT op, llvm::ArrayRef<Replaced> read, Sign
   SmallVector<Value> words;
   for (const Replaced &operand : read)
     words.push_back(word(rewriter, loc, operand.read));
-  auto constant = [&](int64_t value) {
-    return arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(value));
-  };
+  if constexpr (OpT::template hasTrait<LeavesNaturals>())
+    if (sign == Sign::NotNegative)
+      return words.front();
   if constexpr (std::is_void_v<Word>) {
     return words.front();
-  } else if constexpr (std::is_same_v<Word, arith::CmpIOp>) {
-    return arith::CmpIOp::create(rewriter, loc, layout::signedPredicate(op.getPredicate()),
-                                 words[0], words[1]);
-  } else if constexpr (std::is_same_v<Word, arith::TruncIOp>) {
+  } else if constexpr (Word::template hasTrait<CastOpInterface::Trait>()) {
     Type type = op.getType();
     return type == words.front().getType()
                ? words.front()
-               : Value(arith::TruncIOp::create(rewriter, loc, type, words.front()));
-  } else if constexpr (std::is_same_v<Word, arith::MaxSIOp>) {
-    return sign == Sign::NotNegative
-               ? words.front()
-               : Value(arith::MaxSIOp::create(rewriter, loc, words.front(),
-                                              constant(BigToWord<OpT>::constant)));
+               : Value(Word::create(rewriter, loc, type, words.front()));
+  } else if constexpr (requires { op.getPredicate(); }) {
+    return Word::create(rewriter, loc, layout::signedPredicate(op.getPredicate()), words[0],
+                        words[1]);
   } else {
     Value rhs;
     if constexpr (requires { BigToWord<OpT>::constant; })
-      rhs = constant(BigToWord<OpT>::constant);
+      rhs = arith::ConstantOp::create(rewriter, loc,
+                                      rewriter.getI64IntegerAttr(BigToWord<OpT>::constant));
     else
       rhs = words[1];
-    return Word::create(rewriter, loc, words.front(), rhs, noWrap(sign));
+    if constexpr (Word::template hasTrait<arith::ArithIntegerOverflowFlagsInterface::Trait>())
+      return Word::create(rewriter, loc, words.front(), rhs, noWrap(sign));
+    else
+      return Word::create(rewriter, loc, words.front(), rhs);
   }
 }
 

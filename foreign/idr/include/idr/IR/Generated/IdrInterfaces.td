@@ -201,7 +201,8 @@ def Idr_LastAxisFoldOpInterface : OpInterface<"LastAxisFoldOpInterface"> {
     InterfaceMethod<"the accumulators' first values", "::mlir::OperandRange", "getInits", (ins)>,
     InterfaceMethod<"the length of the axis folded", "::mlir::Value", "getLength", (ins)>,
     InterfaceMethod<"the rank of the frame each step reads", "unsigned", "getFrameRank", (ins)>,
-    InterfaceMethod<"the accumulators the region binds", "::mlir::Block::BlockArgListType", "getAccumulators", (ins)>
+    InterfaceMethod<"the accumulators the region binds", "::mlir::Block::BlockArgListType", "getAccumulators", (ins)>,
+    InterfaceMethod<"the arrays that keep every step's accumulators, one per accumulator, or none where only the last step is kept, in the inits", "::mlir::ValueRange", "getKeptSteps", (ins)>
   ];
 }
 

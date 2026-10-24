@@ -59,6 +59,13 @@ public export
 noRuntimeForm : TraitDef
 noRuntimeForm = MkTraitDef "NoRuntimeForm" (says "its result is its first operand's word at run time")
 
+||| An op that leaves a natural as it is: its result is its first operand
+||| wherever that operand is not negative (an Integer made a natural), so
+||| idr-narrow takes the operand's word as it is where nothing is negative.
+public export
+leavesNaturals : TraitDef
+leavesNaturals = MkTraitDef "LeavesNaturals" (says "its result is its first operand wherever that operand is not negative")
+
 ||| `BigWordOpInterface`: a conversion between a big and its word, either
 ||| way, and the value it converts (`getValue`, the operand's own accessor).
 ||| Which side its word is on is the interface it takes besides: a big made
@@ -410,7 +417,7 @@ natFromBig = MkOp
   , outs = [result "result" natValue]
   , attrs = []
   , regions = []
-  , traits = []
+  , traits = [OurTrait leavesNaturals]
   , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = Executes [OnValues Write Count (Results 0)] [] Covered Untouched
   , speculation = AlwaysSpeculatable

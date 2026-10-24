@@ -35,7 +35,7 @@ declarations =
   , interfaces := [ literalType, crashSiteInterface, guardInterface, bigWordInterface, bigOfIntegerInterface
                   , wordOfBigInterface, numericTypeInterface
                   , constantAttrInterface, integerKeyAttrInterface ]
-  , traits := [neverEmpty, noRuntimeForm]
+  , traits := [neverEmpty, noRuntimeForm, leavesNaturals]
   , predicates := opPredicates
   , helpers := [putSigned, putUnsigned, putDouble, putBig]
   , admitted := opAdmitted

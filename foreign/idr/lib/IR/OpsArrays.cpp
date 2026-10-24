@@ -122,8 +122,11 @@ LogicalResult ArrayUpdateOp::verify() {
 
 // Between the element's move out and its move back, its place holds
 // nothing, and only the region runs there. So the region reads and writes
-// no memory written in place: no access it makes can see the empty place.
-// Asked of the region's effects, its calls' rows among them.
+// neither the contents nor a state above them, where any access that could
+// see the empty place falls, whichever value it names; counting's own work
+// there (a cell filled, beneath the contents, and what it frees or
+// allocates on the heap) passes. Asked of the region's effects, its calls'
+// rows among them.
 LogicalResult ArrayUpdateOp::verifyRegions() {
   if (auto end = dyn_cast<ArrayUpdateYieldOp>(getRegion().front().getTerminator())) {
     auto type = cast<MemRefType>(unrestricted(getArray().getType()));
@@ -136,7 +139,8 @@ LogicalResult ArrayUpdateOp::verifyRegions() {
   }
   for (Operation &inner : getRegion().front().without_terminator())
     if (touchesInPlace(&inner))
-      return inner.emitOpError("may touch memory written in place inside an update's region");
+      return inner.emitOpError(
+          "may read or write the contents, or a state above them, inside an update's region");
   return success();
 }
 

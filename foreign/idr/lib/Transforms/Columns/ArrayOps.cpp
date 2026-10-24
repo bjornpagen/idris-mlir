@@ -7,8 +7,6 @@
 
 #include "idr/Transforms/Columns.h"
 
-#include <type_traits>
-
 using namespace mlir;
 
 namespace idr::columns {
@@ -18,8 +16,10 @@ namespace {
 // A fold or a scan over arrays of records folds their columns: each
 // accumulator that is a record is its leaves in the region, and one that
 // is a cell of records its columns, built again where an op of the region
-// that the conversion does not take reads it. A scan's inputs and
-// destinations are two groups of operands, each as many as its columns.
+// that the conversion does not take reads it. An op whose operands are
+// groups (AttrSizedOperandSegments, as a scan's inputs and destinations
+// are) keeps their sizes in its properties, which the op made again
+// carries over: each group is then as many as its columns.
 template <typename OpT>
 struct FoldColumns : OpConversionPattern<OpT> {
   using OpConversionPattern<OpT>::OpConversionPattern;
@@ -42,12 +42,10 @@ struct FoldColumns : OpConversionPattern<OpT> {
       signature.addInputs(arg.getArgNumber(), types);
     }
     Operation *made = remakeOp(rewriter, op, flatten(adaptor.getOperands()), results);
-    if constexpr (std::is_same_v<OpT, ArrayScanLastOp>) {
-      auto columns = [](ArrayRef<ValueRange> group) {
-        return static_cast<int32_t>(flatten(group).size());
-      };
-      cast<ArrayScanLastOp>(made).getProperties().operandSegmentSizes = {
-          1, columns(adaptor.getInits()), columns(adaptor.getOuts())};
+    if constexpr (OpT::template hasTrait<OpTrait::AttrSizedOperandSegments>()) {
+      auto &sizes = cast<OpT>(made).getProperties().operandSegmentSizes;
+      for (unsigned group = 0; group < sizes.size(); ++group)
+        sizes[group] = static_cast<int32_t>(flatten(adaptor.getODSOperands(group)).size());
     }
     rewriter.applySignatureConversion(&made->getRegion(0).front(), signature, &converter);
     SmallVector<SmallVector<Value>> replaced = runs(made->getResults(), counts);

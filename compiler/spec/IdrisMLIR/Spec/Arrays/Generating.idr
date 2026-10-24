@@ -96,7 +96,9 @@ yieldTargetsInterface = MkInterfaceDef
 ||| `LastAxisFoldOpInterface`: what a pass asks of a fold or a scan along
 ||| an array's last axis, so that none tells them apart to read one: the
 ||| accumulators' first values, the axis's length, the frame's rank, the
-||| accumulators the region binds.
+||| accumulators the region binds, and the arrays that keep every step's
+||| accumulators: a scan's destinations, one per accumulator; none of a
+||| fold's, which keeps only the last step, in its inits.
 export
 lastAxisFoldInterface : InterfaceDef
 lastAxisFoldInterface = MkInterfaceDef
@@ -111,7 +113,9 @@ lastAxisFoldInterface = MkInterfaceDef
       , MkMethod PerObject "unsigned" "getFrameRank" [] EveryImplementer
           "the rank of the frame each step reads"
       , MkMethod PerObject "::mlir::Block::BlockArgListType" "getAccumulators" [] EveryImplementer
-          "the accumulators the region binds" ]
+          "the accumulators the region binds"
+      , MkMethod PerObject "::mlir::ValueRange" "getKeptSteps" [] EveryImplementer
+          "the arrays that keep every step's accumulators, one per accumulator, or none where only the last step is kept, in the inits" ]
   , verifier = Unverified
   , doc = brief "a fold or a scan of accumulators along an array's last axis"
   }
@@ -140,12 +144,14 @@ generatingMembers =
   [ MkMember OnObject "::mlir::MutableOperandRange" "getDpsInitsMutable" []
   , MkMember OnObject "unsigned" "getRank" [] ]
 
-||| The members a fold and a scan add: the frame's rank and the
-||| accumulators the region binds after the indices.
+||| The members a fold and a scan add: the frame's rank, the accumulators
+||| the region binds after the indices, and the arrays that keep every
+||| step.
 foldMembers : List Member
 foldMembers =
   [ MkMember OnObject "unsigned" "getFrameRank" []
-  , MkMember OnObject "::mlir::Block::BlockArgListType" "getAccumulators" [] ]
+  , MkMember OnObject "::mlir::Block::BlockArgListType" "getAccumulators" []
+  , MkMember OnObject "::mlir::ValueRange" "getKeptSteps" [] ]
 
 ------------------------------------------------------------------------------
 -- The generating ops

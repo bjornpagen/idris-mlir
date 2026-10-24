@@ -87,6 +87,9 @@ Block::BlockArgListType ArrayFoldLastOp::getAccumulators() {
   return getBody()->getArguments().drop_front(getRank());
 }
 
+// A fold keeps only its last step, in its inits.
+ValueRange ArrayFoldLastOp::getKeptSteps() { return {}; }
+
 LogicalResult ArrayFoldLastOp::verify() {
   if (getBody()->getNumArguments() <= getInits().size())
     return emitOpError("binds no index of the fold before its accumulators");
@@ -187,6 +190,9 @@ unsigned ArrayScanLastOp::getRank() {
 Block::BlockArgListType ArrayScanLastOp::getAccumulators() {
   return getBody()->getArguments().drop_front(getRank());
 }
+
+// A scan keeps every step in its destinations.
+ValueRange ArrayScanLastOp::getKeptSteps() { return getOuts(); }
 
 LogicalResult ArrayScanLastOp::verify() {
   if (getBody()->getNumArguments() <= getInits().size())
