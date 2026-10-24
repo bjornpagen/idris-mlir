@@ -182,6 +182,19 @@ cppDecl sc (Array2 name type rows doc) =
      ++ ["}};", ""]
 cppDecl sc (Scalar name type cell doc) =
   slashComment [lineText doc] ++ ["inline constexpr " ++ columnType sc type ++ " " ++ identText name ++ " = " ++ cellText sc cell ++ ";", ""]
+cppDecl _ (SumOf e name members doc) =
+  let alternatives = zip (forget e.cases) members
+  in concatMap struct alternatives
+     ++ slashComment [lineText doc]
+     ++ ["using " ++ identText name ++ " = std::variant<" ++ joinWith ", " (map (identText . (.name) . fst) alternatives) ++ ">;", ""]
+  where
+    struct : (Case, List WireField) -> Lines
+    struct (c, fs) =
+      slashComment [lineText c.doc]
+      ++ ["struct " ++ identText c.name ++ " {"]
+      ++ indent 2 (map (\f => wireCpp (fieldWire f) ++ " " ++ identText (fieldName f) ++ ";") fs
+                   ++ ["bool operator==(const " ++ identText c.name ++ " &) const = default;"])
+      ++ ["};", ""]
 
 ||| The enums a block declares, each once, in order: every enum it names
 ||| by itself; and, in a namespace of its own, the enum of every table, so
@@ -202,11 +215,12 @@ blockEnums ns ds = go [] ds
     go seen [] = reverse seen
     go seen (EnumOf e :: rest) = go (if owns seen e then seen else e :: seen) rest
     go seen (TableOf t :: rest) = go (tableEnum seen t.enum) rest
+    go seen (SumOf e _ _ _ :: rest) = go (if owns seen e then seen else e :: seen) rest
     go seen (_ :: rest) = go seen rest
 
 ||| One block of an area's header: its enums in its namespace, their traits
-||| in the dialect's (the template's), then its tables, arrays and
-||| constants, which name the enums by the block's scope.
+||| in the dialect's (the template's), then its tables, arrays, constants
+||| and sums, which name the enums by the block's scope.
 export
 headerBlock : (Namespace, List CppDecl) -> Lines
 headerBlock (ns, ds) =
@@ -221,14 +235,22 @@ headerBlock (ns, ds) =
                ls => inNamespace sc.space ls ++ [""]
   in enums ++ rest
 
+||| The standard header a declaration needs beyond every area header's: a
+||| sum's `std::variant`.
+declIncludes : CppDecl -> List String
+declIncludes (SumOf _ _ _ _) = ["<variant>"]
+declIncludes _ = []
+
 ||| An area's header, block by block, printed under
 ||| `foreign/idr/include/idr/IR/Generated/<name>.h.inc`.
 export
 areaHeader : Header -> (Path, String)
 areaHeader h =
   let stem = identText h.name
+      needed = concatMap (\(_, ds) => concatMap declIncludes ds) h.blocks
   in ( "foreign" ::: ["idr", "include", "idr", "IR", "Generated", stem ++ ".h.inc"]
-     , render (header stem ["\"idr/Support/Enum.h\"", "<array>", "<cstddef>", "<cstdint>", "<string_view>"]
+     , render (header stem (["\"idr/Support/Enum.h\"", "<array>", "<cstddef>", "<cstdint>", "<string_view>"]
+                            ++ nub needed)
                       (slashComment (lineText h.doc.summary :: proseLines h.doc.description) ++ [""]
                        ++ concatMap headerBlock h.blocks)) )
 
@@ -1255,15 +1277,23 @@ predicateDecl p =
                   OnType => "::mlir::Type"
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
-||| A wired value's parser and printer of its text, the hand C++ its
-||| directive names: its bytecode is its wire's, printed beside the readers
-||| that call it (Generated/Wire.cpp.inc). An array is parsed into the
-||| vector that owns its elements, and printed from its view.
+||| A wired value's parser and printer of its text, and, for one spelled
+||| by its members, the hash its storage keys by: their definitions are a
+||| hand unit's, or, for one spelled by its members, printed from the wire
+||| beside its bytecode (Generated/Wire.cpp.inc). An array is parsed into
+||| the vector that owns its elements, and printed from its view.
 export
 textCodecDecls : (Wired, Directive) -> Lines
 textCodecDecls (w, d) =
-  [ "::mlir::FailureOr<" ++ wiredParsed w ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
-  , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ wiredHeld w ++ " value);", "" ]
+  hashDecl w
+  ++ [ "::mlir::FailureOr<" ++ wiredParsed w ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
+     , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ wiredHeld w ++ " value);", "" ]
+  where
+    hashDecl : Wired -> Lines
+    hashDecl (WiredOf c) = case spellingOf c of
+      ByMembers _ => ["::llvm::hash_code hash_value(const " ++ codeText (compositeCpp c) ++ " &value);"]
+      ByHand => []
+    hashDecl _ = []
 
 ||| Every hand property the ops hold, once per directive: its class and its
 ||| directive.

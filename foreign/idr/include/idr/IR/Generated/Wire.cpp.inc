@@ -700,6 +700,23 @@ void writeProof(::mlir::DialectBytecodeWriter &writer, ::idr::InComponent value)
   writeComponentProof(writer, value);
 }
 
+::llvm::hash_code hash_value(const ::idr::InComponent &value) {
+  return ::llvm::hash_combine(value.component);
+}
+
+::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser) {
+  ::idr::InComponent value{};
+  if (::mlir::failed(parser.parseKeyword("component")))
+    return ::mlir::failure();
+  if (::mlir::failed(parser.parseInteger(value.component)))
+    return ::mlir::failure();
+  return value;
+}
+
+void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value) {
+  printer << "component " << value.component;
+}
+
 // the bounded put parameters: `[0: 64, 2: 128]`
 ::mlir::LogicalResult readPutBounds(::mlir::DialectBytecodeReader &reader, Kept<::idr::PutBound> &value) {
   auto each = [&](::idr::PutBound &element) -> ::mlir::LogicalResult {

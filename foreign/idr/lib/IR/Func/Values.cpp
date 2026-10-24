@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The values a function's attributes hold beside its row: the text of
-// Idris's termination proof and of the put bounds, by the hooks the
+// The values a function's attributes hold beside its row: Idris's
+// termination proof read as the specification's variant, whose text and
+// bytecode are printed whole; the text of the put bounds, by the hooks the
 // specification declares (their bytecode is printed from their wires); and
 // the view of a signature's parameters by the part of the record each
 // admits, which every position of the record is read through.
@@ -23,22 +24,8 @@ using namespace idr;
 // Termination proofs
 //===----------------------------------------------------------------------===//
 
-llvm::hash_code idr::hash_value(const InComponent &proof) {
-  return llvm::hash_value(proof.component);
-}
-
-// The proof's text, `component 3`; its bytecode is its wire's.
-FailureOr<InComponent> idr::parseProof(AsmParser &parser) {
-  std::uint32_t component = 0;
-  if (parser.parseKeyword("component") || parser.parseInteger(component))
-    return failure();
-  return InComponent{component};
-}
-
-void idr::printProof(AsmPrinter &printer, InComponent proof) {
-  printer << "component " << proof.component;
-}
-
+// MLIR holds an absent attribute as null; the absence is the unproved
+// case, turned into it here once, so no reader tests for null.
 Termination idr::FuncOp::getTermination() {
   if (TerminatesAttr proof = getTerminatesAttr())
     return proof.getProof();

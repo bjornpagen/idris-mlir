@@ -209,6 +209,7 @@ void printRefinement(::mlir::AsmPrinter &printer, ::mlir::DenseI32ArrayAttr valu
 ::mlir::FailureOr<::idr::LifetimeKind> parseLifetimeKind(::mlir::AsmParser &parser);
 void printLifetimeKind(::mlir::AsmPrinter &printer, ::idr::LifetimeKind value);
 
+::llvm::hash_code hash_value(const ::idr::InComponent &value);
 ::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser);
 void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value);
 

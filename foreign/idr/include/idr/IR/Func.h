@@ -2,19 +2,20 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What idr.func and idr.call hold beyond their generated classes, which the
 // specification's attributes and properties name, so it comes before them:
-// Idris's proof that a function's own loops end, the bound a function puts
-// into a lifetime parameter, where each scoped parameter and result lives,
-// the index term each unknown axis of its signature's shapes is, and which
-// part of a function's per-parameter record each parameter's type admits.
-// Each part exists only where the parameter's type admits it: the record
-// names a parameter by its position among the parameters that admit that
-// part, so a write part cannot describe a lifetime, nor an amount a value.
-// Last, the operands a call's callee writes through, which every reader of
-// a call's effects asks. The dialect's inliner rules come first. Each
-// value's text and the row are hooks the specification declares with every
-// other (Generated/Hooks.h.inc), after the classes they name; each value's
-// bytecode is printed from its wire, which reads these classes' members by
-// name.
+// what Idris proved of a function's own loops, the specification's variant
+// (Generated/Termination.h.inc), the bound a function puts into a lifetime
+// parameter, where each scoped parameter and result lives, the index term
+// each unknown axis of its signature's shapes is, and which part of a
+// function's per-parameter record each parameter's type admits. Each part
+// exists only where the parameter's type admits it: the record names a
+// parameter by its position among the parameters that admit that part, so
+// a write part cannot describe a lifetime, nor an amount a value. Last,
+// the operands a call's callee writes through, which every reader of a
+// call's effects asks. The dialect's inliner rules come first. Each value's
+// text and the row are hooks the specification declares with every other
+// (Generated/Hooks.h.inc), after the classes they name, and a termination
+// proof's text is printed from its members; each value's bytecode is
+// printed from its wire, which reads these classes' members by name.
 //
 // It reads types alone (Grades.h, Lifetimes.h), and no op but a call's
 // copy of its callee's write part; what a function's body does and the one
@@ -42,6 +43,15 @@
 #include <optional>
 #include <variant>
 
+// What Idris proved of a function's own loops, the attribute read: whether
+// a loop a pass makes of its code may not end (joins::endingOf), and
+// whether a cycle of calls through it does (rows::provedTogether). The
+// specification's `Termination`, a variant of one struct per case:
+// `Unproved`, a function without `#idr.terminates`, and `InComponent`, the
+// component of its call graph Idris proved the loops in, which the
+// attribute holds, so none can claim an empty proof.
+#include "idr/IR/Generated/Termination.h.inc"
+
 namespace idr {
 
 class IdrDialect;
@@ -51,30 +61,6 @@ class IdrDialect;
 // the view it is, and each call the body holds takes the tail fact its new
 // place gives it.
 void addInlinerInterface(IdrDialect &dialect);
-
-//===----------------------------------------------------------------------===//
-// Termination
-//===----------------------------------------------------------------------===//
-
-// Idris proved the function's own loops and recursion end, in the
-// component of its call graph with this number: what `#idr.terminates`
-// holds, so a function with the attribute cannot claim an empty proof.
-struct InComponent {
-  std::uint32_t component;
-  bool operator==(const InComponent &) const = default;
-};
-// Idris did not prove the function's loops end: a function without the
-// attribute.
-struct Unproved {
-  bool operator==(const Unproved &) const = default;
-};
-
-// What is known of a function's own loops, the attribute read: whether a
-// loop a pass makes of its code may not end (joins::endingOf), and whether
-// a cycle of calls through it does (rows::provedTogether).
-using Termination = std::variant<Unproved, InComponent>;
-
-llvm::hash_code hash_value(const InComponent &proof);
 
 //===----------------------------------------------------------------------===//
 // Amounts put into a lifetime

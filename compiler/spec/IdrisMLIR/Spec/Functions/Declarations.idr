@@ -384,4 +384,5 @@ declarations =
       [ enumDef tailKindClosed, enumDef copyKindClosed
       , enumDef extentSideClosed ]
   , traits := [checkedRoot]
+  , headers := [terminationHeader]
   } nothing

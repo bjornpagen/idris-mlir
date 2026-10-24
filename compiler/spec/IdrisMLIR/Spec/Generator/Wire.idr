@@ -4,10 +4,11 @@
 ||| written by codecs printed from the wire: the composites a parameter
 ||| reaches, each once and after every composite it holds; and their C++
 ||| readers and writers, which the dialect's bytecode unit includes beside
-||| the readers mlir-tblgen writes from the printed records. The frontend's
-||| encoder of the same values is printed from the same wires
-||| (`Spec.Generator.Idris`), so no layout is written twice and no hand
-||| codec mirrors another.
+||| the readers mlir-tblgen writes from the printed records; and the text
+||| of a composite whose members are numbers alone, which its members fix.
+||| The frontend's encoder of the same values is printed from the same
+||| wires (`Spec.Generator.Idris`), so no layout is written twice and no
+||| hand codec mirrors another.
 module IdrisMLIR.Spec.Generator.Wire
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -327,6 +328,46 @@ compositeCodec (MkComposite n cpp body doc) =
     named (Fields []) _ = ""
     named _ binder = binder
 
+||| Who writes the text of one composite's value: the generator, where its
+||| members are numbers alone, one or more, each written as its member's
+||| name and then its number, which a hand spelling could only restate; or
+||| the hand C++ its directive names.
+public export
+data Spelling = ByMembers (List1 Ident) | ByHand
+
+||| A composite's spelling: one of numbers alone is spelled by its members.
+export
+spellingOf : Composite -> Spelling
+spellingOf (MkComposite _ _ (Fields (f :: fs)) _) = maybe ByHand ByMembers (traverse number (f ::: fs))
+  where
+    number : WireField -> Maybe Ident
+    number (MkWireField n (WireLeaf LeafCount)) = Just n
+    number (MkWireField n (WireLeaf LeafWord32)) = Just n
+    number _ = Nothing
+spellingOf _ = ByHand
+
+||| One composite's hash and text where its members spell it, each its
+||| members' own, its text's hooks named for its directive as its bytecode
+||| is: `component 3`, the hash what its storage keys by.
+spelledCodec : Composite -> Directive -> Lines
+spelledCodec c d = case spellingOf c of
+  ByHand => []
+  ByMembers ms =>
+    let cls = codeText (compositeCpp c)
+        name = identText d.name
+        names = map identText (forget ms)
+    in [ "::llvm::hash_code hash_value(const " ++ cls ++ " &value) {"
+       , "  return ::llvm::hash_combine(" ++ joinWith ", " (map ("value." ++) names) ++ ");"
+       , "}", ""
+       , "::mlir::FailureOr<" ++ cls ++ "> parse" ++ name ++ "(::mlir::AsmParser &parser) {"
+       , "  " ++ cls ++ " value{};" ]
+       ++ indent 2 (concatMap (\m => returnsOnFailure ("parser.parseKeyword(" ++ quoted m ++ ")")
+                                     ++ returnsOnFailure ("parser.parseInteger(value." ++ m ++ ")")) names)
+       ++ [ "  return value;", "}", ""
+          , "void print" ++ name ++ "(::mlir::AsmPrinter &printer, " ++ cls ++ " value) {"
+          , "  printer << " ++ joinWith " << \" \" << " (map (\m => quoted (m ++ " ") ++ " << value." ++ m) names) ++ ";"
+          , "}", "" ]
+
 ||| A wired parameter's reader and writer, named for its directive, which
 ||| the printed bytecode records call: an array's values read into what the
 ||| reader fills, each array they view kept in its arena.
@@ -359,11 +400,13 @@ wiredCodec (WiredOf c, d) =
         , "  return read" ++ codecName c ++ "(reader, value);", "}", ""
         , "void write" ++ name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ cls ++ " value) {"
         , "  write" ++ codecName c ++ "(writer, value);", "}", "" ]
+     ++ spelledCodec c d
 
-||| Every composite's codec, then every wired parameter's, as the dialect's
-||| bytecode unit includes them before the readers mlir-tblgen writes: the
-||| parts every codec reads (`Kept`, `keep`, `readCase`, `writeCase`,
-||| `readWord32`, `readLabel`) are that unit's, declared before.
+||| Every composite's codec, then every wired parameter's, with the hash
+||| and text of one its members spell, as the dialect's bytecode unit
+||| includes them before the readers mlir-tblgen writes: the parts every
+||| codec reads (`Kept`, `keep`, `readCase`, `writeCase`, `readWord32`,
+||| `readLabel`) are that unit's, declared before.
 export
 wireDefinitions : List AnyTypeDef -> List AnyAttrDef -> Lines
 wireDefinitions ts as =

@@ -60,10 +60,6 @@ namespace {
 // How a pass changes one atom of one function's row.
 enum class Change : std::uint8_t { Drop, Add };
 
-// What Idris proved of a function, as the seed draws it: nothing, or its
-// own loops and recursion, in a component of its call graph.
-enum class Proof : std::uint8_t { Unproved, InComponent };
-
 // The loop a function's body holds after its calls: none; an idr.loop whose
 // join region yields, so nothing repeats; or one whose join region begins
 // with idr.may_loop and jumps back to itself, a loop of code Idris did not
@@ -79,11 +75,6 @@ enum class Ending : std::uint8_t { Ends, MayNotEnd };
 
 template <>
 struct idr::EnumTraits<Change> {
-  static constexpr std::size_t count = 2;
-};
-
-template <>
-struct idr::EnumTraits<Proof> {
   static constexpr std::size_t count = 2;
 };
 
@@ -197,11 +188,11 @@ Shape shapeOf(std::uint64_t seed) {
   unsigned busiest = 1 + draws.below(4);
   unsigned eighths = draws.below(5);
   unsigned components = 1 + draws.below(2);
-  EnumArray<Proof, unsigned> proofWeights{{1 + draws.below(4), draws.below(4)}};
+  EnumArray<idr::TerminationCase, unsigned> proofWeights{{1 + draws.below(4), draws.below(4)}};
   EnumArray<Loop, unsigned> loopWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
   Shape shape;
   for (unsigned f = 0; f < functions; ++f) {
-    EnumArray<Proof, idr::Termination> proofs{
+    EnumArray<idr::TerminationCase, idr::Termination> proofs{
         {idr::Unproved{}, idr::InComponent{draws.below(components)}}};
     shape.terminations.push_back(proofs[draws.weighted(proofWeights)]);
     shape.loops.push_back(draws.weighted(loopWeights));
