@@ -2513,10 +2513,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   *Amended* (2026-10-23, recheck 6): `math.sqrt` is computed by
   upstream's fold, the host's square root, which IEEE 754 requires
   correctly rounded, so every machine gives the target's answer and no
-  second meaning is written; `arith.remf` (`APFloat::mod`, exact) and
-  `arith.fptosi`/`fptoui` where a range guard admits the operand
-  (`APFloat::convertToInteger` toward zero, exact) join the
-  specification's list, as (b) names them.
+  second meaning is written. (b)'s `rem` and the guarded conversions name
+  ops no pass writes (`arith.remf`, `fptosi`, `fptoui`: Idris has no
+  Double remainder, and its Double-to-word cast is `idr.f64.to_int`), so
+  they join no list (L14ab's finding, correcting this amendment's first
+  text); the conversions (b) means are `idr.f64.to_int` and
+  `idr.big.from_double` behind `check.finite`, which the graph computes
+  once a guard decides over the graph's own values.
 - **C265** (2026-10-23; L18y's handoff, under D129 and D30). A tail
   call's result layouts agree from the Graded stage on, a stage fact of
   the specification's table (`StageTailLayouts = LayoutsPending |
