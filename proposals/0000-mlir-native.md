@@ -5761,6 +5761,20 @@ or its decision in §3.
    link with its citation, (B) they are kept, or (C) `sources/` is kept
    out of the public tree. Asked 2026-10-23.
 
+2. Where "a callee keeps nothing of parameter i" lives (L05y's question
+   under C298; the rederivation audit's sharing 3): (A) a per-parameter
+   fact in the signature, written once by idr-in-place and checked
+   function by function (a lent parameter only handed on or lent to
+   callee parameters also lent), which the verifier, Borrows and lending
+   then read instead of re-deriving; or (B) the borrowing representation
+   already ruled, a parameter scoped under a `view` lifetime, decided
+   earlier than idr-lifetimes decides lifetimes today. Until ruled, the
+   verifier checks C298's local half only. Waits on 1.
+3. D50's builders (the cull plan's QA): print builders only for ops with an
+   attribute, a region or a variadic group, the generic `specOp` building
+   the rest (about 825 lines deleted, one way to build an op), or keep
+   D50 with a hand `writer` flag (582 lines, two ways). Waits on 2.
+
 The last settled, the two folders (L14u's finding, 2026-10-23), is D132
 ((A): the e-graph alone folds; idr-constants goes).
 
