@@ -924,3 +924,13 @@ askers in callersOf, Settle's removed proof). Waiting:
   `Bytecode.idr:699`'s fallback admits today; writing integers natively in
   bytecode is not needed for it). After INT-25 lands the dialect modules
   (L03 with L16).
+- From L18aa (1d372984): C264(c)'s e-graph half places a computed string
+  or big at a call argument as static data, with the standalone e-graph
+  steps 10 and 14 followed by a specializer round (L14, after L14ab
+  releases EGraph/); `tests/computed-argument-keyed-by-hold` (in the
+  working tree, uncommitted) lands with it. `tests/static-argument-keyed-by-hold`
+  reads neither of @twice's results, so dead-result removal empties it and
+  `counts-nothing=@twice` holds trivially: read them (L19). A copy whose
+  results its decisions change is refused for later requests, which for an
+  open key leaves a lost tail (an internal error at Graded); the nested-key
+  floor closes one path, others unsearched (L18).
