@@ -2742,6 +2742,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   specification's array meanings (L12y's `ArrayMeaning`, `Composed` over
   the call's arguments, accepted as the one table the frontend reads)
   name the upstream op for words.
+- **C285** (2026-10-23; L14ab's stop, under AGENTS.md's "one fact, held
+  once" and C264(b)). A guard's condition is written once, as one template
+  `decide` over where its operands' values come from (`fold::Where`: an
+  op's attributes, or the e-graph's own values), so the graph decides a
+  guard over a constant it computed and the attribute fold asks the same
+  template; `GuardOpInterface`'s `decide` method and the ops' `holds` go,
+  since an interface method cannot be a template and a second entry point
+  would restate the condition. The engine reaches an op's template through
+  a table by op class built once per pass instance, as `Values.cpp`'s
+  table of meanings is, the one fact it pays for at run time being which
+  registered op an operation is. The version keeping both entry points is
+  refused: three ways to ask one question, and a guard of a computed
+  constant decided only after a later run.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
