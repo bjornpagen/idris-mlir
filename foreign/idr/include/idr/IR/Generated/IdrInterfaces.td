@@ -313,7 +313,8 @@ def Idr_BuildsLabelOpInterface : OpInterface<"BuildsLabelOpInterface"> {
 def Idr_CarriesOnOpInterface : OpInterface<"CarriesOnOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [
-    InterfaceMethod<"what this op does at run time to give its first operand's value on as its result", "::idr::Carry", "getCarry", (ins)>
+    InterfaceMethod<"what this op does at run time to give its first operand's value on as its result", "::idr::Carry", "getCarry", (ins)>,
+    InterfaceMethod<"the type its result takes where its first operand is of type `operand`: its own carrier, at the grade the op gives that operand on at", "::mlir::Type", "getCarriedType", (ins "::mlir::Type":$operand)>
   ];
 }
 

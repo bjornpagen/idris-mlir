@@ -221,8 +221,12 @@ tagOp = MkOp
 ||| a fresh value, counted and claimed unique whatever the operand's hold;
 ||| one that builds nothing, free or not (a cell taken apart in place, a
 ||| numeral widened), keeps the operand's hold, its result's memory the
-||| operand's. Either way it takes its operand over, and its effects follow
-||| from its two types.
+||| operand's. That rule is one class member (`givenType`, the type a reindex
+||| of a value of one type to another's carrier gives), which its verifier
+||| holds it to, which the specializer asks where it builds one, and which it
+||| answers when asked what its result takes from an operand of another
+||| type. Either way it takes its operand over, and its effects follow from
+||| its two types.
 ||| Checked by the function's scope walk, which holds the refinements. A
 ||| scoped value stays scoped, and `outers` states its lifetime: the
 ||| operand's, or one that lifetime encloses.
@@ -238,7 +242,7 @@ dataReindexOp = MkOp
   , traits = []
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
-      , Implements statesOuters [], Implements carriesOnInterface ["getCarry"]
+      , Implements statesOuters [], Implements carriesOnInterface ["getCarry", "getCarriedType"]
       , Implements scopeRuleInterface ["verifyScopeRule"] ]
   , effects = Executes [] [Repacks 0 0] Covered Untouched
   , speculation = Conditionally
@@ -250,7 +254,9 @@ dataReindexOp = MkOp
       , Lit "to", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]]
   , defaultBuilders = WithDefaults
-  , members = [MkMember OnObject "bool" "isFree" []]
+  , members =
+      [ MkMember OnObject "bool" "isFree" []
+      , MkMember OnClass "::mlir::Type" "givenType" [param "::mlir::Type" "from", param "::mlir::Type" "to"] ]
   , guards = []
   , specializations = []
   , laws = []

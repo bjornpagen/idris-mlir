@@ -23,6 +23,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -145,6 +146,23 @@ private:
   constexpr unsigned index() const { return static_cast<unsigned>(c); }
   HoldCase c;
 };
+
+// The strongest hold every one of `holds` fits, by the one order holds fit
+// in (Hold::fits): the weakest claim among them, under the release they
+// share, or static data among values that claim nothing. None where they
+// share none.
+inline std::optional<Hold> weakest(llvm::ArrayRef<Hold> holds) {
+  std::optional<Hold> best;
+  for (HoldCase kase : allOf<HoldCase>()) {
+    Hold slot = Hold::fromCase(kase);
+    bool fitsAll = true;
+    for (Hold hold : holds)
+      fitsAll = fitsAll && hold.fits(slot);
+    if (fitsAll && (!best || slot.fits(*best)))
+      best = slot;
+  }
+  return best;
+}
 
 // A value's grade, as its type says: its uses, and its hold exactly when its
 // carrier holds references. The absence is the carrier's fact, not the

@@ -225,7 +225,7 @@ def Idr_DataReindexOp : Idr_Op<"data.reindex", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>,
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry", "getCarriedType"]>,
     DeclareOpInterfaceMethods<Idr_ScopeRuleOpInterface, ["verifyScopeRule"]>
   ]> {
   let summary = "a value at a type its enclosing refinements make equal to its own";
@@ -239,6 +239,7 @@ def Idr_DataReindexOp : Idr_Op<"data.reindex", [
   ];
   let extraClassDeclaration = [{
     bool isFree();
+    static ::mlir::Type givenType(::mlir::Type from, ::mlir::Type to);
   }];
 }
 
@@ -1022,7 +1023,7 @@ def Idr_ArrayTieShapeOp : Idr_Op<"array.tie_shape", [
     DeclareOpInterfaceMethods<ViewLikeOpInterface, ["getViewSource"]>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>,
-    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>,
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry", "getCarriedType"]>,
     InferTypeOpAdaptor
   ]> {
   let summary = "an array whose dynamic dimensions are the given sizes";

@@ -36,20 +36,46 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
   build(builder, state, result, value, outers);
 }
 
+// A grade is no index term, so what refines is the carriers, and the grade
+// the result takes is the cast's own, by what its re-pack does. Either way
+// the value is the one Idris proved, so its uses are kept. A reindex that
+// builds a cell or an array gives a fresh value at the hold every builder
+// of one writes (builtHold): counted and claimed unique whatever the
+// operand's hold, none among them (words in place hold no reference), which
+// counting frees as any fresh value. One that builds nothing, free or not
+// (a cell taken apart in place, a numeral widened), keeps the operand's
+// hold exactly, its result's memory the operand's; a value used many times
+// claims nothing before references are counted, the grade's own stage fact,
+// so neither does what such a cast gives. Whether it builds is the one
+// answer the lowering's re-pack and the cast's flow read too, from its two
+// types' stored facts and index terms; a re-pack that works builds nothing
+// where it only takes a cell apart, so whether the cast is free does not
+// decide it. A result whose carrier holds no reference has no hold; one
+// whose operand held none (a word widened to a natural) keeps none of the
+// operand's, and is at its carrier's bare hold, which claims nothing.
+Type DataReindexOp::givenType(Type from, Type to) {
+  Type carrier = unrestricted(to);
+  Uses uses = usesOf(from);
+  if (!holdsReferences(carrier))
+    return graded(Grade{uses, std::nullopt}, carrier);
+  if (families::builds(from, carrier))
+    return graded(Grade{uses, builtHold(Unique::None)}, carrier);
+  std::optional<Hold> held = holdOf(from);
+  return graded(Grade{uses, held ? held : bareGrade(carrier).hold}, carrier);
+}
+
+// Its result at the type a reindex of `operand` to its carrier gives: an
+// operand of another grade changes what a cast that builds nothing gives,
+// and a fresh value claims its own cells whatever its operand claimed.
+Type DataReindexOp::getCarriedType(Type operand) { return givenType(operand, getType()); }
+
 // One carrier is the other at some instance of its levels, or a refinement
-// of it: a cast of anything else could be no refinement's. A grade is no
-// index term, so what refines is the carriers, and the grade the result
-// takes is the cast's own, by what its re-pack does. Either way the value
-// is the one Idris proved, so its uses are kept. A reindex that builds a
-// cell or an array gives a fresh value at the hold every builder of one
-// writes (builtHold): counted and claimed unique whatever the operand's
-// hold, none among them (words in place hold no reference), which counting
-// frees as any fresh value. One that builds nothing, free or not (a cell
-// taken apart in place, a numeral widened), keeps the operand's hold, its
-// result's memory the operand's, wherever both hold references. Whether it builds is the one answer the lowering's
-// re-pack and the cast's flow read too, from its two types' stored facts
-// and index terms; a re-pack that works builds nothing where it only takes
-// a cell apart, so whether the cast is free does not decide it.
+// of it: a cast of anything else could be no refinement's. Its type is the
+// one givenType gives, but where its result is not the operand's memory: a
+// fresh value it builds may state a stronger claim on its own cells
+// (builtHold), which exclusivity proves of it; and where the operand holds
+// no reference, there is no hold of the operand's to keep. A cast that
+// builds nothing of an operand that holds references keeps that hold.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
@@ -58,18 +84,21 @@ LogicalResult DataReindexOp::verify() {
   if (!refines(fromCarrier, toCarrier) && !refines(toCarrier, fromCarrier))
     return emitOpError("casts ") << from << " to " << to
                                  << ", which no refinement of index terms relates";
-  if (usesOf(from) != usesOf(to))
+  Type given = givenType(from, to);
+  if (usesOf(given) != usesOf(to))
     return emitOpError("casts one value, so it keeps its uses; ") << from << " is given as " << to;
+  std::optional<Hold> made = holdOf(to);
+  if (holdOf(given) == made)
+    return lifetimes::verifyOuters(*this, 0);
   if (families::builds(from, to)) {
-    std::optional<Hold> made = holdOf(to);
     if (!made || *made != builtHold(made->claim()))
       return emitOpError("builds a cell or an array, a fresh value, so its result is counted and ")
              << "claimed unique; it gives " << to;
-  } else if (std::optional<Hold> given = holdOf(from), made = holdOf(to);
-             given && made && *given != *made) {
+    return lifetimes::verifyOuters(*this, 0);
+  }
+  if (holdOf(from))
     return emitOpError("builds nothing, its result's memory its operand's, so it keeps the ")
            << "operand's hold; " << from << " is given as " << to;
-  }
   return lifetimes::verifyOuters(*this, 0);
 }
 

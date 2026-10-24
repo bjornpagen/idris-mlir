@@ -86,6 +86,9 @@ Value ArrayTieShapeOp::getViewSource() { return getValue(); }
 // the compiler, so a call whose result it takes is still the tail.
 Carry ArrayTieShapeOp::getCarry() { return Carry::Free; }
 
+// Its type is its operand's, as its inference says, whatever that is.
+Type ArrayTieShapeOp::getCarriedType(Type operand) { return operand; }
+
 // No dynamic dimension, nothing to say; the same sizes said twice, once.
 OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor) {
   if (getDims().empty())

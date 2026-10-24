@@ -76,7 +76,10 @@ struct InterfaceTraitOf {
 // A grade has no run-time form, so every such op gives its operand on with
 // no run-time work: the class is the carrying interface's trait, which
 // registers the interface for each op of the trait, and answers `Free`
-// here, once for all of them.
+// here, once for all of them. Given an operand of another type, its result
+// takes the weakest hold that operand's and its own fit, so both may stand
+// where it is asked, and keeps its own where the operand's fits it or no
+// hold fits both (two releases).
 template <typename ConcreteType>
 class ResultCarriesOperand
     : public detail::InterfaceTraitOf<CarriesOnOpInterface, ConcreteType>::type {
@@ -88,6 +91,16 @@ public:
   }
 
   static constexpr Carry getCarry() { return Carry::Free; }
+
+  mlir::Type getCarriedType(mlir::Type operand) {
+    mlir::Type own = this->getOperation()->getResult(0).getType();
+    std::optional<Hold> from = holdOf(operand);
+    std::optional<Hold> at = holdOf(own);
+    if (!from || !at || from->fits(*at))
+      return own;
+    std::optional<Hold> joined = weakest({*from, *at});
+    return joined ? atHold(own, *joined) : own;
+  }
 };
 
 // A grade op whose result is its operand's value with its identity and its

@@ -12,11 +12,13 @@ def IdrRedirect : Pass<"idr-redirect", "::idr::FuncOp"> {
   let summary = "Call the specialization each call's key names";
   let description = [{
     The first step of each round of idr-optimize's inner pipeline, so a combinator called on
-    known closures is a call of its copy before the e-graph sees the caller.
+    known closures is a call of its copy before the e-graph sees the caller; and the last,
+    where the round would otherwise be its member's last, for each call of a final callee
+    the round left passing an operand at a hold its parameter does not take.
   }];
   let baseClass = "::mlir::OperationPass<::idr::FuncOp>";
   let dependentDialects = ["::mlir::tensor::TensorDialect"];
-  let constructor = "::idr::specialize::createRedirect(schedule, nodes, redirected)";
+  let constructor = "::idr::specialize::createRedirect(schedule, nodes, redirected, place)";
 }
 
 def IdrInlineLeaves : Pass<"idr-inline-leaves", "::idr::FuncOp"> {

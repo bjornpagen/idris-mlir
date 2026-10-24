@@ -425,7 +425,7 @@ tieShapeOp = MkOp
       [ Declares ViewLike ["getViewSource"]
       , Declares ReifyRankedShapedType ["reifyResultShapes"]
       , Declares ValueBounds ["populateBoundsForShapedValueDim"]
-      , Implements carriesOnInterface ["getCarry"]
+      , Implements carriesOnInterface ["getCarry", "getCarriedType"]
       , InfersTypes InferredOnly ]
   , effects = noEffects
   , speculation = AlwaysSpeculatable

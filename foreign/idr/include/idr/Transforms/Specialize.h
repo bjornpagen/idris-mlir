@@ -334,19 +334,20 @@ void shareCrossings(const optimize::Schedule &schedule, FunctionId id);
 // a weaker hold, a parameter lowered to the hold its callers pass),
 // re-graded down in one walk of their uses, no claim ever raised: a value a
 // region branch forwards takes the weakest hold its input is given, each
-// operand that claims more shared down where it is given; an op that only
-// changes a grade gives on the weaker of its two; a reindex, the grade its
-// rule gives; an op that infers its results, the types it takes from its
-// operands as they now are (families::takenTypes); and any other op's
-// values built of it, what the local rule of exclusivity gives them from
-// the edges the op declares. The walk stops where a grade is fixed exactly:
-// a call's operand stays at its own hold, the call being the decision's of
-// the function it is in (openResults): the callee's copy is keyed to that
-// hold, or a member of the function's component takes it as its
-// parameter's; the return is shared down to the function's result where it
-// claims more, and otherwise left for the result rule to give the
-// function's result. The calls it stopped at, each an operand of which it
-// lowered.
+// operand that claims more shared down where it is given; an op whose
+// result is its first operand's value, what it answers that operand gives
+// it (CarriesOnOpInterface: a change of grade, the weaker of its two
+// holds; a reindex, the grade its rule gives); an op that infers its
+// results, the types it takes from its operands as they now are
+// (families::takenTypes); and any other op's values built of it, what the
+// local rule of exclusivity gives them from the edges the op declares. The
+// walk stops where a grade is fixed exactly: a call's operand stays at its
+// own hold, the call being the decision's of the function it is in
+// (openResults): the callee's copy is keyed to that hold, or a member of
+// the function's component takes it as its parameter's; the return is
+// shared down to the function's result where it claims more, and otherwise
+// left for the result rule to give the function's result. The calls it
+// stopped at, each an operand of which it lowered.
 llvm::SmallVector<CallOp> regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
 
 // The arena of one run: every pattern and key it made, freed with it.

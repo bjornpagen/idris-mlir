@@ -513,9 +513,9 @@ redirect : Pass
 redirect = MkPass ("redirect" ::: []) OnFunction AnyStage Apply Edits []
   [ MkAction ("specialize" ::: ["clone"]) "a call made a call of a copy of its callee"
   , MkAction ("raise" ::: []) "a call of a raise node and its consumer made one call" ] [] NoOptions [LoadsTensor]
-  (MadeBy (ident "idr" ::: [ident "specialize", ident "createRedirect"]) [ident "schedule", ident "nodes", ident "redirected"])
+  (MadeBy (ident "idr" ::: [ident "specialize", ident "createRedirect"]) [ident "schedule", ident "nodes", ident "redirected", ident "place"])
   (MkDoc "Call the specialization each call's key names"
-     "The first step of each round of idr-optimize's inner pipeline, so a combinator called on\nknown closures is a call of its copy before the e-graph sees the caller.")
+     "The first step of each round of idr-optimize's inner pipeline, so a combinator called on\nknown closures is a call of its copy before the e-graph sees the caller; and the last,\nwhere the round would otherwise be its member's last, for each call of a final callee\nthe round left passing an operand at a hold its parameter does not take.")
 
 public export
 inlineLeaves : Pass

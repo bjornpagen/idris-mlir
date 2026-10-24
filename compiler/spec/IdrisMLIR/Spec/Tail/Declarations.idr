@@ -201,11 +201,17 @@ carryClosed = MkClosed
   }
 
 ||| `CarriesOnOpInterface`: an op whose result is its first operand's value
-||| says what it does at run time to give it on. A change of grade has no
-||| run-time form, so its trait's class derives from this interface's trait
-||| and answers `Free` once for every op of the trait; an op whose two types
-||| decide its work answers from them. The tail rule and the rule of a tail
-||| modulo a context ask it and look through a free one, naming no op.
+||| says what it does at run time to give it on, and at what type its result
+||| takes that value where the operand is of another type. A change of
+||| grade has no run-time form, so its trait's class derives from this
+||| interface's trait and answers `Free` once for every op of the trait, and
+||| gives its operand on at the weakest hold its operand's and its own fit;
+||| an op whose two types decide its work answers from them, and gives the
+||| type its own rule gives (a reindex: a fresh value where it builds, the
+||| operand's hold where it builds nothing). The tail rule and the rule of a
+||| tail modulo a context ask the first and look through a free one, and
+||| the specializer's re-grading of what a weaker claim reaches asks the
+||| second, each naming no op.
 export
 carriesOnInterface : InterfaceDef
 carriesOnInterface = MkInterfaceDef
@@ -214,7 +220,10 @@ carriesOnInterface = MkInterfaceDef
   , bases = []
   , methods =
       [ MkMethod PerObject "::idr::Carry" "getCarry" [] EveryImplementer
-          "what this op does at run time to give its first operand's value on as its result" ]
+          "what this op does at run time to give its first operand's value on as its result"
+      , MkMethod PerObject "::mlir::Type" "getCarriedType" [param "::mlir::Type" "operand"]
+          EveryImplementer
+          "the type its result takes where its first operand is of type `operand`: its own carrier, at the grade the op gives that operand on at" ]
   , verifier = Unverified
   , doc = brief "an op whose result is its first operand's value, given on with or without run-time work"
   }

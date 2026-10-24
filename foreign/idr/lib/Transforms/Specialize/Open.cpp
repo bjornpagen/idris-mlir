@@ -39,9 +39,10 @@
 // what the rule rewrites.
 //
 // A tail gives the open type by one reindex from what the reindexes that
-// made its value cast, at the grade that reindex gives (the hold every
-// building reindex gives, a fresh cell claiming its own cells, where it
-// builds one from words; the operand's hold where it builds nothing), and
+// made its value cast, at the grade that reindex gives by its own rule
+// (DataReindexOp::givenType: the hold every building reindex gives, a fresh
+// cell claiming its own cells, where it builds one from words; the
+// operand's hold where it builds nothing), and
 // its claim forgotten by idr.count.share, the one op that forgets a claim,
 // which the stage table admits from the first-order program on, where the
 // open type claims less.
@@ -159,23 +160,6 @@ Value uncast(Value value) {
   return value;
 }
 
-// The type a reindex of a value of `from` to the carrier of `to` gives, by
-// the reindex's own rule: the operand's uses; and where the carrier holds
-// references, the hold every building reindex gives (families::builtHold, a
-// fresh value claiming no more than its own cells) where the re-pack builds
-// a cell or an array, the operand's hold where it builds nothing, its
-// memory the operand's.
-Type reindexed(Type from, Type to) {
-  Type carrier = unrestricted(to);
-  std::optional<Hold> hold;
-  if (holdsReferences(carrier)) {
-    hold = families::builds(from, carrier) ? families::builtHold(Unique::None) : holdOf(from);
-    assert(hold && "a re-pack into a value that holds references either builds it or holds "
-                   "what its operand held");
-  }
-  return graded(Grade{usesOf(from), hold}, carrier);
-}
-
 // Whether a value of `type` claims no more of its sharing than one of
 // `had`: what re-grading may write in its place.
 bool claimsNoMore(Type type, Type had) {
@@ -185,11 +169,12 @@ bool claimsNoMore(Type type, Type had) {
 }
 
 // What a value of `from` is given as where `asked` is: `asked`, where the
-// reindex to its carrier gives what it claims or more, which a share
-// forgets; else the reindex's own type, which claims less, since nothing
-// raises a claim, and what reads it is re-graded down to it.
+// reindex to its carrier gives what it claims or more (the reindex's own
+// rule, DataReindexOp::givenType), which a share forgets; else the
+// reindex's own type, which claims less, since nothing raises a claim, and
+// what reads it is re-graded down to it.
 Type givenAs(Type from, Type asked) {
-  Type cast = reindexed(from, asked);
+  Type cast = DataReindexOp::givenType(from, asked);
   if (forgets(cast, asked))
     return asked;
   assert(claimsNoMore(cast, asked) &&
@@ -205,7 +190,7 @@ Value giveAs(OpBuilder &b, Location loc, Type type, Value value) {
   Value from = uncast(value);
   if (from.getType() == type)
     return from;
-  Type cast = reindexed(from.getType(), type);
+  Type cast = DataReindexOp::givenType(from.getType(), type);
   assert(forgets(cast, type) &&
          "a value is given at a claim no greater than its reindex gives; a share forgets a "
          "claim, and nothing raises one");
@@ -225,21 +210,6 @@ void eraseDeadCasts(Value value) {
     value = cast.getValue();
     cast->erase();
   }
-}
-
-// The strongest hold every one of `holds` fits, by the one order holds fit
-// in (Hold::fits): the weakest claim among them, under the release they
-// share, or static data among values that claim nothing. None where they
-// share none.
-std::optional<Hold> weakest(ArrayRef<Hold> holds) {
-  std::optional<Hold> best;
-  for (HoldCase kase : allOf<HoldCase>()) {
-    Hold slot = Hold::fromCase(kase);
-    if (llvm::all_of(holds, [&](Hold hold) { return hold.fits(slot); }) &&
-        (!best || slot.fits(*best)))
-      best = slot;
-  }
-  return best;
 }
 
 //===----------------------------------------------------------------------===//
@@ -417,20 +387,16 @@ SmallVector<CallOp> regrade(FuncOp fn, ArrayRef<Value> lowered) {
       });
       if (forwarded)
         continue;
-      // An op that only changes a grade (a share, a linear cast) gives its
-      // operand on at a hold the operand's fits: the weakest of the two.
-      if (op->hasTrait<ResultCarriesOperand>()) {
-        Value result = op->getResult(0);
-        std::optional<Hold> from = holdOf(value.getType());
-        std::optional<Hold> at = holdOf(result.getType());
-        if (from && at && !from->fits(*at))
-          if (std::optional<Hold> joined = weakest({*from, *at}))
-            lower(result, atHold(result.getType(), *joined));
-        continue;
-      }
-      // A reindex gives the grade its own rule gives its operand.
-      if (auto cast = dyn_cast<DataReindexOp>(op)) {
-        lower(cast.getResult(), reindexed(value.getType(), cast.getType()));
+      // An op whose result is its first operand's value gives it on at the
+      // type the op's own rule gives that operand: one that only changes a
+      // grade (a share, a linear cast), at the weakest hold the two fit; a
+      // reindex, at what its re-pack gives; a tie of an array's sizes, at
+      // its operand's own.
+      if (auto carries = dyn_cast<CarriesOnOpInterface>(op)) {
+        assert(use->getOperandNumber() == 0 &&
+               "re-grading lowers values that hold references, and an op that gives its first "
+               "operand on takes no other such value");
+        lower(op->getResult(0), carries.getCarriedType(value.getType()));
         continue;
       }
       // An op that infers its results has them inferred again, by the one
@@ -715,7 +681,7 @@ Hold openHold(FuncOp fn, const Spine &spine, unsigned position, Type open, Tails
     if (auto call = given.getDefiningOp<CallOp>();
         at == TailsGiven::InItself && call && call.getCalleeAttr().getAttr() == self)
       continue;
-    std::optional<Hold> hold = holdOf(reindexed(given.getType(), open));
+    std::optional<Hold> hold = holdOf(DataReindexOp::givenType(given.getType(), open));
     assert(hold && "an open value holds references");
     holds.push_back(*hold);
     if (at == TailsGiven::InCopy)
