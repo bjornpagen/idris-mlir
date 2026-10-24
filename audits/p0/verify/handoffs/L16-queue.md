@@ -1235,3 +1235,9 @@ to L16ev. Waiting:
   `argValueIn`; a pair inside a pair still reads as `Field`;
   `FieldRead.OfPair` does not state the pair's identity; `PartField`
   assumes the search built the pair with MkPair.
+- From L19ah: Emit's `checked` (`Emit/Operations.idr:93`) builds a guard's
+  check op by hand from an `OpName`, not through the generated
+  `checkNonzeroOp` and its siblings (L16 with L03: `Checking` holding the
+  builder, after L16ey releases Emit); `harness/Harness.idr`'s `Tools`
+  doc says `here` is passed by the glue, but it is the runner's working
+  directory (L19).
