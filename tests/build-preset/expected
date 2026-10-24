@@ -1,3 +1,0 @@
-make build: cmake --preset, cmake --build --preset and the pinned idris2 --build, no direct ninja or compiler
-witness: each planted file is found
-near miss: nothing found

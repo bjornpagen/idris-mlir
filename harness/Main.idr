@@ -92,8 +92,6 @@
 |||     runtests --runtime-effects <module>
 |||                                     each op's declared effects held to its
 |||                                     runtime function (RuntimeEffects.idr)
-|||     runtests --trace-totals <trace> | --trace-units <trace>...
-|||                                     time traces summed (Trace.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
 
@@ -132,7 +130,6 @@ import ScaleRun
 import Sem
 import Serve
 import SpecFiles
-import Trace
 import Universal
 import Verdict
 
@@ -378,7 +375,7 @@ usage = unlines
   , "       runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT | --spec-named <work> <status> WHAT EXPECTED..."
   , "       runtests --reject <test> <report> <output>"
   , "       runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE"
-  , "       runtests --trace-totals <trace> | --trace-units <trace>... | --lock"
+  , "       runtests --lock"
   , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
   , "       runtests --linear-check <seed> <case> <status> <report>"
   , "       runtests --expect-table | --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
@@ -506,8 +503,6 @@ main = do
     ("--spec-named" :: work :: status :: what :: expected) => specNamed work status what expected
     ("--lit-fails" :: want :: status :: stderr :: command) => litFailsCheck want status stderr command
     ["--reject", test, report, output] => reject test report output
-    ["--trace-totals", trace] => traceTotals trace
-    ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
     ("--fuzz-program" :: fuzz) => maybe (die usage) putStr (Fuzz.programOf fuzz)
     ("--linear-program" :: request) => maybe (die usage) putStr (Linear.programOf request)
     ["--linear-check", seed, n, status, report] => Linear.check seed n status report

@@ -1,7 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# What the test checks, in a sentence: one line per check, the same on
-# every good run, which `expected` holds.
-. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-if [ -x "$idris_mlir" ]; then say "idris-mlir: built"; else say "idris-mlir: not built"; fi

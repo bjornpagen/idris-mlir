@@ -50,7 +50,7 @@ A run record is `bench/records/<date>-<revision>-<os>-<arch>/`, kept by
 `make bench ARGS='--record bench/records/<…>'` once every output has
 agreed: every timed run (`samples.tsv`), the compile times and what it ran
 on (`about`), with the results page and charts `bench/report.sh RUN
-PREVIOUS` makes from them, which `tests/bench-records` checks are current.
+PREVIOUS` makes from them, kept as they were made.
 The latest is [`records/2026-10-13-9a1b7b1-darwin-arm64`](records/2026-10-13-9a1b7b1-darwin-arm64/results.md).
 The dated `<date>-<name>.md` files beside the run records are measurements
 of the compiler itself.

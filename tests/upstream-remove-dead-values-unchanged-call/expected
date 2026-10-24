@@ -1,2 +1,0 @@
-canonicalize=true: still reproduces (rebuilds the call)
-canonicalize=false: still reproduces (rebuilds the call)

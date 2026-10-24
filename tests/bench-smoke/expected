@@ -10,6 +10,11 @@ fasta: prints the recorded output
 fasta-redux: prints the recorded output
 fib: prints the recorded output
 harmonic: prints the recorded output
+json-bytes: prints the recorded output
+json-comb: prints the recorded output
+json-hand: prints the recorded output
+json-linear: prints the recorded output
+json-lines: prints the recorded output
 k-nucleotide: prints the recorded output
 mandelbrot: prints the recorded output
 mandelbrot-count: prints the recorded output
@@ -20,7 +25,6 @@ pidigits: prints the recorded output
 qsort: prints the recorded output
 rbtree: prints the recorded output
 rbtree-ck: prints the recorded output
-regex-dna: prints the recorded output
 regex-redux: prints the recorded output
 reverse-complement: prints the recorded output
 spectral-norm: prints the recorded output

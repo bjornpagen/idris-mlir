@@ -1,5 +1,0 @@
-# The units over 400 lines that are still allowed; tests/file-size/run
-# says why the list only shrinks. Splitting a unit deletes its line.
-# idris-mlir-tblgen is one TableGen backend, a list of the generator's
-# emitters, and stays.
-foreign/idr/tools/idris-mlir-tblgen.cpp
