@@ -1029,12 +1029,6 @@ lazySuspendOp : {default Nothing index_args' : Maybe MlirAttr} -> MlirAttr -> Li
 lazySuspendOp {index_args'} callee' captures' result' =
   MkOp (MkOpName Dialect.Idr "lazy.suspend") (captures') ([("callee", callee')] ++ attrIf "index_args" id index_args') ([]) [] ([result'])
 
-||| `idr.lazy.delay`: a suspension already evaluated: it holds its operand
-export
-lazyDelayOp : Value -> MlirType -> Op
-lazyDelayOp value' result' =
-  MkOp (MkOpName Dialect.Idr "lazy.delay") ([value']) ([]) ([]) [] ([result'])
-
 ||| `idr.lazy.force`: the value of a suspension, computed on the first force and shared
 export
 lazyForceOp : Value -> MlirType -> Op

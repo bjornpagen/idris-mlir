@@ -200,10 +200,10 @@ struct Move {
   mlir::OpOperand *use;
   CoercionId coercion;
 };
-// A closure, a suspension or an evaluated suspension: its constructor,
-// whose fields are the op's operands.
+// A closure or a suspension: its label's constructor, whose fields are the
+// op's captures.
 struct Construct {
-  mlir::Operation *op;
+  BuildsLabelOpInterface op;
   Built built;
 };
 // An apply: a match over its callee's family whose cases call the labels,

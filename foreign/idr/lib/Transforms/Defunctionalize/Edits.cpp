@@ -7,8 +7,7 @@
 //     the converted signature;
 //   - each operand whose value moves between two keys, and its coercion,
 //     built before the op that moves it;
-//   - each closure, suspension and evaluated suspension, and the
-//     constructor it becomes;
+//   - each closure and suspension, and the constructor it becomes;
 //   - each apply, and the match it becomes, with the moves in its cases;
 //   - each force, and the move after its call;
 //   - each constant that holds a closure, converted.
@@ -67,20 +66,13 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
   });
 
   // A closure or a suspension is its label's constructor, refined to it at
-  // the terms the op gives its function's index variables; an evaluated
-  // suspension its memo family's forced state, which binds none. Each is
-  // built at its own grade.
+  // the terms the op gives its function's index variables, built at its own
+  // grade.
   fn.walk([&](BuildsLabelOpInterface op) {
     Key key = *keyOf(op.getResult());
     Type type = typeOf(op.getResult().getType(), key);
     edits.constructs.push_back({op, constructorOf(familyOf(key).at, tagOf(key, op.getCalleeAttr()),
                                                   gradeOf(type), op.getIndexArgs().getTerms())});
-  });
-  fn.walk([&](LazyDelayOp op) {
-    Key key = *keyOf(op.getResult());
-    DataType at = familyOf(key).at;
-    Type type = typeOf(op.getResult().getType(), key);
-    edits.constructs.push_back({op, constructorOf(at, at.memo()->forced(), gradeOf(type), {})});
   });
 
   // An apply's cases: each label's call takes the captures, then the

@@ -5,9 +5,9 @@
 // terms its own carrier names at the same places, and a value's family and
 // its sink's, two carriers one type up to their terms, name as many terms,
 // each at the other's place. A family's forced state is the carrier's value
-// over those places, so an evaluated suspension of a refined value keeps
-// the terms of the binders its refinement keeps, as a closure keeps the
-// terms its function's binders take.
+// over those places, so a suspension of a refined value keeps the terms of
+// the binders its refinement keeps, as a closure keeps the terms its
+// function's binders take.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"

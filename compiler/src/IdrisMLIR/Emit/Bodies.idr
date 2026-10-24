@@ -754,8 +754,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
 -- A lambda is a closure of a function of its own, and a `Delay` a
 -- suspension of one, each over the values its body uses from where it is
 -- written and its scope's levels: the body is written first, as a region,
--- and the function made of it. A suspension of a value is that value
--- held, `idr.lazy.delay %v`. A lambda's parameter and result are at the
+-- and the function made of it. A lambda's parameter and result are at the
 -- types the context expects of them, and a suspension's value at the type
 -- the context expects of it, else the ones the term holds: a closure's
 -- type holds the extents its values are made at dynamic.

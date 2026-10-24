@@ -85,7 +85,7 @@ void builtEdges(mlir::Value value, DataType data, Tag tag, mlir::MutableOperandR
 // The edges of a shaped value made full of one value: `fill` moves into
 // every element of `made`, each holding it, so it is held as many times as
 // `made` has elements; a value of rank 0 has one element, which takes it
-// once. What a new array and a splat declare.
+// once. What a new array declares.
 void everyElementEdges(mlir::OpOperand &fill, mlir::Value made, FlowEdges &edges);
 
 // Whether upstream's interfaces or ours say every move `op` makes: it holds
@@ -114,10 +114,10 @@ mlir::LogicalResult verifyFlowOf(mlir::Operation *op);
 
 // Attaches the flow interface to the upstream ops that move a value into or
 // out of the elements of a tensor or a buffer or make one from nothing:
-// tensor.insert, tensor.extract, tensor.from_elements, tensor.splat,
-// tensor.yield, memref.load, memref.store, ub.poison. Every registry a
-// module is read with takes it. No interface verifier reaches an external
-// model; a unit test holds each to the rule of verifyFlowEdges.
+// tensor.insert, tensor.extract, tensor.from_elements, tensor.yield,
+// memref.load, memref.store, ub.poison. Every registry a module is read
+// with takes it. No interface verifier reaches an external model; a unit
+// test holds each to the rule of verifyFlowEdges.
 void registerFlowInterfaceExternalModels(mlir::DialectRegistry &registry);
 
 } // namespace idr

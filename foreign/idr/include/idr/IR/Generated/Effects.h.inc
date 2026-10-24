@@ -1556,14 +1556,6 @@ struct Declared<::idr::LazySuspendOp> {
 };
 
 template <>
-struct Declared<::idr::LazyDelayOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 0> effects{{}};
-  using Rules = std::tuple<::idr::effects::Consumes<::idr::effects::OnOperand<0>>>;
-  static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
 struct Declared<::idr::LazyForceOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 12> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Read, ::idr::effects::ResourceId::RuntimeState, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Exit, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Crash, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Divergence, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Read, ::idr::effects::ResourceId::Count, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Count, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Read, ::idr::effects::ResourceId::MemoState, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::MemoState, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Read, ::idr::effects::ResourceId::Contents, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Contents, ::idr::effects::Subject::op()}}};

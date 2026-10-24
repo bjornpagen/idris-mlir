@@ -69,11 +69,10 @@ compositeMeaning opClass =
     , param "::llvm::ArrayRef<typename W::Operand>" "constants" ]
 
 ||| A fold that may give a value of the program instead of a constant (a
-||| field of a constructor an op built, a cast of a cast, a force of an
-||| evaluated suspension), its condition written once over where values and
-||| constants live, as `compositeMeaning`'s: what it gives is a constant, or
-||| an operand's value, of its own op or of the op that built one
-||| (`fold::Folded`).
+||| field of a constructor an op built, a cast of a cast), its condition
+||| written once over where values and constants live, as
+||| `compositeMeaning`'s: what it gives is a constant, or an operand's value,
+||| of its own op or of the op that built one (`fold::Folded`).
 public export
 structuralMeaning : (opClass : Code) -> Member
 structuralMeaning opClass =

@@ -1,9 +1,9 @@
-specification 77a53f0a99e4022f
+specification c2f5372b2ce984d3
 generator 7aa87b216d2165df
 ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 24ff994f5407b66b foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 41eb9802a449092b foreign/idr/include/idr/IR/Generated/IdrTypes.td
-5e0b1e919ac05b19 foreign/idr/include/idr/IR/Generated/IdrOps.td
+9b9a01fb5adf294c foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 566341460441fed2 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 207ba67b0d97b601 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -31,13 +31,13 @@ d44a454a09df116f foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 dfa2a7e8b06c0325 foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
 92354e4c51255a5a runtime/Generated/idris_rt_ops.h
 eee0d68f3a0d55b7 foreign/idr/include/idr/IR/Generated/Resources.h.inc
-811fbf6940956248 foreign/idr/include/idr/IR/Generated/Effects.h.inc
-cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
+d16bcf1bb3d8919a foreign/idr/include/idr/IR/Generated/Effects.h.inc
+e1b562a02028b654 foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 8f35ed397aac7845 foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 afc5d699197f6efd foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 e47fa31130cf71be foreign/idr/include/idr/IR/Generated/Laws.h.inc
-5c56b2e724401ae4 foreign/idr/include/idr/IR/Generated/Hooks.h.inc
+0b29ef7f9dc3503a foreign/idr/include/idr/IR/Generated/Hooks.h.inc
 eca576626466f437 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 646d0650f34d56aa foreign/idr/include/idr/IR/Generated/Actions.h.inc
@@ -62,7 +62,7 @@ beb8a76a4770f358 foreign/idr/include/idr/IR/Generated/RuntimeLayout.h.inc
 be6d7fa54983ad20 foreign/idr/include/idr/IR/Generated/NumericEnums.h.inc
 b135473c4ae3ece4 foreign/idr/include/idr/IR/Generated/FileTimes.h.inc
 fbffe30a4c38c232 foreign/idr/include/idr/IR/Generated/Carry.h.inc
-1413fea66f6b07ba compiler/src/IdrisMLIR/Dialect/Idr.idr
+00183c4d05855342 compiler/src/IdrisMLIR/Dialect/Idr.idr
 1f51b95eb94d3df1 compiler/src/IdrisMLIR/Encoding/Wire.idr
 d22b46639b2adbf7 compiler/src/IdrisMLIR/Encoding/Idr.idr
 64200cd5ab05bdef compiler/spec/spec.ipkg

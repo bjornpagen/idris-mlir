@@ -156,23 +156,6 @@ ArrayTieShapeOp::meaning(W &where, ArrayTieShapeOp op, llvm::ArrayRef<typename W
   return std::nullopt;
 }
 
-// The force of an evaluated suspension is the value it holds. A value used
-// once is taken this way only by the suspension's one force, which would
-// otherwise use it twice.
-template <fold::Composite W>
-std::optional<fold::Folded<W>> LazyForceOp::meaning(W &where, LazyForceOp op,
-                                                    llvm::ArrayRef<typename W::Operand> constants) {
-  auto delay = where.template builtBy<LazyDelayOp>(op.getSuspension(), constants[0]);
-  if (!delay)
-    return std::nullopt;
-  mlir::Value value = delay->op.getValue();
-  if (value.getType() != op.getType())
-    return std::nullopt;
-  if (isLinear(value.getType()) && !delay->op.getResult().hasOneUse())
-    return std::nullopt;
-  return fold::Folded<W>(delay->operands[0]);
-}
-
 // A constant numeral's value is its successor layers, read in place a run
 // at a time (fold::numeralLayers). It is a natural in the small range,
 // which the runtime holds in its word: each layer is a cell the constant

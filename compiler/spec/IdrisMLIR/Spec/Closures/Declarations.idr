@@ -6,21 +6,18 @@
 |||
 ||| `idr.fn.closure` captures a function's leading parameters and
 ||| `idr.fn.apply` runs one; `idr.lazy.suspend` builds a cell that has not
-||| run its function, `idr.lazy.force` reads it, and `idr.lazy.delay` is a
-||| suspension of a value that already exists. Their carriers are
-||| `!idr.fn` and `!idr.lazy`. The three that build are one capture family:
+||| run its function, and `idr.lazy.force` reads it. Their carriers are
+||| `!idr.fn` and `!idr.lazy`. The two that build are one capture family:
 ||| each takes its captures over, and its result is used once exactly when a
-||| capture is. A closure and a suspension name their function with the
-||| terms its index variables take where they are built, so the label's
-||| constructor is built at its refined family. A closure and an evaluated
-||| suspension are immutable values
-||| nothing reads the identity of, so two equal ones are one and an unused
-||| one goes; a suspension's cell is the one value that changes while
-||| references to it live, so it takes a fresh identity and is never merged
-||| or folded. A run of a label (an apply, a force) is code no declaration
-||| bounds until defunctionalization makes it a dispatch of calls: it
-||| declares every ordering atom, so nothing moves it, merges it or deletes
-||| it.
+||| capture is. Each names its function with the terms its index variables
+||| take where it is built, so the label's constructor is built at its
+||| refined family. A closure is an immutable value nothing reads the
+||| identity of, so two equal ones are one and an unused one goes; a
+||| suspension's cell is the one value that changes while references to it
+||| live, so it takes a fresh identity and is never merged or folded. A run
+||| of a label (an apply, a force) is code no declaration bounds until
+||| defunctionalization makes it a dispatch of calls: it declares every
+||| ordering atom, so nothing moves it, merges it or deletes it.
 module IdrisMLIR.Spec.Closures.Declarations
 
 import IdrisMLIR.Spec.Closures.Memo
@@ -188,91 +185,45 @@ buildsLabelInterface = MkInterfaceDef
 ------------------------------------------------------------------------------
 
 ||| What each member of the capture family builds: a closure of a function,
-||| a suspension of a function, or a suspension already evaluated, of a
-||| value.
-data Builds = AClosure | ASuspension | AnEvaluated
-
-||| What a member's value is made of: a function, which the member names
-||| with the terms its index variables take where the member is built, or a
-||| value that already exists.
-data Made = OfFunction | OfValue
-
-madeOf : Builds -> Made
-madeOf AClosure = OfFunction
-madeOf ASuspension = OfFunction
-madeOf AnEvaluated = OfValue
-
-||| How many attributes a member names: a function's symbol and its index
-||| terms, or none.
-nameCount : Made -> Nat
-nameCount OfFunction = 2
-nameCount OfValue = 0
+||| or a suspension of a function.
+data Builds = AClosure | ASuspension
 
 ||| A function and the terms its index variables take, which are erased:
 ||| quantity 0, passed at compile time only, as a call passes them.
-attrsOf : (m : Made) -> Vect (nameCount m) Attr
-attrsOf OfFunction = [attr "callee" (UpstreamAttr FlatSymbolRefAttrC), MkAttr "index_args" indexArgs]
-attrsOf OfValue = []
+functionAttrs : Vect 2 Attr
+functionAttrs = [attr "callee" (UpstreamAttr FlatSymbolRefAttrC), MkAttr "index_args" indexArgs]
 
-||| What a member takes over: a function's leading parameters, or the one
-||| value it holds.
-capturesOf : Made -> Operand
-capturesOf OfFunction = variadic "captures" (UpstreamType AnyTypeC)
-capturesOf OfValue = single "value" (UpstreamType AnyTypeC)
+||| What a member takes over: its function's leading parameters.
+leadingCaptures : Operand
+leadingCaptures = variadic "captures" (UpstreamType AnyTypeC)
 
 public export
 buildsName : Builds -> Mnemonic
 buildsName AClosure = "fn.closure"
 buildsName ASuspension = "lazy.suspend"
-buildsName AnEvaluated = "lazy.delay"
 
 ||| What a member builds: a closure, or a suspension.
-builtOf : Builds -> Result
-builtOf AClosure = result "result" (SatisfiesType closureValue)
-builtOf ASuspension = result "result" (SatisfiesType suspensionValue)
-builtOf AnEvaluated = result "result" (SatisfiesType suspensionValue)
+builtValue : Builds -> Predicate
+builtValue AClosure = closureValue
+builtValue ASuspension = suspensionValue
 
 ||| A closure's captures are taken over; its result is a value. A
 ||| suspension's cell is a fresh identity besides: never merged, hoisted or
-||| folded, deletable when unused. An evaluated suspension is a value:
-||| forcing it computes nothing, so nothing reads its identity.
+||| folded, deletable when unused.
 buildsEffects : Builds -> Declaration 1 1
 buildsEffects AClosure = Executes [] [Consumes 0] Covered Untouched
 buildsEffects ASuspension = Executes [] [Consumes 0, NewIdentity 0] Covered Untouched
-buildsEffects AnEvaluated = Executes [] [Consumes 0] Covered Untouched
 
 ||| A closure of constants folds to its constant; a suspension never folds.
 buildsMeaning : Builds -> Meaning 1 1
 buildsMeaning AClosure = HandFolder
 buildsMeaning ASuspension = NoFold
-buildsMeaning AnEvaluated = NoFold
 
 ||| The hand folder's condition, the closure's: a closure of constants is the
 ||| constant idr.constant holds at its type.
 buildsMembers : Builds -> List Member
 buildsMembers AClosure = [compositeMeaning "::idr::FnClosureOp"]
 buildsMembers ASuspension = []
-buildsMembers AnEvaluated = []
-
-||| A member of a function is checked through the symbol it names, at its
-||| index terms, and builds that function's label; an evaluated suspension,
-||| which names none, checks its value against its type.
-namesFunction : Made -> List InterfaceUse
-namesFunction OfFunction =
-  [Declares SymbolUser ["verifySymbolUses"], Implements buildsLabelInterface []]
-namesFunction OfValue = []
-
-verifyOf : Made -> Verify
-verifyOf OfFunction = DeclarationOnly
-verifyOf OfValue = VerifiesOp
-
-formatOf : (m : Made) -> Format 1 1 (nameCount m) 0
-formatOf OfFunction = Declared
-  [ ValueOf (AttrRef 0), Lit "(", ValueOf (OperandRef 0), Lit ")", PropDict, AttrDict, Lit ":"
-  , FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
-formatOf OfValue = Declared
-  [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
-  , TypeOf (OfGroup (ResultRef 0)) ]
 
 buildsDoc : Builds -> Doc
 buildsDoc AClosure = MkDoc "a closure of a function: its leading parameters are the captures"
@@ -287,34 +238,33 @@ buildsDoc ASuspension = MkDoc "a suspension of a function: every parameter is a 
   The cell runs its function, at the index terms, on the first force and
   keeps the value for every later one.
   """
-buildsDoc AnEvaluated = MkDoc "a suspension already evaluated: it holds its operand"
-  """
-  `%s = idr.lazy.delay %v : T -> !idr.lazy<T>`. Its force is the value, at
-  the quantity the force gives it.
-  """
 
-||| `idr.fn.closure`, `idr.lazy.suspend` and `idr.lazy.delay`: each takes
-||| its captures over, and its result is used once exactly when a capture
-||| is, which holds of every member by construction.
+||| `idr.fn.closure` and `idr.lazy.suspend`: each takes its captures over,
+||| and its result is used once exactly when a capture is, which holds of
+||| every member by construction. Each is checked through the symbol it
+||| names, at its index terms, and builds that function's label. Every
+||| member's operands, result and attributes are named alike.
 public export
-captureOp : (b : Builds)
-  -> {auto 0 named : So (distinct (groupNames [capturesOf (madeOf b)] [builtOf b] (attrsOf (madeOf b)) []))}
-  -> Op 1 1 (nameCount (madeOf b)) 0
+captureOp : Builds -> Op 1 1 2 0
 captureOp b = MkOp
   { home = InIdr
   , mnemonic = buildsName b
-  , ins = [capturesOf (madeOf b)]
-  , outs = [builtOf b]
-  , attrs = attrsOf (madeOf b)
+  , ins = [leadingCaptures]
+  , outs = [result "result" (SatisfiesType (builtValue b))]
+  , attrs = functionAttrs
   , regions = []
   , traits = [ResultUsesMaxOf 0 [0]]
-  , interfaces = namesFunction (madeOf b) ++ [Implements flowInterface ["getFlowEdges"]]
+  , interfaces =
+      [ Declares SymbolUser ["verifySymbolUses"], Implements buildsLabelInterface []
+      , Implements flowInterface ["getFlowEdges"] ]
   , effects = buildsEffects b
   , speculation = AlwaysSpeculatable
   , stages = between Higher Higher
   , meaning = buildsMeaning b
-  , verify = verifyOf (madeOf b)
-  , format = formatOf (madeOf b)
+  , verify = DeclarationOnly
+  , format = Declared
+      [ ValueOf (AttrRef 0), Lit "(", ValueOf (OperandRef 0), Lit ")", PropDict, AttrDict, Lit ":"
+      , FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
   , members = buildsMembers b
@@ -334,16 +284,12 @@ public export
 suspendOp : Op 1 1 2 0
 suspendOp = captureOp ASuspension
 
-public export
-delayOp : Op 1 1 0 0
-delayOp = captureOp AnEvaluated
-
 ------------------------------------------------------------------------------
 -- The runs of a label
 ------------------------------------------------------------------------------
 
 ||| `idr.lazy.force`: the value of a suspension, computed on the first force and
-||| shared. Its fold is the value of an evaluated suspension.
+||| shared.
 public export
 forceOp : Op 1 1 0 0
 forceOp = MkOp
@@ -359,14 +305,14 @@ forceOp = MkOp
   , effects = unknownCode
   , speculation = NotSpeculatable
   , stages = between Higher Higher
-  , meaning = HandFolder
+  , meaning = NoFold
   , verify = VerifiesOp
   , format = Declared
       [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
       , TypeOf (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = [structuralMeaning "::idr::LazyForceOp"]
+  , members = []
   , guards = []
   , specializations = []
   , laws = []
@@ -417,7 +363,7 @@ applyOp = MkOp
 public export
 declarations : Declarations
 declarations =
-  { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp delayOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
+  { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
   , attributes := [SomeAttr closureAttr]
   , interfaces := [runsLabelsInterface, buildsLabelInterface]

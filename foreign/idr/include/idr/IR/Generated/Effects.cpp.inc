@@ -448,11 +448,6 @@ void ::idr::LazySuspendOp::getEffects(
   ::idr::effects::declare(*this, effects);
 }
 
-void ::idr::LazyDelayOp::getEffects(
-    ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
-  ::idr::effects::declare(*this, effects);
-}
-
 void ::idr::LazyForceOp::getEffects(
     ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
   ::idr::effects::declare(*this, effects);

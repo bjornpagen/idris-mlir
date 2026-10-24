@@ -203,14 +203,6 @@ void idr::LazySuspendOp::getFlowEdges(FlowEdges &edges) {
               FlowPlace::partOf(getResult(), forcedOf(getType())));
 }
 
-// An evaluated suspension holds its value in its forced state and runs no
-// label.
-void idr::LazyDelayOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowSource::of(getValueMutable()),
-             FlowPlace::partOf(getResult(), forcedOf(getType())));
-  edges.fresh(getResult());
-}
-
 // A force reads the forced state of its cell.
 void idr::LazyForceOp::getFlowEdges(FlowEdges &edges) {
   Value cell = getSuspension();
@@ -292,13 +284,6 @@ void fromElementsEdges(tensor::FromElementsOp made, FlowEdges &edges) {
   edges.fresh(tensor);
 }
 
-// A splat is a tensor full of its input.
-void splatEdges(tensor::SplatOp splat, FlowEdges &edges) {
-  Value tensor = splat.getResult();
-  everyElementEdges(splat.getInputMutable(), tensor, edges);
-  edges.fresh(tensor);
-}
-
 // The yield of a pad or a generate is an element of the tensor its parent
 // makes.
 void yieldEdges(tensor::YieldOp yield, FlowEdges &edges) {
@@ -319,7 +304,6 @@ void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
     tensor::ExtractOp::attachInterface<Model<tensor::ExtractOp, extractEdges>>(*context);
     tensor::FromElementsOp::attachInterface<Model<tensor::FromElementsOp, fromElementsEdges>>(
         *context);
-    tensor::SplatOp::attachInterface<Model<tensor::SplatOp, splatEdges>>(*context);
     tensor::YieldOp::attachInterface<Model<tensor::YieldOp, yieldEdges>>(*context);
   });
   registry.addExtension(+[](MLIRContext *context, memref::MemRefDialect *) {

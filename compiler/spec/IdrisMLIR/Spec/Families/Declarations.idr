@@ -25,10 +25,8 @@ declarations = MkDeclarations
   , enums = [enumDef layoutMarkClosed]
   , interfaces = [erasedBinderInterface, indexedTypeInterface, patternTypeInterface, fieldTypeInterface, scopeRuleInterface, indexPositionsInterface]
   , traits = []
-  , directives =
-      [ termsParam, sortsParam, membersParam, refinementParam, familyParam, dataParam
-      , fieldsDirective, fieldsWithHolesDirective, countedResultDirective ]
-  , predicates = [dataValue, refinedValue, cellValue, numeralValue, naturalValue]
+  , directives = [fieldsDirective, fieldsWithHolesDirective, countedResultDirective]
+  , predicates = [dataValue, refinedValue, numeralValue, naturalValue]
   , resources = []
   , helpers = []
   , admitted = []

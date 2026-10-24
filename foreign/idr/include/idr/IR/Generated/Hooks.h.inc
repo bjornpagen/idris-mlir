@@ -19,30 +19,6 @@ template <typename E>
 ::mlir::LogicalResult readEnum(::mlir::DialectBytecodeReader &reader, E &result,
                                std::optional<E> (*symbolize)(uint32_t));
 
-// index terms in normal form
-::mlir::ParseResult parseIndexTerms(::mlir::OpAsmParser &parser);
-void printIndexTerms(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
-// the sorts of index positions or binders
-::mlir::ParseResult parseSorts(::mlir::OpAsmParser &parser);
-void printSorts(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
-// a family's members and their constructors
-::mlir::ParseResult parseMembers(::mlir::OpAsmParser &parser);
-void printMembers(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
-// the constructors a data type is refined to
-::mlir::ParseResult parseRefinement(::mlir::OpAsmParser &parser);
-void printRefinement(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
-// a family, by its alias
-::mlir::ParseResult parseFamilyRef(::mlir::OpAsmParser &parser);
-void printFamilyRef(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
-// a data type, by its entry
-::mlir::ParseResult parseDataRef(::mlir::OpAsmParser &parser);
-void printDataRef(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op);
-
 // the fields a constructor value is given, each with its type
 ::mlir::ParseResult parseFields(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::OpAsmParser::UnresolvedOperand> &, ::llvm::SmallVectorImpl<::mlir::Type> &);
 void printFields(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::OperandRange, ::mlir::TypeRange);
@@ -100,9 +76,6 @@ bool isDataValue(::mlir::Type value);
 
 // a value of a data type refined to one constructor, at any grade
 bool isRefinedValue(::mlir::Type value);
-
-// a value of a data type held in a cell
-bool isCellValue(::mlir::Type value);
 
 // a value of a family of numeral shape
 bool isNumeralValue(::mlir::Type value);

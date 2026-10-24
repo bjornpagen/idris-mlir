@@ -38,12 +38,6 @@ refinedValue : Predicate
 refinedValue = MkPredicate "isRefinedValue" OnType
   (brief "a value of a data type refined to one constructor, at any grade")
 
-||| A value whose layout is a cell, at any grade: the only values counting's
-||| ops take and a destination writes.
-export
-cellValue : Predicate
-cellValue = MkPredicate "isCellValue" OnType (brief "a value of a data type held in a cell")
-
 ||| A value of a numeral family, whose layout is a number.
 export
 numeralValue : Predicate

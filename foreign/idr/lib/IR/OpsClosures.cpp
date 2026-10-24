@@ -6,10 +6,7 @@
 // entry computes the value and leaves it there. After idr-defunctionalize
 // the cell is a value of a memo family, a force is a call of the family's
 // dispatch, and the dispatch exchanges the cell's state through
-// idr.memo.run, which moves the captures out and the value in. A
-// suspension of a value that already exists, idr.lazy.delay, is evaluated
-// where it is built: forcing it computes nothing, and the force is the
-// value.
+// idr.memo.run, which moves the captures out and the value in.
 //
 // A suspension has no fold: the cell it builds is the one thing that
 // changes while references to it live, so folding one into a constant
@@ -225,27 +222,8 @@ LogicalResult LazySuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 //===----------------------------------------------------------------------===//
-// idr.lazy.delay
-//===----------------------------------------------------------------------===//
-
-// An evaluated suspension holds its operand: the suspension's value is the
-// operand's carrier, at the quantity a force gives it.
-LogicalResult LazyDelayOp::verify() {
-  Type held = cast<LazyType>(unrestricted(getResult().getType())).getValue();
-  if (unrestricted(held) != unrestricted(getValue().getType()))
-    return emitOpError("holds ") << getValue().getType() << " in a suspension of " << held;
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // idr.lazy.force
 //===----------------------------------------------------------------------===//
-
-// Its meaning's attribute instance (Ops/Folds.h).
-OpFoldResult LazyForceOp::fold(FoldAdaptor adaptor) {
-  fold::InParts where(getContext());
-  return fold::foldResultOf(meaning(where, *this, adaptor.getOperands()));
-}
 
 Value LazyForceOp::getLabelCarrier() { return getSuspension(); }
 

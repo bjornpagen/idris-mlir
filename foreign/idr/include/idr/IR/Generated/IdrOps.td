@@ -2831,24 +2831,6 @@ def Idr_LazySuspendOp : Idr_Op<"lazy.suspend", [
   let assemblyFormat = [{ $callee `(` $captures `)` prop-dict attr-dict `:` functional-type($captures, $result) }];
 }
 
-def Idr_LazyDelayOp : Idr_Op<"lazy.delay", [
-    Idr_ResultUsesMax<"0, 0">,
-    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    Idr_DeclaredEffectsOpInterface,
-    AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
-  ]> {
-  let summary = "a suspension already evaluated: it holds its operand";
-  let description = [{
-    `%s = idr.lazy.delay %v : T -> !idr.lazy<T>`. Its force is the value, at
-    the quantity the force gives it.
-  }];
-  let arguments = (ins AnyType:$value);
-  let results = (outs Type<CPred<"::idr::isLazyType($_self)">, "a suspension, at any grade", "::mlir::Type">:$result);
-  let assemblyFormat = [{ $value attr-dict `:` type($value) `->` type($result) }];
-  let hasVerifier = 1;
-}
-
 def Idr_LazyForceOp : Idr_Op<"lazy.force", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
@@ -2860,10 +2842,6 @@ def Idr_LazyForceOp : Idr_Op<"lazy.force", [
   let results = (outs AnyType:$result);
   let assemblyFormat = [{ $suspension attr-dict `:` type($suspension) `->` type($result) }];
   let hasVerifier = 1;
-  let hasFolder = 1;
-  let extraClassDeclaration = [{
-    template <::idr::fold::Composite W> static ::std::optional<::idr::fold::Folded<W>> meaning(W & where, ::idr::LazyForceOp op, ::llvm::ArrayRef<typename W::Operand> constants);
-  }];
 }
 
 def Idr_FnApplyOp : Idr_Op<"fn.apply", [
