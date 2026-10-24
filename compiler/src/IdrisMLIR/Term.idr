@@ -18,8 +18,8 @@
 |||
 ||| A visit (`visitTerm`) reads or rewrites each variable, call and level of a
 ||| term; renaming is one (`rename`). Every other traversal is a fold over
-||| the base functor `TermF`: `cata`, or `para` where the algebra needs a
-||| part as it was.
+||| the base functor `TermF` (`para`), its algebra given each part as it
+||| was and as the fold made it.
 |||
 ||| A lambda's or a `Delay`'s body stays in the scope it is written in, as a
 ||| `let`'s does: renaming enters it, and the variables of that scope it
@@ -464,21 +464,6 @@ public export
 Alt : Nat -> Type
 Alt = AltAt []
 
-||| A match's arms.
-public export
-CaseArms : Nat -> Type
-CaseArms n = CaseArmsOf (Alt n) (Term n)
-
-||| A match on literals' arms.
-public export
-LitArms : Nat -> Type
-LitArms n = LitMatch (Term n)
-
-||| A match on a natural's arms.
-public export
-NatArms : Nat -> Type
-NatArms n = NatArmsOf (Term n) (Term (Under 1 n))
-
 ------------------------------------------------------------------------------
 -- Visits: each variable, call and level of a term
 ------------------------------------------------------------------------------
@@ -803,64 +788,6 @@ record Sub (f : List Nat -> Nat -> Type) (js : List Nat) (n : Nat) where
   term : TermAt js n
   result : f js n
 
-||| The action of `TermF` on a natural transformation.
-export
-hmap : ({0 js' : List Nat} -> {0 m : Nat} -> f js' m -> g js' m) -> TermF f js n -> TermF g js n
-hmap h (VarF l x) = VarF l x
-hmap h (LiteralF l x) = LiteralF l x
-hmap h (PrimAppF l p stands as) = PrimAppF l p stands (map h as)
-hmap h (EffectF l p gives as w res) = EffectF l p gives (map h as) (h w) res
-hmap h (CallF l c stands is as) = CallF l c stands is (map h as)
-hmap h (ConAppF l c bs as) = ConAppF l c bs (map h as)
-hmap h (LetF l x b v body) = LetF l x b (h v) (h body)
-hmap h (CaseF l fam x arms) = CaseF l fam x (armsMap arms)
-  where
-    alt : AltF f js n -> AltF g js n
-    alt (MkAltF c fs b) = MkAltF c fs (h b)
-    armsMap : CaseArmsOf (AltF f js n) (f js n) -> CaseArmsOf (AltF g js n) (g js n)
-    armsMap (Defaulted alts d) = Defaulted (map alt alts) (h d)
-    armsMap (Exhaustive alts) = Exhaustive (map alt alts)
-hmap h (CaseLitF l x arms) = CaseLitF l x (matchMap arms)
-  where
-    keyed : LitArmsOf kt (f js n) -> LitArmsOf kt (g js n)
-    keyed (LitDefault alts d) = LitDefault (map (\(kv, e) => (kv, h e)) alts) (h d)
-    keyed (LitNoDefault alts) = LitNoDefault (map (\(kv, e) => (kv, h e)) alts)
-    matchMap : LitMatch (f js n) -> LitMatch (g js n)
-    matchMap (OnlyDefault d) = OnlyDefault (h d)
-    matchMap (OnInts t a) = OnInts t (keyed a)
-    matchMap (OnChars a) = OnChars (keyed a)
-    matchMap (OnStrings a) = OnStrings (keyed a)
-    matchMap (OnBigs a) = OnBigs (keyed a)
-hmap h (CaseNatF l x arms) = CaseNatF l x (armsMap arms)
-  where
-    armsMap : NatArmsOf (f js n) (f js (Under 1 n)) -> NatArmsOf (g js n) (g js (Under 1 n))
-    armsMap (OnlyZero z) = OnlyZero (h z)
-    armsMap (OnlySucc p s) = OnlySucc p (h s)
-    armsMap (Both z p s) = Both (h z) p (h s)
-hmap h (LamF l x b r body) = LamF l x b r (h body)
-hmap h (AppF l a r f x) = AppF l a r (h f) (h x)
-hmap h (SuspendF l t body) = SuspendF l t (h body)
-hmap h (ResumeF l t e) = ResumeF l t (h e)
-hmap h (UnreachableF l) = UnreachableF l
-hmap h (AssumeF l a b body) = AssumeF l a b (h body)
-hmap h (CrashF l m) = CrashF l m
-hmap h (CrashWithF l m) = CrashWithF l (h m)
-hmap h (NewWorldF l) = NewWorldF l
-hmap h (TensorF l op) = TensorF l (map h op)
-hmap h (TabulateF l ty es body) = TabulateF l ty (map h es) (h body)
-hmap h (TabulateIOF l ty es w body step done) = TabulateIOF l ty (map h es) (h w) (h body) step done
-hmap h (ReduceF l red acc el ty a j z x body) = ReduceF l red acc el ty a j (h z) (h x) (h body)
-hmap h (TieF l t x ds) = TieF l t (h x) (map (\(a, s) => (a, map h s)) ds)
-hmap h (ReadBackF l e x cs body) = ReadBackF l e (h x) (map h cs) (h body)
-hmap h (ExtentsBackF l x body) = ExtentsBackF l (h x) (h body)
-hmap h (JoinF l scope targets body) = JoinF l scope (targetsMap targets) (h body)
-  where
-    targetsMap : All (TargetF f s n) ts' -> All (TargetF g s n) ts'
-    targetsMap [] = []
-    targetsMap (MkTargetF {k} tl code sorts names params b :: rest) =
-      MkTargetF {k} tl code sorts names params (h b) :: targetsMap rest
-hmap h (JumpF l e terms as) = JumpF l e terms (map h as)
-
 mutual
   ||| The paramorphism: each layer with its subterms as they were and as the
   ||| algebra made them.
@@ -974,12 +901,6 @@ mutual
   paraTarget : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF (Sub f) js' m -> f js' m) ->
                Target s n k -> TargetF (Sub f) s n k
   paraTarget alg (MkTarget {k} l code sorts names params body) = MkTargetF {k} l code sorts names params (sub alg body)
-
-||| The catamorphism: each layer with what the algebra made of its subterms.
-export
-cata : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF f js' m -> f js' m) ->
-       TermAt js n -> f js n
-cata alg = para (\layer => alg (hmap (.result) layer))
 
 ------------------------------------------------------------------------------
 -- The type of a term's value

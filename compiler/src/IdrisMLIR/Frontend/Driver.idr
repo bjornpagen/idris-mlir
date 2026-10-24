@@ -16,7 +16,6 @@
 |||
 |||     [--timing FILE] -o FILE SOURCE
 |||                       the program whose main file is SOURCE
-|||     --check SOURCE    SOURCE and what it imports, built and checked
 |||     [--timing FILE] --build PACKAGE.ipkg, --install PACKAGE.ipkg,
 |||     --typecheck PACKAGE.ipkg, --clean PACKAGE.ipkg
 |||                       Idris's package commands
@@ -82,8 +81,6 @@ data Task
   = ||| The program whose main file is the source: its module written at
     ||| this path, its phases' times at the first when given.
     Compile (Maybe String) String String
-  | ||| A main file and what it imports, built and checked.
-    Check String
   | ||| One of Idris's package commands on a package file, its time written
     ||| at the path when given, with Idris's own phases printed as it runs
     ||| them.
@@ -100,13 +97,12 @@ record Arguments where
   noPrelude : Bool
   timing : Maybe String
   output : Maybe String
-  check : Maybe String
   package : Maybe (PkgCommand, String)
   libDir : Bool
   sources : SnocList String
 
 none : Arguments
-none = MkArguments Nothing [<] [<] False Nothing Nothing Nothing Nothing False [<]
+none = MkArguments Nothing [<] [<] False Nothing Nothing Nothing False [<]
 
 ||| What a run is given: the prefix, the rest of its session's arguments,
 ||| and its task.
@@ -120,14 +116,13 @@ synopsis : String
 synopsis = """
         usage: idris-mlir-front --prefix DIR [--package-path DIR]... [-p PACKAGE]... [--no-prelude] TASK
           TASK: [--timing FILE] -o FILE SOURCE
-              | --check SOURCE
               | [--timing FILE] --build|--install|--typecheck|--clean PACKAGE.ipkg
               | --libdir
         """
 
 ||| The options that take a value.
 valued : SortedSet String
-valued = SortedSet.fromList [ "--prefix", "--package-path", "-p", "--timing", "-o", "--check"
+valued = SortedSet.fromList [ "--prefix", "--package-path", "-p", "--timing", "-o"
                             , "--build", "--install", "--typecheck", "--clean" ]
 
 once : String -> Maybe a -> a -> Either String (Maybe a)
@@ -155,9 +150,6 @@ parse a ("--timing" :: f :: rest) = do
 parse a ("-o" :: f :: rest) = do
   o <- once "-o" a.output f
   parse ({ output := o } a) rest
-parse a ("--check" :: f :: rest) = do
-  c <- once "--check" a.check f
-  parse ({ check := c } a) rest
 parse a ("--libdir" :: rest) = parse ({ libDir := True } a) rest
 parse a (flag :: rest) = case packageCommand flag of
     Just cmd => command cmd rest
@@ -181,12 +173,11 @@ parse a (flag :: rest) = case packageCommand flag of
 
 ||| One task, and only what that task reads.
 taskOf : Arguments -> Either String Task
-taskOf a = case (a.check, a.package, a.libDir) of
-  (Nothing, Nothing, False) => compile
-  (Just f, Nothing, False) => do onlyFor "--check"; untimed "--check"; Right (Check f)
-  (Nothing, Just (cmd, f), False) => do onlyFor "a package command"; Right (PackageCommand a.timing cmd f)
-  (Nothing, Nothing, True) => do onlyFor "--libdir"; untimed "--libdir"; Right LibDir
-  _ => Left "--check, a package command and --libdir are tasks of their own"
+taskOf a = case (a.package, a.libDir) of
+  (Nothing, False) => compile
+  (Just (cmd, f), False) => do onlyFor "a package command"; Right (PackageCommand a.timing cmd f)
+  (Nothing, True) => do onlyFor "--libdir"; untimed "--libdir"; Right LibDir
+  (Just _, True) => Left "a package command and --libdir are tasks of their own"
   where
     onlyFor : String -> Either String ()
     onlyFor task =
@@ -216,26 +207,13 @@ arguments args = do
 -- Exit statuses
 ------------------------------------------------------------------------------
 
-||| The status of the errors a build reported (and printed), by the one
-||| rule of the verdict: accepted < refused < internal, the worst seen
-||| winning. The compiler's own error (1) makes the build the compiler's
-||| whatever else it found, and the program's errors alone are its refusal
-||| (3); a build that reported none is accepted, and has no errors to give
-||| here. The order needs no exception for an error a refusal caused: a
-||| refusal ends the translation of what it refuses (`Errors.noting`,
-||| `TS.refused`), so no error found after it is its cascade, and an
-||| internal error beside one is the compiler's, to be fixed before the
-||| refusal can be believed.
-statusOfAll : List1 Error -> ExitCode
-statusOfAll errs = if any internal errs then ExitFailure 1 else ExitFailure 3
-  where
-    internal : Error -> Bool
-    internal (InternalError _) = True
-    internal _ = False
-
-||| The status of one error, by the same rule.
+||| The status of the error a run printed: 1 for the compiler's own error,
+||| 3 for any other, which is the program's or that of a task that writes
+||| no module. Essential: the compiler's failure and the program's are two
+||| outcomes.
 statusOf : Error -> ExitCode
-statusOf err = statusOfAll (err ::: [])
+statusOf (InternalError _) = ExitFailure 1
+statusOf _ = ExitFailure 3
 
 ------------------------------------------------------------------------------
 -- A run
@@ -370,11 +348,6 @@ perform (Compile timing out source) = do
         -- program, and `frontend` prints it.
         InternalError _ => throw err
         _ => refusing SortedMap.empty building main out (singleton (ByIdris err))
-perform (Check source) = do
-  mainModule <- ctxtPathToNS source
-  Reloaded _ <- built mainModule source
-    | NotBuilt errs => coreLift (exitWith (statusOfAll errs))
-  pure ()
 perform (PackageCommand timing cmd file) = do
   p <- newRef PostS defaultPost
   -- Timed, Idris prints its own phases as it runs them (`logTime`), and
@@ -391,11 +364,10 @@ frontend r = do
   c <- newRef Ctxt !initDefs
   s <- newRef Syn initSyntax
   -- A compilation prints nothing: the program's errors are refusals its
-  -- module holds. Checking and the package commands print Idris's
-  -- progress, warnings and errors.
+  -- module holds. The package commands print Idris's progress, warnings
+  -- and errors.
   let (mainFile, verbosity) = case r.task of
         Compile _ _ source => (Just source, NoneLvl)
-        Check source => (Just source, InfoLvl)
         _ => (Nothing, InfoLvl)
   o <- newRef ROpts (defaultOpts mainFile verbosity)
   -- What Idris prints is the same on any terminal: no colour, and no

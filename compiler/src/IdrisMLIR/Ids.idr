@@ -9,9 +9,7 @@
 ||| made in cannot reach the output.
 module IdrisMLIR.Ids
 
-import Hash.XXH3
 import IdrisMLIR.Proof.Forms
-import IdrisMLIR.Spec.Core.Text
 
 import Data.Bits
 import Data.Fin
@@ -206,14 +204,3 @@ hex16 x = pack (map digit [60, 56, 52, 48, 44, 40, 36, 32, 28, 24, 20, 16, 12, 8
     digit at =
       let d = shiftR x at .&. 0xF in
       if d < 10 then chr (cast d + ord '0') else chr (cast d - 10 + ord 'a')
-
-||| The low half of the hash of a key's text, as 16 hex digits.
-export
-contentHash : String -> String
-contentHash key = hex16 (xxh3_128 (utf8 key)).low
-
-||| The symbol of what `key` denotes, generated from `owner`:
-||| `<owner>.<kind>.<hex16>`.
-export
-contentName : (owner : String) -> (kind : String) -> (key : String) -> String
-contentName owner kind key = owner ++ "." ++ kind ++ "." ++ contentHash key
