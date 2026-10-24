@@ -965,3 +965,20 @@ touching the frontend or the checker reruns the five on its export.
   themselves instead of asking `DataReindexOp::givenType`:
   `Tail/Accumulate.cpp:81` (L10), `Defunctionalize/Walk.cpp:109` (L10),
   `Bufferize/Reindex.cpp:114` (L12) — each asks the op's one rule.
+- From L16ep (bc08f095): F-R4 (every-types-export's `Ord (Either a b)`):
+  the model reads `fst ... conArg` as `Field 2 (Var 0 0)` and
+  `Proof/Describes.carriedAt`'s `Field` case draws it from `OfField MkPair
+  2`, shared by every pair of dictionaries, so the superclass pair seems to
+  feed MkPair's field 2 into itself one level higher each round. Fix: a
+  field of a record a data constructor built (MkPair, not an
+  implementation) reads as the part of the writer's parameter one match
+  deeper (`Var i (S d)`): a reading in `Growth/Template.ofDefinition` and
+  Readings, cases in `Proof/Covers`, `Proof/Describes` (`carriedAt`,
+  `coverAt`) and `Proof/Bound` (`Writes`, `CoveredAt`); reproducers
+  `/tmp/l16dz/repro/TupleSuper` (refused) against `CurriedSuper`
+  (compiles); the polymorphism refusals stay refused. After L17bh's D133
+  step 1 releases `Proof/` (L16). Seams: an implementation's form still
+  erases a caller's level to `_` (C272 covers type parameters only);
+  `Shapes.sizedTelescope` reads a type parameter as the form with `_`;
+  `resolveMethod.inScope` reads arguments beside `argValueIn`'s key reading
+  (L16, with the fold).
