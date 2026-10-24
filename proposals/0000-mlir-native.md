@@ -2907,7 +2907,8 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   tail call is its own terminator op, built as `idr.jump` is, so whether a
   call is in tail position is the op's kind, which no pass can drop; the
   `tail_kind` enum and every pass's writing of it go. Built directly, with
-  no step through the enum.
+  no step through the enum. Amended 2026-10-24: not a terminator; see C305's
+  amendment.
 - **C295** (2026-10-23; the plan's Q6, under AGENTS.md's "a choice is a type
   or an enum case, never a bool" and the lossless rule). A cell's held
   buffer is opened as a tensor by an op that takes the cell, so the claim
@@ -3264,6 +3265,20 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   call into the op its standing makes, and writes no enum. Keeping a
   two-case enum for the context would be the flag the rule forbids, and
   reading the context per query would lose a context a pass breaks.
+  Amended 2026-10-24 (L10ab's stop, with C294; for the owner's review):
+  the tail call is not a terminator. A terminator with no results hides
+  what comes back through it from every reader of a function's results:
+  upstream's bufferization reads them from the return-like terminators
+  alone (patch 24 included), so `f t = if c then t else g t` would be
+  read as returning `t`'s buffer; upstream's inliner refuses a call whose
+  results differ in count from its callee's; and the identities reader,
+  ranges, unique-results and the specializer read the return. As
+  upstream writes a must-tail call (`llvm.call` with its tail kind, the
+  return after it), the tail call keeps its results, which only its
+  function's return takes, through ops that do nothing at run time, held
+  so by the verifier as `tail` is today. The three meanings stay three
+  ops (`idr.call`, `idr.tail_call`, the self call modulo a context), with
+  no enum.
 - **C306** (2026-10-24; L13z's stop under C299, AGENTS.md's "a
   statically certain crash is a plain crash where evaluation reaches it,
   with no run-time test" and "one op per semantics"). `idr.crash.cause`
