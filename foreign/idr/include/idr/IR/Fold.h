@@ -103,7 +103,7 @@ std::optional<const idris_rt_str *> strOf(Scope &scope, mlir::Attribute constant
 std::optional<idris_rt_big> bigOf(Scope &scope, mlir::Attribute constant);
 
 // The attribute a runtime string or big is, the reference borrowed: a
-// string's bytes, and a big's decimal text as big.show's function writes it.
+// string's bytes, and a big's integer, read from its word or its limbs.
 mlir::Attribute strAttr(mlir::MLIRContext *context, const idris_rt_str *s);
 mlir::Attribute bigAttr(mlir::MLIRContext *context, idris_rt_big b);
 
