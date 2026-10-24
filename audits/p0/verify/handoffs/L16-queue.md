@@ -1063,3 +1063,7 @@ to L16ev. Waiting:
   copy placement shared with `Scheduler::insert` (`Settle.cpp`, after
   L10aa), binding times and identities as analyses the manager keeps
   (L18 with L14, L21).
+- From L21z (08c59751e): `Conversion/Runtime.h:43-45` still says "a Bool
+  parameter or result is zeroext"; since K04 the code zero-extends a byte
+  parameter and a truth result (L21). K18 and K19 may take `Pipeline.idr`
+  and `Lower/Statics.cpp` once their measurements come.
