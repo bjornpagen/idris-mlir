@@ -1250,6 +1250,24 @@ roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> (landi
         List Address
 roots fl families w ps landing t = headsOf (byTemplate fl.solution (ownAt fl families w ps landing) OfChosen t)
 
+||| The implementations a field read's record can be, read in the writer's
+||| node as `ps` reads its parameters, as `roots` reads it there, where
+||| only implementations head it: none where it reaches nothing; nothing
+||| at all where it can be a dictionary no implementation heads, one a
+||| definition computes or one the running program chooses, which is
+||| written as no implementation applied to its arguments. Asked of a part
+||| of the writer's own argument (`Var i 0`, `PartField k i 0`), whose
+||| reading no landing changes.
+export
+headedRoots : Flow -> Node -> Parameters -> Template -> Maybe (List Address)
+headedRoots fl w ps r = headed (byTemplate fl.solution (markersOnly (canBeAt fl w ps)) OfChosen r)
+  where
+    headed : Headings AddressesOnly -> Maybe (List Address)
+    headed NoHeading = Just []
+    headed (ReachedBy hs) = case headednessOf hs of
+      OnlyHeaded => Just (headsIn hs)
+      MayBeUnheaded => Nothing
+
 ------------------------------------------------------------------------------
 -- What the roots say, for the growth proof
 ------------------------------------------------------------------------------

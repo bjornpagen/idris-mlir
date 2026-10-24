@@ -51,6 +51,7 @@ import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Fields
 import IdrisMLIR.Frontend.Growth.Caps
 import IdrisMLIR.Frontend.Growth.Indexed
+import IdrisMLIR.Frontend.Growth.Check
 import IdrisMLIR.Frontend.Translate.Annotated
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Definitions
@@ -1696,23 +1697,318 @@ leadingWritings nodes leads =
     agrees : Node -> List Leading -> Node -> Bool
     agrees m leading jn = all (agreesAt m jn) leading
 
--- What each implementation's fields write at their positions: at each
--- walked node of the implementation, each field's template over the
--- node's parameters, read where the node's families hold what lands at
--- them (`siteRead`), into that field's position. A field read anywhere
--- takes its value from there, so a nested field read is arcs between
--- these positions.
-fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List (Writing e)
-fieldWritings nodes fs =
-  SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWriting (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly) t.template (AtNode jn OwnOnly)
-                (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t) (FieldDraws Refl)
-                (openLands {e} (InField fields.givenBy k t) Refl t.template)
-    | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
+------------------------------------------------------------------------------
+-- A field read through its implementation's own argument
+------------------------------------------------------------------------------
+
+-- An implementation's fields share one position each, whatever instance
+-- of the implementation writes them, so an implementation whose field
+-- reads that field of a part of its own argument (`(Ord a, Ord b) => Ord
+-- (a, b)`, whose parent is built from its pair's halves' parents) seems
+-- to write its field's position from itself, a level higher each round,
+-- though every instance reads it of a strictly smaller dictionary, which
+-- the program's finite nesting bounds. Such a read is a recursion
+-- structural on the dictionary, read as `Template.structural` reads one
+-- on a Nat-like argument: the record raised by how much higher than its
+-- dictionary the field it reads can be, the field's constant.
+--
+-- A dictionary D an implementation J gives is J applied to its arguments,
+-- each one level down, so a part of J's parameter i, d deep, is no higher
+-- than h(D) - 1 - d. Field k of D is what field k's template at D's node
+-- writes. Say it asks only what D's height bounds (`asksAt`): a marker,
+-- e heads down, `Var i d` (c >= e - 1 - d) or a pair's part (`PartField`,
+-- c >= e - 2 - d); a closed leaf h high (c >= e + h - 1, as h(D) >= 1); a
+-- head over what does; a choice whose every leaf does; or field k' of a
+-- part of J's argument q deep (`recordDepth`) that only implementations can
+-- be, each of whose field k' does with its own constant c'
+-- (c >= c' + e - q - 1). Then h(field k of D) <= h(D) + c, by induction
+-- on D: the read's record is a strict part D' of D, h(D') <= h(D) - 1 - q,
+-- and h(field k' of D') <= h(D') + c'. The constants are the least the
+-- asks allow, which the growth check's potential is when the fields are
+-- its positions, the reads its arcs (from field k' of each root to field
+-- k, gaining e and losing q + 1) and the floors its caps over a constant
+-- of 0 (`relativeFields`); a field that asks what nothing bounds, or
+-- reads one that does, or lies on a cycle that gains, has none. A read
+-- that reaches its own field again among these (one strongly connected
+-- component) is written as its record raised by the most its roots'
+-- fields' constants are: a part of the writer's parameter, which the
+-- writer's arcs carry, so the field's position no longer feeds itself. A
+-- read of any other field is that field's position's, as before: only a
+-- recursion needs reading as one.
+--
+-- A field read in another field's template is the only place a field's
+-- position is written from a field's, so these are the reads a cycle of
+-- fields passes through. A real growth is not one of them: a dictionary
+-- that grows is a call's argument written from the dictionary it was
+-- given, which no field read writes.
+
+||| An implementation's field: the implementation's address and the
+||| field's index.
+ImplementationField : Type
+ImplementationField = (Address, Nat)
+
+||| How deep in the writer's parameter a record a field read takes apart
+||| is, where it is a part of the writer's own argument a root is read off
+||| (`Heads.byTemplate`): the parameter itself, 0 deep, or a field of the
+||| pair it is (`PartField k i 0`), one match deeper.
+recordDepth : Template -> Maybe Nat
+recordDepth (Var _ Z) = Just 0
+recordDepth (PartField _ _ Z) = Just 1
+recordDepth _ = Nothing
+
+||| A read, in a field's template, of field k of a record that is a part of
+||| the implementation's own argument `part` deep (`recordDepth`), `depth`
+||| heads down, with the implementations the record can be at the node.
+record PartRead where
+  constructor MkPartRead
+  depth : Nat
+  part : Nat
+  field : Nat
+  roots : List Address
+
+||| What a field's template asks of how much higher than its dictionary
+||| the field can be: at least `floor`, and as much as each read's field
+||| can be, raised by how much deeper than its record the read is written.
+record Asks where
+  constructor MkAsks
+  floor : Nat
+  reads : List PartRead
+
+bothAsks : Asks -> Asks -> Asks
+bothAsks x y = MkAsks (max x.floor y.floor) (x.reads ++ y.reads)
+
+mutual
+  ||| What a field's template asks, read e heads down, each record's roots
+  ||| as the node reads them where only implementations can be it
+  ||| (`Heads.headedRoots`); nothing where a part of it holds what no height
+  ||| of the dictionary bounds: a recursion, a family applied, a member the
+  ||| running program chooses, or a field of anything but a part of the
+  ||| implementation's own argument.
+  asksAt : (Template -> Maybe (List Address)) -> (e : Nat) -> Template -> Maybe Asks
+  asksAt rts e (Var _ d) = Just (MkAsks (minus e (S d)) [])
+  asksAt rts e (PartField _ _ d) = Just (MkAsks (minus e (S (S d))) [])
+  asksAt rts e (Leaf h) = Just (MkAsks (minus (e + h) 1) [])
+  asksAt rts e (Token _) = Just (MkAsks e [])
+  asksAt rts e (Formal _ _) = Just (MkAsks e [])
+  asksAt rts e (Head _ []) = Just (MkAsks e [])
+  asksAt rts e (Head _ ts@(_ :: _)) = asksAll rts (S e) ts
+  asksAt rts e (Choice _ ls) = asksAll rts e ls
+  asksAt rts e (Field k r) = case recordDepth r of
+    Just q => (\rs => MkAsks 0 [MkPartRead e q k rs]) <$> rts r
+    Nothing => Nothing
+  asksAt rts e (Opaque _ _) = Nothing
+  asksAt rts e (Applied _ _ _) = Nothing
+  asksAt rts e (Computing _ _ _) = Nothing
+  asksAt rts e (Member _) = Nothing
+
+  asksAll : (Template -> Maybe (List Address)) -> (e : Nat) -> List Template -> Maybe Asks
+  asksAll rts e [] = Just (MkAsks 0 [])
+  asksAll rts e (t :: ts) = bothAsks <$> asksAt rts e t <*> asksAll rts e ts
+
+||| An implementation's fields, numbered from 0, each with its template.
+numberedFields : Fields -> List (Nat, TemplateRead)
+numberedFields fields = numbered 0 (map (fst . fieldRead) fields.inOrder)
   where
     numbered : Nat -> List TemplateRead -> List (Nat, TemplateRead)
     numbered k [] = []
     numbered k (t :: ts) = (k, t) :: numbered (S k) ts
+
+||| A field that has a constant (`asksAt`): how much higher than its
+||| dictionary it can be, and the strongly connected component it lies in
+||| among those fields, by number.
+record Settled where
+  constructor MkSettled
+  constant : Nat
+  component : Nat
+
+||| Each field that has a constant, settled.
+Relative : Type
+Relative = SortedMap ImplementationField Settled
+
+||| A list less the element at a position, one shorter.
+without : (xs : List a) -> Fin (length xs) -> Subset (List a) (\ys => LT (length ys) (length xs))
+without (_ :: xs) FZ = Element xs reflexive
+without (x :: xs) (FS i) = let Element ys lt = without xs i in Element (x :: ys) (LTESucc lt)
+
+||| The elements of a list a test keeps, by position: no more than the list
+||| holds.
+kept : (xs : List a) -> (Fin (length xs) -> Bool) -> Subset (List a) (\ys => LTE (length ys) (length xs))
+kept [] keep = Element [] LTEZero
+kept (x :: xs) keep =
+  let Element ys le = kept xs (keep . FS) in
+  case keep FZ of
+    True => Element (x :: ys) (LTESucc le)
+    False => Element ys (lteSuccRight le)
+
+||| The elements of a list a test keeps, where it drops the one at
+||| position i: fewer than the list holds.
+keptWithout : (xs : List a) -> (keep : Fin (length xs) -> Bool) -> (i : Fin (length xs)) -> (0 _ : keep i = False) ->
+              Subset (List a) (\ys => LT (length ys) (length xs))
+keptWithout (x :: xs) keep FZ dropped = let Element ys le = kept xs (keep . FS) in Element ys (LTESucc le)
+keptWithout (x :: xs) keep (FS i) dropped =
+  let Element ys lt = keptWithout xs (keep . FS) i dropped in
+  case keep FZ of
+    True => Element (x :: ys) (LTESucc lt)
+    False => Element ys (lteSuccRight lt)
+
+||| The first position a reading misses at, with the evidence, or what it
+||| reads at every position, in order.
+firstMissed : (ps : List (Fin n)) -> (f : Fin n -> Maybe b) -> Either (i : Fin n ** f i = Nothing) (List b)
+firstMissed [] f = Right []
+firstMissed (p :: ps) f with (f p) proof missed
+  _ | Nothing = Left (p ** missed)
+  _ | Just x = (x ::) <$> firstMissed ps f
+
+||| Where a cause of growth leaves from: a cycle's first arc's source, a
+||| Stuck arc's.
+causeSource : {g : Graph} -> Cause g -> Fin g.size
+causeSource (Cycle (a :: _) _) = (arc g a).from
+causeSource (Cycle [] (Sums (Proof.Growth.Last _ _) _ _)) impossible
+causeSource (Cycle [] (Sums (Proof.Growth.Next _ _ _) _ _)) impossible
+causeSource (Unbounded a _) = (arc g a).from
+
+||| A field's reads, each root's field as its position among the fields:
+||| an arc from there into the field at position i, gaining how deep the
+||| read is written and losing one more than how deep its record is; or
+||| nothing, where a root's field is none of them.
+readArcs : SortedMap ImplementationField (Fin n) -> Vect n (ImplementationField, Asks) -> Fin n -> Maybe (List (Arc n))
+readArcs ix placed i = concat <$> traverse arcsOf (snd (index i placed)).reads
+  where
+    arcsOf : PartRead -> Maybe (List (Arc n))
+    arcsOf r = traverse (\j => (\from => MkArc from i (Measured r.depth (S r.part))) <$> lookup (j, r.field) ix) r.roots
+
+-- What a reading missed it does not keep.
+0 missedDropped : (m : Maybe b) -> m = Nothing -> isJust m = False
+missedDropped Nothing Refl = Refl
+
+||| The constants of the fields that ask only what their dictionary's
+||| height bounds, as the growth check's least potential over them, each
+||| floor a cap over a constant of 0. The fields one of whose reads' roots'
+||| fields has none are taken out together, and then a field on a cycle
+||| that gains, one at a time, until the rest have theirs.
+settleRelative : (fields : List (ImplementationField, Asks)) -> (0 _ : SizeAccessible fields) -> Relative
+settleRelative fields (Access rec) =
+  let ix = SortedMap.fromList (zip (map fst fields) (Proof.Growth.indices fields))
+      placed = Vect.fromList fields in
+  case firstMissed (Proof.Growth.indices fields) (readArcs ix placed) of
+    Left (i ** missed) =>
+      let Element rest shorter = keptWithout fields (\j => isJust (readArcs ix placed j)) i
+                                             (missedDropped (readArcs ix placed i) missed) in
+      settleRelative rest (rec rest shorter)
+    -- The graph written whole where it is checked, so that its size is
+    -- the fields' count in the types of what the check answers.
+    Right arcs =>
+      case checkSettled (MkGraph (length fields) (concat arcs) 0 (map (\x => Just (snd x).floor) placed)) of
+        (Check.Bounded pot _, found) =>
+          SortedMap.fromList (numberedIn 0 found >>= \(n, ms) => map (\m => (fst (index m placed), MkSettled (index m pot) n)) ms)
+        (Check.Grows (c ::: _), _) =>
+          let Element rest shorter = without fields (causeSource c) in settleRelative rest (rec rest shorter)
+  where
+    numberedIn : Nat -> List b -> List (Nat, b)
+    numberedIn k [] = []
+    numberedIn k (x :: xs) = (k, x) :: numberedIn (S k) xs
+
+||| Each walked implementation's field that has a constant, settled
+||| (`settleRelative`): it asks what each of its templates asks, one at
+||| each node of its implementation, and nothing where one asks what
+||| nothing bounds.
+relativeFields : Flow -> SortedMap Address (List Node) -> SortedMap Address Fields -> Relative
+relativeFields fl nodes fs =
+  let asked = foldl (\m, (p, a) => insertWith both p a m) SortedMap.empty
+                    (SortedMap.toList fs >>= \(j, fields) =>
+                       [ ((j, k), asksAt (headedRoots fl jn OwnOnly) 0 t.template)
+                       | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numberedFields fields ])
+      fields = mapMaybe (\(p, a) => map (MkPair p) a) (SortedMap.toList asked) in
+  settleRelative fields (sizeAccessible fields)
+  where
+    both : Maybe Asks -> Maybe Asks -> Maybe Asks
+    both (Just x) (Just y) = Just (bothAsks x y)
+    both _ _ = Nothing
+
+||| A read of field k of a record in field p's template, at node jn, that
+||| reaches p again: one of the fields its roots' field k is lies in p's
+||| component, and every one has a constant. The record raised by the most
+||| those constants are; nothing for any other read.
+throughOwn : Flow -> Relative -> ImplementationField -> Node -> Nat -> Template -> Maybe Nat
+throughOwn fl rel p jn k r = do
+  _ <- recordDepth r
+  rs <- headedRoots fl jn OwnOnly r
+  own <- SortedMap.lookup p rel
+  found <- traverse (\j => SortedMap.lookup (j, k) rel) rs
+  if any (\x => x.component == own.component) found then Just (foldl (\c, x => max c x.constant) 0 found) else Nothing
+
+||| A field read as a decision on it says: raised by a constant, or as it
+||| is.
+raisedField : Maybe Nat -> Nat -> Template -> Template
+raisedField Nothing k r = Field k r
+raisedField (Just c) k r = raise c r
+
+mutual
+  ||| A field's template, each read a decision raises written as its record
+  ||| raised, where the template writes it: under heads and among a
+  ||| choice's leaves; never in a record, which a read's roots are read
+  ||| off.
+  raisedReads : (Nat -> Template -> Maybe Nat) -> Template -> Template
+  raisedReads dec (Field k r) = raisedField (dec k r) k r
+  raisedReads dec (Head a ts) = Head a (allRaised dec ts)
+  raisedReads dec (Choice s ls) = Choice s (allRaised dec ls)
+  raisedReads dec (Var i d) = Var i d
+  raisedReads dec (PartField k i d) = PartField k i d
+  raisedReads dec (Leaf h) = Leaf h
+  raisedReads dec (Token k) = Token k
+  raisedReads dec (Formal j a) = Formal j a
+  raisedReads dec (Opaque a ts) = Opaque a ts
+  raisedReads dec (Applied i d ts) = Applied i d ts
+  raisedReads dec (Computing i d ts) = Computing i d ts
+  raisedReads dec (Member k) = Member k
+
+  allRaised : (Nat -> Template -> Maybe Nat) -> List Template -> List Template
+  allRaised dec [] = []
+  allRaised dec (t :: ts) = raisedReads dec t :: allRaised dec ts
+
+-- A read raised holds its record's recursions, as the read did.
+0 raisedFieldRecursions : (m : Maybe Nat) -> (k : Nat) -> (r : Template) -> recursions (raisedField m k r) = recursions r
+raisedFieldRecursions Nothing k r = Refl
+raisedFieldRecursions (Just c) k r = recursionsRaised c r
+
+mutual
+  -- A template with its reads raised holds the recursions it did, in their
+  -- order.
+  0 raisedRecursions : (dec : Nat -> Template -> Maybe Nat) -> (t : Template) -> recursions (raisedReads dec t) = recursions t
+  raisedRecursions dec (Field k r) = raisedFieldRecursions (dec k r) k r
+  raisedRecursions dec (Head a ts) = allRaisedRecursions dec ts
+  raisedRecursions dec (Choice s ls) = cong (recursions s ++) (allRaisedRecursions dec ls)
+  raisedRecursions dec (Var i d) = Refl
+  raisedRecursions dec (PartField k i d) = Refl
+  raisedRecursions dec (Leaf h) = Refl
+  raisedRecursions dec (Token k) = Refl
+  raisedRecursions dec (Formal j a) = Refl
+  raisedRecursions dec (Opaque a ts) = Refl
+  raisedRecursions dec (Applied i d ts) = Refl
+  raisedRecursions dec (Computing i d ts) = Refl
+  raisedRecursions dec (Member k) = Refl
+
+  0 allRaisedRecursions : (dec : Nat -> Template -> Maybe Nat) -> (ts : List Template) ->
+                          recursionsIn (allRaised dec ts) = recursionsIn ts
+  allRaisedRecursions dec [] = Refl
+  allRaisedRecursions dec (t :: ts) = cong2 (++) (raisedRecursions dec t) (allRaisedRecursions dec ts)
+
+-- What each implementation's fields write at their positions: at each
+-- walked node of the implementation, each field's template over the
+-- node's parameters, each read that reaches the field again through a
+-- part of the implementation's own argument raised (`throughOwn`), read
+-- where the node's families hold what lands at them (`siteRead`), into
+-- that field's position. A field read anywhere takes its value from
+-- there, so any other nested field read is arcs between these positions.
+fieldWritings : Flow -> Relative -> SortedMap Address (List Node) -> SortedMap Address Fields -> List (Writing e)
+fieldWritings fl rel nodes fs =
+  SortedMap.toList fs >>= \(j, fields) =>
+    [ MkWriting (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly)
+                (raisedReads (throughOwn fl rel (j, k) jn) t.template) (AtNode jn OwnOnly)
+                (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t)
+                (FieldDraws (raisedRecursions (throughOwn fl rel (j, k) jn) t.template))
+                (openLands {e} (InField fields.givenBy k t) Refl (raisedReads (throughOwn fl rel (j, k) jn) t.template))
+    | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numberedFields fields ]
 
 ------------------------------------------------------------------------------
 -- Held values
@@ -2838,7 +3134,7 @@ build main = do
   -- given, what each list of values a dictionary is given writes at its
   -- place's held positions, and what the walked sites' arguments write,
   -- the latest first: the order the check reads the arcs in.
-  let fixed = leadingWritings nodes leads ++ fieldWritings nodes entered.fields
+  let fixed = leadingWritings nodes leads ++ fieldWritings fl (relativeFields fl nodes entered.fields) nodes entered.fields
   let writtenBy : List (Node, List (Entry sited.entries, Reached Defined)) -> List (Writing sited.entries) ->
                   List (Writing sited.entries)
       writtenBy ws args =

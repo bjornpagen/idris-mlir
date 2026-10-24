@@ -617,16 +617,18 @@ floors : (g : Graph) -> Vect g.size Nat
 floors g = map (floorOf g.constant) g.caps
 
 ||| The arcs, read once, and the components settled callers first, from the
-||| caps' floors: the one fold that both `check` and `dagPotential` read,
-||| over tables whose places hold the graph's positions.
-settled : (g : Graph) -> Places g.size d -> (Sorted g d (everyArc g), State g d)
+||| caps' floors, with the components themselves: the one fold that both
+||| `check` and `dagPotential` read, over tables whose places hold the
+||| graph's positions.
+settled : (g : Graph) -> Places g.size d -> (Sorted g d (everyArc g), State g d, List (List (Fin g.size)))
 settled g pl =
   let arcs = sortArcs g pl (everyArc g) (lookUp g (everyArc g))
-      cs = counted 0 (components pl arcs.links)
+      found = components pl arcs.links
+      cs = counted 0 found
       -- 0 is no position's number in the end: `roots` visits every
       -- position, so every position is in a component.
       comp = foldl (\v, (k, ms) => foldl (\v', p => put pl p k v') v ms) (the (Table d Nat) (Every 0)) cs in
-  (arcs, foldl (settle g pl arcs comp) (MkState (tabled pl (floors g) (Every 0)) (Every False) []) cs)
+  (arcs, foldl (settle g pl arcs comp) (MkState (tabled pl (floors g) (Every 0)) (Every False) []) cs, found)
   where
     counted : Nat -> List a -> List (Nat, a)
     counted k [] = []
@@ -678,32 +680,44 @@ feasibleIn g pl t = case satisfyAllIn pl t g.arcs of
 ||| The potential over the components, before `check` rechecks it.
 export
 dagPotential : (g : Graph) -> Vect g.size Nat
-dagPotential g = let (d ** pl) = placesFor g.size in listed pl (snd (settled g pl)).pot
+dagPotential g = let (d ** pl) = placesFor g.size
+                     (_, st, _) = settled g pl in
+                 listed pl st.pot
 
-||| The verdict, with its certificate. Cycles come callers first, then the
-||| Stuck arcs in the arcs' order.
+||| The verdict on the components settled, with its certificate. Cycles
+||| come callers first, then the Stuck arcs in the arcs' order.
+verdictOf : (g : Graph) -> Places g.size d -> Sorted g d (everyArc g) -> State g d -> Verdict g
+verdictOf g pl arcs st = case (reverse st.cycles, arcs.stucks) of
+  (c :: rest, None _) => Grows (c ::: rest)
+  (c :: rest, Some ss) => Grows (c ::: rest ++ mapMaybe (cause pl st.reached) (forget ss))
+  -- With no growing component nothing is reached, so every Stuck arc is
+  -- a cause.
+  ([], Some ss) => Grows (map snd ss)
+  ([], None fin) => case feasibleIn g pl st.pot of
+    Yes f => Bounded (listed pl st.pot) f
+    -- The potential over the components is the least one when they are
+    -- right, so a failure here is this module's own bug, which the
+    -- exhaustive box shows. `heaviest` over every arc still answers with
+    -- a certificate, from a start no lower than the caps' floors, which
+    -- it only raises.
+    No _ =>
+      let start = raised (listed pl st.pot) (floors g) in
+      case heaviest g (everyArc g) fin start.fst of
+        Left (as ** pf) => Grows (Cycle as pf ::: [])
+        Right fitted =>
+          Bounded fitted.pot (everyFits fitted.fits
+                               (capsAbove (capsAbove (floorsHold g.constant g.caps) start.snd) fitted.above))
+
+||| The verdict, with its certificate, and the strongly connected
+||| components it settled, callers first, each its positions.
+export
+checkSettled : (g : Graph) -> (Verdict g, List (List (Fin g.size)))
+checkSettled g =
+  let (d ** pl) = placesFor g.size
+      (arcs, st, found) = settled g pl in
+  (verdictOf g pl arcs st, found)
+
+||| The verdict, with its certificate.
 export
 check : (g : Graph) -> Verdict g
-check g =
-  let (d ** pl) = placesFor g.size
-      (arcs, st) = settled g pl in
-  case (reverse st.cycles, arcs.stucks) of
-    (c :: rest, None _) => Grows (c ::: rest)
-    (c :: rest, Some ss) => Grows (c ::: rest ++ mapMaybe (cause pl st.reached) (forget ss))
-    -- With no growing component nothing is reached, so every Stuck arc is
-    -- a cause.
-    ([], Some ss) => Grows (map snd ss)
-    ([], None fin) => case feasibleIn g pl st.pot of
-      Yes f => Bounded (listed pl st.pot) f
-      -- The potential over the components is the least one when they are
-      -- right, so a failure here is this module's own bug, which the
-      -- exhaustive box shows. `heaviest` over every arc still answers with
-      -- a certificate, from a start no lower than the caps' floors, which
-      -- it only raises.
-      No _ =>
-        let start = raised (listed pl st.pot) (floors g) in
-        case heaviest g (everyArc g) fin start.fst of
-          Left (as ** pf) => Grows (Cycle as pf ::: [])
-          Right fitted =>
-            Bounded fitted.pot (everyFits fitted.fits
-                                 (capsAbove (capsAbove (floorsHold g.constant g.caps) start.snd) fitted.above))
+check g = fst (checkSettled g)
