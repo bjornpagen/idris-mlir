@@ -2893,6 +2893,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   reaches the op that opens it; no `writable` flag is written where claims
   are raised. The plan's Q5 (solved metavariables) waits on its unit W04
   and a new measure of R-META.
+- **C296** (2026-10-23; L17bf's question, under C127 and D112). The
+  checker's quoter is written in continuation-passing style, so a
+  depth-limited quote answers `TooDeep` as a value typed by its answer
+  (`Depth answer`: `Whole`, or `UpTo n` only at `Quoted`) with no per-node
+  test in the unlimited quote, no interface dictionary and no second
+  monad beside `Core`. Measured within 1% of the direct quoter installing
+  base on the stock host. D133's step 5 (binder scopes as data, read-back
+  by levels) rewrites the same module and keeps the style.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
