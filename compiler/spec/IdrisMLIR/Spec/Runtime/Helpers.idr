@@ -190,9 +190,6 @@ helpers =
   , MkRuntimeHelper (ident "crashMessageAt") (symbol "crash_message_at")
       ((TakesStr, ident "message") :: site) HelperNeverReturns
       (line "ends the program as a crash of the text a trusted library gave idris_crash, at its site")
-  , MkRuntimeHelper (ident "unreportableAt") (symbol "unreportable_at")
-      ((TakesInt64, ident "status") :: site) HelperNeverReturns
-      (line "ends the program as a crash at an exit whose status no parent could read")
   , MkRuntimeHelper (ident "outOfMemory") (symbol "out_of_memory")
       [] HelperNeverReturns
       (line "ends the program as out of memory, for a size no allocation can meet")

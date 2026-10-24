@@ -247,8 +247,8 @@ static_assert(Where<InAttributes>, "an attribute is a place a constant lives");
 // kind's with its sign or with zeros. No overload: a buffer and a pointer,
 // which no constant is; a truth, which no op of the runtime takes; a byte,
 // which only io.exit takes, an exit status its lowering narrows the op's
-// i64 to past the test that ends a status outside 0 to 255 as a crash, so
-// no constant of the op's operand is the runtime's byte.
+// i64 to, which the status's guard bounds, so no constant of the op's
+// operand is the runtime's byte.
 template <runtime::OperandKind Kind, Where W>
   requires(Kind == runtime::OperandKind::Str)
 std::optional<const idris_rt_str *> operandOf(W &where, const typename W::Operand &constant) {

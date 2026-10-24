@@ -124,7 +124,7 @@ inline m = Inline (inlineName m)
 ||| which is its operand or what the operand determines: a string's length,
 ||| a Double's bits. Its C++ name is `::idr::numeric::<name>`.
 public export
-data GuardCondition = DivisorNonzero | IndexInBounds | BytesInRange | LengthNonzero | BitsFinite
+data GuardCondition = DivisorNonzero | IndexInBounds | BytesInRange | LengthNonzero | BitsFinite | FitsByte
 
 ||| The name the C++ gives the condition's function object.
 public export
@@ -134,6 +134,7 @@ conditionName IndexInBounds = "InBounds"
 conditionName BytesInRange = "InRange"
 conditionName LengthNonzero = "Nonempty"
 conditionName BitsFinite = "Finite"
+conditionName FitsByte = "FitsByte"
 
 ------------------------------------------------------------------------------
 -- The laws

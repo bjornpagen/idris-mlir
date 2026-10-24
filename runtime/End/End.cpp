@@ -64,13 +64,6 @@ public:
     ++numbers;
     add(at, static_cast<size_t>(end - at));
   }
-  // A signed number: its minus sign, a piece of its own, then its
-  // magnitude's digits.
-  void signedNumber(int64_t value) noexcept {
-    if (value < 0)
-      add("-");
-    unsignedNumber(value < 0 ? 0 - static_cast<uint64_t>(value) : static_cast<uint64_t>(value));
-  }
 
   // `file:line:col: `, the site's place.
   void place(const Site &site) noexcept {
@@ -124,13 +117,6 @@ void say(Message &m, const Failed &ending) noexcept {
 void say(Message &m, const Said &ending) noexcept {
   m.place(ending.site);
   m.add(idris_rt_str_bytes(ending.message), ending.message->bytes);
-}
-
-void say(Message &m, const Unreportable &ending) noexcept {
-  m.place(ending.site);
-  m.add("exit status ");
-  m.signedNumber(ending.status);
-  m.add(" cannot be reported");
 }
 
 void say(Message &m, const OutOfMemory &) noexcept { m.add("out of memory"); }
@@ -260,7 +246,6 @@ template void end(const Returned &) noexcept;
 template void end(const Exited &) noexcept;
 template void end(const Failed &) noexcept;
 template void end(const Said &) noexcept;
-template void end(const Unreportable &) noexcept;
 template void end(const OutOfMemory &) noexcept;
 template void end(const MissingFeatures &) noexcept;
 template void end(const WrongPage &) noexcept;
@@ -301,17 +286,10 @@ extern "C" void idris_rt_crash_message_at(const idris_rt_str *message,
   rt::end::end(rt::end::Said{message, siteOf(function, file, line, column)});
 }
 
-// A crash at an exit whose status, outside 0 to 255, no parent could read:
-// the guard before the exit found it so, and names it.
-extern "C" void idris_rt_unreportable_at(int64_t status, const idris_rt_text *function,
-                                         const idris_rt_text *file, int32_t line, int32_t column) {
-  rt::end::end(rt::end::Unreportable{status, siteOf(function, file, line, column)});
-}
-
-// Base's exit, with a status a parent reads: a byte, since the lowering ends
-// an exit of any other status at its site first (idris_rt_unreportable_at)
-// and passes the rest as one. What the program wrote is written and its
-// files closed, and the process ends with it.
+// Base's exit, with a status a parent reads: a byte, since the exit's guard
+// ends any other status as a crash at its site first (idris_rt_crash_at)
+// and the lowering passes the rest as one. What the program wrote is
+// written and its files closed, and the process ends with it.
 extern "C" void idris_rt_exit(uint8_t status) { rt::end::end(rt::end::Exited{status}); }
 
 // Memory no allocation can meet, for a size the lowering found too large or

@@ -54,6 +54,11 @@ numeric::Known inRange(const llvm::APInt &offset, const llvm::APInt &count,
 numeric::Known inRange(const mlir::ConstantIntRanges &offset,
                        const mlir::ConstantIntRanges &count, const mlir::ConstantIntRanges &size);
 
+// A value that fits a byte: of its one value, or of its interval, unknown
+// where that is of no width.
+numeric::Known fitsByte(const llvm::APInt &value);
+numeric::Known fitsByte(const mlir::ConstantIntRanges &range);
+
 } // namespace idr::guards
 
 namespace idr {
@@ -106,6 +111,14 @@ numeric::Known CheckRangeOp::decide(W &where, llvm::ArrayRef<mlir::ConstantIntRa
   if (offset && count && size)
     return guards::inRange(*offset, *count, *size);
   return guards::inRange(ranges[0], ranges[1], ranges[2]);
+}
+
+template <fold::Where W>
+numeric::Known CheckByteOp::decide(W &where, llvm::ArrayRef<mlir::ConstantIntRanges> ranges,
+                                   llvm::ArrayRef<typename W::Operand> constants) {
+  if (std::optional<llvm::APInt> value = where.integerOf(constants[0]))
+    return guards::fitsByte(*value);
+  return guards::fitsByte(ranges[0]);
 }
 
 // What a handle's slot holds is the run's own state, but a handle that is

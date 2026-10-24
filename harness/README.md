@@ -63,7 +63,7 @@ in Programs.idr):
 | --- | --- |
 | `stdin` | the bytes on standard input; none |
 | `expected-stdout` | the bytes on standard output, exactly; none |
-| `expected-ending` | how the run ends, the specification's ending (`Facts.idr`): `returned`, `exited <n>`, `crashed <cause>`, `crashed said`, `crashed unreportable`, `out_of_memory`, `cannot_run <reason>`, `broken_pipe`, `internal_error <what>`; `returned` |
+| `expected-ending` | how the run ends, the specification's ending (`Facts.idr`): `returned`, `exited <n>`, `crashed <cause>`, `crashed said`, `out_of_memory`, `cannot_run <reason>`, `broken_pipe`, `internal_error <what>`; `returned` |
 | `expected-stderr` | the bytes on standard error, the runtime's `prog: fatal: ...` line for the ending among them; none |
 | `libm-lines` | stdout's line numbers that hold libm results, compared to a few ulp |
 

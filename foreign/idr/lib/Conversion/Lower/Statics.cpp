@@ -77,8 +77,8 @@ FailureOr<Statics> makeStatics(ProgramOp program, const Layouts &layouts) {
   atoms(program, layouts, data);
   program.walk(
       [&](ConstantOp constant) { data.constant(constant.getValue(), constant.getType()); });
-  // Every op that can crash says where (CrashSiteOpInterface): a crash, a
-  // guard, an exit whose status no parent can read.
+  // Every op that can crash says where (CrashSiteOpInterface): a crash or a
+  // guard.
   program.walk([&](CrashSiteOpInterface crash) { data.site(crash.getSite()); });
   uint32_t homes = 0;
   program.walk([&](LifetimeHomeOp home) {

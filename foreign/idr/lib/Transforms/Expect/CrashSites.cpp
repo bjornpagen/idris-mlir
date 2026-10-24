@@ -3,13 +3,12 @@
 // How many places of a function may crash, counted the same before
 // lowering and after it, for the contract crash-sites-not-added of every
 // function a pass kept. Before it, a place is an op whose own effects end
-// the run by a crash (idr.crash, a guard, which crashes when its condition
-// fails, an exit whose status may be unreportable), as the effect system's
-// one query reads its declaration; after it, each is a call of a function
-// that never returns. So a guard
-// lowered to one test and a crash, and the op it guards to no test of its
-// own, keeps the count, and a guard that folded, or a primitive that tests
-// again what its guard tested, changes it.
+// the run by a crash (idr.crash, or a guard, which crashes when its
+// condition fails), as the effect system's one query reads its
+// declaration; after it, each is a call of a function that never returns.
+// So a guard lowered to one test and a crash, and the op it guards to no
+// test of its own, keeps the count, and a guard that folded, or a primitive
+// that tests again what its guard tested, changes it.
 
 #include "idr/Transforms/Expect.h"
 

@@ -7,8 +7,8 @@
 ||| process by them alone; the frontend writes a cause on each crash site
 ||| and guard; the harness reads a case's expected ending as an `Ending`,
 ||| never as text parsed back. A parent sees an exit status of eight bits
-||| or a signal, so an `exit` of any other status is a crash at the exit's
-||| site, and an `Exited` holds a status by its type.
+||| or a signal, so an `exit` of any other status is a crash of its cause at
+||| the exit's site, and an `Exited` holds a status by its type.
 module IdrisMLIR.Spec.Runtime.Endings
 
 import IdrisMLIR.Spec.Core.Cpp
@@ -42,6 +42,7 @@ data Cause
   | NotAString
   | NoClauseMatched
   | SuspensionForcedItself
+  | ExitStatusOutOfRange
 
 ||| Whether a cause's message names the function its site lies in: a
 ||| missing clause is the function's, which the phrase then names; every
@@ -63,7 +64,7 @@ causeClosed = MkClosed
       DivisionByZero :::
       [ IndexOutOfBounds, StringIndexOutOfRange, HeadOfEmptyString, TailOfEmptyString
       , ByteRangeOutsideBuffer, NonFiniteCast, NotAString, NoClauseMatched
-      , SuspensionForcedItself ]
+      , SuspensionForcedItself, ExitStatusOutOfRange ]
   , complete = \case
       DivisionByZero => Here
       IndexOutOfBounds => There Here
@@ -75,6 +76,7 @@ causeClosed = MkClosed
       NotAString => There (There (There (There (There (There (There Here))))))
       NoClauseMatched => There (There (There (There (There (There (There (There Here)))))))
       SuspensionForcedItself => There (There (There (There (There (There (There (There (There Here))))))))
+      ExitStatusOutOfRange => There (There (There (There (There (There (There (There (There (There Here)))))))))
   , describe = \case
       DivisionByZero => MkCase (ident "DivisionByZero") (word "division_by_zero" ::: []) (line "division by zero")
       IndexOutOfBounds => MkCase (ident "IndexOutOfBounds") (word "index_out_of_bounds" ::: []) (line "array index out of bounds")
@@ -86,6 +88,7 @@ causeClosed = MkClosed
       NotAString => MkCase (ident "NotAString") (word "not_a_string" ::: []) (line "a pointer read as a string holds none")
       NoClauseMatched => MkCase (ident "NoClauseMatched") (word "no_clause_matched" ::: []) (line "no clause matched in")
       SuspensionForcedItself => MkCase (ident "SuspensionForcedItself") (word "suspension_forced_itself" ::: []) (line "a suspension forced itself")
+      ExitStatusOutOfRange => MkCase (ident "ExitStatusOutOfRange") (word "exit_status_out_of_range" ::: []) (line "exit status outside 0 to 255")
   , doc = brief (line "what a crash site of a program found false")
   }
 
@@ -193,11 +196,11 @@ internalTable = table internalClosed
 -- Endings and statuses
 ------------------------------------------------------------------------------
 
-||| What a crash is of: a cause of the closed set; the text a trusted
-||| library gave `idris_crash`; or an `exit` whose status no parent could
-||| read. Each is said at its site, which every crash has.
+||| What a crash is of: a cause of the closed set, or the text a trusted
+||| library gave `idris_crash`. Each is said at its site, which every crash
+||| has.
 public export
-data Crash = Failed Cause | Said | Unreportable
+data Crash = Failed Cause | Said
 
 ||| Every way a compiled program ends. The program returns from `main`,
 ||| exits with a status it may report, or crashes at a site; or the machine
@@ -277,7 +280,6 @@ data FixedEnding
   = EndsReturned
   | EndsFailed
   | EndsSaid
-  | EndsUnreportable
   | EndsOutOfMemory
   | EndsUnrunnable Unrunnable
 
@@ -304,7 +306,6 @@ way Returned = ByFixed EndsReturned
 way (Exited n) = ByChoice EndsExited n
 way (Crashed (Failed _)) = ByFixed EndsFailed
 way (Crashed Said) = ByFixed EndsSaid
-way (Crashed Unreportable) = ByFixed EndsUnreportable
 way OutOfMemory = ByFixed EndsOutOfMemory
 way (CannotRun u) = ByFixed (EndsUnrunnable u)
 way Piped = BySignal EndsPiped
@@ -315,7 +316,6 @@ fixedStatus : FixedEnding -> Fixed
 fixedStatus EndsReturned = ReturnedStatus
 fixedStatus EndsFailed = CrashedStatus
 fixedStatus EndsSaid = CrashedStatus
-fixedStatus EndsUnreportable = CrashedStatus
 fixedStatus EndsOutOfMemory = OutOfMemoryStatus
 fixedStatus (EndsUnrunnable _) = CannotRunStatus
 
@@ -337,7 +337,6 @@ fixedWrites : FixedEnding -> Writes
 fixedWrites EndsReturned = WritesEverything
 fixedWrites EndsFailed = WritesEverything
 fixedWrites EndsSaid = WritesEverything
-fixedWrites EndsUnreportable = WritesEverything
 fixedWrites EndsOutOfMemory = WritesEverything
 fixedWrites (EndsUnrunnable _) = WritesNothing
 
@@ -416,20 +415,18 @@ fixedEndingClosed = MkClosed
   , shape = OneOf
   , every =
       EndsReturned :::
-      ([EndsFailed, EndsSaid, EndsUnreportable, EndsOutOfMemory]
+      ([EndsFailed, EndsSaid, EndsOutOfMemory]
        ++ map EndsUnrunnable (forget unrunnableClosed.every))
   , complete = \case
       EndsReturned => Here
       EndsFailed => There Here
       EndsSaid => There (There Here)
-      EndsUnreportable => There (There (There Here))
-      EndsOutOfMemory => There (There (There (There Here)))
-      EndsUnrunnable u => There (There (There (There (There (elemMap EndsUnrunnable (unrunnableClosed.complete u))))))
+      EndsOutOfMemory => There (There (There Here))
+      EndsUnrunnable u => There (There (There (There (elemMap EndsUnrunnable (unrunnableClosed.complete u)))))
   , describe = \case
       EndsReturned => MkCase (ident "Returned") (word "returned" ::: []) (line "the program returned from main")
       EndsFailed => MkCase (ident "Failed") (word "failed" ::: []) (line "a crash of a cause of the closed set, at its site")
       EndsSaid => MkCase (ident "Said") (word "said" ::: []) (line "a crash of the text a trusted library gave idris_crash, at its site")
-      EndsUnreportable => MkCase (ident "Unreportable") (word "unreportable" ::: []) (line "a crash at an exit whose status no parent could read")
       EndsOutOfMemory => MkCase (ident "OutOfMemory") (word "out_of_memory" ::: []) (line "the machine ran out of memory")
       EndsUnrunnable u => unrunnableClosed.describe u
   , doc = brief (line "the endings that leave by a status no program chooses")

@@ -1951,6 +1951,22 @@ def Idr_CheckHoldsStringOp : Idr_Op<"check.holds_string", [
   }];
 }
 
+def Idr_CheckByteOp : Idr_Op<"check.byte", [
+    TypesMatchWith<"checked has the type of value", "value", "checked", "$_self">,
+    MemoryEffects<[MemWrite<Idr_CrashResource>]>,
+    Idr_DeclaredEffectsOpInterface,
+    Idr_GuardOpInterface
+  ]> {
+  let summary = "the value, which must be at least 0 and at most 255, else the program crashes";
+  let arguments = (ins I64:$value, EnumProp<Idr_CrashCause>:$cause, Idr_SiteAttr:$site);
+  let results = (outs I64:$checked);
+  let assemblyFormat = [{ $value `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
+  let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
+}
+
 def Idr_IoPutStrOp : Idr_Op<"io.put_str", [
     Idr_EliminatesOperandTrait,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>,
@@ -2034,14 +2050,14 @@ def Idr_IoNProcessorsOp : Idr_Op<"io.n_processors", [
 
 def Idr_IoExitOp : Idr_Op<"io.exit", [
     Terminator,
-    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>, MemWrite<Idr_ExitResource>, MemWrite<Idr_CrashResource>]>,
+    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>, MemWrite<Idr_ExitResource>]>,
     Idr_DeclaredEffectsOpInterface,
-    Idr_CrashSiteOpInterface
+    Idr_GuardedOp
   ]> {
   let summary = "writes pending output and ends the process with a status; does not return";
-  let arguments = (ins I64:$status, Idr_SiteAttr:$site);
+  let arguments = (ins I64:$status);
   let results = (outs);
-  let assemblyFormat = [{ $status `at` $site attr-dict }];
+  let assemblyFormat = [{ $status attr-dict `:` functional-type(operands, results) }];
 }
 
 def Idr_IoUnsafeRunOp : Idr_Op<"io.unsafe_run", [

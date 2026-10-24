@@ -105,6 +105,12 @@ Value fails(CheckRangeOp, Converted<CheckRangeOp> in, OpBuilder &b, Location loc
       .bit;
 }
 
+// A status no byte holds, which no parent could read.
+Value fails(CheckByteOp, Converted<CheckByteOp> in, OpBuilder &b, Location loc, Runtime &) {
+  numeric::Arith d(b, loc);
+  return d.negation(numeric::fitsByte(d, in.getValue().front())).bit;
+}
+
 // The crash is the guard's cause at the guard's site, both its own
 // properties, never read from its location.
 template <typename OpT>

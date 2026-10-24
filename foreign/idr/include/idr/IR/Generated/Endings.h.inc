@@ -46,6 +46,8 @@ enum class CrashCause : std::uint8_t {
   NoClauseMatched,
   // a suspension forced itself
   SuspensionForcedItself,
+  // exit status outside 0 to 255
+  ExitStatusOutOfRange,
 };
 
 // a bug of the compiler's or the runtime's, found as the program runs
@@ -110,8 +112,6 @@ enum class FixedEnding : std::uint8_t {
   Failed,
   // a crash of the text a trusted library gave idris_crash, at its site
   Said,
-  // a crash at an exit whose status no parent could read
-  Unreportable,
   // the machine ran out of memory
   OutOfMemory,
   // the processor lacks a feature the program was compiled to use
@@ -157,8 +157,8 @@ struct EnumTraits<::idr::endings::CauseNaming> {
 
 template <>
 struct EnumTraits<::idr::endings::CrashCause> {
-  static constexpr std::size_t count = 10;
-  static constexpr std::array<std::string_view, 10> names{{"division_by_zero", "index_out_of_bounds", "string_index_out_of_range", "head_of_empty_string", "tail_of_empty_string", "byte_range_outside_buffer", "non_finite_cast", "not_a_string", "no_clause_matched", "suspension_forced_itself"}};
+  static constexpr std::size_t count = 11;
+  static constexpr std::array<std::string_view, 11> names{{"division_by_zero", "index_out_of_bounds", "string_index_out_of_range", "head_of_empty_string", "tail_of_empty_string", "byte_range_outside_buffer", "non_finite_cast", "not_a_string", "no_clause_matched", "suspension_forced_itself", "exit_status_out_of_range"}};
 };
 
 template <>
@@ -193,8 +193,8 @@ struct EnumTraits<::idr::endings::Writes> {
 
 template <>
 struct EnumTraits<::idr::endings::FixedEnding> {
-  static constexpr std::size_t count = 7;
-  static constexpr std::array<std::string_view, 7> names{{"returned", "failed", "said", "unreportable", "out_of_memory", "missing_features", "wrong_page"}};
+  static constexpr std::size_t count = 6;
+  static constexpr std::array<std::string_view, 6> names{{"returned", "failed", "said", "out_of_memory", "missing_features", "wrong_page"}};
 };
 
 template <>
@@ -226,6 +226,7 @@ inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, std::string_view> 
     "a pointer read as a string holds none",
     "no clause matched in",
     "a suspension forced itself",
+    "exit status outside 0 to 255",
 }};
 
 // whether the site's function follows the phrase
@@ -239,6 +240,7 @@ inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, ::idr::endings::Ca
     ::idr::endings::CauseNaming::SiteAlone,
     ::idr::endings::CauseNaming::SiteAlone,
     ::idr::endings::CauseNaming::WithFunction,
+    ::idr::endings::CauseNaming::SiteAlone,
     ::idr::endings::CauseNaming::SiteAlone,
 }};
 
@@ -265,7 +267,6 @@ inline constexpr ::idr::EnumArray<::idr::endings::FixedEnding, ::idr::endings::F
     ::idr::endings::FixedStatus::Returned,
     ::idr::endings::FixedStatus::Crashed,
     ::idr::endings::FixedStatus::Crashed,
-    ::idr::endings::FixedStatus::Crashed,
     ::idr::endings::FixedStatus::OutOfMemory,
     ::idr::endings::FixedStatus::CannotRun,
     ::idr::endings::FixedStatus::CannotRun,
@@ -273,7 +274,6 @@ inline constexpr ::idr::EnumArray<::idr::endings::FixedEnding, ::idr::endings::F
 
 // what the ending writes before it says anything
 inline constexpr ::idr::EnumArray<::idr::endings::FixedEnding, ::idr::endings::Writes> fixedWrites{{
-    ::idr::endings::Writes::Everything,
     ::idr::endings::Writes::Everything,
     ::idr::endings::Writes::Everything,
     ::idr::endings::Writes::Everything,

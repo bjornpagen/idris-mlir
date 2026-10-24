@@ -81,8 +81,8 @@ struct EnumTraits<::idr::TokenScope> {
 
 template <>
 struct EnumTraits<::idr::CrashCause> {
-  static constexpr std::size_t count = 10;
-  static constexpr std::array<std::string_view, 10> names{{"division_by_zero", "index_out_of_bounds", "string_index_out_of_range", "head_of_empty_string", "tail_of_empty_string", "byte_range_outside_buffer", "non_finite_cast", "not_a_string", "no_clause_matched", "suspension_forced_itself"}};
+  static constexpr std::size_t count = 11;
+  static constexpr std::array<std::string_view, 11> names{{"division_by_zero", "index_out_of_bounds", "string_index_out_of_range", "head_of_empty_string", "tail_of_empty_string", "byte_range_outside_buffer", "non_finite_cast", "not_a_string", "no_clause_matched", "suspension_forced_itself", "exit_status_out_of_range"}};
 };
 
 template <>

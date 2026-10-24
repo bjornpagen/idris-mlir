@@ -109,6 +109,16 @@ numeric::Known guards::inRange(const ConstantIntRanges &offset, const ConstantIn
   return numeric::inRange(numeric::Intervals{}, offset, count, size).known;
 }
 
+numeric::Known guards::fitsByte(const APInt &value) {
+  return knownOf(numeric::fitsByte(numeric::Words{}, wordOf(value)));
+}
+
+numeric::Known guards::fitsByte(const ConstantIntRanges &range) {
+  if (!statesInteger(range))
+    return numeric::Known::Unknown;
+  return numeric::fitsByte(numeric::Intervals{}, range).known;
+}
+
 //===----------------------------------------------------------------------===//
 // Folding
 //===----------------------------------------------------------------------===//
@@ -143,6 +153,9 @@ OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
 }
 OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
   return holdsOf(*this, adaptor.getOperands()) ? OpFoldResult(getOffset()) : OpFoldResult();
+}
+OpFoldResult CheckByteOp::fold(FoldAdaptor adaptor) {
+  return holdsOf(*this, adaptor.getOperands()) ? OpFoldResult(getValue()) : OpFoldResult();
 }
 // Never folds: its condition never holds of a constant (its decide).
 OpFoldResult CheckHoldsStringOp::fold(FoldAdaptor) { return {}; }

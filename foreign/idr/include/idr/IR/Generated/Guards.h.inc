@@ -66,6 +66,11 @@ struct Guarded<::idr::StrHeadOp> {
 };
 
 template <>
+struct Guarded<::idr::IoExitOp> {
+  using Guards = std::tuple<::idr::Guard<::idr::CheckByteOp, 0>>;
+};
+
+template <>
 struct Guarded<::idr::HandleStringOp> {
   using Guards = std::tuple<::idr::Guard<::idr::CheckHoldsStringOp, 0>>;
 };

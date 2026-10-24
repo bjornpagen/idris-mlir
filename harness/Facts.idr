@@ -44,8 +44,8 @@ statusOf n = parsePositive {a = Nat} n >>= \k => natToFin k 256
 ||| internal errors', the signals'), and a number for an exit:
 |||
 |||     returned | exited <n> | crashed <cause> | crashed said
-|||     | crashed unreportable | out_of_memory | cannot_run <reason>
-|||     | broken_pipe | internal_error <internal>
+|||     | out_of_memory | cannot_run <reason> | broken_pipe
+|||     | internal_error <internal>
 |||
 ||| An ending names no site: a crash's site is in the runtime's line on
 ||| stderr, which the case commits whole (`expected-stderr`).
@@ -62,7 +62,6 @@ readEnding text = case words text of
   [w, x] => case caseOf fixedClosed w of
     Just CrashedStatus =>
       if x == "said" then Just (Crashed Said)
-      else if x == "unreportable" then Just (Crashed Unreportable)
       else Crashed . Failed <$> caseOf causeClosed x
     Just CannotRunStatus => CannotRun <$> caseOf unrunnableClosed x
     _ => if w == "internal_error" then InternalError <$> caseOf internalClosed x else Nothing

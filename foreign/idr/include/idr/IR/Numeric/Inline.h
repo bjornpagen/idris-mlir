@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The meaning of each op of inline arithmetic, written once over a numeric
 // domain (Domain.h): Idris's Euclidean division of a signed integer, its
-// total shifts, an integer as a Char, and the conditions of five guards. A
+// total shifts, an integer as a Char, and the conditions of six guards. A
 // meaning is a function of values; it never branches on a truth of its
 // domain, only selects on it, so every domain computes the same function.
 // The one choice made in C++ is a family constant (a signedness, a
@@ -188,6 +188,17 @@ constexpr typename D::Truth finite(const D &d, typename D::Value bits) {
   return d.negation(d.equal(d.bitAnd(bits, exponent), exponent));
 }
 
+// The values of a byte, as the exit's function takes a status: a
+// `uint8_t`, which is what a parent reads.
+inline constexpr std::int64_t byteValues = std::int64_t{UINT8_MAX} + 1;
+
+// A value fits a byte: at least 0 and below the byte's values. Read
+// unsigned, a negative value is past every byte, so one comparison is both.
+template <Domain D>
+constexpr typename D::Truth fitsByte(const D &d, typename D::Value v) {
+  return d.lessUnsigned(v, d.constant(byteValues, v));
+}
+
 //===----------------------------------------------------------------------===//
 // The meanings as function objects
 //===----------------------------------------------------------------------===//
@@ -275,6 +286,14 @@ struct Finite {
   template <Domain D>
   static constexpr typename D::Truth apply(const D &d, typename D::Value bits) {
     return finite(d, bits);
+  }
+};
+
+struct FitsByte {
+  static constexpr unsigned arity = 1;
+  template <Domain D>
+  static constexpr typename D::Truth apply(const D &d, typename D::Value v) {
+    return fitsByte(d, v);
   }
 };
 

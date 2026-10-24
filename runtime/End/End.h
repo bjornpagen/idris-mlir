@@ -65,13 +65,6 @@ struct Said {
   Site site;
 };
 
-// A crash at an exit whose status no parent could read, outside 0 to 255.
-struct Unreportable {
-  static constexpr idr::endings::FixedEnding kind = idr::endings::FixedEnding::Unreportable;
-  int64_t status;
-  Site site;
-};
-
 // The machine ran out of memory: the system refused memory (its address
 // space, its commit limit) or the host's limit, which the runtime keeps to,
 // was reached. No site: the language promises nothing of which allocation

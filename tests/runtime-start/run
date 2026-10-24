@@ -30,7 +30,6 @@ start exit-0
 start exit-255
 start crash
 start said
-start unreportable
 start memory
 start cpu
 start cpu-two

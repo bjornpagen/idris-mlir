@@ -10,9 +10,6 @@ crash: exit 1
 said: exit 1
   stdout | 42
   stderr | start: fatal: Main.idr:3:7: the text given
-unreportable: exit 1
-  stdout | 42
-  stderr | start: fatal: Main.idr:3:7: exit status 300 cannot be reported
 memory: exit 111
   stdout | 42
   stderr | start: fatal: out of memory

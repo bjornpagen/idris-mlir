@@ -73,10 +73,9 @@ siteSlot : Attr
 siteSlot = attr "site" (OurAttr (SomeAttr siteAttr))
 
 ||| `CrashSiteOpInterface`: the place in the source an op's crash is at,
-||| held by every op that can crash (a crash, a guard, an exit whose status
-||| no parent can read) in its site slot, whose generated accessor is the
-||| method. A reader of every site asks it, so it names no op and no
-||| attribute by name.
+||| held by every op that can crash (a crash, a guard) in its site slot,
+||| whose generated accessor is the method. A reader of every site asks it,
+||| so it names no op and no attribute by name.
 public export
 crashSiteInterface : InterfaceDef
 crashSiteInterface = MkInterfaceDef
@@ -328,6 +327,14 @@ holdsStringOp = guardOp "check.holds_string" [single "handle" i64] OwnCode reads
   [] []
   (says "the handle, which must hold a string, else the program crashes")
 
+||| A value that fits a byte, at least 0 and at most 255: an exit's status,
+||| which a parent reads as one. A status that does not is a crash of its
+||| cause at the exit's site, so `io.exit` itself is total.
+public export
+byteOp : Op 1 1 2 0
+byteOp = guardOp "check.byte" [single "value" i64] (OfTemplate FitsByte) endsByCrash [] []
+  (says "the value, which must be at least 0 and at most 255, else the program crashes")
+
 ||| The op of each kind of guard. A guard names its check by its kind, so
 ||| an op states its guards without depending on the guard ops, and the
 ||| harness reads each kind's condition by a match; this is the one place a
@@ -340,11 +347,12 @@ guardOpOf NonEmpty = nonemptyOp
 guardOpOf Finite = finiteOp
 guardOpOf Range = rangeOp
 guardOpOf HoldsString = holdsStringOp
+guardOpOf Byte = byteOp
 
 ||| Every kind of guard, once.
 public export
 everyGuardKind : List GuardKind
-everyGuardKind = [NonZero, InBounds, NonEmpty, Finite, Range, HoldsString]
+everyGuardKind = [NonZero, InBounds, NonEmpty, Finite, Range, HoldsString, Byte]
 
 -- The list holds every kind, so a kind added to the sum fails here until it
 -- is listed, and no guard op is left out of the dialect or the e-graph.
@@ -355,6 +363,7 @@ everyGuardKindListed NonEmpty = There (There Here)
 everyGuardKindListed Finite = There (There (There Here))
 everyGuardKindListed Range = There (There (There (There Here)))
 everyGuardKindListed HoldsString = There (There (There (There (There Here))))
+everyGuardKindListed Byte = There (There (There (There (There (There Here)))))
 
 ||| Every guard: the ops the e-graph's guard rules are rooted at, each rule
 ||| reading what it needs of a guard off the guard's own declaration.

@@ -21,7 +21,6 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -197,12 +196,10 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
   }
 };
 
-// An exit with a status no parent can read, outside 0 to 255, is a crash at
-// the exit's site, which only the site knows to name: the test is there,
-// the one test of a status, and a constant status folds it. Every other
-// status ends the run by the exit's own function, which takes the byte a
-// parent reads: past the test the status fits one, so its truncation drops
-// no set bit, and says so.
+// An exit ends the run by its own function, which takes the byte a parent
+// reads: the status's guard (idr.check.byte) bounds it to one, or a proof
+// that removed the guard does, so its truncation drops no set bit, and says
+// so.
 struct LowerExit : IdrPattern<IoExitOp> {
   LowerExit(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
             Runtime &runtime)
@@ -211,19 +208,8 @@ struct LowerExit : IdrPattern<IoExitOp> {
   LogicalResult matchAndRewrite(IoExitOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value status = adaptor.getStatus().front();
-    Value unreportable =
-        arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ugt, status,
-                              arith::ConstantIntOp::create(rewriter, loc, 255, 64));
-    auto check = scf::IfOp::create(rewriter, loc, unreportable, /*withElseRegion=*/false);
-    {
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(check.thenBlock());
-      SmallVector<Value> args{status};
-      llvm::append_range(args, runtime.siteOperands(rewriter, loc, op.getSite()));
-      runtime.call(rewriter, loc, idr::runtime::helper::unreportableAt, args).setCold(true);
-    }
-    Value byte = arith::TruncIOp::create(rewriter, loc, rewriter.getI8Type(), status,
+    Value byte = arith::TruncIOp::create(rewriter, loc, rewriter.getI8Type(),
+                                         adaptor.getStatus().front(),
                                          arith::IntegerOverflowFlags::nuw);
     runtime.call(rewriter, loc, idr::runtime::Abi<IoExitOp>::entry, byte);
     rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);

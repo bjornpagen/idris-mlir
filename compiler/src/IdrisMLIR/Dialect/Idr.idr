@@ -661,6 +661,12 @@ checkHoldsStringOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -
 checkHoldsStringOp cause' site' handle' =
   MkOp (MkOpName Dialect.Idr "check.holds_string") ([handle']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([handle'.type])
 
+||| `idr.check.byte`: the value, which must be at least 0 and at most 255, else the program crashes
+export
+checkByteOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Op
+checkByteOp cause' site' value' =
+  MkOp (MkOpName Dialect.Idr "check.byte") ([value']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([value'.type])
+
 ||| `idr.io.put_str`: writes a string to standard output
 export
 ioPutStrOp : Value -> Op
@@ -711,9 +717,10 @@ ioNProcessorsOp =
 
 ||| `idr.io.exit`: writes pending output and ends the process with a status; does not return
 export
-ioExitOp : MlirAttr -> Value -> Op
-ioExitOp site' status' =
-  MkOp (MkOpName Dialect.Idr "io.exit") ([status']) ([("site", site')]) ([]) [] ([])
+ioExitOp : Value -> Guarded
+ioExitOp status' =
+  Checking (MkOpName Dialect.Idr "check.byte") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 10) status' [] (\status' =>
+    Unguarded (MkOp (MkOpName Dialect.Idr "io.exit") ([status']) ([]) ([]) [] ([])))
 
 ||| `idr.io.unsafe_run`: runs a trusted library's IO action for a pure value where the value is demanded
 export

@@ -300,7 +300,7 @@ record Builder where
 ||| op could be told apart only by its mnemonic; `guardOpOf`, beside the
 ||| guard ops, maps each kind to its op by one total function.
 public export
-data GuardKind = NonZero | InBounds | NonEmpty | Finite | Range | HoldsString
+data GuardKind = NonZero | InBounds | NonEmpty | Finite | Range | HoldsString | Byte
 
 ||| How many operands a guard's op takes besides the one it checks: an index
 ||| is checked against what it indexes, a byte offset against the count of
@@ -315,6 +315,7 @@ guardOthers NonEmpty = 0
 guardOthers Finite = 0
 guardOthers Range = 2
 guardOthers HoldsString = 0
+guardOthers Byte = 0
 
 ||| A guard a partial op takes, an op of ours or an admitted upstream one,
 ||| which the frontend builds before the op from what the specification

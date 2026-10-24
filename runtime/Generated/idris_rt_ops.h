@@ -285,8 +285,6 @@ int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str
 IDRIS_RT_NORETURN void idris_rt_crash_at(int32_t cause, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
 // ends the program as a crash of the text a trusted library gave idris_crash, at its site
 IDRIS_RT_NORETURN void idris_rt_crash_message_at(const idris_rt_str *message, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
-// ends the program as a crash at an exit whose status no parent could read
-IDRIS_RT_NORETURN void idris_rt_unreportable_at(int64_t status, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
 // ends the program as out of memory, for a size no allocation can meet
 IDRIS_RT_NORETURN void idris_rt_out_of_memory(void);
 // a chain's first cursor, its first chunk at least the bytes its callee puts; null for a hint of 0

@@ -12,7 +12,6 @@
  *   exit-255       exit 255
  *   crash          a crash of a cause of the closed set, at a site
  *   said           a crash of a trusted library's text, at a site
- *   unreportable   an exit of 300, which no parent can read, at a site
  *   memory         running out of memory
  *   cpu, cpu-two   a processor that lacks one or two features the program
  *                  requires: refused before the body runs, and named */
@@ -60,8 +59,6 @@ static void body(void) {
   } else if (strcmp(mode, "said") == 0) {
     idris_rt_crash_message_at(idris_rt_str_from_utf8("the text given", 14), (void *)&function,
                               (void *)&file, 3, 7);
-  } else if (strcmp(mode, "unreportable") == 0) {
-    idris_rt_unreportable_at(300, (void *)&function, (void *)&file, 3, 7);
   } else if (strcmp(mode, "memory") == 0) {
     idris_rt_out_of_memory();
   }

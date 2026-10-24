@@ -599,6 +599,6 @@ effect binder ix l a gives vs res = do
       off' <- within (arg buf) (arg off) (arg count)
       written GivesOne (specOp readBytesOp [arg h, arg buf, off', arg count])
     acted Exits [status] = do
-      statement l (Idr.ioExitOp !(siteOf l) (arg status))
+      place l (Idr.ioExitOp (arg status))
       pure Nothing
     acted DoesNothing [] = pure (Just ActedNone)

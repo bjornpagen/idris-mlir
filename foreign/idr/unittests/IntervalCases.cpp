@@ -76,7 +76,8 @@ std::vector<std::uint64_t> edgesAt(unsigned w) {
   for (std::uint64_t point :
        {std::uint64_t{0}, std::uint64_t{1}, std::uint64_t{2}, ~std::uint64_t{0},
         ~std::uint64_t{0} - 1, least, least + 1, least + 2, least - 1, least - 2, least - 3,
-        width - 1, width, width + 1, std::uint64_t{0} - width, std::uint64_t{0xD7FF},
+        width - 1, width, width + 1, std::uint64_t{0} - width, std::uint64_t{0xFF},
+        std::uint64_t{0x100}, std::uint64_t{0xD7FF},
         std::uint64_t{0xD800}, std::uint64_t{0xDFFF}, std::uint64_t{0xE000},
         std::uint64_t{0x10FFFF}, std::uint64_t{0x110000}, std::uint64_t{1} << 32,
         (std::uint64_t{1} << 32) + 0x41})

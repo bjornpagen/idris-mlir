@@ -17,7 +17,6 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Shapes
-import IdrisMLIR.Spec.Ops.Checks
 
 import Data.List1
 -- `ioOp`'s and `bufferOp`'s automatic proofs are searched where they are written.
@@ -30,8 +29,8 @@ import Data.Vect
 -- Output and input
 ------------------------------------------------------------------------------
 
-||| An IO op of the runtime's function `io_<name>`, its results' types the
-||| ones their constraints fix.
+||| An IO op of the runtime function its call names (`io_<name>`, or the
+||| exit's `exit`), its results' types the ones their constraints fix.
 public export
 ioOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
     -> Declaration i o -> RuntimeCall i o -> Doc
@@ -146,36 +145,18 @@ nProcessorsOp = ioOp "io.n_processors" [] [result "count" i64] (outside Untouche
 
 ||| Writes pending output and ends the process with a status, normally: an
 ||| IO action that never returns, not a crash and not a divergence. A
-||| status no parent can read, outside 0 to 255, is a crash at the exit's
-||| site, so it writes the crash too, and carries its site: the lowering
-||| ends such a status there first, so the runtime is given a byte.
+||| status no parent can read, outside 0 to 255, is its guard's crash at
+||| the exit's site, so the exit itself is total and its function is given
+||| the byte its guard bounds.
 public export
-exitOp : Op 1 0 1 0
-exitOp = MkOp
-  { home = InIdr
-  , mnemonic = "io.exit"
-  , ins = [single "status" i64]
-  , outs = []
-  , attrs = [siteSlot]
-  , regions = []
-  , traits = [Terminator]
-  , interfaces = [Implements crashSiteInterface []]
-  , effects =
-      Executes [OnState Read IO, OnState Write IO, OnState Write Exit, OnState Write Crash] []
-        Covered Untouched
-  , speculation = NotSpeculatable
-  , stages = Always
-  , meaning = CallsRuntime (MkRuntimeCall "exit" [TakesUInt8] NeverReturns)
-  , verify = DeclarationOnly
-  , format = Declared [ValueOf (OperandRef 0), Lit "at", ValueOf (AttrRef 0), AttrDict]
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = says "writes pending output and ends the process with a status; does not return"
-  }
+exitOp : Op 1 0 0 0
+exitOp =
+  { traits := [Terminator]
+  , guards := [MkGuard Byte [0] ExitStatusOutOfRange] }
+  (ioOp "io.exit" [single "status" i64] []
+    (Executes [OnState Read IO, OnState Write IO, OnState Write Exit] [] Covered Untouched)
+    (MkRuntimeCall "exit" [TakesUInt8] NeverReturns)
+    (says "writes pending output and ends the process with a status; does not return"))
 
 export
 0 exitStops : Stops (effects IO.exitOp)

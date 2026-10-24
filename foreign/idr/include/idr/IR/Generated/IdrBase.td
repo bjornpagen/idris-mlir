@@ -293,7 +293,8 @@ def Idr_CrashCause : I32EnumAttr<"CrashCause", "what a crash site of a program f
     I32EnumAttrCase<"NonFiniteCast", 6, "non_finite_cast">,
     I32EnumAttrCase<"NotAString", 7, "not_a_string">,
     I32EnumAttrCase<"NoClauseMatched", 8, "no_clause_matched">,
-    I32EnumAttrCase<"SuspensionForcedItself", 9, "suspension_forced_itself">
+    I32EnumAttrCase<"SuspensionForcedItself", 9, "suspension_forced_itself">,
+    I32EnumAttrCase<"ExitStatusOutOfRange", 10, "exit_status_out_of_range">
   ]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;

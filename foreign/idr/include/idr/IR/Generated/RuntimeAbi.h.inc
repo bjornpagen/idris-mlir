@@ -790,8 +790,6 @@ inline constexpr std::array<OperandKind, 5> crashAtOperands{{OperandKind::Int32,
 inline constexpr Function crashAt{"idris_rt_crash_at", crashAtOperands, ResultKind::NoReturn};
 inline constexpr std::array<OperandKind, 5> crashMessageAtOperands{{OperandKind::Str, OperandKind::Pointer, OperandKind::Pointer, OperandKind::Int32, OperandKind::Int32}};
 inline constexpr Function crashMessageAt{"idris_rt_crash_message_at", crashMessageAtOperands, ResultKind::NoReturn};
-inline constexpr std::array<OperandKind, 5> unreportableAtOperands{{OperandKind::Int64, OperandKind::Pointer, OperandKind::Pointer, OperandKind::Int32, OperandKind::Int32}};
-inline constexpr Function unreportableAt{"idris_rt_unreportable_at", unreportableAtOperands, ResultKind::NoReturn};
 inline constexpr std::array<OperandKind, 0> outOfMemoryOperands{};
 inline constexpr Function outOfMemory{"idris_rt_out_of_memory", outOfMemoryOperands, ResultKind::NoReturn};
 inline constexpr std::array<OperandKind, 1> arenaOpenOperands{{OperandKind::Int64}};
@@ -825,7 +823,7 @@ inline constexpr Function ioPutBig{"idris_rt_io_put_big", ioPutBigOperands, Resu
 } // namespace helper
 
 // Every function of the runtime lowered code calls, each once.
-inline constexpr std::array<const Function *, 153> functions{{
+inline constexpr std::array<const Function *, 152> functions{{
     &Abi<::idr::IntHeadSOp>::entry,
     &Abi<::idr::IntHeadUOp>::entry,
     &Abi<::idr::F64ToIntOp>::entry,
@@ -963,7 +961,6 @@ inline constexpr std::array<const Function *, 153> functions{{
     &helper::strPutStr,
     &helper::crashAt,
     &helper::crashMessageAt,
-    &helper::unreportableAt,
     &helper::outOfMemory,
     &helper::arenaOpen,
     &helper::arenaChunk,

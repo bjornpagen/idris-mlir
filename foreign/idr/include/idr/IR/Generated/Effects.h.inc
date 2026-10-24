@@ -948,6 +948,14 @@ struct Declared<::idr::CheckHoldsStringOp> {
 };
 
 template <>
+struct Declared<::idr::CheckByteOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Write, ::idr::effects::ResourceId::Crash, ::idr::effects::Subject::op()}}};
+  using Rules = std::tuple<>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::IoPutStrOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 2> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}}};
@@ -1014,7 +1022,7 @@ struct Declared<::idr::IoNProcessorsOp> {
 template <>
 struct Declared<::idr::IoExitOp> {
   static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 4> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Exit, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Crash, ::idr::effects::Subject::op()}}};
+  static constexpr std::array<Static, 3> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Exit, ::idr::effects::Subject::op()}}};
   using Rules = std::tuple<>;
   static constexpr Bodies bodies = Bodies::Own;
 };

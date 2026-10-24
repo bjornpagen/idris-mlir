@@ -214,17 +214,15 @@ declaredRows = concatMap opRows declarations.ops
 crashName : Endings.Crash -> String
 crashName (Failed _) = "Failed"
 crashName Said = "Said"
-crashName Unreportable = "Unreportable"
 
 crashNames : List String
-crashNames = ["Failed", "Said", "Unreportable"]
+crashNames = ["Failed", "Said"]
 
 ||| Every crash's kind is listed, so a kind the specification adds is a
 ||| hole here, which the totality check refuses.
 0 listed : (c : Endings.Crash) -> Elem (crashName c) RuntimeEffects.crashNames
 listed (Failed _) = Here
 listed Said = There Here
-listed Unreportable = There (There Here)
 
 ||| Whether an ending of the run is a crash's or the exit's.
 data EndingKind = CrashEnding | ExitEnding
