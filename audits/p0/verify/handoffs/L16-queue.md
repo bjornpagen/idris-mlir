@@ -1305,3 +1305,10 @@ to L16ev. Waiting:
   read through `throughLinear`, a decision change); `linearPositionOf`'s
   uses-differ test can never fire (`lin.cast`'s verifier requires it,
   L05).
+- From L17bh (D133 step 4): a name the context resolves but the reading
+  did not read now reads as `NotDefined`, where `readIn` raised
+  `missedEntry`; a third `Definition` case ("resolved, not read") would
+  hold it in the type (`Idris.Host`'s API, with Template, Keys and State's
+  readers; L16 with L17, after L16ey). For review: §2.3's freeze is made
+  from the reading, since decoding is a `Core` action and freezing first
+  would decode every loaded entry (CB-4's cost).
