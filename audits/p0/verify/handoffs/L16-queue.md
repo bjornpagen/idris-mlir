@@ -934,3 +934,9 @@ askers in callersOf, Settle's removed proof). Waiting:
   results its decisions change is refused for later requests, which for an
   open key leaves a lost tail (an internal error at Graded); the nested-key
   floor closes one path, others unsearched (L18).
+- From L12aa (D7 landed): `unittests/Words.cpp` picks its cases by naming
+  `CmpIOp`, `TruncIOp` and `MaxSIOp` where it could read the facts
+  `wordOf` reads (L15); `Support/Remake.h`'s rule (an op's operand count
+  changes only where it has no segments) is broken by `FoldColumns`, as
+  before (L12); `Bufferize/Generating.cpp` states by hand, per op class,
+  whether an op reads its destinations (L12: an interface method or trait).
