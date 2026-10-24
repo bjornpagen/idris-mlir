@@ -274,7 +274,6 @@ buildDeps mainModule fname
          ok <- buildMods EmptyFC 1 (length mods) mods
          case ok of
               [] => do -- On success, reload the main ttc in a clean context
-                       clearCtxt; addPrimitives
                        put MD (initMetadata (PhysicalIdrSrc mainModule))
                        mainttc <- moduleFileName mainModule "ttc"
                        log "import" 10 $ "Reloading " ++ show mainttc ++ " from " ++ fname

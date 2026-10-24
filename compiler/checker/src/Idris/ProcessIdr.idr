@@ -10,6 +10,7 @@ import Core.Binary
 import Core.Directory
 import Core.Env
 import Core.Hash
+import Core.InitPrimitives
 import Core.Metadata
 import Core.Unify
 
@@ -156,7 +157,9 @@ readPrelude full
          setNS mainNS
 
 -- Import a TTC for use as the main file (e.g. at the REPL), and give the
--- module as the session read it. It is read under the module its path
+-- module as the session read it. It is read into a clean context, which
+-- holds the primitives alone, so it is the first module the context
+-- reads. It is read under the module its path
 -- names (`mainIdent`), which the locations of its terms name, as every
 -- module the session reads is under the module its locations name; read
 -- as its own namespace, its definitions are added under no alias, as when
@@ -167,9 +170,9 @@ readAsMain : {auto c : Ref Ctxt Defs} ->
              {auto s : Ref Syn SyntaxInfo} ->
              (mainIdent : ModuleIdent) -> (fname : String) -> Core Loaded
 readAsMain mainIdent fname
-    = do let loading = MkLoaded fname InBuild mainIdent True (miAsNamespace mainIdent)
-         Just (syn, _, more) <- readFromTTC {extra = SyntaxInfo} True EmptyFC loading
-              | Nothing => throw (InternalError "Already loaded")
+    = do clearCtxt; addPrimitives
+         let loading = MkLoaded fname InBuild mainIdent True (miAsNamespace mainIdent)
+         (syn, _, more) <- readTTCAs {extra = SyntaxInfo} True EmptyFC loading
 
          replNS <- getNS
          replNestedNS <- getNestedNS

@@ -38,21 +38,6 @@ TTC IFaceInfo where
            pure (MkIFaceInfo ic impps ps cs ms ds)
 
 export
-TTC Fixity where
-  toBuf InfixL = tag 0
-  toBuf InfixR = tag 1
-  toBuf Infix = tag 2
-  toBuf Prefix = tag 3
-
-  fromBuf
-      = case !getTag of
-             0 => pure InfixL
-             1 => pure InfixR
-             2 => pure Infix
-             3 => pure Prefix
-             _ => corrupt "Fixity"
-
-export
 TTC BindingModifier where
   toBuf NotBinding = tag 0
   toBuf Typebind = tag 1

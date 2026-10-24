@@ -14,6 +14,7 @@ import Libraries.Data.List.SizeOf
 import Libraries.Data.SnocList.SizeOf
 
 import Array
+import Data.Vect
 
 %default covering
 
@@ -220,15 +221,17 @@ mutual
            defs <- get Ctxt
            Just gdef <- lookupCtxtExact (Resolved idx) (gamma defs)
                 | _ => undefinedName fc n
-           -- The type is read only where the answer depends on it.
+           -- A solved metavariable is expanded, at quantity 0 only when its
+           -- type is defined elsewhere; one with no solution is checked as
+           -- a metavariable. The type is read only where the answer
+           -- depends on it.
+           solution <- metaSolution (definition gdef)
            expand <- branchZero
                        (do ty <- typeOf gdef
                            pure (case ty of
-                                      Erased {} => True -- defined elsewhere, need to expand
-                                      _ => False))
-                       (pure (case definition gdef of
-                                   PMDef {} => True
-                                   _ => False))
+                                      Erased {} => solution -- defined elsewhere, need to expand
+                                      _ => Nothing))
+                       (pure solution)
                        rig
            logC "quantity" 10 $ do
              def <- case definition gdef of
@@ -241,9 +244,10 @@ mutual
                          _ => pure ""
              pure (show rig ++ ": " ++ show n ++ " " ++ show fc ++ "\n"
                      ++ show def)
-           if expand
-              then expandMeta rig erase env n idx (definition gdef) args
-              else do gty <- typeOf gdef
+           case expand of
+              Just fn => lcheck rig erase env (expandMeta fc fn args)
+              Nothing =>
+                   do gty <- typeOf gdef
                       let ty : ClosedTerm
                              = case definition gdef of
                                     Hole {} => unusedHoleArgs args gty
@@ -461,34 +465,42 @@ mutual
                 List (vs ** (Env Term vs, Term vs, Term vs)) ->
                 Core (List ArgUsage)
   getArgUsage topfc rig ty pats
-      = do us <- traverse (getPUsage ty) pats
-           pure (map snd !(combine us))
+      = do let (_ ** tel) = telescope ty
+           us <- traverse (getPUsage tel) pats
+           case us of
+                [] => pure []
+                (u :: us) => pure (map snd (toList !(combine u us)))
     where
-      getCaseUsage : Term ns -> Env Term vs -> List (Term vs) ->
+      -- The type's arguments, each with its name and quantity: the one
+      -- coordinate every clause's usage is laid along, so the clauses'
+      -- usages have one length.
+      telescope : Term ns -> (k ** Vect k (Name, RigCount))
+      telescope (Bind _ n (Pi _ c _ _) sc)
+          = let (_ ** tel) = telescope sc in (_ ** (n, c) :: tel)
+      telescope _ = (_ ** [])
+
+      getCaseUsage : Vect k (Name, RigCount) -> Env Term vs -> List (Term vs) ->
                      Uses vs -> Term vs ->
-                     Core (List (Name, ArgUsage))
-      getCaseUsage ty env (As _ _ _ p :: args) uses rhs
-          = getCaseUsage ty env (p :: args) uses rhs
-      getCaseUsage (Bind _ n (Pi _ rig _ ty) sc) env (arg :: args) uses rhs
-          = if isLinear rig
-               then case arg of
-                         (Local _ _ idx p) =>
-                           do rest <- getCaseUsage sc env args uses rhs
-                              let used_in = uses !! binderOf (MkVar p)
-                              holeFound <- updateHoleUsage (isErased used_in) (MkVar p) [] rhs
-                              let ause = case used_in of
-                                              Rig0 => if holeFound then UseUnknown else Use0
-                                              _ => Use1
-                              pure ((n, ause) :: rest)
-                         _ => do elseCase
-               else elseCase
-          where
-            elseCase : Core (List (Name, ArgUsage))
-            elseCase = do rest <- getCaseUsage sc env args uses rhs
-                          pure $ if isErased rig
-                             then ((n, Use0) :: rest)
-                             else ((n, UseKeep) :: rest)
-      getCaseUsage tm env args uses rhs = pure []
+                     Core (Vect k (Name, ArgUsage))
+      getCaseUsage tel env (As _ _ _ p :: args) uses rhs
+          = getCaseUsage tel env (p :: args) uses rhs
+      getCaseUsage ((n, rig) :: tel) env (arg :: args) uses rhs
+          = case (isLinear rig, arg) of
+                 (True, Local _ _ idx p) =>
+                   do rest <- getCaseUsage tel env args uses rhs
+                      let used_in = uses !! binderOf (MkVar p)
+                      holeFound <- updateHoleUsage (isErased used_in) (MkVar p) [] rhs
+                      let ause = case used_in of
+                                      Rig0 => if holeFound then UseUnknown else Use0
+                                      _ => Use1
+                      pure ((n, ause) :: rest)
+                 _ => do rest <- getCaseUsage tel env args uses rhs
+                         pure $ if isErased rig
+                            then ((n, Use0) :: rest)
+                            else ((n, UseKeep) :: rest)
+      -- An argument no pattern of the clause binds keeps its quantity.
+      getCaseUsage tel env [] uses rhs = pure (map (\ (n, _) => (n, UseKeep)) tel)
+      getCaseUsage [] env (_ :: _) uses rhs = pure []
 
       checkUsageOK : FC -> RigCount -> Lazy Nat -> Name -> Bool -> RigCount -> Core ()
       checkUsageOK fc used named nm isloc rig
@@ -531,9 +543,9 @@ mutual
                                     ((multiplicity b) |*| rig)
                checkEnvUsage (s :< nm) rig env usage uses args tm
 
-      getPUsage : ClosedTerm -> (vs ** (Env Term vs, Term vs, Term vs)) ->
-                  Core (List (Name, ArgUsage))
-      getPUsage ty (_ ** (penv, lhs, rhs))
+      getPUsage : Vect k (Name, RigCount) -> (vs ** (Env Term vs, Term vs, Term vs)) ->
+                  Core (Vect k (Name, ArgUsage))
+      getPUsage tel (_ ** (penv, lhs, rhs))
           = do logEnv "quantity" 10 "Env" penv
                logTerm "quantity" 10 "LHS" lhs
                logTerm "quantity" 5 "Linear check in case RHS" rhs
@@ -542,7 +554,7 @@ mutual
                let args = getArgs lhs
                let uses = usesOf used
                checkEnvUsage [<] rig penv used uses args rhs'
-               ause <- getCaseUsage ty penv args uses rhs
+               ause <- getCaseUsage tel penv args uses rhs
                log "quantity" 10 $ "Arg usage: " ++ show ause
                pure ause
 
@@ -560,22 +572,20 @@ mutual
       combineUsage _ (n, UseUnknown) = pure (n, UseUnknown)
       combineUsage x y = pure x
 
-      combineUsages : List (Name, ArgUsage) -> List (Name, ArgUsage) ->
-                      Core (List (Name, ArgUsage))
+      combineUsages : Vect k (Name, ArgUsage) -> Vect k (Name, ArgUsage) ->
+                      Core (Vect k (Name, ArgUsage))
       combineUsages [] [] = pure []
       combineUsages (u :: us) (v :: vs)
           = do u' <- combineUsage u v
                us' <- combineUsages us vs
                pure (u' :: us')
-      combineUsages _ _ = throw (InternalError "Argument usage lists inconsistent")
 
-      combine : List (List (Name, ArgUsage)) ->
-                Core (List (Name, ArgUsage))
-      combine [] = pure []
-      combine [x] = pure x
-      combine (x :: xs)
-          = do xs' <- combine xs
-               combineUsages x xs'
+      combine : Vect k (Name, ArgUsage) -> List (Vect k (Name, ArgUsage)) ->
+                Core (Vect k (Name, ArgUsage))
+      combine x [] = pure x
+      combine x (y :: ys)
+          = do ys' <- combine y ys
+               combineUsages x ys'
 
   lcheckDef : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
@@ -627,31 +637,31 @@ mutual
       rigSafe a b = when (a < b)
                          (throw (LinearMisuse fc !(getFullName n) a b))
 
-  expandMeta : {vars : _} ->
-               {auto c : Ref Ctxt Defs} ->
-               {auto u : Ref UST UState} ->
-               RigCount -> (erase : Bool) -> Env Term vars ->
-               Name -> Int -> Def -> List (Term vars) ->
-               Core (Term vars, Glued vars, Usage vars)
-  expandMeta rig erase env n idx (PMDef _ [] body) args
+  ||| The term a metavariable is solved with, when it is solved: a
+  ||| definition of no arguments whose tree is a term.
+  metaSolution : Def -> Core (Maybe ClosedTerm)
+  metaSolution (PMDef _ [] body)
       = do STerm _ fn <- treeOf body
-               | ct => throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show ct))
-           tm <- substMeta fn (embed fn) args zero Subst.empty
-           lcheck rig erase env tm
+               | _ => pure Nothing
+           pure (Just fn)
+  metaSolution _ = pure Nothing
+
+  ||| A solved metavariable applied to its arguments, as the term its
+  ||| solution makes of them: each argument the solution abstracts
+  ||| substituted, and the rest applied to what that leaves.
+  expandMeta : {vars : _} ->
+               FC -> ClosedTerm -> List (Term vars) -> Term vars
+  expandMeta fc fn args = substMeta (embed fn) args zero Subst.empty
     where
-      -- The solution is given whole too, for the message.
       substMeta : {drop, vs : _} ->
-                  ClosedTerm -> Term (drop ++ vs) -> List (Term vs) ->
+                  Term (drop ++ vs) -> List (Term vs) ->
                   SizeOf drop -> SubstEnv drop vs ->
-                  Core (Term vs)
-      substMeta fn (Bind bfc n (Lam _ c e ty) sc) (a :: as) drop env
-          = substMeta fn sc as (suc drop) (a :: env)
-      substMeta fn (Bind bfc n (Let _ c val ty) sc) as drop env
-          = substMeta fn (subst val sc) as drop env
-      substMeta fn rhs [] drop env = pure (substs drop env rhs)
-      substMeta fn rhs _ _ _ = throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show fn))
-  expandMeta rig erase env n idx def _
-      = throw (InternalError ("Badly formed metavar solution " ++ show n ++ " " ++ show def))
+                  Term vs
+      substMeta (Bind bfc n (Lam _ c e ty) sc) (a :: as) drop env
+          = substMeta sc as (suc drop) (a :: env)
+      substMeta (Bind bfc n (Let _ c val ty) sc) as drop env
+          = substMeta (subst val sc) as drop env
+      substMeta rhs as drop env = apply fc (substs drop env rhs) as
 
   lcheckMeta : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->

@@ -257,8 +257,10 @@ checkTerm rig elabinfo nest env (IWithUnambigNames fc ns rhs) exp
     resolveNames fc [] = pure empty
     resolveNames fc ((nfc, n) :: ns) =
       case userNameRoot n of
-        -- should never happen
-        Nothing => throw $ InternalError $ "non-UN in \"with\" LHS: " ++ show n
+        -- The parser writes a user's name here, but a term an elaborator
+        -- script builds may hold any name: one that is no user's is
+        -- refused.
+        Nothing => throw $ GenericMsg nfc $ "A name made unambiguous by `with` is a name written by a user, which " ++ show n ++ " is not"
         Just nRoot => do
           -- this will always be a global name
           -- so we lookup only among the globals

@@ -10,6 +10,8 @@ import Core.Context.TTC
 
 import TTImp.TTImp
 
+import Idris.Syntax.Pragmas
+
 import Libraries.Data.NatSet
 import Libraries.Data.WithDefault
 
@@ -410,7 +412,8 @@ mutual
         = do tag 6; toBuf fc; toBuf n; toBuf lhs; toBuf rhs
     toBuf (IRunElabDecl fc tm)
         = do tag 7; toBuf fc; toBuf tm
-    toBuf (IPragma _ _ f) = throw (InternalError "Can't write Pragma")
+    toBuf (IPragma fc ns p)
+        = do tag 10; toBuf fc; toBuf ns; toBuf p
     toBuf (ILog n)
         = do tag 8; toBuf n
     toBuf (IBuiltin fc type name)
@@ -449,4 +452,91 @@ mutual
                        type <- fromBuf
                        name <- fromBuf
                        pure (IBuiltin fc type name)
+               10 => do fc <- fromBuf; ns <- fromBuf; p <- fromBuf
+                        pure (IPragma fc ns p)
                _ => corrupt "ImpDecl"
+
+  -- What a pragma does is data, so a pragma a definition holds (one in a
+  -- local block of an interface's default method) is written with it.
+  export
+  TTC Pragma where
+    toBuf (InterfacePragma vis cons n params dets con body)
+        = do tag 0; toBuf vis; toBuf cons; toBuf n; toBuf params
+             toBuf dets; toBuf con; toBuf body
+    toBuf (ImplementationPragma vis opts pass impls cons n ps named impName nusing body)
+        = do tag 1; toBuf vis; toBuf opts; toBuf pass; toBuf impls
+             toBuf cons; toBuf n; toBuf ps; toBuf named; toBuf impName
+             toBuf nusing; toBuf body
+    toBuf (HideNamePragma n) = do tag 2; toBuf n
+    toBuf (HideFixityPragma fx n) = do tag 3; toBuf fx; toBuf n
+    toBuf (UnhidePragma n) = do tag 4; toBuf n
+    toBuf (LazyPragma b) = do tag 5; toBuf b
+    toBuf (UnboundImplicitsPragma b) = do tag 6; toBuf b
+    toBuf (PrefixRecordProjectionsPragma b) = do tag 7; toBuf b
+    toBuf (NFMetavarThresholdPragma k) = do tag 8; toBuf k
+    toBuf (PairNamesPragma ty f s) = do tag 9; toBuf ty; toBuf f; toBuf s
+    toBuf (RewriteNamePragma eq rw) = do tag 10; toBuf eq; toBuf rw
+    toBuf (PrimIntegerPragma n) = do tag 11; toBuf n
+    toBuf (PrimStringPragma n) = do tag 12; toBuf n
+    toBuf (PrimCharPragma n) = do tag 13; toBuf n
+    toBuf (PrimDoublePragma n) = do tag 14; toBuf n
+    toBuf (PrimTTImpPragma n) = do tag 15; toBuf n
+    toBuf (PrimNamePragma n) = do tag 16; toBuf n
+    toBuf (PrimDeclsPragma n) = do tag 17; toBuf n
+    toBuf (CGActionPragma cg dir) = do tag 18; toBuf cg; toBuf dir
+    toBuf (NamesPragma n ns) = do tag 19; toBuf n; toBuf ns
+    toBuf (OverloadablePragma n) = do tag 20; toBuf n
+    toBuf (ExtensionPragma e) = do tag 21; toBuf e
+    toBuf (DefaultTotalityPragma tot) = do tag 22; toBuf tot
+
+    fromBuf
+        = case !getTag of
+               0 => do vis <- fromBuf; cons <- fromBuf; n <- fromBuf
+                       params <- fromBuf; dets <- fromBuf; con <- fromBuf
+                       body <- fromBuf
+                       pure (InterfacePragma vis cons n params dets con body)
+               1 => do vis <- fromBuf; opts <- fromBuf; pass <- fromBuf
+                       impls <- fromBuf; cons <- fromBuf; n <- fromBuf
+                       ps <- fromBuf; named <- fromBuf; impName <- fromBuf
+                       nusing <- fromBuf; body <- fromBuf
+                       pure (ImplementationPragma vis opts pass impls cons n ps named impName nusing body)
+               2 => HideNamePragma <$> fromBuf
+               3 => do fx <- fromBuf; n <- fromBuf
+                       pure (HideFixityPragma fx n)
+               4 => UnhidePragma <$> fromBuf
+               5 => LazyPragma <$> fromBuf
+               6 => UnboundImplicitsPragma <$> fromBuf
+               7 => PrefixRecordProjectionsPragma <$> fromBuf
+               8 => NFMetavarThresholdPragma <$> fromBuf
+               9 => do ty <- fromBuf; f <- fromBuf; s <- fromBuf
+                       pure (PairNamesPragma ty f s)
+               10 => do eq <- fromBuf; rw <- fromBuf
+                        pure (RewriteNamePragma eq rw)
+               11 => PrimIntegerPragma <$> fromBuf
+               12 => PrimStringPragma <$> fromBuf
+               13 => PrimCharPragma <$> fromBuf
+               14 => PrimDoublePragma <$> fromBuf
+               15 => PrimTTImpPragma <$> fromBuf
+               16 => PrimNamePragma <$> fromBuf
+               17 => PrimDeclsPragma <$> fromBuf
+               18 => do cg <- fromBuf; dir <- fromBuf
+                        pure (CGActionPragma cg dir)
+               19 => do n <- fromBuf; ns <- fromBuf
+                        pure (NamesPragma n ns)
+               20 => OverloadablePragma <$> fromBuf
+               21 => ExtensionPragma <$> fromBuf
+               22 => DefaultTotalityPragma <$> fromBuf
+               _ => corrupt "Pragma"
+
+  export
+  TTC Pass where
+    toBuf Single = tag 0
+    toBuf AsType = tag 1
+    toBuf AsDef = tag 2
+
+    fromBuf
+        = case !getTag of
+               0 => pure Single
+               1 => pure AsType
+               2 => pure AsDef
+               _ => corrupt "Pass"

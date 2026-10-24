@@ -604,9 +604,11 @@ checkClause {vars} mult vis totreq hashit n opts nest env
     bindWithArgs {xs} rig wvalTy (Just ((rigPrf, name), wval)) wvalEnv = do
       defs <- get Ctxt
 
+      -- The proof a `with` clause names is of `Builtin.Equal`, which the
+      -- prelude defines: a program that has no such type is refused.
       let eqName = NS builtinNS (knownUN KEqual)
       Just (TCon ar _ _ _ _ _ _) <- lookupDefExact eqName (gamma defs)
-        | _ => throw (InternalError "Cannot find builtin Equal")
+        | _ => throw (GenericMsg vfc "The proof a `with` clause names is of Builtin.Equal, which is not a type here")
       let eqTyCon = Ref vfc (TyCon ar) !(toResolvedNames eqName)
 
       let wargn : Name

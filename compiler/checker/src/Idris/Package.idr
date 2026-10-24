@@ -732,6 +732,12 @@ localPackageFile Nothing
          [] => throw $ UserError "No .ipkg file supplied and none could be found in the working directory."
          _ => throw $ UserError "No .ipkg file supplied and the working directory contains more than one."
 
+-- The package path given is no package file's.
+notPackageFile : String -> Core a
+notPackageFile file
+    = do coreLift $ putStrLn ("Packages must have an '.ipkg' extension: " ++ show file ++ ".")
+         coreLift (exitWith (ExitFailure 1))
+
 processPackage : {auto c : Ref Ctxt Defs} ->
                  {auto s : Ref Syn SyntaxInfo} ->
                  {auto o : Ref ROpts REPLOpts} ->
@@ -742,11 +748,12 @@ processPackage : {auto c : Ref Ctxt Defs} ->
 processPackage opts (cmd, mfile)
     = withCtxt . withSyn . withROpts $
           do file <- localPackageFile mfile
+             -- A path with no last part (empty, or a root) names no file,
+             -- so no package file: it has no '.ipkg' extension either.
              let Just (dir, filename) = splitParent file
-                 | _ => throw $ InternalError "Tried to split empty string"
+                 | Nothing => notPackageFile file
              let True = isSuffixOf ".ipkg" filename
-                 | _ => do coreLift $ putStrLn ("Packages must have an '.ipkg' extension: " ++ show file ++ ".")
-                           coreLift (exitWith (ExitFailure 1))
+                 | _ => notPackageFile file
              setWorkingDir dir
              pkg <- parsePkgFile True filename
              refuseUnsupported pkg

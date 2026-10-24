@@ -506,22 +506,19 @@ updateFExports ((n, conv) :: ns)
 -- The module is given as the session records it once read (`Loaded`): its
 -- file and where the search found it, the module, whether it is imported
 -- as public and the namespace it is imported as. The caller made that
--- record from what it resolved, and holds the one recorded.
+-- record from what it resolved, and holds the one recorded. The session
+-- has not read the module as it is read here: `readFromTTC` decides that,
+-- and a reader of a context it has just cleared knows it.
 export
-readFromTTC : TTC extra =>
-              {auto c : Ref Ctxt Defs} ->
-              {auto u : Ref UST UState} ->
-              Bool -> -- set nested namespaces (for records, to use at the REPL)
-              FC ->
-              Loaded ->
-              Core (Maybe (extra, Int, List Import))
-readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
+readTTCAs : TTC extra =>
+            {auto c : Ref Ctxt Defs} ->
+            {auto u : Ref UST UState} ->
+            Bool -> -- set nested namespaces (for records, to use at the REPL)
+            FC ->
+            Loaded ->
+            Core (extra, Int, List Import)
+readTTCAs nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
     = do defs <- get Ctxt
-         -- If it's already in the context, with the same visibility flag,
-         -- don't load it again (we do need to load it again if it's visible
-         -- this time, because we need to reexport the dependencies.)
-         let False = any (sameRead modNS reexp importAs) (allImported defs)
-              | True => pure Nothing
          put Ctxt ({ allImported $= (loading ::) } defs)
 
          Right buffer <- coreLift $ readFromFile fname
@@ -537,7 +534,7 @@ readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
          if alreadyDone modNS importAs (allImported defs)
             then do ttc <- readTTCFile False fname as bin
                     let ex = extraData ttc
-                    pure (Just (ex, ifaceHash ttc, imported ttc))
+                    pure (ex, ifaceHash ttc, imported ttc)
             else do
                ttc <- readTTCFile True fname as bin
                let ex = extraData ttc
@@ -565,11 +562,8 @@ readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
                -- Finally, update the unification state with the holes from the
                -- ttc
                update UST { nextName := nextVar ttc }
-               pure (Just (ex, ifaceHash ttc, imported ttc))
+               pure (ex, ifaceHash ttc, imported ttc)
   where
-    sameRead : ModuleIdent -> Bool -> Namespace -> Loaded -> Bool
-    sameRead m r a l = l.ident == m && l.reexported == r && l.readAs == a
-
     alreadyDone : ModuleIdent -> Namespace -> List Loaded -> Bool
     alreadyDone modns importAs [] = False
       -- If we've already imported 'modns' as 'importAs', or we're importing
@@ -579,6 +573,28 @@ readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
         = (modns == l.ident && importAs == l.readAs)
           || (modns == l.ident && miAsNamespace modns == importAs)
           || alreadyDone modns importAs rest
+
+-- A module's TTC read as `readTTCAs` reads it, unless the session has
+-- already read it as it is read here.
+export
+readFromTTC : TTC extra =>
+              {auto c : Ref Ctxt Defs} ->
+              {auto u : Ref UST UState} ->
+              Bool -> -- set nested namespaces (for records, to use at the REPL)
+              FC ->
+              Loaded ->
+              Core (Maybe (extra, Int, List Import))
+readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
+    = do defs <- get Ctxt
+         -- If it's already in the context, with the same visibility flag,
+         -- don't load it again (we do need to load it again if it's visible
+         -- this time, because we need to reexport the dependencies.)
+         let False = any (sameRead modNS reexp importAs) (allImported defs)
+              | True => pure Nothing
+         Just <$> readTTCAs nestedns loc loading
+  where
+    sameRead : ModuleIdent -> Bool -> Namespace -> Loaded -> Bool
+    sameRead m r a l = l.ident == m && l.reexported == r && l.readAs == a
 
 -- Implements a portion of @readTTCFile@. The fields must be read in order.
 -- This reads everything up to and including `totalReq`.

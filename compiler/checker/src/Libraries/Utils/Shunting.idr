@@ -8,25 +8,30 @@ import Core.FC
 
 %default total
 
--- The shunting yard algorithm turns a list of tokens with operators into
--- a parse tree expressing the precedence and associativity correctly.
--- We assume that brackets, functions etc are dealt with in a higher level
--- parser, so we're only dealing with operators here.
+-- The shunting yard algorithm turns operators and their operands, as
+-- written, into a parse tree expressing the precedence and associativity
+-- correctly. We assume that brackets, functions etc are dealt with in a
+-- higher level parser, so we're only dealing with operators here.
 
--- Precedences/associativities
+||| An infix operator's precedence and associativity.
 public export
-data OpPrec
+data InfixPrec
           = AssocL Nat
           | AssocR Nat
           | NonAssoc Nat
-          | Prefix Nat
 
--- Tokens are either operators or already parsed expressions in some
--- higher level language
+||| Operators and operands as written: an operand alone, an operand followed
+||| by an infix operator and what follows it, or a prefix operator applied
+||| to what follows it. An infix operator holds its own kind of operator
+||| (`iop`), a prefix one its own (`pop`), and every operator has its
+||| operands where it needs them, so a chain shunts to one tree.
 public export
-data Tok : (op, a : Type) ->  Type where
-    Op : (expressionLoc : FC) -> (operatorLoc : FC) -> (operatorInfo : op) -> OpPrec -> Tok op a
-    Expr : a -> Tok op a
+data Chain : (iop, pop, a : Type) -> Type where
+  Operand : a -> Chain iop pop a
+  InfixOp : a -> (expressionLoc, operatorLoc : FC) -> iop -> InfixPrec ->
+            Chain iop pop a -> Chain iop pop a
+  PrefixOp : (expressionLoc, operatorLoc : FC) -> pop -> (prec : Nat) ->
+             Chain iop pop a -> Chain iop pop a
 
 -- The result of shunting is a parse tree with the precedences made explicit
 -- in the tree.
@@ -38,104 +43,97 @@ data Tok : (op, a : Type) ->  Type where
 -- there's a better way though!
 
 public export
-data Tree op a = Infix FC FC op (Tree op a) (Tree op a)
-               | Pre FC FC op (Tree op a)
-               | Leaf a
-
-public export
-Bifunctor Tree where
-  bimap f g (Infix fc fc1 x y z) = Infix fc fc1 (f x) (bimap f g y) (bimap f g z)
-  bimap f g (Pre fc fc1 x y) = Pre fc fc1 (f x) (bimap f g y)
-  bimap f g (Leaf x) = Leaf (g x)
+data Tree iop pop a = Infix FC FC iop (Tree iop pop a) (Tree iop pop a)
+                    | Pre FC FC pop (Tree iop pop a)
+                    | Leaf a
 
 export
-(Show op, Show a) => Show (Tree op a) where
+(Show iop, Show pop, Show a) => Show (Tree iop pop a) where
   show (Infix _ _ op l r) = "(" ++ show op ++ " " ++ show l ++ " " ++ show r ++ ")"
   show (Pre _ _ op l) = "(" ++  show op ++ " " ++ show l ++ ")"
   show (Leaf val) = show val
 
-Show OpPrec where
-  show (AssocL p) = "infixl " ++ show p
-  show (AssocR p) = "infixr " ++ show p
-  show (NonAssoc p) = "infix " ++ show p
-  show (Prefix p) = "prefix " ++ show p
+-- The operators read and not yet applied, the most recent first: an infix
+-- one with the tree of its left operand, a prefix one waiting for its
+-- operand. The trees still to be combined are each held by the operator
+-- that combines them, so no operator can lack an operand.
+data Pending : (iop, pop, a : Type) -> Type where
+  Start : Pending iop pop a
+  PendingInfix : Pending iop pop a -> (expressionLoc, operatorLoc : FC) ->
+                 iop -> InfixPrec -> (left : Tree iop pop a) -> Pending iop pop a
+  PendingPrefix : Pending iop pop a -> (expressionLoc, operatorLoc : FC) ->
+                  pop -> (prec : Nat) -> Pending iop pop a
 
-export
-(Show op, Show a) => Show (Tok op a) where
-  show (Op _ _ op p) = show op ++ " " ++ show p
-  show (Expr val) = show val
-
--- The output queue is threaded through the algorithm as a value: a stack
--- of the trees built so far, the most recent first.
-output : List (Tree op a) -> Tok op a ->
-         Core (List (Tree op a))
-output [] (Op {}) = throw (InternalError "Invalid input to shunting")
-output (x :: stk) (Op loc opFC str (Prefix _)) = pure $ Pre loc opFC str x :: stk
-output (x :: y :: stk) (Op loc opFC str _) = pure $ Infix loc opFC str y x :: stk
-output stk (Expr a) = pure $ Leaf a :: stk
-output _ _ = throw (InternalError "Invalid input to shunting")
-
-getPrec : OpPrec -> Nat
+getPrec : InfixPrec -> Nat
 getPrec (AssocL k) = k
 getPrec (AssocR k) = k
 getPrec (NonAssoc k) = k
-getPrec (Prefix k) = k
 
-isLAssoc : OpPrec -> Bool
+isLAssoc : InfixPrec -> Bool
 isLAssoc (AssocL _) = True
 isLAssoc _ = False
 
--- Return whether the first operator should be applied before the second.
 -- Interpolation to show the operator naked, show to print the operator with its location
-higher : Interpolation op => (showLoc : Show op) => FC -> op -> OpPrec -> op -> OpPrec -> Core Bool
-higher loc opx op opy (Prefix p) = pure False
+nonAssociative : Interpolation op => (showLoc : Show op) => FC -> op -> Error
+nonAssociative loc op
+    = GenericMsgSol loc "Operator \{op} is non-associative" "Possible solutions"
+                        [ "Add brackets around every use of \{op}"
+                        , "Change the fixity of \{show op} to `infixl` or `infixr`"]
+
+-- Return whether the pending infix operator should be applied before the
+-- one read after it.
+higher : Interpolation op => (showLoc : Show op) => FC -> op -> InfixPrec -> op -> InfixPrec -> Core Bool
 higher loc opx (NonAssoc x) opy oy
     = if x == getPrec oy
-         then throw (GenericMsgSol loc "Operator \{opx} is non-associative" "Possible solutions"
-                                       [ "Add brackets around every use of \{opx}"
-                                       , "Change the fixity of \{show opx} to `infixl` or `infixr`"])
+         then throw (nonAssociative loc opx)
          else pure (x > getPrec oy)
 higher loc opx ox opy (NonAssoc y)
     = if getPrec ox == y
-         then throw (GenericMsgSol loc "Operator \{opy} is non-associative" "Possible solutions"
-                                       [ "Add brackets around every use of \{opy}"
-                                       , "Change the fixity of \{show opy} to `infixl` or `infixr`"])
+         then throw (nonAssociative loc opy)
          else pure (getPrec ox > y)
 higher loc opl l opr r
     = pure $ (getPrec l > getPrec r) ||
              ((getPrec l == getPrec r) && isLAssoc l)
 
-processStack : Interpolation op => (showLoc : Show op) =>
-               List (Tree op a) ->
-               List (FC, FC, op, OpPrec) -> op -> OpPrec ->
-               Core (List (Tree op a), List (FC, FC, op, OpPrec))
-processStack out [] op prec = pure (out, [])
-processStack out (x@(loc, opFC, opx, sprec) :: xs) opy prec
-    = if !(higher loc opx sprec opy prec)
-         then do out' <- output out (Op loc opFC opx sprec)
-                 processStack out' xs opy prec
-         else pure (out, x :: xs)
+-- Return whether the pending prefix operator, of precedence `x`, should be
+-- applied before the infix one read after it.
+higherPrefix : Interpolation op => (showLoc : Show op) => FC -> Nat -> op -> InfixPrec -> Core Bool
+higherPrefix loc x opy (NonAssoc y)
+    = if x == y
+         then throw (nonAssociative loc opy)
+         else pure (x > y)
+higherPrefix loc x opy r = pure (x > getPrec r)
 
-shunt : Interpolation op => (showLoc : Show op) =>
-        List (Tree op a) ->
-        (opstk : List (FC, FC, op, OpPrec)) ->
-        List (Tok op a) -> Core (Tree op a)
-shunt out stk (Expr x :: rest)
-    = do out' <- output out (Expr x)
-         shunt out' stk rest
-shunt out stk (Op loc opFC op prec :: rest)
-    = do (out', stk') <- processStack out stk op prec
-         shunt out' ((loc, opFC, op, prec) :: stk') rest
-shunt out stk []
-    = do [tree] <- emitAll out stk
-             | _ => throw (InternalError "Invalid input to shunting")
-         pure tree
-  where
-    emitAll : List (Tree op a) -> List (FC, FC, op, OpPrec) -> Core (List (Tree op a))
-    emitAll out [] = pure out
-    emitAll out ((loc, opFC, op, prec) :: ops)
-        = emitAll !(output out (Op loc opFC op prec)) ops
+-- Apply the pending operators that bind tighter than the infix one just
+-- read to the tree just read, its left operand.
+reduce : Interpolation iop => (showLoc : Show iop) =>
+         Pending iop pop a -> Tree iop pop a -> iop -> InfixPrec ->
+         Core (Pending iop pop a, Tree iop pop a)
+reduce Start t opy prec = pure (Start, t)
+reduce stk@(PendingInfix rest loc opFC opx sprec l) t opy prec
+    = if !(higher loc opx sprec opy prec)
+         then reduce rest (Infix loc opFC opx l t) opy prec
+         else pure (stk, t)
+reduce stk@(PendingPrefix rest loc opFC opx x) t opy prec
+    = if !(higherPrefix loc x opy prec)
+         then reduce rest (Pre loc opFC opx t) opy prec
+         else pure (stk, t)
+
+-- Apply every pending operator to the last tree read.
+close : Pending iop pop a -> Tree iop pop a -> Tree iop pop a
+close Start t = t
+close (PendingInfix rest loc opFC op _ l) t = close rest (Infix loc opFC op l t)
+close (PendingPrefix rest loc opFC op _) t = close rest (Pre loc opFC op t)
+
+shunt : Interpolation iop => (showLoc : Show iop) =>
+        Pending iop pop a -> Chain iop pop a -> Core (Tree iop pop a)
+shunt stk (Operand x) = pure (close stk (Leaf x))
+shunt stk (PrefixOp loc opFC op x rest)
+    = shunt (PendingPrefix stk loc opFC op x) rest
+shunt stk (InfixOp x loc opFC op prec rest)
+    = do (stk', left) <- reduce stk (Leaf x) op prec
+         shunt (PendingInfix stk' loc opFC op prec left) rest
 
 export
-parseOps : Interpolation op => (showLoc : Show op) => List (Tok op a) -> Core (Tree op a)
-parseOps toks = shunt [] [] toks
+parseOps : Interpolation iop => (showLoc : Show iop) => Chain iop pop a -> Core (Tree iop pop a)
+parseOps = shunt Start

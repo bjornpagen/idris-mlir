@@ -11,6 +11,7 @@ import Idris.Syntax
 
 import TTImp.BindImplicits
 import TTImp.Elab.Check
+import TTImp.ProcessData
 import TTImp.TTImp
 import TTImp.TTImp.Functor
 import TTImp.TTImp.Traversals
@@ -20,6 +21,7 @@ import TTImp.Utils
 import Libraries.Data.WithDefault
 
 import Data.String
+import Data.Vect
 
 %default covering
 
@@ -58,10 +60,8 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
          params <- preElabAsData tn
          log "declare.record.parameters" 100 $
            unlines ("New list of parameters:" :: map (("  " ++) . displayParam) params)
-         elabAsData tn conName params
+         conty <- elabAsData tn conName params
          defs <- get Ctxt
-         Just conty <- lookupTyExact conName (gamma defs)
-             | Nothing => throw (InternalError ("Adding " ++ show tn ++ "failed"))
 
          -- #1404
          whenJust mbtot $ \tot => do
@@ -145,26 +145,25 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
              let dataTy = IBindHere fc (PI erased) !(bindTypeNames fc [] (toList vars) (mkDataTy fc params0))
              defs <- get Ctxt
              -- Create a forward declaration if none exists
-             when (isNothing !(lookupTyExact tn (gamma defs))) $ do
-               let dt = MkImpLater fc tn dataTy
-               log "declare.record" 10 $ "Pre-declare record data type: \{show dt}"
-               processDecl [] nest env (IData fc def_vis mbtot dt)
-             defs <- get Ctxt
-             Just ty <- lookupTyExact tn (gamma defs)
-               | Nothing => throw (InternalError "Missing data type \{show tn}, despite having just declared it!")
+             ty <- case !(lookupTyExact tn (gamma defs)) of
+               Just ty => pure ty
+               Nothing => do
+                 log "declare.record" 10 $ "Pre-declare record data type: \{show (MkImpLater fc tn dataTy)}"
+                 processDataLater [] nest env fc def_vis mbtot fc tn dataTy
              log "declare.record" 20 "Obtained type: \{show ty}"
              (_ ** (tyenv, ty)) <- dropLeadingPis vars ty Env.empty
-             ty <- unelabNest (NoSugar True) !nestDrop tyenv ty
-             log "declare.record.parameters" 30 "Unelaborated type: \{show ty}"
-             params <- getParameters [<] ty
+             params <- getParameters !nestDrop [<] tyenv ty
              addMissingNames ([<] <>< map (\x => x.name) params0 ) params []
 
       where
 
         -- We have elaborated the record type in a context (e.g. variables bound on
         -- a LHS, or inside a `parameters` block) and so we need to start by dropping
-        -- these local variables from the fully elaborated record's type
-        -- We'll use the `env` thus obtained to unelab the remaining scope
+        -- these local variables from the fully elaborated record's type, each
+        -- bound as the context binds it.
+        -- We'll use the `env` thus obtained to unelab the remaining scope.
+        -- A type declared ahead, in a context with fewer variables, binds
+        -- fewer: that declaration is not this record's, and is refused.
         dropLeadingPis : {vs : _} -> (vars : Scope) -> Term vs -> Env Term vs ->
                          Core (vars' : Scope ** (Env Term vars', Term vars'))
         dropLeadingPis [] ty env
@@ -175,46 +174,57 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
                    , "  Remaining type: \{show !(toFullNames ty)}"
                    ]
                pure (_ ** (env, ty))
-        dropLeadingPis (var :: vars) (Bind fc n b@(Pi {}) ty) env
+        dropLeadingPis (var :: vars) (Bind fc n b ty) env
           = dropLeadingPis vars ty (b :: env)
-        dropLeadingPis _ ty _ = throw (InternalError "Malformed record type \{show ty}")
+        dropLeadingPis _ ty _
+          = throw (GenericMsg fc "The type record \{show tn} was declared with binds fewer variables than the context it is defined in")
 
+        -- The parameters are the type's telescope, its leading `Pi`s: each
+        -- binder's name, quantity and plicity, and its argument's type
+        -- written back in the scope it is bound in.
         getParameters :
-          SnocList (WithRigMName $ PiBindData RawImp) -> -- accumulator
-          RawImp' KindedName -> -- quoted type (some names may have disappeared)
-          Core (SnocList (WithRigMName $ PiBindData RawImp))
-        getParameters acc (IPi fc rig pinfo mnm argTy retTy)
-          = let clean = mapTTImp killHole . map fullName in
-            getParameters (acc :< (MkWithRigMName rig (map NoFC mnm) (MkPiBindData (map clean pinfo) (clean argTy)))) retTy
-        getParameters acc (IType _) = pure acc
-        getParameters acc ty = throw (InternalError "Malformed record type \{show ty}")
+          (nest : List (Name, Nat)) ->
+          SnocList (WithRigName $ PiBindData RawImp) -> -- accumulator
+          {vs : _} -> Env Term vs -> Term vs ->
+          Core (SnocList (WithRigName $ PiBindData RawImp))
+        getParameters nest acc env (Bind _ n b@(Pi _ rig pinfo argTy) retTy)
+          = do let clean = mapTTImp killHole . map fullName
+               argTy' <- unelabNest (NoSugar True) nest env argTy
+               pinfo' <- case pinfo of
+                           Explicit => pure Explicit
+                           Implicit => pure Implicit
+                           AutoImplicit => pure AutoImplicit
+                           DefImplicit t => DefImplicit <$> unelabNest (NoSugar True) nest env t
+               getParameters nest (acc :< (MkWithRigName rig (NoFC n) (MkPiBindData (map clean pinfo') (clean argTy')))) (b :: env) retTy
+        getParameters nest acc env ty = pure acc
 
+        -- The written parameters name the telescope's last ones; the ones
+        -- before them are those elaboration bound, named by their binders.
+        -- A written parameter the telescope has no binder for is not one
+        -- of the type it was declared with: the record is refused.
         addMissingNames :
           SnocList (WithFC Name) ->
-          SnocList (WithRigMName $ PiBindData RawImp) ->
+          SnocList (WithRigName $ PiBindData RawImp) ->
           List ImpParameter -> -- accumulator
           Core (List ImpParameter)
         addMissingNames (nms :< nm) (tele :< rest) acc
           = addMissingNames nms tele (MkWithRigName rest.rig nm rest.val :: acc)
         addMissingNames [<] tele acc
-          = do tele <- flip Core.traverseSnocList tele $ \ rest =>
-                         case rest.mName of
-                           Nothing => throw (InternalError "Some names have disappeared?! \{show rest.val}")
-                           Just nm => pure (MkWithRigName rest.rig nm rest.val) -- (nm, rest)
-               unless (null tele) $
+          = do unless (null tele) $
                  log "declare.record.parameters" 50 $
                    unlines ( "Decided to bind the following extra parameters:"
                            :: map (("  " ++) . displayParam) (tele <>> []))
                pure (tele <>> acc)
 
-        addMissingNames nms [<] acc
-          = throw (InternalError "Some arguments have disappeared")
+        addMissingNames (nms :< nm) [<] acc
+          = throw (GenericMsg nm.fc "Record \{show tn} has more parameters than the type it was declared with")
 
 
+    -- The record's one constructor's type, as the context holds it.
     elabAsData : (tn : Name) -> -- fully qualified name of the record type
                  (conName : Name) -> -- fully qualified name of the record type constructor
                  (params : List ImpParameter) -> -- telescope of parameters
-                 Core ()
+                 Core ClosedTerm
     elabAsData tn cname params
         = do let fc = virtualiseFC fc
              let conty = mkTy (paramTelescope params) $
@@ -222,9 +232,9 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
              let boundNames = paramNames params ++ map fname fields ++ (toList vars)
              let con = MkWithFCTyName (virtualiseFC fc) (NoFC cname)
                        !(bindTypeNames fc [] boundNames conty)
-             let dt = MkImpData fc tn Nothing opts [con]
-             log "declare.record" 5 $ "Record data type " ++ show dt
-             processDecl [] nest env (IData fc def_vis mbtot dt)
+             log "declare.record" 5 $ "Record data type " ++ show (MkImpData fc tn Nothing opts [con])
+             [c] <- processDataDef [] nest env fc def_vis mbtot fc tn Nothing opts [con]
+             pure c.val
 
     countExp : Term vs -> Nat
     countExp (Bind _ _ (Pi _ _ Explicit _) sc) = S (countExp sc)

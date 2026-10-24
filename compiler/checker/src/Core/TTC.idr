@@ -210,6 +210,15 @@ TTC a => TTC (WithFC a) where
          pure (MkFCVal fc x)
 
 export
+TTC a => TTC (WithDocFC a) where
+  toBuf (MkWithDocFC doc fc x) = do toBuf doc; toBuf fc; toBuf x
+  fromBuf
+    = do doc <- fromBuf
+         fc <- fromBuf
+         x <- fromBuf
+         pure (MkWithDocFC doc fc x)
+
+export
 TTC a => TTC (WithName a) where
   toBuf (MkWithName n x) = do lastMetaField n; toBuf x
   fromBuf
@@ -352,6 +361,30 @@ TTC Import where
   toBuf imp = do toBuf imp.loc; toBuf imp.reexport; toBuf imp.path; toBuf imp.nameAs
 
   fromBuf = [| MkImport fromBuf fromBuf fromBuf fromBuf |]
+
+export
+TTC Fixity where
+  toBuf InfixL = tag 0
+  toBuf InfixR = tag 1
+  toBuf Infix = tag 2
+  toBuf Prefix = tag 3
+
+  fromBuf
+      = case !getTag of
+             0 => pure InfixL
+             1 => pure InfixR
+             2 => pure Infix
+             3 => pure Prefix
+             _ => corrupt "Fixity"
+
+export
+TTC LangExt where
+  toBuf ElabReflection = tag 0
+
+  fromBuf
+      = case !getTag of
+             0 => pure ElabReflection
+             _ => corrupt "LangExt"
 
 export
 TTC KwPragma where
@@ -1266,8 +1299,8 @@ TTC Def where
       = do tag 2; toBuf a
   toBuf (ForeignDef a cs)
       = do tag 3; toBuf a; toBuf cs
-  toBuf (Builtin a)
-      = throw (InternalError "Trying to serialise a Builtin")
+  toBuf (Builtin {arity} a)
+      = do tag 12; toBuf arity; toBuf a
   toBuf (DCon t arity nt) = do tag 4; toBuf t; toBuf arity; toBuf nt
   toBuf (TCon arity parampos detpos u ms datacons dets)
       = do tag 5; toBuf arity; toBuf parampos
@@ -1317,6 +1350,9 @@ TTC Def where
              10 => pure Context.Delayed
              11 => do l <- fromBuf
                       pure (UniverseLevel l)
+             12 => do arity <- fromBuf
+                      a <- fromBuf {a = PrimFn arity}
+                      pure (Builtin a)
              _ => corrupt "Def"
 
 export

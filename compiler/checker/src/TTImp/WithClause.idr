@@ -15,14 +15,14 @@ matchFail : FC -> Core a
 matchFail loc = throw (GenericMsg loc "With clause does not match parent")
 
 --- To be used on the lhs of a nested with clause to figure out a tight location
---- information to give to the generated LHS
-getHeadLoc : RawImp -> Core FC
-getHeadLoc (IVar fc _) = pure fc
+--- information to give to the generated LHS: the location of the term
+--- applied, which is the term itself where it applies nothing.
+getHeadLoc : RawImp -> FC
 getHeadLoc (IApp _ f _) = getHeadLoc f
 getHeadLoc (IWithApp _ f _) = getHeadLoc f
 getHeadLoc (IAutoApp _ f _) = getHeadLoc f
 getHeadLoc (INamedApp _ f _ _) = getHeadLoc f
-getHeadLoc t = throw (InternalError $ "Could not find head of LHS: " ++ show t)
+getHeadLoc t = getFC t
 
 addAlias : {auto m : Ref MD Metadata} ->
            {auto c : Ref Ctxt Defs} ->
@@ -201,7 +201,7 @@ getNewLHS iploc drop nest wname wargnames lhs_raw patlhs
          let params = map (getArgMatch vploc (InLHS top) False warg ms) wargnames
          log "declare.def.clause.with" 5 $ "Parameters: " ++ show params
 
-         hdloc <- getHeadLoc patlhs
+         let hdloc = getHeadLoc patlhs
          let newlhs = apply (IVar hdloc wname) (params ++ rest)
          log "declare.def.clause.with" 5 $ "New LHS: " ++ show newlhs
          pure newlhs
@@ -240,7 +240,7 @@ withRHS fc drop wname wargnames tm toplhs
     updateWith fc tm (arg :: args)
         = do log "declare.def.clause.with" 10 $ "With-app: Matching " ++ show toplhs ++ " against " ++ show tm
              ms <- getMatch False toplhs tm
-             hdloc <- getHeadLoc tm
+             let hdloc = getHeadLoc tm
              log "declare.def.clause.with" 10 $ "Result: " ++ show ms
              let newrhs = apply (IVar hdloc wname)
                                 (map (getArgMatch fc InExpr True arg ms) wargnames)

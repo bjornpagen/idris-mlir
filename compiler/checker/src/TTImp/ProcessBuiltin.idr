@@ -9,6 +9,7 @@ import Libraries.Data.NatSet
 import Core.Context.Log
 import Core.CompileExpr
 import Core.Env
+import Core.Normalise
 
 import TTImp.TTImp
 
@@ -29,13 +30,15 @@ showDefType ImpBind = "bound name"
 showDefType (UniverseLevel {}) = "universe level"
 showDefType Delayed = "delayed"
 
-||| Get the return type.
-getReturnType : {vars : _} -> Term vars -> Maybe (vars ** Term vars)
+||| The return type: what follows a type's telescope of arguments (its
+||| leading `Pi`s, a `let` substituted). Every term has one, the term
+||| itself when it binds no argument.
+getReturnType : {vars : _} -> Term vars -> (vars ** Term vars)
 getReturnType tm@(Bind _ x b scope) = case b of
     Let _ _ val _ => getReturnType $ subst {x} val scope
     Pi {} => getReturnType scope
-    _ => Nothing
-getReturnType tm = Just (vars ** tm)
+    _ => (vars ** tm)
+getReturnType tm = (vars ** tm)
 
 ||| Get the top level type constructor if there is one.
 getTypeCons : {vars : _} -> Term vars -> Maybe Name
@@ -66,35 +69,19 @@ getNEArgs (Bind _ x b tm) = case b of
     _ => []
 getNEArgs _ = []
 
-||| Get the first non-erased argument type.
-getFirstNEType : {vars : _} -> Term vars -> Maybe (vars ** Term vars)
-getFirstNEType tm = case getNEArgs tm of
-    [] => Nothing
-    arg :: _ => Just arg
-
-||| Get the index of the first non-erased argument if it exists.
-getNEIndex : Term vars -> Maybe Nat
-getNEIndex (Bind _ x b tm) = case b of
-    Let _ _ val _ => getNEIndex $ subst {x} val tm
-    Pi _ mul _ arg => if isErased mul
-        then getNEIndex tm
-        else Just 0
-    _ => Nothing
-getNEIndex _ = Nothing
-
-||| Get the index of all non-erased Integer argument.
-getNEIntegerIndex : Term vars -> Maybe (List Nat)
-getNEIntegerIndex (Bind _ x b tm) = case b of
-    Let _ _ val _ => getNEIntegerIndex $ subst {x} val tm
+||| How many of a type's arguments are unrestricted and of type `Integer`.
+getNEIntegerCount : Term vars -> Nat
+getNEIntegerCount (Bind _ x b tm) = case b of
+    Let _ _ val _ => getNEIntegerCount $ subst {x} val tm
     Pi _ mul _ arg => if not (isErased mul) && isInteger arg
-        then Prelude.(::) 0 . map (+ 1) <$> getNEIntegerIndex tm
-        else getNEIntegerIndex tm
-    _ => Nothing
+        then S (getNEIntegerCount tm)
+        else getNEIntegerCount tm
+    _ => 0
   where
     isInteger : forall vars. Term vars -> Bool
     isInteger (PrimVal _ $ PrT IntegerType) = True
     isInteger _ = False
-getNEIntegerIndex _ = Just []
+getNEIntegerCount _ = 0
 
 ||| Do the terms match ignoring arguments to type constructors.
 termConMatch : Term vs -> Term vs' -> Bool
@@ -166,7 +153,7 @@ isNatural fc n = do
 ||| Check a list of constructors has exactly
 ||| 1 'Z'-like constructor
 ||| and 1 `S`-like constructor, which has type `ty -> ty` or `ty arg -> `ty (f arg)`.
-checkNatCons : Context -> (cons : List (Name, GlobalDef)) -> (dataType : Name) -> FC -> Core ()
+checkNatCons : Ref Ctxt Defs => Context -> (cons : List (Name, GlobalDef)) -> (dataType : Name) -> FC -> Core ()
 checkNatCons c cons ty fc = case !(foldr checkCon (pure (Nothing, Nothing)) cons) of
     (Just zero, Just succ) => pure ()
     (Nothing, _) => throw $ GenericMsg fc $ "No 'Z'-like constructors for " ++ show ty ++ "."
@@ -179,34 +166,36 @@ checkNatCons c cons ty fc = case !(foldr checkCon (pure (Nothing, Nothing)) cons
         then checkSArgType ns
         else throw $ GenericMsg fc $ "'S'-like constructor for " ++ show ty ++ " has unexpected argument: " ++ show n
 
-    ||| Check the type of an 'S'-like constructor.
-    checkTyS : Name -> GlobalDef -> Core ()
-    checkTyS n gdef = do
-        type <- typeOf gdef
-        let erase = gdef.eraseArgs
-        let Just (_ ** arg) = getFirstNEType type
-            | Nothing => throw $ InternalError "Expected a non-erased argument, found none."
-        let Just (_ ** ret) = getReturnType type
-            | Nothing => throw $ InternalError $ "Unexpected type " ++ show type
+    ||| Check the type of an 'S'-like constructor: its one unrestricted
+    ||| argument and its return type.
+    checkTyS : Term vs -> ClosedTerm -> Core ()
+    checkTyS arg type = do
+        let (_ ** ret) = getReturnType type
         unless (termConMatch arg ret) $ throw $ GenericMsg fc $ "Incorrect type for 'S'-like constructor for " ++ show ty ++ "."
         unless (isStrict arg) $ throw $ GenericMsg fc $ "Natural builtin does not support lazy types."
         pure ()
 
     ||| Check a constructor's arity and type.
+    -- A constructor is 'Z'-like or 'S'-like by its unrestricted arguments,
+    -- read once from its type in normal form: the form its arity and its
+    -- erased arguments were counted in, so a type written through a
+    -- definition that reduces to its arguments is read as what it means.
     -- 'Z'-like constructor is always first, then 'S'-like constructor.
     checkCon : (Name, GlobalDef) -> Core (Maybe Name, Maybe Name) -> Core (Maybe Name, Maybe Name)
     checkCon (n, gdef) cons = do
         (zero, succ) <- cons
-        let DCon _ arity _ = gdef.definition
+        let DCon {} = gdef.definition
             | def => throw $ GenericMsg fc $ "Expected data constructor, found:" ++ showDefType def
-        case arity `minus` size gdef.eraseArgs of
-            0 => case zero of
+        defs <- get Ctxt
+        type <- normalise defs Env.empty !(typeOf gdef)
+        case getNEArgs type of
+            [] => case zero of
                 Just _ => throw $ GenericMsg fc $ "Multiple 'Z'-like constructors for " ++ show ty ++ "."
                 Nothing => pure (Just n, succ)
-            1 => case succ of
+            [(_ ** arg)] => case succ of
                 Just _ => throw $ GenericMsg fc $ "Multiple 'S'-like constructors for " ++ show ty ++ "."
                 Nothing => do
-                    checkTyS n gdef
+                    checkTyS arg type
                     pure (zero, Just n)
             _ => throw $ GenericMsg fc $ "Constructor " ++ show n ++ " doesn't match any pattern for Natural."
 
@@ -250,9 +239,9 @@ processNatToInteger fc fn = do
             $ "No type constructor found for non-erased arguement of " ++ show_fn ++ "."
     True <- isNatural fc tyCon
         | False => throw $ GenericMsg fc $ "Non-erased argument is not a 'Nat'-like type."
-    let Just natIdx = getNEIndex type
-        | Nothing => throw $ InternalError "Couldn't find non-erased argument."
-    setFlag fc (Resolved i) $ Identity natIdx
+    -- The function is the identity on its one unrestricted argument: the
+    -- first of its unrestricted arguments, as `Identity` counts them.
+    setFlag fc (Resolved i) $ Identity 0
 
 ||| Check a `%builtin IntegerToNatural` pragma is correct.
 processIntegerToNat :
@@ -269,19 +258,19 @@ processIntegerToNat fc fn = do
         | def => throw $ GenericMsg fc
             $ "Expected function definition, found " ++ showDefType def ++ "."
     logTerm "builtin.IntegerToNatural" 25 ("Type of " ++ show_fn) type
-    let Just [intIdx] = getNEIntegerIndex type
-        | Just [] => throw $ GenericMsg fc $ "No unrestricted arguments of type `Integer` found for " ++ show_fn ++ "."
-        | Just _ => throw $ GenericMsg fc $ "More than one unrestricted arguments of type `Integer` found for " ++ show_fn ++ "."
-        | Nothing => throw $ InternalError
-            $ "Unexpected arity while processing %builtin IntegerToNatural " ++ show_fn ++ " (getNEIntegerIndex returned Nothing)"
-    let Just (_ ** retTy) = getReturnType type
-        | Nothing => throw $ InternalError $ "Unexpected type " ++ show type
+    case getNEIntegerCount type of
+        Z => throw $ GenericMsg fc $ "No unrestricted arguments of type `Integer` found for " ++ show_fn ++ "."
+        S Z => pure ()
+        _ => throw $ GenericMsg fc $ "More than one unrestricted arguments of type `Integer` found for " ++ show_fn ++ "."
+    let (_ ** retTy) = getReturnType type
     let Just retCon = getTypeCons retTy
         | Nothing => throw $ GenericMsg fc
             $ "No type constructor found for return type of " ++ show_fn ++ "."
     True <- isNatural fc retCon
         | False => throw $ GenericMsg fc $ "Return type is not a 'Nat'-like type"
-    setFlag fc (Resolved i) $ Identity intIdx
+    -- The function is the identity on its one unrestricted `Integer`
+    -- argument: the first of those, as `Identity` counts them here.
+    setFlag fc (Resolved i) $ Identity 0
 
 ||| Check a `%builtin` pragma is correct.
 export

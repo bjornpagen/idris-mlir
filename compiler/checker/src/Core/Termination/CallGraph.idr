@@ -270,19 +270,19 @@ mutual
     Just gdef <- lookupCtxtExact (Resolved i) (gamma defs) | _ => pure Unknown
     let (PMDef _ [] body) = definition gdef | _ => pure Unknown
     STerm _ tm <- treeOf body | _ => pure Unknown
-    tm <- substMeta (embed tm) args zero Subst.empty
-    sizeCompare (Solution :: rs) ls tm t
+    sizeCompare (Solution :: rs) ls (substMeta (embed tm) args zero Subst.empty) t
     where
+      -- The solution applied to the arguments: each one it abstracts
+      -- substituted, and the rest applied to what that leaves.
       substMeta : {0 drop, vs : _} ->
                   Term (drop ++ vs) -> List (Term vs) ->
                   SizeOf drop -> SubstEnv drop vs ->
-                  Core (Term vs)
+                  Term vs
       substMeta (Bind bfc n (Lam _ c e ty) sc) (a :: as) drop env
           = substMeta sc as (suc drop) (a :: env)
       substMeta (Bind bfc n (Let _ c val ty) sc) as drop env
           = substMeta (subst val sc) as drop env
-      substMeta rhs [] drop env = pure (substs drop env rhs)
-      substMeta rhs _ _ _ = throw (InternalError ("Badly formed metavar solution \{show n}"))
+      substMeta rhs as drop env = apply (getLoc s) (substs drop env rhs) as
 
   compareNew rs ls s t
      = if !(sizeCompareTyCon rs ls s t) then pure Same

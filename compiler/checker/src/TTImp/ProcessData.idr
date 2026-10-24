@@ -20,6 +20,7 @@ import TTImp.Elab
 import TTImp.TTImp
 
 import Data.DPair
+import Data.Vect
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 import Libraries.Data.WithDefault
@@ -393,19 +394,21 @@ calcConInfo fc type cons
         pure ()
      -- ... maybe more to come? The Bool just says when to stop looking
 
+||| A data type declared ahead of its definition: its type, as the context
+||| holds it.
 export
-processData : {vars : _} ->
-              {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
-              {auto u : Ref UST UState} ->
-              {auto dl : Ref DLY DelayedElabs} ->
-              {auto s : Ref Syn SyntaxInfo} ->
-              {auto o : Ref ROpts REPLOpts} ->
-              List ElabOpt -> NestedNames vars ->
-              Env Term vars -> FC ->
-              WithDefault Visibility Private -> Maybe TotalReq ->
-              ImpData -> Core ()
-processData {vars} eopts nest env fc def_vis mbtot (MkImpLater dfc n_in ty_raw)
+processDataLater : {vars : _} ->
+                   {auto c : Ref Ctxt Defs} ->
+                   {auto m : Ref MD Metadata} ->
+                   {auto u : Ref UST UState} ->
+                   {auto dl : Ref DLY DelayedElabs} ->
+                   {auto s : Ref Syn SyntaxInfo} ->
+                   {auto o : Ref ROpts REPLOpts} ->
+                   List ElabOpt -> NestedNames vars ->
+                   Env Term vars -> FC ->
+                   WithDefault Visibility Private -> Maybe TotalReq ->
+                   (dfc : FC) -> Name -> RawImp -> Core ClosedTerm
+processDataLater {vars} eopts nest env fc def_vis mbtot dfc n_in ty_raw
     = do n <- inCurrentNS n_in
          ty_raw <- bindTypeNames fc [] (toList vars) ty_raw
 
@@ -446,8 +449,24 @@ processData {vars} eopts nest env fc def_vis mbtot (MkImpLater dfc n_in ty_raw)
          whenJust mbtot $ \ tot => do
              log "declare.data" 5 $ "setting totality flag for data declaration with name \{show n}"
              setFlag fc n (SetTotal tot)
+         pure fullty
 
-processData {vars} eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw opts cons_raw)
+||| A data type's definition: its constructors as the context holds them,
+||| one for each written.
+export
+processDataDef : {vars : _} ->
+                 {auto c : Ref Ctxt Defs} ->
+                 {auto m : Ref MD Metadata} ->
+                 {auto u : Ref UST UState} ->
+                 {auto dl : Ref DLY DelayedElabs} ->
+                 {auto s : Ref Syn SyntaxInfo} ->
+                 {auto o : Ref ROpts REPLOpts} ->
+                 List ElabOpt -> NestedNames vars ->
+                 Env Term vars -> FC ->
+                 WithDefault Visibility Private -> Maybe TotalReq ->
+                 (dfc : FC) -> Name -> Maybe RawImp -> List DataOpt ->
+                 Vect k ImpTy -> Core (Vect k Constructor)
+processDataDef {vars} eopts nest env fc def_vis mbtot dfc n_in mty_raw opts cons_raw
     = do n <- inCurrentNS n_in
 
          log "declare.data" 1 $ "Processing " ++ show n
@@ -530,7 +549,8 @@ processData {vars} eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw o
          -- Constructors are private if the data type as a whole is
          -- export
          let cvis = if vis == Export then Private else vis
-         cons <- traverse (checkCon eopts nest env cvis n_in (Resolved tidx)) cons_raw
+         checked <- traverseVect (checkCon eopts nest env cvis n_in (Resolved tidx)) cons_raw
+         let cons = toList checked
 
          let ddef = MkData (MkWithFCNameArity dfc (NoFC n) arity fullty) cons
          ignore $ addData vars vis tidx ddef
@@ -570,3 +590,21 @@ processData {vars} eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw o
          whenJust tot $ \ tot => do
              log "declare.data" 5 $ "setting totality flag for \{show n} and its constructors"
              for_ (n :: map (.name.val) cons) $ \ n => setFlag fc n (SetTotal tot)
+         pure checked
+
+export
+processData : {vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+              {auto m : Ref MD Metadata} ->
+              {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
+              {auto s : Ref Syn SyntaxInfo} ->
+              {auto o : Ref ROpts REPLOpts} ->
+              List ElabOpt -> NestedNames vars ->
+              Env Term vars -> FC ->
+              WithDefault Visibility Private -> Maybe TotalReq ->
+              ImpData -> Core ()
+processData eopts nest env fc def_vis mbtot (MkImpLater dfc n_in ty_raw)
+    = ignore $ processDataLater eopts nest env fc def_vis mbtot dfc n_in ty_raw
+processData eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw opts cons_raw)
+    = ignore $ processDataDef eopts nest env fc def_vis mbtot dfc n_in mty_raw opts (fromList cons_raw)
