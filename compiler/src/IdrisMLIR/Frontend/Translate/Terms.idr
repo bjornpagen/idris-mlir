@@ -38,6 +38,7 @@ import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Ops.Bigs
+import IdrisMLIR.Spec.Ops.Strings
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -2703,6 +2704,30 @@ mutual
       -- A string built once from the list the definition's type takes.
       maker fc loc lowered bs vs kinds rt resTy ts (Builder p fits) =
         pure (MkMaker (\ys => PrimApp loc (replace {p = Prim} fits (Op p.op rt made)) lowered ys))
+      -- A view of a string, of the result's family: the string, bound
+      -- once, matched on the empty one, whose view is the family's first
+      -- constructor, and on any other, whose view is its second, of the
+      -- string's first character and the rest, each the runtime's. A
+      -- value of either is reindexed to the call's type where it is used,
+      -- as any value of its family is. Essential: the family is the one
+      -- the definition's type names, read where the call is, so its shape
+      -- is checked there, and a family not of this shape is the registry's
+      -- error.
+      maker fc loc lowered bs vs kinds rt resTy ts StringViewing = do
+        Just (df, _) <- dataOf fc ctx.owner !(normaliseClosed resTy)
+          | Nothing => unshaped fc "the registry names a view of a string whose result is no data type"
+        let [nilLayout, consLayout] = toList df.layouts
+          | _ => unshaped fc "the registry names a view of a string whose family has not two constructors"
+        let (Yes none, Yes two) = (decEq (fieldCount nilLayout.args) 0, decEq (fieldCount consLayout.args) 2)
+          | _ => unshaped fc "the registry names a view of a string whose constructors hold not none and two fields"
+        let nil = replace {p = Con} none nilLayout.con
+            cons = replace {p = Con} two consLayout.con
+        let ([], [], [MkBinder _ CharT, MkBinder _ StrT]) = (nil.binders, cons.binders, cons.fields)
+          | _ => unshaped fc "the registry names a view of a string whose second constructor holds no character and string"
+        pure (MkMaker (\[s] => Let loc (shown "string") (OfValue Many) s
+                                 (CaseLit loc FZ (OnStrings (LitDefault (("", ConApp loc nil [] []) ::: [])
+                                    (ConApp loc cons [] [ PrimApp loc (Op strHead CharT made) lowered [Var loc FZ]
+                                                        , PrimApp loc (Op strTail StrT made) lowered [Var loc FZ] ]))))))
       -- A function of the array language: the tensor operations of its
       -- sequential meaning, over its operands bound once each in order. A
       -- rank is read from the types of the operands and the result, never

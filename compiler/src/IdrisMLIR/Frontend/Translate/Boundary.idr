@@ -77,30 +77,35 @@ import Decidable.Equality
 ------------------------------------------------------------------------------
 
 ||| A name a definition refers to, as a walk over what the program reaches
-||| follows it: a definition, or a metavariable, by the entry its term
-||| gives it, which is the name Host's `Solve` unfolds, with the name the
-||| term shows it by, for a message. A walk that names blocks reads a
-||| metavariable's solution under the definition that refers to it
-||| (`nameUnder`), and the reading reads each one's solution by that entry
+||| follows it: a definition, or a metavariable, each by its name, which
+||| the context resolves to its entry. The entry a metavariable's term
+||| holds beside its name is not read: it is 0 for a name the context
+||| lacks, which would read another definition's entry as the
+||| metavariable's. A walk that names blocks reads a metavariable's
+||| solution under the definition that refers to it (`nameUnder`), and the
+||| reading reads each one's solution by the entry its name resolves to
 ||| once the context is frozen (`solutionAt`).
 public export
-data Referent = ARef Name | AMeta Name Int
+data Referent = ARef Name | AMeta Name
 
-||| The name a reference is to: a metavariable's, its entry.
+||| The name a reference is to.
 export
 referentName : Referent -> Name
 referentName (ARef n) = n
-referentName (AMeta _ i) = Resolved i
+referentName (AMeta n) = n
 
 mutual
   ||| The references of a term, left to right: a function before its
   ||| argument, a binder's type and value before its scope.
   termRefs : SnocList Referent -> Term vs -> SnocList Referent
   termRefs acc (Ref _ _ n) = acc :< ARef n
-  termRefs acc (Meta _ n i args) = termsRefs (acc :< AMeta n i) args
+  termRefs acc (Meta _ n _ args) = termsRefs (acc :< AMeta n) args
   termRefs acc (Bind _ _ b sc) = termRefs (binderRefs acc b) sc
   termRefs acc (App _ f a) = termRefs (termRefs acc f) a
-  termRefs acc (As _ _ a p) = termRefs (termRefs acc a) p
+  -- An as-pattern's name side only names the binder its pattern binds,
+  -- which no reader reads as a value (a pattern variable's placeholder
+  -- may stand there); the pattern is the term.
+  termRefs acc (As _ _ _ p) = termRefs acc p
   termRefs acc (TDelayed _ _ t) = termRefs acc t
   termRefs acc (TDelay _ _ t a) = termRefs (termRefs acc t) a
   termRefs acc (TForce _ _ t) = termRefs acc t
@@ -578,8 +583,8 @@ mutual
               (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
               (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Core (Reached w)
   nameUnder r origin names ks w0 acc w p [] = pure (MkReached names ks w (noMore w))
-  nameUnder r origin names ks w0 acc@(Access rec) w p (AMeta _ i :: rest) = do
-    Just d <- definedIn r (Resolved i)
+  nameUnder r origin names ks w0 acc@(Access rec) w p (AMeta n :: rest) = do
+    Just d <- definedIn r n
       | Nothing => nameUnder r origin names ks w0 acc w p rest
     case enter d.placement w of
       Nothing => nameUnder r origin names ks w0 acc w p rest
@@ -657,14 +662,16 @@ blockNamesOf r entry = do
 %prefix_record_projections off
 
 ||| What the reading before the freeze met: every definition, by its entry
-||| (`readFrom`), and every metavariable a term of one names, by the entry
-||| the term gives it, with the name it shows it by, whose solution is told
-||| from what was read at that entry once the context is frozen
-||| (`solutionsOf`).
+||| (`readFrom`); every metavariable a term of one names, by the entry its
+||| name resolves to, with the name, whose solution is told from what was
+||| read at that entry once the context is frozen (`solutionsOf`); and each
+||| metavariable whose name resolves to no entry, the compiled module's
+||| error, refused there.
 record Met where
   constructor MkMet
   found : FoundBefore
   metavariables : SortedMap Int Name
+  atNoEntry : List Name
 
 %prefix_record_projections on
 
@@ -676,18 +683,18 @@ record Met where
 ||| binder's, is no definition to read. A type constructor's constructor
 ||| the context holds nothing for is passed over here too, and refused once
 ||| the reading is frozen, where the type's constructors are read
-||| (`constructorsRead`); and so is a metavariable at no entry, which is
-||| noted, as every metavariable is, wherever a term names it, read or not,
-||| and refused once the context is frozen, where its solution is told
-||| (`solutionAt`).
+||| (`constructorsRead`); and so is a metavariable whose name resolves to
+||| no entry, which is noted, as every metavariable is, by the entry its
+||| name resolves to, wherever a term names it, and refused once the
+||| context is frozen (`solutionsOf`).
 readFrom : {auto c : Ref Ctxt Defs} -> RegistryRead -> (w : Walked) -> (0 _ : SizeAccessible w) ->
            Met -> List Referent -> Core Met
 readFrom registry w acc met [] = pure met
 readFrom registry w acc@(Access rec) met (r :: rs) = do
-  let met' = noted r
   defs <- get Ctxt
   Just (i, def) <- lookupCtxtExactI (referentName r) (gamma defs)
-    | Nothing => readFrom registry w acc met' rs
+    | Nothing => readFrom registry w acc (unresolved r) rs
+  let met' = noted r i
   -- A negative entry is no place, which Idris's bare `Int` allows.
   let Just p = placementOf i
     | Nothing => readFrom registry w acc met' rs
@@ -698,9 +705,13 @@ readFrom registry w acc@(Access rec) met (r :: rs) = do
       d <- readDefinition registry i p def
       readFrom registry w' (rec w' less) ({ found $= IntMap.insert i d } met') (referred d ++ rs)
   where
-    noted : Referent -> Met
-    noted (AMeta shownAs j) = { metavariables $= insert j shownAs } met
-    noted (ARef _) = met
+    noted : Referent -> Int -> Met
+    noted (AMeta n) i = { metavariables $= insert i n } met
+    noted (ARef _) _ = met
+
+    unresolved : Referent -> Met
+    unresolved (AMeta n) = { atNoEntry $= (n ::) } met
+    unresolved (ARef _) = met
 
 ||| The type a member at a use is applied as by (`AtUse`, `Application`),
 ||| its binders' names interned once.
@@ -785,6 +796,7 @@ checkedRow fz found (MkLowered {count} ops low) = map (MkLowered ops) <$> loweri
     lowering (NatTested p lib) = map (NatTested p) <$> checkedLibrary fz found 1 lib
     lowering {k} (NatOnIntegers lib) = map NatOnIntegers <$> checkedLibrary fz found k lib
     lowering (Builder p fits) = pure (Right (Builder p fits))
+    lowering StringViewing = pure (Right StringViewing)
     lowering (ArrayOperation g) = pure (Right (ArrayOperation g))
     lowering IdentityOnLast = pure (Right IdentityOnLast)
     lowering (PureOperation p lits fits) = pure (Right (PureOperation p lits fits))
@@ -1017,10 +1029,14 @@ solutionAt fz found frozenAt fallback i shownAs = case foundAt i found of
 
 ||| The solution of every metavariable a term read names, by its entry
 ||| (`solutionAt`): the table every walk that meets a metavariable reads
-||| (`State.solutionIn`). The first refusal stops it.
+||| (`State.solutionIn`); or the refusal of one whose name resolves to no
+||| entry, the compiled module's error, as the boundary refuses other
+||| checked input it cannot read. The first refusal stops it.
 solutionsOf : (fz : Frozen) -> (found : FoundBefore) -> (0 _ : entriesOf fz = map (.def) found) -> NonEmptyFC ->
-              List (Int, Name) -> Either Refusal (Solutions fz)
-solutionsOf fz found frozenAt fallback = go noSolutions
+              (atNoEntry : List Name) -> List (Int, Name) -> Either Refusal (Solutions fz)
+solutionsOf fz found frozenAt fallback (n :: _) _ =
+  Left (MkRefusal (Refusal CompiledModule) fallback (show n ++ ": a metavariable at no entry"))
+solutionsOf fz found frozenAt fallback [] metas = go noSolutions metas
   where
     go : Solutions fz -> List (Int, Name) -> Either Refusal (Solutions fz)
     go done [] = Right done
@@ -1142,7 +1158,7 @@ readProgram ifs entry fallback = do
   -- still be written, so a definition read finds what the registry says
   -- of it by the entry it is at.
   registry <- readRegistry
-  met <- readFrom registry start (sizeAccessible start) (MkMet IntMap.empty SortedMap.empty) (ARef entry :: pair)
+  met <- readFrom registry start (sizeAccessible start) (MkMet IntMap.empty SortedMap.empty []) (ARef entry :: pair)
   -- Frozen here, from the definitions read: every normaliser reads it as
   -- frozen, and what the reading holds at an entry is its definition there.
   Element fz frozenAt <- frozenFrom (map (.def) met.found)
@@ -1183,7 +1199,7 @@ readProgram ifs entry fallback = do
   -- the freeze decoded there, which the frozen context is made of, so no phase
   -- after looks one up by name and no entry is decoded twice, with the
   -- evidence the evaluator's own step states.
-  let Right solutions = solutionsOf fz met.found frozenAt fallback (SortedMap.toList met.metavariables)
+  let Right solutions = solutionsOf fz met.found frozenAt fallback met.atNoEntry (SortedMap.toList met.metavariables)
     | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before

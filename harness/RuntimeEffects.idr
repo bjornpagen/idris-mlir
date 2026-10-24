@@ -25,6 +25,7 @@ import IdrisMLIR.Spec.Core.Ods
 import IdrisMLIR.Spec.Core.Op
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Effects.LLVM
 import IdrisMLIR.Spec.Generator.Cpp
 import IdrisMLIR.Spec.Runtime.Endings
 
@@ -52,27 +53,32 @@ change Write = Changes
 change Allocate = Changes
 change Free = Changes
 
-||| Whether the runtime's code changes memory when an op changes the state:
-||| a fresh identity is no memory, divergence writes nothing, and a frame is
-||| the function's own, which LLVM does not count as memory it touches; the
-||| heap, a cell's contents, its count, a memo cell, the runtime's tables
-||| and the outside (written through the runtime's buffers), and the ends of
-||| the run (each writes its message), are memory.
+||| Whether the runtime's code changes memory when an op changes the state.
 data Held = InMemory | NoMemory
 
+||| Whether a function whose row holds the atom is told it may write some
+||| memory: the specification's word for what LLVM is told.
+atomHeld : Atom -> Held
+atomHeld a = case writtenLocations a of
+  [] => NoMemory
+  _ :: _ => InMemory
+
+||| Memory, if either is.
+eitherHeld : Held -> Held -> Held
+eitherHeld InMemory _ = InMemory
+eitherHeld NoMemory h = h
+
+||| A state is memory when an effect an op may declare on it summarizes as
+||| an atom that writes memory, as the specification's tree, its summary and
+||| what LLVM is told say it, so a state the specification adds is read as
+||| every other: a fresh identity and a frame cell are the function's own,
+||| and divergence writes nothing; the heap, what live memory holds (a
+||| cell's fields while it is filled among it), counts, a memo cell, the
+||| outside (written through the runtime's buffers) and the ends of the run
+||| (each writes its message) are memory. The runtime's tables are only
+||| read, which changes nothing whatever they are.
 held : Resource.Resource -> Held
-held Root = InMemory
-held Frame = NoMemory
-held Heap = InMemory
-held Contents = InMemory
-held Count = InMemory
-held MemoState = InMemory
-held Identity = NoMemory
-held IO = InMemory
-held RuntimeState = InMemory
-held Exit = InMemory
-held Crash = InMemory
-held Divergence = NoMemory
+held r = foldr (eitherHeld . atomHeld) NoMemory (concatMap (\k => project k r WholeState) (admittedKinds r))
 
 ||| What one part of a declaration changes: the memory an operand reaches,
 ||| other memory, or none.

@@ -42,15 +42,9 @@ export
 parseSpec : String -> Maybe Spec
 parseSpec s = case break (== ':') (unpack s) of
   (conv@(_ :: _), _ :: rest) =>
-    let fn = pack (stripped (takeWhile (/= ',') rest)) in
+    let fn = trim (pack (takeWhile (/= ',') rest)) in
     if fn == "" then Nothing else Just (MkSpec (pack conv) fn)
   _ => Nothing
-  where
-    -- The whitespace around the function dropped, from its characters:
-    -- base's `trim` sees a string through `strM`, whose `believe_me` this
-    -- compiler refuses wherever a program reaches it.
-    stripped : List Char -> List Char
-    stripped = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 ||| How the compiler names library knowledge.
 public export
@@ -264,14 +258,14 @@ data Reached = WhereverReached | WhereUserCodeNames
 
 ||| The kinds of entry. A contract is the one meaning of a definition whose
 ||| body is no meaning (an external type, an `%extern`, a builtin, a body
-||| that only coerces): Idris's backend contract, which every backend
-||| implements. A faster entry lowers a definition with a body to another
-||| form of the same meaning; a stricter one adds a refusal, or bounds one
-||| the compiler makes of a trusted library (what of `PrimIO` it admits,
-||| which escape hatches of its own it may hold). Removing a faster or
-||| stricter entry may change speed or which programs are refused, never a
-||| program's result, so a build without the faster entries runs every
-||| program the same; a contract is never removed.
+||| whose coercion only a backend makes good): Idris's backend contract,
+||| which every backend implements. A faster entry lowers a definition with
+||| a body to another form of the same meaning; a stricter one adds a
+||| refusal, or bounds one the compiler makes of a trusted library (what of
+||| `PrimIO` it admits, which escape hatches of its own it may hold).
+||| Removing a faster or stricter entry may change speed or which programs
+||| are refused, never a program's result, so a build without the faster
+||| entries runs every program the same; a contract is never removed.
 public export
 data Kind = Contract | Faster | Stricter
 
@@ -364,6 +358,13 @@ data Hook : Kind -> Type where
   ||| same type and meaning (`fastUnpack` for `unpack`): its calls are
   ||| calls of that function. Handler: `Frontend.Translate.application`.
   Alias : {auto 0 lowers : Lowers kd} -> QName -> Hook kd
+  ||| A view of a string, a family of two constructors in Idris's order:
+  ||| its calls match the string on the empty one, the first constructor,
+  ||| of no field, and else build the second of the string's first
+  ||| character and the rest (`idr.str.head`, `idr.str.tail`), as base's
+  ||| `strM` does, whose body gives that value the string's own index by
+  ||| `believe_me`. Handler: `Frontend.Translate.Terms.application`.
+  StringView : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| The identity on its last runtime argument, wherever it stands among
   ||| the proofs and types (a pointer cast's follows its erased type); a
   ||| runtime argument before it is not read (`nest`'s cell form). Handler:
@@ -434,6 +435,7 @@ record Hooks (lib : Type) where
   wordType : Bool
   builds : Maybe PureOp
   alias : Maybe lib
+  stringView : Bool
   identityOnLast : Bool
   natOperation : Maybe (NatMeaning lib)
   exits : Bool
@@ -448,7 +450,7 @@ record Hooks (lib : Type) where
 export
 noHooks : Hooks lib
 noHooks = MkHooks Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing False Nothing Nothing
-                  False Nothing False Nothing Nothing Nothing False False False
+                  False False Nothing False Nothing Nothing Nothing False False False
 
 ||| The hooks with one more entry's, after those already there: an earlier
 ||| entry of the same kind stays.
@@ -468,6 +470,7 @@ withHook hs h = case h of
   WordType => { wordType := True } hs
   Builds p => { builds $= keep (MkPureOp p) } hs
   Alias q => { alias $= keep q } hs
+  StringView => { stringView := True } hs
   IdentityOnLastArgument => { identityOnLast := True } hs
   NatOperation m => { natOperation $= keep m } hs
   Exits => { exits := True } hs
@@ -489,9 +492,9 @@ export
 readLibraries : Applicative m => (readOne : a -> m b) -> Hooks a -> m (Hooks b)
 readLibraries readOne hs =
   (\al, nat => MkHooks hs.pureCall hs.ioCall hs.arrayCall hs.orderedArray hs.valueArray hs.generating
-                       hs.sumShape hs.primCall hs.handle hs.wordType hs.builds al hs.identityOnLast
-                       nat hs.exits hs.systemInfo hs.forbidden hs.deprecated hs.libraryCrash hs.admission
-                       hs.totalityAssertion)
+                       hs.sumShape hs.primCall hs.handle hs.wordType hs.builds al hs.stringView
+                       hs.identityOnLast nat hs.exits hs.systemInfo hs.forbidden hs.deprecated
+                       hs.libraryCrash hs.admission hs.totalityAssertion)
     <$> traverse readOne hs.alias <*> traverse natural hs.natOperation
   where
     natural : NatMeaning a -> m (NatMeaning b)
@@ -538,9 +541,9 @@ data Expect : Kind -> Key -> Type where
   ||| A definition with no body of its own at the key's name (an external
   ||| type, a builtin), whose type has this shape: the hook is its meaning.
   External : Shape -> Expect Contract (Def q)
-  ||| A definition at the key's name whose body only coerces
-  ||| (`believe_me`), whose type has this shape: the hook is the meaning the
-  ||| coercion claims, which the backend contract gives.
+  ||| A definition at the key's name whose body coerces (`believe_me`),
+  ||| whose type has this shape: the hook is the meaning the coercion
+  ||| claims, which the backend contract gives.
   Coerced : Shape -> Expect Contract (Def q)
   ||| A bodiless `%extern` declaration at the key's name: its own type is
   ||| what its calls take and give, their arity, quantities and erasure,

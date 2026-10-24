@@ -17,6 +17,7 @@ import Core.Directory
 import Core.TT
 import Idris.Syntax.Pragmas
 import Libraries.Data.NameMap
+import Libraries.Data.NatSet
 import Libraries.Text.Bounded
 import Libraries.Text.Lexer.Tokenizer
 import Parser.Lexer.Source
@@ -55,11 +56,12 @@ import System.File.Buffer
 
 ||| Does a hook answer for every call of a definition, so that its body is
 ||| never translated, and the growth check reads no site in it? The
-||| identity on its runtime argument and a function of the array language,
-||| at any arity (a call below it is a closure over the saturated call).
+||| identity on its runtime argument, a function of the array language and
+||| a view of a string, at any arity (a call below it is a closure over the
+||| saturated call).
 export
 answersForCalls : Hooks lib -> Bool
-answersForCalls hs = hs.identityOnLast || isJust hs.generating
+answersForCalls hs = hs.identityOnLast || isJust hs.generating || hs.stringView
 
 ||| Does a hook answer for a definition's body, so that the walk of what the
 ||| program reaches does not check it (`refsOf`)? One that answers for every
@@ -324,19 +326,109 @@ proofOnly n = do
     | Nothing => pure False
   pure (isErased (multiplicity def))
 
-||| What a definition refers to, with the metavariables its body mentions:
-||| the translation follows a solved one to its solution. Of a definition
-||| whose hook answers for its body, only the type.
-refsOf : Hooks lib -> GlobalDef -> Core (List Name)
-refsOf hs def = do
-  fromType <- keys . Core.TT.getRefs (UN Underscore) <$> typeOfDefinition def
-  case definition def of
-    PMDef _ _ body =>
-      if answersForBody hs then pure fromType else do
-        tree <- (.fst) <$> caseTreeOf body
-        pure (fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree))
-    TCon _ _ _ _ _ cons _ => pure (fromType ++ fromMaybe [] cons)
-    _ => pure fromType
+||| What the head of an application says of the argument it is given next:
+||| a definition's, with the positions Idris erased when it checked the
+||| definition (`eraseArgs`, which the checked module keeps) and how many
+||| arguments it has been given; or a head that is no definition (a
+||| variable, a lambda, a metavariable), any argument of which may run.
+data ArgumentsOf = ByDefinition NatSet Nat | ByAnyHead
+
+||| Whether an argument a head is given may run.
+data ArgumentRuns = MayRun | NeverRuns
+
+||| Whether the argument a head is given next may run: not at a position its
+||| definition erased.
+nextRuns : ArgumentsOf -> ArgumentRuns
+nextRuns (ByDefinition erased k) = if NatSet.elem k erased then NeverRuns else MayRun
+nextRuns ByAnyHead = MayRun
+
+||| The head, given one more argument.
+givenOne : ArgumentsOf -> ArgumentsOf
+givenOne (ByDefinition erased k) = ByDefinition erased (S k)
+givenOne ByAnyHead = ByAnyHead
+
+||| The definitions and the metavariables a term names, each set as
+||| `getRefs` and `getMetas` give it.
+record NamedIn where
+  constructor MkNamedIn
+  refs : NameMap Bool
+  metas : NameMap Bool
+
+||| What a term whose head is no definition names.
+headless : NamedIn -> (ArgumentsOf, NamedIn)
+headless acc = (ByAnyHead, acc)
+
+mutual
+  ||| What a trusted library's term names where it may run, and its head:
+  ||| every name but those in an argument its head takes at a position
+  ||| Idris erased, and in the value of a `let` of quantity 0. Neither ever
+  ||| runs: it is the library's proof, which it is trusted for as it is
+  ||| for a definition of quantity 0 (`followed`), whatever the proof holds
+  ||| (`Data.Fin.restrict`'s `believe_me`, the bound `fromInteger` asks
+  ||| for). Types are read as `getRefs` reads them.
+  runningIn : {auto c : Ref Ctxt Defs} -> NamedIn -> Term vars -> Core (ArgumentsOf, NamedIn)
+  runningIn acc (Ref _ _ n) = do
+    defs <- get Ctxt
+    found <- lookupCtxtExact n (gamma defs)
+    pure (maybe ByAnyHead (\def => ByDefinition (eraseArgs def) 0) found, { refs $= NameMap.insert n False } acc)
+  runningIn acc (App _ f a) = do
+    (spine, acc') <- runningIn acc f
+    case nextRuns spine of
+      NeverRuns => pure (givenOne spine, acc')
+      MayRun => do
+        (_, acc'') <- runningIn acc' a
+        pure (givenOne spine, acc'')
+  runningIn acc (Meta _ n _ xs) = headless <$> runningArgs ({ metas $= NameMap.insert n False } acc) xs
+  runningIn acc (Bind _ _ b sc) = do
+    acc' <- runningBinder acc b
+    (_, acc'') <- runningIn acc' sc
+    pure (ByAnyHead, acc'')
+  runningIn acc (As _ _ _ tm) = headless . snd <$> runningIn acc tm
+  runningIn acc (TDelayed _ _ tm) = headless . snd <$> runningIn acc tm
+  runningIn acc (TDelay _ _ ty tm) = do
+    (_, acc') <- runningIn acc ty
+    headless . snd <$> runningIn acc' tm
+  runningIn acc (TForce _ _ tm) = headless . snd <$> runningIn acc tm
+  runningIn acc (Erased _ (Dotted tm)) = headless . snd <$> runningIn acc tm
+  runningIn acc _ = pure (ByAnyHead, acc)
+
+  runningArgs : {auto c : Ref Ctxt Defs} -> NamedIn -> List (Term vars) -> Core NamedIn
+  runningArgs acc [] = pure acc
+  runningArgs acc (x :: xs) = do
+    (_, acc') <- runningIn acc x
+    runningArgs acc' xs
+
+  ||| A binder's type, and a `let`'s value before it unless the `let` is of
+  ||| quantity 0.
+  runningBinder : {auto c : Ref Ctxt Defs} -> NamedIn -> Binder (Term vars) -> Core NamedIn
+  runningBinder acc (Let _ rig val ty) = do
+    acc' <- case use rig of
+              Erased => pure acc
+              Used _ => snd <$> runningIn acc val
+    snd <$> runningIn acc' ty
+  runningBinder acc (Lam _ _ _ ty) = snd <$> runningIn acc ty
+  runningBinder acc (Pi _ _ _ ty) = snd <$> runningIn acc ty
+  runningBinder acc (PVar _ _ _ ty) = snd <$> runningIn acc ty
+  runningBinder acc (PLet _ _ _ ty) = snd <$> runningIn acc ty
+  runningBinder acc (PVTy _ _ ty) = snd <$> runningIn acc ty
+
+  runningTree : {auto c : Ref Ctxt Defs} -> NamedIn -> CaseTree vars -> Core NamedIn
+  runningTree acc (Case _ _ _ alts) = runningAlts acc alts
+  runningTree acc (STerm _ tm) = snd <$> runningIn acc tm
+  -- A clause no case matched, and an absurd one, name nothing.
+  runningTree acc _ = pure acc
+
+  runningAlts : {auto c : Ref Ctxt Defs} -> NamedIn -> List (CaseAlt vars) -> Core NamedIn
+  runningAlts acc [] = pure acc
+  runningAlts acc (alt :: alts) = do
+    acc' <- runningAlt acc alt
+    runningAlts acc' alts
+
+  runningAlt : {auto c : Ref Ctxt Defs} -> NamedIn -> CaseAlt vars -> Core NamedIn
+  runningAlt acc (ConCase _ _ _ t) = runningTree acc t
+  runningAlt acc (DelayCase _ _ t) = runningTree acc t
+  runningAlt acc (ConstCase _ t) = runningTree acc t
+  runningAlt acc (DefaultCase t) = runningTree acc t
 
 ||| What the walk follows of the definitions a definition names. A
 ||| definition of quantity 0 never runs: what it reaches is a bound the
@@ -351,8 +443,10 @@ data Follows
   = ||| User code's: each, but a trusted library's proof.
     UserCode
   | ||| A trusted library's code: each, but its proofs and its totality
-    ||| assertions, which it is trusted for. A library names nothing of
-    ||| the program, which is compiled after it.
+    ||| assertions, which it is trusted for: its definitions of quantity 0,
+    ||| and what its own code gives at a position of quantity 0
+    ||| (`bodyNames`). A library names nothing of the program, which is
+    ||| compiled after it.
     LibraryCode
   | ||| A solution's: the user's own definitions it names (a hint the
     ||| search applied, a constructor) and the other solutions, each
@@ -371,6 +465,34 @@ follows origin def = case definition def of
   where
     written : Follows
     written = if covers Trusted origin then LibraryCode else UserCode
+
+||| Every definition and metavariable a case tree names.
+wholeTree : CaseTree vars -> NamedIn
+wholeTree tree = MkNamedIn (Core.Case.CaseTree.getRefs (UN Underscore) tree) (Core.Case.CaseTree.getMetas tree)
+
+||| What of a definition's body the walk reads, by whose code it is: a
+||| trusted library's where it may run (`runningTree`); the user's, and a
+||| solution's, whole, since a proof the user writes is the user's code.
+bodyNames : {auto c : Ref Ctxt Defs} -> Follows -> CaseTree vars -> Core NamedIn
+bodyNames LibraryCode tree = runningTree (MkNamedIn NameMap.empty NameMap.empty) tree
+bodyNames UserCode tree = pure (wholeTree tree)
+bodyNames Solution tree = pure (wholeTree tree)
+
+||| What a definition refers to, with the metavariables its body mentions:
+||| the translation follows a solved one to its solution. Of a definition
+||| whose hook answers for its body, only the type; of a body, what the
+||| walk reads of it (`bodyNames`).
+refsOf : {auto c : Ref Ctxt Defs} -> Follows -> Hooks lib -> GlobalDef -> Core (List Name)
+refsOf following hs def = do
+  fromType <- keys . Core.TT.getRefs (UN Underscore) <$> typeOfDefinition def
+  case definition def of
+    PMDef _ _ body =>
+      if answersForBody hs then pure fromType else do
+        tree <- (.fst) <$> caseTreeOf body
+        named <- bodyNames following tree
+        pure (fromType ++ keys named.refs ++ keys named.metas)
+    TCon _ _ _ _ _ cons _ => pure (fromType ++ fromMaybe [] cons)
+    _ => pure fromType
 
 ||| A name's definition as it was read, with where it comes from; nothing
 ||| for a name the context defines as nothing, which the walk passes over
@@ -570,9 +692,9 @@ checkReachable fc roots = do
       root <- rootOf d
       when (trusted && not (admits origin (namedHooks root.registered))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
-      refs <- traverse fullNames !(core (refsOf nameHooks def))
       -- What it names, as far as the walk follows it (`Follows`).
       let following = follows origin def
+      refs <- traverse fullNames !(core (refsOf following nameHooks def))
       refs' <- keepIf (followed following) refs
       -- User code may not use what the registry forbids, nor forge a world.
       -- A trusted library may; and what a solution holds of a library is

@@ -469,6 +469,10 @@ data Lowering : (lib : Nat -> Type) -> (count : Nat) -> Type where
   ||| The library function on the operands' integers, of as many values.
   NatOnIntegers : lib k -> Lowering lib k
   Builder : (p : PureOp) -> (0 fits : p.arity = k) -> Lowering lib k
+  ||| A view of the one operand, a string, by the result's family: its
+  ||| first constructor on the empty string, its second of the string's
+  ||| head and tail on any other.
+  StringViewing : Lowering lib 1
   ArrayOperation : (g : ArrayPrim) -> Lowering lib (generatedOperands g)
   IdentityOnLast : Lowering lib (S k)
   PureOperation : (p : PureOp) -> (lits : List Lit) -> (0 fits : k + length lits = p.arity) -> Lowering lib k
@@ -536,6 +540,7 @@ rowOf : {arity : Nat} -> (typed : (k ** Operands arity k)) -> (shown : Nat) -> (
 rowOf typed shown normal hs = traverse id $
       map (\m => natural m typed) hs.natOperation
   <|> map (\p => builder p typed) hs.builds
+  <|> (if hs.stringView then Just (viewing typed) else Nothing)
   <|> map (\g => written >>= generated g) hs.generating
   <|> (if hs.identityOnLast then Just (written >>= identity) else Nothing)
   <|> map (\(p, lits) => pureOp p lits typed) hs.pureCall
@@ -568,6 +573,11 @@ rowOf typed shown normal hs = traverse id $
     builder p (k ** ops) = case decEq p.arity k of
       Yes fits => Right (MkLowered ops (Builder p fits))
       No _ => Left ("the registry's string builder of " ++ show p.arity ++ " operands" ++ takes k)
+
+    viewing : {n : Nat} -> (k ** Operands n k) -> Either String (Lowered (const lib))
+    viewing (k ** ops) = case decEq k 1 of
+      Yes Refl => Right (MkLowered ops StringViewing)
+      No _ => Left ("the registry's view of one string" ++ takes k)
 
     generated : {n : Nat} -> ArrayPrim -> (k ** Operands n k) -> Either String (Lowered (const lib))
     generated g (k ** ops) = case decEq k (generatedOperands g) of

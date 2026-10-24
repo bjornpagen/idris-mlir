@@ -5,7 +5,7 @@
 ||| privileged-knowledge table: each entry makes a definition with a body
 ||| faster or stricter, never different, and removing one may change speed
 ||| or which programs are rejected, never a program's result; the few whose
-||| body only coerces (`believe_me`) or is a builtin are their contract.
+||| body coerces (`believe_me`) or is a builtin are their contract.
 module IdrisMLIR.Registry.Recognized
 
 import IdrisMLIR.Spec.Ops.Bigs
@@ -154,7 +154,7 @@ equality = entry (Def (MkQName ["Builtin"] "Equal"))
                  EqualityType
 
 ------------------------------------------------------------------------------
--- Pointers and the exit
+-- Pointers, the exit and a string's view
 ------------------------------------------------------------------------------
 
 ||| A cast between pointers, `prim__castPtr : AnyPtr -> Ptr t` or
@@ -174,6 +174,18 @@ exitWith = entry (Def (MkQName ["System"] "exitWith"))
   where
     exitCode : Shape
     exitCode = Head (Def (MkQName ["System"] "ExitCode")) []
+
+||| `strM : (x : String) -> StrM x`, base's view of a string as empty or as
+||| its first character and the rest. Its body gives the second view the
+||| string's own index by `believe_me`, which the runtime's head and tail
+||| make good; its calls are that view, the runtime's (`StringView`).
+stringView : AnyEntry
+stringView = entry (Def (MkQName dataString "strM"))
+                   (Coerced (Pi Mw (Prim StringP) (Head (Def (MkQName dataString "StrM")) [Hole])))
+                   StringView
+  where
+    dataString : List String
+    dataString = ["Data", "String"]
 
 ------------------------------------------------------------------------------
 -- What a trusted library holds
@@ -283,6 +295,7 @@ recognized =
   , pointerCast "prim__castPtr" (Pi Mw anyPtr (ptr Hole))
   , pointerCast "prim__forgetPtr" (Pi Mw (ptr Hole) anyPtr)
   , exitWith
+  , stringView
   , rootOnly "unsafePerformIO" (Pi M0 TypeOfTypes (Pi Mw (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))
   , rootOnly "unsafeCreateWorld" (Pi M0 TypeOfTypes (Pi M1 (Pi M1 (Prim WorldP) Hole) Hole))
   , rootOnly "unsafeDestroyWorld" (Pi M0 TypeOfTypes (Pi M1 (Prim WorldP) (Pi Mw Hole Hole)))
