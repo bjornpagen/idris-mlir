@@ -18,6 +18,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
+#include <concepts>
+
 using namespace mlir;
 using namespace idr;
 
@@ -48,14 +50,17 @@ run_time_words::Pointer arrayWords(UnrankedMemRefType) { return {layout::Word::C
 run_time_words::Pointer arrayWords(UnrankedTensorType) { return {layout::Word::Cell}; }
 
 // An array's cell is a reference, used as often as its grade says. A
-// buffer is counted; a value array is counted as its buffer, after
-// bufferization. Its value is a descriptor, the cell with what of its shape
-// the type leaves open, not one pointer. It carries its cell's reference.
-template <typename T, bool counted>
-struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T, counted>, T> {
+// buffer, one of upstream's memrefs, is counted; a value array, one of its
+// tensors, is counted as its buffer, after bufferization, and not as
+// itself. Which of the two an array is, upstream's class hierarchy says.
+// Its value is a descriptor, the cell with what of its shape the type
+// leaves open, not one pointer. It carries its cell's reference.
+template <typename T>
+  requires std::derived_from<T, BaseMemRefType> || std::derived_from<T, TensorType>
+struct ArrayFacts : ValueFactsTypeInterface::ExternalModel<ArrayFacts<T>, T> {
   bool holdsReferences(Type) const { return true; }
   ByType getByType(Type) const { return ByType::UsedAsGraded; }
-  bool isCounted(Type) const { return counted; }
+  bool isCounted(Type) const { return std::derived_from<T, BaseMemRefType>; }
   bool isCellPointer(Type) const { return false; }
   RunTimeWords getRunTimeWords(Type type, std::optional<Hold>) const {
     return arrayWords(cast<T>(type));
@@ -150,10 +155,10 @@ void IdrDialect::registerValueFacts() {
   Float80Type::attachInterface<ScalarFacts<Float80Type>>(context);
   Float128Type::attachInterface<ScalarFacts<Float128Type>>(context);
   VectorType::attachInterface<ScalarFacts<VectorType>>(context);
-  MemRefType::attachInterface<ArrayFacts<MemRefType, true>>(context);
-  UnrankedMemRefType::attachInterface<ArrayFacts<UnrankedMemRefType, true>>(context);
-  RankedTensorType::attachInterface<ArrayFacts<RankedTensorType, false>>(context);
-  UnrankedTensorType::attachInterface<ArrayFacts<UnrankedTensorType, false>>(context);
+  MemRefType::attachInterface<ArrayFacts<MemRefType>>(context);
+  UnrankedMemRefType::attachInterface<ArrayFacts<UnrankedMemRefType>>(context);
+  RankedTensorType::attachInterface<ArrayFacts<RankedTensorType>>(context);
+  UnrankedTensorType::attachInterface<ArrayFacts<UnrankedTensorType>>(context);
 }
 
 // A type no model answers for is of another dialect, which only the
