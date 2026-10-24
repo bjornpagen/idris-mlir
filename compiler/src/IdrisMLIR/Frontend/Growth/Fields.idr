@@ -15,6 +15,7 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Growth.Sites
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Annotated
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Given
@@ -115,8 +116,8 @@ fieldTypes g k bound here (Bind bfc _ (Pi _ rig _ a) sc) = do
       if !(compileTimeBinder rig a') then pure rest else pure ((into BinderType here, a') :: rest)
 fieldTypes _ _ _ _ _ = pure []
 
-||| The sites a type constructor's fields write: each runtime field of each
-||| of its constructors, as the boundary read them (`ConstructorAt`, which
+||| A type constructor's fields' types read: each runtime field of each of
+||| its constructors, as the boundary read them (`ConstructorAt`, which
 ||| the type's facts hold), constructors in their declared order and fields
 ||| in binder order, read over the type's represented arguments
 ||| (`represented`, which the caller has read). The type, at its address
@@ -125,15 +126,16 @@ fieldTypes _ _ _ _ _ = pure []
 ||| `within` and its location, for the message that names it. The field
 ||| types go to the site walk as they are: it reads each type constructor
 ||| they apply as its key does, so reading them here too would be a second
-||| reading. Each field's sites are made in the type's text at the field's
+||| reading. Each field's type is read in the type's text at the field's
 ||| binder in its constructor's type, a step into the constructor by its
 ||| name.
 export
 fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (t : Address) -> Defined -> (constructors : List ConstructorAt) -> (represented : List Nat) -> Front (List Made)
+             (t : Address) -> Defined -> (constructors : List ConstructorAt) -> (represented : List Nat) ->
+             Front (List (TypeRead AtRole []))
 fieldSites t td cons rs = (>>= id) <$> traverse constructorSites cons
   where
-    constructorSites : ConstructorAt -> Front (List Made)
+    constructorSites : ConstructorAt -> Front (List (TypeRead AtRole []))
     constructorSites con = do
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
@@ -141,6 +143,4 @@ fieldSites t td cons rs = (>>= id) <$> traverse constructorSites cons
       let bound = bindings rs (returned none 0 ty)
       let typed = [< OfConstructor (fullname con.read.def), DefinitionType]
       fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) typed ty
-      (>>= id) <$> traverse (\(place, ft) => map (\m => { site->fc := location con.read.def } m) <$>
-                                               sitesIn t td con.read.def (map snd bound) place ft)
-                            fts
+      traverse (\(place, ft) => sitesIn t td con.read.def (map snd bound) place (location con.read.def) ft) fts

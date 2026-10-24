@@ -57,6 +57,7 @@ import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry
 
 import Control.Applicative.Const
+import Control.Monad.Identity
 import Control.WellFounded
 import Data.DPair
 import Data.List
@@ -2620,20 +2621,16 @@ atNode a d heads = do
   values <- nodeValues (arityOf d) heads 0 d.type (MkPats 0 [] [<])
   nodeSites a d values
 
-||| A site made where a type constructor's fields are read, held at the
-||| role its reach gives it.
-fieldRole : Made -> (r : ReachKind ** AtRole r)
-fieldRole m = (ReachOf m.site.reach ** MkAtRole m Refl)
-
 ||| A definition as its node with no heads reads it, from the definition
-||| the walk holds, with the sites `fields` makes there too (a type
+||| the walk holds, with its fields' types read there too (a type
 ||| constructor's constructors' fields, `Fields.fieldSites`; none for any
 ||| other definition).
 export
-readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> (fields : List Made) -> Front NodeReading
+readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> (fields : List (TypeRead AtRole [])) ->
+            Front NodeReading
 readingOf a d fields = do
   (kinds, sig, body) <- nodeSites a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 [] [<]))
-  pure (MkNodeReading (MkReadingTree (map fieldRole fields) sig body) (mapMaybe family (zip [0 .. length kinds] kinds)))
+  pure (MkNodeReading (MkReadingTree fields sig body) (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat
     family (i, Just AFamily) = Just i
@@ -2646,16 +2643,23 @@ sitesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Def
           (heads : List (Nat, (a : Address ** TypeConstructorAt a))) -> Front (ReadingTree AtRole)
 sitesOf a d heads = (\(_, sig, body) => MkReadingTree [] sig body) <$> atNode a d heads
 
-||| The sites a closed term over the writer's markers and the stand-ins
-||| `stands`, numbered from 0, writes, as a type `within` holds, at `place`
-||| in the writer's text: a data constructor's field type, its markers the
-||| data type's parameters and its stand-ins the parts of them its
-||| constructor's type binds. The writer is a type, at its address and as
-||| it was read: what a type writes has no leaves, and no case tree that
-||| requests the type again.
+||| A closed term over the writer's markers and the stand-ins `stands`,
+||| numbered from 0, read as a type `within` holds, at `place` in the
+||| writer's text: a data constructor's field type, its markers the data
+||| type's parameters and its stand-ins the parts of them its
+||| constructor's type binds, every site it writes at `fc`. The writer is a
+||| type, at its address and as it was read: what a type writes has no
+||| leaves, and no case tree that requests the type again.
 export
 sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          (writer : Address) -> Defined -> (within : GlobalDef) -> (stands : List StandIn) -> (place : Place) -> ClosedTerm ->
-          Front (List Made)
-sitesIn writer d within stands place tm =
-  madeIn traverseTypeRead <$> readClosed (atDefinition writer within d [] ValueLeaves) (MkPats (length stands) stands place) tm
+          (writer : Address) -> Defined -> (within : GlobalDef) -> (stands : List StandIn) -> (place : Place) -> FC -> ClosedTerm ->
+          Front (TypeRead AtRole [])
+sitesIn writer d within stands place fc tm =
+  located <$> readClosed (atDefinition writer within d [] ValueLeaves) (MkPats (length stands) stands place) tm
+  where
+    -- A site at `fc`, its reach, which its role is, as it was.
+    at : Site -> Site
+    at s = MkSite s.writer s.writerDef s.params s.within s.reach s.arguments fc
+
+    located : TypeRead AtRole [] -> TypeRead AtRole []
+    located = runIdentity . traverseTypeRead (\x => Id (MkAtRole (MkMade x.made.place (at x.made.site)) x.role))

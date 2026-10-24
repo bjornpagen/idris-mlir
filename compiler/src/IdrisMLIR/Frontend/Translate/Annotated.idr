@@ -508,13 +508,13 @@ data BodyNode : (ReachKind -> Type) -> Type where
   ProjectionBody : req DispatchReach -> BodyNode req
   CaseBody : {args : Scope} -> TreeNode req args -> BodyNode req
 
-||| A definition read at a node: what a type constructor's fields write,
-||| in its constructors' order (none for any other definition), its
-||| signature and its body.
+||| A definition read at a node: each of a type constructor's fields' types
+||| read, in its constructors' order and each one's binder order (none for
+||| any other definition), its signature and its body.
 public export
 record ReadingTree (req : ReachKind -> Type) where
   constructor MkReadingTree
-  fields : List (r : ReachKind ** req r)
+  fields : List (TypeRead req [])
   signature : SignatureNode req
   body : BodyNode req
 
@@ -765,7 +765,7 @@ visitBody v (CaseBody t) = CaseBody <$> visitTree v t
 export
 traverseReading : Applicative m => Visitor m req req' -> ReadingTree req -> m (ReadingTree req')
 traverseReading v (MkReadingTree fs sig b) =
-  [| MkReadingTree (traverse (\(r ** x) => (\y => (r ** y)) <$> v x) fs) (visitSignature v sig) (visitBody v b) |]
+  [| MkReadingTree (traverse (visitTypeRead v) fs) (visitSignature v sig) (visitBody v b) |]
 
 ||| Every request a type read holds visited once, in the order the walk made
 ||| them.
@@ -1310,16 +1310,10 @@ labelBody k Untranslated [] = Untranslated
 labelBody k (ProjectionBody d) [y] = ProjectionBody (k d y)
 labelBody k (CaseBody t) v = CaseBody (labelTree k t v)
 
-sizeField : {0 req : ReachKind -> Type} -> (r : ReachKind ** req r) -> Nat
-sizeField _ = 1
-
-labelField : Labeller req req' b -> (x : (r : ReachKind ** req r)) -> Vect (sizeField x) b -> (r : ReachKind ** req' r)
-labelField k (r ** x) [y] = (r ** k x y)
-
 ||| How many requests a reading holds.
 export
 readingSize : ReadingTree req -> Nat
-readingSize (MkReadingTree fs sig b) = sizeList sizeField fs + (sizeSignature sig + sizeBody b)
+readingSize (MkReadingTree fs sig b) = sizeList sizeTypeRead fs + (sizeSignature sig + sizeBody b)
 
 ||| A reading with each request labelled, as many labels as it holds, in
 ||| the order the walk made the requests: the order `traverseReading` visits
@@ -1327,6 +1321,6 @@ readingSize (MkReadingTree fs sig b) = sizeList sizeField fs + (sizeSignature si
 export
 labelReading : Labeller req req' b -> (x : ReadingTree req) -> Vect (readingSize x) b -> ReadingTree req'
 labelReading k (MkReadingTree fs sig b) v =
-  let (vf, r1) = splitAt (sizeList sizeField fs) v
+  let (vf, r1) = splitAt (sizeList sizeTypeRead fs) v
       (vs, vb) = splitAt (sizeSignature sig) r1 in
-  MkReadingTree (labelList sizeField (labelField k) fs vf) (labelSignature k sig vs) (labelBody k b vb)
+  MkReadingTree (labelList sizeTypeRead (labelTypeRead k) fs vf) (labelSignature k sig vs) (labelBody k b vb)
