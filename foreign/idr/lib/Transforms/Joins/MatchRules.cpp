@@ -12,6 +12,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ops/Rules.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins/Rules.h"
 
@@ -46,13 +47,18 @@ Region *takenByTag(DataMatchOp op, Tag tag) {
 
 // The region of `op` a known scrutinee takes, from what the e-graph knows
 // of it (the idr.data.con that made its chosen form, or the constructor
-// constant it is, held by an op or built by the graph) or from its type's
-// one constructor; none where it is not known.
+// constant it is, held by an op or built by the graph) where how it was
+// built still says its constructor at the match (builtStateHolds, which
+// the match's own choice of region asks too: a memo cell a force rewrote
+// says none), or from its type's one constructor; none where it is not
+// known.
 Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
-  if (DataConOp con = constructorOf(scrutinee, facts))
+  if (DataConOp con = constructorOf(scrutinee, facts);
+      con && builtStateHolds(con.getResult(), op.getOperation()))
     return takenByTag(op, con.getTag());
-  if (std::optional<Tag> tag = facts.constructorTag(scrutinee))
+  if (std::optional<Tag> tag = facts.constructorTag(scrutinee);
+      tag && builtStateHolds(scrutinee, op.getOperation()))
     return takenByTag(op, *tag);
   SmallVector<RegionSuccessor> taken;
   SmallVector<Attribute> constants(op->getNumOperands(), Attribute());

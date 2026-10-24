@@ -37,19 +37,21 @@ using namespace idr::control;
 
 namespace {
 
-// The region a known scrutinee takes: a constant constructor; the
-// constructor of the idr.data.con that built it, where its state still
-// holds at the match (a memo cell's changes); or the one constructor its
-// type leaves possible. Else none is known.
+// The region a known scrutinee takes: the one constructor its type leaves
+// possible; or, where how it was built still says its constructor at the
+// match (builtStateHolds: a memo cell a force rewrote says none, a
+// constant one never), that of the constant it is or of the idr.data.con
+// that built it. Else none is known. The e-graph's rule asks the same
+// check of what it knows (takenByFacts).
 Region *takenRegionOf(DataMatchOp op, Attribute value) {
   Value scrutinee = op.getScrutinee();
   const auto &possible = dataTypeOf(scrutinee.getType()).possibleTags();
   if (possible.size() == 1)
     return takenRegion(op, static_cast<int32_t>(possible.front()));
-  if (auto con = dyn_cast_or_null<ConAttr>(value))
-    return takenRegion(op, static_cast<int32_t>(con.getTag()));
   if (!builtStateHolds(scrutinee, op.getOperation()))
     return nullptr;
+  if (auto con = dyn_cast_or_null<ConAttr>(value))
+    return takenRegion(op, static_cast<int32_t>(con.getTag()));
   if (auto built = scrutinee.getDefiningOp<DataConOp>())
     return takenRegion(op, static_cast<int32_t>(built.getTag()));
   return nullptr;

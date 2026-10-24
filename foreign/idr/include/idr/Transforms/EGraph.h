@@ -427,9 +427,11 @@ concept SkeletonRule =
 
 // A constant a function's final body returns as one of its results: the
 // attribute the constant op its return reads holds, the dialect that
-// materializes it, and the type it stands at, the function's own result
-// type, which a call's result is only where the call's index arguments
-// leave it as it is.
+// materializes it, and the type it stands at, its op's: the function's own
+// result type, or that type at the grade the value had before the return
+// cast it into its one use. A call's result is that constant, or holds it
+// at another grade, only where the call's index arguments leave the
+// carrier as it is.
 struct ReturnedConstant {
   mlir::Attribute value;
   mlir::Dialect *dialect;

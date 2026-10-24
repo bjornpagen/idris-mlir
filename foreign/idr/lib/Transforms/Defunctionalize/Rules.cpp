@@ -10,13 +10,31 @@
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
 namespace idr::egraph {
 
-std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &facts) {
-  if (!facts.builtBy<DataConOp>(run.getCell()) || !run.getCell().hasOneUse())
+namespace {
+
+// The idr.data.con that built the cell an exchange forces, read through
+// each cast into or out of a linear position the cell passed (as the
+// e-graph reads it), where the cell is built for that force alone: each
+// value from the constructor's result to the exchange's operand has one
+// use. Null otherwise. The decision and the rewrite read it alike, so the
+// rewrite finds the op the decision found.
+DataConOp freshCell(MemoRunOp run) {
+  SmallVector<Value, 4> passed = linearPositions(run.getCell());
+  if (!llvm::all_of(passed, [](Value value) { return value.hasOneUse(); }))
+    return {};
+  return passed.back().getDefiningOp<DataConOp>();
+}
+
+} // namespace
+
+std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &) {
+  if (!freshCell(run))
     return std::nullopt;
   return Edit(Rewrite{});
 }
@@ -29,7 +47,9 @@ std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &fa
 // fact of where it stood: the e-graph's turn after the rewrite writes the
 // function back, and every call's fact with it.
 void ForceFreshCell::rewrite(MemoRunOp run, const Rewrite &, RewriterBase &rewriter) {
-  auto built = run.getCell().getDefiningOp<DataConOp>();
+  DataConOp built = freshCell(run);
+  if (!built)
+    return;
   Block &body = run.getRegion().front();
   auto end = cast<MemoYieldOp>(body.getTerminator());
   rewriter.setInsertionPoint(run);

@@ -4,6 +4,7 @@
 
 #include "idr/IR/Ops/Rules.h"
 
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Numeric/Intervals.h"
 #include "idr/Support/Footprint.h"
@@ -120,7 +121,12 @@ void NeverEmptyString::rewrite(CheckNonemptyOp, const Rewrite &, RewriterBase &)
 // Each output rule asks for the input op of its class that builds the
 // string written, a member computable where the output is, and its rewrite
 // reads the root's string again on the input as it now is: a root an
-// earlier rewrite changed is left as it is.
+// earlier rewrite changed is left as it is. Both read the string through
+// each cast into or out of a linear position it passed, the e-graph by its
+// class (builtBy) and the rewrite on the input (throughLinear), so the
+// rewrite finds the op the decision found. What it writes are that op's
+// operands, each of the kind the output takes: a string read in place and
+// a character, by the builder's own operand constraints.
 
 std::optional<Edit> OutputOfAppend::decide(IoPutStrOp output, const OperandFacts &facts) {
   if (facts.builtBy<StrAppendOp>(output.getStr()))
@@ -129,7 +135,7 @@ std::optional<Edit> OutputOfAppend::decide(IoPutStrOp output, const OperandFacts
 }
 
 void OutputOfAppend::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &rewriter) {
-  auto append = output.getStr().getDefiningOp<StrAppendOp>();
+  auto append = throughLinear(output.getStr()).getDefiningOp<StrAppendOp>();
   if (!append)
     return;
   rewriter.setInsertionPoint(output);
@@ -145,7 +151,7 @@ std::optional<Edit> OutputOfCons::decide(IoPutStrOp output, const OperandFacts &
 }
 
 void OutputOfCons::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &rewriter) {
-  auto cons = output.getStr().getDefiningOp<StrConsOp>();
+  auto cons = throughLinear(output.getStr()).getDefiningOp<StrConsOp>();
   if (!cons)
     return;
   rewriter.setInsertionPoint(output);
@@ -161,7 +167,7 @@ std::optional<Edit> OutputOfChar::decide(IoPutStrOp output, const OperandFacts &
 }
 
 void OutputOfChar::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &rewriter) {
-  auto one = output.getStr().getDefiningOp<StrFromCharOp>();
+  auto one = throughLinear(output.getStr()).getDefiningOp<StrFromCharOp>();
   if (!one)
     return;
   rewriter.setInsertionPoint(output);

@@ -77,8 +77,11 @@ std::optional<Edit> FieldOfCon::decide(Root op, const OperandFacts &facts) {
   return Rewrite{};
 }
 
+// The constructor is read on the input as the e-graph read it, through
+// each cast into or out of a linear position the value passed, so the
+// rewrite finds the op the decision found.
 void FieldOfCon::rewrite(Root op, const Rewrite &, RewriterBase &rewriter) {
-  auto con = op.getValue().getDefiningOp<DataConOp>();
+  auto con = throughLinear(op.getValue()).getDefiningOp<DataConOp>();
   if (!con)
     return;
   if (Value field = families::givenField(con, op))

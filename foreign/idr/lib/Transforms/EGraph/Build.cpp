@@ -218,15 +218,20 @@ void Function::build() {
         for (Value result : op->getResults())
           classOf[numbering.at(result)] = leaf(result, region);
         // A call's result is the constant its callee returns there, whatever
-        // else the call does; but a call nothing of its caller may follow
-        // gives its caller's results as they are, and a use of them taking a
-        // constant instead would end the tail.
+        // else the call does, or holds it at another grade, as its facts say;
+        // but a call nothing of its caller may follow gives its caller's
+        // results as they are, and a use of them taking a constant instead
+        // would end the tail.
         if (auto call = dyn_cast<CallOp>(op); call && callees && !lastActOf(op))
           if (std::optional<solver::FunctionId> callee = callees->calleeOf(call))
             for (auto [index, result] : llvm::enumerate(op->getResults()))
-              if (std::optional<ClassId> constant =
-                      returnedBy(*callee, call, static_cast<unsigned>(index)))
-                (void)unite(*classOf[numbering.at(result)], *constant);
+              if (std::optional<Returned> returned =
+                      returnedBy(*callee, call, static_cast<unsigned>(index))) {
+                ClassId cls = *classOf[numbering.at(result)];
+                match(
+                    *returned, [&](ClassId constant) { (void)unite(cls, constant); },
+                    [&](const Facts &said) { narrow(cls, said); });
+              }
         list.push_back({op, Kept{}, inner});
       }
     });

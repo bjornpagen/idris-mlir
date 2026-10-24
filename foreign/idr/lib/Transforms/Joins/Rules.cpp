@@ -137,9 +137,11 @@ DataConOp constructorOf(Value value, const egraph::OperandFacts &facts) {
   return {};
 }
 
+// The constructor constant is the one the graph holds of the value's
+// class, whether an op held it, the graph built it, or a cast into or out
+// of a linear position keeps it: no attribute is read.
 bool knownConstructor(Value value, const egraph::OperandFacts &facts) {
-  return isa_and_nonnull<ConAttr>(facts.held(value)) ||
-         static_cast<bool>(constructorOf(value, facts));
+  return facts.constructorTag(value) || constructorOf(value, facts);
 }
 
 } // namespace idr::control

@@ -6,6 +6,7 @@
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/Analysis/Solver/Trace.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
@@ -38,9 +39,11 @@ using detail::Kinds;
 using detail::Turn;
 
 // Per result, the constant op the final body's return reads, as it holds
-// it; none where the return reads anything else. A body that ends without
-// returning (its one block ends in a crash) reaches no caller, and returns
-// nothing to know.
+// it, through each cast into or out of a linear position the value passed
+// on its way there (a fresh result is used once, so a constant returned is
+// cast into its one use), at the type the op stands at; none where the
+// return reads anything else. A body that ends without returning (its one
+// block ends in a crash) reaches no caller, and returns nothing to know.
 void CalleeFacts::publish(solver::FunctionId f, identities::Facts given, FuncOp final) {
   if (f.index() >= facts.size().value()) {
     IndexVector<solver::FunctionId, Published> old = std::move(facts);
@@ -52,10 +55,11 @@ void CalleeFacts::publish(solver::FunctionId f, identities::Facts given, FuncOp 
   out.returned.resize(final.getResultTypes().size());
   if (auto ret = dyn_cast<ReturnOp>(final.getBody().front().getTerminator()))
     for (auto [returned, operand] : llvm::zip_equal(out.returned, ret.getOperands())) {
+      Value made = throughLinear(operand);
       Attribute constant;
-      if (matchPattern(operand, m_Constant(&constant)))
-        returned = ReturnedConstant{constant, operand.getDefiningOp()->getDialect(),
-                                    operand.getType()};
+      if (matchPattern(made, m_Constant(&constant)))
+        returned =
+            ReturnedConstant{constant, made.getDefiningOp()->getDialect(), made.getType()};
     }
   facts[f] = std::move(out);
 }

@@ -743,11 +743,19 @@ private:
   // whole as its result, where that is of the call's result's type.
   std::optional<ClassId> giveBack(solver::FunctionId callee, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // The class of the constant `callee` returns as its result `result` (the
-  // callees' table, read from the constant op its final body returns),
-  // where `call`'s result is of that constant's type; none where it returns
-  // no constant there, or where a new node would pass the budget.
-  std::optional<ClassId> returnedBy(solver::FunctionId callee, CallOp call, unsigned result);
+  // What a call's result is of the constant its callee returns there:
+  // that constant's class, where the constant's op stands at the result's
+  // type; or what the constant says of the result, where the result holds
+  // it at another grade, as a cast into or out of a linear position holds
+  // its operand's value (a function's fresh result is used once), the
+  // result's class its own.
+  using Returned = std::variant<ClassId, Facts>;
+  // What `call`'s result `result` is of the constant `callee` returns
+  // there (the callees' table, read from the constant op its final body
+  // returns), where the call's index arguments leave that result's carrier
+  // the constant's; none where it returns no constant there, or where a
+  // new node would pass the budget.
+  std::optional<Returned> returnedBy(solver::FunctionId callee, CallOp call, unsigned result);
   // A class whose facts are one constant holds that constant.
   void joinConstant(ClassId c);
   // The region a node can be computed in, from its operands' reaches; none

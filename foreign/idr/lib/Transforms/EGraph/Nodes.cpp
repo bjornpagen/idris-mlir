@@ -499,11 +499,12 @@ void Function::joinConstant(ClassId c) {
 // class, found in the hash-cons; or the constant its meaning computes, or,
 // for a call, the constant its callee returns, with no node of its own, as
 // a node a rule built over constants is, where the type places it; or a new
-// node in a class of its own, with its interval and what its meaning
-// computes, united with the constant it is where its facts are one, and
-// with an argument where its callee gives that back. An op that makes a
-// fresh identity, as one that computes a string or a big does, becomes its
-// constant only here. The rules run in the rounds after the walk.
+// node in a class of its own, with its interval, what its meaning computes
+// and what a returned constant it holds at another grade says, united with
+// the constant it is where its facts are one, and with an argument where
+// its callee gives that back. An op that makes a fresh identity, as one
+// that computes a string or a big does, becomes its constant only here.
+// The rules run in the rounds after the walk.
 ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> operands) {
   if (op.identity == Identity::Shared) {
     Node probe{op, type, childrenFor(operands)};
@@ -525,11 +526,15 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
   }
   // A call's callee, resolved once here, whose facts are read by its id.
   std::optional<solver::FunctionId> callee;
+  std::optional<Facts> holds;
   if (auto call = dyn_cast<CallOp>(op.origin); call && callees) {
     callee = callees->calleeOf(call);
     if (callee)
-      if (std::optional<ClassId> constant = returnedBy(*callee, call, 0))
-        return *constant;
+      if (std::optional<Returned> returned = returnedBy(*callee, call, 0)) {
+        if (const ClassId *constant = std::get_if<ClassId>(&*returned))
+          return *constant;
+        holds = std::get<Facts>(std::move(*returned));
+      }
   }
   std::optional<Facts> computed = meant(op, type, operands);
   if (computed && placeable(*computed, type))
@@ -538,6 +543,8 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
   Facts facts{intervalOf(op.origin, operands), std::nullopt};
   if (computed)
     (void)facts.meet(*computed);
+  if (holds)
+    (void)facts.meet(*holds);
   ClassId cls = classOfNode(make(Node{op, type, childrenFor(operands)}, std::move(facts)));
   joinConstant(cls);
   if (callee)
@@ -596,17 +603,25 @@ std::optional<ClassId> Function::giveBack(solver::FunctionId callee,
 // The constant a final callee's body returns is the same at every call of
 // it, so it is a fact of the call's result, read as the attribute its
 // constant op holds; where the call's index arguments make its result's
-// type another than the callee's own, that constant is no value of it.
-std::optional<ClassId> Function::returnedBy(solver::FunctionId callee, CallOp call,
-                                            unsigned result) {
+// carrier another than the callee's own, that constant is no value of it.
+// A result at the constant's own type is the constant; one at another
+// grade of it (a fresh result, used once, which the callee's return cast
+// the constant into) holds its value, which no constant op stands at, so
+// it is what the constant says, as a cast is what its operand is.
+std::optional<Function::Returned> Function::returnedBy(solver::FunctionId callee, CallOp call,
+                                                       unsigned result) {
   llvm::ArrayRef<std::optional<ReturnedConstant>> returned = callees->returns(callee);
   if (result >= returned.size() || !returned[result])
     return std::nullopt;
   const ReturnedConstant &constant = *returned[result];
   Type type = call->getResult(result).getType();
-  if (constant.type != type || nodes.size() >= budget)
+  if (unrestricted(constant.type) != unrestricted(type))
     return std::nullopt;
-  return held(constant.value, type, constant.dialect, std::nullopt);
+  if (constant.type != type)
+    return Returned(heldFacts(constant.value));
+  if (nodes.size() >= budget)
+    return std::nullopt;
+  return Returned(held(constant.value, type, constant.dialect, std::nullopt));
 }
 
 //===----------------------------------------------------------------------===//
