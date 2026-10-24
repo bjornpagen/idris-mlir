@@ -386,11 +386,12 @@ struct OnDoubles<math::FloorOp> : Integral<APFloat::rmTowardNegative> {};
 template <>
 struct OnDoubles<math::CeilOp> : Integral<APFloat::rmTowardPositive> {};
 
-// arith.sitofp and uitofp: the integer read with its sign or without,
-// converted at round-to-nearest-even, as each one's fold computes it by
-// APFloat's convertFromAPInt in its result's semantics. A Double is the
-// graph's one float, so a result of another width is none of its values.
-template <bool Signed>
+// arith.sitofp and uitofp: the integer as each reads it, with its sign or
+// without, converted at round-to-nearest-even, as each one's fold computes
+// it by APFloat's convertFromAPInt in its result's semantics. A Double is
+// the graph's one float, so a result of another width is none of its
+// values.
+template <numeric::Signedness Reading>
 struct FromInteger {
   template <class Op>
   static std::optional<Facts> of(Op, llvm::ArrayRef<const Class *> operands, Type type) {
@@ -398,15 +399,16 @@ struct FromInteger {
     if (!integer || !type.isF64())
       return std::nullopt;
     APFloat result(APFloat::IEEEdouble(), APInt::getZero(64));
-    (void)result.convertFromAPInt(*integer, Signed, APFloat::rmNearestTiesToEven);
+    (void)result.convertFromAPInt(*integer, Reading == numeric::Signedness::Signed,
+                                  APFloat::rmNearestTiesToEven);
     return computed(result);
   }
 };
 
 template <>
-struct OnDoubles<arith::SIToFPOp> : FromInteger<true> {};
+struct OnDoubles<arith::SIToFPOp> : FromInteger<numeric::Signedness::Signed> {};
 template <>
-struct OnDoubles<arith::UIToFPOp> : FromInteger<false> {};
+struct OnDoubles<arith::UIToFPOp> : FromInteger<numeric::Signedness::Unsigned> {};
 
 // arith.cmpf: the op's predicate on the two, by upstream's own
 // applyCmpPredicate, which its fold calls; a truth, an i1.

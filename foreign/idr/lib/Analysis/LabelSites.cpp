@@ -22,6 +22,7 @@
 #include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <span>
 #include <utility>
@@ -276,9 +277,27 @@ void Reading::expandOne(const Expansion &next, footprint::Vector<Pending> &work)
         FlatSymbolRefAttr symbol = closure.getCallee();
         Label label = out.points.labelOf(symbol);
         out.statements.sources.push_back({at, label});
-        if (auto lazy = dyn_cast<LazyType>(next.carrier))
-          work.push_back(Statements::Linked{out.points.result(label, 0),
-                                            out.points.of(FlowAnchor::forcedOf(lazy)), Link::Unify});
+        // Which labels the carrier carries, as its type answers: a
+        // suspension's label returns into its type's forced state, a
+        // closure's to its callers. A closure constant is held only where
+        // its carrier carries labels, which the constant's verifier holds
+        // every part to (ClosureAttr::isBuildableAt).
+        match(
+            carryingOf(next.carrier),
+            [&](const LabelCarrier &labels) {
+              match(
+                  labels, [](const carrying::Closure &) {},
+                  [&](const carrying::Suspension &suspension) {
+                    work.push_back(Statements::Linked{
+                        out.points.result(label, 0),
+                        out.points.of(FlowAnchor::forcedOf(suspension.type.get())), Link::Unify});
+                  });
+            },
+            [](OneOf<carrying::Reference, carrying::Nothing> auto) {
+              llvm::reportFatalInternalError(
+                  "a closure constant held at a type that carries no labels, which "
+                  "ClosureAttr::isBuildableAt refuses");
+            });
         FuncOp fn = out.points.function(symbol);
         ArrayAttr captures = closure.getCaptures();
         for (auto index = static_cast<unsigned>(captures.size()); index-- > 0;)
