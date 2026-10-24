@@ -498,13 +498,16 @@ sortOf expected = pure (headSort (stripDelay !(getNF expected)))
 
 ||| A pair's parts, elaborated once against unknowns of their own: what
 ||| both of its readings are made of, so that settling which one it is
-||| elaborates nothing again.
+||| elaborates nothing again that it keeps; and the parts as written, by
+||| which the type reading is found to fit (`pairTypeOf`).
 record PairParts (vars : Scope) where
   constructor MkPairParts
   leftType : Term vars
   rightType : Term vars
   left : Term vars
   right : Term vars
+  writtenLeft : RawImp
+  writtenRight : RawImp
 
 -- The parts are arguments, at the multiplicity a constructor's argument
 -- has, and the right one is checked first, as an application whose
@@ -530,7 +533,7 @@ pairParts rig elabinfo nest env fc l r
          let partInfo = { topLevel := False } elabinfo
          (r', _) <- check (rig |*| top) partInfo nest env r (Just (gnf env rty))
          (l', _) <- check (rig |*| top) partInfo nest env l (Just (gnf env lty))
-         pure (MkPairParts lty rty l' r')
+         pure (MkPairParts lty rty l' r' l r)
   where
     partType : Known -> Core (Term vars)
     partType root
@@ -542,14 +545,61 @@ pairParts rig elabinfo nest env fc l r
                addBindIfUnsolved nm fc erased Implicit env meta ty
              pure meta
 
+-- An elaboration run for whether it succeeds alone: everything it did is
+-- put back as it was, as an alternative that is not taken is, and its
+-- error, where it failed, is thrown.
+elaboratesAlone : {vars : _} ->
+                  {auto c : Ref Ctxt Defs} ->
+                  {auto m : Ref MD Metadata} ->
+                  {auto u : Ref UST UState} ->
+                  {auto dl : Ref DLY DelayedElabs} ->
+                  {auto e : Ref EST (EState vars)} ->
+                  Core a -> Core ()
+elaboratesAlone elab
+    = do ust <- get UST
+         dls <- get DLY
+         est <- get EST
+         md <- get MD
+         defs <- branch
+         res <- tryError elab
+         put UST ust
+         put DLY dls
+         put EST est
+         put MD md
+         put Ctxt defs
+         either throw (const (pure ())) res
+
+-- A part as the type reading's trial elaborates it (`pairTypeOf`): as
+-- written, except syntax that itself writes a type and a value alike, which
+-- is an unknown there. Such a part settled its own reading, or found both
+-- fitting, when it was elaborated against its unknown: settled as a value,
+-- its type is no universe, and the parts' types refuse the reading;
+-- otherwise it fits as a type. Elaborating it again would only repeat
+-- that, and a tuple nested n deep would elaborate n levels at each level.
+trialPart : RawImp -> RawImp
+trialPart (ITypeOrValue fc _) = Implicit fc False
+trialPart part = part
+
 -- The type reading of elaborated parts: each part a type, and the whole
--- the pair type over them.
+-- the pair type over them. It fits where upstream's does, where the pair
+-- as written elaborates as the pair type, its parts as types: a part
+-- elaborated against an unknown of its own has a type a universe unifies
+-- with even where the part, elaborated as a type, has no reading (a name
+-- whose candidates wait for the part's type to be known, none of which is
+-- a type once it is). So that elaboration is run too, once the parts'
+-- types are universes, and kept only as whether it succeeds: what the
+-- reading keeps is still made of the parts elaborated once.
 pairTypeOf : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
+             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
-             RigCount -> ElabInfo -> Env Term vars -> FC -> PairParts vars ->
-             Glued vars -> Core (Term vars, Glued vars)
-pairTypeOf rig elabinfo env fc parts expected
+             {auto dl : Ref DLY DelayedElabs} ->
+             {auto e : Ref EST (EState vars)} ->
+             {auto s : Ref Syn SyntaxInfo} ->
+             {auto o : Ref ROpts REPLOpts} ->
+             RigCount -> ElabInfo -> NestedNames vars -> Env Term vars -> FC ->
+             PairParts vars -> Glued vars -> Core (Term vars, Glued vars)
+pairTypeOf rig elabinfo nest env fc parts expected
     = do defs <- get Ctxt
          ul <- uniVar fc
          ur <- uniVar fc
@@ -557,6 +607,11 @@ pairTypeOf rig elabinfo env fc parts expected
                             (gnf env parts.leftType) (Just (gType fc ul))
          (r, _) <- checkExp (rig |*| top) elabinfo env fc parts.right
                             (gnf env parts.rightType) (Just (gType fc ur))
+         elaboratesAlone $
+           checkImp rig elabinfo nest env
+                    (typeReading fc (PairOf (trialPart parts.writtenLeft)
+                                            (trialPart parts.writtenRight)))
+                    (Just expected)
          pairTy <- getCon fc defs pairname
          u <- uniVar fc
          checkExp rig elabinfo env fc (apply fc pairTy [l, r]) (gType fc u) (Just expected)
@@ -582,7 +637,7 @@ pairOf rig elabinfo env fc parts expected
 -- alternative (`withDefault`). So is this site settled, by its expected
 -- type's sort when that is known, and by that rule between the two
 -- readings when it is not. The readings are given as elaborators of the
--- two terms; what they are made of was elaborated before. Constraints are
+-- two terms; what they keep was elaborated before. Constraints are
 -- solved before each try, as upstream's are: before the first by
 -- `checkTypeOrValue`, which reads the sort then too, and here before each
 -- retry.
@@ -611,12 +666,14 @@ settlePair : {vars : _} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
-             RigCount -> ElabInfo -> Env Term vars -> FC -> PairParts vars ->
-             UnifyInfo -> (delayed : Bool) -> Glued vars ->
+             {auto s : Ref Syn SyntaxInfo} ->
+             {auto o : Ref ROpts REPLOpts} ->
+             RigCount -> ElabInfo -> NestedNames vars -> Env Term vars -> FC ->
+             PairParts vars -> UnifyInfo -> (delayed : Bool) -> Glued vars ->
              Core (Term vars, Glued vars)
-settlePair rig elabinfo env fc parts solvemode delayed expected
+settlePair rig elabinfo nest env fc parts solvemode delayed expected
     = settle fc env solvemode delayed expected
-        (Just pairname, pairTypeOf rig elabinfo env fc parts expected)
+        (Just pairname, pairTypeOf rig elabinfo nest env fc parts expected)
         (Just mkpairname, pairOf rig elabinfo env fc parts expected)
 
 -- The syntax as written, settled each time it is tried by elaborating the
@@ -659,13 +716,15 @@ checkWritten rig elabinfo nest env fc ovl solvemode expected
 ||| The syntax that writes a type and a value of it alike: `(l, r)`, `()`,
 ||| and `(x ** p)` with the type of `x` left out. Its expected type's sort
 ||| decides which it writes; while that is unknown, a pair's parts are
-||| elaborated once, against unknowns of their own, and the site waits for
-||| the sort with nothing more to elaborate, so a tuple costs one
-||| elaboration per part however deep it nests. A unit has no part, and a
-||| dependent pair's readings share none (the type reading binds the name
-||| over the second part, the value reading refers to it), so each waits as
-||| written. On a left-hand side a pair waits as written too: its parts are
-||| patterns, which the reading's application checks as a pattern needs.
+||| elaborated once, against unknowns of their own, and the site settles
+||| between its readings by upstream's rule, the type reading fitting where
+||| the pair as written elaborates as a type (`pairTypeOf`); what it keeps
+||| is one elaboration per part, however deep the tuple nests. A unit has no
+||| part, and a dependent pair's readings share none (the type reading binds
+||| the name over the second part, the value reading refers to it), so each
+||| waits as written. On a left-hand side a pair waits as written too: its
+||| parts are patterns, which the reading's application checks as a pattern
+||| needs.
 export
 checkTypeOrValue : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
@@ -696,5 +755,5 @@ checkTypeOrValue rig elabinfo nest env fc ovl mexpected
                   do parts <- pairParts rig elabinfo nest env fc l r
                      delayOnFailure fc rig env expected ambiguous Ambiguity $
                        \dl, delayed, exp =>
-                         settlePair {dl} rig elabinfo env fc parts solvemode delayed exp
+                         settlePair {dl} rig elabinfo nest env fc parts solvemode delayed exp
               _ => checkWritten rig elabinfo nest env fc ovl solvemode expected
