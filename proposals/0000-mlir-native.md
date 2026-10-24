@@ -519,6 +519,10 @@ below.
   Chosen with it: the heap carries only acquiring and freeing, its
   children the rest; identity apart from the heap; runtime state a
   read-only child of IO (eff-Q4 (b)). Its names are D28's.
+  *Extended* by C280 (2026-10-23, for the owner's review): `contents`
+  gains one child, `filling` (Write: a cell's fields while it is filled),
+  printed `idr.filling`, `Filling` in Idris and C++; every ordering above
+  stands.
 - **D28** (2026-10-21). The resources' names, "all approved. this must
   be a very hard cutover. zero backwards compat.": printed `idr.heap`,
   `idr.contents`, `idr.count`, `idr.memo_state`, `idr.identity`,

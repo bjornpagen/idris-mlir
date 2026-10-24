@@ -874,3 +874,8 @@ askers in callersOf, Settle's removed proof). Waiting:
   the two tables name it, so a second one fails the build instead of
   being lowered as `io.put_str`; a second output, when one is proposed,
   states its stream as its own fact then (L03).
+- From L01s (C280 landed, 1ecf1589): three comments still say the update's
+  rule touches "no memory written in place" where it now refuses a read or
+  write of the contents or a state above them: `include/idr/IR/Arrays.h:77-80`,
+  `lib/IR/OpsArrays.cpp:131-139` (comment and error message, L12), and
+  `Spec/Arrays/Memory.idr:164-171` (after L12y releases Spec/Arrays/).
