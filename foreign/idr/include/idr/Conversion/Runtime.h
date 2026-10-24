@@ -41,10 +41,10 @@ inline constexpr llvm::StringLiteral entrySymbol = "main";
 
 // The declaration of the runtime function `function`, detached, in no
 // module: the one declaration builder, which idr-lower's serial phase uses.
-// Its type is the function's kinds'; a Bool parameter or result is zeroext,
-// as the C ABI extends a bool in its caller and its callee, and a function
-// that does not return is noreturn, so LLVM treats what follows a call as
-// unreachable.
+// Its type is the function's kinds'; a byte parameter and a truth result,
+// each narrower than an int, are zeroext, as the C compiler says of the
+// runtime's definition, and a function that does not return is noreturn,
+// so LLVM treats what follows a call as unreachable.
 mlir::LLVM::LLVMFuncOp runtimeDeclaration(mlir::Location loc,
                                           const idr::runtime::Function &function);
 

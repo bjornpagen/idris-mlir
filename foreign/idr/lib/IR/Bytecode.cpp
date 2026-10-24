@@ -7,7 +7,10 @@
 // those records name for an enum, a case held in a class or none, an
 // integer of any size, and a value a wire of the specification lays out
 // (Generated/Wire.cpp.inc, printed from the wire, as the frontend's encoder
-// of it is). No `idr` text crosses the handoff.
+// of it is). Beside the codec of a wired value spelled by its members
+// alone, the termination proof, that file prints its text parser, printer
+// and hash, hooks the printed ODS names, so this unit defines those too.
+// No `idr` text crosses the handoff.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Enum.h"

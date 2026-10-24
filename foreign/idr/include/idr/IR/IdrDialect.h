@@ -6,8 +6,8 @@
 // lifetimes, the traits the ops are built on, the effect tree's resources
 // the ops' effects name, a family's declaration, and what functions and
 // calls hold; then the generated enums, attributes, dialect and types, the
-// families' queries over them, the hand hooks the printed ODS names
-// (custom directives, predicates, codecs, property hooks), the interfaces
+// families' queries over them, the hooks the printed ODS names (custom
+// directives, predicates, codecs, property hooks), the interfaces
 // and the ops; then each partial op's guards, the constants the
 // interfaces' defaults read of an op's class, and each op's declared
 // effects; then the base the generated passes name. Nothing here restates
@@ -102,10 +102,12 @@ class TagSet;
 // lifetime is measured by and which the interface takes by reference.
 #include "idr/IR/Families/Families.h"
 
-// The hand hooks the printed ODS names (custom directives, predicates,
+// The hooks the printed ODS names (custom directives, predicates,
 // parameter codecs, property hooks), after the types and attributes their
-// signatures name; their definitions are hand C++, a missing one a link
-// error.
+// signatures name; their definitions are hand C++ but for the termination
+// proof's parser, printer and hash, which the specification prints beside
+// the proof's bytecode codec (Generated/Wire.cpp.inc); a missing one is a
+// link error.
 #include "idr/IR/Generated/Hooks.h.inc"
 
 // How a value moves and the join family's carrier, which the ops name,

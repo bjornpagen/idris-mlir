@@ -362,8 +362,9 @@ FunctionId place(ProgramOp program, FuncOp anchor, FuncOp copy, solver::Editor &
 llvm::SmallVector<CallOp> regrade(FuncOp fn, llvm::ArrayRef<mlir::Value> lowered);
 
 // The arena of one run: every pattern and key it made, freed with it.
-// Interning is under one lock: a request interns its key once, after it
-// has judged it on its own requester's state.
+// Interning is under one lock, each key once; a key is interned as it is
+// made, before the request it names is decided, so a refused request's
+// key stays in it too.
 class Arena {
 public:
   const Pattern *hole();

@@ -181,42 +181,58 @@ LogicalResult ClosureAttr::verifyParts(Operation *holder, SymbolTableCollection 
       });
   if (failed(agrees))
     return failure();
-  // A constant fills a linear capture as its plain value.
+  // A capture is the closure's part as a field is a constructor's, at the
+  // type the product rule gives it (fieldType): used as often as the
+  // closure times the parameter's own uses, holding what the closure holds.
+  // So a constant fills a linear capture as its plain value, static data as
+  // the closure is.
   for (auto [capture, input] : llvm::zip(getCaptures(), inputs.take_front(captures)))
-    part(capture, unrestricted(input));
+    part(capture, fieldType(type, unrestricted(input), usesOf(input), fieldReach(input)));
   return success();
 }
 
 // The constructor's cells hold fields of its data type, each handed to
-// `part`; its data type is the type it is held at, which isBuildableAt has
-// said. A constructor is checked a cell at a time, each field at its type
-// in its own cell's application, however long its run, and never through
-// the suffix that reading the field along its spine would build. Each cell
-// after the first is the field along the spine of the one before, so its
-// application is that field's type there, refined to the same constructor:
-// a run of a vector's cells is checked at each cell's own index. One cell
-// has no field after it.
-LogicalResult ConAttr::verifyParts(Operation *holder, SymbolTableCollection &, Type,
+// `part` at the type the product rule gives it (fieldType), as a match
+// binds it: used as often as the cell holding it times the field's own
+// uses, holding what the cell holds as far as the cell's claim reaches into
+// it. So a constant fills a linear field as its plain value, and a field of
+// static data is static data. Its data type is the type it is held at,
+// which isBuildableAt has said. A constructor is checked a cell at a time,
+// each field at its type in its own cell's application, however long its
+// run, and never through the suffix that reading the field along its spine
+// would build. Each cell after the first is the field along the spine of
+// the one before, held as that field is, so its application is that
+// field's type there, refined to the same constructor: a run of a vector's
+// cells is checked at each cell's own index. One cell has no field after
+// it.
+LogicalResult ConAttr::verifyParts(Operation *holder, SymbolTableCollection &, Type type,
                                    function_ref<void(Attribute, Type)> part) const {
   Tag tag = getTag();
   auto spine = static_cast<unsigned>(getSpine());
   DataType at = getData();
   StringRef label = at.ctor(tag).label;
+  Type held = type;
   for (unsigned cell = 0, cells = getRunLength(); cell < cells; ++cell) {
     std::optional<SmallVector<Type>> fields = at.determinedFields(tag);
     if (!fields)
       return holder->emitOpError("has a cell of @")
              << label << " at " << at << ", where its binders are not determined";
-    // A constant fills a linear field as its plain value.
+    ArrayRef<Type> declared = at.ctor(tag).fields;
+    auto partAt = [&](unsigned index) {
+      Type field = (*fields)[index];
+      return fieldType(held, unrestricted(field), usesOf(field), fieldReach(declared[index]));
+    };
     for (auto [position, field] : llvm::enumerate(getCell(cell)))
-      part(field, unrestricted((*fields)[fieldOfCell(cell, static_cast<unsigned>(position))]));
+      part(field, partAt(fieldOfCell(cell, static_cast<unsigned>(position))));
     if (cell + 1 == cells)
       break;
-    DataType next = dataTypeOf((*fields)[spine]);
+    Type along = partAt(spine);
+    DataType next = dataTypeOf(along);
     if (!next || next.getGroup() != at.getGroup() || next.getMember() != at.getMember())
       return holder->emitOpError("has a run of @")
              << label << " along field " << spine << ", which holds no @" << label;
     at = next.refined({tag});
+    held = along;
   }
   return success();
 }
@@ -380,15 +396,20 @@ using Checked = footprint::DenseMap<Part, llvm::detail::DenseSetEmpty, llvm::Den
                                     llvm::detail::DenseSetPair<Part>>;
 
 // That `op` holds a constant of its type, through every field and capture,
-// with every symbol resolved. Each part is one the leaf rule of a
-// constant's fields and captures accepts (fold::buildable), which the
-// folders of constructors and closures ask too, so it is a constant, which
-// then checks what it names and hands over its parts: a string, an integer
-// or a Double names none.
+// with every symbol resolved. The constant stands at the op's type, which
+// the op's verifier has judged; each part stands at the type its holder
+// hands it, by the product rule, and is one the leaf rule of a constant's
+// fields and captures accepts (fold::buildable), which the folders of
+// constructors and closures ask too of the values they take, so it is a
+// constant, which then checks what it names and hands over its parts: a
+// string, an integer or a Double names none.
 LogicalResult verifyConstant(ConstantOp op, SymbolTableCollection &symbols) {
-  Parts parts{Part(op.getValue(), unrestricted(op.getType()))};
+  Parts parts;
   Checked checked;
   auto held = [&](Attribute value, Type type) { parts.push_back({value, type}); };
+  auto constant = cast<ConstantAttrInterface>(op.getValue());
+  if (failed(constant.verifyParts(op, symbols, op.getType(), held)))
+    return failure();
   while (!parts.empty()) {
     Part part = parts.back();
     parts.pop_back();

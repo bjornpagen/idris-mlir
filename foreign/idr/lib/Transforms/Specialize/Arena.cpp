@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The run's arena of patterns and keys: each interned by its structure,
-// once, under one lock, so equal patterns and keys are one pointer and a
-// request interns its key once, after it is judged.
+// once, under one lock, so equal patterns and keys are one pointer. A key
+// is interned as it is made, before the request it names is decided: a
+// pattern key as its want is composed, a signature key before its caller's
+// reading of the copy is judged (readsAsKeyed). So the arena holds the keys
+// of requests refused too, freed with the run.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
