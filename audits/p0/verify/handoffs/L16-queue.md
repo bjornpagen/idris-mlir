@@ -850,3 +850,8 @@ askers in callersOf, Settle's removed proof). Waiting:
   (`Layout/Classes.cpp`) until `IndexedTypeInterface` declares the method
   that answers it, in the specification (L04 with L03, after the running
   specification lanes land).
+- From L19y: `harness/Fuzz.idr:937` finds a builtin by
+  `spellingText b.spelling == "prim__div_Int"`, a string as identity (L19).
+- From L16eo (C281's design): steps 1 and 2 (build the annotated tree;
+  the translation folds it, keyed the old way) land separately, steps 3 to
+  6 together; after L16ep releases `Frontend/` (L16).
