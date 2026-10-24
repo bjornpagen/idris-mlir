@@ -793,3 +793,15 @@ askers in callersOf, Settle's removed proof). Waiting:
   value's and result's types, asked by the verifier there and the flow
   (`FlowOps.cpp:152`); the lowering's `repack` keeps asking the function
   on types (L04).
+- From L11z: `Spec/Pipeline/Pipeline.idr:205-207`'s doc says the driver
+  runs idr-target first (every slice does, L03); `Driver/Compile.h:94-97`
+  says a lowered module goes "through LLVM" (now idr-target, then LLVM;
+  L11); `Verify/Program.cpp:61-72`'s word-size check runs after every
+  pass on a layout idr-target fixed, a fact of the build checked at run
+  time (a build-time check of the target entry's word size, the read's
+  check kept only as idr-target's; L04); `toObjects` sets the data
+  layout twice (from DLTI, then the machine's; confirm the round trip on
+  a build, INT).
+- From L16em: `Term.Termination` restates the specification's
+  `Termination` (`Unproved | InComponent Nat`): generated from it or
+  replaced by it (L16 with L03).

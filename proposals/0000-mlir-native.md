@@ -2660,6 +2660,26 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   on the heap, a cell filled) passes and no op is listed. Narrowing by
   the type of the value an effect names is unsound there: a call writing
   through a cell that holds the array reaches the emptied place.
+- **C281** (2026-10-23; L16em's stop, under AGENTS.md's "one thing, one
+  representation ... generate the second copy from the first" and D112;
+  amends C257's threading; for the owner's review). The growth model's
+  walk decides every request once and records it in the tree it grows:
+  at each place, the request the translation will make there (its
+  callee, its keyed arguments computed from the site's term as C257
+  says, its `DrawnFrom` and `HeldAs`), so the tree is the program's
+  terms annotated with their decided requests. The translation folds
+  that tree: it reads each request at its node and computes none, so no
+  request can miss its site, which no walk beside the term could prove
+  in `Front` (two effectful walks admit no quantity-0 proof that they
+  agree, and a miss could only be an internal error, a fallback or an
+  asserted trust, each refused). Every request the translation makes is
+  such a node: a member's body translated at a use is walked by the
+  model at that use; a dispatch's arms are nodes under its site; a
+  capped position carries its cap as its evidence in place of a
+  `DrawnFrom`; a data family's registration is a `Builds` node. With the
+  lemma's induction over the model's walk alone, this deletes
+  `Finite.unsound`, `heightWithin`, `sizedWithin`, `Types.boundsHold` and
+  the translation's own request computation.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
