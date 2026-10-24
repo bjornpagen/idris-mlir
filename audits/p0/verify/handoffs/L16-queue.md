@@ -1241,3 +1241,12 @@ to L16ev. Waiting:
   builder, after L16ey releases Emit); `harness/Harness.idr`'s `Tools`
   doc says `here` is passed by the glue, but it is the runner's working
   directory (L19).
+- From L12ac (C295): a buffer moved out of a taken cell still opens
+  non-writable (the take field's claim reaches no op; C295's gap, open for
+  takes; L12 with L08); `linearPositions` has no caller outside `Uses.cpp`
+  (file-local in `Grades.h`, L05); `Linearity.cpp`'s `takenBy` checks two
+  op types where a field-read interface would state it once (L05 with
+  L03); `YieldedFields.cpp` does not split a match result an opener reads
+  (a missed optimization, L12). For review: the op's name and home
+  (`idr.array.open`, `Spec/Arrays/Memory.idr`), its memo-read effect as
+  `data.field`'s, `to_tensor` admitted for passes alone from First.
