@@ -2713,6 +2713,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   the field at its uses, which the frontend and the dialect's builder
   both ask; a claim lost here is raised later only where exclusivity
   proves it (`idr-unique-results`).
+  *Sharpened* (2026-10-23, L05y): the rule reads a part's uses before
+  counting; from the owned stage on every reference is explicit (a value
+  taken before its last use is a dup, which claims nothing), so a part
+  gives what its type claims and exclusivity's own claims verify. The
+  stage says which reading holds.
 - **C283** (2026-10-23; L16eo's design, `handoffs/L16-fold-design.md`,
   under C281; for the owner's review with it). The fold's open points:
   the translation walks the annotated tree in place of the term (C281's
