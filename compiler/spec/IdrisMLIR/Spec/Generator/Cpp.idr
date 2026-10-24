@@ -14,6 +14,7 @@ import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Pipeline.Pipeline
 import IdrisMLIR.Spec.Runtime.Helpers
@@ -425,26 +426,26 @@ specializationHeader hs t ops =
 -- Inline meanings
 ------------------------------------------------------------------------------
 
-||| Every inline meaning an op of the dialect has, each once, in first use's
-||| order, a guard's condition among them: the function objects of the
-||| numeric template, as a list of types a test folds over, so a meaning an
-||| op gains is one it checks.
+||| Every inline meaning an op of the dialect has, one per op that has one,
+||| in the ops' order, a guard's condition among them, each named here,
+||| where it is printed: the function objects of the numeric template, as a
+||| list of types a test folds over, so a meaning an op gains is one it
+||| checks.
 export
 inlineMeaningsHeader : List AnyOp -> Lines
 inlineMeaningsHeader ops =
   header "InlineMeanings" ["<tuple>"]
     (inNamespace "idr::numeric"
-      ( slashComment ["Every inline meaning of the dialect's ops, each once."]
-        ++ ["using Meanings = std::tuple<" ++ joinWith ", " (map (\f => "::idr::numeric::" ++ identText f) (once [] (concatMap meaningOf ops))) ++ ">;"] ))
+      ( slashComment ["Every inline meaning of the dialect's ops, one per op that has one."]
+        ++ ["using Meanings = std::tuple<" ++ joinWith ", " (concatMap meaningOf ops) ++ ">;"] ))
   where
-    meaningOf : AnyOp -> List Ident
+    numeric : Ident -> String
+    numeric f = "::idr::numeric::" ++ identText f
+    meaningOf : AnyOp -> List String
     meaningOf (SomeOp op) = case op.meaning of
-      Inline fn => [fn]
-      InlineCondition fn => [fn]
+      Inline m => [numeric (inlineName m)]
+      InlineCondition c => [numeric (conditionName c)]
       _ => []
-    once : List Ident -> List Ident -> List Ident
-    once _ [] = []
-    once seen (f :: fs) = if elem f seen then once seen fs else f :: once (f :: seen) fs
 
 ------------------------------------------------------------------------------
 -- Guards
@@ -836,13 +837,13 @@ resourcesHeader rs =
 ||| stands for it: the range function upstream has for an admitted op, an
 ||| op of ours's inline meaning over intervals, or nowhere.
 public export
-data RangeSource = ByUpstream RangeFunction | ByMeaning Ident | NoRange
+data RangeSource = ByUpstream RangeFunction | ByMeaning InlineMeaning | NoRange
 
 ||| The range source an op of ours's meaning gives: only an inline meaning
 ||| of values computes over intervals. A condition is a truth, and every
 ||| other meaning is the runtime's or hand C++, which needs an op to ask.
 rangeOfMeaning : Meaning i o -> RangeSource
-rangeOfMeaning (Inline fn) = ByMeaning fn
+rangeOfMeaning (Inline m) = ByMeaning m
 rangeOfMeaning (InlineCondition _) = NoRange
 rangeOfMeaning (CallsRuntime _) = NoRange
 rangeOfMeaning (CallsRuntimeByCase _ _) = NoRange
@@ -1065,7 +1066,7 @@ skeletonRulesHeader rules =
 export
 rangeEntry : RangeSource -> String
 rangeEntry (ByUpstream f) = "table::rangeBy<&::mlir::intrange::" ++ identText f.name ++ ">"
-rangeEntry (ByMeaning fn) = "table::rangeBy<&::idr::numeric::InlineArith<::idr::numeric::" ++ identText fn ++ ">::inferRanges>"
+rangeEntry (ByMeaning m) = "table::rangeBy<&::idr::numeric::InlineArith<::idr::numeric::" ++ identText (inlineName m) ++ ">::inferRanges>"
 rangeEntry NoRange = "std::nullopt"
 
 ||| Whether upstream's fold of an admitted op is never run at compile time.

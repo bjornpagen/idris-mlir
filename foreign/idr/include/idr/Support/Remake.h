@@ -5,9 +5,10 @@
 // whose meaning does not. It is upstream's clone with the regions and
 // operands left out, so the op's properties, discardable attributes and
 // successors come with it as the clone has them, and nothing of the op is
-// written out by hand. The caller replaces `op` by it. The operands keep the
-// op's segment sizes, which come with the properties: a caller changes how
-// many values an op takes only of an op with no segments.
+// written out by hand. The caller replaces `op` by it. The op made keeps
+// `op`'s segment sizes, which come with the properties, so a caller that
+// changes how many values a group of an op with segments holds writes the
+// sizes of the groups it gave into the op made, before anything reads them.
 #ifndef IDR_SUPPORT_REMAKE_H
 #define IDR_SUPPORT_REMAKE_H
 

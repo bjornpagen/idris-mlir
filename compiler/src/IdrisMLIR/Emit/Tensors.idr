@@ -37,6 +37,7 @@ import IdrisMLIR.Types
 import Control.Monad.State
 import Data.Fin
 import Data.List
+import Data.List1
 import Data.Maybe
 import Data.SortedMap
 import Data.Vect
@@ -420,7 +421,7 @@ tensorOp ix l binder (Concat xa ya ra axis x y) = do
                (MkRegion [] (yops ++ [MkStatement Nothing (SCF.yieldOp [fromY]) (At l)])) [t])
         pure (Just [r])
       dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l Many (Just rt) joined (\t => Idr.arrayTabulateOp [dest] reg [t])
+      fitted {binder} ix l Many (Just rt) joined (\t => Idr.arrayTabulateOp (dest ::: []) reg [t])
 -- A transpose of words is upstream's `linalg.transpose` into a fresh
 -- destination, its permutation given once, its body the one upstream's
 -- builder makes: the input's element and the destination's, the first
@@ -455,7 +456,7 @@ tensorOp ix l binder (Transpose a rt axis x) = do
         e <- readAt ix l Nothing a.element a x (toList lead ++ ib :: ia :: toList trail)
         pure (Just [!(given ix l a.element e)])
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l Many (Just rt) swapped (\t => Idr.arrayTabulateOp [dest] reg [t])
+      fitted {binder} ix l Many (Just rt) swapped (\t => Idr.arrayTabulateOp (dest ::: []) reg [t])
 tensorOp ix l binder (Reshape a rt x extents) = do
   xv <- plainOperand ix l x
   let ds = toList a.dims
@@ -535,7 +536,7 @@ tabulate ix l binder rt extents body = do
   -- The tabulation writes a fresh destination, never one an element was
   -- read from.
   dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp sizes)
-  Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp [dest] r [t])
+  Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp (dest ::: []) r [t])
 
 ||| A reduction of `x`, of type `xa`, along `axis`, the one after the frame
 ||| of `z`, from `z`'s accumulators, left to right in index order:
@@ -573,7 +574,7 @@ reduce ix l binder r acc elem rt xa axis z x body = do
       HoldsReferences => do
         reg <- region l [] (Just . (:: []) <$> given ix l t z)
         dest <- mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.emptyOp [])
-        mlirValue l (RankedTensorType [] (mlirType ix t)) (\r => Idr.arrayTabulateOp [dest] reg [r])
+        mlirValue l (RankedTensorType [] (mlirType ix t)) (\r => Idr.arrayTabulateOp (dest ::: []) reg [r])
   ivs <- indices (S frame)
   (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do
@@ -581,9 +582,9 @@ reduce ix l binder r acc elem rt xa axis z x body = do
       | Nothing => pure Nothing
     pure (Just [!(given ix l acc a')])
   case (r, rt) of
-    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.arrayFoldLastOp len [init] reg [t])
+    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.arrayFoldLastOp len (init ::: []) reg [t])
     (FoldLast, _) => do
-      held <- mlirValue l init.type (\t => Idr.arrayFoldLastOp len [init] reg [t])
+      held <- mlirValue l init.type (\t => Idr.arrayFoldLastOp len (init ::: []) reg [t])
       Just <$> value {binder} ix l rt (Tensor.extractOp held [])
     -- A scan writes every accumulator into a fresh destination of the
     -- result's type, which it never reads: the frame's dimensions, the
@@ -594,7 +595,7 @@ reduce ix l binder r acc elem rt xa axis z x body = do
           along = map (sizeAt l init) framed ++ pure (Left len) :: map (sizeAt l init) cell
       sizes <- traverse (\(d, s) => resultSize d (Left <$> (s >>= sizeValue l))) (zip (tensorDims rt) along)
       dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp (fst (mixed sizes)))
-      Just <$> value {binder} ix l rt (\t => Idr.arrayScanLastOp len [init] [dest] reg [t])
+      Just <$> value {binder} ix l rt (\t => Idr.arrayScanLastOp len (init ::: []) (dest ::: []) reg [t])
 
 ------------------------------------------------------------------------------
 -- Ties

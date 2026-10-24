@@ -22,6 +22,7 @@ import IdrisMLIR.Spec.Core.Admitted
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Ops.Numeric
 
 import Data.Fin
 import Data.List
@@ -36,9 +37,12 @@ import Data.Vect
 -- Groups
 ------------------------------------------------------------------------------
 
-||| How many values a group holds: one, one or none, or any number.
+||| How many values a group holds: one, one or none, any number, or one or
+||| more. A group of one or more is variadic in ODS with a predicate on it,
+||| which the generated verifier checks, and the frontend's builder takes it
+||| as a `List1`, so no op that verifies holds it empty.
 public export
-data Arity = Single | Optional | Variadic
+data Arity = Single | Optional | Variadic | OneOrMore
 
 public export
 record Operand where
@@ -69,6 +73,11 @@ public export
 variadic : Ident -> TypeC -> Operand
 variadic n t = MkOperand n Variadic t
 
+||| One or more operands.
+public export
+oneOrMore : Ident -> TypeC -> Operand
+oneOrMore n t = MkOperand n OneOrMore t
+
 public export
 result : Ident -> TypeC -> Result
 result n t = MkResult n Single t
@@ -78,10 +87,11 @@ results : Ident -> TypeC -> Result
 results n t = MkResult n Variadic t
 
 ||| Whether an op's operand or result groups need their sizes stated: each
-||| holds what its count says, or more than one may hold any number (an
-||| optional group or a variadic one), so the count alone cannot tell where
-||| one ends, and the op carries each group's size (upstream's segment
-||| sizes). The groups decide it, so no op declares it beside them.
+||| holds what its count says, or more than one may hold a number the count
+||| does not fix (an optional group, a variadic one or one of one or more),
+||| so the count alone cannot tell where one ends, and the op carries each
+||| group's size (upstream's segment sizes). The groups decide it, so no op
+||| declares it beside them.
 public export
 data Segments = FixedByCount | SizesStated
 
@@ -95,6 +105,7 @@ segmentsOf as = case filter unfixed as of
     unfixed Single = False
     unfixed Optional = True
     unfixed Variadic = True
+    unfixed OneOrMore = True
 
 ||| How an attribute is present: always, possibly not, or with a default
 ||| when not written: its C++ expression, which for one of our attributes
@@ -235,18 +246,18 @@ data Verify = DeclarationOnly | VerifiesOp | VerifiesRegions | VerifiesOpAndRegi
 ||| call's stem and the case's spelling, the runtime's entries one template
 ||| instantiated per case); a pure runtime function, which the folder
 ||| computes by calling it; an inline operation whose one meaning is a C++
-||| template generic over a numeric domain (the hand function object `fn`
-||| of `Numeric/Inline.h`); a guard whose condition is such a meaning (its
-||| operand passes where the condition holds, which its hand folder and
-||| every reader of intervals ask of the one template); a hand folder; or no
-||| fold.
+||| template generic over a numeric domain (a function object of
+||| `Numeric/Inline.h`, held as the meaning it is and named only where it
+||| is printed); a guard whose condition is such a meaning (its operand
+||| passes where the condition holds, which its hand folder and every
+||| reader of intervals ask of the one template); a hand folder; or no fold.
 public export
 data Meaning : (i, o : Nat) -> Type where
   CallsRuntime : RuntimeCall i o -> Meaning i o
   CallsRuntimeByCase : EnumDef -> RuntimeCall i o -> Meaning i o
   ComputedByRuntime : RuntimeCall i o -> Meaning i o
-  Inline : (fn : Ident) -> Meaning i o
-  InlineCondition : (fn : Ident) -> Meaning i o
+  Inline : InlineMeaning -> Meaning i o
+  InlineCondition : GuardCondition -> Meaning i o
   HandFolder : Meaning i o
   NoFold : Meaning i o
 

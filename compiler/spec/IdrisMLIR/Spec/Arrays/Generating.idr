@@ -178,7 +178,7 @@ tabulateOp : Op 1 1 0 1
 tabulateOp = MkOp
   { home = InIdr
   , mnemonic = "array.tabulate"
-  , ins = [variadic "outs" array]
+  , ins = [oneOrMore "outs" array]
   , outs = [results "arrays" (UpstreamType AnyRankedTensorC)]
   , attrs = []
   , regions = [sized "region" 1]
@@ -219,7 +219,7 @@ foldLastOp : Op 2 1 0 1
 foldLastOp = MkOp
   { home = InIdr
   , mnemonic = "array.fold_last"
-  , ins = [single "length" (UpstreamType IndexC), variadic "inits" array]
+  , ins = [single "length" (UpstreamType IndexC), oneOrMore "inits" array]
   , outs = [results "results" (UpstreamType AnyRankedTensorC)]
   , attrs = []
   , regions = [sized "region" 1]
@@ -259,7 +259,7 @@ scanLastOp : Op 3 1 0 1
 scanLastOp = MkOp
   { home = InIdr
   , mnemonic = "array.scan_last"
-  , ins = [single "length" (UpstreamType IndexC), variadic "inits" array, variadic "outs" array]
+  , ins = [single "length" (UpstreamType IndexC), oneOrMore "inits" array, oneOrMore "outs" array]
   , outs = [results "results" (UpstreamType AnyRankedTensorC)]
   , attrs = []
   , regions = [sized "region" 1]

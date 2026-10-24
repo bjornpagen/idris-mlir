@@ -11,6 +11,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Wire
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Pipeline.Pass
 
 import Data.Fin
@@ -344,7 +345,7 @@ speculationOds Conditionally = ["DeclareOpInterfaceMethods<ConditionallySpeculat
 export
 meaningTraits : Meaning i o -> List String
 meaningTraits (ComputedByRuntime _) = ["Idr_RuntimeFolds"]
-meaningTraits (Inline fn) = ["Idr_InlineArith<\"::idr::numeric::" ++ identText fn ++ "\">"]
+meaningTraits (Inline m) = ["Idr_InlineArith<\"::idr::numeric::" ++ identText (inlineName m) ++ "\">"]
 meaningTraits _ = []
 
 ||| The segment traits an op's groups call for: its operands' and its
@@ -357,6 +358,22 @@ segmentTraits op =
     stated : Segments -> String -> List String
     stated FixedByCount _ = []
     stated SizesStated t = [t]
+
+||| The predicate each group of one or more holds, which the verifier ODS
+||| generates checks: upstream's predicate trait over the group, as a
+||| variadic group of a minimum size is written upstream.
+nonEmptyTraits : Op i o a r -> List String
+nonEmptyTraits op =
+  concatMap (\x => holdsOne x.name x.arity) (toList op.ins)
+  ++ concatMap (\x => holdsOne x.name x.arity) (toList op.outs)
+  where
+    holdsOne : Ident -> Arity -> List String
+    holdsOne g OneOrMore =
+      ["PredOpTrait<" ++ quoted (identText g ++ " holds one value or more") ++ ", CPred<"
+         ++ quoted ("!$" ++ identText g ++ ".empty()") ++ ">>"]
+    holdsOne _ Single = []
+    holdsOne _ Optional = []
+    holdsOne _ Variadic = []
 
 ||| The traits from which upstream's ODS infers an op's result types and
 ||| generates their inference, one per result its rule reads off an operand:
@@ -378,13 +395,15 @@ typingTraits op = case op.typing of
     matching (_, FixedType _) = []
 
 ||| Every trait of an op, in one list: its own, its groups' segments', its
-||| result types' rules', its laws', its effects', its speculation's, its
-||| interfaces', its meaning's, and the guarded op's when it takes guards.
+||| groups of one or more's predicates, its result types' rules', its laws',
+||| its effects', its speculation's, its interfaces', its meaning's, and the
+||| guarded op's when it takes guards.
 export
 opTraits : Op i o a r -> OdsEffects i o -> List String
 opTraits op effs =
   map (traitOds op.ins) op.traits
   ++ segmentTraits op
+  ++ nonEmptyTraits op
   ++ typingTraits op
   ++ effectTraits effs
   ++ speculationOds op.speculation
@@ -399,6 +418,7 @@ arityOds : Arity -> String -> String
 arityOds Single c = c
 arityOds Optional c = "Optional<" ++ c ++ ">"
 arityOds Variadic c = "Variadic<" ++ c ++ ">"
+arityOds OneOrMore c = "Variadic<" ++ c ++ ">"
 
 ||| A value with decorators, `Arg<C, "", [MemRead<R>]>`, or the plain one.
 export

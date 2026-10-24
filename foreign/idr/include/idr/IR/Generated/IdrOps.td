@@ -735,6 +735,7 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [
 
 def Idr_ArrayTabulateOp : Idr_Op<"array.tabulate", [
     SingleBlock,
+    PredOpTrait<"outs holds one value or more", CPred<"!$outs.empty()">>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
@@ -769,6 +770,7 @@ def Idr_ArrayTabulateOp : Idr_Op<"array.tabulate", [
 
 def Idr_ArrayFoldLastOp : Idr_Op<"array.fold_last", [
     SingleBlock,
+    PredOpTrait<"inits holds one value or more", CPred<"!$inits.empty()">>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
@@ -805,6 +807,8 @@ def Idr_ArrayFoldLastOp : Idr_Op<"array.fold_last", [
 def Idr_ArrayScanLastOp : Idr_Op<"array.scan_last", [
     SingleBlock,
     AttrSizedOperandSegments,
+    PredOpTrait<"inits holds one value or more", CPred<"!$inits.empty()">>,
+    PredOpTrait<"outs holds one value or more", CPred<"!$outs.empty()">>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,

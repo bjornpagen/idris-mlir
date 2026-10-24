@@ -220,7 +220,7 @@ readsTableOrCrashes = Executes [OnState Read RuntimeState, OnState Write Crash] 
 data GuardMeaning = OfTemplate GuardCondition | OwnCode
 
 guardMeaning : GuardMeaning -> Meaning i o
-guardMeaning (OfTemplate c) = InlineCondition (conditionName c)
+guardMeaning (OfTemplate c) = InlineCondition c
 guardMeaning OwnCode = HandFolder
 
 ||| A guard over its operands, its result the first of them, at that

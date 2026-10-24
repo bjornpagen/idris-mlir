@@ -178,21 +178,21 @@ mayLoopOp =
 
 ||| `idr.array.tabulate`: each destination written at each index with what the region gives there
 export
-arrayTabulateOp : List Value -> Region -> List MlirType -> Op
+arrayTabulateOp : List1 Value -> Region -> List MlirType -> Op
 arrayTabulateOp outs' region' arrays' =
-  MkOp (MkOpName Dialect.Idr "array.tabulate") (outs') ([]) ([region']) [] (arrays')
+  MkOp (MkOpName Dialect.Idr "array.tabulate") (toList outs') ([]) ([region']) [] (arrays')
 
 ||| `idr.array.fold_last`: for each index of a frame, a left fold along one more dimension
 export
-arrayFoldLastOp : Value -> List Value -> Region -> List MlirType -> Op
+arrayFoldLastOp : Value -> List1 Value -> Region -> List MlirType -> Op
 arrayFoldLastOp length' inits' region' results' =
-  MkOp (MkOpName Dialect.Idr "array.fold_last") ([length'] ++ inits') ([]) ([region']) [] (results')
+  MkOp (MkOpName Dialect.Idr "array.fold_last") ([length'] ++ toList inits') ([]) ([region']) [] (results')
 
 ||| `idr.array.scan_last`: for each index of a frame, every accumulator of a left fold
 export
-arrayScanLastOp : Value -> List Value -> List Value -> Region -> List MlirType -> Op
+arrayScanLastOp : Value -> List1 Value -> List1 Value -> Region -> List MlirType -> Op
 arrayScanLastOp length' inits' outs' region' results' =
-  MkOp (MkOpName Dialect.Idr "array.scan_last") ([length'] ++ inits' ++ outs') ([("operandSegmentSizes", DenseI32ArrayAttr [1, length inits', length outs'])]) ([region']) [] (results')
+  MkOp (MkOpName Dialect.Idr "array.scan_last") ([length'] ++ toList inits' ++ toList outs') ([("operandSegmentSizes", DenseI32ArrayAttr [1, length (toList inits'), length (toList outs')])]) ([region']) [] (results')
 
 ||| `idr.array.yield`: ends a step of the generating set with what goes at its index
 export

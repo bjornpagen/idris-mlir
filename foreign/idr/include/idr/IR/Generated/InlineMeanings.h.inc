@@ -10,7 +10,7 @@
 
 namespace idr::numeric {
 
-// Every inline meaning of the dialect's ops, each once.
+// Every inline meaning of the dialect's ops, one per op that has one.
 using Meanings = std::tuple<::idr::numeric::EuclidQuotient, ::idr::numeric::EuclidRemainder, ::idr::numeric::ShiftLeftSigned, ::idr::numeric::ShiftLeftUnsigned, ::idr::numeric::ShiftRightSigned, ::idr::numeric::ShiftRightUnsigned, ::idr::numeric::ToCharSigned, ::idr::numeric::ToCharUnsigned, ::idr::numeric::Nonzero, ::idr::numeric::InBounds, ::idr::numeric::Nonempty, ::idr::numeric::Finite, ::idr::numeric::InRange, ::idr::numeric::FitsByte>;
 
 } // namespace idr::numeric

@@ -51,6 +51,7 @@ import IdrisMLIR.Syntax.Linalg
 import IdrisMLIR.Syntax.UB
 
 import Data.List
+import Data.List1
 import Data.SortedSet
 import Data.String
 import System
@@ -328,11 +329,11 @@ sample =
                                  [i64])
                , binding 17 (Arith.constantOp (IntegerAttr 4 OfIndex) IndexType)
                , binding 18 (Tensor.emptyOp [c4] vec)
-               , binding 19 (Idr.arrayTabulateOp [bound 18 vec]
+               , binding 19 (Idr.arrayTabulateOp (bound 18 vec ::: [])
                                  (block [i] [ binding 21 (Arith.indexCastOp i i64)
                                             , stmt (Idr.arrayYieldOp [bound 21 i64]) ]) [vec])
                , binding 22 (Tensor.fromElementsOp [x] scalar)
-               , binding 23 (Idr.arrayFoldLastOp c4 [bound 22 scalar] accumulate [scalar])
+               , binding 23 (Idr.arrayFoldLastOp c4 (bound 22 scalar ::: []) accumulate [scalar])
                  -- An array's buffer, as a field holds an array, and the
                  -- array of the buffer, as a read of the field gives it.
                , binding 28 (Bufferization.toBufferOp (bound 19 vec) buffer)

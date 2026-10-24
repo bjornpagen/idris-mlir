@@ -45,19 +45,25 @@ operandType : Arity -> String
 operandType Single = "Value"
 operandType Optional = "Maybe Value"
 operandType Variadic = "List Value"
+operandType OneOrMore = "List1 Value"
 
+||| A group's operands as a list, over its binder: a group of one or more
+||| as its Foldable's list, as an optional group's is, so a guard's check
+||| that binds it again to the list of what the checks give reads the same.
 export
 operandList : Operand -> String
 operandList x = case x.arity of
   Single => "[" ++ primed x.name ++ "]"
   Optional => "toList " ++ primed x.name
   Variadic => primed x.name
+  OneOrMore => "toList " ++ primed x.name
 
 export
 resultType : Arity -> String
 resultType Single = "MlirType"
 resultType Optional = "Maybe MlirType"
 resultType Variadic = "List MlirType"
+resultType OneOrMore = "List1 MlirType"
 
 export
 resultList : Result -> String
@@ -65,6 +71,7 @@ resultList x = case x.arity of
   Single => "[" ++ primed x.name ++ "]"
   Optional => "toList " ++ primed x.name
   Variadic => primed x.name
+  OneOrMore => "toList " ++ primed x.name
 
 export
 regionType : RegionArity -> String
@@ -182,6 +189,7 @@ groupLength x = case x.arity of
   Single => "1"
   Optional => "length (toList " ++ primed x.name ++ ")"
   Variadic => "length " ++ primed x.name
+  OneOrMore => "length (toList " ++ primed x.name ++ ")"
 
 ||| How many results a group holds, as an expression over its binder.
 export
@@ -190,6 +198,7 @@ resultLength x = case x.arity of
   Single => "1"
   Optional => "length (toList " ++ primed x.name ++ ")"
   Variadic => "length " ++ primed x.name
+  OneOrMore => "length (toList " ++ primed x.name ++ ")"
 
 ||| The segment sizes an op's groups call for, as attribute pairs: each
 ||| group's size, where more than one group may hold any number.
@@ -240,6 +249,7 @@ guardedLines depth ins (g :: gs) made =
                   Single => "Checking " ++ check ++ " " ++ cause ++ " " ++ binder
                   Optional => "checkingEach " ++ check ++ " " ++ cause ++ " (toList " ++ binder ++ ")"
                   Variadic => "checkingEach " ++ check ++ " " ++ cause ++ " " ++ binder
+                  OneOrMore => "checkingEach " ++ check ++ " " ++ cause ++ " (toList " ++ binder ++ ")"
   in (padding depth ++ opening ++ " " ++ others ++ " (\\" ++ binder ++ " =>")
      :: guardedLines (S depth) ins gs made
 

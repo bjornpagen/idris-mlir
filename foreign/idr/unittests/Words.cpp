@@ -20,6 +20,7 @@
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/Interfaces/CastInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include "idr/IR/Generated/BigToWord.h.inc"
@@ -86,8 +87,9 @@ struct Exact<idr::BigMulOp> : std::multiplies<i128> {};
 
 // The word op BigToWord names for `OpT`, built once on the i64 block
 // arguments `a` and `b`, folded on each input of B where every big fits,
-// against the runtime's entry for `OpT`. The cases are wordOf's: what the
-// word op of each kind computes differs.
+// against the runtime's entry for `OpT`. The cases are wordOf's, told
+// apart by the facts it reads: what the word op of each kind computes
+// differs.
 template <typename OpT>
 void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
   using Word = typename BigToWord<OpT>::Op;
@@ -102,25 +104,17 @@ void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
       return testing::Message() << OpT::getOperationName() << ", x " << x << ", y " << y;
     };
   };
+  // A big op that leaves a natural as it is (LeavesNaturals) gives a value
+  // that is not negative as it is, whose word the narrowing takes as it is.
+  if constexpr (OpT::template hasTrait<idr::LeavesNaturals>())
+    for (int64_t x : values)
+      if (x >= 0)
+        box.check(is(Owned(Abi<OpT>::function(big(x).get())), x), operands(x));
   if constexpr (std::is_void_v<Word>) {
     // The word is the operand, the op's meaning (the same big under another
     // type), with no runtime function: nothing folds and nothing is called;
     // the case keeps the fold over the list total.
-  } else if constexpr (std::is_same_v<Word, arith::CmpIOp>) {
-    // A comparison is its predicate on words, signed, whose verdict is the
-    // runtime's order under the predicate.
-    eachPredicate([&](idr::CmpPredicate predicate) {
-      Operation *op = Word::create(builder, loc, idr::layout::signedPredicate(predicate), a, b);
-      for (int64_t x : values)
-        for (int64_t y : values)
-          box.check(foldedOn(op, {word(x), word(y)}) ==
-                        idr::fold::ordered(builder.getContext(), static_cast<unsigned>(predicate),
-                                           Abi<OpT>::function(big(x).get(), big(y).get())),
-                    [&] {
-                      return pair(x, y)() << ", " << idr::stringifyCmpPredicate(predicate);
-                    });
-    });
-  } else if constexpr (std::is_same_v<Word, arith::TruncIOp>) {
+  } else if constexpr (Word::template hasTrait<mlir::CastOpInterface::Trait>()) {
     // A conversion to a narrower integer truncates the word, which is the
     // runtime's value wrapped to the width; to i64 the word is the value.
     for (unsigned width : {8u, 16u, 32u}) {
@@ -133,6 +127,20 @@ void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
     }
     for (int64_t x : values)
       box.check(Abi<OpT>::function(big(x).get()) == x, operands(x));
+  } else if constexpr (requires(OpT op) { op.getPredicate(); }) {
+    // A comparison is the big op's predicate on words, signed, whose
+    // verdict is the runtime's order under the predicate.
+    eachPredicate([&](idr::CmpPredicate predicate) {
+      Operation *op = Word::create(builder, loc, idr::layout::signedPredicate(predicate), a, b);
+      for (int64_t x : values)
+        for (int64_t y : values)
+          box.check(foldedOn(op, {word(x), word(y)}) ==
+                        idr::fold::ordered(builder.getContext(), static_cast<unsigned>(predicate),
+                                           Abi<OpT>::function(big(x).get(), big(y).get())),
+                    [&] {
+                      return pair(x, y)() << ", " << idr::stringifyCmpPredicate(predicate);
+                    });
+    });
   } else if constexpr (requires { BigToWord<OpT>::constant; }) {
     // The word op of the operand's word and the constant is the runtime's
     // value.
@@ -144,12 +152,6 @@ void checkWord(Words &box, mlir::OpBuilder &builder, Value a, Value b) {
             foldedOn(op, {word(x), word(BigToWord<OpT>::constant)}));
         box.check(folded && is(r, folded.getValue().getSExtValue()), operands(x));
       }
-    // The larger of a value that is not negative and 0 is the value, whose
-    // word the narrowing takes as it is.
-    if constexpr (std::is_same_v<Word, arith::MaxSIOp>)
-      for (int64_t x : values)
-        if (x >= 0)
-          box.check(is(Owned(Abi<OpT>::function(big(x).get())), x), operands(x));
   } else {
     // A sum, difference or product of words wraps nowhere the bigs fit: the
     // word is the exact result read signed, and read unsigned where nothing

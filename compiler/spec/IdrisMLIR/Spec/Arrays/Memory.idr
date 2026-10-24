@@ -165,9 +165,11 @@ arraySetOp = MkOp
 ||| value array's buffer alike: the element moves out into the region's one
 ||| argument with the reference its place held, and the first value the
 ||| region gives moves back in; the values after it are the op's results.
-||| Between the two the place holds nothing, so the region touches no
-||| memory written in place (its verifier, from its effects): no access it
-||| makes can see the empty place.
+||| Between the two the place holds nothing, so the region reads and writes
+||| neither the contents nor a state above them (its verifier, from its
+||| effects), where any access that could see the empty place falls;
+||| counting's own work there (a cell filled, beneath the contents, and what
+||| it frees or allocates on the heap) passes.
 public export
 arrayUpdateOp : Op 2 1 0 1
 arrayUpdateOp = MkOp

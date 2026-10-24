@@ -2,7 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The vocabulary of the inline arithmetic: the constants its meanings are
 ||| generic over (a signedness, a direction, a part of a division), the
-||| meanings an op may name, and the laws the rules on those ops rest on.
+||| meanings an op may have, and the laws the rules on those ops rest on.
 ||| The meanings themselves are C++ templates over a numeric domain
 ||| (`include/idr/IR/Numeric/Inline.h`): one function each, instantiated as
 ||| the folder, the integer ranges and the expansion into arith, and
@@ -16,7 +16,9 @@
 ||| check, and a law cannot be added without its statement there.
 module IdrisMLIR.Spec.Ops.Numeric
 
-import IdrisMLIR.Spec.Core.Vocabulary
+import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Core.Cpp
 
 import Data.List.Elem
 import Data.List1
@@ -90,17 +92,17 @@ partClosed = MkClosed
 ------------------------------------------------------------------------------
 
 ||| The function objects of `Numeric/Inline.h` an op of inline arithmetic
-||| names as its meaning (`Inline`): each is one template instantiated at
-||| the op's family constants, so the op's class says nothing of its
-||| arithmetic. Its C++ name is `::idr::numeric::<name>`.
+||| has as its meaning (`Inline`), held as this value: each is one template
+||| instantiated at the op's family constants, so the op's class says
+||| nothing of its arithmetic. Its C++ name is `::idr::numeric::<name>`.
 public export
 data InlineMeaning
   = EuclidOf Part
   | ShiftOf ShiftDirection Signedness
   | ToCharOf Signedness
 
-||| The name the C++ gives the meaning: the template at its constants, as
-||| `Inline.h` spells its aliases.
+||| The name the C++ gives the meaning, where a generator prints it: the
+||| template at its constants, as `Inline.h` spells its aliases.
 public export
 inlineName : InlineMeaning -> Ident
 inlineName (EuclidOf Quotient) = "EuclidQuotient"
@@ -112,21 +114,18 @@ inlineName (ShiftOf Rightward Unsigned) = "ShiftRightUnsigned"
 inlineName (ToCharOf Signed) = "ToCharSigned"
 inlineName (ToCharOf Unsigned) = "ToCharUnsigned"
 
-||| An op's meaning from its inline function.
-public export
-inline : InlineMeaning -> Meaning i o
-inline m = Inline (inlineName m)
-
-||| The conditions of `Numeric/Inline.h` a guard names as its meaning
-||| (`InlineCondition`): its operand passes where the condition holds, so
-||| its folder, its decision on intervals and its test in the lowering are
-||| one template's instances. A condition is over what the guard tests,
-||| which is its operand or what the operand determines: a string's length,
-||| a Double's bits. Its C++ name is `::idr::numeric::<name>`.
+||| The conditions of `Numeric/Inline.h` a guard has as its meaning
+||| (`InlineCondition`), held as this value: its operand passes where the
+||| condition holds, so its folder, its decision on intervals and its test
+||| in the lowering are one template's instances. A condition is over what
+||| the guard tests, which is its operand or what the operand determines: a
+||| string's length, a Double's bits. Its C++ name is
+||| `::idr::numeric::<name>`.
 public export
 data GuardCondition = DivisorNonzero | IndexInBounds | BytesInRange | LengthNonzero | BitsFinite | FitsByte
 
-||| The name the C++ gives the condition's function object.
+||| The name the C++ gives the condition's function object, where a
+||| generator prints it.
 public export
 conditionName : GuardCondition -> Ident
 conditionName DivisorNonzero = "Nonzero"
