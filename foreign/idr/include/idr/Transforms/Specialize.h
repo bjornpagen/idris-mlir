@@ -21,13 +21,13 @@
 // return. A copy keyed open asks only open: each of its tails gives the
 // open layout, so each tail call in it whose callee gives a closed result
 // asks that callee open in turn, at the grade the copy returns it at. A
-// result's open form is its type marked open at that grade, the mark one of
-// two, so the axis at most doubles the keys of each class and hold, and the
-// copies end with no budget and no fixpoint. A result no copy could give
-// closed, since a tail of its owner gives it at what no substitution
-// closes, is no key's: the owner's own type marks it open (openResults),
-// every copy returns it open by the substitution, which keeps the mark, and
-// its class lays it out open.
+// result's open form is its type, or an array's element, marked open at
+// that grade, the mark one of two, so the axis at most doubles the keys of
+// each class and hold, and the copies end with no budget and no fixpoint.
+// A result no copy could give closed, since a tail of its owner gives it
+// at what no substitution closes, is no key's: the owner's own type marks
+// it open (openResults), every copy returns it open by the substitution,
+// which keeps the mark, and its class lays it out open.
 //
 // A size an axis becomes is not drawn from a finite alphabet: the naturals
 // are unbounded. A size keys a copy only from a call outside its callee's call
@@ -234,10 +234,10 @@ struct SignatureKey {
 
 // The type a copy keyed open returns `type` at, for a caller that holds the
 // value as `held`: a data type marked open, laid out as at an unknown index
-// with the indices Idris proved and its refinement kept, at the grade
-// `held` has, so a cast to a type of that grade laid out so builds nothing
-// and keeps the hold; any other type as it is, whose layout no index
-// decides.
+// with the indices Idris proved and its refinement kept, or an array whose
+// element is so marked, at the grade `held` has, so a cast to a type of
+// that grade laid out so builds nothing and keeps the hold; any other type
+// as it is, whose layout no index decides.
 mlir::Type openResult(mlir::Type type, mlir::Type held);
 
 // `fn` returning `results`, which differ from its own results only where
@@ -304,8 +304,9 @@ void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold
 // A member of its component that loses a tail to the cast, has its return
 // re-graded or is passed an operand at another hold than its parameter's
 // is decided again in turn. A copy whose signature the decisions changed
-// has it restated on its node (Nodes::restate), which a call made of it
-// after reads.
+// has it restated on its node (Nodes::restate), which a request of its key
+// made after reads: its parameters lowered, which the call passes, or its
+// results changed, which refuses the request.
 void openResults(optimize::Schedule &schedule, Nodes &nodes, llvm::ArrayRef<FunctionId> starters);
 
 // Each edge of `id`, a function whose component is becoming final, that a

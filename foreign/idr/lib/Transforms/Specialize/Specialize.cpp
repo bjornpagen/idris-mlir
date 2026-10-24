@@ -291,6 +291,16 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   if (!judged)
     return std::optional<Grant>();
   Key key = *judged;
+  // A copy the decisions of the component it joined gave other results
+  // than its key says was converted at every call made of it then, each
+  // caller re-graded between waves; a call made of it now would change
+  // what its caller reads in the middle of a turn, so it is refused, as a
+  // key that grows one is, and nothing is asked.
+  if (const Node *made = known(key);
+      made && idr::match(
+                  made->restated, [](ResultsChanged) { return true; },
+                  [](const OneOf<AsKeyed, ParametersLowered> auto &) { return false; }))
+    return std::optional<Grant>();
 
   FunctionId owner = ownerOf(key);
   StringAttr ownerName = schedule.symbolOf(owner);
@@ -453,10 +463,18 @@ void Nodes::dropped(FunctionId fn, const llvm::BitVector &unread) {
   node->unread = unread;
 }
 
-void Nodes::restate(FunctionId fn, mlir::FunctionType type) {
+void Nodes::restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after) {
   Node *node = state->placedAt(fn);
   assert(node && "only a copy has a key whose signature its decisions restate");
-  node->restated = type;
+  // Results the decisions left as they were are still its key's, unless an
+  // earlier decision changed them already.
+  node->restated = idr::match(
+      node->restated, [](ResultsChanged changed) -> Restated { return changed; },
+      [&](const OneOf<AsKeyed, ParametersLowered> auto &) -> Restated {
+        if (before.getResults() != after.getResults())
+          return ResultsChanged{};
+        return ParametersLowered{after};
+      });
 }
 
 // Every copy's function says what it is, none included: a function the

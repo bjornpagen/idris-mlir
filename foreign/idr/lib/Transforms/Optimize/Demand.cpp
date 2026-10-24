@@ -21,12 +21,12 @@
 // Every caller outside the component is waiting, not taken up: a function
 // is taken up only once every component it calls into is final. So the
 // calls of a member are its component's, those its callers' rows list, and
-// those of the functions that wait on it, where a requester's call of a
-// copy it asked for stands, which no row lists until the requester is
-// final; each loses its operands at the dropped positions here, between
-// waves, where no turn runs. A call of a copy made after, by a requester
-// that asks the copy's key once it is final, is given the key's parameters
-// and leaves out those the copy's node says went.
+// those of the requesters a request of whose made a call of a copy, which
+// no row lists until the requester is final (Schedule::holdersOf); each
+// loses its operands at the dropped positions here, between waves, where no
+// turn runs. A call of a copy made after, by a requester that asks the
+// copy's key once it is final, is given the key's parameters and leaves out
+// those the copy's node says went.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/OptimizeScheduler.h"
@@ -113,11 +113,10 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       }
   }
 
-  // The calls of each member that loses a parameter, in its component, in
-  // its callers and in the functions that wait on it, lose their operands
-  // first, every member's before any parameter goes: an unread parameter's
-  // last uses are operands at the dropped positions of its component's
-  // calls.
+  // The calls of each member that loses a parameter, in its component and
+  // in every other function that holds one, lose their operands first,
+  // every member's before any parameter goes: an unread parameter's last
+  // uses are operands at the dropped positions of its component's calls.
   SmallVector<llvm::BitVector> unread;
   SmallVector<SmallVector<CallOp>> narrowed(fns.size());
   for (auto [at, fn] : llvm::enumerate(fns)) {
@@ -140,20 +139,13 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     };
     for (FuncOp member : fns)
       narrow(member);
-    // Every other holder of a call of it, each once: its callers, and each
-    // function that waits on it, a requester whose call names the copy it
-    // asked for among them, which no caller's list holds.
-    SmallVector<FunctionId> holders;
-    auto hold = [&](FunctionId holder) {
-      if (!llvm::is_contained(ids, holder) && !llvm::is_contained(holders, holder))
-        holders.push_back(holder);
-    };
-    for (FunctionId caller : schedule.callersOf(ids[at]))
-      hold(caller);
-    for (FunctionId waiter : schedule.members[ids[at].index()].waiters)
-      hold(waiter);
-    for (FunctionId holder : holders)
-      narrow(schedule.function(holder));
+    // Every other holder of a call of it (Schedule::holdersOf): its callers,
+    // and each requester whose call names the copy it asked for, a
+    // requester of the wave that ends here among them, which waits on
+    // nothing yet.
+    for (FunctionId holder : schedule.holdersOf(ids[at]))
+      if (!llvm::is_contained(ids, holder))
+        narrow(schedule.function(holder));
   }
   // The parameters go, with what the signature states of them, then each
   // call takes its callee's statements again; and the binding times the

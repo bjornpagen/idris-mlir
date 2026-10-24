@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A function's result returned open: a data type marked open is laid out
-// as at an index unknown at compile time, its indices kept. A tail call and
-// its caller lower to one return, and a re-pack between them would run
-// after the call, so a result is returned open where a tail of its function
-// gives it so and its own layout would close it.
+// as at an index unknown at compile time, its indices kept, and an array is
+// returned open where its element is. A tail call and its caller lower to
+// one return, and a re-pack between them would run after the call, so a
+// result is returned open where a tail of its function gives it so and its
+// own layout would close it.
 //
 // Two ways come to it. A tail call whose caller lays its result out open
 // asks its callee's copy keyed open: the caller's layout is a fact of the
@@ -108,11 +109,38 @@ using namespace mlir;
 
 namespace idr::specialize {
 
+namespace {
+
+// Where the data type that lays a value out stands in its carrier: the
+// carrier itself, or the element of an array, which lays out every element
+// alike and so the array, whose descriptor its axes alone decide. `data` is
+// null for a value no index lays out.
+struct LaidOut {
+  DataType data;
+  ShapedType array;
+  // The carrier laid out open: that data type marked open where it stands,
+  // its indices kept.
+  Type opened() const {
+    assert(data && "only a value a data type lays out opens");
+    DataType open = data.marked(LayoutMark::Open);
+    return array ? Type(array.cloneWith(std::nullopt, open)) : Type(open);
+  }
+};
+
+LaidOut laidOut(Type type) {
+  Type carrier = unrestricted(type);
+  if (auto array = dyn_cast<ShapedType>(carrier))
+    return LaidOut{dyn_cast<DataType>(array.getElementType()), array};
+  return LaidOut{dataTypeOf(carrier), ShapedType()};
+}
+
+} // namespace
+
 Type openResult(Type type, Type held) {
-  DataType data = dataTypeOf(type);
-  if (!data)
+  LaidOut at = laidOut(type);
+  if (!at.data)
     return type;
-  return graded(gradeOf(held), data.marked(LayoutMark::Open));
+  return graded(gradeOf(held), at.opened());
 }
 
 namespace {
@@ -620,13 +648,14 @@ bool holdsOpaque(DataType data) {
 // the function where its type lays the result out otherwise than the tail;
 // nor in a copy whose classes close the result's levels, where the tail
 // gives what no substitution closes (an index the language cannot express,
-// a callee's result already open).
+// a callee's result already open). An array's are its element's.
 bool disagrees(Type given, Type result) {
-  DataType gives = dataTypeOf(given);
-  DataType returns = dataTypeOf(result);
+  DataType gives = laidOut(given).data;
+  LaidOut returned = laidOut(result);
+  DataType returns = returned.data;
   if (!gives || !returns || returns.getMark() == LayoutMark::Open)
     return false;
-  if (families::layoutMatch(given, returns.marked(LayoutMark::Open)) != LayoutMatch::SameLayout)
+  if (families::layoutMatch(given, returned.opened()) != LayoutMatch::SameLayout)
     return false;
   if (families::layoutMatch(given, result) == LayoutMatch::OtherLayout)
     return true;
@@ -685,7 +714,7 @@ std::optional<SmallVector<Type>> openedResults(FuncOp fn, const Spine &spine, La
              "a tail's results are its function's, one for one");
       for (auto [position, given] : llvm::enumerate(call.getResultTypes()))
         if (disagrees(given, own[position]))
-          opened[position] = dataTypeOf(own[position]).marked(LayoutMark::Open);
+          opened[position] = laidOut(own[position]).opened();
     }
   // What the body's return gives, where it returns: the type each result
   // has, a weaker hold a re-graded value brought to it, or a hold that
@@ -766,22 +795,15 @@ void convertCall(CallOp call, FuncOp callee) {
 }
 
 // Every call of `id`, by the function that holds it: its own first, then
-// each caller's, then, for a copy, each function a request of whose made a
-// call of it, which no caller's list holds; each holder once. A caller of
-// a function not final waits on it or is of its component, so between
-// waves nothing reads what a decision rewrites in it.
+// each other holder's (Schedule::holdersOf), each once. A caller of a
+// function not final waits on it or is of its component, so between waves
+// nothing reads what a decision rewrites in it.
 SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> callsOf(const optimize::Schedule &schedule,
-                                                                const Nodes &nodes, FunctionId id) {
+                                                                FunctionId id) {
   SmallVector<FunctionId> holders{id};
-  auto hold = [&](FunctionId holder) {
+  for (FunctionId holder : schedule.holdersOf(id))
     if (!llvm::is_contained(holders, holder))
       holders.push_back(holder);
-  };
-  for (FunctionId caller : schedule.callersOf(id))
-    hold(caller);
-  if (const Node *node = nodes.find(id))
-    for (FunctionId asker : node->askers)
-      hold(asker);
   StringAttr name = schedule.symbolOf(id);
   SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls;
   for (FunctionId holder : holders) {
@@ -817,9 +839,9 @@ SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> callsOf(const optimize::
 // outside keys a copy once the component is final, to a weaker hold or to
 // static data where the parameter counts, so there only a claim stronger
 // than the parameter's, which no key may raise, is shared down.
-void lowerParameters(const optimize::Schedule &schedule, const Nodes &nodes, FunctionId id) {
+void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
   FuncOp fn = schedule.function(id);
-  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, nodes, id);
+  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
   SmallVector<Type> inputs(fn.getArgumentTypes());
   for (auto [position, input] : llvm::enumerate(inputs)) {
     std::optional<Hold> own = holdOf(input);
@@ -912,7 +934,7 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
 // converted, and each holder of its component, which may have lost a tail
 // to the cast or had its return re-graded, put on `work` to be decided
 // again; one outside is decided when it is taken up.
-void decideResults(const optimize::Schedule &schedule, const Nodes &nodes, FunctionId id,
+void decideResults(const optimize::Schedule &schedule, FunctionId id,
                    SmallVectorImpl<FunctionId> &work) {
   FuncOp fn = schedule.function(id);
   Spine spine = spineOf(fn);
@@ -925,7 +947,7 @@ void decideResults(const optimize::Schedule &schedule, const Nodes &nodes, Funct
   // Every call of it, its own first: its own calls take the new types
   // before its tails give them, so a tail that a call of its own gives
   // gives that call's result, which is the new type, cast no more.
-  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, nodes, id);
+  SmallVector<std::pair<FunctionId, SmallVector<CallOp>>> calls = callsOf(schedule, id);
   for (auto &[holder, held] : calls)
     for (CallOp call : held)
       convertCall(call, fn);
@@ -970,15 +992,16 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
     FunctionId id = work.pop_back_val();
     FuncOp fn = schedule.function(id);
     FunctionType before = fn.getFunctionType();
-    lowerParameters(schedule, nodes, id);
+    lowerParameters(schedule, id);
     keyCalls(schedule, fn);
-    decideResults(schedule, nodes, id, work);
+    decideResults(schedule, id, work);
     passOn(schedule, id, work);
     // A copy whose decisions changed its signature is called as its node
     // says from now on: every call made of it before was converted above,
-    // and a call made of it after reads the restated signature.
+    // and a request of its key made after passes the parameters restated,
+    // or is refused where its results changed.
     if (schedule.originOf(id) != id && fn.getFunctionType() != before)
-      nodes.restate(id, fn.getFunctionType());
+      nodes.restate(id, before, fn.getFunctionType());
   }
 }
 

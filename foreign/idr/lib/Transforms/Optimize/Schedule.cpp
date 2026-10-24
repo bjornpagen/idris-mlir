@@ -85,4 +85,14 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   return frozen.thaw();
 }
 
+SmallVector<FunctionId> Schedule::holdersOf(FunctionId fn) const {
+  const Member &member = members[fn.index()];
+  SmallVector<FunctionId> holders(member.callers.begin(), member.callers.end());
+  if (member.node)
+    for (FunctionId asker : member.node->askers)
+      if (!llvm::is_contained(holders, asker))
+        holders.push_back(asker);
+  return holders;
+}
+
 } // namespace idr::optimize

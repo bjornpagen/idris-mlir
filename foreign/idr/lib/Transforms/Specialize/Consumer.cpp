@@ -295,8 +295,8 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // callee's extents by the one substitution its copy is made by, so each
 // extent whose term is fixed there is static in it, and the call casts its
 // operand there; a result the callee's type marks open stays open, and a
-// result asked open is that result marked open, which the copy's tails
-// give.
+// result asked open is that result marked open, an array's element where it
+// is an array (openResult), which the copy's tails give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId, identities::FactsView given,
                                          const CallSite &site, TailStanding standing) {
@@ -330,10 +330,10 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
       FunctionType::get(call.getContext(), inputs, returned), extents, indices);
   SmallVector<Type> results;
   for (auto [layout, result] : llvm::zip_equal(layouts, substituted.getResults())) {
-    Type given = result;
+    Type own = result;
     results.push_back(idr::match(
-        layout, [&](AsGiven) { return given; },
-        [&](const AtOpen &at) { return openResult(given, at.held); }));
+        layout, [&](AsGiven) { return own; },
+        [&](const AtOpen &at) { return openResult(own, at.held); }));
   }
   FunctionType signature =
       FunctionType::get(call.getContext(), substituted.getInputs(), results);

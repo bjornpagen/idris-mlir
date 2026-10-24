@@ -49,6 +49,21 @@ struct Placed {
 };
 using Phase = std::variant<Requested, Built, Placed>;
 
+// What the decisions of the component a copy joined made of its key's
+// signature, between waves: nothing; its parameters lowered to what that
+// component passes, its results its key's, which a call made of it after
+// passes, each operand that claims more shared down to it; or its results
+// changed too (a result lowered to the hold its return then gives), which
+// every call made of it then was converted to, and which a caller taken up
+// after it would read otherwise than its key says, so its key is granted no
+// more. Holds only descend, so results once changed stay changed.
+struct AsKeyed {};
+struct ParametersLowered {
+  mlir::FunctionType type;
+};
+struct ResultsChanged {};
+using Restated = std::variant<AsKeyed, ParametersLowered, ResultsChanged>;
+
 struct Node {
   Key key;
   // What inlining the copy does to the recursion its origin is on, the
@@ -91,13 +106,9 @@ struct Node {
   // made by a request is no call of the program the schedule was read from
   // nor of a copy placed since.
   llvm::SmallVector<FunctionId, 1> askers{};
-  // The signature its copy has where the decisions of the component it
-  // joined changed it from its key's (a parameter lowered to what the
-  // component passes, a result to the hold its return then gives), at its
-  // key's positions, before any parameter goes unread; none while its key
-  // says it. Every call made of the copy before was converted then; a call
-  // made of it after passes and takes what this says.
-  mlir::FunctionType restated{};
+  // What the decisions of the component it joined made of its key's
+  // signature, at its key's positions, before any parameter goes unread.
+  Restated restated = AsKeyed{};
 };
 
 // The consumer forms raising has met: each a detached function, interned
@@ -185,9 +196,10 @@ public:
 
   // The copy `want`'s key names for `requester`, judged on its own state
   // and what the table holds, and asked of `state`: the table is not
-  // written. None where the key grows one given before, or a lift leaves no
-  // structure: the call stays a call. A name another key's node holds is an
-  // internal error, emitted at `at`.
+  // written. None where the key grows one given before, a lift leaves no
+  // structure, or the key's copy gives other results than its key says
+  // (ResultsChanged): the call stays a call, and nothing is asked. A name
+  // another key's node holds is an internal error, emitted at `at`.
   struct Grant {
     Asked asked;
     const PatternKey *key;
@@ -217,10 +229,10 @@ public:
   // final once.
   void dropped(FunctionId fn, const llvm::BitVector &unread);
   // Between waves, as the schedule takes up the component of `fn`, a copy:
-  // the decisions changed its signature to `type`, which its node keeps for
-  // every call of it made after. A hold only descends, so each restatement
-  // claims no more than the one before.
-  void restate(FunctionId fn, mlir::FunctionType type);
+  // the decisions changed its signature from `before` to `after`, which its
+  // node keeps (Restated) for every request of its key made after. A hold
+  // only descends, so each restatement claims no more than the one before.
+  void restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after);
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.
   void writeCopies();

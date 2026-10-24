@@ -3,15 +3,17 @@
 // idr-optimize, the first-order optimizer, a fixed sequence of phases:
 //   - specialize, bottom-up over the components of the program graph: a
 //     function is taken up once every component it calls into is final,
-//     each of its results a tail cannot agree with opened in its own type
-//     first (specialize::openResults, once per function, before the wave
-//     that takes it up), and runs rounds of its inner pipeline (the
-//     redirect to the copies its calls' keys name, leaf inlining, the
-//     e-graph, constants) until a round asks for no copy and inlines no
-//     leaf; the copies it asked for are made, numbered and taken up before
-//     it goes on; then, every function final, the results no caller reads
-//     and the labels' captures nothing reads go from the whole program, and
-//     each copy says what kind of copy it is;
+//     its signature and calls decided first (specialize::openResults,
+//     before the wave that takes it up: its parameters at the holds its
+//     component passes, its calls of final functions at the results their
+//     copies will give, its results opened where a tail cannot agree with
+//     them or lowered to the hold its return gives), and runs rounds of its
+//     inner pipeline (the redirect to the copies its calls' keys name, leaf
+//     inlining, the e-graph, constants) until a round asks for no copy and
+//     inlines no leaf; the copies it asked for are made, numbered and taken
+//     up before it goes on; then, every function final, the results no
+//     caller reads and the labels' captures nothing reads go from the whole
+//     program, and each copy says what kind of copy it is;
 //   - inline, once, on the final graph, with every call site counted, on
 //     upstream's inliner, a callee's verdict its profitability and the
 //     e-graph its simplification;
@@ -171,6 +173,12 @@ public:
   // The functions with a call of `fn`, as the program held them and as
   // each copy placed since added its own.
   llvm::ArrayRef<FunctionId> callersOf(FunctionId fn) const { return members[fn.index()].callers; }
+  // Every function that holds a call of `fn`, each once: its callers, then,
+  // for a copy, each function a request of whose made a call of it (its
+  // node's askers), which no caller's list holds, since a request's call is
+  // no call of the program the schedule was read from nor of a copy placed
+  // since. Every walk of the calls of a function reads this one list.
+  llvm::SmallVector<FunctionId> holdersOf(FunctionId fn) const;
   // Whether a family's label names `fn`: its leading parameters are that
   // label's captures, the family's fields. A copy is never one.
   bool isLabel(FunctionId fn) const { return labelled.test(fn.index()); }
