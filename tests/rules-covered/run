@@ -6,9 +6,9 @@
 # has a line of tests/rules-covered/without-fixture saying why it has none
 # (no source program reaches it, another test reaches it, or its fixture is
 # owed); never both, so the file only shrinks. The rules are the
-# specification's table, as the runner prints it (`runtests --rules`,
-# harness/Facts.idr), so a rule the specification gains is asked for at
-# once.
+# specification's table, as the runner prints it (`runtests
+# --rule-phrases`, harness/Facts.idr), so a rule the specification gains
+# is asked for at once.
 #
 # What a tree can break on its own, a header or a line that names no rule,
 # a rule stated by both, a line that is not a rule, a kind and a reason,
@@ -22,7 +22,7 @@
 listed=tests/rules-covered/without-fixture
 rule_phrases | LC_ALL=C sort -u > "$work/rule-set"
 if [ ! -s "$work/rule-set" ]; then
-  say "rules: none printed by the runner (runtests --rules)"
+  say "rules: none printed by the runner (runtests --rule-phrases)"
   exit 0
 fi
 say "rules: read from the specification's table"

@@ -599,8 +599,8 @@ add_mlir_library(IdrColumns
 	MLIRUBDialect
 )
 
-# idr-expect: the named properties tests state, as the table the tests'
-# records print (ExpectProperties.inc).
+# idr-expect: the named properties tests state, as the table the
+# specification's records print (ExpectProperties.inc).
 add_mlir_library(IdrExpect
 	Expect/Accesses.cpp
 	Expect/Allocation.cpp

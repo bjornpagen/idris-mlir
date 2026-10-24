@@ -6,18 +6,16 @@
 # in MLIR's layout (.cpp under lib and tools, headers under include) and its
 # unit tests, one level under unittests; every .td and generated
 # table of ours in the one directory the dialect's specification writes
-# (spec-current holds each to it, so ODS no one generated has no zone), and
-# idr-expect's table of properties, which the runner prints from its
-# records (expect-table-current holds it to them); the runtime's .cpp and
-# .h; the runtime tests' shared headers, with the one unit that gives a
-# test written in C the checked runtime's count, and their C++ property
-# programs with their own headers, one directory each; and the
-# C++ programs the upstream checks build against the pinned MLIR, one
-# directory each. So a C++20 module interface (.cppm) is in no zone, and no
-# unit declares or imports a module (below). A hidden directory is a tool's
-# (the editor's, the agent's worktrees), never a source zone, so none is
-# searched; nor is upstream/, whose C++ is a reproducer of a bug in
-# upstream tools, built by its check and never by the build.
+# (spec-current holds each to it, so ODS no one generated has no zone);
+# the runtime's .cpp and .h; the runtime tests' shared headers, with the
+# one unit that gives a test written in C the checked runtime's count, and
+# their C++ property programs with their own headers, one directory each;
+# and the C++ programs the upstream checks build against the pinned MLIR,
+# one directory each. So a C++20 module interface (.cppm) is in no zone,
+# and no unit declares or imports a module (below). A hidden directory is
+# a tool's (the editor's, the agent's worktrees), never a source zone, so
+# none is searched; nor is upstream/, whose C++ is a reproducer of a bug
+# in upstream tools, built by its check and never by the build.
 #
 # The rule is `zones ROOT`, run on the repository and on the planted trees
 # (Planted.idr): witness/ holds C++ in no zone (each extension the list
@@ -30,7 +28,6 @@
 zones='^foreign/idr/lib/.*\.cpp$
 ^foreign/idr/include/.*\.h$
 ^foreign/idr/include/idr/IR/Generated/[^/]*\.(td|inc)$
-^foreign/idr/include/idr/Transforms/ExpectProperties\.inc$
 ^foreign/idr/tools/[^/]*\.cpp$
 ^foreign/idr/unittests/[^/]*\.cpp$
 ^runtime/.*\.(cpp|h)$

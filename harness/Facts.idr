@@ -204,27 +204,12 @@ judge r = case category r of
   UserError => Idris
   _ => Ours
 
-||| Every rule's line for the scripts that read the rules (`runtests
-||| --rules`): its phrase, a tab, and its category's words: a construct
-||| whose choices no compile-time analysis bounds, what the language this
-||| compiler implements does not have, or a program Idris itself rejects,
-||| whose refusal carries Idris's own message.
-export
-ruleLines : List String
-ruleLines = map (\r => phraseOf r ++ "\t" ++ caseWords categoryClosed (category r)) (forget everyRule)
-
 ||| `runtests --rule-phrases [CATEGORY]`: the phrase of every rule, or of
 ||| every rule of the category its words name.
 export
 rulePhrases : Maybe String -> List String
 rulePhrases wanted =
   map phraseOf (filter (\r => maybe True (== caseWords categoryClosed (category r)) wanted) (forget everyRule))
-
-||| `runtests --rule-category PHRASE`: the words of the category of the rule
-||| whose phrase is PHRASE, if a rule has it.
-export
-categoryOfPhrase : String -> Maybe String
-categoryOfPhrase p = caseWords categoryClosed . category <$> ruleNamed p
 
 ||| The rule a call the in-place promise binds is refused by when its
 ||| argument is not exclusive, as the linear generator predicts it.

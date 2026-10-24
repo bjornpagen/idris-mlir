@@ -22,7 +22,7 @@ const Property properties[] = {
 #define IDR_EXPECT_PROPERTY(name, Shape, check) property<Shape, check>(name),
 #define IDR_EXPECT_SELF_CHECK(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
 #define IDR_EXPECT_UNIVERSAL(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_EXPECT_UNIVERSAL
 #undef IDR_EXPECT_SELF_CHECK
 #undef IDR_EXPECT_PROPERTY
@@ -57,7 +57,7 @@ LogicalResult universal(ModuleOp module, AnalysisManager &analyses) {
 #define IDR_EXPECT_SELF_CHECK(name, Shape, check)
 #define IDR_EXPECT_UNIVERSAL(name, Shape, check)                                                   \
   held = succeeded(ofWholeProgram<Shape, check>(module, analyses, name)) && held;
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_EXPECT_UNIVERSAL
 #undef IDR_EXPECT_SELF_CHECK
 #undef IDR_EXPECT_PROPERTY

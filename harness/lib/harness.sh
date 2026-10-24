@@ -171,9 +171,7 @@ artifacts() { "$runtests" --artifacts "$@"; }
 no_artifacts() { "$runtests" --no-artifacts "$@"; }
 stage_options() { "$runtests" --stage-options "$1"; }
 timing_rows() { "$runtests" --timing-rows "$1"; }
-rules_lines() { "$runtests" --rules; }
 rule_phrases() { "$runtests" --rule-phrases ${1+"$1"}; }
-rule_category() { "$runtests" --rule-category "$1"; }
 e2e_io() { serve e2e-io "$@"; }
 sem_case() { serve sem-case "$@"; }
 near_neighbour() { serve near-neighbour "$@"; }

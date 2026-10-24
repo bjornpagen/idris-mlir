@@ -27,8 +27,7 @@
 |||
 ||| - `d<n>`, in `main`, directly: its leaves are literals, which the
 |||   builtins are applied to as written, so the folders compute it (Idris
-|||   leaves the calls in the checked term:
-|||   upstream/18-elaboration-primitive-folding);
+|||   leaves the calls in the checked term);
 ||| - `j<n>`, in a function of its leaves, total and self recursive over a
 |||   list of units, called with the literals: a closed call of a total
 |||   function, which runs at run time;

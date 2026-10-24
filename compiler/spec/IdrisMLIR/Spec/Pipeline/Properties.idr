@@ -3,10 +3,8 @@
 ||| idr-expect's properties, one record each: the one list of what a test
 ||| may state of a module by name; and --idr-contracts' relations, one
 ||| record each: the one list of what every pass keeps between the module
-||| before it and the module after it. The C++ table of both is printed
-||| from them (`table`, committed as
-||| foreign/idr/include/idr/Transforms/ExpectProperties.inc and compared by
-||| tests/expect-table-current), so a property's name, the
+||| before it and the module after it. The generator prints the C++ table
+||| of both from them (ExpectProperties.inc), so a property's name, the
 ||| shape of its argument and the check that runs it, and a relation's name,
 ||| its check and how the contracts' test pass breaks it, are written once,
 ||| here.
@@ -15,15 +13,13 @@
 ||| the effect system's one query, a type), never a list of ops, so a
 ||| property survives an op renamed, split or merged. Its sentence is what
 ||| it checks; the C++ check carries it out.
-module Properties
+module IdrisMLIR.Spec.Pipeline.Properties
 
-import Data.List
 import Data.List1
 import Data.So
 import Data.String
 
 import IdrisMLIR.Spec.Core.Text
-import IdrisMLIR.Spec.Generator.Render
 
 %default total
 
@@ -292,61 +288,3 @@ relations =
       , "cycle's divergence in its row, which no function's own check sees." ]
       "drop divergence from every member of one cycle Idris did not prove, and from their calls"
   ]
-
-------------------------------------------------------------------------------
--- The table
-------------------------------------------------------------------------------
-
-||| The macro a row of a role is written with.
-macroOf : Role -> String
-macroOf Stated = "IDR_EXPECT_PROPERTY"
-macroOf SelfCheck = "IDR_EXPECT_SELF_CHECK"
-macroOf Universal = "IDR_EXPECT_UNIVERSAL"
-
-||| A property's rows: its sentence as comments, then its macro.
-rowsOf : Property -> List String
-rowsOf p =
-  map (\l => "// " ++ lineText l) p.says
-  ++ [ macroOf p.role ++ "(\"" ++ nameText p.name ++ "\", " ++ shapeType p.shape ++ ", "
-         ++ checkName p.name ++ ")" ]
-
-||| A relation's rows: its sentence as comments, then its macro: its name,
-||| its enumerator, its check, the test pass's breaker of it and how that
-||| breaks it, the C++ names read off its name as a property's check's is.
-relationRowsOf : Relation -> List String
-relationRowsOf r =
-  map (\l => "// " ++ lineText l) r.says
-  ++ [ "IDR_CONTRACT_RELATION(\"" ++ nameText r.name ++ "\", " ++ camelName r.name ++ ", "
-         ++ checkName r.name ++ ", break" ++ camelName r.name ++ ", " ++ quoted (lineText r.breaks)
-         ++ ")" ]
-
-||| What the table says of itself, before its rows.
-heading : List String
-heading =
-  [ "// SPDX-License-Identifier: 0BSD"
-  , "// Copyright (c) 2026 Bjorn Pagen"
-  , "// idr-expect's properties and --idr-contracts' relations, printed by the"
-  , "// test runner (runtests --expect-table) from harness/Properties.idr,"
-  , "// their one list; written again and compared by"
-  , "// tests/expect-table-current. Each section is read where its first macro"
-  , "// is defined, and then needs each of its macros: an includer defines"
-  , "// those of the section it reads before it includes this. The"
-  , "// properties', (name, argument shape, check):"
-  , "//   IDR_EXPECT_PROPERTY   a test states it; a fixture makes it fail;"
-  , "//   IDR_EXPECT_SELF_CHECK a test states it; only a defect makes it fail;"
-  , "//   IDR_EXPECT_UNIVERSAL  the contracts check it of every compilation."
-  , "// The relations', in the order the contracts check them, (name,"
-  , "// enumerator, check, the test pass's breaker, how that breaks it):"
-  , "//   IDR_CONTRACT_RELATION the contracts check it after every pass."
-  , "" ]
-
-||| A section of the table, read where `first`, its first macro, is defined.
-section : (first : String) -> List (List String) -> List String
-section first rows = ["#ifdef " ++ first] ++ intercalate [""] rows ++ ["#endif"]
-
-||| The C++ table, as committed.
-export
-table : String
-table =
-  unlines (heading ++ section "IDR_EXPECT_PROPERTY" (map rowsOf properties) ++ [""]
-           ++ section "IDR_CONTRACT_RELATION" (map relationRowsOf relations))

@@ -31,7 +31,7 @@
 # the pipeline, the harness's own request), a self-check with no failing
 # fixture, and a universal property no test states.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-table=foreign/idr/include/idr/Transforms/ExpectProperties.inc
+table=foreign/idr/include/idr/IR/Generated/ExpectProperties.inc
 
 # rows TABLE: each row of TABLE, `line<TAB>role<TAB>name`, the role the
 # macro's last word: PROPERTY, SELF_CHECK or UNIVERSAL.

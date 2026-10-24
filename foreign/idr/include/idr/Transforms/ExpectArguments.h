@@ -3,7 +3,8 @@
 // The arguments of idr-expect's properties: the shapes a request's argument
 // may have, each the typed value its text is read into once, before the
 // check runs, by the one parser of the shape (Arguments.cpp). The table of
-// properties (harness/Properties.idr) names each property's shape.
+// properties (IdrisMLIR.Spec.Pipeline.Properties) names each property's
+// shape.
 // A text that does not have the shape is refused there, in the one wording
 // every property shares, and an `@f` that names no function is refused
 // there too; a check takes the typed value and never reads text.

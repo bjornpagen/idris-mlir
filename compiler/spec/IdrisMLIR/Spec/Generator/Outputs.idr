@@ -11,6 +11,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Pipeline.Pipeline
+import IdrisMLIR.Spec.Pipeline.Properties
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Cpp
@@ -413,6 +414,56 @@ refusals =
   ++ concatMap (\(SomeOp op) => carrierGroups op) allOps
   ++ stringOutputRefusals allOps
 
+||| The macro a row of a role is written with.
+roleMacro : Role -> String
+roleMacro Stated = "IDR_EXPECT_PROPERTY"
+roleMacro SelfCheck = "IDR_EXPECT_SELF_CHECK"
+roleMacro Universal = "IDR_EXPECT_UNIVERSAL"
+
+||| A property's rows: its sentence as comments, then its macro.
+propertyRows : Property -> Lines
+propertyRows p =
+  slashComment (map lineText p.says)
+  ++ [ roleMacro p.role ++ "(" ++ quoted (nameText p.name) ++ ", " ++ shapeType p.shape ++ ", "
+         ++ checkName p.name ++ ")" ]
+
+||| A relation's rows: its sentence as comments, then its macro: its name,
+||| its enumerator, its check, the test pass's breaker of it and how that
+||| breaks it, the C++ names read off its name as a property's check's is.
+relationRows : Relation -> Lines
+relationRows r =
+  slashComment (map lineText r.says)
+  ++ [ "IDR_CONTRACT_RELATION(" ++ quoted (nameText r.name) ++ ", " ++ camelName r.name ++ ", "
+         ++ checkName r.name ++ ", break" ++ camelName r.name ++ ", " ++ quoted (lineText r.breaks)
+         ++ ")" ]
+
+||| A section of the table, read where `first`, its first macro, is defined.
+tableSection : (first : String) -> List Lines -> Lines
+tableSection first rows = ["#ifdef " ++ first] ++ intercalate [""] rows ++ ["#endif"]
+
+||| idr-expect's properties and --idr-contracts' relations, the one table
+||| the C++ reads both from: no guard, since an includer reads one section
+||| of it at a time, under the macros it defines.
+export
+expectPropertiesTable : String
+expectPropertiesTable =
+  render (banner slashComment
+          ++ slashComment
+               [ "idr-expect's properties and --idr-contracts' relations, printed from"
+               , "their one list (IdrisMLIR.Spec.Pipeline.Properties). Each section is"
+               , "read where its first macro is defined, and then needs each of its"
+               , "macros: an includer defines those of the section it reads before it"
+               , "includes this. The properties', (name, argument shape, check):"
+               , "  IDR_EXPECT_PROPERTY   a test states it; a fixture makes it fail;"
+               , "  IDR_EXPECT_SELF_CHECK a test states it; only a defect makes it fail;"
+               , "  IDR_EXPECT_UNIVERSAL  the contracts check it of every compilation."
+               , "The relations', in the order the contracts check them, (name,"
+               , "enumerator, check, the test pass's breaker, how that breaks it):"
+               , "  IDR_CONTRACT_RELATION the contracts check it after every pass." ]
+          ++ [""]
+          ++ tableSection "IDR_EXPECT_PROPERTY" (map propertyRows properties) ++ [""]
+          ++ tableSection "IDR_CONTRACT_RELATION" (map relationRows relations))
+
 ||| Every file the generator writes, in order.
 export
 generate : List (Path, String)
@@ -449,7 +500,8 @@ generate =
      , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes ourOps))
      , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline))))
      , (generated "ApplyGroups.h.inc", render (applyGroupsHeader (groupsOf Higher pipeline)))
-     , (generated "Actions.h.inc", render (actionsHeader everyAction)) ]
+     , (generated "Actions.h.inc", render (actionsHeader everyAction))
+     , (generated "ExpectProperties.inc", expectPropertiesTable) ]
   ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader declarations.headers t ourOps))) (templatesOf ourOps)
   ++ map areaHeader declarations.headers
   ++ [ ("compiler" ::: ["src", "IdrisMLIR", "Dialect", "Idr.idr"], render (buildersModule ourOps))

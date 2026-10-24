@@ -71,8 +71,9 @@
 |||                                     how a RUN line's command that is to fail failed
 |||     runtests --reject <test> <report> <output>
 |||                                     a refused program held to its header (Reject.idr)
-|||     runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE
-|||                                     every rule's phrase and its category's (Facts.idr)
+|||     runtests --rule-phrases [CATEGORY]
+|||                                     the phrase of every rule, or of every
+|||                                     rule of a category (Facts.idr)
 |||     runtests --linear-program <seed> <case> linear|twin|stdin|verdict | checks
 |||                                     a generated linear program, its
 |||                                     de-linearized twin, its input, the
@@ -82,8 +83,6 @@
 |||     runtests --fuzz-program <request> | --lazy-program <request>
 |||                                     a program of the fuzzers, or their
 |||                                     checkers' own checks (Fuzz.idr, Lazy.idr)
-|||     runtests --expect-table         idr-expect's table of properties, printed
-|||                                     from their records (Properties.idr)
 |||     runtests --scale-print <fixture> 1|2
 |||                                     a scale fixture at its size or twice it
 |||     runtests --scale-check <report> <trace> <report> <trace>
@@ -121,7 +120,6 @@ import Lit
 import Lock
 import Planted
 import Programs
-import Properties
 import Reject
 import Runner
 import RuntimeEffects
@@ -374,11 +372,11 @@ usage = unlines
   , "       runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME | --ending-status ENDING"
   , "       runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT | --spec-named <work> <status> WHAT EXPECTED..."
   , "       runtests --reject <test> <report> <output>"
-  , "       runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE"
+  , "       runtests --rule-phrases [CATEGORY]"
   , "       runtests --lock"
   , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
   , "       runtests --linear-check <seed> <case> <status> <report>"
-  , "       runtests --expect-table | --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
+  , "       runtests --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
   , "       runtests --runtime-effects <module>"
   , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
   , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks"
@@ -507,13 +505,10 @@ main = do
     ("--linear-program" :: request) => maybe (die usage) putStr (Linear.programOf request)
     ["--linear-check", seed, n, status, report] => Linear.check seed n status report
     ("--lazy-program" :: request) => maybe (die usage) putStr (Lazy.programOf request)
-    ["--expect-table"] => putStr Properties.table
     ("--scale-print" :: request) => maybe (die usage) putStr (Scale.printOf request)
     ("--scale-check" :: files) => scaleCheck files
     ["--runtime-effects", module'] => readOrDie module' >>= putStr . unlines . heldLines
     ["--lock"] => repositoryRoot >>= Lock.check
-    ["--rules"] => putStr (unlines ruleLines)
     ["--rule-phrases"] => putStr (unlines (rulePhrases Nothing))
     ["--rule-phrases", category] => putStr (unlines (rulePhrases (Just category)))
-    ["--rule-category", phrase] => maybe exitFailure putStrLn (categoryOfPhrase phrase)
     _ => die usage

@@ -1,7 +1,8 @@
 # The rules no refused program of tests/ states, one line each: the rule's
 # phrase, a tab, its kind, a tab, why. tests/rules-covered reads this
-# file: every rule of the specification's table (`runtests --rules`) has a
-# fixture whose `-- expect:` header names it, or a line here, never both.
+# file: every rule of the specification's table (`runtests --rule-phrases`)
+# has a fixture whose `-- expect:` header names it, or a line here, never
+# both.
 # `unreachable`: no source program reaches the refusal. `elsewhere`:
 # another test reaches it. `owed`: a source program reaches it; its fixture
 # is written when a build shows one.

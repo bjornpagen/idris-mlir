@@ -66,7 +66,7 @@ namespace {
 // and the test pass's option's.
 enum class Relation : std::uint8_t {
 #define IDR_CONTRACT_RELATION(name, Enumerator, check, breaker, breaks) Enumerator,
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_CONTRACT_RELATION
 };
 
@@ -80,7 +80,7 @@ struct RelationRow {
 constexpr RelationRow relations[] = {
 #define IDR_CONTRACT_RELATION(name, Enumerator, check, breaker, breaks)                           \
   {Relation::Enumerator, name, breaks},
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_CONTRACT_RELATION
 };
 
@@ -526,7 +526,7 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
 #define IDR_CONTRACT_RELATION(name, Enumerator, check, breaker, breaks)                           \
   case Relation::Enumerator:                                                                      \
     return breaker(program, analyses);
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_CONTRACT_RELATION
     }
   }
@@ -568,7 +568,7 @@ void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   bool held = true;
 #define IDR_CONTRACT_RELATION(name, Enumerator, check, breaker, breaks)                           \
   held = succeeded(check(after)) && held;
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_CONTRACT_RELATION
   if (!held)
     signalPassFailure(pass);

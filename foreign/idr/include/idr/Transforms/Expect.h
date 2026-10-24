@@ -6,8 +6,9 @@
 // property needs of the module beyond its ops (the symbol table, the cells'
 // layouts) it asks of the analysis manager, so properties that ask the same
 // share one answer and the pass keeps nothing between runs. The properties
-// are listed once, as Idris records (harness/Properties.idr), whose printed
-// table (ExpectProperties.inc) gives each its name, the shape of its
+// are listed once, as Idris records of the dialect's specification
+// (IdrisMLIR.Spec.Pipeline.Properties), whose printed table
+// (ExpectProperties.inc) gives each its name, the shape of its
 // argument, its check and what it checks; the pass's table and the checks'
 // declarations are made from it. A request's argument is read once, before
 // its check runs, into the typed value of its shape (ExpectArguments.h): a
@@ -93,7 +94,7 @@ struct Property {
 #define IDR_EXPECT_PROPERTY(name, Shape, check) mlir::LogicalResult check(const Request<Shape> &);
 #define IDR_EXPECT_SELF_CHECK(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
 #define IDR_EXPECT_UNIVERSAL(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
-#include "idr/Transforms/ExpectProperties.inc"
+#include "idr/IR/Generated/ExpectProperties.inc"
 #undef IDR_EXPECT_UNIVERSAL
 #undef IDR_EXPECT_SELF_CHECK
 #undef IDR_EXPECT_PROPERTY

@@ -50,7 +50,7 @@ declaring =
   , MkArea "Ops"
       ("Bigs" ::: [ "Checks", "Declarations", "IO", "Numeric", "Platform", "Rewrites", "Scalars"
                   , "Shapes", "Strings", "Values" ])
-  , MkArea "Pipeline" ("Pass" ::: ["Pipeline", "Stage"])
+  , MkArea "Pipeline" ("Pass" ::: ["Pipeline", "Properties", "Stage"])
   , MkArea "Runtime" ("Clocks" ::: ["Declarations", "Endings", "Handles", "Helpers", "Layout"])
   , MkArea "Tail" ("Declarations" ::: []) ]
 

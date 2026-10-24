@@ -76,6 +76,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Ops.Values
         , IdrisMLIR.Spec.Pipeline.Pass
         , IdrisMLIR.Spec.Pipeline.Pipeline
+        , IdrisMLIR.Spec.Pipeline.Properties
         , IdrisMLIR.Spec.Pipeline.Stage
         , IdrisMLIR.Spec.Runtime.Clocks
         , IdrisMLIR.Spec.Runtime.Declarations

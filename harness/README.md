@@ -169,14 +169,12 @@ clone numbers, function order or SSA names.
 - `prop/`: the headers and the build of the runtime's property programs,
   and the program a runtime C test runs as, through the runtime's start.
 - `Fuzz.idr`, `Gen.idr`, `Lazy.idr`, `Linear.idr`, `Prims.idr`, `Sem.idr`,
-  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `Lock.idr`: what the
-  runner computes for tests that ask it; `Linear.idr` generates linear
-  programs, each with its de-linearized twin and the verdict the in-place
-  rule predicts for it; `Scale.idr` the scale fixtures, the dialect's text
-  spelled from the specification; `Properties.idr` idr-expect's
-  properties, one record each, from which its C++ table is printed;
-  `RuntimeEffects.idr` what each op that calls the runtime declares, held
-  to LLVM's reading of its runtime function.
+  `Scale.idr`, `RuntimeEffects.idr`, `Lock.idr`: what the runner computes
+  for tests that ask it; `Linear.idr` generates linear programs, each with
+  its de-linearized twin and the verdict the in-place rule predicts for
+  it; `Scale.idr` the scale fixtures, the dialect's text spelled from the
+  specification; `RuntimeEffects.idr` what each op that calls the runtime
+  declares, held to LLVM's reading of its runtime function.
 
 ## Adding a test
 

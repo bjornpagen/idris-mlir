@@ -294,8 +294,7 @@
   "foreign/idr/lib/Transforms/Expect/",
   "foreign/idr/include/idr/Transforms/Contracts.h",
   "foreign/idr/include/idr/Transforms/Expect.h",
-  "foreign/idr/include/idr/Transforms/ExpectArguments.h",
-  "foreign/idr/include/idr/Transforms/ExpectProperties.inc"
+  "foreign/idr/include/idr/Transforms/ExpectArguments.h"
  ],
  "L20": [
   "libs/"
