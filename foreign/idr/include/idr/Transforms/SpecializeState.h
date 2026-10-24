@@ -16,6 +16,7 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/xxhash.h"
 
@@ -112,11 +113,12 @@ struct Node {
 };
 
 // The consumer forms raising has met: each a detached function, interned
-// by upstream's structural equivalence (idr-deduplicate's) and known by
-// the digest of its structure, which names the raise copies of it. The
-// number a form gets is the order workers met it in, so nothing outside
-// this table reads it: a name reads the digest. Safe from any worker; a
-// form is never written once interned.
+// by upstream's structural equivalence (idr-deduplicate's) within a bucket
+// of this process's own hash, and known by the digest of its structure,
+// which names the raise copies of it and is read once, when the form is
+// first met. The number a form gets is the order workers met it in, so
+// nothing outside this table reads it: a name reads the digest. Safe from
+// any worker; a form is never written once interned.
 class Forms {
 public:
   FormId intern(mlir::OwningOpRef<FuncOp> consumer);
@@ -129,7 +131,7 @@ private:
     llvm::XXH128_hash_t digest;
   };
   mutable std::mutex mutex;
-  footprint::DenseMap<std::uint64_t, llvm::SmallVector<FormId, 1>> byDigest;
+  footprint::DenseMap<llvm::hash_code, llvm::SmallVector<FormId, 1>> byBucket;
   footprint::Vector<Form> forms;
 };
 

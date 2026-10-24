@@ -9,13 +9,14 @@
 // became, or the output of a string). Nothing may run between the call and
 // the dispatch that could tell: the dispatch and its steps are in the
 // call's block, and the call may run at the dispatch. Nor may the callee
-// itself: its effects would then interleave with the consumer's, so its
-// row carries neither io nor crash, and where it may diverge the consumer
-// performs no io. Moving a call is licensed by its row alone. The consumer
-// is a function, so it returns an array `?` at every axis, each size the
-// dispatch's type fixed kept in its extents and its value cast before the
-// return; a dispatch that gives a graded array with a static axis, which
-// no cast reaches, is not raised.
+// itself: in the copy the consumer runs at the callee's tails, before what
+// the callee still does around them, so the consumer trades places with
+// the call as the call does with each op it moves across, by the effect
+// system's one question. Moving a call is licensed by its row alone. The
+// consumer is a function, so it returns an array `?` at every axis, each
+// size the dispatch's type fixed kept in its extents and its value cast
+// before the return; a dispatch that gives a graded array with a static
+// axis, which no cast reaches, is not raised.
 
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Substitute.h"
@@ -30,6 +31,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
@@ -44,18 +46,43 @@ namespace idr::specialize {
 // Forms
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+// A consumer's bucket among the forms this process met: each op it holds,
+// its own first, hashed as upstream's equivalence hashes one, by its name
+// and the uniqued identities of its attributes, properties and result
+// types; where its operands come from is the comparison's to tell. Nothing
+// inside an attribute or a type is walked and nothing is made. Two
+// consumers that are one function hash alike: every consumer is named
+// alike, so the name a function's facts leave out tells none apart.
+llvm::hash_code bucketOf(FuncOp consumer) {
+  llvm::hash_code hash{};
+  consumer->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    hash = llvm::hash_combine(
+        hash, OperationEquivalence::computeHash(op, OperationEquivalence::ignoreHashValue,
+                                                OperationEquivalence::ignoreHashValue,
+                                                OperationEquivalence::IgnoreLocations));
+  });
+  return hash;
+}
+
+} // namespace
+
 // Two consumers are one form exactly when they are one function: equal
-// code on equal values, as idr-deduplicate compares. The digest is of the
-// structure, read in the same walk upstream's equivalence hashes, so a
-// form is never printed.
+// code on equal values, as idr-deduplicate compares, within one bucket.
+// The digest of its structure, the same in every process, is what names
+// the raise copies of a form, so it is read once, of a form not met
+// before; a consumer met again costs one walk of its ops and a comparison
+// with each form in its bucket.
 FormId Forms::intern(OwningOpRef<FuncOp> consumer) {
-  llvm::XXH128_hash_t digest = deduplicate::structuralDigest(*consumer);
+  llvm::hash_code hash = bucketOf(*consumer);
   std::lock_guard lock(mutex);
-  SmallVector<FormId, 1> &bucket = byDigest[digest.low64];
+  SmallVector<FormId, 1> &bucket = byBucket[hash];
   for (FormId form : bucket)
     if (deduplicate::equivalent(forms[static_cast<unsigned>(form)].fn.get(), *consumer))
       return form;
   auto form = static_cast<FormId>(forms.size());
+  llvm::XXH128_hash_t digest = deduplicate::structuralDigest(*consumer);
   forms.push_back({std::move(consumer), digest});
   bucket.push_back(form);
   return form;
@@ -100,21 +127,18 @@ std::optional<Elimination> consumerOf(CallOp call) {
   std::optional<Elimination> e = eliminationAt(*call->getResult(0).getUses().begin());
   if (!e || e->dispatch->getBlock() != call->getBlock())
     return std::nullopt;
-  // The call runs where its consumer is. In the copy, the consumer's
-  // effects at one level of the callee's recursion run before the levels
-  // around it: a crash of the callee, io of its own, or a loop that does
-  // not end after the consumer's io ran, would come after output the
-  // program as written never wrote.
-  // The call runs where the dispatch, later in its block, stands: no op
-  // between them may tell, by the effect system's one question.
+  // The call runs where the dispatch, later in its block, stands, and the
+  // consumer runs inside the callee: in the copy, the consumer's effects at
+  // one level of the callee's recursion run before what the levels around
+  // it still do. So no op between the call and the dispatch may tell the
+  // call moved, and no op of the consumer may tell it ran before the
+  // callee's own effects, each by the effect system's one question.
   bool runsThere = llvm::all_of(
       llvm::make_range(std::next(call->getIterator()), e->dispatch->getIterator()),
       [&](Operation &between) { return effects::mayMoveAcross(call, &between); });
-  effects::Row row = call.getRow();
-  if (!runsThere || row.contains(effects::Atom::crash) || row.contains(effects::Atom::io))
-    return std::nullopt;
-  if (row.contains(effects::Atom::divergence) &&
-      effects::rowOf(e->dispatch).contains(effects::Atom::io))
+  SmallVector<Operation *> steps = e->steps();
+  auto beforeCallee = [&](Operation *consumed) { return effects::mayMoveAcross(consumed, call); };
+  if (!runsThere || !beforeCallee(e->dispatch) || !llvm::all_of(steps, beforeCallee))
     return std::nullopt;
   // The consumer becomes a function that binds no index variable, and is
   // pushed into the callee's tails, each at its own depth of them: it is
@@ -123,7 +147,7 @@ std::optional<Elimination> consumerOf(CallOp call) {
   // term being scoped where it is written; and no region of its own may
   // bind one, whose levels would be numbered from where it stands.
   if (joins::scopeDepth(call->getParentRegion()) != 0 || bindsLevels(e->dispatch) ||
-      llvm::any_of(e->steps(), bindsLevels))
+      llvm::any_of(steps, bindsLevels))
     return std::nullopt;
   // The consumer returns what the dispatch gives, and no function returns
   // a graded array with a static axis: the call stays a call, the program

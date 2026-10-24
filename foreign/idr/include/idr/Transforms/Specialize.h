@@ -129,9 +129,9 @@ public:
     word(value.size());
     bytes.append(value.bytes_begin(), value.bytes_end());
   }
-  // A uniqued attribute's or type's content, by the digest of its content
-  // computed once when it was made: the same in every process, where the
-  // context's own hash of its storage is an address.
+  // A uniqued attribute's or type's content, by its content digest
+  // (stableDigest): the same in every process, where the context's own
+  // hash of its storage is an address.
   void attribute(mlir::Attribute value) { digest128(stableDigest(value)); }
   void type(mlir::Type value) { digest128(stableDigest(value)); }
   void digest128(llvm::XXH128_hash_t value) {
