@@ -1326,3 +1326,27 @@ to L16ev. Waiting:
   L12); "the frontend writes only ops legal at higher" could be made
   unrepresentable in the `Admitted` record (L03). The admitted stage
   fields' cull finding (`audits/p0/cull/verifiers.md`) is resolved.
+- From L16fb (eb5e1a178): StateT over StateT stays refused: its map,
+  bind and pure are call cycles in which the method's type argument grows
+  by `Pair stateType` while the dictionary shrinks by one level, so only
+  the sum stays bounded and the growth check's linear bounds cannot say
+  it (C308: a finite nesting compiles, so the check admits a cycle whose
+  dictionary strictly shrinks, measured by it; L16 with C281's fold).
+  The frontend's own StateT refusals do not reproduce in isolation
+  (`/tmp/l16fb/repro/{StateTwo,StateTraverse}` compile): rerun on the
+  self-compile after the fold. Seams: a pair part's roots come from the
+  program-wide pair slot; each read's roots are computed twice.
+- From L03ah (K14 fe 2, C28's trait): no path produces a `ClosureAttr` (a
+  cull candidate with `Defunctionalize/Convert.cpp:139-153` and
+  `Fold/Parts.cpp:34-37`; L18 with L14); `ConAttr` stays printed for the
+  frontend, legal at higher, which a writer fact beside the stages would
+  settle (with §4's third question, D50); types' and attributes' stages
+  are read by the frontend generator alone (a C++ check through a type
+  interface in `StageRules::value`, L03); ops declared looser than their
+  makers (`lifetime.pack`/`unpack`, `cell.recycle`, `count.take_into`,
+  `token.null`) and `idr.lifetime`, `idr.activation`, `idr.lend`,
+  `idr.lifetime.forget` legal everywhere though idr-lower removes them
+  (L05, L07); `home k` is never built with k ≠ 0 (L05); `verifyConstant`
+  checks parts at the bare carrier's grade (`Constants.cpp:389, 397`, a
+  possible bug, L13); `Legal` spells "every stage" twice (`Always` and
+  `between Higher Lowered`, C28 says `Any | From s t`; L03).

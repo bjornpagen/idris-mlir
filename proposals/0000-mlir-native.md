@@ -3282,6 +3282,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `idr.array.open`. The take opens its cell's arrays
   (`idr.count.take_open`) only where the cell holds one; a cell with none
   is taken plainly.
+- **C308** (2026-10-24; L16fb's stop, under AGENTS.md's "a construct
+  whose runtime choices the whole program fixes compiles" and D128). A
+  call cycle through an implementation's dictionary in which a method's
+  type argument grows while the dictionary strictly shrinks (a monad
+  transformer over itself: StateT over StateT) is a finite nesting the
+  program fixes, so the growth check admits it, measured by the shrinking
+  dictionary: a cycle is bounded where one argument it passes strictly
+  decreases on every turn, whatever another grows by. It lands with C281's
+  fold, which reworks the growth model's nodes.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
