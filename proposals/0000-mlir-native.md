@@ -2883,6 +2883,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   after a program test under both hosts shows C74's example (`data D = MkD
   (D -> Nat)`) is refused by positivity or marked diverging, and if it is
   not, C74's per-component verdict stays and comes back to the owner.
+  The test landed (e1a2d2b07, `tests/self-application-may-diverge`):
+  stock Idris marks C74's example possibly not terminating (refused under
+  `--total`), and so does our checker's `Defined.ends`, while the
+  frontend's own search puts it in components it calls terminating; so
+  C292 lands.
 - **C293** (2026-10-23; the plan's Q3, under AGENTS.md's "an operand,
   attribute or enum that changes what an op means or may do is a flag,
   and the op is two"; reverses C275's one classifier and amends C206). The
@@ -2957,6 +2962,19 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   callee table goes. The round reads binding times and identities from
   the analysis manager, which keeps them across every pass that does not
   change them; `idr.func` carries no copy of them.
+- **C303** (2026-10-24; U12's question, settled by C130 and AGENTS.md's
+  QTT rule; L19ad's reading). A binder's `#idr.binder` identity is the
+  quantities oracle's key, kept in a location (C130), never a fact of the
+  program: what Idris proved of a binder lives in its type. A `many`
+  binder has nothing a pass can drop (`many` is the top of the order, and
+  quantity 0 has no binder), and a narrowing to `once` is caught by
+  linear-kept and held sound by the linearity verifier. A once-used
+  region binder widened needs a retyped binder and a cast on every jump
+  into it, which quantities-kept sees unless the same pass also strips
+  the location. No home for the key beyond the location is built: one
+  would reverse C130 and carry a test's key in every compilation. A pass
+  that makes a binder standing for another gives it that binder's
+  location.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:

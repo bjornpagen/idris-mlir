@@ -1103,3 +1103,12 @@ to L16ev. Waiting:
   L16ey). Borrows under the finer `runsAfter` (a join's body runs before
   its join regions) may borrow more across calls in join regions,
   untested (L07, INT).
+- From L19ad (e1a2d2b07): C292 lands (its precondition met): divergence is
+  `Defined.ends` carried by `idr.may_loop`, the frontend's own search
+  (`Recursion.loopsOf`) and its readers deleted (L16, after L16ey releases
+  Emit). `Translate/Keys.idr:1133, 1197` makes part of a symbol by hashing
+  printed text, K08's shape (L16). quantities-kept compares uses for
+  equality, stronger than its stated "drops or widens" (L19's sentence).
+  INT-25's frontend hit an Emit internal error at `Data.Vect:895`
+  (Zippable's `zipWith`) compiling `tests/content-hash`; INT-26's sweep
+  tells whether bc08f0952 fixed it.
