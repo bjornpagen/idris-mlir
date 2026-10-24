@@ -347,11 +347,13 @@ the program's, would be refused; the frontend calls these operations only
 through `host`.
 
 `Idris.Host` also states the one fact of the evaluator's results no proof
-of the frontend's can reach, of one context: `host.freezeContext`, called
-once the program and its imports are loaded, reads every entry as Idris's
-lookup does (each decoded once, stored as a definition read from a TTC is)
-into an immutable map by entry (`Frozen`), which every statement and
-normaliser is indexed by. A name resolves to an entry (`Resolves`), a
+of the frontend's can reach, of one context: `frozenFrom`, called once
+the frontend's reading has read every definition the program can meet,
+each decoded once by Idris's lookup where it was read, holds exactly those
+definitions in an immutable map by entry (`Frozen`), which every statement
+and normaliser is indexed by, so a definition the program cannot meet is
+never decoded; what the reading holds at an entry is the map's definition
+there (`IntMap.lookupMap`, `heldAt`). A name resolves to an entry (`Resolves`), a
 definition is the one at its name's entry (`Defines`, read purely by
 `definitionIn`), and `definedOnce` is proved, not trusted. A closed term's
 normal form, as each of the four normalisers gives it, is a reduct of the

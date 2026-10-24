@@ -49,7 +49,7 @@
 ||| one: it passes through every normaliser, under every binder, as itself.
 |||
 ||| Every definition a reading looks up is read from the context frozen
-||| once the program was loaded, by a pure function of it (`inFrozen`), with
+||| once the program was read, by a pure function of it (`inFrozen`), with
 ||| the evidence that the context defines the name so: the definition the
 ||| evaluator's step that unfolds the name unfolds. A reading reads that
 ||| context once, where it starts, and carries it in its mode

@@ -1300,11 +1300,12 @@ applicationOver t f u =
 ||| What the checker made of a metavariable a term the boundary read names,
 ||| at the entry `i` the term gives it, the name Host's `Solve` unfolds:
 ||| read once, before the freeze, with the definitions, and held of the
-||| frozen context `fz`, which keeps what was read (`Host.keptAt`,
-||| `Boundary.readProgram`): a solution, the definition at that entry, of
-||| no arguments and one leaf, which is the solution, held with the entry's
-||| placement, which a walk enters before it walks the solution, and with
-||| the premises `Solve` states of such a definition, at quantity 0; or a
+||| frozen context `fz`, which is made of what was read (`Host.frozenFrom`,
+||| `Host.heldAt`, `Boundary.readProgram`): a solution, the definition at
+||| that entry, of no arguments and one leaf, which is the solution, held
+||| with the entry's placement, which a walk enters before it walks the
+||| solution, and with the premises `Solve` states of such a definition, at
+||| quantity 0; or a
 ||| hole the source left, which the checker left unsolved. Essential: the
 ||| problem has both, and a hole is no term. The checker writes a solution
 ||| in no other shape, so the boundary refuses a metavariable at no entry,
@@ -1347,8 +1348,8 @@ withSolution : (i : Int) -> Solution fz i -> Solutions fz -> Solutions fz
 withSolution i s table = Data.SortedMap.Dependent.insert i s table
 
 ||| What the translation reads of the program: the context frozen once the
-||| program and everything it imports are loaded and every termination
-||| verdict it reaches is in it, which every normaliser reads; the
+||| program is read, of the definitions the reading met, every termination
+||| verdict it reaches written, which every normaliser reads; the
 ||| program's entry, `main`, as it was read, which every phase that starts
 ||| from it starts from; every definition the translation can meet from the
 ||| entry, the entry's among them, each read once and kept by its entry in
@@ -1368,7 +1369,7 @@ withSolution i s table = Data.SortedMap.Dependent.insert i s table
 ||| its name again, nor by its shape (`Terms.ioOf`); and the address of
 ||| base's `plus` on `Nat` (`natPlus`), which an index term reads as a sum
 ||| (`Types.indexTerm`), read once with `IO`'s and known by that identity
-||| alone, none for a program that loads no `Prelude.Types`. Each definition holds
+||| alone, none for a program whose reading meets no `plus`. Each definition holds
 ||| what the whole program's definitions say of it (`facts`): nothing while
 ||| they are being read, its constructors once they are, and its `Nature`
 ||| once those are (`Read`); the pair's, as every other's. Nothing the

@@ -22,10 +22,10 @@
 |||
 ||| The same module states the one thing such a program trusts of what the
 ||| evaluator gives and reads, which no proof of the program's can reach.
-||| Everything is said of one context, frozen once it is complete
-||| (`Frozen`): an immutable value of every loaded definition by the entry
-||| its name resolves to, so that two readings of a name read one
-||| definition, which is proved here (`definedOnce`). What a normaliser
+||| Everything is said of one context, frozen once the program is read
+||| (`Frozen`): an immutable value of every definition the program's
+||| reading read, by the entry its name resolves to, so that two readings
+||| of a name read one definition, which is proved here (`definedOnce`). What a normaliser
 ||| gives is a reduct of the term it was given by the steps `Reduces`
 ||| declares for that normaliser, and normal for them (`Reduct`); and every
 ||| term a term reduces to reduces on to the term's normal form
@@ -39,10 +39,7 @@
 ||| (`substitutes`), and node by node (`putIn`). Beside them stand facts of
 ||| the context: that its entries are at non-negative indices, so that every
 ||| name it defines has a place (`definedPlaced`), that it resolves none of
-||| the frontend's probes (`probesUnresolved`), and that what a reader read
-||| from the live context once the program was loaded (`readLive`) it
-||| defines at the same entry, of the same kind and body (`keptAt`). The
-||| evaluator reaches the hosts' partial primitives through
+||| the frontend's probes (`probesUnresolved`). The evaluator reaches the hosts' partial primitives through
 ||| `Core.Primitives.Host`, which asserts nothing of them.
 module Idris.Host
 
@@ -68,6 +65,7 @@ import Idris.Syntax
 -- Nothing here names a length's constructors, but proofs here unfold the
 -- sizes' public definitions (`SizeOf.zero` is `MkSizeOf Z Z` over them),
 -- and Idris unfolds only what an import loads.
+import Data.DPair
 import Data.List.HasLength
 import Data.Nat
 import Data.Vect
@@ -89,9 +87,7 @@ import Libraries.Data.WithDefault
 -- evaluator, which runs in `Core`, to what the normalisers give (`reduct`)
 -- and to a term's reducts and its normal form (`reachesNormalForm`); and
 -- of the context, which `Core` actions build, to the indices its entries
--- are at (`entryPlaced`), to the names it resolves (`probesUnresolved`) and
--- to what it keeps of the entries read before it was frozen
--- (`frozenContext`, `keeps`).
+-- are at (`entryPlaced`) and to the names it resolves (`probesUnresolved`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -105,44 +101,27 @@ nothingIsJust Refl impossible
 -- The frozen context
 ------------------------------------------------------------------------------
 
-||| That Idris's lookup gave the definition `d` for the entry `i` of the
-||| live context (`lookupCtxtExactI`), read once the program and everything
-||| it imports were loaded: what a reader that must read a definition
-||| before the context is frozen holds, and the frozen context keeps
-||| (`keptAt`). Only `readLive` makes one.
-export
-data LiveEntry : Int -> GlobalDef -> Type where
-  ReadLive : LiveEntry i d
-
-||| The context the evaluator reads, frozen once it is complete: every
-||| definition Idris's lookup gives for an entry the context has made, each
-||| decoded once and stored as a definition read from a TTC is, in an
+||| The context the evaluator reads, frozen once the program is read: every
+||| definition the frontend's reading met from the program's entry, each
+||| decoded once, by Idris's lookup, where the reading read it, in an
 ||| immutable map by entry, beside the definitions record the normalisers
 ||| run on. Every statement below speaks of one such value, so it speaks of
-||| one context. Only `host` makes one, once the program and everything it
-||| imports are loaded; nothing changes the context after, so what the
-||| evaluator reads from the record is what the map holds.
+||| one context. Only `frozenFrom` makes one, from the map of what the
+||| reading read, so the map holds the very definitions the reading holds,
+||| and a definition no reading reaches is never decoded.
 |||
 ||| The normalisers run on this value alone, so a program that holds it
 ||| never holds the live context. Idris's evaluator unfolds what the record
-||| it is given defines, and reads only its session's options (what it
+||| it is given defines, through Idris's lookup, which decodes an entry
+||| where it is first read, and reads only its session's options (what it
 ||| logs) through a reference to a context; that reference is made here,
 ||| once, holding the record, and nothing the normalisers run writes it.
-|||
-||| A reader may have to read a definition before the freeze, as the
-||| frontend does while Idris's termination check still writes verdicts
-||| into the context. What it read the map keeps (`keeps`), at quantity 0:
-||| the definition at that entry, of the same kind, arguments and body
-||| (`definition`), so the reader keeps what it decoded of it and reads
-||| the entry no more.
 export
 record Frozen where
   constructor MkFrozen
   defs : Defs
   entries : IntMap GlobalDef
   reference : Ref Ctxt Defs
-  0 keeps : {0 i : Int} -> {0 d : GlobalDef} -> LiveEntry i d ->
-            (d' : GlobalDef ** (IntMap.lookup i entries = Just d', definition d' = definition d))
 
 ||| The definitions record a frozen context was made from, which the
 ||| normalisers run on.
@@ -224,7 +203,7 @@ entryOf (AtEntry {i} r _) = (i ** r)
 ||| What a frozen context defines a name as, at the entry the name resolves
 ||| to, so that a reader that also needs the entry resolves the name once;
 ||| or the evidence that it defines it as nothing: a name it does not
-||| resolve, or an entry no definition is at.
+||| resolve, or an entry the reading did not read.
 public export
 data Definition : Frozen -> Name -> Type where
   DefinedAs : (i : Int) -> (0 _ : Resolves ctx n i) ->
@@ -252,36 +231,12 @@ definitionIn ctx n = case resolveIn ctx n of
   ResolvedTo i r => definedAt ctx i r
   NotInContext none => NotDefined (undefinedWhere none)
 
-||| What the live context gave for an entry (`LiveEntry`), the frozen
-||| context defines at that entry: a definition of the same kind, arguments
-||| and body (`definition`), which differs, if at all, by the verdict
-||| Idris's termination check wrote into it before the freeze (`keeps`).
+||| A definition the frozen map holds at an entry is the one the frozen
+||| context defines the entry's resolved name as: a reader that read the
+||| map, or made it (`frozenFrom`), holds the evidence a step states.
 export
-0 keptAt : (ctx : Frozen) -> LiveEntry i d ->
-           (d' : GlobalDef ** (Defines ctx (Resolved i) d', definition d' = definition d))
-keptAt ctx live = case ctx.keeps live of
-  (d' ** (held, same)) => (d' ** (AtEntry resolvedItself held, same))
-
-||| An entry of the live context and the definition Idris's lookup gave
-||| for it, with the evidence that it gave it (`LiveEntry`).
-public export
-data LiveDefinition : Type where
-  LiveAt : (i : Int) -> (d : GlobalDef) -> (0 _ : LiveEntry i d) -> LiveDefinition
-
-||| The entry a name resolves to in the live context and the definition
-||| Idris's lookup gives for it there (`lookupCtxtExactI`), with the
-||| evidence that it gave it (`LiveDefinition`); nothing for a name it
-||| gives nothing. Read once the program and everything it imports are
-||| loaded, it is what the frozen context defines at that entry (`keptAt`),
-||| so a reader that must read a definition before the freeze reads it
-||| once.
-export
-readLive : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe LiveDefinition)
-readLive n
-    = do defs <- get Ctxt
-         Just (i, d) <- lookupCtxtExactI n (gamma defs)
-           | Nothing => pure Nothing
-         pure (Just (LiveAt i d ReadLive))
+0 heldAt : {0 ctx : Frozen} -> IntMap.lookup i (entriesOf ctx) = Just d -> Defines ctx (Resolved i) d
+heldAt held = AtEntry resolvedItself held
 
 ||| Two names resolve to one entry: they name one definition, whichever
 ||| spelling each has (a full name, a resolved one).
@@ -2856,11 +2811,11 @@ mutual
 -- Entries are placed
 ------------------------------------------------------------------------------
 
--- The frozen map holds the entries `frozenContext` reads, from index 0 up
--- to the context's next one (`entriesFrom`), each at the index it was read
--- at, so none is at a negative index. That is a fact of that `Core` loop
--- over `Int`, and `Libraries.Data.IntMap` states nothing of a lookup after
--- an insert, so it is trusted.
+-- The frozen map holds the definitions the reading read, each at the
+-- entry Idris's lookup gave it (`lookupCtxtExactI`), and the context makes
+-- its entries counting up from 0 (`newEntry`), so none is at a negative
+-- index. That is a fact of the `Core` actions over `Int` that build the
+-- context, which no type of it states, so it is trusted.
 0 entryPlaced : {0 ctx : Frozen} -> {0 i : Int} ->
                 IntMap.lookup i (entriesOf ctx) = Just d -> (i < 0) = False
 entryPlaced _ = trusted
@@ -2884,52 +2839,27 @@ resolvedPlaced r (AtEntry {i = j} r' held) = replace {p = \k => (k < 0) = False}
 -- The operations
 ------------------------------------------------------------------------------
 
--- Every entry from `i` on, `left` of them, as Idris's lookup reads each:
--- the evaluator's own lookup, so the frozen definitions are the ones it
--- reads. An entry still coded is decoded here, once, and the table keeps
--- it decoded, so the evaluator reads the definition frozen.
-covering
-entriesFrom : Context -> (left : Nat) -> Int -> IntMap GlobalDef -> Core (IntMap GlobalDef)
-entriesFrom gam Z i acc = pure acc
-entriesFrom gam (S left) i acc
-    = do Just d <- lookupCtxtExact (Resolved i) gam
-           | Nothing => entriesFrom gam left (i + 1) acc
-         entriesFrom gam left (i + 1) (IntMap.insert i d acc)
-
--- The context as it is, frozen: every entry it has made, and the
--- reference the normalisers run the evaluator with, the live context read
--- here once and never again; with the trust that the map keeps what a
--- reader read from the live context once the program was loaded
--- (`readLive`). From then on the context's entries are written only by
--- Idris's termination check, which gives a definition its verdict and
--- keeps the rest (`setTerminating`), and by Idris's lookup, which keeps an
--- entry it decodes decoded; and the map reads every entry by that lookup.
--- Those are facts of `Core` actions over the context's mutable table,
--- which no type of the context states, so the map's keeping them is
--- trusted.
-covering
-frozenContext : {auto c : Ref Ctxt Defs} -> Core Frozen
-frozenContext
+||| The context frozen once the program is read, from the definitions the
+||| frontend's reading read (`read`), each by the entry Idris's lookup gave
+||| it, with the definitions record the normalisers run on and the
+||| reference they read their options through, made here once; and the
+||| evidence that the map is `read`, so that a reader holding what it read
+||| at an entry holds the frozen context's definition there
+||| (`lookupMap`, `heldAt`). Nothing is decoded here: the reading decoded
+||| what it read, and the context decodes an entry nothing has read only
+||| where the evaluator first unfolds it.
+export
+frozenFrom : {auto c : Ref Ctxt Defs} -> (read : IntMap GlobalDef) -> Core (Subset Frozen (\ctx => entriesOf ctx = read))
+frozenFrom read
     = do defs <- get Ctxt
-         let gam = gamma defs
-         entries <- entriesFrom gam (integerToNat (cast (nextEntry gam))) 0 IntMap.empty
          ref <- newRef Ctxt defs
-         pure (MkFrozen defs entries ref (\_ => trusted))
+         pure (Element (MkFrozen defs read ref) Refl)
 
 ||| The operations of Idris's compiler whose termination a program over it
 ||| takes on trust, each named as this compiler names it.
 public export
 record Host where
   constructor MkHost
-
-  -- The context, frozen once it is complete.
-
-  ||| Every entry of the context, as `Core.Context.lookupCtxtExact` reads
-  ||| it, with the definitions record: called once, after the program and
-  ||| everything it imports are loaded, the context changed no more,
-  ||| keeping what a reader read from the live context before it
-  ||| (`keptAt`).
-  freezeContext : {auto c : Ref Ctxt Defs} -> Core Frozen
 
   -- The evaluator: Idris's theory is not strongly normalizing, so a
   -- normal form is trusted to exist; every caller first proves that each
@@ -2981,8 +2911,7 @@ record Host where
 export
 host : Host
 host = assert_total (MkHost
-  { freezeContext = frozenContext
-  , normalise = reduct normalise
+  { normalise = reduct normalise
   , normaliseTypes = reduct normaliseTypes
   , normaliseHoles = reduct normaliseHoles
   , normaliseAll = reduct normaliseAll

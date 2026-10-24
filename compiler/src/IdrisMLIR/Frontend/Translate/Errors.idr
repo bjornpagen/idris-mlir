@@ -39,9 +39,9 @@ isEmptyFC _ = False
 ------------------------------------------------------------------------------
 
 ||| What the frontend computes: Idris's own computation over what it reads
-||| of the program (`Read`: the context frozen once the program and
-||| everything it imports were loaded, which every normaliser reads, and
-||| the definitions read from it once), whose errors are Idris's, giving
+||| of the program (`Read`: the context frozen once the program was read,
+||| of the definitions the reading met, which every normaliser reads, and
+||| those definitions as read once), whose errors are Idris's, giving
 ||| either the value or the program's refusal. A refusal is a value of the
 ||| computation, never an error beside it: Idris's `Error` cannot carry
 ||| one, and the checker, which owns it, imports nothing of the frontend's.
@@ -83,8 +83,8 @@ export
 reading : Front Read
 reading = MkFront (\r => Core.pure (Right r))
 
-||| The context the normalisers read: frozen once, when the program and
-||| everything it imports were loaded, and never changed after.
+||| The context the normalisers read: frozen once, from the definitions the
+||| program's reading met, and never changed after.
 export
 frozenContext : Front Frozen
 frozenContext = (.frozen) <$> reading

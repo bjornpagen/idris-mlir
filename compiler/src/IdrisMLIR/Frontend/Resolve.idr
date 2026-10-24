@@ -327,8 +327,10 @@ foreignHooksAt r i specs =
     Nothing => Left (maybe NoEntry (\s => DeclaredElsewhere s.entry) (find (\s => declares s.entry specs) r.sites))
 
 ||| Every entry, at the definition it resolved to (`readRegistry`) in the
-||| frozen context, once per compilation, before anything uses the
-||| registry. An entry whose module the program does not load is not
+||| loaded context, once per compilation, before anything uses the
+||| registry. An entry's definition need not be one the program reaches, so
+||| it is read where Idris's lookup decodes it, and its names made full
+||| there, not in the frozen context, which holds what the reading met. An entry whose module the program does not load is not
 ||| checked; one whose definition is present must be what the entry
 ||| expects, its type in the normal form the reading reads every
 ||| definition's type in (`normaliseTypes`): there a type alias is the type
@@ -340,7 +342,7 @@ foreignHooksAt r i specs =
 ||| first entry that does not validate is refused where its definition is,
 ||| or, when the definition is missing, at `fallback`.
 export
-validate : Frozen -> RegistryRead -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
+validate : {auto c : Ref Ctxt Defs} -> Frozen -> RegistryRead -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
 validate frozen registry fallback = check registry.sites
   where
     wrong : FC -> QName -> String -> Refusal
@@ -361,8 +363,9 @@ validate frozen registry fallback = check registry.sites
       let q = s.named
       let Just i = s.at
         | Nothing => absent s (check ss)
-      let DefinedAs _ _ def _ = definitionIn frozen (Resolved i)
-        | NotDefined _ => absent s (check ss)
+      defs <- get Ctxt
+      Just def <- lookupCtxtExact (Resolved i) (gamma defs)
+        | Nothing => absent s (check ss)
       let declared = case (e.entry.key, definition def) of
                        (Foreign _, ForeignDef _ specs) => declares e specs
                        (Foreign _, _) => False
@@ -371,7 +374,8 @@ validate frozen registry fallback = check registry.sites
       -- the one the entry expects.
       let unlike : Shape -> Core (Maybe Shape)
           unlike shape = do
-            ty <- fullNamesIn frozen . (.value) <$> host.normaliseTypes frozen (!(readTypeOf def)).fst
+            normal <- (.value) <$> host.normaliseTypes frozen (!(readTypeOf def)).fst
+            ty <- toFullNames normal
             let found = shapeOf ty
             pure (if conforms shape found then Nothing else Just found)
       if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else

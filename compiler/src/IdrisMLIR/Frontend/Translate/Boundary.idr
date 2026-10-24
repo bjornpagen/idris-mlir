@@ -6,9 +6,9 @@
 ||| through the context's accessors, each part of it once, and kept by its
 ||| entry (`Defined`). Idris's termination check writes its verdicts into
 ||| the context, so every function among them whose verdict the checked
-||| module leaves unchecked is checked as it is read, and the context is
-||| frozen only then: nothing writes it after, and every normaliser reads
-||| it as frozen. Where a definition's values are members of a choice, and
+||| module leaves unchecked is checked as it is read; and the context is
+||| frozen from the reading itself (`Host.frozenFrom`): it holds the very
+||| definitions read, and every normaliser reads it as frozen. Where a definition's values are members of a choice, and
 ||| what it takes at each binder, are read off its type in normal form, once
 ||| the context is frozen; and what follows from the definitions alone is
 ||| found from them once: each type constructor's facts
@@ -26,14 +26,15 @@
 ||| Idris's size-change graphs keep, and the library functions the
 ||| registry's hooks of a definition name; and the pair Idris's `%pair`
 ||| names, which the translation builds itself. Each definition is read
-||| once, before the freeze, from the live context, with the evidence of
-||| what it read, which the frozen context keeps (`Host.keptAt`): once the
-||| context is frozen, each unknown met is told, by the entry its term
-||| gives it, as the solution the checker gave it or a hole (`Solution`),
-||| from what that reading decoded, the pair is read as its three
-||| definitions (`PairRead`), and `IO` as its type constructor's address,
-||| so no phase after looks any of them up by name, and nothing is decoded
-||| twice.
+||| once, from the live context, and decoded there, so a definition the
+||| entry cannot reach is never decoded; the frozen context is made of the
+||| definitions read, so what the reading holds at an entry is the frozen
+||| context's definition there (`Host.heldAt`, `IntMap.lookupMap`): once
+||| it is frozen, each unknown met is told, by the entry its term gives it,
+||| as the solution the checker gave it or a hole (`Solution`), from what
+||| that reading decoded, the pair is read as its three definitions
+||| (`PairRead`), and `IO` as its type constructor's address, so no phase
+||| after looks any of them up by name, and nothing is decoded twice.
 module IdrisMLIR.Frontend.Translate.Boundary
 
 import Core.Case.CaseTree
@@ -43,6 +44,7 @@ import Core.Env
 import Core.Options
 import Core.TT
 import Idris.Host
+import Libraries.Data.IntMap
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
@@ -196,8 +198,8 @@ librariesOf (BySpecs hs called) = map (.name) (libraries hs ++ either (const [])
 ||| What the reading decoded of a definition's body (`Matched`), tied to
 ||| the definition it read it from: of a pattern-matching definition, the
 ||| case tree its body decodes to, at quantity 0, which a reader after the
-||| freeze holds of the frozen context's definition (`Host.keptAt`), so it
-||| decodes the tree no more; of any other, nothing.
+||| freeze holds of the frozen context's definition, the same one
+||| (`Host.heldAt`), so it decodes the tree no more; of any other, nothing.
 data BodyRead : Def -> Maybe Matched -> Type where
   TreeRead : (0 _ : TreeOf body tree) -> BodyRead (PMDef info args body) (Just (MkMatched args tree pats only))
   NoTree : BodyRead defn Nothing
@@ -210,17 +212,15 @@ solvedRead (TreeRead treeOf) = (_ ** _ ** (Refl, treeOf))
 
 %prefix_record_projections off
 
-||| A definition as the reading has it before the context is frozen, at the
-||| entry `i` the live context gave it for (`Host.LiveEntry`), with the
-||| evidence, which the frozen context keeps: every part `Defined` keeps
-||| but where its values are members of a choice, which is read off its
-||| type in normal form once the context is frozen; and its body as it was
-||| decoded, tied to the definition (`BodyRead`).
-record Unfrozen (i : Int) where
+||| A definition as the reading has it before the context is frozen, as the
+||| live context gave it, which the frozen context is made of: every part
+||| `Defined` keeps but where its values are members of a choice, which is
+||| read off its type in normal form once the context is frozen; and its
+||| body as it was decoded, tied to the definition (`BodyRead`).
+record Unfrozen where
   constructor MkUnfrozen
   placement : Placement
   def : GlobalDef
-  0 live : LiveEntry i def
   type : ClosedTerm
   matched : Maybe Matched
   0 bodyRead : BodyRead (definition def) matched
@@ -230,12 +230,13 @@ record Unfrozen (i : Int) where
 %prefix_record_projections on
 
 ||| Every definition the reading before the freeze read, each by the entry
-||| it is at.
+||| it is at: the map the frozen context is made of, its definitions
+||| projected (`Host.frozenFrom`).
 FoundBefore : Type
-FoundBefore = SortedDMap Int Unfrozen
+FoundBefore = IntMap Unfrozen
 
 ||| Every name the translation may meet through a definition it meets.
-referred : Unfrozen i -> List Referent
+referred : Unfrozen -> List Referent
 referred d =
   references d.matched d.type
   ++ map ARef (constructors (definition d.def)
@@ -269,8 +270,8 @@ onlyClauseOf body = case clauseCount body of
 ||| since the check writes its verdicts into the context and the context is
 ||| frozen only after every definition is read. The verdict is held as
 ||| `Ends`, the one place every phase reads it, and the definition read
-||| stays as the live context gave it, which the frozen context keeps
-||| (`Host.keptAt`). A constructor ends: applying one runs nothing, and its
+||| stays as the live context gave it, which the frozen context is made of
+||| (`Host.frozenFrom`). A constructor ends: applying one runs nothing, and its
 ||| own verdict is its type's positivity, which no reduction asks.
 verdictOf : {auto c : Ref Ctxt Defs} -> Int -> GlobalDef -> Core Ends
 verdictOf i def = case definition def of
@@ -307,12 +308,12 @@ registeredOf registry i def = do
 ||| its clauses' patterns and its one clause; whether it ends
 ||| (`verdictOf`); and what the registry makes of it.
 readDefinition : {auto c : Ref Ctxt Defs} -> RegistryRead -> (i : Int) -> Placement -> (def : GlobalDef) ->
-                 (0 _ : LiveEntry i def) -> Core (Unfrozen i)
-readDefinition registry i p def live = do
+                 Core Unfrozen
+readDefinition registry i p def = do
   ends <- verdictOf i def
   ty <- (.fst) <$> readTypeOf def
   Element m decoded <- bodyOf (definition def)
-  pure (MkUnfrozen p def live ty m decoded ends !(registeredOf registry i def))
+  pure (MkUnfrozen p def ty m decoded ends !(registeredOf registry i def))
   where
     bodyOf : (defn : Def) -> Core (Subset (Maybe Matched) (BodyRead defn))
     bodyOf (PMDef _ args body) = do
@@ -668,9 +669,8 @@ record Met where
 %prefix_record_projections on
 
 ||| Every definition met from the references, after those read so far,
-||| each read once from the live context (`Host.readLive`), with the
-||| evidence the frozen context keeps, and kept by its entry, then what it
-||| refers to read in turn. A definition is entered into a walk when it is
+||| each read once from the live context, by Idris's lookup, which decodes
+||| it there, and kept by its entry, then what it refers to read in turn. A definition is entered into a walk when it is
 ||| read (`Walk`), and every one read leaves fewer to enter, which is why
 ||| the reading ends; a name the context defines as nothing, a probe's or a
 ||| binder's, is no definition to read. A type constructor's constructor
@@ -685,7 +685,8 @@ readFrom : {auto c : Ref Ctxt Defs} -> RegistryRead -> (w : Walked) -> (0 _ : Si
 readFrom registry w acc met [] = pure met
 readFrom registry w acc@(Access rec) met (r :: rs) = do
   let met' = noted r
-  Just (LiveAt i def live) <- readLive (referentName r)
+  defs <- get Ctxt
+  Just (i, def) <- lookupCtxtExactI (referentName r) (gamma defs)
     | Nothing => readFrom registry w acc met' rs
   -- A negative entry is no place, which Idris's bare `Int` allows.
   let Just p = placementOf i
@@ -694,8 +695,8 @@ readFrom registry w acc@(Access rec) met (r :: rs) = do
     -- Read already.
     Nothing => readFrom registry w acc met' rs
     Just (Element w' less) => do
-      d <- readDefinition registry i p def live
-      readFrom registry w' (rec w' less) ({ found $= Data.SortedMap.Dependent.insert i d } met') (referred d ++ rs)
+      d <- readDefinition registry i p def
+      readFrom registry w' (rec w' less) ({ found $= IntMap.insert i d } met') (referred d ++ rs)
   where
     noted : Referent -> Met
     noted (AMeta shownAs j) = { metavariables $= insert j shownAs } met
@@ -724,7 +725,7 @@ shownBinders _ = Z
 ||| no function's (a constructor's, a type's, a builtin's), which no hook
 ||| lowers. A `%foreign` definition the registry gives no hooks is refused
 ||| where it is called.
-loweredOf : Unfrozen i -> ClosedTerm -> Either String (Maybe (Lowered (const LibraryFunction)))
+loweredOf : Unfrozen -> ClosedTerm -> Either String (Maybe (Lowered (const LibraryFunction)))
 loweredOf u normal = case callHooks u.registered of
   Left _ => Right Nothing
   Right hs => case (u.matched, definition u.def) of
@@ -738,10 +739,10 @@ loweredOf u normal = case callHooks u.registered of
 
 ||| A definition read before the freeze, by its name, as `found` holds it,
 ||| with its entry: nothing for a name no read definition has.
-foundAs : {auto c : Ref Ctxt Defs} -> FoundBefore -> Name -> Core (Maybe (i : Int ** Unfrozen i))
+foundAs : {auto c : Ref Ctxt Defs} -> FoundBefore -> Name -> Core (Maybe Unfrozen)
 foundAs found n = do
   defs <- get Ctxt
-  pure ((\(i, _) => Data.SortedMap.Dependent.lookup i found) =<< !(lookupCtxtExactI n (gamma defs)))
+  pure ((\(i, _) => IntMap.lookup i found) =<< !(lookupCtxtExactI n (gamma defs)))
 
 ||| A library function a row names (a natural's test, its operation on
 ||| integers), read against its definition: every binder its type in
@@ -756,7 +757,7 @@ foundAs found n = do
 checkedLibrary : {auto c : Ref Ctxt Defs} -> Frozen -> FoundBefore -> (count : Nat) -> LibraryFunction ->
                  Core (Either String (CheckedLibrary count))
 checkedLibrary fz found count lib = do
-  Just (_ ** u) <- foundAs found lib.name
+  Just u <- foundAs found lib.name
     | Nothing => pure (Left notDefinition)
   -- Its calls are translated through its clauses, as a definition's are.
   let Just _ = u.matched
@@ -847,15 +848,15 @@ worldAction _ = Nothing
 ||| reads a call of either inside an exit (`Terms.exitCast`)?
 believeMeIn : {auto c : Ref Ctxt Defs} -> FoundBefore -> Name -> Core Bool
 believeMeIn found n = do
-  Just (_ ** u) <- foundAs found n
+  Just u <- foundAs found n
     | Nothing => pure False
   if primitive u then pure True else case u.matched of
     Just m => case getFn <$> leafOf m of
-      Just (Ref _ _ p) => maybe False (\(_ ** v) => primitive v) <$> foundAs found p
+      Just (Ref _ _ p) => maybe False primitive <$> foundAs found p
       _ => pure False
     Nothing => pure False
   where
-    primitive : Unfrozen j -> Bool
+    primitive : Unfrozen -> Bool
     primitive u = case definition u.def of
       Builtin BelieveMe => True
       _ => False
@@ -867,7 +868,7 @@ believeMeIn found n = do
 ||| definition that is no exit, or an exit with no `believe_me`. An exit
 ||| whose `believe_me` takes or gives anything else is not the definition
 ||| the registry's hook names, and is refused here, once.
-exitTypesOf : {auto c : Ref Ctxt Defs} -> Frozen -> FoundBefore -> Unfrozen i -> Core (Either String (Maybe ExitTypes))
+exitTypesOf : {auto c : Ref Ctxt Defs} -> Frozen -> FoundBefore -> Unfrozen -> Core (Either String (Maybe ExitTypes))
 exitTypesOf fz found u = case ((namedHooks u.registered).exits, u.matched) of
   (True, Just m) => do
     found' <- casts (concatMap appsIn (leavesOf m.tree))
@@ -954,20 +955,32 @@ constructed fallback fz ds = each empty (SortedMap.toList ds)
         | Left refusal => pure (Left refusal)
       each (insert i (withNature cons d) done) rest
 
+||| What the reading before the freeze read at an entry, with the evidence
+||| that its map holds it there.
+foundAt : (i : Int) -> (found : FoundBefore) -> Maybe (Subset Unfrozen (\u => IntMap.lookup i found = Just u))
+foundAt i found = held (IntMap.lookup i found) Refl
+  where
+    held : (m : Maybe Unfrozen) -> (0 _ : IntMap.lookup i found = m) -> Maybe (Subset Unfrozen (\u => IntMap.lookup i found = Just u))
+    held Nothing _ = Nothing
+    held (Just u) at = Just (Element u at)
+
 ||| The solution of the metavariable at entry `i` (`Solution`), which its
 ||| term gives it and Host's `Solve` unfolds, told from what the reading
-||| before the freeze read at that entry (`found`), which the frozen
-||| context keeps (`Host.keptAt`), so the entry is neither looked up nor
-||| decoded again: the definition there, of no arguments and one leaf, at
+||| before the freeze read at that entry (`found`), which the frozen context
+||| is made of (`frozenAt`), so the entry is neither looked up in the
+||| context nor decoded again: the definition there, of no arguments and
+||| one leaf, at
 ||| the entry's placement, or a hole. A metavariable at no entry, or at one
 ||| of any other definition, is the compiled module's error, refused here
 ||| at `fallback` by the name its term shows it by, as the boundary refuses
 ||| other checked input it cannot read; the checker writes a solution in no
 ||| other shape, so no program reaches it.
-solutionAt : (fz : Frozen) -> NonEmptyFC -> FoundBefore -> (i : Int) -> (shownAs : Name) -> Either Refusal (Solution fz i)
-solutionAt fz fallback found i shownAs = case lookupPrecise i found of
+solutionAt : (fz : Frozen) -> (found : FoundBefore) -> (0 _ : entriesOf fz = map (.def) found) -> NonEmptyFC ->
+             (i : Int) -> (shownAs : Name) -> Either Refusal (Solution fz i)
+solutionAt fz found frozenAt fallback i shownAs = case foundAt i found of
   Nothing => Left (refused "a metavariable at no entry")
-  Just u => shaped u
+  Just (Element u atEntry) =>
+    shaped u (heldAt (trans (cong (IntMap.lookup i) frozenAt) (trans (lookupMap (.def) i found) (cong (map (.def)) atEntry))))
   where
     refused : String -> Refusal
     refused what = MkRefusal (Refusal CompiledModule) fallback (show shownAs ++ ": " ++ what)
@@ -989,27 +1002,30 @@ solutionAt fz fallback found i shownAs = case lookupPrecise i found of
                (0 _ : defn = Hole locals flags) -> Solution fz i
     unsolved kept shape = Unsolved {d = kept.fst} (fst kept.snd) (trans (snd kept.snd) shape)
 
-    shaped : Unfrozen i -> Either Refusal (Solution fz i)
-    shaped u with (u.matched) proof matched
-      shaped u | Just (MkMatched [] (STerm leaf tm) pats only) =
-        Right (solved tm (keptAt fz u.live) (solvedRead (replace {p = BodyRead (definition u.def)} matched u.bodyRead)))
-      shaped u | Just (MkMatched [] _ _ _) = Left (refused "a metavariable whose solution matches")
-      shaped u | Just (MkMatched (_ :: _) _ _ _) =
+    -- The definition the reading read at the entry, which the frozen
+    -- context defines the entry's name as.
+    shaped : (u : Unfrozen) -> (0 _ : Defines fz (Resolved i) u.def) -> Either Refusal (Solution fz i)
+    shaped u defines with (u.matched) proof matched
+      shaped u defines | Just (MkMatched [] (STerm leaf tm) pats only) =
+        Right (solved tm (u.def ** (defines, Refl)) (solvedRead (replace {p = BodyRead (definition u.def)} matched u.bodyRead)))
+      shaped u defines | Just (MkMatched [] _ _ _) = Left (refused "a metavariable whose solution matches")
+      shaped u defines | Just (MkMatched (_ :: _) _ _ _) =
         Left (refused "a metavariable whose definition is neither a solution nor a hole")
-      shaped u | Nothing with (definition u.def) proof held
-        shaped u | Nothing | Hole locals flags = Right (unsolved (keptAt fz u.live) held)
-        shaped u | Nothing | _ = Left (refused "a metavariable whose definition is neither a solution nor a hole")
+      shaped u defines | Nothing with (definition u.def) proof held
+        shaped u defines | Nothing | Hole locals flags = Right (unsolved (u.def ** (defines, Refl)) held)
+        shaped u defines | Nothing | _ = Left (refused "a metavariable whose definition is neither a solution nor a hole")
 
 ||| The solution of every metavariable a term read names, by its entry
 ||| (`solutionAt`): the table every walk that meets a metavariable reads
 ||| (`State.solutionIn`). The first refusal stops it.
-solutionsOf : (fz : Frozen) -> NonEmptyFC -> FoundBefore -> List (Int, Name) -> Either Refusal (Solutions fz)
-solutionsOf fz fallback found = go noSolutions
+solutionsOf : (fz : Frozen) -> (found : FoundBefore) -> (0 _ : entriesOf fz = map (.def) found) -> NonEmptyFC ->
+              List (Int, Name) -> Either Refusal (Solutions fz)
+solutionsOf fz found frozenAt fallback = go noSolutions
   where
     go : Solutions fz -> List (Int, Name) -> Either Refusal (Solutions fz)
     go done [] = Right done
     go done ((i, shownAs) :: rest) = do
-      s <- solutionAt fz fallback found i shownAs
+      s <- solutionAt fz found frozenAt fallback i shownAs
       go (withSolution i s done) rest
 
 %prefix_record_projections off
@@ -1094,16 +1110,17 @@ natPlusName = NS typesNS (knownUN Kplus)
 ||| definition it can meet from the entry and from the pair `%pair` names,
 ||| read from the loaded context, every verdict the reading writes in it
 ||| and every registry name the validation resolves interned before it is
-||| frozen; then the context frozen, the registry's entries validated
-||| against it, the pair's names resolved once, and each definition's
+||| frozen; then the context frozen from the definitions read, the
+||| registry's entries validated against the loaded context
+||| (`Resolve.validate`), the pair's names resolved once, and each definition's
 ||| values that are members of a choice, its binders with what it takes at
 ||| each and their types, and the hook that lowers its calls read off its
 ||| type in normal form; the entry's name resolved once, and `IO`'s, whose
 ||| type constructor's address is how `IO` is known after, and base's
-||| `plus` on `Nat`'s, where the program loads it; the solution of
+||| `plus` on `Nat`'s, where the reading met it; the solution of
 ||| every metavariable a term read names, by its entry, told from what the
-||| reading before the freeze decoded there, which the frozen context
-||| keeps (`Host.keptAt`); each type
+||| reading before the freeze decoded there, which the frozen context is
+||| made of (`Host.frozenFrom`); each type
 ||| constructor's constructors read, once, before the entry and the pair
 ||| are read from the definitions at their entries, so each holds what its
 ||| definition's one reading found; and what follows from the definitions
@@ -1125,10 +1142,10 @@ readProgram ifs entry fallback = do
   -- still be written, so a definition read finds what the registry says
   -- of it by the entry it is at.
   registry <- readRegistry
-  met <- readFrom registry start (sizeAccessible start) (MkMet Data.SortedMap.Dependent.empty empty) (ARef entry :: pair)
-  -- The context changes no more: frozen here, every normaliser reads it as
-  -- frozen.
-  fz <- host.freezeContext
+  met <- readFrom registry start (sizeAccessible start) (MkMet IntMap.empty SortedMap.empty) (ARef entry :: pair)
+  -- Frozen here, from the definitions read: every normaliser reads it as
+  -- frozen, and what the reading holds at an entry is its definition there.
+  Element fz frozenAt <- frozenFrom (map (.def) met.found)
   Nothing <- validate fz registry fallback
     | Just refusal => pure (Left refusal)
   -- The pair's names resolved once, before any definition is read off its
@@ -1136,7 +1153,7 @@ readProgram ifs entry fallback = do
   let Right placed = pairPlacedIn fz fallback
     | Left refusal => pure (Left refusal)
   Right definitions <- frozenAll fz (map (\pp => pp.pairPart.address) placed) met.found empty
-                                 (Data.SortedMap.Dependent.toList met.found)
+                                 (IntMap.toList met.found)
     | Left refusal => pure (Left refusal)
   -- The entry was met first, by its name: the entry the frozen context
   -- resolves that name to, found once here, at which its definition is
@@ -1156,16 +1173,17 @@ readProgram ifs entry fallback = do
                                             (programEntry ++ ": main must be an IO action, and the program defines no IO")))
   let ioAddress = definedAddress ioEntry ioResolved ioDefines
   -- Base's `plus` on `Nat`, found once here as `IO` is, and known from
-  -- here on by its address alone; a program that loads no `Prelude.Types`
-  -- has none, and no index term of it is a sum.
+  -- here on by its address alone; a program whose reading meets no `plus`
+  -- has none, and no index term it reads is a sum: every name a normal form
+  -- of what was read holds is one the reading met.
   let natPlus = case definitionIn fz natPlusName of
                   DefinedAs plusEntry plusResolved _ plusDefines => Just (definedAddress plusEntry plusResolved plusDefines)
                   NotDefined _ => Nothing
   -- Each metavariable met told by its entry from what the reading before
-  -- the freeze decoded there, which the frozen context keeps, so no phase
+  -- the freeze decoded there, which the frozen context is made of, so no phase
   -- after looks one up by name and no entry is decoded twice, with the
   -- evidence the evaluator's own step states.
-  let Right solutions = solutionsOf fz fallback met.found (SortedMap.toList met.metavariables)
+  let Right solutions = solutionsOf fz met.found frozenAt fallback (SortedMap.toList met.metavariables)
     | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before
@@ -1195,7 +1213,7 @@ readProgram ifs entry fallback = do
     -- definitions (`checkedRow`), and, for an exit, what Idris's types say
     -- of its `believe_me` (`exitTypesOf`); or the refusal of the registry's
     -- row the definitions contradict.
-    frozenAs : Frozen -> Maybe Address -> FoundBefore -> Unfrozen i -> Core (Either Refusal (DefinitionRead ()))
+    frozenAs : Frozen -> Maybe Address -> FoundBefore -> Unfrozen -> Core (Either Refusal (DefinitionRead ()))
     frozenAs fz pt found u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
       let refused = \msg => MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
@@ -1215,9 +1233,9 @@ readProgram ifs entry fallback = do
     -- pair of implementations by the pair type's address; the first
     -- refusal stops the reading.
     frozenAll : Frozen -> Maybe Address -> FoundBefore -> SortedMap Int (DefinitionRead ()) ->
-                List (i : Int ** Unfrozen i) -> Core (Either Refusal (SortedMap Int (DefinitionRead ())))
+                List (Int, Unfrozen) -> Core (Either Refusal (SortedMap Int (DefinitionRead ())))
     frozenAll fz pt found done [] = pure (Right done)
-    frozenAll fz pt found done ((i ** u) :: rest) = do
+    frozenAll fz pt found done ((i, u) :: rest) = do
       Right d <- frozenAs fz pt found u
         | Left refusal => pure (Left refusal)
       frozenAll fz pt found (insert i d done) rest

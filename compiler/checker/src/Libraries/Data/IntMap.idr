@@ -275,6 +275,27 @@ implementation Functor IntMap where
   map _ Empty = Empty
   map f (M n t) = M _ (treeMap f t)
 
+-- A tree mapped keeps its keys where they were, so a lookup takes the same
+-- path through it and finds the value mapped.
+0 treeLookupMap : (f : a -> b) -> (k : Key) -> (t : Tree n a) -> treeLookup k (treeMap f t) = map f (treeLookup k t)
+treeLookupMap f k (Leaf k' v) with (k == k')
+  _ | True = Refl
+  _ | False = Refl
+treeLookupMap f k (Branch2 t1 k' t2) with (k <= k')
+  _ | True = treeLookupMap f k t1
+  _ | False = treeLookupMap f k t2
+treeLookupMap f k (Branch3 t1 k1 t2 k2 t3) with (k <= k1)
+  _ | True = treeLookupMap f k t1
+  _ | False with (k <= k2)
+    _ | True = treeLookupMap f k t2
+    _ | False = treeLookupMap f k t3
+
+||| A map's values mapped hold, at each key, the value there mapped.
+export
+0 lookupMap : (f : a -> b) -> (k : Int) -> (m : IntMap a) -> lookup k (map f m) = map f (lookup k m)
+lookupMap f k Empty = Refl
+lookupMap f k (M n t) = treeLookupMap f k t
+
 ||| Merge two maps. When encountering duplicate keys, using a function to combine the values.
 ||| Uses the ordering of the first map given.
 export
