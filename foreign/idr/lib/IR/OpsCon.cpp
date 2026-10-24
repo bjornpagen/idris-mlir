@@ -45,8 +45,9 @@ Structure DataConOp::getStructure() { return structural::Built{getTag(), getFiel
 
 // The cell is new, so nothing but its fields shares what the value
 // reaches: the most a fresh value built of those fields may claim, each
-// field bounding it as the local rule says (freshest, from the grade's read
-// table), a field that holds no reference bounding nothing.
+// field bounding it as the local rule says (freshest, the grade's table of
+// it), a field that holds no reference bounding nothing: the
+// specification's freshClaim, by which the frontend writes the claim too.
 Unique DataConOp::freshClaim(DataType carrier, TypeRange fields) {
   Unique claim = Unique::Deep;
   for (auto [declared, field] : llvm::zip_equal(carrier.ctor(*carrier.singleTag()).fields, fields)) {

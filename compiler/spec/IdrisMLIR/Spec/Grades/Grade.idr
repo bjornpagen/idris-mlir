@@ -266,6 +266,120 @@ readFits reach uses (Counted u) = CountedForgets (readClaimsNoMore reach uses u)
 readFits reach uses (Scoped u) = ScopedForgets (readClaimsNoMore reach uses u)
 readFits _ _ Static = StaticStays
 
+||| The lesser of two claims: what both allow.
+public export
+lesser : Unique -> Unique -> Unique
+lesser None _ = None
+lesser Self None = None
+lesser Self Self = Self
+lesser Self Deep = Self
+lesser Deep v = v
+
+||| Each claims what the lesser does.
+export
+lesserClaimedByLeft : (a, b : Unique) -> Claims a (lesser a b)
+lesserClaimedByLeft None _ = ClaimsNothing
+lesserClaimedByLeft Self None = ClaimsNothing
+lesserClaimedByLeft Self Self = ClaimsSelf
+lesserClaimedByLeft Self Deep = ClaimsSelf
+lesserClaimedByLeft Deep None = ClaimsNothing
+lesserClaimedByLeft Deep Self = DeepClaimsSelf
+lesserClaimedByLeft Deep Deep = ClaimsDeep
+
+export
+lesserClaimedByRight : (a, b : Unique) -> Claims b (lesser a b)
+lesserClaimedByRight None _ = ClaimsNothing
+lesserClaimedByRight Self None = ClaimsNothing
+lesserClaimedByRight Self Self = ClaimsSelf
+lesserClaimedByRight Self Deep = DeepClaimsSelf
+lesserClaimedByRight Deep v = claimsReflexive v
+
+||| And it is the most both claim.
+export
+lesserGreatest : Claims a u -> Claims b u -> Claims (lesser a b) u
+lesserGreatest ClaimsNothing _ = ClaimsNothing
+lesserGreatest ClaimsSelf ClaimsSelf = ClaimsSelf
+lesserGreatest ClaimsSelf DeepClaimsSelf = ClaimsSelf
+lesserGreatest DeepClaimsSelf ClaimsSelf = ClaimsSelf
+lesserGreatest DeepClaimsSelf DeepClaimsSelf = DeepClaimsSelf
+lesserGreatest ClaimsDeep ClaimsDeep = ClaimsDeep
+
+||| The most a fresh value may claim, built of a part its claim on its own
+||| cells reaches as `reach`, the part claiming `given`: the greatest claim
+||| whose read of the part at one use, the read that gives most, gives no
+||| more than the part holds (`freshestReads`, `freshestGreatest`). A part
+||| outside the value's own cells bounds only a deep claim, so a value built
+||| of a shared one still claims its own cells; a part its own cells reach
+||| bounds it to what the part claims.
+public export
+freshest : FieldReach -> Unique -> Unique
+freshest _ Deep = Deep
+freshest Other _ = Self
+freshest OwnFamily u = u
+freshest InPlaceFamily u = u
+freshest HeldBuffer u = u
+
+||| A fresh value at that claim reads out of the part no more than the part
+||| holds. Split on every argument, so each case reduces whatever order the
+||| definitions split in.
+export
+freshestReads : (reach : FieldReach) -> (given : Unique) ->
+                Claims given (readUnique reach Once (freshest reach given))
+freshestReads OwnFamily None = ClaimsNothing
+freshestReads OwnFamily Self = ClaimsSelf
+freshestReads OwnFamily Deep = ClaimsDeep
+freshestReads InPlaceFamily None = ClaimsNothing
+freshestReads InPlaceFamily Self = ClaimsSelf
+freshestReads InPlaceFamily Deep = ClaimsDeep
+freshestReads HeldBuffer None = ClaimsNothing
+freshestReads HeldBuffer Self = ClaimsSelf
+freshestReads HeldBuffer Deep = ClaimsDeep
+freshestReads Other None = ClaimsNothing
+freshestReads Other Self = ClaimsNothing
+freshestReads Other Deep = ClaimsDeep
+
+||| And no greater claim does: any claim whose read the part holds is one
+||| the fresh value's claim covers.
+export
+freshestGreatest : (reach : FieldReach) -> (given, u : Unique) ->
+                   Claims given (readUnique reach Once u) -> Claims (freshest reach given) u
+freshestGreatest _ _ None _ = ClaimsNothing
+freshestGreatest OwnFamily None Self ClaimsNothing impossible
+freshestGreatest OwnFamily Self Self _ = ClaimsSelf
+freshestGreatest OwnFamily Deep Self _ = DeepClaimsSelf
+freshestGreatest InPlaceFamily None Self ClaimsNothing impossible
+freshestGreatest InPlaceFamily Self Self _ = ClaimsSelf
+freshestGreatest InPlaceFamily Deep Self _ = DeepClaimsSelf
+freshestGreatest HeldBuffer None Self ClaimsNothing impossible
+freshestGreatest HeldBuffer Self Self _ = ClaimsSelf
+freshestGreatest HeldBuffer Deep Self _ = DeepClaimsSelf
+freshestGreatest Other None Self _ = ClaimsSelf
+freshestGreatest Other Self Self _ = ClaimsSelf
+freshestGreatest Other Deep Self _ = DeepClaimsSelf
+freshestGreatest OwnFamily None Deep ClaimsNothing impossible
+freshestGreatest OwnFamily Self Deep ClaimsNothing impossible
+freshestGreatest OwnFamily Deep Deep _ = ClaimsDeep
+freshestGreatest InPlaceFamily None Deep ClaimsNothing impossible
+freshestGreatest InPlaceFamily Self Deep ClaimsNothing impossible
+freshestGreatest InPlaceFamily Deep Deep _ = ClaimsDeep
+freshestGreatest HeldBuffer None Deep ClaimsNothing impossible
+freshestGreatest HeldBuffer Self Deep ClaimsNothing impossible
+freshestGreatest HeldBuffer Deep Deep _ = ClaimsDeep
+freshestGreatest Other None Deep ClaimsNothing impossible
+freshestGreatest Other Self Deep ClaimsNothing impossible
+freshestGreatest Other Deep Deep _ = ClaimsDeep
+
+||| What a fresh value may claim, built of its parts, each reached by its
+||| claim on its own cells as its declaration says and claiming what it
+||| holds (everything, where it holds no reference, so it bounds nothing):
+||| the least any of them bounds it to (`freshest`). A constructor's claim
+||| on the cell it makes, which the dialect folds over the table of
+||| `freshest` and the frontend writes on the value it builds.
+public export
+freshClaim : List (FieldReach, Unique) -> Unique
+freshClaim [] = Deep
+freshClaim ((reach, given) :: parts) = lesser (freshest reach given) (freshClaim parts)
+
 ||| What exclusivity writes once it proves a value's sharing: the claim set
 ||| to `v` where something frees the value; static data has no sharing
 ||| level, and is left as it is.

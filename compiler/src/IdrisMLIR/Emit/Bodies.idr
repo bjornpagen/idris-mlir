@@ -391,27 +391,25 @@ fieldBinders d u c = map (\b => MkBinder (times u b.quantity) b.type) (fieldsAt 
 ||| the value's uses times the field's, so a value used once is read once
 ||| per field; a field it never names is never read, and the world is no
 ||| value of the module. `named i` says whether the alternative names field
-||| `i`.
-caseFields : Index -> Loc -> Val -> (named : Nat -> Bool) -> Vect k Binder -> E (Vect k InScope)
-caseFields ix l r named bs = fieldsFrom 0 bs
+||| `i`; `reaches` how far `r`'s claim reaches into each (`fieldReaches`).
+caseFields : Index -> Loc -> Val -> (named : Nat -> Bool) -> Vect k Binder -> Vect k FieldReach -> E (Vect k InScope)
+caseFields ix l r named bs reaches = fieldsFrom 0 bs reaches
   where
-    -- A field at a linear position of a value nothing else reaches is
-    -- reached by nothing else either; any other field's sharing is unknown.
-    fieldHold : Binder -> Hold
-    fieldHold (MkBinder Once _) = case r.hold of
-      Hold.Counted Deep => Hold.Counted Deep
-      _ => made
-    fieldHold (MkBinder Many _) = made
-    read : Nat -> Binder -> E InScope
-    read i (MkBinder _ WorldT) = pure World
+    -- A field holds what the value it is read from holds, claiming what
+    -- the value's claim reaches into it at the uses the read gives it: the
+    -- grade's read, which the read's own inference gives.
+    fieldHold : Binder -> FieldReach -> Hold
+    fieldHold b reach = readHold reach b.quantity r.hold
+    read : Nat -> Binder -> FieldReach -> E InScope
+    read i (MkBinder _ WorldT) _ = pure World
     -- An array field is held as its buffer; its value is the tensor of it,
     -- restricted, so the buffer is no one else's while the tensor lives,
     -- and never written in place here: what may write it is decided once
     -- exclusivity is. The buffer enters the tensor at its bare grade, as
     -- upstream's op takes it, and the tensor is used as the field is.
-    read i b@(MkBinder q t@(TensorT _ _)) = do
+    read i b@(MkBinder q t@(TensorT _ _)) reach = do
       let carrier = fieldType ix t
-          graded = case (q, fieldHold b) of
+          graded = case (q, fieldHold b reach) of
                      (Many, Hold.Counted None) => carrier
                      (u, h) => Idr (GradedType u (Just h) carrier)
       buf <- mlirValue l graded (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
@@ -420,17 +418,17 @@ caseFields ix l r named bs = fieldsFrom 0 bs
                 Once => mlirValue l carrier (Idr.linCastOp buf [])
       v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} bare)
       Whole <$> coerce ix l q (val v.name t Many made)
-    read i b = do
-      v <- mlirValue l (gradedType ix b.quantity (fieldHold b) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
-      pure (Whole (val v.name b.type b.quantity (fieldHold b)))
+    read i b reach = do
+      v <- mlirValue l (gradedType ix b.quantity (fieldHold b reach) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
+      pure (Whole (val v.name b.type b.quantity (fieldHold b reach)))
     -- A field no name of the alternative reads: never looked at.
-    field : Nat -> Binder -> E InScope
-    field i b = if named i then read i b else pure World
+    field : Nat -> Binder -> FieldReach -> E InScope
+    field i b reach = if named i then read i b reach else pure World
     -- The fields from position `i` on, each numbered as it is reached, so
     -- the count of them is never needed at run time.
-    fieldsFrom : Nat -> Vect j Binder -> E (Vect j InScope)
-    fieldsFrom i [] = pure []
-    fieldsFrom i (b :: rest) = (::) <$> field i b <*> fieldsFrom (S i) rest
+    fieldsFrom : Nat -> Vect j Binder -> Vect j FieldReach -> E (Vect j InScope)
+    fieldsFrom i [] [] = pure []
+    fieldsFrom i (b :: rest) (reach :: further) = (::) <$> field i b reach <*> fieldsFrom (S i) rest further
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -676,7 +674,7 @@ alg ix (CaseF l f x arms) sc w = do
       let bs = fieldBinders d scrut.uses c
           inner = refining x r (binding (map (.sort) c.binders) sc)
       (res, ops) <- collect $ do
-        vals <- caseFields ix l r (\i => names i 1 body.term) bs
+        vals <- caseFields ix l r (\i => names i 1 body.term) bs (fieldReaches ix c)
         plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
       pure (MkCase c.tag (MkArm [arg] res ops))
     -- The default binds the scrutinee refined to the constructors of its

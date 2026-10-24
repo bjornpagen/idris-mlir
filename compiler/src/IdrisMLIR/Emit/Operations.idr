@@ -413,15 +413,27 @@ prim binder stands ix l (ArrayLength _) [a] = do
 -- Constructors
 ------------------------------------------------------------------------------
 
-||| The values a constructor's fields take: each at its field's quantity,
-||| an array as its buffer (`bufferization.to_buffer`), since a cell holds
-||| no tensor; none for the world, which is no value of the module.
-fieldOperands : Index -> Loc -> Vect k Binder -> Vect k Val -> E (List Value)
-fieldOperands ix l [] [] = pure []
-fieldOperands ix l (MkBinder _ WorldT :: fs) (_ :: vs) = fieldOperands ix l fs vs
-fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l fs vs
+||| What a constructor's fields give it: the value each takes, and, for the
+||| value it builds, how far its claim reaches into each and what each
+||| claims.
+record Given where
+  constructor MkGiven
+  operands : List Value
+  parts : List (FieldReach, Unique)
+
+||| What a constructor's fields give it (`Given`): each value at its field's
+||| quantity, an array as its buffer (`bufferization.to_buffer`), since a
+||| cell holds no tensor; none for the world, which is no value of the
+||| module.
+fieldOperands : Index -> Loc -> Vect k Binder -> Vect k FieldReach -> Vect k Val -> E Given
+fieldOperands ix l [] [] [] = pure (MkGiven [] [])
+fieldOperands ix l (MkBinder _ WorldT :: fs) (_ :: rs) (_ :: vs) = fieldOperands ix l fs rs vs
+fieldOperands ix l (f :: fs) (r :: rs) (v :: vs) = do
+  (o, given) <- held f
+  rest <- fieldOperands ix l fs rs vs
+  pure (MkGiven (o :: rest.operands) ((r, given) :: rest.parts))
   where
-    held : Binder -> E Value
+    held : Binder -> E (Value, Unique)
     -- An array's buffer, at the bare grade upstream's op gives it, fills
     -- its field at any quantity, as any value fills a binder of quantity
     -- 1. Nothing takes it over here: the buffer behind the tensor may be
@@ -430,21 +442,31 @@ fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l 
     -- the grades.
     held (MkBinder _ (TensorT ds e)) = do
       t <- operand ix <$> coerce ix l Many v
-      mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
-    held b = operand ix <$> coerce ix l b.quantity v
+      buffer <- mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
+      pure (buffer, claim made)
+    -- Essential, two kinds of value: one that holds references claims what
+    -- its hold does; one that holds none has no hold, and nothing it
+    -- reaches is shared.
+    held b = do
+      o <- operand ix <$> coerce ix l b.quantity v
+      pure $ case reaches ix b.type of
+        HoldsReferences => (o, claim v.hold)
+        WordsOnly => (o, Deep)
 
 ||| A constructor application (`idr.data.con`), built with every field: its value
 ||| is of the family at the index terms its equation gives with its binders
 ||| substituted, refined to its constructor, which is how the op knows its
-||| tag. The variable `binder` is bound to it.
+||| tag, and claims what a fresh value of its fields may (`freshClaim`), as
+||| the dialect's builder gives it. The variable `binder` is bound to it.
 export
 con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List ITerm -> Vect k Val -> E Val
 con ix l c bs vs = do
-  os <- fieldOperands ix l c.fields vs
+  given <- fieldOperands ix l c.fields (fieldReaches ix c) vs
   let t = conType c bs
       refined = OneOf (c.tag ::: [])
-  r <- mlirValueAt (madeAt binder l Many) (valueTypeOf ix t Many (Hold.Counted Deep) refined) (Idr.dataConOp os [])
-  pure (MkVal r.name t Many (Hold.Counted Deep) refined)
+      built = Hold.Counted (freshClaim given.parts)
+  r <- mlirValueAt (madeAt binder l Many) (valueTypeOf ix t Many built refined) (Idr.dataConOp given.operands [])
+  pure (MkVal r.name t Many built refined)
 
 ------------------------------------------------------------------------------
 -- Effects

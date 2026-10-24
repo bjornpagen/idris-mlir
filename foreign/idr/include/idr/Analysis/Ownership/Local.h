@@ -50,14 +50,12 @@ constexpr Unique greater(Unique a, Unique b) { return covers(a, b) ? a : b; }
 
 // The most a fresh value may claim, built of a part reached as `reach` that
 // claims `given`: the greatest claim whose read of the part at one use, the
-// read that gives most (the grade's table), gives no more than the part
-// holds. A part outside the value's own cells bounds only a deep claim.
+// read that gives most, gives no more than the part holds. A part outside
+// the value's own cells bounds only a deep claim. Read from the
+// specification's table of it (freshestClaims), by whose rule the frontend
+// writes a constructor's claim too.
 constexpr Unique freshest(FieldReach reach, Unique given) {
-  if (covers(given, readClaim(reach, Uses::Once, Unique::Deep)))
-    return Unique::Deep;
-  if (covers(given, readClaim(reach, Uses::Once, Unique::Self)))
-    return Unique::Self;
-  return Unique::None;
+  return freshestClaims[static_cast<unsigned>(reach)][static_cast<unsigned>(given)];
 }
 
 // How a value is given what its source holds, as an edge into it says.

@@ -32,7 +32,8 @@ public export
 data Reaches = HoldsReferences | WordsOnly
 
 ||| A family as the module declares it: its group's attribute, its place
-||| in the group, and whether its values hold references.
+||| in the group, whether its values hold references, and its group's
+||| members by their places, which a field of it refers to as `self`.
 public export
 record FamilyEntry where
   constructor MkFamilyEntry
@@ -40,6 +41,7 @@ record FamilyEntry where
   group : MlirAttr
   member : Nat
   reaches : Reaches
+  kin : SortedMap FamilyId Nat
 
 public export
 record Index where
@@ -309,6 +311,38 @@ export
 fieldType : Index -> Ty -> MlirType
 fieldType ix = fieldTypeIn (MkAmong ix.families empty)
 
+||| How far a value's claim on its own cells reaches into a field of a
+||| family its library promises so of: an `in_place` family's own cells are
+||| the value's; any other family's are not.
+promisedReach : Promise -> FieldReach
+promisedReach Group.None = Other
+promisedReach Group.InPlace = InPlaceFamily
+
+||| How far a value's claim on its own cells reaches into a field of type
+||| `t`, which the dialect reads off the type `fieldTypeIn` declares it at
+||| (`FieldReach`): a member of the group being declared, `self`, is its own
+||| family; a family of an earlier group is as far as its library promises
+||| (`promisedReach`); an array is a buffer, held as one or as the buffer of
+||| its value, whose storage is the value's; any other field is not reached.
+reachIn : Among -> Ty -> FieldReach
+reachIn a (TensorT _ _) = HeldBuffer
+reachIn a (MemRefT _ _) = HeldBuffer
+reachIn a (DataT f _) = case lookup f a.members of
+  Just _ => OwnFamily
+  Nothing => maybe Other (\e => promisedReach e.family.promise) (lookup f a.declared)
+reachIn a _ = Other
+
+||| How far a value of `c`'s family claims into each of its fields, among
+||| the families its group was declared among: the reach of each field's
+||| declared type. A family no group declares is the translation's broken
+||| contract, as in `typeIn`, and its fields reach as no group's do.
+export
+fieldReaches : Index -> Con k -> Vect k FieldReach
+fieldReaches ix c = map (reachIn among . (.type)) c.fields
+  where
+    among : Among
+    among = MkAmong ix.families (maybe empty (.kin) (lookup c.id.family ix.families))
+
 ||| The hold of a field's grade: freed by its count with no claim, where
 ||| its type holds references; none where it holds words.
 claimless : Reaches -> Maybe Hold
@@ -372,7 +406,7 @@ declare = foldl group empty
           a = MkAmong done (fromList (map (\(f, m) => (f.id, m)) numbered))
           attr = Idr (FamilyAttr (map (MemberOfData . memberDecl a) fs))
           r = groupReaches a fs
-      in foldl (\m, (f, i) => insert f.id (MkFamilyEntry f attr i r) m) done numbered
+      in foldl (\m, (f, i) => insert f.id (MkFamilyEntry f attr i r a.members) m) done numbered
 
 ||| The index of a program.
 export

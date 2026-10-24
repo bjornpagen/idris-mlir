@@ -210,6 +210,14 @@ inline constexpr std::array<std::array<::idr::HoldCase, 4>, 7> holdReadsMany{{
     {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
 }};
 
+// the most a fresh value may claim, by how far its claim reaches into a part and what the part claims
+inline constexpr std::array<std::array<::idr::Unique, 3>, 4> freshestClaims{{
+    {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},
+    {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},
+    {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},
+    {{::idr::Unique::Self, ::idr::Unique::Self, ::idr::Unique::Deep}},
+}};
+
 // the product of two uses
 inline constexpr std::array<std::array<::idr::Uses, 2>, 2> usesTimes{{
     {{::idr::Uses::Once, ::idr::Uses::Many}},

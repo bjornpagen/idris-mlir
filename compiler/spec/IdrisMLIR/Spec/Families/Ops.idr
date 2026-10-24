@@ -85,9 +85,10 @@ statedIn k =
 ||| everything it reaches unshared, `unique self` where each field its claim
 ||| on its own cells reaches (a field of its group or of an `in_place`
 ||| family, and a buffer it holds, whose storage that claim covers) claims
-||| its own cells unshared, so a cell holding a shared buffer claims neither;
-||| each is read off the grade's table of field reads, not restated here.
-||| The builder from a carrier gives the result that claim.
+||| its own cells unshared, so a cell holding a shared buffer claims neither:
+||| the grade's `freshClaim`, each field's bound its table of `freshest`,
+||| not restated here. The builder from a carrier gives the result that
+||| claim, and the frontend writes it.
 |||
 ||| It takes over each field that owns its count, so moving it where it
 ||| would not have run would give that field up on a path that keeps it: it
