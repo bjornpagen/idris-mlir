@@ -6,7 +6,7 @@
 # entry of Sem.names, as semantics@<name>. Its two programs, one with every
 # operand written in it and one that reads every operand from its stdin,
 # and the value each case must give, are the runner's, computed from what
-# each primitive means (sem_case, harness/lib/e2e.sh): the compiler's
+# each primitive means (sem_case, harness/Programs.idr): the compiler's
 # folder answers the first, its code the second.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 sem_case "$parameter"

@@ -9,7 +9,9 @@
 // upstream's call interface, and the tail fact through Tail.h's one
 // reading of it, never the attribute; a result's two types are compared
 // as the layouts compare them, the comparison by which a reindex between
-// them is free or re-packs.
+// them is free or re-packs, and a value follows into a region by
+// upstream's region-branch interface, so a region that takes it in at
+// another layout is a re-pack as a reindex is.
 
 #include "idr/Transforms/Expect.h"
 
@@ -17,8 +19,11 @@
 #include "idr/IR/Tail.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -38,29 +43,63 @@ SmallVector<CallOpInterface> callsOf(const Pair &pair, SymbolTable &symbols) {
   return found;
 }
 
-// The first op that re-packs a value `call` gives where its function takes
-// it: one that takes the value as the one it gives on and works to do so,
+// The two layouts a re-pack after a call converts a value it gives
+// between.
+struct Repack {
+  Type from;
+  Type to;
+};
+
+// The first re-pack of a value `call` gives where its function takes it:
+// an op that takes the value as the one it gives on and works to do so,
 // converting it between two layouts, as it answers through the carrying
-// interface. What the call gives is each of its results, and what an op
-// that gives one on freely makes of it; such an op gives on only its first
-// operand, so each value is met once. Null where no op does. What a
-// region's end gives its op is the way to the return, where a re-pack is a
-// tail lost to a layout, which the tail verifier refuses once tail calls'
-// layouts agree with their callers', before any property reads the module.
-Operation *repackOfUse(CallOpInterface call) {
+// interface; or a region the value enters at a type laid out otherwise,
+// as the region's op forwards it through the region-branch interface, so
+// that the op re-packs it into the region's argument. What the call gives
+// is each of its results, what an op that gives one on freely makes of
+// it, and each region argument one enters at its own layout; such an op
+// gives on only its first operand, and a region binds each value that
+// enters it at an argument of its own, so each value is met once. None
+// where no op re-packs. What a region's end gives its op is the way to
+// the return, where a re-pack is a tail lost to a layout, which the tail
+// verifier refuses once tail calls' layouts agree with their callers',
+// before any property reads the module.
+std::optional<Repack> repackOfUse(CallOpInterface call) {
   SmallVector<Value, 4> given(call->result_begin(), call->result_end());
+  SmallVector<RegionSuccessor, 2> entries;
   while (!given.empty()) {
     Value value = given.pop_back_val();
     for (OpOperand &use : value.getUses()) {
-      auto carry = dyn_cast<CarriesOnOpInterface>(use.getOwner());
-      if (!carry || use.getOperandNumber() != 0)
+      Operation *owner = use.getOwner();
+      unsigned number = use.getOperandNumber();
+      if (auto carry = dyn_cast<CarriesOnOpInterface>(owner)) {
+        if (number != 0)
+          continue;
+        if (carry.getCarry() == Carry::Works)
+          return Repack{value.getType(), owner->getResult(0).getType()};
+        given.push_back(owner->getResult(0));
         continue;
-      if (carry.getCarry() == Carry::Works)
-        return use.getOwner();
-      given.push_back(use.getOwner()->getResult(0));
+      }
+      auto branch = dyn_cast<RegionBranchOpInterface>(owner);
+      if (!branch)
+        continue;
+      entries.clear();
+      branch.getSuccessorRegions(RegionBranchPoint::parent(), entries);
+      for (const RegionSuccessor &entry : entries) {
+        OperandRange entering = branch.getEntrySuccessorOperands(entry);
+        if (entering.empty())
+          continue;
+        unsigned first = entering.getBeginOperandIndex();
+        if (number < first || number >= first + entering.size())
+          continue;
+        Value bound = branch.getSuccessorInputs(entry)[number - first];
+        if (families::layoutMatch(value.getType(), bound.getType()) == LayoutMatch::OtherLayout)
+          return Repack{value.getType(), bound.getType()};
+        given.push_back(bound);
+      }
     }
   }
-  return nullptr;
+  return std::nullopt;
 }
 
 } // namespace
@@ -113,11 +152,11 @@ LogicalResult resultsAsGiven(const Request<Pair> &request) {
         held = failure();
       }
     }
-    if (Operation *repack = repackOfUse(call)) {
+    if (std::optional<Repack> repack = repackOfUse(call)) {
       fail(call.getLoc(), request.property)
           << "the call of @" << pair.callee.name << ", as " << calleeOf(call) << ", in "
           << where(call) << " gives a result that a re-pack after it converts from "
-          << repack->getOperand(0).getType() << " to " << repack->getResult(0).getType();
+          << repack->from << " to " << repack->to;
       held = failure();
     }
   }

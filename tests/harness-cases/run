@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# A program test's cases (lib/e2e.sh, e2e_cases) hold each run to what its
+# A program test's cases (e2eCases, Programs.idr) hold each run to what its
 # case says, from both sides: Main.idr, compiled once, runs on a case of
 # each kind that holds (an output, an exit, a crash with its site and
 # cause) and on one of each kind that does not, and only those that do not
