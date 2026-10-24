@@ -835,3 +835,14 @@ askers in callersOf, Settle's removed proof). Waiting:
   C50, C80 dispatched (L16eq); C12's five prose `expected-error`s and
   C66's test dispatched (L19aa). Recheck 6 struck as done: queue lines
   468, 471, 479, 481, 483, 492, 583, 599, 635-638 and 749.
+- From recheck 6 (D65 to D131): the frontend's `ITerm`
+  (`compiler/src/IdrisMLIR/Types.idr:122-130`) copies the specification's
+  `Term` by hand, its sum's normal form held by convention where the
+  specification's type holds it: the frontend reads the specification's
+  term (L16, after L16ep lands D131.2); five checker internal errors
+  reachable from a user's `%builtin` pragma (`ProcessBuiltin.idr:188, 190,
+  254, 275, 278`) become refusals as `%start` did, `Unify.idr:646`'s "Can't
+  happen" states its reason, and the 38 "impossible" cases written as text
+  become types (D112.2; L17, after L17bd); `Constants.cpp:245-262` and
+  `EGraph/Values.cpp:509-520` read upstream attributes through
+  `ConstantAttrInterface` once L03 declares it (L13, L14).

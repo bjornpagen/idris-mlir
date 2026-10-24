@@ -5528,9 +5528,23 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: none. The last, a tail call's data result (L16dv's evidence,
-2026-10-23), is settled by D129 (B*: a copy of the callee keyed to the
-open layout, the tail call's layout checked by the call's verifier).
+**Open**, in order:
+1. The papers stored in `sources/` whose licences grant no
+   redistribution (the sources lane's finding, C13): (A) each becomes a
+   link with its citation, (B) they are kept, or (C) `sources/` is kept
+   out of the public tree. Asked 2026-10-23.
+2. Two folders of the same ops (L14u's finding): idr-constants
+   (summarized constant propagation over upstream's dataflow) and the
+   e-graph both fold them, each round, and have drifted (NaN; `math.sqrt`
+   folded by one and left by the other; the byte budget binding one).
+   (A) One folder: the e-graph takes idr-constants' duties (constants a
+   finished callee returns, joins on live paths, the hand folds,
+   multi-result ops) and idr-constants goes; (B) idr-constants folds only
+   the specification's lists, two propagators kept. Waits on 1.
+
+The last settled, a tail call's data result (L16dv's evidence,
+2026-10-23), is D129 (B*: a copy of the callee keyed to the open layout,
+the tail call's layout checked by the call's verifier).
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
