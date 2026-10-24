@@ -121,10 +121,18 @@ following (e :< S m) (p :< j) = case choose (S (finToNat j) < S m) of
   Right _ => following e p :< FZ
 
 ||| The position of an index among the elements of extents, in row-major
-||| order.
+||| order: the natural it is, as the extents and the index hold their
+||| lengths and positions.
+position : Extents s -> Index s -> Nat
+position [<] [<] = 0
+position (e :< n) (p :< j) = position e p * n + finToNat j
+
+||| The slot of an index: its position, as the offset the slots take.
+||| Computed as a natural and cast once: the stock host adds and multiplies
+||| naturals as its integers are, where every step on an `Int` also wraps
+||| it to 64 bits.
 offset : Extents s -> Index s -> Int
-offset [<] [<] = 0
-offset (e :< n) (p :< j) = offset e p * cast n + cast (finToNat j)
+offset e i = cast (position e i)
 
 ------------------------------------------------------------------------------
 -- The two array types
