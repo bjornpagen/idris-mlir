@@ -278,8 +278,8 @@ namespace idr {
 class Layouts {
 public:
   // The layouts of `root`, a module or a program, for the target its data
-  // layout describes, whose pointers are the runtime's words, as the
-  // program's verifier holds.
+  // layout describes, the build's (idr-target), whose pointers are the
+  // runtime's words.
   explicit Layouts(mlir::Operation *root);
 
   // The runtime components of a value type.

@@ -32,7 +32,6 @@
 #include "llvm/TargetParser/Triple.h"
 
 #include <array>
-#include <utility>
 
 using namespace mlir;
 
@@ -97,13 +96,28 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
     auto cpu = DataLayoutEntryAttr::get(StringAttr::get(ctx, idr::target::cpuDevice),
                                         TargetDeviceSpecAttr::get(ctx, {width}));
 
-    // The build's target as the module holds it: LLVM's target, the data
-    // layout LLVM derives for it, and the facts of its CPU.
-    const std::array<NamedAttribute, 3> built{
-        NamedAttribute(LLVM::LLVMDialect::getTargetAttrName(), target),
-        NamedAttribute(DLTIDialect::kDataLayoutAttrName, translateDataLayout(*layout, ctx)),
-        NamedAttribute(DLTIDialect::kTargetSystemDescAttrName,
-                       TargetSystemSpecAttr::get(ctx, {cpu}))};
+    // Each fact of the build's target, as the module holds it once this pass
+    // has run (LLVM's target, the data layout LLVM derives for it, and the
+    // facts of its CPU), and what the module holds of it as every later step
+    // reads it: the target by its name; the data layout and the target
+    // system as MLIR's data layout finds them, the module's first attribute
+    // of the spec's interface, whatever its name. This pass is the one place
+    // a module's target is held to the build's, and no pass after it changes
+    // one, so every layout made later places pointers as the build's target
+    // does, whose words the runtime's object slots are when the compiler is
+    // built (idris_rt.h).
+    struct Fact {
+      NamedAttribute built;
+      Attribute held;
+    };
+    const std::array<Fact, 3> facts{
+        Fact{NamedAttribute(LLVM::LLVMDialect::getTargetAttrName(), target),
+             module->getDiscardableAttr(LLVM::LLVMDialect::getTargetAttrName())},
+        Fact{NamedAttribute(DLTIDialect::kDataLayoutAttrName, translateDataLayout(*layout, ctx)),
+             module.getDataLayoutSpec()},
+        Fact{NamedAttribute(DLTIDialect::kTargetSystemDescAttrName,
+                            TargetSystemSpecAttr::get(ctx, {cpu})),
+             module.getTargetSystemSpec()}};
 
     // A module the frontend writes holds none of them and gets the build's.
     // One that holds any of them otherwise (a module written for
@@ -112,26 +126,25 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
     // it says, so that a test written for one target would check another
     // on every other host: it is refused, naming each fact it holds
     // otherwise, as it holds it and as the build has it.
-    SmallVector<std::pair<NamedAttribute, Attribute>, 3> others;
-    for (NamedAttribute fact : built)
-      if (Attribute held = module->getDiscardableAttr(fact.getName());
-          held && held != fact.getValue())
-        others.emplace_back(fact, held);
+    SmallVector<Fact, 3> others;
+    for (const Fact &fact : facts)
+      if (fact.held && fact.held != fact.built.getValue())
+        others.push_back(fact);
     if (!others.empty()) {
       InFlightDiagnostic error = idr::refuse(module, idr::Rule::OtherTarget)
                                  << "the module is for another target than idris-mlir";
       llvm::StringRef separator = ": ";
-      for (auto [fact, held] : others) {
-        error << separator << "its " << fact.getName().getValue() << " is " << held
-              << ", and idris-mlir's " << fact.getValue();
+      for (const Fact &fact : others) {
+        error << separator << "its " << fact.built.getName().getValue() << " is " << fact.held
+              << ", and idris-mlir's " << fact.built.getValue();
         separator = "; ";
       }
       return signalPassFailure();
     }
     // A fact the module holds is the build's already, so setting it leaves
     // the module as it was.
-    for (NamedAttribute fact : built)
-      module->setDiscardableAttr(fact.getName(), fact.getValue());
+    for (const Fact &fact : facts)
+      module->setDiscardableAttr(fact.built.getName(), fact.built.getValue());
     markAllAnalysesPreserved();
   }
 };

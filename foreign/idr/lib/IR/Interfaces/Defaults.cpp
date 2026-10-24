@@ -13,10 +13,6 @@ using namespace mlir;
 
 namespace idr {
 
-// An op that puts into a lifetime and names no cell puts bytes there, a
-// room's, and no cell.
-TypedValue<CellType> putsNoCell(Operation *) { return nullptr; }
-
 // An op that takes a lifetime and says nothing of it only names it.
 LifetimeUse namesLifetime(Operation *, OpOperand &) { return LifetimeUse::Names; }
 

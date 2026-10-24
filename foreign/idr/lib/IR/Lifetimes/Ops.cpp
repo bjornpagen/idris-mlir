@@ -41,9 +41,9 @@ void idr::lifetimes::restateOuters(StatesOutersOpInterface op, ValueRange outers
   op.getOutersMutable().assign(outers);
 }
 
-// A lifetime derived from another, a view cast from it or a room reserved
-// in it, has its extent, which the op that derived it names
-// (DerivesLifetimeOpInterface); any other lifetime is its own extent.
+// A lifetime derived from another, a view cast from it, has its extent,
+// which the op that derived it names (DerivesLifetimeOpInterface); any
+// other lifetime is its own extent.
 Value idr::lifetimes::extentOf(Value lifetime) {
   auto derived = lifetime.getDefiningOp<DerivesLifetimeOpInterface>();
   return derived ? derived.getDerivedFrom() : lifetime;
@@ -230,20 +230,6 @@ LogicalResult LifetimeUnpackOp::verifyRegions() {
     return emitOpError("binds no cursor lifetime, the values ")
            << package << " holds and those that enter its level";
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// idr.lifetime.reserve
-//===----------------------------------------------------------------------===//
-
-// A room reserved in a cursor puts its bytes into the cursor's lifetime,
-// its one lifetime operand.
-TypedValue<LifetimeType> LifetimeReserveOp::getPutLifetime() { return getLifetime(); }
-
-LifetimeUse LifetimeReserveOp::getLifetimeUse(OpOperand &) { return LifetimeUse::Puts; }
-
-std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
-  return static_cast<std::uint64_t>(getBytes());
 }
 
 //===----------------------------------------------------------------------===//

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The verifier of a program, at the stage its idr.program says: the
-// program's rules (its target, its buffers' globals and the cells its
+// program's rules (where its own upstream ops stand, and the cells its
 // recycles give), which idr.program's region verifier runs once it has
 // checked the root and every op of the program is verified, on one thread,
 // when the module is read and after every pass on the program; and the
@@ -32,9 +32,8 @@ namespace idr {
 
 namespace verify {
 
-// The rules of the program: its target's pointers are the runtime's
-// words; and once the program is counted, a buffer's static data is aligned
-// as a cell's elements are, to at most a word, and every idr.cell.recycle
+// The rules of the program: its own upstream ops stand where they are
+// admitted (Admission); and once it is counted, every idr.cell.recycle
 // gives a cell of its token's layout. A lowered program is upstream's
 // functions and globals, which hold no rule of ours.
 mlir::LogicalResult program(ProgramOp program);

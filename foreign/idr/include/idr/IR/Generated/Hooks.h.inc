@@ -31,10 +31,6 @@ void printViewLifetime(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::m
 ::mlir::ParseResult parseSameType(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type);
 void printSameType(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::Type);
 
-// a room lifetime, written as nothing
-::mlir::ParseResult parseRoomLifetime(::mlir::OpAsmParser &parser, ::mlir::Type &);
-void printRoomLifetime(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type);
-
 // the results' types in parentheses, none among them
 ::mlir::ParseResult parseResultTypes(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::Type> &);
 void printResultTypes(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::TypeRange);
@@ -91,9 +87,6 @@ bool isViewLifetime(::mlir::Type value);
 
 // a tensor or a buffer that holds references, at any grade
 bool isLendable(::mlir::Type value);
-
-// a room lifetime
-bool isRoomLifetime(::mlir::Type value);
 
 // a lifetime something may allocate into
 bool admitsPuts(::mlir::Type value);
@@ -178,9 +171,6 @@ bool isMemoState(::mlir::Type value);
 
 // The default of ErasedBinderOpInterface::getRefinement.
 ::std::optional<::idr::families::RegionRefinement> noRefinement(::mlir::Operation *self, ::mlir::Region & region);
-
-// The default of LifetimePutOpInterface::getPutCell.
-::mlir::TypedValue<::idr::CellType> putsNoCell(::mlir::Operation *self);
 
 // The default of LifetimeUseOpInterface::getLifetimeUse.
 ::idr::LifetimeUse namesLifetime(::mlir::Operation *self, ::mlir::OpOperand & lifetime);

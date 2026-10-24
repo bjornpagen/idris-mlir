@@ -4,8 +4,8 @@
 // implications read from the stage table. The program's own, which its
 // region verifier runs after checking its root, once every op of it is
 // verified, on one thread, at the module's read and after every pass on the
-// program: its target, and once counted its buffers' globals and the cells
-// its recycles give. And a function's, which its region verifier runs, in
+// program: where its own upstream ops stand, and once counted the cells its
+// recycles give. And a function's, which its region verifier runs, in
 // parallel with every other function's: one walk of its body under every
 // rule read per op (what the stage lets its values and ops hold, its scopes
 // and refinements, its closures' flow while they exist, its effect row
@@ -14,6 +14,11 @@
 // values. And an op's: whether its program stands at a stage its family is
 // legal at, which the trait the specification gives it asks here. The stage
 // is read from the program, never from what a function holds.
+//
+// The target is no rule here: idr-target holds every fact of the module's
+// target to the build's where the module enters the pipeline, no pass
+// changes one, and the runtime's word is the target's pointer when the
+// compiler is built (idris_rt.h).
 //
 // Past the higher stage no value reaches a closure or a suspension: the
 // function's rules ask each value's type, which answers from what its
@@ -37,52 +42,14 @@
 
 #include "idr/IR/Generated/StageFacts.h.inc"
 
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Interfaces/DataLayoutInterfaces.h"
-
-#include "idris_rt.h"
-
-#include <optional>
 
 using namespace mlir;
 using namespace idr;
 
 namespace {
-
-// The runtime frees a cell by its object slots, which it reads as pointers
-// of the target it is compiled for, one word each, and the layouts place
-// them so. The module's data layout is the target entry's (idr-target),
-// the one the runtime is built for, so a module whose layout is another's
-// was made for another target: it is refused by that rule, at the module's
-// read and after every pass on the program, so that no layout is ever made
-// for another target.
-LogicalResult target(ProgramOp program) {
-  DataLayout layout = DataLayout::closest(program);
-  Type pointer = LLVM::LLVMPointerType::get(program.getContext());
-  auto size = static_cast<uint64_t>(layout.getTypeSize(pointer).getFixedValue());
-  uint64_t alignment = layout.getTypeABIAlignment(pointer);
-  if (size != IDRIS_RT_WORD_BYTES || alignment != IDRIS_RT_WORD_BYTES)
-    return refuse(program, Rule::OtherTarget)
-           << "the module's target is not the runtime's: its pointers take " << size
-           << " bytes at an alignment of " << alignment
-           << ", and the runtime's object slots are words of " << IDRIS_RT_WORD_BYTES;
-  return success();
-}
-
-// A buffer's static data is a cell of the runtime too, whose elements start
-// a word aligned and no more.
-LogicalResult globals(ProgramOp program) {
-  for (memref::GlobalOp global : program.getOps<memref::GlobalOp>())
-    if (std::optional<uint64_t> alignment = global.getAlignment();
-        alignment && *alignment > IDRIS_RT_WORD_BYTES)
-      return global.emitOpError("is aligned to ")
-             << *alignment << " bytes, past a cell's element, whose alignment is at most "
-             << IDRIS_RT_WORD_BYTES;
-  return success();
-}
 
 // Every idr.cell.recycle gives a cell of the size of every cell its token
 // may hold (counting's rule). Only a recycle needs the sizes of cells, and
@@ -128,11 +95,9 @@ bool claimsBeyondItsUses(Type type) {
 // references are counted no value claims more than its uses let it; no
 // linalg op past the higher stage reads or writes an element that holds
 // references, which idr-structure-loops makes only of arrays of words and
-// counting so never meets; and once references are counted, every buffer
-// is of a strided layout, whose descriptor the lowering reads, and a buffer
-// is a cell of the runtime: an allocation has the identity layout and an
-// alignment of at most a word, its elements starting a word aligned and no
-// more. While closures exist, each op is held to the flow rule.
+// counting so never meets; and once references are counted, a buffer
+// allocated is a cell of the runtime, of the identity layout. While
+// closures exist, each op is held to the flow rule.
 class StageRules {
 public:
   StageRules(StageClosures closures, StageCounting counting)
@@ -154,16 +119,10 @@ public:
         if (holdsReferences(element.getType()))
           return report(op, element) << "holds references, an element no linalg op reads or "
                                         "writes past the higher stage";
-    if (auto alloc = dyn_cast<memref::AllocOp>(op); alloc && counting == StageCounting::Counted) {
-      if (!alloc.getType().getLayout().isIdentity())
-        return alloc.emitOpError("allocates ")
-               << alloc.getType() << ", whose layout is not a cell's, the identity";
-      if (std::optional<uint64_t> alignment = alloc.getAlignment();
-          alignment && *alignment > IDRIS_RT_WORD_BYTES)
-        return alloc.emitOpError("is aligned to ")
-               << *alignment << " bytes, past a cell's element, whose alignment is at most "
-               << IDRIS_RT_WORD_BYTES;
-    }
+    if (auto alloc = dyn_cast<memref::AllocOp>(op);
+        alloc && counting == StageCounting::Counted && !alloc.getType().getLayout().isIdentity())
+      return alloc.emitOpError("allocates ")
+             << alloc.getType() << ", whose layout is not a cell's, the identity";
     for (Value result : op->getResults())
       if (failed(value(op, result)))
         return failure();
@@ -182,10 +141,6 @@ private:
     if (counting == StageCounting::Uncounted && claimsBeyondItsUses(type))
       return report(op, value) << "claims more of its sharing than a value used as often may "
                                   "before references are counted";
-    if (auto buffer = dyn_cast<MemRefType>(type);
-        buffer && counting == StageCounting::Counted && !buffer.isStrided())
-      return report(op, value) << "is a buffer of no strided layout, whose descriptor the "
-                                  "lowering cannot read";
     return success();
   }
 
@@ -214,8 +169,6 @@ LogicalResult idr::verifyLegalAt(Operation *op, Stage first, Stage last) {
 }
 
 LogicalResult idr::verify::program(ProgramOp program) {
-  if (failed(target(program)))
-    return failure();
   // A lowered program is upstream's functions and globals: nothing of ours
   // is left to hold to a rule.
   Stage stage = program.getStage();
@@ -228,7 +181,7 @@ LogicalResult idr::verify::program(ProgramOp program) {
     if (failed(admission.check(&op)))
       return failure();
   if (countingAt[stage] == StageCounting::Counted)
-    return failure(failed(globals(program)) || failed(recycles(program)));
+    return recycles(program);
   return success();
 }
 

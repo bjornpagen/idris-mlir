@@ -10,8 +10,8 @@
 //
 // A lifetime value is bound only by an opener's, a loan's or an unpack's
 // entry argument, by `idr.activation`, by a function parameter, and by the
-// two ops that derive one lifetime from another (`idr.lifetime.forget`,
-// `idr.lifetime.reserve`), each of the extent of its operand. A value that
+// one op that derives one lifetime from another, the cast to its view
+// (`idr.lifetime.forget`), of the extent of its operand. A value that
 // lives in a lifetime is graded `scoped`, and the op that makes it states
 // which lifetime (StatesLifetimeOpInterface): one hop, never a walk. A
 // tensor or a buffer is lent to upstream's ops, which take only the bare
@@ -148,14 +148,9 @@ public:
 
 // Where an opener's memory comes from: a constant of its class, which the
 // generated code specializes for each opener (`static constexpr Opener
-// opener`), read by OpensLifetimeOpInterface's one method.
+// opener`) and its region's trait reads (RunsOnceAfter).
 template <typename Op>
 struct LifetimeOpener;
-
-template <typename Op>
-Opener openerOfOp(Op) {
-  return LifetimeOpener<Op>::opener;
-}
 
 // An op that opens a lifetime: one whose class has its opener's constant.
 template <typename Op>
@@ -163,7 +158,8 @@ concept OpensLifetime = requires { LifetimeOpener<Op>::opener; };
 
 // Whether `type` is a lifetime of a kind something may allocate into, a
 // cursor, a room, a view, or of the case `kase`: the predicates ODS asks of
-// a lifetime operand, and an opener of the lifetime it binds.
+// a lifetime operand, what a function's verifier and its lowering ask of a
+// room parameter, and an opener of the lifetime it binds.
 bool admitsPuts(mlir::Type type);
 bool isCursorLifetime(mlir::Type type);
 bool isRoomLifetime(mlir::Type type);
@@ -203,8 +199,7 @@ bool passesAs(mlir::Type arg, mlir::Type param);
 mlir::Value statedLifetime(mlir::Value scoped);
 
 // The lifetime whose extent a lifetime value has: the operand of a cast to
-// a view or of a reserved room, which live as long as it; the value itself
-// otherwise.
+// a view, which lives as long as it; the value itself otherwise.
 mlir::Value extentOf(mlir::Value lifetime);
 
 // What a per-level lifetime's package holds, if its lifetime may be per
@@ -402,10 +397,9 @@ class RunsOnce : public RunsOnceAfter<ConcreteType, RunsOnce, 0> {};
 template <typename ConcreteType>
 class RunsOnceGivingBack : public RunsOnceAfter<ConcreteType, RunsOnceGivingBack, 1> {};
 
-// An op whose result is a lifetime value: `idr.activation`, and the two ops
-// that derive one lifetime from another (`idr.lifetime.forget`,
-// `idr.lifetime.reserve`), each of its operand's extent. No other op gives
-// one, which the function verifier reads off this trait.
+// An op whose result is a lifetime value: `idr.activation`, and the cast to
+// a lifetime's view (`idr.lifetime.forget`), of its operand's extent. No
+// other op gives one, which the function verifier reads off this trait.
 template <typename ConcreteType>
 class GivesLifetime : public mlir::OpTrait::TraitBase<ConcreteType, GivesLifetime> {};
 

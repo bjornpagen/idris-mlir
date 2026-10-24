@@ -35,15 +35,15 @@ namespace idr::tail::frames {
 //
 // Every other shape is one the decide step keeps out, so meeting one is
 // its invariant broken: the call given a value living in the lifetime, the
-// rest reading a room carved from it, the region lying on or giving into a
-// lifetime that ends with its function's call.
+// region lying on or giving into a lifetime that ends with its function's
+// call.
 LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operation *opener,
                                Packed packed) {
   MLIRContext *ctx = owner.getContext();
   Block *inside = site->getBlock();
   Value lifetime = inside->getArgument(0);
-  // A value of the region's lifetime: the lifetime itself, or a view or a
-  // room of it made in the region.
+  // A value of the region's lifetime: the lifetime itself, or a view of it
+  // made in the region.
   auto ofLifetime = [&](Value value) {
     return isa<LifetimeType>(value.getType()) && lifetimes::extentOf(value) == lifetime;
   };
@@ -72,15 +72,8 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
     // The call's results are the rest's first parameters.
     if (llvm::is_contained(site->getResults(), value))
       continue;
-    // The lifetime, and a view of it, is the reopened lifetime in the rest;
-    // a room carved before the call is memory the rest cannot name.
+    // The lifetime, and a view of it, is the reopened lifetime in the rest.
     if (ofLifetime(value)) {
-      if (!lifetimes::passesAs(lifetime.getType(), value.getType()))
-        return site.emitOpError(
-                   "internal error: an invariant of idr-lifetimes is broken (idr-frames): "
-                   "nothing after a call on frames reads a room carved before it from the "
-                   "per-level lifetime around it, but the rest of this call's region reads ")
-               << value.getType();
       reopenedAs.push_back(value);
       continue;
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The frame-limited rule for a lifetime's cells, checked at each use of the
-// lifetime, or of a room reserved in it, where the walk meets the use.
+// lifetime, where the walk meets the use.
 //
 // A slot runs once per run of its lifetime: it is rewritten at each run, so
 // a second would free what the first still holds. A room's every put runs
@@ -36,15 +36,13 @@ using State = verify::LifetimeRules::State;
 // that may put into it what its results hold.
 LogicalResult State::proof(Operation &user) {
   for (OpOperand &use : user.getOpOperands()) {
-    auto target = dyn_cast<TypedValue<LifetimeType>>(use.get());
-    if (!target)
+    auto lifetime = dyn_cast<TypedValue<LifetimeType>>(use.get());
+    if (!lifetime)
       continue;
-    auto reserved = target.getDefiningOp<LifetimeReserveOp>();
-    TypedValue<LifetimeType> lifetime = reserved ? reserved.getLifetime() : target;
     std::optional<OpenLifetimes::Open> held = open.recordOf(lifetime);
     if (!held)
       continue;
-    LifetimeKind kind = lifetimes::kindOf(target);
+    LifetimeKind kind = lifetimes::kindOf(lifetime);
     bool again = levels.back().again > held->again;
     auto inLifetime = [&](Value value) {
       Value stated = lifetimes::statedLifetime(value);
@@ -53,7 +51,7 @@ LogicalResult State::proof(Operation &user) {
     // A parameter: what each op stating it makes is taken into the result,
     // whatever else the op does with it.
     auto intoResult = [&]() -> LogicalResult {
-      if (!states(user, target))
+      if (!states(user, lifetime))
         return success();
       auto returnedHere = [&](unsigned result) { return open.resultLifetime(result) == lifetime; };
       for (Value made : user.getResults())
@@ -93,7 +91,7 @@ LogicalResult State::proof(Operation &user) {
       break;
     case LifetimeUse::Puts:
       checked = put([&](Region &) -> LogicalResult {
-        if (again && !keptHere(user, target))
+        if (again && !keptHere(user, lifetime))
           return user.emitOpError("puts cells again into a lifetime that nothing it still uses "
                                   "reaches");
         return success();
@@ -123,13 +121,9 @@ LogicalResult State::proof(Operation &user) {
 // taken into one of the lifetime's own: the box its cell becomes is an
 // operand of an op that states the lifetime for what it makes, or is
 // carried on by a merge. The put says what cell it puts there
-// (LifetimePutOpInterface); bytes put as no cell, a room's, are kept by
-// nothing.
+// (LifetimePutOpInterface).
 bool State::keptHere(Operation &user, Value lifetime) {
-  auto put = dyn_cast<LifetimePutOpInterface>(&user);
-  TypedValue<CellType> cell = put ? put.getPutCell() : nullptr;
-  if (!cell)
-    return false;
+  TypedValue<CellType> cell = cast<LifetimePutOpInterface>(&user).getPutCell();
   for (Operation *init : cell.getUsers())
     for (Value box : init->getResults())
       if (freedBy(box.getType(), Release::Scoped) &&

@@ -72,8 +72,8 @@ void State::leave() {
 
 // The op's own rules, and a loan's; then each lifetime the op gives that
 // is its own extent (this activation's) is open for the rest of its
-// region, one derived from another (a view's cast, a reserved room) being
-// of its operand's extent, which is open already; then the frame-limited
+// region, one derived from another (a view's cast) being of its operand's
+// extent, which is open already; then the frame-limited
 // rule at each lifetime the op uses.
 LogicalResult State::check(Operation &op) {
   if (failed(local(op)) || failed(loans(op)))

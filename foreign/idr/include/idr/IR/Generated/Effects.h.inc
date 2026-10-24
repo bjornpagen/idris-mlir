@@ -180,14 +180,6 @@ struct Declared<::idr::LifetimeForgetOp> {
 };
 
 template <>
-struct Declared<::idr::LifetimeReserveOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Allocate, ::idr::effects::ResourceId::Heap, ::idr::effects::Subject::result(0)}}};
-  using Rules = std::tuple<>;
-  static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
 struct Declared<::idr::CellStackOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Allocate, ::idr::effects::ResourceId::Frame, ::idr::effects::Subject::result(0)}}};

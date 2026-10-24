@@ -331,7 +331,6 @@ def Idr_LifetimeOp : Idr_Op<"lifetime", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    Idr_OpensLifetimeOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
   ]> {
   let summary = "opens a lifetime nothing allocates into";
@@ -349,7 +348,6 @@ def Idr_LifetimeHomeOp : Idr_Op<"lifetime.home", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    Idr_OpensLifetimeOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
     Idr_LegalAt<"Graded", "Owned">
   ]> {
@@ -368,7 +366,6 @@ def Idr_LifetimeBlockOp : Idr_Op<"lifetime.block", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    Idr_OpensLifetimeOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
     Idr_LegalAt<"Graded", "Owned">
   ]> {
@@ -387,7 +384,6 @@ def Idr_LifetimeStackOp : Idr_Op<"lifetime.stack", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    Idr_OpensLifetimeOpInterface,
     Idr_PerLevelOpInterface,
     Idr_CursorBinderOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
@@ -408,7 +404,6 @@ def Idr_LifetimeChainOp : Idr_Op<"lifetime.chain", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
-    Idr_OpensLifetimeOpInterface,
     Idr_PerLevelOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
     Idr_LegalAt<"Graded", "Owned">
@@ -479,20 +474,6 @@ def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
   let arguments = (ins Idr_LifetimeType:$lifetime);
   let results = (outs Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isViewLifetime($_self)">]>, "a view lifetime", Idr_LifetimeType.cppType>:$view);
   let assemblyFormat = [{ $lifetime attr-dict `:` type($lifetime) custom<ViewLifetime>(type($view)) }];
-}
-
-def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
-    Idr_GivesLifetimeTrait,
-    Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>,
-    Idr_DerivesLifetimeOpInterface,
-    Idr_LegalAt<"Graded", "Owned">
-  ]> {
-  let summary = "a room reserved in a cursor lifetime";
-  let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$lifetime, I64Attr:$bytes);
-  let results = (outs Res<Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isRoomLifetime($_self)">]>, "a room lifetime", Idr_LifetimeType.cppType>, "", [MemAlloc<Idr_HeapResource>]>:$room);
-  let assemblyFormat = [{ $lifetime `,` $bytes attr-dict `:` qualified(type($lifetime)) custom<RoomLifetime>(type($room)) }];
 }
 
 def Idr_CellStackOp : Idr_Op<"cell.stack", [

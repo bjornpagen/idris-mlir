@@ -109,8 +109,8 @@ LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
       auto room = llvm::find_if(rooms, [&](const Room &r) { return r.binder == use.get(); });
       if (room == rooms.end())
         continue;
-      // What the use takes of the room: a cell's or a reserved room's bytes,
-      // or what a callee given the room puts there. A loan's or a slot's
+      // What the use takes of the room: a cell's bytes, or what a callee
+      // given the room puts there. A loan's or a slot's
       // stated lifetime, a cast to a view, a stack's base, put nothing.
       FailureOr<uint64_t> bytes = failure();
       switch (lifetimes::useOf(use)) {

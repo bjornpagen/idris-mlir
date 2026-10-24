@@ -175,20 +175,6 @@ struct LowerCellStack : IdrPattern<CellStackOp> {
   }
 };
 
-// A room reserved in a cursor for a callee compiled for a room: one bump of
-// its bytes.
-struct LowerReserve : IdrPattern<LifetimeReserveOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(LifetimeReserveOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value slot = cursorSlot(rewriter, loc, runtime, op.getLifetime(), adaptor.getLifetime());
-    rewriter.replaceOp(op,
-                       bump(rewriter, loc, runtime, slot, static_cast<uint64_t>(op.getBytes())));
-    return success();
-  }
-};
-
 // The ops whose result is a view: no value at run time.
 template <typename OpT>
 struct LowerToView : IdrPattern<OpT> {
@@ -305,7 +291,7 @@ struct LowerLend : IdrPattern<LendOp> {
 
 void populateLifetimePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCellArena, LowerCellStack, LowerReserve, LowerToView<ActivationOp>,
+  patterns.add<LowerCellArena, LowerCellStack, LowerToView<ActivationOp>,
                LowerToView<LifetimeForgetOp>, LowerViewOpener, LowerBlockOpener, LowerChainOpener,
                LowerStackOpener, LowerHomeOpener, LowerLend>(converter, patterns.getContext(),
                                                              layouts, runtime);

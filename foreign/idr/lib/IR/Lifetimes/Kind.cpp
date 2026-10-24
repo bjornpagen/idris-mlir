@@ -49,19 +49,13 @@ ParseResult parseSameType(OpAsmParser &, Type &returned, Type owner) {
 }
 void printSameType(OpAsmPrinter &, Operation *, Type, Type) {}
 
-// The one view lifetime type and the one room lifetime type, written as
-// nothing: activation's and forget's results are views, reserve's a room.
+// The one view lifetime type, written as nothing: activation's and
+// forget's results are views.
 ParseResult parseViewLifetime(OpAsmParser &parser, Type &view) {
   view = LifetimeType::get(parser.getContext(), LifetimeKind::view());
   return success();
 }
 void printViewLifetime(OpAsmPrinter &, Operation *, Type) {}
-
-ParseResult parseRoomLifetime(OpAsmParser &parser, Type &room) {
-  room = LifetimeType::get(parser.getContext(), LifetimeKind::room());
-  return success();
-}
-void printRoomLifetime(OpAsmPrinter &, Operation *, Type) {}
 
 } // namespace idr
 

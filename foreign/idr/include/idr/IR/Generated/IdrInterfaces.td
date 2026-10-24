@@ -98,13 +98,6 @@ def Idr_StatesOutersOpInterface : OpInterface<"StatesOutersOpInterface"> {
   ];
 }
 
-def Idr_OpensLifetimeOpInterface : OpInterface<"OpensLifetimeOpInterface"> {
-  let cppNamespace = "::idr";
-  let methods = [
-    InterfaceMethod<"where the memory of the lifetime this op binds comes from", "::idr::Opener", "getOpener", (ins), [{}], [{ return ::idr::openerOfOp($_op); }]>
-  ];
-}
-
 def Idr_PerLevelOpInterface : OpInterface<"PerLevelOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [
@@ -124,7 +117,7 @@ def Idr_LifetimePutOpInterface : OpInterface<"LifetimePutOpInterface"> {
   let methods = [
     InterfaceMethod<"the lifetime this op puts into", "::mlir::TypedValue<::idr::LifetimeType>", "getPutLifetime", (ins)>,
     InterfaceMethod<"the bytes this op puts there, as the module's layouts lay them out", "std::uint64_t", "getPutBytes", (ins "const ::idr::Layouts &":$layouts)>,
-    InterfaceMethod<"the cell this op puts there; null for a put of bytes and no cell", "::mlir::TypedValue<::idr::CellType>", "getPutCell", (ins), [{}], [{ return ::idr::putsNoCell($_op); }]>
+    InterfaceMethod<"the cell this op puts there", "::mlir::TypedValue<::idr::CellType>", "getPutCell", (ins)>
   ];
 }
 
