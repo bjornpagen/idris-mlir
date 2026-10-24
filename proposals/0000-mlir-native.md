@@ -2510,6 +2510,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   by hold (D89's specialization, already the specializer's); a value the
   function returns at a counted hold stays applied, since its signature
   is the specializer's, not the graph's.
+  *Amended* (2026-10-23, recheck 6): `math.sqrt` is computed by
+  upstream's fold, the host's square root, which IEEE 754 requires
+  correctly rounded, so every machine gives the target's answer and no
+  second meaning is written; `arith.remf` (`APFloat::mod`, exact) and
+  `arith.fptosi`/`fptoui` where a range guard admits the operand
+  (`APFloat::convertToInteger` toward zero, exact) join the
+  specification's list, as (b) names them.
 - **C265** (2026-10-23; L18y's handoff, under D129 and D30). A tail
   call's result layouts agree from the Graded stage on, a stage fact of
   the specification's table (`StageTailLayouts = LayoutsPending |
