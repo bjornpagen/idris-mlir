@@ -1,11 +1,15 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| idr-expect's properties, one record each: the one list of what a test
-||| may state of a module by name. The C++ table of the pass is printed from
-||| it (`table`, committed as
+||| may state of a module by name; and --idr-contracts' relations, one
+||| record each: the one list of what every pass keeps between the module
+||| before it and the module after it. The C++ table of both is printed
+||| from them (`table`, committed as
 ||| foreign/idr/include/idr/Transforms/ExpectProperties.inc and compared by
 ||| tests/expect-table-current), so a property's name, the
-||| shape of its argument and the check that runs it are written once, here.
+||| shape of its argument and the check that runs it, and a relation's name,
+||| its check and how the contracts' test pass breaks it, are written once,
+||| here.
 |||
 ||| Each property reads facts the dialect declares (an interface, a trait,
 ||| the effect system's one query, a type), never a list of ops, so a
@@ -19,6 +23,7 @@ import Data.So
 import Data.String
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Generator.Render
 
 %default total
 
@@ -55,6 +60,12 @@ nameText (MkName ws) = joinBy "-" (map wordText (forget ws))
 export
 checkName : Name -> String
 checkName (MkName (w ::: ws)) = wordText w ++ concatMap camel ws
+
+||| The name in upper camel case, every word: a relation's enumerator,
+||| `LinearKept`.
+export
+camelName : Name -> String
+camelName (MkName ws) = concatMap camel (forget ws)
 
 ||| The shape of a property's argument: what follows `=` in a request, read
 ||| into a typed value before the check runs (ExpectArguments.h).
@@ -241,6 +252,47 @@ properties =
   ]
 
 ------------------------------------------------------------------------------
+-- The contracts' relations
+------------------------------------------------------------------------------
+
+||| One relation --idr-contracts checks after every pass, between the
+||| module before it and the module after it: its name, the sentence that
+||| says what it holds, a line at a time, and how the contracts' test pass
+||| breaks it on purpose, which that pass's option shows as the help of the
+||| relation's value.
+public export
+record Relation where
+  constructor MkRelation
+  name : Name
+  says : List Line
+  breaks : Line
+
+||| Every relation, in the order the contracts check them.
+export
+relations : List Relation
+relations =
+  [ MkRelation "quantities-kept"
+      [ "Every binder Idris bound has the uses Idris proved of it, wherever"
+      , "a pass carried it: it is known by its identity, which passes copy"
+      , "with it." ]
+      "trade the identities of two binders of other uses"
+  , MkRelation "linear-kept"
+      [ "Every parameter and every result of a function the pass kept is"
+      , "where its record says, at its uses: each position the function had"
+      , "stands for a run of positions after the pass, in order, each at its"
+      , "uses, none only where the pass dropped one used many times." ]
+      "drop each result used many times and give each linear result back unrestricted"
+  , MkRelation "crash-sites-not-added"
+      [ "A function the pass kept whose row could not crash before it has"
+      , "no place that may crash after it." ]
+      "make every function that could not crash crash"
+  , MkRelation "cycle-divergence-kept"
+      [ "Every member of a cycle of calls Idris did not prove holds the"
+      , "cycle's divergence in its row, which no function's own check sees." ]
+      "drop divergence from every member of one cycle Idris did not prove, and from their calls"
+  ]
+
+------------------------------------------------------------------------------
 -- The table
 ------------------------------------------------------------------------------
 
@@ -257,21 +309,43 @@ rowsOf p =
   ++ [ macroOf p.role ++ "(\"" ++ nameText p.name ++ "\", " ++ shapeType p.shape ++ ", "
          ++ checkName p.name ++ ")" ]
 
+||| A relation's rows: its sentence as comments, then its macro: its name,
+||| its enumerator, its check, the test pass's breaker of it and how that
+||| breaks it, the C++ names read off its name as a property's check's is.
+relationRowsOf : Relation -> List String
+relationRowsOf r =
+  map (\l => "// " ++ lineText l) r.says
+  ++ [ "IDR_CONTRACT_RELATION(\"" ++ nameText r.name ++ "\", " ++ camelName r.name ++ ", "
+         ++ checkName r.name ++ ", break" ++ camelName r.name ++ ", " ++ quoted (lineText r.breaks)
+         ++ ")" ]
+
 ||| What the table says of itself, before its rows.
 heading : List String
 heading =
   [ "// SPDX-License-Identifier: 0BSD"
   , "// Copyright (c) 2026 Bjorn Pagen"
-  , "// idr-expect's properties, printed by the test runner (runtests"
-  , "// --expect-table) from harness/Properties.idr, their one list; written"
-  , "// again and compared by tests/expect-table-current. An includer defines"
-  , "// each macro, (name, argument shape, check), before it includes this:"
+  , "// idr-expect's properties and --idr-contracts' relations, printed by the"
+  , "// test runner (runtests --expect-table) from harness/Properties.idr,"
+  , "// their one list; written again and compared by"
+  , "// tests/expect-table-current. Each section is read where its first macro"
+  , "// is defined, and then needs each of its macros: an includer defines"
+  , "// those of the section it reads before it includes this. The"
+  , "// properties', (name, argument shape, check):"
   , "//   IDR_EXPECT_PROPERTY   a test states it; a fixture makes it fail;"
   , "//   IDR_EXPECT_SELF_CHECK a test states it; only a defect makes it fail;"
   , "//   IDR_EXPECT_UNIVERSAL  the contracts check it of every compilation."
+  , "// The relations', in the order the contracts check them, (name,"
+  , "// enumerator, check, the test pass's breaker, how that breaks it):"
+  , "//   IDR_CONTRACT_RELATION the contracts check it after every pass."
   , "" ]
+
+||| A section of the table, read where `first`, its first macro, is defined.
+section : (first : String) -> List (List String) -> List String
+section first rows = ["#ifdef " ++ first] ++ intercalate [""] rows ++ ["#endif"]
 
 ||| The C++ table, as committed.
 export
 table : String
-table = unlines (heading ++ intercalate [""] (map rowsOf properties))
+table =
+  unlines (heading ++ section "IDR_EXPECT_PROPERTY" (map rowsOf properties) ++ [""]
+           ++ section "IDR_CONTRACT_RELATION" (map relationRowsOf relations))

@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-expect's properties, printed by the test runner (runtests
-// --expect-table) from harness/Properties.idr, their one list; written
-// again and compared by tests/expect-table-current. An includer defines
-// each macro, (name, argument shape, check), before it includes this:
+// idr-expect's properties and --idr-contracts' relations, printed by the
+// test runner (runtests --expect-table) from harness/Properties.idr,
+// their one list; written again and compared by
+// tests/expect-table-current. Each section is read where its first macro
+// is defined, and then needs each of its macros: an includer defines
+// those of the section it reads before it includes this. The
+// properties', (name, argument shape, check):
 //   IDR_EXPECT_PROPERTY   a test states it; a fixture makes it fail;
 //   IDR_EXPECT_SELF_CHECK a test states it; only a defect makes it fail;
 //   IDR_EXPECT_UNIVERSAL  the contracts check it of every compilation.
+// The relations', in the order the contracts check them, (name,
+// enumerator, check, the test pass's breaker, how that breaks it):
+//   IDR_CONTRACT_RELATION the contracts check it after every pass.
 
+#ifdef IDR_EXPECT_PROPERTY
 // No op of @f but a call reads or writes a count: no reference is
 // counted in it, and none is freed by a test of its count.
 IDR_EXPECT_PROPERTY("counts-nothing", Functions, countsNothing)
@@ -138,3 +145,25 @@ IDR_EXPECT_UNIVERSAL("constant-stack", Functions, constantStack)
 // The label solve's set at every point is the least the program's
 // statements give it, derived again a label at a time from them.
 IDR_EXPECT_SELF_CHECK("labels-least", Nothing, labelsLeast)
+#endif
+
+#ifdef IDR_CONTRACT_RELATION
+// Every binder Idris bound has the uses Idris proved of it, wherever
+// a pass carried it: it is known by its identity, which passes copy
+// with it.
+IDR_CONTRACT_RELATION("quantities-kept", QuantitiesKept, quantitiesKept, breakQuantitiesKept, "trade the identities of two binders of other uses")
+
+// Every parameter and every result of a function the pass kept is
+// where its record says, at its uses: each position the function had
+// stands for a run of positions after the pass, in order, each at its
+// uses, none only where the pass dropped one used many times.
+IDR_CONTRACT_RELATION("linear-kept", LinearKept, linearKept, breakLinearKept, "drop each result used many times and give each linear result back unrestricted")
+
+// A function the pass kept whose row could not crash before it has
+// no place that may crash after it.
+IDR_CONTRACT_RELATION("crash-sites-not-added", CrashSitesNotAdded, crashSitesNotAdded, breakCrashSitesNotAdded, "make every function that could not crash crash")
+
+// Every member of a cycle of calls Idris did not prove holds the
+// cycle's divergence in its row, which no function's own check sees.
+IDR_CONTRACT_RELATION("cycle-divergence-kept", CycleDivergenceKept, cycleDivergenceKept, breakCycleDivergenceKept, "drop divergence from every member of one cycle Idris did not prove, and from their calls")
+#endif
