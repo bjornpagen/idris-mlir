@@ -591,8 +591,8 @@ known only when the checker runs.
   written to agree with it: Chez's at stage 0, this compiler's runtime
   once idris-mlir compiles the checker. Upstream computes each with Idris
   code (`x + y`, `cast`, `show`); the two differ only for a Char's text,
-  which upstream writes as `show`'s escape (`cast '\n'` is `"\\n"`,
-  upstream/20-evaluator-char-text). Which calls reduce is unchanged
+  which upstream writes as `show`'s escape (`cast '\n'` is `"\\n"`).
+  Which calls reduce is unchanged
   (a division by zero, an empty string's head and the casts to a
   fixed-width integer from a Double, Char or String still stay applied),
   but for two: a fixed-width integer's negation stays applied, since
@@ -656,8 +656,7 @@ known only when the checker runs.
   ten, so a TTC either one writes is refused by the other when read. A TTC
   holds its extra data as a blob of its own, so a reader that does not know
   its type reads the definitions past it (`readDefinitions`), as the
-  termination check does for the modules a context's imports reach
-  (upstream/51-totality-unimported-callee).
+  termination check does for the modules a context's imports reach.
 - `buildMain` (`Idris.ModTree`) builds a main file in a session of its
   own: it makes the unification state, the delayed elaborators and the
   metadata, resets the context to the main module's origin and runs
@@ -755,19 +754,16 @@ known only when the checker runs.
   `TTImp.ProcessDef`), where upstream fixed them where the type is
   declared, too few when the type reaches its binders through a
   definition declared before and defined after. The others are bugs the
-  stock Idris still has, each reported in `upstream/`:
-  18-elaboration-primitive-folding and 20-evaluator-char-text (above),
-  21-termination-closure (the size-change decision, above),
-  50-erased-coverage-nested-match (a checked clause marks the arguments
-  it leaves to unification), 51-totality-unimported-callee (above),
-  52-relevant-implicit-split (a case tree splits what a clause leaves to
-  unification after what it writes), 53-constructor-implicit-mark (a
-  constructor's left-out implicit is marked), 54-erased-constant-pattern
-  (at quantity 0 a constant or type written on an erased argument
-  splits), 55-lazy-case-scrutinee (a case block where a delayed value is
-  expected is delayed whole, its scrutinee with it) and
-  59-literal-partial-fold (a literal's conversion is folded only to a
-  value, never to a stuck partial normal form). Others the stock Idris
+  stock Idris still has: a primitive applied to constants and a Char's
+  text (above), the size-change decision (above), a checked clause marks
+  the arguments it leaves to unification, the termination check reads a
+  callee its module does not import (above), a case tree splits what a
+  clause leaves to unification after what it writes, a constructor's
+  left-out implicit is marked, at quantity 0 a constant or type written on
+  an erased argument splits, a case block where a delayed value is
+  expected is delayed whole, its scrutinee with it, and a literal's
+  conversion is folded only to a value, never to a stuck partial normal
+  form. Others the stock Idris
   that bootstraps is patched for, and the checker has as its own code, so
   that both hosts accept the same definitions:
   104-coverage-repeated-split (the walk that proposes missing cases keeps,
