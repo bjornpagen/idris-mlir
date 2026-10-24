@@ -19,13 +19,18 @@
 //     result may be used once, as the field the unique region moved out is.
 // What the token becomes is read off what reuse made of it, one case each:
 // freed (the unique region frees the cell; the shared region has none);
-// recycled into one construction (count.take_into: the unique region
-// recycles the cell, the shared one makes a new one, so the code after the
-// match has a cell either way and tests nothing); or given on elsewhere
-// (the unique region gives the token on, its claim forgotten, the shared
-// region the null token, which the one recycle or free that consumes it
-// tests). The test is never built for a value its type answers, so a value
-// typed unique meets no test and no count.
+// recycled on every path into one constructor's cell (count.take_into,
+// which reuse makes of no other take: the unique region recycles the cell,
+// the shared one makes a new one, so the code after the match has a cell
+// either way and tests nothing); or given
+// on where the paths after the match part (recycled on one and freed on
+// another, recycled into cells of different constructors, or carried out
+// of a region that rejoins): the unique region gives the token on, its
+// claim forgotten, and the shared region the null token. Which region ran
+// is known only when the program runs, and the code after the match is one
+// for both, so each recycle or free that consumes the token tests it for
+// null. The test of sharing is never built for a value its type answers,
+// so a value typed unique meets no test and no count.
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Counting.h"
@@ -212,15 +217,14 @@ struct Expand : impl::IdrRcExpandBase<Expand> {
     // Found first, expanded after: each expansion erases the take the walk
     // would stand on. Each expansion builds at its own take and reads its
     // value where it stands, so the order they run in builds one program.
+    // Reuse fuses only a take its type proves nothing of, so every take
+    // into a cell is one.
     SmallVector<Taken> takes;
     getOperation().walk([&](CountTakeOp take) {
       if (!claims(take.getValue().getType(), Unique::Self))
         takes.push_back(read(take));
     });
-    getOperation().walk([&](CountTakeIntoOp into) {
-      if (!claims(into.getValue().getType(), Unique::Self))
-        takes.push_back(read(into));
-    });
+    getOperation().walk([&](CountTakeIntoOp into) { takes.push_back(read(into)); });
     IRRewriter rewriter(&getContext());
     for (Taken &taken : takes)
       expand(rewriter, taken);

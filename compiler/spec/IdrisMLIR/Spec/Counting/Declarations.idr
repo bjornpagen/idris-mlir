@@ -18,9 +18,10 @@
 ||| recycled into a construction of its size (`cell.recycle`), carried as a
 ||| result across a rejoin, or freed (`token.free`). A take of a value whose type proves nothing of its sharing
 ||| becomes the one run-time test, a match of two regions
-||| (`count.match_unique`); where its token is recycled once it fuses with the
-||| recycle (`count.take_into`), and where it is given on elsewhere the shared
-||| path gives the null token (`token.null`). The ops that end their value's
+||| (`count.match_unique`); where its token is recycled on every path into one
+||| constructor's cell it fuses with those recycles (`count.take_into`), and
+||| where the paths after it part the shared path gives the null token
+||| (`token.null`). The ops that end their value's
 ||| owner (the drop, the take, the unpack, the fused take, the test) carry one
 ||| trait, which the linearity rule and counting's rule of what an op does
 ||| with a reference read. A rebuild the in-place rule
@@ -288,9 +289,11 @@ unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), o
   (brief "takes apart a value held in place, giving its fields")
 
 ||| `count.take_into %v : T -> (!idr.cell<U>, F...)`, C++ `CountTakeIntoOp`:
-||| a take whose token one construction recycles on every path, fused with
-||| that recycle: the cell for `U`, the value's own where it held the only
-||| reference, a new one where it was shared, and the fields.
+||| a take of a value whose type proves nothing of its sharing, whose token
+||| every path recycles into a cell for `U`, fused with those recycles: the
+||| cell for `U`, the value's own where it held the only reference, a new one
+||| where it was shared, and the fields. Counting's expansion makes it the
+||| match on uniqueness, so it never reaches the lowering.
 public export
 takeInto : Op 1 2 0 0
 takeInto = countingOp "count.take_into" [single "value" (SatisfiesType takeable)]

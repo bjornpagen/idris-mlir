@@ -277,7 +277,7 @@ def IdrRcReuse : Pass<"idr-rc-reuse", "::idr::FuncOp"> {
   let statistics = [
     Statistic<"numReuses", "reuses", "Cells recycled from a dead value">,
     Statistic<"numTokensFreed", "tokens-freed", "Reuse tokens freed where no construction could take them">,
-    Statistic<"numFused", "fused", "Takes whose token one recycle in their block used, made one take into the cell">,
+    Statistic<"numFused", "fused", "Takes their type proves nothing of, whose token every path recycles into one constructor's cell, made one take into the cell">,
     Statistic<"numRebuilds", "rebuilds", "In-place rebuilds lowered to a recycled cell">,
     Statistic<"frameBoundBytes", "frame-bound-bytes", "The largest frame bound of a function: the most bytes of tokens and loans held at once along a path">,
   ];

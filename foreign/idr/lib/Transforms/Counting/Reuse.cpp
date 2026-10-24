@@ -26,9 +26,10 @@
 // of each size as every region that rejoins holds and the code after it can
 // use; the rest are freed where they end. A token is freed before a return,
 // a call in tail position and a jump, and passes a call that is not in tail
-// position, held by its frame. A take whose token one recycle in its own
-// block consumes fuses with it into count.take_into, so the cell is given on
-// with no token in between.
+// position, held by its frame. A take its type proves nothing of, whose
+// token is recycled on every path from it into one constructor's cell,
+// fuses with its recycles into count.take_into, so it expands to a cell on
+// both of its paths and no token is tested for null.
 //
 // The in-place rule decided each rebuild before counting: a rebuild is a
 // token the in-place check made, consumed by token.rebuild, which this walk
@@ -108,24 +109,62 @@ void Reuse::lowerRebuilds() {
   }
 }
 
-// A take whose token one recycle in its own block consumes fuses with it:
-// the take gives the cell, with no token between.
+namespace {
+
+// The recycles a token goes to, all into one constructor's cell.
+struct Recycles {
+  CellType cell;
+  llvm::SmallVector<CellRecycleOp, 2> each;
+};
+
+// A token's recycles, where every use of it is one and all fill one
+// constructor's cell. A token is used once on every path that goes on (once
+// per region a branch hands it into), so these are one recycle on each such
+// path, wherever it stands, and the cell can be made where the token is.
+// Nothing where a use is anything else (a free, a rejoin's yield), where
+// the cells differ, or where no path goes on.
+std::optional<Recycles> recycledOnEveryPath(Value token) {
+  Recycles recycles;
+  for (Operation *user : token.getUsers()) {
+    auto recycle = dyn_cast<CellRecycleOp>(user);
+    if (!recycle || (recycles.cell && recycle.getCell().getType() != recycles.cell))
+      return std::nullopt;
+    recycles.cell = recycle.getCell().getType();
+    recycles.each.push_back(recycle);
+  }
+  if (recycles.each.empty())
+    return std::nullopt;
+  return recycles;
+}
+
+} // namespace
+
+// A take its type proves nothing of, whose token is recycled on every path
+// into one constructor's cell, fuses with its recycles: the take gives the
+// cell each of them gave, over the span the token was held, with no token
+// between, and expands to a cell on both its paths, the shared one's fresh,
+// made at the test rather than at the construction, so the code after it
+// tests no token for null. A take its type proves holds its cell gives a
+// token that holds it, which a recycle anywhere spends with no test, so it
+// stays a take: fusing it would buy nothing.
 void Reuse::fuse() {
   llvm::SmallVector<CountTakeOp> takes;
-  fn.walk([&](CountTakeOp take) { takes.push_back(take); });
+  fn.walk([&](CountTakeOp take) {
+    if (!claims(take.getValue().getType(), Unique::Self))
+      takes.push_back(take);
+  });
   IRRewriter rewriter(fn->getContext());
   for (CountTakeOp take : takes) {
-    Value token = take.getToken();
-    if (!token.hasOneUse())
-      continue;
-    auto recycle = dyn_cast<CellRecycleOp>(*token.user_begin());
-    if (!recycle || recycle->getBlock() != take->getBlock())
+    std::optional<Recycles> recycles = recycledOnEveryPath(take.getToken());
+    if (!recycles)
       continue;
     rewriter.setInsertionPoint(take);
-    auto into = CountTakeIntoOp::create(rewriter, take.getLoc(), recycle.getCell().getType(), take.getValue());
+    auto into = CountTakeIntoOp::create(rewriter, take.getLoc(), recycles->cell, take.getValue());
     rewriter.replaceAllUsesWith(take.getFields(), into.getFields());
-    rewriter.replaceAllUsesWith(recycle.getCell(), into.getCell());
-    rewriter.eraseOp(recycle);
+    for (CellRecycleOp recycle : recycles->each) {
+      rewriter.replaceAllUsesWith(recycle.getCell(), into.getCell());
+      rewriter.eraseOp(recycle);
+    }
     rewriter.eraseOp(take);
     ++fused;
   }

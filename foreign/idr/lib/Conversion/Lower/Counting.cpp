@@ -82,9 +82,9 @@ struct LowerDrop : IdrPattern<CountDropOp> {
 };
 
 // A take of a value its type proves holds its cell alone: the token is the
-// cell, the fields its slots, with no test. A take of any other value is
-// counting's expansion's to make a match on uniqueness, so it never reaches
-// here.
+// cell, the fields its slots, with no test. A take of any other value, and
+// every take into a cell, which reuse makes of no other, is counting's
+// expansion's to make a match on uniqueness, so it never reaches here.
 struct LowerTake : IdrPattern<CountTakeOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CountTakeOp op, OneToNOpAdaptor adaptor,
@@ -98,34 +98,6 @@ struct LowerTake : IdrPattern<CountTakeOp> {
     llvm::append_range(out, movedOut(rewriter, loc, runtime, layouts, data,
                                      TypeRange(op->getResultTypes()).drop_front(),
                                      fieldsAt(rewriter, loc, runtime, layouts, cell, data)));
-    rewriter.replaceOpWithMultiple(op, std::move(out));
-    return success();
-  }
-};
-
-// A take of a value its type proves holds its cell alone, whose cell one
-// construction recycles on every path: the fields read out and the cell
-// made the new constructor's, its header kept where the constructor is the
-// same, with no test. A take into a cell of any other value is counting's
-// expansion's to make a match on uniqueness, whose shared region builds a
-// fresh cell, so it never reaches here.
-struct LowerTakeInto : IdrPattern<CountTakeIntoOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(CountTakeIntoOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    if (!claims(op.getValue().getType(), Unique::Self))
-      return rewriter.notifyMatchFailure(op, "a take into a cell of a value its type proves "
-                                             "nothing of");
-    Location loc = op.getLoc();
-    Value cell = adaptor.getValue().front();
-    DataType from = refinedOf(op.getValue());
-    auto into = cast<CellType>(op.getCell().getType());
-    SmallVector<SmallVector<Value>> fields = fieldsAt(rewriter, loc, runtime, layouts, cell, from);
-    if (Type(from) != into.getValue())
-      runtime.storeInfoAndWords(rewriter, loc, cell, cellLayoutOf(layouts, into));
-    SmallVector<SmallVector<Value>> out{{runtime.launder(rewriter, loc, cell)}};
-    llvm::append_range(out, movedOut(rewriter, loc, runtime, layouts, from,
-                                     TypeRange(op->getResultTypes()).drop_front(), fields));
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
@@ -203,8 +175,8 @@ struct LowerTokenNull : IdrPattern<TokenNullOp> {
 
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerDup, LowerDrop, LowerTake, LowerTakeInto, LowerMatchUnique, LowerTokenFree,
-               LowerTokenNull>(converter, patterns.getContext(), layouts, runtime);
+  patterns.add<LowerDup, LowerDrop, LowerTake, LowerMatchUnique, LowerTokenFree, LowerTokenNull>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

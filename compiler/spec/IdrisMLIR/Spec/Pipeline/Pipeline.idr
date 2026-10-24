@@ -391,7 +391,7 @@ rcReuse : Pass
 rcReuse = MkPass ("rc" ::: ["reuse"]) OnFunction (At Owned) Apply Keeps
   [ stat "numReuses" "reuses" "Cells recycled from a dead value"
   , stat "numTokensFreed" "tokens-freed" "Reuse tokens freed where no construction could take them"
-  , stat "numFused" "fused" "Takes whose token one recycle in their block used, made one take into the cell"
+  , stat "numFused" "fused" "Takes their type proves nothing of, whose token every path recycles into one constructor's cell, made one take into the cell"
   , stat "numRebuilds" "rebuilds" "In-place rebuilds lowered to a recycled cell"
   , stat "frameBoundBytes" "frame-bound-bytes" "The largest frame bound of a function: the most bytes of tokens and loans held at once along a path" ]
   [] [Count, Alloc, Free] NoOptions [LoadsIdr] Registered
