@@ -2901,6 +2901,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   monad beside `Core`. Measured within 1% of the direct quoter installing
   base on the stock host. D133's step 5 (binder scopes as data, read-back
   by levels) rewrites the same module and keeps the style.
+- **C297** (2026-10-23; the cull plan's QB, `audits/p0/cull/plan.md`, under
+  AGENTS.md's "never change the meaning of upstream concepts"). The
+  checker keeps one renderer of its `Error`, upstream's `perror`: the text
+  a `failing "msg"` block matches is upstream's, so a block upstream
+  rejects never passes in ours; `showError` and its duplicate arms go, and
+  the refusal texts of compiled programs follow `perror`'s (the tests'
+  message headers rechecked).
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
