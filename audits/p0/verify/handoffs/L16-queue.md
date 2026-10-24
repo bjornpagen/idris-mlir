@@ -1080,3 +1080,15 @@ to L16ev. Waiting:
   `Growth.checkGrowth` handing the drawn table so `Undrawn` has no reader
   (L16, with D133 step 7, which indexes requests by the node's scope).
   Then F-R4, C122, C55's case blocks, C213/C217, D44 and D112.1 ride on it.
+- From L17bg's last run (the frontend compiling itself at 64397ee6 with
+  R-META's as side skipped; 9278 s wall, 4313 s user, 14.9 GB peak): 450
+  refusals. R-SPEC (234 library, 143 program) and R-PRAGMA (54) are
+  addressed by 1f225b6b9; 4 escape hatches (`Boundary.solutionAt`,
+  `State.solutionIn`, two in `Growth/Template`) are D133's; 15
+  polymorphism refusals at `Driver.main`: StateT's map, bind and pure
+  growing through `Pair` and `Ord (a, b)` (sent to L16fa with F-R4), and
+  `Core.TT.Stored` (`boundedAt`, `Arena.laid`, `everyBelow`) through the
+  type-level recursions `volume`, `listBounded` and `mult` (L16fa reads
+  whether an erased computation makes the site look polymorphic, which
+  would be a wrong refusal, or the recursion is megamorphic). The frontend
+  self-compile's 14.9 GB peak is a measure to keep (INT).
