@@ -1001,3 +1001,18 @@ touching the frontend or the checker reruns the five on its export.
   operand; data.reindex follows C293's split; an integer at a big's or
   natural's type as a field of a built constructor needs the literal check
   over the graph's values (`Just 5 : Maybe Integer`) (L14, with L04).
+- From L05y (f392a02e4): `/tmp/l05y/patches/c291-Results.cpp.patch` (a
+  result its type uses exactly once stands; one `once` only by its grade is
+  read only where callers read it) lands together with the `linear-kept`
+  contract's result half restated (L18 with L19, after the cull's K02
+  releases Contracts/); a `case` on a `many` value that then rebuilds it is
+  refused (the bound value is a region argument with no statement of what
+  its cell holds; the old walk accepted it): C298's rule over a match's
+  bound value (L08); idr-unique-results does not apply C298 itself, the
+  cast's claim coming only from idr-in-place's writer (L08); dead-result
+  elimination counts a `once` result read when an unused cast takes it
+  (L18); the specializer's `Patterns.cpp` and `Keys.cpp` now see a cast
+  after most calls (possible missed specialization, to measure, L18);
+  open from earlier: `array.new`'s marking at the counted stage, a `many`
+  DataConOp builder that would write a claim, `own.adopt`'s inferred type
+  against its bare results (L05, L12).
