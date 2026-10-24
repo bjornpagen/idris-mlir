@@ -2793,6 +2793,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   site. Claims before counting live on values used once and fresh results
   used once, as C282 already left them; exclusivity after counting raises
   the rest.
+  With it (L05y's evidence): Emit builds a fresh result at the uses its one
+  consumer takes, `once` where it fills a quantity-1 position directly
+  (no cast into the linear position), `many` where it is let-bound or used
+  again, so the multiplicity Idris proved at the consumer is never dropped
+  and the in-place promise's raises stay on once values.
 - **C287** (2026-10-23; INT-24's R-PRAGMA, under AGENTS.md's "the compiler
   gains the construct" and "every flag, pragma and default means what it
   means upstream"). A pragma whose whole meaning is the checker's
