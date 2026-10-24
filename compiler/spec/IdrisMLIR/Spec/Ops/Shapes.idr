@@ -1,9 +1,10 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What the ops of this area share: the constraints their values meet,
-||| their effects as the runtime functions they call have them, and their
-||| syntax. Each is a value or a function of its constants, so an op says
-||| which it has and never restates one.
+||| how the runtime functions they call take and give those values, their
+||| effects as those functions have them, and their syntax. Each is a value
+||| or a function of its constants, so an op says which it has and never
+||| restates one.
 module IdrisMLIR.Spec.Ops.Shapes
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -173,17 +174,9 @@ byteBuffer = SatisfiesType byteBufferP
 -- What a runtime function takes
 ------------------------------------------------------------------------------
 
-||| One operand group of an op whose meaning is a runtime function, and how
-||| the function takes it. The constraint the group meets and the kind the
-||| function reads it as are one fact of the position: a string the
-||| function borrows is read in place, at any hold, and taken as the
-||| runtime's string. Each value below states the pair once, and an op's
-||| operands and its call are both read off one list of them.
-public export
-record Taken where
-  constructor MkTaken
-  operand : Operand
-  kind : OperandKind
+-- Each value below is one operand group of an op whose meaning is a
+-- runtime function and the kind the function takes it as (`Taken`), each
+-- pairing that occurs stated once.
 
 ||| A string the function reads in place.
 public export
@@ -241,24 +234,70 @@ public export
 crashText : Taken
 crashText = str "message"
 
-||| The runtime function an op calls: its symbol, each of the op's operand
-||| groups as it takes them, and how it gives the op's results.
-public export
-record RuntimeFunction (i, o : Nat) where
-  constructor MkRuntimeFunction
-  symbol : Symbol
-  takes : Vect i Taken
-  gives : Gives o
+------------------------------------------------------------------------------
+-- What a runtime function gives
+------------------------------------------------------------------------------
 
-||| The op's operand groups, in the function's order.
-public export
-operandsOf : RuntimeFunction i o -> Vect i Operand
-operandsOf f = map (.operand) f.takes
+-- Each value below is the one result of an op whose meaning is a runtime
+-- function and the kind the function returns it as (`Returns`), each
+-- pairing that occurs stated once.
 
-||| The call the op's meaning names: the function as the C ABI sees it.
+||| A string the function makes, at the grade its result has.
 public export
-asCall : RuntimeFunction i o -> RuntimeCall i o
-asCall f = MkRuntimeCall f.symbol (map (.kind) f.takes) f.gives
+returnsStr : Ident -> FunctionGives 1
+returnsStr n = Returns (result n strValue) GivesStr
+
+||| An Integer the function makes, at the grade its result has.
+public export
+returnsBig : Ident -> FunctionGives 1
+returnsBig n = Returns (result n bigValue) GivesBig
+
+||| A natural the function makes, as a big.
+public export
+returnsNat : Ident -> FunctionGives 1
+returnsNat n = Returns (result n natValue) GivesBig
+
+||| An Integer or a natural the function makes, as a big.
+public export
+returnsBigOrNat : Ident -> FunctionGives 1
+returnsBigOrNat n = Returns (result n bigOrNatValue) GivesBig
+
+||| An Integer the function makes of an integer read as `sign` says, as a
+||| big: an unsigned integer is never negative, so its big may be a
+||| natural; a natural of a signed integer cannot be written.
+public export
+returnsBigOf : Signedness -> Ident -> FunctionGives 1
+returnsBigOf sign n =
+  Returns (result n (case sign of { Signed => bigValue; Unsigned => bigOrNatValue })) GivesBig
+
+||| A small the function makes, an Integer or a natural held in its word,
+||| static data, as a big.
+public export
+returnsSmall : Ident -> FunctionGives 1
+returnsSmall n = Returns (result n bigOrNatStatic) GivesBig
+
+public export
+returnsWord32 : Ident -> FunctionGives 1
+returnsWord32 n = Returns (result n i32) GivesInt32
+
+public export
+returnsWord64 : Ident -> FunctionGives 1
+returnsWord64 n = Returns (result n i64) GivesInt64
+
+public export
+returnsFloat64 : Ident -> FunctionGives 1
+returnsFloat64 n = Returns (result n f64) GivesDouble
+
+||| An integer of any width, which the op wraps the function's 64 bits to.
+public export
+returnsWrapped : Ident -> FunctionGives 1
+returnsWrapped n = Returns (result n int) GivesWrapped
+
+||| The truth of the op's predicate, which the op decides by comparing the
+||| three-way order the function gives with zero.
+public export
+returnsOrder : Ident -> FunctionGives 1
+returnsOrder n = Returns (result n i1) GivesOrder
 
 ------------------------------------------------------------------------------
 -- The upstream ops this area admits

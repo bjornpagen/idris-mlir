@@ -2,11 +2,11 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| An op of the dialect, as one value: indexed by its operand, result,
 ||| attribute and region group counts, so every reference inside it (its
-||| format, its effects, its guards, its runtime call, its grade rule) is a
-||| position it has, and no name is looked up. A family of ops is a function
-||| of the family's constants; each member is that function applied, so a
-||| member cannot lose its family's facts. Its C++ class is ODS's default
-||| from its mnemonic: `idr.str.length` is `StrLengthOp`.
+||| format, its effects, its guards, its runtime function, its grade rule)
+||| is a position it has, and no name is looked up. A family of ops is a
+||| function of the family's constants; each member is that function
+||| applied, so a member cannot lose its family's facts. Its C++ class is
+||| ODS's default from its mnemonic: `idr.str.length` is `StrLengthOp`.
 module IdrisMLIR.Spec.Core.Op
 
 import IdrisMLIR.Spec.Core.Text
@@ -241,22 +241,74 @@ data Speculation = NotSpeculatable | AlwaysSpeculatable | RecursivelySpeculatabl
 public export
 data Verify = DeclarationOnly | VerifiesOp | VerifiesRegions | VerifiesOpAndRegions
 
+------------------------------------------------------------------------------
+-- The runtime function an op calls
+------------------------------------------------------------------------------
+
+||| One operand group of an op whose meaning is a runtime function, and how
+||| the function takes it. The constraint the group meets and the kind the
+||| function reads it as are one fact of the position: a string the
+||| function borrows is read in place, at any hold, and taken as the
+||| runtime's string. The ops' shapes (`Spec.Ops.Shapes`) state each pair
+||| once, and an op's operands and its function's parameters, each name and
+||| kind, are read off one list of them.
+public export
+record Taken where
+  constructor MkTaken
+  operand : Operand
+  kind : OperandKind
+
+||| How a runtime function gives an op's `o` results. A C function returns
+||| one value, so an op of several results has no runtime function: what
+||| the runtime gives as several is a handle and an op reading each part.
+||| The one result is the op's result group with the kind the function
+||| returns it as, one fact, as an operand group and its kind are.
+public export
+data FunctionGives : (o : Nat) -> Type where
+  ||| No result, and it returns.
+  NoResult : FunctionGives 0
+  ||| No result: it never returns (a crash, an exit).
+  NeverReturns : FunctionGives 0
+  ||| The one result, and how the function returns it.
+  Returns : Result -> ResultKind -> FunctionGives 1
+
+||| The runtime function an op calls: its symbol, each of the op's operand
+||| groups as it takes them, and the op's results as it gives them.
+public export
+record RuntimeFunction (i, o : Nat) where
+  constructor MkRuntimeFunction
+  symbol : Symbol
+  takes : Vect i Taken
+  gives : FunctionGives o
+
+||| The op's operand groups, in the function's order.
+public export
+operandsOf : RuntimeFunction i o -> Vect i Operand
+operandsOf f = map (.operand) f.takes
+
+||| The op's result groups: the one the function returns, or none.
+public export
+resultsOf : RuntimeFunction i o -> Vect o Result
+resultsOf (MkRuntimeFunction _ _ NoResult) = []
+resultsOf (MkRuntimeFunction _ _ NeverReturns) = []
+resultsOf (MkRuntimeFunction _ _ (Returns r _)) = [r]
+
 ||| The meaning of an op, one sum (one meaning, held once): a runtime
 ||| function with effects, never folded; one such function per case of an
 ||| enum the op's variant is (an `io.clock <kind>`: each case's symbol is the
-||| call's stem and the case's spelling, the runtime's entries one template
-||| instantiated per case); a pure runtime function, which the folder
-||| computes by calling it; an inline operation whose one meaning is a C++
-||| template generic over a numeric domain (a function object of
+||| function's stem and the case's spelling, the runtime's entries one
+||| template instantiated per case); a pure runtime function, which the
+||| folder computes by calling it; an inline operation whose one meaning is
+||| a C++ template generic over a numeric domain (a function object of
 ||| `Numeric/Inline.h`, held as the meaning it is and named only where it
 ||| is printed); a guard whose condition is such a meaning (its operand
 ||| passes where the condition holds, which its hand folder and every
 ||| reader of intervals ask of the one template); a hand folder; or no fold.
 public export
 data Meaning : (i, o : Nat) -> Type where
-  CallsRuntime : RuntimeCall i o -> Meaning i o
-  CallsRuntimeByCase : EnumDef -> RuntimeCall i o -> Meaning i o
-  ComputedByRuntime : RuntimeCall i o -> Meaning i o
+  CallsRuntime : RuntimeFunction i o -> Meaning i o
+  CallsRuntimeByCase : EnumDef -> RuntimeFunction i o -> Meaning i o
+  ComputedByRuntime : RuntimeFunction i o -> Meaning i o
   Inline : InlineMeaning -> Meaning i o
   InlineCondition : GuardCondition -> Meaning i o
   HandFolder : Meaning i o

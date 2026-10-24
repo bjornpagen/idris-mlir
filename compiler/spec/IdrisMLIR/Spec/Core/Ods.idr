@@ -12,7 +12,6 @@ module IdrisMLIR.Spec.Core.Ods
 import IdrisMLIR.Spec.Core.Text
 
 import Data.Fin
-import Data.Vect
 
 %default total
 
@@ -114,27 +113,6 @@ public export
 data ResultKind
   = GivesInt32 | GivesInt64 | GivesDouble | GivesWrapped | GivesOrder
   | GivesStr | GivesBig | GivesPointerTo Code | GivesBool
-
-||| How a runtime function gives an op's `o` results. A C function returns
-||| one value, so an op of several results has no runtime call: what the
-||| runtime gives as several is a handle and an op reading each part.
-public export
-data Gives : (o : Nat) -> Type where
-  ||| No result, and it returns.
-  NoResult : Gives 0
-  ||| No result: it never returns (a crash, an exit).
-  NeverReturns : Gives 0
-  ||| The one result.
-  Returns : ResultKind -> Gives 1
-
-||| The runtime function an op calls, and how it takes each of the op's `i`
-||| operand groups and gives its `o` results.
-public export
-record RuntimeCall (i, o : Nat) where
-  constructor MkRuntimeCall
-  symbol : Symbol
-  takes : Vect i OperandKind
-  gives : Gives o
 
 ||| A function of the runtime the lowering calls by itself, not as an op's
 ||| meaning: its symbol, its parameters' kinds and names, how it gives its

@@ -208,7 +208,7 @@ f64ToInt = MkOp
   { home = InIdr
   , mnemonic = "f64.to_int"
   , ins = operandsOf runtime
-  , outs = [result "result" int]
+  , outs = resultsOf runtime
   , attrs = []
   , regions = []
   , traits = []
@@ -216,7 +216,7 @@ f64ToInt = MkOp
   , effects = computes
   , speculation = Conditionally
   , stages = Always
-  , meaning = ComputedByRuntime (asCall runtime)
+  , meaning = ComputedByRuntime runtime
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -229,7 +229,7 @@ f64ToInt = MkOp
   }
   where
     runtime : RuntimeFunction 1 1
-    runtime = MkRuntimeFunction "to_int" [float64 "value"] (Returns GivesWrapped)
+    runtime = MkRuntimeFunction "to_int" [float64 "value"] (returnsWrapped "result")
 
 public export
 scalarOps : List AnyOp

@@ -20,7 +20,6 @@ import IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Generator.Package
 import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
-import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.Fin
 import Data.List
@@ -344,18 +343,25 @@ carrierGroups op = concatMap refused op.traits
     refused _ = []
 
 ||| Whether an op eliminates a string: it carries `EliminatesOperand`, and
-||| its first operand is a string read in place.
+||| its meaning is a runtime function that takes its first operand as a
+||| string.
 eliminatesString : Op i o a r -> Bool
-eliminatesString op = any eliminates op.traits && readsString op.ins
+eliminatesString op = any eliminates op.traits && takesString op.meaning
   where
     eliminates : Trait i o -> Bool
     eliminates (OurTrait t) = t.name == eliminatesOperand.name
     eliminates _ = False
-    readsString : Vect n Operand -> Bool
-    readsString [] = False
-    readsString (x :: _) = case x.type of
-      SatisfiesType p => p.name == strReadP.name
-      _ => False
+    firstString : Vect n Taken -> Bool
+    firstString (MkTaken _ TakesStr :: _) = True
+    firstString _ = False
+    takesString : Meaning i o -> Bool
+    takesString (CallsRuntime f) = firstString f.takes
+    takesString (CallsRuntimeByCase _ f) = firstString f.takes
+    takesString (ComputedByRuntime f) = firstString f.takes
+    takesString (Inline _) = False
+    takesString (InlineCondition _) = False
+    takesString HandFolder = False
+    takesString NoFold = False
 
 ||| The tables that name `out` by its runtime function: each template an op
 ||| specializes with a constant that is `out`'s entry, an op of the

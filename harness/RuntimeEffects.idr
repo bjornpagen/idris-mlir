@@ -191,7 +191,7 @@ record Row where
   operands : Nat
   declared : Declared
 
-callRow : Op i o a r -> String -> RuntimeCall i o -> Row
+callRow : Op i o a r -> String -> RuntimeFunction i o -> Row
 callRow op function call =
   MkRow function (opName op) (length (toList call.takes)) (declaredBy op.effects)
 

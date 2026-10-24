@@ -593,20 +593,21 @@ export
 declarator : String -> String -> String
 declarator type name = if isSuffixOf ['*'] (unpack type) then type ++ name else type ++ " " ++ name
 
-||| An op's runtime call, if its meaning is one function.
+||| An op's runtime function, if its meaning is one function.
 export
-callOf : Op i o a r -> Maybe (RuntimeCall i o)
+callOf : Op i o a r -> Maybe (RuntimeFunction i o)
 callOf op = case op.meaning of
-  CallsRuntime c => Just c
-  ComputedByRuntime c => Just c
+  CallsRuntime f => Just f
+  ComputedByRuntime f => Just f
   _ => Nothing
 
-||| An op's runtime calls by case, if its meaning is one function per case
-||| of an enum: each case's symbol, the call's stem and the case's spelling.
+||| An op's runtime functions by case, if its meaning is one function per
+||| case of an enum: each case's symbol, the function's stem and the case's
+||| spelling.
 export
-callsByCase : Op i o a r -> Maybe (RuntimeCall i o, List String)
+callsByCase : Op i o a r -> Maybe (RuntimeFunction i o, List String)
 callsByCase op = case op.meaning of
-  CallsRuntimeByCase e c => Just (c, map (\k => symbolText c.symbol ++ "_" ++ joinWith "_" (map wordText (forget k.spelling))) (forget e.cases))
+  CallsRuntimeByCase e f => Just (f, map (\k => symbolText f.symbol ++ "_" ++ joinWith "_" (map wordText (forget k.spelling))) (forget e.cases))
   _ => Nothing
 
 ||| One C function of the runtime, as its prototype and its row of the ABI
@@ -620,22 +621,23 @@ record CFunction where
   cReturns : HelperGives
   cComment : String
 
-||| Every C function an op names as its meaning: its operands by their
-||| groups' names; one per case where its meaning is one function per case.
+||| Every C function an op names as its meaning, each parameter the name
+||| and the kind of the one `Taken` at its position; one per case where its
+||| meaning is one function per case.
 export
 functionsOf : AnyOp -> List CFunction
 functionsOf (SomeOp op) = case (callOf op, callsByCase op) of
-  (Just c, _) => [made c (symbolText c.symbol)]
-  (Nothing, Just (c, symbols)) => map (made c) symbols
+  (Just f, _) => [made f (symbolText f.symbol)]
+  (Nothing, Just (f, symbols)) => map (made f) symbols
   (Nothing, Nothing) => []
   where
-    params : RuntimeCall i o -> List (OperandKind, String)
-    params c = zipWith (\k, x => (k, identText x.name)) (toList c.takes) (toList op.ins)
-    made : RuntimeCall i o -> String -> CFunction
-    made c sym = case c.gives of
-      NoResult => MkCFunction sym (params c) HelperNothing (opName op)
-      NeverReturns => MkCFunction sym (params c) HelperNeverReturns (opName op)
-      Returns k => MkCFunction sym (params c) (HelperReturns k) (opName op)
+    params : RuntimeFunction i o -> List (OperandKind, String)
+    params f = map (\t => (t.kind, identText t.operand.name)) (toList f.takes)
+    made : RuntimeFunction i o -> String -> CFunction
+    made f sym = case f.gives of
+      NoResult => MkCFunction sym (params f) HelperNothing (opName op)
+      NeverReturns => MkCFunction sym (params f) HelperNeverReturns (opName op)
+      Returns _ k => MkCFunction sym (params f) (HelperReturns k) (opName op)
 
 ||| A helper the lowering calls by itself, as a C function.
 export
