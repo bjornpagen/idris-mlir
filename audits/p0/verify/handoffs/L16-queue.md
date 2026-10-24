@@ -887,3 +887,9 @@ askers in callersOf, Settle's removed proof). Waiting:
   specification's (L16, after L16ep; N10); `tensor.concat` and `tensor.pad`
   admitted for word arrays, `++`, `pad` and `grow`'s word meanings naming
   them (L12 in `Spec/Arrays/` and the admitted lists, with L16).
+- From L19ab: a function a pass makes (a copy) has no record, so its own
+  new parameters and its results are compared by nothing beyond
+  quantities-kept; each copying pass states the copy's origin and how its
+  signature was derived from it (L19 §3.3 part 3, I4), and linear-kept
+  compares the copy with its origin's record through that derivation
+  (L19 with the copying passes' owners: L18, L10, L07).
