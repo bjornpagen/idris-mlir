@@ -1153,3 +1153,11 @@ to L16ev. Waiting:
   re-pack after a region op not in tail position is unseen (L19);
   `Tail.cpp`'s tail walk does not look into `index.assume` (sent to
   L10aa with C294).
+- From P8 (proposal upkeep): stale since K03 (landed): §5.2's "`Lattice`
+  and `Summary` concepts, an exact solve and a budgeted one two types
+  (C15)", §5.4's "extract, solve, write back" and "gates as data", §5.5's
+  "gates as data"; since K07: §5.5's "runs and coalescing within D26
+  (C88)" and C88's run decrements; when K11 lands: §5.5's "writes
+  `idr.lifetime.reserve` (C146)"; when K13 lands: C20's two mentions of
+  "gives back" (the coordinator, a second upkeep pass after K10, K11 and
+  K13 land). C305 to C309 are unused numbers.
