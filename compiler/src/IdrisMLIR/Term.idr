@@ -1666,13 +1666,14 @@ tiedExits l ty ds@(_ :: _) dp params body = overTails (tying l ty ds) Outermost 
 ||| What Idris proved of a function instance's loops, which is where the
 ||| divergence of a call through it comes from: every loop through it is
 ||| a loop of the one Idris component (its strongly connected component of
-||| Idris's call graph) named, whose size-change graphs decrease; it is a
-||| function the frontend made with no loop of its own (the program's
-||| root); or some loop through it is not proved to end, by the
-||| definitions named. A function another one's lambda or delay became
-||| takes its owner's.
+||| Idris's call graph) named, whose size-change graphs decrease; or no
+||| proof covers a loop through it, which may then run for ever. A function
+||| another one's lambda or delay became takes its owner's; one the
+||| frontend made with no definition of its own (the program's root, a
+||| dispatch, a member at a use) has no proof, since only a loop through it
+||| asks and no component of Idris's holds that loop.
 public export
-data Termination = Terminates ComponentId | Acyclic | MayDiverge (List1 Shown)
+data Termination = Terminates ComponentId | MayDiverge
 
 ||| What a local definition's value is, as far as a call of it may jump to
 ||| it: `IO`'s, read by `IO`'s identity at its result type (`IOFamily`),
@@ -2004,9 +2005,8 @@ withRegions t [] = t
 withRegions t (m :: ms) = withRegions (both t m.termination) ms
   where
     both : Termination -> Termination -> Termination
-    both (MayDiverge a) (MayDiverge b) = MayDiverge (a ++ b)
-    both (MayDiverge a) _ = MayDiverge a
-    both _ (MayDiverge b) = MayDiverge b
+    both MayDiverge _ = MayDiverge
+    both _ MayDiverge = MayDiverge
     both own _ = own
 
 ||| A group of families: a strongly connected component of the graph of

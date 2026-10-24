@@ -76,8 +76,7 @@ functionOp sym telescope extents type body termination =
   where
     terminates : Term.Termination -> Maybe MlirAttr
     terminates (Terminates c) = Just (Idr (TerminatesAttr (MkComponentProof c.index)))
-    terminates Acyclic = Nothing
-    terminates (MayDiverge _) = Nothing
+    terminates MayDiverge = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.
 public export

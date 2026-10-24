@@ -206,8 +206,9 @@ appliedScope app uses = app.formType :: app.form :: replicate uses (UN (Basic (k
 ||| (`Terms.implementationAt`), on a path of its own, at the type the use
 ||| gives. Its signature, read once where it was requested, is
 ||| `Instances.applicationType` classified, the form's type keying it
-||| first, in the scope `appliedScope` names. It has no loop of its own:
-||| what its form calls is the callee's.
+||| first, in the scope `appliedScope` names. No definition of Idris's is
+||| it, so no proof of Idris's covers a loop through it: what its form
+||| calls is the callee's.
 translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                        (p : Request) -> (uses : Nat) -> (0 _ : length p.signature.kinds = 2 + uses) ->
                        Front ()
@@ -226,7 +227,7 @@ translateApplication p uses counted = do
   loc <- toLoc fc
   extents <- signatureExtents p.signature.kinds p.signature.result
   updateState (derive { fns $= insert p.inst (MkTFn p.key OwnFunction (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
-                                                      extents names body loc Acyclic) })
+                                                      extents names body loc MayDiverge) })
 
 ||| Translates one function instance, of a definition or of a member at a
 ||| use. An instance given an implementation that holds a choice the
@@ -581,9 +582,10 @@ translateIOProgram fc main = do
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
-  -- The root is `unsafePerformIO main`, written as world-passing code. It
-  -- has no loop of its own; what main does is main's, which the passes find
-  -- through the call.
+  -- The root is `unsafePerformIO main`, written as world-passing code. No
+  -- definition of Idris's is it, so no proof of Idris's covers a loop
+  -- through it; what main does is main's, which the passes find through
+  -- the call.
   let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.family.gives)
-                   (MkExtents [[]] []) [shown "world"] body loc Acyclic
+                   (MkExtents [[]] []) [shown "world"] body loc MayDiverge
   pure (Just (assemble st.table root))

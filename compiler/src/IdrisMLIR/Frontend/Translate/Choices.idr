@@ -542,8 +542,8 @@ passed loc choice field (x :: xs) =
 ||| holds is one of the values its parameter holds, taken apart first, and
 ||| the member's own values go after the others, held as one again
 ||| (`heldMember`). A choice with no member is never built, so the
-||| dispatch is never called. It has no loop of its own: what its arms do
-||| is theirs.
+||| dispatch is never called. No definition of Idris's is it, so no proof
+||| of Idris's covers a loop through it: what its arms do is theirs.
 dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch -> Front ()
 dispatcher d = asFunction d.signature d.choice
   where
@@ -625,7 +625,7 @@ dispatcher d = asFunction d.signature d.choice
             pure (matching loc chosen arms)
       extents <- signatureExtents kinds result
       updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) callee
-                                                        extents (map (const (shown "x")) callee.params) body loc Acyclic) })
+                                                        extents (map (const (shown "x")) callee.params) body loc MayDiverge) })
 
 ||| Dispatches in the order of their identities.
 byInstance : Dispatch -> Dispatch -> Ordering
