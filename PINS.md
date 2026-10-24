@@ -1133,17 +1133,23 @@ which the top-level CMake configure gate reads.
 - symptom: on llvm main at 416f328b, One-Shot Bufferize gives an
   out-of-place operand of a tensor-like type that is not a builtin tensor
   no copy, so the op writes a buffer read after it, and its allocation
-  reaches `llvm_unreachable`
+  reaches `llvm_unreachable`; and where it copies a result instead, it gives
+  the copy to every use but the copy's defining op and `tensor.dim`, so an
+  op of a copying hook that reads the result is given the copy it helps
+  make, a cycle
 - sites: the bufferization of graded arrays, `!idr.graded<uses, hold, T>`
-  tensor-like where `T` is (D43, L12)
+  tensor-like where `T` is (D43, L12), whose copy idr-bufferize's hook
+  makes through a cast of the array
 - workaround: `upstream/27-one-shot-tensor-like-copy/llvm.patch`:
-  `BufferizationOptions::tensorAllocationFn` and a copy of every
-  tensor-like out-of-place operand; checked by
-  tests/upstream-one-shot-tensor-like-copy
-- retire: when the pin copies such an operand
+  `BufferizationOptions::tensorAllocationFn`, a copy of every tensor-like
+  out-of-place operand, and the copy of a result given only to the uses the
+  result had before it; checked by tests/upstream-one-shot-tensor-like-copy,
+  a graded array copied at the cast that makes it
+- retire: when the pin copies such an operand, and gives a result's copy
+  only to the result's earlier uses
 - upstream: upstream/27-one-shot-tensor-like-copy; an issue and a pull
   request
-- status (2026-10-21): carried; not filed
+- status (2026-10-23): carried; amended for the copy of a result; not filed
 
 ## tensor-like-per-instance
 

@@ -1,16 +1,27 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# upstream/27-one-shot-tensor-like-copy: an operand of any tensor-like type
-# that bufferizes out of place is given a copy, made by a hook its dialect
-# sets, instead of none. Only the test dialect has a tensor-like type of
-# its own upstream, and the toolchain's mlir-opt builds no test dialect, so
-# the behaviour is the patch's own test, run where upstream runs it; here
-# the installed header of the pinned, patched MLIR declares the hook.
+# upstream/27-one-shot-tensor-like-copy: One-Shot copies a value of any
+# tensor-like type that bufferizes out of place, through a hook its dialect
+# sets, and gives the copy only to the uses the value had before the hook
+# ran. Upstream's only tensor-like type that is not a builtin tensor is the
+# test dialect's, which the toolchain's mlir-opt does not build, so the
+# patch's own tests run where upstream runs them; here the value is a graded
+# array, ours, copied at the cast that makes it (copied-result.mlir). The
+# hook reads the array through a cast of its own, so the module verifies to
+# the end of the first stage only if that cast is not given the copy; and
+# the copy, which the callee writes while the tensor the array was cast from
+# is read after, is in the output, so the hook was reached. At the pin the
+# value gets no copy, and the compiler, which sets the hook, does not build.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-header=$llvm_prefix/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
-if grep -q 'tensorAllocationFn' "$header" 2> /dev/null; then
-  say "BufferizationOptions: a tensor-like value's copy is made by its dialect's hook"
+input=$root/upstream/27-one-shot-tensor-like-copy/copied-result.mlir
+if ! bounded "$idris_mlir_opt" "$input" \
+     --pass-pipeline='builtin.module(idr-pipeline{from=first to=first})' \
+     -o "$work/out.mlir" 2> "$work/err"; then
+  say "a graded array copied at its cast: the module does not verify through bufferization"
+  show "$work/err"
+elif grep -Eq 'idr\.array\.place_copy|memref\.copy' "$work/out.mlir"; then
+  say "a graded array copied at its cast: copied, and the hook's own cast reads the array"
 else
-  say "BufferizationOptions: no hook for a tensor-like value's copy in $header"
+  say "a graded array copied at its cast: no copy in the output, so the hook was not reached"
 fi

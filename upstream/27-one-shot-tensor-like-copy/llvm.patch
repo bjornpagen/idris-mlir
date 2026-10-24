@@ -1,8 +1,8 @@
 diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
-index ffbe870..b32998d 100644
+index bec14ff..0bc9a4f 100644
 --- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
 +++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
-@@ -285,6 +285,13 @@ struct BufferizationOptions {
+@@ -286,6 +286,13 @@ struct BufferizationOptions {
    using ReconcileBufferTypeMismatchFn = std::function<FailureOr<BufferLikeType>(
        BufferLikeType, BufferLikeType, const BufferizationOptions &)>;
  
@@ -16,7 +16,7 @@ index ffbe870..b32998d 100644
    BufferizationOptions();
  
    /// Try to cast the given op to BufferizableOpInterface if the op is allow
-@@ -384,6 +391,14 @@ struct BufferizationOptions {
+@@ -385,6 +392,16 @@ struct BufferizationOptions {
    /// memory-space mismatch.
    ReconcileBufferTypeMismatchFn reconcileBufferTypeMismatchFn = nullptr;
  
@@ -24,18 +24,28 @@ index ffbe870..b32998d 100644
 +  /// tensor, where an OpOperand of that type, or the one alias of an OpOperand
 +  /// that the op does not write, bufferizes out-of-place: the copy that is
 +  /// used instead, or a new tensor where the copy can be omitted. A builtin
-+  /// tensor is allocated with `bufferization.alloc_tensor`. The default fails
-+  /// with an error that names the type.
++  /// tensor is allocated with `bufferization.alloc_tensor`. The ops the hook
++  /// builds may read the value: only the uses the value had before the hook
++  /// ran are given the copy. The default fails with an error that names the
++  /// type.
 +  TensorAllocationFn tensorAllocationFn = nullptr;
 +
    /// If set to `true`, the analysis is skipped. A buffer is copied before every
    /// write. This flag cannot be used together with `testAnalysisOnly = true`.
    bool copyBeforeWrite = false;
 diff --git a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
-index 1acc98f..5f478ef 100644
+index e39b204..5bf038c 100644
 --- a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
 +++ b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
-@@ -161,11 +161,10 @@ Operation *bufferization::getOwnerOfValue(Value value) {
+@@ -11,7 +11,6 @@
+ #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+ #include "mlir/Dialect/Func/IR/FuncOps.h"
+ #include "mlir/Dialect/MemRef/IR/MemRef.h"
+-#include "mlir/Dialect/Tensor/IR/Tensor.h"
+ #include "mlir/IR/AsmState.h"
+ #include "mlir/IR/Operation.h"
+ #include "mlir/IR/TypeUtilities.h"
+@@ -161,11 +160,10 @@ Operation *bufferization::getOwnerOfValue(Value value) {
    return llvm::cast<BlockArgument>(value).getOwner()->getParentOp();
  }
  
@@ -49,7 +59,7 @@ index 1acc98f..5f478ef 100644
  FailureOr<Value> bufferization::allocateTensorForShapedValue(
      OpBuilder &b, Location loc, Value shapedValue,
      const BufferizationOptions &options, const BufferizationState &state,
-@@ -181,8 +180,10 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
+@@ -181,8 +179,10 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
               llvm::isa<UnrankedMemRefType>(shapedValue.getType())) {
      return getOwnerOfValue(shapedValue)
          ->emitError("copying of unranked tensors is not implemented");
@@ -61,7 +71,7 @@ index 1acc98f..5f478ef 100644
    }
    RankedTensorType tensorType = llvm::cast<RankedTensorType>(tensor.getType());
    SmallVector<Value> dynamicSizes;
-@@ -232,8 +233,6 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
+@@ -232,8 +232,6 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
    return allocTensorOp.getResult();
  }
  
@@ -70,7 +80,7 @@ index 1acc98f..5f478ef 100644
  LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
      RewriterBase &rewriter, const AnalysisState &analysisState,
      const BufferizationState &bufferizationState) {
-@@ -247,7 +246,7 @@ LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
+@@ -247,7 +245,7 @@ LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
    // Find all out-of-place OpOperands.
    for (OpOperand &opOperand : op->getOpOperands()) {
      Type operandType = opOperand.get().getType();
@@ -79,7 +89,37 @@ index 1acc98f..5f478ef 100644
        continue;
      if (analysisState.isInPlace(opOperand))
        continue;
-@@ -429,6 +428,16 @@ defaultReconcileBufferTypeMismatch(BufferLikeType x, BufferLikeType y,
+@@ -296,23 +294,18 @@ LogicalResult BufferizableOpInterface::resolveTensorOpOperandConflicts(
+   // Insert copies of Values.
+   rewriter.setInsertionPointAfter(op);
+   for (Value value : outOfPlaceValues) {
++    // The uses that read the copy are the ones the value has before it is
++    // made. The ops that make the copy (the copy itself, the tensor.dim ops of
++    // its dynamic extents, any op of `tensorAllocationFn`) read the value.
++    SmallVector<OpOperand *> uses = llvm::map_to_vector(
++        value.getUses(), [](OpOperand &use) { return &use; });
+     FailureOr<Value> copy = allocateTensorForShapedValue(
+         rewriter, op->getLoc(), value, analysisState.getOptions(),
+         bufferizationState, copiedOpValues.count(value));
+     if (failed(copy))
+       return failure();
+-    SmallVector<OpOperand *> uses = llvm::map_to_vector(
+-        value.getUses(), [](OpOperand &use) { return &use; });
+-    for (OpOperand *use : uses) {
+-      // Do not update the alloc_tensor op that we just created.
+-      if (use->getOwner() == copy->getDefiningOp())
+-        continue;
+-      // tensor.dim ops may have been created to be used as alloc_tensor op
+-      // dynamic extents. Do not update these either.
+-      if (isa<tensor::DimOp>(use->getOwner()))
+-        continue;
++    for (OpOperand *use : uses)
+       rewriter.modifyOpInPlace(use->getOwner(), [&]() { use->set(*copy); });
+-    }
+   }
+ 
+   return success();
+@@ -429,6 +422,16 @@ defaultReconcileBufferTypeMismatch(BufferLikeType x, BufferLikeType y,
        xMemRef.getShape(), xMemRef.getElementType(), xMemRef.getMemorySpace()));
  }
  
@@ -96,7 +136,7 @@ index 1acc98f..5f478ef 100644
  } // namespace
  
  // Default constructor for BufferizationOptions.
-@@ -437,7 +446,8 @@ BufferizationOptions::BufferizationOptions()
+@@ -437,7 +440,8 @@ BufferizationOptions::BufferizationOptions()
        castFn(defaultCreateCast),
        functionArgTypeConverterFn(defaultFunctionArgTypeConverter),
        unknownTypeConverterFn(defaultUnknownTypeConverter),
@@ -126,3 +166,186 @@ index 0000000..8043e0e
 +    -> !test.test_tensor<[4], f64>
 +  return %out, %arg : !test.test_tensor<[4], f64>, !test.test_tensor<[4], f64>
 +}
+diff --git a/mlir/test/Dialect/Bufferization/Transforms/tensor-copy-insertion-tensor-like.mlir b/mlir/test/Dialect/Bufferization/Transforms/tensor-copy-insertion-tensor-like.mlir
+new file mode 100644
+index 0000000..43bca31
+--- /dev/null
++++ b/mlir/test/Dialect/Bufferization/Transforms/tensor-copy-insertion-tensor-like.mlir
+@@ -0,0 +1,23 @@
++// RUN: mlir-opt %s -test-tensor-copy-insertion=copy-test-tensors | FileCheck %s
++
++// The cast's operand bufferizes out-of-place: in place, the op would write the
++// function argument, which is not writable. The cast writes nothing, so its
++// result is copied instead, by BufferizationOptions::tensorAllocationFn, which
++// the test pass sets to copy a test tensor between two casts. The copy's first
++// cast reads the result, and only the uses the result had before its copy read
++// the copy.
++
++// CHECK-LABEL: func @copy_of_result(
++//  CHECK-SAME:     %[[arg:.*]]: tensor<4xf64>
++//       CHECK:   %[[cast:.*]] = test.tensor_like_cast %[[arg]] : tensor<4xf64> to !test.test_tensor<[4], f64>
++//       CHECK:   %[[plain:.*]] = test.tensor_like_cast %[[cast]] : !test.test_tensor<[4], f64> to tensor<4xf64>
++//       CHECK:   %[[alloc:.*]] = bufferization.alloc_tensor() copy(%[[plain]]) : tensor<4xf64>
++//       CHECK:   %[[copy:.*]] = test.tensor_like_cast %[[alloc]] : tensor<4xf64> to !test.test_tensor<[4], f64>
++//       CHECK:   %[[out:.*]] = "test.dummy_tensor_op"(%[[copy]])
++//       CHECK:   return %[[out]]
++func.func @copy_of_result(%arg: tensor<4xf64>) -> !test.test_tensor<[4], f64> {
++  %cast = test.tensor_like_cast %arg : tensor<4xf64> to !test.test_tensor<[4], f64>
++  %out = "test.dummy_tensor_op"(%cast) : (!test.test_tensor<[4], f64>)
++    -> !test.test_tensor<[4], f64>
++  return %out : !test.test_tensor<[4], f64>
++}
+diff --git a/mlir/test/lib/Dialect/Bufferization/TestTensorCopyInsertion.cpp b/mlir/test/lib/Dialect/Bufferization/TestTensorCopyInsertion.cpp
+index 97b9287..9c01091 100644
+--- a/mlir/test/lib/Dialect/Bufferization/TestTensorCopyInsertion.cpp
++++ b/mlir/test/lib/Dialect/Bufferization/TestTensorCopyInsertion.cpp
+@@ -6,11 +6,15 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
++#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+ #include "mlir/Dialect/Bufferization/IR/BufferizationDialect.h"
+ #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+ #include "mlir/Dialect/Bufferization/Transforms/Transforms.h"
+ #include "mlir/Pass/Pass.h"
+ 
++#include "TestDialect.h"
++#include "TestOps.h"
++
+ using namespace mlir;
+ 
+ namespace {
+@@ -34,6 +38,7 @@ struct TestTensorCopyInsertionPass
+ 
+   void getDependentDialects(DialectRegistry &registry) const override {
+     registry.insert<bufferization::BufferizationDialect>();
++    registry.insert<test::TestDialect>();
+   }
+   StringRef getArgument() const final { return "test-tensor-copy-insertion"; }
+   StringRef getDescription() const final {
+@@ -50,6 +55,27 @@ struct TestTensorCopyInsertionPass
+         return std::nullopt;
+       };
+     }
++    if (copyTestTensors) {
++      // A test tensor is copied as the builtin tensor of its shape, between
++      // two casts, so the value is read by an op that is not the one that
++      // defines its copy.
++      options.tensorAllocationFn =
++          [](OpBuilder &b, Location loc, Value value, bool copy,
++             const bufferization::BufferizationOptions &) -> FailureOr<Value> {
++        auto testTensor = cast<test::TestTensorType>(value.getType());
++        auto tensor = RankedTensorType::get(testTensor.getShape(),
++                                            testTensor.getElementType());
++        Value source;
++        if (copy)
++          source = test::TestTensorLikeCastOp::create(b, loc, tensor, value)
++                       .getResult();
++        Value alloc = bufferization::AllocTensorOp::create(
++                          b, loc, tensor, /*dynamicSizes=*/ValueRange(), source)
++                          .getResult();
++        return test::TestTensorLikeCastOp::create(b, loc, testTensor, alloc)
++            .getResult();
++      };
++    }
+ 
+     bufferization::BufferizationState bufferizationState;
+ 
+@@ -71,6 +97,11 @@ struct TestTensorCopyInsertionPass
+           "The memory space of an memref types must always be inferred. If "
+           "unset, a default memory space of 0 is used otherwise."),
+       llvm::cl::init(false)};
++  Option<bool> copyTestTensors{
++      *this, "copy-test-tensors",
++      llvm::cl::desc("Copy a test tensor as the builtin tensor of its shape, "
++                     "between two test.tensor_like_cast ops."),
++      llvm::cl::init(false)};
+ };
+ } // namespace
+ 
+diff --git a/mlir/test/lib/Dialect/Test/TestOpDefs.cpp b/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
+index 57cd56f..7fcf279 100644
+--- a/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
++++ b/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
+@@ -2302,6 +2302,36 @@ test::TestForceNewLayoutOp::getBufferType(
+       .Default([&](Type) { return emitError("unknown type"); });
+ }
+ 
++LogicalResult test::TestTensorLikeCastOp::bufferize(
++    RewriterBase &rewriter, const bufferization::BufferizationOptions &options,
++    bufferization::BufferizationState &state) {
++  auto buffer = bufferization::getBuffer(rewriter, getSource(), options, state);
++  if (failed(buffer))
++    return failure();
++
++  const auto bufferizedDestType =
++      bufferization::getBufferType(getDest(), options, state);
++  if (failed(bufferizedDestType))
++    return failure();
++
++  auto dummyCastOp = test::TestDummyCastOp::create(
++      rewriter, getLoc(), *bufferizedDestType, *buffer);
++  bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
++                                               dummyCastOp.getResult());
++  return success();
++}
++
++FailureOr<bufferization::BufferLikeType>
++test::TestTensorLikeCastOp::getBufferType(
++    mlir::Value value, const bufferization::BufferizationOptions &options,
++    const bufferization::BufferizationState &,
++    llvm::SmallVector<::mlir::Value> &) {
++  // The unknown type converter gives every tensor-like type its buffer type,
++  // as it does for the other test ops.
++  return options.unknownTypeConverterFn(
++      cast<bufferization::TensorLikeType>(value.getType()), nullptr, options);
++}
++
+ // Define a custom builder for ManyRegionsOp declared in TestOps.td.
+ //  OpBuilder<(ins "::std::unique_ptr<::mlir::Region>":$firstRegion,
+ //                 "::std::unique_ptr<::mlir::Region>":$secondRegion)>
+diff --git a/mlir/test/lib/Dialect/Test/TestOps.td b/mlir/test/lib/Dialect/Test/TestOps.td
+index 0a64885..d9ef567 100644
+--- a/mlir/test/lib/Dialect/Test/TestOps.td
++++ b/mlir/test/lib/Dialect/Test/TestOps.td
+@@ -4831,6 +4831,40 @@ def TestDummyCastOp : TEST_Op<"dummy_cast_op", []> {
+   let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
+ }
+ 
++def TestTensorLikeCastOp
++    : TEST_Op<"tensor_like_cast",
++              [DeclareOpInterfaceMethods<
++                  BufferizableOpInterface,
++                  ["bufferize", "getBufferType", "bufferizesToMemoryRead",
++                   "bufferizesToMemoryWrite", "getAliasingValues"]>]> {
++  let description = [{
++    The same tensor at another tensor-like type. It neither reads nor writes
++    the buffer of its operand, whose buffer is its result's, and bufferizes to
++    a `test.dummy_cast_op` of that buffer.
++  }];
++
++  let arguments = (ins Bufferization_TensorLikeTypeInterface:$source);
++  let results = (outs Bufferization_TensorLikeTypeInterface:$dest);
++  let assemblyFormat = "$source attr-dict `:` type($source) `to` type($dest)";
++
++  let extraClassDefinition = [{
++    bool test::TestTensorLikeCastOp::bufferizesToMemoryRead(::mlir::OpOperand&,
++        const ::mlir::bufferization::AnalysisState&) {
++      return false;
++    }
++    bool test::TestTensorLikeCastOp::bufferizesToMemoryWrite(
++        ::mlir::OpOperand&, const ::mlir::bufferization::AnalysisState&) {
++      return false;
++    }
++    ::mlir::bufferization::AliasingValueList
++    test::TestTensorLikeCastOp::getAliasingValues(::mlir::OpOperand&,
++        const ::mlir::bufferization::AnalysisState&) {
++      return {{getDest(), ::mlir::bufferization::BufferRelation::Equivalent,
++               /*isDefinite=*/true}};
++    }
++  }];
++}
++
+ //===----------------------------------------------------------------------===//
+ // Test assembly format references
+ //===----------------------------------------------------------------------===//
