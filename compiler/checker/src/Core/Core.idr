@@ -199,9 +199,6 @@ data Error : Type where
      CyclicImports : List ModuleIdent -> Error
      ForceNeeded : Error
      InternalError : String -> Error
-     ||| A quote within a depth went deeper; caught by `quoteWithin`
-     ||| alone, and never reported.
-     QuoteTooDeep : Error
      UserError : String -> Error
      ||| Contains list of specifiers for which foreign call cannot be resolved
      NoForeignCC : FC -> List String -> Error
@@ -410,7 +407,6 @@ mutual
       = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
   showError ForceNeeded = "Internal error when resolving implicit laziness"
   showError (InternalError str) = "INTERNAL ERROR: " ++ str
-  showError QuoteTooDeep = "Quote too deep"
   showError (UserError str) = "Error: " ++ str
   showError (NoForeignCC fc specs) = show fc ++
        ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
@@ -530,7 +526,6 @@ getErrorLoc (ModuleNotFound loc _) = Just loc
 getErrorLoc (CyclicImports _) = Nothing
 getErrorLoc ForceNeeded = Nothing
 getErrorLoc (InternalError _) = Nothing
-getErrorLoc QuoteTooDeep = Nothing
 getErrorLoc (UserError _) = Nothing
 getErrorLoc (NoForeignCC loc _) = Just loc
 getErrorLoc (BadMultiline loc _) = Just loc
@@ -621,7 +616,6 @@ killErrorLoc (ModuleNotFound fc x) = ModuleNotFound emptyFC x
 killErrorLoc (CyclicImports xs) = CyclicImports xs
 killErrorLoc ForceNeeded = ForceNeeded
 killErrorLoc (InternalError x) = InternalError x
-killErrorLoc QuoteTooDeep = QuoteTooDeep
 killErrorLoc (UserError x) = UserError x
 killErrorLoc (NoForeignCC fc xs) = NoForeignCC emptyFC xs
 killErrorLoc (BadMultiline fc x) = BadMultiline emptyFC x

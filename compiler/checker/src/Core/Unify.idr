@@ -177,24 +177,38 @@ record Grown where
   later : ClosedTerm
   hints : List Name
 
-||| What a step of the automatic search gives when it does not fail: what it
-||| found, or the growth that stopped it. A failure is the search's error, a
-||| branch its combinators catch and try past; a growth is a value, so no
-||| combinator can catch it as a failure and let a sibling answer instead:
-||| each passes it up, and the whole search ends with it.
+||| A search that met a goal again: a later goal of one of its paths
+||| convertible with an earlier one. The search finds nothing there for the
+||| goal it sought, which is closed and read in the context the search had
+||| when it met the repeat.
+public export
+record Repeat where
+  constructor MkRepeat
+  context : Context
+  sought : ClosedTerm
+
+||| What a step of the automatic search gives when it throws no error: what
+||| it found, a goal it repeated, or the growth that stopped it. A repeat
+||| fails the step, as upstream's cycle check does, and as an error does:
+||| each of the search's choices undoes it and tries what else it has. A
+||| growth fails nothing, so no choice can let a sibling answer instead:
+||| each passes it up, and the whole search ends with it. All three are
+||| values, so every combinator passes each up by its type.
 public export
 data Searched : Type -> Type where
   Found : a -> Searched a
+  Repeated : Repeat -> Searched a
   Grows : Grown -> Searched a
 
 export
 Functor Searched where
   map f (Found a) = Found (f a)
+  map f (Repeated r) = Repeated r
   map f (Grows g) = Grows g
 
--- Defined in Core.AutoSearch. A growth leaves nothing of the search behind:
--- the unknowns and solutions its steps made are undone, so the search is
--- retried, or refused, whole.
+-- Defined in Core.AutoSearch. A search that finds nothing, by a repeat or a
+-- growth, leaves nothing of itself behind: the unknowns and solutions its
+-- steps made are undone, so the search is retried, or refused, whole.
 export
 search : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
@@ -1629,6 +1643,10 @@ retryGuess mode smode (hid, (loc, hname))
                                ignore $ addDef (Resolved hid) gdef
                                removeGuess hid
                                pure True
+                          -- Here, where the search is retried or refused, a
+                          -- repeat is the failure it stands for.
+                          Repeated r => failed rig def
+                                          (CantSolveGoal loc r.context Env.empty r.sought Nothing)
                           Grows g => grown def g
                Guess tm envb [constr] =>
                  do let umode = case smode of

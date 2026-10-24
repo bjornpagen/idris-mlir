@@ -121,7 +121,6 @@ mutual
   eqError (CyclicImports xs1) (CyclicImports xs2) = xs1 == xs2
   eqError ForceNeeded ForceNeeded = True
   eqError (InternalError x1) (InternalError x2) = x1 == x2
-  eqError QuoteTooDeep QuoteTooDeep = True
   eqError (UserError x1) (UserError x2) = x1 == x2
   eqError (NoForeignCC fc1 xs1) (NoForeignCC fc2 xs2) = fc1 == fc2 && xs1 == xs2
   eqError (BadMultiline fc1 x1) (BadMultiline fc2 x2) = fc1 == fc2 && x1 == x2
@@ -779,7 +778,6 @@ perrorRaw (CyclicImports ns)
         <++> concatWith (surround " -> ") (pretty0 <$> ns)
 perrorRaw ForceNeeded = pure $ errorDesc (reflow "Internal error when resolving implicit laziness")
 perrorRaw (InternalError str) = pure $ errorDesc (reflow "INTERNAL ERROR" <+> colon) <++> pretty0 str
-perrorRaw QuoteTooDeep = pure $ errorDesc (reflow "Quote too deep")
 perrorRaw (UserError str) = pure . errorDesc $ pretty0 str
 perrorRaw (NoForeignCC fc specs) = do
     let cgs = fst <$> availableCGs (options !(get Ctxt))

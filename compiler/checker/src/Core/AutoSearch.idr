@@ -8,7 +8,6 @@ import Core.Normalise
 import Core.Unify
 import Core.Value
 
-import Data.Either
 import Data.Maybe
 
 import Libraries.Data.NatSet
@@ -17,25 +16,57 @@ import Libraries.Data.WithDefault
 
 %default covering
 
+-- Why a step of the search found nothing: the error it threw, or the goal
+-- it repeated.
+data Failure = Threw Error | Repeats Repeat
+
+-- A step's failure, given where it is what the search gives.
+missed : Failure -> Core (Searched a)
+missed (Threw err) = throw err
+missed (Repeats r) = pure (Repeated r)
+
+-- A step of the search, and what to try when it finds nothing. However it
+-- finds nothing, by an error or a repeat, the state it made is undone
+-- before the next is tried.
+orElse : {auto c : Ref Ctxt Defs} ->
+         {auto u : Ref UST UState} ->
+         Core (Searched a) -> (Failure -> Core (Searched a)) -> Core (Searched a)
+orElse step next
+    = do ust <- get UST
+         defs <- branch
+         Right searched <- the (Core (Either Failure (Searched a))) $
+                             catch (do searched <- step
+                                       case searched of
+                                            Repeated r => pure (Left (Repeats r))
+                                            _ => do commit
+                                                    pure (Right searched))
+                                   (\err => pure (Left (Threw err)))
+           | Left failure => do put UST ust
+                                defs' <- get Ctxt
+                                put Ctxt ({ timings := timings defs' } defs)
+                                next failure
+         pure searched
+
 tryUnifyUnambig' : {auto c : Ref Ctxt Defs} ->
                    {auto u : Ref UST UState} ->
                    {default False preferLeftError : Bool} ->
-                   Core a -> (Error -> Core a) -> Core a
-tryUnifyUnambig' left right = handleUnify left $ \case
-  e@(AmbiguousSearch {}) => throw e
-  e                      => if preferLeftError
-                              then tryUnify (right e) (throw e)
-                              else right e
+                   Core (Searched a) -> (Failure -> Core (Searched a)) ->
+                   Core (Searched a)
+tryUnifyUnambig' left right = orElse left $ \case
+  Threw e@(AmbiguousSearch {}) => throw e
+  failure                      => if preferLeftError
+                                    then orElse (right failure) (\_ => missed failure)
+                                    else right failure
 
 tryUnifyUnambig : {auto c : Ref Ctxt Defs} ->
                   {auto u : Ref UST UState} ->
                   {default False preferLeftError : Bool} ->
-                  Core a -> Core a -> Core a
+                  Core (Searched a) -> Core (Searched a) -> Core (Searched a)
 tryUnifyUnambig left right = tryUnifyUnambig' {preferLeftError} left $ const right
 
 tryNoDefaultsFirst : {auto c : Ref Ctxt Defs} ->
                      {auto u : Ref UST UState} ->
-                     (Bool -> Core a) -> Core a
+                     (Bool -> Core (Searched a)) -> Core (Searched a)
 tryNoDefaultsFirst f = tryUnifyUnambig {preferLeftError=True} (f False) (f True)
 
 SearchEnv : Scoped
@@ -212,15 +243,16 @@ grownFrom fam shapes track = scan (viaHints track.via) track.visited
              then Just (v, hints)
              else scan (viaHints v.reachedBy ++ hints) vs
 
--- One step of the search after another; a growth ends the search where it
--- is met, and what would have come after does not run.
+-- One step of the search after another; a repeat or a growth ends the path
+-- where it is met, and what would have come after does not run.
 andThen : Core (Searched a) -> (a -> Core (Searched b)) -> Core (Searched b)
 andThen step next
     = step >>= \case
          Found x => next x
+         Repeated r => pure (Repeated r)
          Grows g => pure (Grows g)
 
--- Each in turn, until one grows.
+-- Each in turn, until one repeats or grows.
 searchEach : (a -> Core (Searched ())) -> List a -> Core (Searched ())
 searchEach f [] = pure (Found ())
 searchEach f (x :: xs) = andThen (f x) $ \_ => searchEach f xs
@@ -310,13 +342,14 @@ searchIfHole fc defaults trying ispair track def top env arg
                              | _ => throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
                          pure (Found ())
 
--- Each alternative from the same state, with what each found and the
--- state it ended in; the first that grows ends them all.
+-- Each alternative from the same state, with what each that found something
+-- found and the state it ended in; one that fails, by an error or a repeat,
+-- finds nothing, and the first that grows ends them all.
 successful : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              List (Core (Searched (Term vars))) ->
-             Core (Searched (List (Either Error (Term vars, Defs, UState))))
+             Core (Searched (List (Term vars, Defs, UState)))
 successful [] = pure (Found [])
 successful (elab :: elabs)
     = do ust <- get UST
@@ -331,12 +364,13 @@ successful (elab :: elabs)
                    put Ctxt defs
                    case searched of
                         Grows g => pure (Grows g)
+                        Repeated _ => successful elabs
                         Found res =>
                           -- Record success, and the state we ended at
-                          map (Right (res, defs', ust') ::) <$> successful elabs)
+                          map ((res, defs', ust') ::) <$> successful elabs)
                (\err => do put UST ust
                            put Ctxt defs
-                           map (Left err ::) <$> successful elabs)
+                           successful elabs)
 
 anyOne : {auto c : Ref Ctxt Defs} ->
          {auto u : Ref UST UState} ->
@@ -351,7 +385,7 @@ anyOne fc env top [elab]
            err@(AmbiguousSearch {}) => throw err
            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
 anyOne fc env top (elab :: elabs)
-    = tryUnify elab (anyOne fc env top elabs)
+    = orElse elab (\_ => anyOne fc env top elabs)
 
 exactlyOne : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
@@ -366,7 +400,7 @@ exactlyOne fc env top target [elab]
            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
 exactlyOne {vars} fc env top target all
     = andThen (successful all) $ \elabs =>
-        case nubBy ((==) `on` fst) $ rights elabs of
+        case nubBy ((==) `on` fst) elabs of
              [(res, defs, ust)] =>
                    do put UST ust
                       put Ctxt defs
@@ -693,19 +727,20 @@ checkConcreteDets fc defaults env top (NTCon tfc tyn a args)
 checkConcreteDets fc defaults env top _
     = pure ()
 
--- A goal convertible with one before it on its path repeats it: that step
--- fails, as an ordinary failure, and the search tries what else it has.
+-- A goal convertible with one before it on its path repeats it: the step
+-- finds nothing there for the goal sought, and the search tries what else
+-- it has.
 abandonIfCycle : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 FC -> ClosedTerm ->
+                 ClosedTerm ->
                  Env Term vars -> Term vars -> List (Term vars) ->
-                 Core ()
-abandonIfCycle fc top env tm [] = pure ()
-abandonIfCycle fc top env tm (ty :: tys)
+                 Core (Searched ())
+abandonIfCycle top env tm [] = pure (Found ())
+abandonIfCycle top env tm (ty :: tys)
     = do defs <- get Ctxt
          if !(convert defs env tm ty)
-            then throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
-            else abandonIfCycle fc top env tm tys
+            then pure (Repeated (MkRepeat (gamma defs) top))
+            else abandonIfCycle top env tm tys
 
 -- Declared at the top
 searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Pi fc' c p ty) sc)
@@ -718,27 +753,27 @@ searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Le
                    (b :: env) sc
 searchType {vars} fc rigc defaults trying track def checkdets top env target
     = do defs <- get Ctxt
-         abandonIfCycle fc top env target trying
-         let trying' = target :: trying
-         nty <- nf defs env target
-         case nty of
-              NTCon tfc tyn a args =>
-                  if a == length args
-                     then do logNF "auto" 10 "Next target" env nty
-                             andThen (visit tyn (map snd args)) $ \track' =>
-                               do sd <- getSearchData fc defaults tyn
-                                  -- Check determining arguments are okay for 'args'
-                                  when checkdets $
-                                      checkConcreteDets fc defaults env top
-                                                        (NTCon tfc tyn a args)
-                                  if defaults && checkdets
-                                     then tryGroups track' Nothing nty (hintGroups sd)
-                                     else tryUnifyUnambig
-                                            (searchLocalVars fc rigc defaults trying' track' def top env nty)
-                                            (tryGroups track' Nothing nty (hintGroups sd))
-                     else throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
-              _ => do logNF "auto" 10 "Next target: " env nty
-                      searchLocalVars fc rigc defaults trying' track def top env nty
+         andThen (abandonIfCycle top env target trying) $ \_ =>
+           do let trying' = target :: trying
+              nty <- nf defs env target
+              case nty of
+                   NTCon tfc tyn a args =>
+                       if a == length args
+                          then do logNF "auto" 10 "Next target" env nty
+                                  andThen (visit tyn (map snd args)) $ \track' =>
+                                    do sd <- getSearchData fc defaults tyn
+                                       -- Check determining arguments are okay for 'args'
+                                       when checkdets $
+                                           checkConcreteDets fc defaults env top
+                                                             (NTCon tfc tyn a args)
+                                       if defaults && checkdets
+                                          then tryGroups track' Nothing nty (hintGroups sd)
+                                          else tryUnifyUnambig
+                                                 (searchLocalVars fc rigc defaults trying' track' def top env nty)
+                                                 (tryGroups track' Nothing nty (hintGroups sd))
+                          else throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
+                   _ => do logNF "auto" 10 "Next target: " env nty
+                           searchLocalVars fc rigc defaults trying' track def top env nty
   where
     -- The path rule, before the goal is taken up: an earlier goal of the
     -- same type constructor that embeds in this one stops the search (the
@@ -757,13 +792,13 @@ searchType {vars} fc rigc defaults trying track def checkdets top env target
                                      else Settled in
                          pure (Grows (MkGrown growth (gamma defs) earlier.goal goal hints))
 
-    -- Take the earliest error message (that's when we look inside pairs,
+    -- Take the earliest failure (that's when we look inside pairs,
     -- typically, and it's best to be more precise)
-    tryGroups : Track -> Maybe Error ->
+    tryGroups : Track -> Maybe Failure ->
                 NF vars -> List (Bool, List Name) -> Core (Searched (Term vars))
-    tryGroups track' (Just err) nty [] = throw err
+    tryGroups track' (Just failure) nty [] = missed failure
     tryGroups track' Nothing nty [] = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing)
-    tryGroups track' merr nty ((ambigok, g) :: gs)
+    tryGroups track' earliest nty ((ambigok, g) :: gs)
         = tryUnifyUnambig'
              (do logC "auto" 5
                         (do gn <- traverse getFullName g
@@ -772,7 +807,7 @@ searchType {vars} fc rigc defaults trying track def checkdets top env target
                  logNF "auto" 5 "For target" env nty
                  tryNoDefaultsFirst $ \d =>
                    searchNames fc rigc d (target :: trying) track' def top env ambigok g nty)
-             (\err => tryGroups track' (Just $ fromMaybe err merr) nty gs)
+             (\failure => tryGroups track' (Just $ fromMaybe failure earliest) nty gs)
 
 -- Declared in Core.Unify as:
 -- search : {vars : _} ->
@@ -795,9 +830,10 @@ Core.Unify.search fc rigc defaults def top env
                 do commit
                    logTermNF "auto" 3 "Result" env tm
                    pure (Found tm)
-              -- The unknowns and solutions the growing path made go with it.
-              Grows g =>
+              -- A search that found nothing, by a repeat or a growth, takes
+              -- the unknowns and solutions its paths made with it.
+              nothing =>
                 do put UST ust
                    defs' <- get Ctxt
                    put Ctxt ({ timings := timings defs' } defs)
-                   pure (Grows g)
+                   pure nothing

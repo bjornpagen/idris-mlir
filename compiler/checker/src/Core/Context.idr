@@ -1033,7 +1033,6 @@ HasNames Error where
   full gam (CyclicImports xs) = pure (CyclicImports xs)
   full gam ForceNeeded = pure ForceNeeded
   full gam (InternalError x) = pure (InternalError x)
-  full gam QuoteTooDeep = pure QuoteTooDeep
   full gam (UserError x) = pure (UserError x)
   full gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   full gam (BadMultiline fc x) = pure (BadMultiline fc x)
@@ -1133,7 +1132,6 @@ HasNames Error where
   resolved gam (CyclicImports xs) = pure (CyclicImports xs)
   resolved gam ForceNeeded = pure ForceNeeded
   resolved gam (InternalError x) = pure (InternalError x)
-  resolved gam QuoteTooDeep = pure QuoteTooDeep
   resolved gam (UserError x) = pure (UserError x)
   resolved gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   resolved gam (BadMultiline fc x) = pure (BadMultiline fc x)
