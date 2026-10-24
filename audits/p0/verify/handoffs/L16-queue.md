@@ -1312,3 +1312,10 @@ to L16ev. Waiting:
   readers; L16 with L17, after L16ey). For review: §2.3's freeze is made
   from the reading, since decoding is a `Core` action and freezing first
   would decode every loaded entry (CB-4's cost).
+- From L12af (c9a724517): `builtStateHolds` may decide a memo cell
+  unforced past a force through a reindex, a match binding or a call (a
+  likely miscompile, by reading; dispatched as L14ag, through the memo
+  state the effect query states); `takenRegionOf` (`OpsMatch.cpp`) reads
+  the scrutinee's constructor without casts (L14ag); `eraseGiven` asks
+  `givenSmall` again at each step and CaptureDrops' `eraseRegrades` walks
+  the same chain with its own loop (L12: read `throughGrades`' chain once).
