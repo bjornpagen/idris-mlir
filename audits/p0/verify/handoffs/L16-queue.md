@@ -846,3 +846,7 @@ askers in callersOf, Settle's removed proof). Waiting:
   become types (D112.2; L17, after L17bd); `Constants.cpp:245-262` and
   `EGraph/Values.cpp:509-520` read upstream attributes through
   `ConstantAttrInterface` once L03 declares it (L13, L14).
+- From L04z: one `dyn_cast<DataType>` remains in `families::namedBy`
+  (`Layout/Classes.cpp`) until `IndexedTypeInterface` declares the method
+  that answers it, in the specification (L04 with L03, after the running
+  specification lanes land).
