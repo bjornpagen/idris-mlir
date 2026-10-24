@@ -1,5 +1,5 @@
-specification 26b2ef7a236caed6
-generator b5944f06058dd518
+specification cb69809f990d765a
+generator f41c124ebea1f7d8
 ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 24ff994f5407b66b foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 41eb9802a449092b foreign/idr/include/idr/IR/Generated/IdrTypes.td
@@ -18,8 +18,9 @@ a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
 34e058edf5f00de8 foreign/idr/include/idr/IR/Generated/IdrAdmittedLinalg.td
 923dee25523f7992 foreign/idr/include/idr/IR/Generated/IdrAdmittedBufferization.td
 84e83153b09209e0 foreign/idr/include/idr/IR/Generated/IdrAdmittedSCF.td
+746daf894f7601da foreign/idr/include/idr/IR/Generated/IdrBuiltinEntries.td
 d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
-200dcab686d2b2f2 foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
+80b03d6a86af45de foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
 55c584f288af8c58 foreign/idr/include/idr/IR/Generated/WrittenDialects.h.inc
 429296596c0c8835 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
@@ -62,6 +63,6 @@ be6d7fa54983ad20 foreign/idr/include/idr/IR/Generated/NumericEnums.h.inc
 b135473c4ae3ece4 foreign/idr/include/idr/IR/Generated/FileTimes.h.inc
 fbffe30a4c38c232 foreign/idr/include/idr/IR/Generated/Carry.h.inc
 1638c7e6283b82ee compiler/src/IdrisMLIR/Dialect/Idr.idr
-bd944d35e8120ba0 compiler/src/IdrisMLIR/Encoding/Wire.idr
-15363b75bb622d57 compiler/src/IdrisMLIR/Encoding/Idr.idr
+1f51b95eb94d3df1 compiler/src/IdrisMLIR/Encoding/Wire.idr
+d22b46639b2adbf7 compiler/src/IdrisMLIR/Encoding/Idr.idr
 64200cd5ab05bdef compiler/spec/spec.ipkg

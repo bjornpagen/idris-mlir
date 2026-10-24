@@ -16,10 +16,13 @@
 # record gives it, over its syntax); and, for a dialect whose types and
 # attributes the bytecode writer encodes, its entries,
 # compiler/src/IdrisMLIR/Encoding/<Name>.idr (-gen-idris-bytecode: the code
-# and the parts of each of its records), from its bytecode records, the
-# ones mlir-tblgen -gen-bytecode reads for its C++ reader. Which ops a
-# dialect's modules hold is the specification's, read from its records, so
-# upstream's ODS given alone would leave them none. The idr dialect's own
+# and the parts of each record the frontend writes), from the entries file
+# the specification writes for it (Idr<Name>Entries.td beside the admitted
+# record file, which includes the dialect's bytecode records, the ones
+# mlir-tblgen -gen-bytecode reads for its C++ reader, and holds one record
+# per entry the frontend writes). Which ops, types and attributes a dialect's modules
+# hold is the specification's, read from its records, so upstream's ODS
+# given alone would leave them none. The idr dialect's own
 # modules are not these: the dialect's Idris specification writes them
 # with the rest of its outputs, and its manifest
 # (foreign/idr/generated.manifest) holds them.
@@ -92,32 +95,32 @@ fi
 # The upstream dialects the frontend writes, as the specification lists
 # them in one of its committed outputs: per line the dialect's namespace,
 # its name in the specification, which names its admitted record file
-# (IdrAdmitted<Name>.td) and its modules, and its bytecode records under
-# MLIR's include directory, or `-` for a dialect whose types and attributes
-# the bytecode writer writes only as text; `#` begins a comment. The file
-# of a dialect's ops is the specification's, which its admitted record
-# file includes.
+# (IdrAdmitted<Name>.td) and its modules, and its entries file beside it,
+# or `-` for a dialect whose types and attributes the bytecode writer
+# writes only as text; `#` begins a comment. The file of a dialect's ops is
+# the specification's, which its admitted record file includes, and so is
+# the file of its bytecode records, which its entries file includes.
 written=$admitted/WrittenDialects.txt
 if [ ! -f "$written" ]; then
   echo "tools/dialects.sh: $written is missing; the dialect's specification writes it" >&2
   exit 1
 fi
 dialects() {
-  awk -v include="$mlir_include" '/^#/ || NF == 0 { next }
-    { print $1, $2, ($3 == "-" ? "-" : include "/" $3) }' "$written"
+  awk -v admitted="$admitted" '/^#/ || NF == 0 { next }
+    { print $1, $2, ($3 == "-" ? "-" : admitted "/" $3) }' "$written"
 }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-dialects.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
 
 # Each dialect's modules, as generator:directory: its syntax, its ops, which
-# import the syntax, and its entries, which import the syntax too.
+# import the syntax, and its entries.
 modules="syntax:Syntax dialect:Dialect bytecode:Encoding"
 
 # The modules, one per line: the generator, the directory, the
 # dialect, the module's name and the file it is generated from, which is
-# the dialect's bytecode file for its entries and its admitted record file
-# for the others. A dialect without a bytecode file has no entries.
+# the dialect's entries file for its entries and its admitted record file
+# for the others. A dialect without an entries file has no entries.
 dialects | while read -r name module bytecode; do
   for pair in $modules; do
     case ${pair%%:*} in

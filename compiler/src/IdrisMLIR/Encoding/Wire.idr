@@ -5,9 +5,8 @@
 -- difference. Do not edit.
 ||| The values the idr dialect's types and attributes hold that a wire of
 ||| the specification lays out: each one's type, over what the types `ty`
-||| and attributes `at` it holds are; its parts, as the dialect's C++
-||| reader reads them; and its traversal, by which the writer gives what
-||| it holds their entries. Printed from the dialect's specification.
+||| and attributes `at` it holds are, and its parts, as the dialect's C++
+||| reader reads them. Printed from the dialect's specification.
 module IdrisMLIR.Encoding.Wire
 
 import IdrisMLIR.MLIR.Parts
@@ -49,18 +48,6 @@ partsTermNode (TermNodeLiteral payload') = [VarInt 5] ++ [AttrAt payload']
 partsTermNode (TermNodeConstructor payload' member' value' arity') = [VarInt 6] ++ [OptionalAttrAt payload'] ++ [VarInt member'] ++ [VarInt value'] ++ [VarInt arity']
 partsTermNode TermNodeOpaque = [VarInt 7]
 
-||| A `TermNode` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseTermNode : Applicative f => (ty -> f ty') -> (at -> f at') -> TermNode ty at -> f (TermNode ty' at')
-traverseTermNode t a (TermNodeNatural value') = pure TermNodeNatural <*> pure value'
-traverseTermNode t a (TermNodeLevel value') = pure TermNodeLevel <*> pure value'
-traverseTermNode t a (TermNodeSuccessor value') = pure TermNodeSuccessor <*> pure value'
-traverseTermNode t a (TermNodeSum value' arity') = pure TermNodeSum <*> pure value' <*> pure arity'
-traverseTermNode t a (TermNodeMultiple value') = pure TermNodeMultiple <*> pure value'
-traverseTermNode t a (TermNodeLiteral payload') = pure TermNodeLiteral <*> a payload'
-traverseTermNode t a (TermNodeConstructor payload' member' value' arity') = pure TermNodeConstructor <*> traverse a payload' <*> pure member' <*> pure value' <*> pure arity'
-traverseTermNode t a TermNodeOpaque = pure TermNodeOpaque
-
 ||| a view: nothing allocates into it
 public export
 data LifetimeKindView : (ty : Type) -> (at : Type) -> Type where
@@ -71,11 +58,6 @@ data LifetimeKindView : (ty : Type) -> (at : Type) -> Type where
 export
 partsLifetimeKindView : LifetimeKindView TypeRef AttrRef -> List Part
 partsLifetimeKindView MkLifetimeKindView = []
-
-||| A `LifetimeKindView` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLifetimeKindView : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindView ty at -> f (LifetimeKindView ty' at')
-traverseLifetimeKindView t a MkLifetimeKindView = pure MkLifetimeKindView
 
 ||| a room: a block of static size
 public export
@@ -88,11 +70,6 @@ export
 partsLifetimeKindRoom : LifetimeKindRoom TypeRef AttrRef -> List Part
 partsLifetimeKindRoom MkLifetimeKindRoom = []
 
-||| A `LifetimeKindRoom` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLifetimeKindRoom : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindRoom ty at -> f (LifetimeKindRoom ty' at')
-traverseLifetimeKindRoom t a MkLifetimeKindRoom = pure MkLifetimeKindRoom
-
 ||| a cursor: an unbounded bump
 public export
 data LifetimeKindCursor : (ty : Type) -> (at : Type) -> Type where
@@ -104,11 +81,6 @@ export
 partsLifetimeKindCursor : LifetimeKindCursor TypeRef AttrRef -> List Part
 partsLifetimeKindCursor MkLifetimeKindCursor = []
 
-||| A `LifetimeKindCursor` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLifetimeKindCursor : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindCursor ty at -> f (LifetimeKindCursor ty' at')
-traverseLifetimeKindCursor t a MkLifetimeKindCursor = pure MkLifetimeKindCursor
-
 ||| the per-shard home of a site
 public export
 data LifetimeKindHome : (ty : Type) -> (at : Type) -> Type where
@@ -119,11 +91,6 @@ data LifetimeKindHome : (ty : Type) -> (at : Type) -> Type where
 export
 partsLifetimeKindHome : LifetimeKindHome TypeRef AttrRef -> List Part
 partsLifetimeKindHome (MkLifetimeKindHome site') = [VarInt site']
-
-||| A `LifetimeKindHome` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLifetimeKindHome : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindHome ty at -> f (LifetimeKindHome ty' at')
-traverseLifetimeKindHome t a (MkLifetimeKindHome site') = pure MkLifetimeKindHome <*> pure site'
 
 ||| a lifetime's kind, its alternative its case
 public export
@@ -145,14 +112,6 @@ partsLifetimeKindOf (LifetimeKindOfRoom lifetimeKindRoom') = [VarInt 1] ++ parts
 partsLifetimeKindOf (LifetimeKindOfCursor lifetimeKindCursor') = [VarInt 2] ++ partsLifetimeKindCursor lifetimeKindCursor'
 partsLifetimeKindOf (LifetimeKindOfHome lifetimeKindHome') = [VarInt 3] ++ partsLifetimeKindHome lifetimeKindHome'
 
-||| A `LifetimeKindOf` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLifetimeKindOf : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindOf ty at -> f (LifetimeKindOf ty' at')
-traverseLifetimeKindOf t a (LifetimeKindOfView lifetimeKindView') = pure LifetimeKindOfView <*> traverseLifetimeKindView t a lifetimeKindView'
-traverseLifetimeKindOf t a (LifetimeKindOfRoom lifetimeKindRoom') = pure LifetimeKindOfRoom <*> traverseLifetimeKindRoom t a lifetimeKindRoom'
-traverseLifetimeKindOf t a (LifetimeKindOfCursor lifetimeKindCursor') = pure LifetimeKindOfCursor <*> traverseLifetimeKindCursor t a lifetimeKindCursor'
-traverseLifetimeKindOf t a (LifetimeKindOfHome lifetimeKindHome') = pure LifetimeKindOfHome <*> traverseLifetimeKindHome t a lifetimeKindHome'
-
 ||| Idris proved the loops end in this component of its call graph
 public export
 data ComponentProof : (ty : Type) -> (at : Type) -> Type where
@@ -163,11 +122,6 @@ data ComponentProof : (ty : Type) -> (at : Type) -> Type where
 export
 partsComponentProof : ComponentProof TypeRef AttrRef -> List Part
 partsComponentProof (MkComponentProof component') = [VarInt component']
-
-||| A `ComponentProof` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseComponentProof : Applicative f => (ty -> f ty') -> (at -> f at') -> ComponentProof ty at -> f (ComponentProof ty' at')
-traverseComponentProof t a (MkComponentProof component') = pure MkComponentProof <*> pure component'
 
 ||| a put parameter's position among them and its bound in bytes
 public export
@@ -180,11 +134,6 @@ export
 partsPutBound : PutBound TypeRef AttrRef -> List Part
 partsPutBound (MkPutBound parameter' bytes') = [VarInt parameter'] ++ [VarInt bytes']
 
-||| A `PutBound` with each type it holds given by `t` and each attribute by `a`.
-export
-traversePutBound : Applicative f => (ty -> f ty') -> (at -> f at') -> PutBound ty at -> f (PutBound ty' at')
-traversePutBound t a (MkPutBound parameter' bytes') = pure MkPutBound <*> pure parameter' <*> pure bytes'
-
 ||| a scoped parameter or result and the lifetime parameter it lives in
 public export
 data LivesIn : (ty : Type) -> (at : Type) -> Type where
@@ -196,11 +145,6 @@ export
 partsLivesIn : LivesIn TypeRef AttrRef -> List Part
 partsLivesIn (MkLivesIn value' lifetime') = [VarInt value'] ++ [VarInt lifetime']
 
-||| A `LivesIn` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLivesIn : Applicative f => (ty -> f ty') -> (at -> f at') -> LivesIn ty at -> f (LivesIn ty' at')
-traverseLivesIn t a (MkLivesIn value' lifetime') = pure MkLivesIn <*> pure value' <*> pure lifetime'
-
 ||| a lifetime parameter that lives at least as long as another
 public export
 data Outlives : (ty : Type) -> (at : Type) -> Type where
@@ -211,11 +155,6 @@ data Outlives : (ty : Type) -> (at : Type) -> Type where
 export
 partsOutlives : Outlives TypeRef AttrRef -> List Part
 partsOutlives (MkOutlives longer' shorter') = [VarInt longer'] ++ [VarInt shorter']
-
-||| A `Outlives` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseOutlives : Applicative f => (ty -> f ty') -> (at -> f at') -> Outlives ty at -> f (Outlives ty' at')
-traverseOutlives t a (MkOutlives longer' shorter') = pure MkOutlives <*> pure longer' <*> pure shorter'
 
 ||| the sort of an index position or a binder
 public export
@@ -240,15 +179,6 @@ partsSortOf SortOfOpaqueSort = [VarInt 2]
 partsSortOf (SortOfScalarSort payload') = [VarInt 3] ++ [AttrAt payload']
 partsSortOf (SortOfFamilySort payload' member') = [VarInt 4] ++ [OptionalAttrAt payload'] ++ [VarInt member']
 
-||| A `SortOf` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseSortOf : Applicative f => (ty -> f ty') -> (at -> f at') -> SortOf ty at -> f (SortOf ty' at')
-traverseSortOf t a SortOfNatSort = pure SortOfNatSort
-traverseSortOf t a SortOfTypeSort = pure SortOfTypeSort
-traverseSortOf t a SortOfOpaqueSort = pure SortOfOpaqueSort
-traverseSortOf t a (SortOfScalarSort payload') = pure SortOfScalarSort <*> a payload'
-traverseSortOf t a (SortOfFamilySort payload' member') = pure SortOfFamilySort <*> traverse a payload' <*> pure member'
-
 ||| a constructor of a data member or a frame stack
 public export
 data CtorDecl : (ty : Type) -> (at : Type) -> Type where
@@ -259,11 +189,6 @@ data CtorDecl : (ty : Type) -> (at : Type) -> Type where
 export
 partsCtorDecl : CtorDecl TypeRef AttrRef -> List Part
 partsCtorDecl (MkCtorDecl label' binders' equation' fields') = [Str label'] ++ (VarInt (length binders') :: concatMap (\x' => partsSortOf x') binders') ++ (VarInt (length equation') :: concatMap (\x' => partsTermNode x') equation') ++ (VarInt (length fields') :: concatMap (\x' => [TypeAt x']) fields')
-
-||| A `CtorDecl` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseCtorDecl : Applicative f => (ty -> f ty') -> (at -> f at') -> CtorDecl ty at -> f (CtorDecl ty' at')
-traverseCtorDecl t a (MkCtorDecl label' binders' equation' fields') = pure MkCtorDecl <*> pure label' <*> traverse (\x' => traverseSortOf t a x') binders' <*> traverse (\x' => traverseTermNode t a x') equation' <*> traverse (\x' => t x') fields'
 
 ||| Idris's data, its declaration's constructors
 public export
@@ -276,11 +201,6 @@ export
 partsDataMember : DataMember TypeRef AttrRef -> List Part
 partsDataMember (MkDataMember label' promise' loc' indices' ctors') = [Str label'] ++ [VarInt (position IdrisMLIR.Spec.Families.Dialect.promiseClosed promise')] ++ [AttrAt loc'] ++ (VarInt (length indices') :: concatMap (\x' => partsSortOf x') indices') ++ (VarInt (length ctors') :: concatMap (\x' => partsCtorDecl x') ctors')
 
-||| A `DataMember` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseDataMember : Applicative f => (ty -> f ty') -> (at -> f at') -> DataMember ty at -> f (DataMember ty' at')
-traverseDataMember t a (MkDataMember label' promise' loc' indices' ctors') = pure MkDataMember <*> pure label' <*> pure promise' <*> a loc' <*> traverse (\x' => traverseSortOf t a x') indices' <*> traverse (\x' => traverseCtorDecl t a x') ctors'
-
 ||| a label of a closure or memo sum, its fields its function's captures
 public export
 data LabelDecl : (ty : Type) -> (at : Type) -> Type where
@@ -291,11 +211,6 @@ data LabelDecl : (ty : Type) -> (at : Type) -> Type where
 export
 partsLabelDecl : LabelDecl TypeRef AttrRef -> List Part
 partsLabelDecl (MkLabelDecl label' fn' binders' equation' fields') = [Str label'] ++ [AttrAt fn'] ++ (VarInt (length binders') :: concatMap (\x' => partsSortOf x') binders') ++ (VarInt (length equation') :: concatMap (\x' => partsTermNode x') equation') ++ (VarInt (length fields') :: concatMap (\x' => [TypeAt x']) fields')
-
-||| A `LabelDecl` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseLabelDecl : Applicative f => (ty -> f ty') -> (at -> f at') -> LabelDecl ty at -> f (LabelDecl ty' at')
-traverseLabelDecl t a (MkLabelDecl label' fn' binders' equation' fields') = pure MkLabelDecl <*> pure label' <*> a fn' <*> traverse (\x' => traverseSortOf t a x') binders' <*> traverse (\x' => traverseTermNode t a x') equation' <*> traverse (\x' => t x') fields'
 
 ||| a closure sum, a label per function
 public export
@@ -308,11 +223,6 @@ export
 partsClosuresMember : ClosuresMember TypeRef AttrRef -> List Part
 partsClosuresMember (MkClosuresMember label' indices' labels') = [Str label'] ++ (VarInt (length indices') :: concatMap (\x' => partsSortOf x') indices') ++ (VarInt (length labels') :: concatMap (\x' => partsLabelDecl x') labels')
 
-||| A `ClosuresMember` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseClosuresMember : Applicative f => (ty -> f ty') -> (at -> f at') -> ClosuresMember ty at -> f (ClosuresMember ty' at')
-traverseClosuresMember t a (MkClosuresMember label' indices' labels') = pure MkClosuresMember <*> pure label' <*> traverse (\x' => traverseSortOf t a x') indices' <*> traverse (\x' => traverseLabelDecl t a x') labels'
-
 ||| a label of a memo sum, and how a force runs it
 public export
 data MemoLabelDecl : (ty : Type) -> (at : Type) -> Type where
@@ -323,11 +233,6 @@ data MemoLabelDecl : (ty : Type) -> (at : Type) -> Type where
 export
 partsMemoLabelDecl : MemoLabelDecl TypeRef AttrRef -> List Part
 partsMemoLabelDecl (MkMemoLabelDecl mode' label') = [VarInt (position IdrisMLIR.Spec.Families.Dialect.modeClosed mode')] ++ partsLabelDecl label'
-
-||| A `MemoLabelDecl` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseMemoLabelDecl : Applicative f => (ty -> f ty') -> (at -> f at') -> MemoLabelDecl ty at -> f (MemoLabelDecl ty' at')
-traverseMemoLabelDecl t a (MkMemoLabelDecl mode' label') = pure MkMemoLabelDecl <*> pure mode' <*> traverseLabelDecl t a label'
 
 ||| a memo sum, its labels then running and forced
 public export
@@ -340,11 +245,6 @@ export
 partsMemoMember : MemoMember TypeRef AttrRef -> List Part
 partsMemoMember (MkMemoMember label' indices' labels' forced') = [Str label'] ++ (VarInt (length indices') :: concatMap (\x' => partsSortOf x') indices') ++ (VarInt (length labels') :: concatMap (\x' => partsMemoLabelDecl x') labels') ++ [TypeAt forced']
 
-||| A `MemoMember` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseMemoMember : Applicative f => (ty -> f ty') -> (at -> f at') -> MemoMember ty at -> f (MemoMember ty' at')
-traverseMemoMember t a (MkMemoMember label' indices' labels' forced') = pure MkMemoMember <*> pure label' <*> traverse (\x' => traverseSortOf t a x') indices' <*> traverse (\x' => traverseMemoLabelDecl t a x') labels' <*> t forced'
-
 ||| a frame stack, the frames a recursion pushes
 public export
 data FramesMember : (ty : Type) -> (at : Type) -> Type where
@@ -355,11 +255,6 @@ data FramesMember : (ty : Type) -> (at : Type) -> Type where
 export
 partsFramesMember : FramesMember TypeRef AttrRef -> List Part
 partsFramesMember (MkFramesMember label' ctors') = [Str label'] ++ (VarInt (length ctors') :: concatMap (\x' => partsCtorDecl x') ctors')
-
-||| A `FramesMember` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseFramesMember : Applicative f => (ty -> f ty') -> (at -> f at') -> FramesMember ty at -> f (FramesMember ty' at')
-traverseFramesMember t a (MkFramesMember label' ctors') = pure MkFramesMember <*> pure label' <*> traverse (\x' => traverseCtorDecl t a x') ctors'
 
 ||| a member of a family, its alternative its kind
 public export
@@ -380,12 +275,4 @@ partsMemberOf (MemberOfData dataMember') = [VarInt 0] ++ partsDataMember dataMem
 partsMemberOf (MemberOfClosures closuresMember') = [VarInt 1] ++ partsClosuresMember closuresMember'
 partsMemberOf (MemberOfMemo memoMember') = [VarInt 2] ++ partsMemoMember memoMember'
 partsMemberOf (MemberOfFrames framesMember') = [VarInt 3] ++ partsFramesMember framesMember'
-
-||| A `MemberOf` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseMemberOf : Applicative f => (ty -> f ty') -> (at -> f at') -> MemberOf ty at -> f (MemberOf ty' at')
-traverseMemberOf t a (MemberOfData dataMember') = pure MemberOfData <*> traverseDataMember t a dataMember'
-traverseMemberOf t a (MemberOfClosures closuresMember') = pure MemberOfClosures <*> traverseClosuresMember t a closuresMember'
-traverseMemberOf t a (MemberOfMemo memoMember') = pure MemberOfMemo <*> traverseMemoMember t a memoMember'
-traverseMemberOf t a (MemberOfFrames framesMember') = pure MemberOfFrames <*> traverseFramesMember t a framesMember'
 

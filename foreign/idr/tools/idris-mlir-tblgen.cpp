@@ -4,8 +4,10 @@
 // TableGen backend reading upstream's records, which stay upstream's. The
 // dialect's specification (compiler/spec/) states every fact of ours and
 // prints which upstream ops it admits, one record per op naming upstream's
-// own def (Generated/IdrAdmitted<D>.td); this reads, through mlir::tblgen,
-// upstream's records for those alone:
+// own def (Generated/IdrAdmitted<D>.td), and by which of a dialect's
+// bytecode records the frontend writes its types and attributes, one
+// record per entry naming upstream's own (Generated/Idr<D>Entries.td);
+// this reads, through mlir::tblgen, upstream's records for those alone:
 //
 // - -gen-idris-syntax, an upstream dialect's syntax for the Idris side: the
 //   enums its admitted ops, types and attributes take, and its types and
@@ -15,9 +17,9 @@
 //   a guarded op's with the guards its admitted record gives it, and, for a
 //   dialect whose syntax holds its attributes, the smart constructor that
 //   spells one (compiler/src/IdrisMLIR/Dialect/).
-// - -gen-idris-bytecode, an upstream dialect's bytecode entries for the
-//   Idris writer, from its records in upstream's bytecode DSL
-//   (compiler/src/IdrisMLIR/Encoding/).
+// - -gen-idris-bytecode, an upstream dialect's bytecode entries the
+//   frontend writes, for the Idris writer, from their records in upstream's
+//   bytecode DSL (compiler/src/IdrisMLIR/Encoding/).
 // - -gen-admitted-classes, the C++ class of every admitted op of one
 //   admitted record file by the alias the specification gives it, so no
 //   C++ restates an upstream class.
@@ -266,13 +268,23 @@ struct CaseField {
   const llvm::Record *values; // the enum whose cases the field names
 };
 
+// Whether the syntax module writes each case's value: where an op's
+// builder writes a case as its value, an integer attribute, which is the
+// one reader of a case's value.
+enum class Values { Unread, ReadByBuilders };
+
+// Whether the syntax module writes each case's spelling: where a type's or
+// an attribute's syntax spells a case, which is the one reader of it.
+enum class Spellings { Unread, ReadBySyntax };
+
 // The enums the dialect's ops, types and attributes take, by their ODS
-// records: written once each, in the syntax module, with their values and,
-// if a syntax prints one, their spellings; and the fields in which their
-// cases name another enum's.
+// records: written once each, in the syntax module, with their values
+// where a builder reads them, their spellings where a syntax prints one,
+// and the fields in which their cases name another enum's.
 struct Enum {
   const llvm::Record *def;
-  bool spellings = false;
+  Values values = Values::Unread;
+  Spellings spellings = Spellings::Unread;
   std::vector<CaseField> caseFields = {};
 };
 using Enums = std::map<std::string, Enum>;
@@ -432,21 +444,23 @@ void emitEnum(const Enum &used, llvm::raw_ostream &os) {
   for (const EnumCase &c : cases)
     os << "  show " << qualifiedCase(info, c) << " = " << literal(c.getStr()) << "\n";
   os << "\n";
-  // The value of each case, beside the enum, for whatever writes a case as
-  // its value: an op's integer attribute, a bytecode entry. The Idris side
-  // holds it as a Nat, as a bytecode entry writes it (a VarInt); a negative
-  // value would be another value there, so it is refused here.
   std::string lower = camel(name, Initial::Lowered);
-  os << "||| The value of each " << name << ".\nexport\n"
-     << lower << "Value : " << name << " -> Nat\n";
-  for (const EnumCase &c : cases) {
-    if (c.getValue() < 0)
-      llvm::PrintFatalError(&c.getDef(), "the case " + c.getSymbol() + " of " + name +
-                                             " has a negative value");
-    os << lower << "Value " << qualifiedCase(info, c) << " = " << c.getValue() << "\n";
+  // The value of each case, beside the enum, for the builders that write a
+  // case as its value, an op's integer attribute. The Idris side holds it
+  // as a Nat, which the builder makes the attribute's integer; a negative
+  // value would be another value there, so it is refused here.
+  if (used.values == Values::ReadByBuilders) {
+    os << "||| The value of each " << name << ".\nexport\n"
+       << lower << "Value : " << name << " -> Nat\n";
+    for (const EnumCase &c : cases) {
+      if (c.getValue() < 0)
+        llvm::PrintFatalError(&c.getDef(), "the case " + c.getSymbol() + " of " + name +
+                                               " has a negative value");
+      os << lower << "Value " << qualifiedCase(info, c) << " = " << c.getValue() << "\n";
+    }
+    os << "\n";
   }
-  os << "\n";
-  if (!used.spellings)
+  if (used.spellings == Spellings::Unread)
     return;
   // Private to the module, out of the way of whatever imports it. The
   // syntax spells a case as MLIR's enum parser reads it
@@ -614,7 +628,7 @@ std::optional<std::string> heldType(const Upstream &u, Valued valued, const llvm
 Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
   EnumInfo info(def);
   std::string name = enumName(info);
-  useEnum(enums, def);
+  useEnum(enums, def).values = Values::ReadByBuilders;
   return Kind{ItemOrList::Item, name,
               llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (OfWidth {1})",
                             camel(name, Initial::Lowered), width)
@@ -1040,14 +1054,14 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
   std::string name = enumName(info);
   std::string lower = camel(name, Initial::Lowered);
   if (!info.isBitEnum()) {
-    useEnum(enums, record).spellings = true;
+    useEnum(enums, record).spellings = Spellings::ReadBySyntax;
     return Kind{ItemOrList::Item, name, lower + "Spelling {0}", DefKind::Type};
   }
   if (!noBits(info))
     return Omitted{llvm::formatv("its parameter `{0}` is a bit enum without a case of no bits",
                                  param.getName())
                        .str()};
-  useEnum(enums, record).spellings = true;
+  useEnum(enums, record).spellings = Spellings::ReadBySyntax;
   return Kind{ItemOrList::List, name, lower + "Spellings {0}", DefKind::Type};
 }
 
@@ -1633,9 +1647,9 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
 // record with a member of any other kind has no encoder, and the module
 // says why.
 
-// How an encoder takes a member read by one of the reader's own methods, or
-// an enum, and writes it: its Idris type, and the expression of its parts
-// from a value `{0}` of it, one Part (an item) or a List Part.
+// How an encoder takes a member read by one of the reader's own methods and
+// writes it: its Idris type, and the expression of its parts from a value
+// `{0}` of it, one Part (an item) or a List Part.
 struct Atom {
   std::string type;
   std::string parts;
@@ -1680,13 +1694,11 @@ struct MemberNode {
 };
 using Member = std::vector<MemberNode>;
 
-// The member `def` declares, bound by `name`, or why it cannot be read. An
-// enum is a member that names its enum (an `enumName` field): the syntax
-// module's, whose value of a case is what the reader reads. The records
-// left to read are a stack, the next last, each with the name its node is
-// bound by and the name a refusal gives it (an array's element is reported
-// by the array's); a composite's members are pushed last first, so they are
-// read, and the first refusal met, in their order.
+// The member `def` declares, bound by `name`, or why it cannot be read. The
+// records left to read are a stack, the next last, each with the name its
+// node is bound by and the name a refusal gives it (an array's element is
+// reported by the array's); a composite's members are pushed last first, so
+// they are read, and the first refusal met, in their order.
 Written<Member> memberOf(const llvm::Record *def, StringRef name) {
   struct Pending {
     const llvm::Record *def;
@@ -1697,14 +1709,6 @@ Written<Member> memberOf(const llvm::Record *def, StringRef name) {
   llvm::SmallVector<Pending> pending{{def, name.str(), name}};
   while (!pending.empty()) {
     Pending next = pending.pop_back_val();
-    if (next.def->getValue("enumName")) {
-      std::string e = next.def->getValueAsString("enumName").str();
-      member.push_back({MemberNode::Atomic,
-                        {e, "VarInt (" + camel(e, Initial::Lowered) + "Value {0})", ItemOrList::Item},
-                        0,
-                        std::move(next.bound)});
-      continue;
-    }
     if (next.def->isSubClassOf("ArrayWithKnownSize"))
       return Omitted{llvm::formatv("its member `{0}` is an array whose count another member gives",
                                    next.reported)
@@ -1994,6 +1998,18 @@ void emitRecord(const llvm::Record *def, size_t code, StringRef what, llvm::raw_
 // `elems` order.
 using Elems = std::vector<const llvm::Record *>;
 
+// The dialect's bytecode records the specification admits, each by
+// upstream's own record (Generated/Idr<D>Entries.td's
+// IdrAdmittedEntry records): the frontend writes the dialect's types and
+// attributes by these alone, so the set is the specification's, the
+// records upstream's, and a wrong name is TableGen's own error.
+Elems admittedEntries(const llvm::RecordKeeper &records) {
+  Elems entries;
+  for (const llvm::Record *admitted : records.getAllDerivedDefinitionsIfDefined("IdrAdmittedEntry"))
+    entries.push_back(admitted->getValueAsDef("entry"));
+  return entries;
+}
+
 // The records of the dialect's types or attributes: the list of the
 // DialectTypes or DialectAttributes of -idris-dialect, or nothing when the
 // dialect's bytecode declares none. The DSL names a dialect as its C++
@@ -2008,9 +2024,8 @@ std::optional<Elems> elemsOf(const llvm::RecordKeeper &records, StringRef kind) 
 }
 
 bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  if (dialectName.empty() || moduleName.empty() || syntaxModuleName.empty())
-    llvm::PrintFatalError(
-        "-gen-idris-bytecode needs -idris-dialect, -idris-module and -idris-syntax-module");
+  if (dialectName.empty() || moduleName.empty())
+    llvm::PrintFatalError("-gen-idris-bytecode needs -idris-dialect and -idris-module");
   // A dialect's bytecode may declare its types alone or its attributes
   // alone, the other then having no entries; declaring neither, it has no
   // bytecode records at all.
@@ -2018,24 +2033,36 @@ bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os)
   std::optional<Elems> attrs = elemsOf(records, "DialectAttributes");
   if (!types && !attrs)
     llvm::PrintFatalError("no bytecode records of the dialect " + dialectName);
+  Elems typeElems = types.value_or(Elems{}), attrElems = attrs.value_or(Elems{});
+  // An entry is printed where the specification admits it, at its code, its
+  // place among all of the dialect's; an admitted record that is none of
+  // them would be printed nowhere, so it is refused.
+  Elems admitted = admittedEntries(records);
+  for (const llvm::Record *entry : admitted)
+    if (!llvm::is_contained(typeElems, entry) && !llvm::is_contained(attrElems, entry))
+      llvm::PrintFatalError(entry, "the admitted record " + entry->getName() +
+                                       " is no bytecode entry of the dialect " + dialectName);
   std::string typesText, attrsText;
   llvm::raw_string_ostream typesOs(typesText), attrsOs(attrsText);
   std::vector<std::string> omitted;
-  for (auto [code, def] : llvm::enumerate(types.value_or(Elems{})))
-    emitRecord(def, code, "type", typesOs, omitted);
-  for (auto [code, def] : llvm::enumerate(attrs.value_or(Elems{})))
-    emitRecord(def, code, "attribute", attrsOs, omitted);
+  for (auto [code, def] : llvm::enumerate(typeElems))
+    if (llvm::is_contained(admitted, def))
+      emitRecord(def, code, "type", typesOs, omitted);
+  for (auto [code, def] : llvm::enumerate(attrElems))
+    if (llvm::is_contained(admitted, def))
+      emitRecord(def, code, "attribute", attrsOs, omitted);
   writeLicense(os);
-  os << "||| The " << dialectName << " dialect's bytecode entries, as the Idris side writes\n"
-     << "||| them: the code of each of its records, and the parts of each record whose\n"
+  os << "||| The " << dialectName << " dialect's bytecode entries the frontend writes, as\n"
+     << "||| the Idris side writes them: the code of each record the specification\n"
+     << "||| admits, its place among all of the dialect's, and the parts of each whose\n"
      << "||| members' kinds are known, from its members in order, a type as the parts\n"
      << "||| the writer gives for it. Generated by\n"
-     << "||| idris-mlir-tblgen -gen-idris-bytecode from the dialect's bytecode records,\n"
-     << "||| from which mlir-tblgen -gen-bytecode writes the C++ reader;\n"
+     << "||| idris-mlir-tblgen -gen-idris-bytecode from the dialect's entries file and\n"
+     << "||| the bytecode records it includes, from which mlir-tblgen -gen-bytecode\n"
+     << "||| writes the C++ reader;\n"
      << "||| `make test-mlir-tools` generates it again and fails on any difference.\n"
      << "||| Do not edit.\n"
-     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR.Parts\nimport " << syntaxModuleName
-     << "\n\n%default total\n\n";
+     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR.Parts\n\n%default total\n\n";
   section(os, "Types", typesText);
   section(os, "Attributes", attrsText);
   if (!omitted.empty()) {

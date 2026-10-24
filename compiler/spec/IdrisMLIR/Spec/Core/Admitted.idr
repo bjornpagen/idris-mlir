@@ -10,12 +10,29 @@
 ||| their Idris builders (a guarded op's with its guards) and the C++ table
 ||| of their classes, so the specification never restates an upstream class
 ||| or an operand list, and a wrong record name, or a guard's position past
-||| the record's operand groups, is that backend's error.
+||| the record's operand groups, is that backend's error. Upstream's types
+||| and attributes are admitted by their bytecode records, as its ops are
+||| by theirs (`BytecodeRecords`).
 module IdrisMLIR.Spec.Core.Admitted
 
 import IdrisMLIR.Spec.Core.Text
 
+import Data.List1
+
 %default total
+
+||| The bytecode records by which the frontend writes an upstream dialect's
+||| types and attributes: upstream's file of them, under MLIR's include
+||| directory, and the records the frontend writes, each by upstream's own
+||| name there (`StringAttr`). The generator prints them into the dialect's
+||| entries file, which includes upstream's; the backend prints the Idris
+||| writer's entries of those records alone, each at its code, its place
+||| among all of the dialect's, and a wrong name is TableGen's error.
+public export
+record BytecodeRecords where
+  constructor MkBytecodeRecords
+  file : String
+  admitted : List1 Ident
 
 ||| Whether the frontend writes the op: then its Idris builder is printed.
 public export

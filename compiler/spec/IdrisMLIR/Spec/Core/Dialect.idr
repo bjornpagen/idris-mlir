@@ -11,6 +11,7 @@ module IdrisMLIR.Spec.Core.Dialect
 
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Core.Admitted
 
 import Data.List.Elem
 import Data.List1
@@ -131,15 +132,24 @@ cppDialectHeader Bufferization = "mlir/Dialect/Bufferization/IR/BufferizationDia
 cppDialectHeader SCF = "mlir/Dialect/SCF/IR/SCFDialect.h"
 cppDialectHeader Transform = "mlir/Dialect/Transform/IR/TransformDialect.h"
 
-||| Upstream's file of the dialect's bytecode records, under MLIR's include
-||| directory, where the frontend writes the dialect's types and attributes
-||| in bytecode: its writer's entries are generated from those records.
-||| None where the frontend writes them as text, and none for ours, whose
-||| entries the specification prints itself.
+||| The dialect's bytecode records the frontend writes its types and
+||| attributes by, where it writes them in bytecode: its writer's entries
+||| are generated from those records. None where the frontend writes them
+||| as text, and none for ours, whose entries the specification prints
+||| itself. Builtin's are those of the types and attributes the handoff
+||| holds (IdrisMLIR.MLIR): its integer, index, function, float, memref,
+||| none, tensor and token types; its array, dictionary, string, type and
+||| float attributes; and the locations it writes.
 public export
-bytecodeRecords : Dialect -> Maybe String
+bytecodeRecords : Dialect -> Maybe BytecodeRecords
 bytecodeRecords Idr = Nothing
-bytecodeRecords Builtin = Just "mlir/IR/BuiltinDialectBytecode.td"
+bytecodeRecords Builtin = Just (MkBytecodeRecords "mlir/IR/BuiltinDialectBytecode.td"
+  (ident "IntegerType" :::
+    [ ident "IndexType", ident "FunctionType", ident "Float64Type", ident "MemRefType"
+    , ident "MemRefTypeWithMemSpace", ident "NoneType", ident "RankedTensorType", ident "TokenType"
+    , ident "ArrayAttr", ident "DictionaryAttr", ident "StringAttr", ident "TypeAttr", ident "FloatAttr"
+    , ident "FileLineColRange", ident "FileLineColLoc", ident "FusedLocWithMetadata", ident "NameLoc"
+    , ident "UnknownLoc" ]))
 bytecodeRecords Arith = Nothing
 bytecodeRecords Math = Nothing
 bytecodeRecords MemRef = Nothing

@@ -227,32 +227,68 @@ export
 writtenDialects : List Dialect
 writtenDialects = filter (any frontendWrites . admittedOf) upstreamDialects
 
+||| A dialect's name in capitals, as the guard of a `.td` file of it spells
+||| it.
+guardWord : Dialect -> String
+guardWord d = pack (map up (unpack (identText (dialectName d))))
+  where
+    up : Char -> Char
+    up c = if lower c then chr (ord c - 32) else c
+
 ||| One admitted record file per upstream dialect that admits an op.
 export
 admittedTd : Dialect -> (Path, String)
 admittedTd d =
   ( generated ("IdrAdmitted" ++ identText (dialectName d) ++ ".td")
-  , tdFile ("IDR_GENERATED_ADMITTED_" ++ pack (map up (unpack (identText (dialectName d)))))
+  , tdFile ("IDR_GENERATED_ADMITTED_" ++ guardWord d)
       (forget (odsIncludes d) ++ ["idr/IR/Generated/IdrAdmittedBase.td"])
       (map admittedRow (admittedOf d)) )
-  where
-    up : Char -> Char
-    up c = if lower c then chr (ord c - 32) else c
+
+||| The entries file of a dialect whose types and attributes the frontend
+||| writes in bytecode: `Idr<Name>Entries.td`. Its name is not an admitted
+||| record file's, `IdrAdmitted<Name>.td`, since it admits no op.
+entriesName : Dialect -> String
+entriesName d = "Idr" ++ identText (dialectName d) ++ "Entries.td"
+
+||| The entries file of such a dialect: upstream's bytecode records,
+||| included, and one record per entry the frontend writes, naming
+||| upstream's own, which the backend prints the Idris writer's entries of.
+||| It includes nothing else: upstream's records share names with the
+||| attribute and type constraints of `OpBase.td` (`ArrayAttr`, `NoneType`).
+entriesTd : Dialect -> BytecodeRecords -> (Path, String)
+entriesTd d r =
+  ( generated (entriesName d)
+  , tdFile ("IDR_GENERATED_ENTRIES_" ++ guardWord d)
+      [r.file]
+      ([ "// A record of the dialect's bytecode by which the frontend writes a"
+       , "// type or an attribute: upstream's own record. The Idris writer's"
+       , "// entries are printed for these alone."
+       , "class IdrAdmittedEntry<DialectAttrOrType upstream> {"
+       , "  DialectAttrOrType entry = upstream;"
+       , "}"
+       , "" ]
+       ++ map (\e => "def IdrAdmittedEntry_" ++ identText e ++ " : IdrAdmittedEntry<" ++ identText e ++ ">;") (forget r.admitted)) )
+
+||| The entries file of each dialect the frontend writes whose types and
+||| attributes it writes in bytecode.
+entriesTds : List (Path, String)
+entriesTds = concatMap (\d => maybe [] (\r => [entriesTd d r]) (bytecodeRecords d)) writtenDialects
 
 ||| The dialects the frontend writes, one per line, as the script that
 ||| generates the Idris side's vocabulary of each reads them: its namespace
 ||| in the IR, its name (of its admitted record file and its modules), and
-||| its bytecode records under MLIR's include directory, or `-` where the
+||| its entries file beside the admitted record file, or `-` where the
 ||| frontend writes its types and attributes as text.
 export
 writtenDialectsList : String
 writtenDialectsList =
   render (banner hashComment
-          ++ hashComment ["namespace, name, bytecode records: the upstream dialects the frontend writes."]
+          ++ hashComment ["namespace, name, entries file: the upstream dialects the frontend writes."]
           ++ map row writtenDialects)
   where
     row : Dialect -> String
-    row d = wordText (namespaceWord d) ++ " " ++ identText (dialectName d) ++ " " ++ maybe "-" id (bytecodeRecords d)
+    row d = wordText (namespaceWord d) ++ " " ++ identText (dialectName d) ++ " "
+            ++ maybe "-" (const (entriesName d)) (bytecodeRecords d)
 
 ||| The dialect's own allOps, which every table and the frontend's builders
 ||| hold; an op the dialect defines in upstream's transform dialect is
@@ -391,6 +427,7 @@ generate =
   , (generated "IdrInnerPasses.td", innerPassesTd)
   , (generated "IdrAdmittedBase.td", admittedBaseTd) ]
   ++ map admittedTd admittingDialects
+  ++ entriesTds
   ++ [ (generated "AdmittedClasses.h.inc", render (admittedClassesHeader admittingDialects))
      , (generated "WrittenDialects.txt", writtenDialectsList)
      , (generated "WrittenDialects.h.inc", render (writtenDialectsHeader writtenDialects))

@@ -151,17 +151,6 @@ Show FastMathFlags where
   show FastMathFlags.Contract = "contract"
   show FastMathFlags.Afn = "afn"
 
-||| The value of each FastMathFlags.
-export
-fastMathFlagsValue : FastMathFlags -> Nat
-fastMathFlagsValue FastMathFlags.Reassoc = 1
-fastMathFlagsValue FastMathFlags.Nnan = 2
-fastMathFlagsValue FastMathFlags.Ninf = 4
-fastMathFlagsValue FastMathFlags.Nsz = 8
-fastMathFlagsValue FastMathFlags.Arcp = 16
-fastMathFlagsValue FastMathFlags.Contract = 32
-fastMathFlagsValue FastMathFlags.Afn = 64
-
 -- How the syntax below spells each FastMathFlags.
 fastMathFlagsSpelling : FastMathFlags -> String
 fastMathFlagsSpelling FastMathFlags.Reassoc = "reassoc"
@@ -192,12 +181,6 @@ export
 Show IntegerOverflowFlags where
   show IntegerOverflowFlags.Nsw = "nsw"
   show IntegerOverflowFlags.Nuw = "nuw"
-
-||| The value of each IntegerOverflowFlags.
-export
-integerOverflowFlagsValue : IntegerOverflowFlags -> Nat
-integerOverflowFlagsValue IntegerOverflowFlags.Nsw = 1
-integerOverflowFlagsValue IntegerOverflowFlags.Nuw = 2
 
 -- How the syntax below spells each IntegerOverflowFlags.
 integerOverflowFlagsSpelling : IntegerOverflowFlags -> String

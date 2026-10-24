@@ -47,20 +47,6 @@ Show BinaryFn where
   show BinaryFn.MinUnsigned = "min_unsigned"
   show BinaryFn.Powf = "powf"
 
-||| The value of each BinaryFn.
-export
-binaryFnValue : BinaryFn -> Nat
-binaryFnValue BinaryFn.Add = 0
-binaryFnValue BinaryFn.Sub = 1
-binaryFnValue BinaryFn.Mul = 2
-binaryFnValue BinaryFn.Div = 3
-binaryFnValue BinaryFn.DivUnsigned = 4
-binaryFnValue BinaryFn.MaxSigned = 5
-binaryFnValue BinaryFn.MinSigned = 6
-binaryFnValue BinaryFn.MaxUnsigned = 7
-binaryFnValue BinaryFn.MinUnsigned = 8
-binaryFnValue BinaryFn.Powf = 9
-
 -- How the syntax below spells each BinaryFn.
 binaryFnSpelling : BinaryFn -> String
 binaryFnSpelling BinaryFn.Add = "add"
@@ -158,46 +144,6 @@ Show ElementwiseKind where
   show ElementwiseKind.Powf = "powf"
   show ElementwiseKind.Select = "select"
 
-||| The value of each ElementwiseKind.
-export
-elementwiseKindValue : ElementwiseKind -> Nat
-elementwiseKindValue ElementwiseKind.Exp = 0
-elementwiseKindValue ElementwiseKind.Log = 1
-elementwiseKindValue ElementwiseKind.Abs = 2
-elementwiseKindValue ElementwiseKind.Ceil = 3
-elementwiseKindValue ElementwiseKind.Floor = 4
-elementwiseKindValue ElementwiseKind.Negf = 5
-elementwiseKindValue ElementwiseKind.Reciprocal = 6
-elementwiseKindValue ElementwiseKind.Round = 7
-elementwiseKindValue ElementwiseKind.Sqrt = 8
-elementwiseKindValue ElementwiseKind.Rsqrt = 9
-elementwiseKindValue ElementwiseKind.Square = 10
-elementwiseKindValue ElementwiseKind.Tanh = 11
-elementwiseKindValue ElementwiseKind.Erf = 12
-elementwiseKindValue ElementwiseKind.Sin = 13
-elementwiseKindValue ElementwiseKind.Cos = 14
-elementwiseKindValue ElementwiseKind.Tan = 15
-elementwiseKindValue ElementwiseKind.Acos = 16
-elementwiseKindValue ElementwiseKind.Acosh = 17
-elementwiseKindValue ElementwiseKind.Asin = 18
-elementwiseKindValue ElementwiseKind.Asinh = 19
-elementwiseKindValue ElementwiseKind.Atan = 20
-elementwiseKindValue ElementwiseKind.Atanh = 21
-elementwiseKindValue ElementwiseKind.Log10 = 22
-elementwiseKindValue ElementwiseKind.Log1p = 23
-elementwiseKindValue ElementwiseKind.Log2 = 24
-elementwiseKindValue ElementwiseKind.Add = 25
-elementwiseKindValue ElementwiseKind.Sub = 26
-elementwiseKindValue ElementwiseKind.Mul = 27
-elementwiseKindValue ElementwiseKind.Div = 28
-elementwiseKindValue ElementwiseKind.DivUnsigned = 29
-elementwiseKindValue ElementwiseKind.MaxSigned = 30
-elementwiseKindValue ElementwiseKind.MinSigned = 31
-elementwiseKindValue ElementwiseKind.MaxUnsigned = 32
-elementwiseKindValue ElementwiseKind.MinUnsigned = 33
-elementwiseKindValue ElementwiseKind.Powf = 34
-elementwiseKindValue ElementwiseKind.Select = 35
-
 -- How the syntax below spells each ElementwiseKind.
 elementwiseKindSpelling : ElementwiseKind -> String
 elementwiseKindSpelling ElementwiseKind.Exp = "exp"
@@ -253,12 +199,6 @@ Show IteratorType where
   show IteratorType.Parallel = "parallel"
   show IteratorType.Reduction = "reduction"
 
-||| The value of each IteratorType.
-export
-iteratorTypeValue : IteratorType -> Nat
-iteratorTypeValue IteratorType.Parallel = 0
-iteratorTypeValue IteratorType.Reduction = 1
-
 -- How the syntax below spells each IteratorType.
 iteratorTypeSpelling : IteratorType -> String
 iteratorTypeSpelling IteratorType.Parallel = "parallel"
@@ -276,11 +216,6 @@ Prelude.EqOrd.Eq TernaryFn where
 export
 Show TernaryFn where
   show TernaryFn.Select = "select"
-
-||| The value of each TernaryFn.
-export
-ternaryFnValue : TernaryFn -> Nat
-ternaryFnValue TernaryFn.Select = 0
 
 -- How the syntax below spells each TernaryFn.
 ternaryFnSpelling : TernaryFn -> String
@@ -301,12 +236,6 @@ export
 Show TypeFn where
   show TypeFn.CastSigned = "cast_signed"
   show TypeFn.CastUnsigned = "cast_unsigned"
-
-||| The value of each TypeFn.
-export
-typeFnValue : TypeFn -> Nat
-typeFnValue TypeFn.CastSigned = 0
-typeFnValue TypeFn.CastUnsigned = 1
 
 -- How the syntax below spells each TypeFn.
 typeFnSpelling : TypeFn -> String
@@ -374,35 +303,6 @@ Show UnaryFn where
   show UnaryFn.Log10 = "log10"
   show UnaryFn.Log1p = "log1p"
   show UnaryFn.Log2 = "log2"
-
-||| The value of each UnaryFn.
-export
-unaryFnValue : UnaryFn -> Nat
-unaryFnValue UnaryFn.Exp = 0
-unaryFnValue UnaryFn.Log = 1
-unaryFnValue UnaryFn.Abs = 2
-unaryFnValue UnaryFn.Ceil = 3
-unaryFnValue UnaryFn.Floor = 4
-unaryFnValue UnaryFn.Negf = 5
-unaryFnValue UnaryFn.Reciprocal = 6
-unaryFnValue UnaryFn.Round = 7
-unaryFnValue UnaryFn.Sqrt = 8
-unaryFnValue UnaryFn.Rsqrt = 9
-unaryFnValue UnaryFn.Square = 10
-unaryFnValue UnaryFn.Tanh = 11
-unaryFnValue UnaryFn.Erf = 12
-unaryFnValue UnaryFn.Sin = 13
-unaryFnValue UnaryFn.Cos = 14
-unaryFnValue UnaryFn.Tan = 15
-unaryFnValue UnaryFn.Acos = 16
-unaryFnValue UnaryFn.Acosh = 17
-unaryFnValue UnaryFn.Asin = 18
-unaryFnValue UnaryFn.Asinh = 19
-unaryFnValue UnaryFn.Atan = 20
-unaryFnValue UnaryFn.Atanh = 21
-unaryFnValue UnaryFn.Log10 = 22
-unaryFnValue UnaryFn.Log1p = 23
-unaryFnValue UnaryFn.Log2 = 24
 
 -- How the syntax below spells each UnaryFn.
 unaryFnSpelling : UnaryFn -> String

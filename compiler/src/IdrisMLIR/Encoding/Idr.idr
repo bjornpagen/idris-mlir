@@ -423,39 +423,3 @@ encodeIdrAttr (SiteAttr file' line' column' function') = encodeSiteAttr file' li
 encodeIdrAttr (BigAttr value') = encodeBigAttr value'
 encodeIdrAttr (ClosureAttr callee' captures') = encodeClosureAttr callee' captures'
 
-||| A value of `IdrType` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseIdrType : Applicative f => (ty -> f ty') -> (at -> f at') -> IdrType ty at -> f (IdrType ty' at')
-traverseIdrType t a (DataType group' member' indices' refinement' binders' mark') = pure DataType <*> a group' <*> pure member' <*> traverse (\x' => traverseTermNode t a x') indices' <*> traverse a refinement' <*> traverse (\x' => traverseTermNode t a x') binders' <*> pure mark'
-traverseIdrType t a (SelfType member' indices') = pure SelfType <*> pure member' <*> traverse (\x' => traverseTermNode t a x') indices'
-traverseIdrType t a (GradedType uses' hold' carrier') = pure GradedType <*> pure uses' <*> pure hold' <*> t carrier'
-traverseIdrType t a (LifetimeType kind') = pure LifetimeType <*> traverseLifetimeKindOf t a kind'
-traverseIdrType t a (LifetimePackageType packed' held') = pure LifetimePackageType <*> pure packed' <*> traverse (\x' => t x') held'
-traverseIdrType t a StrType = pure StrType
-traverseIdrType t a BigType = pure BigType
-traverseIdrType t a (NatType index') = pure NatType <*> traverse (\x' => traverseTermNode t a x') index'
-traverseIdrType t a (CellType value') = pure CellType <*> t value'
-traverseIdrType t a (ReuseTokenType sources') = pure ReuseTokenType <*> traverse (\x' => t x') sources'
-traverseIdrType t a (FnType inputs' results') = pure FnType <*> traverse (\x' => t x') inputs' <*> traverse (\x' => t x') results'
-traverseIdrType t a (LazyType value') = pure LazyType <*> t value'
-traverseIdrType t a (DestType value') = pure DestType <*> t value'
-
-||| A value of `IdrAttr` with each type it holds given by `t` and each attribute by `a`.
-export
-traverseIdrAttr : Applicative f => (ty -> f ty') -> (at -> f at') -> IdrAttr ty at -> f (IdrAttr ty' at')
-traverseIdrAttr t a (BinderAttr definition' index') = pure BinderAttr <*> a definition' <*> pure index'
-traverseIdrAttr t a (TerminatesAttr proof') = pure TerminatesAttr <*> traverseComponentProof t a proof'
-traverseIdrAttr t a (PutBoundsAttr bounds') = pure PutBoundsAttr <*> traverse (\x' => traversePutBound t a x') bounds'
-traverseIdrAttr t a (LivesInAttr parameters' results' bounds') = pure LivesInAttr <*> traverse (\x' => traverseLivesIn t a x') parameters' <*> traverse (\x' => traverseLivesIn t a x') results' <*> traverse (\x' => traverseOutlives t a x') bounds'
-traverseIdrAttr t a (ExtentAttr side' position' axis' term') = pure ExtentAttr <*> pure side' <*> pure position' <*> pure axis' <*> traverse (\x' => traverseTermNode t a x') term'
-traverseIdrAttr t a (ExtentsAttr entries') = pure ExtentsAttr <*> traverse (\x' => a x') entries'
-traverseIdrAttr t a (FamilyAttr members') = pure FamilyAttr <*> traverse (\x' => traverseMemberOf t a x') members'
-traverseIdrAttr t a (IndexBindersAttr sorts') = pure IndexBindersAttr <*> traverse (\x' => traverseSortOf t a x') sorts'
-traverseIdrAttr t a (IndexArgsAttr terms' count') = pure IndexArgsAttr <*> traverse (\x' => traverseTermNode t a x') terms' <*> pure count'
-traverseIdrAttr t a (EquationAttr lhs' rhs') = pure EquationAttr <*> traverse (\x' => traverseTermNode t a x') lhs' <*> traverse (\x' => traverseTermNode t a x') rhs'
-traverseIdrAttr t a (ConAttr data' cells' spine') = pure ConAttr <*> t data' <*> traverse (\x' => a x') cells' <*> pure spine'
-traverseIdrAttr t a MutableAttr = pure MutableAttr
-traverseIdrAttr t a (SiteAttr file' line' column' function') = pure SiteAttr <*> pure file' <*> pure line' <*> pure column' <*> pure function'
-traverseIdrAttr t a (BigAttr value') = pure BigAttr <*> pure value'
-traverseIdrAttr t a (ClosureAttr callee' captures') = pure ClosureAttr <*> a callee' <*> a captures'
-

@@ -6,11 +6,9 @@
 ||| take a type computed from a run-time value of varying representation,
 ||| which the subset refuses); an encoder per type and attribute, its
 ||| layout derived from the parameters as the C++ reader's is; and, for a
-||| value a wire lays out, its type, its parts and its traversal, from the
-||| wire the C++ codec is printed from, with a traversal of the sums by
-||| which the writer gives every type and attribute a value holds its entry.
-||| Every binder printed is primed, so no keyword or helper name can collide
-||| with one.
+||| value a wire lays out, its type and its parts, from the wire the C++
+||| codec is printed from. Every binder printed is primed, so no keyword or
+||| helper name can collide with one.
 module IdrisMLIR.Spec.Generator.Idris
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -409,37 +407,11 @@ wiredParts (WiredArray w) v = wireParts (WireArray w) v
 wiredParts (WiredOne l) v = leafParts l v
 wiredParts (WiredOf c) v = wireParts (WireOf c) v
 
-||| A leaf with what it holds numbered, as an expression over its binder in
-||| the traversal's applicative: a type by `t`, an attribute by `a`.
-export
-leafTraversal : Leaf -> String -> String
-leafTraversal (LeafType _) v = "t " ++ v
-leafTraversal (LeafAttr _) v = "a " ++ v
-leafTraversal (LeafMaybeAttr _) v = "traverse a " ++ v
-leafTraversal _ v = "pure " ++ v
-
-export
-wireTraversal : Wire -> String -> String
-wireTraversal (WireLeaf l) v = leafTraversal l v
-wireTraversal (WireArray w) v = "traverse (\\x' => " ++ wireTraversal w "x'" ++ ") " ++ v
-wireTraversal (WireOf c) v = "traverse" ++ identText (compositeName c) ++ " t a " ++ v
-
-export
-wiredTraversal : Wired -> String -> String
-wiredTraversal (WiredArray w) v = wireTraversal (WireArray w) v
-wiredTraversal (WiredOne l) v = leafTraversal l v
-wiredTraversal (WiredOf c) v = wireTraversal (WireOf c) v
-
 ||| A constructor's pattern over its binders, primed: its name alone, or in
 ||| parentheses with them.
 patternOf : String -> List String -> String
 patternOf con [] = con
 patternOf con bs = "(" ++ con ++ spaced (map (++ "'") bs) ++ ")"
-
-||| An applicative's application of a constructor to its fields'
-||| expressions, each in the applicative.
-applied : String -> List String -> String
-applied con es = joinWith " <*> " (("pure " ++ con) :: es)
 
 ||| Parts joined, none an empty list.
 partsJoined : List String -> String
@@ -510,22 +482,6 @@ compositeParts (MkComposite n _ body doc) =
       ++ partsJoined (maybe [] (\k => ["[VarInt " ++ decimal k ++ "]"]) sh.place
                       ++ map (\(b, w) => wireParts w (b ++ "'")) sh.holds)
 
-||| A composite with what it holds numbered, by which the writer gives each
-||| type and attribute its entry: each type by `t`, each attribute by `a`.
-compositeTraversal : Composite -> Lines
-compositeTraversal (MkComposite n _ body doc) =
-  let name = identText n
-  in barComment ["A `" ++ name ++ "` with each type it holds given by `t` and each attribute by `a`."]
-     ++ [ "export"
-        , "traverse" ++ name ++ " : Applicative f => (ty -> f ty') -> (at -> f at') -> " ++ name ++ " ty at -> f (" ++ name ++ " ty' at')" ]
-     ++ map (clause name) (shapesOf name doc body)
-     ++ [""]
-  where
-    clause : String -> Shape -> String
-    clause name sh =
-      "traverse" ++ name ++ " t a " ++ patternOf sh.con (map fst sh.holds) ++ " = "
-      ++ applied sh.con (map (\(b, w) => wireTraversal w (b ++ "'")) sh.holds)
-
 mutual
   ||| The modules the closed sets of a wire's leaves live in, as the
   ||| frontend's types of them name them and their positions are computed.
@@ -548,21 +504,19 @@ compositeHomes cs = nub (concatMap homes cs)
     homes (MkComposite n _ b d) = concatMap (\sh => fieldsHomes sh.holds) (shapesOf (identText n) d b)
 
 ||| The frontend's side of every composite the dialect's parameters reach:
-||| its type, its parts and its traversal, each composite after every one
-||| it holds.
+||| its type and its parts, each composite after every one it holds.
 export
 wireModule : List Composite -> Lines
 wireModule cs =
   banner (map (\l => "-- " ++ l))
   ++ barComment [ "The values the idr dialect's types and attributes hold that a wire of"
                 , "the specification lays out: each one's type, over what the types `ty`"
-                , "and attributes `at` it holds are; its parts, as the dialect's C++"
-                , "reader reads them; and its traversal, by which the writer gives what"
-                , "it holds their entries. Printed from the dialect's specification." ]
+                , "and attributes `at` it holds are, and its parts, as the dialect's C++"
+                , "reader reads them. Printed from the dialect's specification." ]
   ++ [ "module IdrisMLIR.Encoding.Wire", "", "import IdrisMLIR.MLIR.Parts", "import IdrisMLIR.Spec.Core.Enums" ]
   ++ map ("import " ++) (compositeHomes cs)
   ++ [ "", "%default total", "" ]
-  ++ concatMap (\c => compositeData c ++ compositeParts c ++ compositeTraversal c) cs
+  ++ concatMap (\c => compositeData c ++ compositeParts c) cs
 
 export
 paramIdrisType : ParamKind -> String
@@ -621,16 +575,6 @@ fieldType CountValue = "Nat"
 fieldType (ListOf k) = "List (" ++ fieldType k ++ ")"
 fieldType (WiredValue w _) = wiredIdris w "ty" "at"
 
-||| A parameter's field with what it holds numbered, as an expression over
-||| its binder in the traversal's applicative: a type by `t`, an attribute
-||| by `a`.
-fieldTraversal : ParamKind -> String -> String
-fieldTraversal TypeValue v = "t " ++ v
-fieldTraversal AttrValue v = "a " ++ v
-fieldTraversal (ListOf k) v = "traverse (\\x' => " ++ fieldTraversal k "x'" ++ ") " ++ v
-fieldTraversal (WiredValue w _) v = wiredTraversal w v
-fieldTraversal _ v = "pure " ++ v
-
 ||| One constructor of a value sum, named for its C++ class.
 constructorOf : String -> String -> List Parameter -> String
 constructorOf sum cls params =
@@ -658,22 +602,6 @@ encodeSum sum defs =
     clause : (String, List Parameter) -> String
     clause (cls, ps) =
       "encode" ++ sum ++ " (" ++ cls ++ spaced (map (\x => primed x.name) ps) ++ ") = encode" ++ cls ++ spaced (map (\x => primed x.name) ps)
-
-||| A value of a sum with what it holds numbered, by which the writer gives
-||| each type and attribute its entry before it encodes the value: each
-||| type by `t`, each attribute by `a`.
-traverseSum : String -> List (String, List Parameter) -> Lines
-traverseSum sum defs =
-  barComment ["A value of `" ++ sum ++ "` with each type it holds given by `t` and each attribute by `a`."]
-  ++ [ "export"
-     , "traverse" ++ sum ++ " : Applicative f => (ty -> f ty') -> (at -> f at') -> " ++ sum ++ " ty at -> f (" ++ sum ++ " ty' at')" ]
-  ++ map clause defs
-  ++ [""]
-  where
-    clause : (String, List Parameter) -> String
-    clause (cls, ps) =
-      "traverse" ++ sum ++ " t a " ++ patternOf cls (map (\x => identText x.name) ps) ++ " = "
-      ++ applied cls (map (\x => fieldTraversal x.kind (primed x.name)) ps)
 
 ||| The mnemonics of a value sum's constructors, as a list in declaration
 ||| order and by value: the frontend's syntax samples check every one is
@@ -738,5 +666,3 @@ encodersModule ts as =
      ++ concatMap (\(n, (cls, ps)) => encoder "attributes" n cls ps) (numberedFrom 0 attrs)
      ++ encodeSum "IdrType" types
      ++ encodeSum "IdrAttr" attrs
-     ++ traverseSum "IdrType" types
-     ++ traverseSum "IdrAttr" attrs
