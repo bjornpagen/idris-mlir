@@ -893,3 +893,8 @@ askers in callersOf, Settle's removed proof). Waiting:
   signature was derived from it (L19 §3.3 part 3, I4), and linear-kept
   compares the copy with its origin's record through that derivation
   (L19 with the copying passes' owners: L18, L10, L07).
+- From L19ac: the specification stores an op's inline meaning already
+  printed (`inline (EuclidOf Quotient)` as an identifier string in the
+  builtin's meaning field), so the typed `InlineMeaning` is lost there and
+  readers can only compare text; the field holds the typed meaning, printed
+  only where it is written out (L03).
