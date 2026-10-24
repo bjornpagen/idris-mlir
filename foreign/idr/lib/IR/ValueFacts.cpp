@@ -8,8 +8,8 @@
 // type's whose answers are all computed (a grade's, Grades.cpp; a data
 // type's, Types.cpp). The builtin types a value may have answer as external
 // models, attached when the dialect registers its types, with the literals
-// of the builtin integers and of f64 and the test a literal match makes of
-// each. The free functions are the one way a reader asks (Grades.h,
+// of the builtin integers and the test a literal match makes of one. The
+// free functions are the one way a reader asks (Grades.h,
 // Interfaces/Vocabulary.h).
 
 #include "idr/IR/IdrDialect.h"
@@ -109,37 +109,6 @@ struct IntegerLiterals : LiteralTypeInterface::ExternalModel<IntegerLiterals, In
   }
 };
 
-// A literal of f64 is a Double a literal match compares by IEEE's equality,
-// so one key is one value it matches: never a NaN, which equals nothing,
-// nor negative zero, which equals positive zero and is written as it.
-struct DoubleLiterals : LiteralTypeInterface::ExternalModel<DoubleLiterals, Float64Type> {
-  bool isLiteral(Type type, Attribute literal) const {
-    auto real = dyn_cast<FloatAttr>(literal);
-    return real && real.getType() == type && !real.getValue().isNaN() &&
-           !real.getValue().isNegZero();
-  }
-
-  ParseResult parseLiteral(Type type, AsmParser &parser, Attribute &literal) const {
-    APFloat value(APFloat::IEEEdouble());
-    SMLoc loc = parser.getCurrentLocation();
-    if (parser.parseFloat(APFloat::IEEEdouble(), value))
-      return failure();
-    if (value.isNaN() || value.isNegZero())
-      return parser.emitError(loc, "key is no literal of ")
-             << type << ": a NaN equals no Double, and negative zero is written as zero";
-    literal = FloatAttr::get(type, value);
-    return success();
-  }
-
-  // IEEE's ordered equality at run time: arith's ordered comparison of the
-  // plain Double and the key's constant, under which no key is a NaN and
-  // the zero key is taken by either zero.
-  Value buildKeyTest(Type, OpBuilder &builder, Location loc, Value held, Attribute key) const {
-    Value literal = arith::ConstantOp::create(builder, loc, cast<TypedAttr>(key));
-    return arith::CmpFOp::create(builder, loc, arith::CmpFPredicate::OEQ, held, literal);
-  }
-};
-
 } // namespace
 
 void IdrDialect::registerValueFacts() {
@@ -151,7 +120,6 @@ void IdrDialect::registerValueFacts() {
   Float16Type::attachInterface<ScalarFacts<Float16Type>>(context);
   Float32Type::attachInterface<ScalarFacts<Float32Type>>(context);
   Float64Type::attachInterface<ScalarFacts<Float64Type>>(context);
-  Float64Type::attachInterface<DoubleLiterals>(context);
   Float80Type::attachInterface<ScalarFacts<Float80Type>>(context);
   Float128Type::attachInterface<ScalarFacts<Float128Type>>(context);
   VectorType::attachInterface<ScalarFacts<VectorType>>(context);

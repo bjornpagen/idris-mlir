@@ -5,13 +5,13 @@
 // knows of its scrutinee, and the lifetimes it states. What it shares
 // with idr.data.match is idr/IR/Control/MatchFamily.h.
 //
-// Its scrutinee is a word, a char, a double, a string, a big integer or a
-// natural, never taken apart. Every region binds it at its own type, as a
-// data match's regions bind theirs, so the match moves the scrutinee into
-// each region and each binding holds it there: in a case the binding
-// equals its literal (a double's zero key is taken by either zero), and in
-// the default, which the match always has since no set of literals is
-// exhaustive, it is none of the keys. A condition is chosen on by scf.if.
+// Its scrutinee is a word, a char, a string, a big integer or a natural,
+// never taken apart. Every region binds it at its own type, as a data
+// match's regions bind theirs, so the match moves the scrutinee into each
+// region and each binding holds it there: in a case the binding equals its
+// literal, and in the default, which the match always has since no set of
+// literals is exhaustive, it is none of the keys. A condition is chosen on
+// by scf.if.
 
 #include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Control/Stated.h"
@@ -121,9 +121,8 @@ namespace {
 // The region a constant scrutinee takes: the case whose key is that very
 // literal (takenRegion), its value's one form, or the default's for a
 // literal that is no key. Only a literal is looked up: a constant that is
-// none (a double's NaN or negative zero, or a constant of no value of the
-// type, a poison's) is found by no key here, so every region may run, and
-// the lowering's comparison decides it.
+// none, of no value of the type (a poison's), is found by no key here, so
+// every region may run, and the lowering's comparison decides it.
 Region *takenBy(LitMatchOp op, Attribute value) {
   auto literals = cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()));
   return value && literals.isLiteral(value) ? takenRegion(op, value) : nullptr;

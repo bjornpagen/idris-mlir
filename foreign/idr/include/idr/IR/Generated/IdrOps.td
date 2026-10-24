@@ -601,11 +601,11 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface
   ]> {
-  let summary = "branches on the value of a word, a double, a string, a big integer or a natural";
+  let summary = "branches on the value of a word, a string, a big integer or a natural";
   let description = [{
     Each case is one literal of its type; every region binds the
-    scrutinee, which in a case equals its literal (a double's zero is
-    taken by either zero) and in the default is none of the keys.
+    scrutinee, which in a case equals its literal and in the default is
+    none of the keys.
 
     `%r = idr.lit.match %s : !idr.str -> (i64) { case ""(%e: !idr.str) {...} default(%t: !idr.str) {...} }`
     `%r = idr.lit.match %c : i32 -> (i64) { case 97(%a: i32) {...} default(%d: i32) {...} }`

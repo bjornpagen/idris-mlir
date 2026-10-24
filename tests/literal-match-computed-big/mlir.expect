@@ -1,0 +1,5 @@
+# The match on the big computed from constants is decided before the
+# program is graded: the region of its key 3 * 10^20 is taken, the
+# default's guard is gone with the other regions, and the product with
+# the match.
+graded: no-guards=@Main.main folded=@Main.main

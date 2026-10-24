@@ -8,6 +8,7 @@
 // no op uses.
 
 #include "idr/IR/Control/Control.h"
+#include "idr/IR/Control/KeyTests.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ops/Rules.h"
@@ -17,8 +18,13 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <array>
+#include <cassert>
+#include <concepts>
+#include <optional>
+#include <variant>
 
 using namespace mlir;
 using namespace idr::control;
@@ -86,27 +92,112 @@ Region *takenByInteger(LitMatchOp op, const APInt &value) {
   return &op.getDefaultRegion();
 }
 
-// The region a literal match on a known scrutinee takes. An integer the
-// graph knows is the one value of its range, never an attribute, so it
-// finds its key by value. A string, a double or a big past the small range
-// is found by the constant an op holds, which the match's own lookup reads:
-// one the graph computed holds no attribute, and is found once that lookup
-// reads the graph's values.
+// The two operands of a key test the graph decides, each as the runtime's
+// value of its kind: the constant the scrutinee is, borrowed from its
+// class, and the key, read as the one fold reads a constant an op holds
+// and kept until the decision ends. A key test gives a truth.
+class KeyOperands {
+public:
+  using Operand = std::variant<const Text *, const Big *, Attribute>;
+  using Result = bool;
+
+  explicit KeyOperands(MLIRContext *context) : keys(context) {}
+
+  std::optional<APInt> integerOf(const Operand &operand) {
+    return idr::match(
+        operand,
+        [](OneOf<const Text *, const Big *> auto) -> std::optional<APInt> { return std::nullopt; },
+        [&](Attribute key) { return keys.integerOf(key); });
+  }
+  std::optional<double> realOf(const Operand &operand) {
+    return idr::match(
+        operand,
+        [](OneOf<const Text *, const Big *> auto) -> std::optional<double> { return std::nullopt; },
+        [&](Attribute key) { return keys.realOf(key); });
+  }
+  std::optional<const idris_rt_str *> strOf(const Operand &operand) {
+    return idr::match(
+        operand,
+        [](const Text *text) -> std::optional<const idris_rt_str *> { return text->get(); },
+        [](const Big *) -> std::optional<const idris_rt_str *> { return std::nullopt; },
+        [&](Attribute key) { return keys.strOf(key); });
+  }
+  std::optional<idris_rt_big> bigOf(const Operand &operand) {
+    return idr::match(
+        operand, [](const Text *) -> std::optional<idris_rt_big> { return std::nullopt; },
+        [](const Big *big) -> std::optional<idris_rt_big> { return big->get(); },
+        [&](Attribute key) { return keys.bigOf(key); });
+  }
+
+  std::optional<bool> integer(Type, const APInt &truth) const { return truth.getBoolValue(); }
+  std::optional<bool> real(Type, double) const {
+    llvm_unreachable("a key test gives a truth, never a Double");
+  }
+  std::optional<bool> str(Type, const idris_rt_str *) const {
+    llvm_unreachable("a key test gives a truth, never a string");
+  }
+  std::optional<bool> big(Type, idris_rt_big) const {
+    llvm_unreachable("a key test gives a truth, never a big");
+  }
+
+  // A key test has no guard and no condition of its own.
+  template <class Op>
+  bool admits(llvm::ArrayRef<Operand>) const {
+    static_assert(!fold::HasFoldCondition<Op>, "a key test folds on any two constants");
+    return true;
+  }
+
+private:
+  fold::InAttributes keys;
+};
+static_assert(fold::Where<KeyOperands>, "a key test's operands are a place constants live");
+
+// The carrier whose key test tests a constant the graph knows a literal
+// match's scrutinee is: a string's, and a big's past the small range,
+// which a natural's key test tests alike.
+template <class Known>
+struct TestedAs;
+template <>
+struct TestedAs<const Text *> {
+  using Carrier = StrType;
+};
+template <>
+struct TestedAs<const Big *> {
+  using Carrier = BigType;
+};
+static_assert(std::same_as<KeyTest<BigType>, KeyTest<NatType>>,
+              "a natural is tested against its keys as an Integer is");
+
+// The region of a literal match whose scrutinee is the string or the big
+// past the small range `value`, as the graph knows it, whether an op held
+// it or the graph computed it: the case whose key its carrier's key test,
+// folded, finds it equal to, else the default.
+template <class Known>
+Region *takenByKey(LitMatchOp op, Known value) {
+  KeyOperands operands(op.getContext());
+  Type truth = IntegerType::get(op.getContext(), 1);
+  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
+    std::optional<bool> equal =
+        foldKeyTest<typename TestedAs<Known>::Carrier>(operands, value, key, truth);
+    assert(equal && "a verified match's keys are literals its carrier's key test reads");
+    if (*equal)
+      return &region;
+  }
+  return &op.getDefaultRegion();
+}
+
+// The region a literal match on a constant the graph knows takes: an
+// integer, the one value of its range, finds its key by value, and a
+// string or a big by its key test; none where the graph knows no constant.
+// A Double has no literals, so no literal match is on one.
 Region *literalTaken(LitMatchOp op, const OperandFacts &facts) {
-  Value scrutinee = op.getScrutinee();
-  if (std::optional<KnownConstant> known = facts.constant(scrutinee))
-    if (Region *taken = idr::match(
-            *known, [&](const APInt &value) { return takenByInteger(op, value); },
-            [](const OneOf<const Text *, Real, const Big *> auto &) -> Region * {
-              return nullptr;
-            }))
-      return taken;
-  Attribute held = facts.held(scrutinee);
-  if (!held)
+  std::optional<KnownConstant> known = facts.constant(op.getScrutinee());
+  if (!known)
     return nullptr;
-  SmallVector<RegionSuccessor> taken;
-  op.getEntrySuccessorRegions({held}, taken);
-  return taken.size() == 1 ? taken.front().getSuccessor() : nullptr;
+  return idr::match(
+      *known, [&](const APInt &value) { return takenByInteger(op, value); },
+      [&](OneOf<const Text *, const Big *> auto value) { return takenByKey(op, value); },
+      [](Real) -> Region * { llvm_unreachable("a literal match is never on a Double"); });
 }
 
 // Whether a use lies inside `region`.
@@ -121,16 +212,12 @@ std::array<Value, 2> scrutineesIn(LitMatchOp op, Region &region) {
   return {region.getArgument(0), op.getScrutinee()};
 }
 
-// Whether the uses of what is the scrutinee in the case of `key`, its
-// region, may read the key: some lie there, and the scrutinee is the key
-// itself there. Essential: a double's zero key is taken by both zeros,
-// which ordered equality does not tell apart.
-bool readsKeyIn(LitMatchOp op, Attribute key, Region &region) {
-  auto real = dyn_cast<FloatAttr>(key);
-  return !(real && real.getValue().isZero()) &&
-         llvm::any_of(scrutineesIn(op, region), [&](Value read) {
-           return llvm::any_of(read.getUses(), [&](OpOperand &use) { return inside(region, use); });
-         });
+// Whether a case's region, where the scrutinee is the case's key, reads
+// what is the scrutinee there.
+bool readsKeyIn(LitMatchOp op, Region &region) {
+  return llvm::any_of(scrutineesIn(op, region), [&](Value read) {
+    return llvm::any_of(read.getUses(), [&](OpOperand &use) { return inside(region, use); });
+  });
 }
 
 // Whether no case of the match leaves a constructor for its non-empty
@@ -210,13 +297,13 @@ void egraph::TakenLiteral::rewrite(LitMatchOp op, const Rewrite &chosen,
 std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFacts &) {
   SmallVector<unsigned, 4> reading;
   for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
-    if (readsKeyIn(op, op.getCases()[i], op.getCaseRegions()[i]))
+    if (readsKeyIn(op, op.getCaseRegions()[i]))
       reading.push_back(i);
   return choose(std::move(reading));
 }
 
 // The key's constant is the one its carrier holds, as the dialect makes it:
-// upstream's for a word or a double, ours for a string, a big or a natural.
+// upstream's for a word, ours for a string, a big or a natural.
 // Where no constant op holds the key at the scrutinee's type, its uses stay,
 // as they do in a case the root no longer has or whose region no longer
 // reads the key.
@@ -228,7 +315,7 @@ void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &chosen,
       continue;
     Attribute key = op.getCases()[at];
     Region &region = op.getCaseRegions()[at];
-    if (!readsKeyIn(op, key, region))
+    if (!readsKeyIn(op, region))
       continue;
     rewriter.setInsertionPointToStart(&region.front());
     Operation *literal =

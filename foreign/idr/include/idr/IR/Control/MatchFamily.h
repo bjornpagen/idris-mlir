@@ -101,10 +101,9 @@ void boundsOf(Match op, mlir::Region *taken, llvm::SmallVectorImpl<mlir::Invocat
 // so that no tag, before its match's verifier bounds it by the family, is
 // one of the two values a hashed set of 32-bit integers reserves. A literal
 // is held as itself: each carrier admits one literal per value (a string's
-// is its one untyped string attribute, a big's is keyed by its integer at
-// its fewest bits, a Double's is never a NaN, which equals nothing, nor
-// negative zero, which equals zero), so two literals are one value exactly
-// when they are one attribute.
+// is its one untyped string attribute, and a big's is keyed by its integer
+// at its fewest bits), so two literals are one value exactly when they are
+// one attribute.
 inline std::int64_t heldKey(std::int32_t tag) { return tag; }
 inline mlir::Attribute heldKey(mlir::Attribute literal) { return literal; }
 

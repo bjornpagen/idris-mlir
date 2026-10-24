@@ -140,7 +140,7 @@ dataMatchOp : MlirAttr -> Value -> List Value -> List Value -> Region -> List Re
 dataMatchOp cases' scrutinee' forwarded' outers' default_region' case_regions' results' =
   MkOp (MkOpName Dialect.Idr "data.match") ([scrutinee'] ++ forwarded' ++ outers') ([("cases", cases')] ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length forwarded', length outers'])]) ([default_region'] ++ case_regions') [] (results')
 
-||| `idr.lit.match`: branches on the value of a word, a double, a string, a big integer or a natural
+||| `idr.lit.match`: branches on the value of a word, a string, a big integer or a natural
 export
 litMatchOp : MlirAttr -> Value -> List Value -> Region -> List Region -> List MlirType -> Op
 litMatchOp cases' scrutinee' outers' default_region' case_regions' results' =

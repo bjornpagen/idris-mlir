@@ -1,0 +1,4 @@
+# The match on the string computed from constants is decided before the
+# program is graded: the region of its key "ab" is taken, the default's
+# guard is gone with the other regions, and the append with the match.
+graded: no-guards=@Main.main folded=@Main.main

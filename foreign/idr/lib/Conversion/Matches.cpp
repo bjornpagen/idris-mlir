@@ -171,9 +171,9 @@ void switchOnWord(RewriterBase &rewriter, LitMatchOp op, Value word) {
 
 // Each carrier's keys are tested with its own equality, the test its type
 // builds (LiteralTypeInterface::buildKeyTest). The scrutinee is held once:
-// a value that holds no reference (a word, a double) as its plain value,
-// which arith compares; one that holds references (a string, a big, a
-// natural) read in place at its grade, which a cast would claim or forget.
+// a value that holds no reference (a word) as its plain value, which
+// arith compares; one that holds references (a string, a big, a natural)
+// read in place at its grade, which a cast would claim or forget.
 // Essential, the two ways a value is read. A word the target's index holds
 // is switched on, scf.index_switch taking an index; any other carrier is
 // tested key by key.

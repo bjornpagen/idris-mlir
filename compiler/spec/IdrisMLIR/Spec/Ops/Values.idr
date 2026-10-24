@@ -30,9 +30,7 @@ import Data.Vect
 ||| type. A type admits one literal per value at most, so two literals are
 ||| one value exactly when they are one attribute, and identity is every
 ||| carrier's equality of keys: a string's literal is its one string
-||| attribute, a big's is keyed by its integer at its fewest bits, and a
-||| Double's is never a NaN, which equals nothing, nor negative zero, which
-||| equals zero and is written as zero.
+||| attribute, and a big's is keyed by its integer at its fewest bits.
 public export
 literalType : InterfaceDef
 literalType = MkInterfaceDef
