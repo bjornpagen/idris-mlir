@@ -19,8 +19,10 @@
 // result is the type the call gave: a result the owner's type marks open
 // the call took open already, converting it after itself where its own
 // type closed it (openResults), and a result keyed to the hold of a lowered
-// parameter that may reach it the call took at that hold already, when its
-// caller was taken up (openResults again). The one result type a copy
+// parameter that may reach it, or lowered further by the decisions of the
+// copy's component, the call took at the hold the copy gives already, as
+// the table held it when its caller was last decided (openResults again,
+// at each restatement of the copy's results). The one result type a copy
 // changes is a result keyed open for a tail lost to a layout: the call
 // gives it at its caller's layout, so the cast after it, which re-packed,
 // now builds nothing, and is made again from the call's result at the hold
@@ -115,7 +117,7 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
 // where the key opens one for a tail lost to a layout. Such a tail gives
 // each result to the call's uses, each a cast towards its caller's return,
 // which builds nothing now: at the hold the copy gives it, which its
-// caller's readers took when it was taken up (keyCalls), so each cast is
+// caller's return took when it was last decided (keyCalls), so each cast is
 // made again from the copy's result (convertResults), shared down where
 // its readers claim less.
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
@@ -135,8 +137,8 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
                         auto [keyed, had] = pair;
                         return keyed == had || unrestricted(keyed) != unrestricted(had);
                       }) &&
-         "a copy gives each result at the hold its call took when its caller was taken up; only "
-         "a result keyed open differs from it");
+         "a copy gives each result at the hold its call took when its caller was last decided; "
+         "only a result keyed open differs from it");
   bool opened = !llvm::equal(seen.getResults(), call.getResultTypes());
   assert((!opened || !lastActOf(call)) &&
          "a copy gives each result as its call did, but one keyed open for a tail lost to a "

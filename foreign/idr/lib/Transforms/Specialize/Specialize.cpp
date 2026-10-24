@@ -36,6 +36,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <cassert>
+#include <utility>
 
 using namespace mlir;
 
@@ -108,7 +109,21 @@ const Node *Nodes::find(FunctionId fn) const { return state->placedAt(fn); }
 
 const Node *Nodes::known(const Key &key) const {
   auto found = state->byKey.find(identityOf(key));
-  return found == state->byKey.end() ? nullptr : found->second;
+  return found == state->byKey.end() ? nullptr : found->second.node;
+}
+
+mlir::FunctionType Nodes::signatureOf(const SignatureKey *key) const {
+  const Node *made = known(Key(key));
+  return made ? made->signature(key->signature) : key->signature;
+}
+
+// Written between waves alone, when no turn reads the table. A key no ask
+// has made a node of yet is met here first, its node admitted later.
+mlir::FunctionType Nodes::read(FunctionId reader, const SignatureKey *key) {
+  SmallVector<FunctionId, 1> &readers = state->byKey[identityOf(Key(key))].readers;
+  if (!llvm::is_contained(readers, reader))
+    readers.push_back(reader);
+  return signatureOf(key);
 }
 
 namespace {
@@ -375,7 +390,7 @@ FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
         identityOf(previous->key) != identityOf(each.key))
       return twoKeys(each);
     previous = &each;
-    Node *&slot = s.byKey[identityOf(each.key)];
+    Node *&slot = s.byKey[identityOf(each.key)].node;
     bool fresh = !slot;
     if (fresh) {
       // A name the program holds is a node placed by an earlier wave, which
@@ -475,7 +490,8 @@ void Nodes::dropped(FunctionId fn, const llvm::BitVector &unread) {
   node->unread = unread;
 }
 
-void Nodes::restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after) {
+SmallVector<FunctionId, 1> Nodes::restate(FunctionId fn, mlir::FunctionType before,
+                                          mlir::FunctionType after) {
   Node *node = state->placedAt(fn);
   assert(node && "only a copy has a key whose signature its decisions restate");
   assert(idr::match(
@@ -493,6 +509,11 @@ void Nodes::restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType
           return ResultsChanged{after};
         return ParametersLowered{after};
       });
+  // What its readers read is its results; parameters lowered change no
+  // reading.
+  if (before.getResults() == after.getResults())
+    return {};
+  return std::exchange(state->byKey[identityOf(node->key)].readers, {});
 }
 
 // Every copy's function says what it is, none included: a function the

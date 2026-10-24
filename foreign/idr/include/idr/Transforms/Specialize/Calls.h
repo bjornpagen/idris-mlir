@@ -86,6 +86,16 @@ struct InsideCycle {
 };
 using CallSite = std::variant<OutsideCycle, InsideCycle>;
 
+// Where a call in `self`, whose node is `node` (none for a function the
+// program held), stands to the call cycle of `callee`: inside it where the
+// callee's origin is of one component of the schedule with a cycle whose
+// code `self` holds (its own origin's, or for a raise copy a consumer's
+// too), and outside it otherwise. The one reading of the program graph's
+// components, as waits joined them, for both what a call's arguments vary
+// by and what sizes it may key.
+CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node *node,
+                FunctionId callee);
+
 // Where a call's results go in its caller, read once per caller off its
 // tails (tail::tailsOf): to its caller's return through a re-pack, a tail
 // lost to a layout, which a copy returning them open makes a tail call; or
@@ -122,11 +132,37 @@ llvm::SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing)
 // as the copy keys that callee open in turn, and the callee's own calls
 // tails like any other); then each bounded by the holds passed where a
 // lowered parameter may reach it (keyGivenBack, read off `given`). The one
-// rule a key's results are made by (signatureOf) and its caller reads them
-// by before the copy is built (keyCalls).
+// rule a key's results are made by (SignatureRule).
 llvm::SmallVector<mlir::Type> keyedResults(FuncOp callee, llvm::ArrayRef<ResultLayout> layouts,
                                            identities::FactsView given,
                                            llvm::ArrayRef<std::optional<Hold>> passed);
+
+// The one rule a signature key is made by, for `call` of `callee`, read once
+// each time the call is decided: the class of its index arguments where the
+// callee's layout changes under them or a bare tensor argument's extent the
+// callee names becomes a constant that the call's site lets key it, and
+// what it asks of each result where it stands (layoutsAsked). Its key
+// judges nothing of the call's caller: the redirect asks whether the caller
+// reads what the copy gives (signatureOf), and a caller decided between
+// waves reads it (openResults), both off the table (Nodes::signatureOf,
+// Nodes::read).
+struct SignatureRule {
+  CallOp call;
+  FuncOp callee;
+  FunctionId calleeId;
+  identities::FactsView given;
+  std::optional<IndexArgsAttr> classes;
+  llvm::SmallVector<ResultLayout> layouts;
+
+  // The key at the holds `passed` names (passedHolds; none where a
+  // parameter keeps its own), interned in `arena`: each parameter at its
+  // hold, each result as keyedResults gives it, the callee's signature at
+  // the classes; null where nothing changes the callee.
+  const SignatureKey *keyAt(Arena &arena, llvm::ArrayRef<std::optional<Hold>> passed) const;
+};
+SignatureRule signatureRule(CallOp call, FuncOp callee, FunctionId calleeId,
+                            identities::FactsView given, const CallSite &site,
+                            TailStanding standing);
 
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
@@ -134,9 +170,9 @@ llvm::SmallVector<mlir::Type> keyedResults(FuncOp callee, llvm::ArrayRef<ResultL
 // passes an argument at a hold its parameter does not have (each result
 // that argument may reach, by the callee's published facts `given`, keyed
 // with it), or `standing` is a tail lost to a layout, judged against what
-// the copy `nodes` holds for its key gives; else its raise; else its
-// pattern key. Keys and forms are interned in `nodes`' arena and table of
-// forms.
+// the copy `nodes` holds for its key gives (Nodes::signatureOf); else its
+// raise; else its pattern key. Keys and forms are interned in `nodes`'
+// arena and table of forms.
 mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *requester,
                                             FuncOp callee, FunctionId calleeId,
                                             const Node *calleeNode, identities::FactsView given,

@@ -35,17 +35,8 @@ namespace idr::specialize {
 
 using namespace detail;
 
-namespace {
-
-// Where a call in `self`, whose node is `node` (none for a function the
-// program held), stands to the call cycle of `callee`: inside it where the
-// callee's origin is of one component of the schedule with a cycle whose
-// code `self` holds (its own origin's, or for a raise copy a consumer's
-// too), and outside it otherwise. The one reading of the program graph's
-// components, as waits joined them, for both what a call's arguments vary
-// by and what sizes it may key.
-CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node *node,
-                FunctionId callee) {
+CallSite detail::siteOf(const optimize::Schedule &schedule, FunctionId self, const Node *node,
+                        FunctionId callee) {
   FunctionId theirs = schedule.originOf(callee);
   auto inside = [&](FunctionId cycle) { return schedule.sameComponent(cycle, theirs); };
   if (!node)
@@ -54,6 +45,8 @@ CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node 
     return InsideCycle{node->own};
   return OutsideCycle{};
 }
+
+namespace {
 
 // The binding times of a callee's parameters as a call sees them: within
 // the recursion of the cycle both stand in, the callee's own; entering it

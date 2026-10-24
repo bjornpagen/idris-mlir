@@ -261,24 +261,6 @@ void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 // reference.
 llvm::SmallVector<std::optional<Hold>> passedHolds(CallOp call, mlir::TypeRange params);
 
-// `results`, a callee's results (its own, or a call's view of them), as its
-// copy keyed to the holds `passed` names (passedHolds; none where a
-// parameter keeps its own) gives them, read off what the callee's component
-// published (`given`, through egraph::CalleeFacts), never worked out again.
-// A result that is a lowered parameter on every path that returns claims no
-// more than that parameter is passed at, so it takes the weakest of its own
-// hold and that one; a result that is a part of one, the weakest of its own
-// and that hold claiming nothing, since how far a claim reaches into a part
-// is the part's field's; and what may reach it on some path adds nothing.
-// Any other result takes the same bound from each lowered parameter that
-// may reach it on some path, whole or by a part as the facts say: a sound
-// bound, so the copy gives no less there than its key says. A result that
-// claims no more than a bound keeps its own hold. The one rule a copy's key
-// is made by (signatureOf) and its caller reads the call's results by
-// before the copy is built (openResults).
-void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold>> passed,
-                  llvm::MutableArrayRef<mlir::Type> results);
-
 // What a function's signature and its calls are decided to be when the
 // schedule takes it up, between waves, for `starters`, each a member a turn
 // of the coming wave starts, and for each member of their components a
@@ -289,13 +271,15 @@ void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold
 //   component pass it, as no copy is keyed inside a component, a copy of
 //   the component's included; its body is re-graded from there, and every
 //   call of it shares a stronger operand down to it.
-// - Its calls of final functions: each that passes an operand lowered
-//   takes, at each result that operand may reach, the hold the callee's
-//   copy keyed to it will give (keyGivenBack), so it reads the key's
-//   results before the copy is built and the values they carry on are
-//   re-graded down; and where a tail lost to a layout will call a copy
-//   keyed open that gives a result at less than its own result claims
-//   (keyedResults), its return gives that result so already, shared down.
+// - Its calls of final functions: each that keys a signature copy reads
+//   the results that copy gives as the table holds them (Nodes::read): its
+//   key's, a result a lowered operand may reach at no more than that
+//   operand's hold (keyedResults), or those the decisions of the copy's
+//   component restated. Each result it asks as given takes that hold, so
+//   it reads the copy's results before the copy is built and the values
+//   they carry on are re-graded down; and where a tail lost to a layout
+//   will call a copy keyed open that gives a result at less than its own
+//   result claims, its return gives that result so already, shared down.
 // - Its results: for a function the program held, the one rule for a
 //   result a tail of its function gives at a layout the function's own
 //   type cannot agree with, in the function or in a copy whose classes
@@ -317,9 +301,11 @@ void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold
 // whose signature the decisions changed has it restated on its node
 // (Nodes::restate), at which a request of its key made after is made: its
 // parameters lowered, which the call passes, and its results as restated,
-// which a signature key's caller is judged to read (signatureOf) and a
-// pattern or raise key's caller, reading its owner's results or its
-// dispatch's, does not, so that request is refused.
+// which a signature key's caller reads (signatureOf) and a pattern or raise
+// key's caller, reading its owner's results or its dispatch's, does not, so
+// that request is refused. Where its results changed, each function not
+// final that read them as they stood, at a call its key names, is decided
+// again, reading them as restated.
 void openResults(optimize::Schedule &schedule, Nodes &nodes, llvm::ArrayRef<FunctionId> starters);
 
 // Each edge of `id`, a function whose component is becoming final, that a

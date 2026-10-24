@@ -232,6 +232,16 @@ public:
   // The node of `key`, once the table admitted it, or null.
   const Node *known(const Key &key) const;
 
+  // The signature the copy `key` names gives, as the table holds it: its
+  // node's (Node::signature), or the key's where the table admitted none.
+  // The one reading of a key's results, which a redirect judges its
+  // caller by (signatureOf) while the turns run.
+  mlir::FunctionType signatureOf(const SignatureKey *key) const;
+  // Between waves, as `reader` is decided (openResults): the same reading,
+  // `reader` kept among the key's readers, each once, which the next
+  // restatement of the copy's results decides again (restate).
+  mlir::FunctionType read(FunctionId reader, const SignatureKey *key);
+
   // Between waves: what the turns asked joins the table in name order, so
   // which turn asked first changes nothing, each key's node made the first
   // time, a function the program held under its name placed as it is; the
@@ -253,8 +263,12 @@ public:
   // the decisions changed its signature from `before` to `after`, which its
   // node keeps (Restated) for every request of its key made after, whose
   // call is made at `after`. A hold only descends, so each restatement
-  // claims no more than the one before.
-  void restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after);
+  // claims no more than the one before. Where its results changed, the
+  // functions that read them as they stood (read), each to be decided
+  // again, which the key holds no more until each reads it again; none
+  // where only its parameters were lowered, which no reader reads.
+  llvm::SmallVector<FunctionId, 1> restate(FunctionId fn, mlir::FunctionType before,
+                                           mlir::FunctionType after);
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.
   void writeCopies();
@@ -287,11 +301,18 @@ struct Nodes::State {
   explicit State(const optimize::Schedule &schedule) : schedule(schedule) {}
 
   const optimize::Schedule &schedule;
+  // What the table holds of one key: its node, null until admitted, and
+  // the functions whose calls read the signature its copy gives (read)
+  // since its results were last restated, each once.
+  struct Entry {
+    Node *node = nullptr;
+    llvm::SmallVector<FunctionId, 1> readers{};
+  };
   // Every node, in the order made, each where it was made for the run's
-  // life, in the footprint's storage; and by its key's identity in the
-  // arena.
+  // life, in the footprint's storage; and each key met, by its identity in
+  // the arena.
   std::deque<Node, footprint::Allocator<Node>> nodes;
-  footprint::DenseMap<const void *, Node *> byKey;
+  footprint::DenseMap<const void *, Entry> byKey;
   // The node each placed function is, by its id, null for a function the
   // program held. It grows as copies are placed, each at the next id the
   // graph's editor minted, so an id past its end is a function no node is

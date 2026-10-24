@@ -429,6 +429,22 @@ SmallVector<std::optional<Hold>> passedHolds(CallOp call, TypeRange params) {
   return passed;
 }
 
+namespace {
+
+// `results`, a callee's results, as its copy keyed to the holds `passed`
+// names (passedHolds; none where a parameter keeps its own) gives them,
+// read off what the callee's component published (`given`, through
+// egraph::CalleeFacts), never worked out again. A result that is a lowered
+// parameter on every path that returns claims no more than that parameter
+// is passed at, so it takes the weakest of its own hold and that one; a
+// result that is a part of one, the weakest of its own and that hold
+// claiming nothing, since how far a claim reaches into a part is the part's
+// field's; and what may reach it on some path adds nothing. Any other
+// result takes the same bound from each lowered parameter that may reach
+// it on some path, whole or by a part as the facts say: a sound bound, so
+// the copy gives no less there than its key says. A result that claims no
+// more than a bound keeps its own hold. A key's results are bounded by it
+// (keyedResults).
 void keyGivenBack(identities::FactsView given, ArrayRef<std::optional<Hold>> passed,
                   MutableArrayRef<Type> results) {
   // A result that claims more than `reaches`, the bound one lowered
@@ -476,8 +492,6 @@ void keyGivenBack(identities::FactsView given, ArrayRef<std::optional<Hold>> pas
     }
   }
 }
-
-namespace {
 
 //===----------------------------------------------------------------------===//
 // The tails
@@ -931,45 +945,91 @@ void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
       }
 }
 
-// Each call in `fn` of a final function that passes an operand at another
-// hold than its parameter's takes, at each result that operand may reach,
-// the hold the callee's copy keyed to the operands' (keyGivenBack, the one
-// rule signatureOf keys by) will give it, read off what the callee's
-// component published: so the caller reads the key's results before the
-// copy is built, as a call of an opened function takes the opened type,
-// and the redirect that calls the copy changes no result. The values the
-// call's results carry on are re-graded down, and each call that walk
-// reaches is decided in turn; a hold only descends, so the work ends. A
-// call of a member of the caller's component, a copy's among them, waits
-// for that member's parameters instead (lowerParameters).
+// Each call in `id`'s function of a final function, which the function's
+// round asks for the copy its key names (SignatureRule, the one rule
+// signatureOf keys by), reads what that copy gives as the table holds it
+// (Nodes::read, `id` kept among the key's readers): its key's results, or
+// those the decisions of its component restated, every restatement after
+// deciding `id` again (Nodes::restate). Each result the call asks as given
+// takes the hold the copy gives it there: a lowered parameter's where one
+// may reach it (keyGivenBack), or the hold a restatement lowered it to. So
+// the caller reads the copy's results before the copy is built, as a call
+// of an opened function takes the opened type, and the redirect that calls
+// the copy changes no result. The values the call's results carry on are
+// re-graded down, and each call that walk reaches is decided in turn; a
+// hold only descends, so the work ends. A call of a member of the caller's
+// component, a copy's among them, waits for that member's parameters
+// instead (lowerParameters).
 //
 // Then each tail lost to a layout whose callee is final, which in the
 // caller's round calls the callee's copy keyed open at each result the
 // caller lays out otherwise (layoutsAsked): that copy gives the result at
-// the hold its key's results give it (keyedResults, the one rule
-// signatureOf keys by), the weakest the callee's tails give it. The caller
-// reads it through the re-pack, which builds nothing once the copy gives
-// the result open; so where that hold claims less than the caller's own
+// the hold the table holds for it, the weakest the callee's tails give it
+// (keyedResults) or the one a restatement lowered it to. The caller reads
+// it through the re-pack, which builds nothing once the copy gives the
+// result open; so where that hold claims less than the caller's own
 // result, the caller's return gives it so now, shared down to it, and the
 // result rule gives the caller's result that hold (decideResults), every
 // call of the caller converted with it. The redirect that calls the copy
 // then gives the re-pack's readers what they read (convertResults).
-void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
-  SmallVector<CallOp> work;
-  fn.getBody().walk([&](CallOp call) { work.push_back(call); });
-  while (!work.empty()) {
-    CallOp call = work.pop_back_val();
+void keyCalls(const optimize::Schedule &schedule, Nodes &nodes, FunctionId id) {
+  FuncOp fn = schedule.function(id);
+  const Node *self = nodes.find(id);
+  SmallVector<CallOp> lost = detail::lostTails(fn);
+  // What a call of a final function keys, as the caller's round will ask
+  // it: what it asks of each result, and the signature the copy its key
+  // names gives. None where it keys no signature copy, its callee giving
+  // its results as they stand.
+  struct Keyed {
+    SmallVector<detail::ResultLayout> layouts;
+    FunctionType gives;
+  };
+  auto keyOf = [&](CallOp call) -> std::optional<Keyed> {
     std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     assert(callee && "between waves every copy a call names is placed");
     std::optional<optimize::Readable> known = schedule.final(*callee);
     if (!known)
+      return std::nullopt;
+    detail::TailStanding standing = llvm::is_contained(lost, call)
+                                        ? detail::TailStanding::LostToLayout
+                                        : detail::TailStanding::Elsewhere;
+    detail::SignatureRule rule =
+        detail::signatureRule(call, known->fn, *callee, schedule.callees.of(*callee),
+                              detail::siteOf(schedule, id, self, *callee), standing);
+    const SignatureKey *key =
+        rule.keyAt(nodes.arena(), passedHolds(call, known->fn.getArgumentTypes()));
+    if (!key)
+      return std::nullopt;
+    return Keyed{std::move(rule.layouts), nodes.read(id, key)};
+  };
+  // What each tail lost to a layout keys, as its call was last decided.
+  SmallVector<std::optional<Keyed>> lostKeys(lost.size());
+  SmallVector<CallOp> work;
+  fn.getBody().walk([&](CallOp call) { work.push_back(call); });
+  while (!work.empty()) {
+    CallOp call = work.pop_back_val();
+    std::optional<Keyed> keyed = keyOf(call);
+    if (auto *at = llvm::find(lost, call); at != lost.end())
+      lostKeys[static_cast<std::size_t>(std::distance(lost.begin(), at))] = keyed;
+    if (!keyed)
       continue;
-    SmallVector<std::optional<Hold>> passed = passedHolds(call, known->fn.getArgumentTypes());
-    SmallVector<Type> results(call.getResultTypes());
-    keyGivenBack(schedule.callees.of(*callee), passed, results);
     SmallVector<Value> lowered;
-    for (auto [result, type] : llvm::zip_equal(call->getResults(), results)) {
-      if (result.getType() == type)
+    for (auto [result, layout, gives] :
+         llvm::zip_equal(call->getResults(), keyed->layouts, keyed->gives.getResults())) {
+      std::optional<Hold> hold = holdOf(gives);
+      if (layout == detail::ResultLayout::AtOpen || !hold)
+        continue;
+      // A result only descends. One an earlier reading lowered past what
+      // the copy its key names now gives (its operands lowered since,
+      // keying it again) keeps what it took, and the round's request of
+      // that key is refused (readsAsKeyed).
+      std::optional<Hold> took = holdOf(result.getType());
+      assert(took && "a call's result holds references where its copy's does");
+      std::optional<Hold> lower = weakest({*took, *hold});
+      assert(lower && "what a call took and what its copy gives are freed by one release, or one "
+                      "is static data a share gives where nothing is claimed");
+      Type type = atHold(result.getType(), *lower);
+      if (type == result.getType())
         continue;
       result.setType(type);
       lowered.push_back(result);
@@ -979,21 +1039,13 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
   // The weakest hold a copy keyed open gives each result, over the tails
   // lost to a layout that ask for one there.
   SmallVector<std::optional<Hold>> opened(fn.getNumResults());
-  for (CallOp call : detail::lostTails(fn)) {
-    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
-    assert(callee && "between waves every copy a call names is placed");
-    std::optional<optimize::Readable> known = schedule.final(*callee);
-    if (!known)
+  for (const std::optional<Keyed> &keyed : lostKeys) {
+    if (!keyed)
       continue;
-    SmallVector<detail::ResultLayout> layouts =
-        detail::layoutsAsked(call, detail::TailStanding::LostToLayout);
-    SmallVector<Type> keyed =
-        detail::keyedResults(known->fn, layouts, schedule.callees.of(*callee),
-                             passedHolds(call, known->fn.getArgumentTypes()));
-    for (auto [position, layout] : llvm::enumerate(layouts)) {
+    for (auto [position, layout] : llvm::enumerate(keyed->layouts)) {
       if (layout == detail::ResultLayout::AsGiven)
         continue;
-      std::optional<Hold> gives = holdOf(keyed[position]);
+      std::optional<Hold> gives = holdOf(keyed->gives.getResult(static_cast<unsigned>(position)));
       assert(gives && "an open value holds references");
       std::optional<Hold> &weakestSoFar = opened[position];
       weakestSoFar = weakestSoFar ? weakest({*weakestSoFar, *gives}) : gives;
@@ -1089,7 +1141,7 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
     FuncOp fn = schedule.function(id);
     FunctionType before = fn.getFunctionType();
     lowerParameters(schedule, id);
-    keyCalls(schedule, fn);
+    keyCalls(schedule, nodes, id);
     decideResults(schedule, nodes, id, work);
     passOn(schedule, id, work);
     // A copy whose decisions changed its signature is called as its node
@@ -1097,9 +1149,16 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
     // and a request of its key made after is made at the signature
     // restated, a signature key's where its caller reads its results
     // (signatureOf), a pattern or raise key's only where they are its
-    // key's.
+    // key's. Each function that read its results as they stood, at a call
+    // of its owner its key names (keyCalls), is decided again, to read them
+    // as they are now. One the schedule made final since is decided no
+    // more: its round asked that call for another key or none, so what it
+    // read reads nothing now, since a function that asked for this key
+    // waits on the copy.
     if (schedule.originOf(id) != id && fn.getFunctionType() != before)
-      nodes.restate(id, before, fn.getFunctionType());
+      for (FunctionId reader : nodes.restate(id, before, fn.getFunctionType()))
+        if (!schedule.final(reader))
+          work.push_back(reader);
   }
 }
 
