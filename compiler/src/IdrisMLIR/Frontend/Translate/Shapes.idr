@@ -34,10 +34,6 @@ import Data.Vect
 
 %default total
 
--- A scope here is always a term's, the checker's: where a rule is decided
--- is no question this module asks.
-%hide IdrisMLIR.Spec.Core.Rules.Scope
-
 ------------------------------------------------------------------------------
 -- Spines and forms
 ------------------------------------------------------------------------------

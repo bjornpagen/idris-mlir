@@ -17,9 +17,9 @@ import IdrisMLIR.Spec.Core.Upstream
 public export
 data InterfaceSubject = OverOps | OverTypes | OverAttributes
 
-||| Whether a method needs an object, or is the class's.
+||| A method needs an object.
 public export
-data MethodBinding = PerObject | PerClass
+data MethodBinding = PerObject
 
 ||| What a method does when its implementer says nothing: every implementer
 ||| defines it; it calls the hand function `fn` with the object (an op as an
@@ -41,13 +41,10 @@ record Method where
   fallback : MethodDefault
   doc : Line
 
-||| Whether an interface's verifier needs the op's regions verified first.
+||| The interface's own verifier, a hand function run once the op's
+||| regions are verified, or none.
 public export
-data VerifyOrder = BeforeRegions | AfterRegions
-
-||| The interface's own verifier, a hand function, or none.
-public export
-data InterfaceVerifier = Unverified | Verifies Ident VerifyOrder
+data InterfaceVerifier = Unverified | Verifies Ident
 
 ||| An interface of the dialect's: its C++ name in `::idr`, what it is
 ||| over, its bases (interfaces of ours it extends), its methods.

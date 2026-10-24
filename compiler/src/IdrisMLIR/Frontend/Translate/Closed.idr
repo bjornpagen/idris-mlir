@@ -38,10 +38,6 @@ import Data.SnocList
 import Data.SortedSet
 import Data.Vect
 
--- A rule's scope (where a refusal is made) is named as the checker's
--- scope of variables is; here every `Scope` is the checker's.
-%hide IdrisMLIR.Spec.Core.Rules.Scope
-
 %default total
 
 ||| Idris's terms and binders; `Term` and `Binder` are Core's own.

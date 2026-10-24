@@ -257,7 +257,6 @@ indexBindersAttr = MkAttrDef
   { mnemonic = "index_binders"
   , params = [MkParameter "sorts" (WiredValue (WiredArray sortWire) sortsParam) AlwaysWritten "the binders' sorts, in level order"]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readIndexBinders"
@@ -276,7 +275,6 @@ indexArgsAttr = MkAttrDef
       [ MkParameter "terms" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the terms, one after the other"
       , MkParameter "count" CountValue AlwaysWritten "how many terms" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readIndexArgs"

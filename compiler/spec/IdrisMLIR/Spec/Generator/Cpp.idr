@@ -485,7 +485,6 @@ takesC TakesStr = "const idris_rt_str *"
 takesC TakesBig = "idris_rt_big"
 takesC TakesBuffer = "idris_rt_array *"
 takesC (TakesPointerTo c) = codeText c ++ " *"
-takesC TakesBool = "bool"
 
 export
 givesC : ResultKind -> String
@@ -513,7 +512,6 @@ takesName TakesStr = "Str"
 takesName TakesBig = "Big"
 takesName TakesBuffer = "Buffer"
 takesName (TakesPointerTo _) = "Pointer"
-takesName TakesBool = "Bool"
 
 export
 givesName : ResultKind -> String
@@ -668,7 +666,7 @@ runtimeAbi ops helpers =
       every = distinct [] named
   in header "RuntimeAbi" ["\"idris_rt.h\"", "<array>", "<span>", "<string_view>"]
        (inNamespace "idr::runtime"
-         ( [ "enum class OperandKind : unsigned char { Int32, Int64, UInt8, Double, Signed, Unsigned, Str, Big, Buffer, Pointer, Bool };"
+         ( [ "enum class OperandKind : unsigned char { Int32, Int64, UInt8, Double, Signed, Unsigned, Str, Big, Buffer, Pointer };"
            , "enum class ResultKind : unsigned char { Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big, Pointer, Bool };"
            , "" ]
            ++ slashComment [ "A runtime function as the lowering calls it: its symbol, how it takes each operand,"
@@ -891,13 +889,10 @@ export
 flatRoot : Root n -> (OpKind, List FlatNode)
 flatRoot (RootedAt op res args) =
   (kindOfOp op, FNode (kindOfOp op) (finToNat res) (length args) :: flatVect args)
-flatRoot (RootedAtUpstream a args) =
-  (kindOfAdmitted a, FNode (kindOfAdmitted a) 0 (length args) :: flatList args)
 
 export
 condRow : Cond n -> String
 condRow (IsConstant v) = "{table::ConditionKind::IsConstant, " ++ decimal (finToNat v) ++ ", 0, 0}"
-condRow (PowerOfTwo v) = "{table::ConditionKind::PowerOfTwo, " ++ decimal (finToNat v) ++ ", 0, 0}"
 condRow (InRange v lo hi) = "{table::ConditionKind::InRange, " ++ decimal (finToNat v) ++ ", " ++ integer lo ++ ", " ++ integer hi ++ "}"
 condRow (Clean v) = "{table::ConditionKind::Clean, " ++ decimal (finToNat v) ++ ", 0, 0}"
 
@@ -927,25 +922,18 @@ identityRule c k = MkFlatRule c 1 [FNode c 0 2, FVar 0, FLit k] [FVar 0] []
 
 ||| The rules an op's laws give: the law is the one fact, so its rules are
 ||| derived here and never written beside it, each triggered narrowly (a
-||| constant, a repeated operand, a nested op). Binary laws need
-||| two operands, an involution one; a law on an op of another arity gives
-||| none. Commutativity gives none: its one rule swaps operands, which only
-||| connects equal forms, and its trait is upstream's.
+||| constant, a nested op). Both laws are binary; a law on an op of another
+||| arity gives none.
 export
 lawRules : AnyOp -> List FlatRule
 lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
   where
     c : OpKind
     c = kindOfOp op
-    two : FlatNode
-    two = FNode c 0 2
     rulesOf : Nat -> Law -> List FlatRule
     rulesOf 2 Associative = associativeRules c
     rulesOf 2 (Identity (IntegerConstant k)) = [identityRule c k]
     rulesOf 2 (Identity (StringConstant _)) = []
-    rulesOf 2 (Annihilator k) = [MkFlatRule c 1 [two, FVar 0, FLit k] [FLit k] []]
-    rulesOf 2 Idempotent = [MkFlatRule c 1 [two, FVar 0, FVar 0] [FVar 0] []]
-    rulesOf 1 Involution = [MkFlatRule c 1 [FNode c 0 1, FNode c 0 1, FVar 0] [FVar 0] []]
     rulesOf _ _ = []
 
 ||| The rules an admitted upstream op's laws give, on its kind: every law
@@ -1246,7 +1234,6 @@ predicateDecl : Predicate -> Lines
 predicateDecl p =
   let subject = case p.subject of
                   OnType => "::mlir::Type"
-                  OnAttribute => "::mlir::Attribute"
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
 ||| A wired value's parser and printer of its text, the hand C++ its
@@ -1310,7 +1297,6 @@ delegateDecls d = concatMap decl d.methods
       Delegates fn =>
         let given = case m.binding of
                       PerObject => self
-                      PerClass => []
         in [ "// The default of " ++ identText d.name ++ "::" ++ identText m.name ++ "."
            , codeText m.result ++ " " ++ identText fn ++ "("
              ++ joinWith ", " (given ++ map (\p => codeText p.type ++ " " ++ identText p.name) m.params) ++ ");", "" ]

@@ -2,12 +2,11 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A closed set the dialect states and the C++ reads: its cases in
 ||| declaration order, each case's number its position, so no value is
-||| ever skipped or given twice, and each case's spelling in the IR. Two
-||| shapes: an enum, a value that is one case; and a set of cases, a value
-||| that holds any of them, as a row of effect atoms does. The specification
-||| keeps the Idris `data` beside it, which the frontend imports (a closed
-||| set is imported, never printed back into Idris); `cases` lists the
-||| constructors once, and `complete` proves no constructor is missing.
+||| ever skipped or given twice, and each case's spelling in the IR; a
+||| value of it is one case. The specification keeps the Idris `data`
+||| beside it, which the frontend imports (a closed set is imported, never
+||| printed back into Idris); `cases` lists the constructors once, and
+||| `complete` proves no constructor is missing.
 module IdrisMLIR.Spec.Core.Enums
 
 import IdrisMLIR.Spec.Core.Text
@@ -19,9 +18,9 @@ import Data.List1
 
 %default total
 
-||| An enum, one case at a time, or a set of cases.
+||| An enum, one case at a time.
 public export
-data EnumShape = OneOf | SetOf
+data EnumShape = OneOf
 
 ||| A case: its C++ name, its spelling in the IR (an enum parameter is read
 ||| as a keyword, so a spelling is snake words, or several words that print

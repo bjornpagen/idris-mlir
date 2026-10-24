@@ -180,13 +180,13 @@ data Pipeline : (a : Anchor) -> (s, t : Stage) -> Type where
      -> {auto 0 placed : So (elem a (upstreamAnchors u))}
      -> Pipeline a s t -> Pipeline a s t
   ||| A decide step and its apply group: the step decides its answer on the
-  ||| program and runs the group on the program's functions nested in
-  ||| itself, at the stage it leaves, holding the answer in its analysis
-  ||| manager, so each function reads it through a const view and no apply
-  ||| step of the group runs without its decision.
+  ||| program, making serially every type and attribute the answer needs,
+  ||| and runs the group on the program's functions nested in itself, at
+  ||| the stage it leaves, holding the answer in its analysis manager, so
+  ||| each function reads it through a const view and no apply step of the
+  ||| group runs without its decision.
   RunDeciding : (p : Pass) -> (why : Line)
      -> {auto 0 here : p.anchor = OnProgram}
-     -> {auto 0 decides : p.kind = Decide}
      -> {auto 0 starts : So (admits p.stages s)}
      -> {auto 0 rowsLeft : So (addsWhere OnProgram p.adds)}
      -> (group : Pipeline OnFunction (leaves p.stages s) (leaves p.stages s))
@@ -207,13 +207,13 @@ stat = MkStatistic
 ||| module that already holds another target is refused, never retargeted.
 public export
 target : Pass
-target = MkPass ("target" ::: []) OnModule AnyStage Apply Keeps [] [] [] NoOptions [LoadsLLVM, LoadsDLTI] Registered
+target = MkPass ("target" ::: []) OnModule AnyStage Keeps [] [] [] NoOptions [LoadsLLVM, LoadsDLTI] Registered
   (MkDoc "Give the module its target: triple, CPU, features, data layout"
      "Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM\nfill in the CPU's features and the data layout, and writes the module's target system\nspec: for the device `CPU`, the width in bits of its fixed vector registers. The triple\nand the CPU are the build's target entry; every later step reads them here. A module\nthat holds any of these facts otherwise was made for another target and is refused,\nnaming each fact as it holds it and as the build has it; it is never retargeted.")
 
 public export
 defunctionalize : Pass
-defunctionalize = MkPass ("defunctionalize" ::: []) OnProgram (moves Higher First) Restructure Invalidates
+defunctionalize = MkPass ("defunctionalize" ::: []) OnProgram (moves Higher First) Invalidates
   [ stat "numFamilies" "families" "Closure and memo families declared, one constructor per label"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [] [] NoOptions [LoadsUB] Registered
@@ -222,19 +222,19 @@ defunctionalize = MkPass ("defunctionalize" ::: []) OnProgram (moves Higher Firs
 
 public export
 knots : Pass
-knots = MkPass ("knots" ::: []) OnProgram (At First) Check Keeps [] [] [] NoOptions [] Registered
+knots = MkPass ("knots" ::: []) OnProgram (At First) Keeps [] [] [] NoOptions [] Registered
   (MkDoc "Refuse a program whose types let a value reach itself, which counting could never free"
      "Right after defunctionalization, where every closure is a constructor of a sum, so a\nknot of references is a cycle of the type graph; total, with no budget.")
 
 public export
 inPlace : Pass
-inPlace = MkPass ("in" ::: ["place"]) OnProgram (At First) Apply Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions [LoadsIdr] Registered
+inPlace = MkPass ("in" ::: ["place"]) OnProgram (At First) Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions [LoadsIdr] Registered
   (MkDoc "Decide every in-place promise on the program as the frontend wrote it"
      "Before any optimization: a function that takes apart a quantity-1 parameter of an\nin-place family and builds one from it rebuilds it. Each such parameter is given the\nboundary grade its family's promise gives, read off its type; the local rule then raises\nthe claims its matches would otherwise drop, and each rebuild becomes a linear token\nconsumed by its rebuild. A call the exclusivity analysis cannot prove exclusive is\nrefused at the user's call.")
 
 public export
 deduplicate : Pass
-deduplicate = MkPass ("deduplicate" ::: []) OnProgram (At First) Restructure Edits
+deduplicate = MkPass ("deduplicate" ::: []) OnProgram (At First) Edits
   [ stat "numGroups" "groups" "Classes of identical functions merged"
   , stat "numMerged" "merged" "Duplicate functions erased" ]
   [MkAction ("deduplicate" ::: ["merge"]) "a class of identical functions merged into its first"] []
@@ -244,7 +244,7 @@ deduplicate = MkPass ("deduplicate" ::: []) OnProgram (At First) Restructure Edi
 
 public export
 contify : Pass
-contify = MkPass ("contify" ::: []) OnProgram (At First) Restructure Edits
+contify = MkPass ("contify" ::: []) OnProgram (At First) Edits
   [ stat "numContified" "contified" "Functions made join points of their callers" ]
   [MkAction ("contify" ::: ["group"]) "a group of functions made join points where it returns"] []
   NoOptions [LoadsIdr] Registered
@@ -258,7 +258,7 @@ contify = MkPass ("contify" ::: []) OnProgram (At First) Restructure Edits
 -- worker threads, where no dialect may be loaded, so this pass loads it.
 public export
 optimize : Pass
-optimize = MkPass ("optimize" ::: []) OnProgram (At First) Restructure Edits
+optimize = MkPass ("optimize" ::: []) OnProgram (At First) Edits
   [ stat "numNodes" "nodes" "Functions made for a specialization key"
   , stat "numRedirected" "redirected" "Calls redirected to a specialization"
   , stat "numInlinedLeaves" "inlined-leaves" "Calls of a final leaf inlined"
@@ -270,7 +270,7 @@ optimize = MkPass ("optimize" ::: []) OnProgram (At First) Restructure Edits
 
 public export
 inline : Pass
-inline = MkPass ("inline" ::: []) OnProgram (At First) Restructure Edits
+inline = MkPass ("inline" ::: []) OnProgram (At First) Edits
   [ stat "numInlined" "inlined" "Calls inlined"
   , stat "numCapped" "capped" "Calls kept because inlining would pass the caller's cap"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
@@ -280,14 +280,14 @@ inline = MkPass ("inline" ::: []) OnProgram (At First) Restructure Edits
 
 public export
 columns : Pass
-columns = MkPass ("columns" ::: []) OnProgram (At First) Restructure Edits []
+columns = MkPass ("columns" ::: []) OnProgram (At First) Edits []
   [MkAction ("columns" ::: ["convert"]) "the program's arrays of records held as their columns, in one conversion"] [] NoOptions
   [LoadsTensor, LoadsIdr] Registered
   (MkDoc "Hold a tensor of records as one tensor per leaf of the record" "")
 
 public export
 simplify : Pass
-simplify = MkPass ("simplify" ::: []) OnFunction AnyStage Apply Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
+simplify = MkPass ("simplify" ::: []) OnFunction AnyStage Edits [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
   [LoadsIdr, LoadsArith, LoadsUB] Registered
   (MkDoc "Simplify a function on an e-graph over its ops, where our ops are"
      "Rules from the specification run in rounds, each over the graph as the round found\nit, a rebuild restoring congruence after each; effectful ops in a skeleton ordered\nper resource, extraction by cost; a call is deleted or moved only where its row\ncarries neither crash nor divergence. Its budget is nodes per op from the program\nalone: a spent budget leaves the function less simplified, never refused.")
@@ -304,7 +304,7 @@ nodesPerOp = 64
 
 public export
 structureLoops : Pass
-structureLoops = MkPass ("structure" ::: ["loops"]) OnFunction (At First) Apply Keeps
+structureLoops = MkPass ("structure" ::: ["loops"]) OnFunction (At First) Keeps
   [ stat "numParallel" "parallel" "Word ops made parallel linalg ops"
   , stat "numReductions" "reductions" "Folds made linalg reductions"
   , stat "numOrdered" "ordered" "Word ops left for their ordered loops" ]
@@ -313,7 +313,7 @@ structureLoops = MkPass ("structure" ::: ["loops"]) OnFunction (At First) Apply 
 
 public export
 uniqueResults : Pass
-uniqueResults = MkPass ("unique" ::: ["results"]) OnProgram (At First) Apply Keeps
+uniqueResults = MkPass ("unique" ::: ["results"]) OnProgram (At First) Keeps
   [ stat "numUnique" "unique" "Results whose signature now says unique deep"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [] [] NoOptions [LoadsIdr] Registered
@@ -322,7 +322,7 @@ uniqueResults = MkPass ("unique" ::: ["results"]) OnProgram (At First) Apply Kee
 
 public export
 bufferize : Pass
-bufferize = MkPass ("bufferize" ::: []) OnProgram (At First) Restructure Edits
+bufferize = MkPass ("bufferize" ::: []) OnProgram (At First) Edits
   [ stat "numAllocs" "allocs" "Buffers allocated"
   , stat "numInPlace" "in-place" "Tensor operands bufferized in place"
   , stat "numCopies" "copies" "Tensor operands bufferized out of place" ]
@@ -332,7 +332,7 @@ bufferize = MkPass ("bufferize" ::: []) OnProgram (At First) Restructure Edits
 
 public export
 accumulate : Pass
-accumulate = MkPass ("accumulate" ::: []) OnProgram (At First) Restructure Edits
+accumulate = MkPass ("accumulate" ::: []) OnProgram (At First) Edits
   [ stat "numFunctions" "functions" "Functions given an accumulator clone, or their short circuits turned in place"
   , stat "numTails" "tails" "Self calls combined by an associative operation made tail calls" ]
   [MkAction ("accumulate" ::: []) "a function given its accumulator clone, or its short circuits turned in place"] []
@@ -341,14 +341,14 @@ accumulate = MkPass ("accumulate" ::: []) OnProgram (At First) Restructure Edits
 
 public export
 rcCells : Pass
-rcCells = MkPass ("rc" ::: ["cells"]) OnFunction (At First) Apply Keeps
+rcCells = MkPass ("rc" ::: ["cells"]) OnFunction (At First) Keeps
   [ stat "numBoxes" "boxes" "Constructors of a cell made its allocation and initialization" ]
   [] [Count, Alloc, Free] NoOptions [LoadsIdr] Registered
   (MkDoc "Make each constructor of a cell the cell's allocation and its initialization" "")
 
 public export
 lifetimes : Pass
-lifetimes = MkPass ("lifetimes" ::: []) OnProgram (moves First Graded) Restructure Edits
+lifetimes = MkPass ("lifetimes" ::: []) OnProgram (moves First Graded) Edits
   [ stat "numLifetimes" "lifetimes" "Lifetimes opened"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [] [] NoOptions [LoadsIdr] Registered
@@ -357,7 +357,7 @@ lifetimes = MkPass ("lifetimes" ::: []) OnProgram (moves First Graded) Restructu
 
 public export
 rcBorrows : Pass
-rcBorrows = MkPass ("rc" ::: ["borrows"]) OnProgram (At Graded) Apply Keeps
+rcBorrows = MkPass ("rc" ::: ["borrows"]) OnProgram (At Graded) Keeps
   [ stat "numViews" "views" "Parameters made views"
   , stat "numLoans" "loans" "Counted values lent to a view for a call" ]
   [] [] NoOptions [LoadsIdr] Registered
@@ -366,7 +366,7 @@ rcBorrows = MkPass ("rc" ::: ["borrows"]) OnProgram (At Graded) Apply Keeps
 
 public export
 rcPlace : Pass
-rcPlace = MkPass ("rc" ::: ["place"]) OnFunction (At Graded) Apply Keeps
+rcPlace = MkPass ("rc" ::: ["place"]) OnFunction (At Graded) Keeps
   [ stat "numDups" "dups" "References duplicated"
   , stat "numDrops" "drops" "References dropped"
   , stat "numTakes" "takes" "Values of a known constructor taken apart where they die while parts of them live"
@@ -376,7 +376,7 @@ rcPlace = MkPass ("rc" ::: ["place"]) OnFunction (At Graded) Apply Keeps
 
 public export
 rcExclusive : Pass
-rcExclusive = MkPass ("rc" ::: ["exclusive"]) OnProgram (moves Graded Owned) Restructure Edits
+rcExclusive = MkPass ("rc" ::: ["exclusive"]) OnProgram (moves Graded Owned) Edits
   [ stat "numExclusive" "exclusive" "Values that hold the only reference to their cells"
   , stat "numContexts" "contexts" "Calling contexts the marking solved"
   , stat "numCopies" "copies" "Grade copies made for a reached context"
@@ -388,7 +388,7 @@ rcExclusive = MkPass ("rc" ::: ["exclusive"]) OnProgram (moves Graded Owned) Res
 
 public export
 rcReuse : Pass
-rcReuse = MkPass ("rc" ::: ["reuse"]) OnFunction (At Owned) Apply Keeps
+rcReuse = MkPass ("rc" ::: ["reuse"]) OnFunction (At Owned) Keeps
   [ stat "numReuses" "reuses" "Cells recycled from a dead value"
   , stat "numTokensFreed" "tokens-freed" "Reuse tokens freed where no construction could take them"
   , stat "numFused" "fused" "Takes their type proves nothing of, whose token every path recycles into one constructor's cell, made one take into the cell"
@@ -399,7 +399,7 @@ rcReuse = MkPass ("rc" ::: ["reuse"]) OnFunction (At Owned) Apply Keeps
 
 public export
 rcExpand : Pass
-rcExpand = MkPass ("rc" ::: ["expand"]) OnFunction (At Owned) Apply Keeps
+rcExpand = MkPass ("rc" ::: ["expand"]) OnFunction (At Owned) Keeps
   [ stat "numTests" "tests" "Takes expanded into a test of uniqueness" ]
   [] [Count, Alloc, Free] NoOptions
   [LoadsIdr, LoadsSCF] Registered
@@ -407,7 +407,7 @@ rcExpand = MkPass ("rc" ::: ["expand"]) OnFunction (At Owned) Apply Keeps
 
 public export
 trmc : Pass
-trmc = MkPass ("trmc" ::: []) OnProgram (At Owned) Restructure Edits
+trmc = MkPass ("trmc" ::: []) OnProgram (At Owned) Edits
   [ stat "numFunctions" "functions" "Functions given a destination-passing clone"
   , stat "numTails" "tails" "Contexts around a self call that became tail calls"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
@@ -416,7 +416,7 @@ trmc = MkPass ("trmc" ::: []) OnProgram (At Owned) Restructure Edits
 
 public export
 frames : Pass
-frames = MkPass ("frames" ::: []) OnProgram (At Owned) Restructure Edits
+frames = MkPass ("frames" ::: []) OnProgram (At Owned) Edits
   [ stat "numFunctions" "functions" "Functions given a run and a resume"
   , stat "numFrames" "frames" "Calls whose rest became a frame"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
@@ -426,7 +426,7 @@ frames = MkPass ("frames" ::: []) OnProgram (At Owned) Restructure Edits
 
 public export
 tailLoops : Pass
-tailLoops = MkPass ("tail" ::: ["loops"]) OnFunction (At Owned) Apply Keeps
+tailLoops = MkPass ("tail" ::: ["loops"]) OnFunction (At Owned) Keeps
   [ stat "numLoops" "loops" "Functions whose self tail calls became a loop" ]
   [MkAction ("tail" ::: ["loops", "loop"]) "a function's self tail calls made a loop"] []
   NoOptions [LoadsSCF, LoadsUB] Registered
@@ -434,7 +434,7 @@ tailLoops = MkPass ("tail" ::: ["loops"]) OnFunction (At Owned) Apply Keeps
 
 public export
 narrow : Pass
-narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Decide Edits
+narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Edits
   [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [ MkAction ("narrow" ::: ["fold"]) "a function's conversions folded and the unread ones erased"
   , MkAction ("narrow" ::: ["version"]) "a loop versioned on its descending natural"
@@ -444,7 +444,7 @@ narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Decide Edits
 
 public export
 narrowWords : Pass
-narrowWords = MkPass ("narrow" ::: ["words"]) OnFunction (At Owned) Apply Invalidates
+narrowWords = MkPass ("narrow" ::: ["words"]) OnFunction (At Owned) Invalidates
   [ stat "numVersioned" "versioned" "Loops versioned on a small descending natural"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [MkAction ("narrow" ::: ["word"]) "an op on bigs made an op on words"] [] NoOptions
@@ -453,33 +453,33 @@ narrowWords = MkPass ("narrow" ::: ["words"]) OnFunction (At Owned) Apply Invali
 
 public export
 orderedLoops : Pass
-orderedLoops = MkPass ("ordered" ::: ["loops"]) OnFunction (At Owned) Apply Keeps [] [] [] NoOptions
+orderedLoops = MkPass ("ordered" ::: ["loops"]) OnFunction (At Owned) Keeps [] [] [] NoOptions
   [LoadsSCF, LoadsArith, LoadsMemRef] Registered
   (MkDoc "Lower each generating op still in the IR to its ordered loop nest"
      "Right before the lowering, on the buffer forms counting ran on: each generating op\nbecomes `scf.for` loops through upstream's tiling interface.")
 
 public export
 lowerRuntime : Pass
-lowerRuntime = MkPass ("lower" ::: ["runtime"]) OnProgram (At Owned) Apply Keeps [] [] [] NoOptions
+lowerRuntime = MkPass ("lower" ::: ["runtime"]) OnProgram (At Owned) Keeps [] [] [] NoOptions
   [LoadsLLVM] Registered
   (MkDoc "Declare every runtime function the program's ops call, once" "")
 
 public export
 lower : Pass
-lower = MkPass ("lower" ::: []) OnProgram (moves Owned Lowered) Restructure Invalidates [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
+lower = MkPass ("lower" ::: []) OnProgram (moves Owned Lowered) Invalidates [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
   [LoadsArith, LoadsSCF, LoadsUB, LoadsLLVM, LoadsCF, LoadsMath, LoadsMemRef, LoadsAffine] Registered
   (MkDoc "Lower each function to the LLVM dialect: llvm.func, llvm.call, llvm.return built directly"
      "Every static datum the functions name made first, once, on the program. Then each\nfunction on its own, in parallel: every idr op and type takes its runtime layout,\nthe join ops lower with upstream's SCF patterns in one conversion, a call in tail\nposition becomes a musttail call under tailcc, and a function's row becomes LLVM's\nattributes.")
 
 public export
 entry : Pass
-entry = MkPass ("entry" ::: []) OnModule (At Lowered) Restructure Invalidates [] [] [] NoOptions
+entry = MkPass ("entry" ::: []) OnModule (At Lowered) Invalidates [] [] [] NoOptions
   [LoadsLLVM] Registered
   (MkDoc "Take the program apart: its functions into the module, its root the module's entry" "")
 
 public export
 narrowLanes : Pass
-narrowLanes = MkPass ("narrow" ::: ["lanes"]) OnLoweredFunction AnyStage Apply Keeps
+narrowLanes = MkPass ("narrow" ::: ["lanes"]) OnLoweredFunction AnyStage Keeps
   [ stat "numNarrowed" "narrowed" "Vectorized loops given a 32-bit version"
   , stat "numWide" "wide" "Vectorized loops on wide integer lanes left on 64 bits" ]
   [MkAction ("narrow" ::: ["lanes", "version"]) "a vectorized loop given its 32-bit version"] []
@@ -488,14 +488,14 @@ narrowLanes = MkPass ("narrow" ::: ["lanes"]) OnLoweredFunction AnyStage Apply K
 
 public export
 tailCalls : Pass
-tailCalls = MkPass ("tail" ::: ["calls"]) OnModule AnyStage Apply Keeps [] [] [] NoOptions
+tailCalls = MkPass ("tail" ::: ["calls"]) OnModule AnyStage Keeps [] [] [] NoOptions
   [LoadsLLVM] Registered
   (MkDoc "End each musttail call's block with the return of its results"
      "After the conversion to LLVM: the materialization of the tail fact each call already\ncarries; LLVM's verifier is the last check.")
 
 public export
 expect : Pass
-expect = MkPass ("expect" ::: []) OnModule AnyStage Check Keeps [] [] [] Holds
+expect = MkPass ("expect" ::: []) OnModule AnyStage Keeps [] [] [] Holds
   [LoadsIdr, LoadsArith, LoadsMath, LoadsUB, LoadsMemRef, LoadsTensor, LoadsSCF] Registered
   (MkDoc "Check named properties of the module, and change nothing"
      "A test's check: each property in `holds` reports every place it fails, and the pass\nfails if any does.")
@@ -504,7 +504,7 @@ expect = MkPass ("expect" ::: []) OnModule AnyStage Check Keeps [] [] [] Holds
 ||| from what one run holds; never registered.
 public export
 redirect : Pass
-redirect = MkPass ("redirect" ::: []) OnFunction AnyStage Apply Edits []
+redirect = MkPass ("redirect" ::: []) OnFunction AnyStage Edits []
   [ MkAction ("specialize" ::: ["clone"]) "a call made a call of a copy of its callee"
   , MkAction ("raise" ::: []) "a call of a raise node and its consumer made one call" ] [] NoOptions [LoadsTensor]
   (MadeBy (ident "idr" ::: [ident "specialize", ident "createRedirect"]) [ident "schedule", ident "nodes", ident "redirected", ident "place"])
@@ -513,7 +513,7 @@ redirect = MkPass ("redirect" ::: []) OnFunction AnyStage Apply Edits []
 
 public export
 inlineLeaves : Pass
-inlineLeaves = MkPass ("inline" ::: ["leaves"]) OnFunction AnyStage Apply Edits []
+inlineLeaves = MkPass ("inline" ::: ["leaves"]) OnFunction AnyStage Edits []
   [MkAction ("optimize" ::: ["inline"]) "a call of a final leaf inlined"] [] NoOptions []
   (MadeBy (ident "idr" ::: [ident "inlining", ident "createInlineLeaves"]) [ident "schedule", ident "inlined"])
   (MkDoc "Inline each call of a final callee whose body is a leaf"
@@ -527,14 +527,14 @@ inlineLeaves = MkPass ("inline" ::: ["leaves"]) OnFunction AnyStage Apply Edits 
 ||| exact again once the nest is done.
 public export
 widenRows : Pass
-widenRows = MkPass ("widen" ::: ["rows"]) OnProgram AnyStage Apply Keeps [] [] [] NoOptions []
+widenRows = MkPass ("widen" ::: ["rows"]) OnProgram AnyStage Keeps [] [] [] NoOptions []
   (MadeBy (ident "idr" ::: [ident "pipeline", ident "createWidenRows"]) [ident "atoms"])
   (MkDoc "Give every function and call at least the atoms the nest after it may add"
      "No parameter is known untouched after it; the writer after the nest narrows the rows again.")
 
 public export
 writeRows : Pass
-writeRows = MkPass ("write" ::: ["rows"]) OnProgram AnyStage Apply Keeps [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions []
+writeRows = MkPass ("write" ::: ["rows"]) OnProgram AnyStage Keeps [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions []
   (MadeBy (ident "idr" ::: [ident "pipeline", ident "createWriteRows"]) [])
   (MkDoc "Write every function's row and record, and every call's copy, equal to their derivation"
      "The one writer of rows over the program graph, after a nest of function passes that\nadded effects.")

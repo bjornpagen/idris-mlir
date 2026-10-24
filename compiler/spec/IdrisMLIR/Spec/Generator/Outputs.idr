@@ -301,21 +301,6 @@ typingRefusals op = case op.typing of
     handInference (InfersTypes _) = [opName op ++ ": its result types have rules and a hand inference"]
     handInference _ = []
 
-||| An enum property over a set of cases, which a builder would encode as a
-||| mask no frontend value holds; an enum property is one case.
-setProperties : Op i o a r -> List String
-setProperties op = concatMap refused (toList op.attrs)
-  where
-    setOf : ImportedEnum -> Attr -> List String
-    setOf e x = case e.enum.shape of
-      OneOf => []
-      SetOf => [opName op ++ ": the property " ++ identText x.name ++ " holds a set of cases"]
-    refused : Attr -> List String
-    refused x = case x.kind of
-      AProperty (EnumProperty e) => setOf e x
-      AProperty (DefaultedEnumProperty e _) => setOf e x
-      _ => []
-
 ||| The one-carrier trait compares its operands' values, one each: a group
 ||| of any number, or of none, has no value to compare.
 carrierGroups : Op i o a r -> List String
@@ -379,17 +364,16 @@ stringOutputRefusals ops = case filter (\(SomeOp op) => eliminatesString op) ops
 
 ||| What the generator refuses to print, said for the one who wrote the
 ||| specification: each pair rule over a group that may hold other than one
-||| value, each op whose result-type rules cannot be printed, each enum
-||| property over a set of cases, each one-carrier trait over a group that
-||| may hold other than one value, and outputs of a string other than the
-||| one the string lowering's tables are written against.
+||| value, each op whose result-type rules cannot be printed, each
+||| one-carrier trait over a group that may hold other than one value, and
+||| outputs of a string other than the one the string lowering's tables are
+||| written against.
 export
 refusals : List String
 refusals =
   map (\(op, rule) => op ++ ": the pair rule " ++ identText rule ++ " reads a group that may hold other than one value")
       (unpairedRules allOps)
   ++ concatMap (\(SomeOp op) => typingRefusals op) allOps
-  ++ concatMap (\(SomeOp op) => setProperties op) allOps
   ++ concatMap (\(SomeOp op) => carrierGroups op) allOps
   ++ stringOutputRefusals allOps
 

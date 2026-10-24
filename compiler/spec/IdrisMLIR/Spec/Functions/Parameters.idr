@@ -113,7 +113,6 @@ putBoundsAttr = MkAttrDef
       [ MkParameter "bounds" (WiredValue (WiredArray (WireOf putBoundWire)) putBoundsDirective)
           AlwaysWritten "each bounded put parameter's position among them and its bound" ]
   , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = Derived

@@ -108,7 +108,6 @@ familyAttr = MkAttrDef
   { mnemonic = "family"
   , params = [MkParameter "members" (WiredValue (WiredArray memberWire) membersParam) AlwaysWritten "the group's members, in order"]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readFamily"
@@ -259,7 +258,6 @@ equationAttr = MkAttrDef
       [ MkParameter "lhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the left term"
       , MkParameter "rhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the right term" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readEquation"
@@ -284,7 +282,6 @@ conAttr = MkAttrDef
       , MkParameter "cells" (ListOf AttrValue) AlwaysWritten "the cells, each an array of its fields, every one but the last without the spine"
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"

@@ -125,10 +125,10 @@ property n c = MkAttr n (AProperty c)
 public export
 data RegionArity = OneRegion | AnyRegions
 
-||| How many blocks each region of a group may have: any number, a fixed
-||| number (one, for a scope), or at most a number.
+||| How many blocks each region of a group may have: a fixed number (one,
+||| for a scope), or at most a number.
 public export
-data Blocks = AnyBlocks | Sized Nat | AtMost Nat
+data Blocks = Sized Nat | AtMost Nat
 
 public export
 record Region where
@@ -186,7 +186,6 @@ data Trait : (i, o : Nat) -> Type where
   IsolatedFromAbove : Trait i o
   SingleBlock : Trait i o
   NoTerminator : Trait i o
-  NoRegionArguments : Trait i o
   SymbolTable : Trait i o
   SymbolOp : Trait i o
   ||| A symbol whose name is its `sym_name` attribute: upstream's trait gives
@@ -214,7 +213,6 @@ data Trait : (i, o : Nat) -> Type where
   HasParent : List1 OpRef -> Trait i o
   ||| A parent outside the dialect, by its class: `::mlir::ModuleOp`.
   HasUpstreamParent : CppName -> Trait i o
-  ImplicitTerminator : OpRef -> Trait i o
   ||| The result is used once exactly when one of the operands is (a
   ||| closure over a linear capture is linear): the grade's own rule over
   ||| the op's groups, printed to the C++ check and to the frontend's
@@ -272,13 +270,11 @@ namespace LawConstant
   negate i = IntegerConstant (negate i)
 
 ||| A law of an op, from which the e-graph's rules are generated, each
-||| one-way and narrowly triggered (a law whose only rule would connect
-||| equal forms both ways gives none), and the accumulator's operations;
-||| the traits upstream has for them are printed from them too. A rule's
-||| literal is a value of the op's integers, so an identity that is a
-||| string gives the accumulator its start and no rule.
+||| one-way and narrowly triggered, and the accumulator's operations. A
+||| rule's literal is a value of the op's integers, so an identity that is
+||| a string gives the accumulator its start and no rule.
 public export
-data Law = Associative | Commutative | Idempotent | Involution | Identity LawConstant | Annihilator Integer
+data Law = Associative | Identity LawConstant
 
 ||| Whether ODS writes an op's default builders, besides its declared ones.
 public export

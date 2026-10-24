@@ -1,6 +1,6 @@
-specification dd3a9aac98ee4237
-generator d7d0ece7776117dc
-fcc60ac9d4821515 foreign/idr/include/idr/IR/Generated/IdrBase.td
+specification 70185bfb4027379a
+generator 08e3db515d82fe74
+ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 ce7b334a79099bf6 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 00e90eef1cc8944d foreign/idr/include/idr/IR/Generated/IdrTypes.td
 35c213f2111e433d foreign/idr/include/idr/IR/Generated/IdrOps.td
@@ -21,13 +21,13 @@ a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
 d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 200dcab686d2b2f2 foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
 55c584f288af8c58 foreign/idr/include/idr/IR/Generated/WrittenDialects.h.inc
-f18241147a94c085 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
+429296596c0c8835 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 9fd13e1e8328772c foreign/idr/include/idr/IR/Generated/Defaults.h.inc
 f34cff8d9d6cff50 foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
 9015748206ba698d foreign/idr/include/idr/IR/Generated/Guards.h.inc
 a07eb2f4ef8f3ec8 foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
-52695785387700e4 foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
+b92309ada282cc34 foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
 fd2638f53d536262 runtime/Generated/idris_rt_ops.h
 eee0d68f3a0d55b7 foreign/idr/include/idr/IR/Generated/Resources.h.inc
 811fbf6940956248 foreign/idr/include/idr/IR/Generated/Effects.h.inc
@@ -46,7 +46,7 @@ e89e7543ccf3a10b foreign/idr/include/idr/IR/Generated/BigToWord.h.inc
 2f08db358d490540 foreign/idr/include/idr/IR/Generated/BigOfInteger.h.inc
 a5f8d8a5b2c9d611 foreign/idr/include/idr/IR/Generated/ShownOutput.h.inc
 3b295e435b4ca2db foreign/idr/include/idr/IR/Generated/ListElement.h.inc
-e961abb446ea9612 foreign/idr/include/idr/IR/Generated/Rules.h.inc
+31b4bf859aea6346 foreign/idr/include/idr/IR/Generated/Rules.h.inc
 997ee58402212daf foreign/idr/include/idr/IR/Generated/Words.h.inc
 c007172702ee9849 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc

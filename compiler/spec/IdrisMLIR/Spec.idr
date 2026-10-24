@@ -95,7 +95,6 @@ binderAttr = MkAttrDef
   , params = [ MkParameter "definition" AttrValue AlwaysWritten "the definition that binds it, by its symbol"
              , MkParameter "index" CountValue AlwaysWritten "its position among the definition's binders" ]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived
@@ -250,12 +249,12 @@ public export
 core : Declarations
 core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , admitted := [ builtinModule ]
-       , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef Rules.ruleClosed ]
+       , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef Rules.ruleClosed ]
        , interfaces := [ valueFactsInterface, structureInterface ]
        , traits := [ resultCarriesOperand, sameValue, eliminatesOperand ]
        , attributes := [ SomeAttr binderAttr ]
        , headers := [ MkHeader "Rules" [(DialectNamespace, [TableOf Rules.ruleTable])]
-                        (brief "the facts of each refusal rule: its category and where it is decided")
+                        (brief "the fact of each refusal rule: its category")
                     , wordsHeader
                     , MkHeader "StageFacts"
                         [(DialectNamespace, [ EnumOf (enumDef closuresClosed), EnumOf (enumDef countingClosed)

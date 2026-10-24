@@ -95,7 +95,7 @@ struct PatternNode {
   std::int64_t literal;
 };
 
-enum class ConditionKind : std::uint8_t { IsConstant, PowerOfTwo, InRange, Clean };
+enum class ConditionKind : std::uint8_t { IsConstant, InRange, Clean };
 struct Condition {
   ConditionKind kind;
   std::uint16_t var;

@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <string_view>
 
-// the facts of each refusal rule: its category and where it is decided
+// the fact of each refusal rule: its category
 
 namespace idr {
 
@@ -44,36 +44,6 @@ inline constexpr ::idr::EnumArray<::idr::Rule, ::idr::RuleCategory> categoryOf{{
     ::idr::RuleCategory::OutsideLanguage,
     ::idr::RuleCategory::OutsideLanguage,
     ::idr::RuleCategory::UserError,
-}};
-
-// where the rule is decided
-inline constexpr ::idr::EnumArray<::idr::Rule, ::idr::RuleScope> scopeOf{{
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Frontend,
-    ::idr::RuleScope::Pipeline,
-    ::idr::RuleScope::Pipeline,
-    ::idr::RuleScope::Build,
-    ::idr::RuleScope::Build,
-    ::idr::RuleScope::Frontend,
 }};
 
 

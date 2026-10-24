@@ -382,10 +382,6 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   switch (condition.kind) {
   case table::ConditionKind::IsConstant:
     return known.isConstant();
-  case table::ConditionKind::PowerOfTwo: {
-    std::optional<APInt> value = known.integer();
-    return value && value->isStrictlyPositive() && value->isPowerOf2();
-  }
   case table::ConditionKind::InRange:
     return known.range && known.range->smin().getSignificantBits() <= 64 &&
            known.range->smax().getSignificantBits() <= 64 &&

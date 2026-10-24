@@ -13,7 +13,7 @@
 
 namespace idr::runtime {
 
-enum class OperandKind : unsigned char { Int32, Int64, UInt8, Double, Signed, Unsigned, Str, Big, Buffer, Pointer, Bool };
+enum class OperandKind : unsigned char { Int32, Int64, UInt8, Double, Signed, Unsigned, Str, Big, Buffer, Pointer };
 enum class ResultKind : unsigned char { Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big, Pointer, Bool };
 
 // A runtime function as the lowering calls it: its symbol, how it takes each operand,

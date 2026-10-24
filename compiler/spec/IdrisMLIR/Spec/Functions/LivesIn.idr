@@ -80,7 +80,6 @@ livesInAttr = MkAttrDef
       , MkParameter "bounds" (WiredValue (WiredArray (WireOf outlivesWire)) outlivesDirective)
           AlwaysWritten "the lifetime parameters that outlive others" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = Derived

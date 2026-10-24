@@ -159,17 +159,6 @@ def Idr_RuleCategory : I32EnumAttr<"RuleCategory", "the kind of program a refusa
 }
 def Idr_RuleCategoryAttr : EnumAttr<Idr_Dialect, Idr_RuleCategory, "rule_category">;
 
-// where a rule is decided
-def Idr_RuleScope : I32EnumAttr<"RuleScope", "where a rule is decided", [
-    I32EnumAttrCase<"Frontend", 0, "frontend">,
-    I32EnumAttrCase<"Pipeline", 1, "pipeline">,
-    I32EnumAttrCase<"Build", 2, "build">
-  ]> {
-  let cppNamespace = "::idr";
-  let genSpecializedAttr = 0;
-}
-def Idr_RuleScopeAttr : EnumAttr<Idr_Dialect, Idr_RuleScope, "rule_scope">;
-
 // the rule a refusal of a program names
 def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
     I32EnumAttrCase<"ValueType", 0, "type">,

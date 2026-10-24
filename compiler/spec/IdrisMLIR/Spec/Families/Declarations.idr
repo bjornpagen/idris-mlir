@@ -23,7 +23,6 @@ declarations = MkDeclarations
       [ SomeAttr familyAttr, SomeAttr indexBindersAttr, SomeAttr indexArgsAttr, SomeAttr equationAttr
       , SomeAttr conAttr ]
   , enums = [enumDef layoutMarkClosed]
-  , tables = []
   , interfaces = [erasedBinderInterface, indexedTypeInterface, patternTypeInterface, fieldTypeInterface, scopeRuleInterface, indexPositionsInterface]
   , traits = []
   , directives =

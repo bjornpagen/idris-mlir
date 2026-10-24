@@ -46,10 +46,6 @@ import Decidable.Equality
 
 %default total
 
--- A scope here is always a term's, the checker's: where a rule is decided
--- is no question this module asks.
-%hide IdrisMLIR.Spec.Core.Rules.Scope
-
 -- Every do block here binds in `Front`, never in `Core`: Core's own bind,
 -- beside the interface's, would make each bind an ambiguity, elaborated
 -- once per candidate with all of the block after it inside.

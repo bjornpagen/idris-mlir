@@ -28,7 +28,7 @@ flowInterface = MkInterfaceDef
       [ MkMethod PerObject (code "void") (ident "getFlowEdges")
           [param (code "::idr::FlowEdges &") (ident "edges")] EveryImplementer
           (line "adds to `edges` every edge along which something this op holds, takes or gives moves") ]
-  , verifier = Verifies (ident "verifyFlowEdges") AfterRegions
+  , verifier = Verifies (ident "verifyFlowEdges")
   , doc = MkDoc (line "an op that moves a value holding labels or a counted reference declares each move")
       """
       Each edge names only ends the op may name, and one that carries labels

@@ -37,7 +37,6 @@ bigAttr = MkAttrDef
   { mnemonic = "big"
   , params = [MkParameter "value" IntegerValue AlwaysWritten "the integer, at its fewest signed bits"]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ">"]
-  , typed = Untyped
   , interfaces =
       [ Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]
       , Implements integerKeyAttrInterface ["getKeyInteger"] ]

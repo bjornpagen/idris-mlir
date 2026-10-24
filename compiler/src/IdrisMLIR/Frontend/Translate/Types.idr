@@ -52,10 +52,6 @@ import Data.String
 
 %default total
 
--- A scope here is always a term's, the checker's: where a rule is decided
--- is no question this module asks.
-%hide IdrisMLIR.Spec.Core.Rules.Scope
-
 -- A term is closed here over what a given scope holds (`Given.close`),
 -- never over a reading's values.
 %hide IdrisMLIR.Frontend.Translate.Readings.close

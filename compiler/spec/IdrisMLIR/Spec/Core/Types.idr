@@ -219,17 +219,14 @@ public export
 data GroupLead = BeginsWith Line | AloneAtDefault Line
 
 ||| One element of a declarative type or attribute syntax, over `p`
-||| parameters: a literal, a parameter, the parameters as a struct, a custom
-||| directive over parameters, or an optional group: its anchor, a parameter
-||| with a default, and the items after it, printed where the anchor holds
-||| other than its default, so a list whose default is empty prints as
-||| nothing where it is empty and parses back.
+||| parameters: a literal, a parameter, or an optional group: its anchor, a
+||| parameter with a default, and the items after it, printed where the
+||| anchor holds other than its default, so a list whose default is empty
+||| prints as nothing where it is empty and parses back.
 public export
 data ParamItem : (p : Nat) -> Type where
   Keyword : Line -> ParamItem p
   ParamAt : Fin p -> ParamItem p
-  Struct : List (Fin p) -> ParamItem p
-  CustomParams : Directive -> List (Fin p) -> ParamItem p
   OptionalParams : GroupLead -> (anchor : Fin p) -> (after : List (ParamItem p)) -> ParamItem p
 
 ||| A declaration's syntax: declarative over its parameters, or written by
@@ -407,20 +404,13 @@ record TypeDef (p : Nat) where
   doc : Doc
 
 ||| An attribute of the dialect, its C++ class `<Camel>Attr`: `#idr.family`
-||| is `FamilyAttr`. A typed attribute names the parameter that is its
-||| type.
-public export
-data Typed : (p : Nat) -> Type where
-  Untyped : Typed p
-  TypedBy : Fin p -> Typed p
-
+||| is `FamilyAttr`.
 public export
 record AttrDef (p : Nat) where
   constructor MkAttrDef
   mnemonic : Mnemonic
   params : Vect p Parameter
   syntax : Syntax p
-  typed : Typed p
   interfaces : List InterfaceUse
   verifier : ParamVerifier
   bytecode : Bytecode

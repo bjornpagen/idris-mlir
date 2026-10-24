@@ -56,7 +56,6 @@ terminatesAttr = MkAttrDef
       [ MkParameter "proof" (WiredValue (WiredOf componentProofWire) proofDirective)
           AlwaysWritten "the component Idris proved it in" ]
   , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived

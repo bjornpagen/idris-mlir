@@ -115,8 +115,6 @@ export
 caseLine : EnumShape -> Nat -> Case -> String
 caseLine OneOf n c =
   "I" ++ decimal enumBits ++ "EnumAttrCase<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
-caseLine SetOf n c =
-  "I" ++ decimal enumBits ++ "BitEnumAttrCaseBit<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
 
 export
 numbered : List a -> List (Nat, a)
@@ -139,7 +137,6 @@ enumOds : EnumDef -> Lines
 enumOds e =
   let kind = case e.shape of
                OneOf => "I" ++ decimal enumBits ++ "EnumAttr"
-               SetOf => "I" ++ decimal enumBits ++ "BitEnumAttr"
       cases = map (\(n, c) => caseLine e.shape n c) (numbered (forget e.cases))
       name = identText e.name
       printer = if spacedSpelling e
@@ -294,7 +291,6 @@ traitOds _ ReturnLike = "ReturnLike"
 traitOds _ IsolatedFromAbove = "IsolatedFromAbove"
 traitOds _ SingleBlock = "SingleBlock"
 traitOds _ NoTerminator = "NoTerminator"
-traitOds _ NoRegionArguments = "NoRegionArguments"
 traitOds _ SymbolTable = "SymbolTable"
 traitOds _ SymbolOp = "Symbol"
 traitOds _ SymbolName = "SymbolName"
@@ -314,7 +310,6 @@ traitOds _ (OurTrait d) = traitRecord d
 traitOds _ (HasParent (p ::: [])) = "HasParent<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
 traitOds _ (HasParent ps) = "ParentOneOf<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
 traitOds _ (HasUpstreamParent cls) = "HasParent<" ++ quoted (cppText cls) ++ ">"
-traitOds _ (ImplicitTerminator p) = "SingleBlockImplicitTerminator<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
 traitOds _ (ResultUsesMaxOf res from) =
   "Idr_ResultUsesMax<\"" ++ joinWith ", " (decimal (finToNat res) :: map (decimal . finToNat) from) ++ "\">"
 
@@ -345,13 +340,6 @@ speculationOds NotSpeculatable = []
 speculationOds AlwaysSpeculatable = ["AlwaysSpeculatable"]
 speculationOds RecursivelySpeculatable = ["RecursivelySpeculatable"]
 speculationOds Conditionally = ["DeclareOpInterfaceMethods<ConditionallySpeculatable>"]
-
-export
-lawOds : Law -> List String
-lawOds Commutative = ["Commutative"]
-lawOds Idempotent = ["Idempotent"]
-lawOds Involution = ["Involution"]
-lawOds _ = []
 
 export
 meaningTraits : Meaning i o -> List String
@@ -398,7 +386,6 @@ opTraits op effs =
   map (traitOds op.ins) op.traits
   ++ segmentTraits op
   ++ typingTraits op
-  ++ concatMap lawOds op.laws
   ++ effectTraits effs
   ++ speculationOds op.speculation
   ++ map (interfaceUseOds OverOps) op.interfaces
@@ -441,7 +428,6 @@ export
 regionOds : Region -> String
 regionOds x =
   let one = case x.blocks of
-              AnyBlocks => "AnyRegion"
               Sized n => "SizedRegion<" ++ decimal n ++ ">"
               AtMost n => "MaxSizedRegion<" ++ decimal n ++ ">"
       group = case x.arity of
@@ -664,19 +650,10 @@ export
 parameterOds : Parameter -> String
 parameterOds x = paramKindOds x.kind x.presence ++ ":$" ++ identText x.name
 
-export
-typedParameterOds : Typed p -> (Fin p, Parameter) -> String
-typedParameterOds (TypedBy k) (j, x) =
-  if k == j then "AttributeSelfTypeParameter<\"\">:$" ++ identText x.name else parameterOds x
-typedParameterOds Untyped (_, x) = parameterOds x
-
 mutual
   paramItem : Vect p Parameter -> ParamItem p -> String
   paramItem _ (Keyword l) = "`" ++ lineText l ++ "`"
   paramItem ps (ParamAt k) = "$" ++ identText (index k ps).name
-  paramItem ps (Struct ks) = "struct(" ++ joinWith ", " (map (\k => "$" ++ identText (index k ps).name) ks) ++ ")"
-  paramItem ps (CustomParams d ks) =
-    "custom<" ++ identText d.name ++ ">(" ++ joinWith ", " (map (\k => "$" ++ identText (index k ps).name) ks) ++ ")"
   paramItem ps (OptionalParams (BeginsWith l) a after) =
     "(`" ++ lineText l ++ "` " ++ joinWith " " (anchored ps a :: paramItems ps after) ++ ")?"
   paramItem ps (OptionalParams (AloneAtDefault l) a after) =
@@ -816,7 +793,7 @@ attributeOds x =
   ["def " ++ attrRecord x ++ " : Idr_Attr<" ++ quoted (camelMnemonic x.mnemonic) ++ ", "
      ++ quoted (mnemonicText x.mnemonic) ++ ", [" ++ joinWith ", " (interfaceTraits OverAttributes x.interfaces) ++ "]> {"]
   ++ indent 2 (docFields x.doc
-               ++ ["let parameters = " ++ dag "ins" (map (typedParameterOds x.typed) (indexed x.params)) ++ ";"]
+               ++ ["let parameters = " ++ dag "ins" (map parameterOds (toList x.params)) ++ ";"]
                ++ syntaxFields x.params x.syntax
                ++ verifierFields x.verifier
                ++ storageFields x.storage
@@ -840,7 +817,6 @@ methodOds : InterfaceSubject -> Method -> String
 methodOds subject m =
   let kind = case m.binding of
                PerObject => "InterfaceMethod"
-               PerClass => "StaticInterfaceMethod"
       self = case subject of
                OverOps => "$_op"
                OverTypes => "$_type"
@@ -849,7 +825,6 @@ methodOds subject m =
       callArgs = map (\p => identText p.name) m.params
       given = case m.binding of
                 PerObject => self :: callArgs
-                PerClass => callArgs
       calls : Ident -> String
       calls fn = ", [{}], [{ return ::idr::" ++ identText fn ++ "(" ++ joinWith ", " given ++ "); }]"
       fallback = case m.fallback of
@@ -871,11 +846,9 @@ interfaceOds d =
                 bs => ["let baseInterfaces = [" ++ joinWith ", " (map interfaceRecord bs) ++ "];"]
       verifier = case d.verifier of
                    Unverified => []
-                   Verifies fn order =>
-                     ["let verify = [{ return ::idr::" ++ identText fn ++ "($_op); }];"]
-                     ++ (case order of
-                           BeforeRegions => []
-                           AfterRegions => ["let verifyWithRegions = 1;"])
+                   Verifies fn =>
+                     [ "let verify = [{ return ::idr::" ++ identText fn ++ "($_op); }];"
+                     , "let verifyWithRegions = 1;" ]
       methods = map (methodOds d.subject) d.methods
   in ["def " ++ interfaceRecord d ++ " : " ++ kind ++ "<" ++ quoted (identText d.name) ++ "> {"]
      ++ indent 2 (["let cppNamespace = \"::idr\";"]

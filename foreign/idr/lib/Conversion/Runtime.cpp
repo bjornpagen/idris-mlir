@@ -34,8 +34,6 @@ Type llvmType(MLIRContext *ctx, OperandKind kind) {
     return IntegerType::get(ctx, 32);
   case UInt8:
     return IntegerType::get(ctx, 8);
-  case Bool:
-    return IntegerType::get(ctx, 1);
   case Int64:
   case Signed:
   case Unsigned:
@@ -120,15 +118,16 @@ LLVM::LLVMFunctionType runtimeFunctionType(MLIRContext *ctx,
 }
 
 // Detached: idr-lower-runtime inserts it, once per function of the table.
-// A truth and a byte are C arguments narrower than an int, which a caller
-// widens where the target's C convention asks it to: zero-extended, as the
-// C compiler says of the definition, and LLVM applies the target's rule.
+// A byte argument and a truth result are narrower than an int, which a
+// caller widens where the target's C convention asks it to: zero-extended,
+// as the C compiler says of the definition, and LLVM applies the target's
+// rule.
 LLVM::LLVMFuncOp runtimeDeclaration(Location loc, const idr::runtime::Function &function) {
   OpBuilder b(loc.getContext());
   auto callee = LLVM::LLVMFuncOp::create(b, loc, StringRef(function.symbol),
                                          runtimeFunctionType(loc.getContext(), function));
   for (auto [index, kind] : llvm::enumerate(function.operands))
-    if (kind == OperandKind::Bool || kind == OperandKind::UInt8)
+    if (kind == OperandKind::UInt8)
       callee.setArgAttr(static_cast<unsigned>(index), LLVM::LLVMDialect::getZExtAttrName(),
                         b.getUnitAttr());
   if (function.result == ResultKind::Bool)

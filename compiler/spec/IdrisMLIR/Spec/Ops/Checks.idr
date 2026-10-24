@@ -53,7 +53,6 @@ siteAttr = MkAttrDef
   , syntax = Declarative
       [ Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ",", ParamAt 2, Keyword ","
       , ParamAt 3, Keyword ">" ]
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived

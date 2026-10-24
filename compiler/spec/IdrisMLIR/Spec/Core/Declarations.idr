@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What one area of the dialect declares: its ops, types, attributes,
-||| enums and tables, interfaces and traits, custom directives and hand
+||| enums, interfaces and traits, custom directives and hand
 ||| predicates, the resources of the effect tree, the runtime's helper
 ||| functions, the admitted upstream ops it reads, its rules, and the
 ||| headers of constants its hand C++ includes. Each area
@@ -32,7 +32,6 @@ record Declarations where
   types : List AnyTypeDef
   attributes : List AnyAttrDef
   enums : List EnumDef
-  tables : List Table
   interfaces : List InterfaceDef
   traits : List TraitDef
   directives : List Directive
@@ -48,14 +47,14 @@ record Declarations where
 ||| fields given.
 public export
 nothing : Declarations
-nothing = MkDeclarations [] [] [] [] [] [] [] [] [] [] [] [] [] [] []
+nothing = MkDeclarations [] [] [] [] [] [] [] [] [] [] [] [] [] []
 
 ||| Two areas' declarations together, the first's first.
 public export
 union : Declarations -> Declarations -> Declarations
 union x y = MkDeclarations
   (x.ops ++ y.ops) (x.types ++ y.types) (x.attributes ++ y.attributes)
-  (x.enums ++ y.enums) (x.tables ++ y.tables) (x.interfaces ++ y.interfaces)
+  (x.enums ++ y.enums) (x.interfaces ++ y.interfaces)
   (x.traits ++ y.traits) (x.directives ++ y.directives) (x.predicates ++ y.predicates)
   (x.resources ++ y.resources) (x.helpers ++ y.helpers) (x.admitted ++ y.admitted)
   (x.rewrites ++ y.rewrites) (x.skeleton ++ y.skeleton) (x.headers ++ y.headers)

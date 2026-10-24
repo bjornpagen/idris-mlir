@@ -86,7 +86,6 @@ extentAttr = MkAttrDef
       , MkParameter "term" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten
           "the index term the axis's size is, over the function's binders" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = Derived
@@ -108,7 +107,6 @@ extentsAttr = MkAttrDef
                       extentEntriesDirective)
           AlwaysWritten "each unknown axis named by a term, in order of side, position and axis" ]
   , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = Derived

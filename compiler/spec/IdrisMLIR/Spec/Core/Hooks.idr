@@ -111,11 +111,11 @@ record Directive where
   args : List DirectiveArg
   doc : Doc
 
-||| A predicate over a type or an attribute that data cannot say (whether a
-||| type is a field's), a C++ function the generated constraint calls and a
-||| hand unit defines: `bool isFieldType(::mlir::Type)`.
+||| A predicate over a type that data cannot say (whether a type is a
+||| field's), a C++ function the generated constraint calls and a hand unit
+||| defines: `bool isFieldType(::mlir::Type)`.
 public export
-data PredicateSubject = OnType | OnAttribute
+data PredicateSubject = OnType
 
 public export
 record Predicate where

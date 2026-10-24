@@ -42,7 +42,6 @@ mutableAttr = MkAttrDef
   { mnemonic = "mutable"
   , params = []
   , syntax = Declarative []
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived

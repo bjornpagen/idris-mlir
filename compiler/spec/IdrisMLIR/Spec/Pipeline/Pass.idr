@@ -1,12 +1,11 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A pass, as the pipeline and its registration read it: its name, the op
-||| it runs on, the stages it requires and leaves, its kind (decide, apply,
-||| restructure, or check), what it does to the program graph, its counters,
-||| the actions it takes, the atoms it may add to a function's row, and the
-||| dialects it loads. Only a test's checks are options: nothing selects how
-||| a program is compiled. Its C++ base, its constructor and its
-||| registration are printed from this.
+||| it runs on, the stages it requires and leaves, what it does to the
+||| program graph, its counters, the actions it takes, the atoms it may add
+||| to a function's row, and the dialects it loads. Only a test's checks
+||| are options: nothing selects how a program is compiled. Its C++ base,
+||| its constructor and its registration are printed from this.
 module IdrisMLIR.Spec.Pipeline.Pass
 
 import IdrisMLIR.Spec.Core.Text
@@ -34,16 +33,6 @@ anchorClass OnModule = "::mlir::ModuleOp"
 anchorClass OnProgram = "::idr::ProgramOp"
 anchorClass OnFunction = "::idr::FuncOp"
 anchorClass OnLoweredFunction = "::mlir::LLVM::LLVMFuncOp"
-
-||| Which of the threading's three steps a pass is, or a check: a decide
-||| step computes a whole-program answer, makes serially every type and
-||| attribute it needs, and runs the apply group the pipeline pairs it with
-||| nested in itself; an apply step rewrites functions in parallel, from
-||| its own facts or, in a decide step's group, from that step's answer; a
-||| restructure step changes the program's shape; a check changes nothing
-||| and refuses a program or fails a test.
-public export
-data PassKind = Decide | Apply | Restructure | Check
 
 ||| What a pass does to the program graph the analyses share: keeps it,
 ||| edits it through its editor, or leaves it to be built again.
@@ -203,7 +192,6 @@ record Pass where
   name : List1 Word
   anchor : Anchor
   stages : PassStages
-  kind : PassKind
   graph : GraphEffect
   statistics : List Statistic
   actions : List Action

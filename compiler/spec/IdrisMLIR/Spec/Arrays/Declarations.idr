@@ -502,7 +502,6 @@ declarations = MkDeclarations
   , types = []
   , attributes = [SomeAttr mutableAttr]
   , enums = []
-  , tables = []
   , interfaces = generatingInterfacesDeclared
   , traits = []
   , directives = []

@@ -8,9 +8,9 @@
 ||| meet (a knot counting could never free, an in-place promise shared);
 ||| and a program Idris itself rejects. No limit of the compiler's is a
 ||| kind: a limit is lifted by a representation, never refused. Each rule
-||| carries the phrase a refusal is shown with and where it is decided. The
-||| frontend and the harness import this; the C++ reads the printed enum and
-||| its tables; a refusal is an op of the module whose rule is a property.
+||| carries the phrase a refusal is shown with. The frontend and the
+||| harness import this; the C++ reads the printed enum and its table; a
+||| refusal is an op of the module whose rule is a property.
 module IdrisMLIR.Spec.Core.Rules
 
 import IdrisMLIR.Spec.Core.Text
@@ -23,14 +23,6 @@ import Data.List1
 
 public export
 data Category = Megamorphic | OutsideLanguage | UserError
-
-||| Where a rule is decided: by the frontend, reading the program as Idris
-||| checked it; by a total analysis of the pipeline over the first-order
-||| program, before any optimization; or against the build, what the
-||| compiler was built for (the runtime it links, the target it compiles
-||| for), wherever a module meets it.
-public export
-data Scope = Frontend | Pipeline | AgainstBuild
 
 public export
 data Rule : Category -> Type where
@@ -123,14 +115,6 @@ phrase OtherTarget = word "target" ::: []
 phrase Elaboration = word "elaboration" ::: []
 
 public export
-scope : Rule c -> Scope
-scope Uniqueness = Pipeline
-scope Cycle = Pipeline
-scope Runtime = AgainstBuild
-scope OtherTarget = AgainstBuild
-scope _ = Frontend
-
-public export
 ruleName : Rule c -> Ident
 ruleName ValueType = ident "ValueType"
 ruleName DependentField = ident "DependentField"
@@ -174,23 +158,6 @@ categoryClosed = MkClosed
       OutsideLanguage => MkCase (ident "OutsideLanguage") (word "outside" ::: [word "the", word "language"]) (line "a construct outside the language, or one a total analysis proves the program cannot meet")
       UserError => MkCase (ident "UserError") (word "user" ::: [word "error"]) (line "a program Idris itself rejects")
   , doc = brief (line "the kind of program a refusal names")
-  }
-
-public export
-scopeClosed : Closed Scope
-scopeClosed = MkClosed
-  { name = ident "RuleScope"
-  , shape = OneOf
-  , every = Frontend ::: [Pipeline, AgainstBuild]
-  , complete = \case
-      Frontend => Here
-      Pipeline => There Here
-      AgainstBuild => There (There Here)
-  , describe = \case
-      Frontend => MkCase (ident "Frontend") (word "frontend" ::: []) (line "decided by the frontend, on the program as Idris checked it")
-      Pipeline => MkCase (ident "Pipeline") (word "pipeline" ::: []) (line "decided by a total analysis on the first-order program, before any optimization")
-      AgainstBuild => MkCase (ident "Build") (word "build" ::: []) (line "decided against what the compiler was built for: the runtime it links, the target it compiles for")
-  , doc = brief (line "where a rule is decided")
   }
 
 ||| Every rule, in declaration order: the printed enum's order.
@@ -253,15 +220,10 @@ ruleClosed = MkClosed
     describeRule : SomeRule -> Case
     describeRule (Refusal r) = MkCase (ruleName r) (phrase r) (line "a rule of the language this compiler compiles")
 
-||| The rules' facts the C++ reads: each rule's category and scope.
+||| The rules' fact the C++ reads: each rule's category.
 public export
 ruleTable : Table
 ruleTable = table ruleClosed
   [ MkColumn (ident "categoryOf") (EnumColumn (enumDef categoryClosed))
       (\r => CaseCell (caseRef categoryClosed (category r))) (line "the kind of program the rule refuses")
-  , MkColumn (ident "scopeOf") (EnumColumn (enumDef scopeClosed))
-      (\r => CaseCell (caseRef scopeClosed (scopeOfSome r))) (line "where the rule is decided")
   ]
-  where
-    scopeOfSome : SomeRule -> Scope
-    scopeOfSome (Refusal r) = scope r

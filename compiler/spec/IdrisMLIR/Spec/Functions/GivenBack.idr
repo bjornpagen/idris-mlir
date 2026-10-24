@@ -76,7 +76,6 @@ givenBackEntryAttr = MkAttrDef
       , MkParameter "argument_fields" fieldPathKind AlwaysWritten
           "the fields down to the argument's component" ]
   , syntax = HandSyntax
-  , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived
@@ -98,7 +97,6 @@ givenBackAttr = MkAttrDef
                       givenBackEntriesDirective)
           AlwaysWritten "each result component given back, in order of its path" ]
   , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
-  , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = Derived

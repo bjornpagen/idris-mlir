@@ -43,16 +43,14 @@ data Pat : (n : Nat) -> Type where
 public export
 data Root : (n : Nat) -> Type where
   RootedAt : {0 i, o, a, r : Nat} -> Op i o a r -> Fin o -> Vect i (Pat n) -> Root n
-  RootedAtUpstream : Admitted -> List (Pat n) -> Root n
 
 ||| A side condition, a fact an analysis or a type holds of a variable:
-||| it is a constant; a power of two; within an interval; produced by
-||| code whose row carries neither crash nor divergence, which alone lets a
-||| rule delete or move it.
+||| it is a constant; within an interval; produced by code whose row
+||| carries neither crash nor divergence, which alone lets a rule delete or
+||| move it.
 public export
 data Cond : (n : Nat) -> Type where
   IsConstant : Fin n -> Cond n
-  PowerOfTwo : Fin n -> Cond n
   InRange : Fin n -> (lo, hi : Integer) -> Cond n
   Clean : Fin n -> Cond n
 
@@ -77,7 +75,6 @@ mutual
 public export
 varsOfRoot : Root n -> List (Fin n)
 varsOfRoot (RootedAt _ _ args) = varsOfVect args
-varsOfRoot (RootedAtUpstream _ args) = varsOfList args
 
 ||| Every variable of the right side occurs on the left.
 public export

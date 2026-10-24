@@ -26,12 +26,6 @@ struct EnumTraits<::idr::RuleCategory> {
 };
 
 template <>
-struct EnumTraits<::idr::RuleScope> {
-  static constexpr std::size_t count = 3;
-  static constexpr std::array<std::string_view, 3> names{{"frontend", "pipeline", "build"}};
-};
-
-template <>
 struct EnumTraits<::idr::Rule> {
   static constexpr std::size_t count = 26;
   static constexpr std::array<std::string_view, 26> names{{"type", "dependent field", "polymorphism", "runtime closure", "program", "library", "data type", "definition", "match", "primitive", "string primitive", "escape hatch", "pragma", "threads", "finalizer", "raw pointer", "signal", "process", "compiled module", "hook", "deprecated", "uniqueness", "cycle", "runtime", "target", "elaboration"}};

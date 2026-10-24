@@ -96,16 +96,16 @@ data OdsEffects : (i, o : Nat) -> Type where
 
 ||| How a runtime function takes a value: a C integer of 32 or 64 bits, a
 ||| C `uint8_t` (an exit status), a double, an integer of the op's width
-||| extended by its sign or by zeros, a string, a big, a buffer's cell, a
-||| pointer the lowering made to a C type of the runtime's (its spelling,
-||| `const idris_rt_text`), or a C `bool`. The C ABI extends a `uint8_t`
-||| and a `bool` with zeros. A pointer names what it points to, so the
-||| prototype the runtime is checked against says it and no definition
-||| takes a `void *` where it means a cell.
+||| extended by its sign or by zeros, a string, a big, a buffer's cell, or
+||| a pointer the lowering made to a C type of the runtime's (its spelling,
+||| `const idris_rt_text`). The C ABI extends a `uint8_t` with zeros. A
+||| pointer names what it points to, so the prototype the runtime is
+||| checked against says it and no definition takes a `void *` where it
+||| means a cell.
 public export
 data OperandKind
   = TakesInt32 | TakesInt64 | TakesUInt8 | TakesDouble | TakesSigned | TakesUnsigned
-  | TakesStr | TakesBig | TakesBuffer | TakesPointerTo Code | TakesBool
+  | TakesStr | TakesBig | TakesBuffer | TakesPointerTo Code
 
 ||| How a runtime function gives a value: as an operand is given, or an
 ||| integer modulo 2^64 the op wraps to its width, or a three-way order the
