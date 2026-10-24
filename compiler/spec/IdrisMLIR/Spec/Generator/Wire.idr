@@ -25,31 +25,33 @@ import Data.Vect
 ------------------------------------------------------------------------------
 
 mutual
-  ||| The composites a wire reaches, each after every composite it holds. A
-  ||| composite is a finite value, so none holds itself, and the order is a
-  ||| reader's: what a codec calls is printed before it.
-  wireComposites : Wire -> List Composite
-  wireComposites (WireLeaf _) = []
-  wireComposites (WireArray w) = wireComposites w
-  wireComposites (WireOf (MkComposite n c b d)) = bodyComposites b ++ [MkComposite n c b d]
+  ||| The composites a wire reaches through the alternatives whose stages
+  ||| `enters` takes, each after every composite it holds. A composite is a
+  ||| finite value, so none holds itself, and the order is a reader's: what
+  ||| a codec calls is printed before it.
+  wireComposites : (Legal -> Bool) -> Wire -> List Composite
+  wireComposites _ (WireLeaf _) = []
+  wireComposites enters (WireArray w) = wireComposites enters w
+  wireComposites enters (WireOf (MkComposite n c b d)) = bodyComposites enters b ++ [MkComposite n c b d]
 
-  bodyComposites : CompositeBody -> List Composite
-  bodyComposites (Fields fs) = fieldsComposites fs
-  bodyComposites (Flat _ _ cases) = casesComposites cases
-  bodyComposites (Variant _ alternatives) = alternativesComposites alternatives
+  bodyComposites : (Legal -> Bool) -> CompositeBody -> List Composite
+  bodyComposites enters (Fields fs) = fieldsComposites enters fs
+  bodyComposites enters (Flat _ _ cases) = casesComposites enters cases
+  bodyComposites enters (Variant _ alternatives) = alternativesComposites enters alternatives
 
-  fieldsComposites : List WireField -> List Composite
-  fieldsComposites [] = []
-  fieldsComposites (MkWireField _ w :: fs) = wireComposites w ++ fieldsComposites fs
+  fieldsComposites : (Legal -> Bool) -> List WireField -> List Composite
+  fieldsComposites _ [] = []
+  fieldsComposites enters (MkWireField _ w :: fs) = wireComposites enters w ++ fieldsComposites enters fs
 
-  casesComposites : List (List WireField) -> List Composite
-  casesComposites [] = []
-  casesComposites (fs :: rest) = fieldsComposites fs ++ casesComposites rest
+  casesComposites : (Legal -> Bool) -> List (List WireField) -> List Composite
+  casesComposites _ [] = []
+  casesComposites enters (fs :: rest) = fieldsComposites enters fs ++ casesComposites enters rest
 
-  alternativesComposites : List Composite -> List Composite
-  alternativesComposites [] = []
-  alternativesComposites (MkComposite n c b d :: rest) =
-    bodyComposites b ++ [MkComposite n c b d] ++ alternativesComposites rest
+  alternativesComposites : (Legal -> Bool) -> List Alternative -> List Composite
+  alternativesComposites _ [] = []
+  alternativesComposites enters (MkAlternative l (MkComposite n c b d) :: rest) =
+    (if enters l then bodyComposites enters b ++ [MkComposite n c b d] else [])
+    ++ alternativesComposites enters rest
 
 ||| The wired values a parameter holds, with the directive that names its
 ||| codec.
@@ -71,17 +73,20 @@ wiredOf ts as = once [] (concatMap (\x => wiredOfKind x.kind) (paramsOf ts as))
     once seen ((w, d) :: rest) =
       if elem d.name seen then once seen rest else (w, d) :: once (d.name :: seen) rest
 
-||| The composites a wired value reaches.
-wiredComposites : Wired -> List Composite
-wiredComposites (WiredArray w) = wireComposites w
-wiredComposites (WiredOne _) = []
-wiredComposites (WiredOf c) = wireComposites (WireOf c)
+||| The composites a wired value reaches through the alternatives whose
+||| stages `enters` takes.
+wiredComposites : (Legal -> Bool) -> Wired -> List Composite
+wiredComposites enters (WiredArray w) = wireComposites enters w
+wiredComposites _ (WiredOne _) = []
+wiredComposites enters (WiredOf c) = wireComposites enters (WireOf c)
 
-||| Every composite the dialect's parameters reach, once, each after every
-||| composite it holds: one codec each, and one type on the frontend's side.
+||| Every composite the parameters reach through the alternatives whose
+||| stages `enters` takes, once, each after every composite it holds: with
+||| every alternative, one codec each; with those the frontend writes, one
+||| type on its side.
 export
-compositesOf : List AnyTypeDef -> List AnyAttrDef -> List Composite
-compositesOf ts as = once [] (concatMap (\(w, _) => wiredComposites w) (wiredOf ts as))
+compositesOf : (Legal -> Bool) -> List AnyTypeDef -> List AnyAttrDef -> List Composite
+compositesOf enters ts as = once [] (concatMap (\(w, _) => wiredComposites enters w) (wiredOf ts as))
   where
     once : List Ident -> List Composite -> List Composite
     once _ [] = []
@@ -290,7 +295,7 @@ bodyReader _ (Variant e alternatives) =
   ["::idr::" ++ identText e.name ++ " kind{};"]
   ++ returnsOnFailure "readCase(reader, kind)"
   ++ ["switch (kind) {"]
-  ++ concatMap (alternativeReader e) (zip (forget e.cases) alternatives)
+  ++ concatMap (alternativeReader e) (zip (forget e.cases) (map alternativeComposite alternatives))
   ++ ["}"]
 
 ||| The statements that write a composite's parts from `value`.
@@ -302,7 +307,7 @@ bodyWriter (Flat e tag cases) =
   ++ ["}"]
 bodyWriter (Variant e alternatives) =
   ["::idr::match(", "    value,"]
-  ++ indent 4 (arguments (map (alternativeWriter e) (zip (forget e.cases) alternatives)))
+  ++ indent 4 (arguments (map (alternativeWriter e) (zip (forget e.cases) (map alternativeComposite alternatives))))
 
 ||| A composite's reader and writer. A reader keeps every array it reads in
 ||| the arena it is given, which the value's arrays view.
@@ -411,5 +416,5 @@ export
 wireDefinitions : List AnyTypeDef -> List AnyAttrDef -> Lines
 wireDefinitions ts as =
   banner slashComment
-  ++ concatMap compositeCodec (compositesOf ts as)
+  ++ concatMap compositeCodec (compositesOf (const True) ts as)
   ++ concatMap wiredCodec (wiredOf ts as)

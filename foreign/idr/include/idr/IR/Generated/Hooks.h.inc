@@ -254,6 +254,23 @@ void printCaptures(::mlir::AsmPrinter &printer, ::mlir::ArrayAttr value);
 ::mlir::LogicalResult readRow(::mlir::DialectBytecodeReader &reader, ::idr::effects::Row &value);
 void writeRow(::mlir::DialectBytecodeWriter &writer, ::idr::effects::Row value);
 
+// Whether `op` stands in a program at a stage from `first` to `last`, the stages
+// its family is legal at; a hand unit defines it.
+::mlir::LogicalResult verifyLegalAt(::mlir::Operation *op, Stage first, Stage last);
+
+// An op whose family is legal at the stages from `First` to `Last` of the chain,
+// held to them wherever it is verified.
+template <Stage First, Stage Last>
+struct LegalAt {
+  template <typename ConcreteType>
+  class Impl : public ::mlir::OpTrait::TraitBase<ConcreteType, Impl> {
+  public:
+    static ::mlir::LogicalResult verifyTrait(::mlir::Operation *op) {
+      return verifyLegalAt(op, First, Last);
+    }
+  };
+};
+
 
 } // namespace idr
 

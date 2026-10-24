@@ -72,6 +72,7 @@ export
 livesInAttr : AttrDef 3
 livesInAttr = MkAttrDef
   { mnemonic = "lives_in"
+  , stages = between Graded Owned
   , params =
       [ MkParameter "parameters" livesInEntries AlwaysWritten
           "each scoped parameter, in order, and the lifetime parameter it lives in"

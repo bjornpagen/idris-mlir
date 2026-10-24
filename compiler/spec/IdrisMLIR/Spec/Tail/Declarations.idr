@@ -58,6 +58,7 @@ export
 destType : TypeDef 1
 destType = MkTypeDef
   { mnemonic = "dest"
+  , stages = between Owned Owned
   , params =
       [ MkParameter "value" TypeValue AlwaysWritten
           "the type of the value written through it, at the grade the place keeps" ]

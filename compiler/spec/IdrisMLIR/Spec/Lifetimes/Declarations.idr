@@ -171,12 +171,22 @@ kindAlternative HomeCase = MkComposite (ident "LifetimeKindHome") (code "::idr::
   (Fields [MkWireField (ident "site") (WireLeaf LeafWord32)])
   (brief (line "the per-shard home of a site"))
 
+||| The stages a lifetime of each kind may stand at, each until the
+||| lowering: a view from the first loans, in the first-order program; the
+||| kinds that hold memory from the lifetimes' decision, which opens them.
+public export
+kindStages : KindCase -> Legal
+kindStages ViewCase = between First Owned
+kindStages RoomCase = between Graded Owned
+kindStages CursorCase = between Graded Owned
+kindStages HomeCase = between Graded Owned
+
 ||| A lifetime's kind on the wire: its case, then that case's alternative,
 ||| so no kind but a home can carry a site.
 public export
 kindWire : Composite
 kindWire = MkComposite (ident "LifetimeKindOf") (code "::idr::LifetimeKind")
-  (variant kindCaseClosed kindAlternative) (brief (line "a lifetime's kind, its alternative its case"))
+  (variant kindCaseClosed kindStages kindAlternative) (brief (line "a lifetime's kind, its alternative its case"))
 
 ||| The kind's text, `view`, `room`, `cursor` or `home k`; its bytecode is
 ||| the wire's.
@@ -194,6 +204,7 @@ export
 lifetimeType : TypeDef 1
 lifetimeType = MkTypeDef
   { mnemonic = "lifetime"
+  , stages = between First Owned
   , params =
       [ MkParameter (ident "kind") (WiredValue (WiredOf kindWire) kindDirective)
           AlwaysWritten (line "what the lifetime is at run time") ]
@@ -220,6 +231,7 @@ export
 packageType : TypeDef 2
 packageType = MkTypeDef
   { mnemonic = "lifetime.package"
+  , stages = between Owned Owned
   , params =
       [ MkParameter (ident "packed")
           (EnumValue (imported packedClosed

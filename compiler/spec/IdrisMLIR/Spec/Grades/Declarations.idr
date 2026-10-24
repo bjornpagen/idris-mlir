@@ -243,6 +243,7 @@ export
 graded : TypeDef 3
 graded = MkTypeDef
   { mnemonic = "graded"
+  , stages = between Higher Owned
   , params =
       [ MkParameter (ident "uses")
           (EnumValue (imported usesClosed

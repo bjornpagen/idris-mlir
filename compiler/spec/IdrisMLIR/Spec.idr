@@ -91,6 +91,7 @@ public export
 binderAttr : AttrDef 2
 binderAttr = MkAttrDef
   { mnemonic = "binder"
+  , stages = Always
   , params = [ MkParameter "definition" AttrValue AlwaysWritten "the definition that binds it, by its symbol"
              , MkParameter "index" CountValue AlwaysWritten "its position among the definition's binders" ]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]

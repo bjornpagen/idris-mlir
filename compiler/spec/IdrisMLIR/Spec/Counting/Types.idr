@@ -22,6 +22,7 @@ export
 cellType : TypeDef 1
 cellType = MkTypeDef
   { mnemonic = "cell"
+  , stages = between First Owned
   , params =
       [ MkParameter "value" TypeValue AlwaysWritten
           "the value the cell holds once filled: a data type refined to one constructor" ]
@@ -52,6 +53,7 @@ export
 reuseTokenType : TypeDef 1
 reuseTokenType = MkTypeDef
   { mnemonic = "reuse_token"
+  , stages = between First Owned
   , params =
       [ MkParameter "sources" (ListOf TypeValue) AlwaysWritten
           "the data types refined to one constructor whose cell it may be" ]

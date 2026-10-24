@@ -45,6 +45,7 @@ public export
 siteAttr : AttrDef 4
 siteAttr = MkAttrDef
   { mnemonic = "site"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "file" StringValue AlwaysWritten "the source file"
       , MkParameter "line" CountValue AlwaysWritten "the line, from 1"

@@ -42,6 +42,7 @@ export
 mutableAttr : AttrDef 0
 mutableAttr = MkAttrDef
   { mnemonic = "mutable"
+  , stages = between Higher Owned
   , params = []
   , syntax = Declarative []
   , interfaces = []

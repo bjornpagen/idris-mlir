@@ -71,6 +71,7 @@ scalarFacts word words =
 scalarType : Mnemonic -> CellWord -> RunTimeWord -> Doc -> TypeDef 0
 scalarType m word words d = MkTypeDef
   { mnemonic = m
+  , stages = between Higher Owned
   , params = []
   , syntax = Declarative []
   , interfaces = scalarInterfaces
@@ -105,6 +106,7 @@ public export
 natType : TypeDef 1
 natType = MkTypeDef
   { mnemonic = "nat"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "index" (WiredValue (WiredArray termWire) termsParam)
           AlwaysWritten "the index term the natural is, opaque where none is known" ]

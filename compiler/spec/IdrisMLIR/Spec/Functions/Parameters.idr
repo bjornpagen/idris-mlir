@@ -109,6 +109,7 @@ export
 putBoundsAttr : AttrDef 1
 putBoundsAttr = MkAttrDef
   { mnemonic = "put_bounds"
+  , stages = between Graded Owned
   , params =
       [ MkParameter "bounds" (WiredValue (WiredArray (WireOf putBoundWire)) putBoundsDirective)
           AlwaysWritten "each bounded put parameter's position among them and its bound" ]

@@ -4,13 +4,16 @@
 ||| (indexed by count, so a format names a parameter by its position and
 ||| cannot name one the declaration lacks), their syntax, their bytecode
 ||| layout (derived from the parameters, so the reader, the writer and the
-||| frontend's encoder cannot disagree), their interfaces and hooks.
+||| frontend's encoder cannot disagree), their interfaces and hooks, and
+||| the stages each may stand at, as an op's, so the frontend is printed
+||| the encoders of those legal where it writes, and of no other.
 module IdrisMLIR.Spec.Core.Types
 
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Core.Hooks
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Interfaces
+import IdrisMLIR.Spec.Pipeline.Stage
 
 import Data.Fin
 import Data.List.Elem
@@ -65,12 +68,18 @@ mutual
   ||| makes); or a variant whose alternatives are composites in the set's
   ||| order, laid out as the case's position and then the alternative
   ||| (which `variant` makes). The frontend holds such a value as one
-  ||| constructor per case, so it never holds the case beside it.
+  ||| constructor per case it may write, so it never holds the case beside
+  ||| it.
   public export
   data CompositeBody
     = Fields (List WireField)
     | Flat EnumDef Ident (List (List WireField))
-    | Variant EnumDef (List Composite)
+    | Variant EnumDef (List Alternative)
+
+  ||| A variant's alternative: the stages a value of its case may stand at,
+  ||| and the composite it holds.
+  public export
+  data Alternative = MkAlternative Legal Composite
 
   ||| A value the dialect's parameters hold, laid out from its parts: its
   ||| name, which its codec and the frontend's type of it take; its C++
@@ -94,6 +103,10 @@ public export
 compositeCpp : Composite -> Code
 compositeCpp (MkComposite _ c _ _) = c
 
+public export
+alternativeComposite : Alternative -> Composite
+alternativeComposite (MkAlternative _ c) = c
+
 ||| A flat composite's body over a closed set: its tag member, and the
 ||| members each case gives meaning to, a total function, so a case the set
 ||| gains without its members does not build.
@@ -101,11 +114,13 @@ public export
 flat : (c : Closed a) -> (tag : Ident) -> (a -> List WireField) -> CompositeBody
 flat c tag fields = Flat (enumDef c) tag (map fields (forget c.every))
 
-||| A variant composite's body over a closed set: each case's alternative,
-||| a total function.
+||| A variant composite's body over a closed set: each case's stages and
+||| its alternative, total functions, so a case the set gains without either
+||| does not build.
 public export
-variant : (c : Closed a) -> (a -> Composite) -> CompositeBody
-variant c alternative = Variant (enumDef c) (map alternative (forget c.every))
+variant : (c : Closed a) -> (a -> Legal) -> (a -> Composite) -> CompositeBody
+variant c stages alternative =
+  Variant (enumDef c) (map (\x => MkAlternative (stages x) (alternative x)) (forget c.every))
 
 ||| Whether reading a value keeps an array, which then needs an arena that
 ||| outlives the reading: a composite whose parts hold none is read without
@@ -143,9 +158,9 @@ mutual
   casesKeeping (fs :: rest) = keepingOfBoth (fieldsKeeping fs) (casesKeeping rest)
 
   public export
-  alternativesKeeping : List Composite -> Keeping
+  alternativesKeeping : List Alternative -> Keeping
   alternativesKeeping [] = KeepsNothing
-  alternativesKeeping (MkComposite _ _ b _ :: rest) = keepingOfBoth (bodyKeeping b) (alternativesKeeping rest)
+  alternativesKeeping (MkAlternative _ (MkComposite _ _ b _) :: rest) = keepingOfBoth (bodyKeeping b) (alternativesKeeping rest)
 
 ||| Whether reading a composite keeps an array.
 public export
@@ -388,11 +403,14 @@ public export
 data Storage = GeneratedStorage | HandStorage
 
 ||| A type of the dialect, its C++ class `<Camel>Type` from its mnemonic:
-||| `!idr.graded` is `GradedType`.
+||| `!idr.graded` is `GradedType`. Its stages are those a program may hold it
+||| at, as an op's: the frontend is printed its encoder where they hold the
+||| frontend's.
 public export
 record TypeDef (p : Nat) where
   constructor MkTypeDef
   mnemonic : Mnemonic
+  stages : Legal
   params : Vect p Parameter
   syntax : Syntax p
   interfaces : List InterfaceUse
@@ -404,11 +422,12 @@ record TypeDef (p : Nat) where
   doc : Doc
 
 ||| An attribute of the dialect, its C++ class `<Camel>Attr`: `#idr.family`
-||| is `FamilyAttr`.
+||| is `FamilyAttr`. Its stages are a type's.
 public export
 record AttrDef (p : Nat) where
   constructor MkAttrDef
   mnemonic : Mnemonic
+  stages : Legal
   params : Vect p Parameter
   syntax : Syntax p
   interfaces : List InterfaceUse

@@ -84,10 +84,20 @@ memberBody Frames = MkComposite "FramesMember" "::idr::families::FramesMember"
   (Fields [labelField, MkWireField "ctors" (WireArray (WireOf ctorDecl))])
   (brief "a frame stack, the frames a recursion pushes")
 
+||| The stages a member of each kind may stand at, each until the lowering:
+||| Idris's data from the frontend's program on; a closure or memo sum from
+||| the first-order program defunctionalization declares it in; a frame
+||| stack from the frames' pass, at the last stage.
+memberStages : MemberKind -> Legal
+memberStages Data = between Higher Owned
+memberStages Closures = between First Owned
+memberStages Memo = between First Owned
+memberStages Frames = between Owned Owned
+
 ||| A member on the wire: its kind, then that kind's member.
 memberWire : Wire
 memberWire = WireOf (MkComposite "MemberOf" "::idr::families::Member"
-  (variant memberKindClosed memberBody) (brief "a member of a family, its alternative its kind"))
+  (variant memberKindClosed memberStages memberBody) (brief "a member of a family, its alternative its kind"))
 
 ------------------------------------------------------------------------------
 -- The types and attributes
@@ -106,6 +116,7 @@ export
 familyAttr : AttrDef 1
 familyAttr = MkAttrDef
   { mnemonic = "family"
+  , stages = between Higher Owned
   , params = [MkParameter "members" (WiredValue (WiredArray memberWire) membersParam) AlwaysWritten "the group's members, in order"]
   , syntax = HandSyntax
   , interfaces = []
@@ -164,6 +175,7 @@ export
 dataType : TypeDef 6
 dataType = MkTypeDef
   { mnemonic = "data"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "group" (WiredValue (WiredOne (LeafAttr "::idr::FamilyAttr")) familyParam) AlwaysWritten "the family"
       , MkParameter "member" memberPositionKind AlwaysWritten "the member of the family"
@@ -233,6 +245,7 @@ export
 selfType : TypeDef 2
 selfType = MkTypeDef
   { mnemonic = "self"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "member" memberPositionKind AlwaysWritten "the member of the group being declared"
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
@@ -254,6 +267,7 @@ export
 equationAttr : AttrDef 2
 equationAttr = MkAttrDef
   { mnemonic = "equation"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "lhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the left term"
       , MkParameter "rhs" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the right term" ]
@@ -277,6 +291,7 @@ export
 conAttr : AttrDef 3
 conAttr = MkAttrDef
   { mnemonic = "con"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "data" (WiredValue (WiredOne (LeafType "::idr::DataType")) dataParam) AlwaysWritten "the data type, refined to the constructor"
       , MkParameter "cells" (ListOf AttrValue) AlwaysWritten "the cells, each an array of its fields, every one but the last without the spine"

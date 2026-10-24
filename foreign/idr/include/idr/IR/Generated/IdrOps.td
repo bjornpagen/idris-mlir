@@ -11,7 +11,8 @@ include "idr/IR/Generated/IdrInterfaces.td"
 include "idr/IR/Generated/IdrTypes.td"
 
 def Idr_RefusalOp : Idr_Op<"refusal", [
-    HasParent<"::mlir::ModuleOp">
+    HasParent<"::mlir::ModuleOp">,
+    Idr_LegalAt<"Higher", "Higher">
   ]> {
   let summary = "a refusal of the program, which the driver reports in place of compiling it";
   let arguments = (ins EnumProp<Idr_Rule>:$rule, StrAttr:$message);
@@ -58,7 +59,8 @@ def Idr_FuncOp : Idr_Op<"func", [
     DeclareOpInterfaceMethods<FunctionOpInterface, ["insertArguments", "insertResults", "eraseArguments", "eraseResults"]>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getDefaultDialect"]>,
     DeclareOpInterfaceMethods<Idr_ErasedBinderOpInterface, ["getBoundSorts"]>,
-    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "a function of the program, with what is known of a run of it";
   let description = [{
@@ -96,7 +98,8 @@ def Idr_CallOp : Idr_Op<"call", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "a call of a function by name, with its callee's row";
   let description = [{
@@ -136,7 +139,8 @@ def Idr_ReturnOp : Idr_Op<"return", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "returns from a function";
   let arguments = (ins Variadic<AnyType>:$operands);
@@ -348,7 +352,8 @@ def Idr_LifetimeHomeOp : Idr_Op<"lifetime.home", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "opens a lifetime in the per-shard home of its site";
   let arguments = (ins Variadic<Idr_LifetimeType>:$outers);
@@ -366,7 +371,8 @@ def Idr_LifetimeBlockOp : Idr_Op<"lifetime.block", [
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "opens a lifetime in a block of the opener's frame";
   let arguments = (ins Variadic<Idr_LifetimeType>:$outers);
@@ -386,7 +392,8 @@ def Idr_LifetimeStackOp : Idr_Op<"lifetime.stack", [
     Idr_OpensLifetimeOpInterface,
     Idr_PerLevelOpInterface,
     Idr_CursorBinderOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "opens a lifetime on its base cursor's stack";
   let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$base, Variadic<Idr_LifetimeType>:$outers);
@@ -405,7 +412,8 @@ def Idr_LifetimeChainOp : Idr_Op<"lifetime.chain", [
     Idr_StatesOutersOpInterface,
     Idr_OpensLifetimeOpInterface,
     Idr_PerLevelOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "opens a lifetime in its own chain of chunks";
   let arguments = (ins Variadic<Idr_LifetimeType>:$outers);
@@ -453,7 +461,8 @@ def Idr_CarrierOp : Idr_Op<"carrier", [
     AlwaysSpeculatable,
     InferTypeOpAdaptor,
     DeclareOpInterfaceMethods<ViewLikeOpInterface, ["getViewSource"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "a tensor or a buffer lent to upstream's ops under a lifetime";
   let arguments = (ins Type<CPred<"::idr::isLendable($_self)">, "a tensor or a buffer that holds references, at any grade", "::mlir::Type">:$value, Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isViewLifetime($_self)">]>, "a view lifetime", Idr_LifetimeType.cppType>:$lifetime);
@@ -479,7 +488,8 @@ def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes"]>,
     DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>,
-    Idr_DerivesLifetimeOpInterface
+    Idr_DerivesLifetimeOpInterface,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "a room reserved in a cursor lifetime";
   let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$lifetime, I64Attr:$bytes);
@@ -490,7 +500,8 @@ def Idr_LifetimeReserveOp : Idr_Op<"lifetime.reserve", [
 def Idr_CellStackOp : Idr_Op<"cell.stack", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse", "verifyLifetimeUse"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "a slot of its function's frame, in a lifetime of this function";
   let arguments = (ins Idr_LifetimeType:$lifetime);
@@ -502,7 +513,8 @@ def Idr_CellArenaOp : Idr_Op<"cell.arena", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_LifetimePutOpInterface, ["getPutLifetime", "getPutBytes", "getPutCell"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["getLifetimeUse"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "a cell bumped in a lifetime something may allocate into";
   let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::admitsPuts($_self)">]>, "a lifetime something may allocate into", Idr_LifetimeType.cppType>:$lifetime);
@@ -511,7 +523,8 @@ def Idr_CellArenaOp : Idr_Op<"cell.arena", [
 }
 
 def Idr_LifetimePackOp : Idr_Op<"lifetime.pack", [
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "packs a per-level lifetime and the values it holds";
   let arguments = (ins Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>:$lifetime, Variadic<AnyType>:$held);
@@ -531,7 +544,8 @@ def Idr_LifetimeUnpackOp : Idr_Op<"lifetime.unpack", [
     Idr_StatesOutersOpInterface,
     DeclareOpInterfaceMethods<Idr_PerLevelOpInterface, ["getPacked"]>,
     Idr_CursorBinderOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "reopens a packed lifetime, binding it, what it holds and what entered its base since";
   let arguments = (ins Idr_LifetimePackageType:$package, Optional<Type<And<[Idr_LifetimeType.predicate, CPred<"::idr::isCursorLifetime($_self)">]>, "a cursor lifetime", Idr_LifetimeType.cppType>>:$base, Variadic<AnyType>:$entering, Variadic<Idr_LifetimeType>:$outers);
@@ -555,7 +569,8 @@ def Idr_DataMatchOp : Idr_Op<"data.match", [
     DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_ErasedBinderOpInterface, ["getBoundSorts", "getRefinement"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "branches on the constructor of a data value, binding it refined in each case";
   let description = [{
@@ -599,7 +614,8 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
     DeclareOpInterfaceMethods<Idr_MatchOpInterface, ["getNumCases", "getCaseRegion", "getRegionScrutinee", "caseOf", "keepCases"]>,
     DeclareOpInterfaceMethods<Idr_ValueSourceOpInterface, ["getValueSource"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "branches on the value of a word, a string, a big integer or a natural";
   let description = [{
@@ -746,7 +762,8 @@ def Idr_ArrayTabulateOp : Idr_Op<"array.tabulate", [
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForIndexValue", "populateBoundsForShapedValueDim"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>
+    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "each destination written at each index with what the region gives there";
   let description = [{
@@ -782,7 +799,8 @@ def Idr_ArrayFoldLastOp : Idr_Op<"array.fold_last", [
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForIndexValue", "populateBoundsForShapedValueDim"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>,
-    Idr_LastAxisFoldOpInterface
+    Idr_LastAxisFoldOpInterface,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "for each index of a frame, a left fold along one more dimension";
   let description = [{
@@ -820,7 +838,8 @@ def Idr_ArrayScanLastOp : Idr_Op<"array.scan_last", [
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForIndexValue", "populateBoundsForShapedValueDim"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>,
-    Idr_LastAxisFoldOpInterface
+    Idr_LastAxisFoldOpInterface,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "for each index of a frame, every accumulator of a left fold";
   let description = [{
@@ -849,7 +868,8 @@ def Idr_ArrayYieldOp : Idr_Op<"array.yield", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface, ["getMutableSuccessorOperands"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "ends a step of the generating set with what goes at its index";
   let arguments = (ins Variadic<AnyType>:$values);
@@ -859,7 +879,8 @@ def Idr_ArrayYieldOp : Idr_Op<"array.yield", [
 
 def Idr_ArrayTakeOp : Idr_Op<"array.take", [
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "what slots of a buffer hold, moved out, the slots left holding nothing";
   let arguments = (ins Arg<AnyTypeOf<[Type<CPred<"::idr::isArray($_self)">, "an array of mutable memory, at any grade", "::mlir::Type">, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "an array of mutable memory or a value array's buffer">, "", [MemRead<Idr_ContentsResource>, MemWrite<Idr_ContentsResource>]>:$buffer, Variadic<Index>:$indices);
@@ -870,7 +891,8 @@ def Idr_ArrayTakeOp : Idr_Op<"array.take", [
 
 def Idr_ArrayCopyOp : Idr_Op<"array.copy", [
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "what slots of a buffer hold, with references of its own";
   let arguments = (ins Arg<Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">, "", [MemRead<Idr_ContentsResource>, MemWrite<Idr_CountResource>]>:$buffer, Variadic<Index>:$indices);
@@ -882,7 +904,8 @@ def Idr_ArrayCopyOp : Idr_Op<"array.copy", [
 def Idr_ArrayPlaceOp : Idr_Op<"array.place", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "a value moved into slots of a buffer that hold nothing";
   let arguments = (ins AnyType:$value, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">:$buffer, Variadic<Index>:$indices);
@@ -894,7 +917,8 @@ def Idr_ArrayPlaceOp : Idr_Op<"array.place", [
 def Idr_ArrayPutBackOp : Idr_Op<"array.put_back", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "a value moved back into the place a take left";
   let arguments = (ins AnyType:$value, AnyTypeOf<[Type<CPred<"::idr::isArray($_self)">, "an array of mutable memory, at any grade", "::mlir::Type">, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "an array of mutable memory or a value array's buffer">:$buffer, Variadic<Index>:$indices);
@@ -907,7 +931,8 @@ def Idr_ArrayNewOp : Idr_Op<"array.new", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "a new array of mutable memory of the given sizes, each element the fill";
   let arguments = (ins Variadic<Index>:$sizes, AnyType:$fill);
@@ -919,7 +944,8 @@ def Idr_ArrayNewOp : Idr_Op<"array.new", [
 def Idr_ArrayGetOp : Idr_Op<"array.get", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    Idr_GuardedOp
+    Idr_GuardedOp,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "the element of an array of mutable memory at an index, borrowed";
   let arguments = (ins Arg<Type<CPred<"::idr::isArray($_self)">, "an array of mutable memory, at any grade", "::mlir::Type">, "", [MemRead<Idr_ContentsResource>]>:$array, Variadic<Index>:$indices);
@@ -932,7 +958,8 @@ def Idr_ArraySetOp : Idr_Op<"array.set", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    Idr_GuardedOp
+    Idr_GuardedOp,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "writes an element of an array of mutable memory, releasing the one it replaces";
   let arguments = (ins Type<CPred<"::idr::isArray($_self)">, "an array of mutable memory, at any grade", "::mlir::Type">:$array, Variadic<Index>:$indices, AnyType:$value);
@@ -947,7 +974,8 @@ def Idr_ArrayUpdateOp : Idr_Op<"array.update", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>
+    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "an element of an array rebuilt in its place";
   let arguments = (ins Arg<AnyTypeOf<[Type<CPred<"::idr::isArray($_self)">, "an array of mutable memory, at any grade", "::mlir::Type">, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "an array of mutable memory or a value array's buffer">, "", [MemRead<Idr_ContentsResource>, MemWrite<Idr_ContentsResource>]>:$array, Variadic<Index>:$indices);
@@ -964,7 +992,8 @@ def Idr_ArrayUpdateYieldOp : Idr_Op<"array.update_yield", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface, ["getMutableSuccessorOperands"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "ends an update's region with the rebuilt element and the update's results";
   let arguments = (ins AnyType:$element, Variadic<AnyType>:$outs);
@@ -978,7 +1007,8 @@ def Idr_ArrayReadOp : Idr_Op<"array.read", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "First">
   ]> {
   let summary = "the element of a value array at an index, and the array given back";
   let arguments = (ins AnyRankedTensor:$array, Variadic<Index>:$indices);
@@ -991,7 +1021,8 @@ def Idr_ArrayExtentOp : Idr_Op<"array.extent", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "First">
   ]> {
   let summary = "the extent of a value array along an axis, and the array given back";
   let arguments = (ins AnyRankedTensor:$array, I64Attr:$axis);
@@ -1005,7 +1036,8 @@ def Idr_ArrayOpenOp : Idr_Op<"array.open", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     InferTypeOpAdaptor,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "First">
   ]> {
   let summary = "the array a field of a value holds as its buffer, opened";
   let arguments = (ins Type<CPred<"::idr::isRefinedValue($_self)">, "a value of a data type refined to one constructor, at any grade", "::mlir::Type">:$value, I64Attr:$index);
@@ -1016,7 +1048,8 @@ def Idr_ArrayOpenOp : Idr_Op<"array.open", [
 def Idr_ArrayPlaceCopyOp : Idr_Op<"array.place_copy", [
     Idr_DeclaredEffectsOpInterface,
     DestinationStyleOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "a copy of an array placed in a buffer allocated for it, releasing nothing";
   let arguments = (ins Arg<Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">, "", [MemRead<Idr_ContentsResource>, MemWrite<Idr_CountResource>]>:$source, Arg<Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">, "", [MemWrite<Idr_ContentsResource>]>:$target);
@@ -1031,7 +1064,8 @@ def Idr_ArrayPlaceCopyOp : Idr_Op<"array.place_copy", [
 def Idr_NatToExtentOp : Idr_Op<"nat.to_extent", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "a natural as the extent of an array to be made";
   let arguments = (ins Type<CPred<"::idr::isNatRead($_self)">, "a natural, used any number of times, read in place", "::mlir::Type">:$natural);
@@ -1048,7 +1082,8 @@ def Idr_ArrayTieShapeOp : Idr_Op<"array.tie_shape", [
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
     DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>,
     DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry", "getCarriedType"]>,
-    InferTypeOpAdaptor
+    InferTypeOpAdaptor,
+    Idr_LegalAt<"Higher", "Owned">
   ]> {
   let summary = "an array whose dimensions at the axes it names are the given sizes";
   let arguments = (ins AnyTypeOf<[AnyRankedTensor, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "a ranked tensor or a value array's buffer">:$value, Variadic<Index>:$dims, ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>:$axes);
@@ -2519,7 +2554,8 @@ def Idr_CountDupOp : Idr_Op<"count.dup", [
     Idr_AdoptsCarrierTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "one more reference to a counted value";
   let arguments = (ins Type<And<[Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">.predicate, Type<CPred<"::idr::isUsedMany($_self)">, "a value used any number of times", "::mlir::Type">.predicate]>, "a value its count frees, used any number of times", "::mlir::Type">:$value);
@@ -2533,7 +2569,8 @@ def Idr_CountDropOp : Idr_Op<"count.drop", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>
+    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "gives up a counted reference, freeing the value with its last";
   let arguments = (ins Type<And<[Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">.predicate, Type<CPred<"::idr::isUsedMany($_self)">, "a value used any number of times", "::mlir::Type">.predicate]>, "a value its count frees, used any number of times", "::mlir::Type">:$value);
@@ -2547,7 +2584,8 @@ def Idr_CountShareOp : Idr_Op<"count.share", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "gives a value on with its claim of sharing forgotten";
   let arguments = (ins Type<CPred<"::idr::isHeldValue($_self)">, "a value that holds references", "::mlir::Type">:$value, Variadic<Idr_LifetimeType>:$outers);
@@ -2565,7 +2603,8 @@ def Idr_CountTakeOp : Idr_Op<"count.take", [
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>
+    DeclareOpInterfaceMethods<Idr_ReuseSourceOpInterface, ["getFreedCellType", "takeFreedToken"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "takes a value out of its cell, giving its token and its fields";
   let arguments = (ins Type<CPred<"::idr::isTakeable($_self)">, "a counted value refined to a constructor with a cell", "::mlir::Type">:$value);
@@ -2582,7 +2621,8 @@ def Idr_CountTakeOpenOp : Idr_Op<"count.take_open", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "First">
   ]> {
   let summary = "takes a value out of its cell before bufferization, its arrays opened";
   let arguments = (ins Type<CPred<"::idr::isTakeableWithArrays($_self)">, "a counted value refined to a constructor with a cell that holds an array", "::mlir::Type">:$value);
@@ -2600,7 +2640,8 @@ def Idr_CountUnpackOp : Idr_Op<"count.unpack", [
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>
+    DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "takes apart a value held in place, giving its fields";
   let arguments = (ins Type<CPred<"::idr::isUnpackable($_self)">, "a value refined to a constructor held in place", "::mlir::Type">:$value, Variadic<Idr_LifetimeType>:$outers);
@@ -2619,7 +2660,8 @@ def Idr_CountUnpackOp : Idr_Op<"count.unpack", [
 def Idr_CountTakeIntoOp : Idr_Op<"count.take_into", [
     Idr_EndsOwnerTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "takes a value apart into the cell one construction recycles";
   let arguments = (ins Type<CPred<"::idr::isTakeable($_self)">, "a counted value refined to a constructor with a cell", "::mlir::Type">:$value);
@@ -2641,7 +2683,8 @@ def Idr_CountMatchUniqueOp : Idr_Op<"count.match_unique", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     RecursiveMemoryEffects,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs", "getRegionInvocationBounds", "areTypesCompatible"]>
+    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs", "getRegionInvocationBounds", "areTypesCompatible"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "branches on whether a value holds the only reference to its cell";
   let arguments = (ins Type<CPred<"::idr::isTakeable($_self)">, "a counted value refined to a constructor with a cell", "::mlir::Type">:$value);
@@ -2654,7 +2697,8 @@ def Idr_CountMatchUniqueOp : Idr_Op<"count.match_unique", [
 def Idr_CellNewOp : Idr_Op<"cell.new", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_ReuseSinkOpInterface, ["getFilledCellType"]>
+    DeclareOpInterfaceMethods<Idr_ReuseSinkOpInterface, ["getFilledCellType"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "a fresh cell its count frees, its header written";
   let arguments = (ins);
@@ -2669,7 +2713,8 @@ def Idr_CellInitOp : Idr_Op<"cell.init", [
     InferTypeOpAdaptorWithIsCompatible,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>
+    DeclareOpInterfaceMethods<Idr_LifetimeUseOpInterface, ["verifyLifetimeUse"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "writes the fields of a cell's constructor into it, giving the value";
   let arguments = (ins Idr_CellType:$cell, Variadic<AnyType>:$fields, Variadic<Idr_LifetimeType>:$outers, DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes);
@@ -2692,7 +2737,8 @@ def Idr_CellInitOp : Idr_Op<"cell.init", [
 def Idr_CellRecycleOp : Idr_Op<"cell.recycle", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "the cell of a token, or a fresh cell where it is null";
   let arguments = (ins Type<CPred<"::idr::isTokenValue($_self)">, "a reuse token, used once", "::mlir::Type">:$token);
@@ -2703,7 +2749,8 @@ def Idr_CellRecycleOp : Idr_Op<"cell.recycle", [
 def Idr_TokenFreeOp : Idr_Op<"token.free", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "frees the emptied cell a token holds";
   let arguments = (ins Type<CPred<"::idr::isTokenValue($_self)">, "a reuse token, used once", "::mlir::Type">:$token);
@@ -2713,7 +2760,8 @@ def Idr_TokenFreeOp : Idr_Op<"token.free", [
 
 def Idr_TokenNullOp : Idr_Op<"token.null", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    Idr_DeclaredEffectsOpInterface
+    Idr_DeclaredEffectsOpInterface,
+    Idr_LegalAt<"Graded", "Owned">
   ]> {
   let summary = "the null token, the one a shared path gives";
   let arguments = (ins);
@@ -2725,7 +2773,8 @@ def Idr_TokenNullOp : Idr_Op<"token.null", [
 def Idr_TokenRebuildOp : Idr_Op<"token.rebuild", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "rebuilds an in-place value in the cell its token holds";
   let arguments = (ins Type<CPred<"::idr::isTokenValue($_self)">, "a reuse token, used once", "::mlir::Type">:$token, Variadic<AnyType>:$fields);
@@ -2740,7 +2789,8 @@ def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptorWithIsCompatible,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "a buffer upstream made, taken over by counting";
   let arguments = (ins AnyRankedOrUnrankedMemRef:$value);
@@ -2753,7 +2803,8 @@ def Idr_OwnGiveOp : Idr_Op<"own.give", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptor,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "hands a stored value's reference to the memory that holds it";
   let arguments = (ins Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">:$value);
@@ -2769,7 +2820,8 @@ def Idr_FnClosureOp : Idr_Op<"fn.closure", [
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     Idr_BuildsLabelOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Higher">
   ]> {
   let summary = "a closure of a function: its leading parameters are the captures";
   let description = [{
@@ -2793,7 +2845,8 @@ def Idr_LazySuspendOp : Idr_Op<"lazy.suspend", [
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     Idr_BuildsLabelOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Higher">
   ]> {
   let summary = "a suspension of a function: every parameter is a capture";
   let description = [{
@@ -2810,7 +2863,8 @@ def Idr_LazyForceOp : Idr_Op<"lazy.force", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_RunsLabelsOpInterface, ["getLabelCarrier"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Higher">
   ]> {
   let summary = "the value of a suspension, computed on the first force and shared";
   let arguments = (ins Type<CPred<"::idr::isLazyType($_self)">, "a suspension, at any grade", "::mlir::Type">:$suspension);
@@ -2824,7 +2878,8 @@ def Idr_FnApplyOp : Idr_Op<"fn.apply", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<CallOpInterface, ["getCallableForCallee", "setCalleeFromCallable", "getArgOperands", "getArgOperandsMutable"]>,
     DeclareOpInterfaceMethods<Idr_RunsLabelsOpInterface, ["getLabelCarrier"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Higher", "Higher">
   ]> {
   let summary = "applies a closure to arguments";
   let arguments = (ins Type<CPred<"::idr::isClosureType($_self)">, "a closure, at any grade", "::mlir::Type">:$callee, Variadic<AnyType>:$args, OptionalAttr<DictArrayAttr>:$arg_attrs, OptionalAttr<DictArrayAttr>:$res_attrs);
@@ -2840,7 +2895,8 @@ def Idr_MemoRunOp : Idr_Op<"memo.run", [
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorInputs", "getRegionInvocationBounds"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
-    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>
+    DeclareOpInterfaceMethods<Idr_YieldTargetsOpInterface, ["getYieldTargets"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "a memo cell's force: its captures moved out, its value moved in";
   let description = [{
@@ -2873,7 +2929,8 @@ def Idr_MemoYieldOp : Idr_Op<"memo.yield", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface, ["getMutableSuccessorOperands"]>,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "ends an exchange's region: the forced value into the cell, then the exchange's results";
   let arguments = (ins AnyType:$value, Variadic<AnyType>:$results);
@@ -2885,7 +2942,8 @@ def Idr_MemoTakeOp : Idr_Op<"memo.take", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptorWithIsCompatible,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "an exchange's first step: the captures moved out of the cell, which runs";
   let description = [{
@@ -2905,7 +2963,8 @@ def Idr_MemoTakeOp : Idr_Op<"memo.take", [
 def Idr_MemoStoreOp : Idr_Op<"memo.store", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"First", "Owned">
   ]> {
   let summary = "an exchange's last step: the value moved into the cell, which is forced";
   let description = [{
@@ -2926,7 +2985,8 @@ def Idr_MemoStoreOp : Idr_Op<"memo.store", [
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
-    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "writes the place a destination stands for, consuming the destination";
   let arguments = (ins Idr_DestType:$dest, AnyType:$value);
@@ -2943,7 +3003,8 @@ def Idr_DestAnswerOp : Idr_Op<"dest.answer", [
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    Idr_LegalAt<"Owned", "Owned">
   ]> {
   let summary = "the slots a row of results is written into through the destinations its region binds";
   let arguments = (ins Variadic<Idr_LifetimeType>:$outers);

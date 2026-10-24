@@ -11,8 +11,9 @@
 // and refinements, its closures' flow while they exist, its effect row
 // derived from its ops and held to what it says, what each value typed
 // `unique deep` is given by its sources, its lifetimes), then its linear
-// values. The stage is read from the program, never from what a function
-// holds.
+// values. And an op's: whether its program stands at a stage its family is
+// legal at, which the trait the specification gives it asks here. The stage
+// is read from the program, never from what a function holds.
 //
 // Past the higher stage no value reaches a closure or a suspension: the
 // function's rules ask each value's type, which answers from what its
@@ -194,6 +195,24 @@ private:
 
 } // namespace
 
+// The stages an op's family is legal at, which its trait asks when the op is
+// verified: whether its program stands at one of them. The stage is one
+// property of the program, which no op below it holds again, so the op
+// reaches it through its parents. A module that holds no program (one a
+// test writes of upstream's functions, or one idr-entry has taken apart)
+// states no stage, so an op there is held to none.
+LogicalResult idr::verifyLegalAt(Operation *op, Stage first, Stage last) {
+  auto program = op->getParentOfType<ProgramOp>();
+  if (!program)
+    return success();
+  Stage stage = program.getStage();
+  if (first <= stage && stage <= last)
+    return success();
+  return op->emitOpError("stands in a program at the ")
+         << stringifyStage(stage) << " stage, and is legal from the " << stringifyStage(first)
+         << " stage to the " << stringifyStage(last);
+}
+
 LogicalResult idr::verify::program(ProgramOp program) {
   if (failed(target(program)))
     return failure();
@@ -215,8 +234,6 @@ LogicalResult idr::verify::program(ProgramOp program) {
 
 LogicalResult idr::verify::function(FuncOp fn) {
   Stage stage = fn.getProgram().getStage();
-  if (functionsAt[stage] == StageFunctions::Lowered)
-    return fn.emitOpError("is an idr.func in a lowered program, which holds upstream's functions");
   if (countingAt[stage] == StageCounting::Uncounted)
     for (auto [index, result] : llvm::enumerate(fn.getResultTypes()))
       if (claimsBeyondItsUses(result))

@@ -348,6 +348,18 @@ meaningTraits (ComputedByRuntime _) = ["Idr_RuntimeFolds"]
 meaningTraits (Inline m) = ["Idr_InlineArith<\"::idr::numeric::" ++ identText (inlineName m) ++ "\">"]
 meaningTraits _ = []
 
+||| A stage's case, as C++ and the pipeline's options name it.
+export
+stageName : Stage -> String
+stageName s = identText (stageClosed.describe s).name
+
+||| The trait that holds an op to the stages its family is legal at: none
+||| where it is legal at every one.
+export
+stagesTrait : Legal -> List String
+stagesTrait Always = []
+stagesTrait (Between first last _) = ["Idr_LegalAt<" ++ quoted (stageName first) ++ ", " ++ quoted (stageName last) ++ ">"]
+
 ||| The segment traits an op's groups call for: its operands' and its
 ||| results' sizes, where its groups need them stated.
 segmentTraits : Op i o a r -> List String
@@ -412,6 +424,7 @@ opTraits op effs =
   ++ (case op.guards of
         [] => []
         _ => ["Idr_GuardedOp"])
+  ++ stagesTrait op.stages
 
 export
 arityOds : Arity -> String -> String
@@ -944,6 +957,13 @@ baseClasses =
   , "class Idr_ResultUsesMax<string positions> : ParamNativeOpTrait<\"ResultUsesMax\", positions> {"
   , "  let cppNamespace = \"::idr\";"
   , "}"
+  , "// The stages an op's family is legal at, from `first` to `last` of the"
+  , "// chain, held wherever the op is verified; an op legal at every stage"
+  , "// takes none."
+  , "class Idr_LegalAt<string first, string last>"
+  , "    : ParamNativeOpTrait<\"LegalAt\", \"::idr::Stage::\" # first # \", ::idr::Stage::\" # last> {"
+  , "  let cppNamespace = \"::idr\";"
+  , "}"
   , ""
   , "// The parameter classes, each taking its default last: a parameter's"
   , "// default is its class's `defaultValue`, which a dag argument cannot set,"
@@ -997,10 +1017,6 @@ baseClasses =
 ------------------------------------------------------------------------------
 -- Passes
 ------------------------------------------------------------------------------
-
-export
-stageName : Stage -> String
-stageName s = identText (stageClosed.describe s).name
 
 export
 baseClassOf : Pass -> String

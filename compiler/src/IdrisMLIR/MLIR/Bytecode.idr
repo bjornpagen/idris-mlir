@@ -528,23 +528,8 @@ typePart r = [TypeAt r]
 -- The layers of the `idr` dialect's types and attributes that hold no type
 -- and no attribute, at the types of what the writer has numbered.
 
-numberKind : LifetimeKindOf MlirType MlirAttr -> LifetimeKindOf TypeRef AttrRef
-numberKind (LifetimeKindOfView MkLifetimeKindView) = LifetimeKindOfView MkLifetimeKindView
-numberKind (LifetimeKindOfRoom MkLifetimeKindRoom) = LifetimeKindOfRoom MkLifetimeKindRoom
-numberKind (LifetimeKindOfCursor MkLifetimeKindCursor) = LifetimeKindOfCursor MkLifetimeKindCursor
-numberKind (LifetimeKindOfHome (MkLifetimeKindHome site)) = LifetimeKindOfHome (MkLifetimeKindHome site)
-
 numberTermination : ComponentProof MlirType MlirAttr -> ComponentProof TypeRef AttrRef
 numberTermination (MkComponentProof c) = MkComponentProof c
-
-numberPutBound : PutBound MlirType MlirAttr -> PutBound TypeRef AttrRef
-numberPutBound (MkPutBound p n) = MkPutBound p n
-
-numberLivesIn : LivesIn MlirType MlirAttr -> LivesIn TypeRef AttrRef
-numberLivesIn (MkLivesIn v l) = MkLivesIn v l
-
-numberOutlives : Outlives MlirType MlirAttr -> Outlives TypeRef AttrRef
-numberOutlives (MkOutlives longer shorter) = MkOutlives longer shorter
 
 -- The writer numbers what a type or an attribute holds by matching each
 -- layer it holds them in, the `idr` dialect's printed layers
@@ -605,16 +590,11 @@ mutual
     DataType <$> attrNumber w g <*> pure m <*> numberTermNodes w is <*> numberOptional w r <*> numberTermNodes w bs <*> pure mark
   numberIdrType w (SelfType m is) = SelfType m <$> numberTermNodes w is
   numberIdrType w (GradedType u h c) = GradedType u h <$> typeNumber w c
-  numberIdrType w (LifetimeType k) = pure (LifetimeType (numberKind k))
-  numberIdrType w (LifetimePackageType p hs) = LifetimePackageType p <$> typeNumbers w hs
   numberIdrType w StrType = pure StrType
   numberIdrType w BigType = pure BigType
   numberIdrType w (NatType is) = NatType <$> numberTermNodes w is
-  numberIdrType w (CellType v) = CellType <$> typeNumber w v
-  numberIdrType w (ReuseTokenType ss) = ReuseTokenType <$> typeNumbers w ss
   numberIdrType w (FnType ins outs) = FnType <$> typeNumbers w ins <*> typeNumbers w outs
   numberIdrType w (LazyType v) = LazyType <$> typeNumber w v
-  numberIdrType w (DestType v) = DestType <$> typeNumber w v
 
   ||| An index term's node, the attribute it holds numbered.
   numberTermNode : Writer -> TermNode MlirType MlirAttr -> W (TermNode TypeRef AttrRef)
@@ -653,20 +633,6 @@ mutual
   numberCtors w [] = pure []
   numberCtors w (c :: cs) = (::) <$> numberCtor w c <*> numberCtors w cs
 
-  ||| A label's declaration, its function, sorts, equation and fields
-  ||| numbered.
-  numberLabel : Writer -> LabelDecl MlirType MlirAttr -> W (LabelDecl TypeRef AttrRef)
-  numberLabel w (MkLabelDecl l f bs eq fs) =
-    MkLabelDecl l <$> attrNumber w f <*> numberSorts w bs <*> numberTermNodes w eq <*> typeNumbers w fs
-
-  numberLabels : Writer -> List (LabelDecl MlirType MlirAttr) -> W (List (LabelDecl TypeRef AttrRef))
-  numberLabels w [] = pure []
-  numberLabels w (l :: ls) = (::) <$> numberLabel w l <*> numberLabels w ls
-
-  numberMemoLabels : Writer -> List (MemoLabelDecl MlirType MlirAttr) -> W (List (MemoLabelDecl TypeRef AttrRef))
-  numberMemoLabels w [] = pure []
-  numberMemoLabels w (MkMemoLabelDecl mode l :: ls) = (::) <$> (MkMemoLabelDecl mode <$> numberLabel w l) <*> numberMemoLabels w ls
-
   ||| A data member of a family, its location, sorts and constructors
   ||| numbered.
   numberDataMember : Writer -> DataMember MlirType MlirAttr -> W (DataMember TypeRef AttrRef)
@@ -676,12 +642,6 @@ mutual
   ||| A member of a family, of its kind, what it holds numbered.
   numberMember : Writer -> MemberOf MlirType MlirAttr -> W (MemberOf TypeRef AttrRef)
   numberMember w (MemberOfData d) = MemberOfData <$> numberDataMember w d
-  numberMember w (MemberOfClosures (MkClosuresMember l is ls)) =
-    (\is', ls' => MemberOfClosures (MkClosuresMember l is' ls')) <$> numberSorts w is <*> numberLabels w ls
-  numberMember w (MemberOfMemo (MkMemoMember l is ls f)) =
-    (\is', ls', f' => MemberOfMemo (MkMemoMember l is' ls' f'))
-      <$> numberSorts w is <*> numberMemoLabels w ls <*> typeNumber w f
-  numberMember w (MemberOfFrames (MkFramesMember l cs)) = MemberOfFrames . MkFramesMember l <$> numberCtors w cs
 
   numberMembers : Writer -> List (MemberOf MlirType MlirAttr) -> W (List (MemberOf TypeRef AttrRef))
   numberMembers w [] = pure []
@@ -749,9 +709,6 @@ mutual
   numberIdrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (IdrAttr TypeRef AttrRef)
   numberIdrAttr w (BinderAttr d i) = (\d' => BinderAttr d' i) <$> attrNumber w d
   numberIdrAttr w (TerminatesAttr t) = pure (TerminatesAttr (numberTermination t))
-  numberIdrAttr w (PutBoundsAttr bs) = pure (PutBoundsAttr (map numberPutBound bs))
-  numberIdrAttr w (LivesInAttr ps rs bs) =
-    pure (LivesInAttr (map numberLivesIn ps) (map numberLivesIn rs) (map numberOutlives bs))
   numberIdrAttr w (ExtentAttr sd p a t) = ExtentAttr sd p a <$> numberTermNodes w t
   numberIdrAttr w (ExtentsAttr es) = ExtentsAttr <$> attrNumbers w es
   numberIdrAttr w (FamilyAttr ms) = FamilyAttr <$> numberMembers w ms

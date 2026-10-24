@@ -104,6 +104,7 @@ export
 terminatesAttr : AttrDef 1
 terminatesAttr = MkAttrDef
   { mnemonic = "terminates"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "proof" (WiredValue (WiredOf componentProofWire) proofDirective)
           AlwaysWritten "the component Idris proved it in" ]

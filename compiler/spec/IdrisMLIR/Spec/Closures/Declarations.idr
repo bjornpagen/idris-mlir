@@ -48,6 +48,7 @@ export
 fnType : TypeDef 2
 fnType = MkTypeDef
   { mnemonic = "fn"
+  , stages = between Higher Higher
   , params =
       [ MkParameter "inputs" (ListOf TypeValue) (DefaultsTo "::llvm::SmallVector<::mlir::Type>()") "what it is applied to"
       , MkParameter "results" (ListOf TypeValue) (DefaultsTo "::llvm::SmallVector<::mlir::Type>()") "what it gives" ]
@@ -72,6 +73,7 @@ export
 lazyType : TypeDef 1
 lazyType = MkTypeDef
   { mnemonic = "lazy"
+  , stages = between Higher Higher
   , params = [MkParameter "value" TypeValue AlwaysWritten "the value its force gives"]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ">"]
   , interfaces = [Declares MemRefElementType [], Declares OpAsmType ["getAsmName"]]
@@ -107,6 +109,7 @@ export
 closureAttr : AttrDef 2
 closureAttr = MkAttrDef
   { mnemonic = "closure"
+  , stages = between Higher Higher
   , params =
       [ MkParameter "callee" (WiredValue (WiredOne (LeafAttr "::mlir::FlatSymbolRefAttr")) calleeRefParam)
           AlwaysWritten "the function it closes over"

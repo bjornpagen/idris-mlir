@@ -1436,7 +1436,7 @@ hooksHeader ds ps is ts as ops =
   header "Hooks" ["\"mlir/Bytecode/BytecodeImplementation.h\"", "\"mlir/IR/OpImplementation.h\"", "\"llvm/ADT/Hashing.h\"", "<memory>", "<optional>"]
     (inNamespace "idr" (enumReader ++ concatMap directiveDecls ds ++ concatMap predicateDecl ps
                         ++ delegatesAt AfterValues is ++ concatMap textCodecDecls (wiredOf ts as)
-                        ++ concatMap propertyDecls (propertiesOf ops)))
+                        ++ concatMap propertyDecls (propertiesOf ops) ++ legalAt))
   where
     enumReader : Lines
     enumReader =
@@ -1444,6 +1444,25 @@ hooksHeader ds ps is ts as ops =
       ++ [ "template <typename E>"
          , "::mlir::LogicalResult readEnum(::mlir::DialectBytecodeReader &reader, E &result,"
          , "                               std::optional<E> (*symbolize)(uint32_t));", "" ]
+    -- The trait the printed ODS gives every op whose family is legal at an
+    -- interval of the stages (`Idr_LegalAt`), and the hand check it calls.
+    legalAt : Lines
+    legalAt =
+      slashComment [ "Whether `op` stands in a program at a stage from `first` to `last`, the stages"
+                   , "its family is legal at; a hand unit defines it." ]
+      ++ [ "::mlir::LogicalResult verifyLegalAt(::mlir::Operation *op, Stage first, Stage last);", "" ]
+      ++ slashComment [ "An op whose family is legal at the stages from `First` to `Last` of the chain,"
+                      , "held to them wherever it is verified." ]
+      ++ [ "template <Stage First, Stage Last>"
+         , "struct LegalAt {"
+         , "  template <typename ConcreteType>"
+         , "  class Impl : public ::mlir::OpTrait::TraitBase<ConcreteType, Impl> {"
+         , "  public:"
+         , "    static ::mlir::LogicalResult verifyTrait(::mlir::Operation *op) {"
+         , "      return verifyLegalAt(op, First, Last);"
+         , "    }"
+         , "  };"
+         , "};", "" ]
 
 ------------------------------------------------------------------------------
 -- The pipeline

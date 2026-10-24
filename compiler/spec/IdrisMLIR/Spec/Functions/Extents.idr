@@ -88,6 +88,7 @@ export
 extentAttr : AttrDef 4
 extentAttr = MkAttrDef
   { mnemonic = "extent"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "side"
           (EnumValue (imported extentSideClosed
@@ -114,6 +115,7 @@ export
 extentsAttr : AttrDef 1
 extentsAttr = MkAttrDef
   { mnemonic = "extents"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "entries"
           (WiredValue (WiredArray (WireLeaf (LeafAttr "::idr::ExtentAttr")))

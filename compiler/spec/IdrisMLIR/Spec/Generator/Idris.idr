@@ -14,6 +14,7 @@ module IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
+import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Runtime.Endings
 
@@ -312,10 +313,24 @@ builder op =
      ++ ["export", name ++ " : " ++ joinWith " -> " (types ++ [resultTy])]
      ++ [name ++ spaced binders ++ " ="] ++ body ++ [""]
 
-||| Whether the frontend writes the op: its stages include the frontend's.
+||| Whether the frontend may write a form legal at `stages`: they include
+||| the frontend's. What it may write of an op, a type, an attribute and a
+||| variant's alternative is printed for it, and nothing else.
+export
+writes : Legal -> Bool
+writes stages = legalAt stages Higher
+
+||| Whether the frontend writes the op.
 export
 written : AnyOp -> Bool
-written (SomeOp op) = legalAt op.stages Higher
+written (SomeOp op) = writes op.stages
+
+||| Whether the frontend writes the type, or the attribute.
+typeWritten : AnyTypeDef -> Bool
+typeWritten (SomeType t) = writes t.stages
+
+attrWritten : AnyAttrDef -> Bool
+attrWritten (SomeAttr x) = writes x.stages
 
 ||| The modules an op's enum properties' closed sets live in, and its
 ||| guards' causes', as its builder names their types and values.
@@ -444,9 +459,10 @@ fieldOf : WireField -> (String, Wire)
 fieldOf f = (identText (fieldName f), fieldWire f)
 
 ||| The cases of a composite's body as the frontend holds them: a struct
-||| one constructor, `Mk<Name>`; a flat struct and a variant one
-||| constructor per case, `<Name><Case>`, the variant's holding its
-||| alternative, by the alternative's name in lower camel case.
+||| one constructor, `Mk<Name>`; a flat struct one constructor per case,
+||| `<Name><Case>`; a variant one per case the frontend writes, at its
+||| position among all, holding its alternative, by the alternative's name
+||| in lower camel case.
 shapesOf : String -> Doc -> CompositeBody -> List Shape
 shapesOf name doc (Fields fs) = [MkShape ("Mk" ++ name) (map fieldOf fs) Nothing doc.summary]
 shapesOf name _ (Flat e _ cases) =
@@ -456,7 +472,11 @@ shapesOf name _ (Variant e alternatives) =
   map (\(n, (c, alternative)) =>
         MkShape (name ++ identText c.name)
                 [(lowerCamel (identText (compositeName alternative)), WireOf alternative)] (Just n) c.doc)
-      (numbered (zip (forget e.cases) alternatives))
+      (mapMaybe writtenCase (numbered (zip (forget e.cases) alternatives)))
+  where
+    writtenCase : (Nat, (Case, Alternative)) -> Maybe (Nat, (Case, Composite))
+    writtenCase (n, (c, MkAlternative stages alternative)) =
+      if writes stages then Just (n, (c, alternative)) else Nothing
 
 ||| A composite as the frontend holds it: a type over the types `ty` and
 ||| attributes `at` it holds, one constructor per case.
@@ -513,20 +533,23 @@ compositeHomes cs = nub (concatMap homes cs)
     homes : Composite -> List String
     homes (MkComposite n _ b d) = concatMap (\sh => fieldsHomes sh.holds) (shapesOf (identText n) d b)
 
-||| The frontend's side of every composite the dialect's parameters reach:
-||| its type and its parts, each composite after every one it holds.
+||| The frontend's side of every composite the parameters of the types and
+||| attributes it writes reach through the alternatives it writes: its type
+||| and its parts, each composite after every one it holds.
 export
-wireModule : List Composite -> Lines
-wireModule cs =
-  banner (map (\l => "-- " ++ l))
-  ++ barComment [ "The values the idr dialect's types and attributes hold that a wire of"
-                , "the specification lays out: each one's type, over what the types `ty`"
-                , "and attributes `at` it holds are, and its parts, as the dialect's C++"
-                , "reader reads them. Printed from the dialect's specification." ]
-  ++ [ "module IdrisMLIR.Encoding.Wire", "", "import IdrisMLIR.MLIR.Parts", "import IdrisMLIR.Spec.Core.Enums" ]
-  ++ map ("import " ++) (compositeHomes cs)
-  ++ [ "", "%default total", "" ]
-  ++ concatMap (\c => compositeData c ++ compositeParts c) cs
+wireModule : List AnyTypeDef -> List AnyAttrDef -> Lines
+wireModule ts as =
+  let cs = compositesOf writes (filter typeWritten ts) (filter attrWritten as)
+  in banner (map (\l => "-- " ++ l))
+     ++ barComment [ "The values the idr dialect's types and attributes the frontend writes"
+                   , "hold that a wire of the specification lays out: each one's type, over"
+                   , "what the types `ty` and attributes `at` it holds are, one constructor"
+                   , "per case the frontend writes, and its parts, as the dialect's C++"
+                   , "reader reads them. Printed from the dialect's specification." ]
+     ++ [ "module IdrisMLIR.Encoding.Wire", "", "import IdrisMLIR.MLIR.Parts", "import IdrisMLIR.Spec.Core.Enums" ]
+     ++ map ("import " ++) (compositeHomes cs)
+     ++ [ "", "%default total", "" ]
+     ++ concatMap (\c => compositeData c ++ compositeParts c) cs
 
 export
 paramIdrisType : ParamKind -> String
@@ -650,29 +673,60 @@ enumModules ps = go [] (concatMap (\x => homes x.kind) ps)
     go _ [] = []
     go seen (m :: ms) = if elem m seen then go seen ms else m :: go (m :: seen) ms
 
-||| The value sums and encoders of every type and attribute of the dialect.
+||| A type or an attribute as its encoder is printed: its C++ class, its
+||| mnemonic, its parameters and the stages it may stand at.
+record Form where
+  constructor MkForm
+  cls : String
+  mnemonic : String
+  params : List Parameter
+  stages : Legal
+
+typeForm : AnyTypeDef -> Form
+typeForm (SomeType t) = MkForm (typeClass t) (mnemonicText t.mnemonic) (toList t.params) t.stages
+
+attrForm : AnyAttrDef -> Form
+attrForm (SomeAttr x) = MkForm (attrClass x) (mnemonicText x.mnemonic) (toList x.params) x.stages
+
+||| The forms the frontend writes, each with its code, its place among all
+||| of them, as the C++ reader numbers them.
+writtenForms : List Form -> List (Nat, Form)
+writtenForms fs = filter (\(_, f) => writes f.stages) (numberedFrom 0 fs)
+
+||| Forms as a value sum takes them: each one's class and parameters.
+sumOf : List (Nat, Form) -> List (String, List Parameter)
+sumOf = map (\(_, f) => (f.cls, f.params))
+
+||| Forms as their mnemonics are printed: each one's class, mnemonic and
+||| parameters.
+namedForms : List (Nat, Form) -> List (String, String, List Parameter)
+namedForms = map (\(_, f) => (f.cls, f.mnemonic, f.params))
+
+||| The value sums and encoders of the types and attributes the frontend
+||| writes.
 export
 encodersModule : List AnyTypeDef -> List AnyAttrDef -> Lines
 encodersModule ts as =
-  let types = map (\(SomeType t) => (typeClass t, toList t.params)) ts
-      attrs = map (\(SomeAttr x) => (attrClass x, toList x.params)) as
-      modules = enumModules (concatMap snd types ++ concatMap snd attrs)
+  let types = writtenForms (map typeForm ts)
+      attrs = writtenForms (map attrForm as)
+      modules = enumModules (concatMap (\(_, f) => f.params) (types ++ attrs))
   in banner (map (\l => "-- " ++ l))
-     ++ barComment ["The idr dialect's types and attributes as the frontend writes them:"
-                   , "their value sums, a closed set's value typed, their mnemonics, and each"
-                   , "one's bytecode entry, its layout derived from its parameters as the C++"
-                   , "reader's is, a closed set's value written as its position; printed from"
-                   , "the dialect's specification."]
+     ++ barComment ["The idr dialect's types and attributes the frontend writes: their"
+                   , "value sums, a closed set's value typed, their mnemonics, and each"
+                   , "one's bytecode entry, its code its place among all of the dialect's"
+                   , "and its layout derived from its parameters as the C++ reader's is, a"
+                   , "closed set's value written as its position; printed from the"
+                   , "dialect's specification."]
      ++ [ "module IdrisMLIR.Encoding.Idr", "", "import IdrisMLIR.MLIR.Parts"
         , "import IdrisMLIR.Encoding.Wire"
         , "import IdrisMLIR.Spec.Core.Enums" ]
      ++ map ("import " ++) modules
      ++ [ "", "%default total", "" ]
-     ++ valueSum "IdrType" "types" types
-     ++ valueSum "IdrAttr" "attributes" attrs
-     ++ mnemonicsOf "IdrType" "idrType" "types" (map (\(SomeType t) => (typeClass t, mnemonicText t.mnemonic, toList t.params)) ts)
-     ++ mnemonicsOf "IdrAttr" "idrAttr" "attributes" (map (\(SomeAttr x) => (attrClass x, mnemonicText x.mnemonic, toList x.params)) as)
-     ++ concatMap (\(n, (cls, ps)) => encoder "types" n cls ps) (numberedFrom 0 types)
-     ++ concatMap (\(n, (cls, ps)) => encoder "attributes" n cls ps) (numberedFrom 0 attrs)
-     ++ encodeSum "IdrType" types
-     ++ encodeSum "IdrAttr" attrs
+     ++ valueSum "IdrType" "types" (sumOf types)
+     ++ valueSum "IdrAttr" "attributes" (sumOf attrs)
+     ++ mnemonicsOf "IdrType" "idrType" "types" (namedForms types)
+     ++ mnemonicsOf "IdrAttr" "idrAttr" "attributes" (namedForms attrs)
+     ++ concatMap (\(n, f) => encoder "types" n f.cls f.params) types
+     ++ concatMap (\(n, f) => encoder "attributes" n f.cls f.params) attrs
+     ++ encodeSum "IdrType" (sumOf types)
+     ++ encodeSum "IdrAttr" (sumOf attrs)

@@ -255,6 +255,7 @@ export
 indexBindersAttr : AttrDef 1
 indexBindersAttr = MkAttrDef
   { mnemonic = "index_binders"
+  , stages = between Higher Owned
   , params = [MkParameter "sorts" (WiredValue (WiredArray sortWire) sortsParam) AlwaysWritten "the binders' sorts, in level order"]
   , syntax = HandSyntax
   , interfaces = []
@@ -271,6 +272,7 @@ export
 indexArgsAttr : AttrDef 2
 indexArgsAttr = MkAttrDef
   { mnemonic = "index_args"
+  , stages = between Higher Owned
   , params =
       [ MkParameter "terms" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "the terms, one after the other"
       , MkParameter "count" CountValue AlwaysWritten "how many terms" ]

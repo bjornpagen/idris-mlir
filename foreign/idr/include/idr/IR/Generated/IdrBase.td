@@ -79,6 +79,13 @@ class Idr_InlineArith<string fn> : ParamNativeOpTrait<"InlineArith", fn> {
 class Idr_ResultUsesMax<string positions> : ParamNativeOpTrait<"ResultUsesMax", positions> {
   let cppNamespace = "::idr";
 }
+// The stages an op's family is legal at, from `first` to `last` of the
+// chain, held wherever the op is verified; an op legal at every stage
+// takes none.
+class Idr_LegalAt<string first, string last>
+    : ParamNativeOpTrait<"LegalAt", "::idr::Stage::" # first # ", ::idr::Stage::" # last> {
+  let cppNamespace = "::idr";
+}
 
 // The parameter classes, each taking its default last: a parameter's
 // default is its class's `defaultValue`, which a dag argument cannot set,

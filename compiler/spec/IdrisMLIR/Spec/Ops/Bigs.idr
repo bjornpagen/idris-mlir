@@ -35,6 +35,7 @@ public export
 bigAttr : AttrDef 1
 bigAttr = MkAttrDef
   { mnemonic = "big"
+  , stages = between Higher Owned
   , params = [MkParameter "value" IntegerValue AlwaysWritten "the integer, at its fewest signed bits"]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ">"]
   , interfaces =

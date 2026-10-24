@@ -497,6 +497,6 @@ generate =
   ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader declarations.headers t ourOps))) (templatesOf ourOps)
   ++ map areaHeader declarations.headers
   ++ [ ("compiler" ::: ["src", "IdrisMLIR", "Dialect", "Idr.idr"], render (buildersModule ourOps))
-     , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Wire.idr"], render (wireModule (compositesOf declarations.types declarations.attributes)))
+     , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Wire.idr"], render (wireModule declarations.types declarations.attributes))
      , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Idr.idr"], render (encodersModule declarations.types declarations.attributes))
      , (packagePath, packageText) ]
