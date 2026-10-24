@@ -239,7 +239,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	# names what an older one lacks.
 	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=generic)
 	set(IDRIS_MLIR_BASELINE_CPU -march=armv8-a)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Linux.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
 	# The procedure call standard keeps nothing below the stack pointer, and
@@ -257,7 +257,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	# is on Darwin.
 	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=cortex-a76)
 	set(IDRIS_MLIR_BASELINE_CPU -mcpu=cortex-a76)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Linux.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
 	# The procedure call standard keeps nothing below the stack pointer, and
@@ -272,7 +272,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	# compiler-rt reads them from sysctl only when the test asks.
 	set(IDRIS_MLIR_PROGRAM_CPU -mcpu=apple-m1)
 	set(IDRIS_MLIR_BASELINE_CPU -mcpu=apple-m1)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Darwin.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the

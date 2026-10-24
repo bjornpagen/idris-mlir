@@ -26,7 +26,6 @@
 // string is asked only of one that holds a string: the guard at its call
 // site asks first, and crashes there, at the program's place, when it holds
 // none.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Io/Io.h"

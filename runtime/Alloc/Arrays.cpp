@@ -5,7 +5,6 @@
 // The compiler reads and writes elements itself, through a memref's
 // descriptor, with the layout it chose; the runtime allocates the cell,
 // copies where a copy must count or stride, and frees the cell (rt::rc).
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Rc/Rc.h"

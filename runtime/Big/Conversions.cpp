@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Bigs from and to machine integers and doubles.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
 #include "idris_rt.h"
 

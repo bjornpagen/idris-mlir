@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A double as a machine integer.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
 #include "idris_rt.h"
 

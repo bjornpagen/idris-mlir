@@ -3,7 +3,6 @@
 // Bigs as GMP reads and writes them: a view of an operand, and a result
 // given its one representation; and a machine integer's large big, which
 // no GMP operation writes.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Big/Big.h"
 #include "idris_rt.h"
@@ -21,7 +20,7 @@ namespace {
 idris_rt_bignum *newBignum(size_t count) {
   return static_cast<idris_rt_bignum *>(
       rt::alloc::newCell(sizeof(idris_rt_bignum) + count * sizeof(mp_limb_t),
-                         idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)));
+                         idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS)));
 }
 
 // The limbs a 64-bit magnitude takes. A magnitude no small word holds is at

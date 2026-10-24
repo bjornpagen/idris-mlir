@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Releasing a dead cell's references and freeing it, through the dying
 // list.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"

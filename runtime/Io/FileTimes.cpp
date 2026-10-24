@@ -5,7 +5,6 @@
 // base reads one field at a time and frees. Each field's reader is one
 // instance of a function over the field, so no field is passed or tested
 // at run time.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"

@@ -6,7 +6,6 @@
 // kernel's killer ends it (its own files, read by Posix/Cgroups.cpp), and
 // what the kernel's signal frame takes, each read once, at start; and where
 // the C library put a thread's guard.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <errno.h>
@@ -53,6 +52,11 @@ Span heapSpan(size_t alignment) noexcept {
 }
 
 size_t commitLimit() noexcept { return cgroupLimit(hostRoot); }
+
+// Linux's stat names its times as POSIX does, st_atim and its kin.
+StatTimes statTimes(const struct stat &status) noexcept {
+  return {status.st_atim, status.st_mtim, status.st_ctim};
+}
 
 size_t physicalMemory() noexcept {
   struct sysinfo system {};

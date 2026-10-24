@@ -3,7 +3,6 @@
 // The copies and strings Data.Buffer builds on a byte array, which comes as
 // its cell (idris_rt_array_bytes). A machine word is the target's own load or
 // store, in compiled code.
-// PIN(runtime-quarantine) — see PINS.md
 #include "idris_rt.h"
 
 #include <stddef.h>

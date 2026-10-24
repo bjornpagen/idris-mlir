@@ -4,7 +4,6 @@
 // bits is a tagged word, and any other is a GMP integer, so each integer has
 // one representation; every operation returns the small form when the
 // result fits.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "Rc/Rc.h"

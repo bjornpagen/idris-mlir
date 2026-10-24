@@ -18,7 +18,7 @@
 
 /* A box of one object slot. */
 static void *box(void *field) {
-  void **cell = (void **)idris_rt_cell(16, idris_rt_info(0, 1, IDRIS_RT_KIND_BOX));
+  void **cell = (void **)idris_rt_cell(16, idris_rt_info(0, 1, IDRIS_RT_KIND_FIELDS));
   cell[1] = field;
   return cell;
 }

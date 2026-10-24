@@ -7,7 +7,6 @@
 // never the program's. idris-mlir's tools run on the same runner, on a
 // stack of their own measured size. What it needs of the system is in the
 // platform layer (rt::platform).
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "End/End.h"

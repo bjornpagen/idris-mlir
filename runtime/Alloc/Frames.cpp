@@ -7,7 +7,6 @@
 // least twice the one below it, so a recursion of any depth takes a number
 // of chunks logarithmic in it, and a strict host's limit counts them. The
 // program is single-threaded: the stack is the runtime's.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Platform/Platform.h"

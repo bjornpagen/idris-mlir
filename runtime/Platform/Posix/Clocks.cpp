@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The system's clocks, through POSIX's clock_gettime, whose clock ids Linux
 // and macOS both define.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <stddef.h>

@@ -8,7 +8,6 @@
 // under the filesystem's root, and a test reads trees it planted under
 // another on any of the four. Read once, at start, allocating nothing:
 // the kernel's text is parsed here, at the boundary, into a number.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <errno.h>

@@ -54,7 +54,7 @@ inline void nearPower(mpz_ptr out, long sign, unsigned long exponent, long adjus
 inline constexpr size_t maxLimbs = 8;
 // Storage for a persistent big laid out as idris_rt.h lays out a large
 // big (idris_rt_bignum) and as idr-lower writes one into static data: count 0,
-// info idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM), the signed limb count,
+// info idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS), the signed limb count,
 // the limbs least significant first. Aligned to a word.
 struct Constant { alignas(8) uint64_t words[2 + maxLimbs]; };
 // The big of v (at most maxLimbs limbs): the tagged word 2v + 1 when v
@@ -71,7 +71,7 @@ inline idris_rt_big constant(mpz_srcptr v, Constant &c) {
   }
   // Copied from the layout's own struct, so the bytes are the ones the
   // target lays out, whatever its byte order.
-  idris_rt_bignum cell = {{0, idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)},
+  idris_rt_bignum cell = {{0, idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS)},
                           mpz_sgn(v) * static_cast<int64_t>(limbs)};
   memcpy(c.words, &cell, sizeof cell);
   for (size_t i = 0; i < limbs; ++i)
@@ -90,18 +90,18 @@ inline void value(idris_rt_big b, mpz_ptr out) {
   mpz_set(out, mpz_roinit_n(&view, detail::limbsOf(b), static_cast<mp_size_t>(detail::cellOf(b).size)));
 }
 // One representation: odd exactly when the value fits 63 bits; a large one
-// an even word whose cell's kind is IDRIS_RT_KIND_BIGNUM, size not 0, top
+// an even word whose cell's info is a bignum's, size not 0, top
 // limb not 0, value outside [-2^62, 2^62 - 1]. Says what is wrong (prop::explain).
 inline bool canonical(idris_rt_big b) {
   // Every odd word holds some 63-bit value, which is the small form.
   if ((b & 1) != 0)
     return true;
   idris_rt_bignum cell = detail::cellOf(b);
-  // A bignum's info: tag 0, no object slots, its kind, and no stack cell.
-  bool ok = cell.header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM);
+  // A bignum's info: a cell of fields, tag 0, no object slots.
+  bool ok = cell.header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS);
   if (!ok)
     prop::explain("a large big's info is %#x, where a bignum's is %#x", cell.header.info,
-                  idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM));
+                  idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS));
   // What follows reads the top limb, which a cell of no limbs lacks.
   if (cell.size == 0) {
     prop::explain("a large big of no limbs");

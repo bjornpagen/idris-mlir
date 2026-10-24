@@ -18,7 +18,6 @@
 // host refuses being then a refusal, never memory handed out unusable. Its
 // configuration is HeapConfig below, composed from snmalloc's parts as its
 // own configurations are, whose source of chunks is the span.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Platform/Platform.h"

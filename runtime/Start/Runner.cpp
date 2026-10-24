@@ -3,7 +3,6 @@
 // Running a function on a stack of its known size, behind a guard whose
 // fault is the runtime's internal error, with a signal stack of its own
 // behind a guard of its own; and the heap set up before it, once.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Platform/Platform.h"

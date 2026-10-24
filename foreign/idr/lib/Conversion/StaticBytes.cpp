@@ -99,7 +99,7 @@ void StaticData::string(StringAttr value) {
   auto scalars = static_cast<int64_t>(idris_rt_utf8_count(bytes.data(), bytes.size()));
   FlatSymbolRefAttr symbol = name("str");
   global(symbol, type, Mutability::Constant, headerBytes, [&](OpBuilder &init) -> Value {
-    SmallVector<Value> values = header(init, layout::CellInfo::string());
+    SmallVector<Value> values = header(init, layout::CellInfo::fields(Tag{0}, 0));
     values.append({i64Constant(init, at, static_cast<int64_t>(bytes.size())),
                    i64Constant(init, at, scalars)});
     if (!bytes.empty())
@@ -149,7 +149,7 @@ FlatSymbolRefAttr StaticData::bignum(const APInt &value) {
         init, at, limbsType,
         DenseElementsAttr::get(RankedTensorType::get({static_cast<int64_t>(count)}, i64),
                                ArrayRef<int64_t>(limbs)));
-    SmallVector<Value> values = header(init, layout::CellInfo::bignum());
+    SmallVector<Value> values = header(init, layout::CellInfo::fields(Tag{0}, 0));
     values.append({i64Constant(init, at, size), limbsValue});
     return pack(init, type, values);
   });
@@ -167,7 +167,7 @@ void StaticData::nothing() {
   table.nothingCell = name("nothing");
   global(table.nothingCell, type, Mutability::Constant, headerBytes,
          [&](OpBuilder &init) -> Value {
-           return pack(init, type, header(init, layout::CellInfo::constructor(Tag{0}, 0)));
+           return pack(init, type, header(init, layout::CellInfo::fields(Tag{0}, 0)));
          });
 }
 

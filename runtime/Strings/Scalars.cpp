@@ -3,7 +3,6 @@
 // A string as its scalars: its length, a scalar at an index, slices, and
 // the reverse; by byte offset, as an iterator walks it; and the iterator's
 // step, the number of bytes of a scalar's UTF-8.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 

@@ -5,15 +5,17 @@
 // (CMakeLists.txt) picks: Platform/Posix's serve every POSIX system; the
 // operating system's own unit (Platform/Linux, Platform/Darwin) reads what
 // the host decides and only it knows how to (where its address space is
-// free, its limits, what its signal delivery takes); and each processor has
-// its own file for its features (Platform/X86_64, Platform/Aarch64). The host's
+// free, its limits, what its signal delivery takes, what its stat calls its
+// times); and the startup of the processor's features has its own file, one
+// per processor (Platform/X86_64/Cpu.cpp), or one per operating system
+// where compiler-rt starts them by an entry of each one's own
+// (Platform/Aarch64/Darwin.cpp, Platform/Aarch64/Linux.cpp). The host's
 // facts are read once, at start, and kept by whoever asked.
 //
 // What runs before the processor test (the page-size check, the test, and
 // what they write and how they end the process) is marked
 // IDRIS_RT_BASELINE (idris_rt.h): idris-mlir keeps such a function compiled
 // for the target's baseline, where every other takes the program's CPU.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "idris_rt.h"
@@ -28,6 +30,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
 
 namespace rt::platform {
 
@@ -36,7 +40,7 @@ namespace rt::platform {
 // The clock's reading; false when the system cannot read it.
 bool readClock(idr::clocks::ClockKind clock, int64_t &seconds, int64_t &nanoseconds) noexcept;
 
-// The processor (the target entry's Cpu.cpp).
+// The processor (the target entry's unit, IDRIS_MLIR_RUNTIME_CPU_TEST).
 
 // The IDRIS_RT_CPU_FEATURES bits of the features this processor has and
 // the operating system supports. It is compiled for the target's baseline
@@ -138,6 +142,14 @@ using FileTimes = idr::EnumArray<idr::files::FileTimeField, int64_t>;
 // The times of what the descriptor names, as the one call of the system
 // gives them; false when they cannot be read.
 bool fileTimes(int fd, FileTimes &times) noexcept;
+
+// A stat's times of last access, modification and status change, read by
+// the names the operating system gives its fields (the operating system's
+// unit).
+struct StatTimes {
+  struct timespec access, modified, changed;
+};
+StatTimes statTimes(const struct stat &status) noexcept;
 
 // Whether the descriptor has input ready, waiting up to a second for it, as
 // base's fPoll does in C: 1 when it has, 0 when the second passed, -1 on a

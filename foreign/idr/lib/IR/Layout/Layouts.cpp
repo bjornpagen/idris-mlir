@@ -234,7 +234,7 @@ layout::CellLayout Layouts::cellsOf(DataType type, const FieldTypes &fields) con
   layout::CellLayout out;
   unsigned size = 0;
   for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
-    out.cells.push_back(cellOf(componentsOf(fields[t]), Tag{t}, group, type.kind()));
+    out.cells.push_back(cellOf(componentsOf(fields[t]), Tag{t}, group));
     size = std::max(size, out.cells.back().size);
   }
   if (type.kind() == MemberKind::Memo)
@@ -312,7 +312,7 @@ layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) co
 // array.
 layout::Element Layouts::element(Type type) const {
   SmallVector<SmallVector<layout::Component>> one{components(type)};
-  layout::Cell cell = cellOf(one, Tag{0}, layout::GroupIn::HeaderTag, MemberKind::Data);
+  layout::Cell cell = cellOf(one, Tag{0}, layout::GroupIn::HeaderTag);
   constexpr unsigned header = sizeof(idris_rt_header);
   SmallVector<layout::Slot> slots = cell.fields.front();
   unsigned end = 0, alignment = 1;
@@ -340,7 +340,7 @@ layout::Element Layouts::element(Type type) const {
 // the small ones share a word: the order of fields in the source is not a
 // layout.
 layout::Cell Layouts::cellOf(ArrayRef<SmallVector<layout::Component>> fieldComponents, Tag tag,
-                             layout::GroupIn group, MemberKind kind) const {
+                             layout::GroupIn group) const {
   SmallVector<SmallVector<layout::Slot>> fields;
   unsigned objs = group == layout::GroupIn::OwnSlot ? 1u : 0u;
   for (const SmallVector<layout::Component> &field : fieldComponents) {
@@ -389,13 +389,11 @@ layout::Cell Layouts::cellOf(ArrayRef<SmallVector<layout::Component>> fieldCompo
     place(f, c);
   std::optional<unsigned> headerObjs =
       counted == ObjectsCountedIn::OwnWord ? std::nullopt : std::optional<unsigned>(objs);
-  layout::CellInfo info = kind == MemberKind::Memo ? layout::CellInfo::thunk(tag, headerObjs)
-                                                   : layout::CellInfo::constructor(tag, headerObjs);
   return layout::Cell{std::move(fields),
                       static_cast<unsigned>(llvm::alignTo(at, IDRIS_RT_WORD_BYTES)),
                       objs,
                       std::move(order),
-                      info,
+                      layout::CellInfo::fields(tag, headerObjs),
                       std::move(words)};
 }
 

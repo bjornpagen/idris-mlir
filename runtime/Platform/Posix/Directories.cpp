@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Directories and the current one, on a POSIX system: Linux and macOS
 // alike.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <dirent.h>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Reference counting and arrays against a model of what the runtime says
-// they mean. Each case makes up to eight objects (boxes and thunks of a few
+// they mean. Each case makes up to eight objects (cells of fields of a few
 // object slots or of more than the header's objs field counts, arrays whose
 // elements hold objects) and runs operations on them as compiled code does:
 // references taken and dropped, stores into slots, copies of array views.
@@ -44,7 +44,7 @@ constexpr unsigned objectLimit = 8;
 // The operations of a case: eight objects, each made, stored into a few
 // times and dropped.
 constexpr unsigned stepLimit = 64;
-// The object slots of a box or a thunk: a few, the most the objs field
+// The object slots of a cell of fields: a few, the most the objs field
 // counts (254), the field's mark (255, the least wide count), one past it
 // and more. A wide cell's slots follow the word that counts them.
 constexpr unsigned cellSlots[] = {0, 1, 2, 3, 254, 255, 256, 300};
@@ -69,7 +69,7 @@ constexpr Value constants = staticBox + 1;
 constexpr Value oddValue(int x) { return static_cast<Value>(firstOdd + (x - oddLeast)); }
 
 // Static data, as idr-lower writes it: count 0, never counted, never freed.
-constexpr uint32_t staticBoxInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_BOX);
+constexpr uint32_t staticBoxInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS);
 idris_rt_header staticBoxCell{0, staticBoxInfo};
 
 // The families a slot's value is drawn from, simplest first.
@@ -82,7 +82,7 @@ constexpr unsigned makings = Inc;
 // What a case saw die, for the report: the most telling class names it.
 enum Freed : unsigned { FreedAny = 1, FreedOdd = 2, FreedArray = 4, FreedWide = 8 };
 
-// An object the case made: a box or a thunk, one element of n slots, or an
+// An object the case made: a cell of fields, one element of n slots, or an
 // array of m elements of k slots each, `stride` bytes apart; its slots are
 // numbered element after element, and `held` is what the model says each
 // holds.
@@ -243,18 +243,18 @@ private:
     }
   }
 
-  // A box or a thunk of n slots, each holding a drawn value with a
+  // A cell of fields of n slots, each holding a drawn value with a
   // reference of the cell's own, taken first. Laid out as idr-lower lays it
   // out: the slots right after the header, or, past what objs counts, after
   // the word that counts them; one plain word after the slots.
   void makeCell(FuzzedDataProvider &p) {
     unsigned n = p.PickValueInArray(cellSlots);
-    uint32_t kind = p.ConsumeBool() ? IDRIS_RT_KIND_THUNK : IDRIS_RT_KIND_BOX;
     uint32_t tag = p.ConsumeIntegralInRange<uint32_t>(0, 3);
     bool wide = n >= IDRIS_RT_OBJS_WIDE;
     size_t head = wide ? 2 * IDRIS_RT_WORD_BYTES : IDRIS_RT_WORD_BYTES;
-    auto *cell = reinterpret_cast<char *>(idris_rt_cell(head + IDRIS_RT_WORD_BYTES * n + IDRIS_RT_WORD_BYTES,
-                                                   idris_rt_info(tag, wide ? IDRIS_RT_OBJS_WIDE : n, kind)));
+    auto *cell = reinterpret_cast<char *>(
+        idris_rt_cell(head + IDRIS_RT_WORD_BYTES * n + IDRIS_RT_WORD_BYTES,
+                      idris_rt_info(tag, wide ? IDRIS_RT_OBJS_WIDE : n, IDRIS_RT_KIND_FIELDS)));
     uint64_t count = n, plain = made_;
     if (wide)
       memcpy(cell + IDRIS_RT_WORD_BYTES, &count, sizeof count);
@@ -262,7 +262,7 @@ private:
     unsigned i = made_;
     Object &o = objects_[i];
     o.first = cell + head;
-    o.kind = kind;
+    o.kind = IDRIS_RT_KIND_FIELDS;
     o.elementSlots = n;
     o.stride = IDRIS_RT_WORD_BYTES * n;
     o.elements = 1;
@@ -276,7 +276,7 @@ private:
       *o.slot(at) = words_[v];
     }
     ++made_;
-    note("%s #%u of %u slots, tag %u", kind == IDRIS_RT_KIND_THUNK ? "thunk" : "box", i, n, tag);
+    note("cell #%u of %u slots, tag %u", i, n, tag);
   }
 
   // An array of m elements of k slots each, every element written as the

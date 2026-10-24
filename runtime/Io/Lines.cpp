@@ -5,7 +5,6 @@
 // standard input is read through its buffer, which getLine reads too, and
 // standard output and error are written as putStr writes them, in order
 // with it.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "idris_rt.h"
 

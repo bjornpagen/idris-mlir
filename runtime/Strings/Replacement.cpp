@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // A string from any bytes. Ill-formed input is replaced as the Unicode
 // Standard recommends (chapter 3, U+FFFD substitution of maximal subparts).
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Strings/Simd.h"

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Files, through the C library's streams, reading and writing a descriptor,
-// and what the system says of an open descriptor, on a POSIX system. Where Linux and macOS differ, in the
-// fields of a stat's times, one function holds it.
-// PIN(runtime-quarantine) — see PINS.md
+// and what the system says of an open descriptor, on a POSIX system. The
+// names of a stat's times, where Linux and macOS differ, are the operating
+// system's unit's (statTimes).
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
@@ -65,26 +65,18 @@ int64_t fileSize(int fd) noexcept {
   return static_cast<int64_t>(status.st_size);
 }
 
-// POSIX names the fields st_atim and its kin; Darwin, whose stat predates
-// them, st_atimespec.
 bool fileTimes(int fd, FileTimes &times) noexcept {
   struct stat status {};
   if (fstat(fd, &status) != 0)
     return false;
-#if defined(__APPLE__)
-  const struct timespec &access = status.st_atimespec, &modified = status.st_mtimespec,
-                        &changed = status.st_ctimespec;
-#else
-  const struct timespec &access = status.st_atim, &modified = status.st_mtim,
-                        &changed = status.st_ctim;
-#endif
+  const StatTimes stamps = statTimes(status);
   using enum idr::files::FileTimeField;
-  times[AccessSeconds] = static_cast<int64_t>(access.tv_sec);
-  times[AccessNanoseconds] = static_cast<int64_t>(access.tv_nsec);
-  times[ModifiedSeconds] = static_cast<int64_t>(modified.tv_sec);
-  times[ModifiedNanoseconds] = static_cast<int64_t>(modified.tv_nsec);
-  times[StatusSeconds] = static_cast<int64_t>(changed.tv_sec);
-  times[StatusNanoseconds] = static_cast<int64_t>(changed.tv_nsec);
+  times[AccessSeconds] = static_cast<int64_t>(stamps.access.tv_sec);
+  times[AccessNanoseconds] = static_cast<int64_t>(stamps.access.tv_nsec);
+  times[ModifiedSeconds] = static_cast<int64_t>(stamps.modified.tv_sec);
+  times[ModifiedNanoseconds] = static_cast<int64_t>(stamps.modified.tv_nsec);
+  times[StatusSeconds] = static_cast<int64_t>(stamps.changed.tv_sec);
+  times[StatusNanoseconds] = static_cast<int64_t>(stamps.changed.tv_nsec);
   return true;
 }
 

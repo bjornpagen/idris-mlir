@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Catching a fault on memory, on a POSIX system: Linux and macOS alike.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <signal.h>

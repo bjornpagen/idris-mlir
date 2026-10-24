@@ -82,7 +82,7 @@ std::optional<idris_rt_big> bigOf(Scope &scope, Attribute constant) {
   unsigned count = magnitude.getActiveWords();
   auto *number = reinterpret_cast<idris_rt_bignum *>(
       idris_rt_cell(static_cast<int64_t>(sizeof(idris_rt_bignum) + count * sizeof(uint64_t)),
-                    static_cast<int32_t>(idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM))));
+                    static_cast<int32_t>(idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS))));
   number->size = value.isNegative() ? -static_cast<int64_t>(count) : static_cast<int64_t>(count);
   std::copy_n(magnitude.getRawData(), count, limbsOf(number));
   return scope.keep(reinterpret_cast<idris_rt_big>(number));

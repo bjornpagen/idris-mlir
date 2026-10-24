@@ -5,7 +5,6 @@
 // levels v2, v3 and v4 above the baseline. On x86-64 the name
 // __builtin_cpu_supports tests and LLVM's are the same. A larger CPU may
 // enable more, which are not tested.
-// PIN(runtime-quarantine) — see PINS.md
 
 #pragma once
 

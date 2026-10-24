@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The order of two strings.
-// PIN(runtime-quarantine) — see PINS.md
 #include "idris_rt.h"
 
 #include <stdint.h>

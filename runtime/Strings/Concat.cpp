@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Strings put together: two strings, a scalar before a string, and the
 // parts generated code writes into a string it allocated.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 

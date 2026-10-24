@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Base's terminal (System, System.Term): raw mode on standard input, and the
 // size of the terminal.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"

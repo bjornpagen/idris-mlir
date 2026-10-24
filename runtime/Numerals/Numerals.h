@@ -3,7 +3,6 @@
 // rt::numerals: `cast` from String, read once for every number type: what
 // it reads in a string is readNumeral's (Reading.cpp). rt::big reads an
 // Integer's value and rt::doubles a Double's.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include <stddef.h>

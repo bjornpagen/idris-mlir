@@ -8,7 +8,6 @@
 //
 // What a word and a cell's header say to counting, and dropping one
 // reference, are inline here: the decrement inlines into every caller.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "Alloc/Alloc.h"

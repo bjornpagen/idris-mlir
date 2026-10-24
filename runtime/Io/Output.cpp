@@ -6,7 +6,6 @@
 // Prelude's output and base's writes of the handles 1 and 2, their streams,
 // share it. A reader of either gone ends the program by the signal Unix
 // tools die of, its other files written first.
-// PIN(runtime-quarantine) — see PINS.md
 #include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
@@ -45,7 +44,7 @@ size_t roomFor(size_t n) {
   size_t at = outputLength.load(std::memory_order_relaxed);
   if (at + n <= bufferSize)
     return at;
-  idris_rt_flush();
+  rt::io::flushOutput();
   return 0;
 }
 
@@ -100,11 +99,11 @@ size_t OutputStream::read(char *, size_t) const { return readNothing(); }
 ByteRead OutputStream::readByte() const { return readNoByte(); }
 
 bool OutputStream::flush() const {
-  idris_rt_flush();
+  flushOutput();
   return true;
 }
 
-void OutputStream::close() const { idris_rt_flush(); }
+void OutputStream::close() const { flushOutput(); }
 
 bool OutputStream::failed() const { return false; }
 
@@ -119,7 +118,7 @@ int64_t OutputStream::poll() const { return pollDescriptor(descriptor()); }
 // is pending to flush, and closing it leaves it open. As standard output's,
 // its writes never fail, and it has no input to end.
 Written ErrorStream::write(const char *p, size_t n) const {
-  idris_rt_flush();
+  flushOutput();
   written(rt::platform::writeAll(2, p, n));
   return {n, false};
 }
@@ -152,10 +151,9 @@ rt::platform::Wrote writePending() {
   return rt::platform::writeAll(1, output, n);
 }
 
-} // namespace rt::io
+void flushOutput() { written(writePending()); }
 
-// Writes pending output; a reader gone ends the program.
-extern "C" void idris_rt_flush(void) { written(rt::io::writePending()); }
+} // namespace rt::io
 
 // Writes a string's bytes.
 extern "C" void idris_rt_io_put_str(const idris_rt_str *s) {

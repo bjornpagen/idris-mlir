@@ -4,7 +4,6 @@
 // static buffers; base's files, directories, process, terminal, errors and
 // clocks over the platform layer (rt::platform), whose pointers are handles
 // of one table. A write a reader gone refuses ends the program (rt::end).
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "Platform/Platform.h"
@@ -118,6 +117,11 @@ void releaseHandles();
 // Writes standard output's pending bytes (Output.cpp), and how that went:
 // what every ending writes first.
 rt::platform::Wrote writePending();
+
+// The same as the program's own output, a reader gone ending the program:
+// before a read of standard input waits, before standard error's every
+// write, when a write would not fit, and when the stream is flushed.
+void flushOutput();
 
 // Standard output's writes (Output.cpp): the n bytes at p after what is
 // pending, through the buffer, or at once when they are more than it holds;

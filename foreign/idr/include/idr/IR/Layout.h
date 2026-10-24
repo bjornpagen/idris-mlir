@@ -60,28 +60,21 @@ inline constexpr uint32_t tagMask = IDRIS_RT_TAG_LIMIT - 1;
 // that does not fit is held in a cell before its word is made.
 class CellInfo {
 public:
-  // A constructor's cell, the header holding its tag within its group.
-  // `objs` is the number of object slots the header counts, or nothing
-  // when the word after the header counts them.
-  static CellInfo constructor(Tag tag, std::optional<unsigned> objs) noexcept;
-  // A memo cell in the state of the constructor `tag`: laid out and freed
-  // as a constructor's cell, and of its own kind, which says that a force
-  // may write it.
-  static CellInfo thunk(Tag tag, std::optional<unsigned> objs) noexcept;
+  // A cell of fields: a constructor's, or a memo cell in the state of the
+  // constructor `tag`, the header holding its tag within its group; a
+  // string's or a bignum's, of tag 0 and no object slot, whose lengths say
+  // the rest. `objs` is the number of object slots the header counts, or
+  // nothing when the word after the header counts them.
+  static CellInfo fields(Tag tag, std::optional<unsigned> objs) noexcept;
   // An array's: the tag is the element's size in bytes, below
   // IDRIS_RT_TAG_LIMIT, its objs the object slots each element starts
   // with, at most mostObjects.
   static CellInfo array(unsigned stride, unsigned objs) noexcept;
-  // A string's: whether it is ASCII is its scalar count against its byte
-  // count, which the cell holds, so the header says nothing of it.
-  static CellInfo string() noexcept;
-  static CellInfo bignum() noexcept;
 
   uint32_t word() const noexcept;
 
 private:
   explicit CellInfo(uint32_t word) noexcept;
-  static CellInfo withKind(Tag tag, std::optional<unsigned> objs, uint32_t kind) noexcept;
   uint32_t bits;
 };
 
@@ -360,7 +353,7 @@ private:
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.
   layout::Cell cellOf(llvm::ArrayRef<llvm::SmallVector<layout::Component>> fields, Tag tag,
-                      layout::GroupIn group, MemberKind kind) const;
+                      layout::GroupIn group) const;
   // The components of each of `fields`.
   llvm::SmallVector<llvm::SmallVector<layout::Component>>
   componentsOf(llvm::ArrayRef<mlir::Type> fields) const;

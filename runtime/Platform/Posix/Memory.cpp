@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Address space and memory, by the page, on a POSIX system: reserved
 // inaccessible, which no host counts as memory, then committed as used.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 

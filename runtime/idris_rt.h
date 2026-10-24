@@ -98,15 +98,12 @@ IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
 #undef IDRIS_RT_ALIGNOF
 #undef IDRIS_RT_STATIC_ASSERT
 
-#define IDRIS_RT_KIND_BOX 0u
-/* A thunk cell is laid out as a box: tag, objs and object slots first. The
- * tag says which state it is in, and freeing reads it as it reads a box.
- * Only the kind tells a memo cell, which may be written, from a box, which
- * may not. */
-#define IDRIS_RT_KIND_THUNK 1u
-#define IDRIS_RT_KIND_STRING 2u
-#define IDRIS_RT_KIND_BIGNUM 3u
-#define IDRIS_RT_KIND_ARRAY 4u
+/* The two kinds, which say where a cell's object slots are: a cell of
+ * fields (a box, a thunk, a string, a bignum) has them right after its
+ * header, an array per element. Freeing reads nothing else of a cell; what
+ * else it is, its type says, and the compiler reads that. */
+#define IDRIS_RT_KIND_FIELDS 0u
+#define IDRIS_RT_KIND_ARRAY 1u
 
 #define IDRIS_RT_TAG_LIMIT 0x10000u
 #define IDRIS_RT_OBJS_LIMIT 0x100u
@@ -128,7 +125,7 @@ IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_objs(uint32_t info) { return info 
 IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24; }
 #undef IDRIS_RT_INFO_FUNCTION
 
-/* A string: the header (kind IDRIS_RT_KIND_STRING, tag 0), the byte
+/* A string: the header (a cell of fields, tag 0, no object slot), the byte
  * length, the number of scalar values, then the UTF-8 bytes, in the same
  * allocation. Every scalar takes at least one byte and only an ASCII one
  * takes exactly one, so a string is ASCII exactly when its two lengths are
@@ -175,10 +172,10 @@ static inline bool idris_rt_word_is_small(idris_rt_big word) { return (word & 1)
 static inline int64_t idris_rt_small_value(idris_rt_big word) { return word >> 1; }
 #endif
 
-/* A big outside the small range: the header (kind IDRIS_RT_KIND_BIGNUM), the
- * signed number of limbs (GMP's convention: its sign is the integer's, its
- * magnitude the count), then the limbs, least significant first, in the same
- * cell. A big never changes, so its digits live with it, one load from its
+/* A big outside the small range: the header (a cell of fields, tag 0, no
+ * object slot), the signed number of limbs (GMP's convention: its sign is
+ * the integer's, its magnitude the count), then the limbs, least
+ * significant first, in the same cell. A big never changes, so its digits live with it, one load from its
  * word, and the cell owns nothing else. The word of a large big is exactly
  * the cell's address, with no tag bit: a prefetcher that follows values
  * shaped like pointers reaches the digits. */
@@ -237,12 +234,12 @@ typedef struct idris_rt_memref {
   int64_t offset;
 } idris_rt_memref;
 
-/* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
- * the constructor's fields, object slots first (after their number, when
- * there are IDRIS_RT_OBJS_WIDE or more). A thunk is the same with kind
- * IDRIS_RT_KIND_THUNK: the tag of the state it is in, then that state's
- * fields, in a cell as large as its largest state. A cell holds no code
- * address. Their field layouts are idr-lower's. */
+/* A box is the header (a cell of fields, the constructor's tag), then the
+ * constructor's fields, object slots first (after their number, when there
+ * are IDRIS_RT_OBJS_WIDE or more). A thunk is laid out the same: the tag of
+ * the state it is in, then that state's fields, in a cell as large as its
+ * largest state. A cell holds no code address. Their field layouts are
+ * idr-lower's. */
 
 /* A text of the program's static data, which the runtime only writes out:
  * a source file's name or a function's in a crash site, shared by every site
@@ -422,7 +419,6 @@ uint64_t idris_rt_host_memory(void);
  * proc/self/mountinfo, proc/meminfo and the cgroup hierarchy they name;
  * UINT64_MAX where no limit holds. The same reader on every target. */
 uint64_t idris_rt_commit_limit(const char *root);
-void idris_rt_flush(void);
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
 size_t idris_rt_utf8_count(const char *p, size_t n);

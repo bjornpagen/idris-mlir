@@ -31,7 +31,7 @@ static const struct {
 /* A cell made and freed: an allocation while the innermost activation
  * holds what it holds. */
 static void allocate(void) {
-  idris_rt_header *cell = idris_rt_cell(16, idris_rt_info(0, 0, IDRIS_RT_KIND_BOX));
+  idris_rt_header *cell = idris_rt_cell(16, idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS));
   idris_rt_dec_cell(cell);
 }
 

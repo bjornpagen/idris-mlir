@@ -88,8 +88,8 @@ static void checkValue(const struct value *v) {
     return;
   }
   check(!idris_rt_word_is_small(b), "a large big's word is even", v->text);
-  check(idris_rt_info_kind(((const idris_rt_header *)(uintptr_t)b)->info) == IDRIS_RT_KIND_BIGNUM,
-        "its word is the address of a bignum cell", v->text);
+  check(((const idris_rt_header *)(uintptr_t)b)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS),
+        "its word is the address of a cell with a bignum's header", v->text);
   int64_t n = v->size < 0 ? -v->size : v->size;
   check(size(b) == v->size, "its signed limb count follows the header", v->text);
   int same = size(b) == v->size;
@@ -97,7 +97,7 @@ static void checkValue(const struct value *v) {
     same = limbs(b)[i] == v->limbs[i];
   check(same, "its limbs follow the count in the cell", v->text);
 
-  struct constant c = {{{0, idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)}, v->size}, {0}};
+  struct constant c = {{{0, idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS)}, v->size}, {0}};
   memcpy(c.limbs, v->limbs, sizeof c.limbs);
   idris_rt_big laid = (idris_rt_big)(uintptr_t)&c;
   check(idris_rt_big_cmp(laid, b) == 0 && shows(laid, v->text), "the runtime reads the test's cell as the value",

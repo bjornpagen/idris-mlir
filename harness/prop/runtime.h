@@ -47,15 +47,15 @@ inline void enter(void *argument) {
 } // namespace detail
 
 // properties(argc, argv) on the runtime's runner, every message of the
-// runtime's named `name`; its status. A property program is compiled for
-// its target's baseline, so the runner's startup check needs no feature
-// bit of the processor. A runner the system refuses its memory is the
-// process out of memory, which the runtime ends as such.
+// runtime's named `name`; its status. The runner's startup check asks the
+// processor for what the runtime's own code needs, as it asks for a
+// tool's. A runner the system refuses its memory is the process out of
+// memory, which the runtime ends as such.
 template <size_t N>
 int onRuntime(int argc, char **argv, const char (&name)[N], int (*properties)(int, char **)) {
   detail::Entry entry{properties, argc, argv, 2};
   idris_rt_stack_plan plan{stackBytes, 0, 0};
-  if (idris_rt_run_on_stack(detail::enter, &entry, &plan, name, N - 1, 0) != IDRIS_RT_RAN)
+  if (idris_rt_run_on_stack(detail::enter, &entry, &plan, name, N - 1) != IDRIS_RT_RAN)
     idris_rt_out_of_memory();
   return entry.status;
 }

@@ -3,7 +3,6 @@
 // The bitwise operations of bigs and their shifts: those of the infinite
 // two's complement representation, as upstream Idris's test suite requires
 // of every backend (its integers test of Chez, RefC and Node).
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Big/Big.h"

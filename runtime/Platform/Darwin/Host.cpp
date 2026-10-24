@@ -6,7 +6,6 @@
 // thread's guard. Darwin enforces no limit a process can read as its kill
 // point, nor an address-space limit, so the heap's only bound is the address
 // space.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <mach/vm_param.h>
@@ -48,6 +47,12 @@ Span heapSpan(size_t alignment) noexcept {
 // Darwin states no limit a process can read as its kill point, so none
 // holds the heap; the cgroup reader is Linux's alone.
 size_t commitLimit() noexcept { return SIZE_MAX; }
+
+// Darwin's stat names its times st_atimespec and its kin: it predates
+// POSIX's names, st_atim and its kin.
+StatTimes statTimes(const struct stat &status) noexcept {
+  return {status.st_atimespec, status.st_mtimespec, status.st_ctimespec};
+}
 
 size_t physicalMemory() noexcept {
   uint64_t bytes = 0;

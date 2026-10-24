@@ -9,7 +9,6 @@
 # their native code links into idris-mlir itself, where the folders call it.
 # Every program links it with no C++ library, so it has its own profile,
 # not the tools'.
-# PIN(runtime-quarantine), PIN(runtime-cx16) — see PINS.md
 
 set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
 foreach(file
@@ -22,8 +21,7 @@ endforeach()
 # snmalloc and simdutf are the copies the bootstrap exports from
 # third_party with their patches applied (IDRIS_MLIR_SNMALLOC and
 # IDRIS_MLIR_SIMDUTF, the toolchain file's): the runtime compiles the
-# patched sources, never the checkouts. PIN(runtime-library-export) — see
-# PINS.md
+# patched sources, never the checkouts.
 if(NOT EXISTS "${IDRIS_MLIR_SNMALLOC}/src/snmalloc/snmalloc.h")
 	message(FATAL_ERROR "the runtime's snmalloc is missing at ${IDRIS_MLIR_SNMALLOC}; run: tools/bootstrap.sh snmalloc")
 endif()

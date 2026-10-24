@@ -4,7 +4,6 @@
 // value's word is made here and read by idris_rt.h's inline tests; the
 // accessors of a large one are inline in Big/Big.h, and the layout they read
 // is checked here.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
 #include "idris_rt.h"
 

@@ -5,7 +5,6 @@
 // lengths and bytes together, so freeing it is freeing the cell. What every
 // string operation and the output path call per character or per digit is
 // inline here.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "idris_rt.h"
@@ -15,8 +14,9 @@
 
 namespace rt::strings {
 
-// A string's info word: its tag is 0, since its lengths say all there is.
-inline constexpr uint32_t stringInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_STRING);
+// A string's info word: a cell of fields with no object slot, its tag 0,
+// since its lengths say all there is.
+inline constexpr uint32_t stringInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS);
 
 // The one empty string, persistent: the result of every operation whose
 // result is empty, newString's for no bytes, never written.

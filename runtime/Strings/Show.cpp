@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The decimal text of an integer: as a string, written to standard output
 // with no string, and its first character.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"

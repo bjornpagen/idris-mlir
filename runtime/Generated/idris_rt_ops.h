@@ -241,14 +241,6 @@ void idris_rt_inc_maybe_cell(idris_rt_header *word);
 void idris_rt_inc_big(idris_rt_big word);
 // one more owned reference to a word of its kind
 void idris_rt_inc_any(void *word);
-// one more owned reference to each of n contiguous slots of its kind
-void idris_rt_inc_run_cell(idris_rt_header *const *first, int64_t n);
-// one more owned reference to each of n contiguous slots of its kind
-void idris_rt_inc_run_maybe_cell(idris_rt_header *const *first, int64_t n);
-// one more owned reference to each of n contiguous slots of its kind
-void idris_rt_inc_run_big(const idris_rt_big *first, int64_t n);
-// one more owned reference to each of n contiguous slots of its kind
-void idris_rt_inc_run_any(void *const *first, int64_t n);
 // one owned reference less to a word of its kind, a cell released at 0
 void idris_rt_dec_cell(idris_rt_header *word);
 // one owned reference less to a word of its kind, a cell released at 0
@@ -257,14 +249,6 @@ void idris_rt_dec_maybe_cell(idris_rt_header *word);
 void idris_rt_dec_big(idris_rt_big word);
 // one owned reference less to a word of its kind, a cell released at 0
 void idris_rt_dec_any(void *word);
-// one owned reference less to each of n contiguous slots of its kind
-void idris_rt_dec_run_cell(idris_rt_header *const *first, int64_t n);
-// one owned reference less to each of n contiguous slots of its kind
-void idris_rt_dec_run_maybe_cell(idris_rt_header *const *first, int64_t n);
-// one owned reference less to each of n contiguous slots of its kind
-void idris_rt_dec_run_big(const idris_rt_big *first, int64_t n);
-// one owned reference less to each of n contiguous slots of its kind
-void idris_rt_dec_run_any(void *const *first, int64_t n);
 // whether a counted cell holds the only reference to itself: its count is 1
 bool idris_rt_is_unique(const idris_rt_header *cell);
 // frees the memory of a reuse token proved exclusive, whose fields were moved out

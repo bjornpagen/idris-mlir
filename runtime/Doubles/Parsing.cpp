@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // `cast` from String to Double, as rt::numerals reads it.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
 #include "Numerals/Numerals.h"
 #include "idris_rt.h"

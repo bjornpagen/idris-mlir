@@ -3,7 +3,6 @@
 // Standard input, through a buffer that a read fills: the Prelude's getChar
 // and getLine and base's reads of the handle 0, its stream, share it, so they
 // interleave on one input without losing a byte.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"
@@ -30,7 +29,7 @@ bool inputEnded = false;
 // Pending output is written before the program blocks reading.
 int32_t peek() {
   if (inputPosition >= inputLength) {
-    idris_rt_flush();
+    rt::io::flushOutput();
     int64_t got = rt::platform::readSome(0, input, bufferSize);
     if (got < 0) {
       inputFailed = true;

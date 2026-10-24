@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // rt::doubles: doubles as text, read from text, and as integers.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include <stddef.h>

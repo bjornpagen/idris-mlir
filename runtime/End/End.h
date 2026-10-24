@@ -8,7 +8,6 @@
 // table the specification prints (IdrisMLIR.Spec.Runtime.Endings). So a
 // crash cannot be written without its site, an exit cannot carry a status
 // no parent can read, and out of memory names no allocation.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "idris_rt.h"

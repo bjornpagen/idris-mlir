@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Bigs as decimal text, as a string and written to standard output with no
 // string, and read from digits of any base.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Big/Big.h"
 #include "Io/Io.h"

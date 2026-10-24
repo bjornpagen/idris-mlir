@@ -3,7 +3,6 @@
 // The terminal of standard input and output, on a POSIX system: raw mode
 // through termios, and its size through TIOCGWINSZ, which Linux and macOS
 // both define.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <stdint.h>

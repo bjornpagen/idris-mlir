@@ -7,7 +7,6 @@
 // `name` what LLVM calls the same feature, which idr-entry asks the
 // module's target's machine for to set the bit. Where the two name spaces
 // differ (AArch64's), the entry gives both.
-// PIN(runtime-quarantine) — see PINS.md
 
 #pragma once
 

@@ -3,7 +3,6 @@
 // The program's arguments, which idris_rt_start keeps and rt::io reads, in
 // a unit of their own: a tool's folders reach the argument entries, never
 // the program's entry.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Start/Start.h"
 #include "idris_rt.h"
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What `cast` from String reads in a string.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Numerals/Numerals.h"
 
 #include <stddef.h>

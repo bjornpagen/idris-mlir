@@ -6,7 +6,6 @@
 // not be read (the specification's encoding, IdrisMLIR.Spec.Runtime.Clocks),
 // so reading a clock allocates nothing and leaves nothing to free, and
 // taking one apart is arithmetic the compiler writes, with no call.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"

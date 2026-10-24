@@ -4,7 +4,6 @@
 // cursor compiled code threads through it. Its cells carry no count and die
 // together, when their lifetime ends: the chunks go back. Chunks come from the heap, so a lifetime's cells lie in
 // the heap's span with every other and a strict host's limit counts them.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Platform/Platform.h"

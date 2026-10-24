@@ -13,7 +13,6 @@
 // with keeps no account: its entries are empty, so once its bitcode joins a
 // program they inline to nothing, and check-archive refuses an account in
 // it.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "idris_rt.h"

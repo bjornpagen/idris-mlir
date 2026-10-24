@@ -1,42 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The C ABI's reference counting, over rt::rc's inline counting: one
-// increment and one decrement per kind of word, of one word or of a run of
-// slots, each testing exactly what its kind leaves open; the test of
-// exclusivity; the two frees of a reuse token and the release of a cell
-// proved dead, which read no count of the cell they are given. A
-// saturated count is not counted, so an increment reaches UINT32_MAX at most
-// and stays there.
-// PIN(runtime-quarantine) — see PINS.md
+// increment and one decrement per kind of word, each testing exactly what
+// its kind leaves open; the test of exclusivity; the two frees of a reuse
+// token and the release of a cell proved dead, which read no count of the
+// cell they are given. A saturated count is not counted, so an increment
+// reaches UINT32_MAX at most and stays there.
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
-#include <stdint.h>
-
 namespace {
 
-// A slot's word as counting reads it: a pointer as it is, a big's word as
-// the address it may be.
-const void *wordOf(const void *slot) { return slot; }
-const void *wordOf(idris_rt_big slot) { return reinterpret_cast<const void *>(slot); }
-
-// Each of `n` contiguous slots from `first`, one more or one less
-// reference, as a cell's release walks them. The C ABI passes the first
-// slot's address as a pointer to slots of the kind and the count as a
-// 64-bit integer, never negative.
-template <rt::rc::WordKind K, class Slot>
-void incRun(const Slot *first, int64_t n) {
-  for (int64_t i = 0; i < n; ++i)
-    rt::rc::inc<K>(wordOf(first[i]));
-}
-
-template <rt::rc::WordKind K, class Slot>
-void decRun(const Slot *first, int64_t n) {
-  for (int64_t i = 0; i < n; ++i)
-    rt::rc::dec<K>(wordOf(first[i]));
-}
+// A big's word as counting reads it: the address it may be.
+const void *wordOf(idris_rt_big word) { return reinterpret_cast<const void *>(word); }
 
 } // namespace
 
@@ -71,33 +49,6 @@ extern "C" void idris_rt_inc_big(idris_rt_big word) { rt::rc::inc<rt::rc::BigWor
 extern "C" void idris_rt_dec_big(idris_rt_big word) { rt::rc::dec<rt::rc::BigWord>(wordOf(word)); }
 extern "C" void idris_rt_inc_any(void *word) { rt::rc::inc<rt::rc::AnyWord>(word); }
 extern "C" void idris_rt_dec_any(void *word) { rt::rc::dec<rt::rc::AnyWord>(word); }
-
-// The same, for each of `n` contiguous slots of one kind: a cell taken
-// apart counts the slots that move, or that die, in one call.
-extern "C" void idris_rt_inc_run_cell(idris_rt_header *const *first, int64_t n) {
-  incRun<rt::rc::CellWord>(first, n);
-}
-extern "C" void idris_rt_dec_run_cell(idris_rt_header *const *first, int64_t n) {
-  decRun<rt::rc::CellWord>(first, n);
-}
-extern "C" void idris_rt_inc_run_maybe_cell(idris_rt_header *const *first, int64_t n) {
-  incRun<rt::rc::MaybeCellWord>(first, n);
-}
-extern "C" void idris_rt_dec_run_maybe_cell(idris_rt_header *const *first, int64_t n) {
-  decRun<rt::rc::MaybeCellWord>(first, n);
-}
-extern "C" void idris_rt_inc_run_big(const idris_rt_big *first, int64_t n) {
-  incRun<rt::rc::BigWord>(first, n);
-}
-extern "C" void idris_rt_dec_run_big(const idris_rt_big *first, int64_t n) {
-  decRun<rt::rc::BigWord>(first, n);
-}
-extern "C" void idris_rt_inc_run_any(void *const *first, int64_t n) {
-  incRun<rt::rc::AnyWord>(first, n);
-}
-extern "C" void idris_rt_dec_run_any(void *const *first, int64_t n) {
-  decRun<rt::rc::AnyWord>(first, n);
-}
 
 // Whether a counted cell holds the only reference to itself: its count is
 // 1. A static cell (0) and a saturated one are never exclusive. Asked only

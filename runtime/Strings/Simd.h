@@ -8,7 +8,6 @@
 // stack bound sees each call's callee. A machine that lacks what its
 // kernels use is refused by the startup check, as one that lacks what the
 // program uses is (rt::start::checkMachine).
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include IDRIS_RT_SIMDUTF_HEADER
@@ -24,7 +23,6 @@ static_assert(std::is_final_v<Utf8>,
 
 // A constant: its constructor only names the implementation, so it is
 // initialized when the program is built and never at run time.
-// PIN(simdutf-constexpr-implementation) — see PINS.md
 inline constexpr Utf8 utf8{};
 
 } // namespace rt::strings

@@ -4,7 +4,6 @@
 // arguments kept, the host's limit, its stack, and its end. It alone reads
 // what the driver knows of the program (idris_rt_program_built), which a
 // tool, linking the runtime without it, has no definition of.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
 #include "Io/Io.h"

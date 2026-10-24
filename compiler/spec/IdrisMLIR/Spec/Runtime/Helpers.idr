@@ -49,58 +49,30 @@ passing MaybeCellWord = TakesPointerTo "idris_rt_header"
 passing BigWord = TakesBig
 passing AnyWord = TakesPointerTo "void"
 
-||| How a run of contiguous slots of the kind is passed: its first slot,
-||| which the entry reads and never writes.
-public export
-passingRun : WordKind -> OperandKind
-passingRun CellWord = TakesPointerTo "idris_rt_header *const"
-passingRun MaybeCellWord = TakesPointerTo "idris_rt_header *const"
-passingRun BigWord = TakesPointerTo "const idris_rt_big"
-passingRun AnyWord = TakesPointerTo "void *const"
-
 ||| One more or one less reference.
 public export
 data Count = Increment | Decrement
 
-||| A counting entry's name in the lowering's table and its symbol: of one
-||| word of the kind, or of a run of contiguous slots of it.
-public export
-data Span = OneWord | Run
+||| A counting entry's name in the lowering's table and its symbol.
+entry : Count -> WordKind -> (Ident, Symbol)
+entry Increment CellWord = (ident "incCell", symbol "inc_cell")
+entry Increment MaybeCellWord = (ident "incMaybeCell", symbol "inc_maybe_cell")
+entry Increment BigWord = (ident "incBig", symbol "inc_big")
+entry Increment AnyWord = (ident "incAny", symbol "inc_any")
+entry Decrement CellWord = (ident "decCell", symbol "dec_cell")
+entry Decrement MaybeCellWord = (ident "decMaybeCell", symbol "dec_maybe_cell")
+entry Decrement BigWord = (ident "decBig", symbol "dec_big")
+entry Decrement AnyWord = (ident "decAny", symbol "dec_any")
 
-entry : Count -> Span -> WordKind -> (Ident, Symbol)
-entry Increment OneWord CellWord = (ident "incCell", symbol "inc_cell")
-entry Increment OneWord MaybeCellWord = (ident "incMaybeCell", symbol "inc_maybe_cell")
-entry Increment OneWord BigWord = (ident "incBig", symbol "inc_big")
-entry Increment OneWord AnyWord = (ident "incAny", symbol "inc_any")
-entry Decrement OneWord CellWord = (ident "decCell", symbol "dec_cell")
-entry Decrement OneWord MaybeCellWord = (ident "decMaybeCell", symbol "dec_maybe_cell")
-entry Decrement OneWord BigWord = (ident "decBig", symbol "dec_big")
-entry Decrement OneWord AnyWord = (ident "decAny", symbol "dec_any")
-entry Increment Run CellWord = (ident "incRunCell", symbol "inc_run_cell")
-entry Increment Run MaybeCellWord = (ident "incRunMaybeCell", symbol "inc_run_maybe_cell")
-entry Increment Run BigWord = (ident "incRunBig", symbol "inc_run_big")
-entry Increment Run AnyWord = (ident "incRunAny", symbol "inc_run_any")
-entry Decrement Run CellWord = (ident "decRunCell", symbol "dec_run_cell")
-entry Decrement Run MaybeCellWord = (ident "decRunMaybeCell", symbol "dec_run_maybe_cell")
-entry Decrement Run BigWord = (ident "decRunBig", symbol "dec_run_big")
-entry Decrement Run AnyWord = (ident "decRunAny", symbol "dec_run_any")
-
-||| A counting entry of a kind of word: one word, passed as its kind is, or
-||| a run of `n` contiguous slots from `first`, as a cell's release walks
-||| them, so a wide cell taken apart counts its slots in one call.
-counting : Count -> Span -> WordKind -> RuntimeHelper
-counting c s w =
-  let (name, sym) = entry c s w in
-  MkRuntimeHelper name sym (params s) HelperNothing (doc c s)
+||| A counting entry of a kind of word: one word, passed as its kind is.
+counting : Count -> WordKind -> RuntimeHelper
+counting c w =
+  let (name, sym) = entry c w in
+  MkRuntimeHelper name sym [(passing w, ident "word")] HelperNothing (doc c)
   where
-    params : Span -> List (OperandKind, Ident)
-    params OneWord = [(passing w, ident "word")]
-    params Run = [(passingRun w, ident "first"), (TakesInt64, ident "n")]
-    doc : Count -> Span -> Line
-    doc Increment OneWord = line "one more owned reference to a word of its kind"
-    doc Decrement OneWord = line "one owned reference less to a word of its kind, a cell released at 0"
-    doc Increment Run = line "one more owned reference to each of n contiguous slots of its kind"
-    doc Decrement Run = line "one owned reference less to each of n contiguous slots of its kind"
+    doc : Count -> Line
+    doc Increment = line "one more owned reference to a word of its kind"
+    doc Decrement = line "one owned reference less to a word of its kind, a cell released at 0"
 
 ------------------------------------------------------------------------------
 -- The helpers
@@ -162,7 +134,7 @@ helpers =
       [(TakesInt64, ident "rank"), (TakesPointerTo "const idris_rt_memref", ident "from"), (TakesPointerTo "const idris_rt_memref", ident "to")] HelperNothing
       (line "memref.copy of one view onto another, counting each object copied")
   ]
-  ++ [counting c s w | c <- [Increment, Decrement], s <- [OneWord, Run], w <- words]
+  ++ [counting c w | c <- [Increment, Decrement], w <- words]
   ++
   [ MkRuntimeHelper (ident "isUnique") (symbol "is_unique")
       [(TakesPointerTo "const idris_rt_header", ident "cell")] (HelperReturns GivesBool)

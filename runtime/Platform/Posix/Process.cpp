@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The process's environment, its id, waiting, the time, its end and the
 // signals it ends by, and errno, on a POSIX system: Linux and macOS alike.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 

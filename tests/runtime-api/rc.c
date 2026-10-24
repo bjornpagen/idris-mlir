@@ -39,7 +39,7 @@ static void *word(int64_t small) { return (void *)(uintptr_t)((uint64_t)small <<
 static const idris_rt_str *text(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
 
 static uint32_t box(uint32_t tag, uint32_t objs) {
-  return idris_rt_info(tag, objs, IDRIS_RT_KIND_BOX);
+  return idris_rt_info(tag, objs, IDRIS_RT_KIND_FIELDS);
 }
 
 /* A box of `objs` object slots and one plain word after them. */
@@ -203,38 +203,6 @@ static void trees(void) {
   check(live() == before, "a node referenced from two slots is freed once, after both");
 }
 
-/* A thunk in the state of one of its labels, laid out as a box is: the
- * header (kind thunk, the state's tag), `objs` object captures, then one
- * plain capture. No code address: the force calls the label's function. */
-static void *thunk(uint32_t state, uint32_t objs, void *const *captures) {
-  void *cell = idris_rt_cell(8 + 8 * (size_t)objs + 8,
-                             idris_rt_info(state, objs, IDRIS_RT_KIND_THUNK));
-  for (uint32_t i = 0; i < objs; ++i)
-    *slot(cell, 8 + 8 * (size_t)i) = captures[i];
-  double plain = 2.5;
-  memcpy((char *)cell + 8 + 8 * (size_t)objs, &plain, sizeof plain);
-  return cell;
-}
-
-static void thunks(void) {
-  uint64_t before = live();
-  void *shared = cons(1, NULL);
-  idris_rt_inc_any(shared);
-  void *captures[] = {(void *)text("captured"), shared, cons(2, NULL), word(9)};
-  void *t = thunk(5, 4, captures);
-  check(live() == before + 4, "a thunk and what it captures are live");
-  idris_rt_dec_any(t);
-  check(live() == before + 1, "a thunk releases its captures as a box releases its fields");
-  check(count(shared) == 1, "a shared capture loses one reference");
-  idris_rt_dec_any(shared);
-
-  void *chain = NULL;
-  for (int i = 0; i < 1000000; ++i)
-    chain = thunk(6, 1, &chain);
-  idris_rt_dec_any(chain);
-  check(live() == before, "one dec frees a chain of 10^6 thunks");
-}
-
 /* An array of five elements, each a box in its one object slot and a plain
  * word after it, so 16 bytes: the array's tag is that size and its objs the
  * one slot. Element i holds cons(i), but element 2 holds `shared`. */
@@ -388,9 +356,9 @@ static void stringsAndBignums(void) {
   uint64_t before = live();
   const idris_rt_str *a = text("héllo"), *b = text(" wörld"), *ascii = text("ascii");
   const idris_rt_str *empty = text("");
-  check(count(a) == 1 && header(a)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING),
-        "a new string is a cell of kind string, tag 0");
-  check(header(ascii)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING) &&
+  check(count(a) == 1 && header(a)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS),
+        "a new string is a cell of fields, tag 0, no object slot");
+  check(header(ascii)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS) &&
             ascii->scalars == ascii->bytes,
         "an ASCII string is a string like any other, its scalars its bytes");
   check(count(empty) == 0 && live() == before + 3, "the empty string is persistent");
@@ -424,8 +392,8 @@ static void stringsAndBignums(void) {
   idris_rt_big x = idris_rt_big_from_str(digits);
   idris_rt_dec_cell((idris_rt_header *)&digits->header);
   check((x & 1) == 0 && count((void *)(uintptr_t)x) == 1 &&
-            header((void *)(uintptr_t)x)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM),
-        "a big outside the small range is a cell of kind bignum");
+            header((void *)(uintptr_t)x)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS),
+        "a big outside the small range is a cell of fields, tag 0, no object slot");
   idris_rt_big y = idris_rt_big_mul(x, x);
   idris_rt_big zero = idris_rt_big_sub(y, y);
   check(zero == 1, "a result in the small range is a small word, not a cell");
@@ -477,12 +445,13 @@ static void tokens(void) {
   check(live() == before, "a shared cell is freed with its last reference");
 }
 
-/* A box or a thunk of `n` object slots laid out wide, as idr-lower lays out
- * a cell of more slots than the header's objs field counts: objs is
+/* A cell of `n` object slots laid out wide, as idr-lower lays out a cell of
+ * more slots than the header's objs field counts: objs is
  * IDRIS_RT_OBJS_WIDE, the word after the header holds n, the slots follow
  * it, and one plain word follows them. The caller fills the slots. */
-static void *wide(uint32_t kind, uint64_t n) {
-  void *cell = idris_rt_cell(16 + 8 * (size_t)n + 8, idris_rt_info(3, IDRIS_RT_OBJS_WIDE, kind));
+static void *wide(uint64_t n) {
+  void *cell = idris_rt_cell(16 + 8 * (size_t)n + 8,
+                             idris_rt_info(3, IDRIS_RT_OBJS_WIDE, IDRIS_RT_KIND_FIELDS));
   int64_t plain = 77;
   memcpy((char *)cell + 8, &n, sizeof n);
   memcpy((char *)cell + 16 + 8 * (size_t)n, &plain, sizeof plain);
@@ -498,7 +467,7 @@ static void wideCells(void) {
   for (size_t s = 0; s < sizeof sizes / sizeof sizes[0]; ++s) {
     uint64_t n = sizes[s], held = 0;
     uint64_t before = live();
-    void *box = wide(IDRIS_RT_KIND_BOX, n);
+    void *box = wide(n);
     for (uint64_t i = 0; i < n; ++i) {
       void *value = i % 3 == 0 ? cons((int64_t)i, NULL) : i % 3 == 1 ? NULL : word(5);
       held += i % 3 == 0;
@@ -509,16 +478,16 @@ static void wideCells(void) {
     check(live() == before, "one dec frees a wide box and every cell its slots hold");
 
     void *shared = cons(1, NULL);
-    void *thunk = wide(IDRIS_RT_KIND_THUNK, n);
+    void *holder = wide(n);
     for (uint64_t i = 0; i < n; ++i) {
       idris_rt_inc_any(shared);
-      *slot(thunk, 16 + 8 * (size_t)i) = shared;
+      *slot(holder, 16 + 8 * (size_t)i) = shared;
     }
     check(count(shared) == 1 + n && live() == before + 2,
-          "a wide thunk holds a reference to its capture in each of its slots");
-    idris_rt_dec_any(thunk);
+          "a wide cell holds a reference to one cell in each of its slots");
+    idris_rt_dec_any(holder);
     check(count(shared) == 1 && live() == before + 1,
-          "a wide thunk's death releases the capture in each of its slots once");
+          "a wide cell's death releases the cell in each of its slots once");
     idris_rt_dec_any(shared);
   }
 }
@@ -572,7 +541,6 @@ static void body(void) {
   saturation();
   lists();
   trees();
-  thunks();
   arrays();
   memrefCopies();
   stringsAndBignums();

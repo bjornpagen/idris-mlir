@@ -9,7 +9,7 @@
 # function versioned for the first is compiled with the second; the bits
 # are 0 up, each once, under 64, and no name is two features' (a check
 # shown refusing a list planted to break each). The processor test that reads them
-# (runtime/Platform/Aarch64/Cpu.cpp) is compiled by the AArch64 build with
+# (runtime/Platform/Aarch64/Darwin.cpp or Linux.cpp) is compiled by the AArch64 build with
 # its own flags, and runs at the entry of every program a test runs there;
 # runtime-start asks it for a feature no processor has.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"

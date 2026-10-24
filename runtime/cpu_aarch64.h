@@ -10,7 +10,6 @@
 // apple-m4 the four of SME. A later CPU may enable more, which are not
 // tested (apple-m4's wfxt, apple-m5's cssc and mte: Apple's compiler-rt
 // does not look for them).
-// PIN(runtime-quarantine) — see PINS.md
 
 #pragma once
 

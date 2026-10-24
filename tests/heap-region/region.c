@@ -39,7 +39,7 @@ static int usable(idris_rt_array *a) {
 }
 
 static void body(void) {
-  uint32_t box = idris_rt_info(0, 0, IDRIS_RT_KIND_BOX);
+  uint32_t box = idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS);
   uint32_t bytes = idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY);
   size_t made = 0;
   int unusable = 0;

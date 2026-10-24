@@ -164,7 +164,7 @@ struct Operand {
 private:
   void make() {
     Encoded encoded(model);
-    constant.string = {{0, idris_rt_info(0, 0, IDRIS_RT_KIND_STRING)}, encoded.length, model.length};
+    constant.string = {{0, idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS)}, encoded.length, model.length};
     memcpy(constant.bytes, encoded.bytes, encoded.length);
     string = form->make(constant);
   }
@@ -525,7 +525,7 @@ bool emptiesAreOne(const Operand &s) {
     prop::explain("an empty string allocated a cell");
   const idris_rt_str *one = made[0].string;
   holds = holds && one->header.count == 0 && one->bytes == 0 && one->scalars == 0 &&
-          one->header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_STRING);
+          one->header.info == idris_rt_info(0, 0, IDRIS_RT_KIND_FIELDS);
   for (size_t i = 0; i < count; ++i) {
     const Made &m = made[i];
     bool other = m.string != one || (strcmp(m.operation, "substr of no scalars") == 0 && prop::planted(secondEmpty));

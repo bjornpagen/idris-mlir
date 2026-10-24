@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Sums, differences, products, quotients and remainders of bigs, negation,
 // and the Nat of an Integer.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
 #include "idr/IR/Numeric/Inline.h"
 #include "idr/IR/Numeric/Small.h"

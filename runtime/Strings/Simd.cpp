@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The C ABI's scalar count, over the target's simdutf implementation.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Simd.h"
 #include "idris_rt.h"
 

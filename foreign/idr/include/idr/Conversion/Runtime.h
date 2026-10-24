@@ -86,8 +86,6 @@ public:
   mlir::LLVMTypeConverter &llvmTypeConverter() { return llvmTypes; }
   const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
-  const HeaderLayout &header() const { return headerLayout; }
-
   // The global made for each static datum the program's lowering names.
   const Statics &statics() const { return staticData; }
 

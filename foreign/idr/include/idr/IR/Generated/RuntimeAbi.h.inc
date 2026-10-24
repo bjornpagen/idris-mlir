@@ -746,14 +746,6 @@ inline constexpr std::array<OperandKind, 1> incBigOperands{{OperandKind::Big}};
 inline constexpr Function incBig{"idris_rt_inc_big", incBigOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> incAnyOperands{{OperandKind::Pointer}};
 inline constexpr Function incAny{"idris_rt_inc_any", incAnyOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> incRunCellOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function incRunCell{"idris_rt_inc_run_cell", incRunCellOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> incRunMaybeCellOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function incRunMaybeCell{"idris_rt_inc_run_maybe_cell", incRunMaybeCellOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> incRunBigOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function incRunBig{"idris_rt_inc_run_big", incRunBigOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> incRunAnyOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function incRunAny{"idris_rt_inc_run_any", incRunAnyOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> decCellOperands{{OperandKind::Pointer}};
 inline constexpr Function decCell{"idris_rt_dec_cell", decCellOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> decMaybeCellOperands{{OperandKind::Pointer}};
@@ -762,14 +754,6 @@ inline constexpr std::array<OperandKind, 1> decBigOperands{{OperandKind::Big}};
 inline constexpr Function decBig{"idris_rt_dec_big", decBigOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> decAnyOperands{{OperandKind::Pointer}};
 inline constexpr Function decAny{"idris_rt_dec_any", decAnyOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> decRunCellOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function decRunCell{"idris_rt_dec_run_cell", decRunCellOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> decRunMaybeCellOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function decRunMaybeCell{"idris_rt_dec_run_maybe_cell", decRunMaybeCellOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> decRunBigOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function decRunBig{"idris_rt_dec_run_big", decRunBigOperands, ResultKind::Void};
-inline constexpr std::array<OperandKind, 2> decRunAnyOperands{{OperandKind::Pointer, OperandKind::Int64}};
-inline constexpr Function decRunAny{"idris_rt_dec_run_any", decRunAnyOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> isUniqueOperands{{OperandKind::Pointer}};
 inline constexpr Function isUnique{"idris_rt_is_unique", isUniqueOperands, ResultKind::Bool};
 inline constexpr std::array<OperandKind, 1> freeTokenOperands{{OperandKind::Pointer}};
@@ -823,7 +807,7 @@ inline constexpr Function ioPutBig{"idris_rt_io_put_big", ioPutBigOperands, Resu
 } // namespace helper
 
 // Every function of the runtime lowered code calls, each once.
-inline constexpr std::array<const Function *, 152> functions{{
+inline constexpr std::array<const Function *, 144> functions{{
     &Abi<::idr::IntHeadSOp>::entry,
     &Abi<::idr::IntHeadUOp>::entry,
     &Abi<::idr::F64ToIntOp>::entry,
@@ -939,18 +923,10 @@ inline constexpr std::array<const Function *, 152> functions{{
     &helper::incMaybeCell,
     &helper::incBig,
     &helper::incAny,
-    &helper::incRunCell,
-    &helper::incRunMaybeCell,
-    &helper::incRunBig,
-    &helper::incRunAny,
     &helper::decCell,
     &helper::decMaybeCell,
     &helper::decBig,
     &helper::decAny,
-    &helper::decRunCell,
-    &helper::decRunMaybeCell,
-    &helper::decRunBig,
-    &helper::decRunAny,
     &helper::isUnique,
     &helper::freeToken,
     &helper::freeMaybeToken,

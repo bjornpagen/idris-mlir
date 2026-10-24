@@ -5,7 +5,6 @@
 // process as out of memory instead. GMP is built to take its temporaries
 // from these too, never from the stack, so its depth is no part of a
 // program's stack.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Start/Start.h"
 #include "idris_rt.h"

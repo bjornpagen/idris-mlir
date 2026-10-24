@@ -17,29 +17,15 @@ CellInfo::CellInfo(uint32_t word) noexcept : bits(word) {}
 // rest; and the count of object slots, or the mark that the word after the
 // header holds it. A count is given only where the header's field holds it
 // (Layouts::cellOf).
-CellInfo CellInfo::withKind(Tag tag, std::optional<unsigned> objs, uint32_t kind) noexcept {
+CellInfo CellInfo::fields(Tag tag, std::optional<unsigned> objs) noexcept {
   uint32_t field = objs ? *objs : IDRIS_RT_OBJS_WIDE;
-  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag) & tagMask, field, kind));
-}
-
-CellInfo CellInfo::constructor(Tag tag, std::optional<unsigned> objs) noexcept {
-  return withKind(tag, objs, IDRIS_RT_KIND_BOX);
-}
-
-CellInfo CellInfo::thunk(Tag tag, std::optional<unsigned> objs) noexcept {
-  return withKind(tag, objs, IDRIS_RT_KIND_THUNK);
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag) & tagMask, field, IDRIS_RT_KIND_FIELDS));
 }
 
 // Layouts::element makes one only of an element the header describes.
 CellInfo CellInfo::array(unsigned stride, unsigned objs) noexcept {
   return CellInfo(idris_rt_info(stride, objs, IDRIS_RT_KIND_ARRAY));
 }
-
-CellInfo CellInfo::string() noexcept {
-  return CellInfo(idris_rt_info(0, 0, IDRIS_RT_KIND_STRING));
-}
-
-CellInfo CellInfo::bignum() noexcept { return CellInfo(idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM)); }
 
 uint32_t CellInfo::word() const noexcept { return bits; }
 

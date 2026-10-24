@@ -5,7 +5,6 @@
 // table holding the C library's stream; the standard streams are the
 // table's first slots, streams of their own (Input.cpp, Output.cpp), and
 // stay open.
-// PIN(runtime-quarantine) — see PINS.md
 #include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"

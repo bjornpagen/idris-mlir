@@ -16,7 +16,6 @@
 // its sign; a NaN is `nan` whatever its sign, which IEEE 754 gives no
 // meaning and which x86-64 and arm64 set differently for the same
 // operation.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
 #include "Io/Io.h"
 #include "Strings/Strings.h"

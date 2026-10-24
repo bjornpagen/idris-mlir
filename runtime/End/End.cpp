@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The one way out of a process, and the C entries that end a program: its
 // crashes at a site, its exit, and running out of memory.
-// PIN(runtime-quarantine) — see PINS.md
 #include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"

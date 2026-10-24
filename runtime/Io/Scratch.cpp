@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Bytes being gathered before they become a string or go to the C library:
 // a line being read, a path.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "Io/Io.h"
 #include "idris_rt.h"

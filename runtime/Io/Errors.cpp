@@ -3,7 +3,6 @@
 // The errno base reads after a call that failed (System.Errno, System.File's
 // FileError), saved by the runtime when the call fails, so that nothing the
 // runtime does in between can change it.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"

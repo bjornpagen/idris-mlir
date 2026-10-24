@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Base's process (System): its arguments, its environment, waiting, the time
 // and its id.
-// PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "Start/Start.h"

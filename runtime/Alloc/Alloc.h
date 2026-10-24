@@ -4,7 +4,6 @@
 // span, set up once by the runner; raw blocks; cells; arrays; and GMP's
 // allocation through it. No allocation returns a failure: running out of
 // memory is the process's out-of-memory ending, wherever it is met.
-// PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
 #include "idris_rt.h"
