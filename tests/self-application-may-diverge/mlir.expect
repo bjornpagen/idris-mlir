@@ -1,0 +1,4 @@
+# Idris does not prove selfApply to end, so the call of it whose value
+# main never uses stays, after optimization too: it may never end, and
+# eager evaluation runs it where evaluation reaches it.
+owned: calls=@Main.main:@Main.selfApply may-diverge=@Main.selfApply

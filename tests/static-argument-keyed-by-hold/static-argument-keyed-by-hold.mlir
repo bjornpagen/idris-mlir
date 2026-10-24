@@ -14,9 +14,12 @@
 // exactly, and at the owned stage, where every count is placed, no function
 // made from @twice counts anything, as a copy that builds its pair of
 // static data does not and @twice itself, kept for a call passed a counted
-// string, would. @twice recurses, so it stays a function wherever it is
-// called, and @main calls it twice, so it returns to more than one place
-// and is no join point of one caller.
+// string, would. @main hands each pair to @first and writes out the string
+// it reads, so no result of @twice is left unread for dead-result removal
+// to empty it, and no pair's one use is a match a copy could take in.
+// @twice and @first recurse, so each stays a function wherever it is
+// called, and @main calls each twice, so each returns to more than one
+// place and is no join point of one caller.
 !Str = !idr.graded<many, static, !idr.str>
 #Pair = #idr.family<"Pair" [] {
     @MkPair (!idr.str, !idr.str)
@@ -40,6 +43,10 @@ idr.program @keyed root(@main) stage(higher) {
     }
     %x = idr.call @twice(%c, %n) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
     %y = idr.call @twice(%s, %n) <{tail_kind = nontail}> : (!Str, i64) -> !Pair
+    %fx = idr.call @first(%x, %n) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+    %fy = idr.call @first(%y, %n) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+    idr.io.put_str %fx : (!idr.str) -> ()
+    idr.io.put_str %fy : (!idr.str) -> ()
     idr.return
   }
   idr.func @twice(%s: !idr.str, %k: i64) -> !Pair {
@@ -58,4 +65,24 @@ idr.program @keyed root(@main) stage(higher) {
     }
     idr.return %r : !Pair
   } loc("twice")
+  idr.func @first(%p: !Pair, %k: i64) -> !idr.str {
+    %r = idr.lit.match %k : i64 -> (!idr.str) {
+    case 0(%zero: i64) {
+      %h = idr.data.match %p : !Pair -> (!idr.str) {
+      case @MkPair(%pair: !MkPair) {
+        %f = idr.data.field %pair[0] : !MkPair -> !idr.str
+        idr.yield %f : !idr.str
+      }
+      }
+      idr.yield %h : !idr.str
+    }
+    default(%d: i64) {
+      %one = arith.constant 1 : i64
+      %j = arith.subi %d, %one : i64
+      %again = idr.call @first(%p, %j) <{tail_kind = nontail}> : (!Pair, i64) -> !idr.str
+      idr.yield %again : !idr.str
+    }
+    }
+    idr.return %r : !idr.str
+  } loc("first")
 }
