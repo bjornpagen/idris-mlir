@@ -18,6 +18,8 @@
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
+
 using namespace mlir;
 using namespace idr;
 using namespace idr::families;
@@ -265,24 +267,22 @@ LogicalResult NumeralOfNatOp::verify() {
   return success();
 }
 
-// The number of a constant numeral's successor layers, read off its run of
-// cells, however long: each run's last cell holds the next constant of the
-// numeral, which the constant's verifier holds it to, until a cell of its
-// zero.
+// The number of a constant numeral's successor layers, read off its runs of
+// cells however long, by the one walk its fold reads too
+// (fold::numeralLayers): each run's last cell holds the next constant of
+// the numeral, which the constant's verifier holds it to, until a cell of
+// its zero.
 uint64_t idr::families::numeralValue(ConAttr numeral) {
-  uint64_t layers = 0;
-  for (ConAttr at = numeral; !at.getData().ctor(at.getTag()).fields.empty();) {
-    layers += at.getRunLength();
-    ArrayAttr last = at.getCell(at.getRunLength() - 1);
-    at = cast<ConAttr>(last[static_cast<unsigned>(at.getSpine())]);
-  }
-  return layers;
+  fold::InParts where(numeral.getContext());
+  std::optional<uint64_t> layers = fold::numeralLayers(where, numeral, numeral.getData());
+  assert(layers && "a constant numeral holds the next constant of the numeral in each successor");
+  return *layers;
 }
 
-// A constant numeral's value is its successor layers.
+// A constant numeral's value is its successor layers: its meaning's
+// attribute instance (Ops/Folds.h).
 OpFoldResult NumeralToNatOp::fold(FoldAdaptor adaptor) {
-  auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
-  if (!con)
-    return {};
-  return BigAttr::get(getContext(), APInt(64, families::numeralValue(con)));
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }

@@ -21,23 +21,13 @@ namespace idr {
 
 class DataConOp;
 class DataFieldOp;
-
-namespace families {
-
-// The field `read` takes from the constructor `con` built its value with:
-// the field given, where the read takes it at the type it was given, a
-// field used once only by the constructor's one read of it, and the value's
-// built state still holds where it is read; null otherwise. One answer for
-// the fold, over the input, and for the rule, over the e-graph's form.
-mlir::Value givenField(DataConOp con, DataFieldOp read);
-
-} // namespace families
-
 } // namespace idr
 
 namespace idr::egraph {
 
-// A field of a value an idr.data.con built is the field it was given.
+// A field read the e-graph keeps in place (a memo cell's, which a force
+// writes) of a value an idr.data.con built is the field it was given; a
+// read that floats is that field by its own fold's meaning, givenField's.
 struct FieldOfCon {
   using Root = DataFieldOp;
   static std::optional<Edit> decide(Root op, const OperandFacts &facts);

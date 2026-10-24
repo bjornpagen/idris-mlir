@@ -202,7 +202,7 @@ def Idr_DataFieldOp : Idr_Op<"data.field", [
   let extraClassDeclaration = [{
     ::idr::DataType getDataType();
     ::idr::Tag getTag();
-    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::DataFieldOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+    template <::idr::fold::Composite W> static ::std::optional<::idr::fold::Folded<W>> meaning(W & where, ::idr::DataFieldOp op, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -279,6 +279,9 @@ def Idr_NumeralToNatOp : Idr_Op<"numeral.to_nat", [
   let assemblyFormat = [{ $value attr-dict `:` type($value) `->` type($result) }];
   let hasVerifier = 1;
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::NumeralToNatOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_NumeralOfNatOp : Idr_Op<"numeral.of_nat", [
@@ -316,6 +319,7 @@ def Idr_LinCastOp : Idr_Op<"lin.cast", [
   ];
   let extraClassDeclaration = [{
     ::idr::QuantityChange getDirection();
+    template <::idr::fold::Composite W> static ::std::optional<::idr::fold::Folded<W>> meaning(W & where, ::idr::LinCastOp op, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1036,6 +1040,9 @@ def Idr_ArrayTieShapeOp : Idr_Op<"array.tie_shape", [
   let results = (outs AnyTypeOf<[AnyRankedTensor, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "a ranked tensor or a value array's buffer">:$result);
   let assemblyFormat = [{ $value `dims` `(` $dims `)` attr-dict `:` type($value) `->` type($result) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<::idr::fold::Folded<W>> meaning(W & where, ::idr::ArrayTieShapeOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_ConstantOp : Idr_Op<"constant", [
@@ -1686,6 +1693,9 @@ def Idr_StrPackOp : Idr_Op<"str.pack", [
   let results = (outs Type<CPred<"::idr::isStrValue($_self)">, "a string at any grade", "::mlir::Type">:$result);
   let assemblyFormat = [{ $list attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::StrPackOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_StrConcatOp : Idr_Op<"str.concat", [
@@ -1698,6 +1708,9 @@ def Idr_StrConcatOp : Idr_Op<"str.concat", [
   let results = (outs Type<CPred<"::idr::isStrValue($_self)">, "a string at any grade", "::mlir::Type">:$result);
   let assemblyFormat = [{ $list attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::StrConcatOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_StrLengthOp : Idr_Op<"str.length", [
@@ -2830,6 +2843,9 @@ def Idr_LazyForceOp : Idr_Op<"lazy.force", [
   let assemblyFormat = [{ $suspension attr-dict `:` type($suspension) `->` type($result) }];
   let hasVerifier = 1;
   let hasFolder = 1;
+  let extraClassDeclaration = [{
+    template <::idr::fold::Composite W> static ::std::optional<::idr::fold::Folded<W>> meaning(W & where, ::idr::LazyForceOp op, ::llvm::ArrayRef<typename W::Operand> constants);
+  }];
 }
 
 def Idr_FnApplyOp : Idr_Op<"fn.apply", [

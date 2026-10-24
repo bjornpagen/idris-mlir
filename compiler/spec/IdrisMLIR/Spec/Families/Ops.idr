@@ -173,7 +173,7 @@ fieldOp = MkOp
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
       , MkMember OnObject "::idr::Tag" "getTag" []
-      , compositeMeaning "::idr::DataFieldOp" ]
+      , structuralMeaning "::idr::DataFieldOp" ]
   , guards = []
   , specializations = []
   , laws = []
@@ -329,7 +329,7 @@ numeralToNatOp = MkOp
       , Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = [compositeMeaning "::idr::NumeralToNatOp"]
   , guards = []
   , specializations = []
   , laws = []

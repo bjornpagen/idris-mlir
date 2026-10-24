@@ -368,6 +368,21 @@ std::optional<llvm::SmallVector<Part, 2>> partsOf(llvm::ArrayRef<const Class *> 
   return parts;
 }
 
+// A constructor constant's first cell: a held attribute's run's, or a built
+// one; none for a closure.
+std::optional<std::variant<fold::RunCell, const Data *>> cellOfData(const Data &data) {
+  if (!data.tag())
+    return std::nullopt;
+  if (auto con = dyn_cast_or_null<ConAttr>(data.heldValue()))
+    return fold::RunCell{con, 0};
+  return &data;
+}
+
+// Part `index` of a built constant, none past its parts.
+const Part *partOf(const Data &built, unsigned index) {
+  return index < built.parts().size() ? &built.parts()[index] : nullptr;
+}
+
 // The one fold where a constant is what a class's facts say: read from an
 // operand's root class, and made as the facts the computing node says.
 // Nothing it reads is copied, and what the runtime makes is the graph's.
@@ -375,6 +390,22 @@ class InGraph {
 public:
   using Operand = const Class *;
   using Result = Facts;
+  // A value is a class of the function's graph, which a composite fold
+  // reads where it asks how an operand was built.
+  using Given = ClassId;
+
+  InGraph() = default;
+  explicit InGraph(const Function &function) : function(&function) {}
+
+  ClassId given(Value, const Class *cls) const { return function->idOf(*cls); }
+
+  template <class OpT>
+  std::optional<fold::Built<InGraph, OpT>> builtBy(Value, const Class *cls) const {
+    auto built = function->builtOf<OpT>(*cls);
+    if (!built)
+      return std::nullopt;
+    return fold::Built<InGraph, OpT>{built->first, std::move(built->second)};
+  }
 
   std::optional<APInt> integerOf(const Class *cls) const { return cls->facts.integer(); }
 
@@ -427,38 +458,113 @@ public:
   }
   std::optional<Facts> big(Type, idris_rt_big made) const { return factsOfBig(Big::adopt(made)); }
 
-  // The composite folds' place (FoldParts.h). A constructor's tag and field
-  // are read off the constant a class holds: a held attribute's where it
-  // holds the field as one (fieldHeld), a built one's part; a run's spine
-  // holds its rest only as an attribute yet to be made, which the graph
-  // never makes, so that field stays a read.
-  std::optional<Tag> tagOf(const Class *cls) const {
-    if (const Data *data = dataOf(cls))
-      return data->tag();
-    return std::nullopt;
+  // The composite folds' place (FoldParts.h). A constructor constant is
+  // read a cell at a time: a held attribute's cells where its run holds
+  // them, a built one's parts, so a walk down either makes no attribute. A
+  // field a cell holds is a constant of the graph: a held attribute's field
+  // read as an op holding it is, a built one's part; the spine of a held
+  // run's cell is the next cell, which no attribute holds until one is
+  // made, which the graph never makes, so that field stays a read.
+  using Cell = std::variant<fold::RunCell, const Data *>;
+
+  std::optional<Cell> cellOf(const Class *cls) const {
+    const Data *data = dataOf(cls);
+    return data ? cellOfData(*data) : std::nullopt;
+  }
+
+  Tag tagAt(const Cell &cell) const {
+    return match(
+        cell, [](const fold::RunCell &held) { return held.tag(); },
+        [](const Data *built) { return *built->tag(); });
+  }
+
+  std::uint64_t afterAt(const Cell &cell) const {
+    return match(
+        cell, [](const fold::RunCell &held) { return held.after(); },
+        [](const Data *) -> std::uint64_t { return 0; });
+  }
+
+  Cell lastAt(const Cell &cell) const {
+    return match(
+        cell, [](const fold::RunCell &held) -> Cell { return held.last(); },
+        [](const Data *built) -> Cell { return built; });
+  }
+
+  std::optional<Cell> nextAt(const Cell &cell, unsigned index) const {
+    return match(
+        cell,
+        [&](const fold::RunCell &held) -> std::optional<Cell> {
+          if (std::optional<fold::RunCell> next = held.next(index))
+            return Cell(*next);
+          return std::nullopt;
+        },
+        [&](const Data *built) -> std::optional<Cell> {
+          const Part *part = partOf(*built, index);
+          const auto *constant = part ? std::get_if<Constant>(&part->value) : nullptr;
+          const Data *data = constant ? std::get_if<Data>(constant) : nullptr;
+          return data ? cellOfData(*data) : std::nullopt;
+        });
+  }
+
+  std::optional<APInt> integerAt(const Cell &cell, unsigned index) const {
+    return match(
+        cell, [&](const fold::RunCell &held) { return fold::integerOf(held.field(index)); },
+        [&](const Data *built) -> std::optional<APInt> {
+          const Part *part = partOf(*built, index);
+          const auto *integer = part ? std::get_if<APInt>(&part->value) : nullptr;
+          return integer ? std::optional(*integer) : std::nullopt;
+        });
+  }
+
+  // A held attribute's string is made for the read, kept by `scope`; a
+  // built part's is the graph's own, borrowed.
+  std::optional<const idris_rt_str *> strAt(fold::Scope &scope, const Cell &cell,
+                                            unsigned index) const {
+    return match(
+        cell, [&](const fold::RunCell &held) { return fold::strOf(scope, held.field(index)); },
+        [&](const Data *built) -> std::optional<const idris_rt_str *> {
+          const Part *part = partOf(*built, index);
+          const auto *constant = part ? std::get_if<Constant>(&part->value) : nullptr;
+          const Text *text = constant ? std::get_if<Text>(constant) : nullptr;
+          return text ? std::optional(text->get()) : std::nullopt;
+        });
   }
 
   std::optional<Facts> fieldOf(const Class *cls, unsigned index, Type) const {
     const Data *data = dataOf(cls);
-    if (!data || !data->tag())
+    std::optional<Cell> cell = data ? cellOfData(*data) : std::nullopt;
+    if (!cell)
       return std::nullopt;
-    if (auto con = dyn_cast_or_null<ConAttr>(data->heldValue())) {
-      mlir::Attribute field = fold::fieldHeld(con, index);
-      return field ? std::optional<Facts>(heldFacts(field)) : std::nullopt;
-    }
-    if (index >= data->parts().size())
-      return std::nullopt;
-    return factsOfPart(data->parts()[index]);
+    return match(
+        *cell,
+        [&](const fold::RunCell &held) -> std::optional<Facts> {
+          mlir::Attribute field = held.field(index);
+          return field ? std::optional<Facts>(heldFacts(field)) : std::nullopt;
+        },
+        [&](const Data *built) -> std::optional<Facts> {
+          const Part *part = partOf(*built, index);
+          return part ? std::optional<Facts>(factsOfPart(*part)) : std::nullopt;
+        });
   }
 
   // The leaf rule of a constant's parts over the graph's values: a word of
-  // exactly its field's type, or a constant idr.constant holds at it.
+  // exactly its field's type; a big or a natural in the small range, which
+  // stands in its word wherever it is used any number of times; or a
+  // constant idr.constant holds at it. An attribute's literal check (a
+  // natural is never negative, and is its closed index) refuses a literal
+  // written by hand; a value the graph knows of a class of the type is a
+  // value of that type, which its type proves, so it is the type's literal
+  // and nothing tests it again.
   bool buildable(const Class *cls, Type type) const {
     if (cls->type != type)
       return false;
-    if (std::optional<APInt> value = cls->facts.integer())
-      return isFieldType(type) &&
+    if (std::optional<APInt> value = cls->facts.integer()) {
+      std::optional<IntegerForm> form = integerFormOf(type);
+      if (form == IntegerForm::Small)
+        return fold::constantStandsAt(type, fold::Storage::Word);
+      return form == IntegerForm::Word && isFieldType(type) &&
              value->getBitWidth() == ConstantIntRanges::getStorageBitwidth(type);
+    }
     return cls->facts.constant && placedAt(*cls->facts.constant, type);
   }
 
@@ -487,6 +593,10 @@ public:
     return Facts{std::nullopt, *cls->facts.constant};
   }
 
+  // The function whose graph a composite fold reads; none where only
+  // constants are read.
+  const Function *function = nullptr;
+
   // The op computes only where each of its guards holds of the graph's
   // values (each guard's own decision, read off its op).
   template <class Op>
@@ -512,7 +622,8 @@ std::optional<Facts> meaningOf(llvm::ArrayRef<const Class *> operands, Type type
 }
 
 template <class Op>
-std::optional<Facts> ofInput(Operation *op, Type type, llvm::ArrayRef<const Class *> operands) {
+std::optional<Facts> ofInput(const Function &, Operation *op, Type type,
+                             llvm::ArrayRef<const Class *> operands) {
   return meaningOf<Op>(operands, type, cast<Op>(op).getProperties());
 }
 
@@ -522,17 +633,40 @@ std::optional<Facts> ofBuilt(Type type, llvm::ArrayRef<const Class *> operands) 
 }
 
 // An op of ours whose fold is one of constants made of constants, its
-// condition its `meaning` over a place (Ops/Folds.h); no rule builds one,
-// so it has no meaning of a built node.
+// condition its `meaning` over a place (Ops/Folds.h), which gives a
+// constant; or one whose fold may give a value instead (fold::Folded). No
+// rule builds one, so it has no meaning of a built node.
 template <class Op>
 concept Composes = requires(InGraph &where, Op op, llvm::ArrayRef<const Class *> constants) {
   { Op::meaning(where, op, constants) } -> std::same_as<std::optional<Facts>>;
 };
+template <class Op>
+concept Gives = requires(InGraph &where, Op op, llvm::ArrayRef<const Class *> constants) {
+  { Op::meaning(where, op, constants) } -> std::same_as<std::optional<fold::Folded<InGraph>>>;
+};
 
 template <class Op>
-std::optional<Facts> composed(Operation *op, Type, llvm::ArrayRef<const Class *> operands) {
-  InGraph where;
-  return Op::meaning(where, cast<Op>(op), operands);
+std::optional<Facts> composed(const Function &function, Operation *op, Type,
+                              llvm::ArrayRef<const Class *> operands) {
+  InGraph where(function);
+  if constexpr (Gives<Op>) {
+    std::optional<fold::Folded<InGraph>> folded = Op::meaning(where, cast<Op>(op), operands);
+    if (Facts *constant = folded ? std::get_if<Facts>(&*folded) : nullptr)
+      return std::move(*constant);
+    return std::nullopt;
+  } else {
+    return Op::meaning(where, cast<Op>(op), operands);
+  }
+}
+
+template <class Op>
+std::optional<ClassId> givenBy(const Function &function, Operation *op,
+                               llvm::ArrayRef<const Class *> operands) {
+  InGraph where(function);
+  std::optional<fold::Folded<InGraph>> folded = Op::meaning(where, cast<Op>(op), operands);
+  if (const ClassId *value = folded ? std::get_if<ClassId>(&*folded) : nullptr)
+    return *value;
+  return std::nullopt;
 }
 
 // Each op of ours whose meaning is its runtime function, by its trait, or
@@ -542,9 +676,13 @@ void runtimeMeaningsOf(std::vector<std::pair<TypeID, Meaning>> &out) {
   (
       [&] {
         if constexpr (fold::Folds<Ops>)
-          out.emplace_back(TypeID::get<Ops>(), Meaning{&ofInput<Ops>, &ofBuilt<Ops>});
+          out.emplace_back(TypeID::get<Ops>(), Meaning{&ofInput<Ops>, &ofBuilt<Ops>, std::nullopt});
         else if constexpr (Composes<Ops>)
-          out.emplace_back(TypeID::get<Ops>(), Meaning{&composed<Ops>, std::nullopt});
+          out.emplace_back(TypeID::get<Ops>(),
+                           Meaning{&composed<Ops>, std::nullopt, std::nullopt});
+        else if constexpr (Gives<Ops>)
+          out.emplace_back(TypeID::get<Ops>(),
+                           Meaning{&composed<Ops>, std::nullopt, &givenBy<Ops>});
       }(),
       ...);
 }
@@ -718,7 +856,8 @@ struct OnDoubles<arith::CmpFOp> {
 };
 
 template <class Op>
-std::optional<Facts> onDoubles(Operation *op, Type type, llvm::ArrayRef<const Class *> operands) {
+std::optional<Facts> onDoubles(const Function &, Operation *op, Type type,
+                               llvm::ArrayRef<const Class *> operands) {
   return OnDoubles<Op>::of(cast<Op>(op), operands, type);
 }
 
@@ -726,7 +865,8 @@ std::optional<Facts> onDoubles(Operation *op, Type type, llvm::ArrayRef<const Cl
 // of a built node.
 template <class... Ops>
 void doubleMeaningsOf(table::OpList<Ops...>, std::vector<std::pair<TypeID, Meaning>> &out) {
-  (out.emplace_back(TypeID::get<Ops>(), Meaning{&onDoubles<Ops>, std::nullopt}), ...);
+  (out.emplace_back(TypeID::get<Ops>(), Meaning{&onDoubles<Ops>, std::nullopt, std::nullopt}),
+   ...);
 }
 
 //===----------------------------------------------------------------------===//

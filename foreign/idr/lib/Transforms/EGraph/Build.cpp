@@ -163,11 +163,14 @@ void Function::build() {
         }
         Kinds::OfOp of = kinds.of(op);
         std::optional<MeaningOfInput> meaning;
-        if (of.meaning)
+        std::optional<GivenOfInput> given;
+        if (of.meaning) {
           meaning = of.meaning->ofInput;
+          given = of.meaning->given;
+        }
         Identity identity = entry == Entry::OwnIdentity ? Identity::Own : Identity::Shared;
-        classOf[numbering.at(result)] =
-            insert(node::Input{op, of.kind, identity, meaning}, result.getType(), operands);
+        classOf[numbering.at(result)] = insert(node::Input{op, of.kind, identity, meaning, given},
+                                               result.getType(), operands);
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing

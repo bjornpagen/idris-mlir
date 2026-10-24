@@ -367,7 +367,7 @@ forceOp = MkOp
       , TypeOf (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = [structuralMeaning "::idr::LazyForceOp"]
   , guards = []
   , specializations = []
   , laws = []

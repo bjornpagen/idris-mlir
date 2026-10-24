@@ -89,14 +89,10 @@ Carry ArrayTieShapeOp::getCarry() { return Carry::Free; }
 // Its type is its operand's, as its inference says, whatever that is.
 Type ArrayTieShapeOp::getCarriedType(Type operand) { return operand; }
 
-// No dynamic dimension, nothing to say; the same sizes said twice, once.
-OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor) {
-  if (getDims().empty())
-    return getValue();
-  if (auto inner = getValue().getDefiningOp<ArrayTieShapeOp>();
-      inner && inner.getDims() == getDims())
-    return getValue();
-  return {};
+// Its meaning's attribute instance (Ops/Folds.h).
+OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor adaptor) {
+  fold::InParts where(getContext());
+  return fold::foldResultOf(meaning(where, *this, adaptor.getOperands()));
 }
 
 // Each dimension: a static one's size, a dynamic one's operand. Upstream

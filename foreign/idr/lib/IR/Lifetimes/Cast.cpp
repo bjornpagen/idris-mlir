@@ -62,16 +62,10 @@ QuantityChange LinCastOp::getDirection() {
   return usesOf(getType()) == Uses::Once ? QuantityChange::Enter : QuantityChange::Leave;
 }
 
-// The QTT rule: a cast back of a cast whose result nothing else uses is the
-// value itself, nothing having run in the linear position; a value cast
-// into a linear position and used elsewhere too stays, since folding it
-// would use the value twice. The value lives at least as long as either
-// cast states, so what used the outer cast may use it.
-OpFoldResult LinCastOp::fold(FoldAdaptor) {
-  auto inner = getValue().getDefiningOp<LinCastOp>();
-  if (!inner || inner.getValue().getType() != getType() || !inner->hasOneUse())
-    return {};
-  return inner.getValue();
+// Its meaning's attribute instance (Ops/Folds.h).
+OpFoldResult LinCastOp::fold(FoldAdaptor adaptor) {
+  fold::InParts where(getContext());
+  return fold::foldResultOf(meaning(where, *this, adaptor.getOperands()));
 }
 
 void LinCastOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,

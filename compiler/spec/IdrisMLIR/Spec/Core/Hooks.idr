@@ -68,6 +68,20 @@ compositeMeaning opClass =
     [ param "W &" "where", param opClass "op"
     , param "::llvm::ArrayRef<typename W::Operand>" "constants" ]
 
+||| A fold that may give a value of the program instead of a constant (a
+||| field of a constructor an op built, a cast of a cast, a force of an
+||| evaluated suspension), its condition written once over where values and
+||| constants live, as `compositeMeaning`'s: what it gives is a constant, or
+||| an operand's value, of its own op or of the op that built one
+||| (`fold::Folded`).
+public export
+structuralMeaning : (opClass : Code) -> Member
+structuralMeaning opClass =
+  MkTemplateMember (MkTypeParam "::idr::fold::Composite" "W" ::: []) OnClass
+    "::std::optional<::idr::fold::Folded<W>>" "meaning"
+    [ param "W &" "where", param opClass "op"
+    , param "::llvm::ArrayRef<typename W::Operand>" "constants" ]
+
 ||| What one argument of a custom directive is, which decides the C++ type
 ||| its parse and print take: an operand, an operand group, its type, its
 ||| type list, an attribute, a region, a group of regions, or any of these

@@ -17,7 +17,10 @@
 // runtime function, the constant that function computes from its
 // operands' constants, the one fold's value instance (IR/Fold.h), or, for
 // an op of upstream's on Doubles whose result IEEE 754 fixes, the
-// operation its own fold applies, so no attribute is made. A node a right
+// operation its own fold applies, so no attribute is made. An op whose
+// fold gives the value of an operand, of its own or of the op that built
+// one (a field a constructor was given, a cast of a cast), is that value's
+// class, with no node of its own. A node a right
 // side builds has no op to ask and none is made for it: its interval is
 // its kind's range function over its operands' intervals, from the
 // generated table, and its constant its kind's runtime meaning over
@@ -240,13 +243,21 @@ struct Facts;
 // its kind's default properties. Upstream's ops on Doubles have the first
 // alone: no rule builds one, and a pattern carries no predicate or
 // rounding for one to be built with.
-using MeaningOfInput = std::optional<Facts> (*)(mlir::Operation *op, mlir::Type type,
+// A meaning of an input op reads the function's graph where it asks how an
+// operand was built (the composite folds' `builtBy`).
+using MeaningOfInput = std::optional<Facts> (*)(const Function &function, mlir::Operation *op,
+                                                mlir::Type type,
                                                 llvm::ArrayRef<const Class *> operands);
 using MeaningOfBuilt = std::optional<Facts> (*)(mlir::Type type,
+                                                llvm::ArrayRef<const Class *> operands);
+// The value an op of the input gives in place of a constant, where its fold
+// gives an operand's value (fold::Folded): the class of that value.
+using GivenOfInput = std::optional<ClassId> (*)(const Function &function, mlir::Operation *op,
                                                 llvm::ArrayRef<const Class *> operands);
 struct Meaning {
   MeaningOfInput ofInput;
   std::optional<MeaningOfBuilt> ofBuilt;
+  std::optional<GivenOfInput> given;
 };
 
 // A guard op's decision of its condition over its operands' classes, each
@@ -301,6 +312,7 @@ struct Input {
   std::optional<std::uint16_t> kind;
   Identity identity;
   std::optional<MeaningOfInput> meaning;
+  std::optional<GivenOfInput> given;
 };
 // An op a rule's right side built: the op of its kind the write-back would
 // make, of its type and the op's default properties. A rule makes nothing
@@ -623,6 +635,15 @@ public:
   footprint::Vector<Pending> rewrites() const;
   static void rewriteSkeleton(const Pending &pending, mlir::RewriterBase &rewriter);
   void elaborate(mlir::RewriterBase &rewriter);
+
+  // What the composite folds read of the graph as it is built: a class's
+  // id, and the op of class `OpT` of the input a member of it is, one
+  // computable wherever the class is used, with its operands' classes.
+  ClassId idOf(const Class &cls) const {
+    return ClassId(static_cast<std::uint32_t>(&cls - classes.data()));
+  }
+  template <class OpT>
+  std::optional<std::pair<OpT, llvm::SmallVector<ClassId, 4>>> builtOf(const Class &cls) const;
 
   // What a skeleton rule reads (OperandFacts), once the graph is settled.
   const Class &classOfValue(mlir::Value value) const;

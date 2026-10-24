@@ -311,7 +311,9 @@ linCast = MkOp
                       , Lit "->", TypeOf (OfGroup (ResultRef FZ)) ]
   , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]]
   , defaultBuilders = WithDefaults
-  , members = [MkMember OnObject "::idr::QuantityChange" "getDirection" []]
+  , members =
+      [ MkMember OnObject "::idr::QuantityChange" "getDirection" []
+      , structuralMeaning "::idr::LinCastOp" ]
   , guards = []
   , specializations = []
   , laws = []

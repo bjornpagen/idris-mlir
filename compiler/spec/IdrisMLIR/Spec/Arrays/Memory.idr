@@ -437,7 +437,7 @@ tieShapeOp = MkOp
       , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = [structuralMeaning "::idr::ArrayTieShapeOp"]
   , guards = []
   , specializations = []
   , laws = []

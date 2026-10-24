@@ -227,17 +227,36 @@ unsigned ConAttr::fieldOfCell(unsigned cell, unsigned position) const {
   return cell + 1 == getRunLength() || position < getSpine() ? position : position + 1;
 }
 
-Attribute idr::fold::fieldHeld(ConAttr constant, unsigned index) {
-  auto spine = static_cast<unsigned>(constant.getSpine());
-  if (constant.getRunLength() == 1)
-    return constant.getCell(0)[index];
-  if (index != spine)
-    return constant.getCell(0)[index < spine ? index : index - 1];
-  return {};
+Tag idr::fold::RunCell::tag() const { return run.getTag(); }
+
+std::uint64_t idr::fold::RunCell::after() const { return run.getRunLength() - 1 - at; }
+
+fold::RunCell idr::fold::RunCell::last() const { return {run, run.getRunLength() - 1}; }
+
+// The last cell holds every field; a cell before it holds every field but
+// the spine, which is the next cell, so a field after the spine sits one
+// position earlier.
+Attribute idr::fold::RunCell::field(unsigned index) const {
+  ArrayAttr cell = run.getCell(at);
+  if (at + 1 == run.getRunLength())
+    return cell[index];
+  auto spine = static_cast<unsigned>(run.getSpine());
+  if (index == spine)
+    return {};
+  return cell[index < spine ? index : index - 1];
+}
+
+std::optional<fold::RunCell> idr::fold::RunCell::next(unsigned index) const {
+  if (at + 1 < run.getRunLength() && index == run.getSpine())
+    return RunCell{run, at + 1};
+  auto con = dyn_cast_if_present<ConAttr>(field(index));
+  if (!con)
+    return std::nullopt;
+  return RunCell{con, 0};
 }
 
 Attribute ConAttr::getField(unsigned index) const {
-  if (Attribute held = fold::fieldHeld(*this, index))
+  if (Attribute held = fold::RunCell{*this, 0}.field(index))
     return held;
   // The run from the second cell, canonical as this one is: its cells are
   // this one's, held already, so only the attribute is new.

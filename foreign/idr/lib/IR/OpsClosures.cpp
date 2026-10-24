@@ -241,19 +241,10 @@ LogicalResult LazyDelayOp::verify() {
 // idr.lazy.force
 //===----------------------------------------------------------------------===//
 
-// The force of an evaluated suspension is the value it holds. A value
-// used once is taken this way only by the suspension's one force, which
-// would otherwise use it twice.
-OpFoldResult LazyForceOp::fold(FoldAdaptor) {
-  auto delay = getSuspension().getDefiningOp<LazyDelayOp>();
-  if (!delay)
-    return {};
-  Value value = delay.getValue();
-  if (value.getType() != getType())
-    return {};
-  if (isLinear(value.getType()) && !delay.getResult().hasOneUse())
-    return {};
-  return value;
+// Its meaning's attribute instance (Ops/Folds.h).
+OpFoldResult LazyForceOp::fold(FoldAdaptor adaptor) {
+  fold::InParts where(getContext());
+  return fold::foldResultOf(meaning(where, *this, adaptor.getOperands()));
 }
 
 Value LazyForceOp::getLabelCarrier() { return getSuspension(); }

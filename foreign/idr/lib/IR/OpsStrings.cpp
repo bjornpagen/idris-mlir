@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The string ops: the ranges of those that give a number, and the folds of
 // the two builders that call no runtime function of their own, a list's
-// pack and concat, which build their string once from a constant list.
+// pack and concat, which build their string once from a constant list by
+// their meanings (Ops/Folds.h).
 // Every other string op folds through its runtime function (Fold.h); the
 // rewrites of output and of a head are rules of the specification.
 
@@ -31,10 +32,16 @@ void StrScalarBytesOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
   setResultRange(getResult(), idr::ranges::nonNegative(64, 1, 4));
 }
 
+// Each builder's meaning's attribute instance (Ops/Folds.h): the string
+// the runtime builds of a constant list, read off its cells in place.
 OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
-  return fold::held(fold::stringOfList(getContext(), adaptor.getList()), getResult().getType());
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 OpFoldResult StrConcatOp::fold(FoldAdaptor adaptor) {
-  return fold::held(fold::stringOfList(getContext(), adaptor.getList()), getResult().getType());
+  fold::InParts where(getContext());
+  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
+  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }

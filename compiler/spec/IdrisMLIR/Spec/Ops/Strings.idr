@@ -382,7 +382,8 @@ listElement output bytes scalars into = MkSpecialized "ListElement"
 public export
 strPack : Op 1 1 0 0
 strPack =
-  { specializations := [listElement putCharOp.mnemonic strScalarBytes.mnemonic OneEach strPutChar] }
+  { specializations := [listElement putCharOp.mnemonic strScalarBytes.mnemonic OneEach strPutChar]
+  , members := [compositeMeaning "::idr::StrPackOp"] }
   (listBuilder "str.pack" (SatisfiesType charListP) (says "the string of a list of characters, built once"))
 
 ||| A string is written as io.put_str writes one, and is as many bytes and
@@ -390,7 +391,8 @@ strPack =
 public export
 strConcat : Op 1 1 0 0
 strConcat =
-  { specializations := [listElement putStrOp.mnemonic strBytesLength.mnemonic (CountedBy strLength.mnemonic) strPutStr] }
+  { specializations := [listElement putStrOp.mnemonic strBytesLength.mnemonic (CountedBy strLength.mnemonic) strPutStr]
+  , members := [compositeMeaning "::idr::StrConcatOp"] }
   (listBuilder "str.concat" (SatisfiesType strListP) (says "the concatenation of a list of strings, built once"))
 
 public export

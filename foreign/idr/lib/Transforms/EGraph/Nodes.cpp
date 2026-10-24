@@ -420,7 +420,7 @@ std::optional<Facts> Function::meant(const What &what, Type type,
   std::optional<Facts> facts = match(
       what,
       [&](const node::Input &op) -> std::optional<Facts> {
-        return op.meaning ? (*op.meaning)(op.origin, type, constants) : std::nullopt;
+        return op.meaning ? (*op.meaning)(*this, op.origin, type, constants) : std::nullopt;
       },
       [&](const node::Built &op) -> std::optional<Facts> {
         const std::optional<MeaningOfBuilt> &meaning = kinds.built[op.kind];
@@ -500,6 +500,17 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
     unlay(probe.children);
     if (found)
       return forest.find(classOfNode(*found));
+  }
+  // An op whose fold gives the value of one of its operands, or of an
+  // operand of the op that built one, is that value's class, with no node
+  // of its own.
+  if (op.given) {
+    SmallVector<const Class *, 4> roots;
+    for (ClassId operand : operands)
+      roots.push_back(&at(forest.rootOf(operand)));
+    if (std::optional<ClassId> given = (*op.given)(*this, op.origin, roots);
+        given && at(forest.rootOf(*given)).type == type)
+      return forest.find(*given);
   }
   // A call's callee, resolved once here, whose facts are read by its id.
   std::optional<solver::FunctionId> callee;

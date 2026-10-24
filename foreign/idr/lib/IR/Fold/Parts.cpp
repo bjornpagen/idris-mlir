@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The attribute place of the composite folds (FoldParts.h): a constant
-// constructor's tag and fields as the attribute holds them, and a
+// constructor's cells and fields as the attribute holds them, and a
 // constructor or closure made of attributes, where idr.constant holds it.
 
 #include "idr/IR/IdrDialect.h"
@@ -13,9 +13,9 @@ using namespace mlir;
 
 namespace idr::fold {
 
-std::optional<Tag> InParts::tagOf(Attribute constant) const {
+std::optional<RunCell> InParts::cellOf(Attribute constant) const {
   auto con = dyn_cast_or_null<ConAttr>(constant);
-  return con ? std::optional<Tag>(con.getTag()) : std::nullopt;
+  return con ? std::optional<RunCell>(RunCell{con, 0}) : std::nullopt;
 }
 
 // MLIR's folding drivers materialize the attribute at the result's type,

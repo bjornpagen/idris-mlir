@@ -66,8 +66,8 @@ inline std::optional<RegionId> Function::needs(const Node &node) const {
 // rule's root does not see it. An op a rule built has no op of the input
 // to read, and a leaf is the value a skeleton op or a region gives.
 template <class OpT>
-OpT Function::memberBuiltBy(mlir::Value value) const {
-  const Class &cls = at(*classOf[numbering.at(value)]);
+std::optional<std::pair<OpT, llvm::SmallVector<ClassId, 4>>>
+Function::builtOf(const Class &cls) const {
   for (std::optional<NodeId> member = cls.first; member; member = nextMember[member->index()]) {
     const Node &node = at(*member);
     if (needs(node) != cls.reach)
@@ -76,10 +76,20 @@ OpT Function::memberBuiltBy(mlir::Value value) const {
         node.what, [](const node::Input &input) { return llvm::dyn_cast<OpT>(input.origin); },
         [](const OneOf<node::Built, node::Leaf, node::Held, node::Integer,
                        node::Known> auto &) { return OpT(); });
-    if (op)
-      return op;
+    if (!op)
+      continue;
+    llvm::SmallVector<ClassId, 4> operands;
+    for (ClassId operand : childrenOf(node))
+      operands.push_back(forest.rootOf(operand));
+    return std::pair<OpT, llvm::SmallVector<ClassId, 4>>{op, std::move(operands)};
   }
-  return OpT();
+  return std::nullopt;
+}
+
+template <class OpT>
+OpT Function::memberBuiltBy(mlir::Value value) const {
+  auto built = builtOf<OpT>(at(*classOf[numbering.at(value)]));
+  return built ? built->first : OpT();
 }
 
 // The constant the value's class is, as its facts say it: an integer, the

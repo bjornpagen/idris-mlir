@@ -30,10 +30,8 @@
 // asks first. A Double the function gives as a NaN is no constant (ieeeOn).
 //
 // Besides: what a constant constructor or closure holds in a field or
-// capture (`buildable`), the string a constant list packs or concatenates
-// to (the folds of str.pack and str.concat), where idr.constant holds
-// static data, and which floating-point values a fold may make constants of
-// at all.
+// capture (`buildable`), where idr.constant holds static data, and which
+// floating-point values a fold may make constants of at all.
 #ifndef IDR_IR_FOLD_H
 #define IDR_IR_FOLD_H
 
@@ -393,11 +391,6 @@ concept Folds = requires { requires Op::template hasTrait<RuntimeFolds>(); };
 // value idr.constant holds at it. The one leaf rule of a constant's parts,
 // which idr.constant's verifier and the folders of the constructions ask.
 bool buildable(mlir::Attribute value, mlir::Type type);
-
-// The string a constant list of characters packs to, or a constant list of
-// strings concatenates to, as the runtime builds it; null for any other
-// constant.
-mlir::Attribute stringOfList(mlir::MLIRContext *context, mlir::Attribute list);
 
 } // namespace idr::fold
 

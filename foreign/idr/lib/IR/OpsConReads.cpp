@@ -87,31 +87,18 @@ void DataFieldOp::setStatedLifetime(Value made, Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
-// A field of a known constructor: the field an idr.data.con was given
-// (givenField), which the e-graph reads as its rule FieldOfCon. Or a field
-// of a constant: its meaning's attribute instance (Ops/Folds.h).
+// Its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult DataFieldOp::fold(FoldAdaptor adaptor) {
-  if (auto con = getValue().getDefiningOp<DataConOp>()) {
-    if (Value field = families::givenField(con, *this))
-      return field;
-    return {};
-  }
   fold::InParts where(getContext());
-  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
-  return folded ? OpFoldResult(*folded) : OpFoldResult();
+  return fold::foldResultOf(meaning(where, *this, adaptor.getOperands()));
 }
 
 //===----------------------------------------------------------------------===//
 // idr.data.tag
 //===----------------------------------------------------------------------===//
 
-// The constructor of the idr.data.con that built the value where its state
-// still holds. Else its meaning's attribute instance (Ops/Folds.h): the one
-// constructor the type leaves possible, or a constant's.
+// Its meaning's attribute instance (Ops/Folds.h).
 OpFoldResult DataTagOp::fold(FoldAdaptor adaptor) {
-  if (auto con = getValue().getDefiningOp<DataConOp>();
-      con && builtStateHolds(getValue(), getOperation()))
-    return IntegerAttr::get(getType(), static_cast<int64_t>(con.getTag()));
   fold::InParts where(getContext());
   std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
   return folded ? OpFoldResult(*folded) : OpFoldResult();
