@@ -96,14 +96,61 @@ posixName : Signal -> String
 posixName Abort = "ABRT"
 posixName BrokenPipe = "PIPE"
 
-||| How a run that ends with `e` must end, as a program test compares it
-||| with what the shell reported (Serve.statusWords): `code <n>`, or
-||| `signal <name>`.
+||| How a parent saw a run end: by a status an ending gives (an exit
+||| status, or a signal an ending raises), the specification's, compared by
+||| value; or by a signal no ending raises, which no case expects (a fault
+||| of the program), named as the host names it, for the message alone.
+public export
+data Seen = Saw Status | SawUnraised String
+
+||| How a parent sees a run that ends with `e` end.
+export
+seenAs : Ending -> Seen
+seenAs e = Saw (status e)
+
+||| How a parent saw a run end that exited with status N.
+export
+sawExit : Fin 256 -> Seen
+sawExit n = Saw (Code n)
+
+||| How a parent saw a run end that the host reports ended by the signal it
+||| names NAME: the signal of an ending POSIX names so, or another. The one
+||| place the host's name for a signal is read.
+export
+sawSignal : (name : String) -> Seen
+sawSignal name =
+  maybe (SawUnraised name) (Saw . Raised) (find (\s => posixName s == name) (forget signalClosed.every))
+
+||| Two statuses are one: the same exit status, or the same signal, a
+||| signal known by its place in the specification's set of them.
+sameStatus : Status -> Status -> Bool
+sameStatus (Code m) (Code n) = m == n
+sameStatus (Raised a) (Raised b) = position signalClosed a == position signalClosed b
+sameStatus _ _ = False
+
+||| Whether a run seen to end as SEEN ended as a run that ends with `e`
+||| does.
+export
+sawEnding : (seen : Seen) -> (e : Ending) -> Bool
+sawEnding (Saw s) e = sameStatus s (status e)
+sawEnding (SawUnraised _) _ = False
+
+||| A status as a message and a script write it: `code <n>`, or
+||| `signal <name>`, the signal by the name POSIX gives it.
+statusText : Status -> String
+statusText (Code n) = "code " ++ show (finToNat n)
+statusText (Raised s) = "signal " ++ posixName s
+
+||| How a parent saw a run end, as a message writes it.
+export
+seenText : Seen -> String
+seenText (Saw s) = statusText s
+seenText (SawUnraised name) = "signal " ++ name
+
+||| The status a run that ends with `e` ends with, as a message writes it.
 export
 statusLine : Ending -> String
-statusLine e = case status e of
-  Code n => "code " ++ show (finToNat n)
-  Raised s => "signal " ++ posixName s
+statusLine e = statusText (status e)
 
 ||| The status a run that ends as TEXT says ends with, as `statusLine`
 ||| writes it (`runtests --ending-status`); none for text that is no

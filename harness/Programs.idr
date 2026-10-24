@@ -185,9 +185,10 @@ compared e dir file ours name stream tolerance = do
 |||                      from expected-stdout's
 |||
 ||| The status the run must end with, an exit code or a signal, is computed
-||| from the ending, from the specification's table: no status is spelled
-||| here. What the run gave is kept in the work directory's case-runs, for
-||| the run of the same program compiled with actions skipped. Nothing when
+||| from the ending, from the specification's table, and compared by value
+||| with the one the run ended with: no status is spelled here. What the
+||| run gave is kept in the work directory's case-runs, for the run of the
+||| same program compiled with actions skipped. Nothing when
 ||| the run gives what the case says, and a line per difference otherwise,
 ||| each naming the case.
 e2eCase : Env -> (exe, dir, name : String) -> IO (List String)
@@ -201,8 +202,9 @@ e2eCase e exe dir name = do
       input <- (\there => if there then FromFile stdin else NoInput) <$> isFile stdin
       status <- boundedOn e [exe] input (ToFile (kept ++ ".out")) (Apart (ToFile (kept ++ ".err")))
       ignore (writeFile (kept ++ ".status") (show (raw status) ++ "\n"))
-      let ended = if statusWords status == statusLine expected then []
-                  else ["case " ++ name ++ ": ended by " ++ statusWords status ++ ", expected " ++ statusLine expected]
+      let ran = seenOf status
+      let ended = if sawEnding ran expected then []
+                  else ["case " ++ name ++ ": ended by " ++ seenText ran ++ ", expected " ++ statusLine expected]
       libm <- (\there => if there then LibmLines (dir ++ "/libm-lines") else Exactly) <$> exists (dir ++ "/libm-lines")
       out <- compared e dir "expected-stdout" (kept ++ ".out") name "stdout" libm
       err <- compared e dir "expected-stderr" (kept ++ ".err") name "stderr" Exactly

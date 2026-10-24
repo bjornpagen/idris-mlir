@@ -394,22 +394,36 @@ unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
 // and fusions; none for a binder a pass made.
 std::optional<BinderAttr> identityOf(mlir::Location loc);
 
-// The uses Idris proved of each binder of the emitted module, by the
-// binder's identity, which passes copy with the value as MLIR copies
-// locations. A typed identity, never a printed key: no two binders share
-// one, so none is dropped.
-using ProvedUses = llvm::DenseMap<BinderAttr, Uses>;
+// A parameter of a function of the emitted module that Idris proved used
+// once, by its identity, and that function's symbol.
+struct OnceParameter {
+  BinderAttr identity;
+  mlir::StringAttr function;
+};
 
-// The uses of every binder of `emitted` that carries an identity: the
-// parameters of its functions, lambdas among them, the binders Emit gives
-// one. Fails, at the second binder, when Emit gave two binders one
-// identity.
+// What Idris proved of the binders of the emitted module: the uses of
+// each, by its identity, which passes copy with the value as MLIR copies
+// locations (a typed identity, never a printed key: no two binders share
+// one, so none is dropped); and each parameter used once, with its
+// function, which while the program has it keeps a position used once
+// (linear-kept), so some binder still carries that identity.
+struct ProvedUses {
+  llvm::DenseMap<BinderAttr, Uses> uses;
+  llvm::SmallVector<OnceParameter> onceParameters;
+};
+
+// What Idris proved of every binder of `emitted` that carries an identity:
+// the parameters of its functions, lambdas among them, and of its join
+// regions, the binders Emit gives one. Fails, at the second binder, when
+// Emit gave two binders one identity.
 mlir::FailureOr<ProvedUses> provedUses(mlir::ModuleOp emitted);
 
 // Every binder of `module` that carries an identity has the uses `proved`
-// holds for it; each one that does not is an error of `property`.
+// holds for it, and every parameter `proved` holds used once of a function
+// the program's `symbols` still hold is carried by some binder; each one
+// that does not is an error of `property`.
 mlir::LogicalResult usesKept(const ProvedUses &proved, mlir::ModuleOp module,
-                             llvm::StringRef property);
+                             mlir::SymbolTable &symbols, llvm::StringRef property);
 
 // The universal properties of the table, each checked of the whole
 // program: what the contracts check when a compilation's pipeline ends.

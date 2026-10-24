@@ -80,7 +80,7 @@ observedRun : Env -> (name : String) -> Status -> IO Observed
 observedRun e name status = do
   output <- bytesIfThere (inWork e (name ++ ".out"))
   errors <- bytesIfThere (inWork e (name ++ ".err"))
-  pure (Fuzz.observed output (statusWords status) errors)
+  pure (Fuzz.observed output (seenOf status) errors)
 
 ||| The program of the seed for the part and its stdin generated, compiled
 ||| at the seed's thread count with the checked runtime, run on its stdin,

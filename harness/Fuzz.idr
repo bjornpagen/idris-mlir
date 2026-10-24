@@ -14,8 +14,8 @@
 |||     runtests --fuzz-program two-hosts
 |||
 ||| and checks a run of one: a check's request is `program <seed> <cases>
-||| runtime|static` or `replay <tape> runtime|static`, and the status is
-||| how the run ended as the shell saw it, `code <n>` or `signal <name>`.
+||| runtime|static` or `replay <tape> runtime|static`, and the run's status
+||| is how its parent saw it end (Facts.Seen), compared by value.
 |||
 ||| A case is one expression, well typed by construction, which Gen draws on
 ||| the case's own seed (output n of splitmix64 from the program's seed), so
@@ -696,13 +696,13 @@ casesOf ["replay", tape, part] = do
   pure (tape, p, [(d.value, d.fit)])
 casesOf _ = Nothing
 
-||| How a program's run went, as the shell saw it: its output, how it
-||| ended (`code <n>` or `signal <name>`), and its standard error.
+||| How a program's run went, as the shell saw it: its output, how its
+||| parent saw it end, and its standard error.
 export
 record Observed where
   constructor MkObserved
   output : String
-  status : String
+  status : Seen
   errors : String
 
 ||| How a case fails a check.
@@ -747,16 +747,16 @@ record Scan where
 ||| the check does not read it.
 endedAs : Expected -> Observed -> Maybe String
 endedAs Returns run =
-  if run.status == statusLine Returned && run.errors == "" then Nothing
-  else Just ("ended by " ++ run.status ++ (if run.errors == "" then "" else ", with stderr " ++ show run.errors)
+  if sawEnding run.status Returned && run.errors == "" then Nothing
+  else Just ("ended by " ++ seenText run.status ++ (if run.errors == "" then "" else ", with stderr " ++ show run.errors)
              ++ ", not returned")
 endedAs (CrashesAt _ why) run =
   let crash = Crashed (Failed (head why))
       phrases = map (\c => ": " ++ causePhraseOf c ++ "\n") (forget why)
       oneLine = length (lines run.errors) == 1
-  in if run.status == statusLine crash && oneLine && any (\p => isSuffixOf p run.errors) phrases
+  in if sawEnding run.status crash && oneLine && any (\p => isSuffixOf p run.errors) phrases
         then Nothing
-        else Just ("ended by " ++ run.status ++ " with stderr " ++ show run.errors ++ ", not "
+        else Just ("ended by " ++ seenText run.status ++ " with stderr " ++ show run.errors ++ ", not "
                    ++ joinBy " or " (map crashedText (forget why)))
 endedAs (Unpredicted n) _ = Just ("the oracle cannot decide case " ++ show n)
 
@@ -874,7 +874,7 @@ checkOf how request run = do
 
 ||| An observed run, as the check reads it.
 export
-observed : (output : String) -> (status : String) -> (errors : String) -> Observed
+observed : (output : String) -> (status : Seen) -> (errors : String) -> Observed
 observed = MkObserved
 
 ||| The check's own checks. On the cases of seed 1's program of three cases
@@ -904,9 +904,9 @@ checkerChecks =
       silent = checked "1" Runtime cs (MkObserved "" (fst ending) (snd ending))
       crash = map (\e => MkCase Prims.tInt e Direct) dividedByZero
       crashed = checked "c" Runtime crash
-                  (MkObserved "" (statusLine (Crashed (Failed DivisionByZero)))
+                  (MkObserved "" (seenAs (Crashed (Failed DivisionByZero)))
                      ("prog: fatal: Main.idr:1:1: " ++ causePhraseOf DivisionByZero ++ "\n"))
-      returned = checked "c" Runtime crash (MkObserved "" (statusLine Returned) "") in
+      returned = checked "c" Runtime crash (MkObserved "" (seenAs Returned) "") in
   [ ("an agreeing output names no case",
      null ok.ending && null ok.agree && null ok.model && isNothing ok.first)
   , ("an output with one disagreeing line names that case",
@@ -923,11 +923,11 @@ checkerChecks =
   ++ Prims.checks
   where
     -- The status and stderr of a run that ends as the oracle says.
-    observedEnding : Expected -> (String, String)
-    observedEnding Returns = (statusLine Returned, "")
+    observedEnding : Expected -> (Seen, String)
+    observedEnding Returns = (seenAs Returned, "")
     observedEnding (CrashesAt _ why) =
-      (statusLine (Crashed (Failed (head why))), "prog: fatal: Main.idr:1:1: " ++ causePhraseOf (head why) ++ "\n")
-    observedEnding (Unpredicted _) = (statusLine Returned, "")
+      (seenAs (Crashed (Failed (head why))), "prog: fatal: Main.idr:1:1: " ++ causePhraseOf (head why) ++ "\n")
+    observedEnding (Unpredicted _) = (seenAs Returned, "")
     -- Int's division of 1 by 0, the one case of a program that crashes:
     -- of the signed quotients, the one whose type is Int.
     dividedByZero : List (Expr Prims.tInt)

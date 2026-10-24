@@ -8,6 +8,7 @@
 ||| program built over the pinned MLIR.
 module Harness
 
+import Data.Fin
 import Data.List
 import Data.List1
 import Data.Maybe

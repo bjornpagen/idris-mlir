@@ -9,6 +9,7 @@
 ||| fingerprint and its path from the root.
 module SpecFiles
 
+import Data.Fin
 import Data.List
 import Data.Maybe
 import Data.String

@@ -150,8 +150,9 @@ IDR_EXPECT_SELF_CHECK("labels-least", Nothing, labelsLeast)
 #ifdef IDR_CONTRACT_RELATION
 // Every binder Idris bound has the uses Idris proved of it, wherever
 // a pass carried it: it is known by its identity, which passes copy
-// with it.
-IDR_CONTRACT_RELATION("quantities-kept", QuantitiesKept, quantitiesKept, breakQuantitiesKept, "trade the identities of two binders of other uses")
+// with it, and a parameter used once of a function the program still
+// has keeps it.
+IDR_CONTRACT_RELATION("quantities-kept", QuantitiesKept, quantitiesKept, breakQuantitiesKept, "give a binder used once the identity of one used many times")
 
 // Every parameter and every result of a function the pass kept is
 // where its record says, at its uses: each position the function had

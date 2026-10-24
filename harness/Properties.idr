@@ -274,8 +274,9 @@ relations =
   [ MkRelation "quantities-kept"
       [ "Every binder Idris bound has the uses Idris proved of it, wherever"
       , "a pass carried it: it is known by its identity, which passes copy"
-      , "with it." ]
-      "trade the identities of two binders of other uses"
+      , "with it, and a parameter used once of a function the program still"
+      , "has keeps it." ]
+      "give a binder used once the identity of one used many times"
   , MkRelation "linear-kept"
       [ "Every parameter and every result of a function the pass kept is"
       , "where its record says, at its uses: each position the function had"

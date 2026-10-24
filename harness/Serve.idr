@@ -23,11 +23,14 @@
 ||| file serve them all.
 module Serve
 
+import Data.Fin
 import Data.List
 import Data.List1
 import Data.String
 import System
 import System.File
+
+import Facts
 
 %default covering
 
@@ -76,30 +79,31 @@ record Command where
 
 ||| How a command ended, as the shell reports it: its exit code, or the
 ||| signal that ended it, named as the host names it, with the status the
-||| shell gives such a process (128 and the signal's number). A command the
-||| step limit ended exits 124, as `bounded` reports it, having said so on
-||| its standard error.
+||| shell gives such a process (128 and the signal's number); a status of
+||| eight bits, as a parent reads one. A command the step limit ended exits
+||| 124, as `bounded` reports it, having said so on its standard error.
 public export
-data Status = Code Nat | Signal Nat String
+data Status = Code (Fin 256) | Signal (Fin 256) String
 
 ||| The status as the shell's number.
 export
 raw : Status -> Nat
-raw (Code n) = n
-raw (Signal n _) = n
+raw (Code n) = finToNat n
+raw (Signal n _) = finToNat n
 
 ||| Whether the command exited 0.
 export
 succeeded : Status -> Bool
-succeeded (Code Z) = True
+succeeded (Code FZ) = True
 succeeded _ = False
 
-||| The status as a case's ending is compared with it (Facts.statusLine):
-||| `code <n>`, or `signal <name>`.
+||| How a parent saw the command end, as a case's ending is compared with
+||| it (Facts.sawEnding): its exit status, or the signal the host names,
+||| read once into the specification's where an ending raises it.
 export
-statusWords : Status -> String
-statusWords (Code n) = "code " ++ show n
-statusWords (Signal _ name) = "signal " ++ name
+seenOf : Status -> Seen
+seenOf (Code n) = sawExit n
+seenOf (Signal _ name) = sawSignal name
 
 ||| A session with the glue: its directory and its two channels.
 export
@@ -137,11 +141,16 @@ carriedWord w = not (elem '\n' (unpack w))
 carriedField : String -> Bool
 carriedField w = carriedWord w && not (elem '\t' (unpack w))
 
+||| The glue's answer: a status of eight bits, and the signal's name or
+||| `-`. Anything else is no status, which `run` says is fatal.
 statusOf : String -> Maybe Status
 statusOf line = case words line of
-  [n, "-"] => Code <$> parsePositive n
-  [n, name] => (\k => Signal k name) <$> parsePositive n
+  [n, "-"] => Code <$> eightBits n
+  [n, name] => (\k => Signal k name) <$> eightBits n
   _ => Nothing
+  where
+    eightBits : String -> Maybe (Fin 256)
+    eightBits n = parsePositive {a = Nat} n >>= \k => natToFin k 256
 
 ||| Runs a command through the glue, and how it ended.
 export

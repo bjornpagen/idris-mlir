@@ -6,6 +6,7 @@
 ||| minutes; every step is still bounded.
 module ScaleRun
 
+import Data.Fin
 import Data.Maybe
 import Data.String
 import System.File

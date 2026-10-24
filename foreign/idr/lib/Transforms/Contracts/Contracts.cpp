@@ -154,11 +154,13 @@ InFlightDiagnostic broken(Location loc, Relation relation, StringRef pass) {
 }
 
 // quantities-kept: each binder found by its identity has the uses Idris
-// proved of it, each one that does not an error at it, and the contract's
-// at the module.
+// proved of it, and each parameter Idris proved used once of a function
+// the program still has is found by its identity; each one that does not
+// is an error at it, and the contract's at the module.
 LogicalResult quantitiesKept(const After &after) {
   ModuleOp module = after.module;
-  if (succeeded(expect::usesKept(after.proved, module, nameOf(Relation::QuantitiesKept))))
+  if (succeeded(expect::usesKept(after.proved, module, after.symbols,
+                                 nameOf(Relation::QuantitiesKept))))
     return success();
   broken(module.getLoc(), Relation::QuantitiesKept, after.pass);
   return failure();
@@ -374,11 +376,12 @@ void breakCrashSitesNotAdded(ProgramOp program, AnalysisManager analyses) {
 }
 
 // quantities-kept, broken: in each function, the first parameter Idris
-// proved used once and the first it proved used many, each known by its
-// identity, trade locations, and with them identities. Every type and
+// proved used once takes the location, and with it the identity, of the
+// first it proved used many, each known by its identity. Every type and
 // every signature stays as it was, so the module verifies and no relation
-// over signatures sees a change; each binder Idris proved is now at the
-// other's uses.
+// over signatures sees a change; the identity Idris proved used many times
+// is now on a binder used once, and the one it proved used once is on no
+// binder.
 void breakQuantitiesKept(ProgramOp program, AnalysisManager) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     BlockArgument once, many;
@@ -391,9 +394,7 @@ void breakQuantitiesKept(ProgramOp program, AnalysisManager) {
     }
     if (!once || !many)
       continue;
-    Location onceAt = once.getLoc();
     once.setLoc(many.getLoc());
-    many.setLoc(onceAt);
   }
 }
 
