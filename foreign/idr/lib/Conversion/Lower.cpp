@@ -9,9 +9,12 @@
 //
 // First the rows are written, last before they become LLVM's attributes.
 // Then, on the program: each call that gives a lifetime where its callee
-// asks a view gives the view; each function's account opened and told
-// where it keeps one, and its lifetimes made ready (its cursor parameters
-// in slots, its rooms laid out), every function at once;
+// asks a view gives the view; in a function whose row withholds
+// `mustprogress`, each loop that makes progress told so on its jumps back,
+// read while the function and its calls carry their rows; each function's
+// account opened and told where it keeps one, and its lifetimes made ready
+// (its cursor parameters in slots, its rooms laid out), every function at
+// once;
 // then every function's name mangled and the function made an llvm.func
 // (phase 0). Then each function on its own, in parallel: its exchanges of
 // memo cells as their steps, its matches as scf and its views of memrefs
@@ -275,9 +278,11 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // calls, until the functions become LLVM's below.
     viewsWhereAsked(program, graph);
     SmallVector<FuncOp> sources(program->getRegion(0).getOps<FuncOp>());
-    // The account first: its points are read off the function as the
-    // passes left it, before its lifetimes put anything into it.
+    // The loops' progress and the account first: each is read off the
+    // function as the passes left it, which its row was derived from,
+    // before the account or its lifetimes put anything into it.
     if (failed(failableParallelForEach(ctx, sources, [&](FuncOp fn) {
+          tellProgress(fn, lowering.controlFlow);
           keepAccount(fn, lowering.tells, layouts, runtime);
           return prepareLifetimes(fn, graph, layouts);
         })))

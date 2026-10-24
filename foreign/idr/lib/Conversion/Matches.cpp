@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The lowering of the control-flow ops (Matches.h): matches to scf on idr
-// types, the join points' types converted, then every region to blocks in
-// one conversion with upstream's scf patterns, each loop that makes
-// progress told so on its jumps back first.
+// The lowering of the control-flow ops (Matches.h): each loop that makes
+// progress told so on its jumps back first, while its function and calls
+// still carry their rows; then matches to scf on idr types, the join
+// points' types converted, and every region to blocks in one conversion
+// with upstream's scf patterns.
 
 #include "idr/Conversion/Matches.h"
 
@@ -256,13 +257,17 @@ struct ConvertGroupTypes : OpConversionPattern<Group> {
   }
 };
 
+// A jump with its arguments converted, in place: the jump it was, with
+// what it carries for LLVM, the annotation that its loop makes progress,
+// which phase 3 puts on the branch it becomes.
 struct ConvertJumpTypes : OpConversionPattern<JumpOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult matchAndRewrite(JumpOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<JumpOp>(op, llvm::getSingleElement(adaptor.getTarget()),
-                                        flatten(adaptor.getArgs()),
-                                        op.getTermsAttr());
+    rewriter.modifyOpInPlace(op, [&] {
+      op.getTargetMutable().set(llvm::getSingleElement(adaptor.getTarget()));
+      op.getArgsMutable().assign(flatten(adaptor.getArgs()));
+    });
     return success();
   }
 };
@@ -273,6 +278,19 @@ struct ConvertGroupYieldTypes : OpConversionPattern<YieldOp> {
   LogicalResult matchAndRewrite(YieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<YieldOp>(op, flatten(adaptor.getOperands()));
+    return success();
+  }
+};
+
+// idr.may_loop runs nothing, and goes with the conversion of types: what it
+// says reached LLVM before, in its function's row, which withholds
+// `mustprogress`, and in its loop's jumps back, which carry no annotation
+// that the loop makes progress.
+struct EraseMayLoop : OpConversionPattern<MayLoopOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -386,87 +404,65 @@ void lowerGroups(RewritePatternSet &patterns, ConversionTarget &target) {
   target.addIllegalOp<Groups...>();
 }
 
-// idr.may_loop runs nothing, and goes where its loop becomes blocks: what
-// it says reached LLVM before, in its function's row, which withholds
-// `mustprogress`, and in its loop's jumps back, which carry no annotation
-// that the loop makes progress.
-struct EraseMayLoop : OpConversionPattern<MayLoopOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult matchAndRewrite(MayLoopOp op, OpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
+//===----------------------------------------------------------------------===//
+// Before phase 0
+//===----------------------------------------------------------------------===//
 
-// What `op` itself may do to keep a loop it stands in from ending: diverge,
-// as it declares (idr.may_loop, a loop of code Idris did not prove to end,
-// the one op of ours left that does); not return, as a call LLVM is not
-// told returns may, the one form a callee's divergence has once calls are
-// LLVM's, or an op whose effects may reach divergence; or nothing.
-enum class Keeps : std::uint8_t { Nothing, Diverges, MayNotReturn };
+// The atoms of a row LLVM is not told `mustprogress` of, read off the
+// specification's table of what each atom withholds when the compiler is
+// built: code holding one may run for ever unseen.
+constexpr effects::Row mayNotProgress = [] {
+  effects::Row atoms;
+  for (effects::Atom atom : allOf<effects::Atom>())
+    if (atomWithholds[atom].contains(FunctionAttribute::MustProgress))
+      atoms = atoms | effects::Row{atom};
+  return atoms;
+}();
 
-Keeps keepsFromEnding(Operation *op) {
-  if (auto call = dyn_cast<LLVM::CallOp>(op))
-    return call.getWillReturn() ? Keeps::Nothing : Keeps::MayNotReturn;
-  effects::EffectSet does = effects::own(op);
-  if (does.on(effects::Kind::Write, ResourceId::Divergence))
-    return Keeps::Diverges;
-  return does.mayAct(effects::Kind::Write, ResourceId::Divergence) ? Keeps::MayNotReturn
-                                                                   : Keeps::Nothing;
-}
+constexpr bool withholdsProgress(effects::Row row) { return !(row & mayNotProgress).empty(); }
 
-// Each idr.loop nothing in which may keep from ending is told it makes
-// progress: every jump back into it carries upstream's annotation, which its
-// lowering puts on the branch the jump becomes, as upstream's lowering of
-// its own loops puts it on their latches. A loop that holds idr.may_loop,
-// or holds a loop that does, or a call that may not return, is told
-// nothing. One walk of the function: a loop is measured by the ops of its
-// join regions, the ones that repeat, that may keep it from ending, counted
-// between the first join region's entry and the last one's exit. A loop is
-// told only in a function that holds one that may not end, whose row
-// withholds `mustprogress` on that loop's account: of any other function,
-// its row tells LLVM all there is to tell of its loops, so the code of a
-// function Idris proved, and that took in no such loop, is what it was.
-void tellProgress(Operation *fn, DictionaryAttr progresses) {
-  unsigned keeping = 0;
-  unsigned diverging = 0;
+} // namespace
+
+// Each idr.loop nothing in which withholds `mustprogress` is told it makes
+// progress: every jump back into it carries upstream's annotation, which
+// its lowering puts on the branch the jump becomes, as upstream's lowering
+// of its own loops puts it on their latches. What withholds it is read off
+// each op's row through the one query, its own effects summarized: a call's
+// is its callee's row, so a call of a function that may never end keeps
+// its loop from being told, and one that may only crash, do IO or exit
+// does not; idr.may_loop's is its divergence; an op that declares nothing
+// may do anything. One walk of the function: a loop is measured by the ops
+// of its join regions, the ones that repeat, counted between the first join
+// region's entry and the last one's exit, a nested loop's among them. A
+// loop is told only in a function whose row withholds `mustprogress`: of
+// any other function, its row tells LLVM all there is to tell of its
+// loops, so the code of a function nothing in which may run for ever is
+// what it was.
+void tellProgress(FuncOp fn, const ControlFlowLowering &lowering) {
+  if (!withholdsProgress(fn.getRow()))
+    return;
+  unsigned withholding = 0;
   SmallVector<unsigned, 4> atJoins;
   SmallVector<LoopOp> progressing;
   fn->walk([&](Operation *op, const WalkStage &stage) {
-    if (op == fn)
+    if (op == fn.getOperation())
       return;
     if (auto loop = dyn_cast<LoopOp>(op)) {
       if (stage.isBeforeRegion(1))
-        atJoins.push_back(keeping);
-      else if (stage.isAfterAllRegions() && atJoins.pop_back_val() == keeping)
+        atJoins.push_back(withholding);
+      else if (stage.isAfterAllRegions() && atJoins.pop_back_val() == withholding)
         progressing.push_back(loop);
       return;
     }
-    if (!stage.isBeforeAllRegions())
-      return;
-    switch (keepsFromEnding(op)) {
-    case Keeps::Nothing:
-      return;
-    case Keeps::Diverges:
-      ++diverging;
-      ++keeping;
-      return;
-    case Keeps::MayNotReturn:
-      ++keeping;
-      return;
-    }
+    if (stage.isBeforeAllRegions() && withholdsProgress(effects::own(op).row()))
+      ++withholding;
   });
-  if (diverging == 0)
-    return;
   for (LoopOp loop : progressing)
     for (Region &region : loop.getJoinRegions())
       for (BlockArgument token : loop.getTokens(region))
         for (Operation *back : token.getUsers())
-          back->setDiscardableAttrs(progresses);
+          back->setDiscardableAttrs(lowering.progresses);
 }
-
-} // namespace
 
 void populateMatchPatterns(RewritePatternSet &patterns) {
   patterns.add<LowerMatch, LowerMatchLit>(patterns.getContext());
@@ -478,14 +474,12 @@ void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternS
 #define GET_JOIN_POINTS_FAMILY_LIST
 #include "idr/IR/Generated/JoinPointsFamily.h.inc"
       >(converter, patterns, target);
-  patterns.add<ConvertJumpTypes, ConvertGroupYieldTypes>(converter, patterns.getContext());
+  patterns.add<ConvertJumpTypes, ConvertGroupYieldTypes, EraseMayLoop>(converter,
+                                                                       patterns.getContext());
   target.addDynamicallyLegalOp<JumpOp>(
       [&converter](JumpOp op) { return converter.isLegal(op->getOperandTypes()); });
   target.addDynamicallyLegalOp<YieldOp>(
       [&converter](YieldOp op) { return converter.isLegal(op->getOperandTypes()); });
-  // It has no type to convert, and phase 3 reads it before its loop is
-  // blocks.
-  target.addLegalOp<MayLoopOp>();
 }
 
 ControlFlowLowering::ControlFlowLowering(MLIRContext &context) : target(context) {
@@ -495,10 +489,9 @@ ControlFlowLowering::ControlFlowLowering(MLIRContext &context) : target(context)
 #define GET_JOIN_POINTS_FAMILY_LIST
 #include "idr/IR/Generated/JoinPointsFamily.h.inc"
       >(set, target);
-  set.add<EraseMayLoop>(&context);
   patterns = FrozenRewritePatternSet(std::move(set));
   target.addIllegalOp<scf::ForallOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, scf::LoopOp,
-                      scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp, MayLoopOp>();
+                      scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp>();
   target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
   // Every loop that makes progress is told the same, upstream's annotation
   // of a latch, so it is made once, here, as the one dictionary a jump
@@ -512,7 +505,6 @@ ControlFlowLowering::ControlFlowLowering(MLIRContext &context) : target(context)
 }
 
 LogicalResult lowerControlFlow(Operation *root, const ControlFlowLowering &lowering) {
-  tellProgress(root, lowering.progresses);
   return applyPartialConversion(root, lowering.target, lowering.patterns);
 }
 

@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The lowering of the control-flow ops, in idr-lower's three steps. Blocks
-// appear only in the last, in one conversion with upstream's scf patterns.
+// The lowering of the control-flow ops, in idr-lower's three steps, and
+// what is told of loops before them. Blocks appear only in the last, in one
+// conversion with upstream's scf patterns.
 
 #ifndef IDR_CONVERSION_MATCHES_H
 #define IDR_CONVERSION_MATCHES_H
+
+#include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
@@ -32,9 +35,9 @@ void populateMatchPatterns(mlir::RewritePatternSet &patterns);
 // idr.yield that ends a join point's region take the converted types of
 // their results, parameters and arguments, one value becoming its
 // components, beside upstream's structural conversion of scf; each is
-// legal once its types are, and idr.may_loop, which has none, is legal. A
-// join point's op drops the lifetime it states, which nothing lowered
-// reads.
+// legal once its types are. A jump is converted in place, so it keeps what
+// it carries for LLVM. A join point's op drops the lifetime it states,
+// which nothing lowered reads. idr.may_loop, read before phase 0, goes.
 void populateJoinTypeConversions(const mlir::TypeConverter &converter,
                                  mlir::RewritePatternSet &patterns,
                                  mlir::ConversionTarget &target);
@@ -44,22 +47,16 @@ void populateJoinTypeConversions(const mlir::TypeConverter &converter,
 // scf.index_switch and scf.if leaves in place, is a branch by then: each
 // region's blocks move into the function, each jump a cf.br to its join
 // region's entry, each yield a cf.br to what follows the op. An
-// irreducible group lowers as any other, with no run-time selector. First,
-// in a function that holds a loop that may not end, whose row withholds
-// `mustprogress` on its account, each idr.loop nothing in which may keep
-// from ending (no idr.may_loop, its own or a nested loop's, and no call
-// LLVM is not told returns) is told it makes progress, on each jump back,
-// which the branch it becomes carries as upstream's loop annotation;
-// idr.may_loop goes with its loop, its divergence in the function's row,
-// which LLVM was told before. The conversion is the same
-// for every function, so it is made once, before any function is lowered,
-// and every function's lowering reads it, unwritten, from whichever worker
-// runs it.
+// irreducible group lowers as any other, with no run-time selector. A
+// jump's annotation that its loop makes progress (tellProgress) goes on
+// the branch it becomes. The conversion is the same for every function, so
+// it is made once, before any function is lowered, and every function's
+// lowering reads it, unwritten, from whichever worker runs it.
 struct ControlFlowLowering {
   explicit ControlFlowLowering(mlir::MLIRContext &context);
 
-  // Upstream's own target for scf, with the join points' ops and
-  // idr.may_loop illegal beside scf's.
+  // Upstream's own target for scf, with the join points' ops illegal
+  // beside scf's.
   mlir::ConversionTarget target;
   // Upstream's scf patterns and the join points'.
   mlir::FrozenRewritePatternSet patterns;
@@ -67,6 +64,16 @@ struct ControlFlowLowering {
   // loop annotation, `mustProgress`, under its own name.
   mlir::DictionaryAttr progresses;
 };
+
+// Before phase 0, on the function as the passes left it, while it and its
+// calls carry their rows: in a function whose row withholds `mustprogress`
+// from LLVM, each idr.loop nothing in whose join regions withholds it (no
+// op whose row does: idr.may_loop, its own or a nested loop's, or a call
+// of a function that may never end) is told it makes progress, on each
+// jump back, which phases 2 and 3 carry to the branch it becomes as
+// upstream's loop annotation. Of any other function, its row tells LLVM
+// all there is to tell of its loops.
+void tellProgress(FuncOp fn, const ControlFlowLowering &lowering);
 
 // Applies phase 3 to `root`, a function.
 mlir::LogicalResult lowerControlFlow(mlir::Operation *root, const ControlFlowLowering &lowering);
