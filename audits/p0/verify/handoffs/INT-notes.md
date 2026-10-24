@@ -330,3 +330,50 @@ handoff lists its own wiring.
   .toolchain/idris2 carries 96 and 104 to 114, not 116) until
   tools/bootstrap.sh idris rebuilds it. emit-dialects' Linalg, Bufferization
   and SCF lines hold with the written modules by reading.
+
+## INT-24 (2026-10-23, export of a0d5c9c3; build/int24/)
+- The frontend over our own Idris, each program as its stage-1 compile
+  runs it (tools/self.sh:119-122; tests/spec-self/run:23-27; the others,
+  which nothing compiles, as the driver would run their ipkg). Builds from
+  HEAD with no scratch but the dialect copy: checker 208/208, spec 86/86,
+  frontend 102/102 and syntax-samples (2586 s, 1981 s user, 6.0 GiB); the
+  prefix's ten packages, self-checker (208, 421 s, 200 s user, 927 MiB)
+  and self-spec (86, 768 s, 426 s user, 449 MiB): status 0, no error.
+- 5 programs, 1 written (knowngen: 498,476 bytes, 9 s CPU, byte-identical
+  twice), 4 refused; no internal error, no limit reached. Roots in the
+  order met (results.tsv, summary.txt):
+- S-1 (L06): self.sh:121 passes --core, refused since bfcc5041 ("unknown
+  option --core", exit 2): stage 1 compiles nothing.
+- S-2 (L06): self.sh:120 omits mlir-linear and mlir-array, which the
+  checker depends on (its ipkg:10, 31013e5a) and -p does not bring:
+  "Array not found" at Driver.idr:1:1. N-1's shape.
+- R-UNIFY (L17, at L16's Growth.idr:498): our checker refuses
+  `let (source, a) = head round` ("When unifying", a 520-successor unary
+  natural in the type); stock builds it. Past it by a scratch fst/snd.
+- R-117 (L17): the runner at harness/Determinism.idr:28; fixed since by
+  723cac53 (by reading).
+- R-META (L16 Boundary.idr:1005, with L17's output): "a metavariable whose
+  definition is neither a solution nor a hole" at main, for specgen, the
+  runner (past 117/118) and the frontend (past S-2, R-UNIFY): a pattern
+  variable of an implicit's metavariable {x:N}, no clause, no hole, made
+  at EmptyFC, at base/Data/SnocList.idr:296 (specgen), Spec/Core/
+  Rules.idr:225 (runner), Spec/Ops/Platform.idr:83 (frontend), named by an
+  instrumented frontend (scratch 5). Boundary.idr:966-970's "no program
+  reaches it" is refuted. specgen reaches it only through main's shape
+  (repro/specgen-probe/V25.idr, 11 lines). It hides every later check.
+- R-SPEC (L16 Registry/Libraries.idr:92-102): idris-mlir-spec is in no row,
+  so it is untrusted: syntax-samples 100 refusals (50 imports, 50
+  definitions); with the spec as source it writes its program (4,294,456
+  bytes, no refusal). Beneath R-META for the frontend (151 imports) and the
+  runner (48), by reading.
+- R-PRAGMA (a; L16's code): 54 %prefix_record_projections in 10 modules
+  of compiler/src, each refused by the profile (repro/pragma); beneath
+  R-META. Drop them or discharge the pragma: the coordinator's call.
+- R-ESC-FIN (L16 Profile.idr:446-453; L01's Declaration.idr:83): the walk
+  enters a user's auto-0 proof holding a Fin literal and reaches base's
+  Fin lemma's believe_me (Data/Fin.idr:249-250): specgen's 38 beneath
+  R-META; repro/auto-fin refused with Op 0, written with Op FZ.
+- Host modules: reached in no run; by reading neither is refused (the
+  checker is the trusted Compiler package: not lexed, its 0-quantity
+  believe_me and its assert_total dropped from the walk). No growth
+  refusal anywhere; growth is 254 to 664 s of each spec-reaching probe.
