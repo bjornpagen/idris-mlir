@@ -51,6 +51,7 @@ import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Fields
 import IdrisMLIR.Frontend.Growth.Caps
 import IdrisMLIR.Frontend.Growth.Indexed
+import IdrisMLIR.Frontend.Translate.Annotated
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
@@ -67,6 +68,8 @@ import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 import Libraries.Data.List.Finite
 
+import Control.Applicative.Const
+import Control.Monad.Identity
 import Control.WellFounded
 import Data.DPair
 import Data.Fin
@@ -237,10 +240,13 @@ record Built where
   ||| How many sites every node's reading holds, all together: what the
   ||| sites are numbered within, once (`numberedReadings`).
   entries : Nat
-  ||| Each node's reading, by the node: the definition it is read at, and
-  ||| the tree of its text its sites grow (`Sites.NodeReading`), each site
+  ||| How many nodes are read.
+  readingCount : Nat
+  ||| Each node's reading (`Sites.NodeReading`), numbered once, each site
   ||| the entry the numbering made it.
-  trees : SortedMap Node (Defined, Grown (Entry entries))
+  readings : Vect readingCount (DrawnReading entries)
+  ||| Main's reading, where the walk over nodes starts.
+  root : Fin readingCount
   ||| The position met at each place: a position is numbered at the place
   ||| it is first met (`firsts`), and a later meeting of it is a place no
   ||| arc or site names.
@@ -324,7 +330,7 @@ record Built where
 -- entered.
 record Entered where
   constructor MkEntered
-  sites : SortedMap Address (Defined, Grown State.Site)
+  sites : SortedMap Address (Defined, ReadingTree AtRole)
   families : SortedMap Address (List Nat)
   datas : List (spot : Spot ** SpotRead spot)
   fields : SortedMap Address Fields
@@ -403,8 +409,8 @@ keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 keep a d reading fields r = do
   (rd, js) <- reading
   fs <- fields
-  let ss = entriesOf rd.sites
-  pure ( { sites $= insert a (d, rd.sites)
+  let ss = inTextOrder rd.tree
+  pure ( { sites $= insert a (d, rd.tree)
          , families $= insert a rd.families
          , datas $= (map (dataPosition a d) js ++)
          , fields $= maybe id (insert a) fs } r
@@ -2559,33 +2565,34 @@ headAddresses : List (Nat, (h : Address ** TypeConstructorAt h)) -> List (Nat, A
 headAddresses = map (\(i, h) => (i, h.fst))
 
 -- Every node a walk from main can meet, by what it is read at, with the
--- definition the definitions' walk entered it at and the tree of its text
--- the sites it writes there grow. A node with no family headed is read as
+-- definition the definitions' walk entered it at and its text annotated
+-- with the walk there (`ReadingTree`). A node with no family headed is read as
 -- the definitions' walk read it. The flow's sets hold every type constructor that heads a
 -- family in the split, since a site the split reads at a node is the
 -- definitions' walk's with each head in place of the marker it stands
 -- for, whose flow equation already carries that head: so these are every
 -- node the walk can meet, which the walk checks (`Unheaded`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           Flow -> Entered -> Front (SortedMap Node (Defined, Grown State.Site))
+           Flow -> Entered -> Front (SortedMap Node (Defined, ReadingTree AtRole))
 readings fl r = foldlM family plain (SortedMap.toList r.sites)
   where
-    plain : SortedMap Node (Defined, Grown State.Site)
+    plain : SortedMap Node (Defined, ReadingTree AtRole)
     plain = SortedMap.fromList (map (\(a, entry) => (MkNode a [], entry)) (SortedMap.toList r.sites))
 
-    headed : Address -> Defined -> SortedMap Node (Defined, Grown State.Site) -> List (Nat, (h : Address ** TypeConstructorAt h)) ->
-             Front (SortedMap Node (Defined, Grown State.Site))
+    headed : Address -> Defined -> SortedMap Node (Defined, ReadingTree AtRole) -> List (Nat, (h : Address ** TypeConstructorAt h)) ->
+             Front (SortedMap Node (Defined, ReadingTree AtRole))
     headed a d m hs = (\t => insert (MkNode a (headAddresses hs)) (d, t) m) <$> sitesOf a d hs
 
     -- Each way of heading a definition's families, read at its
     -- definition.
-    family : SortedMap Node (Defined, Grown State.Site) -> (Address, Defined, Grown State.Site) ->
-             Front (SortedMap Node (Defined, Grown State.Site))
+    family : SortedMap Node (Defined, ReadingTree AtRole) -> (Address, Defined, ReadingTree AtRole) ->
+             Front (SortedMap Node (Defined, ReadingTree AtRole))
     family m (a, d, _) = foldlM (headed a d) m (familyHeads fl a (fromMaybe [] (lookup a r.families)))
 
--- A visit's reading: the definition its node is read at, and what its
--- sites there are (`r`); where its node has none, the definition the visit
--- was made of, which the error names.
+-- A visit's reading: the definition its node is read at, and what is kept
+-- of its reading by its node (`r`: its number and its sites in its text's
+-- order); where its node has none, the definition the visit was made of,
+-- which the error names.
 visitReading : SortedMap Address (List Nat) -> SortedMap Node (Defined, r) -> Visit -> GlobalDef -> Either Stray (Defined, r)
 visitReading families reads x made = case SortedMap.lookup (readAt families (visitNode x)) reads of
   Just found => Right found
@@ -2696,20 +2703,9 @@ evaluated landingAt = traverse (\(w, edges) => (w,) <$> traverse (\(en, e) => (e
 ------------------------------------------------------------------------------
 
 -- How many sites some readings hold, all together.
-readingsSize : List (Node, (Defined, Grown a)) -> Nat
+readingsSize : List (Node, (Defined, ReadingTree AtRole)) -> Nat
 readingsSize [] = 0
-readingsSize ((_, (_, t)) :: rs) = entryCount t + readingsSize rs
-
--- The sites some readings hold, the readings' in order, each tree's in
--- its text's order.
-readingsVect : (rs : List (Node, (Defined, Grown a))) -> Vect (readingsSize rs) a
-readingsVect [] = []
-readingsVect ((_, (_, t)) :: rs) = entryVect t ++ readingsVect rs
-
--- Some readings with their sites replaced, in that order, by as many.
-relabelReadings : (rs : List (Node, (Defined, Grown a))) -> Vect (readingsSize rs) b -> List (Node, (Defined, Grown b))
-relabelReadings [] [] = []
-relabelReadings ((w, (d, t)) :: rs) ys = let (ts, more) = splitAt (entryCount t) ys in (w, (d, relabel t ts)) :: relabelReadings rs more
+readingsSize ((_, (_, t)) :: rs) = readingSize t + readingsSize rs
 
 -- The numbers k, k + 1, ... of m entries among n, in one pass:
 -- `natToFinLT` is the identity at run time, where base's `allFins` maps
@@ -2718,28 +2714,62 @@ numbersFrom : (k, m : Nat) -> {0 n : Nat} -> (0 _ : k + m = n) -> Vect m (Fin n)
 numbersFrom k Z _ = []
 numbersFrom k (S m) eq = natToFinLT k {prf = runBelow k eq} :: numbersFrom (S k) m (trans (plusSuccRightSucc k m) eq)
 
+||| A site numbered, with the place in its writer's text the walk made it
+||| at, which orders a reading's sites.
+record PlacedAt (n : Nat) (r : ReachKind) where
+  constructor MkPlacedAt
+  place : Place
+  numbered : NumberedAt n r
+
+||| A site the walk made, numbered.
+numberedAs : Labeller AtRole (PlacedAt n) (Fin n)
+numberedAs x k = MkPlacedAt x.made.place (MkNumberedAt (MkEntry k x.made.site) x.role)
+
+||| One node's reading, numbered: the entries in its text's order, which
+||| every reader of its sites in turn takes them in, and the reading.
+record ReadingNumbered (n : Nat) where
+  constructor MkReadingNumbered
+  node : Node
+  defined : Defined
+  inOrder : List (Entry n)
+  tree : ReadingTree (NumberedAt n)
+
+-- Some readings with their sites numbered, in that order, by as many.
+numberedEach : (rs : List (Node, (Defined, ReadingTree AtRole))) -> Vect (readingsSize rs) (Fin n) -> List (ReadingNumbered n)
+numberedEach [] [] = []
+numberedEach ((w, (d, t)) :: rs) ys =
+  let (ts, more) = splitAt (readingSize t) ys
+      placed = labelReading numberedAs t ts
+      inOrder = entriesOf (grownFrom (runConst (traverseReading {req' = PlacedAt n} (\y => MkConst [< (y.place, y.numbered.entry)]) placed) <>> []))
+      tree = runIdentity (traverseReading (\y => Id y.numbered) placed) in
+  MkReadingNumbered w d inOrder tree :: numberedEach rs more
+
 ||| Every node's reading, its sites numbered once among all of them, in
-||| the readings' order and each tree's text order, as a position is
-||| numbered where it is first met: each site the entry of its number,
-||| which names what it writes wherever that is read. How many there are,
-||| and each reading, by its node.
+||| the readings' order and each reading's in the order the walk made them,
+||| and the readings numbered once: how many sites there are, how many
+||| readings, each reading, and each one's number, definition and sites in
+||| its text's order, by its node, which the walk over nodes meets it by.
 public export
 record NumberedReadings where
   constructor MkNumberedReadings
   entries : Nat
-  trees : SortedMap Node (Defined, Grown (Entry entries))
+  count : Nat
+  readings : Vect count (DrawnReading entries)
+  byNode : SortedMap Node (Defined, (Fin count, List (Entry entries)))
 
-numberedReadings : SortedMap Node (Defined, Grown State.Site) -> NumberedReadings
+numberedReadings : SortedMap Node (Defined, ReadingTree AtRole) -> NumberedReadings
 numberedReadings reads =
-  let rs = SortedMap.toList reads in
-  MkNumberedReadings (readingsSize rs)
-                     (SortedMap.fromList (relabelReadings rs (zipWith MkEntry (numbersFrom 0 (readingsSize rs) Refl) (readingsVect rs))))
+  let rs = SortedMap.toList reads
+      xs = numberedEach rs (numbersFrom 0 (readingsSize rs) Refl)
+      numbered = Vect.fromList xs in
+  MkNumberedReadings (readingsSize rs) (length xs) (map (\x => MkDrawnReading x.node x.defined x.tree) numbered)
+                     (SortedMap.fromList (toList (zipWith (\i, x => (x.node, (x.defined, (i, x.inOrder)))) (numbersFrom 0 (length xs) Refl) numbered)))
 
-||| The site table the graph keeps (`State.SiteTable`): its graph and
-||| model, and the entries, trees and kept sites the graph was drawn with.
+||| The site table the graph keeps (`State.SiteTable`): what it drew, and
+||| every node's reading, main's the root.
 public export
 siteTable : Built -> SiteTable
-siteTable b = MkSiteTable b.graph b.model b.entries b.trees b.kept b.keptSites
+siteTable b = DrawnTable (MkSiteDrawing b.graph b.model b.entries b.kept b.keptSites) b.readings b.root
 
 ||| The growth graph of the program from main, as the reading holds it:
 ||| every static position its reachable nodes have, numbered, with the arcs
@@ -2757,12 +2787,12 @@ build main = do
   -- Lists are joined by bind, which is linear: base's `concat` and
   -- `concatMap` on a list fold `++` from the left, so every join copies
   -- what came before, the square of the length in all.
-  let fl = flow entered.fields (values entered.sites >>= (entriesOf . snd))
+  let fl = flow entered.fields (values entered.sites >>= (inTextOrder . snd))
   reads <- readings fl entered
   -- Every reading's sites numbered once, before any is visited, so that
   -- what each wrote is named by its entry wherever it is read.
   let sited = numberedReadings reads
-  let readSites = map (entriesOf . snd) (values reads)
+  let readSites = map (\(_, (_, es)) => map (.site) es) (values sited.byNode)
   -- The most values one list of held values holds, and every stuck path a
   -- chain of held dispatches can hold, read off every reading's sites
   -- once; and the pair that holds such lists.
@@ -2773,11 +2803,15 @@ build main = do
   -- lose the arcs its sites write. Each callee a site enters is given the
   -- definition its node is read at there.
   let out : Visit -> GlobalDef -> Either Stray (List (Entry sited.entries, Reached Defined))
-      out x here = visitReading entered.families sited.trees x here >>= \(_, t) =>
-                     traverse (\(en, r) => (en,) <$> enteredBy entered.families sited.trees r)
-                              [(en, r) | en <- entriesOf t, r <- reaches fl x en.site]
-  let Right found = nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields readSites) out
-                                  (MkVisit root []) main.def
+      out x here = visitReading entered.families sited.byNode x here >>= \(_, (_, es)) =>
+                     traverse (\(en, r) => (en,) <$> enteredBy entered.families sited.byNode r)
+                              [(en, r) | en <- es, r <- reaches fl x en.site]
+  -- Main's reading is the root, read as every visit's is.
+  let walk = do
+        (_, (rootAt, _)) <- visitReading entered.families sited.byNode (MkVisit root []) main.def
+        found <- nodesFromMain (SortedSet.toList counted.paths) (headBound entered.fields readSites) out (MkVisit root []) main.def
+        pure (rootAt, found)
+  let Right (rootAt, found) = walk
     | Left (Outside d) =>
         internal fc ("the growth graph met a node split at a parameter no site writes, or holding a path no site re-packs: " ++
                      show (fullname d))
@@ -2904,7 +2938,7 @@ build main = do
       arcs = drawn positionsOf fieldPositionsOf choicePositionsOf kept
   -- A field's template is written into the values of every field read,
   -- and so into requests, as an argument's is.
-  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) sited.entries sited.trees
+  pure (MkBuilt (graphOf positionsOf fieldPositionsOf choicePositionsOf beyond caps kept) sited.entries sited.count sited.readings rootAt
                 position positionRead firsts
                 (drawnVect arcs) (drawnIndexed arcs)
                 (\a => case drawnFromSite {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}

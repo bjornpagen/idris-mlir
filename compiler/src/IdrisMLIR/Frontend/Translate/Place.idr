@@ -7,13 +7,11 @@
 ||| term more than one way (an argument as code and as a static value, a
 ||| leaf as code and as a member at a use) takes the step into it once per
 ||| way, each with its mode, so no two walks of one term meet at one place.
-||| What a walk writes, each at its place, grows a tree in the text's shape
-||| (`Grown`), a node per place it wrote at or below.
+||| What a walk writes, each at its place, is ordered by its place in the
+||| text (`Grown`): the order every reader of what it wrote takes it in.
 module IdrisMLIR.Frontend.Translate.Place
 
 import Core.Name
-
-import Data.Vect
 
 %default total
 
@@ -148,11 +146,12 @@ export
 Ord BoundPlace where
   compare x y = compare x.place y.place
 
-||| What a walk wrote over a writer's text, in the text's shape: at a place,
-||| what it wrote there, in the order it wrote it, and below the place each
-||| step the walk took into a part of the text, in the steps' order, each
-||| once, with what it wrote in that part. A part the walk wrote nothing in
-||| takes no step, so the tree is as large as what was written.
+||| What a walk wrote over a writer's text, by place: at a place, what it
+||| wrote there, in the order it wrote it, and below the place each step the
+||| walk took into a part of the text, in the steps' order, each once, with
+||| what it wrote in that part. A part the walk wrote nothing in takes no
+||| step, so the tree is as large as what was written; read in order
+||| (`entriesOf`), it is what was written in the order of its places.
 public export
 data Grown : Type -> Type where
   MkGrown : (here : List e) -> (below : List (PlaceStep, Grown e)) -> Grown e
@@ -194,41 +193,3 @@ mutual
 export
 entriesOf : Grown e -> List e
 entriesOf t = entriesOnto t []
-
-mutual
-  ||| How many entries a tree holds.
-  public export
-  entryCount : Grown e -> Nat
-  entryCount (MkGrown here below) = length here + sizeBelow below
-
-  public export
-  sizeBelow : List (PlaceStep, Grown e) -> Nat
-  sizeBelow [] = 0
-  sizeBelow ((_, t) :: more) = entryCount t + sizeBelow more
-
-mutual
-  ||| What a tree holds, in the text's order, as many as it holds.
-  export
-  entryVect : (t : Grown e) -> Vect (entryCount t) e
-  entryVect (MkGrown here below) = Vect.fromList here ++ belowVect below
-
-  belowVect : (bs : List (PlaceStep, Grown e)) -> Vect (sizeBelow bs) e
-  belowVect [] = []
-  belowVect ((_, t) :: more) = entryVect t ++ belowVect more
-
--- A list's entries replaced, in order, by as many.
-relabelled : (xs : List a) -> Vect (length xs) b -> List b
-relabelled [] [] = []
-relabelled (_ :: xs) (y :: ys) = y :: relabelled xs ys
-
-mutual
-  ||| A tree with its entries replaced, in the text's order, by as many: the
-  ||| same places, written alike.
-  export
-  relabel : (t : Grown a) -> Vect (entryCount t) b -> Grown b
-  relabel (MkGrown here below) ys =
-    let (hs, bs) = splitAt (length here) ys in MkGrown (relabelled here hs) (relabelBelow below bs)
-
-  relabelBelow : (bs : List (PlaceStep, Grown a)) -> Vect (sizeBelow bs) b -> List (PlaceStep, Grown b)
-  relabelBelow [] [] = []
-  relabelBelow ((s, t) :: more) ys = let (ts, ms) = splitAt (entryCount t) ys in (s, relabel t ts) :: relabelBelow more ms

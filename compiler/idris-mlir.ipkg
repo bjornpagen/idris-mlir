@@ -57,6 +57,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Contraction
         , IdrisMLIR.Frontend.Translate.Literals
         , IdrisMLIR.Frontend.Translate.Readings
+        , IdrisMLIR.Frontend.Translate.Annotated
         , IdrisMLIR.Frontend.Translate.Place
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Boundary

@@ -11,6 +11,7 @@ import Core.TT
 import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Annotated
 import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Place
@@ -1733,6 +1734,18 @@ data SiteReach : Type where
   Repacks : Argument -> List1 Nat -> SiteReach
   Keeps : BoundPlace -> List1 HeldItem -> SiteReach
 
+||| The role a site's reach gives it at the node of the model's walk that
+||| holds it (`Annotated.ReachKind`).
+public export
+ReachOf : SiteReach -> ReachKind
+ReachOf (Calls _ _) = CallReach
+ReachOf (Builds _ _) = BuildReach
+ReachOf (Dispatches _ _ _) = DispatchReach
+ReachOf Applies = ApplyReach
+ReachOf (Makes _ _) = MakeReach
+ReachOf (Repacks _ _) = RepackReach
+ReachOf (Keeps _ _) = KeepReach
+
 ||| One site: who wrote it, by address and as it was read (whose parameters
 ||| the templates' `Var`s are, as `params` reads them, and whose type names
 ||| them), the definition whose text holds it, as it was read, what it
@@ -1750,14 +1763,22 @@ record Site where
   fc : FC
 
 ||| A site as the walk makes it: where in its writer's text it was made,
-||| and the site. A writer's sites are the tree these grow
-||| (`Place.grownFrom`), each at its place, so the place is read off the
-||| tree, never off the site.
+||| and the site. A reading's sites are taken in the order of their places
+||| in the text (`Place.grownFrom`), which is the order every reader of a
+||| reading's sites in turn reads them in.
 public export
 record Made where
   constructor MkMade
   place : Place
   site : Site
+
+||| A site the walk made, held at a node of the model's walk
+||| (`Annotated`) in the field of its role, which its reach gives.
+public export
+record AtRole (r : ReachKind) where
+  constructor MkAtRole
+  made : Made
+  0 role : ReachOf made.site.reach = r
 
 ||| What a message shows an argument by, read where a message is made
 ||| (`Sites.showArgument`): a template, each marker by the writer's name for its
@@ -1803,6 +1824,14 @@ record Entry (k : Nat) where
   number : Fin k
   site : Site
 
+||| A numbered site held at a node of the model's walk (`Annotated`) in the
+||| field of its role, which its reach gives.
+public export
+record NumberedAt (k : Nat) (r : ReachKind) where
+  constructor MkNumberedAt
+  entry : Entry k
+  0 role : ReachOf entry.site.reach = r
+
 ||| What made an arc: the entry whose site wrote it and the argument whose
 ||| template gave it, a value of a list a dictionary argument holds among
 ||| them; an
@@ -1823,60 +1852,73 @@ data Wrote : (entries : Nat) -> Type where
   InField : GlobalDef -> Nat -> TemplateRead -> Wrote k
   PacksHeld : Packing -> Wrote k
 
-||| The growth model's site table, written once by the growth check
-||| (`Growth.checkGrowth`) before the translation: the graph and the growth
-||| theorem's model it was drawn from, whose sites are every place the
-||| program writes a static argument at; how many sites every node's
-||| reading holds, numbered once; each node's reading, by the node, the
-||| definition it is read at and the tree of its text its sites grow, each
-||| site the entry its number made it (`Entry`); and the model's sites,
+||| What the growth graph drew, all of it erased but how many sites there
+||| are: the graph and the growth theorem's model it was drawn from, whose
+||| sites are every place the program writes a static argument at; how many
+||| sites every node's reading holds, numbered once; and the model's sites,
 ||| each with what wrote it, so that an entry's membership among the
-||| model's sites is read off them (`membersOf`). Until the growth check
-||| writes it, the table of the graph with no position, which has no site.
+||| model's sites is read off them (`membersOf`).
 public export
-record SiteTable where
-  constructor MkSiteTable
+record SiteDrawing where
+  constructor MkSiteDrawing
   0 graph : Graph
   0 model : Model graph
   entries : Nat
-  trees : SortedMap Node (Defined, Grown (Entry entries))
   0 kept : List (Bound.Site graph.size, Wrote entries)
   0 keptSites : model.sites = map Builtin.fst kept
 
-||| The table of the graph with no position: no site, and no entry.
-export
-noSites : SiteTable
-noSites = MkSiteTable (MkGraph 0 [] 0 []) (MkModel [] (\_, _ => []) (\_ => []) (\_ => Nothing) (\_ => []) 0) 0 empty [] Refl
+||| A node's reading as the model's walk annotated it (`Annotated`): the
+||| node, the definition it is read at, and the definition's text with what
+||| the walk decided at each place, each request the entry its number made
+||| it.
+public export
+record DrawnReading (k : Nat) where
+  constructor MkDrawnReading
+  node : Node
+  defined : Defined
+  tree : ReadingTree (NumberedAt k)
+
+||| The growth model's site table, written once by the growth check
+||| (`Growth.checkGrowth`) before the translation: before it, nothing drawn;
+||| then what the graph drew, and every node's reading, numbered once, main's
+||| among them (the root), so that a reading is named by its number and none
+||| is looked up by its node.
+public export
+data SiteTable : Type where
+  Undrawn : SiteTable
+  DrawnTable : (drawing : SiteDrawing) -> {readings : Nat} -> Vect readings (DrawnReading drawing.entries) ->
+               (root : Fin readings) -> SiteTable
 
 ||| A site of the model an argument of a numbered entry wrote: the site, the
 ||| entry and the argument, how the graph kept it, the entry's number, and
 ||| the site's membership among the model's sites, which every lemma the
 ||| graph keeps of a site reads.
 public export
-record DrawnFrom (t : SiteTable) (e : Fin t.entries) where
+record DrawnFrom (d : SiteDrawing) (e : Fin d.entries) where
   constructor MkDrawnFrom
-  site : Bound.Site t.graph.size
-  entry : Entry t.entries
+  site : Bound.Site d.graph.size
+  entry : Entry d.entries
   argument : Argument
-  0 written : Elem (site, FromArgument entry argument) t.kept
+  0 written : Elem (site, FromArgument entry argument) d.kept
   0 numbered : entry.number = e
-  0 member : Elem site t.model.sites
+  0 member : Elem site d.model.sites
 
 -- A kept site is one of the model's.
-0 keptMember : (t : SiteTable) -> {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x t.kept -> Elem (Builtin.fst x) t.model.sites
-keptMember t el = replace {p = Elem (Builtin.fst x)} (sym t.keptSites) (elemMap Builtin.fst el)
+0 keptMember : (d : SiteDrawing) -> {x : (Bound.Site d.graph.size, Wrote d.entries)} -> Elem x d.kept ->
+               Elem (Builtin.fst x) d.model.sites
+keptMember d el = replace {p = Elem (Builtin.fst x)} (sym d.keptSites) (elemMap Builtin.fst el)
 
 ||| What a numbered entry's arguments are in the model: every site of it an
 ||| argument of the entry wrote, in the order the graph kept them, each
 ||| with its membership. A capped position keeps none, and neither does a
 ||| reading no visit reached.
 export
-0 membersOf : (t : SiteTable) -> (e : Fin t.entries) -> List (DrawnFrom t e)
-membersOf t e = among t.kept (keptMember t) id
+0 membersOf : (d : SiteDrawing) -> (e : Fin d.entries) -> List (DrawnFrom d e)
+membersOf d e = among d.kept (keptMember d) id
   where
-    among : (ks : List (Bound.Site t.graph.size, Wrote t.entries)) ->
-            (inSites : {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x ks -> Elem (Builtin.fst x) t.model.sites) ->
-            (inKept : {x : (Bound.Site t.graph.size, Wrote t.entries)} -> Elem x ks -> Elem x t.kept) -> List (DrawnFrom t e)
+    among : (ks : List (Bound.Site d.graph.size, Wrote d.entries)) ->
+            (inSites : {x : (Bound.Site d.graph.size, Wrote d.entries)} -> Elem x ks -> Elem (Builtin.fst x) d.model.sites) ->
+            (inKept : {x : (Bound.Site d.graph.size, Wrote d.entries)} -> Elem x ks -> Elem x d.kept) -> List (DrawnFrom d e)
     among [] _ _ = []
     among ((s, FromArgument en x) :: ks) inSites inKept =
       let rest = among ks (\el => inSites (There el)) (\el => inKept (There el)) in
@@ -2022,8 +2064,8 @@ record TS where
   ||| The growth model's site table (`SiteTable`), written by the growth
   ||| check once, before the translation, beside the bounds it derives from
   ||| its graph: what the proof that the worklist ends states each request's
-  ||| argument against. Until then the table with no site (`noSites`), so
-  ||| no request can name a site in it.
+  ||| argument against. Until then nothing drawn (`Undrawn`), so no request
+  ||| can name a site in it.
   growth : SiteTable
 
 export
@@ -2034,7 +2076,7 @@ initState r loaded fc = MkTS
   , moduleFC = fc, rejected = [<], refused = empty
   , spelled = empty, modules = loaded, bounds = empty
   , sizes = MkBounds (const []) 0 0 0
-  , growth = noSites }
+  , growth = Undrawn }
 
 ||| A fact of the instance table as the step being run reads it: what the
 ||| step derived, which supersedes the table's, else what the table holds.
