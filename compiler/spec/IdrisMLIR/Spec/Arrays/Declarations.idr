@@ -18,6 +18,7 @@ import IdrisMLIR.Spec.Arrays.Generating
 import IdrisMLIR.Spec.Arrays.Memory
 
 import Data.Fin
+import Data.List1
 import Data.Vect
 
 %default total
@@ -43,6 +44,18 @@ tensorAdmitted = map (\r : Ident => admitNamed Tensor r (between Higher First) F
   [ "Tensor_CastOp", "Tensor_DimOp", "Tensor_EmptyOp", "Tensor_ExtractOp"
   , "Tensor_ExtractSliceOp", "Tensor_FromElementsOp", "Tensor_InsertOp"
   , "Tensor_InsertSliceOp", "Tensor_ExpandShapeOp", "Tensor_CollapseShapeOp" ]
+
+||| The joins the frontend writes on arrays of words: `++` as upstream's
+||| `tensor.concat`, and `pad` and `grow` as its `tensor.pad`, with the
+||| yield that ends the pad's region and gives the padding value, which
+||| enters with the pad since the frontend builds that region. Until
+||| bufferization: upstream's models of both, attached with the rest of the
+||| tensor dialect's, make each a fresh buffer, the concat's filled by a
+||| copy of each array into its place, the pad's by its region over the
+||| whole buffer and then a copy of the array into its place.
+tensorJoinsAdmitted : List Admitted
+tensorJoinsAdmitted = map (\r : Ident => admitNamed Tensor r (between Higher First) FrontendWrites)
+  [ "Tensor_ConcatOp", "Tensor_PadOp", "Tensor_YieldOp" ]
 
 ||| The crossings between a cell's buffer and an array value the frontend
 ||| writes, and the fresh array bufferization's preparation makes: until
@@ -176,6 +189,11 @@ takenAs TakesElement = AnElement
 takenAs (TakesFunction how) = AFunction how
 takenAs TakesLinearArray = AnArray
 
+-- A side of a padding, defined after the compositions, which it is made of
+-- and which take it.
+public export
+data Side : Vect n Takes -> Type
+
 ||| A composition of the array operations over a call's runtime arguments,
 ||| `ts` saying what each is taken as, by what it computes: no operation is
 ||| given an operand of another kind. The shape's last axis is the last
@@ -210,14 +228,25 @@ data Composed : Vect n Takes -> Computed -> Type where
   ||| the axis's extent less the natural (`arith.subi`).
   AfterFirst : Composed ts ANatural -> Composed ts AnArray -> Composed ts AnArray
   ||| The two arrays one after the other along the shape's last axis. Of
-  ||| words, each array is a `tensor.insert_slice` into a `tensor.empty` of
-  ||| the joined extents. Of elements that hold references, the array is an
-  ||| `idr.array.tabulate` of a fresh destination that reads the one array
-  ||| or the other as the coordinate along the axis is below the first's
-  ||| extent or not (`arith.cmpi`, `scf.if`): the one op that makes it
-  ||| writes every slot and reads none, so each element's reference is
-  ||| placed once, where counting places it.
+  ||| words, upstream's `tensor.concat` along that axis, its dimension the
+  ||| shape's rank less one, which the type fixes; the type makes every
+  ||| other axis the same in both, as the op asks. Of elements that hold
+  ||| references, the array is an `idr.array.tabulate` of a fresh
+  ||| destination that reads the one array or the other as the coordinate
+  ||| along the axis is below the first's extent or not (`arith.cmpi`,
+  ||| `scf.if`): the one op that makes it writes every slot and reads none,
+  ||| so each element's reference is placed once, where counting places it.
   Concatenated : Composed ts AnArray -> Composed ts AnArray -> Composed ts AnArray
+  ||| The array between copies of the element along the shape's last axis,
+  ||| as many before it and after it as each side says, every other axis
+  ||| the array's. Of words, upstream's `tensor.pad`, that axis padded low
+  ||| by the one side and high by the other, a flush side by a static zero,
+  ||| and every other axis by none; its region yields the element, or,
+  ||| where the element is a cell with axes of its own, the cell's element
+  ||| at the region's coordinates along those axes, which no side pads. Of
+  ||| elements that hold references, `byCopies`.
+  Padded : (before, after : Side ts) -> Composed ts AnElement -> Composed ts AnArray ->
+           Composed ts AnArray
   ||| The shape's last two axes swapped. Of words, upstream's
   ||| `linalg.transpose` into a `tensor.empty`, its permutation stated once;
   ||| of elements that hold references, an `idr.array.tabulate` that reads
@@ -264,6 +293,47 @@ data Composed : Vect n Takes -> Computed -> Type where
   ||| The continuation given the linear array.
   Continued : Composed ts (AFunction OnceToLinearArray) -> Composed ts ALinearArray ->
               Composed ts AnUnrestricted
+
+||| One side of an array along the shape's last axis, as a padding leaves
+||| it: flush with the array, which is known when the composition is
+||| written; or as many copies of the element as a natural says, which may
+||| be none at run time.
+public export
+data Side : Vect n Takes -> Type where
+  ||| No copies on this side: upstream's static padding of zero, and no
+  ||| array of copies joined.
+  Flush : Side ts
+  ||| As many copies as the natural.
+  SideOf : Composed ts ANatural -> Side ts
+
+||| As many copies of the element along the shape's last axis as the
+||| natural, the other axes the array's: what is joined to an array to pad
+||| or grow it where its elements hold references, so that every slot of
+||| the result is written once.
+public export
+copiesAlongLast : (count : Composed ts ANatural) -> (element : Composed ts AnElement) ->
+                  (like : Composed ts AnArray) -> Composed ts AnArray
+copiesAlongLast count element like = Copies (WithLastExtent (ExtentsOf like) count) element
+
+||| The copies a side puts beside an array where its elements hold
+||| references: none where the side is flush, else one array of as many
+||| copies as it says.
+public export
+copiesBeside : Side ts -> (element : Composed ts AnElement) -> (like : Composed ts AnArray) ->
+               List (Composed ts AnArray)
+copiesBeside Flush _ _ = []
+copiesBeside (SideOf count) element like = [copiesAlongLast count element like]
+
+||| The padding of an array whose elements hold references: the copies
+||| before it, the array and the copies after it, joined left to right,
+||| each copy its own, so that tabulations alone write every slot of the
+||| result once.
+public export
+byCopies : (before, after : Side ts) -> (element : Composed ts AnElement) ->
+           (array : Composed ts AnArray) -> Composed ts AnArray
+byCopies before after element array =
+  foldl1 Concatenated
+    (lappend (copiesBeside before element array) (array ::: copiesBeside after element array))
 
 ||| A function of the array library by what it means: what each of its
 ||| runtime arguments is taken as, in the order its type takes them, and
@@ -352,30 +422,22 @@ public export
 positionsAfterFirst : ArrayMeaning
 positionsAfterFirst = MkArrayMeaning [TakesNatural, TakesArray] (AfterFirst (Nth 0) (Nth 1))
 
-||| Two arrays one after the other along the last axis. No admitted op
-||| covers it: `tensor.insert_slice` of each into a `tensor.empty` where the
-||| elements are words, `idr.array.tabulate` where they hold references.
+||| Two arrays one after the other along the last axis. Upstream's
+||| `tensor.concat` covers it where the elements are words, and
+||| `idr.array.tabulate` where they hold references.
 public export
 concatenation : ArrayMeaning
 concatenation = MkArrayMeaning [TakesArray, TakesArray] (Concatenated (Nth 0) (Nth 1))
 
-||| As many copies of the element along the shape's last axis as the
-||| natural, the other axes the array's: what is joined to an array to pad
-||| or grow it, so that every slot of the result is written once.
-public export
-copiesAlongLast : (count : Composed ts ANatural) -> (element : Composed ts AnElement) ->
-                  (like : Composed ts AnArray) -> Composed ts AnArray
-copiesAlongLast count element like = Copies (WithLastExtent (ExtentsOf like) count) element
-
 ||| Copies of an element before and after an array along its last axis, as
-||| many as each natural says. No admitted op covers it: the array between
-||| two arrays of copies, each copy its own.
+||| many as each natural says. Upstream's `tensor.pad` covers it where the
+||| elements are words; where they hold references, the array between two
+||| arrays of copies, each copy its own.
 public export
 padding : ArrayMeaning
 padding =
   MkArrayMeaning [TakesNatural, TakesNatural, TakesElement, TakesArray]
-    (Concatenated (Concatenated (copiesAlongLast (Nth 0) (Nth 2) (Nth 3)) (Nth 3))
-                  (copiesAlongLast (Nth 1) (Nth 2) (Nth 3)))
+    (Padded (SideOf (Nth 0)) (SideOf (Nth 1)) (Nth 2) (Nth 3))
 
 ||| A fresh linear array of the extents, each element a copy of the one
 ||| given, given to the continuation. `idr.array.tabulate` covers the array.
@@ -416,12 +478,14 @@ linearExtents = MkArrayMeaning [TakesLinearArray] (ExtentsGivingBack (Nth 0))
 
 ||| A fresh linear array longer on its last axis by the natural, the old
 ||| elements at their positions and a copy of the element given in each new
-||| slot. No admitted op covers it: the array then an array of copies.
+||| slot. Upstream's `tensor.pad` covers it where the elements are words,
+||| flush before the array, its bufferization allocating the fresh array;
+||| where they hold references, the array then an array of copies.
 public export
 growth : ArrayMeaning
 growth =
   MkArrayMeaning [TakesNatural, TakesElement, TakesLinearArray]
-    (Held (Concatenated (Nth 2) (copiesAlongLast (Nth 0) (Nth 1) (Nth 2))))
+    (Held (Padded Flush (SideOf (Nth 0)) (Nth 1) (Nth 2)))
 
 ||| A new array of the extents, the result of the action at each position,
 ||| the actions run in the world's order. `idr.array.tabulate` covers it,
@@ -445,8 +509,8 @@ declarations = MkDeclarations
   , predicates = [valueBuffer, mutableArray]
   , resources = []
   , helpers = []
-  , admitted = tensorAdmitted ++ bufferizationAdmitted ++ memrefAdmitted ++ linalgAdmitted
-                 ++ scfAdmitted
+  , admitted = tensorAdmitted ++ tensorJoinsAdmitted ++ bufferizationAdmitted ++ memrefAdmitted
+                 ++ linalgAdmitted ++ scfAdmitted
   , rewrites = []
   , skeleton = memorySkeleton
   , headers = []

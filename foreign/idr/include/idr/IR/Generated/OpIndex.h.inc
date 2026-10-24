@@ -233,6 +233,9 @@ enum class OpIndex : std::uint16_t {
   Tensor_InsertSliceOp,
   Tensor_ExpandShapeOp,
   Tensor_CollapseShapeOp,
+  Tensor_ConcatOp,
+  Tensor_PadOp,
+  Tensor_YieldOp,
   Bufferization_ToTensorOp,
   Bufferization_ToBufferOp,
   Bufferization_AllocTensorOp,
@@ -294,7 +297,7 @@ enum class OpIndex : std::uint16_t {
 
 template <>
 struct EnumTraits<OpIndex> {
-  static constexpr std::size_t count = 273;
+  static constexpr std::size_t count = 276;
 };
 
 // The index of an op's class; no primary definition, so a class outside the set has none.
@@ -733,6 +736,12 @@ template <>
 struct IndexOf<::idr::admitted::Tensor_ExpandShapeOp> : std::integral_constant<OpIndex, OpIndex::Tensor_ExpandShapeOp> {};
 template <>
 struct IndexOf<::idr::admitted::Tensor_CollapseShapeOp> : std::integral_constant<OpIndex, OpIndex::Tensor_CollapseShapeOp> {};
+template <>
+struct IndexOf<::idr::admitted::Tensor_ConcatOp> : std::integral_constant<OpIndex, OpIndex::Tensor_ConcatOp> {};
+template <>
+struct IndexOf<::idr::admitted::Tensor_PadOp> : std::integral_constant<OpIndex, OpIndex::Tensor_PadOp> {};
+template <>
+struct IndexOf<::idr::admitted::Tensor_YieldOp> : std::integral_constant<OpIndex, OpIndex::Tensor_YieldOp> {};
 template <>
 struct IndexOf<::idr::admitted::Bufferization_ToTensorOp> : std::integral_constant<OpIndex, OpIndex::Bufferization_ToTensorOp> {};
 template <>

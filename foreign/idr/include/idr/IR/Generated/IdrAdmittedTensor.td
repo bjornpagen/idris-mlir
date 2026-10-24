@@ -19,4 +19,7 @@ def IdrAdmitted_Tensor_InsertOp : IdrAdmitted<Tensor_InsertOp, "Tensor_InsertOp"
 def IdrAdmitted_Tensor_InsertSliceOp : IdrAdmitted<Tensor_InsertSliceOp, "Tensor_InsertSliceOp", "Higher", "First", 1, []>;
 def IdrAdmitted_Tensor_ExpandShapeOp : IdrAdmitted<Tensor_ExpandShapeOp, "Tensor_ExpandShapeOp", "Higher", "First", 1, []>;
 def IdrAdmitted_Tensor_CollapseShapeOp : IdrAdmitted<Tensor_CollapseShapeOp, "Tensor_CollapseShapeOp", "Higher", "First", 1, []>;
+def IdrAdmitted_Tensor_ConcatOp : IdrAdmitted<Tensor_ConcatOp, "Tensor_ConcatOp", "Higher", "First", 1, []>;
+def IdrAdmitted_Tensor_PadOp : IdrAdmitted<Tensor_PadOp, "Tensor_PadOp", "Higher", "First", 1, []>;
+def IdrAdmitted_Tensor_YieldOp : IdrAdmitted<Tensor_YieldOp, "Tensor_YieldOp", "Higher", "First", 1, []>;
 #endif // IDR_GENERATED_ADMITTED_TENSOR

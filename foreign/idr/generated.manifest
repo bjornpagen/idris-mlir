@@ -1,4 +1,4 @@
-specification f949df980e87c822
+specification 77557de8606d46d2
 generator 663362453c896906
 4ca7f88c451ec07f foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
@@ -13,7 +13,7 @@ a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
 08cbb461ea31467a foreign/idr/include/idr/IR/Generated/IdrAdmittedArith.td
 557dbaf00e71816d foreign/idr/include/idr/IR/Generated/IdrAdmittedMath.td
 30974cccfac2a9ef foreign/idr/include/idr/IR/Generated/IdrAdmittedMemRef.td
-0f4b680b2af11fa5 foreign/idr/include/idr/IR/Generated/IdrAdmittedTensor.td
+7a7fc82df2028a39 foreign/idr/include/idr/IR/Generated/IdrAdmittedTensor.td
 8e05240184a9371f foreign/idr/include/idr/IR/Generated/IdrAdmittedUB.td
 34e058edf5f00de8 foreign/idr/include/idr/IR/Generated/IdrAdmittedLinalg.td
 923dee25523f7992 foreign/idr/include/idr/IR/Generated/IdrAdmittedBufferization.td
@@ -24,7 +24,7 @@ d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 9fd13e1e8328772c foreign/idr/include/idr/IR/Generated/Defaults.h.inc
 04c4213dde97376d foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
-10217cbb352453b4 foreign/idr/include/idr/IR/Generated/OpIndex.h.inc
+9c0dee887f943a10 foreign/idr/include/idr/IR/Generated/OpIndex.h.inc
 63b21b4f37b68a54 foreign/idr/include/idr/IR/Generated/Guards.h.inc
 68e3ceca03ab911e foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 33ce11ca871aaacf foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
