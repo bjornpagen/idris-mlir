@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/120-chez-int-wrap-fixnum, carried: the stock Idris's Chez
+# support wrapped every Int and Bits64 result to its width through bignum
+# masks, a fixnum included, so every fixed-width step cost a procedure call
+# and two bignum operations. With the patch the wrap gives back a fixnum
+# that is already inside the width, and wraps everything else as before.
+# Wrap.idr computes every fixed-width type's arithmetic where a result
+# wraps (each width's bounds and one past them, the fixnum's bounds, and
+# bignum inputs), and every result is the unpatched support's (Wrap.out).
+# The cost the patch removes shows in no result; Cost.idr measures it.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+dir=$root/upstream/120-chez-int-wrap-fixnum
+cp "$dir/Wrap.idr" "$work/"
+if ! (cd "$work" && pinned_idris --exec main Wrap.idr) > "$work/out" 2> "$work/err"; then
+  say "the stock Idris fails on Wrap.idr, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+if cmp -s "$dir/Wrap.out" "$work/out"; then
+  say "Wrap: every result at every width is the one the unpatched support gives"
+else
+  say "Wrap: a result differs from the unpatched support's"
+  show "$work/out"
+fi

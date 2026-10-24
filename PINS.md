@@ -1000,3 +1000,15 @@ every target, the full suites green on each, and this file's sweep.
   on (solving it as a fresh one over those it keeps) and shrinks the
   solution again; checked by tests/upstream-clause-metavariable-pruning
 - retire: when the Idris pin carries an upstream fix
+
+## chez-int-wrap-fixnum
+
+- sites: everything the stock host compiles to run on Chez: stage 0, the
+  test runner, the benchmarks' Chez baseline; every `Int`, `Int64` and
+  `Bits64` step and every cast to them
+- workaround: `upstream/120-chez-int-wrap-fixnum/idris.patch`: the Chez
+  support's wrap to a fixed width gives back a fixnum already inside the
+  width (a fixnum not negative, for an unsigned width) and masks only a
+  bignum or a narrow width; checked by tests/upstream-chez-int-wrap-fixnum
+- retire: when the Idris pin's Chez support returns such a fixnum
+  unchanged on its own

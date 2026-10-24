@@ -1,0 +1,32 @@
+diff --git a/support/chez/support.ss b/support/chez/support.ss
+index d6879a1..7769e24 100644
+--- a/support/chez/support.ss
++++ b/support/chez/support.ss
+@@ -31,13 +31,22 @@
+         (begin (set-car! e val) val))
+       exval)))
+ 
++;; A fixnum is already inside every signed width at least as wide as the
++;; fixnum's own, so wrapping one to such a width gives it back: the bignum
++;; masks below are reached only by a bignum or a narrow width.
+ (define (blodwen-toSignedInt x bits)
+-  (if (logbit? bits x)
+-      (logor x (ash -1 bits))
+-      (logand x (sub1 (ash 1 bits)))))
+-
++  (if (and (fixnum? x) (fx>= bits (fx- (fixnum-width) 1)))
++      x
++      (if (logbit? bits x)
++          (logor x (ash -1 bits))
++          (logand x (sub1 (ash 1 bits))))))
++
++;; Likewise a fixnum that is not negative, for an unsigned width at least
++;; as wide as the fixnum's own.
+ (define (blodwen-toUnsignedInt x bits)
+-  (logand x (sub1 (ash 1 bits))))
++  (if (and (fixnum? x) (fx>= x 0) (fx>= bits (fx- (fixnum-width) 1)))
++      x
++      (logand x (sub1 (ash 1 bits)))))
+ 
+ (define (blodwen-euclidDiv a b)
+   (let ((q (quotient a b))
