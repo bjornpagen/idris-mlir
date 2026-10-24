@@ -1000,6 +1000,19 @@ def Idr_ArrayExtentOp : Idr_Op<"array.extent", [
   let hasVerifier = 1;
 }
 
+def Idr_ArrayOpenOp : Idr_Op<"array.open", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    Idr_DeclaredEffectsOpInterface,
+    AlwaysSpeculatable,
+    InferTypeOpAdaptor,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+  ]> {
+  let summary = "the array a field of a value holds as its buffer, opened";
+  let arguments = (ins Type<CPred<"::idr::isRefinedValue($_self)">, "a value of a data type refined to one constructor, at any grade", "::mlir::Type">:$value, I64Attr:$index);
+  let results = (outs AnyRankedTensor:$array);
+  let assemblyFormat = [{ $value `[` $index `]` attr-dict `:` type($value) `->` type($array) }];
+}
+
 def Idr_ArrayPlaceCopyOp : Idr_Op<"array.place_copy", [
     Idr_DeclaredEffectsOpInterface,
     DestinationStyleOpInterface,

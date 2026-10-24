@@ -2,8 +2,9 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What the arrays declare: the generating set and its yield, a step's
 ||| movements on buffers, mutable memory and its accesses, the read that
-||| gives a value array back, the copy that first writes a buffer allocated
-||| for it, the extent of an array to be made and the tie of its dimensions;
+||| gives a value array back, the opening of a field's buffer as an array,
+||| the copy that first writes a buffer allocated for it, the extent of an
+||| array to be made and the tie of its dimensions;
 ||| the memory space of mutable memory; the two interfaces the generating
 ||| set and the update share; the two hand predicates their operands are
 ||| checked by; the skeleton rules on two accesses of one element of
@@ -57,12 +58,14 @@ tensorJoinsAdmitted : List Admitted
 tensorJoinsAdmitted = map (\r : Ident => admitNamed Tensor r (between Higher First) FrontendWrites)
   [ "Tensor_ConcatOp", "Tensor_PadOp", "Tensor_YieldOp" ]
 
-||| The crossings between a cell's buffer and an array value the frontend
-||| writes, and the fresh array bufferization's preparation makes: until
-||| bufferization, which removes them.
+||| The crossings between a buffer and an array value, until
+||| bufferization, which removes them: the buffer a constructor's field
+||| takes, which the frontend writes; the array of a buffer no cell holds,
+||| which the in-place check writes where it moves a cell's buffer out of
+||| the cell; and the fresh array bufferization's preparation makes.
 bufferizationAdmitted : List Admitted
 bufferizationAdmitted =
-  [ admitNamed Bufferization "Bufferization_ToTensorOp" (between Higher First) FrontendWrites
+  [ admitNamed Bufferization "Bufferization_ToTensorOp" (between First First) PassesOnly
   , admitNamed Bufferization "Bufferization_ToBufferOp" (between Higher First) FrontendWrites
   , admitNamed Bufferization "Bufferization_AllocTensorOp" (between First First) PassesOnly ]
 

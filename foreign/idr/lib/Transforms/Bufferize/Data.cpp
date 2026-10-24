@@ -9,13 +9,15 @@
 //
 // A cell's field holds its buffer from the frontend on: idr.data.con takes
 // one through upstream's to_buffer, a release One-Shot already models, and
-// idr.data.field gives one that upstream's to_tensor puts back in the
-// tensor world, writable only where the cell's grade claims its own cells
-// unshared, which covers the buffer's storage. So no idr op that stores or
+// idr.array.open opens one as the array it is, taking the value that holds
+// it, so whether the array may be written in place is that value's claim,
+// read here off the opener's operand. So no other idr op that stores or
 // reads a cell needs a model of its own here. A value a
 // terminator gives that goes to no result of its parent (a memo cell's
 // forced value) moves into memory the parent holds: a release.
 #include "idr/Transforms/BufferizeModels.h"
+
+#include "idr/IR/Grades.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -208,6 +210,47 @@ struct GivingModel : BufferizableOpInterface::ExternalModel<GivingModel<Op>, Op>
   }
 };
 
+// What a value must claim of its sharing for the buffer one of its fields
+// holds to be its alone, which may then be written in place: its own cells
+// unshared. That claim covers the storage of a buffer an own cell holds, so
+// no other reference reaches its slots; it says nothing of the elements in
+// them, and nothing need be said, since a write in place replaces what a
+// slot holds (the element moving out with the buffer's reference) and never
+// writes inside an element another holder may share.
+constexpr idr::Unique bufferClaim = idr::Unique::Self;
+
+// A field's buffer opened as the array it is: a buffer of its own to the
+// analysis, aliasing no tensor, and the only array of that buffer while it
+// lives. It is writable where the value it is opened from makes
+// bufferClaim, so One-Shot copies it only where the program reads it again
+// and writes its slots, never the elements they hold; one that claims less
+// gives an array One-Shot copies before any write. Bufferized, it is the
+// field read, at the bare carrier upstream's ops take: the buffer is a
+// whole cell's, of the identity layout every field has.
+struct OpenModel : BufferizableOpInterface::ExternalModel<OpenModel, idr::ArrayOpenOp> {
+  bool isWritable(Operation *op, Value, const AnalysisState &) const {
+    return idr::claims(cast<idr::ArrayOpenOp>(op).getValue().getType(), bufferClaim);
+  }
+
+  FailureOr<BufferLikeType> getBufferType(Operation *, Value value, const BufferizationOptions &,
+                                          const BufferizationState &,
+                                          SmallVector<Value> &) const {
+    return idr::bufferize::cellType(cast<TensorLikeType>(value.getType()));
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter, const BufferizationOptions &,
+                          BufferizationState &) const {
+    auto open = cast<idr::ArrayOpenOp>(op);
+    Location loc = open.getLoc();
+    Value read = idr::DataFieldOp::create(rewriter, loc, open.getValue(),
+                                          static_cast<unsigned>(open.getIndex()));
+    Value buffer = idr::heldAs(rewriter, loc, read,
+                               idr::bufferize::cellType(cast<TensorLikeType>(open.getType())));
+    replaceOpWithBufferizedValues(rewriter, op, buffer);
+    return success();
+  }
+};
+
 } // namespace
 
 void idr::bufferize::attachDataModels(MLIRContext *ctx) {
@@ -216,4 +259,5 @@ void idr::bufferize::attachDataModels(MLIRContext *ctx) {
   idr::MemoRunOp::attachInterface<GivenModel<idr::MemoRunOp>>(*ctx);
   idr::LifetimeOp::attachInterface<GivenModel<idr::LifetimeOp>>(*ctx);
   idr::YieldOp::attachInterface<GivingModel<idr::YieldOp>>(*ctx);
+  idr::ArrayOpenOp::attachInterface<OpenModel>(*ctx);
 }

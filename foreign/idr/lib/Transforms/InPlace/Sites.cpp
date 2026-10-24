@@ -6,7 +6,9 @@
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
 
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/STLExtras.h"
@@ -71,12 +73,27 @@ void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp co
   BlockArgument cell = entry.getArgument(taken);
   OpBuilder builder = OpBuilder::atBlockBegin(&entry);
   auto take = CountTakeOp::create(builder, match.getLoc(), cell);
-  for (OpOperand &use : llvm::make_early_inc_range(cell.getUses()))
+  for (OpOperand &use : llvm::make_early_inc_range(cell.getUses())) {
     if (auto field = dyn_cast<DataFieldOp>(use.getOwner())) {
       field.getResult().replaceAllUsesWith(
           take.getFields()[static_cast<unsigned>(field.getIndex())]);
       field.erase();
+      continue;
     }
+    // A buffer the take moves out of the cell is the cell's field no more,
+    // so no opener reads it: its array is upstream's tensor of it, the only
+    // one of that buffer, which bufferization copies before a write, since
+    // no claim reaches an op of upstream's.
+    if (auto open = dyn_cast<ArrayOpenOp>(use.getOwner())) {
+      builder.setInsertionPoint(open);
+      Value moved = take.getFields()[static_cast<unsigned>(open.getIndex())];
+      Value bare = heldAs(builder, open.getLoc(), moved, unrestricted(moved.getType()));
+      auto array = bufferization::ToTensorOp::create(builder, open.getLoc(), open.getType(), bare,
+                                                     /*restrict=*/true);
+      open.getArray().replaceAllUsesWith(array.getResult());
+      open.erase();
+    }
+  }
   builder.setInsertionPoint(construction);
   auto rebuilt = TokenRebuildOp::create(builder, construction.getLoc(),
                                         construction.getResult().getType(), take.getToken(),

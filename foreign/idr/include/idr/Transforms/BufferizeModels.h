@@ -101,9 +101,7 @@ bool mayRunAfter(mlir::Operation *later, mlir::Operation *earlier, mlir::Value v
 // it and no result of the op is it, or the op is a call.
 bool isRelease(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state);
 
-// The program made ready for any analysis: the tensor of a buffer read out
-// of a cell whose grade claims its own cells unshared, which covers the
-// buffer's storage, is writable; an insert of elements that hold
+// The program made ready for any analysis: an insert of elements that hold
 // references over the whole of its destination is its source; every
 // tensor.empty has one use; a use that writes, without reading, a buffer a
 // release gave away, and may run after the release, writes a tensor.empty

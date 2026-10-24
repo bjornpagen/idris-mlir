@@ -18,8 +18,9 @@
 // Which buffers may be one is every aliasing relation the models declare,
 // followed both ways, before the analysis decides any of them: a partition
 // of the program's tensor values made once. When one value may run after
-// another is by position, through loops and branches, as One-Shot's own
-// conflict check reads it.
+// another is by position, through loops, and through the region graph of
+// the branch that holds both, which orders two regions one way where
+// One-Shot's own conflict check asks only whether they exclude each other.
 //
 // A buffer allocated for elements that hold references has nothing in its
 // slots, so the program is also made such that its first writer places
@@ -29,6 +30,7 @@
 // where a buffer must be made for it.
 #include "idr/Transforms/BufferizeModels.h"
 
+#include "idr/Analysis/Ownership/Facts.h"
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
 
@@ -48,15 +50,6 @@ using namespace mlir;
 using namespace mlir::bufferization;
 
 namespace {
-
-// What a cell must claim of its sharing for the buffer one of its fields
-// holds to be the cell's alone, which may then be written in place: its
-// own cells unshared. That claim covers the storage of a buffer an own
-// cell holds, so no other reference reaches its slots; it says nothing of
-// the elements in them, and nothing need be said, since a write in place
-// replaces what a slot holds (the element moving out with the buffer's
-// reference) and never writes inside an element another holder may share.
-constexpr idr::Unique bufferClaim = idr::Unique::Self;
 
 // Whether `region` runs again after each run of it, by its op's model.
 bool isRepetitive(Region *region, const BufferizationOptions &options) {
@@ -181,11 +174,23 @@ bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value val
   Operation *second = common->findAncestorOpInRegion(*later);
   if (first == second) {
     // `later` holds `earlier`, and its operands are read before its regions
-    // run; or the two are in two regions of one op, which run one after the
-    // other unless they exclude each other.
+    // run; or `earlier` holds `later`, which runs inside it after them.
     if (second == later)
       return false;
-    return first == earlier || !insideMutuallyExclusiveRegions(earlier, later);
+    if (first == earlier)
+      return true;
+    // The two are in two regions of one op: `later` may follow where the
+    // op's region graph reaches the region that holds it from the one that
+    // holds `earlier` (a join region after the body that jumps to it, never
+    // the body after one of its join regions, nor one alternative after
+    // another). An op that is no region branch says nothing of the order of
+    // its regions, so either may follow the other.
+    auto branch = dyn_cast<RegionBranchOpInterface>(first);
+    if (!branch)
+      return true;
+    unsigned from = idr::ownership::regionHolding(first, earlier).getRegionNumber();
+    unsigned to = idr::ownership::regionHolding(first, later).getRegionNumber();
+    return branch.isRegionReachable(from, to);
   }
 
   // In the region's one block: a function's body is one block, and so is
@@ -204,37 +209,6 @@ bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {
 
 void idr::bufferize::prepare(Operation *program, const BufferizationOptions &options) {
   IRRewriter rewriter(program->getContext());
-
-  // The storage of a buffer read out of a cell whose grade makes
-  // bufferClaim is the cell's alone, so the tensor upstream's to_tensor
-  // makes of it, the only one of that buffer (`restrict`), is writable:
-  // One-Shot copies it only where the program reads it again, and writes
-  // its slots, never the elements they hold. Every operation of a linear
-  // array has this form: it opens the cell, runs on the array the field holds
-  // and rebuilds the cell through to_buffer and data.con, so an array whose
-  // cell makes the claim is written in place. The field is read with no
-  // claim of its own (the array is unrestricted to the program), so the
-  // claim read is the cell's. The tensor takes the buffer at its own grade,
-  // which claims nothing, so a share may stand between them; it forgets the
-  // claim of a value something else may also read, so it is looked through
-  // only where it is the field's one reader and its result the tensor's
-  // alone.
-  auto alone = [](Value value) {
-    return llvm::all_of(idr::linearPositions(value), [](Value at) { return at.hasOneUse(); });
-  };
-  program->walk([&](ToTensorOp tensor) {
-    if (!tensor.getRestrict() || tensor.getWritable() || !alone(tensor.getBuffer()))
-      return;
-    Value read = idr::throughLinear(tensor.getBuffer());
-    if (auto share = read.getDefiningOp<idr::CountShareOp>()) {
-      if (!alone(share.getValue()))
-        return;
-      read = idr::throughLinear(share.getValue());
-    }
-    auto field = read.getDefiningOp<idr::DataFieldOp>();
-    if (field && idr::claims(field.getValue().getType(), bufferClaim))
-      rewriter.modifyOpInPlace(tensor, [&] { tensor.setWritable(true); });
-  });
 
   // An insert of elements that hold references over the whole of its
   // destination, which it does not read, is its source in the

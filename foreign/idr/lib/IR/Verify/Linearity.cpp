@@ -338,7 +338,8 @@ private:
 bool anyUse(OpOperand &) { return true; }
 
 // What one use takes of the value it uses. A field read takes the field it
-// reads and no other. A use that ends the value's owner, as its first
+// reads and no other, and so does the opening of the buffer a field holds,
+// whose array is that field. A use that ends the value's owner, as its first
 // operand (EndsOwner: a drop, a take, the fused take, the test of sharing,
 // an unpack), takes the cell alone: it gives up the reference, and every
 // field with it, or moves each field out as a value of its own, which
@@ -355,6 +356,8 @@ Taken takenBy(OpOperand &use) {
   Operation *user = use.getOwner();
   if (auto read = dyn_cast<DataFieldOp>(user))
     return TakesField{read.getIndex()};
+  if (auto open = dyn_cast<ArrayOpenOp>(user))
+    return TakesField{open.getIndex()};
   if (user->hasTrait<EndsOwner>() && use.getOperandNumber() == 0)
     return TakesCell{};
   return TakesWhole{};

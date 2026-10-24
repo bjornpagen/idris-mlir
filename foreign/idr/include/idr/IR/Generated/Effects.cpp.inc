@@ -103,6 +103,11 @@ void ::idr::ArrayUpdateYieldOp::getEffects(
   ::idr::effects::declare(*this, effects);
 }
 
+void ::idr::ArrayOpenOp::getEffects(
+    ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
+  ::idr::effects::declare(*this, effects);
+}
+
 void ::idr::BigAddOp::getEffects(
     ::llvm::SmallVectorImpl<::mlir::SideEffects::EffectInstance<::mlir::MemoryEffects::Effect>> &effects) {
   ::idr::effects::declare(*this, effects);

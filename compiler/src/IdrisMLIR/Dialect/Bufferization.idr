@@ -26,9 +26,3 @@ toBufferOp : {default False readOnly : Bool} -> (tensor : Value) -> (buffer : Ml
 toBufferOp tensor buffer =
   MkOp (MkOpName Dialect.Bufferization "to_buffer") [tensor] (unitIf "read_only" readOnly) [] [] [buffer]
 
-||| `bufferization.to_tensor`: create a tensor-like type from a buffer-like type
-export
-toTensorOp : {default False restrict : Bool} -> {default False writable : Bool} -> (buffer : Value) -> (result : MlirType) -> Op
-toTensorOp buffer result =
-  MkOp (MkOpName Dialect.Bufferization "to_tensor") [buffer] (unitIf "restrict" restrict ++ unitIf "writable" writable) [] [] [result]
-

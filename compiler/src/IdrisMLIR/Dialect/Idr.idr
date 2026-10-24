@@ -244,6 +244,12 @@ arrayExtentOp : MlirAttr -> Value -> MlirType -> MlirType -> Op
 arrayExtentOp axis' array' extent' after' =
   MkOp (MkOpName Dialect.Idr "array.extent") ([array']) ([("axis", axis')]) ([]) [] ([extent'] ++ [after'])
 
+||| `idr.array.open`: the array a field of a value holds as its buffer, opened
+export
+arrayOpenOp : MlirAttr -> Value -> MlirType -> Op
+arrayOpenOp index' value' array' =
+  MkOp (MkOpName Dialect.Idr "array.open") ([value']) ([("index", index')]) ([]) [] ([array'])
+
 ||| `idr.nat.to_extent`: a natural as the extent of an array to be made
 export
 natToExtentOp : Value -> Op

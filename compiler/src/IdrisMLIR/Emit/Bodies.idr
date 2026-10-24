@@ -8,7 +8,6 @@
 ||| nothing here counts a use.
 module IdrisMLIR.Emit.Bodies
 
-import IdrisMLIR.Dialect.Bufferization as Bufferization
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
@@ -393,7 +392,8 @@ fieldBinders : Nat -> Uses -> Con k -> Vect k Binder
 fieldBinders d u c = map (\b => MkBinder (times u b.quantity) b.type) (fieldsAt d c)
 
 ||| A case's fields as the region holds them, from its refined value `r`:
-||| each field the alternative names a read of `r` (`idr.data.field`), at
+||| each field the alternative names a read of `r` (`idr.data.field`, and
+||| `idr.array.open` for an array, which a field holds as its buffer), at
 ||| the value's uses times the field's, so a value used once is read once
 ||| per field; a field it never names is never read, and the world is no
 ||| value of the module. `named i` says whether the alternative names field
@@ -408,21 +408,13 @@ caseFields ix l r named bs reaches = fieldsFrom 0 bs reaches
     fieldHold b reach = readHold reach b.quantity r.hold
     read : Nat -> Binder -> FieldReach -> E InScope
     read i (MkBinder _ WorldT) _ = pure World
-    -- An array field is held as its buffer; its value is the tensor of it,
-    -- restricted, so the buffer is no one else's while the tensor lives,
-    -- and never written in place here: what may write it is decided once
-    -- exclusivity is. The buffer enters the tensor at its bare grade, as
-    -- upstream's op takes it, and the tensor is used as the field is.
-    read i b@(MkBinder q t@(TensorT _ _)) reach = do
-      let carrier = fieldType ix t
-          graded = case (q, fieldHold b reach) of
-                     (Many, Hold.Counted None) => carrier
-                     (u, h) => Idr (GradedType u (Just h) carrier)
-      buf <- mlirValue l graded (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
-      bare <- case q of
-                Many => pure buf
-                Once => mlirValue l carrier (Idr.linCastOp buf [])
-      v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} bare)
+    -- An array field is held as its buffer; its value is the array the
+    -- buffer is, opened from the value it is read from
+    -- (`idr.array.open`), so whether the array may be written in place is
+    -- that value's claim, read where bufferization asks, once exclusivity
+    -- has decided it. The array is used as the field is.
+    read i (MkBinder q t@(TensorT _ _)) _ = do
+      v <- mlirValue l (mlirType ix t) (Idr.arrayOpenOp (fieldIndex i) (operand ix r))
       Whole <$> coerce ix l q (val v.name t Many made)
     read i b reach = do
       v <- mlirValue l (gradedType ix b.quantity (fieldHold b reach) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])

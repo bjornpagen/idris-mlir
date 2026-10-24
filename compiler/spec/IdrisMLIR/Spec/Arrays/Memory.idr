@@ -3,9 +3,10 @@
 ||| The arrays that are memory, and the values that cross into it: mutable
 ||| memory (base's IOArray, Buffer and IORef) with its reads, writes and
 ||| updates in place; the read of a value array that gives the array back;
-||| the copy that is the first write of a buffer allocated for it; the
-||| extent of an array to be made; and the tie of an array's dynamic
-||| dimensions to the sizes Idris proved them equal to.
+||| the opening of the buffer a field holds as the array it is; the copy
+||| that is the first write of a buffer allocated for it; the extent of an
+||| array to be made; and the tie of an array's dynamic dimensions to the
+||| sizes Idris proved them equal to.
 |||
 ||| Mutable memory is a builtin memref in the memory space `#idr.mutable`,
 ||| written after it is shared, which no value array's buffer is in: what
@@ -23,6 +24,7 @@ import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Arrays.Generating
+import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Tail.Declarations
 
 import Data.Fin
@@ -315,6 +317,53 @@ arrayExtentOp = MkOp
   }
 
 ------------------------------------------------------------------------------
+-- A field's buffer opened as an array
+------------------------------------------------------------------------------
+
+||| `idr.array.open`: the buffer field `index` of a value refined to one
+||| constructor holds, opened as the array it is, the only array of that
+||| buffer while it lives: a field holds an array as its buffer from the
+||| frontend on, and a match reads one through this op, which takes the
+||| value, so what the value claims of its sharing reaches the op that
+||| opens the array. The array may be written in place where the value
+||| claims its own cells unshared, a claim that covers the storage of a
+||| buffer one of them holds, never the elements in it; bufferization reads
+||| it off the operand's grade, and no fact beside the grade says it. Its
+||| type is the buffer's shape and element, inferred, so the array follows
+||| its field wherever a pass changes the value's type. The value is only
+||| read, the field's reference reaching the array, as a field read reads
+||| it (a memo cell's field its state), and the read is total, since the
+||| type fixes the constructor, so it may run anywhere its operand is.
+||| Bufferization makes it the field's read.
+public export
+arrayOpenOp : Op 1 1 1 0
+arrayOpenOp = MkOp
+  { home = InIdr
+  , mnemonic = "array.open"
+  , ins = [single "value" (SatisfiesType refinedValue)]
+  , outs = [result "array" (UpstreamType AnyRankedTensorC)]
+  , attrs = [attr "index" (UpstreamAttr I64AttrC)]
+  , regions = []
+  , traits = []
+  , interfaces = [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
+  , effects = Executes [] [ReadsMemo 0] Covered Untouched
+  , speculation = AlwaysSpeculatable
+  , stages = between Higher First
+  , meaning = NoFold
+  , verify = DeclarationOnly
+  , format = Declared
+      [ ValueOf (OperandRef 0), Lit "[", ValueOf (AttrRef 0), Lit "]", AttrDict
+      , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "the array a field of a value holds as its buffer, opened"
+  }
+
+------------------------------------------------------------------------------
 -- A fresh buffer's first write
 ------------------------------------------------------------------------------
 
@@ -495,6 +544,7 @@ public export
 memoryOps : List AnyOp
 memoryOps =
   [ SomeOp arrayNewOp, SomeOp arrayGetOp, SomeOp arraySetOp, SomeOp arrayUpdateOp
-  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp arrayExtentOp, SomeOp arrayPlaceCopyOp
+  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp arrayExtentOp, SomeOp arrayOpenOp
+  , SomeOp arrayPlaceCopyOp
   , SomeOp natToExtentOp
   , SomeOp tieShapeOp ]

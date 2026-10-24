@@ -396,6 +396,14 @@ struct Declared<::idr::ArrayExtentOp> {
 };
 
 template <>
+struct Declared<::idr::ArrayOpenOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 0> effects{{}};
+  using Rules = std::tuple<::idr::effects::ReadsMemo<::idr::effects::OnOperand<0>>>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::ArrayPlaceCopyOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 3> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::Contents, ::idr::effects::Subject::operand(0)}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Count, ::idr::effects::Subject::operand(0)}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Contents, ::idr::effects::Subject::operand(1)}}};

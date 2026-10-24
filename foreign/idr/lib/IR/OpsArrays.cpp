@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The ops on mutable memory (new, get, set, update), with their rules,
-// shapes and how an element moves; and the reads of a value array, of an
-// element and of an extent, that give the array back.
+// shapes and how an element moves; the reads of a value array, of an
+// element and of an extent, that give the array back; and the opening of
+// the buffer a field holds as the array it is.
 //
 // Mutable memory is base's IOArray, Buffer and IORef: a buffer in the
 // memory space #idr.mutable, written after it is shared. A value array's
@@ -12,6 +13,7 @@
 // upstream's memref ops do.
 
 #include "idr/IR/Arrays.h"
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 
@@ -227,4 +229,32 @@ LogicalResult ArrayExtentOp::verify() {
 void ArrayExtentOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::of(getArrayMutable()), FlowPlace::of(getAfter()));
   edges.fresh(getExtent());
+}
+
+//===----------------------------------------------------------------------===//
+// idr.array.open
+//===----------------------------------------------------------------------===//
+
+// The array of the buffer the field holds, of its shape and element: the
+// field as a read of it gives it, so the array follows its field wherever
+// a pass changes the value's type.
+LogicalResult ArrayOpenOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
+                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
+  Type value = adaptor.getValue().getType();
+  std::optional<Type> read = fieldReadType(value, static_cast<unsigned>(adaptor.getIndex()));
+  if (!read || !isValueBuffer(*read))
+    return emitOptionalError(location, "opens field ", adaptor.getIndex(), " of ", value,
+                             ", which holds no value array's buffer");
+  auto buffer = cast<MemRefType>(unrestricted(*read));
+  inferred.push_back(RankedTensorType::get(buffer.getShape(), buffer.getElementType()));
+  return success();
+}
+
+// The array is what the field holds; the value it is opened from is only
+// read.
+void ArrayOpenOp::getFlowEdges(FlowEdges &edges) {
+  auto data = cast<DataType>(unrestricted(getValue().getType()));
+  auto index = static_cast<unsigned>(getIndex());
+  edges.flow(FlowSource::partOf(getValue(), FlowAnchor::fieldOf(data, *data.singleTag(), index)),
+             FlowPlace::of(getArray()));
 }
