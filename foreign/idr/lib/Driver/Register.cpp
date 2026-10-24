@@ -68,7 +68,7 @@ void insertAll(mlir::DialectRegistry &registry, idr::DialectList<Dialects...>) {
 void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   // The transform ops the schedule library is written in, before the
   // library (registerIdrDialects): an extension applies in the order it was
-  // added, and the library's own extension parses it.
+  // added, and the library's own extension builds it of them.
   mlir::linalg::registerTransformDialectExtension(registry);
   mlir::vector::registerTransformDialectExtension(registry);
   // The dialects a handoff module is written in, as the frontend writes

@@ -29,7 +29,6 @@ add_mlir_library(IdrTarget
 	IdrSupport
 	MLIRIR
 	MLIRPass
-	MLIRParser
 	MLIRTransformDialect
 	MLIRTransformDialectInterfaces
 	MLIRAffineDialect
@@ -37,6 +36,7 @@ add_mlir_library(IdrTarget
 	MLIRDialectUtils
 	MLIRFunctionInterfaces
 	MLIRLinalgDialect
+	MLIRLinalgTransformOps
 	MLIRLinalgTransforms
 	MLIRLinalgUtils
 	MLIRMemRefDialect
@@ -44,6 +44,7 @@ add_mlir_library(IdrTarget
 	MLIRSCFTransforms
 	MLIRSideEffectInterfaces
 	MLIRVectorDialect
+	MLIRVectorTransformOps
 	MLIRTilingInterface
 	MLIRDataLayoutInterfaces
 	MLIRLLVMDialect

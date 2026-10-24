@@ -90,7 +90,7 @@ inline constexpr llvm::StringLiteral vectorWidthKey = "max_vector_op_width";
 // library and the transform op it uses on a registry. It is called after
 // upstream's transform ops it is written in are put on the registry
 // (registerIdrDialects, idr/InitIdr.h), so that they are registered when
-// the transform dialect loads and the library is parsed.
+// the transform dialect loads and the library is built of them.
 inline constexpr llvm::StringLiteral vectorizeSchedule = "idr.vectorization";
 void registerScheduleLibrary(mlir::DialectRegistry &registry);
 

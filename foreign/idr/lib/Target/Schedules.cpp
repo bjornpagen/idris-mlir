@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The schedule library: the transform script the vectorization group runs
-// on each function, one copy for every target, built into the tools and
-// loaded into the transform dialect's library module when the dialect
-// loads; and the one transform op of ours it uses.
+// on each function, one copy for every target, built with the transform
+// ops' own builders into the transform dialect's library module when the
+// dialect loads; and the one transform op of ours it uses.
 //
 // The op exists because the transform dialect has no arithmetic on its
 // params and its vectorize op takes one param per dimension: no script can
@@ -31,6 +31,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/TransformOps/LinalgTransformOps.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -38,25 +39,33 @@
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
+#include "mlir/Dialect/Transform/IR/TransformTypes.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Remarks.h"
+#include "mlir/IR/Verifier.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/TilingInterface.h"
-#include "mlir/Parser/Parser.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
 #include <algorithm>
+#include <cassert>
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -75,43 +84,21 @@ namespace {
 // takes as they are, so the function is less optimized and nothing else.
 constexpr unsigned cleanupRounds = 10;
 
-// The library, around the names of its two sequences, which Target.h holds
-// once, and the cleanup's rounds. The cleanup: the unit dimensions dropped
-// through shape casts, within its rounds. The schedule: the loops over
-// arrays computed on lanes; then what the vector dialect's conversion
-// cannot take made what it can (the last tile's masked region made the
-// masked transfer it holds, a transfer that permutes or broadcasts made a
-// minor-identity one and a transpose or broadcast), which ends with no
-// budget, since each rewrite removes a mask region or a permutation and
-// none makes one, and must, since an op left would not lower; then the
-// cleanup, a spent budget suppressed.
-constexpr llvm::StringLiteral libraryHead = R"mlir(
-module attributes {transform.with_named_sequence} {
-  transform.named_sequence @)mlir";
-constexpr llvm::StringLiteral cleanupBody = R"mlir((%functions: !transform.any_op {transform.readonly}) {
-    transform.apply_patterns to %functions {
-      transform.apply_patterns.vector.drop_unit_dims_with_shape_cast
-    } max_iterations = )mlir";
-constexpr llvm::StringLiteral cleanupTail = R"mlir( : !transform.any_op
-    transform.yield
-  }
-  transform.named_sequence @)mlir";
-constexpr llvm::StringLiteral scheduleBody = R"mlir((%root: !transform.any_op {transform.readonly}) {
-    %loops = transform.structured.match ops{["linalg.generic"]} in %root
-        : (!transform.any_op) -> !transform.any_op
-    %vectorized = transform.idr.vectorize_lanes %loops
-        : (!transform.any_op) -> !transform.any_op
-    transform.apply_patterns to %vectorized {
-      transform.apply_patterns.vector.lower_masked_transfers
-      transform.apply_patterns.vector.transfer_permutation_patterns
-    } : !transform.any_op
-    transform.include @)mlir";
-constexpr llvm::StringLiteral scheduleTail = R"mlir( failures(suppress) (%vectorized)
-        : (!transform.any_op) -> ()
-    transform.yield
-  }
+// A named sequence of the library, under a name Target.h holds once, on one
+// handle it only reads: the ops `body` builds, then the yield. Its location
+// is its name, for what the interpreter reports at its ops.
+template <std::invocable<OpBuilder &, Location, BlockArgument> Body>
+transform::NamedSequenceOp sequence(OpBuilder &builder, llvm::StringRef name, Body &&body) {
+  MLIRContext *context = builder.getContext();
+  auto named = transform::NamedSequenceOp::create(
+      builder, NameLoc::get(StringAttr::get(context, name)), name, transform::AnyOpType::get(context),
+      TypeRange(), [&](OpBuilder &inner, Location loc, BlockArgument handle) {
+        body(inner, loc, handle);
+        transform::YieldOp::create(inner, loc);
+      });
+  named.setArgAttr(0, transform::TransformDialect::kArgReadOnlyAttrName, UnitAttr::get(context));
+  return named;
 }
-)mlir";
 
 // The widest word the generic computes, in bits, as the module's data
 // layout sizes it: its operands' elements and its body's values, the
@@ -251,7 +238,7 @@ public:
   }
 };
 
-// The library, parsed when the transform dialect loads, into its library
+// The library, built when the transform dialect loads, into its library
 // module: once per context, read by every function's interpreter. Upstream's
 // transform ops and this file's op are registered by then, their
 // extensions coming first on the registry.
@@ -259,15 +246,42 @@ struct ScheduleLibrary : DialectExtension<ScheduleLibrary, transform::TransformD
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ScheduleLibrary)
 
   void apply(MLIRContext *context, transform::TransformDialect *dialect) const final {
-    using namespace idr::target;
-    std::string text = (libraryHead + cleanupSchedule + cleanupBody + llvm::Twine(cleanupRounds) +
-                        cleanupTail + vectorizeSchedule + scheduleBody + cleanupSchedule +
-                        scheduleTail)
-                           .str();
-    OwningOpRef<ModuleOp> library =
-        parseSourceString<ModuleOp>(text, ParserConfig(context), "idr-schedules");
-    if (!library || failed(dialect->loadIntoLibraryModule(std::move(library))))
-      emitError(UnknownLoc::get(context)) << "the schedule library does not load";
+    ModuleOp library = dialect->getLibraryModule();
+    auto builder = OpBuilder::atBlockEnd(library.getBody());
+    // The cleanup: the unit dimensions dropped through shape casts, within
+    // its rounds.
+    transform::NamedSequenceOp cleanup = sequence(
+        builder, idr::target::cleanupSchedule, [](OpBuilder &b, Location loc, BlockArgument functions) {
+          auto patterns =
+              transform::ApplyPatternsOp::create(b, loc, functions, [](OpBuilder &p, Location at) {
+                transform::ApplyDropUnitDimWithShapeCastPatternsOp::create(p, at);
+              });
+          patterns.setMaxIterations(cleanupRounds);
+        });
+    // The schedule: the loops over arrays computed on lanes; then what the
+    // vector dialect's conversion cannot take made what it can (the last
+    // tile's masked region made the masked transfer it holds, a transfer
+    // that permutes or broadcasts made a minor-identity one and a transpose
+    // or broadcast), which ends with no budget, since each rewrite removes a
+    // mask region or a permutation and none makes one, and must, since an op
+    // left would not lower; then the cleanup, a spent budget suppressed.
+    sequence(builder, idr::target::vectorizeSchedule, [&](OpBuilder &b, Location loc,
+                                                          BlockArgument root) {
+      llvm::StringRef generic = linalg::GenericOp::getOperationName();
+      Value loops = transform::MatchOp::create(b, loc, root, generic);
+      Value vectorized =
+          idr::target::VectorizeLanesOp::create(b, loc, transform::AnyOpType::get(context), loops);
+      transform::ApplyPatternsOp::create(b, loc, vectorized, [](OpBuilder &p, Location at) {
+        transform::ApplyLowerMaskedTransfersPatternsOp::create(p, at);
+        transform::ApplyTransferPermutationPatternsOp::create(p, at);
+      });
+      transform::IncludeOp::create(b, loc, TypeRange(), FlatSymbolRefAttr::get(cleanup),
+                                   transform::FailurePropagationMode::Suppress, vectorized,
+                                   /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr());
+    });
+    // No pass runs on the library module, so nothing else verifies it: its
+    // being well formed is this builder's invariant.
+    assert(succeeded(mlir::verify(library)) && "the schedule library is well formed");
   }
 };
 
