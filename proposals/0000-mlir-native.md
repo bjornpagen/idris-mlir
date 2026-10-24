@@ -2648,6 +2648,18 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   names its target, and a hand-written one is the build's, as a handoff
   module is. No test names `--idr-target` or writes a target into its
   module, and no option prints the whole target.
+- **C280** (2026-10-23; L12v's stop, under the resource tree of
+  2026-10-21 and AGENTS.md's "nothing else names a resource"; for the
+  owner's review). The heap's contents gain one child, `Filling`: a
+  cell's fields while it is filled, between its allocation or reuse and
+  its first use as a value, which `cell.init` writes. Every ordering the
+  tree gives stays (an effect on the contents still conflicts with its
+  child). An update's region may not read or write the contents or a
+  state above them, the rule read off the tree through the one effect
+  query, so counting's own work in the region (a drop or a token freed
+  on the heap, a cell filled) passes and no op is listed. Narrowing by
+  the type of the value an effect names is unsound there: a call writing
+  through a cell that holds the array reaches the emptied place.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
