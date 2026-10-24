@@ -2908,6 +2908,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   rejects never passes in ours; `showError` and its duplicate arms go, and
   the refusal texts of compiled programs follow `perror`'s (the tests'
   message headers rechecked).
+- **C298** (2026-10-23; L05y's question, under C286 and AGENTS.md's "only a
+  call the exclusivity analysis cannot prove exclusive is refused"). Before
+  counting, a cast of a `many` value into a quantity-1 position claims what
+  the value's cell holds where every other use of the value is a read that
+  ends before the cast: the claim sits on the cast's `once` result, never
+  on the `many` value, so C286 stands. The rule is written once and asked
+  by the in-place promise and by the verifier's local rule alike. A
+  `let`-bound value read and then handed to an in-place rebuild compiles,
+  as the language's promise says; refusing it would make the subset
+  narrower than the exclusivity rule allows.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
