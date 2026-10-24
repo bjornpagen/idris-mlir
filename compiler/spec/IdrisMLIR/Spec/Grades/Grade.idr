@@ -313,29 +313,25 @@ lesserGreatest DeepClaimsSelf ClaimsSelf = ClaimsSelf
 lesserGreatest DeepClaimsSelf DeepClaimsSelf = DeepClaimsSelf
 lesserGreatest ClaimsDeep ClaimsDeep = ClaimsDeep
 
-||| What a part gives a value built of it, used `uses` times and claiming
-||| `held`: at one use its one reference moves into the value, with all it
-||| claims; at many uses its cells are reached by its other uses as well, so
-||| it gives no claim, whatever it holds (`(xs, xs)` is built of one list
-||| both fields reach).
+||| The most a value used `uses` times may claim before references are
+||| counted: everything at one use; nothing at many, since counting makes
+||| each of its uses a reference of its own, each reaching what it holds.
+||| A stage fact: once references are counted, each is explicit and a value
+||| claims what its own reference reaches.
 public export
-givenClaim : Uses -> Unique -> Unique
-givenClaim Once u = u
-givenClaim Many _ = None
-
-||| A part gives no more than it claims.
-export
-givenNoMore : (uses : Uses) -> (held : Unique) -> Claims held (givenClaim uses held)
-givenNoMore Once u = claimsReflexive u
-givenNoMore Many _ = ClaimsNothing
+uncountedClaim : Uses -> Unique
+uncountedClaim Once = Deep
+uncountedClaim Many = None
 
 ||| The most a fresh value may claim, built of a part its claim on its own
-||| cells reaches as `reach`, the part giving it `given` (`givenClaim`): the
-||| greatest claim whose read of the part at one use, the read that gives
-||| most, gives no more than the part gives (`freshestReads`,
-||| `freshestGreatest`). A part outside the value's own cells bounds only a
-||| deep claim, so a value built of a shared one still claims its own cells;
-||| a part its own cells reach bounds it to what the part gives.
+||| cells reaches as `reach`, the part claiming `given`: the greatest claim
+||| whose read of the part at one use, the read that gives most, gives no
+||| more than the part holds (`freshestReads`, `freshestGreatest`). A part
+||| outside the value's own cells bounds only a deep claim, so a value built
+||| of a shared one still claims its own cells; a part its own cells reach
+||| bounds it to what the part claims. A part used many times claims nothing
+||| before references are counted (`uncountedClaim`), so it bounds a value
+||| built of it as a shared one does.
 public export
 freshest : FieldReach -> Unique -> Unique
 freshest _ Deep = Deep
@@ -345,7 +341,7 @@ freshest InPlaceFamily u = u
 freshest HeldBuffer u = u
 
 ||| A fresh value at that claim reads out of the part no more than the part
-||| gives. Split on every argument, so each case reduces whatever order the
+||| holds. Split on every argument, so each case reduces whatever order the
 ||| definitions split in.
 export
 freshestReads : (reach : FieldReach) -> (given : Unique) ->
@@ -363,7 +359,7 @@ freshestReads Other None = ClaimsNothing
 freshestReads Other Self = ClaimsNothing
 freshestReads Other Deep = ClaimsDeep
 
-||| And no greater claim does: any claim whose read the part gives is one
+||| And no greater claim does: any claim whose read the part holds is one
 ||| the fresh value's claim covers.
 export
 freshestGreatest : (reach : FieldReach) -> (given, u : Unique) ->
@@ -418,90 +414,46 @@ readLowers InPlaceFamily Once DeepClaimsSelf = DeepClaimsSelf
 readLowers HeldBuffer Once DeepClaimsSelf = DeepClaimsSelf
 readLowers Other Once DeepClaimsSelf = ClaimsNothing
 
-||| A part of a fresh value as the value's claim meets it: words alone,
-||| which hold no reference, so nothing they reach is shared and they bound
-||| nothing; or a value that holds references, reached by the value's claim
-||| on its own cells as `reach`, used `uses` times and claiming `held`, which
-||| gives the value what `givenClaim` says. So a part used many times can
-||| give no claim, and words, whatever their uses, take none away.
+||| A fresh value that claims less reads less out of each part.
+readsLowered : Claims a b -> (parts : List (FieldReach, Unique)) ->
+               All (\p => Claims (snd p) (readUnique (fst p) Once a)) parts ->
+               All (\p => Claims (snd p) (readUnique (fst p) Once b)) parts
+readsLowered _ [] [] = []
+readsLowered ab ((reach, _) :: parts) (r :: rs) =
+  claimsTransitive r (readLowers reach Once ab) :: readsLowered ab parts rs
+
+||| What a fresh value may claim, built of its parts, each reached by its
+||| claim on its own cells as its declaration says and claiming what it
+||| holds (everything, where it holds no reference, so it bounds nothing):
+||| the least any of them bounds it to (`freshest`). A constructor's claim
+||| on the cell it makes, which the dialect folds over the table of
+||| `freshest`.
 public export
-data Constituent = WordsAlone | Referencing FieldReach Uses Unique
-
-||| The most a fresh value may claim, built of one constituent: everything,
-||| of words; of a value that holds references, what the claim it gives
-||| bounds the value to (`freshest`).
-public export
-boundBy : Constituent -> Unique
-boundBy WordsAlone = Deep
-boundBy (Referencing reach uses held) = freshest reach (givenClaim uses held)
-
-||| `ReadsNoMore c u`: a fresh value claiming `u` reads out of the
-||| constituent `c`, at one use, the read that gives most, no more than `c`
-||| gives it; words give everything.
-public export
-data ReadsNoMore : Constituent -> Unique -> Type where
-  WordsGiveAll : ReadsNoMore WordsAlone u
-  ReadsGiven : Claims (givenClaim uses held) (readUnique reach Once u) ->
-               ReadsNoMore (Referencing reach uses held) u
-
-||| What one constituent bounds a fresh value to reads out of it no more
-||| than it gives, whatever its uses.
-export
-boundByReads : (c : Constituent) -> ReadsNoMore c (boundBy c)
-boundByReads WordsAlone = WordsGiveAll
-boundByReads (Referencing reach uses held) =
-  ReadsGiven (freshestReads reach (givenClaim uses held))
-
-||| And it is the greatest claim that does.
-export
-boundByGreatest : (c : Constituent) -> (u : Unique) -> ReadsNoMore c u -> Claims (boundBy c) u
-boundByGreatest WordsAlone u _ = deepClaimsEvery u
-boundByGreatest (Referencing reach uses held) u (ReadsGiven r) =
-  freshestGreatest reach (givenClaim uses held) u r
-
-||| A fresh value that claims less reads less out of a constituent.
-export
-readsNoMoreLowered : Claims a b -> (c : Constituent) -> ReadsNoMore c a -> ReadsNoMore c b
-readsNoMoreLowered _ WordsAlone WordsGiveAll = WordsGiveAll
-readsNoMoreLowered ab (Referencing reach _ _) (ReadsGiven r) =
-  ReadsGiven (claimsTransitive r (readLowers reach Once ab))
-
-||| And out of each of several.
-readsNoMoreLoweredAll : Claims a b -> (cs : List Constituent) ->
-                        All (\c => ReadsNoMore c a) cs -> All (\c => ReadsNoMore c b) cs
-readsNoMoreLoweredAll _ [] [] = []
-readsNoMoreLoweredAll ab (c :: cs) (r :: rs) =
-  readsNoMoreLowered ab c r :: readsNoMoreLoweredAll ab cs rs
-
-||| What a fresh value may claim, built of its constituents, each reached by
-||| its claim on its own cells as its declaration says, used as often as it
-||| is and claiming what it holds: the least any of them bounds it to
-||| (`boundBy`), so a part used many times gives it nothing. A constructor's
-||| claim on the cell it makes, which the dialect folds over the tables of
-||| `givenClaim` and `freshest` and the frontend writes on the value it
-||| builds.
-public export
-freshClaim : List Constituent -> Unique
+freshClaim : List (FieldReach, Unique) -> Unique
 freshClaim [] = Deep
-freshClaim (c :: cs) = lesser (boundBy c) (freshClaim cs)
+freshClaim ((reach, given) :: parts) = lesser (freshest reach given) (freshClaim parts)
 
-||| A fresh value at that claim reads out of each of its constituents no
-||| more than the constituent gives it at its uses.
+||| A fresh value at that claim reads out of each of its parts, at one use,
+||| no more than the part holds.
 export
-freshClaimReads : (cs : List Constituent) -> All (\c => ReadsNoMore c (freshClaim cs)) cs
+freshClaimReads : (parts : List (FieldReach, Unique)) ->
+                  All (\p => Claims (snd p) (readUnique (fst p) Once (freshClaim parts))) parts
 freshClaimReads [] = []
-freshClaimReads (c :: cs) =
-  readsNoMoreLowered (lesserClaimedByLeft (boundBy c) (freshClaim cs)) c (boundByReads c)
-  :: readsNoMoreLoweredAll (lesserClaimedByRight (boundBy c) (freshClaim cs)) cs (freshClaimReads cs)
+freshClaimReads ((reach, given) :: parts) =
+  claimsTransitive (freshestReads reach given)
+                   (readLowers reach Once (lesserClaimedByLeft (freshest reach given) (freshClaim parts)))
+  :: readsLowered (lesserClaimedByRight (freshest reach given) (freshClaim parts)) parts
+                  (freshClaimReads parts)
 
-||| And no greater claim does: a claim that reads out of every constituent
-||| no more than it gives is one the fresh value's claim covers.
+||| And no greater claim does: a claim that reads out of every part no more
+||| than the part holds is one the fresh value's claim covers.
 export
-freshClaimGreatest : (cs : List Constituent) -> (u : Unique) ->
-                     All (\c => ReadsNoMore c u) cs -> Claims (freshClaim cs) u
+freshClaimGreatest : (parts : List (FieldReach, Unique)) -> (u : Unique) ->
+                     All (\p => Claims (snd p) (readUnique (fst p) Once u)) parts ->
+                     Claims (freshClaim parts) u
 freshClaimGreatest [] u [] = deepClaimsEvery u
-freshClaimGreatest (c :: cs) u (r :: rs) =
-  lesserGreatest (boundByGreatest c u r) (freshClaimGreatest cs u rs)
+freshClaimGreatest ((reach, given) :: parts) u (r :: rs) =
+  lesserGreatest (freshestGreatest reach given u r) (freshClaimGreatest parts u rs)
 
 ||| What exclusivity writes once it proves a value's sharing: the claim set
 ||| to `v` where something frees the value; static data has no sharing
@@ -525,6 +477,22 @@ refineFits : (h : Hold) -> Claims v (claim h) -> Fits (refine v h) h
 refineFits (Counted u) c = CountedForgets c
 refineFits (Scoped u) c = ScopedForgets c
 refineFits Static _ = StaticStays
+
+||| A hold at `uses` before references are counted: freed as it is, its
+||| claim no more than `uncountedClaim` allows, so a value used many times
+||| holds one that claims nothing. What the frontend writes where it changes
+||| a value's uses.
+public export
+uncountedHold : Uses -> Hold -> Hold
+uncountedHold uses h = refine (lesser (uncountedClaim uses) (claim h)) h
+
+||| A value stands where its hold at other uses is asked: only its claim is
+||| forgotten, its release kept.
+export
+uncountedHoldFits : (uses : Uses) -> (h : Hold) -> Fits h (uncountedHold uses h)
+uncountedHoldFits uses (Counted u) = CountedForgets (lesserClaimedByRight (uncountedClaim uses) u)
+uncountedHoldFits uses (Scoped u) = ScopedForgets (lesserClaimedByRight (uncountedClaim uses) u)
+uncountedHoldFits _ Static = StaticStays
 
 --------------------------------------------------------------------------------
 -- What a carrier holds

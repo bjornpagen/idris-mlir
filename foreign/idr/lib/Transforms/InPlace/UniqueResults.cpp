@@ -4,20 +4,19 @@
 // (Unique.cpp), then written into the types.
 //
 // A value is raised only where its claim is kept: by a result raised, by an
-// op that infers its results from it (a read, a take, which reads the
-// claim), and by a kept value it moves, is read or is built into, so a
-// value whose only use takes less is left as it is and no share is made
-// for it. Every signature is written first; then each body in the one
-// walk's order, so a value's sources are written before it: its raised
-// values, each call's results its callee's again, each kept position that
-// keeps its operand's value and flows on linearly at its operand's claim
-// (one copied keeps its own, which may forget it), and each op of ours
-// that infers its results inferred again where an operand changed or a
-// step before the rule graded one. Last, wherever a value now claiming
-// more meets a use that takes less, it is shared into it: at a call, a
-// return, a forward or an op of upstream's as every pass that raises a
-// claim meets them, and before any other op that would read a type it does
-// not take.
+// op that infers its results from it (a read, a take, which reads the claim),
+// and by a kept value it moves, is read or is built into, so a value whose
+// only use takes less is left as it is and no share is made for it. Every
+// signature is written first; then each body in the one walk's order, so a
+// value's sources are written before it: its raised values, each call's
+// results its callee's again, each kept position that keeps its operand's
+// value, its result used once, at its operand's claim (one used many times
+// keeps its own, which may forget it), and each op of ours that infers its
+// results inferred again where an operand changed or a step before the rule
+// graded one. Last, wherever a value now claiming more meets a use that takes
+// less, it is shared into it: at a call, a return, a forward or an op of
+// upstream's as every pass that raises a claim meets them, and before any
+// other op that would read a type it does not take.
 #include "idr/Transforms/InPlace.h"
 
 #include "idr/Analysis/Ownership/Facts.h"

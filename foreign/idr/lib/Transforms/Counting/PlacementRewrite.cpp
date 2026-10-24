@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-rc-place's rewrite (Placement.h): what the walk decided, made: an
-// owner it duplicates that was born claiming its cell unshared given on
-// with the claim forgotten first, then the takes, whose parts replace the
-// reads at every later use, then the dups that supply a part while its
-// owner lives, the dups of consuming uses, and what is given up (a drop,
-// or the take of a value used once), each after what the rewrite put at
-// its point before it; then the dup each element that takes its reference
-// where it is read takes there, whose result every use of the element,
-// those just made among them, reads from then on; last, the reads every
-// use of which took its reference elsewhere go.
+// idr-rc-place's rewrite (Placement.h): what the walk decided, made: the
+// takes first, whose parts replace the reads at every later use, then the
+// dups that supply a part while its owner lives, the dups of consuming
+// uses, and what is given up (a drop, or the take of a value used once),
+// each after what the rewrite put at its point before it; then the dup
+// each element that takes its reference where it is read takes there,
+// whose result every use of the element, those just made among them, reads
+// from then on; last, the reads every use of which took its reference
+// elsewhere go. No owner it duplicates claims its cells: one used many
+// times claims nothing before references are counted, and one used once is
+// never duplicated, so a dup, which refuses a value that claims its cells,
+// meets none.
 #include "idr/Transforms/Counting/Placement.h"
 
 #include "idr/IR/Effects/Whole.h"
@@ -71,50 +73,8 @@ Value Placement::supplied(ValueId part, Operation *at) const {
   return valueOf(part);
 }
 
-// What holds an owner's reference once the rewrite began: the owner with
-// its claim forgotten, where it was born claiming its cell unshared and the
-// rewrite duplicates it, or the owner.
-Value Placement::held(ValueId owner) const {
-  for (const auto &[id, value] : forgotten)
-    if (id == owner)
-      return value;
-  return valueOf(owner);
-}
-
-// An owner the rewrite duplicates is shared from then on, on the paths
-// through the dup, so no type of it may claim its cell unshared, which a
-// dup refuses: one born claiming it (a fresh value, a reindex that builds a
-// cell) is given on with the claim forgotten where it is made, the grade's
-// way (idr.count.share), before anything else is placed, and every use of
-// it reads the shared value from there. A claim is the value's, the same
-// on every path, so it goes where the value is made. A part and an element
-// read at many uses claim nothing.
-void Placement::forgetClaims(RewriterBase &rewriter) {
-  // The owners first, read off the uses as the walk numbered them, each
-  // once: sharing one changes what its later dups read.
-  llvm::SmallVector<ValueId, 4> claimed;
-  for (const DupAt &at : dups) {
-    Value value = at.user->getOperand(at.operand);
-    ValueId id = idOf(value);
-    if (roles[id] == Role::Owned && claims(value.getType(), Unique::Self) &&
-        !llvm::is_contained(claimed, id))
-      claimed.push_back(id);
-  }
-  for (ValueId id : claimed) {
-    Value value = valueOf(id);
-    if (auto arg = dyn_cast<BlockArgument>(value))
-      rewriter.setInsertionPointToStart(arg.getOwner());
-    else
-      rewriter.setInsertionPointAfterValue(value);
-    auto share = CountShareOp::create(rewriter, value.getLoc(), shared(value.getType()), value);
-    rewriter.replaceAllUsesExcept(value, share.getResult(), share);
-    forgotten.emplace_back(id, share.getResult());
-  }
-}
-
 void Placement::apply() {
   IRRewriter rewriter(fn->getContext());
-  forgetClaims(rewriter);
   // Every op goes right before its point's position, after what the rewrite
   // already put there.
   auto insertAt = [&](const Where &where) { rewriter.setInsertionPoint(where.block, where.next); };
@@ -131,7 +91,7 @@ void Placement::apply() {
   };
   // Takes first: the parts they give replace the views at every later use.
   for (TakeSupply &take : takeSupplies) {
-    Value owner = held(take.owner);
+    Value owner = valueOf(take.owner);
     insertAt(take.where);
     Location loc = owner.getLoc();
     // The owner, then each part beneath a needed one that is dead here,
@@ -210,7 +170,7 @@ void Placement::apply() {
   for (GiveUpAt &given : givesUp) {
     insertAt(given.where);
     Value value = roles[given.value] == Role::Part ? supplied(given.value, &*given.where.next)
-                                                   : held(given.value);
+                                                   : valueOf(given.value);
     Location loc = value.getLoc();
     if (usesOf(value.getType()) == Uses::Once) {
       Apart apart = takeApart(rewriter, loc, value);

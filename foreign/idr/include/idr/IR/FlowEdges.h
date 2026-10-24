@@ -269,10 +269,16 @@ struct FlowPlace {
 // them, is never declared.
 class FlowEdges {
 public:
-  // What `from` holds moves to `to`.
+  // How many slots of its place a flow fills: the one place it names, or
+  // every slot of a part of a value the op makes, each holding what moves
+  // (an array made full of one value), so what moves is held as many times
+  // as the part has slots.
+  enum class Fills : std::uint8_t { OnePlace, EverySlot };
+  // What `from` holds moves to `to`, filling the place or every slot of it.
   struct Flow {
     FlowSource from;
     FlowPlace to;
+    Fills fills;
   };
   // The labels `a` and `b` hold are one set: a cell both share.
   struct Unify {
@@ -339,6 +345,9 @@ public:
   // those of some carriers: a capture's labels go to its label's
   // parameter, and its reference into its closure's cell.
   void flow(FlowSource from, FlowPlace to, Carriers only = Carriers::all());
+  // What the value at `from` holds moves into every slot of `anchor` of
+  // `of`, a value the op makes: each slot holds it.
+  void spread(FlowSource from, mlir::Value of, FlowAnchor anchor);
   // The labels `a` and `b` hold are one set.
   void unify(FlowPlace a, FlowPlace b);
   // `to`, a closure or a suspension, holds `label`.

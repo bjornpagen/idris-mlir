@@ -28,6 +28,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <utility>
 
 using namespace mlir;
@@ -50,8 +51,11 @@ ownership::PromiseCopies::Key keyOf(FunctionId owner, FuncOp fn, const Version &
 }
 
 // `type` raised to the claim `asks`, where its sharing is still open below
-// it.
+// it. A requirement ends at a value used many times, which claims nothing
+// before references are counted, so the verdict grades only values used
+// once.
 Type claimed(Type type, Asks asks) {
+  assert(usesOf(type) == Uses::Once && "the in-place verdict grades only a value used once");
   Unique claim = ownership::claimFor(asks);
   return ownership::leavesOpen(type, claim) ? ownership::claiming(type, claim) : type;
 }

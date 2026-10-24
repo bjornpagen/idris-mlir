@@ -1,4 +1,0 @@
-compile: exit 0
-artifacts: module objects executable
-cases: each as expected
-universal: holds

@@ -258,7 +258,10 @@ bool builds(Type from, Type to) {
 // A stated claim beyond the value's own cells stands: a builder that gives
 // its operand up keeps, of the cells the operand reached, what the operand
 // claimed of them.
-Hold builtHold(Unique stated) { return Hold::counted(std::max(stated, Unique::Self)); }
+Hold builtHold(Uses uses, Unique stated) {
+  Unique ownCells = std::min(Unique::Self, uncountedClaims[static_cast<unsigned>(uses)]);
+  return Hold::counted(std::max(stated, ownCells));
+}
 
 // The slot is the field as the container's layout lays it out, under the
 // substitution its unfolding solved where it is one; the read is the field

@@ -11,11 +11,10 @@
 // every pass up to the graded stage, and the call is a tail call that
 // gives its result as its callee returns it.
 // Four words in place hold no reference, so @g's vector has no hold, and a
-// re-pack that builds a cell gives a fresh value, counted and claiming its
-// own cells, whatever its operand held: the cast as written relates a
-// vector with no hold to one counted and claiming its own cells, and the
-// cast after the copy's call, which builds nothing, keeps the hold the
-// copy's result has.
+// re-pack that builds a cell gives a fresh value, counted, which used many
+// times claims nothing before references are counted: the cast as written
+// relates a vector with no hold to one counted, and the cast after the
+// copy's call, which builds nothing, keeps the hold the copy's result has.
 // @f and @g each recurse, so each stays a function wherever the other is
 // inlined into it. @h makes the same call of @g as @f, at another count, so
 // the copy of @g returns to more than one place and is never a join point
@@ -31,7 +30,7 @@
 !V2 = !idr.data<#Vect[2]>
 !V3 = !idr.data<#Vect[3]>
 !V4 = !idr.data<#Vect[4]>
-!Any = !idr.graded<many, counted unique self, !idr.data<#Vect[v0]>>
+!Any = !idr.data<#Vect[v0]>
 idr.program @vectors root(@main) stage(first) {
   idr.func <{binders = #idr.index_binders<[nat]>}> @main() {
     %three = arith.constant 3 : i64

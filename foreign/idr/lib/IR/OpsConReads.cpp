@@ -40,10 +40,10 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   Type read = fieldType(value, unrestricted(field), usesOf(field),
                         fieldReach(data.ctor(tag).fields[index]));
   // A read whose slot's re-pack builds a cell or an array gives a fresh
-  // value, counted and claimed unique whatever the container's hold, so
-  // counting frees it as any fresh value.
+  // value, counted and claiming its own cells whatever the container's hold
+  // where its uses let it, so counting frees it as any fresh value.
   if (families::fieldReadBuilds(value, index))
-    return atHold(read, families::builtHold(Unique::None));
+    return atHold(read, families::builtHold(usesOf(read), Unique::None));
   return read;
 }
 

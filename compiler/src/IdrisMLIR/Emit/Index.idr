@@ -158,8 +158,9 @@ mutual
   -- effects, so an action is a closure of no argument.
   typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType [] (resultsIn a r))
   typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q made x] (resultsIn a r))
-  -- A suspension's value is what its function returns.
-  typeIn a (LazyT r) = Idr (LazyType (resultIn a r))
+  -- A suspension's value is what its function returns, which the
+  -- suspension keeps and gives to every force: used many times.
+  typeIn a (LazyT r) = Idr (LazyType (grade Many (reachesIn a r) made (returnedIn a r)))
   typeIn a (TensorT ds e) = tensorIn a ds e
   -- Every memref the frontend writes is an array written while shared, in
   -- the dialect's memory space for it.
@@ -176,11 +177,13 @@ mutual
   returnedIn a (TensorT ds e) = tensorIn a (returnedAxes ds) e
   returnedIn a t = typeIn a t
 
-  ||| A function's result of a type (`returned`), used many times and
-  ||| freed by its count; `returned` changes no type's reach, so `t`'s is
-  ||| its own.
+  ||| A function's result of a type (`returned`), freed by its count and
+  ||| used once: the return hands the caller the one reference it gives,
+  ||| and the caller's binding grades it as it is used. Its claim is the
+  ||| one its body's returns give it, which idr-unique-results writes;
+  ||| `returned` changes no type's reach, so `t`'s is its own.
   resultIn : Among -> Ty -> MlirType
-  resultIn a t = grade Many (reachesIn a t) made (returnedIn a t)
+  resultIn a t = grade Once (reachesIn a t) made (returnedIn a t)
 
   ||| The types a function's result of a type is: none for the world.
   resultsIn : Among -> Ty -> List MlirType

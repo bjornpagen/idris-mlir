@@ -189,14 +189,22 @@ export
 mlirValue : Loc -> MlirType -> (MlirType -> Op) -> E Value
 mlirValue l = mlirValueAt (At l)
 
-||| A total op with one result, of a Core type, used many times and freed
+||| A total op with one result, of a Core type, used as `u` says and freed
 ||| by its count, the variable `binder` bound to it, at the library
-||| definition `stands` where the registry lowered one to it.
+||| definition `stands` where the registry lowered one to it: a match's
+||| value at the uses its context takes it at, a call's result once, as
+||| its callee returns it.
+export
+valueAt : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Uses -> Ty -> (MlirType -> Op) -> E Val
+valueAt ix l u t build = do
+  r <- mlirValueAt (madeAtPlace binder (placeOf stands l) u) (gradedType ix u made t) build
+  pure (val r.name t u made)
+
+||| A total op with one result, of a Core type, used many times and freed
+||| by its count (`valueAt`).
 export
 value : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Ty -> (MlirType -> Op) -> E Val
-value ix l t build = do
-  r <- mlirValueAt (madeAtPlace binder (placeOf stands l) Many) (gradedType ix Many made t) build
-  pure (val r.name t Many made)
+value ix l t build = valueAt {binder} {stands} ix l Many t build
 
 ||| A total op with one result, of a Core type, held as `h` gives: a
 ||| literal's constant is static data.
@@ -228,9 +236,11 @@ statement l o = placed (At l) o
 ||| `binder` bound to it: a value used once where one used many times is
 ||| expected is cast to it, its one use, and a value used many times fills
 ||| a binder of quantity 1, as Idris lets any value do (`idr.lin.cast`).
-||| Static data stands where a value its count frees is asked with no op
-||| between, as the grade's order says. Nothing is counted: the uses are
-||| the binders'.
+||| The cast holds what a value at its uses may before references are
+||| counted (`uncountedHold`): out of a linear position, a value used many
+||| times claims nothing. Static data stands where a value its count frees
+||| is asked with no op between, as the grade's order says. Nothing is
+||| counted: the uses are the binders'.
 export
 coerce : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Uses -> Val -> E Val
 coerce ix l use v = case (v.uses, use) of
@@ -240,7 +250,7 @@ coerce ix l use v = case (v.uses, use) of
   where
     cast : Uses -> E Val
     cast u = do
-      let v' = { uses := u } v
+      let v' = { uses := u, hold := uncountedHold u v.hold } v
       r <- mlirValueAt (madeAt binder l u) (valueType ix v') (Idr.linCastOp (operand ix v) [])
       pure ({ name := r.name } v')
 
@@ -414,61 +424,41 @@ prim binder stands ix l (ArrayLength _) [a] = do
 -- Constructors
 ------------------------------------------------------------------------------
 
-||| What a constructor's fields give it: the value each takes, and, for the
-||| value it builds, each as its claim meets it (`Constituent`).
-record Given where
-  constructor MkGiven
-  operands : List Value
-  parts : List Constituent
-
-||| What a constructor's fields give it (`Given`): each value at its field's
-||| quantity, an array as its buffer (`bufferization.to_buffer`), since a
-||| cell holds no tensor; none for the world, which is no value of the
-||| module.
-fieldOperands : Index -> Loc -> Vect k Binder -> Vect k FieldReach -> Vect k Val -> E Given
-fieldOperands ix l [] [] [] = pure (MkGiven [] [])
-fieldOperands ix l (MkBinder _ WorldT :: fs) (_ :: rs) (_ :: vs) = fieldOperands ix l fs rs vs
-fieldOperands ix l (f :: fs) (r :: rs) (v :: vs) = do
-  (o, part) <- held f
-  rest <- fieldOperands ix l fs rs vs
-  pure (MkGiven (o :: rest.operands) (part :: rest.parts))
+||| The values a constructor's fields take: each at its field's quantity,
+||| an array as its buffer (`bufferization.to_buffer`), since a cell holds
+||| no tensor; none for the world, which is no value of the module.
+fieldOperands : Index -> Loc -> Vect k Binder -> Vect k Val -> E (List Value)
+fieldOperands ix l [] [] = pure []
+fieldOperands ix l (MkBinder _ WorldT :: fs) (_ :: vs) = fieldOperands ix l fs vs
+fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l fs vs
   where
-    held : Binder -> E (Value, Constituent)
-    -- An array's buffer, at the bare grade upstream's op gives it (used
-    -- freely, counted, claiming nothing), fills its field at any quantity,
-    -- as any value fills a binder of quantity 1. Nothing takes it over
-    -- here: the buffer behind the tensor may be a slice, a parameter's or
-    -- one read out of a cell, and only bufferization knows which buffer is
-    -- an allocation, where it enters the grades.
+    held : Binder -> E Value
+    -- An array's buffer, at the bare grade upstream's op gives it, fills
+    -- its field at any quantity, as any value fills a binder of quantity
+    -- 1. Nothing takes it over here: the buffer behind the tensor may be
+    -- a slice, a parameter's or one read out of a cell, and only
+    -- bufferization knows which buffer is an allocation, where it enters
+    -- the grades.
     held (MkBinder _ (TensorT ds e)) = do
       t <- operand ix <$> coerce ix l Many v
-      buffer <- mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
-      pure (buffer, Referencing r Many (claim made))
-    -- Essential, two kinds of value: one that holds references gives what
-    -- its hold claims at the uses it fills the field at, the operand's, as
-    -- the dialect reads the operand; one that holds none has no hold, and
-    -- nothing it reaches is shared.
-    held b = do
-      filled <- coerce ix l b.quantity v
-      pure $ case reaches ix b.type of
-        HoldsReferences => (operand ix filled, Referencing r filled.uses (claim filled.hold))
-        WordsOnly => (operand ix filled, WordsAlone)
+      mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
+    held b = operand ix <$> coerce ix l b.quantity v
 
 ||| A constructor application (`idr.data.con`), built with every field: its value
 ||| is of the family at the index terms its equation gives with its binders
 ||| substituted, refined to its constructor, which is how the op knows its
-||| tag, and claims what a fresh value of its fields may (`freshClaim`), as
-||| the dialect's builder gives it: a field used many times gives it no
-||| claim. The variable `binder` is bound to it.
+||| tag, made at the uses its one consumer takes it at, `once` where it fills
+||| a quantity-1 position, so no cast drops what Idris proved. It claims
+||| nothing: what a pass proves of it is the pass's to write. The variable
+||| `binder` is bound to it.
 export
-con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List ITerm -> Vect k Val -> E Val
-con ix l c bs vs = do
-  given <- fieldOperands ix l c.fields (fieldReaches ix c) vs
+con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Uses -> Con k -> List ITerm -> Vect k Val -> E Val
+con ix l u c bs vs = do
+  os <- fieldOperands ix l c.fields vs
   let t = conType c bs
       refined = OneOf (c.tag ::: [])
-      built = Hold.Counted (freshClaim given.parts)
-  r <- mlirValueAt (madeAt binder l Many) (valueTypeOf ix t Many built refined) (Idr.dataConOp given.operands [])
-  pure (MkVal r.name t Many built refined)
+  r <- mlirValueAt (madeAt binder l u) (valueTypeOf ix t u made refined) (Idr.dataConOp os [])
+  pure (MkVal r.name t u made refined)
 
 ------------------------------------------------------------------------------
 -- Effects
@@ -501,9 +491,9 @@ effect binder ix l a gives vs res = do
     -- The `IORes` of what the action gave.
     answer : IOGives n -> Acted n -> E Val
     answer (GivesUnit u) ActedNone = do
-      v <- con ix l u [] []
-      con {binder} ix l res [] [v, worldVal]
-    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many made, worldVal]
+      v <- con ix l Many u [] []
+      con {binder} ix l Many res [] [v, worldVal]
+    answer GivesValue (ActedOne r) = con {binder} ix l Many res [] [val r given Many made, worldVal]
 
     int64 : Integer -> E Value
     int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))

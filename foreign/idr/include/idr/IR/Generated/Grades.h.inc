@@ -210,13 +210,13 @@ inline constexpr std::array<std::array<::idr::HoldCase, 4>, 7> holdReadsMany{{
     {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
 }};
 
-// what a part gives a value built of it, by how often it is used and what it claims
-inline constexpr std::array<std::array<::idr::Unique, 3>, 2> givenClaims{{
-    {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},
-    {{::idr::Unique::None, ::idr::Unique::None, ::idr::Unique::None}},
+// the most a value may claim before references are counted, by how often it is used
+inline constexpr std::array<::idr::Unique, 2> uncountedClaims{{
+    ::idr::Unique::Deep,
+    ::idr::Unique::None,
 }};
 
-// the most a fresh value may claim, by how far its claim reaches into a part and what the part gives it
+// the most a fresh value may claim, by how far its claim reaches into a part and what the part claims
 inline constexpr std::array<std::array<::idr::Unique, 3>, 4> freshestClaims{{
     {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},
     {{::idr::Unique::None, ::idr::Unique::Self, ::idr::Unique::Deep}},

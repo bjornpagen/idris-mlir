@@ -160,7 +160,13 @@ void FlowEdges::add(Edge edge) {
 
 void FlowEdges::flow(FlowSource from, FlowPlace to, Carriers only) {
   if (std::optional<Type> type = movedType(from.type(), to))
-    add({Flow{from, to}, Carriers::of(*type) & only});
+    add({Flow{from, to, Fills::OnePlace}, Carriers::of(*type) & only});
+}
+
+void FlowEdges::spread(FlowSource from, Value of, FlowAnchor anchor) {
+  FlowPlace to = FlowPlace::partOf(of, anchor);
+  if (std::optional<Type> type = movedType(from.type(), to))
+    add({Flow{from, to, Fills::EverySlot}, Carriers::of(*type)});
 }
 
 void FlowEdges::unify(FlowPlace a, FlowPlace b) {

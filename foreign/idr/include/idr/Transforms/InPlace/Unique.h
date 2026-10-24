@@ -5,16 +5,16 @@
 // (Unique.cpp), and the write of what it proves (UniqueResults.cpp), which
 // idr-unique-results runs and idr-in-place runs after it grades.
 //
-// A body is its values, numbered by the solver's walk (Locals), and the
-// terms the edges its ops declare give each of them (ownership::forEachTerm),
-// so the solve reads numbers and no IR. What the rule may raise is a cell
-// of a data family, no memo label's (a force writes its cells while
-// references to them live), that its op makes new or that is forwarded
-// into, and that flows only through linear positions. A call's result is
-// its callee's derived claim; a value an op keeps as itself is its
-// operand's where it flows on linearly; a part an op of ours that infers
-// its results reads or takes out is what the read table gives it, as the
-// op's inference does; every other value is what its type says. The write
+// A body is its values, numbered by the solver's walk (Locals), and the terms
+// the edges its ops declare give each of them (ownership::forEachTerm), so
+// the solve reads numbers and no IR. What the rule may raise is a cell of a
+// data family, no memo label's (a force writes its cells while references to
+// them live), that its op makes new or that is forwarded into, and that is
+// used once, as a value must be to claim anything before references are
+// counted. A call's result is its callee's derived claim; a value an op keeps
+// as itself is its operand's where it is used once; a part an op of ours that
+// infers its results reads or takes out is what the read table gives it, as
+// the op's inference does; every other value is what its type says. The write
 // runs each such op's inference again, and lends each holder an op of
 // upstream's reads to it (lendReads), as that op takes the bare carrier.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
@@ -55,8 +55,8 @@ enum class Role : std::uint8_t {
   Typed,
   // Raised to what the rule proves from its terms, where it is kept.
   Raised,
-  // Its operand's claim: a position that keeps its operand's value, and
-  // flows on linearly.
+  // Its operand's claim: a position that keeps its operand's value, its
+  // result used once.
   Same,
   // Its callee's derived claim: a call's result.
   Called,
@@ -112,7 +112,8 @@ using Results = IndexVector<FunctionId, footprint::Vector<Unique>>;
 
 // Whether a value of `type` is one the rule may raise, as a result or as a
 // value: a cell of a data family that is no memo label's, freed by its count
-// or its lifetime, claiming less than everything.
+// or its lifetime, claiming less than everything, at uses that let it claim
+// everything before references are counted (uncountedClaims: used once).
 bool raisable(mlir::Type type);
 
 // The solve over `graph`'s components, callees first, on the one static

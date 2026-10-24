@@ -38,15 +38,20 @@ void LinCastOp::build(OpBuilder &builder, OperationState &state, Type result, Va
 
 // The cast is between types of one carrier at other uses, its hold the
 // operand's or one it fits by the grade order: a claim may be forgotten,
-// but never raised, since no cast proves what Idris and exclusivity did
-// not; a scoped result states its lifetime.
+// and raised only by a cast that enters a value used many times into a
+// position as its one use, to what the value's cell holds where every other
+// use of it is a read that ends before the cast, which the local rule judges
+// in the function's walk (ownership::entryOf), since it reads the value's
+// other uses; no cast proves more than that. A scoped result states its
+// lifetime.
 LogicalResult LinCastOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
   if (unrestricted(from) != unrestricted(to) || usesOf(from) == usesOf(to))
     return emitOpError("casts ") << from << " to " << to
                                  << ", which differ in more than their grades or not in their uses";
-  if (!holdFits(from, to))
+  bool raisesClaim = getDirection() == QuantityChange::Enter && holdFits(from, shared(to));
+  if (!holdFits(from, to) && !raisesClaim)
     return emitOpError("casts ") << from << " to " << to
                                  << ", whose hold claims more or is freed otherwise";
   return lifetimes::verifyOuters(*this, 0);

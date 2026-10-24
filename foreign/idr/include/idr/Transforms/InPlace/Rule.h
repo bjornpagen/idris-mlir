@@ -6,27 +6,30 @@
 // refuses (InPlace.cpp), the versions the verdict makes of each function
 // (Versions.cpp) and their writer (Writer.cpp).
 //
-// A requirement asks a value's own cells to be unshared (Asks::Self, as
-// far into its fields as the grade's fieldReach says), or everything it
-// reaches (Asks::Deep). It is met where the
-// value is made anew each time it is evaluated (a construction of values
-// that meet it in turn), moved out of a value that meets it, given back by a
-// callee whose every return meets it (given what the callee's parameters
-// must meet, its summary), or is a parameter of its function, whose callers
-// then owe it: and the value must be used once on every path through the
-// use that requires it, a read by a callee that keeps nothing of it before
-// that use aside. An element an op of upstream's reads out of an array
-// meets only what its type claims, which no pass of ours raises. Where a
-// requirement reaches what can meet none (a value read again, a copy, a
-// value no flow explains), it reaches a cause. A
-// requirement starts where a cell is rebuilt, asking what its family's
-// promise asks, and at the boundary: a parameter of quantity 1 whose
-// family's values carry the promise by construction (an own cell holds a
-// buffer) is owed it by every caller.
+// A requirement asks a value's own cells to be unshared (Asks::Self, as far
+// into its fields as the grade's fieldReach says), or everything it reaches
+// (Asks::Deep). It is met where the value is used once and is made anew each
+// time it is evaluated (a construction of values that meet it in turn), moved
+// out of a value that meets it, given back by a callee whose every return
+// meets it (given what the callee's parameters must meet, its summary), or is
+// a parameter of its function, whose callers then owe it. A value used many
+// times claims nothing of its sharing before references are counted, so it
+// meets none itself; a cast that enters it into a position as its one use,
+// every other use a read that ends before the cast, meets it where the
+// value's cell does (ownership::entryOf, the verifier's rule too). An element
+// an op of upstream's reads out of an array meets only what its type claims,
+// which no pass of ours raises. Where a requirement reaches what can meet
+// none (a value used again where the use that requires it may still hold it,
+// one used many times otherwise, a copy, a value no flow explains), it
+// reaches a cause. A requirement starts where a cell is rebuilt, asking what
+// its family's promise asks, and at the boundary: a parameter of quantity 1
+// whose family's values carry the promise by construction (an own cell holds
+// a buffer) is owed it by every caller.
 #ifndef IDR_TRANSFORMS_INPLACE_RULE_H
 #define IDR_TRANSFORMS_INPLACE_RULE_H
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -38,7 +41,6 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <array>
@@ -54,8 +56,15 @@ using solver::FunctionId;
 
 // Why a value cannot meet a requirement, and the op that shows it.
 enum class Why : std::uint8_t {
-  // Used again where the use that requires it may still hold it.
+  // Used again where the use that requires it may still hold it: a value
+  // used many times that a cast enters into the position that requires it,
+  // another of whose uses is no read that ends before the cast.
   UsedAgain,
+  // Used many times, and reached otherwise than by a cast that enters it as
+  // its one use, or with nothing here to say what its cell holds (a
+  // parameter, a value forwarded into a region): before references are
+  // counted it claims nothing of its sharing.
+  UsedMany,
   // A reference to it is taken while another stays: a copy, static data,
   // a field shared into it.
   Shared,
@@ -95,6 +104,18 @@ struct Target {
 // meet a requirement: none when some return can never meet it.
 using Need = std::optional<llvm::SmallVector<std::pair<std::uint32_t, Asks>, 2>>;
 
+// What a callee keeps of each parameter: whether some passage of it, here
+// or in a callee, outlives the call (ownership::passageOf). A read by a
+// callee that keeps nothing ends with the call.
+class Keeps {
+public:
+  explicit Keeps(const solver::ProgramGraph &graph) : kept(graph.table<llvm::BitVector>()) {}
+  ownership::Lent of(FunctionId fn, unsigned param) const {
+    return kept[fn].test(param) ? ownership::Lent::Kept : ownership::Lent::Ends;
+  }
+  IndexVector<FunctionId, llvm::BitVector> kept;
+};
+
 // Every function's summaries, two per result (Self, Deep), each its Need.
 class Summaries {
 public:
@@ -114,17 +135,6 @@ private:
     return result * 2 + static_cast<unsigned>(asks);
   }
   IndexVector<FunctionId, llvm::SmallVector<Need, 2>> needs;
-};
-
-// What a callee keeps of each parameter: whether some move of it, here or in
-// a callee, outlives the call. A read by a callee that keeps nothing ends
-// with the call.
-class Keeps {
-public:
-  explicit Keeps(const solver::ProgramGraph &graph)
-      : kept(graph.table<llvm::SmallBitVector>()) {}
-  bool test(FunctionId fn, unsigned param) const { return kept[fn].test(param); }
-  IndexVector<FunctionId, llvm::SmallBitVector> kept;
 };
 
 // A rebuild site by the places in the walk of its function's original body
@@ -172,10 +182,9 @@ public:
 
   const BodyValues &numbering() const { return values; }
 
-  // Where a requirement `asks` on `value`, required by `use` (none for the
-  // value a rebuild takes apart, all of whose uses must read parts), ends.
-  // Each (value, strength) is read once per reading, its ends kept.
-  llvm::SmallVector<Target> targets(mlir::Value value, Asks asks, mlir::OpOperand *use);
+  // Where a requirement `asks` on `value` ends. Each (value, strength) is
+  // read once per reading, its ends kept.
+  llvm::SmallVector<Target> targets(mlir::Value value, Asks asks);
 
   // A call result a requirement reached, with its strength: what the
   // callee's version must give back. The call is named by its place among
@@ -201,24 +210,23 @@ private:
   struct Step {
     mlir::Value value;
     Asks asks;
-    mlir::OpOperand *use;
   };
   // A cause of the body, numbered once.
   Target cause(mlir::Operation *at, Why why);
-  // Whether `value` is used once on every path through `use`: every other
-  // use reads a part of it, runs in a region that excludes `use`'s, or is
-  // a read by a callee that keeps nothing of it, made before `use`; the
-  // cause otherwise.
-  std::optional<Target> usedOnce(mlir::Value value, mlir::OpOperand *use);
-  // Whether `use` reaches only reads by callees that keep nothing of the
-  // value, each made before `requirer`, through positions that hand the
-  // value on as itself.
-  bool borrowedBefore(mlir::OpOperand &use, mlir::Operation *requirer) const;
   // What a requirement on `value` reaches next by the rule of its
   // definition: the targets it ends at here, the steps it takes, the call
-  // results it reaches.
+  // results it reaches; a value used many times ends it, a cause.
   void define(mlir::Value value, Asks asks, llvm::SmallVectorImpl<Target> &ends,
               llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
+  // The same, past its uses: what its cell's definition reaches.
+  void defineCell(mlir::Value value, Asks asks, llvm::SmallVectorImpl<Target> &ends,
+                  llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
+  // What a requirement on the result of `enter`, a cast that enters a value
+  // used many times into the position that requires it, reaches: the
+  // value's cell where every other use of it is a read that ends before the
+  // cast (ownership::entryOf), the use that may still hold it otherwise.
+  void entered(LinCastOp enter, Asks asks, llvm::SmallVectorImpl<Target> &ends,
+               llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
 
   // Whether a (value, strength) is on the reading's stack, or reached by
   // the trace being read; each is cleared when it is done.
@@ -257,14 +265,14 @@ inline bool reachesField(Asks asks, const FlowAnchor &anchor, mlir::Type fieldVa
   return holdsReferences(fieldValue) && ownership::asksOfPart(asks, ownership::reachAt(anchor));
 }
 
-// What every callee keeps of each of its parameters: a backward marking of
-// the program's parameters from the moves that outlive a call.
-Keeps keepsOf(const solver::ProgramGraph &graph);
-
 // Every function's summaries, its components callees first, each solved to
 // its least fixpoint: a requirement on a result asks only more of the
 // parameters, or becomes impossible, as the component's summaries grow.
 // Each body read in a round is a transfer, added to `work`.
+// What every callee keeps of each of its parameters: a backward marking of
+// the program's parameters from the passages that outlive a call.
+Keeps keepsOf(const solver::ProgramGraph &graph);
+
 Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps, solver::Work &work);
 
 // A call, or the value a rebuild takes apart, whose requirement reached a

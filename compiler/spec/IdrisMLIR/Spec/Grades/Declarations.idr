@@ -196,22 +196,21 @@ holdReads name uses = Array2 name (EnumColumn (enumDef holdClosed))
        (forget holdClosed.every))
   "the hold of a field read from a value, by how far the value's claim reaches into it"
 
-||| What a part gives a value built of it, `givenClaims[uses][held]` by how
-||| often the part is used and what it claims (`givenClaim`).
-givenClaims : CppDecl
-givenClaims = Array2 "givenClaims" (EnumColumn (enumDef uniqueClosed))
-  (map (\us => map (\u => CaseCell (caseRef uniqueClosed (givenClaim us u))) (forget uniqueClosed.every))
-       (forget usesClosed.every))
-  "what a part gives a value built of it, by how often it is used and what it claims"
+||| The most a value may claim before references are counted,
+||| `uncountedClaims[uses]` by how often it is used (`uncountedClaim`).
+uncountedClaims : CppDecl
+uncountedClaims = Array1 "uncountedClaims" (EnumColumn (enumDef uniqueClosed))
+  (map (\us => CaseCell (caseRef uniqueClosed (uncountedClaim us))) (forget usesClosed.every))
+  "the most a value may claim before references are counted, by how often it is used"
 
 ||| The most a fresh value may claim, built of a part,
 ||| `freshestClaims[reach][given]` by how far its claim on its own cells
-||| reaches into the part and what the part gives it (`freshest`).
+||| reaches into the part and what the part claims (`freshest`).
 freshestClaims : CppDecl
 freshestClaims = Array2 "freshestClaims" (EnumColumn (enumDef uniqueClosed))
   (map (\r => map (\u => CaseCell (caseRef uniqueClosed (freshest r u))) (forget uniqueClosed.every))
        (forget fieldReachClosed.every))
-  "the most a fresh value may claim, by how far its claim reaches into a part and what the part gives it"
+  "the most a fresh value may claim, by how far its claim reaches into a part and what the part claims"
 
 ||| Each hold's axes and where it fits.
 export
@@ -322,10 +321,10 @@ linCast = MkOp
 
 ||| The header the grade's C++ includes (`Generated/Grades.h.inc`): the
 ||| axes as enums, whether a carrier holds references, the holds and their
-||| facts, what a field read gives, what a part gives a value built of it
-||| and what a fresh value may claim, the product of uses. `Uses` is an ODS
-||| enum besides, since the type's parameter is one; its header reads it
-||| from there.
+||| facts, what a field read gives, what a value may claim before
+||| references are counted, what a fresh value may claim, the product of
+||| uses. `Uses` is an ODS enum besides, since the type's parameter is one;
+||| its header reads it from there.
 gradesHeader : Header
 gradesHeader = MkHeader "Grades"
   [ (DialectNamespace,
@@ -335,7 +334,7 @@ gradesHeader = MkHeader "Grades"
       , EnumOf (enumDef byTypeClosed)
       , EnumOf (enumDef holdClosed), TableOf holdTable
       , holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
-      , givenClaims, freshestClaims, usesTimes ]) ]
+      , uncountedClaims, freshestClaims, usesTimes ]) ]
   (brief "the grade's axes, its holds and their algebra")
 
 ||| The grade's area: its one op, its type, `Uses` (the type's enum

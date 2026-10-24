@@ -662,7 +662,7 @@ std::optional<Hold> repackedInCopy(Value given, Type open, StringAttr self) {
     return std::nullopt;
   if (auto call = given.getDefiningOp<CallOp>(); call && call.getCalleeAttr().getAttr() != self)
     return Hold::counted();
-  return families::builtHold(Unique::None);
+  return families::builtHold(usesOf(type), Unique::None);
 }
 
 // The hold `fn`'s result `position` opens at, laid out as `open`: the

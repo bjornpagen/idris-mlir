@@ -42,26 +42,27 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
 // the result takes is the cast's own, by what its re-pack does. Either way
 // the value is the one Idris proved, so its uses are kept. A reindex that
 // builds a cell or an array gives a fresh value at the hold every builder
-// of one writes (builtHold): counted and claimed unique whatever the
-// operand's hold, none among them (words in place hold no reference), which
-// counting frees as any fresh value. One that builds nothing, free or not
-// (a cell taken apart in place, a numeral widened), keeps the operand's
-// hold exactly, its result's memory the operand's; a value used many times
-// claims nothing before references are counted, the grade's own stage fact,
-// so neither does what such a cast gives. Whether it builds is the one
-// answer the lowering's re-pack and the cast's flow read too, from its two
-// types' stored facts and index terms; a re-pack that works builds nothing
-// where it only takes a cell apart, so whether the cast is free does not
-// decide it. A result whose carrier holds no reference has no hold; one
-// whose operand held none (a word widened to a natural) keeps none of the
-// operand's, and is at its carrier's bare hold, which claims nothing.
+// of one writes (builtHold): counted and claiming its own cells whatever
+// the operand's hold, where its uses let it, none among them (words in
+// place hold no reference), which counting frees as any fresh value. One
+// that builds nothing, free or not (a cell taken apart in place, a numeral
+// widened), keeps the operand's hold exactly, its result's memory the
+// operand's; a value used many times claims nothing before references are
+// counted, the grade's own stage fact, so neither does what such a cast
+// gives. Whether it builds is the one answer the lowering's re-pack and the
+// cast's flow read too, from its two types' stored facts and index terms; a
+// re-pack that works builds nothing where it only takes a cell apart, so
+// whether the cast is free does not decide it. A result whose carrier
+// holds no reference has no hold; one whose operand held none (a word
+// widened to a natural) keeps none of the operand's, and is at its
+// carrier's bare hold, which claims nothing.
 Type DataReindexOp::givenType(Type from, Type to) {
   Type carrier = unrestricted(to);
   Uses uses = usesOf(from);
   if (!holdsReferences(carrier))
     return graded(Grade{uses, std::nullopt}, carrier);
   if (families::builds(from, carrier))
-    return graded(Grade{uses, builtHold(Unique::None)}, carrier);
+    return graded(Grade{uses, builtHold(uses, Unique::None)}, carrier);
   std::optional<Hold> held = holdOf(from);
   return graded(Grade{uses, held ? held : bareGrade(carrier).hold}, carrier);
 }
@@ -93,9 +94,9 @@ LogicalResult DataReindexOp::verify() {
   if (holdOf(given) == made)
     return lifetimes::verifyOuters(*this, 0);
   if (families::builds(from, to)) {
-    if (!made || *made != builtHold(made->claim()))
+    if (!made || *made != builtHold(usesOf(to), made->claim()))
       return emitOpError("builds a cell or an array, a fresh value, so its result is counted and ")
-             << "claimed unique; it gives " << to;
+             << "claims its own cells where its uses let it; it gives " << to;
     return lifetimes::verifyOuters(*this, 0);
   }
   if (holdOf(from))

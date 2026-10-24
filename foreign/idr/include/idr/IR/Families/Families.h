@@ -277,12 +277,14 @@ LayoutMatch layoutMatch(const Placed &from, const Placed &to);
 // reindex's verifier and its flow do: the one answer all of them read.
 bool builds(mlir::Type from, mlir::Type to);
 
-// The hold of what a re-pack that builds gives: a fresh value, so freed by
-// its count and claiming at least its own cells unshared, whatever its
-// operand's hold; `stated`, the claim its type states, where that claims
-// more. The one rule the reindex's verifier holds a building reindex to and
-// every builder of one writes.
-Hold builtHold(Unique stated);
+// The hold of what a re-pack that builds gives, at `uses`: a fresh value,
+// so freed by its count and claiming its own cells unshared whatever its
+// operand's hold, where its uses let it claim them before references are
+// counted (the grade's uncountedClaims: one used many times claims
+// nothing); `stated`, the claim its type states, where that claims more.
+// The one rule the reindex's verifier holds a building reindex to and every
+// builder of one writes.
+Hold builtHold(Uses uses, Unique stated);
 
 // The value of `numeral`, a constant of a family of numeral shape: the
 // number of its successor's layers, read off its run of cells.

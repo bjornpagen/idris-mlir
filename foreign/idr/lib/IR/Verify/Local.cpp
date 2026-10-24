@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The ownership rule the IR is held to: the local rule of exclusivity on
-// every value typed `unique deep` (ownership::LocalCheck), one rule of the
-// function's one walk.
+// every value that claims anything of its sharing (ownership::LocalCheck),
+// one rule of the function's one walk.
 
 #include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Flow.h"
@@ -55,7 +55,11 @@ bool copies(const FlowEdges &edges, OpOperand &use) {
   });
 }
 
-bool claimsDeep(Value value) { return claims(value.getType(), Unique::Deep); }
+// What `value`'s type claims of its sharing: nothing, its own cells, or
+// everything it reaches.
+Unique claimed(Value value) { return ownership::claimOf(value.getType()); }
+
+bool claimsAny(Value value) { return claimed(value) != Unique::None; }
 
 // Whether `edges` say a callee gives `value`: brought back whole from a
 // result of a function by name, which the call's symbol-use verifier holds
@@ -90,27 +94,69 @@ bool givenByCallee(const FlowEdges &edges, Value value) {
 
 } // namespace
 
-LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
-  // What `op` forwards into a value typed unique deep: each predecessor is
-  // held where it forwards, so a value with many is held to each.
-  llvm::SmallVector<std::pair<OpOperand *, Value>, 2> intoDeep;
-  forwardedValues(op, [&](OpOperand &operand, Value input) {
-    if (claimsDeep(input))
-      intoDeep.emplace_back(&operand, input);
+ownership::CellOf idr::ownership::cellOf(Value value) {
+  if (std::optional<Value> same = sameValueSource(value))
+    return SameCell{*same};
+  Operation *op = value.getDefiningOp();
+  auto declared = dyn_cast_or_null<FlowOpInterface>(op);
+  if (!declared)
+    return UnknownCell{};
+  FlowEdges edges;
+  declared.getFlowEdges(edges);
+  bool made = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move, [&](const FlowEdges::Fresh &fresh) { return fresh.to == value; },
+        [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release,
+                       FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Dispatch,
+                       FlowEdges::Constant> auto &) { return false; });
   });
-  // Most ops touch nothing typed unique deep, which settles them with no
-  // edge read.
+  if (!made)
+    return UnknownCell{};
+  return NewCell{op};
+}
+
+Unique idr::ownership::carriedClaim(Value value) {
+  return match(
+      cellOf(value), [](const SameCell &same) { return claimOfSource(same.of); },
+      [&](const NewCell &cell) {
+        FlowEdges edges;
+        cast<FlowOpInterface>(cell.op).getFlowEdges(edges);
+        llvm::SmallVector<Term<Value>, 4> terms;
+        forEachTerm(
+            edges,
+            [&](Value target, const Term<Value> &term) {
+              if (target == value)
+                terms.push_back(term);
+            },
+            [](Value) {});
+        return claimFrom<Value>(Origin::Fresh, terms, [](Value source) {
+                 return claimOfSource(source);
+               }).value_or(Unique::None);
+      },
+      [](const UnknownCell &) { return Unique::None; });
+}
+
+LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
+  // What `op` forwards into a value that claims anything: each predecessor
+  // is held where it forwards, so a value with many is held to each.
+  llvm::SmallVector<std::pair<OpOperand *, Value>, 2> intoClaimed;
+  forwardedValues(op, [&](OpOperand &operand, Value input) {
+    if (claimsAny(input))
+      intoClaimed.emplace_back(&operand, input);
+  });
+  // Most ops touch nothing that claims anything, which settles them with
+  // no edge read.
   auto inRegions = [&] {
     return llvm::any_of(op->getRegions(), [](Region &region) {
-      return !region.empty() && llvm::any_of(region.front().getArguments(), claimsDeep);
+      return !region.empty() && llvm::any_of(region.front().getArguments(), claimsAny);
     });
   };
-  if (intoDeep.empty() && llvm::none_of(op->getResults(), claimsDeep) &&
-      llvm::none_of(op->getOperands(), claimsDeep) && !inRegions())
+  if (intoClaimed.empty() && llvm::none_of(op->getResults(), claimsAny) &&
+      llvm::none_of(op->getOperands(), claimsAny) && !inRegions())
     return success();
 
-  for (auto [operand, input] : intoDeep)
-    if (claimOfSource(operand->get()) != Unique::Deep)
+  for (auto [operand, input] : intoClaimed)
+    if (!covers(claimOfSource(operand->get()), claimed(input)))
       return op->emitOpError("forwards operand #")
              << operand->getOperandNumber() << " of type " << operand->get().getType()
              << " into a value of type " << input.getType()
@@ -122,12 +168,13 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
   FlowEdges edges;
   declared.getFlowEdges(edges);
 
-  // No value typed unique deep is copied.
+  // No value that claims anything is copied: a second reference reaches
+  // its own cells at least.
   for (OpOperand &use : op->getOpOperands())
-    if (claimsDeep(use.get()) && copies(edges, use) && !takesOrGivesUp(edges, use))
+    if (claimsAny(use.get()) && copies(edges, use) && !takesOrGivesUp(edges, use))
       return op->emitOpError("copies operand #")
              << use.getOperandNumber() << " of type " << use.get().getType()
-             << ", which claims that nothing else reaches what it holds";
+             << ", which claims that nothing else reaches its cells";
 
   // An inferred result is its op's inference, which its verifier holds it
   // to; only a result its op admits at a claim beyond the inference (a
@@ -139,28 +186,21 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
                                       op->getRegions(), inferred)))
       return failure();
   auto beyondInference = [&](OpResult result) {
-    return inferred.empty() || !claims(inferred[result.getResultNumber()], Unique::Deep);
+    return inferred.empty() ||
+           !covers(claimOf(inferred[result.getResultNumber()]), claimed(result));
   };
 
-  // Each value the op makes typed unique deep, from the terms its edges give;
-  // a value a callee gives is its callee's.
+  // Each value the op makes that claims anything, from the terms its edges
+  // give; a value a callee gives is its callee's.
   llvm::SmallVector<Value, 4> judged;
   for (OpResult result : op->getResults())
-    if (claimsDeep(result) && beyondInference(result) && !givenByCallee(edges, result))
+    if (claimsAny(result) && beyondInference(result) && !givenByCallee(edges, result))
       judged.push_back(result);
   for (Region &region : op->getRegions())
     if (!region.empty())
       for (BlockArgument arg : region.front().getArguments())
-        if (claimsDeep(arg))
+        if (claimsAny(arg))
           judged.push_back(arg);
-  // A part built in, once references are counted, is the one reference it
-  // is, whatever its grade's uses (the class's two stages).
-  auto atStage = [&](Term<Value> term) {
-    if (counting == StageCounting::Counted &&
-        (term.via == Via::Built || term.via == Via::Filled))
-      term.uses = Uses::Once;
-    return term;
-  };
   for (Value value : judged) {
     llvm::SmallVector<Term<Value>, 4> terms;
     Made made = Made::Elsewhere;
@@ -168,7 +208,7 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
         edges,
         [&](Value target, const Term<Value> &term) {
           if (target == value)
-            terms.push_back(atStage(term));
+            terms.push_back(term);
         },
         [&](Value target) {
           if (target == value)
@@ -176,15 +216,34 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
         });
     Origin origin = originOf<Value>(made, terms);
     // A value no edge of the op names is forwarded into from its regions (a
-    // region branch's results, held at each terminator), or bound by the
-    // op's own rule (a token and fields a uniqueness match binds, held by
-    // its verifier).
+    // region branch's results, held at each terminator), bound by the op's
+    // own rule (a token and fields a uniqueness match binds, held by its
+    // verifier), or its operand's value at a grade that only forgets (a
+    // share, which gives the operand's reference up and its claim down,
+    // held by its verifier).
     if (origin == Origin::Unexplained && terms.empty() &&
-        (isa<BlockArgument>(value) || isa<RegionBranchOpInterface>(op)))
+        (isa<BlockArgument>(value) || isa<RegionBranchOpInterface>(op) ||
+         op->hasTrait<ResultCarriesOperand>()))
       continue;
-    std::optional<Unique> claim =
-        claimFrom<Value>(origin, terms, [](Value source) { return claimOfSource(source); });
-    if (claim && *claim != Unique::Deep) {
+    // A cast that enters a value used many times as its one use carries
+    // what the value's cell holds; every other source claims what its type
+    // says. Open: what a callee keeps of what it is lent is the program's
+    // marking, which idr-in-place asks, and no fact of the IR carries it yet
+    // (a parameter scoped under a view lifetime, or a fact of the
+    // signature, is the owner's to rule), so here every lend is taken to end
+    // with its call and the rule's local half alone is checked: no other use
+    // runs after the cast, and each hands the value on or is a call.
+    auto entering = dyn_cast<LinCastOp>(op);
+    auto sourceClaim = [&](Value source) {
+      if (entering && entering.getDirection() == QuantityChange::Enter &&
+          source == entering.getValue() &&
+          std::holds_alternative<EntersAlone>(
+              entryOf(entering, [](const FlowSource::Parameter &) { return Lent::Ends; })))
+        return carriedClaim(source);
+      return claimOfSource(source);
+    };
+    std::optional<Unique> claim = claimFrom<Value>(origin, terms, sourceClaim);
+    if (claim && !covers(*claim, claimed(value))) {
       InFlightDiagnostic error = op->emitOpError("makes a value of type ")
                                  << value.getType() << ", but ";
       if (origin == Origin::Unexplained)

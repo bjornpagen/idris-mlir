@@ -155,18 +155,27 @@ binding name q = do
   pure (MkBinding name q st.ownerSymbol st.nextBinder)
 
 ||| What a context wants of the value a term gives: the type it expects, if
-||| it knows it, and the variable it binds the value to, if it binds one.
+||| it knows it, the variable it binds the value to, if it binds one, and
+||| the uses it takes the value at, at which a term that makes a fresh value
+||| makes it, so no cast drops the multiplicity Idris proved.
 public export
 record Wanted where
   constructor MkWanted
   type : Maybe Ty
   binder : Maybe Binding
+  uses : Uses
 
-||| A context that expects a value of a type, if it knows it, and binds it
-||| to no variable.
+||| A context that expects a value of a type, if it knows it, binds it to
+||| no variable, and takes it at the uses `uses`.
+export
+consumedAt : Maybe Ty -> Uses -> Wanted
+consumedAt t u = MkWanted t Nothing u
+
+||| A context that expects a value of a type, if it knows it, binds it to
+||| no variable, and uses it many times.
 export
 expecting : Maybe Ty -> Wanted
-expecting t = MkWanted t Nothing
+expecting t = consumedAt t Many
 
 ||| An op at a place no variable names.
 unbound : Place -> Location

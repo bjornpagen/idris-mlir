@@ -359,7 +359,7 @@ LendOp Writer::lend(const Loan &loan) {
   OpBuilder b(site);
   auto made = LendOp::create(b, loc, owner.getType(), site->getResultTypes(), owner, ValueRange());
   Type lifetime = LifetimeType::get(site->getContext(), LifetimeKind::view());
-  Type view = graded(Grade{Uses::Many, Hold::scoped(holdOf(owner.getType())->claim())}, owner.getType());
+  Type view = lifetimes::lentView(owner.getType());
   Block *body = b.createBlock(&made.getBody(), {}, {lifetime, view}, {loc, loc});
   site->replaceAllUsesWith(made->getResults().drop_front());
   site->moveBefore(body, body->end());

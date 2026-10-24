@@ -111,10 +111,20 @@ InFlightDiagnostic report(Operation *op, Value value) {
          << ", which ";
 }
 
+// Whether a value of `type` claims more than a value at its uses may
+// before references are counted (the grade's uncountedClaims): one used
+// many times claims nothing, since counting makes each of its uses a
+// reference of its own, each reaching what it holds.
+bool claimsBeyondItsUses(Type type) {
+  return !ownership::covers(uncountedClaims[static_cast<unsigned>(usesOf(type))],
+                            ownership::claimOf(type));
+}
+
 // What the program's stage lets the ops and values of a function be. A
 // closure or a suspension exists only before idr-defunctionalize makes
 // each a sum, and with it every idr.fn.apply and idr.lazy.force, whose
-// operands are such values, so past it no value's type reaches one; no
+// operands are such values, so past it no value's type reaches one; before
+// references are counted no value claims more than its uses let it; no
 // linalg op past the higher stage reads or writes an element that holds
 // references, which idr-structure-loops makes only of arrays of words and
 // counting so never meets; and once references are counted, every buffer
@@ -168,6 +178,9 @@ private:
         families::closureReach(type) == ClosureReach::ReachesClosure)
       return report(op, value) << "can reach a closure or a suspension in a program past the "
                                   "higher stage, where idr-defunctionalize has made each a sum";
+    if (counting == StageCounting::Uncounted && claimsBeyondItsUses(type))
+      return report(op, value) << "claims more of its sharing than a value used as often may "
+                                  "before references are counted";
     if (auto buffer = dyn_cast<MemRefType>(type);
         buffer && counting == StageCounting::Counted && !buffer.isStrided())
       return report(op, value) << "is a buffer of no strided layout, whose descriptor the "
@@ -198,10 +211,17 @@ LogicalResult idr::verify::function(FuncOp fn) {
   Stage stage = fn.getProgram().getStage();
   if (functionsAt[stage] == StageFunctions::Lowered)
     return fn.emitOpError("is an idr.func in a lowered program, which holds upstream's functions");
+  if (countingAt[stage] == StageCounting::Uncounted)
+    for (auto [index, result] : llvm::enumerate(fn.getResultTypes()))
+      if (claimsBeyondItsUses(result))
+        return fn.emitOpError("gives result #")
+               << index << " as " << result
+               << ", which claims more of its sharing than a value used as often may before "
+                  "references are counted";
   StageRules rules(closuresAt[stage], countingAt[stage]);
   families::ScopeWalk scopes(fn);
   rows::Check row(fn);
-  ownership::LocalCheck local(countingAt[stage]);
+  ownership::LocalCheck local;
   LifetimeRules lifetimes(fn);
   if (failed(families::walkFunction(fn, rules, scopes, row, local, lifetimes)) ||
       failed(linearity(fn)))

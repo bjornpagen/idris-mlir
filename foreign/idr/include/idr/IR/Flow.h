@@ -82,6 +82,12 @@ void forwardedValues(mlir::Operation *op, Each &&each) {
 void builtEdges(mlir::Value value, DataType data, Tag tag, mlir::MutableOperandRange fields,
                 llvm::ArrayRef<int32_t> holes, FlowEdges &edges);
 
+// The edges of a shaped value made full of one value: `fill` moves into
+// every element of `made`, each holding it, so it is held as many times as
+// `made` has elements; a value of rank 0 has one element, which takes it
+// once. What a new array and a splat declare.
+void everyElementEdges(mlir::OpOperand &fill, mlir::Value made, FlowEdges &edges);
+
 // Whether upstream's interfaces or ours say every move `op` makes: it holds
 // the flow interface, it is a region branch or a terminator of one, or it
 // selects one of two values (SelectLikeOpInterface). Any other op is

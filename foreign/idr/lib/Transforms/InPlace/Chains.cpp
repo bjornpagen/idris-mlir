@@ -7,6 +7,7 @@
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/Analysis/Ownership/Meets.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/IR/Flow.h"
@@ -30,31 +31,12 @@ void sortUnique(SmallVectorImpl<Target> &targets) {
   targets.erase(std::unique(targets.begin(), targets.end()), targets.end());
 }
 
-// The operand of `op` that holds `value`.
-OpOperand *operandOf(Operation *op, Value value) {
-  for (OpOperand &operand : op->getOpOperands())
-    if (operand.get() == value)
-      return &operand;
-  return nullptr;
-}
-
-// The parameter of a function by name that `use`'s op moves it into, with
-// its reference, as the op's edges say: a call's argument's.
-std::optional<FlowSource::Parameter> parameterOf(OpOperand &use) {
-  auto declared = dyn_cast<FlowOpInterface>(use.getOwner());
-  if (!declared)
-    return std::nullopt;
-  FlowEdges edges;
-  declared.getFlowEdges(edges);
-  std::optional<FlowSource::Parameter> into;
-  ownership::forEachSignatureMove(
-      edges,
-      [&](OpOperand &moved, const FlowSource::Parameter &parameter) {
-        if (&moved == &use)
-          into = parameter;
-      },
-      [](OpOperand &, const FlowSource::Result &) {});
-  return into;
+// The op that binds `value`: its definition, or the op whose region's block
+// takes it as an argument, a function's for a parameter.
+Operation *binderOf(Value value) {
+  if (auto arg = dyn_cast<BlockArgument>(value))
+    return arg.getOwner()->getParentOp();
+  return value.getDefiningOp();
 }
 
 // The use `edges` move into parameter `index` of `function`: the argument a
@@ -108,51 +90,22 @@ Target Chains::cause(Operation *at, Why why) {
   return {Target::Kind::Cause, static_cast<std::uint32_t>(causeList.size() - 1), Asks::Self};
 }
 
-bool Chains::borrowedBefore(OpOperand &use, Operation *requirer) const {
-  SmallVector<OpOperand *> work{&use};
-  while (!work.empty()) {
-    OpOperand *at = work.pop_back_val();
-    Operation *owner = at->getOwner();
-    if (owner->hasTrait<SameValue>()) {
-      for (Value result : owner->getResults())
-        for (OpOperand &next : result.getUses())
-          work.push_back(&next);
-      continue;
-    }
-    std::optional<FlowSource::Parameter> into = parameterOf(*at);
-    if (!into || keeps.test(graph.id(into->function), into->index) ||
-        ownership::runsAfter(owner, requirer))
-      return false;
-  }
-  return true;
-}
-
-std::optional<Target> Chains::usedOnce(Value value, OpOperand *use) {
-  // Idris proved a value of quantity 1 used once, and the verifier holds
-  // every pass to it.
-  if (usesOf(value.getType()) == Uses::Once)
-    return std::nullopt;
-  for (OpOperand &other : value.getUses()) {
-    if (&other == use || ownership::readsPart(other))
-      continue;
-    Operation *owner = other.getOwner();
-    if (use) {
-      Operation *requirer = use->getOwner();
-      if (insideMutuallyExclusiveRegions(owner, requirer))
-        continue;
-      // A read by a callee that keeps nothing of it, made before the use
-      // that requires it, seen through the positions that hand it on as
-      // itself: its lifetime has ended there.
-      if (borrowedBefore(other, requirer))
-        continue;
-    }
-    return cause(owner, Why::UsedAgain);
-  }
-  return std::nullopt;
-}
-
 void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     SmallVectorImpl<Step> &next, SmallVectorImpl<Demand> &demands) {
+  // A value used many times claims nothing of its sharing before references
+  // are counted, so a requirement meets it only through a cast that enters
+  // it as its one use (entered). One used once is used once on every path,
+  // as Idris proved it or Emit built it for its one consumer, and the
+  // verifier holds every pass to that.
+  if (usesOf(value.getType()) == Uses::Many) {
+    ends.push_back(cause(binderOf(value), Why::UsedMany));
+    return;
+  }
+  defineCell(value, asks, ends, next, demands);
+}
+
+void Chains::defineCell(Value value, Asks asks, SmallVectorImpl<Target> &ends,
+                        SmallVectorImpl<Step> &next, SmallVectorImpl<Demand> &demands) {
   if (auto arg = dyn_cast<BlockArgument>(value))
     if (arg.getOwner() == &fn.getBody().front()) {
       if (fn.isRoot())
@@ -167,7 +120,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
   std::uint32_t row = values.at(value).index();
   if (forwardStart[row] != forwardStart[row + 1]) {
     for (std::uint32_t at = forwardStart[row]; at != forwardStart[row + 1]; ++at)
-      next.push_back({forwards[at]->get(), asks, forwards[at]});
+      next.push_back({forwards[at]->get(), asks});
     return;
   }
   if (auto arg = dyn_cast<BlockArgument>(value)) {
@@ -183,7 +136,11 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
     return;
   }
   if (std::optional<Value> same = ownership::sameValueSource(value)) {
-    next.push_back({*same, asks, &op->getOpOperand(0)});
+    auto enter = dyn_cast<LinCastOp>(op);
+    if (enter && enter.getDirection() == QuantityChange::Enter)
+      entered(enter, asks, ends, next, demands);
+    else
+      next.push_back({*same, asks});
     return;
   }
   if (isa<RegionBranchOpInterface>(op))
@@ -222,9 +179,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                   return;
                 match(
                     flow.from.at,
-                    [&](const FlowSource::Taken &taken) {
-                      next.push_back({moved, asks, taken.use});
-                    },
+                    [&](const FlowSource::Taken &) { next.push_back({moved, asks}); },
                     // Read and left its reference, or a part: the value
                     // holds a reference another keeps.
                     [&](const ownership::NotTaken auto &) {
@@ -238,17 +193,14 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                 match(
                     flow.from.at,
                     [&](const FlowSource::Taken &taken) {
-                      next.push_back({taken.use->get(), asks, taken.use});
+                      next.push_back({taken.use->get(), asks});
                     },
                     // Out of a part: what the holder must claim for its
                     // read of the part to meet the requirement.
                     [&](const FlowSource::Part &part) {
                       Value whole = *flow.from.value();
                       Asks of = ownership::holderAsks(asks, ownership::reachAt(part.anchor));
-                      OpOperand *use = ownership::reachOf(part) == ownership::Reach::Taken
-                                           ? *flow.from.taken()
-                                           : operandOf(op, whole);
-                      next.push_back({whole, of, use});
+                      next.push_back({whole, of});
                     },
                     // A callee's result: what the callee's version must give
                     // back, and what its summary asks of the arguments the
@@ -265,7 +217,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                       }
                       for (auto [param, strength] : *need) {
                         OpOperand &argument = argumentAt(edges, returned.function, param);
-                        next.push_back({argument.get(), strength, &argument});
+                        next.push_back({argument.get(), strength});
                       }
                     },
                     [&](const OneOf<FlowSource::Whole, FlowSource::Parameter> auto &) {
@@ -281,10 +233,30 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
     ends.push_back(cause(op, Why::Unexplained));
 }
 
-SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
+void Chains::entered(LinCastOp enter, Asks asks, SmallVectorImpl<Target> &ends,
+                     SmallVectorImpl<Step> &next, SmallVectorImpl<Demand> &demands) {
+  Value value = enter.getValue();
+  match(
+      ownership::entryOf(enter,
+                         [&](const FlowSource::Parameter &lent) {
+                           return keeps.of(graph.id(lent.function), lent.index);
+                         }),
+      [&](const ownership::HeldElsewhere &held) {
+        ends.push_back(cause(held.by->getOwner(), Why::UsedAgain));
+      },
+      [&](const ownership::EntersAlone &) {
+        match(
+            ownership::cellOf(value),
+            [&](const ownership::SameCell &same) { next.push_back({same.of, asks}); },
+            [&](const ownership::NewCell &) { defineCell(value, asks, ends, next, demands); },
+            [&](const ownership::UnknownCell &) {
+              ends.push_back(cause(binderOf(value), Why::UsedMany));
+            });
+      });
+}
+
+SmallVector<Target> Chains::targets(Value value, Asks asks) {
   SmallVector<Target> out;
-  if (std::optional<Target> again = usedOnce(value, use))
-    out.push_back(*again);
   auto knownEndsOf = [&](BodyValue at, Asks strength) -> std::optional<llvm::ArrayRef<Target>> {
     std::optional<Run> run = known[at][slot(strength)];
     if (!run)
@@ -323,8 +295,6 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
   while (!stack.empty()) {
     if (stack.back().nextAt < stack.back().next.size()) {
       Step step = stack.back().next[stack.back().nextAt++];
-      if (std::optional<Target> again = usedOnce(step.value, step.use))
-        stack.back().ends.push_back(*again);
       BodyValue at = values.at(step.value);
       if (std::optional<llvm::ArrayRef<Target>> hit = knownEndsOf(at, step.asks))
         stack.back().ends.append(hit->begin(), hit->end());

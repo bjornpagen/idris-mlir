@@ -33,11 +33,23 @@ using namespace mlir;
 
 namespace idr::unique {
 
+namespace {
+
+// Whether a value of `type` may claim anything before references are
+// counted: used once, as Idris proved it or as Emit built it for its one
+// consumer (uncountedClaims). One used many times claims nothing until
+// exclusivity after counting raises it.
+bool claimsUncounted(Type type) {
+  return uncountedClaims[static_cast<unsigned>(usesOf(type))] == Unique::Deep;
+}
+
+} // namespace
+
 bool raisable(Type type) {
   std::optional<Hold> hold = holdOf(type);
   DataType data = ownership::familyOf(type);
   return hold && hold->release() != Release::Static && !hold->claims(Unique::Deep) && data &&
-         !ownership::isMemo(data);
+         !ownership::isMemo(data) && claimsUncounted(type);
 }
 
 namespace {
@@ -102,12 +114,12 @@ private:
       forwards.push_back({local(operand.get()), local(input), input});
     });
     // A position that keeps its operand's value gives it its operand's
-    // claim where it flows on linearly; a result used again is copied, and
-    // claims what its own grade says, which may forget what its operand
-    // claims.
+    // claim where its result is used once; one used many times claims
+    // nothing before references are counted, so it claims what its own
+    // grade says, which may forget what its operand claims.
     if (op->hasTrait<SameValue>()) {
       for (Value result : op->getResults())
-        if (ownership::flowsLinearly(result)) {
+        if (claimsUncounted(result.getType())) {
           Local at = local(result);
           roles[at] = Role::Same;
           owners[at] = local(op->getOperand(0));
@@ -144,7 +156,7 @@ private:
             return;
           Local at = local(target);
           made[at] = Made::New;
-          if (!infers && raisable(target.getType()) && ownership::flowsLinearly(target))
+          if (!infers && raisable(target.getType()))
             roles[at] = Role::Raised;
         });
   }
@@ -189,8 +201,7 @@ private:
       pending.emplace_back(forward.input,
                            Term<Local>{forward.from, Via::Moved, FieldReach::Other});
     for (const Forward &forward : forwards)
-      if (roles[forward.input] == Role::Typed && raisable(forward.value.getType()) &&
-          ownership::flowsLinearly(forward.value))
+      if (roles[forward.input] == Role::Typed && raisable(forward.value.getType()))
         roles[forward.input] = Role::Raised;
   }
 

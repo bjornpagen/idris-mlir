@@ -1,15 +1,15 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr-pipeline{from=first to=graded})' -o /dev/null
 // A reindex that builds a cell gives a fresh value, counted and claiming
-// its own cells, whatever its operand holds, and keeps the operand's uses.
-// Four words in place hold no reference, so their vector has no hold;
-// laid out open, as at a length unknown at compile time, the same vector
-// is a cell. @make builds the four words in place and casts them to the
-// open layout, which builds the cell: the cast relates a vector with no
-// hold to one counted and claiming its own cells, the grade the build
-// gives, and the refinements around it make the two the same vector, its
-// length 4 kept. The module verifies as written and after every pass to
-// the graded stage. @main writes the vector's head, so the cast's result
-// is read.
+// its own cells where its uses let it, whatever its operand holds, and
+// keeps the operand's uses. Four words in place hold no reference, so
+// their vector has no hold; laid out open, as at a length unknown at
+// compile time, the same vector is a cell. @make builds the four words in
+// place, used once, and casts them to the open layout, which builds the
+// cell: the cast relates a vector with no hold to one used once, counted
+// and claiming its own cells, the grade the build gives, and the
+// refinements around it make the two the same vector, its length 4 kept.
+// The module verifies as written and after every pass to the graded
+// stage. @main writes the vector's head, so the cast's result is read.
 #Vect = #idr.family<"Vect" [nat] {
     @Nil where 0 ()
     @Cons <nat> where v0 + 1 (i64, !idr.self[v0])
@@ -18,8 +18,8 @@
 !V1 = !idr.data<#Vect[1]>
 !V2 = !idr.data<#Vect[2]>
 !V3 = !idr.data<#Vect[3]>
-!V4 = !idr.data<#Vect[4]>
-!Open = !idr.graded<many, counted unique self, !idr.data<#Vect[4] open>>
+!V4 = !idr.graded<once, !idr.data<#Vect[4]>>
+!Open = !idr.graded<once, counted unique self, !idr.data<#Vect[4] open>>
 idr.program @words root(@main) stage(first) {
   idr.func @main() {
     %seven = arith.constant 7 : i64

@@ -345,6 +345,12 @@ void restateOuters(StatesOutersOpInterface op, mlir::ValueRange outers);
 // is given up only outside it.
 mlir::Region *loanRegion(CarrierOp loan);
 
+// The view a loan of a counted value of type `owner` binds: scoped to the
+// loan, at many uses, claiming what a value used many times may before
+// references are counted (the grade's uncountedClaims). What the loan's
+// verifier holds its region to, and what borrowing writes.
+mlir::Type lentView(mlir::Type owner);
+
 // The loan `value` is, or is a view of: up through upstream's views, one
 // hop each, to an idr.carrier; null for any other value. A loan is a
 // reference of no one's: nothing counts it, gives it up or takes it over.

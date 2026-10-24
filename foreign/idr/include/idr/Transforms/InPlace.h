@@ -28,16 +28,16 @@
 // reads a parameter's claim on the buffer its cell holds.
 //
 // idr-unique-results: the local rule of exclusivity, before bufferization
-// reads the grades. A value is unique where it is fresh (a constructor's,
-// a recycled cell's, or a call's result whose signature says so) or taken
-// or read at a linear position from one that is, and it flows only through
-// linear positions (Analysis/Ownership/Local.h); each result's claim in its
-// function's type is derived from its returning paths over the call
-// graph's components, callees first, as rows are, a path that ends the run
-// giving nothing. The claims are written into the types, each call's
-// results its callee's again, and wherever a value now claiming more meets
-// a position that takes less, it is shared into it. idr-in-place runs the
-// same rule after it grades (Transforms/InPlace/Unique.h).
+// reads the grades. A value is unique where it is fresh (a constructor's, a
+// recycled cell's, or a call's result whose signature says so) or taken or
+// read at a linear position from one that is, and it is used once
+// (Analysis/Ownership/Local.h); each result's claim in its function's type is
+// derived from its returning paths over the call graph's components, callees
+// first, as rows are, a path that ends the run giving nothing. The claims are
+// written into the types, each call's results its callee's again, and
+// wherever a value now claiming more meets a position that takes less, it is
+// shared into it. idr-in-place runs the same rule after it grades
+// (Transforms/InPlace/Unique.h).
 //
 // idr-knots refuses a reference knot counting could never free
 // (Transforms/Ownership/Knots.cpp); idr-rc-exclusive commits the

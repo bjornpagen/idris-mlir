@@ -109,7 +109,8 @@ struct Repacked {
     Type cell = idr::bufferize::cellType(cast<TensorLikeType>(op.getType()));
     std::optional<idr::Hold> stated = idr::holdOf(cell);
     assert(stated && "an array's buffer holds its cell's reference");
-    Type fresh = idr::atHold(cell, idr::families::builtHold(stated->claim()));
+    Type fresh =
+        idr::atHold(cell, idr::families::builtHold(idr::usesOf(cell), stated->claim()));
     Location loc = op.getLoc();
     Value made = DataReindexOp::create(rewriter, loc, fresh, *buffer).getResult();
     if (fresh != cell)

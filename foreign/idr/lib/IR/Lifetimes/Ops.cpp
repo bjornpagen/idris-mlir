@@ -174,16 +174,22 @@ IDR_RUNS_ONCE(LendOp, 1)
 
 Value LendOp::getView() { return getBody().front().getArgument(1); }
 
+Type lifetimes::lentView(Type owner) {
+  Unique claim = uncountedClaims[static_cast<unsigned>(Uses::Many)];
+  return graded({Uses::Many, Hold::scoped(claim)}, owner);
+}
+
 // A counted value lent: the region binds the loan's lifetime, a view, and
-// the view of the owner, scoped to it with what the owner claims of its
-// sharing, at many uses.
+// the view of the owner, scoped to it at many uses, so claiming what a
+// value used many times may before references are counted (the grade's
+// uncountedClaims), which is nothing: a loan is made before counting.
 LogicalResult LendOp::verifyRegions() {
   Type owner = getOwner().getType();
   std::optional<Hold> hold = holdOf(owner);
   if (!hold || hold->release() != Release::Counted)
     return emitOpError("lends ") << owner << ", which is no counted value";
   Block &entry = getBody().front();
-  Type view = graded({Uses::Many, Hold::scoped(hold->claim())}, owner);
+  Type view = lifetimes::lentView(owner);
   if (entry.getNumArguments() != 2 || !isViewLifetime(entry.getArgument(0).getType()) ||
       entry.getArgument(1).getType() != view)
     return emitOpError("binds no loan's view lifetime and view ") << view;

@@ -12,6 +12,7 @@
 // upstream's memref ops do.
 
 #include "idr/IR/Arrays.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -90,8 +91,7 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &, ReifiedRankedShapedType
 // through a write, which releases the element it replaces; a read borrows
 // it, the reference a reader keeps being counting's to take.
 void ArrayNewOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowSource::of(getFillMutable()),
-             FlowPlace::partOf(getArray(), elementsOf(getArray())));
+  everyElementEdges(getFillMutable(), getArray(), edges);
   edges.fresh(getArray());
 }
 void ArrayGetOp::getFlowEdges(FlowEdges &edges) {

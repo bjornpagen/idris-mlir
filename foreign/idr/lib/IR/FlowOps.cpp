@@ -48,6 +48,21 @@ FlowAnchor elementsOf(Type shaped) {
   return FlowAnchor::elementsOf(cast<ShapedType>(unrestricted(shaped)).getElementType());
 }
 
+} // namespace
+
+// Essential, two shapes: one of rank 0 has one element, the place the fill
+// moves into; any other has as many as its sizes say, every one of which
+// holds the fill.
+void idr::everyElementEdges(OpOperand &fill, Value made, FlowEdges &edges) {
+  FlowAnchor elements = elementsOf(made.getType());
+  if (cast<ShapedType>(unrestricted(made.getType())).getRank() == 0)
+    edges.flow(FlowSource::of(fill), FlowPlace::partOf(made, elements));
+  else
+    edges.spread(FlowSource::of(fill), made, elements);
+}
+
+namespace {
+
 // The forced state of a suspension of `lazy`, at any grade: the one place a
 // lazy value's type is read as one, which every operand that holds a
 // suspension is by its constraint.
@@ -277,10 +292,10 @@ void fromElementsEdges(tensor::FromElementsOp made, FlowEdges &edges) {
   edges.fresh(tensor);
 }
 
+// A splat is a tensor full of its input.
 void splatEdges(tensor::SplatOp splat, FlowEdges &edges) {
   Value tensor = splat.getResult();
-  edges.flow(FlowSource::of(splat.getInputMutable()),
-             FlowPlace::partOf(tensor, elementsOf(tensor.getType())));
+  everyElementEdges(splat.getInputMutable(), tensor, edges);
   edges.fresh(tensor);
 }
 

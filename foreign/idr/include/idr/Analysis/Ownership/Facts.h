@@ -289,30 +289,6 @@ inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
   return false;
 }
 
-// Whether `use` reads a part of its value and takes none of it over: a
-// field read, a view of a part, which the op declares as a move out of a
-// part of the value it leaves its reference.
-inline bool readsPart(mlir::OpOperand &use) {
-  auto declared = llvm::dyn_cast<FlowOpInterface>(use.getOwner());
-  if (!declared)
-    return false;
-  FlowEdges edges;
-  declared.getFlowEdges(edges);
-  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
-    return match(
-        edge.move,
-        [&](const FlowEdges::Flow &flow) {
-          return match(
-              flow.from.at,
-              [&](const FlowSource::Part &part) {
-                return reachOf(part) == Reach::Read && flow.from.value() == use.get();
-              },
-              [](const WholeSource auto &) { return false; });
-        },
-        [](const NoFlow auto &) { return false; });
-  });
-}
-
 // Whether `value` is an element read out of the elements of an array, as
 // the op that reads it declares: a view by its stretch's row where nothing
 // there writes, else a reference of its own, never a part of the array's.

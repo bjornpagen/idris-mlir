@@ -140,9 +140,10 @@ Applicative Operands where
 ||| where it says nothing; bound to no variable. An operand is no tail.
 operand1 : Index -> Loc -> Scope [] nv -> Maybe Binder -> Sub Em [] nv -> Operands Val
 operand1 ix l sc slot a = MkOperands $ do
-  Just v <- a.result sc (expecting (typeOf <$> slot))
+  let uses = maybe Many (.quantity) slot
+  Just v <- a.result sc (consumedAt (typeOf <$> slot) uses)
     | Nothing => pure Nothing
-  Just <$> coerce ix l (maybe Many (.quantity) slot) !(fit ix l (typeOf <$> slot) v)
+  Just <$> coerce ix l uses !(fit ix l (typeOf <$> slot) v)
 
 ||| A layer's operands, each in its slot, left to right; `Nothing` once one
 ||| never returns.
@@ -176,20 +177,24 @@ fields : Index -> Loc -> Scope [] nv -> Vect k Binder -> Vect k (Sub Em [] nv) -
 fields ix l sc [] [] = pure []
 fields ix l sc (b :: bs) (a :: as) = (::) <$> operand1 ix l sc (Just b) a <*> fields ix l sc bs as
 
-||| A value as a region or a function gives it: used many times.
-export
-plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
-plain ix l act = act >>= traverse (coerce ix l Many)
+||| A term's value where an operand takes it as `w` asks: the term is
+||| written for `w`, and a value it gives at other uses (a variable's, a
+||| call's result) is cast to the uses `w` takes it at, so the uses asked
+||| are the uses given.
+consumed : Index -> Loc -> Wanted -> (Wanted -> E (Maybe Val)) -> E (Maybe Val)
+consumed ix l w term = term w >>= traverse (coerce ix l w.uses)
 
 ||| A function's body, its value of type `t` as the function returns it
-||| (`returned`): the body is written for that type, so a call at its tail
-||| gives the type its slot takes and nothing stands between the call and
-||| the return; a value of a more static type is cast before the return.
+||| (`returned`), used once: the return is its one use, handing the caller
+||| the one reference it gives. The body is written for that type and those
+||| uses, so a call at its tail gives what its slot takes and nothing stands
+||| between the call and the return; a value of a more static type is cast
+||| before the return, and one used many times cast into its one use.
 export
 returning : Index -> Loc -> Ty -> (Wanted -> E (Maybe Val)) -> E (Maybe Val)
 returning ix l t body =
   let r = returned t in
-  plain ix l (body (expecting (Just r))) >>= traverse (fit ix l (Just r))
+  body (consumedAt (Just r) Once) >>= traverse (\v => fit ix l (Just r) v >>= coerce ix l Once)
 
 ||| The values a region or a function gives: none for the world.
 given : Index -> Maybe Val -> List Value
@@ -244,9 +249,10 @@ yielding ix l (Just v) = [MkStatement Nothing (Idr.yieldOp (given ix (Just v))) 
 ||| A match from its arms, with the builder of its op over its cases, its
 ||| default region (none when the cases are exhaustive) and its results:
 ||| results when an arm yields, and none when no arm returns. The arms join
-||| at the type the context expects, else the first arm's that returns; an
-||| arm's value at other index terms, or an array of another static shape,
-||| is cast to it.
+||| at the type the context expects, else the first arm's that returns, and
+||| at the uses it takes the match's value at, which each arm was written
+||| for: an arm's value at other index terms, or an array of another static
+||| shape, is cast to the type, and one at other uses to those uses.
 match : Index -> Loc -> Wanted -> (List Case -> MLIR.Region -> List MlirType -> Op)
      -> List Case -> Maybe Arm -> E (Maybe Val)
 match ix l w build cases fallback =
@@ -255,12 +261,12 @@ match ix l w build cases fallback =
     Just t => if all (\a => isNothing a.result) arms then never else do
       cs <- traverse (\c => (\r => { arm.statements := r } c) <$> close t c.arm) cases
       d <- maybe (pure NoBlocks) (\a => MkRegion a.arguments <$> close t a) fallback
-      Just <$> value {binder = w.binder} ix l t (\r => build cs d [r])
+      Just <$> valueAt {binder = w.binder} ix l w.uses t (\r => build cs d [r])
     Nothing => never
   where
     close : Ty -> Arm -> E (List Statement)
     close t a = do
-      (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
+      (v, cast) <- collect (traverse (\r => fit ix l (Just t) r >>= coerce ix l w.uses) a.result)
       pure (a.statements ++ cast ++ yielding ix l v)
     -- A match whose every arm ends in a terminator has no results, and
     -- nothing after it runs: its region ends in `ub.unreachable`.
@@ -535,8 +541,8 @@ joined : {0 js, s, ts : List Nat} -> {0 nv : Nat} ->
       -> All (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
 joined ix l sc w member regionTokens begins targets body = do
   (own, tokens) <- reaching l (length sc.telescope) targets
-  (res, ops) <- collect (plain ix l (body.result (MkScope sc.vars sc.telescope (sc.targets ++ own))
-                                                ({ binder := Nothing } w)))
+  (res, ops) <- collect (body.result (MkScope sc.vars sc.telescope (sc.targets ++ own))
+                                     ({ binder := Nothing } w))
   regions <- regionsOf targets
   let binders = ArrayAttr (forget (mapProperty {q = const MlirAttr} (\t => Idr (IndexBindersAttr (map (sortOf ix) (sortsOf t))))
                                                targets))
@@ -549,7 +555,7 @@ joined ix l sc w member regionTokens begins targets body = do
       (res, ops) <- collect $ do
         begins tl
         inCodeOf code $
-          plain ix tl (rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w))
+          rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w)
       pure (MkCase 0 (MkArm (tokens ++ args) res ops))
 
     regionsOf : All (TargetF (Sub Em) s nv) ts' -> E (List Case)
@@ -587,11 +593,12 @@ alg ix (EffectF l p gives as world res) sc w = do
 -- its callee's index parameters their terms here and its arguments at the
 -- callee's binders with those terms substituted, so its operand and result
 -- types are the callee's signature at the call, its result as the callee
--- returns it (`returned`), the type every tail of its caller is written
--- for, so a call at a tail is never cast. A slot that is no tail and that
--- Idris's type gives a static axis (a `let`'s binder, a static input of
--- another call) takes the result cast to it, after the call and never
--- between the call and a return. Where it stands in its
+-- returns it (`returned`) and used once, the type and uses every tail of
+-- its caller is written for, so a call at a tail is never cast. A slot
+-- that is no tail and that Idris's type gives a static axis (a `let`'s
+-- binder, a static input of another call) takes the result cast to it, and
+-- one that uses it many times takes it cast out of its one use, after the
+-- call and never between the call and a return. Where it stands in its
 -- function is decided once, by the one definition of tail position, when
 -- the program is first order: the frontend writes every call `nontail`,
 -- which promises nothing, and the source states no other. A call the
@@ -610,13 +617,13 @@ alg ix (CallF l f stands is as) sc w = do
     WorldT => do
       placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee NonTail args [])
       pure (Just worldVal)
-    _ => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
+    _ => Just <$> fitted {binder = w.binder} {stands} ix l Once w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
 -- A constructor's fields are checked at their types with its binders
 -- given.
 alg ix (ConAppF l c bs as) sc w = do
   Just vs <- (fields ix l (offTail sc) (map (\b => { type $= substTy bs } b) c.fields) as).written
     | Nothing => pure Nothing
-  Just <$> con {binder = w.binder} ix l c bs vs
+  Just <$> con {binder = w.binder} ix l w.uses c bs vs
 -- A `let` binds an SSA value at its binder's type and quantity, as Idris
 -- checked them; the op that makes it as the variable holds it stands at
 -- the variable's name.
@@ -631,7 +638,7 @@ alg ix (LetF l name b v body) sc w = case b of
     bound : Uses -> Maybe Ty -> E (Maybe Val)
     bound q t = do
       b <- binding name q
-      Just x <- v.result (offTail sc) (MkWanted t (Just b))
+      Just x <- v.result (offTail sc) (MkWanted t (Just b) q)
         | Nothing => pure Nothing
       case x.type of
         WorldT => body.result (bind [World] sc) w
@@ -675,7 +682,7 @@ alg ix (CaseF l f x arms) sc w = do
           inner = refining x r (binding (map (.sort) c.binders) sc)
       (res, ops) <- collect $ do
         vals <- caseFields ix l r (\i => names i 1 body.term) bs (fieldReaches ix c)
-        plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
+        body.result (bind vals inner) ({ binder := Nothing } w)
       pure (MkCase c.tag (MkArm [arg] res ops))
     -- The default binds the scrutinee refined to the constructors of its
     -- family `f` no case takes; none is left only when Idris proved the
@@ -688,7 +695,7 @@ alg ix (CaseF l f x arms) sc w = do
         [] => do
           (v, a) <- freshVal ix scrut.type scrut.uses
           pure (v, MkArgument a (At l))
-      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+      (res, ops) <- collect (d.result (refining x back sc) ({ binder := Nothing } w))
       pure (MkArm [arg] res ops)
 -- A match on literals has no exhaustive form: when Idris proved the
 -- default impossible, the last possible alternative stands for it, and a
@@ -710,13 +717,13 @@ alg ix (CaseLitF l x arms) sc w = case arms of
     literals : (kt -> MlirAttr) -> List (kt, Sub Em js nv) -> Sub Em js nv -> E (Maybe Val)
     literals key [] d = d.result sc w
     literals key alts@(_ :: _) d = do
-      scrut <- coerce ix l Many (standing (sc.vars x))
+      let scrut = standing (sc.vars x)
       arms <- traverse (\(_, c) => do
                           (inCase, arg) <- rebound ix l scrut
-                          (res, ops) <- collect (plain ix l (c.result (refining x inCase sc) ({ binder := Nothing } w)))
+                          (res, ops) <- collect (c.result (refining x inCase sc) ({ binder := Nothing } w))
                           pure (MkCase 0 (MkArm [arg] res ops))) alts
       (back, arg) <- rebound ix l scrut
-      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+      (res, ops) <- collect (d.result (refining x back sc) ({ binder := Nothing } w))
       match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map (key . fst) alts)) (operand ix scrut) [] dr (caseRegions cs) ts)
             arms (Just (MkArm [arg] res ops))
 
@@ -729,20 +736,20 @@ alg ix (CaseLitF l x arms) sc w = case arms of
 -- of a literal match binds it.
 alg ix (CaseNatF l x arms) sc w = case arms of
   OnlyZero z => z.result sc w
-  OnlySucc p s => successor p s sc w !(coerce ix l Many (standing (sc.vars x)))
+  OnlySucc p s => successor p s sc w (standing (sc.vars x))
   Both z p s => do
-    n <- coerce ix l Many (standing (sc.vars x))
+    let n = standing (sc.vars x)
     (atZero, zarg) <- rebound ix l n
-    (zr, zops) <- collect (plain ix l (z.result (refining x atZero sc) ({ binder := Nothing } w)))
+    (zr, zops) <- collect (z.result (refining x atZero sc) ({ binder := Nothing } w))
     (back, arg) <- rebound ix l n
-    (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
+    (sr, sops) <- collect (successor p s (refining x back sc) ({ binder := Nothing } w) back)
     match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
           [MkCase 0 (MkArm [zarg] zr zops)] (Just (MkArm [arg] sr sops))
   where
     successor : Shown -> Sub Em js (Under 1 nv) -> Scope js nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do
       b <- binding p Many
-      pv <- value {binder = Just b} ix l (NatT IOpaque) (Idr.natPredOp (operand ix n))
+      pv <- value {binder = Just b} ix l (NatT IOpaque) (Idr.natPredOp (operand ix !(coerce ix l Many n)))
       s.result (bind [Whole pv] scope) w'
 -- A lambda is a closure of a function of its own, and a `Delay` a
 -- suspension of one, each over the values its body uses from where it is
@@ -775,11 +782,11 @@ alg ix (LamF l name b held body) sc w = do
                    (Idr.fnClosureOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 -- An application applies its head at the function type it holds, the one
 -- the head's own type gives, and gives the value as the closure's
--- function returns it (`returned`).
+-- function returns it (`returned`), used once.
 alg ix (AppF l a r f x) sc w = do
-  Just fv <- plain ix l (f.result (offTail sc) (expecting Nothing))
+  Just fv <- consumed ix l (expecting Nothing) (f.result (offTail sc))
     | Nothing => pure Nothing
-  Just v <- x.result (offTail sc) (expecting (Just (typeOf a)))
+  Just v <- x.result (offTail sc) (consumedAt (Just (typeOf a)) a.quantity)
     | Nothing => pure Nothing
   -- An action is applied to the world, which is no value: it takes none.
   xs <- case a.type of
@@ -789,7 +796,7 @@ alg ix (AppF l a r f x) sc w = do
     [] => do
       statement l (Idr.fnApplyOp (operand ix fv) xs [])
       pure (Just worldVal)
-    _ => Just <$> fitted {binder = w.binder} ix l w.type (returned r) (\t => Idr.fnApplyOp (operand ix fv) xs [t])
+    _ => Just <$> fitted {binder = w.binder} ix l Once w.type (returned r) (\t => Idr.fnApplyOp (operand ix fv) xs [t])
 alg ix (SuspendF l delayed body) sc w = do
   let t = case w.type of
             Just (LazyT r) => r
@@ -801,11 +808,12 @@ alg ix (SuspendF l delayed body) sc w = do
                    (Idr.lazySuspendOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 -- A force gives the value its suspension holds, of the type the force
 -- holds, the one its operand's own type gives, as the suspension's
--- function returns it (`returned`).
+-- function returns it (`returned`), used many times: the suspension keeps
+-- it for every force.
 alg ix (ResumeF l r e) sc w = do
-  Just ev <- plain ix l (e.result (offTail sc) (expecting Nothing))
+  Just ev <- consumed ix l (expecting Nothing) (e.result (offTail sc))
     | Nothing => pure Nothing
-  Just <$> fitted {binder = w.binder} ix l w.type (returned r) (Idr.lazyForceOp (operand ix ev))
+  Just <$> fitted {binder = w.binder} ix l Many w.type (returned r) (Idr.lazyForceOp (operand ix ev))
 -- The array language: each operand bound once, in order, by the frontend,
 -- an array at the type the operation holds of it; each body a region of
 -- the array op Emit.Tensors writes.
@@ -817,14 +825,14 @@ alg ix (TabulateF {k} l rt es body) sc w = do
   Just extents <- operands ix l (offTail sc) (unslotted es)
     | Nothing => pure Nothing
   tabulate ix l w.binder rt extents
-           (\coords => plain ix l (body.result (bind (map Whole coords) (offTail sc)) (expecting Nothing)))
+           (\coords => consumed ix l (expecting Nothing) (body.result (bind (map Whole coords) (offTail sc))))
 alg ix (ReduceF l r acc el rt xa axis z x body) sc w = do
   Just zv <- (operand1 ix l (offTail sc) Nothing z).written
     | Nothing => pure Nothing
   Just xv <- (operand1 ix l (offTail sc) (arraySlot xa) x).written
     | Nothing => pure Nothing
   reduce ix l w.binder r acc el rt xa axis zv xv
-         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] (offTail sc)) (expecting (Just acc))))
+         (\a, e => consumed ix l (expecting (Just acc)) (body.result (bind [Whole a, Whole e] (offTail sc))))
 -- A tie takes its array as it is made, which a call's result is at the
 -- tail of a function or of a join point's region, and keeps its type
 -- (`tie`). What it states reads the arguments of the call it ties, which
@@ -843,7 +851,7 @@ alg ix (TieF l t x ds) sc w = do
   where
     -- Each statement a natural.
     natural : Sub Em [] nv -> E (Maybe Val)
-    natural d = plain ix l (d.result (offTail sc) (expecting (Just (NatT IOpaque))))
+    natural d = consumed ix l (expecting (Just (NatT IOpaque))) (d.result (offTail sc))
     statedAll : List (Nat, Stated (Sub Em [] nv)) -> E (Maybe (List (Nat, Stated Val)))
     statedAll [] = pure (Just [])
     statedAll ((a, SameAs d) :: rest) = do
@@ -864,11 +872,11 @@ alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
     | Nothing => pure Nothing
   Just arr <- tabulate ix l Nothing rt extents
                 (\coords => do
-                   Just res <- plain ix l (body.result (bind (snoc (map Whole coords) World) (offTail sc)) (expecting Nothing))
+                   Just res <- consumed ix l (expecting Nothing) (body.result (bind (snoc (map Whole coords) World) (offTail sc)))
                      | Nothing => pure Nothing
                    Just <$> resultOf res)
     | Nothing => pure Nothing
-  Just <$> con {binder = wanted.binder} ix l done [] [arr, worldVal]
+  Just <$> con {binder = wanted.binder} ix l wanted.uses done [] [arr, worldVal]
   where
     -- The element an `IORes` holds: its first field, read.
     resultOf : Val -> E Val
@@ -884,7 +892,7 @@ alg ix (UnreachableF l) sc _ = do
 -- value at the type the context expects, cast to it inside, where the
 -- equation makes the two types one.
 alg ix (AssumeF l lhs rhs body) sc w = do
-  (res, ops) <- collect (plain ix l (body.result sc ({ binder := Nothing } w)))
+  (res, ops) <- collect (body.result sc ({ binder := Nothing } w))
   let equation = Idr (EquationAttr (termNodes ix lhs) (termNodes ix rhs))
   match ix l w (\_, d, ts => Idr.indexAssumeOp equation [] d ts) [] (Just (MkArm [] res ops))
 -- A crash ends its region: its cause, its site and the definition it is

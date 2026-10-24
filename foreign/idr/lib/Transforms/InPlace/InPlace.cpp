@@ -39,8 +39,9 @@ using namespace idr::inplace;
 using idr::solver::FunctionId;
 
 // What a refusal's note says of its cause, by the cause's kind.
-constexpr std::array<llvm::StringLiteral, 5> notes{
+constexpr std::array<llvm::StringLiteral, 6> notes{
     "used again here, where the call may still hold it",
+    "used many times here, so it may be shared",
     "shared here",
     "made here, by an op that says nothing of what it holds",
     "given back here by a callee that may give it back shared",

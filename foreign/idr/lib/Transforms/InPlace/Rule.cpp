@@ -7,11 +7,10 @@
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/Analysis/Solver/Mark.h"
-#include "idr/IR/Flow.h"
-#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -51,74 +50,6 @@ BitSet<Node> markAll(std::uint32_t count,
     starts.push_back(Nodes::at(seed));
   Csr<NodeTag> graph = std::move(builder).finish();
   return mark<Forward>(graph, std::span<const Node>(starts));
-}
-
-// The parameter each value of `fn` is or reads a part of, by the value's
-// number: through the positions that hand a value on as itself, the region
-// entries that bind it again, and the parts read of it. Read in the walk's
-// order, so a value's source is read before it.
-struct ParametersOf {
-  explicit ParametersOf(FuncOp fn);
-  std::optional<unsigned> of(Value value) const { return table[values.at(value)]; }
-
-  BodyValues values;
-  IndexVector<BodyValue, std::optional<unsigned>> table;
-};
-
-ParametersOf::ParametersOf(FuncOp fn) : values(fn), table(values.size()) {
-  for (BlockArgument param : fn.getBody().front().getArguments())
-    table[values.at(param)] = param.getArgNumber();
-  auto inherit = [&](Value derived, Value source) {
-    std::optional<unsigned> param = table[values.at(source)];
-    std::optional<unsigned> &into = table[values.at(derived)];
-    if (param && !into)
-      into = param;
-  };
-  fn->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    if (op->hasTrait<SameValue>())
-      for (Value result : op->getResults())
-        inherit(result, op->getOperand(0));
-    forwardedValues(op, [&](OpOperand &operand, Value input) {
-      auto arg = dyn_cast<BlockArgument>(input);
-      if (arg && arg.getOwner()->getParentOp() == op)
-        inherit(arg, operand.get());
-    });
-    auto declared = dyn_cast<FlowOpInterface>(op);
-    if (!declared)
-      return;
-    FlowEdges edges;
-    declared.getFlowEdges(edges);
-    for (const FlowEdges::Edge &edge : edges.edges())
-      match(
-          edge.move,
-          [&](const FlowEdges::Flow &flow) {
-            match(
-                flow.from.at,
-                [&](const FlowSource::Part &part) {
-                  std::optional<Value> to = flow.to.value();
-                  if (ownership::reachOf(part) == ownership::Reach::Read && to)
-                    inherit(*to, *flow.from.value());
-                },
-                [](const ownership::WholeSource auto &) {});
-          },
-          [](const ownership::NoFlow auto &) {});
-  });
-}
-
-// Whether `use` hands its value on as the value itself or a part of it,
-// which the derived value's own uses then answer for: a position that
-// keeps its operand's value, a region entry that binds it again, a read of
-// a part.
-bool handsOn(OpOperand &use) {
-  Operation *owner = use.getOwner();
-  if (owner->hasTrait<SameValue>() || ownership::readsPart(use))
-    return true;
-  bool entry = false;
-  forwardedValues(owner, [&](OpOperand &operand, Value input) {
-    auto arg = dyn_cast<BlockArgument>(input);
-    entry |= &operand == &use && arg && arg.getOwner()->getParentOp() == owner;
-  });
-  return entry;
 }
 
 // What the boundary grades a parameter of `type` with, owed by every caller
@@ -166,27 +97,33 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
   footprint::Vector<std::uint32_t> seeds;
   for (FunctionId fn : graph.functions()) {
     FuncOp op = graph.op(fn);
-    ParametersOf parameters(op);
-    op.walk([&](Operation *user) {
-      for (OpOperand &use : user->getOpOperands()) {
-        std::optional<unsigned> param = parameters.of(use.get());
-        if (!param || !holdsReferences(use.get().getType()))
-          continue;
-        std::uint32_t here = base[fn] + *param;
-        // A callee keeps what it keeps: passed on, the parameter is kept
-        // where the callee's is.
-        if (auto call = dyn_cast<CallOp>(user)) {
-          FunctionId callee = graph.id(call.getCalleeAttr());
-          edges.emplace_back(base[callee] + use.getOperandNumber(), here);
-          continue;
-        }
-        // Any other use outlives the call: moved into a value, returned,
-        // forwarded out, released, taken apart, or used by an op that says
-        // nothing of where it goes.
-        if (!handsOn(use))
+    for (BlockArgument param : op.getBody().front().getArguments()) {
+      if (!holdsReferences(param.getType()))
+        continue;
+      std::uint32_t here = base[fn] + param.getArgNumber();
+      // Each use of the parameter, and of what a use hands it on as, on an
+      // explicit stack: a callee keeps what it keeps, so lent on, the
+      // parameter is kept where the callee's is; any passage that keeps it
+      // outlives the call.
+      SmallVector<OpOperand *> work;
+      auto push = [&](Value of) {
+        for (OpOperand &use : of.getUses())
+          work.push_back(&use);
+      };
+      push(param);
+      while (!work.empty()) {
+        OpOperand *use = work.pop_back_val();
+        ownership::Passage passage = ownership::passageOf(
+            *use, [&](Value on, ownership::Runs) { push(on); },
+            [&](const FlowSource::Parameter &lent) {
+              edges.emplace_back(base[graph.id(lent.function)] + lent.index, here);
+            });
+        if (passage == ownership::Passage::Keeps) {
           seeds.push_back(here);
+          break;
+        }
       }
-    });
+    }
   }
   BitSet<Node> kept = markAll(nodes, edges, seeds);
   // Each function's bits, a parameter each, counted as MLIR counts them.
@@ -220,8 +157,7 @@ Summaries summariesOf(const solver::ProgramGraph &graph, const Keeps &keeps, sol
           if (!holdsReferences(operand.get().getType()))
             continue;
           for (Asks asks : strengths) {
-            Need need =
-                needOf(chains.targets(operand.get(), asks, &operand));
+            Need need = needOf(chains.targets(operand.get(), asks));
             Need &known = summaries.of(fn, static_cast<unsigned>(result), asks);
             if (need != known) {
               known = std::move(need);
@@ -269,7 +205,7 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
     for (const RebuildSite &site : rebuildSites(op, chains.numbering())) {
       verdict.sites[fn].push_back(site);
       DataType family = ownership::familyOf(site.taken.getType());
-      for (const Target &target : chains.targets(site.taken, site.asks, nullptr))
+      for (const Target &target : chains.targets(site.taken, site.asks))
         seeds.push_back(land(target, site.match, std::nullopt, family));
     }
     for (BlockArgument param : op.getBody().front().getArguments())
@@ -284,7 +220,7 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
         DataType family = ownership::familyOf(calleeOp.getArgumentTypes()[param]);
         for (Asks asks : strengths) {
           std::uint32_t owed = node(callee, static_cast<std::uint32_t>(param), asks);
-          for (const Target &target : chains.targets(arg.get(), asks, &arg))
+          for (const Target &target : chains.targets(arg.get(), asks))
             edges.emplace_back(owed, land(target, call, calleeOp, family));
         }
       }

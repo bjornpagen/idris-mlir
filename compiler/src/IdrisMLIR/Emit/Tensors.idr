@@ -212,15 +212,15 @@ export
 fit : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Maybe Ty -> Val -> E Val
 fit ix l slot v = fitBy {binder} ix l (fitting slot v.type v.refinement) v
 
-||| An op that makes a value of type `made`, where a slot of type `slot`
-||| takes it, fitted as `fitting` decides once for the two, the variable
-||| `binder` bound to what the slot takes: the op's value, or the last op
-||| that fits it.
+||| An op that makes a value of type `made` used as `u` says, where a slot
+||| of type `slot` takes it, fitted as `fitting` decides once for the two,
+||| the variable `binder` bound to what the slot takes: the op's value, or
+||| the last op that fits it.
 export
-fitted : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
-fitted ix l slot made build = case fitting slot made AnyConstructor of
-  AsIs => value {binder} {stands} ix l made build
-  f => fitBy {binder} ix l f !(value {stands} ix l made build)
+fitted : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Uses -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
+fitted ix l u slot made build = case fitting slot made AnyConstructor of
+  AsIs => valueAt {binder} {stands} ix l u made build
+  f => fitBy {binder} ix l f !(valueAt {stands} ix l u made build)
 
 ||| What a region gives where its op takes it: the value at the slot's
 ||| type, plain.
@@ -279,7 +279,7 @@ readAt ix l binder rt a x cs = do
       let (offsets, staticOffsets) = mixed (map Left cs ++ map (const (Right 0)) cell)
           (sizeOps, staticSizes) = mixed (map (const (Right 1)) cs ++ sizes)
           (_, staticStrides) = mixed (map (const (Right 1)) (toList a.dims))
-      fitted {binder} ix l (Just rt) (TensorT (dimsOfSizes sizes) a.element)
+      fitted {binder} ix l Many (Just rt) (TensorT (dimsOfSizes sizes) a.element)
              (Tensor.extractSliceOp xv offsets sizeOps [] staticOffsets staticSizes staticStrides)
 
 ||| The cell of `x`, of type `a`, at `coords`, naturals.
@@ -296,14 +296,14 @@ write ix l binder rt a x v coords = do
   let n = length cs
       ds = toList a.dims
   case drop n ds of
-    [] => fitted {binder} ix l (Just rt) x.type (Tensor.insertOp !(plainOperand ix l v) xv cs)
+    [] => fitted {binder} ix l Many (Just rt) x.type (Tensor.insertOp !(plainOperand ix l v) xv cs)
     cell => do
       vv <- given ix l (TensorT cell a.element) v
       sizes <- traverse (sizeAt l vv) (toList (withAxes (Data.Vect.fromList cell)))
       let (offsets, staticOffsets) = mixed (map Left cs ++ map (const (Right 0)) cell)
           (sizeOps, staticSizes) = mixed (map (const (Right 1)) cs ++ sizes)
           (_, staticStrides) = mixed (map (const (Right 1)) ds)
-      fitted {binder} ix l (Just rt) x.type
+      fitted {binder} ix l Many (Just rt) x.type
              (Tensor.insertSliceOp vv xv offsets sizeOps [] staticOffsets staticSizes staticStrides)
 
 ------------------------------------------------------------------------------
@@ -326,7 +326,7 @@ sliced ix l binder rt xv e offsets sizes = do
   let (os, so) = mixed offsets
       (ss, sz) = mixed sizes
       (_, st) = mixed (map (const (Right 1)) sizes)
-  fitted {binder} ix l (Just rt) (TensorT (dimsOfSizes sizes) e) (Tensor.extractSliceOp xv os ss [] so sz st)
+  fitted {binder} ix l Many (Just rt) (TensorT (dimsOfSizes sizes) e) (Tensor.extractSliceOp xv os ss [] so sz st)
 
 ||| An operation of the array language on its operands, giving a value of
 ||| the type it holds of its result, the variable `binder` bound to it. Each
@@ -390,7 +390,7 @@ tensorOp ix l binder (Concat xa ya ra axis x y) = do
           (ys, yss) = mixed ysizes
           (_, strides) = mixed (map (const (Right 1)) rds)
       first <- mlirValue l ev.type (Tensor.insertSliceOp xv ev xo xs [] xso xss strides)
-      fitted {binder} ix l (Just rt) joined (Tensor.insertSliceOp yv first yo ys [] yso yss strides)
+      fitted {binder} ix l Many (Just rt) joined (Tensor.insertSliceOp yv first yo ys [] yso yss strides)
     -- Elements that hold references are written whole by the one op that
     -- makes the array, which reads neither: a tabulation whose element at
     -- a coordinate below the first array's extent along the axis is the
@@ -420,7 +420,7 @@ tensorOp ix l binder (Concat xa ya ra axis x y) = do
                (MkRegion [] (yops ++ [MkStatement Nothing (SCF.yieldOp [fromY]) (At l)])) [t])
         pure (Just [r])
       dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp [dest] reg [t])
+      fitted {binder} ix l Many (Just rt) joined (\t => Idr.arrayTabulateOp [dest] reg [t])
 -- A transpose of words is upstream's `linalg.transpose` into a fresh
 -- destination, its permutation given once, its body the one upstream's
 -- builder makes: the input's element and the destination's, the first
@@ -443,7 +443,7 @@ tensorOp ix l binder (Transpose a rt axis x) = do
       output <- freshValue el
       let body = MkRegion [MkArgument input (At l), MkArgument output (At l)]
                           [MkStatement Nothing (Linalg.yieldOp [input]) (At l)]
-      fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) body [t])
+      fitted {binder} ix l Many (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) body [t])
     HoldsReferences => do
       -- The result's coordinates, split at the two axes the transpose
       -- swaps; `x` is read at them swapped back.
@@ -455,7 +455,7 @@ tensorOp ix l binder (Transpose a rt axis x) = do
         e <- readAt ix l Nothing a.element a x (toList lead ++ ib :: ia :: toList trail)
         pure (Just [!(given ix l a.element e)])
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
-      fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp [dest] reg [t])
+      fitted {binder} ix l Many (Just rt) swapped (\t => Idr.arrayTabulateOp [dest] reg [t])
 tensorOp ix l binder (Reshape a rt x extents) = do
   xv <- plainOperand ix l x
   let ds = toList a.dims

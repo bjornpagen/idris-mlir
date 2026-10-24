@@ -10,12 +10,12 @@
 // second a cell. @make builds a box of a vector of 3 and one of 2, which
 // goes into its cell. @main reads the second vector's head, then has @open
 // cast the box to the open layout, at which the first field is a cell
-// too, so the cast builds one, a fresh value counted and claiming its own
-// cells, which a share then forgets; @main reads the first vector's head
-// out of the opened box. Each field's values fill the slots the box's type
-// laid out, so the module verifies after every pass from the graded stage
-// through the lowering only where every reader takes each field at the
-// type its slots hold.
+// too, so the cast builds one, a fresh value, counted, which used many
+// times claims nothing before references are counted; @main reads the
+// first vector's head out of the opened box. Each field's values fill the
+// slots the box's type laid out, so the module verifies after every pass
+// from the graded stage through the lowering only where every reader takes
+// each field at the type its slots hold.
 #Vect = #idr.family<"Vect" [nat] {
     @Nil where 0 ()
     @Cons <nat> where v0 + 1 (i64, !idr.self[v0])
@@ -29,7 +29,6 @@
 !V3 = !idr.data<#Vect[3]>
 !Box = !idr.data<#Box[3] @MkBox<3, 2>>
 !Opened = !idr.data<#Box[3] open @MkBox<3, 2>>
-!OpenedBuilt = !idr.graded<many, counted unique self, !idr.data<#Box[3] open @MkBox<3, 2>>>
 idr.program @boxes root(@main) stage(graded) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
@@ -54,8 +53,7 @@ idr.program @boxes root(@main) stage(graded) {
     idr.return %box : !Box
   }
   idr.func @open(%box: !Box) -> !Opened {
-    %built = idr.data.reindex %box : !Box to !OpenedBuilt
-    %shared = idr.count.share %built : !OpenedBuilt
-    idr.return %shared : !Opened
+    %built = idr.data.reindex %box : !Box to !Opened
+    idr.return %built : !Opened
   }
 }
