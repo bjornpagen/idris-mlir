@@ -729,24 +729,6 @@ classifyOffered fc owner request level (S k) (Admits bfc rig a sc) vals = do
     stepOf (OfferedKeyless kind _ next restType) = (kind, next, restType)
     stepOf (OfferedKeyed kind next restType) = (kind, next, restType)
 
--- A term closed, where it names none of the binders it is under.
-closedTerm : {vs : Core.Name.Scoped.Scope} -> TT vs -> Maybe ClosedTerm
-closedTerm {vs = []} t = Just t
-closedTerm {vs = _ :: _} t = shrink t (Drop Refl) >>= closedTerm
-
--- The closed term at a path into a term (`ErasedIndex`), where the path
--- stays in the term and what it reaches names none of the binders it is
--- under; nothing where the term has another shape there.
-closedAt : {vs : Core.Name.Scoped.Scope} -> List FormStep -> TT vs -> Maybe ClosedTerm
-closedAt [] t = closedTerm t
-closedAt (InFunction :: p) (App _ f _) = closedAt p f
-closedAt (InArgument :: p) (App _ _ a) = closedAt p a
-closedAt (InBinderType :: p) (Bind _ _ (Pi _ _ _ a) _) = closedAt p a
-closedAt (InBinderType :: p) (Bind _ _ (Lam _ _ _ a) _) = closedAt p a
-closedAt (InScope :: p) (Bind _ _ _ sc) = closedAt p sc
-closedAt (InLazy :: p) (TDelayed _ _ t) = closedAt p t
-closedAt _ _ = Nothing
-
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
 ||| caller's own levels kept; at each erased index of a type parameter's
@@ -778,16 +760,19 @@ callIndices : {auto c : Ref Ctxt Defs} -> List PKind -> ArgValues -> Front (List
 callIndices kinds vals = traverse (maybe (pure IOpaque) indexTerm) !(indexForms kinds vals)
 
 ||| The terms a construction site gives its constructor's erased binders,
-||| in the site's scope: each the term of the argument at the binder's
-||| position (a number, a level of the site's own plus a count), outside the
-||| language where the site gives no argument there or no term reads it.
+||| in the site's scope: each the term of the part of the argument at the
+||| binder's position its path reaches (`termAt`), the argument itself or
+||| an index of a family a type argument holds, read as the family's key
+||| read it (`canonicalTypeArg`): a number, a level of the site's own plus
+||| a count; outside the language where the site gives no argument there or
+||| no term reads it.
 export
 binderTerms : List ConBinder -> ArgValues -> Front (List ITerm)
 binderTerms bs vals = traverse term bs
   where
     term : ConBinder -> Front ITerm
     term b = case join (getAt b.argument vals) of
-      Just v => indexTerm !(v.scoped)
+      Just v => termAt b.part !(canonicalTypeArg !(v.scoped))
       Nothing => pure IOpaque
 
 ||| A callee's kinds and result as a call reads them, in the call's scope

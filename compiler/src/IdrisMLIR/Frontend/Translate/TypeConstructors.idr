@@ -26,6 +26,7 @@ import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Registry
 
 import IdrisMLIR.Ids
+import IdrisMLIR.Term
 
 import Control.WellFounded
 import Data.DPair
@@ -83,8 +84,9 @@ putAt _ _ t = t
 
 ||| A type argument's form with each of its erased indices (`ErasedIndex`)
 ||| the stand-in for its level (`marker`), the first `level` and each next
-||| one more: the value an instance's scope holds for a type parameter,
-||| whose types then name those levels (`!idr.data<#Vect[v0]>`).
+||| one more: the value an instance's scope holds for a type parameter, and
+||| a constructor's own scope for its family's, whose types then name those
+||| levels (`!idr.data<#Vect[v0]>`).
 export
 filledIndices : Nat -> List ErasedIndex -> ClosedTerm -> ClosedTerm
 filledIndices level [] t = t

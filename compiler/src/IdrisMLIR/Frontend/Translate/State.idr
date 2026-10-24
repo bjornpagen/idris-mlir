@@ -183,20 +183,17 @@ public export
 atReading : FixedDictionary -> FixedDictionary
 atReading d = MkFixedDictionary d.asStatic.form d.type d.asStatic d.ofDictionary d.reducesTo
 
-||| A step from a term into one of its parts, where a type argument's form
-||| can hold an index of an inductive family: an application's function or
-||| its argument, a binder's type or the scope it binds in, the type a lazy
-||| type holds.
-public export
-data FormStep = InFunction | InArgument | InBinderType | InScope | InLazy
-
 ||| An index of an inductive family that a type argument's form leaves
-||| erased (`_` at an `Index` position of a type constructor's application,
-||| where the key names no level of its caller's, `Types.unmarked`), as an
-||| index parameter of the instance the form keys: the path to it from the
-||| form's root, the outermost step first, and its sort. Each call passes
-||| its term there (`Instances.indexForms`), so a closure's type keeps the
-||| index its caller names.
+||| erased (`_` at an `Index` position of a type constructor's
+||| application: an instance's key erases one that names a level of its
+||| caller's, `Types.unmarked`, and a family's key every one), as an index
+||| parameter of the instance the form keys, or as an index of the family
+||| whose key holds the type (`Types.heldPlaces`), which each of its
+||| constructors binds: the path to it from the form's root, the outermost
+||| step first, and its sort. Each call passes its term there
+||| (`Instances.indexForms`), and each construction site gives it the term
+||| there (`Instances.binderTerms`), so a closure's type and a family's
+||| keep the index the program names.
 public export
 record ErasedIndex where
   constructor MkErasedIndex

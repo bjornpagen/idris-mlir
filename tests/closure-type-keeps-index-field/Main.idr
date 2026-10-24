@@ -2,9 +2,9 @@ module Main
 
 -- A closure read out of a family's field, used where its caller's type
 -- names the indices: `viaEquivalence`'s `No` arm composes the `Not a` its
--- `Dec a` holds with the equivalence, at `a = (1 = 1)`. The family is keyed
--- with the indices of `a` left out, so its field's closure type holds them
--- unknown, and the closure is given where the caller's type states them.
+-- `Dec a` holds with the equivalence, at `a = (1 = 1)`. The family's key
+-- leaves the indices of `a` out and the family takes them as its own, so
+-- its field's closure type names them, as the caller's type does.
 
 import Decidable.Equality
 

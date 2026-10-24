@@ -84,14 +84,26 @@ splitUnder v = splitSum v
 -- Families
 ------------------------------------------------------------------------------
 
-||| An erased binder of a constructor: its sort, and the argument of the
-||| constructor's application that gives it, counting every argument, so
-||| that a construction site links the binder to the term that argument is.
+||| A step from a term into one of its parts, where a type argument's form
+||| can hold an index of an inductive family: an application's function or
+||| its argument, a binder's type or the scope it binds in, the type a lazy
+||| type holds.
+public export
+data FormStep = InFunction | InArgument | InBinderType | InScope | InLazy
+
+||| An erased binder of a constructor: its sort, the argument of the
+||| constructor's application that gives it, counting every argument, and
+||| the part of that argument it is, by the path to it from the argument's
+||| root: the argument itself, for an erased argument, or an index of a
+||| family the type a parameter is holds, for one of the family's own
+||| indices there. So a construction site links the binder to the term
+||| that part of its argument is.
 public export
 record ConBinder where
   constructor MkConBinder
   sort : Sort
   argument : Nat
+  part : List FormStep
 
 ||| A constructor of a family instance, of `k` fields: its identity (the
 ||| family and its position among the family's constructors, as many as

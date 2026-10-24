@@ -10,6 +10,7 @@ import Core.Env
 import Core.TT
 import Core.TT.Traversals
 import Libraries.Data.List.Finite
+import Libraries.Data.List.Thin
 import Libraries.Data.NatSet
 
 import IdrisMLIR.Frontend.Resolve
@@ -77,14 +78,15 @@ export
 unmarked : {vars : _} -> TT vars -> TT vars
 unmarked = atLevels []
 
-||| Which arguments of a constructor are the data type's parameters, whose
-||| values the data instance gives: each binder of its type is replaced by a
-||| marker, and the markers found at the parameter positions of the return
-||| type name them. An erased binder there is given the instance's argument
-||| (an erased one where the key holds none); one the constructor holds at
-||| runtime is given it only at a `Keyed` position, a type, and at any
-||| other is a field (`MkTag : (n : Nat) -> Tag n`, which Idris finds at
-||| the same place in every constructor), whose value a form would not be.
+||| Which arguments of a constructor are the data type's parameters: each
+||| binder of its type is replaced by a marker, and the markers found at the
+||| parameter positions of the return type name them. An erased binder there
+||| is one; one the constructor holds at runtime is one only at a `Keyed`
+||| position, a type, and at any other is a field (`MkTag : (n : Nat) -> Tag
+||| n`, which Idris finds at the same place in every constructor), whose
+||| value a form would not be. The data instance gives a parameter at a
+||| position its key holds what the key holds there, and one at an index of
+||| the family is the index's binder (`Types.walk`).
 export
 paramLayout : (con : GlobalDef) -> List Nat -> List Role -> ClosedTerm -> List (Maybe Nat)
 paramLayout con params roles ty =
@@ -661,20 +663,28 @@ indexSorts d ps = go none 0 !(normaliseClosed d.type)
       if elem i ps then (:: rest) <$> sortOfType !(normaliseClosed (close g a)) else pure rest
     go g i _ = pure []
 
-||| The indices of inductive families a type argument's form leaves erased
-||| (`State.ErasedIndex`): each `_` at an `Index` position of a type
-||| constructor's application, in a type the form holds at a `Keyed`
-||| position or at its root, with its path and its sort (`indexSorts`), in
-||| the order a walk of the form meets them, an application's function
-||| before its argument and a binder's type before its scope. An index the
-||| form writes keys the instance as written, and a shape (`Formed`) or a
-||| held argument (`Held`) holds no index of a family's.
-export
-erasedIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front (List ErasedIndex)
-erasedIndices owner = within [<]
+||| Where a type argument's form leaves an index of an inductive family
+||| erased: the path to it from the form's root, and the type constructor
+||| and the position of it the index is the argument at, which give its
+||| sort (`indexSorts`) where a reader needs it.
+record ErasedPlace where
+  constructor MkErasedPlace
+  path : List FormStep
+  tyCon : Defined
+  position : Nat
+
+||| The places of the indices of inductive families a type argument's form
+||| leaves erased: each `_` at an `Index` position of a type constructor's
+||| application, in a type the form holds at a `Keyed` position or at its
+||| root, in the order a walk of the form meets them, an application's
+||| function before its argument and a binder's type before its scope. An
+||| index the form writes is no place, and a shape (`Formed`) or a held
+||| argument (`Held`) holds no index of a family's.
+erasedPlaces : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front (List ErasedPlace)
+erasedPlaces owner = within [<]
   where
     mutual
-      within : SnocList FormStep -> TT vs -> Front (List ErasedIndex)
+      within : SnocList FormStep -> TT vs -> Front (List ErasedPlace)
       within p (Bind _ _ (Pi _ _ _ a) sc) = (++) <$> within (p :< InBinderType) a <*> within (p :< InScope) sc
       within p (Bind _ _ (Lam _ _ _ a) sc) = (++) <$> within (p :< InBinderType) a <*> within (p :< InScope) sc
       within p (TDelayed _ _ t) = within (p :< InLazy) t
@@ -686,17 +696,71 @@ erasedIndices owner = within [<]
 
       -- The arguments of an application of `k` arguments, the last first,
       -- so that each is a subterm.
-      arguments : List Role -> Defined -> Nat -> SnocList FormStep -> TT vs -> Front (List ErasedIndex)
+      arguments : List Role -> Defined -> Nat -> SnocList FormStep -> TT vs -> Front (List ErasedPlace)
       arguments rs tc (S k) p (App _ f a) = do
         before <- arguments rs tc k (p :< InFunction) f
         here <- case roleAt k rs of
                   Keyed => within (p :< InArgument) a
                   Index => case a of
-                    Erased _ Placeholder => map (MkErasedIndex ((p :< InArgument) <>> [])) <$> indexSorts tc [k]
+                    Erased _ Placeholder => pure [MkErasedPlace ((p :< InArgument) <>> []) tc k]
                     _ => pure []
                   _ => pure []
         pure (before ++ here)
       arguments rs tc _ _ _ = pure []
+
+||| The erased indices at these places, each with its path and its sort
+||| (`State.ErasedIndex`).
+sortedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List ErasedPlace -> Front (List ErasedIndex)
+sortedAt places = Prelude.Interfaces.concat <$> traverse (\p => map (MkErasedIndex p.path) <$> indexSorts p.tyCon [p.position]) places
+
+||| The indices of inductive families a type argument's form leaves erased
+||| (`State.ErasedIndex`), at their places (`erasedPlaces`), each with its
+||| sort.
+export
+erasedIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front (List ErasedIndex)
+erasedIndices owner form = sortedAt !(erasedPlaces owner form)
+
+||| The places of a family instance's own indices in a type its key holds
+||| (`argumentKey`, which erases every index in it): each erased index of
+||| it outside every binder it binds. Such an index is the type's wherever
+||| it stands, a term over the scope's levels alone, as an index of the
+||| family is, so the family takes it as one of its indices and its
+||| constructors read their fields at it. One under a binder may name that
+||| binder (`DPair a (\x => Vect x Int)`, `(n : Nat) -> Vect n Int`), as no
+||| index of the family can, so it stays erased, in the fields too.
+heldPlaces : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front (List ErasedPlace)
+heldPlaces owner key = filter (not . any inScope . (.path)) <$> erasedPlaces owner key
+  where
+    inScope : FormStep -> Bool
+    inScope InScope = True
+    inScope _ = False
+
+-- A term closed, where it names none of the binders it is under.
+closedTerm : {vs : Core.Name.Scoped.Scope} -> TT vs -> Maybe ClosedTerm
+closedTerm {vs = []} t = Just t
+closedTerm {vs = _ :: _} t = shrink t (Drop Refl) >>= closedTerm
+
+||| The closed term at a path into a term (`ErasedIndex`), where the path
+||| stays in the term and what it reaches names none of the binders it is
+||| under; nothing where the term has another shape there.
+export
+closedAt : {vs : Core.Name.Scoped.Scope} -> List FormStep -> TT vs -> Maybe ClosedTerm
+closedAt [] t = closedTerm t
+closedAt (InFunction :: p) (App _ f _) = closedAt p f
+closedAt (InArgument :: p) (App _ _ a) = closedAt p a
+closedAt (InBinderType :: p) (Bind _ _ (Pi _ _ _ a) _) = closedAt p a
+closedAt (InBinderType :: p) (Bind _ _ (Lam _ _ _ a) _) = closedAt p a
+closedAt (InScope :: p) (Bind _ _ _ sc) = closedAt p sc
+closedAt (InLazy :: p) (TDelayed _ _ t) = closedAt p t
+closedAt _ _ = Nothing
+
+||| The index term of the part of a term at a path into it (`closedAt`): of
+||| a type, as a key reads it (`Closed.canonicalTypeArg`), where a family's
+||| key found the path; outside the language where the term has no closed
+||| part there. A path of no step is the term itself.
+export
+termAt : List FormStep -> ClosedTerm -> Front ITerm
+termAt path t = maybe (pure IOpaque) indexTerm (closedAt path t)
 
 -- The levels a term or a type names, each once.
 mutual
@@ -791,15 +855,69 @@ namesAnother = outsideIndices (\t => mentions standIn t)
     standIn (Erased _ _) = True
     standIn tm = isJust (binderOf tm)
 
-||| What the walk of a constructor's type finds: its arguments' kinds, the
-||| position and type of each of its quantity-0 arguments in order (its
-||| candidate binders, each given its stand-in where it is bound), and the
-||| type it returns, under those stand-ins.
+||| A candidate binder of a constructor's own scope, at the next level, as
+||| the walk of its type meets it: an erased argument, at its position, of
+||| its type, whose sort is read off the type once the binder is kept; or an
+||| index of its family held in a parameter (`heldPlaces`), at the
+||| parameter's position, with its path in it and its sort. A construction
+||| site finds either one's term at its position and path (`ConBinder`).
+data Candidate = Itself Nat ClosedTerm | HeldIn Nat ErasedIndex
+
+||| The binder a candidate the constructor keeps is.
+candidateBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Candidate -> Front ConBinder
+candidateBinder (Itself at t) = (\sort => MkConBinder sort at []) <$> sortOfType !(normaliseClosed t)
+candidateBinder (HeldIn at i) = pure (MkConBinder i.sort at i.path)
+
+||| What the walk of a constructor's type finds: its arguments' kinds, its
+||| candidate binders in order, each given its stand-in where it is bound
+||| (`Candidate`), and the type it returns, under those stand-ins.
 record ConstructorWalk where
   constructor MkConstructorWalk
   kinds : List ArgKind
-  erasedTypes : List (Nat, ClosedTerm)
+  candidates : List Candidate
   returns : ClosedTerm
+
+||| What a family instance reads off its type constructor's argument at one
+||| position, by the position's role: an argument its key holds (`inKey`),
+||| as the key holds it (`argumentKey`), with the places of the family's
+||| own indices it holds, a type's (`heldPlaces`), each with the term the
+||| argument gives it there; or one of the family's indices, with its term.
+data FamilyArgument = InKey ClosedTerm (List (ErasedPlace, ITerm)) | AnIndex ITerm
+
+||| What the key holds of an argument: nothing of an index.
+keyPart : FamilyArgument -> ClosedTerm
+keyPart (InKey k _) = k
+keyPart (AnIndex _) = Erased EmptyFC Placeholder
+
+||| The family's indices an argument gives, in order, each its term.
+familyTerms : FamilyArgument -> List ITerm
+familyTerms (InKey _ held) = map snd held
+familyTerms (AnIndex t) = [t]
+
+||| The argument at a position of a family's type constructor, of this
+||| role, as its instance reads it (`FamilyArgument`). One the key holds is
+||| read as every key reads it (`canonicalTypeArg`): a type, with each of
+||| the family's indices in it at its place there (`termAt`); a shape, whose
+||| form holds no index of a family's. One the key does not hold is an
+||| index, its term read off it (`indexTerm`).
+familyArgument : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                 FC -> String -> Role -> ClosedTerm -> Front FamilyArgument
+familyArgument fc owner Keyed a = do
+  canonical <- canonicalTypeArg a
+  key <- argumentKey fc owner Keyed canonical
+  places <- heldPlaces owner key
+  InKey key <$> traverse (\p => (p,) <$> termAt p.path canonical) places
+familyArgument fc owner Formed a = (\key => InKey key []) <$> argumentKey fc owner Formed !(canonicalTypeArg a)
+familyArgument fc owner _ a = AnIndex <$> indexTerm a
+
+||| A position of a family's type constructor as its constructors are read
+||| at it: an argument the key holds, as the key holds it, with the
+||| family's indices held in it (`heldPlaces`), each with its path and sort,
+||| which a parameter there is given with each its binder's stand-in; or
+||| one of the family's own indices, which a parameter there is bound as,
+||| as any erased argument is (`Refl : x = x`'s `x`), so its fields and its
+||| equation name it.
+data ConParam = KeyArgument ClosedTerm (List ErasedIndex) | OwnIndex
 
 mutual
   ||| The Core type of a type, read under binders whose values are given,
@@ -913,17 +1031,22 @@ mutual
 
   ||| Registers a family instance, once, and gives it and the type of a
   ||| value of it at the index terms its arguments give. A family is the
-  ||| type constructor at the arguments its key holds; its indices are the
-  ||| positions the key does not hold, each read into an index term
-  ||| (`indexTerm`). Its identity is minted before its constructors are
-  ||| read and kept on the chain, so a field of the family itself finds it
-  ||| there (`Underway`): a recursive family names itself. Its record is
-  ||| made, and entered in the table, once its last constructor is read.
-  ||| Registering descends on the room the chain leaves among the links
-  ||| within the growth check's bounds (`Descending`): a new instance is
-  ||| checked against those bounds and pushed. A data type whose fields
-  ||| need ever larger instances of itself (`data T a = L a | N (T (a,
-  ||| a))`) is refused before translation, by the growth phase.
+  ||| type constructor at the arguments its key holds; its indices, in the
+  ||| order of the positions, are those the key does not hold, and the
+  ||| indices of families each type it holds leaves erased outside every
+  ||| binder it binds (`heldPlaces`), each read into an index term
+  ||| (`familyArgument`), so a type keeps the index its program states
+  ||| wherever it stands (`Dec (1 = 1)`'s `1, 1`), as an instance does (an
+  ||| index parameter, `Instances.indexForms`). Its identity is minted
+  ||| before its constructors are read and kept on the chain, so a field of
+  ||| the family itself finds it there (`Underway`): a recursive family
+  ||| names itself. Its record is made, and entered in the table, once its
+  ||| last constructor is read. Registering descends on the room the chain
+  ||| leaves among the links within the growth check's bounds
+  ||| (`Descending`): a new instance is checked against those bounds and
+  ||| pushed. A data type whose fields need ever larger instances of itself
+  ||| (`data T a = L a | N (T (a, a))`) is refused before translation, by
+  ||| the growth phase.
   familyIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (chain : Registering) -> (0 _ : Descending chain) ->
              FC -> String -> Name -> List ClosedTerm -> Front (Registration chain.links, Ty)
@@ -934,16 +1057,14 @@ mutual
     let params = facts.params
     let roles = facts.roles
     let positions = [0 .. length args0]
-    args <- traverse (\(i, a) => let r = roleAt i roles in
-                                 if inKey r then argumentKey fc owner r !(canonicalTypeArg a)
-                                            else pure (Erased EmptyFC Placeholder))
-                     (zip positions args0)
+    read <- traverse (\(i, a) => familyArgument fc owner (roleAt i roles) a) (zip positions args0)
+    let args = map keyPart read
     -- Each argument the key holds is read once, as an instance's static
     -- argument is (`Template.staticReading`), and the link writes its
     -- reading's form: the form the growth check's sites read.
     statics <- traverse (\(i, a) => if inKey (roleAt i roles) then Just <$> staticReading AType a else pure Nothing)
                         (zip positions args)
-    indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
+    let indices = concatMap familyTerms read
     (address, found) <- instanceKey fc owner (fullname def) (.form) statics
     st <- getState
     case lookupFact (.familiesAt) found.link st of
@@ -965,10 +1086,12 @@ mutual
                     NoneDeclared => reject fc owner DataType (tname ++ " has no known constructors")
                     DeclaredAs listed => pure listed
           loc <- toLoc (location def)
-          -- The facts hold a role for each of the type constructor's
-          -- arguments, so its indices are the positions whose role the key
-          -- does not hold.
-          sorts <- indexSorts tc (positionsOf (not . inKey) roles)
+          -- Each position as the constructors are read at it, the indices
+          -- each type the key holds holds with their sorts; the family's
+          -- indices in order, each position's own where the key does not
+          -- hold it.
+          conParams <- traverse conParam read
+          sorts <- Prelude.Interfaces.concat <$> traverse (\(i, c) => sortsAt tc i c) (zip positions conParams)
           -- Each constructor is read at its place in the type's list, which
           -- is its tag (`ConstructorAt`), so the layouts are in tag order.
           layouts <- traverse (\(place, con) =>
@@ -976,7 +1099,7 @@ mutual
                                              (rec (found.link :: linksOf chain.links)
                                                   (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf (linksOf chain.links)) e))
                                                           inside.member))
-                                             fc owner fam place found.link args params roles con)
+                                             fc owner fam place found.link conParams params roles con)
                               (Data.Zippable.zip (allFins (length cons)) (Data.Vect.fromList cons))
           promise <- promised tname (namedHooks tc.registered).sumShape (Prelude.toList (map layoutCon layouts))
           let df = MkDataFamily fam found.key promise sorts layouts loc
@@ -984,6 +1107,19 @@ mutual
                               , familyOrder $= (:< fam) })
           pure (Entered df, DataT fam indices)
     where
+      -- A position as the constructors are read at it: a type the key
+      -- holds with the family's indices at their places, each with its
+      -- sort.
+      conParam : FamilyArgument -> Front ConParam
+      conParam (InKey key places) = KeyArgument key <$> sortedAt (map fst places)
+      conParam (AnIndex _) = pure OwnIndex
+
+      -- The sorts of the family's indices at a position of its type
+      -- constructor.
+      sortsAt : Defined -> Nat -> ConParam -> Front (List Sort)
+      sortsAt tc i OwnIndex = indexSorts tc [i]
+      sortsAt _ _ (KeyArgument _ h) = pure (map (.sort) h)
+
       -- What the registry promises of the family's values, where its entry
       -- meets the family's constructors: a promise to rebuild them in
       -- place is kept only by a family with exactly one constructor that
@@ -1002,15 +1138,18 @@ mutual
   ||| type's constructors, as the boundary read it with the type's facts
   ||| (`ConstructorAt`), as its layout: its arguments' kinds, its erased
   ||| binders (the quantity-0 arguments an index of its result or a field's
-  ||| type names, renumbered as levels of its own scope in order), its
-  ||| equation (the index terms its result type gives) and its fields. The
-  ||| translation holds a field's type with the constructor's levels
-  ||| outside the language, since a field read in a body is at the scope's
-  ||| levels, which the match gives it.
+  ||| type names, and the indices of the family each parameter the key
+  ||| holds holds, renumbered as levels of its own scope in order), its
+  ||| equation (the index terms its result type gives, one per index of the
+  ||| family) and its fields. It is read at each position of the type
+  ||| constructor as the family has it (`ConParam`). The translation holds a
+  ||| field's type with the constructor's levels outside the language, since
+  ||| a field read in a body is at the scope's levels, which the match gives
+  ||| it.
   constructor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (chain : Registering) -> (0 _ : Descending chain) ->
-                FC -> String -> FamilyId -> {0 tags : Nat} -> Fin tags -> Link Form -> List ClosedTerm -> List Nat ->
-                List Role -> ConstructorAt -> Front ConLayout
+                FC -> String -> FamilyId -> {0 tags : Nat} -> Fin tags -> Link Form ->
+                List ConParam -> List Nat -> List Role -> ConstructorAt -> Front ConLayout
   constructor chain acc fc owner fam place link targs ps roles con = do
     let def = con.read.def
     let cname = show (fullname def)
@@ -1029,18 +1168,23 @@ mutual
       reject (location def) owner CompiledModule (cname ++ " has " ++ show con.arity ++ " arguments, but its type binds " ++
                                                    show (length layout))
     walked <- walk chain acc def cname (location def) targs 0 0 0 layout none ty
-    -- The result's index terms, at the family's index positions.
+    -- The result's index terms, at the family's indices: each index held
+    -- in a type the key holds, at its place in the argument there, the
+    -- parameter's value the walk gave it, and the argument at any other
+    -- position.
     let resultArgs = snd (getFnArgs walked.returns)
-    equation0 <- traverse indexTerm
-                   (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip [0 .. length resultArgs] resultArgs)))
+    equation0 <- Prelude.Interfaces.concat <$> traverse (\(i, a) => case getAt i targs of
+                                                  Just (KeyArgument _ held) => traverse (\h => termAt h.path a) held
+                                                  _ => (:: []) <$> indexTerm a)
+                                     (zip [0 .. length resultArgs] resultArgs)
     let fields0 = fieldsOf walked.kinds
     -- A binder no index and no field names is an erased proof: it does
     -- not exist.
     let used = nub (levelsOfTerms equation0 ++ concatMap (levelsOfTy . (.type)) (toList fields0))
-        kept = filter (\k => elem k used) (take (length walked.erasedTypes) [0 .. length walked.erasedTypes])
+        kept = filter (\k => elem k used) (take (length walked.candidates) [0 .. length walked.candidates])
         renumber = \k => findIndex' k kept
-    binders <- traverse (\(at, t) => (\sort => MkConBinder sort at) <$> sortOfType !(normaliseClosed t))
-                        (map snd (filter (\(k, _) => elem k kept) (zip [0 .. length walked.erasedTypes] walked.erasedTypes)))
+    binders <- traverse candidateBinder
+                        (map snd (filter (\(k, _) => elem k kept) (zip [0 .. length walked.candidates] walked.candidates)))
     let fields = map (\b => { type $= relevelTy renumber } b) fields0
         equation = relevelTerms renumber equation0
         con = MkCon (MkConId fam place) (shortName (fullname def)) binders equation
@@ -1051,20 +1195,23 @@ mutual
       findIndex' k ks = finToNat <$> findIndex (== k) ks
 
   ||| The constructor's arguments, read under the binders passed, each
-  ||| given its value: a parameter is the instance's, one of quantity 0 is
-  ||| no field and is given its stand-in, the next level of the
-  ||| constructor's own scope, anything else is the next field, an
+  ||| given its value: a parameter at a position the key holds is what the
+  ||| key holds of the instance's argument, each index of the family held in
+  ||| it given its stand-in, the next levels of the constructor's own scope
+  ||| (`filledIndices`), which its fields are read at, while a match binds it
+  ||| to the key's (`Param`); one of quantity 0 (a parameter at one of the
+  ||| family's own indices among them) is no field and is given its
+  ||| stand-in, the next level; anything else is the next field, an
   ||| implementation among them a choice (`choiceFamily`).
   walk : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          (chain : Registering) -> (0 _ : Descending chain) -> (con : GlobalDef) ->
-         String -> FC -> List ClosedTerm -> (at, i, e : Nat) -> List (Maybe Nat) ->
+         String -> FC -> List ConParam -> (at, i, e : Nat) -> List (Maybe Nat) ->
          Given vs -> TT vs -> Front ConstructorWalk
-  walk chain acc con cname dfc targs at i e (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
-    let v = fromMaybe (Erased bfc Placeholder) (getAt p targs)
-    w <- walk chain acc con cname dfc targs (S at) i e ls (give v g) sc
-    pure ({ kinds $= (Param v ::) } w)
-  walk chain acc con cname dfc targs at i e (Nothing :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) =
-    case argumentAt con at rig of
+  walk chain acc con cname dfc targs at i e (l :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) = case l >>= \p => getAt p targs of
+    Just (KeyArgument v held) => do
+      w <- walk chain acc con cname dfc targs (S at) i (e + length held) ls (give (filledIndices e held v) g) sc
+      pure ({ kinds $= (Param v ::), candidates $= (map (HeldIn at) held ++) } w)
+    _ => case argumentAt con at rig of
       RuntimeValue q => do
         let g' = give (Erased bfc Placeholder) g
         a' <- normaliseClosed (close g a)
@@ -1087,7 +1234,7 @@ mutual
         pure ({ kinds $= (Field i b a' ::) } w)
       _ => do
         w <- walk chain acc con cname dfc targs (S at) i (S e) ls (give (marker e) g) sc
-        pure ({ kinds $= (ErasedArg ::), erasedTypes $= ((at, close g a) ::) } w)
+        pure ({ kinds $= (ErasedArg ::), candidates $= (Itself at (close g a) ::) } w)
   walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkConstructorWalk [] [] (close g t))
 
   ||| The binder of a position of this type at this quantity: the Core type
