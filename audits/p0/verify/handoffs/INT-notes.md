@@ -293,3 +293,40 @@ handoff lists its own wiring.
   Declare's unqualified match, Tails.h's non-const getter, Nodes.cpp's
   hidden factsOf (fixed by the coordinator), Loans.cpp:116's const
   Dispatch (L07v). specgen check and knowngen check pass.
+
+## INT-25 (2026-10-23, exports of b2a2c4ae and 78ba1613; build/int25/)
+- D49, D51: idris-mlir-tblgen rebuilt on each export (make typecheck-tblgen
+  over INT-23's user preset, the 2026-10-15 typecheck toolchain) and
+  `tools/dialects.sh generate typecheck` run; the 19 modules written into
+  the checkout from 78ba1613's generation, no stamp: 13 rewritten (Syntax
+  and Dialect of Builtin, Arith, Math, MemRef, Tensor, UB; Encoding/Builtin),
+  6 new (Syntax and Dialect of Linalg, Bufferization, SCF). At b2a2c4ae they
+  are build/int14/dialects/ byte for byte; at 78ba1613 Dialect/Tensor gains
+  688f6b90's concatOp, padOp and yieldOp. check typecheck: 19 current. No
+  manifest line (C229). Uncommitted: L16's files, the coordinator commits.
+- HEAD's committed modules never build the frontend: the six missing
+  ("Module IdrisMLIR.Syntax.Linalg not found"), and the 13 name ops as
+  strings (Dialect/Builtin.idr:24 "Can't find an implementation for
+  FromString OpName"), stale since f449ae5a. So there is no sweep with
+  them; INT-22's (the same module bytes at 545578b3) is the comparison.
+- Builds: checker 208/208, spec, frontend 102/102 and syntax-samples at
+  b2a2c4ae and at 78ba1613 (each with the 19), the prefix's ten packages:
+  status 0, no error. Sweep, 433 fixtures, at both: 367 programs, 62
+  refused, 3 failed (F-F2, C272), 1 timeout (checker-tuple-wide-pattern,
+  routed to L17 by 3b316a5f). Against INT-22, every difference is another
+  lane's commit (F-F1, F-R1 and N-1 fixed), none a module.
+- D-1 (L06): the stage-2 form of dialects-current will name
+  Dialect/Builtin.idr: upstream 3f38810694 gave builtin.module an optional
+  `dlti` attribute, which the typecheck tree (7208ba24, 2430 commits
+  behind the pin) lacks; measured with the pin's BuiltinOps.td over it
+  (build/int25/pin-ods/). tools/dialects.sh:29-33's "the records are the
+  same" holds only while that tree's ODS is the pin's. The other 18 by
+  reading are the pin's too.
+- D-2: the checkout's build/typecheck idris-mlir-tblgen predates 04d7cfcc
+  and writes Dialect/Arith and Syntax/Linalg with the old import order;
+  make typecheck-tblgen in the checkout rebuilds it (not run).
+- D-3 (L06): make check cannot run here: the runner fails under this
+  machine's stock Idris at harness/Covers.idr:471 (upstream/116's bug;
+  .toolchain/idris2 carries 96 and 104 to 114, not 116) until
+  tools/bootstrap.sh idris rebuilds it. emit-dialects' Linalg, Bufferization
+  and SCF lines hold with the written modules by reading.
