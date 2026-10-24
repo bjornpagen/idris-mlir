@@ -855,3 +855,12 @@ askers in callersOf, Settle's removed proof). Waiting:
 - From L16eo (C281's design): steps 1 and 2 (build the annotated tree;
   the translation folds it, keyed the old way) land separately, steps 3 to
   6 together; after L16ep releases `Frontend/` (L16).
+- From L13y: the string lowering accepts any op that eliminates a string
+  as its output, but writes with `effects::bound<IoPutStrOp>()`
+  (`Conversion/Strings.cpp:254`) and its `ListElement` and `ShownOutput`
+  tables are written against `io.put_str`: a second string output (a
+  stderr put) would be lowered to standard output, silently. The row is
+  the found op's own (the effect query on it) and where it writes its
+  op's fact, so no second output can be miscompiled (L13); the
+  `EliminatesOperand` comments in `Traits.h` and `Spec/Core/Interfaces.idr`
+  name raising alone as its reader (L03).
