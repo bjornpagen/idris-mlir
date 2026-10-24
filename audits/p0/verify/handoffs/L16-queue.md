@@ -1361,3 +1361,13 @@ to L16ev. Waiting:
   every call passing a suspension (L18, a missed specialization);
   `ConEta`'s `ownValue` (`Families/Rules.cpp`) re-reads `HasIdentity` by
   hand (L04, with C309).
+- From L04ab: `IdrTypes.td` still names codec text in hand-syntax types'
+  parameters' `parser`/`printer` fields, which mlir-tblgen never emits
+  (`Ods.idr` could print them without, L03); `refinedData` (`Takes.cpp`)
+  and `builtData` (`OpsCon.cpp`) restate `isRefinedValue`'s rule (L04,
+  L07: call it).
+- From L04ac: C309's shape is §4's fifth question; its readers' notes
+  (`Patterns.cpp`'s identity branch stays load-bearing; `builtStateHolds`
+  would start folding memo reads once a con reaches a family-typed
+  value; `idr.cell.init` gives the family type under any option) wait on
+  the ruling.
