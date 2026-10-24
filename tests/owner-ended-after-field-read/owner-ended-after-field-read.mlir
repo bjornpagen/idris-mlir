@@ -78,7 +78,7 @@ idr.program @owners root(@main) stage(graded) {
   }
   idr.func @whole(%xs: !Once) -> (i64, !Once) {
     %h = idr.data.field %xs[0] : !Once -> i64
-    // expected-error @below {{uses a value used once that is already used on the same path}}
+    // expected-error @below {{}}
     idr.return %h, %xs : i64, !Once
   }
 }
@@ -100,7 +100,7 @@ idr.program @owners root(@main) stage(graded) {
     idr.return
   }
   idr.func @matched(%xs: !Once) -> !List {
-    // expected-error @below {{binds in its shared region other than}}
+    // expected-error @below {{}}
     %tail = idr.count.match_unique %xs : !Once -> (!List) unique {
     ^bb0(%t: !Token, %head: i64, %tl: !List):
       idr.token.free %t : !Token

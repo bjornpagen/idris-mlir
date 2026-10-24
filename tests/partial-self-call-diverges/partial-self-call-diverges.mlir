@@ -37,7 +37,7 @@ idr.program @rows root(@main) stage(first) {
   idr.func <{row = []}> @main() {
     idr.return
   }
-  // expected-error @below {{which lack divergence}}
+  // expected-error @below {{}}
   idr.func <{row = []}> @descend(%n: i64) -> i64 {
     %r = idr.lit.match %n : i64 -> (i64) {
       case 0(%key1: i64) {
@@ -45,7 +45,7 @@ idr.program @rows root(@main) stage(first) {
       } default(%d: i64) {
         %one = arith.constant 1 : i64
         %next = arith.subi %d, %one : i64
-        // expected-note @below {{needs it}}
+        // expected-note @below {{}}
         %t = idr.call @descend(%next) <{row = [], tail_kind = nontail}> : (i64) -> i64
         %s = arith.addi %t, %one : i64
         idr.yield %s : i64

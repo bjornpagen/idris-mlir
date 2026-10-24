@@ -1,6 +1,7 @@
 compile: exit 3
 unsupported (elaboration): the only error
 line: as the header says
+message: as the header says
 artifacts: none
 near: compile: exit 0
 near: artifacts: module objects executable

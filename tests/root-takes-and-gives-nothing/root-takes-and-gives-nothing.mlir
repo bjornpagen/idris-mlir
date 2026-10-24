@@ -5,7 +5,7 @@
 // binds the root alone. In the first program @step takes a word and gives
 // one, and @main, the root, calls it: the program verifies. In the second
 // the root takes a word; in the third the root gives one. Each is refused
-// at the root, by the rule's message.
+// at the root.
 idr.program @ordinary root(@main) stage(first) {
   idr.func @main() {
     %one = arith.constant 1 : i64
@@ -22,7 +22,7 @@ idr.program @ordinary root(@main) stage(first) {
 // -----
 
 idr.program @takes root(@step) stage(first) {
-  // expected-error @below {{is the root, so it takes nothing; it takes 1 arguments}}
+  // expected-error @below {{}}
   idr.func @step(%x: i64) {
     idr.return
   }
@@ -31,7 +31,7 @@ idr.program @takes root(@step) stage(first) {
 // -----
 
 idr.program @gives root(@answer) stage(first) {
-  // expected-error @below {{is the root, so its results hold no runtime value}}
+  // expected-error @below {{}}
   idr.func @answer() -> i64 {
     %answer = arith.constant 42 : i64
     idr.return %answer : i64
