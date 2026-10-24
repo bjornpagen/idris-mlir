@@ -8,10 +8,11 @@
 // node (nodeOf) as it is stated: a function's parameter is its entry
 // block's argument, one node; a part of a value is its anchor's node. A
 // dispatch's callee and the values it moves get their nodes here too, so a
-// firing reads numbers alone. A call in tail position, direct by its own
-// fact or a dispatch among its function's tails (a dispatch holds no fact
-// of where it stands), states its callee's result points one set with its
-// caller's. A constant is looked into on an explicit stack, so one of any
+// firing reads numbers alone. A call among its function's tails, direct or
+// a dispatch, states its callee's result points one set with its caller's:
+// the tails are read once down from each body, since the program is read
+// as the frontend wrote it, where no call's own fact says where it stands
+// yet. A constant is looked into on an explicit stack, so one of any
 // depth takes no recursion; so is the question of which of its parts hold
 // a closure, which defunctionalization asks too.
 
@@ -116,9 +117,8 @@ public:
       : out(out), graph(graph), tails(std::move(tails)) {}
 
   void add(Operation *op, const FlowEdges::Edge &edge);
-  // `call`, in tail position, gives its caller's results: each result point
-  // of `callee` that carries a label is one set with its caller's.
-  void tailResults(Label callee, CallOp call);
+  // Each direct call among a function's tails gives its caller's results.
+  void tailCalls();
 
 private:
   Node nodeOf(const FlowSource &point) {
@@ -129,6 +129,10 @@ private:
   }
   Node nodeOf(const Place &place);
   void flow(Operation *op, const FlowSource &from, const FlowPlace &target, Link how);
+  // `call`, a direct call among the tails of `caller`, gives its caller's
+  // results: each result point of its callee that carries a label is one
+  // set with its caller's.
+  void tailResults(Label caller, CallOp call);
   void sink(OpOperand &use, const FlowPlace &target);
   void dispatch(CallOpInterface call);
   void moves(ValueRange values);
@@ -172,8 +176,18 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
       [&](FlowEdges::Dispatch move) { dispatch(move.call); });
 }
 
-void Reading::tailResults(Label callee, CallOp call) {
-  Label caller = out.points.labelOf(call->getParentOfType<FuncOp>());
+// The tails were found once, before the walk; a call among them is read
+// from there, never asked again where it stands. Any op may stand at a
+// tail, so which of them is a direct call is asked of the op.
+void Reading::tailCalls() {
+  for (solver::FunctionId id : graph.functions())
+    for (Operation *source : tails[id])
+      if (auto call = dyn_cast<CallOp>(source))
+        tailResults(out.points.labelOf(graph.op(id)), call);
+}
+
+void Reading::tailResults(Label caller, CallOp call) {
+  Label callee = out.points.labelOf(call.getCalleeAttr());
   for (auto [j, result] : llvm::enumerate(call->getResults()))
     if (carriesLabels(result.getType())) {
       auto index = static_cast<unsigned>(j);
@@ -335,9 +349,8 @@ Read readProgram(Operation *program, const solver::ProgramGraph &graph) {
     for (const FlowEdges::Edge &edge : edges.edges())
       reading.add(op, edge);
     edges.clear();
-    if (CallOp call = tailCallOf(op))
-      reading.tailResults(out.points.labelOf(call.getCalleeAttr()), call);
   });
+  reading.tailCalls();
   return out;
 }
 

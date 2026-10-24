@@ -1,0 +1,9 @@
+# pick returns its own closure or, by a tail call, doubled's; doubled
+# returns only its own. A tail call gives its caller's results, so the
+# closures doubled returns are the ones pick returns, and nothing converts
+# one after the call: it is a tail call from the program's first-order
+# form on. Each calls the other, so neither is inlined into the other, and
+# each is called from main as well, so each returns to more than one place
+# and stays a function. pick may crash, so no copy of either takes in what
+# its caller does with the closure.
+first: tail-calls=@Main.pick:@Main.doubled
