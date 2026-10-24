@@ -79,28 +79,17 @@ template <> struct llvm::GraphTraits<const idr::optimize::WaitGraph *> {
 
 namespace idr::optimize {
 
-// A copy goes into the program after its owner and its owner's copies
+// A copy goes into the program after its origin and its origin's copies
 // whose names sort before its own, into the graph's editor with the calls
-// its body makes, the analysis manager and the schedule, as a component of
-// its own.
+// its body makes and the analysis manager (specialize::place), and into the
+// schedule, as a component of its own.
 FunctionId Scheduler::insert(specialize::Node *made) {
   specialize::Built built = idr::match(
       made->phase, [](specialize::Built &b) { return std::move(b); },
       [](OneOf<specialize::Requested, specialize::Placed> auto &) { return specialize::Built{}; });
   FuncOp fn = built.fn;
-  FuncOp owner = schedule.function(made->origin);
-  Block &body = schedule.program.getBody().front();
-  Block::iterator at = std::next(Block::iterator(owner.getOperation()));
-  for (; at != body.end(); ++at) {
-    auto next = dyn_cast<FuncOp>(*at);
-    if (!next || !next.getSymName().starts_with(owner.getSymName()) ||
-        next.getSymName().compare(fn.getSymName()) >= 0)
-      break;
-  }
-  body.getOperations().insert(at, fn.getOperation());
-  FunctionId id = schedule.graph.insert(fn);
-  schedule.graph.setCallees(id, solver::rowOf(fn, schedule.graph));
-  (void)am.nest(fn);
+  FunctionId id = specialize::place(schedule.program, schedule.function(made->origin), fn,
+                                    schedule.graph, am);
   nodes.place(*made, id);
   schedule.components.grow(id.index() + 1);
   schedule.labelled.resize(id.index() + 1);
@@ -144,7 +133,7 @@ void Scheduler::finalize(unsigned component) {
   // Every edge a member still crosses at a hold that fits the one asked is
   // made exact, before its facts are read off its final body.
   for (FunctionId id : ids)
-    specialize::shareCrossings(schedule, id);
+    (void)specialize::shareCrossings(schedule.function(id), schedule);
   // The rows: one join over the component, every call of a member taking
   // it; and what each member gives back over the parameters it kept, its
   // callees' read as their components published them, published with the

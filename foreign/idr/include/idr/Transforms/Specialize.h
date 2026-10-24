@@ -64,11 +64,13 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Changed.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
@@ -99,6 +101,9 @@ struct SpecializeCloneAction : support::TaggedAction<SpecializeCloneAction> {
   using TaggedAction::TaggedAction;
   static constexpr std::string_view tag = ::idr::actions::specializeClone;
 };
+
+#define GEN_PASS_DECL_IDRSPECIALIZE
+#include "idr/Transforms/Passes.h.inc"
 
 } // namespace idr
 
@@ -308,16 +313,32 @@ llvm::SmallVector<std::optional<Hold>> passedHolds(CallOp call, mlir::TypeRange 
 // again, reading them as restated.
 void openResults(optimize::Schedule &schedule, Nodes &nodes, llvm::ArrayRef<FunctionId> starters);
 
-// Each edge of `id`, a function whose component is becoming final, that a
-// value still crosses at a hold that fits the one asked (crossedAs: a
-// call's argument, a forwarded value, a jump's, the return's), made exact:
-// the value shared down to the hold asked by idr.count.share where it is
-// given. From the stage before counting on every edge is exact; the
-// specializer keys each call by the hold it passes and the decisions give
-// what they rewrite exactly, so what still crosses is the program's own
-// (a literal yielded where a counted value is asked, a jump contify made)
-// or a call no key took, each shared down once the function is final.
-void shareCrossings(const optimize::Schedule &schedule, FunctionId id);
+// Each edge of `fn` that a value still crosses at a hold that fits the one
+// asked (crossedAs: a call's argument, a forwarded value, a jump's, the
+// return's), made exact: the value shared down to the hold asked by
+// idr.count.share where it is given. From the stage before counting on
+// every edge is exact; the specializer keys each call by the hold it passes
+// and the decisions give what they rewrite exactly, so what still crosses is
+// the program's own (a literal yielded where a counted value is asked, a
+// jump contify made) or a call no key took, each shared down: by
+// idr-optimize once the function is final, each call's callee read through
+// its schedule, every copy a call names placed by then; and over the whole
+// program by idr-specialize, just before the stage moves, each callee read
+// through the program graph it froze anew. Whether any edge crossed.
+Changed shareCrossings(FuncOp fn, const optimize::Schedule &schedule);
+Changed shareCrossings(FuncOp fn, const solver::ProgramGraph &graph);
+
+// A copy goes into `program` after `anchor`, a function whose code it holds
+// (idr-optimize's origin, idr-specialize's owner), and each function after
+// it whose name extends the anchor's and sorts before the copy's, so the
+// anchor's copies stand in name order whichever was made first; into the
+// graph's editor, with the calls its body makes; and into the analysis
+// manager, so a pipeline nested on it finds its own instead of inserting
+// one. Its id, the next the editor mints. The one placement of a copy,
+// whichever run made it: idr-optimize between its waves, and
+// idr-specialize.
+FunctionId place(ProgramOp program, FuncOp anchor, FuncOp copy, solver::Editor &graph,
+                 mlir::AnalysisManager am);
 
 // The values of `fn` that carry one of `lowered` on, each of which now
 // claims less than its uses were given (a call's result opened or keyed at

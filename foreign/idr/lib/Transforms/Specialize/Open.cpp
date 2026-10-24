@@ -89,7 +89,8 @@
 // hold that fits the one asked (crossedAs: static data where a counted
 // value is asked, a claim forgotten), as the frontend's literals and
 // contify's jumps do; from that stage on every edge is exact. So once a
-// function is final, each edge it still crosses so is made exact, its
+// function is final, and over the whole program again just before that
+// stage (idr-specialize), each edge it still crosses so is made exact, its
 // operand shared down to the hold asked by idr.count.share
 // (shareCrossings): a static cell's count is never touched, so counting
 // one as a counted value changes nothing at run time.
@@ -1132,6 +1133,46 @@ void passOn(const optimize::Schedule &schedule, FunctionId id, SmallVectorImpl<F
   });
 }
 
+// What resolves a call to the function it names: the table of names of the
+// run that shares its crossings down.
+template <class R>
+concept CalleeOf = requires(const R &calleeOf, CallOp call) {
+  { calleeOf(call) } -> std::same_as<FuncOp>;
+};
+
+template <CalleeOf R>
+Changed shareWith(FuncOp fn, const R &calleeOf) {
+  // Each operand that crosses its edge at a hold that fits the one asked,
+  // with the type it crosses at, each operand once: the edge's own rule
+  // (crossedAs) finds it.
+  SmallVector<std::pair<OpOperand *, Type>> crossing;
+  auto note = [&](OpOperand &operand, Type asked) {
+    Type given = operand.get().getType();
+    Type crossed = crossedAs(operand.getOwner(), given, asked);
+    if (crossed == given ||
+        llvm::any_of(crossing, [&](const auto &noted) { return noted.first == &operand; }))
+      return;
+    crossing.emplace_back(&operand, crossed);
+  };
+  fn.getBody().walk([&](Operation *op) {
+    forwardedValues(op, [&](OpOperand &operand, Value input) { note(operand, input.getType()); });
+    if (auto call = dyn_cast<CallOp>(op))
+      for (auto [operand, parameter] :
+           llvm::zip_equal(call.getArgsMutable(), calleeOf(call).getArgumentTypes()))
+        note(operand, parameter);
+  });
+  Operation *end = fn.getBody().front().getTerminator();
+  if (end->hasTrait<OpTrait::ReturnLike>())
+    for (auto [operand, result] : llvm::zip_equal(end->getOpOperands(), fn.getResultTypes()))
+      note(operand, result);
+  for (auto [operand, type] : crossing) {
+    OpBuilder b(operand->getOwner());
+    operand->set(
+        CountShareOp::create(b, operand->getOwner()->getLoc(), type, operand->get()).getResult());
+  }
+  return crossing.empty() ? Changed::No : Changed::Yes;
+}
+
 } // namespace
 
 void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId> starters) {
@@ -1162,39 +1203,16 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
   }
 }
 
-void shareCrossings(const optimize::Schedule &schedule, FunctionId id) {
-  FuncOp fn = schedule.function(id);
-  // Each operand that crosses its edge at a hold that fits the one asked,
-  // with the type it crosses at, each operand once: the edge's own rule
-  // (crossedAs) finds it.
-  SmallVector<std::pair<OpOperand *, Type>> crossing;
-  auto note = [&](OpOperand &operand, Type asked) {
-    Type given = operand.get().getType();
-    Type crossed = crossedAs(operand.getOwner(), given, asked);
-    if (crossed == given ||
-        llvm::any_of(crossing, [&](const auto &noted) { return noted.first == &operand; }))
-      return;
-    crossing.emplace_back(&operand, crossed);
-  };
-  fn.getBody().walk([&](Operation *op) {
-    forwardedValues(op, [&](OpOperand &operand, Value input) { note(operand, input.getType()); });
-    if (auto call = dyn_cast<CallOp>(op)) {
-      std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
-      assert(callee && "once a component is final, every copy its calls name is placed");
-      for (auto [operand, parameter] : llvm::zip_equal(
-               call.getArgsMutable(), schedule.function(*callee).getArgumentTypes()))
-        note(operand, parameter);
-    }
+Changed shareCrossings(FuncOp fn, const optimize::Schedule &schedule) {
+  return shareWith(fn, [&](CallOp call) {
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    assert(callee && "once a component is final, every copy its calls name is placed");
+    return schedule.function(*callee);
   });
-  Operation *end = fn.getBody().front().getTerminator();
-  if (end->hasTrait<OpTrait::ReturnLike>())
-    for (auto [operand, result] : llvm::zip_equal(end->getOpOperands(), fn.getResultTypes()))
-      note(operand, result);
-  for (auto [operand, type] : crossing) {
-    OpBuilder b(operand->getOwner());
-    operand->set(
-        CountShareOp::create(b, operand->getOwner()->getLoc(), type, operand->get()).getResult());
-  }
+}
+
+Changed shareCrossings(FuncOp fn, const solver::ProgramGraph &graph) {
+  return shareWith(fn, [&](CallOp call) { return graph.op(graph.id(call.getCalleeAttr())); });
 }
 
 } // namespace idr::specialize

@@ -41,36 +41,39 @@
 // result: the function's result is its own fresh value, and the
 // constructor's cell is fresh, its claim, read off its fields, the same of
 // static data as of a value that claims nothing; so nothing after the use
-// is regraded. A call's argument takes the static data where the graph runs
-// in a round of idr-optimize, which keys the call after it: before the
-// specializer a call's rule lets an argument whose hold fits its
-// parameter's cross at the parameter's, and a redirect of the member's
+// is regraded. A call's argument takes the static data as the call's own
+// rule lets it cross (crossedAs): until the stage that compares edges
+// exactly, an argument whose hold fits its parameter's crosses at the
+// parameter's. Wherever the graph runs before it, a specializer keys the
+// call after it by the hold its argument is passed at, so the callee's copy
+// counts nothing of it: inside idr-optimize, a redirect of the member's
 // rounds (the one that closes this round, where it would otherwise be the
-// last) keys the call by the hold its argument is passed at, so the
-// callee's copy counts nothing of it; where no key takes it (a callee of the
-// member's own component, a key whose results the caller would read at
-// more), its function's finalization shares it down (shareCrossings). A
-// key's results are what the caller reads already, so nothing after the
-// call is regraded either. At the pipeline's own points no
-// specializer follows the graph and nothing makes such an edge exact before
-// the stage that compares edges exactly, so there a call takes the class at
-// its own type. Every other use takes the class at its own type, the op that
-// computes it applied there: a return, whose grades the function's signature
-// fixes; a yield, whose types its parent's results fix; and an op whose
-// result carries the value on: a cast, which would stand static data at a
-// hold that counts, and a guard, whose result's uses ask the value's own
-// type. An edit's operands become its results or its region's arguments,
-// read at their own types, so they are demanded at their own types too;
-// and what the edit replaced becomes the class it is given, so where the
-// graph removed an op that carries a value on (a guard decided to hold, a
-// match whose one region is taken), the uses after it demand that value's
-// class, each taking its static data as it takes the value.
+// last); at the pipeline's own points (inline's simplification, and after
+// the columns and bufferization), idr-specialize, once, before the stage
+// moves. Where no key takes it (a callee of the member's own component, a
+// key whose results the caller would read at more), the crossing is shared
+// down (shareCrossings): by its function's finalization in idr-optimize,
+// by idr-specialize after it. A key's results are what the caller reads
+// already, so nothing after the call is regraded either. Past that stage a
+// call takes the class at its own type, as its rule asks. Every other use
+// takes the class at its own type, the op that computes it applied there:
+// a return, whose grades the function's signature fixes; a yield, whose
+// types its parent's results fix; and an op whose result carries the value
+// on: a cast, which would stand static data at a hold that counts, and a
+// guard, whose result's uses ask the value's own type. An edit's operands
+// become its results or its region's arguments, read at their own types,
+// so they are demanded at their own types too; and what the edit replaced
+// becomes the class it is given, so where the graph removed an op that
+// carries a value on (a guard decided to hold, a match whose one region is
+// taken), the uses after it demand that value's class, each taking its
+// static data as it takes the value.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/IR/Tail.h"
 #include "idr/Support/Nest.h"
 #include "idr/Transforms/Optimize/Tails.h"
 
+#include "idr/IR/Generated/StageFacts.h.inc"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
@@ -108,8 +111,8 @@ bool isField(const structural::Built &built, unsigned operand) {
 }
 
 // How the use `operand` of `op`, an op of the input, takes such a class: as
-// a call's argument takes it in this run (`atCalls`); as static data where
-// the op's runtime function borrows it, or where the op builds a
+// a call's argument takes it at the program's stage (`atCalls`); as static
+// data where the op's runtime function borrows it, or where the op builds a
 // constructor of which it is a field; at its own type anywhere else.
 Admits admitsAt(const Kinds &kinds, Admits atCalls, Operation *op, unsigned operand) {
   if (isa<CallOp>(op))
@@ -202,12 +205,14 @@ void Function::extract() {
 void Function::elaborate(RewriterBase &rewriter) {
   // The dialect whose constant op holds a string or a big, found once.
   Dialect &constants = *rewriter.getContext()->getLoadedDialect<IdrDialect>();
-  // How a call's argument takes static data in this run. Essential: the run
-  // holds the optimizer's table of callees exactly when it is a step of a
-  // round of idr-optimize, whose redirect keys each call after it; a run at
-  // one of the pipeline's own points has no table and no specializer after
+  // How a call's argument takes static data: as the call's own rule
+  // (crossedAs) lets a hold that fits its parameter's cross, at the stage
+  // the program is at. Essential: the stage is the program's, which the
+  // call's rule climbs to as well; read once, since no function pass moves
   // it.
-  Admits atCalls = callees ? Admits::StaticData : Admits::OwnType;
+  Admits atCalls = edgeHoldsAt[fn.getProgram().getStage()] == StageEdgeHolds::Fit
+                       ? Admits::StaticData
+                       : Admits::OwnType;
 
   // The static form of each class the graph knows as a string or a big its
   // constant op does not stand at, read once before any use asks.

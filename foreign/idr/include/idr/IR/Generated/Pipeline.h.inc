@@ -78,97 +78,100 @@ inline void step17(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest
 // every row exact again once the nest is done
 inline void step18(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWriteRows()); }
 
+// once, after every run of the e-graph, where every edge must become exact
+inline void step19(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrSpecialize()); }
+
 // every lifetime decided before a reference is counted
-inline void step19(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLifetimes()); }
+inline void step20(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLifetimes()); }
 
 // the conventions of every parameter, from the closed program
-inline void step20(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrRcBorrows()); }
+inline void step21(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrRcBorrows()); }
 
 // every row covers what the nest after it adds while its functions run
-inline void step21(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWidenRows(::idr::effects::Row{::idr::Atom::count, ::idr::Atom::alloc, ::idr::Atom::free})); }
+inline void step22(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWidenRows(::idr::effects::Row{::idr::Atom::count, ::idr::Atom::alloc, ::idr::Atom::free})); }
 
 // drops first, at last use
-inline void step22(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcPlace()); }
+inline void step23(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcPlace()); }
 
 // every row exact again once the nest is done
-inline void step23(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWriteRows()); }
+inline void step24(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWriteRows()); }
 
 // on the references placement made
-inline void step24(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrRcExclusive()); }
+inline void step25(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrRcExclusive()); }
 
 // every row covers what the nest after it adds while its functions run
-inline void step25(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWidenRows(::idr::effects::Row{::idr::Atom::count, ::idr::Atom::alloc, ::idr::Atom::free})); }
+inline void step26(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWidenRows(::idr::effects::Row{::idr::Atom::count, ::idr::Atom::alloc, ::idr::Atom::free})); }
 
 // reuse guided by the drops placed and the exclusivity proved
-inline void step26(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcReuse()); }
+inline void step27(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcReuse()); }
 
 // the take's expansion, counting's last step
-inline void step27(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcExpand()); }
+inline void step28(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrRcExpand()); }
 
 // every row exact again once the nest is done
-inline void step28(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWriteRows()); }
+inline void step29(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::pipeline::createWriteRows()); }
 
 // the grade copies no call kept
-inline void step29(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::mlir::createSymbolDCEPass()); }
+inline void step30(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::mlir::createSymbolDCEPass()); }
 
 // after counting, which held the scrutinee's token across the self call
-inline void step30(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrTrmc()); }
+inline void step31(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrTrmc()); }
 
 // after counting and TRMC, so reuse tokens ride in frames
-inline void step31(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrFrames()); }
+inline void step32(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrFrames()); }
 
 // after frames, a self tail call a loop
-inline void step32(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrTailLoops()); }
+inline void step33(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrTailLoops()); }
 
 // after counting, whose counts of the bigs it proves small it removes
-inline void step33(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrNarrow()); }
+inline void step34(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrNarrow()); }
 
 // the generating ops as loops, right before the lowering
-inline void step34(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrOrderedLoops()); }
+inline void step35(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest<::idr::FuncOp>().addPass(::idr::createIdrOrderedLoops()); }
 
 // each function to the LLVM dialect
-inline void step35(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLower()); }
+inline void step36(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLower()); }
 
 // the program taken apart, its root the module's entry
-inline void step36(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrEntry()); }
+inline void step37(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrEntry()); }
 
 // a subprogram on every function, which LLVM's line tables need
-inline void step37(::mlir::OpPassManager &pm) { pm.addPass(::mlir::LLVM::createDIScopeForLLVMFuncOpPass()); }
+inline void step38(::mlir::OpPassManager &pm) { pm.addPass(::mlir::LLVM::createDIScopeForLLVMFuncOpPass()); }
 
 // each loop over an array on the target's vector lanes
-inline void step38(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::scheduleInterpreter()); }
+inline void step39(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::scheduleInterpreter()); }
 
 // the integer lanes in 32 bits under a bound on the sizes
-inline void step39(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::createIdrNarrowLanes()); }
+inline void step40(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::createIdrNarrowLanes()); }
 
 // the loops the schedule left
-inline void step40(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertLinalgToLoopsPass()); }
+inline void step41(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertLinalgToLoopsPass()); }
 
 // transfers of a rank above one to loops of 1-D ones
-inline void step41(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertVectorToSCFPass()); }
+inline void step42(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertVectorToSCFPass()); }
 
 // views to offsets
-inline void step42(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::memref::createExpandStridedMetadataPass()); }
+inline void step43(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::memref::createExpandStridedMetadataPass()); }
 
 // the affine arithmetic of the offsets
-inline void step43(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createLowerAffinePass()); }
+inline void step44(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createLowerAffinePass()); }
 
 // the loops upstream's lowering made, to blocks; the join points were lowered with the functions
-inline void step44(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createSCFToControlFlowPass()); }
+inline void step45(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createSCFToControlFlowPass()); }
 
 // the vector ops, with their pre-lowering
-inline void step45(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertVectorToLLVMPass()); }
+inline void step46(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertVectorToLLVMPass()); }
 
 // everything else
-inline void step46(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertToLLVMPass()); }
+inline void step47(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertToLLVMPass()); }
 
 // the casts the conversions left
-inline void step47(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createReconcileUnrealizedCastsPass()); }
+inline void step48(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createReconcileUnrealizedCastsPass()); }
 
 // on the final control flow, each musttail call's block ended by its return
-inline void step48(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrTailCalls()); }
+inline void step49(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrTailCalls()); }
 
-inline constexpr std::array<Step, 49> steps{{
+inline constexpr std::array<Step, 50> steps{{
     {::idr::Stage::Higher, ::idr::Stage::First, &step0},
     {::idr::Stage::First, ::idr::Stage::First, &step1},
     {::idr::Stage::First, ::idr::Stage::First, &step2},
@@ -188,13 +191,13 @@ inline constexpr std::array<Step, 49> steps{{
     {::idr::Stage::First, ::idr::Stage::First, &step16},
     {::idr::Stage::First, ::idr::Stage::First, &step17},
     {::idr::Stage::First, ::idr::Stage::First, &step18},
-    {::idr::Stage::First, ::idr::Stage::Graded, &step19},
-    {::idr::Stage::Graded, ::idr::Stage::Graded, &step20},
+    {::idr::Stage::First, ::idr::Stage::First, &step19},
+    {::idr::Stage::First, ::idr::Stage::Graded, &step20},
     {::idr::Stage::Graded, ::idr::Stage::Graded, &step21},
     {::idr::Stage::Graded, ::idr::Stage::Graded, &step22},
     {::idr::Stage::Graded, ::idr::Stage::Graded, &step23},
-    {::idr::Stage::Graded, ::idr::Stage::Owned, &step24},
-    {::idr::Stage::Owned, ::idr::Stage::Owned, &step25},
+    {::idr::Stage::Graded, ::idr::Stage::Graded, &step24},
+    {::idr::Stage::Graded, ::idr::Stage::Owned, &step25},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step26},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step27},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step28},
@@ -204,8 +207,8 @@ inline constexpr std::array<Step, 49> steps{{
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step32},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step33},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step34},
-    {::idr::Stage::Owned, ::idr::Stage::Lowered, &step35},
-    {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step36},
+    {::idr::Stage::Owned, ::idr::Stage::Owned, &step35},
+    {::idr::Stage::Owned, ::idr::Stage::Lowered, &step36},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step37},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step38},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step39},
@@ -218,6 +221,7 @@ inline constexpr std::array<Step, 49> steps{{
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step46},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step47},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step48},
+    {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step49},
 }};
 
 // Every upstream pass the pipeline runs, registered so a pipeline's text can name it.

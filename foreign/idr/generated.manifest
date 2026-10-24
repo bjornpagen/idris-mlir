@@ -1,4 +1,4 @@
-specification 72410f94e9421cc3
+specification f00ef9697620b4b6
 generator f7085ff6019d8f35
 ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 43182228949c54e1 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
@@ -6,7 +6,7 @@ ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 af3d97929005f2a9 foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 566341460441fed2 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
-207ba67b0d97b601 foreign/idr/include/idr/IR/Generated/IdrPasses.td
+53f75d5812790683 foreign/idr/include/idr/IR/Generated/IdrPasses.td
 e48bb5d00da3d404 foreign/idr/include/idr/IR/Generated/IdrInnerPasses.td
 c2fceea76613b6aa foreign/idr/include/idr/IR/Generated/IdrAdmittedBase.td
 a7d56abee877d504 foreign/idr/include/idr/IR/Generated/IdrAdmittedBuiltin.td
@@ -25,7 +25,7 @@ d8c0a48f8b87419e foreign/idr/include/idr/IR/Generated/AdmittedClasses.h.inc
 429296596c0c8835 foreign/idr/include/idr/IR/Generated/EnumTraits.h.inc
 eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 4d113ce9ed659891 foreign/idr/include/idr/IR/Generated/Defaults.h.inc
-4ef0d728b0133e75 foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
+db27a03c6d5426eb foreign/idr/include/idr/IR/Generated/PassDialects.h.inc
 9015748206ba698d foreign/idr/include/idr/IR/Generated/Guards.h.inc
 d44a454a09df116f foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 ac30b3cefaf91f3a foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
@@ -38,7 +38,7 @@ cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
 04252be77897a84d foreign/idr/include/idr/IR/Generated/Rewrites.h.inc
 9437e560bf7938c7 foreign/idr/include/idr/IR/Generated/Laws.h.inc
 917513f058ac7f9b foreign/idr/include/idr/IR/Generated/Hooks.h.inc
-eca576626466f437 foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
+07e5a25ccff8abfa foreign/idr/include/idr/IR/Generated/Pipeline.h.inc
 8fd846c60b9c1880 foreign/idr/include/idr/IR/Generated/ApplyGroups.h.inc
 646d0650f34d56aa foreign/idr/include/idr/IR/Generated/Actions.h.inc
 75b437e521dc3007 foreign/idr/include/idr/IR/Generated/ExpectProperties.inc

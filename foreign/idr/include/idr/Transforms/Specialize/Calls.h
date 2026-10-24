@@ -7,6 +7,7 @@
 #ifndef IDR_TRANSFORMS_SPECIALIZE_CALLS_H
 #define IDR_TRANSFORMS_SPECIALIZE_CALLS_H
 
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Transforms/SpecializeState.h"
@@ -15,8 +16,10 @@
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -164,6 +167,69 @@ SignatureRule signatureRule(CallOp call, FuncOp callee, FunctionId calleeId,
                             identities::FactsView given, const CallSite &site,
                             TailStanding standing);
 
+// Whether `call`'s caller reads each result of a copy giving `results` (as
+// the table holds it: its key's, substituted, or those the decisions of the
+// component the copy joined restated) at no more than the copy gives it.
+// The caller took each result when it was decided, between waves
+// (openResults), off the same table, and was decided again at each
+// restatement since (Nodes::restate): one asked as given at the hold the
+// call's own result has, which that copy then gives (a result laid out at
+// the call so as to hold no reference has none to read); one asked open at
+// its own result's hold, to which the re-pack after the call gives it,
+// which the copy's then fits. A key made later gives less only where a
+// parameter its operand lowered in the caller's own round may reach a
+// result (static data placed at the argument), which would re-grade the
+// caller past its decided return, so such a key is not granted; nor in
+// idr-specialize's round, which decides no caller again.
+bool readsAsKeyed(CallOp call, llvm::ArrayRef<ResultLayout> layouts, mlir::TypeRange results);
+
+// What holds the signature a key's copy gives, read where a call is judged:
+// idr-optimize's table (Nodes::signatureOf: the copy's node's, which the
+// decisions of its component may restate, or the key's), or idr-specialize's
+// round, whose copies give what their keys say.
+template <class T>
+concept KeySignatures = requires(const T &table, const SignatureKey *key) {
+  { table.signatureOf(key) } -> std::same_as<mlir::FunctionType>;
+};
+
+// The signature copy `call` asks of `callee` (SignatureRule), where its
+// caller reads what the copy `table` holds for the key gives (at which the
+// call is made); none where nothing changes the callee, or where the caller
+// would read a result at more than the copy gives (readsAsKeyed). The key
+// states what it can. Where the holds passed lower a result the caller
+// reads at more, each hold that fits its parameter's (static data where the
+// callee counts nothing, a claim the parameter forgets) is left out of the
+// key, the argument crossing at the parameter's hold until it is shared
+// down (shareCrossings), and the key keeps the rest: its classes, a result
+// asked open, which a tail lost to a layout needs to be a tail, and each
+// hold its argument cannot cross at, a claim weaker than its parameter's.
+// Its keys are interned in `arena`.
+template <KeySignatures T>
+std::optional<SignatureWant> signatureOf(Arena &arena, const T &table, CallOp call, FuncOp callee,
+                                         FunctionId calleeId, identities::FactsView given,
+                                         const CallSite &site, TailStanding standing) {
+  SignatureRule rule = signatureRule(call, callee, calleeId, given, site, standing);
+  // The key at the holds `passed` names, where something changes the
+  // callee and the caller reads what its copy gives.
+  auto keyedAt = [&](llvm::ArrayRef<std::optional<Hold>> passed) -> std::optional<SignatureWant> {
+    const SignatureKey *key = rule.keyAt(arena, passed);
+    if (!key || !readsAsKeyed(call, rule.layouts, table.signatureOf(key).getResults()))
+      return std::nullopt;
+    return SignatureWant{key};
+  };
+  llvm::ArrayRef<mlir::Type> inputs = callee.getArgumentTypes();
+  llvm::SmallVector<std::optional<Hold>> passed = passedHolds(call, inputs);
+  if (std::optional<SignatureWant> keyed = keyedAt(passed))
+    return keyed;
+  llvm::SmallVector<std::optional<Hold>> crossing(passed);
+  for (auto [hold, input] : llvm::zip_equal(crossing, inputs))
+    if (std::optional<Hold> own = holdOf(input); hold && own && hold->fits(*own))
+      hold = std::nullopt;
+  if (llvm::equal(crossing, passed))
+    return std::nullopt;
+  return keyedAt(crossing);
+}
+
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
 // argument's extent the callee names, as `site` lets a size key it, or it
@@ -178,6 +244,12 @@ mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Nod
                                             const Node *calleeNode, identities::FactsView given,
                                             llvm::ArrayRef<BindingTime> seen,
                                             const CallSite &site, TailStanding standing);
+
+// The index arguments a call of a signature copy passes: the call's own
+// `call` at each binder the copy keeps, where the key's term in `classes` is
+// the level the binder becomes in the copy, as the one substitution the copy
+// is made by reads it; none where a class is fixed, the key's term closed.
+IndexArgsAttr keptArgs(mlir::MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr classes);
 
 // Calling a node.
 llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, CallOp call,

@@ -2961,7 +2961,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   rule at every run, and its choice by whether it holds the optimizer's
   callee table goes. The round reads binding times and identities from
   the analysis manager, which keeps them across every pass that does not
-  change them; `idr.func` carries no copy of them.
+  change them; `idr.func` carries no copy of them. Amended 2026-10-24
+  (L18ah, as built): between idr-optimize and the round, the simplify
+  points and inlining change function bodies, so the facts idr-optimize
+  solved are stale there, and MLIR's adaptors clear program analyses
+  after a nested pass in any case; the round solves identities once, over
+  the whole program, callees first, a copy reading its owner's, and reads
+  no binding times (it makes signature keys alone).
 - **C303** (2026-10-24; U12's question, settled by C130 and AGENTS.md's
   QTT rule; L19ad's reading). A binder's `#idr.binder` identity is the
   quantities oracle's key, kept in a location (C130), never a fact of the

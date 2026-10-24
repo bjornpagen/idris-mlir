@@ -149,7 +149,8 @@ add_mlir_library(IdrDeduplicate
 )
 
 # The specialization nodes, raising and idr-redirect: the calls of a node's
-# key, and the copies a key names.
+# key, and the copies a key names; and idr-specialize, the round that keys
+# the calls the e-graph's runs after idr-optimize left crossing.
 add_mlir_library(IdrSpecialize
 	Specialize/Arena.cpp
 	Specialize/Consumer.cpp
@@ -161,6 +162,7 @@ add_mlir_library(IdrSpecialize
 	Specialize/Raise.cpp
 	Specialize/Redirect.cpp
 	Specialize/Requests.cpp
+	Specialize/Round.cpp
 	Specialize/Specialization.cpp
 	Specialize/Specialize.cpp
 
@@ -176,6 +178,7 @@ add_mlir_library(IdrSpecialize
 	IdrIR
 	IdrAnalysis
 	IdrDeduplicate
+	IdrEffects
 	IdrJoins
 	IdrSolver
 	IdrSupport

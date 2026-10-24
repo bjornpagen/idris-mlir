@@ -340,21 +340,6 @@ const SignatureKey *SignatureRule::keyAt(Arena &arena,
   return arena.key(calleeId, signature, indices);
 }
 
-namespace {
-
-// Whether `call`'s caller reads each result of a copy giving `results` (as
-// the table holds it: its key's, substituted, or those the decisions of the
-// component the copy joined restated) at no more than the copy gives it.
-// The caller took each result when it was decided, between waves
-// (openResults), off the same table, and was decided again at each
-// restatement since (Nodes::restate): one asked as given at the hold the
-// call's own result has, which that copy then gives (a result laid out at
-// the call so as to hold no reference has none to read); one asked open at
-// its own result's hold, to which the re-pack after the call gives it,
-// which the copy's then fits. A key made later gives less only where a
-// parameter its operand lowered in the caller's own round may reach a
-// result (static data placed at the argument), which would re-grade the
-// caller past its decided return, so such a key is not granted.
 bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results) {
   auto caller = call->getParentOfType<FuncOp>();
   for (auto [index, layout] : llvm::enumerate(layouts)) {
@@ -375,47 +360,6 @@ bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results
   return true;
 }
 
-// The signature copy `call` asks of `callee` (SignatureRule), where its
-// caller reads what the copy the table holds for the key gives
-// (Nodes::signatureOf: its key's results, or those the decisions of its
-// component restated, at which the call is made); none where nothing
-// changes the callee, or where the caller would read a result at more than
-// the copy gives (readsAsKeyed).
-// The key states what it can. Where the holds passed lower a result the
-// caller reads at more, each hold that fits its parameter's (static data
-// where the callee counts nothing, a claim the parameter forgets) is left
-// out of the key, the argument crossing at the parameter's hold until its
-// function is final (shareCrossings), and the key keeps the rest: its
-// classes, a result asked open, which a tail lost to a layout needs to be
-// a tail, and each hold its argument cannot cross at, a claim weaker than
-// its parameter's.
-std::optional<SignatureWant> signatureOf(Nodes &nodes, CallOp call, FuncOp callee,
-                                         FunctionId calleeId, identities::FactsView given,
-                                         const CallSite &site, TailStanding standing) {
-  SignatureRule rule = signatureRule(call, callee, calleeId, given, site, standing);
-  // The key at the holds `passed` names, where something changes the
-  // callee and the caller reads what its copy gives.
-  auto keyedAt = [&](ArrayRef<std::optional<Hold>> passed) -> std::optional<SignatureWant> {
-    const SignatureKey *key = rule.keyAt(nodes.arena(), passed);
-    if (!key || !readsAsKeyed(call, rule.layouts, nodes.signatureOf(key).getResults()))
-      return std::nullopt;
-    return SignatureWant{key};
-  };
-  ArrayRef<Type> inputs = callee.getArgumentTypes();
-  SmallVector<std::optional<Hold>> passed = passedHolds(call, inputs);
-  if (std::optional<SignatureWant> keyed = keyedAt(passed))
-    return keyed;
-  SmallVector<std::optional<Hold>> crossing(passed);
-  for (auto [hold, input] : llvm::zip_equal(crossing, inputs))
-    if (std::optional<Hold> own = holdOf(input); hold && own && hold->fits(*own))
-      hold = std::nullopt;
-  if (llvm::equal(crossing, passed))
-    return std::nullopt;
-  return keyedAt(crossing);
-}
-
-} // namespace
-
 FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *requester,
                                       FuncOp callee, FunctionId calleeId,
                                       const Node *calleeNode, identities::FactsView given,
@@ -426,7 +370,7 @@ FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *req
   // call and where it stands, and every later key is composed over the
   // copy's own parameters.
   if (std::optional<SignatureWant> copy =
-          signatureOf(nodes, call, callee, calleeId, given, site, standing))
+          signatureOf(nodes.arena(), nodes, call, callee, calleeId, given, site, standing))
     return std::optional<Want>(*copy);
 
   // A pattern copy raises nothing; a raise copy only with its own

@@ -348,6 +348,23 @@ rcCells = MkPass ("rc" ::: ["cells"]) OnFunction (At First) Keeps
   [] [Count, Alloc, Free] NoOptions [LoadsIdr] Registered
   (MkDoc "Make each constructor of a cell the cell's allocation and its initialization" "")
 
+||| `idr-specialize`: the specializer's round on the whole program, once,
+||| where every edge must become exact. Each run of the e-graph after
+||| idr-optimize (inline's simplification, the simplify points) stands what
+||| it computes at a call's argument as static data, as the call's rule lets
+||| a hold that fits its parameter's cross until then; this keys each such
+||| call by the one rule a signature key is made by, as a round of
+||| idr-optimize keys one.
+public export
+specialize : Pass
+specialize = MkPass ("specialize" ::: []) OnProgram (At First) Edits
+  [ stat "numCopies" "copies" "Copies made for the hold a call passes"
+  , stat "numRedirected" "redirected" "Calls redirected to the copy keyed by the hold they pass"
+  , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
+  [] [] NoOptions [LoadsIdr, LoadsTensor] Registered
+  (MkDoc "Key each call that passes an operand at a hold its callee's parameter does not take"
+     "Once, after every run of the e-graph on the first-order program: each such call calls the\ncopy of its callee keyed by the hold it passes, by the one rule idr-optimize's redirect\nkeys a signature copy by, each copy made once and read in turn; what still crosses an\nedge at a hold that fits the one asked is shared down, so every edge is exact before\nlifetimes.")
+
 public export
 lifetimes : Pass
 lifetimes = MkPass ("lifetimes" ::: []) OnProgram (moves First Graded) Edits
@@ -541,8 +558,8 @@ public export
 passes : List Pass
 passes =
   [ target, defunctionalize, knots, inPlace, deduplicate, contify, optimize, inline
-  , columns, simplify, structureLoops, uniqueResults, bufferize, accumulate, rcCells, lifetimes
-  , rcBorrows, rcPlace, rcExclusive, rcReuse, rcExpand, trmc, frames, tailLoops
+  , columns, simplify, structureLoops, uniqueResults, bufferize, accumulate, rcCells, specialize
+  , lifetimes, rcBorrows, rcPlace, rcExclusive, rcReuse, rcExpand, trmc, frames, tailLoops
   , narrow, narrowWords, orderedLoops, lower, entry, narrowLanes
   , tailCalls, expect, redirect, inlineLeaves, widenRows, writeRows ]
 
@@ -582,6 +599,7 @@ programPipeline =
   simplified "what bufferization leaves" $
   Run accumulate "while a self call's result is still the operand of the operation a tail returns" $
   Nest OnFunction (Run rcCells "memory explicit: each constructor of a cell its allocation and initialization" Done) $
+  Run specialize "once, after every run of the e-graph, where every edge must become exact" $
   Run lifetimes "every lifetime decided before a reference is counted" $
   Run rcBorrows "the conventions of every parameter, from the closed program" $
   Nest OnFunction (Run rcPlace "drops first, at last use" Done) $

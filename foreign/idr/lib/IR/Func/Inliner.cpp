@@ -11,13 +11,18 @@
 // A lifetime of any kind may be passed where a view is asked, which upstream
 // meets as a type that differs at the call: the parameter becomes the
 // view of the lifetime given, `idr.lifetime.forget`, the one op whose result
-// is its operand's view, defined where the argument is in scope.
+// is its operand's view, defined where the argument is in scope. So may a
+// value at a hold that fits its parameter's, before the stage that compares
+// edges exactly (crossedAs: static data the e-graph placed at the argument):
+// the parameter becomes the value shared down to its hold, as the edge
+// would be made exact.
 //
 // Each call the body holds moves to where the call it replaces stood, so
 // its tail fact is the two facts composed: a tail of the body at a tail
 // call's place is a tail of the caller, and nothing else is.
 
 #include "idr/IR/Func.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Tail.h"
@@ -82,12 +87,17 @@ struct IdrInlinerInterface : DialectInlinerInterface {
       });
   }
 
-  // A lifetime passed where a view is asked: the view of it.
+  // A lifetime passed where a view is asked: the view of it. A value that
+  // crosses into its parameter at a hold that fits: shared down to it. The
+  // builder stands at the call, the edge whose rule is read.
   Operation *materializeCallConversion(OpBuilder &builder, Value input, Type resultType,
                                        Location conversionLoc) const final {
-    if (!lifetimes::passesAs(input.getType(), resultType))
-      return nullptr;
-    return LifetimeForgetOp::create(builder, conversionLoc, resultType, input);
+    if (lifetimes::passesAs(input.getType(), resultType))
+      return LifetimeForgetOp::create(builder, conversionLoc, resultType, input);
+    Operation *call = &*builder.getInsertionPoint();
+    if (input.getType() != resultType && crossedAs(call, input.getType(), resultType) == resultType)
+      return CountShareOp::create(builder, conversionLoc, resultType, input);
+    return nullptr;
   }
 };
 

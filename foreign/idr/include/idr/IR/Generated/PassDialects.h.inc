@@ -77,6 +77,11 @@
 #include "idr/IR/IdrDialect.h"
 #endif // GEN_PASS_DEF_IDRRCCELLS
 
+#ifdef GEN_PASS_DEF_IDRSPECIALIZE
+#include "idr/IR/IdrDialect.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#endif // GEN_PASS_DEF_IDRSPECIALIZE
+
 #ifdef GEN_PASS_DEF_IDRLIFETIMES
 #include "idr/IR/IdrDialect.h"
 #endif // GEN_PASS_DEF_IDRLIFETIMES

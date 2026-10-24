@@ -212,6 +212,24 @@ def IdrRcCells : Pass<"idr-rc-cells", "::idr::FuncOp"> {
   let dependentDialects = ["::idr::IdrDialect"];
 }
 
+def IdrSpecialize : Pass<"idr-specialize", "::idr::ProgramOp"> {
+  let summary = "Key each call that passes an operand at a hold its callee's parameter does not take";
+  let description = [{
+    Once, after every run of the e-graph on the first-order program: each such call calls the
+    copy of its callee keyed by the hold it passes, by the one rule idr-optimize's redirect
+    keys a signature copy by, each copy made once and read in turn; what still crosses an
+    edge at a hold that fits the one asked is shared down, so every edge is exact before
+    lifetimes.
+  }];
+  let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::First, ::idr::Stage::First>";
+  let statistics = [
+    Statistic<"numCopies", "copies", "Copies made for the hold a call passes">,
+    Statistic<"numRedirected", "redirected", "Calls redirected to the copy keyed by the hold they pass">,
+    Statistic<"numWork", "work", "Steps the pass's solves took, the same at any thread count">,
+  ];
+  let dependentDialects = ["::idr::IdrDialect", "::mlir::tensor::TensorDialect"];
+}
+
 def IdrLifetimes : Pass<"idr-lifetimes", "::idr::ProgramOp"> {
   let summary = "Decide every lifetime: its opener, its kind, the signatures and the copies by mode";
   let description = [{
