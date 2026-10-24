@@ -805,3 +805,21 @@ askers in callersOf, Settle's removed proof). Waiting:
 - From L16em: `Term.Termination` restates the specification's
   `Termination` (`Unproved | InComponent Nat`): generated from it or
   replaced by it (L16 with L03).
+- From L03aa: `array.tabulate`'s `outs` and `array.fold_last` /
+  `array.scan_last`'s `inits` and `outs` print `( $g : type($g) )` with
+  no optional group, so an empty group prints `( : )`, which MLIR's
+  type-list parser refuses, and `OpsTabulate.cpp:41` calls
+  `getOuts().front()` unchecked: the specification has no way to say "at
+  least one" (L03 with L12: a non-empty variadic in the specification,
+  its verifier generated); Emit's copy of the static small's type
+  (`Emit/Tensors.idr:72`, `natural`, through `heldValue` at
+  `Emit/Operations.idr:205`) asks the builder's rule: the generated Idris
+  `bigSmallOp` takes the full result type because the specification's
+  builders print for C++ only (L16 with L03, after L16en); nothing checks
+  that every source under `compiler/spec` is in `Package.idr` (L03).
+- From recheck 6 (D1 to D64): D7's five op-naming branches
+  (`if constexpr (std::is_same_v<OpT, ...Op>)`) become the ODS fact each
+  stands for: `Columns/ArrayOps.cpp:45`, `StructureLoops/Linalg.cpp:151`,
+  `Narrow/Ops.cpp:125-133` (L12), `IdrDialect.h:173-187` (L03); after the
+  running specification lanes (L16en, L01s) land. D49 and D51 are this
+  machine's (INT-25), not the owner's.
