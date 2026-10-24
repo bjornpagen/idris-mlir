@@ -9,8 +9,9 @@
 // and the one rule of where a value meets a signature's view by shape
 // compatibility. What an entry names of the signature and of the binders,
 // and where a constant may stand, is the function's verifier's. Their
-// bytecode is printed from their wires; the entries' list is written with
-// the hooks the specification declares.
+// bytecode is printed from their wires; the entries' list, and each
+// entry's position and axis, are written with the hooks the specification
+// declares.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -32,6 +33,22 @@
 
 using namespace mlir;
 using namespace idr;
+
+//===----------------------------------------------------------------------===//
+// Positions
+//===----------------------------------------------------------------------===//
+
+// A position in a signature, or an axis of a shape, `1`: the text of the
+// wire an extent's position and axis share, which its entry is written
+// with.
+FailureOr<std::uint32_t> idr::parsePosition(AsmParser &parser) {
+  std::uint32_t position = 0;
+  if (parser.parseInteger(position))
+    return failure();
+  return position;
+}
+
+void idr::printPosition(AsmPrinter &printer, std::uint32_t position) { printer << position; }
 
 //===----------------------------------------------------------------------===//
 // #idr.extent
@@ -57,22 +74,26 @@ ExtentAttr parseEntry(AsmParser &parser) {
     parser.emitError(loc, "expected the side of a signature, got `") << keyword << "`";
     return {};
   }
-  std::uint32_t position = 0;
-  std::uint32_t axis = 0;
+  FailureOr<std::uint32_t> position = parsePosition(parser);
+  if (failed(position) || parser.parseKeyword("axis"))
+    return {};
+  FailureOr<std::uint32_t> axis = parsePosition(parser);
   SmallVector<families::TermNode> term;
-  if (parser.parseInteger(position) || parser.parseKeyword("axis") || parser.parseInteger(axis) ||
-      parser.parseEqual() || families::parseTerm(parser, term, nullptr))
+  if (failed(axis) || parser.parseEqual() || families::parseTerm(parser, term, nullptr))
     return {};
   // The term as the generated builder takes it, whose body sees the
   // storage, rather than as the base's template would deduce it, which
   // would need the storage here.
   return ExtentAttr::getChecked([&] { return parser.emitError(loc); }, parser.getContext(), *side,
-                                position, axis, ArrayRef<families::TermNode>(term));
+                                *position, *axis, ArrayRef<families::TermNode>(term));
 }
 
 void printEntry(AsmPrinter &printer, ExtentAttr entry) {
-  printer << stringifyExtentSide(entry.getSide()) << ' ' << entry.getPosition() << " axis "
-          << entry.getAxis() << " = ";
+  printer << stringifyExtentSide(entry.getSide()) << ' ';
+  printPosition(printer, entry.getPosition());
+  printer << " axis ";
+  printPosition(printer, entry.getAxis());
+  printer << " = ";
   families::printTerm(printer, families::Term(entry.getTerm()), Attribute());
 }
 

@@ -69,7 +69,6 @@ add_mlir_dialect_library(IdrIR
 	Func/Extents.cpp
 	Func/Fold.cpp
 	Func/Func.cpp
-	Func/GivenBack.cpp
 	Func/Inliner.cpp
 	Func/LivesIn.cpp
 	Func/Program.cpp

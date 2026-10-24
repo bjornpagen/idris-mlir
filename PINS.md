@@ -664,8 +664,8 @@ every target, the full suites green on each, and this file's sweep.
 ## function-interface-edits
 
 - sites: `idr.func`'s positional facts (where each scoped value lives and
-  the bounds between lifetimes, what it gives back, its untouched and
-  bounded parameters), kept by its own edits
+  the bounds between lifetimes, its untouched and bounded parameters),
+  kept by its own edits
   (foreign/idr/lib/IR/Func/Edits.cpp) under every caller, upstream's
   passes among them (C187)
 - workaround: `upstream/99-function-interface-edits/llvm.patch`: the four

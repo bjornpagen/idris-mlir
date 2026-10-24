@@ -97,12 +97,6 @@ def PutBoundsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::PutBound>", "P
 def LivesInAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::LivesIn>", "LivesInEntries">:$parameters, Idr_Wired<"Kept<::idr::LivesIn>", "LivesInEntries">:$results, Idr_Wired<"Kept<::idr::Outlives>", "OutlivesBounds">:$bounds)> {
   let cType = "::idr::LivesInAttr";
 }
-def GivenBackEntryAttr : DialectAttribute<(attr Idr_Wired<"uint32_t", "Position">:$result, Idr_Wired<"Kept<uint32_t>", "FieldPath">:$result_fields, Idr_Wired<"uint32_t", "Position">:$argument, Idr_Wired<"Kept<uint32_t>", "FieldPath">:$argument_fields)> {
-  let cType = "::idr::GivenBackEntryAttr";
-}
-def GivenBackAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::GivenBackEntryAttr>", "GivenBackEntries">:$entries)> {
-  let cType = "::idr::GivenBackAttr";
-}
 def ExtentAttr : DialectAttribute<(attr Idr_Enum<"ExtentSide">:$side, Idr_Wired<"uint32_t", "Position">:$position, Idr_Wired<"uint32_t", "Position">:$axis, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$term)> {
   let cType = "::idr::ExtentAttr";
 }
@@ -143,7 +137,7 @@ def ClosureAttr : DialectAttribute<(attr Idr_Wired<"::mlir::FlatSymbolRefAttr", 
 }
 
 def IdrDialectAttributes : DialectAttributes<"Idr"> {
-  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, GivenBackEntryAttr, GivenBackAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr, ClosureAttr];
+  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr, ClosureAttr];
 }
 
 #endif // IDR_GENERATED_BYTECODE

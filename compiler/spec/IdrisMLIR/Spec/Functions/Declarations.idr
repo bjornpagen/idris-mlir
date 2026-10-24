@@ -20,10 +20,9 @@
 ||| A function also carries its signature: grades, index binders, the index
 ||| term each unknown axis of its arrays' shapes is (`extents`), lifetime
 ||| parameters, whose kind says whether the function puts into them, and
-||| the lifetime each scoped parameter and result lives in (`lives_in`); and
-||| what it gives back of its arguments (`given_back`), which the optimizer
-||| alone proves; and, for a specialized copy, what it is to its origin's
-||| recursion (`copy`), which the specializer decides; and the most bytes
+||| the lifetime each scoped parameter and result lives in (`lives_in`);
+||| and, for a specialized copy, what it is to its origin's recursion
+||| (`copy`), which the specializer decides; and the most bytes
 ||| an active call of it holds that it no longer needs (`frame_bound`),
 ||| computed from types. A call carries its index arguments, its
 ||| lifetime operands, its copy of its callee's `lives_in`, and where it
@@ -40,7 +39,6 @@ import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Functions.Copy
 import IdrisMLIR.Spec.Functions.Parameters
-import IdrisMLIR.Spec.Functions.GivenBack
 import IdrisMLIR.Spec.Functions.Extents
 import IdrisMLIR.Spec.Functions.LivesIn
 
@@ -181,13 +179,13 @@ programOp = MkOp
 ||| A function of the program and what is known of a run of it. Its
 ||| visibility is no fact of its own: it is public exactly when it is its
 ||| program's root. Its body is one block. Its verifier checks that its
-||| record, its `lives_in`, its `given_back` and its `extents` name only
-||| what its signature and its binders have, an extent's constant never at
-||| an axis its type would hold static, and that no result's array holds an
-||| axis static, its known size being its extents' constant, so the type a
-||| call gives is the type its slot takes and no cast follows a call; its
-||| region verifier, that its row and record cover what its body does, and
-||| where its calls stand. It states its parameters' lifetimes.
+||| record, its `lives_in` and its `extents` name only what its signature
+||| and its binders have, an extent's constant never at an axis its type
+||| would hold static, and that no result's array holds an axis static, its
+||| known size being its extents' constant, so the type a call gives is the
+||| type its slot takes and no cast follows a call; its region verifier,
+||| that its row and record cover what its body does, and where its calls
+||| stand. It states its parameters' lifetimes.
 ||| Inserting and erasing parameters and results are its own implementations
 ||| of the function interface's methods, so whoever edits its signature,
 ||| through the op or the interface, one item or many, moves what it states
@@ -195,7 +193,7 @@ programOp = MkOp
 ||| attribute's constraint, so the interface's own clone of it, and each edit
 ||| of its signature, builds the new type from it and never meets a null.
 public export
-funcOp : Op 0 0 14 1
+funcOp : Op 0 0 13 1
 funcOp = MkOp
   { home = InIdr
   , mnemonic = "func"
@@ -213,7 +211,6 @@ funcOp = MkOp
       , MkAttr "bounded" boundedSlot
       , MkAttr "terminates" terminatesSlot
       , MkAttr "lives_in" livesInSlot
-      , MkAttr "given_back" (AnAttribute (OurAttr (SomeAttr givenBackAttr)) MayBeAbsent)
       , MkAttr "copy" (AnAttribute (EnumAttrOf (enumDef copyKindClosed)) MayBeAbsent)
       , MkAttr "frame_bound" frameBoundSlot
       ]
@@ -250,11 +247,10 @@ funcOp = MkOp
       """
       Its row, its record per parameter, its termination proof, the index
       term each unknown axis of its signature is, where its scoped values
-      live, what it gives back, what kind of copy it is and its frame bound
-      are inherent: no pass drops one without changing the op. Only the one
-      writer of rows and a clone copying its source write the row and the
-      record; only the optimizer writes what it gives back and what copy it
-      is.
+      live, what kind of copy it is and its frame bound are inherent: no
+      pass drops one without changing the op. Only the one writer of rows
+      and a clone copying its source write the row and the record; only the
+      optimizer writes what copy it is.
       """
   }
 
@@ -336,8 +332,7 @@ callOp = MkOp
       its parameter's standing at the parameter's (static data where the
       callee counts, a claim forgotten), as the program's stage says.
       Where it stands is the tail calls' to decide and check; a tail call's
-      callee takes as many cursors as its caller and gives back the same
-      result components.
+      callee takes as many cursors as its caller.
       """
   }
 
@@ -384,7 +379,6 @@ declarations =
   { ops := [SomeOp programOp, SomeOp funcOp, SomeOp callOp, SomeOp returnOp]
   , attributes :=
       [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
-      , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr
       , SomeAttr extentAttr, SomeAttr extentsAttr ]
   , enums :=
       [ enumDef tailKindClosed, enumDef copyKindClosed

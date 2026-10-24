@@ -4,13 +4,15 @@
 // component of a result is, whenever it returns. Once Idris's indices are erased, a
 // function that only rebuilds its argument (Fin's weaken, a term's
 // weakening to a larger scope) computes nothing, and a threaded state
-// returned inline gives back the fields it was passed. The fact is held
-// once, on idr.func, per result field path; the lowering reads it to give
-// back a register it was passed, and idr-simplify replaces a call by the
-// argument part it gives back where the call's row allows its deletion
-// (carries neither crash nor divergence). The fact itself says nothing
-// about returning: a function that never returns gives back anything, and
-// deleting its call is the row's to allow, never this fact's.
+// returned inline gives back the fields it was passed. The fact is the
+// optimizer's alone: published per result field path to the table its
+// passes read (egraph::CalleeFacts), it dies with the optimizer's run.
+// idr-simplify replaces a call by the argument part it gives back where
+// the call's row allows its deletion (carries neither crash nor
+// divergence), and the specializer keys a copy's results by it. The fact
+// itself says nothing about returning: a function that never returns gives
+// back anything, and deleting its call is the row's to allow, never this
+// fact's.
 //
 // Beside it, what may reach each result on some path: an argument the
 // result may be, may hold inside it, or may hold a part of, as a reverse
@@ -64,9 +66,7 @@ namespace idr::identities {
 
 // A component of a result or of an argument: the value at `index`, then
 // down through `fields`, each a field position of a type whose constructor
-// its type fixes, so the path is a place in the value's inline layout. The
-// shape idr.func's given_back holds (GivenBackAttr), which the optimizer
-// writes from these facts.
+// its type fixes, so the path is a place in the value's inline layout.
 struct Path {
   std::uint32_t index;
   footprint::Vector<std::uint32_t> fields;

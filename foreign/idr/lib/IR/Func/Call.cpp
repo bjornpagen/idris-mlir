@@ -15,9 +15,8 @@
 // parameter's; its copies are the callee's;
 // what its callee puts into a lifetime its caller passes on fits what the
 // caller says it puts; and a tail call passes its caller's cursors each in
-// its own place, its callee gives back the same result components, and
-// each result is laid out as its caller returns it. Where it stands in its
-// function is the tail calls' to check.
+// its own place, and each result is laid out as its caller returns it.
+// Where it stands in its function is the tail calls' to check.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Families/Substitute.h"
@@ -154,13 +153,6 @@ Runs runsOf(Operation *op, FuncOp fn) {
   return Runs::Once;
 }
 
-// The result components a function gives back, in their order.
-auto givenBackResults(FuncOp fn) {
-  GivenBackAttr given = fn.getGivenBackAttr();
-  return llvm::map_range(given ? given.getEntries() : ArrayRef<GivenBackEntryAttr>(),
-                         [](GivenBackEntryAttr entry) { return entry.entry().result; });
-}
-
 // A tail call's callee takes, as its k-th cursor parameter, its caller's
 // k-th cursor parameter, and every one of them. The two lower to one
 // return, which hands back the cursors the callee returns as the caller's
@@ -274,15 +266,11 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto caller = (*this)->getParentOfType<FuncOp>();
 
   // A tail call and its caller lower to one return: each cursor comes back
-  // in its place, each gives back the same result components, so a result
-  // one drops is dropped by both, and each result is laid out as its
-  // caller returns it, so no re-pack runs after the call.
+  // in its place, and each result is laid out as its caller returns it, so
+  // no re-pack runs after the call.
   if (tailCallOf(*this)) {
     if (failed(cursorsInPlace(*this, caller, inputs, name)))
       return failure();
-    if (!llvm::equal(givenBackResults(caller), givenBackResults(fn)))
-      return emitOpError("is a tail call of ")
-             << name << ", which gives back other result components than its caller";
     if (failed(tail::verifyLayouts(*this, caller)))
       return failure();
   }

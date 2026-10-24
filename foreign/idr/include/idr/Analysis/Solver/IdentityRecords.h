@@ -34,7 +34,7 @@ using ValueId = Id<ValueTag>;
 // One step down into a value, inside the solve: a field of a constructor,
 // or the predecessor of a natural (the field of its successor, as Idris
 // shapes a natural). What the solve publishes keeps only the steps a
-// given_back path can hold.
+// published path (identities::Path) can hold.
 struct Field {
   Tag tag;
   std::uint32_t index;

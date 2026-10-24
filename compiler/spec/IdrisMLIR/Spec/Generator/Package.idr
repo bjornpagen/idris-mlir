@@ -44,7 +44,7 @@ declaring =
   , MkArea "Effects" ("Atom" ::: ["Declaration", "Declarations", "LLVM", "Resource"])
   , MkArea "Families" ("Declarations" ::: ["Dialect", "Group", "Layout", "Ops", "Terms", "Types"])
   , MkArea "Functions"
-      ("Copy" ::: ["Declarations", "Extents", "GivenBack", "LivesIn", "Parameters", "Tail", "Termination"])
+      ("Copy" ::: ["Declarations", "Extents", "LivesIn", "Parameters", "Tail", "Termination"])
   , MkArea "Grades" ("Declarations" ::: ["Grade", "Hold"])
   , MkArea "Lifetimes" ("Declarations" ::: ["Kind"])
   , MkArea "Ops"

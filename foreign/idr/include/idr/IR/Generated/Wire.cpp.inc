@@ -765,35 +765,6 @@ void writePosition(::mlir::DialectBytecodeWriter &writer, uint32_t value) {
   writer.writeVarInt(value);
 }
 
-// the fields down to a component: `[0, 2]`, or nothing for the whole value
-::mlir::LogicalResult readFieldPath(::mlir::DialectBytecodeReader &reader, Kept<uint32_t> &value) {
-  auto each = [&](uint32_t &element) -> ::mlir::LogicalResult {
-    if (::mlir::failed(readWord32(reader, element)))
-      return ::mlir::failure();
-    return ::mlir::success();
-  };
-  if (::mlir::failed(reader.readList(value.items, each)))
-    return ::mlir::failure();
-  return ::mlir::success();
-}
-
-void writeFieldPath(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<uint32_t> value) {
-  writer.writeList(value, [&](const uint32_t &element) {
-    writer.writeVarInt(element);
-  });
-}
-
-// result components and the argument components they are: `[0 <- 2, 1[0] <- 0[1]]`
-::mlir::LogicalResult readGivenBackEntries(::mlir::DialectBytecodeReader &reader, Kept<::idr::GivenBackEntryAttr> &value) {
-  if (::mlir::failed(reader.readAttributes(value.items)))
-    return ::mlir::failure();
-  return ::mlir::success();
-}
-
-void writeGivenBackEntries(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::GivenBackEntryAttr> value) {
-  writer.writeAttributes(value);
-}
-
 // the axes a signature names by a term: `[input 0 axis 1 = v0, result 0 axis 0 = v0 + 1]`
 ::mlir::LogicalResult readExtentEntries(::mlir::DialectBytecodeReader &reader, Kept<::idr::ExtentAttr> &value) {
   if (::mlir::failed(reader.readAttributes(value.items)))

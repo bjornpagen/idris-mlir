@@ -194,8 +194,8 @@ mlir::LogicalResult verify(FuncOp fn);
 // is laid out as `caller` returns it, as families::layoutMatch says (the
 // reading by which a reindex is free or re-packs), since the two lower to
 // one return and a re-pack between them would run after the call. Called
-// by idr.call's symbol-use verifier, beside the result components the two
-// give back; a mismatch is an internal error naming both layouts.
+// by idr.call's symbol-use verifier; a mismatch is an internal error naming
+// both layouts.
 mlir::LogicalResult verifyLayouts(CallOp call, FuncOp caller);
 
 } // namespace idr::tail

@@ -37,7 +37,6 @@ import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Families.Terms
 import IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Functions.Copy
-import IdrisMLIR.Spec.Functions.GivenBack
 import IdrisMLIR.Spec.Functions.LivesIn
 import IdrisMLIR.Spec.Runtime.Clocks
 import IdrisMLIR.Spec.Runtime.Endings

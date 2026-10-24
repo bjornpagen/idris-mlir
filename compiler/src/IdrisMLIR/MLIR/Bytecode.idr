@@ -752,8 +752,6 @@ mutual
   numberIdrAttr w (PutBoundsAttr bs) = pure (PutBoundsAttr (map numberPutBound bs))
   numberIdrAttr w (LivesInAttr ps rs bs) =
     pure (LivesInAttr (map numberLivesIn ps) (map numberLivesIn rs) (map numberOutlives bs))
-  numberIdrAttr w (GivenBackEntryAttr r rfs a afs) = pure (GivenBackEntryAttr r rfs a afs)
-  numberIdrAttr w (GivenBackAttr es) = GivenBackAttr <$> attrNumbers w es
   numberIdrAttr w (ExtentAttr sd p a t) = ExtentAttr sd p a <$> numberTermNodes w t
   numberIdrAttr w (ExtentsAttr es) = ExtentsAttr <$> attrNumbers w es
   numberIdrAttr w (FamilyAttr ms) = FamilyAttr <$> numberMembers w ms

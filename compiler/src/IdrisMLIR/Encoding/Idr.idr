@@ -49,8 +49,6 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   TerminatesAttr : (proof' : ComponentProof ty at) -> IdrAttr ty at
   PutBoundsAttr : (bounds' : List (PutBound ty at)) -> IdrAttr ty at
   LivesInAttr : (parameters' : List (LivesIn ty at)) -> (results' : List (LivesIn ty at)) -> (bounds' : List (Outlives ty at)) -> IdrAttr ty at
-  GivenBackEntryAttr : (result' : Nat) -> (result_fields' : List (Nat)) -> (argument' : Nat) -> (argument_fields' : List (Nat)) -> IdrAttr ty at
-  GivenBackAttr : (entries' : List (at)) -> IdrAttr ty at
   ExtentAttr : (side' : IdrisMLIR.Spec.Functions.Extents.ExtentSide) -> (position' : Nat) -> (axis' : Nat) -> (term' : List (TermNode ty at)) -> IdrAttr ty at
   ExtentsAttr : (entries' : List (at)) -> IdrAttr ty at
   FamilyAttr : (members' : List (MemberOf ty at)) -> IdrAttr ty at
@@ -88,7 +86,7 @@ idrTypeMnemonic (DestType _) = "dest"
 ||| The mnemonics of the dialect's attributes, in declaration order.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["binder", "terminates", "put_bounds", "lives_in", "given_back.entry", "given_back", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big", "closure"]
+idrAttrMnemonics = ["binder", "terminates", "put_bounds", "lives_in", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big", "closure"]
 
 ||| The mnemonic of each of the dialect's attributes.
 export
@@ -97,8 +95,6 @@ idrAttrMnemonic (BinderAttr _ _) = "binder"
 idrAttrMnemonic (TerminatesAttr _) = "terminates"
 idrAttrMnemonic (PutBoundsAttr _) = "put_bounds"
 idrAttrMnemonic (LivesInAttr _ _ _) = "lives_in"
-idrAttrMnemonic (GivenBackEntryAttr _ _ _ _) = "given_back.entry"
-idrAttrMnemonic (GivenBackAttr _) = "given_back"
 idrAttrMnemonic (ExtentAttr _ _ _ _) = "extent"
 idrAttrMnemonic (ExtentsAttr _) = "extents"
 idrAttrMnemonic (FamilyAttr _) = "family"
@@ -281,30 +277,10 @@ export
 encodeLivesInAttr : List (LivesIn TypeRef AttrRef) -> List (LivesIn TypeRef AttrRef) -> List (Outlives TypeRef AttrRef) -> List Part
 encodeLivesInAttr parameters' results' bounds' = [VarInt livesInAttrCode] ++ (VarInt (length parameters') :: concatMap (\x' => partsLivesIn x') parameters') ++ (VarInt (length results') :: concatMap (\x' => partsLivesIn x') results') ++ (VarInt (length bounds') :: concatMap (\x' => partsOutlives x') bounds')
 
-||| The code of `GivenBackEntryAttr`, its place among the dialect's attributes.
-export
-givenBackEntryAttrCode : Nat
-givenBackEntryAttrCode = 4
-
-||| The parts of `GivenBackEntryAttr`: its code, then each parameter.
-export
-encodeGivenBackEntryAttr : Nat -> List (Nat) -> Nat -> List (Nat) -> List Part
-encodeGivenBackEntryAttr result' result_fields' argument' argument_fields' = [VarInt givenBackEntryAttrCode] ++ [VarInt result'] ++ (VarInt (length result_fields') :: concatMap (\x' => [VarInt x']) result_fields') ++ [VarInt argument'] ++ (VarInt (length argument_fields') :: concatMap (\x' => [VarInt x']) argument_fields')
-
-||| The code of `GivenBackAttr`, its place among the dialect's attributes.
-export
-givenBackAttrCode : Nat
-givenBackAttrCode = 5
-
-||| The parts of `GivenBackAttr`: its code, then each parameter.
-export
-encodeGivenBackAttr : List (AttrRef) -> List Part
-encodeGivenBackAttr entries' = [VarInt givenBackAttrCode] ++ (VarInt (length entries') :: concatMap (\x' => [AttrAt x']) entries')
-
 ||| The code of `ExtentAttr`, its place among the dialect's attributes.
 export
 extentAttrCode : Nat
-extentAttrCode = 6
+extentAttrCode = 4
 
 ||| The parts of `ExtentAttr`: its code, then each parameter.
 export
@@ -314,7 +290,7 @@ encodeExtentAttr side' position' axis' term' = [VarInt extentAttrCode] ++ [VarIn
 ||| The code of `ExtentsAttr`, its place among the dialect's attributes.
 export
 extentsAttrCode : Nat
-extentsAttrCode = 7
+extentsAttrCode = 5
 
 ||| The parts of `ExtentsAttr`: its code, then each parameter.
 export
@@ -324,7 +300,7 @@ encodeExtentsAttr entries' = [VarInt extentsAttrCode] ++ (VarInt (length entries
 ||| The code of `FamilyAttr`, its place among the dialect's attributes.
 export
 familyAttrCode : Nat
-familyAttrCode = 8
+familyAttrCode = 6
 
 ||| The parts of `FamilyAttr`: its code, then each parameter.
 export
@@ -334,7 +310,7 @@ encodeFamilyAttr members' = [VarInt familyAttrCode] ++ (VarInt (length members')
 ||| The code of `IndexBindersAttr`, its place among the dialect's attributes.
 export
 indexBindersAttrCode : Nat
-indexBindersAttrCode = 9
+indexBindersAttrCode = 7
 
 ||| The parts of `IndexBindersAttr`: its code, then each parameter.
 export
@@ -344,7 +320,7 @@ encodeIndexBindersAttr sorts' = [VarInt indexBindersAttrCode] ++ (VarInt (length
 ||| The code of `IndexArgsAttr`, its place among the dialect's attributes.
 export
 indexArgsAttrCode : Nat
-indexArgsAttrCode = 10
+indexArgsAttrCode = 8
 
 ||| The parts of `IndexArgsAttr`: its code, then each parameter.
 export
@@ -354,7 +330,7 @@ encodeIndexArgsAttr terms' count' = [VarInt indexArgsAttrCode] ++ (VarInt (lengt
 ||| The code of `EquationAttr`, its place among the dialect's attributes.
 export
 equationAttrCode : Nat
-equationAttrCode = 11
+equationAttrCode = 9
 
 ||| The parts of `EquationAttr`: its code, then each parameter.
 export
@@ -364,7 +340,7 @@ encodeEquationAttr lhs' rhs' = [VarInt equationAttrCode] ++ (VarInt (length lhs'
 ||| The code of `ConAttr`, its place among the dialect's attributes.
 export
 conAttrCode : Nat
-conAttrCode = 12
+conAttrCode = 10
 
 ||| The parts of `ConAttr`: its code, then each parameter.
 export
@@ -374,7 +350,7 @@ encodeConAttr data' cells' spine' = [VarInt conAttrCode] ++ [TypeAt data'] ++ (V
 ||| The code of `MutableAttr`, its place among the dialect's attributes.
 export
 mutableAttrCode : Nat
-mutableAttrCode = 13
+mutableAttrCode = 11
 
 ||| The parts of `MutableAttr`: its code, then each parameter.
 export
@@ -384,7 +360,7 @@ encodeMutableAttr = [VarInt mutableAttrCode]
 ||| The code of `SiteAttr`, its place among the dialect's attributes.
 export
 siteAttrCode : Nat
-siteAttrCode = 14
+siteAttrCode = 12
 
 ||| The parts of `SiteAttr`: its code, then each parameter.
 export
@@ -394,7 +370,7 @@ encodeSiteAttr file' line' column' function' = [VarInt siteAttrCode] ++ [Str fil
 ||| The code of `BigAttr`, its place among the dialect's attributes.
 export
 bigAttrCode : Nat
-bigAttrCode = 15
+bigAttrCode = 13
 
 ||| The parts of `BigAttr`: its code, then each parameter.
 export
@@ -404,7 +380,7 @@ encodeBigAttr value' = [VarInt bigAttrCode] ++ [IntegerAt value']
 ||| The code of `ClosureAttr`, its place among the dialect's attributes.
 export
 closureAttrCode : Nat
-closureAttrCode = 16
+closureAttrCode = 14
 
 ||| The parts of `ClosureAttr`: its code, then each parameter.
 export
@@ -435,8 +411,6 @@ encodeIdrAttr (BinderAttr definition' index') = encodeBinderAttr definition' ind
 encodeIdrAttr (TerminatesAttr proof') = encodeTerminatesAttr proof'
 encodeIdrAttr (PutBoundsAttr bounds') = encodePutBoundsAttr bounds'
 encodeIdrAttr (LivesInAttr parameters' results' bounds') = encodeLivesInAttr parameters' results' bounds'
-encodeIdrAttr (GivenBackEntryAttr result' result_fields' argument' argument_fields') = encodeGivenBackEntryAttr result' result_fields' argument' argument_fields'
-encodeIdrAttr (GivenBackAttr entries') = encodeGivenBackAttr entries'
 encodeIdrAttr (ExtentAttr side' position' axis' term') = encodeExtentAttr side' position' axis' term'
 encodeIdrAttr (ExtentsAttr entries') = encodeExtentsAttr entries'
 encodeIdrAttr (FamilyAttr members') = encodeFamilyAttr members'
@@ -473,8 +447,6 @@ traverseIdrAttr t a (BinderAttr definition' index') = pure BinderAttr <*> a defi
 traverseIdrAttr t a (TerminatesAttr proof') = pure TerminatesAttr <*> traverseComponentProof t a proof'
 traverseIdrAttr t a (PutBoundsAttr bounds') = pure PutBoundsAttr <*> traverse (\x' => traversePutBound t a x') bounds'
 traverseIdrAttr t a (LivesInAttr parameters' results' bounds') = pure LivesInAttr <*> traverse (\x' => traverseLivesIn t a x') parameters' <*> traverse (\x' => traverseLivesIn t a x') results' <*> traverse (\x' => traverseOutlives t a x') bounds'
-traverseIdrAttr t a (GivenBackEntryAttr result' result_fields' argument' argument_fields') = pure GivenBackEntryAttr <*> pure result' <*> traverse (\x' => pure x') result_fields' <*> pure argument' <*> traverse (\x' => pure x') argument_fields'
-traverseIdrAttr t a (GivenBackAttr entries') = pure GivenBackAttr <*> traverse (\x' => a x') entries'
 traverseIdrAttr t a (ExtentAttr side' position' axis' term') = pure ExtentAttr <*> pure side' <*> pure position' <*> pure axis' <*> traverse (\x' => traverseTermNode t a x') term'
 traverseIdrAttr t a (ExtentsAttr entries') = pure ExtentsAttr <*> traverse (\x' => a x') entries'
 traverseIdrAttr t a (FamilyAttr members') = pure FamilyAttr <*> traverse (\x' => traverseMemberOf t a x') members'

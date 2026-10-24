@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What idr.func and idr.call hold beyond their generated classes, which
-// the specification's attributes and properties name, so it comes before
-// them: Idris's proof that a function's own loops end, the bound a
-// function puts into a lifetime parameter, where each scoped parameter and
-// result lives, what a function gives back, the index term each unknown
-// axis of its signature's shapes is, and which part of a
-// function's per-parameter record each parameter's type admits. Each part
-// exists only where the parameter's type admits it: the record names a
-// parameter by its position among the parameters that admit that part, so
-// a write part cannot describe a lifetime, nor an amount a value. Last,
-// the operands a call's callee writes through, which every reader of a
-// call's effects asks. The dialect's inliner rules come first. Each value's
-// text and the row are hooks the specification declares with every other
-// (Generated/Hooks.h.inc), after the classes they name; each value's
+// What idr.func and idr.call hold beyond their generated classes, which the
+// specification's attributes and properties name, so it comes before them:
+// Idris's proof that a function's own loops end, the bound a function puts
+// into a lifetime parameter, where each scoped parameter and result lives,
+// the index term each unknown axis of its signature's shapes is, and which
+// part of a function's per-parameter record each parameter's type admits.
+// Each part exists only where the parameter's type admits it: the record
+// names a parameter by its position among the parameters that admit that
+// part, so a write part cannot describe a lifetime, nor an amount a value.
+// Last, the operands a call's callee writes through, which every reader of
+// a call's effects asks. The dialect's inliner rules come first. Each
+// value's text and the row are hooks the specification declares with every
+// other (Generated/Hooks.h.inc), after the classes they name; each value's
 // bytecode is printed from its wire, which reads these classes' members by
 // name.
 //
@@ -36,7 +35,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include <algorithm>
 #include <compare>
 #include <concepts>
 #include <cstdint>
@@ -177,37 +175,6 @@ struct Outlives {
 
 llvm::hash_code hash_value(const LivesIn &entry);
 llvm::hash_code hash_value(const Outlives &bound);
-
-//===----------------------------------------------------------------------===//
-// What a function gives back
-//===----------------------------------------------------------------------===//
-
-// A component of a result or of the arguments: the value at `index`, then
-// down through `fields`, each a field of a constructor its type lays out
-// inline. A view: the attribute owns what it holds, and whoever builds one
-// owns the fields until the attribute copies them.
-struct GivenBackPath {
-  std::uint32_t index;
-  llvm::ArrayRef<std::uint32_t> fields;
-  bool operator==(const GivenBackPath &other) const {
-    return index == other.index && fields == other.fields;
-  }
-  // The order entries are listed in: by position, then field by field.
-  bool operator<(const GivenBackPath &other) const {
-    if (index != other.index)
-      return index < other.index;
-    return std::lexicographical_compare(fields.begin(), fields.end(), other.fields.begin(),
-                                        other.fields.end());
-  }
-};
-
-// On every path that returns, component `result` of the result is
-// component `argument` of the arguments: the same value.
-struct GivenBackEntry {
-  GivenBackPath result;
-  GivenBackPath argument;
-  bool operator==(const GivenBackEntry &) const = default;
-};
 
 //===----------------------------------------------------------------------===//
 // The index term each unknown axis is

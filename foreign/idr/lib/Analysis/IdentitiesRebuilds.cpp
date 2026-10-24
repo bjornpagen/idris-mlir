@@ -323,7 +323,7 @@ footprint::Vector<GivesBack> wholeFactsAmong(const Record &record,
   return kept;
 }
 
-// The given_back path of a part, where it is one: every step a field of a
+// The published path of a part, where it is one: every step a field of a
 // type that fixes its constructor, read from the argument's type down. A
 // part below a predecessor, or a field of a value whose type leaves two
 // constructors, is no place in the argument's inline layout.

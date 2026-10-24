@@ -251,12 +251,6 @@ void printOutlivesBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::Ou
 ::mlir::FailureOr<uint32_t> parsePosition(::mlir::AsmParser &parser);
 void printPosition(::mlir::AsmPrinter &printer, uint32_t value);
 
-::mlir::FailureOr<::llvm::SmallVector<uint32_t>> parseFieldPath(::mlir::AsmParser &parser);
-void printFieldPath(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<uint32_t> value);
-
-::mlir::FailureOr<::llvm::SmallVector<::idr::GivenBackEntryAttr>> parseGivenBackEntries(::mlir::AsmParser &parser);
-void printGivenBackEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::GivenBackEntryAttr> value);
-
 ::mlir::FailureOr<::llvm::SmallVector<::idr::ExtentAttr>> parseExtentEntries(::mlir::AsmParser &parser);
 void printExtentEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::ExtentAttr> value);
 

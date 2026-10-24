@@ -23,8 +23,8 @@ the edits fallible, which is the present form).
 
 What needs it in this repository: `idr.func` states facts by the
 positions of its parameters and results (where each scoped value lives
-and the bounds between lifetimes, what it gives back, its untouched and
-bounded parameters), which its own edits move with the signature
+and the bounds between lifetimes, its untouched and bounded
+parameters), which its own edits move with the signature
 (`foreign/idr/lib/IR/Func/Edits.cpp`), and upstream's passes and ours
 edit functions through the interface. Through the interface, those facts
 would be left at their old positions, naming the wrong parameters

@@ -22,7 +22,6 @@
 
 #include "idr/Transforms/OptimizeScheduler.h"
 
-#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Effects.h"
@@ -38,18 +37,6 @@ using namespace mlir;
 namespace idr::optimize {
 
 namespace {
-
-// What a function gives back, as the function holds it: each fact a path
-// through fields laid out inline, which the attribute copies.
-void writeGivenBack(FuncOp fn, ArrayRef<identities::GivesBack> facts) {
-  SmallVector<GivenBackEntry> entries;
-  for (const identities::GivesBack &fact : facts)
-    entries.push_back(GivenBackEntry{GivenBackPath{fact.result.index, fact.result.fields},
-                                     GivenBackPath{fact.argument.index, fact.argument.fields}});
-  llvm::sort(entries,
-             [](const GivenBackEntry &a, const GivenBackEntry &b) { return a.result < b.result; });
-  fn.setGivenBackAttr(entries.empty() ? GivenBackAttr() : GivenBackAttr::get(fn.getContext(), entries));
-}
 
 // The waits between components the condensation reads: a node per
 // component leader met, an edge per wait not met, and a root reaching all.
@@ -172,10 +159,8 @@ void Scheduler::finalize(unsigned component) {
           schedule.graph, members,
           [&](FunctionId callee) { return schedule.callees.of(callee); },
           spent);
-  for (auto [id, facts] : llvm::zip_equal(ids, given)) {
-    writeGivenBack(schedule.function(id), facts.givesBack);
+  for (auto [id, facts] : llvm::zip_equal(ids, given))
     schedule.callees.publish(id, std::move(facts), schedule.function(id));
-  }
   for (FunctionId id : ids) {
     Schedule::Member &member = schedule.members[id.index()];
     Solved solved = idr::match(member.phase, [](Done &done) { return std::move(done.solved); },

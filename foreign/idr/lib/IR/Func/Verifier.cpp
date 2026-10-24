@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.func's two verifiers. Its op verifier holds what its signature
 // states beyond its types (its record, where each scoped value lives and
-// the bounds between lifetimes, what it gives back, the index term each
-// unknown axis is) to that signature and its binders, and keeps every axis
+// the bounds between lifetimes, the index term each unknown axis is) to
+// that signature and its binders, and keeps every axis
 // of a result's array `?`: a local fact of the op, checked before its
 // body. Its region verifier runs the rules of one
 // function, after the ops of its body are verified and in parallel with
@@ -104,20 +104,6 @@ LogicalResult signatureFits(FuncOp fn) {
   return success();
 }
 
-// What the function gives back names its results and its parameters.
-LogicalResult givenBackFits(FuncOp fn) {
-  GivenBackAttr given = fn.getGivenBackAttr();
-  if (!given)
-    return success();
-  for (GivenBackEntryAttr entry : given.getEntries())
-    if (entry.getResult() >= fn.getResultTypes().size() ||
-        entry.getArgument() >= fn.getArgumentTypes().size())
-      return fn.emitOpError("gives back argument ")
-             << entry.getArgument() << " as result " << entry.getResult()
-             << ", which its signature does not have";
-  return success();
-}
-
 // Every axis of a result's array is `?`, whatever its term, a literal
 // included: a size the function knows of a result is its extents' constant
 // entry, and a return of a static value casts before the return. So the
@@ -195,8 +181,7 @@ LogicalResult extentsFit(FuncOp fn) {
 // the record by position with no bound to test.
 LogicalResult idr::FuncOp::verify() {
   if (failed(recordFits(*this, ParameterParts(getArgumentTypes()))) ||
-      failed(signatureFits(*this)) || failed(givenBackFits(*this)) ||
-      failed(resultAxesFit(*this)))
+      failed(signatureFits(*this)) || failed(resultAxesFit(*this)))
     return failure();
   return extentsFit(*this);
 }

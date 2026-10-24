@@ -166,10 +166,6 @@ linalgAttrs =
   , TypeFnAttr TypeFn.CastSigned
   , IteratorTypeAttr IteratorType.Parallel ]
 
-||| Result 1's field 0 is argument 0's field 1.
-givenBackField : MlirAttr
-givenBackField = Idr (GivenBackEntryAttr 1 [0] 0 [1])
-
 ||| Axis 1 of argument 0 is the term `v0`.
 inputTerm : MlirAttr
 inputTerm = Idr (ExtentAttr OnInput 0 1 [TermNodeLevel 0])
@@ -200,12 +196,10 @@ attrs =
     -- The binder at position 2 of `@sample`, as a location names it.
   , Idr (BinderAttr (SymbolRefAttr (MkSymbolRef "sample" [])) 2)
     -- A signature's facts: the bounded puts, where its scoped values live
-    -- and a bound between two lifetimes, what it gives back of its
-    -- arguments, and its unknown axes, a term's and a constant's.
+    -- and a bound between two lifetimes, and its unknown axes, a term's
+    -- and a constant's.
   , Idr (PutBoundsAttr [MkPutBound 0 64, MkPutBound 2 128])
   , Idr (LivesInAttr [MkLivesIn 2 0, MkLivesIn 3 0] [MkLivesIn 0 0] [MkOutlives 0 1])
-  , givenBackField
-  , Idr (GivenBackAttr [Idr (GivenBackEntryAttr 0 [] 2 []), givenBackField])
   , inputTerm
   , resultConstant
   , Idr (ExtentsAttr [inputTerm, resultConstant])

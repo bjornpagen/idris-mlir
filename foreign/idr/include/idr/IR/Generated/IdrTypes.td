@@ -280,32 +280,6 @@ def Idr_LivesInAttr : Idr_Attr<"LivesIn", "lives_in", []> {
   }];
 }
 
-def Idr_GivenBackEntryAttr : Idr_Attr<"GivenBackEntry", "given_back.entry", []> {
-  let summary = "a result component and the argument component it is";
-  let parameters = (ins Idr_HandParameter<"uint32_t", "Position">:$result, Idr_HandArrayParameter<"uint32_t", "FieldPath">:$result_fields, Idr_HandParameter<"uint32_t", "Position">:$argument, Idr_HandArrayParameter<"uint32_t", "FieldPath">:$argument_fields);
-  let hasCustomAssemblyFormat = 1;
-  let extraClassDeclaration = [{
-    ::idr::GivenBackEntry entry() const;
-  }];
-}
-
-def Idr_GivenBackAttr : Idr_Attr<"GivenBack", "given_back", []> {
-  let summary = "what a function gives back of its arguments";
-  let description = [{
-    On every path that returns, each listed component of the result is the
-    listed component of the arguments: the same value. Absent from a
-    function that gives back nothing. Moving the signature's positions
-    keeps it so.
-  }];
-  let parameters = (ins Idr_HandArrayParameter<"::idr::GivenBackEntryAttr", "GivenBackEntries">:$entries);
-  let assemblyFormat = [{ `<` $entries `>` }];
-  let genVerifyDecl = 1;
-  let extraClassDeclaration = [{
-    static ::idr::GivenBackAttr get(::mlir::MLIRContext * context, ::llvm::ArrayRef<::idr::GivenBackEntry> entries);
-    ::idr::GivenBackAttr renumber(::llvm::ArrayRef<::std::optional<uint32_t>> parameters, ::llvm::ArrayRef<::std::optional<uint32_t>> results) const;
-  }];
-}
-
 def Idr_ExtentAttr : Idr_Attr<"Extent", "extent", []> {
   let summary = "an unknown axis of a signature and the index term its size is";
   let parameters = (ins Idr_EnumParameter<Idr_ExtentSide>:$side, Idr_HandParameter<"uint32_t", "Position">:$position, Idr_HandParameter<"uint32_t", "Position">:$axis, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$term);

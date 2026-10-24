@@ -24,7 +24,6 @@ module IdrisMLIR.Spec.Functions.Extents
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Families.Dialect
-import IdrisMLIR.Spec.Functions.GivenBack
 
 import Data.Fin
 import Data.List.Elem
@@ -53,6 +52,20 @@ extentSideClosed = MkClosed
       OnResult => MkCase "Result" ("result" ::: []) "a result of the function"
   , doc = brief "the side of a function's signature a value is on"
   }
+
+||| A value's position on its side of a signature, `1`, or an axis of its
+||| shape, in 32 bits; its text is printed in its extent.
+positionDirective : Directive
+positionDirective = MkDirective
+  { name = "Position"
+  , args = []
+  , doc = brief "a position in a signature, or an axis of a shape: `1`"
+  }
+
+||| A position in a signature, or an axis: one codec for every 32-bit
+||| place an extent names.
+positionKind : ParamKind
+positionKind = WiredValue (WiredOne LeafWord32) positionDirective
 
 ||| The entries of `#idr.extents`, `[input 0 axis 1 = v0, result 0 axis 0
 ||| = v0 + 1]`, each the attribute it is.

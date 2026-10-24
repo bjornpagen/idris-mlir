@@ -45,6 +45,7 @@
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <cstdint>
 #include <optional>
@@ -296,6 +297,10 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
             // The host's body becomes the group's first join region, which
             // a fresh entry jumps to with the host's arguments and its own
             // index variables; its tail calls of members are sites too.
+            // Each fresh argument stands for the parameter it is passed to
+            // and takes its location, the binder's identity, so a pass that
+            // later dissolves the region leaves that identity on the
+            // argument that took the parameter's place.
             idr::FuncOp h = graph.op(host.fn);
             sitesIn(h.getBody(), 0u, 1);
             for (auto [i, fn] : llvm::enumerate(members))
@@ -304,8 +309,9 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
             moved.takeBody(h.getBody());
             SmallVector<idr::joins::Member> all{idr::joins::Member{&moved, h.getBindersAttr(), 0}};
             llvm::append_range(all, regions);
-            Block *entry = rewriter.createBlock(&h.getBody(), {}, h.getArgumentTypes(),
-                                                SmallVector<Location>(h.getNumArguments(), h.getLoc()));
+            SmallVector<Location> locations = llvm::map_to_vector(
+                moved.front().getArguments(), [](BlockArgument parameter) { return parameter.getLoc(); });
+            Block *entry = rewriter.createBlock(&h.getBody(), {}, h.getArgumentTypes(), locations);
             rewriter.setInsertionPointToStart(entry);
             idr::joins::Group group =
                 idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges, ending);
