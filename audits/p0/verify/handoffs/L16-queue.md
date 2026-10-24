@@ -1202,3 +1202,18 @@ to L16ev. Waiting:
   idris-mlir compiles `Spec/Pipeline/Properties.idr` (INT). HEAD's
   `harness/RuntimeEffects.idr` fails its coverage check (`callRow`, `held`
   and others); L16ev's working copy fixes it (lands with L16ev).
+- From L14ae (81347eee4): seams 1-3, 5, 6 dispatched as L14af (rewrites
+  that decide through a cast act through it, `builtStateHolds` through
+  casts, `takenByFacts` asking it, `knownConstructor` reading
+  `constructorTag`, `CalleeFacts::publish` through casts, `DataTagOp`'s
+  meaning asking `builtBy`). Seam 4, the reindex's `structuralMeaning`
+  and a meaning in `Ops/Folds.h`, waits on §4's fourth question. The
+  e-graph puts a known constant in place of a cast out of a linear
+  position whose constant stands at the cast's type (a cast into one is
+  never replaced).
+- From INT-27 (`.toolchain/idris2.new`, Idris 89ba32eb5 with 96 and 104
+  to 118, verified; swap after INT-26): `make check` on HEAD e403156c7
+  passes 21 of 28; routed: dialect-text and emit-dialects (L19ah),
+  mlir-layout and no-fuel (L15z, L14ae's two loops done), rules-covered
+  (5ced12298); ccache-shared and upstream-patches need the C++ build and
+  the submodules (INT on the owner's machine).
