@@ -51,7 +51,9 @@ A run record is `bench/records/<date>-<revision>-<os>-<arch>/`, kept by
 agreed: every timed run (`samples.tsv`), the compile times and what it ran
 on (`about`), with the results page and charts `bench/report.sh RUN
 PREVIOUS` makes from them, kept as they were made.
-The latest is [`records/2026-10-13-9a1b7b1-darwin-arm64`](records/2026-10-13-9a1b7b1-darwin-arm64/results.md).
+No run record is kept now: the last one, of 2026-10-13, measured a tree
+the cutover has since rewritten, and was withdrawn on 2026-10-24 until
+the programs are measured again (its last text is at 98cabc496).
 The dated `<date>-<name>.md` files beside the run records are measurements
 of the compiler itself.
 

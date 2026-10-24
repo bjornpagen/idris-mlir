@@ -33,16 +33,14 @@ build and suites.
 
 - **The bench.** Run `bench/run.sh --record bench/records/<…>` on each
   target. The record is committed.
-  - On arm64 macOS, each program's ratio to its own C is read against
-    `bench/records/2026-10-13-9a1b7b1-darwin-arm64`. The comparison only
-    covers programs whose `Main.idr`, `main.c` and input are the
-    record's. A ratio worse by more than 2%, best of five, is a
-    regression; it is bisected (`tools/bisect.sh`) and fixed (D1).
-  - A program the record lacks, or one whose source or input changed
-    since, records its first baseline. Since the record, d346040c added
-    chameneos-redux, meteor-contest, regex-dna and thread-ring, and
-    reworked several programs, the mandelbrot pair among them.
-  - Each Linux target records its first baseline.
+  - The arm64 macOS record of 2026-10-13 measured a tree the cutover has
+    since rewritten, and was withdrawn on 2026-10-24 as out of date (the
+    owner; its last text is at 98cabc496). So every program on every
+    target records its first baseline. After that, each program's ratio to
+    its own C is read against the target's previous record, over programs
+    whose `Main.idr`, `main.c` and input are unchanged: a ratio worse by
+    more than 2%, best of five, is a regression; it is bisected
+    (`tools/bisect.sh`) and fixed (D1).
 - **Compile times.** Run `tools/compile-times.sh --record` on each target,
   committed under `bench/records/`. It is the first compile-time baseline
   (D2).
