@@ -1067,3 +1067,16 @@ to L16ev. Waiting:
   parameter or result is zeroext"; since K04 the code zero-extends a byte
   parameter and a truth result (L21). K18 and K19 may take `Pipeline.idr`
   and `Lower/Statics.cpp` once their measurements come.
+- From L16et (b2e9c4d21, C281 step 1 landed): C281 steps 2 to 6 as one
+  change (C281 amended): the fold, the request carrying its callee
+  alternative's reading (design §2.4, §4.2), form handles (§3.2:
+  `Terms.implementationAt` on a dictionary parameter, `Programs.translateApplication`
+  for `AtUse` instances, `computedAt` from `Cases.heldHere`), method
+  alternatives (§3.6, `resolveMethod`), the static dictionary an instance
+  finds chosen walked as member and code in `Sites.takenAt` (measured with
+  the fold), O-2's translation side measured once handles fold; seams:
+  `Growth/Fields.fieldSites` returning the type read, not a list;
+  `Heads.reaches` handing reading numbers so Graph's `byNode` goes;
+  `Growth.checkGrowth` handing the drawn table so `Undrawn` has no reader
+  (L16, with D133 step 7, which indexes requests by the node's scope).
+  Then F-R4, C122, C55's case blocks, C213/C217, D44 and D112.1 ride on it.

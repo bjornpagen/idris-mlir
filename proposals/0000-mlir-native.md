@@ -2723,7 +2723,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `DrawnFrom`; a data family's registration is a `Builds` node. With the
   lemma's induction over the model's walk alone, this deletes
   `Finite.unsound`, `heightWithin`, `sizedWithin`, `Types.boundsHold` and
-  the translation's own request computation.
+  the translation's own request computation. Amended 2026-10-24 (L16et's
+  stop, under the hard cutover): the annotated tree landed alone
+  (b2e9c4d21), and the fold lands in one change with the design's steps
+  3 to 6 (the request carrying its callee alternative's reading, form
+  handles, method alternatives). The translation also walks text that no
+  node of an instance's reading holds (a dictionary parameter's
+  implementation, an instance at a use, a computed form, a method
+  resolved in place), so a fold landed before those steps would keep the
+  old walk beside it: a dual path.
 - **C282** (2026-10-23; L16en's finding, under C277: a weaker claim is
   always sound). A value built of fields takes from a field the claim
   that field's value holds only where that value is used once, its
