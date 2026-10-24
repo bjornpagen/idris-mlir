@@ -61,6 +61,7 @@
   "foreign/idr/lib/IR/Bytecode.cpp",
   "foreign/idr/lib/IR/Dialect.cpp",
   "foreign/idr/lib/IR/Verify/Attributes.cpp",
+  "foreign/idr/lib/IR/Verify/Stages.cpp",
   "foreign/idr/include/idr/InitIdr.h"
  ],
  "L04": [
@@ -147,6 +148,7 @@
  "L10": [
   "foreign/idr/lib/IR/Tail.cpp",
   "foreign/idr/include/idr/IR/Tail.h",
+  "foreign/idr/include/idr/IR/Calls.h",
   "foreign/idr/lib/Transforms/Tail/",
   "foreign/idr/include/idr/Transforms/Tail.h",
   "foreign/idr/lib/Conversion/TailCalls.cpp",
