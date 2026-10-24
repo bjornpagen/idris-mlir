@@ -157,11 +157,13 @@ and the type or the proof replaces it; one stays only for a fact not known
 until the checker runs (the bytes of a TTC, a file read, what a user
 wrote), and says which fact. What the checker trusts beyond that is stated
 in one place, `Idris.Host` (below): the operations whose termination
-Idris's totality checker cannot follow, and the facts of the evaluator and
-of the hosts' primitives that no proof can reach (the primitives' in
-`Core.Primitives.Host`, which `Idris.Host` imports, so that
-`Core.Primitives` reaches them below it). Where the frontend calls the
-checker, the next section says what replaced upstream's assertions.
+Idris's totality checker cannot follow, and the facts of the evaluator
+that no proof can reach. The hosts' partial primitives are reached through
+the prelude's own total functions and methods (`Core.Primitives.Host`), so
+nothing is asserted of them, and a TTC's integer is written by a recursion
+on Nat's arithmetic that ends by its own proof (`Core.Binary.Prims`).
+Where the frontend calls the checker, the next section says what replaced
+upstream's assertions.
 
 - A scope coercion is a traversal that rebuilds every node from the same
   fields, an identity once scopes are erased: `FreelyEmbeddable` has no

@@ -6,6 +6,7 @@ import Core.Context.Context
 import Core.Core
 import Core.Primitives.Host
 
+import Control.Relation
 import Control.WellFounded
 import Data.Buffer
 import Data.DPair
@@ -416,15 +417,86 @@ count (There p) = 1 + count p
 
 -- An integer is written as its sign and its magnitude's limbs: 32 bits
 -- each, least significant first, the last never zero, so zero has none.
--- Each step shifts a limb off a positive magnitude, which the host makes
--- smaller (`shiftRightDescends`), so the recursion is on the magnitude's
--- accessibility, erased.
+-- There is a limb at every place whose weight, 2^(32 * place), is at most
+-- the magnitude; the limb is the magnitude shifted right by that place's
+-- bits and cut to 32 of them. The places end by Nat's arithmetic, whatever
+-- the host's shifts give: each weight is the one before it times 2^32
+-- (`Core.Primitives.Host.limbBase`, held by name so that no type here holds
+-- it in unary), so the room the weights leave below the magnitude shrinks
+-- at every place (`roomShrinks`), and the recursion is on that room's
+-- accessibility, erased. The machine compares a weight with the magnitude
+-- by `compareNat`, which both hosts run on integers.
+
+-- Where a weight stands against the magnitude, by the machine's comparison:
+-- past it, or within it, with the evidence.
+data Placed : Nat -> Nat -> Type where
+  Past : Placed w m
+  Within : (0 _ : Nat.LTE w m) -> Placed w m
+
+0 ltNotGT : EqOrd.LT = EqOrd.GT -> Void
+ltNotGT Refl impossible
+
+0 eqNotGT : EqOrd.EQ = EqOrd.GT -> Void
+eqNotGT Refl impossible
+
+-- A weight the comparison does not put past the magnitude is within it.
+0 notPast : (w, m : Nat) -> Not (compareNat w m = EqOrd.GT) -> Nat.LTE w m
+notPast Z m _ = LTEZero
+notPast (S w) Z past = absurd (past Refl)
+notPast (S w) (S m) past = LTESucc (notPast w m past)
+
+placed : (w, m : Nat) -> Placed w m
+placed w m with (compareNat w m) proof cmp
+  _ | EqOrd.GT = Past
+  _ | EqOrd.LT = Within (notPast w m (\past => ltNotGT (trans (sym cmp) past)))
+  _ | EqOrd.EQ = Within (notPast w m (\past => eqNotGT (trans (sym cmp) past)))
+
+-- Taking off at most a weight leaves at least as much.
+0 minusSelf : (n, c : Nat) -> Nat.LTE (minus n c) n
+minusSelf Z c = LTEZero
+minusSelf (S n) Z = reflexive
+minusSelf (S n) (S c) = lteSuccRight (minusSelf n c)
+
+0 minusAntitone : (n : Nat) -> Nat.LTE a c -> Nat.LTE (minus n c) (minus n a)
+minusAntitone n (LTEZero {right = c}) = rewrite minusZeroRight n in minusSelf n c
+minusAntitone Z (LTESucc _) = LTEZero
+minusAntitone (S n) (LTESucc le) = minusAntitone n le
+
+-- What a magnitude leaves past a weight within it, one more.
+0 minusSucc : Nat.LTE w m -> minus (S m) w = S (minus m w)
+minusSucc (LTEZero {right = m}) = rewrite minusZeroRight m in Refl
+minusSucc (LTESucc le) = minusSucc le
+
+-- A natural is at most itself times a positive one.
+0 selfBelowTimes : (w : Nat) -> Nat.LTE 1 b -> Nat.LTE w (w * b)
+selfBelowTimes Z _ = LTEZero
+selfBelowTimes (S w) one = plusLteMonotone one (selfBelowTimes w one)
+
+-- A positive weight times at least two is past it.
+0 pastItself : (w : Nat) -> Nat.LTE 1 w -> Nat.LTE 2 b -> Nat.LTE (S w) (w * b)
+pastItself Z one _ = void (succNotLTEzero one)
+pastItself (S w) _ two = plusLteMonotone two (selfBelowTimes w (lteSuccLeft two))
+
+0 roomShrinks : {m, w, b : Nat} -> Nat.LTE 1 w -> Nat.LTE 2 b -> Nat.LTE w m -> Nat.LT (minus (S m) (w * b)) (minus (S m) w)
+roomShrinks one two within =
+  rewrite minusSucc within in LTESucc (minusAntitone (S m) (pastItself w one two))
+
+0 weightPositive : {w, b : Nat} -> Nat.LTE 1 w -> Nat.LTE 2 b -> Nat.LTE 1 (w * b)
+weightPositive one two = transitive (LTESucc LTEZero) (pastItself w one two)
+
 total
-toLimbs : (n : Nat) -> (0 _ : Accessible Nat.LT n) -> List Int
-toLimbs Z _ = []
-toLimbs n@(S k) (Access rec)
-    = fromInteger (prim__and_Integer (natToInteger n) 0xffffffff) ::
-      toLimbs (integerToNat (prim__shr_Integer (natToInteger n) 32)) (rec _ (shiftRightDescends k))
+limbsFrom : (m : Nat) -> (w : Nat) -> (shift : Integer) -> (0 _ : Nat.LTE 1 w) ->
+            (0 _ : Accessible Nat.LT (minus (S m) w)) -> List Int
+limbsFrom m w shift one (Access rec) = case placed w m of
+  Past => []
+  Within within =>
+    fromInteger (prim__and_Integer (prim__shr_Integer (natToInteger m) shift) 0xffffffff) ::
+    limbsFrom m (w * limbBase) (shift + 32) (weightPositive one limbBaseAbove)
+              (rec _ (roomShrinks one limbBaseAbove within))
+
+-- A magnitude's limbs, from the place whose weight is one.
+toLimbs : Nat -> List Int
+toLimbs m = limbsFrom m 1 0 (LTESucc LTEZero) (wellFounded _)
 
 fromLimbs : List Int -> Integer
 fromLimbs [] = 0
@@ -435,9 +507,9 @@ TTC Integer where
   toBuf val
     = if val < 0
          then do tag 0
-                 toBuf (toLimbs (integerToNat (-val)) (wellFounded _))
+                 toBuf (toLimbs (integerToNat (-val)))
          else do tag 1
-                 toBuf (toLimbs (integerToNat val) (wellFounded _))
+                 toBuf (toLimbs (integerToNat val))
   fromBuf
     = do val <- getTag
          case val of

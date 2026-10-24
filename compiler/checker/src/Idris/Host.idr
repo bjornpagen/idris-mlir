@@ -41,9 +41,9 @@
 ||| name it defines has a place (`definedPlaced`), that it resolves none of
 ||| the frontend's probes (`probesUnresolved`), and that what a reader read
 ||| from the live context once the program was loaded (`readLive`) it
-||| defines at the same entry, of the same kind and body (`keptAt`). What the
-||| hosts that run this compiler give their primitives is trusted in
-||| `Core.Primitives.Host`, below the evaluator, which applies them.
+||| defines at the same entry, of the same kind and body (`keptAt`). The
+||| evaluator reaches the hosts' partial primitives through
+||| `Core.Primitives.Host`, which asserts nothing of them.
 module Idris.Host
 
 import Core.Case.CaseTree

@@ -262,7 +262,7 @@ strLength : Vect 1 (NF vars) -> Maybe (NF vars)
 strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (prim__strLength s)))
 strLength _ = Nothing
 
--- A partial primitive is applied through the host's trusted form of it
+-- A partial primitive is applied through the prelude's total form of it
 -- (`Core.Primitives.Host`), which stays unapplied where the primitive fails.
 strHead : Vect 1 (NF vars) -> Maybe (NF vars)
 strHead [NPrimVal fc (Str str)] = NPrimVal fc . Ch <$> stringHead str
@@ -339,8 +339,8 @@ mul (I64 x) (I64 y) = pure $ I64 (prim__mul_Int64 x y)
 mul (Db x) (Db y) = number (prim__mul_Double x y)
 mul _ _ = Nothing
 
--- Through the host's trusted division and remainder, which stay unapplied
--- at a zero divisor.
+-- Through the prelude's division and remainder (`Core.Primitives.Host`),
+-- which stay unapplied at a zero divisor.
 div : Constant -> Constant -> Maybe Constant
 div (BI x) (BI y) = BI <$> divInteger x y
 div (I x) (I y) = I <$> divInt x y
