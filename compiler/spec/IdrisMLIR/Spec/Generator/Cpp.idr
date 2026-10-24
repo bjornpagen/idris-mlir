@@ -313,6 +313,29 @@ admittedClassesHeader ds =
     includes d = [ quoted (cppHeader d)
                  , quoted ("idr/IR/IdrAdmitted" ++ identText (dialectName d) ++ "Classes.h.inc") ]
 
+||| The upstream dialects the frontend writes an op of, as their C++ classes:
+||| one list type, which the driver registers and tells a module's ops by,
+||| so no reader names one by its namespace or keeps a list of its own; each
+||| class is held to the namespace the specification gives its dialect when
+||| the compiler is built.
+export
+writtenDialectsHeader : List Dialect -> Lines
+writtenDialectsHeader ds =
+  header "WrittenDialects"
+    (["\"mlir/IR/Dialect.h\""] ++ map (quoted . cppDialectHeader) ds ++ ["<concepts>", "<string_view>"])
+    (inNamespace "idr"
+      ( slashComment ["A list of dialects, by their classes."]
+        ++ ["template <std::derived_from<::mlir::Dialect>... Dialects>", "struct DialectList {};", ""]
+        ++ slashComment ["The upstream dialects the frontend writes an op of, in the specification's order."]
+        ++ ["using WrittenDialects = DialectList<" ++ joinWith ", " (map cppDialect ds) ++ ">;", ""]
+        ++ slashComment ["Each class is the dialect of the namespace the specification gives it."]
+        ++ map namespaceHeld ds ))
+  where
+    namespaceHeld : Dialect -> String
+    namespaceHeld d =
+      "static_assert(std::string_view(" ++ cppDialect d ++ "::getDialectNamespace()) == "
+        ++ quoted (wordText (namespaceWord d)) ++ ");"
+
 export
 opIndexHeader : List OpKey -> Lines
 opIndexHeader keys =

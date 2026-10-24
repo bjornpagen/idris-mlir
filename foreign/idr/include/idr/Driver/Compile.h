@@ -62,11 +62,6 @@ inline constexpr llvm::StringLiteral programCpuFlags[] = {
 // frontend, nor one found on PATH.
 std::string frontendBeside(const char *argv0);
 
-// The dialects a handoff module is written in, as the frontend writes one,
-// with their flow models: what a module that holds an idr.program may hold
-// (run asks), and the first part of what registerCompiler registers.
-void registerHandoff(mlir::DialectRegistry &registry);
-
 // The dialects, interfaces and translations a compilation's context needs,
 // and nothing else: the dialects a handoff module is written in with their
 // flow models; the LLVM dialect and DLTI, the pipeline's output's; every

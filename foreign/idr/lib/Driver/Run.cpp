@@ -13,6 +13,7 @@
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Verdict.h"
+#include "idr/IR/Generated/WrittenDialects.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
@@ -27,7 +28,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
@@ -89,20 +89,26 @@ mlir::LogicalResult holdsOnly(mlir::ModuleOp module, Holds holds, llvm::StringLi
   return mlir::failure(walked.wasInterrupted());
 }
 
+// Whether `dialect` is one the frontend writes an op of: ours, or an
+// upstream dialect of the specification's list, told by its class. Which
+// dialect an op is, the module read says, so it is asked of each op.
+template <std::derived_from<mlir::Dialect>... Written>
+bool frontendWrites(mlir::Dialect *dialect, idr::DialectList<Written...>) {
+  return mlir::isa<idr::IdrDialect, Written...>(dialect);
+}
+
 // The module's kind: an idr.program among its ops makes it a handoff
 // module, whose every op must be of a dialect the frontend writes;
 // otherwise every op must be the LLVM dialect's. An error at the first op
 // that is not: a module half lowered (an arith op in an llvm.func) is
 // neither kind, and LLVM's translation would fail on it with no word of
 // why.
-mlir::FailureOr<ModuleKind>
-moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
+mlir::FailureOr<ModuleKind> moduleKindOf(mlir::ModuleOp module) {
   if (!module.getOps<idr::ProgramOp>().empty()) {
     if (mlir::failed(holdsOnly(
             module,
-            [&](mlir::Operation *op) {
-              return static_cast<bool>(
-                  handoff.getDialectAllocator(op->getName().getDialectNamespace()));
+            [](mlir::Operation *op) {
+              return frontendWrites(op->getDialect(), idr::WrittenDialects{});
             },
             "is of no dialect the frontend writes, in a module that holds an idr.program")))
       return mlir::failure();
@@ -281,9 +287,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   if (made != exitStatus[Verdict::Accepted])
     return mlir::emitError(mlir::UnknownLoc::get(&context))
            << "the frontend exited with status " << made << ", and its module holds no refusal";
-  mlir::DialectRegistry handoff;
-  registerHandoff(handoff);
-  mlir::FailureOr<ModuleKind> kind = moduleKindOf(*module, handoff);
+  mlir::FailureOr<ModuleKind> kind = moduleKindOf(*module);
   if (mlir::failed(kind))
     return mlir::failure();
 

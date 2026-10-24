@@ -14,7 +14,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/Attributes.h"
@@ -69,36 +68,44 @@ mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::Module
     return mlir::failure();
   if (mlir::failed(isBuilt(read->identity, path, at)))
     return mlir::failure();
-  std::unique_ptr<llvm::Module> runtime = std::move(read->module);
-  // A body the program joins becomes program code, whose frames code
-  // generation sizes and the build checks against the guard: it takes no
-  // stack probe, and it would give one to every program function it
-  // inlines into. The runtime's native half keeps its own.
-  llvm::StringSet<> runtimeFunctions;
-  for (llvm::Function &function : *runtime) {
-    function.removeFnAttr("probe-stack");
-    function.removeFnAttr("stack-probe-size");
-    if (!function.isDeclaration())
-      runtimeFunctions.insert(function.getName());
-  }
-  if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded))
-    return mlir::emitError(at) << "linking the runtime into the program failed";
   // A program function past the budget calls the runtime
-  // (idr::target::inlineCallerInstructions), all but the bodies the runtime
-  // marks always inline, whose call would cost more than they do: among
-  // them the frame-bound account's entries, empty in the shipped runtime,
-  // which no shipped program may name. A call's own noinline outranks its
-  // callee's alwaysinline, so such a call is never marked.
+  // (idr::target::inlineCallerInstructions). Its calls out of the program
+  // are known before the link, where every body the module holds is the
+  // program's and every function it calls outside the program a
+  // declaration: those calls are taken here, and the link gives the ones
+  // into the runtime their callee's body.
+  llvm::SmallVector<llvm::CallBase *> outward;
   for (llvm::Function &function : program) {
-    if (function.isDeclaration() || runtimeFunctions.contains(function.getName()) ||
+    if (function.isDeclaration() ||
         function.getInstructionCount() <= idr::target::inlineCallerInstructions)
       continue;
     for (llvm::Instruction &instruction : llvm::instructions(function))
       if (auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction))
         if (const llvm::Function *callee = call->getCalledFunction();
-            callee && runtimeFunctions.contains(callee->getName()) &&
-            !callee->hasFnAttribute(llvm::Attribute::AlwaysInline))
-          call->setIsNoInline();
+            callee && callee->isDeclaration())
+          outward.push_back(call);
   }
+  std::unique_ptr<llvm::Module> runtime = std::move(read->module);
+  // A body the program joins becomes program code, whose frames code
+  // generation sizes and the build checks against the guard: it takes no
+  // stack probe, and it would give one to every program function it
+  // inlines into. The runtime's native half keeps its own.
+  for (llvm::Function &function : *runtime) {
+    function.removeFnAttr("probe-stack");
+    function.removeFnAttr("stack-probe-size");
+  }
+  if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded))
+    return mlir::emitError(at) << "linking the runtime into the program failed";
+  // Each of those calls whose callee the link gave a body calls the
+  // runtime, and is never inlined, but where the runtime marks the body
+  // always inline, whose call would cost more than it does: among them the
+  // frame-bound account's entries, empty in the shipped runtime, which no
+  // shipped program may name. A call's own noinline outranks its callee's
+  // alwaysinline, so such a call is never marked.
+  for (llvm::CallBase *call : outward)
+    if (const llvm::Function *callee = call->getCalledFunction();
+        callee && !callee->isDeclaration() &&
+        !callee->hasFnAttribute(llvm::Attribute::AlwaysInline))
+      call->setIsNoInline();
   return mlir::success();
 }

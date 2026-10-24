@@ -414,6 +414,7 @@ generate =
   ++ map admittedTd admittingDialects
   ++ [ (generated "AdmittedClasses.h.inc", render (admittedClassesHeader admittingDialects))
      , (generated "WrittenDialects.txt", writtenDialectsList)
+     , (generated "WrittenDialects.h.inc", render (writtenDialectsHeader writtenDialects))
      , (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
      , (generated "Storages.h.inc", render (storagesHeader declarations.types declarations.attributes))
      , (generated "Defaults.h.inc", render (defaultsHeader declarations.interfaces))

@@ -96,6 +96,41 @@ cppHeader Bufferization = "mlir/Dialect/Bufferization/IR/Bufferization.h"
 cppHeader SCF = "mlir/Dialect/SCF/IR/SCF.h"
 cppHeader Transform = "mlir/Dialect/Transform/IR/TransformOps.h"
 
+||| The dialect's class in C++, which registers the dialect and tells an
+||| op's dialect by its type: the class upstream's ODS makes of the
+||| dialect's record (`odsDialect`), its name less the underscores, in the
+||| record's C++ namespace.
+public export
+cppDialect : Dialect -> String
+cppDialect Idr = "::idr::IdrDialect"
+cppDialect Builtin = "::mlir::BuiltinDialect"
+cppDialect Arith = "::mlir::arith::ArithDialect"
+cppDialect Math = "::mlir::math::MathDialect"
+cppDialect MemRef = "::mlir::memref::MemRefDialect"
+cppDialect Tensor = "::mlir::tensor::TensorDialect"
+cppDialect UB = "::mlir::ub::UBDialect"
+cppDialect Linalg = "::mlir::linalg::LinalgDialect"
+cppDialect Bufferization = "::mlir::bufferization::BufferizationDialect"
+cppDialect SCF = "::mlir::scf::SCFDialect"
+cppDialect Transform = "::mlir::transform::TransformDialect"
+
+||| The C++ header that declares the dialect's class: the dialect's own,
+||| apart from its ops' header where upstream has one (builtin's ops header
+||| declares no dialect).
+public export
+cppDialectHeader : Dialect -> String
+cppDialectHeader Idr = "idr/IR/IdrDialect.h"
+cppDialectHeader Builtin = "mlir/IR/BuiltinDialect.h"
+cppDialectHeader Arith = "mlir/Dialect/Arith/IR/ArithDialect.h"
+cppDialectHeader Math = "mlir/Dialect/Math/IR/Math.h"
+cppDialectHeader MemRef = "mlir/Dialect/MemRef/IR/MemRefDialect.h"
+cppDialectHeader Tensor = "mlir/Dialect/Tensor/IR/TensorDialect.h"
+cppDialectHeader UB = "mlir/Dialect/UB/IR/UBOps.h"
+cppDialectHeader Linalg = "mlir/Dialect/Linalg/IR/LinalgDialect.h"
+cppDialectHeader Bufferization = "mlir/Dialect/Bufferization/IR/BufferizationDialect.h"
+cppDialectHeader SCF = "mlir/Dialect/SCF/IR/SCFDialect.h"
+cppDialectHeader Transform = "mlir/Dialect/Transform/IR/TransformDialect.h"
+
 ||| Upstream's file of the dialect's bytecode records, under MLIR's include
 ||| directory, where the frontend writes the dialect's types and attributes
 ||| in bytecode: its writer's entries are generated from those records.

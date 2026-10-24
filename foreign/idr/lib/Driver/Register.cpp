@@ -6,6 +6,7 @@
 // IR, and the passes the pipeline adds.
 
 #include "idr/Driver/Compile.h"
+#include "idr/IR/Generated/WrittenDialects.h.inc"
 #include "idr/InitIdr.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -20,10 +21,8 @@
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
@@ -33,25 +32,19 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/IR/InferIntRangeInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/TransformOps/DialectExtension.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Transform/IR/TransformDialect.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/TransformOps/VectorTransformOps.h"
@@ -60,12 +53,17 @@
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 
-void idr::driver::registerHandoff(mlir::DialectRegistry &registry) {
-  idr::registerIdrDialects(registry);
-  registry.insert<mlir::arith::ArithDialect, mlir::math::MathDialect, mlir::ub::UBDialect,
-                  mlir::memref::MemRefDialect, mlir::tensor::TensorDialect,
-                  mlir::scf::SCFDialect>();
+#include <concepts>
+
+namespace {
+
+// Each dialect of the list, registered.
+template <std::derived_from<mlir::Dialect>... Dialects>
+void insertAll(mlir::DialectRegistry &registry, idr::DialectList<Dialects...>) {
+  registry.insert<Dialects...>();
 }
+
+} // namespace
 
 void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   // The transform ops the schedule library is written in, before the
@@ -73,11 +71,15 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
   // added, and the library's own extension parses it.
   mlir::linalg::registerTransformDialectExtension(registry);
   mlir::vector::registerTransformDialectExtension(registry);
-  registerHandoff(registry);
+  // The dialects a handoff module is written in, as the frontend writes
+  // one: ours, with the flow models of the upstream ops it holds, and the
+  // upstream dialects the frontend writes an op of, the specification's
+  // list, by which run tells a module's ops too.
+  idr::registerIdrDialects(registry);
+  insertAll(registry, idr::WrittenDialects{});
   // The pipeline's output's, and the dialects its passes load.
   registry.insert<mlir::LLVM::LLVMDialect, mlir::DLTIDialect, mlir::func::FuncDialect,
-                  mlir::cf::ControlFlowDialect, mlir::linalg::LinalgDialect,
-                  mlir::bufferization::BufferizationDialect, mlir::affine::AffineDialect,
+                  mlir::cf::ControlFlowDialect, mlir::affine::AffineDialect,
                   mlir::vector::VectorDialect, mlir::transform::TransformDialect>();
   // The models of them the passes read. idr-bufferize's One-Shot asks each
   // op on tensors for its bufferization, and its empty-tensor elimination
