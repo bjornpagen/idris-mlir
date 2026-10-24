@@ -908,3 +908,9 @@ askers in callersOf, Settle's removed proof). Waiting:
   into columns before them (L12); a program test of `++`, `pad` and
   `grow` on word arrays goes with the frontend's `ArrayMeaning` reading
   (L16).
+- From L03ac: the one-string-output check (Generator/Outputs.idr) becomes
+  a proof beside `namesDistinct` in `Spec.idr` once `matchable`
+  (`Control/Matches.idr`), `refinedValue` (`Families/Ops.idr`),
+  `endsOwner` (`Counting/Declarations.idr`), `runsOnce`,
+  `runsOnceGivingBack` and `givesLifetime` (`Lifetimes/Declarations.idr`)
+  are `public export` (L03).
