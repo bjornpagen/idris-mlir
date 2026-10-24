@@ -940,3 +940,10 @@ askers in callersOf, Settle's removed proof). Waiting:
   changes only where it has no segments) is broken by `FoldColumns`, as
   before (L12); `Bufferize/Generating.cpp` states by hand, per op class,
   whether an op reads its destinations (L12: an interface method or trait).
+- From INT-25: the typecheck toolchain is about 2430 commits behind the
+  pin, so `tools/dialects.sh:29-33`'s claim that the typecheck and stage-2
+  generators write the same modules no longer holds (`Dialect/Builtin.idr`
+  differs by builtin.module's optional dlti attribute, upstream
+  3f38810694); the typecheck toolchain is rebuilt at the pin on the
+  owner's machine and the modules regenerated there (INT); the checkout's
+  `build/typecheck` generator predates 04d7cfcc (`make typecheck-tblgen`).
