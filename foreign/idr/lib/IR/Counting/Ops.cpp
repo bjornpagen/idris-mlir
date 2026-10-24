@@ -178,6 +178,11 @@ LogicalResult TokenNullOp::verify() {
 
 // The buffer is fresh and nothing moves into it, so it claims everything it
 // reaches unshared; its operand is the bare buffer, as its constraint says.
+// That is the most its result may claim, not the grade it is made at:
+// bufferization, which makes it, writes the bare buffer, since before
+// references are counted the stage rule holds a value used many times to
+// claiming nothing; exclusivity writes the claim from the owned stage,
+// where it proves it.
 LogicalResult OwnAdoptOp::inferReturnTypes(MLIRContext *, std::optional<Location>, Adaptor adaptor,
                                            SmallVectorImpl<Type> &inferred) {
   inferred.push_back(graded(Grade{Uses::Many, Hold::counted(Unique::Deep)}, adaptor.getValue().getType()));
