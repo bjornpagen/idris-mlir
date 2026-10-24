@@ -124,9 +124,10 @@ bigToWord TheWord = MkSpecialized "BigToWord" [("Op", NoClass)]
 bigToWord (OnWords a) = MkSpecialized "BigToWord" [("Op", UpstreamClass a)]
 bigToWord (OnWordAnd a k) = MkSpecialized "BigToWord" [("Op", UpstreamClass a), ("constant", IntConstant k)]
 
-||| An Integer's function of two Integers, `idris_rt_big_<stem>`.
-twoBigs : Symbol -> RuntimeCall 2 1
-twoBigs s = MkRuntimeCall s [TakesBig, TakesBig] (Returns GivesBig)
+||| An Integer's function of two Integers, `idris_rt_big_<stem>`, each read
+||| in place as `read` takes it.
+twoBigs : (read : Ident -> Taken) -> Symbol -> RuntimeFunction 2 1
+twoBigs read s = MkRuntimeFunction s [read "lhs", read "rhs"] (Returns GivesBig)
 
 ||| An op of two Integers that builds an Integer: Integer's sub, and, or,
 ||| xor, its shifts, its division.
@@ -135,7 +136,7 @@ binary : Mnemonic -> Symbol -> List Member -> Doc -> Op 2 1 0 0
 binary m s ms d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = [single "lhs" bigRead, single "rhs" bigRead]
+  , ins = operandsOf runtime
   , outs = [result "result" bigValue]
   , attrs = []
   , regions = []
@@ -144,7 +145,7 @@ binary m s ms d = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (twoBigs s)
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 2
   , builders = []
@@ -155,6 +156,9 @@ binary m s ms d = MkOp
   , laws = []
   , doc = d
   }
+  where
+    runtime : RuntimeFunction 2 1
+    runtime = twoBigs bigInt s
 
 ------------------------------------------------------------------------------
 -- Arithmetic
@@ -170,7 +174,7 @@ naturalBinary : Mnemonic -> Symbol -> Admitted -> List Law -> Doc -> Op 2 1 0 0
 naturalBinary m s word ls d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = [single "lhs" bigOrNatRead, single "rhs" bigOrNatRead]
+  , ins = operandsOf runtime
   , outs = [result "result" bigOrNatValue]
   , attrs = []
   , regions = []
@@ -179,7 +183,7 @@ naturalBinary m s word ls d = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (twoBigs s)
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 2
   , builders = []
@@ -190,6 +194,9 @@ naturalBinary m s word ls d = MkOp
   , laws = ls
   , doc = d
   }
+  where
+    runtime : RuntimeFunction 2 1
+    runtime = twoBigs bigOrNat s
 
 ||| A natural's successor is a sum with a constant one, so asked how its
 ||| result is built, a sum one of whose operands is a constant one answers
@@ -269,7 +276,7 @@ bigNeg : Op 1 1 0 0
 bigNeg = MkOp
   { home = InIdr
   , mnemonic = "big.neg"
-  , ins = [single "value" bigRead]
+  , ins = operandsOf runtime
   , outs = [result "result" bigValue]
   , attrs = []
   , regions = []
@@ -278,7 +285,7 @@ bigNeg = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_neg" [TakesBig] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -289,6 +296,9 @@ bigNeg = MkOp
   , laws = []
   , doc = says "the negation of a big"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_neg" [bigInt "value"] (Returns GivesBig)
 
 ||| The predecessor of a natural that is not zero, which the frontend writes
 ||| where a match on a natural found it is not zero, so the value visibly
@@ -300,7 +310,7 @@ natPred : Op 1 1 0 0
 natPred = MkOp
   { home = InIdr
   , mnemonic = "nat.pred"
-  , ins = [single "value" natRead]
+  , ins = operandsOf runtime
   , outs = [result "result" natValue]
   , attrs = []
   , regions = []
@@ -309,7 +319,7 @@ natPred = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_pred" [TakesBig] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -320,6 +330,9 @@ natPred = MkOp
   , laws = []
   , doc = says "the predecessor of a natural that is not zero"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_pred" [nat "value"] (Returns GivesBig)
 
 ||| Two Integers or two naturals compared, as the runtime orders them, by
 ||| the op's predicate: Nat's equalNat and compareNat are this op.
@@ -328,7 +341,7 @@ bigCmp : Op 2 1 1 0
 bigCmp = MkOp
   { home = InIdr
   , mnemonic = "big.cmp"
-  , ins = [single "lhs" bigOrNatRead, single "rhs" bigOrNatRead]
+  , ins = operandsOf runtime
   , outs = made
   , attrs = [property "predicate" (EnumProperty comparisonEnum)]
   , regions = []
@@ -337,7 +350,7 @@ bigCmp = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_cmp" [TakesBig, TakesBig] (Returns GivesOrder))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = attrFirst 2 0
   , builders = []
@@ -350,6 +363,8 @@ bigCmp = MkOp
   , typing = fixedTypes made
   }
   where
+    runtime : RuntimeFunction 2 1
+    runtime = MkRuntimeFunction "big_cmp" [bigOrNat "lhs", bigOrNat "rhs"] (Returns GivesOrder)
     made : Vect 1 Result
     made = [result "result" i1]
 
@@ -396,7 +411,7 @@ natFromBig : Op 1 1 0 0
 natFromBig = MkOp
   { home = InIdr
   , mnemonic = "nat.from_big"
-  , ins = [single "value" bigRead]
+  , ins = operandsOf runtime
   , outs = [result "result" natValue]
   , attrs = []
   , regions = []
@@ -405,7 +420,7 @@ natFromBig = MkOp
   , effects = Executes [OnValues Write Count (Results 0)] [] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "nat_from_big" [TakesBig] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -416,15 +431,18 @@ natFromBig = MkOp
   , laws = []
   , doc = says "an Integer as a natural, 0 if it is negative"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "nat_from_big" [bigInt "value"] (Returns GivesBig)
 
 public export
 fromIntName : Signedness -> Mnemonic
 fromIntName Signed = "big.from_sint"
 fromIntName Unsigned = "big.from_uint"
 
-fromIntCall : Signedness -> RuntimeCall 1 1
-fromIntCall Signed = MkRuntimeCall "big_from_int_s" [TakesSigned] (Returns GivesBig)
-fromIntCall Unsigned = MkRuntimeCall "big_from_int_u" [TakesUnsigned] (Returns GivesBig)
+fromIntSymbol : Signedness -> Symbol
+fromIntSymbol Signed = "big_from_int_s"
+fromIntSymbol Unsigned = "big_from_int_u"
 
 ||| An unsigned integer is never negative, so its big may be a natural; a
 ||| natural of a signed integer cannot be written.
@@ -440,7 +458,7 @@ bigFromInt : Signedness -> Op 1 1 0 0
 bigFromInt sign = MkOp
   { home = InIdr
   , mnemonic = fromIntName sign
-  , ins = [single "value" int]
+  , ins = operandsOf runtime
   , outs = [result "result" (fromIntResult sign)]
   , attrs = []
   , regions = []
@@ -449,7 +467,7 @@ bigFromInt sign = MkOp
   , effects = builds 0 Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (fromIntCall sign)
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -460,6 +478,9 @@ bigFromInt sign = MkOp
   , laws = []
   , doc = says "an integer as a big"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction (fromIntSymbol sign) [extended sign "value"] (Returns GivesBig)
 
 ||| The big or natural of a word proved to fit the small range: idr-narrow
 ||| writes it where values it proved small meet a big. A small is a word
@@ -476,7 +497,7 @@ bigSmall : Op 1 1 0 0
 bigSmall = MkOp
   { home = InIdr
   , mnemonic = "big.small"
-  , ins = [single "value" i64]
+  , ins = operandsOf runtime
   , outs = [result "result" bigOrNatStatic]
   , attrs = []
   , regions = []
@@ -485,7 +506,7 @@ bigSmall = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "small_word" [TakesInt64] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = [MkBuilder [param "::mlir::Type" "carrier", param "::mlir::Value" "value"]]
@@ -496,6 +517,9 @@ bigSmall = MkOp
   , laws = []
   , doc = says "the small big or natural of a word that fits"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "small_word" [word64 "value"] (Returns GivesBig)
 
 ||| A big or a natural as an integer, wrapped to the width.
 public export
@@ -503,7 +527,7 @@ bigToInt : Op 1 1 0 0
 bigToInt = MkOp
   { home = InIdr
   , mnemonic = "big.to_int"
-  , ins = [single "value" bigOrNatRead]
+  , ins = operandsOf runtime
   , outs = [result "result" int]
   , attrs = []
   , regions = []
@@ -512,7 +536,7 @@ bigToInt = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_to_int" [TakesBig] (Returns GivesWrapped))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -523,6 +547,9 @@ bigToInt = MkOp
   , laws = []
   , doc = says "a big or a natural as an integer, wrapped to its width"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_to_int" [bigOrNat "value"] (Returns GivesWrapped)
 
 ||| A finite Double truncated to a big. The Double is finite:
 ||| `idr.check.finite` guards it.
@@ -531,7 +558,7 @@ bigFromDouble : Op 1 1 0 0
 bigFromDouble = MkOp
   { home = InIdr
   , mnemonic = "big.from_double"
-  , ins = [single "value" f64]
+  , ins = operandsOf runtime
   , outs = [result "result" bigValue]
   , attrs = []
   , regions = []
@@ -540,7 +567,7 @@ bigFromDouble = MkOp
   , effects = builds 0 Touched
   , speculation = Conditionally
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_from_double" [TakesDouble] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -551,13 +578,16 @@ bigFromDouble = MkOp
   , laws = []
   , doc = says "a finite Double truncated to a big"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_from_double" [float64 "value"] (Returns GivesBig)
 
 public export
 bigToDouble : Op 1 1 0 0
 bigToDouble = MkOp
   { home = InIdr
   , mnemonic = "big.to_double"
-  , ins = [single "value" bigRead]
+  , ins = operandsOf runtime
   , outs = made
   , attrs = []
   , regions = []
@@ -566,7 +596,7 @@ bigToDouble = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_to_double" [TakesBig] (Returns GivesDouble))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -579,11 +609,13 @@ bigToDouble = MkOp
   , typing = fixedTypes made
   }
   where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_to_double" [bigInt "value"] (Returns GivesDouble)
     made : Vect 1 Result
     made = [result "result" f64]
 
-showBig : RuntimeCall 1 1
-showBig = MkRuntimeCall "big_show" [TakesBig] (Returns GivesStr)
+showBig : RuntimeFunction 1 1
+showBig = MkRuntimeFunction "big_show" [bigInt "value"] (Returns GivesStr)
 
 ||| What writes a big's decimal text where the output stands, by the
 ||| formatter big_show uses, into the output buffer: no string, and of a big
@@ -598,7 +630,7 @@ bigShow : Op 1 1 0 0
 bigShow = MkOp
   { home = InIdr
   , mnemonic = "big.show"
-  , ins = [single "value" bigRead]
+  , ins = operandsOf showBig
   , outs = [result "result" strValue]
   , attrs = []
   , regions = []
@@ -607,7 +639,7 @@ bigShow = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime showBig
+  , meaning = ComputedByRuntime (asCall showBig)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -625,7 +657,7 @@ bigFromStr : Op 1 1 0 0
 bigFromStr = MkOp
   { home = InIdr
   , mnemonic = "big.from_str"
-  , ins = [single "str" strRead]
+  , ins = operandsOf runtime
   , outs = [result "result" bigValue]
   , attrs = []
   , regions = []
@@ -634,7 +666,7 @@ bigFromStr = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_from_str" [TakesStr] (Returns GivesBig))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -645,6 +677,9 @@ bigFromStr = MkOp
   , laws = []
   , doc = says "a string as a big, as prim__cast_StringInteger reads it"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "big_from_str" [str "str"] (Returns GivesBig)
 
 public export
 bigOps : List AnyOp

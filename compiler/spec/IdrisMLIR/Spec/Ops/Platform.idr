@@ -38,18 +38,18 @@ import Data.Vect
 -- The shapes
 ------------------------------------------------------------------------------
 
-||| A primitive of base's platform: the runtime function `io_<name>` of its
-||| operands, its effects as that function has them, its results' types
-||| the ones their constraints fix.
+||| A primitive of base's platform: the runtime function `io_<name>`, its
+||| operands as that function takes them, its effects as it has them, its
+||| results' types the ones their constraints fix.
 public export
-platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
-          -> Declaration i o -> RuntimeCall i o -> Doc
-          -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
+platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (f : RuntimeFunction i o) -> (outs : Vect o Result)
+          -> Declaration i o -> Doc
+          -> {auto 0 named : So (distinct (groupNames (operandsOf f) outs [] []))}
           -> Op i o 0 0
-platformOp m ins outs eff call d = MkOp
+platformOp m f outs eff d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = ins
+  , ins = operandsOf f
   , outs = outs
   , attrs = []
   , regions = []
@@ -58,7 +58,7 @@ platformOp m ins outs eff call d = MkOp
   , effects = eff
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntime call
+  , meaning = CallsRuntime (asCall f)
   , verify = DeclarationOnly
   , format = plain i
   , builders = []
@@ -74,20 +74,20 @@ platformOp m ins outs eff call d = MkOp
 ||| An op of a handle, giving an Int: `fileSize`, `fflush` and their kin.
 public export
 handleQuery : Mnemonic -> Symbol -> RuntimeMemory -> Doc -> Op 1 1 0 0
-handleQuery m s memory d = platformOp m [single "handle" i64] [result "result" i64] (outside memory)
-  (MkRuntimeCall s [TakesInt64] (Returns GivesInt64)) d
+handleQuery m s memory d = platformOp m (MkRuntimeFunction s [word64 "handle"] (Returns GivesInt64))
+  [result "result" i64] (outside memory) d
 
 ||| An op of a path, giving an Int: 0 on success, as its C function gives it.
 public export
 pathOp : Mnemonic -> Symbol -> Doc -> Op 1 1 0 0
-pathOp m s d = platformOp m [single "path" strRead] [result "result" i64] (outside Touched)
-  (MkRuntimeCall s [TakesStr] (Returns GivesInt64)) d
+pathOp m s d = platformOp m (MkRuntimeFunction s [str "path"] (Returns GivesInt64))
+  [result "result" i64] (outside Touched) d
 
 ||| An op of nothing, giving an Int, with the effects `eff`.
 public export
 reading : Mnemonic -> Symbol -> Declaration 0 1 -> Doc -> Op 0 1 0 0
-reading m s eff d = platformOp m [] [result "result" i64] eff
-  (MkRuntimeCall s [] (Returns GivesInt64)) d
+reading m s eff d = platformOp m (MkRuntimeFunction s [] (Returns GivesInt64))
+  [result "result" i64] eff d
 
 ------------------------------------------------------------------------------
 -- Files
@@ -95,14 +95,14 @@ reading m s eff d = platformOp m [] [result "result" i64] eff
 
 public export
 fileOpen : Op 2 1 0 0
-fileOpen = platformOp "io.file_open" [single "path" strRead, single "mode" strRead] [result "file" i64]
-  (outside Touched) (MkRuntimeCall "io_file_open" [TakesStr, TakesStr] (Returns GivesInt64))
+fileOpen = platformOp "io.file_open" (MkRuntimeFunction "io_file_open" [str "path", str "mode"] (Returns GivesInt64))
+  [result "file" i64] (outside Touched)
   (says "opens the file at a path in a mode, as fopen does: a file handle, or null")
 
 public export
 fileClose : Op 1 0 0 0
-fileClose = platformOp "io.file_close" [single "file" i64] [] (outside Touched)
-  (MkRuntimeCall "io_file_close" [TakesInt64] NoResult)
+fileClose = platformOp "io.file_close" (MkRuntimeFunction "io_file_close" [word64 "file"] NoResult)
+  [] (outside Touched)
   (says "closes a file and frees its handle")
 
 public export
@@ -126,8 +126,9 @@ fileReadLine = handleQuery "io.file_read_line" "io_file_read_line" Touched
 
 public export
 fileReadChars : Op 2 1 0 0
-fileReadChars = platformOp "io.file_read_chars" [single "max" i64, single "file" i64] [result "chars" i64]
-  (outside Touched) (MkRuntimeCall "io_file_read_chars" [TakesInt64, TakesInt64] (Returns GivesInt64))
+fileReadChars = platformOp "io.file_read_chars"
+  (MkRuntimeFunction "io_file_read_chars" [word64 "max", word64 "file"] (Returns GivesInt64))
+  [result "chars" i64] (outside Touched)
   (says "at most `max` characters of a file, as a string handle, or null")
 
 public export
@@ -136,8 +137,9 @@ fileReadChar = handleQuery "io.file_read_char" "io_file_read_char" Untouched (sa
 
 public export
 fileWriteLine : Op 2 1 0 0
-fileWriteLine = platformOp "io.file_write_line" [single "file" i64, single "line" strRead] [result "result" i64]
-  (outside Untouched) (MkRuntimeCall "io_file_write_line" [TakesInt64, TakesStr] (Returns GivesInt64))
+fileWriteLine = platformOp "io.file_write_line"
+  (MkRuntimeFunction "io_file_write_line" [word64 "file", str "line"] (Returns GivesInt64))
+  [result "result" i64] (outside Untouched)
   (says "writes a string to a file")
 
 public export
@@ -166,8 +168,9 @@ fileIsTty = handleQuery "io.file_is_tty" "io_file_is_tty" Untouched (says "wheth
 
 public export
 fileChmod : Op 2 1 0 0
-fileChmod = platformOp "io.file_chmod" [single "path" strRead, single "mode" i64] [result "result" i64]
-  (outside Touched) (MkRuntimeCall "io_file_chmod" [TakesStr, TakesInt64] (Returns GivesInt64))
+fileChmod = platformOp "io.file_chmod"
+  (MkRuntimeFunction "io_file_chmod" [str "path", word64 "mode"] (Returns GivesInt64))
+  [result "result" i64] (outside Touched)
   (says "sets the mode of the file at a path")
 
 ------------------------------------------------------------------------------
@@ -223,8 +226,8 @@ fileTimesHeader = MkHeader (ident "FileTimes")
 ||| not positive for a failure and reads it.
 public export
 fileTime : Op 1 1 0 0
-fileTime = platformOp "io.file_time" [single "file" i64] [result "times" i64] (outside Touched)
-  (MkRuntimeCall "io_file_time" [TakesInt64] (Returns GivesInt64))
+fileTime = platformOp "io.file_time" (MkRuntimeFunction "io_file_time" [word64 "file"] (Returns GivesInt64))
+  [result "times" i64] (outside Touched)
   (says "a file's times, read at once into a new file-time handle")
 
 ||| Base's six readers of a file time, which differ only in the field they
@@ -239,7 +242,7 @@ handleFileTime : Op 1 1 1 0
 handleFileTime = MkOp
   { home = InIdr
   , mnemonic = "handle.file_time"
-  , ins = [single "times" i64]
+  , ins = operandsOf runtime
   , outs = made
   , attrs = [property "kind" (EnumProperty (imported fileTimeFieldClosed
       (MkSource ("IdrisMLIR" ::: ["Spec", "Ops", "Platform"]) "FileTimeField"
@@ -251,8 +254,7 @@ handleFileTime = MkOp
   , speculation = NotSpeculatable
   , stages = Always
   , meaning =
-      CallsRuntimeByCase (enumDef fileTimeFieldClosed)
-        (MkRuntimeCall "handle_file_time" [TakesInt64] (Returns GivesInt64))
+      CallsRuntimeByCase (enumDef fileTimeFieldClosed) (asCall runtime)
   , verify = DeclarationOnly
   , format = attrFirst 1 0
   , builders = []
@@ -265,6 +267,8 @@ handleFileTime = MkOp
   , typing = fixedTypes made
   }
   where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "handle_file_time" [word64 "times"] (Returns GivesInt64)
     made : Vect 1 Result
     made = [result "value" i64]
 
@@ -289,20 +293,20 @@ dirCreate = pathOp "io.dir_create" "io_dir_create" (says "creates a directory at
 
 public export
 dirRemove : Op 1 0 0 0
-dirRemove = platformOp "io.dir_remove" [single "path" strRead] [] (outside Touched)
-  (MkRuntimeCall "io_dir_remove" [TakesStr] NoResult)
+dirRemove = platformOp "io.dir_remove" (MkRuntimeFunction "io_dir_remove" [str "path"] NoResult)
+  [] (outside Touched)
   (says "removes the directory at a path")
 
 public export
 dirOpen : Op 1 1 0 0
-dirOpen = platformOp "io.dir_open" [single "path" strRead] [result "dir" i64] (outside Touched)
-  (MkRuntimeCall "io_dir_open" [TakesStr] (Returns GivesInt64))
+dirOpen = platformOp "io.dir_open" (MkRuntimeFunction "io_dir_open" [str "path"] (Returns GivesInt64))
+  [result "dir" i64] (outside Touched)
   (says "opens the directory at a path: a directory handle, or null")
 
 public export
 dirClose : Op 1 0 0 0
-dirClose = platformOp "io.dir_close" [single "dir" i64] [] (outside Touched)
-  (MkRuntimeCall "io_dir_close" [TakesInt64] NoResult)
+dirClose = platformOp "io.dir_close" (MkRuntimeFunction "io_dir_close" [word64 "dir"] NoResult)
+  [] (outside Touched)
   (says "closes a directory, its handle and the entry it last gave")
 
 ||| The entry's name is a string the runtime owns: the next entry replaces
@@ -324,46 +328,46 @@ argCount = reading "io.arg_count" "io_arg_count" computes
 
 public export
 arg : Op 1 1 0 0
-arg = platformOp "io.arg" [single "index" i64] [result "str" strValue] (builds 0 Untouched)
-  (MkRuntimeCall "io_arg" [TakesInt64] (Returns GivesStr))
+arg = platformOp "io.arg" (MkRuntimeFunction "io_arg" [word64 "index"] (Returns GivesStr))
+  [result "str" strValue] (builds 0 Untouched)
   (says "the program's argument at an index, a new string")
 
 ||| The value is a string the runtime owns: the next environment operation
 ||| replaces it.
 public export
 envGet : Op 1 1 0 0
-envGet = platformOp "io.env_get" [single "name" strRead] [result "value" i64] (outside Touched)
-  (MkRuntimeCall "io_env_get" [TakesStr] (Returns GivesInt64))
+envGet = platformOp "io.env_get" (MkRuntimeFunction "io_env_get" [str "name"] (Returns GivesInt64))
+  [result "value" i64] (outside Touched)
   (says "the value of an environment variable, as a string handle, or null")
 
 public export
 envPair : Op 1 1 0 0
-envPair = platformOp "io.env_pair" [single "index" i64] [result "pair" i64] (outside Touched)
-  (MkRuntimeCall "io_env_pair" [TakesInt64] (Returns GivesInt64))
+envPair = platformOp "io.env_pair" (MkRuntimeFunction "io_env_pair" [word64 "index"] (Returns GivesInt64))
+  [result "pair" i64] (outside Touched)
   (says "the environment's `name=value` at an index, as a string handle, or null past its end")
 
 public export
 envSet : Op 3 1 0 0
-envSet = platformOp "io.env_set" [single "name" strRead, single "value" strRead, single "overwrite" i64]
+envSet = platformOp "io.env_set"
+  (MkRuntimeFunction "io_env_set" [str "name", str "value", word64 "overwrite"] (Returns GivesInt64))
   [result "result" i64] (outside Touched)
-  (MkRuntimeCall "io_env_set" [TakesStr, TakesStr, TakesInt64] (Returns GivesInt64))
   (says "sets an environment variable, unless it is set and `overwrite` is 0")
 
 public export
 envUnset : Op 1 1 0 0
-envUnset = platformOp "io.env_unset" [single "name" strRead] [result "result" i64] (outside Touched)
-  (MkRuntimeCall "io_env_unset" [TakesStr] (Returns GivesInt64))
+envUnset = platformOp "io.env_unset" (MkRuntimeFunction "io_env_unset" [str "name"] (Returns GivesInt64))
+  [result "result" i64] (outside Touched)
   (says "removes an environment variable")
 
 public export
 sleep : Op 1 0 0 0
-sleep = platformOp "io.sleep" [single "seconds" i64] [] (outside Untouched)
-  (MkRuntimeCall "io_sleep" [TakesInt64] NoResult) (says "waits a number of seconds")
+sleep = platformOp "io.sleep" (MkRuntimeFunction "io_sleep" [word64 "seconds"] NoResult)
+  [] (outside Untouched) (says "waits a number of seconds")
 
 public export
 usleep : Op 1 0 0 0
-usleep = platformOp "io.usleep" [single "microseconds" i64] [] (outside Untouched)
-  (MkRuntimeCall "io_usleep" [TakesInt64] NoResult) (says "waits a number of microseconds")
+usleep = platformOp "io.usleep" (MkRuntimeFunction "io_usleep" [word64 "microseconds"] NoResult)
+  [] (outside Untouched) (says "waits a number of microseconds")
 
 public export
 time : Op 0 1 0 0
@@ -385,8 +389,8 @@ termRaw = reading "io.term_raw" "io_term_raw" (outside Untouched)
 
 public export
 termReset : Op 0 0 0 0
-termReset = platformOp "io.term_reset" [] [] (outside Untouched)
-  (MkRuntimeCall "io_term_reset" [] NoResult)
+termReset = platformOp "io.term_reset" (MkRuntimeFunction "io_term_reset" [] NoResult)
+  [] (outside Untouched)
   (says "puts the terminal back in the mode it had before raw mode")
 
 public export
@@ -412,7 +416,7 @@ errorText : Op 1 1 0 0
 errorText = MkOp
   { home = InIdr
   , mnemonic = "str.of_errno"
-  , ins = [single "code" i64]
+  , ins = operandsOf runtime
   , outs = [result "str" strValue]
   , attrs = []
   , regions = []
@@ -421,7 +425,7 @@ errorText = MkOp
   , effects = builds 0 Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = CallsRuntime (MkRuntimeCall "io_strerror" [TakesInt64] (Returns GivesStr))
+  , meaning = CallsRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -432,6 +436,9 @@ errorText = MkOp
   , laws = []
   , doc = says "the text of an error number, a new string"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "io_strerror" [word64 "code"] (Returns GivesStr)
 
 ------------------------------------------------------------------------------
 -- Clocks
@@ -447,7 +454,7 @@ clock : Op 0 1 1 0
 clock = MkOp
   { home = InIdr
   , mnemonic = "io.clock"
-  , ins = []
+  , ins = operandsOf runtime
   , outs = made
   , attrs = [property "kind" (EnumProperty (imported clockKindClosed
       (MkSource ("IdrisMLIR" ::: ["Spec", "Runtime", "Clocks"]) "ClockKind"
@@ -458,7 +465,7 @@ clock = MkOp
   , effects = outside Untouched
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntimeByCase (enumDef clockKindClosed) (MkRuntimeCall "io_clock" [] (Returns GivesInt64))
+  , meaning = CallsRuntimeByCase (enumDef clockKindClosed) (asCall runtime)
   , verify = DeclarationOnly
   , format = Declared [ValueOf (AttrRef 0), AttrDict]
   , builders = []
@@ -471,6 +478,8 @@ clock = MkOp
   , typing = fixedTypes made
   }
   where
+    runtime : RuntimeFunction 0 1
+    runtime = MkRuntimeFunction "io_clock" [] (Returns GivesInt64)
     made : Vect 1 Result
     made = [result "reading" i64]
 
@@ -487,7 +496,7 @@ handleString : Op 1 1 0 0
 handleString = MkOp
   { home = InIdr
   , mnemonic = "handle.string"
-  , ins = [single "handle" i64]
+  , ins = operandsOf runtime
   , outs = [result "str" strValue]
   , attrs = []
   , regions = []
@@ -496,7 +505,7 @@ handleString = MkOp
   , effects = Executes [OnState Read RuntimeState, OnValues Write Count (Results 0)] [] Covered Untouched
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntime (MkRuntimeCall "handle_string" [TakesInt64] (Returns GivesStr))
+  , meaning = CallsRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -507,13 +516,16 @@ handleString = MkOp
   , laws = []
   , doc = says "the string a string handle holds, with a reference of its own"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "handle_string" [word64 "handle"] (Returns GivesStr)
 
 ||| Base's free of a pointer: a program-owned string handle's string loses
 ||| its reference; a string the runtime owns stays.
 public export
 handleFree : Op 1 0 0 0
-handleFree = platformOp "io.handle_free" [single "handle" i64] [] (outside Touched)
-  (MkRuntimeCall "io_handle_free" [TakesInt64] NoResult) (says "releases a handle's slot")
+handleFree = platformOp "io.handle_free" (MkRuntimeFunction "io_handle_free" [word64 "handle"] NoResult)
+  [] (outside Touched) (says "releases a handle's slot")
 
 public export
 platformOps : List AnyOp

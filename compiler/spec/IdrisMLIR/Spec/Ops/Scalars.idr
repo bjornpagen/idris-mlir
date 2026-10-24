@@ -207,7 +207,7 @@ f64ToInt : Op 1 1 0 0
 f64ToInt = MkOp
   { home = InIdr
   , mnemonic = "f64.to_int"
-  , ins = [single "value" f64]
+  , ins = operandsOf runtime
   , outs = [result "result" int]
   , attrs = []
   , regions = []
@@ -216,7 +216,7 @@ f64ToInt = MkOp
   , effects = computes
   , speculation = Conditionally
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "to_int" [TakesDouble] (Returns GivesWrapped))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
@@ -227,6 +227,9 @@ f64ToInt = MkOp
   , laws = []
   , doc = says "a finite Double as an integer, truncated and wrapped"
   }
+  where
+    runtime : RuntimeFunction 1 1
+    runtime = MkRuntimeFunction "to_int" [float64 "value"] (Returns GivesWrapped)
 
 public export
 scalarOps : List AnyOp

@@ -14,6 +14,7 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Runtime.Helpers
 import IdrisMLIR.Spec.Ops.IO
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
 
@@ -31,17 +32,17 @@ public export
 neverEmpty : TraitDef
 neverEmpty = MkTraitDef "NeverEmpty" (says "the string it builds has a character at least")
 
-||| A builder of a new string by the runtime's function `stem`, its operands
-||| as the function takes them.
+||| A builder of a new string by a runtime function, its operands as the
+||| function takes them.
 public export
-builder : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> RuntimeCall i 1 -> List (Trait i 1)
+builder : {i : Nat} -> (m : Mnemonic) -> (f : RuntimeFunction i 1) -> List (Trait i 1)
        -> Doc
-       -> {auto 0 named : So (distinct (groupNames ins [result "result" Shapes.strValue] [] []))}
+       -> {auto 0 named : So (distinct (groupNames (operandsOf f) [result "result" Shapes.strValue] [] []))}
        -> Op i 1 0 0
-builder m ins call traits d = MkOp
+builder m f traits d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = ins
+  , ins = operandsOf f
   , outs = [result "result" strValue]
   , attrs = []
   , regions = []
@@ -50,7 +51,7 @@ builder m ins call traits d = MkOp
   , effects = builds 0 Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime call
+  , meaning = ComputedByRuntime (asCall f)
   , verify = DeclarationOnly
   , format = plain i
   , builders = []
@@ -70,20 +71,19 @@ public export
 strAppend : Op 2 1 0 0
 strAppend =
   { laws := [Associative, Identity ""] }
-  (builder "str.append" [single "lhs" strRead, single "rhs" strRead]
-    (MkRuntimeCall "str_append" [TakesStr, TakesStr] (Returns GivesStr)) []
+  (builder "str.append" (MkRuntimeFunction "str_append" [str "lhs", str "rhs"] (Returns GivesStr)) []
     (says "the concatenation of two strings"))
 
 public export
 strCons : Op 2 1 0 0
-strCons = builder "str.cons" [single "head" i32, single "tail" strRead]
-  (MkRuntimeCall "str_cons" [TakesInt32, TakesStr] (Returns GivesStr)) [OurTrait neverEmpty]
+strCons = builder "str.cons" (MkRuntimeFunction "str_cons" [word32 "head", str "tail"] (Returns GivesStr))
+  [OurTrait neverEmpty]
   (says "a character before a string")
 
 public export
 strFromChar : Op 1 1 0 0
-strFromChar = builder "str.from_char" [single "value" i32]
-  (MkRuntimeCall "str_from_char" [TakesInt32] (Returns GivesStr)) [OurTrait neverEmpty]
+strFromChar = builder "str.from_char" (MkRuntimeFunction "str_from_char" [word32 "value"] (Returns GivesStr))
+  [OurTrait neverEmpty]
   (says "the string of one character")
 
 ------------------------------------------------------------------------------
@@ -96,8 +96,9 @@ strFromChar = builder "str.from_char" [single "value" i32]
 ||| show's operand as the show's function takes it, so the two cannot
 ||| disagree on it. Writing is IO's, so it returns nothing.
 public export
-writerOf : Ident -> Symbol -> RuntimeCall 1 1 -> Line -> RuntimeHelper
-writerOf name sym shown doc = MkRuntimeHelper name sym [(head shown.takes, "value")] HelperNothing doc
+writerOf : Ident -> Symbol -> RuntimeFunction 1 1 -> Line -> RuntimeHelper
+writerOf name sym shown doc =
+  let value = head shown.takes in MkRuntimeHelper name sym [(value.kind, value.operand.name)] HelperNothing doc
 
 ||| A show whose text an output of it alone writes with the show's writer
 ||| (`ShownOutput<Op>`): what the lowering emits for a string the show makes
@@ -106,14 +107,14 @@ public export
 shownOutput : RuntimeHelper -> Specialized
 shownOutput writer = MkSpecialized "ShownOutput" [("writer", HelperConstant writer)]
 
-showSigned : RuntimeCall 1 1
-showSigned = MkRuntimeCall "str_show_s" [TakesSigned] (Returns GivesStr)
+showSigned : RuntimeFunction 1 1
+showSigned = MkRuntimeFunction "str_show_s" [extended Signed "value"] (Returns GivesStr)
 
-showUnsigned : RuntimeCall 1 1
-showUnsigned = MkRuntimeCall "str_show_u" [TakesUnsigned] (Returns GivesStr)
+showUnsigned : RuntimeFunction 1 1
+showUnsigned = MkRuntimeFunction "str_show_u" [extended Unsigned "value"] (Returns GivesStr)
 
-showDouble : RuntimeCall 1 1
-showDouble = MkRuntimeCall "str_show_f64" [TakesDouble] (Returns GivesStr)
+showDouble : RuntimeFunction 1 1
+showDouble = MkRuntimeFunction "str_show_f64" [float64 "value"] (Returns GivesStr)
 
 public export
 putSigned : RuntimeHelper
@@ -134,21 +135,21 @@ public export
 strShowSint : Op 1 1 0 0
 strShowSint =
   { specializations := [shownOutput putSigned] }
-  (builder "str.show_sint" [single "value" int] showSigned [OurTrait neverEmpty]
+  (builder "str.show_sint" showSigned [OurTrait neverEmpty]
     (says "the decimal text of a signed integer"))
 
 public export
 strShowUint : Op 1 1 0 0
 strShowUint =
   { specializations := [shownOutput putUnsigned] }
-  (builder "str.show_uint" [single "value" int] showUnsigned [OurTrait neverEmpty]
+  (builder "str.show_uint" showUnsigned [OurTrait neverEmpty]
     (says "the decimal text of an unsigned integer"))
 
 public export
 strShowDouble : Op 1 1 0 0
 strShowDouble =
   { specializations := [shownOutput putDouble] }
-  (builder "str.show_double" [single "value" f64] showDouble [OurTrait neverEmpty]
+  (builder "str.show_double" showDouble [OurTrait neverEmpty]
     (says "the text of a Double, as prim__cast_DoubleString writes it"))
 
 ------------------------------------------------------------------------------
@@ -157,22 +158,21 @@ strShowDouble =
 
 public export
 strSubstr : Op 3 1 0 0
-strSubstr = builder "str.substr" [single "str" strRead, single "start" i64, single "length" i64]
-  (MkRuntimeCall "str_substr" [TakesStr, TakesInt64, TakesInt64] (Returns GivesStr)) []
+strSubstr = builder "str.substr"
+  (MkRuntimeFunction "str_substr" [str "str", word64 "start", word64 "length"] (Returns GivesStr)) []
   (says "the characters of a string from a start, at most a length")
 
 public export
 strReverse : Op 1 1 0 0
-strReverse = builder "str.reverse" [single "str" strRead]
-  (MkRuntimeCall "str_reverse" [TakesStr] (Returns GivesStr)) []
+strReverse = builder "str.reverse" (MkRuntimeFunction "str_reverse" [str "str"] (Returns GivesStr)) []
   (says "the characters of a string in reverse order")
 
 ||| A string by byte offset, as the linear string iterator walks it: every
 ||| offset has a meaning, the runtime's, so no guard.
 public export
 strDropBytes : Op 2 1 0 0
-strDropBytes = builder "str.drop_bytes" [single "str" strRead, single "offset" i64]
-  (MkRuntimeCall "str_drop_bytes" [TakesStr, TakesInt64] (Returns GivesStr)) []
+strDropBytes = builder "str.drop_bytes"
+  (MkRuntimeFunction "str_drop_bytes" [str "str", word64 "offset"] (Returns GivesStr)) []
   (says "the characters of a string from a byte offset on")
 
 ||| A string without its first character, of a string that is not empty,
@@ -182,8 +182,7 @@ strTail : Op 1 1 0 0
 strTail =
   { guards := [MkGuard NonEmpty [0] TailOfEmptyString]
   , speculation := Conditionally }
-  (builder "str.tail" [single "str" strRead]
-    (MkRuntimeCall "str_tail" [TakesStr] (Returns GivesStr)) []
+  (builder "str.tail" (MkRuntimeFunction "str_tail" [str "str"] (Returns GivesStr)) []
     (says "a string without its first character, of a string that is not empty"))
 
 ------------------------------------------------------------------------------
@@ -193,14 +192,14 @@ strTail =
 ||| A runtime function of a string that gives no new string, its result's
 ||| type the one its constraint fixes.
 public export
-reader : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (res : Result) -> RuntimeCall i 1
+reader : {i : Nat} -> (m : Mnemonic) -> (f : RuntimeFunction i 1) -> (res : Result)
       -> List InterfaceUse -> Doc
-      -> {auto 0 named : So (distinct (groupNames ins [res] [] []))}
+      -> {auto 0 named : So (distinct (groupNames (operandsOf f) [res] [] []))}
       -> Op i 1 0 0
-reader m ins res call ifaces d = MkOp
+reader m f res ifaces d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = ins
+  , ins = operandsOf f
   , outs = [res]
   , attrs = []
   , regions = []
@@ -209,7 +208,7 @@ reader m ins res call ifaces d = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime call
+  , meaning = ComputedByRuntime (asCall f)
   , verify = DeclarationOnly
   , format = plain i
   , builders = []
@@ -227,29 +226,29 @@ ranges = Declares InferIntRange ["inferResultRanges"]
 
 public export
 strLength : Op 1 1 0 0
-strLength = reader "str.length" [single "str" strRead] (result "result" i64)
-  (MkRuntimeCall "str_length" [TakesStr] (Returns GivesInt64)) [ranges]
+strLength = reader "str.length" (MkRuntimeFunction "str_length" [str "str"] (Returns GivesInt64))
+  (result "result" i64) [ranges]
   (says "the number of characters of a string")
 
 ||| The length of a string's UTF-8, interior zeros included.
 public export
 strBytesLength : Op 1 1 0 0
-strBytesLength = reader "str.bytes_length" [single "str" strRead] (result "result" i64)
-  (MkRuntimeCall "str_bytes_length" [TakesStr] (Returns GivesInt64)) []
+strBytesLength = reader "str.bytes_length" (MkRuntimeFunction "str_bytes_length" [str "str"] (Returns GivesInt64))
+  (result "result" i64) []
   (says "the number of bytes of a string")
 
 public export
 strScalarAt : Op 2 1 0 0
-strScalarAt = reader "str.scalar_at" [single "str" strRead, single "offset" i64] (result "result" i32)
-  (MkRuntimeCall "str_scalar_at" [TakesStr, TakesInt64] (Returns GivesInt32)) [ranges]
+strScalarAt = reader "str.scalar_at"
+  (MkRuntimeFunction "str_scalar_at" [str "str", word64 "offset"] (Returns GivesInt32)) (result "result" i32) [ranges]
   (says "the character that starts at a byte offset, 0 at the end")
 
 ||| The iterator's step past a character it read: the length of its UTF-8,
 ||| the runtime's one rule, which the string's encoding is.
 public export
 strScalarBytes : Op 1 1 0 0
-strScalarBytes = reader "str.scalar_bytes" [single "value" i32] (result "result" i64)
-  (MkRuntimeCall "str_scalar_bytes" [TakesInt32] (Returns GivesInt64)) [ranges]
+strScalarBytes = reader "str.scalar_bytes" (MkRuntimeFunction "str_scalar_bytes" [word32 "value"] (Returns GivesInt64))
+  (result "result" i64) [ranges]
   (says "the number of bytes of a character's UTF-8")
 
 ||| The character at an index of the string, which `idr.check.in_bounds`
@@ -259,8 +258,8 @@ strIndex : Op 2 1 0 0
 strIndex =
   { guards := [MkGuard InBounds [1, 0] StringIndexOutOfRange]
   , speculation := Conditionally }
-  (reader "str.index" [single "str" strRead, single "index" i64] (result "result" i32)
-    (MkRuntimeCall "str_index" [TakesStr, TakesInt64] (Returns GivesInt32)) []
+  (reader "str.index" (MkRuntimeFunction "str_index" [str "str", word64 "index"] (Returns GivesInt32))
+    (result "result" i32) []
     (says "the character at an index within the string"))
 
 ||| The first character of a string that is not empty, which
@@ -270,8 +269,7 @@ strHead : Op 1 1 0 0
 strHead =
   { guards := [MkGuard NonEmpty [0] HeadOfEmptyString]
   , speculation := Conditionally }
-  (reader "str.head" [single "str" strRead] (result "result" i32)
-    (MkRuntimeCall "str_head" [TakesStr] (Returns GivesInt32)) []
+  (reader "str.head" (MkRuntimeFunction "str_head" [str "str"] (Returns GivesInt32)) (result "result" i32) []
     (says "the first character of a string that is not empty"))
 
 public export
@@ -279,7 +277,7 @@ strCmp : Op 2 1 1 0
 strCmp = MkOp
   { home = InIdr
   , mnemonic = "str.cmp"
-  , ins = [single "lhs" strRead, single "rhs" strRead]
+  , ins = operandsOf runtime
   , outs = made
   , attrs = [property "predicate" (EnumProperty comparisonEnum)]
   , regions = []
@@ -288,7 +286,7 @@ strCmp = MkOp
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "str_cmp" [TakesStr, TakesStr] (Returns GivesOrder))
+  , meaning = ComputedByRuntime (asCall runtime)
   , verify = DeclarationOnly
   , format = attrFirst 2 0
   , builders = []
@@ -301,6 +299,8 @@ strCmp = MkOp
   , typing = fixedTypes made
   }
   where
+    runtime : RuntimeFunction 2 1
+    runtime = MkRuntimeFunction "str_cmp" [str "lhs", str "rhs"] (Returns GivesOrder)
     made : Vect 1 Result
     made = [result "result" i1]
 
@@ -308,14 +308,14 @@ strCmp = MkOp
 ||| signedness, and the op wraps what it gives to its width.
 public export
 strToInt : Op 1 1 0 0
-strToInt = reader "str.to_int" [single "str" strRead] (result "result" int)
-  (MkRuntimeCall "str_to_int" [TakesStr] (Returns GivesWrapped)) []
+strToInt = reader "str.to_int" (MkRuntimeFunction "str_to_int" [str "str"] (Returns GivesWrapped))
+  (result "result" int) []
   (says "a string as an integer, as prim__cast_StringT reads it")
 
 public export
 strToDouble : Op 1 1 0 0
-strToDouble = reader "str.to_double" [single "str" strRead] (result "result" f64)
-  (MkRuntimeCall "str_to_double" [TakesStr] (Returns GivesDouble)) []
+strToDouble = reader "str.to_double" (MkRuntimeFunction "str_to_double" [str "str"] (Returns GivesDouble))
+  (result "result" f64) []
   (says "a string as a Double, as prim__cast_StringDouble reads it")
 
 ------------------------------------------------------------------------------

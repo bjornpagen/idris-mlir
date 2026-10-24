@@ -16,7 +16,9 @@
 module IdrisMLIR.Spec.Runtime.Helpers
 
 import IdrisMLIR.Spec.Core.Ods
+import IdrisMLIR.Spec.Core.Op
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Ops.Shapes
 
 %default total
 
@@ -167,7 +169,7 @@ helpers =
       ((TakesInt32, ident "cause") :: (TakesInt64, ident "operand") :: site) HelperNeverReturns
       (line "ends the program as a crash of a cause whose line reads the operand its guard found false, at its site")
   , MkRuntimeHelper (ident "crashMessageAt") (symbol "crash_message_at")
-      ((TakesStr, ident "message") :: site) HelperNeverReturns
+      ((crashText.kind, crashText.operand.name) :: site) HelperNeverReturns
       (line "ends the program as a crash of the text a trusted library gave idris_crash, at its site")
   , MkRuntimeHelper (ident "outOfMemory") (symbol "out_of_memory")
       [] HelperNeverReturns

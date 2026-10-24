@@ -145,7 +145,7 @@ crashMessageOp : Op 1 0 1 0
 crashMessageOp = MkOp
   { home = InIdr
   , mnemonic = "crash.message"
-  , ins = [single "message" strRead]
+  , ins = [crashText.operand]
   , outs = []
   , attrs = [siteSlot]
   , regions = []

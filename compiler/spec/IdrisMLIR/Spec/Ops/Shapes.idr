@@ -9,6 +9,7 @@ module IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Ops.Numeric
 
 import Data.Fin
 import Data.List
@@ -173,6 +174,97 @@ bigOrNatStatic = SatisfiesType bigOrNatStaticP
 public export
 byteBuffer : TypeC
 byteBuffer = SatisfiesType byteBufferP
+
+------------------------------------------------------------------------------
+-- What a runtime function takes
+------------------------------------------------------------------------------
+
+||| One operand group of an op whose meaning is a runtime function, and how
+||| the function takes it. The constraint the group meets and the kind the
+||| function reads it as are one fact of the position: a string the
+||| function borrows is read in place, at any hold, and taken as the
+||| runtime's string. Each value below states the pair once, and an op's
+||| operands and its call are both read off one list of them.
+public export
+record Taken where
+  constructor MkTaken
+  operand : Operand
+  kind : OperandKind
+
+||| A string the function reads in place.
+public export
+str : Ident -> Taken
+str n = MkTaken (single n strRead) TakesStr
+
+||| An Integer the function reads in place.
+public export
+bigInt : Ident -> Taken
+bigInt n = MkTaken (single n bigRead) TakesBig
+
+||| A natural the function reads in place, as a big.
+public export
+nat : Ident -> Taken
+nat n = MkTaken (single n natRead) TakesBig
+
+||| An Integer or a natural the function reads in place, as a big.
+public export
+bigOrNat : Ident -> Taken
+bigOrNat n = MkTaken (single n bigOrNatRead) TakesBig
+
+||| A buffer of bytes, its cell taken.
+public export
+buffer : Ident -> Taken
+buffer n = MkTaken (single n byteBuffer) TakesBuffer
+
+public export
+word32 : Ident -> Taken
+word32 n = MkTaken (single n i32) TakesInt32
+
+public export
+word64 : Ident -> Taken
+word64 n = MkTaken (single n i64) TakesInt64
+
+||| An exit status, the op's i64, taken as the byte the C library's exit
+||| takes.
+public export
+exitByte : Ident -> Taken
+exitByte n = MkTaken (single n i64) TakesUInt8
+
+public export
+float64 : Ident -> Taken
+float64 n = MkTaken (single n f64) TakesDouble
+
+||| An integer of any width, extended by its sign or by zeros, as the op
+||| reads it.
+public export
+extended : Signedness -> Ident -> Taken
+extended sign n = MkTaken (single n int) (case sign of { Signed => TakesSigned; Unsigned => TakesUnsigned })
+
+||| The text a trusted library gave `idris_crash`: idr.crash.message's
+||| operand, which its lowering hands crash_message_at as that function
+||| takes it.
+public export
+crashText : Taken
+crashText = str "message"
+
+||| The runtime function an op calls: its symbol, each of the op's operand
+||| groups as it takes them, and how it gives the op's results.
+public export
+record RuntimeFunction (i, o : Nat) where
+  constructor MkRuntimeFunction
+  symbol : Symbol
+  takes : Vect i Taken
+  gives : Gives o
+
+||| The op's operand groups, in the function's order.
+public export
+operandsOf : RuntimeFunction i o -> Vect i Operand
+operandsOf f = map (.operand) f.takes
+
+||| The call the op's meaning names: the function as the C ABI sees it.
+public export
+asCall : RuntimeFunction i o -> RuntimeCall i o
+asCall f = MkRuntimeCall f.symbol (map (.kind) f.takes) f.gives
 
 ------------------------------------------------------------------------------
 -- The upstream ops this area admits

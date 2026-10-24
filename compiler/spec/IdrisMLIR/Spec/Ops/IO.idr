@@ -27,17 +27,18 @@ import Data.Vect
 -- Output and input
 ------------------------------------------------------------------------------
 
-||| An IO op of the runtime function its call names (`io_<name>`, or the
-||| exit's `exit`), its results' types the ones their constraints fix.
+||| An IO op of a runtime function (`io_<name>`, or the exit's `exit`), its
+||| operands as the function takes them, its results' types the ones their
+||| constraints fix.
 public export
-ioOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
-    -> Declaration i o -> RuntimeCall i o -> Doc
-    -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
+ioOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (f : RuntimeFunction i o) -> (outs : Vect o Result)
+    -> Declaration i o -> Doc
+    -> {auto 0 named : So (distinct (groupNames (operandsOf f) outs [] []))}
     -> Op i o 0 0
-ioOp m ins outs eff call d = MkOp
+ioOp m f outs eff d = MkOp
   { home = InIdr
   , mnemonic = m
-  , ins = ins
+  , ins = operandsOf f
   , outs = outs
   , attrs = []
   , regions = []
@@ -46,7 +47,7 @@ ioOp m ins outs eff call d = MkOp
   , effects = eff
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntime call
+  , meaning = CallsRuntime (asCall f)
   , verify = DeclarationOnly
   , format = plain i
   , builders = []
@@ -66,30 +67,28 @@ public export
 putStrOp : Op 1 0 0 0
 putStrOp =
   { traits := [OurTrait eliminatesOperand] }
-  (ioOp "io.put_str" [single "str" strRead] [] (outside Untouched)
-    (MkRuntimeCall "io_put_str" [TakesStr] NoResult)
+  (ioOp "io.put_str" (MkRuntimeFunction "io_put_str" [str "str"] NoResult) [] (outside Untouched)
     (says "writes a string to standard output"))
 
 ||| The UTF-8 encoding of a character, a Unicode scalar value: the Prelude's
 ||| putCharOp, and what writing a one-character string writes.
 public export
 putCharOp : Op 1 0 0 0
-putCharOp = ioOp "io.put_char" [single "ch" i32] [] (outside Untouched)
-  (MkRuntimeCall "io_put_char" [TakesInt32] NoResult)
+putCharOp = ioOp "io.put_char" (MkRuntimeFunction "io_put_char" [word32 "ch"] NoResult) [] (outside Untouched)
   (says "writes a character to standard output")
 
 ||| The Prelude's getChar: a byte of input.
 public export
 getByteOp : Op 0 1 0 0
-getByteOp = ioOp "io.get_byte" [] [result "ch" i32] (outside Untouched)
-  (MkRuntimeCall "io_get_byte" [] (Returns GivesInt32))
+getByteOp = ioOp "io.get_byte" (MkRuntimeFunction "io_get_byte" [] (Returns GivesInt32)) [result "ch" i32]
+  (outside Untouched)
   (says "reads a byte of standard input")
 
 ||| The Prelude's getLineOp: a line of input, a new string.
 public export
 getLineOp : Op 0 1 0 0
-getLineOp = ioOp "io.get_line" [] [result "str" strValue] (outsideBuilding 0 Touched)
-  (MkRuntimeCall "io_get_line" [] (Returns GivesStr))
+getLineOp = ioOp "io.get_line" (MkRuntimeFunction "io_get_line" [] (Returns GivesStr)) [result "str" strValue]
+  (outsideBuilding 0 Touched)
   (says "reads a line of standard input")
 
 ||| A transfer of the bytes [offset, offset + count) of a buffer between it
@@ -102,10 +101,9 @@ transfer : Mnemonic -> (k : Kind) -> Symbol -> Doc
         -> {auto 0 names : Names {i = 4} {o = 1} k (Operands 1)}
         -> Op 4 1 0 0
 transfer m k s d = ioOp m
-  [single "handle" i64, single "buffer" byteBuffer, single "offset" i64, single "count" i64]
+  (MkRuntimeFunction s [word64 "handle", buffer "buffer", word64 "offset", word64 "count"] (Returns GivesInt64))
   [result "moved" i64]
   (Executes [OnState Read IO, OnState Write IO, OnValues k Contents (Operands 1)] [] Covered Untouched)
-  (MkRuntimeCall s [TakesInt64, TakesBuffer, TakesInt64, TakesInt64] (Returns GivesInt64))
   d
 
 ||| Bytes of a buffer to a handle: a StandardStream's, standard output's
@@ -126,15 +124,15 @@ readBytesOp = transfer "io.read_bytes" Write "io_read_bytes" (says "reads bytes 
 ||| reports it, else 0.
 public export
 eofOp : Op 1 1 0 0
-eofOp = ioOp "io.eof" [single "handle" i64] [result "ended" i64] (outside Untouched)
-  (MkRuntimeCall "io_eof" [TakesInt64] (Returns GivesInt64))
+eofOp = ioOp "io.eof" (MkRuntimeFunction "io_eof" [word64 "handle"] (Returns GivesInt64)) [result "ended" i64]
+  (outside Untouched)
   (says "whether a read on a handle met the end of its input")
 
 ||| How many processors are online, -1 where the system does not say.
 public export
 nProcessorsOp : Op 0 1 0 0
-nProcessorsOp = ioOp "io.n_processors" [] [result "count" i64] (outside Untouched)
-  (MkRuntimeCall "io_n_processors" [] (Returns GivesInt64))
+nProcessorsOp = ioOp "io.n_processors" (MkRuntimeFunction "io_n_processors" [] (Returns GivesInt64))
+  [result "count" i64] (outside Untouched)
   (says "how many processors are online")
 
 ------------------------------------------------------------------------------
@@ -151,9 +149,8 @@ exitOp : Op 1 0 0 0
 exitOp =
   { traits := [Terminator]
   , guards := [MkGuard Byte [0] ExitStatusOutOfRange] }
-  (ioOp "io.exit" [single "status" i64] []
+  (ioOp "io.exit" (MkRuntimeFunction "exit" [exitByte "status"] NeverReturns) []
     (Executes [OnState Read IO, OnState Write IO, OnState Write Exit] [] Covered Untouched)
-    (MkRuntimeCall "exit" [TakesUInt8] NeverReturns)
     (says "writes pending output and ends the process with a status; does not return"))
 
 export
@@ -218,31 +215,39 @@ bufferStore = bufferOp "buffer.store" [single "buffer" byteBuffer, single "offse
 ||| Bytes copied from one buffer into another, which may overlap: memmove.
 public export
 bufferCopy : Op 5 0 0 0
-bufferCopy = bufferOp "buffer.copy"
-  [ single "src" byteBuffer, single "src_offset" i64, single "len" i64, single "dst" byteBuffer
-  , single "dst_offset" i64 ] []
+bufferCopy = bufferOp "buffer.copy" (operandsOf runtime) []
   (Executes [OnValues Read Contents (Operands 0), OnValues Write Contents (Operands 3)] [] Covered Untouched)
-  (CallsRuntime (MkRuntimeCall "io_buffer_copy" [TakesBuffer, TakesInt64, TakesInt64, TakesBuffer, TakesInt64] NoResult))
+  (CallsRuntime (asCall runtime))
   (says "bytes copied from one buffer into another")
+  where
+    runtime : RuntimeFunction 5 0
+    runtime = MkRuntimeFunction "io_buffer_copy"
+      [buffer "src", word64 "src_offset", word64 "len", buffer "dst", word64 "dst_offset"] NoResult
 
 ||| A string's UTF-8 written at an offset: its byte length, interior zeros
 ||| included.
 public export
 bufferSetString : Op 3 0 0 0
-bufferSetString = bufferOp "buffer.set_string" [single "buffer" byteBuffer, single "offset" i64, single "str" strRead] []
+bufferSetString = bufferOp "buffer.set_string" (operandsOf runtime) []
   (Executes [OnValues Write Contents (Operands 0)] [] Covered Untouched)
-  (CallsRuntime (MkRuntimeCall "io_buffer_set_string" [TakesBuffer, TakesInt64, TakesStr] NoResult))
+  (CallsRuntime (asCall runtime))
   (says "a string's bytes written into a buffer")
+  where
+    runtime : RuntimeFunction 3 0
+    runtime = MkRuntimeFunction "io_buffer_set_string" [buffer "buffer", word64 "offset", str "str"] NoResult
 
 ||| A buffer's bytes read as a new string, ill-formed UTF-8 replaced as the
 ||| runtime replaces it.
 public export
 bufferGetString : Op 3 1 0 0
-bufferGetString = bufferOp "buffer.get_string" [single "buffer" byteBuffer, single "offset" i64, single "len" i64]
-  [result "str" strValue]
+bufferGetString = bufferOp "buffer.get_string" (operandsOf runtime) [result "str" strValue]
   (Executes [OnValues Read Contents (Operands 0)] [Acquires 0] Covered Untouched)
-  (CallsRuntime (MkRuntimeCall "io_buffer_get_string" [TakesBuffer, TakesInt64, TakesInt64] (Returns GivesStr)))
+  (CallsRuntime (asCall runtime))
   (says "a buffer's bytes read as a string")
+  where
+    runtime : RuntimeFunction 3 1
+    runtime = MkRuntimeFunction "io_buffer_get_string" [buffer "buffer", word64 "offset", word64 "len"]
+      (Returns GivesStr)
 
 public export
 ioOps : List AnyOp
