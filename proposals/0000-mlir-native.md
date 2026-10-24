@@ -2731,7 +2731,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   node of an instance's reading holds (a dictionary parameter's
   implementation, an instance at a use, a computed form, a method
   resolved in place), so a fold landed before those steps would keep the
-  old walk beside it: a dual path.
+  old walk beside it: a dual path. Amended again 2026-10-24 (L16fc's stop): the
+  lemma (step 5) rests on what the evaluator returns, which is D133's
+  certifying evaluator (its step 6), so steps 2 to 4 (the fold, the
+  request carrying its callee alternative's reading, form handles,
+  method alternatives, the evidence fields) land now with C258 and C308,
+  the translation then computing no request of its own, and the run-time
+  re-check stays as it is until steps 5 and 6 (the lemma over
+  `Normalises`, the deletions) land as D133's step 8, after its steps 3,
+  5, 6 and 7. D133's step 7 follows steps 2 to 4 here.
 - **C282** (2026-10-23; L16en's finding, under C277: a weaker claim is
   always sound). A value built of fields takes from a field the claim
   that field's value holds only where that value is used once, its
