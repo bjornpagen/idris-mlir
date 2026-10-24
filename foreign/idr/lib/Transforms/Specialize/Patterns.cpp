@@ -35,15 +35,6 @@ std::optional<Attribute> constantOf(Value value) {
   return known;
 }
 
-// The op that builds `value` as a part of a shape: its constructor, or a
-// change of its grade (a linear position it entered or left); none for any
-// other value.
-Operation *shapeStep(Value value) {
-  if (auto con = value.getDefiningOp<DataConOp>())
-    return con;
-  return throughLinear(value) != value ? value.getDefiningOp() : nullptr;
-}
-
 // The constructor that built `value`, through the ops that only change its
 // grade, where its type fixes its fields' types.
 DataConOp constructorOf(Value value) {
@@ -56,15 +47,20 @@ DataConOp constructorOf(Value value) {
   return con;
 }
 
+// The op that builds `value` as a part of a shape, as shapeOf reads it: the
+// constructor that built it, or a change of its grade on the way there (a
+// linear position it entered or left). A leaf has none, whatever made it:
+// the cast that gives a call's result to the uses its caller makes of it
+// is no part of a shape.
+Operation *shapeStep(Value value) {
+  return constructorOf(value) ? value.getDefiningOp() : nullptr;
+}
+
 // The field types of constructor `tag` at a position of `type`, which the
 // key fixed only where the type determines them.
 llvm::SmallVector<Type> fieldTypes(Type type, Tag tag) {
   return *dataTypeOf(unrestricted(type)).determinedFields(tag);
 }
-
-// Whether a position of `type` holds a value used at most once: a value
-// there entered that quantity, which a rebuilt value enters again.
-bool usedOncePosition(Type type) { return isLinear(type); }
 
 // One node of a shape in pre-order: a hole, a constant, or a constructor
 // over the next `arity` nodes' subtrees.
@@ -116,13 +112,16 @@ const Pattern *shapeOf(Arena &arena, Value value, SmallVectorImpl<Value> &leaves
   return built.front();
 }
 
+// Each part read as shapeOf reads it: a constant where it stands, and a
+// constructor through the ops that only change its grade, so a constructor
+// cast into a linear position is closed as one built there is.
 bool isClosed(Value value) {
   SmallVector<Value> work{value};
   while (!work.empty()) {
     Value at = work.pop_back_val();
     if (matchPattern(at, m_Constant()))
       continue;
-    auto con = at.getDefiningOp<DataConOp>();
+    auto con = throughLinear(at).getDefiningOp<DataConOp>();
     if (!con)
       return false;
     llvm::append_range(work, con.getFields());
@@ -174,8 +173,7 @@ void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
 namespace {
 
 // One step of a rebuild: a pattern to build at a position of a type, or a
-// constructor whose fields, the last `arity` values built, are ready; or a
-// value to enter a quantity-one position once built.
+// constructor whose fields, the last `arity` values built, are ready.
 struct BuildAt {
   const Pattern *pattern;
   Type type;
@@ -185,16 +183,14 @@ struct MakeCon {
   Tag tag;
   size_t arity;
 };
-struct Enter {
-  Type type;
-};
-using RebuildStep = std::variant<BuildAt, MakeCon, Enter>;
+using RebuildStep = std::variant<BuildAt, MakeCon>;
 
 } // namespace
 
-// A hole is the next parameter, a quantity-one position enters what is
-// built inside it, a constructor is built over its fields at their
-// determined types, and a constant is the one the dialect materializes.
+// A hole is the next parameter; a constructor is built at the position's
+// grade, a quantity-one position's included, with no cast into it, over
+// its fields at their determined types; and a constant is the one the
+// dialect materializes at the position's type.
 Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
               ArrayRef<Value> holes, unsigned &next) {
   Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();
@@ -204,10 +200,6 @@ Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
     RebuildStep step = work.pop_back_val();
     idr::match(
         step,
-        [&](const Enter &enter) {
-          Value inner = built.pop_back_val();
-          built.push_back(LinCastOp::create(b, loc, enter.type, inner).getResult());
-        },
         [&](const MakeCon &make) {
           SmallVector<Value> fields(built.end() - make.arity, built.end());
           built.resize(built.size() - make.arity);
@@ -223,11 +215,6 @@ Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
           idr::match(
               at.pattern->get(), [&](Hole) { built.push_back(holes[next++]); },
               [&](const Con &con) {
-                if (usedOncePosition(at.type)) {
-                  work.push_back(Enter{at.type});
-                  work.push_back(BuildAt{at.pattern, unrestricted(at.type)});
-                  return;
-                }
                 SmallVector<Type> types = fieldTypes(at.type, con.tag);
                 work.push_back(MakeCon{at.type, con.tag, con.fields.size()});
                 for (size_t k = con.fields.size(); k-- > 0;)
