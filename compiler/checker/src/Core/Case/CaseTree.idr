@@ -27,6 +27,9 @@ mutual
   public export
   data CaseTree' : Scoped -> Scoped where
        ||| case x return scTy of { p1 => e1 ; ... }
+       ||| `scTy` is the type of `x` as the tree knows it here, a term of
+       ||| the tree's variables at this node, each by its local: given their
+       ||| values, it is the scrutinee's type.
        Case : {name : _} ->
               (idx : Nat) ->
               (0 p : IsVar name idx vars) ->

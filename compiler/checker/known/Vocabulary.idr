@@ -312,6 +312,7 @@ stems =
   , ("KpairFst", "pairFst")
   , ("KpairSnd", "pairSnd")
   , ("KparamBlock", "paramBlock")
+  , ("Kplus", "plus")
   , ("Kpostpone", "postpone")
   , ("Kpure", "pure")
   , ("Kq", "q")

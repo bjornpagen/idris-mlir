@@ -704,52 +704,63 @@ Eq (Term vars) where
 ------------------------------------------------------------------------
 -- Scope checking
 
--- Each kind of node that holds terms is traversed by a function of its
--- own, so that every recursive call is on a part of its argument.
+-- A bound reference to a name of `vars` becomes the local of that name,
+-- past the binders of the term it is under (`inner`). A term names its own
+-- binders by locals, so a bound reference is always to the scope around
+-- it: a binder of the term that has the same name does not take it. Each
+-- kind of node that holds terms is traversed by a function of its own, so
+-- that every recursive call is on a part of its argument.
 mutual
-  resolveNamesPi : (vars : Scope) -> PiInfo (Term vars) -> PiInfo (Term vars)
-  resolveNamesPi vars (DefImplicit t) = DefImplicit (resolveNames vars t)
-  resolveNamesPi vars p = p
+  resolvePi : SizeOf inner -> (vars : Scope) ->
+              PiInfo (Term (inner ++ vars)) -> PiInfo (Term (inner ++ vars))
+  resolvePi s vars (DefImplicit t) = DefImplicit (resolveUnder s vars t)
+  resolvePi s vars p = p
 
-  resolveNamesBinder : (vars : Scope) -> Binder (Term vars) -> Binder (Term vars)
-  resolveNamesBinder vars (Lam fc c p ty)
-      = Lam fc c (resolveNamesPi vars p) (resolveNames vars ty)
-  resolveNamesBinder vars (Let fc c val ty)
-      = Let fc c (resolveNames vars val) (resolveNames vars ty)
-  resolveNamesBinder vars (Pi fc c p ty)
-      = Pi fc c (resolveNamesPi vars p) (resolveNames vars ty)
-  resolveNamesBinder vars (PVar fc c p ty)
-      = PVar fc c (resolveNamesPi vars p) (resolveNames vars ty)
-  resolveNamesBinder vars (PLet fc c val ty)
-      = PLet fc c (resolveNames vars val) (resolveNames vars ty)
-  resolveNamesBinder vars (PVTy fc c ty) = PVTy fc c (resolveNames vars ty)
+  resolveBinder : SizeOf inner -> (vars : Scope) ->
+                  Binder (Term (inner ++ vars)) -> Binder (Term (inner ++ vars))
+  resolveBinder s vars (Lam fc c p ty)
+      = Lam fc c (resolvePi s vars p) (resolveUnder s vars ty)
+  resolveBinder s vars (Let fc c val ty)
+      = Let fc c (resolveUnder s vars val) (resolveUnder s vars ty)
+  resolveBinder s vars (Pi fc c p ty)
+      = Pi fc c (resolvePi s vars p) (resolveUnder s vars ty)
+  resolveBinder s vars (PVar fc c p ty)
+      = PVar fc c (resolvePi s vars p) (resolveUnder s vars ty)
+  resolveBinder s vars (PLet fc c val ty)
+      = PLet fc c (resolveUnder s vars val) (resolveUnder s vars ty)
+  resolveBinder s vars (PVTy fc c ty) = PVTy fc c (resolveUnder s vars ty)
 
-  resolveNamesTerms : (vars : Scope) -> List (Term vars) -> List (Term vars)
-  resolveNamesTerms vars [] = []
-  resolveNamesTerms vars (t :: ts) = resolveNames vars t :: resolveNamesTerms vars ts
+  resolveTerms : SizeOf inner -> (vars : Scope) ->
+                 List (Term (inner ++ vars)) -> List (Term (inner ++ vars))
+  resolveTerms s vars [] = []
+  resolveTerms s vars (t :: ts) = resolveUnder s vars t :: resolveTerms s vars ts
 
-  -- Replace any Ref Bound in a type with appropriate local
-  export
-  resolveNames : (vars : Scope) -> Term vars -> Term vars
-  resolveNames vars (Ref fc Bound name)
+  resolveUnder : SizeOf inner -> (vars : Scope) -> Term (inner ++ vars) -> Term (inner ++ vars)
+  resolveUnder s vars (Ref fc Bound name)
       = case isVar name vars of
-             Just (MkVar prf) => Local fc (Just False) _ prf
-             _ => Ref fc Bound name
-  resolveNames vars (Meta fc n i xs)
-      = Meta fc n i (resolveNamesTerms vars xs)
-  resolveNames vars (Bind fc x b scope)
-      = Bind fc x (resolveNamesBinder vars b) (resolveNames (x :: vars) scope)
-  resolveNames vars (App fc fn arg)
-      = App fc (resolveNames vars fn) (resolveNames vars arg)
-  resolveNames vars (As fc s as pat)
-      = As fc s (resolveNames vars as) (resolveNames vars pat)
-  resolveNames vars (TDelayed fc x y)
-      = TDelayed fc x (resolveNames vars y)
-  resolveNames vars (TDelay fc x t y)
-      = TDelay fc x (resolveNames vars t) (resolveNames vars y)
-  resolveNames vars (TForce fc r x)
-      = TForce fc r (resolveNames vars x)
-  resolveNames vars tm = tm
+             Just (MkVar {varIdx} prf) => Local fc (Just False) (size s + varIdx) (weakenIsVar s prf)
+             Nothing => Ref fc Bound name
+  resolveUnder s vars (Meta fc n i xs)
+      = Meta fc n i (resolveTerms s vars xs)
+  resolveUnder s vars (Bind fc x b scope)
+      = Bind fc x (resolveBinder s vars b) (resolveUnder (suc s) vars scope)
+  resolveUnder s vars (App fc fn arg)
+      = App fc (resolveUnder s vars fn) (resolveUnder s vars arg)
+  resolveUnder s vars (As fc u as pat)
+      = As fc u (resolveUnder s vars as) (resolveUnder s vars pat)
+  resolveUnder s vars (TDelayed fc x y)
+      = TDelayed fc x (resolveUnder s vars y)
+  resolveUnder s vars (TDelay fc x t y)
+      = TDelay fc x (resolveUnder s vars t) (resolveUnder s vars y)
+  resolveUnder s vars (TForce fc r x)
+      = TForce fc r (resolveUnder s vars x)
+  resolveUnder s vars tm = tm
+
+||| A term with each bound reference to a name of its scope replaced by
+||| that name's local.
+export
+resolveNames : (vars : Scope) -> Term vars -> Term vars
+resolveNames vars = resolveUnder zero vars
 
 ------------------------------------------------------------------------
 -- Showing
