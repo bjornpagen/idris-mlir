@@ -2783,6 +2783,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   site. Claims before counting live on values used once and fresh results
   used once, as C282 already left them; exclusivity after counting raises
   the rest.
+- **C287** (2026-10-23; INT-24's R-PRAGMA, under AGENTS.md's "the compiler
+  gains the construct" and "every flag, pragma and default means what it
+  means upstream"). A pragma whose whole meaning is the checker's
+  elaboration, as `%prefix_record_projections` (which names a record's
+  projections) is, is admitted in user code with upstream's meaning, which
+  our checker implements; the profile refuses only pragmas that reach run
+  time, the C ABI or a construct outside the language (`%foreign`,
+  `%extern`, `%transform`, and the others the refusal tests name). Our own
+  code keeps its 54 uses, which spare it name clashes.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
