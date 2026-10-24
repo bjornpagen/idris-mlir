@@ -59,6 +59,17 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   behavior-selecting pass option with the rounds kept as fallback is
   fallback/configuration slop this compiler does not carry" (the owner's
   call, 2026-10-14, 57bf8e1d, striking 552d682a).
+- Delete before you optimize: "apply the elon algorithm, our representation
+  has massively improved so we should have the balls to remove parts that
+  are no longer needed or cargo culted and no longer needed because of our
+  representation first total redesign ... aggressively cull the old parts.
+  ship of theseus, except it gets smaller" (2026-10-23). Every part (a
+  pass, an analysis, a verifier rule, an op, a runtime function, a test, a
+  tool, a dependency, a patch) names the ruling or rule that requires it
+  and the fact only it supplies; a part whose fact a type, a construction
+  or another part already holds is deleted, not simplified, tuned or kept
+  in step. Question the requirement first, delete second, simplify only
+  what survives.
 - A change is done when it is built, run and passes its checks (the last
   section) on all four targets. P0's cutover is one change, built only when it is
   whole ("we will only build when this entire cutover is fully done",
