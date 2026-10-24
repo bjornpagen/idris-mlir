@@ -1112,3 +1112,12 @@ to L16ev. Waiting:
   INT-25's frontend hit an Emit internal error at `Data.Vect:895`
   (Zippable's `zipWith`) compiling `tests/content-hash`; INT-26's sweep
   tells whether bc08f0952 fixed it.
+- From L06k (b8a6177f7): `Facts.h`'s `entersAfter` and upstream's
+  file-local `isRegionReachable` are two readings of one region graph;
+  upstream exporting the directional query (a carried patch) deletes ours
+  (L06, dispatched as L06l). The next weekly LLVM bump: upstream main
+  changed `traverseRegionGraph` on 2026-10-23 (#233784, relanded as
+  #234591), so patch 70 conflicts and must be re-placed (L06, the owner's
+  machine). `.toolchain/llvm-project` and `build/llvm-project` carry none
+  of patches 65 to 71: the typecheck toolchain cannot check behaviour the
+  early-exit patches give (INT).
