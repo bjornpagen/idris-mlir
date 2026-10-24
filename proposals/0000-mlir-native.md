@@ -3260,6 +3260,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   outside 0 to 255 is a plain crash that still names its status. Leaving
   such a guard for the lowering would keep a run-time test of a known
   fact, and a second crash op would split one meaning in two.
+- **C307** (2026-10-24; L12ae's stop, extending C295 to takes; for the
+  owner's review). A buffer moved out of a cell the in-place rebuild takes
+  is opened by the take: a member of the take family, at the first stage,
+  whose buffer fields come out as the arrays they hold, writable by the
+  claim of the take's own operand, read by the rule `idr.array.open`'s
+  model reads, and bufferized into a plain take. The reuse token does not
+  carry it (a `unique deep` token speaks of the emptied cell, not of the
+  fields moved out, and pairing a token with a buffer is a pairing the
+  representation lets anyone break), and a moved `many` field claims
+  nothing before counting. Until it is built every in-place write to a
+  linear array copies the array.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
