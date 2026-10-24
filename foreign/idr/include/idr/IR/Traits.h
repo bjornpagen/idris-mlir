@@ -93,9 +93,13 @@ template <typename ConcreteType>
 class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
 
 // An op that eliminates its first operand and does nothing else with it (a
-// match on a closure sum, a read of its field, a string's output): where a
-// chain of single uses ends that raising moves into a clone of the callee
-// building the operand. Raising asks for the trait, so no op is named.
+// match on a closure sum, a read of its field, a string's output). Two
+// readers ask for the trait, so neither names an op: raising, where a chain
+// of single uses it moves into a clone of the callee building the operand
+// ends; and the string lowering, where a string made only to be written is
+// written from its maker's operands instead. That lowering knows one output
+// of a string, so the specification's generator refuses a second op that
+// eliminates a string.
 template <typename ConcreteType>
 class EliminatesOperand : public mlir::OpTrait::TraitBase<ConcreteType, EliminatesOperand> {};
 

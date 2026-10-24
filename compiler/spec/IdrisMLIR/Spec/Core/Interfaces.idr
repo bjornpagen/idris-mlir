@@ -84,10 +84,13 @@ sameValue = MkTraitDef (MkIdent "SameValue" Oh)
   (MkDoc (MkLine "the result is the operand's value, its identity and exclusivity kept" Oh) (MkProse "" Oh))
 
 ||| An op that eliminates its first operand, and does nothing else with it:
-||| a match on a closure sum, a read of one's field, a string's output. It
-||| ends the chain of single uses that raising moves into a clone of the
-||| callee building the operand, so raising finds it by this trait rather
-||| than by naming each op.
+||| a match on a closure sum, a read of one's field, a string's output. Two
+||| readers find it by this trait rather than by naming each op: raising,
+||| where it ends the chain of single uses raising moves into a clone of the
+||| callee building the operand; and the string lowering, where it is the
+||| output of a string made only to be written, which the lowering writes
+||| from the string's maker instead. That lowering knows one output of a
+||| string, so the generator refuses a second op that eliminates a string.
 public export
 eliminatesOperand : TraitDef
 eliminatesOperand = MkTraitDef (MkIdent "EliminatesOperand" Oh)

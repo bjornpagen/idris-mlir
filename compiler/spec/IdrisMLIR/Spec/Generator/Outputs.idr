@@ -19,6 +19,7 @@ import IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Generator.Package
 import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
+import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.Fin
 import Data.List
@@ -328,11 +329,60 @@ carrierGroups op = concatMap refused op.traits
     refused SameCarrierOperands = concatMap groupOfOne (toList op.ins)
     refused _ = []
 
+||| Whether an op eliminates a string: it carries `EliminatesOperand`, and
+||| its first operand is a string read in place.
+eliminatesString : Op i o a r -> Bool
+eliminatesString op = any eliminates op.traits && readsString op.ins
+  where
+    eliminates : Trait i o -> Bool
+    eliminates (OurTrait t) = t.name == eliminatesOperand.name
+    eliminates _ = False
+    readsString : Vect n Operand -> Bool
+    readsString [] = False
+    readsString (x :: _) = case x.type of
+      SatisfiesType p => p.name == strReadP.name
+      _ => False
+
+||| The tables that name `out` by its runtime function: each template an op
+||| specializes with a constant that is `out`'s entry, an op of the
+||| dialect's by its mnemonic.
+tablesNaming : Op i o a r -> List AnyOp -> List Ident
+tablesNaming out ops =
+  concatMap (\(SomeOp op) => map (.template) (filter (any (names . snd) . (.constants)) op.specializations)) ops
+  where
+    names : Constant -> Bool
+    names (OpEntry m) = case out.home of
+      InIdr => out.mnemonic == m
+      InTransform _ => False
+    names _ = False
+
+||| The string lowering takes an op that eliminates a string, wherever it
+||| finds one, for the one output its tables are written against: a list's
+||| pack or concat made only to be written is written an element at a time,
+||| and a number's show by its writer, where that output stood, the
+||| writer's call told that output's effects. An output's stream is its
+||| identity alone, so a second output of a string would be written as the
+||| first, silently. Until an output states its stream, exactly one op
+||| eliminates a string, and a table names it by its runtime function, as
+||| a list's table names the writer of a string element. A show's writer
+||| names no op: that it writes where the output would is the runtime's,
+||| and the row its call is told is the lowering's.
+stringOutputRefusals : List AnyOp -> List String
+stringOutputRefusals ops = case filter (\(SomeOp op) => eliminatesString op) ops of
+  [] => ["no op eliminates a string, where the string lowering's tables are written against one output of a string"]
+  [SomeOp out] => case tablesNaming out ops of
+    [] => [opName out ++ ": eliminates a string, but no table names it by its runtime function, so the string lowering's tables are written against another output"]
+    _ :: _ => []
+  outs =>
+    [ joinWith ", " (map (\(SomeOp op) => opName op) outs)
+      ++ ": each eliminates a string, where the string lowering writes every output of a string as the one its tables are written against; exactly one may, until an output states its stream" ]
+
 ||| What the generator refuses to print, said for the one who wrote the
 ||| specification: each pair rule over a group that may hold other than one
 ||| value, each op whose result-type rules cannot be printed, each enum
-||| property over a set of cases, and each one-carrier trait over a group
-||| that may hold other than one value.
+||| property over a set of cases, each one-carrier trait over a group that
+||| may hold other than one value, and outputs of a string other than the
+||| one the string lowering's tables are written against.
 export
 refusals : List String
 refusals =
@@ -341,6 +391,7 @@ refusals =
   ++ concatMap (\(SomeOp op) => typingRefusals op) allOps
   ++ concatMap (\(SomeOp op) => setProperties op) allOps
   ++ concatMap (\(SomeOp op) => carrierGroups op) allOps
+  ++ stringOutputRefusals allOps
 
 ||| Every op key: ours, then the admitted upstream allOps.
 export
