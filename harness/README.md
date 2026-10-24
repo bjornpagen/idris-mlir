@@ -160,8 +160,8 @@ clone numbers, function order or SSA names.
   `Bench.idr`: the benchmarks, built and run on small inputs.
 - `Facts.idr`: what the harness reads of the specification (endings,
   rules); `Reject.idr`: a refused program's header, read once into its
-  record; `Trace.idr`: time traces summed; `Json.idr`, `Files.idr`: what
-  they read.
+  record; `Trace.idr`: the zones a compilation's time trace ran, counted;
+  `Json.idr`, `Files.idr`: what they read.
 - `testutils.sh` and `lib/harness.sh`: what the scripts share, the glue:
   the work directory, a command bounded, a RUN line's commands, and the
   runner's checks by the names the scripts call them.
@@ -177,11 +177,10 @@ clone numbers, function order or SSA names.
   properties, one record each, from which its C++ table is printed;
   `RuntimeEffects.idr` what each op that calls the runtime declares, held
   to LLVM's reading of its runtime function.
-- `templates/`: a minimal test of each kind to copy.
 
 ## Adding a test
 
-Copy the template of its kind to `tests/<name>/`, write it, and run it
+Copy a test of its kind to `tests/<name>/`, write it, and run it
 with `make test only=<name>` (or the suite it is in). With no `expected`
 a test fails and prints its whole output: read it, and when every line is
 what the contract says, copy it to `expected`. The `harness-*` tests are
