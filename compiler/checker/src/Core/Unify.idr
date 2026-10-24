@@ -933,15 +933,117 @@ mutual
                              postponeS swap loc mode "Can't instantiate" env
                                        (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs') tmnf
 
+                     let cantShrink : Core UnifyResult
+                         cantShrink = postponeS swap loc mode "Can't shrink" env
+                                                (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
+                                                tmnf
+
                      case shrink tm submv of
                           Just stm => solveOrElsePostpone stm
                           Nothing =>
                             do tm' <- quote defs env tmnf
                                case shrink tm' submv of
-                                    Nothing => postponeS swap loc mode "Can't shrink" env
-                                                         (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
-                                                         tmnf
                                     Just stm => solveOrElsePostpone stm
+                                    Nothing =>
+                                      do True <- pruneOutside mode env submv tm'
+                                             | False => cantShrink
+                                         defs <- get Ctxt
+                                         case shrink !(normalise defs env tm') submv of
+                                              Nothing => cantShrink
+                                              Just stm => solveOrElsePostpone stm
+
+  -- Pruning. A solution of a metavariable applied to the variables `th`
+  -- keeps can mention no other variable, so an unsolved metavariable that
+  -- stands in it applied to another (its arguments distinct variables, and
+  -- not itself in the arguments of another metavariable or of a function,
+  -- which might discard it) has no solution that depends on that one. Each
+  -- such metavariable whose type does not need the variables it drops is
+  -- solved as a fresh one over the variables it keeps, after which the
+  -- solution may shrink. Returns whether any was. Only in a term, and only
+  -- of a clause's pattern variables, which no metavariable made outside the
+  -- clause can depend on: a pattern's metavariables stand for its
+  -- variables, and a type's may yet be bound as its implicits, which is
+  -- decided by their names and the order their constraints leave them in.
+  pruneOutside : {vars, newvars : _} ->
+                 {auto c : Ref Ctxt Defs} ->
+                 {auto u : Ref UST UState} ->
+                 UnifyInfo -> Env Term vars -> Thin newvars vars ->
+                 Term vars -> Core Bool
+  pruneOutside mode env th tm
+      = case umode mode of
+             InTerm => prune env th tm
+             _ => pure False
+    where
+      isPatternVar : {vs : _} -> Env Term vs -> Term vs -> Bool
+      isPatternVar env (Local _ _ _ p)
+          = case getBinder p env of
+                 PVar {} => True
+                 _ => False
+      isPatternVar _ _ = False
+
+      -- The fresh metavariable is over the variables kept and those their
+      -- binders mention (`closed`), so it is pruned only where that leaves
+      -- out every variable dropped.
+      pruneMeta : {vs, nvs : _} ->
+                  Env Term vs -> Thin nvs vs ->
+                  FC -> Name -> Int -> List (Term vs) -> Core Bool
+      pruneMeta env th fc n i args
+          = do defs <- get Ctxt
+               Just gdef <- lookupCtxtExact (Resolved i) (gamma defs)
+                    | Nothing => pure False
+               -- the elaborator's own, not a hole the programmer named or
+               -- one that stands for a name bound implicitly
+               let Hole _ flags = definition gdef
+                    | _ => pure False
+               let MN _ _ = dropNS n
+                    | _ => pure False
+               let False = implbind flags
+                    | True => pure False
+               let kept = filter (\a => isJust (shrink a th)) args
+               let dropped = filter (\a => isNothing (shrink a th)) args
+               let (_ :: _) = dropped
+                    | [] => pure False
+               let True = all (isPatternVar env) dropped
+                    | False => pure False
+               Just _ <- patternEnvTm env args
+                    | Nothing => pure False
+               Just (kvs ** (_, kth)) <- patternEnvTm env kept
+                    | Nothing => pure False
+               let (us ** (uth, _, kenv)) = closed env kth
+               let True = all (\a => isNothing (shrink a uth)) dropped
+                    | False => pure False
+               ty <- normalise defs env !(getTerm !(getType env (Meta fc n i args)))
+               let Just kty = shrink ty uth
+                    | Nothing => pure False
+               n' <- genMVName (dropNS n)
+               (_, ptm) <- newMeta fc (multiplicity gdef) kenv n' kty
+                                   (Hole (length kenv) flags) True
+               logTerm "unify.hole" 10 ("Pruning " ++ show n ++ " to") (thin ptm uth)
+               res <- unify (lower mode) fc env (Meta fc n i args) (thin ptm uth)
+               pure (isNil (constraints res))
+
+      prune : {vs, nvs : _} -> Env Term vs -> Thin nvs vs -> Term vs -> Core Bool
+
+      pruneAll : {vs, nvs : _} -> Env Term vs -> Thin nvs vs -> List (Term vs) -> Core Bool
+      pruneAll env th ts = any id <$> traverse (prune env th) ts
+
+      prune env th (Meta fc n i args) = pruneMeta env th fc n i args
+      prune env th (Bind _ _ b sc)
+          = do pb <- pruneAll env th (case b of
+                                           Let _ _ val ty => [val, ty]
+                                           PLet _ _ val ty => [val, ty]
+                                           _ => [binderType b])
+               psc <- prune (b :: env) (Keep th) sc
+               pure (pb || psc)
+      prune env th tm@(App {})
+          = case getFnArgs tm of
+                 (Meta {}, _) => pure False
+                 (Ref _ Func _, _) => pure False
+                 (f, args) => pruneAll env th (f :: args)
+      prune env th (TDelayed _ _ t) = prune env th t
+      prune env th (TDelay _ _ ty t) = pruneAll env th [ty, t]
+      prune env th (TForce _ _ t) = prune env th t
+      prune env th _ = pure False
 
   -- Unify an application with something else
   unifyApp : {auto c : Ref Ctxt Defs} ->

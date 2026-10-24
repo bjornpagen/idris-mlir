@@ -332,6 +332,28 @@ getName (INamedApp _ f _ _) = getName f
 getName (IAutoApp _ f _) = getName f
 getName _ = Nothing
 
+-- What upstream's alternative with a default means: the one reading that
+-- elaborates; where several do, the site waits (`exactlyOne` reports the
+-- ambiguity, which its caller delays). When it is tried again, the one
+-- that elaborates then, or else, of several, the one that leaves no
+-- constraint open, or else, where that is still not one, or none
+-- elaborates, the default.
+withDefault : {vars : _} ->
+              {auto c : Ref Ctxt Defs} ->
+              {auto m : Ref MD Metadata} ->
+              {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
+              {auto e : Ref EST (EState vars)} ->
+              FC -> Env Term vars -> (delayed : Bool) ->
+              (readings : List (Maybe Name, Core (Term vars, Glued vars))) ->
+              (def : Core (Term vars, Glued vars)) ->
+              Core (Term vars, Glued vars)
+withDefault fc env False readings def = exactlyOne fc env readings
+withDefault fc env True readings def
+    = try (exactlyOne' False fc env readings)
+          (do log "elab.ambiguous" 5 "All failed, running default"
+              def)
+
 -- The elaborators of an ambiguous application, with a default and without,
 -- given the cell of delayed elaborators and the expected type, which a
 -- retry evaluates again (see delayOnFailure). Each is a function of its
@@ -363,23 +385,9 @@ checkDefaultDelayed rig elabinfo nest env fc def alts solvemode delayed expected
            "Pruned " ++ show (minus (length alts) (length alts')) ++ " alts."
            ++ " Kept:\n" ++ unlines (map show alts')
 
-         if delayed -- use the default if there's still ambiguity
-            then try
-                   (exactlyOne' False fc env
-                       (map (\t =>
-                          (getName t,
-                           checkImp rig elabinfo
-                                    nest env t
-                                    (Just expected))) alts'))
-                   (do log "elab.ambiguous" 5 "All failed, running default"
-                       checkImp rig elabinfo
-                                    nest env def (Just expected))
-            else exactlyOne' True fc env
-                  (map (\t =>
-                    (getName t,
-                     checkImp rig elabinfo
-                              nest env t (Just expected)))
-                     alts')
+         withDefault fc env delayed
+           (map (\t => (getName t, checkImp rig elabinfo nest env t (Just expected))) alts')
+           (checkImp rig elabinfo nest env def (Just expected))
 
 checkAlternativeDelayed : {vars : _} ->
                           {auto c : Ref Ctxt Defs} ->
@@ -569,15 +577,15 @@ pairOf rig elabinfo env fc parts expected
                   (gnf env (apply fc pairTy [parts.leftType, parts.rightType]))
                   (Just expected)
 
--- Upstream settles the alternative it builds for this syntax when it is
--- first met, if one reading alone fits, and else when it is retried, with
--- the reading that alone fits adding no constraint, or else its default,
--- the value. So is this site settled, by its expected type's sort when
--- that is known, and by upstream's rule between the two readings when it is
--- not. The readings are given as elaborators of the two terms; what they
--- are made of was elaborated before. Constraints are solved before each
--- try, as upstream's are: before the first by `checkTypeOrValue`, which
--- reads the sort then too, and here before each retry.
+-- Upstream settles the alternative it builds for this syntax, between its
+-- two readings with the value as its default, by the rule of such an
+-- alternative (`withDefault`). So is this site settled, by its expected
+-- type's sort when that is known, and by that rule between the two
+-- readings when it is not. The readings are given as elaborators of the
+-- two terms; what they are made of was elaborated before. Constraints are
+-- solved before each try, as upstream's are: before the first by
+-- `checkTypeOrValue`, which reads the sort then too, and here before each
+-- retry.
 settle : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
          {auto m : Ref MD Metadata} ->
@@ -592,10 +600,7 @@ settle fc env solvemode delayed expected asType asValue
          case !(sortOf expected) of
               Universe => snd asType
               Known => snd asValue
-              Unknown =>
-                if delayed
-                   then try (exactlyOne' False fc env [asType, asValue]) (snd asValue)
-                   else exactlyOne' True fc env [asType, asValue]
+              Unknown => withDefault fc env delayed [asType, asValue] (snd asValue)
 
 -- A pair whose parts are elaborated, settled each time it is tried. A
 -- function of its own, not the body of the lambda that delays it, so that

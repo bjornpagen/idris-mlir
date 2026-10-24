@@ -652,10 +652,27 @@ checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
 
            scrty <- getTerm gscrty
            logTermNF "elab.case" 5 "Scrutinee type" env scrty
-           defs <- get Ctxt
-           checkConcrete !(nf defs env scrty)
+           checkConcrete !(solvedType scrty)
            caseBlock rig elabinfo fc nest env opts scr scrtm_in scrty caseRig alts exp
   where
+    -- The scrutinee's type, normalised. Checking the scrutinee may have
+    -- postponed the constraints that fix it (`Maybe String =?= ?m ?a`,
+    -- solvable once the search for `Monad ?m` has failed on `m` and made
+    -- it invertible), so where its head is still an unknown they are
+    -- solved before the type is given up on. Solving them applies no
+    -- default, so a type only a default fixes stays unknown here.
+    solvedType : Term vars -> Core (NF vars)
+    solvedType ty
+        = do defs <- get Ctxt
+             case !(nf defs env ty) of
+                  NApp _ (NMeta {}) _ =>
+                     do solveConstraints (case elabMode elabinfo of
+                                               InLHS _ => inLHS
+                                               _ => inTerm) Normal
+                        defs <- get Ctxt
+                        nf defs env ty
+                  tynf => pure tynf
+
     -- For the moment, throw an error if we haven't been able to work out
     -- the type of the case scrutinee, because we'll need it to build the
     -- type of the case block. But (TODO) consider delaying on failure?

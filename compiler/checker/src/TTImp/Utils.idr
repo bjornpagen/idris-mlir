@@ -184,21 +184,23 @@ findBindableNames arg env (IQuoteDecl fc ds)
     = quotedDecls env [] [] ds
 findBindableNames arg env (IAlternative fc u alts)
     = bindableIn arg env alts
--- A name either reading would bind: the dependent pair's value reading
--- refers to its name where the type reading binds it. What each reading
--- holds is read off the terms typeReading and valueReading build, so that
--- the search recurses only on the written parts: a pair's type former and
--- constructor are variables in function position and the unit's stand
--- where the syntax does, holes hold no name, and the parts stand in
--- argument position in both readings.
+-- A name either reading would bind, each written part searched once, so
+-- that a tuple nested to any depth costs one search of each part. What
+-- each reading holds is read off the terms typeReading and valueReading
+-- build: a pair's type former and constructor are variables in function
+-- position and the unit's stand where the syntax does, holes hold no name,
+-- and the parts stand in argument position in both readings, which hold
+-- the same names of them. The dependent pair's value reading refers to its
+-- name, and its type reading binds it over the second part: the names that
+-- part gives with the name bound are those it gives without, but for the
+-- name itself, which the value reading's reference gives. The names are
+-- found in the order the readings give them first.
 findBindableNames arg env (ITypeOrValue fc (PairOf l r))
-    = let parts = findBindableNames True env l ++ findBindableNames True env r in
-          parts ++ parts
+    = findBindableNames True env l ++ findBindableNames True env r
 findBindableNames arg env (ITypeOrValue fc UnitOf)
     = bindableVar arg env (knownUN KUnit) ++ bindableVar arg env (knownUN KMkUnit)
 findBindableNames arg env (ITypeOrValue fc (DPairOf opFC nameFC n r))
-    = findBindableNames True (n :: env) r
-      ++ bindableVar True env n ++ findBindableNames True env r
+    = findBindableNames True (n :: env) r ++ bindableVar True env n
 findBindableNames arg env (IUpdate fc updates tm)
     = findBindableNames True env tm ++ bindableUpdated env updates
 -- We've skipped case, let and local - rather than guess where the
@@ -319,18 +321,19 @@ findAllNames env (IUnquote fc t)
 findAllNames env (IAlternative fc u alts)
     = allNamesIn env alts
 -- The names of both readings, read off the terms typeReading and
--- valueReading build, so that the search recurses only on the written
--- parts: each reading's type former or constructor first, then its parts,
--- the dependent pair's second part under the type reading's binder of its
--- name, which the value reading refers to; holes hold no name.
+-- valueReading build, each written part searched once: each reading's type
+-- former or constructor, and the parts, which both readings hold; the
+-- dependent pair's second part under the type reading's binder of its
+-- name, which gives every name it gives unbound but that one, which the
+-- value reading's reference gives; holes hold no name.
 findAllNames env (ITypeOrValue fc (PairOf l r))
-    = let parts = findAllNames env l ++ findAllNames env r in
-          (freeName env pairname ++ parts) ++ (freeName env mkpairname ++ parts)
+    = freeName env pairname ++ freeName env mkpairname
+      ++ findAllNames env l ++ findAllNames env r
 findAllNames env (ITypeOrValue fc UnitOf)
     = freeName env (knownUN KUnit) ++ freeName env (knownUN KMkUnit)
 findAllNames env (ITypeOrValue fc (DPairOf opFC nameFC n r))
-    = (freeName env dpairname ++ findAllNames (n :: env) r)
-      ++ (freeName env mkdpairname ++ freeName env n ++ findAllNames env r)
+    = freeName env dpairname ++ findAllNames (n :: env) r
+      ++ freeName env mkdpairname ++ freeName env n
 findAllNames env (IUpdate fc updates tm)
     = findAllNames env tm
     ++ allNamesUpdated env updates
