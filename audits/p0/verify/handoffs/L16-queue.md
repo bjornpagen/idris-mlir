@@ -947,3 +947,17 @@ askers in callersOf, Settle's removed proof). Waiting:
   3f38810694); the typecheck toolchain is rebuilt at the pin on the
   owner's machine and the modules regenerated there (INT); the checkout's
   `build/typecheck` generator predates 04d7cfcc (`make typecheck-tblgen`).
+
+## The self-host track (2026-10-23, from INT-24)
+
+Goal on this machine: `idris-mlir-front` writes a module, with no refusal,
+for each of our five programs (the frontend, syntax-samples, specgen,
+knowngen, the runner), as `make self`'s stage 1 runs them; then, on the
+owner's machine, stage 1 through the pipeline and stage 2 equal to stage 3.
+Today: knowngen writes its module (byte-identical twice); the rest stop at:
+self.sh's flags (S-1, S-2), R-SPEC, R-ESC-FIN, R-PRAGMA (C287): L16er;
+R-UNIFY, R-META: L17bg; R-117: fixed by 723cac53. Next, after these land: an
+INT rerun of the five (build/int24/scripts), each new refusal routed by
+owner; then the fold (C281) and D133's certifying normaliser, which change
+what the frontend reads of the checker, rerun the five again. Every lane
+touching the frontend or the checker reruns the five on its export.
