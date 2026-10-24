@@ -59,16 +59,6 @@ Unique DataConOp::freshClaim(DataType carrier, TypeRange fields) {
   return claim;
 }
 
-// A fresh value: the carrier at `uses`, counted where it holds references,
-// claiming what its fields leave unshared.
-void DataConOp::build(OpBuilder &builder, OperationState &state, DataType carrier, Uses uses,
-                      ValueRange fields) {
-  std::optional<Hold> hold;
-  if (holdsReferences(carrier))
-    hold = Hold::counted(freshClaim(carrier, fields.getTypes()));
-  build(builder, state, graded(Grade{uses, hold}, carrier), fields);
-}
-
 // A value of `result`, which states no lifetime: a scoped one has its
 // lifetime stated by the step that decides lifetimes, one its scoped fields
 // all outlive.

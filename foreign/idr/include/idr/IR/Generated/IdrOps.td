@@ -240,7 +240,6 @@ def Idr_DataConOp : Idr_Op<"data.con", [
   let hasVerifier = 1;
   let hasFolder = 1;
   let builders = [
-    OpBuilder<(ins "::idr::DataType":$carrier, "::idr::Uses":$uses, "::mlir::ValueRange":$fields)>,
     OpBuilder<(ins "::mlir::Type":$result, "::mlir::ValueRange":$fields)>,
   ];
   let extraClassDeclaration = [{

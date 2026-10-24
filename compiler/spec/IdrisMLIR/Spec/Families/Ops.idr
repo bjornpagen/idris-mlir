@@ -72,8 +72,9 @@ statedIn k =
 ||| family, and a buffer it holds, whose storage that claim covers) claims
 ||| its own cells unshared, so a cell holding a shared buffer claims neither:
 ||| the grade's `freshClaim`, each field's bound its table of `freshest`,
-||| not restated here. The builder from a carrier gives the result that
-||| claim, and the frontend writes it.
+||| not restated here. No builder of the op writes it: before references
+||| are counted a value used many times claims nothing, and what a pass
+||| proves of a constructor is that pass's to write.
 |||
 ||| It takes over each field that owns its count, so moving it where it
 ||| would not have run would give that field up on a path that keeps it: it
@@ -103,9 +104,7 @@ conOp = MkOp
   , format = Declared
       [ Custom fieldsDirective [Group (OperandRef 0), TypeOfGroup (OperandRef 0)]
       , statedIn 1, AttrDict, Lit ":", TypeOf (OfGroup (ResultRef 0)) ]
-  , builders =
-      [ MkBuilder [param "::idr::DataType" "carrier", param "::idr::Uses" "uses", param "::mlir::ValueRange" "fields"]
-      , MkBuilder [param "::mlir::Type" "result", param "::mlir::ValueRange" "fields"] ]
+  , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::ValueRange" "fields"]]
   , defaultBuilders = WithDefaults
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
