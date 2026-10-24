@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A solve unit (a component of a summary, an extraction, a marking) is a
+// A solve unit (one function's or one component's part of a solve) is a
 // trace zone, never an action. An action's handler decides whether its
 // unit runs, and a debug counter may skip it: a skipped unit of a marking
 // whose start is the optimistic bottom leaves an unsound answer, and a

@@ -13,6 +13,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Regions.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Match.h"
 
@@ -113,14 +114,6 @@ Type idr::lifetimes::decide::scopedType(Type type) {
 
 namespace {
 
-// Whether region `index` of `op` may run more than once per run of `op`:
-// a repeated region of a region branch, or any region of an op that says
-// nothing of how its regions run.
-bool repeated(Operation *op, unsigned index) {
-  auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  return !branch || branch.isRepetitiveRegion(index);
-}
-
 // Whether `op` ends a run of a region that runs again: what it forwards is
 // carried into the next run, or out of the repetition.
 bool endsRepeatedRun(Operation *op) {
@@ -128,7 +121,7 @@ bool endsRepeatedRun(Operation *op) {
     return false;
   Region *region = op->getParentRegion();
   return region && !isa<FuncOp>(region->getParentOp()) &&
-         repeated(region->getParentOp(), region->getRegionNumber());
+         regionRuns(region->getParentOp(), region->getRegionNumber()) == Runs::Repeatedly;
 }
 
 // Whether `op` makes `value`: one of its results, or an argument of a block
@@ -198,7 +191,8 @@ Where Planner::inside(const Around &holder, Operation *op) {
   if (isa<FuncOp>(parent))
     return {std::nullopt, SlotHere::Fits};
   unsigned number = region->getRegionNumber();
-  RunAt run = repeated(parent, number) ? RunAt(std::pair(holder.at, number)) : holder.where.run;
+  RunAt run = regionRuns(parent, number) == Runs::Repeatedly ? RunAt(std::pair(holder.at, number))
+                                                             : holder.where.run;
   SlotHere slot = holder.where.slot == SlotHere::Fits && isa<RegionBranchOpInterface>(parent) &&
                           region->hasOneBlock() && !parent->hasTrait<OpTrait::HasParallelRegion>()
                       ? SlotHere::Fits

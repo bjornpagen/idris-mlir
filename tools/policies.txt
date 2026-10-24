@@ -10,7 +10,7 @@
 # optimized, or its text longer, and never makes a program wrong or
 # refuses one. A pass that only makes code better may so stop at its
 # budget; whether its rewrites converge is a test's to state.
-foreign/idr/include/idr/Analysis/Inline.h: inline constexpr std::int64_t kCallerCap = 10000; -- the inliner's caller cap: the most ops a caller holds with a callee's body in it, which bounds the one body the inner pipeline simplifies on one worker; a callee that would exceed it stays a call
+foreign/idr/include/idr/Transforms/Inline.h: inline constexpr std::int64_t kCallerCap = 10000; -- the inliner's caller cap: the most ops a caller holds with a callee's body in it, which bounds the one body the inner pipeline simplifies on one worker; a callee that would exceed it stays a call
 foreign/idr/lib/Transforms/Narrow/Lanes.cpp: constexpr unsigned minExponent = 8; -- the least bound, 2^8 elements, a loop's 32-bit version is made for: below it a version runs on too few elements to pay for its code, and the loop keeps its one version
 foreign/idr/lib/Target/Schedules.cpp: constexpr unsigned cleanupRounds = 10; -- the vector schedule's unit-dimension cleanup: the most rounds of upstream's patterns the transform interpreter runs; a spent budget is a suppressed failure that leaves those unit dimensions in place, so a program is less optimized, never refused
 #

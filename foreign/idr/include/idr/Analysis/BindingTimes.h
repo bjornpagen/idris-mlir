@@ -44,18 +44,12 @@ enum class BindingTime : std::uint8_t { Fixed, Varies };
 // through the calls between the members. A value is a parameter passed on
 // unchanged when idr::sourceOf finds it the same value as the parameter (an
 // op that only changes a grade, a match's default region). Each body is
-// read as it is now; nothing outside `component` is read. What the solve
-// read is added to `work` once, when it ends.
-template <solver::FunctionNames N>
+// read as it is now; nothing outside `component` is read, and `editor`,
+// the optimizer's thawed graph, resolves each callee. What the solve read
+// is added to `work` once, when it ends.
 footprint::Vector<llvm::SmallVector<BindingTime>>
-bindingTimesOf(const N &names, llvm::ArrayRef<solver::Member> component, solver::Work &work);
-
-extern template footprint::Vector<llvm::SmallVector<BindingTime>>
-bindingTimesOf<solver::ProgramGraph>(const solver::ProgramGraph &,
-                                     llvm::ArrayRef<solver::Member>, solver::Work &);
-extern template footprint::Vector<llvm::SmallVector<BindingTime>>
-bindingTimesOf<solver::Editor>(const solver::Editor &, llvm::ArrayRef<solver::Member>,
-                               solver::Work &);
+bindingTimesOf(const solver::Editor &editor, llvm::ArrayRef<solver::Member> component,
+               solver::Work &work);
 
 } // namespace idr
 

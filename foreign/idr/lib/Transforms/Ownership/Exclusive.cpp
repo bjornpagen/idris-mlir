@@ -138,8 +138,6 @@ LogicalResult reinfer(llvm::ArrayRef<Value> graded) {
 struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
   void runOnProgram(idr::ProgramOp program) {
     const Exclusivity &solved = getAnalysis<Exclusivity>();
-    if (solved.brokeInvariant())
-      return signalPassFailure();
     idr::solver::ProgramGraph &graph = getAnalysis<idr::solver::ProgramGraph>();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
 

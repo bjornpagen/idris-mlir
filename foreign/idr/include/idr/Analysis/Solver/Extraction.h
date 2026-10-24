@@ -1,19 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Extract, solve, write back: the solve shape of a problem whose facts are
-// per value across functions (the label solve, exclusivity, borrows, the
-// stack inference, deduplication). Each function is read in parallel into
-// arrays at its own base offset, the bases a prefix sum of the functions'
-// counts, so a node's id is its function's base plus its position in the
-// function's walk; the solve runs over those arrays, which name no MLIR;
-// the answer is written back by a walk in the same order. Extraction and
-// write-back both visit a function's values through inWalkOrder, one
-// template, so the i-th value of one is the i-th value of the other.
-//
-// A solver's domain is a type: an extractor takes only Open values, which
-// only a question's filter makes from a value whose type leaves the
-// question open. A node for a value whose type settles it (a quantity-1
-// parameter for a borrow, an erased thing anywhere) cannot be written.
+// The one walk order of a function's values, and their numbering in it. A
+// solve whose facts are per value reads each body's values into arrays
+// that name no MLIR, and its answer is written back by a walk in the same
+// order: both visit the values through inWalkOrder, one template, so the
+// i-th value of one is the i-th value of the other.
 //
 // The one map keyed by an IR handle is a Numbering's, while one function,
 // or one region compared with others, is numbered; it is gone when the
@@ -21,17 +12,13 @@
 #ifndef IDR_ANALYSIS_SOLVER_EXTRACTION_H
 #define IDR_ANALYSIS_SOLVER_EXTRACTION_H
 
-#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 
-#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -144,82 +131,6 @@ private:
 
   footprint::DenseMap<mlir::Value, std::uint32_t> index;
   footprint::Vector<mlir::Value> values;
-};
-
-// Where each function's nodes start in the program's arrays.
-template <class Tag>
-class Offsets {
-public:
-  using Node = Id<Tag>;
-
-  Count<Node> size() const { return count; }
-  // The node of the `local`-th item of `f`'s extraction.
-  Node node(FunctionId f, std::uint32_t local) const { return Node(base[f] + local); }
-  std::uint32_t local(FunctionId f, Node n) const { return n.index() - base[f]; }
-
-private:
-  template <class T, class C, class F>
-  friend Offsets<T> extract(const ProgramGraph &g, mlir::MLIRContext &context, C &&countOf,
-                            F &&fill);
-  Offsets(IndexVector<FunctionId, std::uint32_t> base, std::uint32_t total)
-      : base(std::move(base)), count(total) {}
-
-  IndexVector<FunctionId, std::uint32_t> base;
-  Count<Node> count;
-};
-
-// Two parallel passes over the program's functions. `countOf(f, fn)` says
-// how many items `f` extracts; then, the bases laid out, `fill(f, fn,
-// offsets)` writes `f`'s items at its base into the client's arrays, which
-// it sizes by `offsets.size()` beforehand, and may name another function's
-// nodes through the offsets (a call's edge into its callee's parameters).
-// Each pass writes only its own function's slots; the bases are a prefix
-// sum in id order, so the layout does not depend on the schedule.
-template <class Tag, class C, class F>
-Offsets<Tag> extract(const ProgramGraph &g, mlir::MLIRContext &context, C &&countOf, F &&fill) {
-  IndexVector<FunctionId, std::uint32_t> items = g.table<std::uint32_t>(0);
-  IdRange<FunctionId> functions = g.functions();
-  mlir::parallelFor(&context, 0, functions.size(), [&](std::size_t at) {
-    FunctionId f = functions[at];
-    items[f] = countOf(f, g.op(f));
-  });
-  IndexVector<FunctionId, std::uint32_t> base = g.table<std::uint32_t>(0);
-  std::uint32_t total = 0;
-  for (FunctionId f : functions) {
-    base[f] = total;
-    total += items[f];
-  }
-  Offsets<Tag> offsets(std::move(base), total);
-  mlir::parallelFor(&context, 0, functions.size(), [&](std::size_t at) {
-    FunctionId f = functions[at];
-    fill(f, g.op(f), static_cast<const Offsets<Tag> &>(offsets));
-  });
-  return offsets;
-}
-
-// Whether a value's type leaves a question open; a choice, never a flag.
-enum class Openness : std::uint8_t { Settled, Open };
-
-template <class Q>
-concept Question = requires(mlir::Type type) {
-  { Q::openness(type) } -> std::same_as<Openness>;
-};
-
-// A value whose type leaves `Q` open: the only input an extractor of `Q`
-// takes, made only by `Q`'s filter.
-template <Question Q>
-class Open {
-public:
-  static std::optional<Open> of(mlir::Value value) {
-    if (Q::openness(value.getType()) == Openness::Settled)
-      return std::nullopt;
-    return Open(value);
-  }
-  mlir::Value value() const { return v; }
-
-private:
-  explicit Open(mlir::Value value) : v(value) {}
-  mlir::Value v;
 };
 
 } // namespace idr::solver

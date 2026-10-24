@@ -408,11 +408,11 @@ struct OutsideCycle {
   solver::SccId cycle;
   rows::CallCopies copies;
 
-  void call(CallOp call, rows::Fold &fold, rows::Runs runs) {
+  void call(CallOp call, rows::Fold &fold, Runs runs) {
     if (graph.sccOf(graph.id(call.getCalleeAttr())) != cycle)
       copies.call(call, fold, runs);
   }
-  rows::Read other(Operation *, rows::Fold &, rows::Runs) { return rows::Read::ByDeclaration; }
+  rows::Read other(Operation *, rows::Fold &, Runs) { return rows::Read::ByDeclaration; }
 };
 
 static_assert(rows::CallReader<OutsideCycle>);

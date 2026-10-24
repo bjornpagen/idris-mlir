@@ -42,17 +42,8 @@ Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
   detail::exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
   IndexVector<FunctionId, detail::exclusivity::Body> bodies =
       graph.table<detail::exclusivity::Body>();
-  for (FunctionId fn : graph.functions()) {
-    FailureOr<detail::exclusivity::Body> body =
-        detail::exclusivity::readBody(graph.op(fn), graph, anchors);
-    // A body that broke the representation's invariant was reported where
-    // it broke; the pass that asked fails with it.
-    if (failed(body)) {
-      read = failure();
-      return;
-    }
-    bodies[fn] = std::move(*body);
-  }
+  for (FunctionId fn : graph.functions())
+    bodies[fn] = detail::exclusivity::readBody(graph.op(fn), graph, anchors);
   IndexVector<FunctionId, llvm::SmallBitVector> copied =
       detail::exclusivity::copiedViews(bodies, graph);
   detail::exclusivity::Solution solution =

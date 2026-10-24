@@ -7,12 +7,8 @@
 // nothing else is, so one compile checks them all. Each refusal is a
 // namespace of its own, so that no fixture of one meets another's.
 
-#include "idr/Analysis/Solver/Graph.h"
-#include "idr/Analysis/Solver/Mark.h"
-#include "idr/Analysis/Solver/Summarize.h"
 #include "idr/IR/Numeric/Domain.h"
 #include "idr/IR/Quantities.h"
-#include "idr/Support/Changed.h"
 #include "idr/Support/Enum.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
@@ -23,7 +19,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
 #include <string>
 #include <utility>
 #include <variant>
@@ -235,81 +230,6 @@ llvm::SmallVector<Size> dropCarries(llvm::SmallVector<idr::Available<Size>> arms
 }
 
 } // namespace rejoin_gives_none
-
-//===----------------------------------------------------------------------===//
-// Solves
-//===----------------------------------------------------------------------===//
-
-// A gate of exclusivity's marking is data, a guard node of a set that only
-// rises, never a callback: a callback could close a gate once its guard is
-// marked, and the verdict would then change with the order nodes rise, so
-// with the thread count. The marking takes no gate callback at all.
-namespace monotone_gate {
-
-struct Nodes {
-  struct Minter;
-};
-using Node = idr::Id<Nodes>;
-struct Nodes::Minter {};
-
-idr::BitSet<Node> marked(const idr::GatedCsr<Nodes> &graph, std::span<const Node> seeds) {
-  return idr::mark(graph, seeds);
-}
-
-idr::BitSet<Node> gatedByCallback(const idr::GatedCsr<Nodes> &graph,
-                                  std::span<const Node> seeds) {
-  auto closesOnceGuarded = [](Node, Node, const idr::BitSet<Node> &rose, Node guard) {
-    return !rose.test(guard);
-  };
-  return idr::mark(graph, seeds, closesOnceGuarded); // expected-error {{no matching function for call to 'mark'}}
-}
-
-} // namespace monotone_gate
-
-// A solve that a budget may stop writes top for every function it did not
-// finish, so its answer stays sound and the program is only less
-// optimized: a budgeted problem whose lattice has no top is no problem the
-// solver layer takes. The same problem with a top is one.
-namespace budget_without_top {
-
-enum class Top : unsigned char { Absent, Present };
-
-// A lattice of one mark, with a top or without.
-template <Top T>
-struct Mark {
-  unsigned char set = 0;
-
-  static Mark bottom() { return {}; }
-  static Mark top()
-    requires(T == Top::Present)
-  {
-    return {1};
-  }
-  static constexpr unsigned height = 1;
-  idr::Changed join(const Mark &other) {
-    if (other.set <= set)
-      return idr::Changed::No;
-    set = other.set;
-    return idr::Changed::Yes;
-  }
-  friend bool operator==(const Mark &, const Mark &) = default;
-};
-
-template <Top T>
-struct Reach {
-  using Summary = Mark<T>;
-  using Policy = idr::Budgeted;
-  idr::Budgeted budget{8};
-  Mark<T> transfer(const idr::solver::ProgramGraph &, idr::solver::FunctionId,
-                   const idr::IndexVector<idr::solver::FunctionId, Mark<T>> &) const;
-};
-
-static_assert(idr::solver::SummaryProblem<Reach<Top::Present>>);
-// expected-error@+1 {{a budgeted solve writes top for what it did not finish}}
-static_assert(idr::solver::SummaryProblem<Reach<Top::Absent>>,
-              "a budgeted solve writes top for what it did not finish");
-
-} // namespace budget_without_top
 
 //===----------------------------------------------------------------------===//
 // Numeric domains

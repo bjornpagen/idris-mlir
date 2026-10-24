@@ -118,12 +118,12 @@ concept Outside = requires(const O &outside, solver::FunctionId callee) {
 };
 
 // The bodies of one component, each read once into its record
-// (IdentitiesRecord.cpp), and the solve over them (Identities.cpp, reading
-// each record's two readings from IdentitiesRebuilds.cpp).
+// (IdentitiesRecord.cpp), each callee resolved through `editor`, the
+// optimizer's thawed graph, and the solve over them (Identities.cpp,
+// reading each record's two readings from IdentitiesRebuilds.cpp).
 class Component {
 public:
-  template <solver::FunctionNames N>
-  static Component read(const N &names, llvm::ArrayRef<solver::Member> component);
+  static Component read(const solver::Editor &editor, llvm::ArrayRef<solver::Member> component);
 
   Component(Component &&) noexcept;
   ~Component();
@@ -144,18 +144,14 @@ private:
   std::unique_ptr<Records> records;
 };
 
-extern template Component Component::read<solver::ProgramGraph>(const solver::ProgramGraph &,
-                                                                llvm::ArrayRef<solver::Member>);
-extern template Component Component::read<solver::Editor>(const solver::Editor &,
-                                                          llvm::ArrayRef<solver::Member>);
-
 // The facts of every member of `component`, in its order: the frozen facts
 // each outside callee has are read once, before the solve, whose work is
 // added to `work`.
-template <solver::FunctionNames N, Outside O>
-footprint::Vector<Facts> givesBackOf(const N &names, llvm::ArrayRef<solver::Member> component,
-                                     const O &outside, solver::Work &work) {
-  Component bodies = Component::read(names, component);
+template <Outside O>
+footprint::Vector<Facts> givesBackOf(const solver::Editor &editor,
+                                     llvm::ArrayRef<solver::Member> component, const O &outside,
+                                     solver::Work &work) {
+  Component bodies = Component::read(editor, component);
   footprint::Vector<FactsView> frozen;
   for (solver::FunctionId callee : bodies.outsideCallees())
     frozen.push_back(outside(callee));

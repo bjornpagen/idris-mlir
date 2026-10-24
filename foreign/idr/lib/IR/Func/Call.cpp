@@ -146,13 +146,12 @@ Amount boundOf(FuncOp fn, std::uint32_t position) {
 // Whether `op` lies in a region of its function that may run more than
 // once per run of the function: a put there has no bound. Climbed from the
 // call, once per call that passes a put parameter on.
-rows::Runs runsOf(Operation *op, FuncOp fn) {
+Runs runsOf(Operation *op, FuncOp fn) {
   for (Region *region = op->getParentRegion(); region && region->getParentOp() != fn;
        region = region->getParentOp()->getParentRegion())
-    if (rows::detail::regionRuns(region->getParentOp(), region->getRegionNumber()) ==
-        rows::Runs::Repeatedly)
-      return rows::Runs::Repeatedly;
-  return rows::Runs::Once;
+    if (regionRuns(region->getParentOp(), region->getRegionNumber()) == Runs::Repeatedly)
+      return Runs::Repeatedly;
+  return Runs::Once;
 }
 
 // The result components a function gives back, in their order.
@@ -201,7 +200,7 @@ LogicalResult putFits(CallOp call, FuncOp fn, FuncOp caller, BlockArgument param
   Amount put = boundOf(fn, theirs.position);
   if (put.none())
     return success();
-  if (runsOf(call.getOperation(), caller) == rows::Runs::Repeatedly)
+  if (runsOf(call.getOperation(), caller) == Runs::Repeatedly)
     put = Amount::unbounded();
   if (put.within(boundOf(caller, mine.position)))
     return success();

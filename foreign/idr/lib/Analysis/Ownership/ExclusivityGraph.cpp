@@ -25,8 +25,11 @@
 #include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <optional>
+#include <string>
 
 using namespace mlir;
 
@@ -54,7 +57,7 @@ public:
         localAt(numbering.size(), noLocal), firstForward(numbering.size()),
         partOf(numbering.size()) {}
 
-  FailureOr<Body> read() {
+  Body read() {
     body.fn = fn;
     idr::exclusivity::forEachFollowed(fn, [&](Value value, std::uint32_t at) {
       localAt[numbering.at(value)] = at;
@@ -74,17 +77,11 @@ public:
             firstForward[numbering.at(arg)] = operand.get();
       });
     });
-    WalkResult walked = fn.walk([&](Operation *op) {
-      if (op->hasTrait<mlir::OpTrait::IsTerminator>() && op->getNumSuccessors() != 0) {
-        op->emitOpError("internal error: exclusivity meets a terminator with block "
-                        "successors before the lowering");
-        return WalkResult::interrupt();
-      }
+    fn.walk([&](Operation *op) {
+      if (op->hasTrait<mlir::OpTrait::IsTerminator>() && op->getNumSuccessors() != 0)
+        successorsBeforeLowering(op);
       readOp(op);
-      return WalkResult::advance();
     });
-    if (walked.wasInterrupted())
-      return failure();
     ownership::forEachCall(fn, [&](CallOp call) { readCall(call); });
     readReturn();
     // Roots are read once every part read of the body is known.
@@ -105,6 +102,17 @@ public:
   }
 
 private:
+  // No region holds a terminator with block successors before the
+  // lowering, so meeting one is the compiler's bug, never the program's.
+  [[noreturn]] static void successorsBeforeLowering(Operation *op) {
+    std::string text;
+    llvm::raw_string_ostream out(text);
+    out << "internal error: exclusivity meets a terminator with block successors before the "
+           "lowering; at "
+        << op->getName() << " (" << op->getLoc() << ")";
+    llvm::reportFatalInternalError(llvm::Twine(text));
+  }
+
   Local localOf(Value value) const { return localAt[numbering.at(value)]; }
 
   void explain(Value value) {
@@ -361,7 +369,7 @@ Anchor Anchors::of(const FlowAnchor::Field &field) {
   return it->second;
 }
 
-FailureOr<Body> readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors) {
+Body readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors) {
   return Reader(fn, graph, anchors).read();
 }
 

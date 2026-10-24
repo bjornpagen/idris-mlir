@@ -202,8 +202,7 @@ struct Record {
   }
 };
 
-template <solver::FunctionNames N>
-Record readRecord(const N &names, const solver::Member &member);
+Record readRecord(const solver::Editor &editor, const solver::Member &member);
 
 // What a record's function gives back, given what each of its call sites'
 // callees give back (`callees[c]` for call site c): the subset of `asked`,

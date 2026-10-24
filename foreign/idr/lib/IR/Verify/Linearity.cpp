@@ -32,6 +32,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Regions.h"
 #include "idr/IR/Verify.h"
 #include "idr/Support/Match.h"
 
@@ -131,14 +132,6 @@ bool endsRun(Block &block) {
   return last.hasTrait<OpTrait::IsTerminator>() && last.getNumSuccessors() == 0 &&
          !isa<RegionBranchTerminatorOpInterface>(last) &&
          !isa<HasBreakingControlFlowOpInterface>(last);
-}
-
-// Whether region `index` of `op` may run more than once per run of `op`:
-// a repeated region of a region branch, or any region of an op that says
-// nothing of how its regions run.
-bool repeated(Operation *op, unsigned index) {
-  auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  return !branch || branch.isRepetitiveRegion(index);
 }
 
 // The count of one value under one obligation, of the uses `counts` takes.
@@ -286,7 +279,8 @@ private:
                   // The region is counted: twice if it runs again, beside
                   // regions that run one after another.
                   unsigned &uses = at.each.back().uses;
-                  if (at.regions == Regions::InTurn && uses != 0 && repeated(at.op, at.region))
+                  if (at.regions == Regions::InTurn && uses != 0 &&
+                      regionRuns(at.op, at.region) == Runs::Repeatedly)
                     uses *= 2;
                   ++at.region;
                   enter(at);

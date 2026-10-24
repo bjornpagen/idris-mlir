@@ -45,6 +45,7 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Regions.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -99,10 +100,6 @@ bool provedTogether(Members &&members) {
         });
       });
 }
-
-// Whether a region may run more than once for each run of its function: a
-// put inside one has no bound.
-enum class Runs : std::uint8_t { Once, Repeatedly };
 
 // Where an effect on a value lands, for the row of the function it is in:
 // in memory the function acquired itself, which no caller sees; through a
@@ -191,13 +188,6 @@ concept CallReader = requires(R &reader, CallOp call, mlir::Operation *op, Fold 
   { reader.other(op, fold, runs) } -> std::same_as<Read>;
 };
 
-namespace detail {
-// Whether `index`'s region of `op` may run more than once per run of `op`:
-// as upstream's region branch interface says, and so for any other op with
-// regions, whose regions no interface bounds.
-Runs regionRuns(mlir::Operation *op, unsigned index);
-} // namespace detail
-
 // The derivation of `fn`'s row and record as a rule of the function's one
 // walk: each op read as the walk meets it, each region entered with how
 // often it runs per run of the function, which the walk's stack keeps, so
@@ -218,7 +208,7 @@ public:
     else if (runs.back() == Runs::Repeatedly)
       runs.push_back(Runs::Repeatedly);
     else
-      runs.push_back(detail::regionRuns(op, region.getRegionNumber()));
+      runs.push_back(regionRuns(op, region.getRegionNumber()));
     return mlir::success();
   }
   // A call's cycle of one is the fold's, read before any reader takes the

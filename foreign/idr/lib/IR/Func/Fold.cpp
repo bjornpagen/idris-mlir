@@ -24,14 +24,6 @@
 using namespace mlir;
 using namespace idr;
 
-// A region branch says which of its regions may run again; an op with
-// regions that is no region branch says nothing of how often they run, so
-// they may run any number of times.
-rows::Runs rows::detail::regionRuns(Operation *op, unsigned index) {
-  auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  return branch && !branch.isRepetitiveRegion(index) ? Runs::Once : Runs::Repeatedly;
-}
-
 // A cycle of one is a cycle like any other: it ends only where Idris
 // proved its one member, as the writers read every cycle of the program.
 rows::Fold::Fold(FuncOp fn)

@@ -26,35 +26,4 @@ void layOut(std::uint32_t rows, std::span<const std::pair<std::uint32_t, std::ui
     std::iota(to.begin() + start[rows], to.end(), 0u);
 }
 
-void layOutGuarded(std::uint32_t rows, std::span<const GuardedEdge> edges,
-                   footprint::Vector<std::uint32_t> &byFromStart,
-                   footprint::Vector<std::uint32_t> &byFromTo,
-                   footprint::Vector<std::uint32_t> &byFromGuard,
-                   footprint::Vector<std::uint32_t> &byGuardStart,
-                   footprint::Vector<std::uint32_t> &byGuardFrom,
-                   footprint::Vector<std::uint32_t> &byGuardTo) {
-  byFromStart.assign(rows + 1, 0);
-  byGuardStart.assign(rows + 1, 0);
-  for (const GuardedEdge &edge : edges) {
-    ++byFromStart[edge.from + 1];
-    ++byGuardStart[edge.guard + 1];
-  }
-  std::partial_sum(byFromStart.begin(), byFromStart.end(), byFromStart.begin());
-  std::partial_sum(byGuardStart.begin(), byGuardStart.end(), byGuardStart.begin());
-  byFromTo.resize(edges.size());
-  byFromGuard.resize(edges.size());
-  byGuardFrom.resize(edges.size());
-  byGuardTo.resize(edges.size());
-  footprint::Vector<std::uint32_t> fromCursor(byFromStart.begin(), byFromStart.end() - 1);
-  footprint::Vector<std::uint32_t> guardCursor(byGuardStart.begin(), byGuardStart.end() - 1);
-  for (const GuardedEdge &edge : edges) {
-    std::uint32_t byFrom = fromCursor[edge.from]++;
-    byFromTo[byFrom] = edge.to;
-    byFromGuard[byFrom] = edge.guard;
-    std::uint32_t byGuard = guardCursor[edge.guard]++;
-    byGuardFrom[byGuard] = edge.from;
-    byGuardTo[byGuard] = edge.to;
-  }
-}
-
 } // namespace idr::detail

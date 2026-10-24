@@ -30,7 +30,6 @@
 
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
-#include "idr/Analysis/Solver/Summarize.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -46,6 +45,7 @@
 #include <concepts>
 #include <cstdint>
 #include <span>
+#include <utility>
 
 namespace idr::rows {
 
@@ -53,8 +53,8 @@ namespace idr::rows {
 // derivation: what each changed is written, nothing else. Reads each body
 // in parallel, joins over `graph`'s components serially, writes each
 // function and its calls in parallel. Every attribute a record needs is
-// made serially, before the parallel writes. The join's transfers are
-// added to `work`, which the pass that writes reports as its own.
+// made serially, before the parallel writes. What the join reads is added
+// to `work`, which the pass that writes reports as its own.
 void write(ProgramOp program, const solver::ProgramGraph &graph, solver::Work &work);
 
 // Every function and call holds at least `atoms` besides its own, and no
@@ -67,33 +67,17 @@ void widen(ProgramOp program, effects::Row atoms);
 // every callee outside it is final, and each call of one holds the
 // callee's row already (the optimizer writes a caller's calls when its turn
 // begins, copyCallee), so the members' rows read only their own bodies.
-// `names` resolves a callee to its id: the frozen graph, or the editor the
-// optimizer holds.
-template <solver::FunctionNames N>
-void writeComponent(std::span<const solver::Member> members, const N &names);
+// `editor`, the optimizer's thawed graph, resolves a callee to its id.
+void writeComponent(std::span<const solver::Member> members, const solver::Editor &editor);
 
-extern template void writeComponent<solver::ProgramGraph>(std::span<const solver::Member>,
-                                                          const solver::ProgramGraph &);
-extern template void writeComponent<solver::Editor>(std::span<const solver::Member>,
-                                                    const solver::Editor &);
-
-// The atoms alone, a function's own part joined callees first: the
-// summary problem over the program graph, compiled once (Writer.cpp).
-struct AtomsProblem {
-  using Summary = effects::Row;
-  using Policy = Exact;
-
-  // Each function's own part, the cycle's divergence included.
-  IndexVector<solver::FunctionId, effects::Row> own;
-
-  effects::Row transfer(const solver::ProgramGraph &graph, solver::FunctionId f,
-                        const IndexVector<solver::FunctionId, effects::Row> &done) const {
-    effects::Row row = own[f];
-    for (const solver::Call &call : graph.callees(f))
-      row = row | done[call.callee];
-    return row;
-  }
-};
+// Every function's row from its own part, the cycle's divergence included:
+// over `graph`'s components callees first, each component's members given
+// one row, the union of their own parts and of the rows of the functions
+// they call, every one of which outside the component is final by then.
+// Each member and each of its calls read is added to `work`.
+IndexVector<solver::FunctionId, effects::Row>
+joinComponents(const solver::ProgramGraph &graph, IndexVector<solver::FunctionId, effects::Row> own,
+               solver::Work &work);
 
 namespace detail {
 // The divergence of each cycle of the graph no single proof of Idris's
@@ -103,36 +87,26 @@ namespace detail {
 void addCycles(const solver::ProgramGraph &graph, IndexVector<solver::FunctionId, effects::Row> &own);
 } // namespace detail
 
-} // namespace idr::rows
-
-namespace idr::solver {
-extern template IndexVector<FunctionId, effects::Row>
-summarize<CalleesFirst, rows::AtomsProblem>(const ProgramGraph &, const rows::AtomsProblem &,
-                                           mlir::MLIRContext &, Work &);
-} // namespace idr::solver
-
-namespace idr::rows {
-
 // Every function's atoms, each body read by its own copy of `reader`: what
 // defunctionalization's decision asks before it converts, its reader
 // reading each label's run as calls of the labels the label solve gives
 // it, and `graph` holding those runs as calls. Before counting no
-// parameter admits a part, so the atoms are the whole row. The join's
-// transfers are added to `work`.
+// parameter admits a part, so the atoms are the whole row. What the join
+// reads is added to `work`.
 template <CallReader R>
 IndexVector<solver::FunctionId, effects::Row> solveAtoms(const solver::ProgramGraph &graph,
                                                        const R &reader,
                                                        mlir::MLIRContext &context,
                                                        solver::Work &work) {
-  AtomsProblem problem{graph.table(effects::Row{})};
+  IndexVector<solver::FunctionId, effects::Row> own = graph.table(effects::Row{});
   IdRange<solver::FunctionId> functions = graph.functions();
   mlir::parallelFor(&context, 0, functions.size(), [&](std::size_t at) {
     solver::FunctionId f = functions[at];
     R mine = reader;
-    problem.own[f] = derive(graph.op(f), mine).atoms;
+    own[f] = derive(graph.op(f), mine).atoms;
   });
-  detail::addCycles(graph, problem.own);
-  return solver::summarize<CalleesFirst>(graph, problem, context, work);
+  detail::addCycles(graph, own);
+  return joinComponents(graph, std::move(own), work);
 }
 
 } // namespace idr::rows

@@ -39,9 +39,8 @@ namespace {
 // callee's row already, which it gives. What a final callee puts into a
 // lifetime is not on its call, so a put parameter passed on to one has no
 // bound: lifetimes are decided after the optimizer, so none is passed yet.
-template <class N>
 struct ComponentCalls {
-  const N &names;
+  const solver::Editor &editor;
   llvm::ArrayRef<std::pair<FunctionId, unsigned>> byId;
   std::span<const solver::Member> members;
   llvm::SmallVectorImpl<Site> &sites;
@@ -57,7 +56,7 @@ struct ComponentCalls {
   }
 
   void call(CallOp call, Fold &fold, Runs runs) {
-    FunctionId callee = names.id(call.getCalleeAttr());
+    FunctionId callee = editor.id(call.getCalleeAttr());
     if (std::optional<unsigned> member = memberOf(callee)) {
       sites.push_back(siteOf(call, callee, *member, members[*member].fn, fold, runs));
       return;
@@ -73,8 +72,7 @@ struct ComponentCalls {
 
 } // namespace
 
-template <solver::FunctionNames N>
-void rows::writeComponent(std::span<const solver::Member> members, const N &names) {
+void rows::writeComponent(std::span<const solver::Member> members, const solver::Editor &editor) {
   // An op is a handle whose members are not const, so each member's
   // function is read and written through a copy.
   FuncOp first = members.front().fn;
@@ -89,7 +87,7 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
   // the members.
   footprint::Vector<Own> own(members.size());
   for (auto [index, member] : llvm::enumerate(members)) {
-    ComponentCalls<N> reader{names, byId, members, own[index].sites};
+    ComponentCalls reader{editor, byId, members, own[index].sites};
     own[index].derived = derive(member.fn, reader);
   }
 
@@ -145,8 +143,3 @@ void rows::writeComponent(std::span<const solver::Member> members, const N &name
     }
   }
 }
-
-template void rows::writeComponent<solver::ProgramGraph>(std::span<const solver::Member>,
-                                                         const solver::ProgramGraph &);
-template void rows::writeComponent<solver::Editor>(std::span<const solver::Member>,
-                                                   const solver::Editor &);

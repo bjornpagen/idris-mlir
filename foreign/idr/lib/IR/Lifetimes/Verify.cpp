@@ -15,6 +15,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Regions.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -40,18 +41,6 @@ void verify::LifetimeRules::leave() { state->leave(); }
 // The scope where the walk stands
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// Whether region `index` of `op` may run more than once per run of `op`:
-// a repeated region of a region branch, or any region of an op that says
-// nothing of how its regions run.
-bool repeated(Operation *op, unsigned index) {
-  auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  return !branch || branch.isRepetitiveRegion(index);
-}
-
-} // namespace
-
 // The function's body is where every count starts; a region below it runs
 // again when its op says so or says nothing. A region that binds a
 // lifetime (an opener's, a loan's, an unpack's) opens it one deeper than
@@ -61,7 +50,8 @@ LogicalResult State::enter(Operation *op, Region &region) {
     levels.push_back({open.size(), 0});
     return success();
   }
-  unsigned again = levels.back().again + (repeated(op, region.getRegionNumber()) ? 1 : 0);
+  unsigned again =
+      levels.back().again + (regionRuns(op, region.getRegionNumber()) == Runs::Repeatedly ? 1 : 0);
   levels.push_back({open.size(), again});
   if (region.empty() || region.front().getNumArguments() == 0 ||
       !isa<LifetimeType>(region.front().getArgument(0).getType()) ||

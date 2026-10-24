@@ -34,7 +34,6 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/AnalysisManager.h"
-#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallBitVector.h"
 
@@ -96,18 +95,12 @@ public:
   unsigned rounds() const { return numRounds; }
   std::uint64_t work() const { return numWork; }
 
-  // Whether a body broke the representation's invariant (a terminator with
-  // block successors before the lowering), reported at the op: the
-  // compiler's bug, for the pass that asked to fail with.
-  bool brokeInvariant() const { return mlir::failed(read); }
-
 private:
   IndexVector<FunctionId, footprint::Vector<Version>> versionsOf;
   unsigned numContexts = 0;
   unsigned numCopies = 0;
   unsigned numRounds = 0;
   std::uint64_t numWork = 0;
-  mlir::LogicalResult read = mlir::success();
 };
 
 // Borrow inference: each parameter that holds references, of a function or

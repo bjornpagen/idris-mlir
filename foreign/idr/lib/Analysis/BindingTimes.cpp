@@ -87,8 +87,8 @@ struct Calls {
   footprint::Vector<std::uint32_t> slot;
 };
 
-template <solver::FunctionNames N>
-Calls readCalls(const N &names, ArrayRef<solver::Member> component, std::uint64_t &steps) {
+Calls readCalls(const solver::Editor &editor, ArrayRef<solver::Member> component,
+                std::uint64_t &steps) {
   // The members by id, to place a callee: a sorted list, searched, never a
   // map of the program's functions by name.
   footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> byId;
@@ -114,7 +114,7 @@ Calls readCalls(const N &names, ArrayRef<solver::Member> component, std::uint64_
     slots += fn.getNumArguments();
     out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
     fn.getBody().walk([&](CallOp call) {
-      std::optional<std::uint32_t> callee = positionOf(names.id(call.getCalleeAttr()));
+      std::optional<std::uint32_t> callee = positionOf(editor.id(call.getCalleeAttr()));
       if (!callee)
         return;
       auto first = static_cast<std::uint32_t>(out.sources.size());
@@ -193,11 +193,11 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
 
 } // namespace
 
-template <solver::FunctionNames N>
 footprint::Vector<SmallVector<BindingTime>>
-bindingTimesOf(const N &names, ArrayRef<solver::Member> component, solver::Work &work) {
+bindingTimesOf(const solver::Editor &editor, ArrayRef<solver::Member> component,
+               solver::Work &work) {
   std::uint64_t steps = 0;
-  Calls calls = readCalls(names, component, steps);
+  Calls calls = readCalls(editor, component, steps);
   footprint::Vector<SmallVector<BindingTime>> out;
   out.reserve(component.size());
   for (std::uint32_t root = 0; root < component.size(); ++root)
@@ -205,11 +205,5 @@ bindingTimesOf(const N &names, ArrayRef<solver::Member> component, solver::Work 
   work.add(steps);
   return out;
 }
-
-template footprint::Vector<SmallVector<BindingTime>>
-bindingTimesOf<solver::ProgramGraph>(const solver::ProgramGraph &, ArrayRef<solver::Member>,
-                                     solver::Work &);
-template footprint::Vector<SmallVector<BindingTime>>
-bindingTimesOf<solver::Editor>(const solver::Editor &, ArrayRef<solver::Member>, solver::Work &);
 
 } // namespace idr

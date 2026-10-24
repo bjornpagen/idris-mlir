@@ -87,11 +87,11 @@ std::optional<Known> knownIn(MatchOpInterface match, Region &region) {
       });
 }
 
-template <solver::FunctionNames N>
 class Reader {
 public:
-  Reader(const N &names, FuncOp fn, Record &out, const solver::Numbering<ValueTag> &numbering)
-      : names(names), fn(fn), out(out), numbering(numbering) {}
+  Reader(const solver::Editor &editor, FuncOp fn, Record &out,
+         const solver::Numbering<ValueTag> &numbering)
+      : editor(editor), fn(fn), out(out), numbering(numbering) {}
 
   Build buildOf(Value value);
   void readReturns();
@@ -110,7 +110,7 @@ private:
   std::optional<Range> enteringInto(Value value);
   std::uint32_t sideOf(MatchOpInterface match);
 
-  const N &names;
+  const solver::Editor &editor;
   FuncOp fn;
   Record &out;
   const solver::Numbering<ValueTag> &numbering;
@@ -126,8 +126,7 @@ private:
 
 // The case regions around `at`, inner first, each with what it says of its
 // scrutinee.
-template <solver::FunctionNames N>
-Range Reader<N>::framesAt(Operation *at) {
+Range Reader::framesAt(Operation *at) {
   Range range{static_cast<std::uint32_t>(out.frames.size()), 0};
   for (Region *region = at->getParentRegion(); region && region->getParentOp() != fn.getOperation();
        region = region->getParentRegion()) {
@@ -147,8 +146,7 @@ Range Reader<N>::framesAt(Operation *at) {
 // region never runs. A yield returns to its parent, the match, as
 // upstream's ReturnLike says; a jump is a region branch's terminator too,
 // but leaves for an enclosing join point, with that point's parameters.
-template <solver::FunctionNames N>
-std::uint32_t Reader<N>::sideOf(MatchOpInterface match) {
+std::uint32_t Reader::sideOf(MatchOpInterface match) {
   if (match.getOperation() == lastMatch)
     return lastSide;
   Range arms{static_cast<std::uint32_t>(out.arms.size()), 0};
@@ -182,14 +180,13 @@ FlatSymbolRefAttr calleeNamed(CallOpInterface call) {
 // structure, a constant. Each alternative of a structure is one of the
 // record's builds, as the op answered it, so no op is named and nothing it
 // said is derived again.
-template <solver::FunctionNames N>
-Build Reader<N>::ofResult(OpResult result) {
+Build Reader::ofResult(OpResult result) {
   Operation *op = result.getOwner();
   if (auto call = dyn_cast<CallOpInterface>(op))
     if (FlatSymbolRefAttr callee = calleeNamed(call)) {
       auto at = static_cast<std::uint32_t>(out.calls.size());
       if (result.getResultNumber() == 0)
-        out.calls.push_back({names.id(callee), push(call.getArgOperands())});
+        out.calls.push_back({editor.id(callee), push(call.getArgOperands())});
       else
         at -= 1;
       return build::Result{at, result.getResultNumber(), result.getType()};
@@ -222,8 +219,7 @@ Build Reader<N>::ofResult(OpResult result) {
 // upstream's interface lists them: the branch's entry operands and each
 // terminator's that branches to it. None where no region branch forwards
 // into it.
-template <solver::FunctionNames N>
-std::optional<Range> Reader<N>::enteringInto(Value value) {
+std::optional<Range> Reader::enteringInto(Value value) {
   auto result = dyn_cast<OpResult>(value);
   Region *region = result ? nullptr : cast<BlockArgument>(value).getParentRegion();
   Operation *owner = result ? result.getOwner() : region->getParentOp();
@@ -247,8 +243,7 @@ std::optional<Range> Reader<N>::enteringInto(Value value) {
 // where the value holds no reference, so a word's op pushes nothing. An op
 // with regions gives what its regions yield, which is not read here, so its
 // results are unseen.
-template <solver::FunctionNames N>
-Build Reader<N>::opaqueOf(Value value, Operation *op) {
+Build Reader::opaqueOf(Value value, Operation *op) {
   if (op->getNumRegions() != 0)
     return build::Unseen{};
   if (out.refs[numbering.at(value)] == Refs::Words)
@@ -260,8 +255,7 @@ Build Reader<N>::opaqueOf(Value value, Operation *op) {
   return build::Opaque{lastFrom, op->hasTrait<ResultCarriesOperand>() ? Reach::Whole : Reach::Part};
 }
 
-template <solver::FunctionNames N>
-Build Reader<N>::buildOf(Value value) {
+Build Reader::buildOf(Value value) {
   if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getOwner() == &fn.getBody().front())
     return build::Entry{arg.getArgNumber()};
   return match(
@@ -291,8 +285,7 @@ Build Reader<N>::buildOf(Value value) {
 // returns to the function's caller (upstream's ReturnLike), which stands
 // under no case region and so has no frames. A body that ends the run
 // instead (a crash) has none, and gives back anything.
-template <solver::FunctionNames N>
-void Reader<N>::readReturns() {
+void Reader::readReturns() {
   Operation *end = fn.getBody().front().getTerminator();
   if (end->hasTrait<OpTrait::ReturnLike>())
     out.returns.push_back({push(end->getOperands()), Range{}});
@@ -300,8 +293,7 @@ void Reader<N>::readReturns() {
 
 } // namespace
 
-template <solver::FunctionNames N>
-Record readRecord(const N &names, const solver::Member &member) {
+Record readRecord(const solver::Editor &editor, const solver::Member &member) {
   FuncOp fn = member.fn;
   solver::Numbering<ValueTag> numbering(fn);
   Record out{member.id,
@@ -316,7 +308,7 @@ Record readRecord(const N &names, const solver::Member &member) {
   }
   for (Type type : fn.getResultTypes())
     out.resultTypes.push_back(unrestricted(type));
-  Reader<N> reader(names, fn, out, numbering);
+  Reader reader(editor, fn, out, numbering);
   solver::inWalkOrder(fn, [&](Value value) {
     ValueId id = numbering.at(value);
     out.refs[id] = holdsReferences(unrestricted(value.getType())) ? Refs::References : Refs::Words;
@@ -325,9 +317,5 @@ Record readRecord(const N &names, const solver::Member &member) {
   reader.readReturns();
   return out;
 }
-
-template Record readRecord<solver::ProgramGraph>(const solver::ProgramGraph &,
-                                                 const solver::Member &);
-template Record readRecord<solver::Editor>(const solver::Editor &, const solver::Member &);
 
 } // namespace idr::identities

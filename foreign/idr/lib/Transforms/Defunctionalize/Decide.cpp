@@ -215,8 +215,8 @@ namespace {
 // of its own, nor does a run of labels, since the graph holds both as
 // calls, whose callees' rows the join gives.
 struct ByGraph {
-  void call(CallOp, rows::Fold &, rows::Runs) {}
-  rows::Read other(Operation *op, rows::Fold &, rows::Runs) {
+  void call(CallOp, rows::Fold &, Runs) {}
+  rows::Read other(Operation *op, rows::Fold &, Runs) {
     return isa<RunsLabelsOpInterface>(op) ? rows::Read::ByReader : rows::Read::ByDeclaration;
   }
 };

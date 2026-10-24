@@ -14,7 +14,6 @@
 #ifndef IDR_TRANSFORMS_INLINE_H
 #define IDR_TRANSFORMS_INLINE_H
 
-#include "idr/Analysis/Inline.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
@@ -39,6 +38,26 @@ namespace idr {
 } // namespace idr
 
 namespace idr::inlining {
+
+// The inliner's budget: MLton's numbers, in ops and call sites, which weigh
+// whether a callee's body is worth copying into its callers. A leaf, a
+// body that calls nothing, of at most kLeafSize ops always inlines; any
+// other body when (calls - 1) * (size - kSmall) <= kProduct.
+inline constexpr std::int64_t kLeafSize = 40;
+inline constexpr std::int64_t kSmall = 60;
+inline constexpr std::int64_t kProduct = 320;
+// The most ops a caller holds with a callee's body in it. The product rule
+// bounds a callee of two calls or more to 380 ops, so only a callee of one
+// call can build a giant body: this is what bounds it.
+inline constexpr std::int64_t kCallerCap = 10000;
+
+// Whether a caller of `callerSize` ops stays at or under kCallerCap with
+// the call replaced by a body of `calleeSize` ops. A callee is one block,
+// whose return inlining drops; `calleeSize` counts it all the same.
+enum class Fit : std::uint8_t { Over, Within };
+inline Fit fitsCap(std::int64_t callerSize, std::int64_t calleeSize) {
+  return callerSize - 1 + calleeSize <= kCallerCap ? Fit::Within : Fit::Over;
+}
 
 // What a final body tells the verdict: its size in ops, and whether it
 // calls anything.

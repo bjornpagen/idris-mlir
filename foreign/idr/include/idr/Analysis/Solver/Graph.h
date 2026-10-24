@@ -113,8 +113,8 @@ void layOut(std::uint32_t rows, std::span<const std::pair<std::uint32_t, std::ui
             footprint::Vector<std::uint32_t> &to);
 } // namespace detail
 
-// A frozen graph over the ids of `Tag`: successors and predecessors as
-// rows, and the sentinel root after the last forward row.
+// A frozen graph over the ids of `Tag`: each direction's rows, and the
+// sentinel root after the last forward row.
 template <class Tag>
 class Csr {
 public:
@@ -122,9 +122,6 @@ public:
 
   Count<Node> size() const { return count; }
   IdRange<Node> successors(Node n) const { return IdRange<Node>(rows(Forward{}).row(n.index())); }
-  IdRange<Node> predecessors(Node n) const {
-    return IdRange<Node>(rows(Backward{}).row(n.index()));
-  }
   template <Direction D>
   IdRange<Node> next(Node n, D direction) const {
     return IdRange<Node>(rows(direction).row(n.index()));
@@ -165,96 +162,6 @@ public:
 private:
   Count<Id<Tag>> count;
   footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> edges;
-};
-
-template <class G>
-concept Graph = requires(const G &g, typename G::Node n) {
-  requires std::same_as<typename G::Node, Id<typename G::Node::tag, typename G::Node::rep>>;
-  { g.size() } -> std::same_as<Count<typename G::Node>>;
-  { g.successors(n) } -> std::same_as<IdRange<typename G::Node>>;
-  { g.predecessors(n) } -> std::same_as<IdRange<typename G::Node>>;
-};
-
-// Exclusivity's gates as data, not a callback. An edge either always
-// carries the marking, or carries it once its guard node is marked too:
-// Horn propagation, linear in nodes and edges, monotone because a guard is
-// a node of a set that only rises, so no schedule can change a verdict.
-//
-// The guarded edges are laid out twice, by source and by guard, each as
-// rows of two parallel columns, so each column reads back as typed ids.
-template <class Tag>
-class GatedCsr {
-public:
-  using Node = Id<Tag>;
-
-  Count<Node> size() const { return count; }
-  IdRange<Node> plain(Node from) const { return row(plainStart, plainTo, from); }
-  // The guarded edges from `from`: their targets, and at the same place
-  // in the other row, their guards.
-  IdRange<Node> guardedTargets(Node from) const { return row(guardedStart, guardedTo, from); }
-  IdRange<Node> guards(Node from) const { return row(guardedStart, guardedBy, from); }
-  // The guarded edges `guard` guards: their sources, and at the same place
-  // in the other row, their targets.
-  IdRange<Node> waitingSources(Node guard) const { return row(waitingStart, waitingFrom, guard); }
-  IdRange<Node> waitingTargets(Node guard) const { return row(waitingStart, waitingTo, guard); }
-
-private:
-  template <class>
-  friend class GatedCsrBuilder;
-  explicit GatedCsr(Count<Node> count) : count(count) {}
-
-  static IdRange<Node> row(const footprint::Vector<std::uint32_t> &start,
-                           const footprint::Vector<std::uint32_t> &column, Node n) {
-    return IdRange<Node>(detail::Rows{start, column}.row(n.index()));
-  }
-
-  Count<Node> count;
-  footprint::Vector<std::uint32_t> plainStart, plainTo;
-  footprint::Vector<std::uint32_t> guardedStart, guardedTo, guardedBy;
-  footprint::Vector<std::uint32_t> waitingStart, waitingFrom, waitingTo;
-};
-
-namespace detail {
-// A guarded edge as its builder collects it.
-struct GuardedEdge {
-  std::uint32_t from, to, guard;
-};
-// Lays out the guarded edges twice: by source, each row's targets and
-// guards; by guard, each row's sources and targets (Graph.cpp).
-void layOutGuarded(std::uint32_t rows, std::span<const GuardedEdge> edges,
-                   footprint::Vector<std::uint32_t> &byFromStart,
-                   footprint::Vector<std::uint32_t> &byFromTo,
-                   footprint::Vector<std::uint32_t> &byFromGuard,
-                   footprint::Vector<std::uint32_t> &byGuardStart,
-                   footprint::Vector<std::uint32_t> &byGuardFrom,
-                   footprint::Vector<std::uint32_t> &byGuardTo);
-} // namespace detail
-
-template <class Tag>
-class GatedCsrBuilder {
-public:
-  explicit GatedCsrBuilder(Count<Id<Tag>> n) : count(n) {}
-
-  void plain(Id<Tag> from, Id<Tag> to) { plainEdges.emplace_back(from.index(), to.index()); }
-  // An edge that carries the marking once `guard` is marked as well.
-  void guarded(Id<Tag> from, Id<Tag> to, Id<Tag> guard) {
-    guardedEdges.push_back({from.index(), to.index(), guard.index()});
-  }
-
-  GatedCsr<Tag> finish() && {
-    GatedCsr<Tag> graph(count);
-    detail::layOut(count.value(), plainEdges, detail::Root::Absent, graph.plainStart,
-                   graph.plainTo);
-    detail::layOutGuarded(count.value(), guardedEdges, graph.guardedStart, graph.guardedTo,
-                          graph.guardedBy, graph.waitingStart, graph.waitingFrom,
-                          graph.waitingTo);
-    return graph;
-  }
-
-private:
-  Count<Id<Tag>> count;
-  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> plainEdges;
-  footprint::Vector<detail::GuardedEdge> guardedEdges;
 };
 
 namespace detail {

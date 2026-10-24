@@ -4,14 +4,13 @@
 // in parallel, the parts joined over the program graph's components
 // callees first, and every function and call that changed written back in
 // parallel. The writes through parameters are one marking (the writers'
-// shared parts); the atoms are the summary solve's; the amounts one pass
-// callees first, since a put passed along a cycle has no bound. Then the
-// widening a nested pass that adds effects runs after.
+// shared parts); the atoms one union per component, callees first; the
+// amounts one pass callees first, since a put passed along a cycle has no
+// bound. Then the widening a nested pass that adds effects runs after.
 
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Effects.h"
-#include "idr/Analysis/Solver/SummarizeImpl.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -23,16 +22,13 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <utility>
 
 using namespace mlir;
 using namespace idr;
 using namespace idr::rows;
 using namespace idr::rows::writer;
 using solver::FunctionId;
-
-template IndexVector<FunctionId, effects::Row>
-solver::summarize<CalleesFirst, AtomsProblem>(const solver::ProgramGraph &, const AtomsProblem &,
-                                             mlir::MLIRContext &, solver::Work &);
 
 namespace {
 
@@ -69,6 +65,30 @@ void rows::detail::addCycles(const solver::ProgramGraph &graph,
   }
 }
 
+// A callee in an earlier component holds its final row by the time its
+// caller is read, since ids increase callees first; a callee in the
+// caller's own component still holds its own part, which the union takes
+// as a member's anyway.
+IndexVector<FunctionId, effects::Row>
+rows::joinComponents(const solver::ProgramGraph &graph, IndexVector<FunctionId, effects::Row> own,
+                     solver::Work &work) {
+  std::uint64_t read = 0;
+  for (solver::SccId component : graph.sccCount().ids()) {
+    IdRange<FunctionId> members = graph.members(component);
+    effects::Row row;
+    for (FunctionId f : members) {
+      row = row | own[f];
+      for (const solver::Call &call : graph.callees(f))
+        row = row | own[call.callee];
+      read += 1 + graph.callees(f).size();
+    }
+    for (FunctionId f : members)
+      own[f] = row;
+  }
+  work.add(read);
+  return own;
+}
+
 void rows::write(ProgramOp program, const solver::ProgramGraph &graph, solver::Work &work) {
   MLIRContext *context = program.getContext();
   IdRange<FunctionId> functions = graph.functions();
@@ -96,12 +116,11 @@ void rows::write(ProgramOp program, const solver::ProgramGraph &graph, solver::W
 
   // The atoms: each function's own, the writes it makes elsewhere through
   // its callees, its cycle's divergence; joined callees first.
-  AtomsProblem atoms{graph.table(effects::Row{})};
+  IndexVector<FunctionId, effects::Row> atoms = graph.table(effects::Row{});
   for (FunctionId f : functions)
-    atoms.own[f] = own[f].derived.atoms | writesElsewhere(own[f].sites, nodes, written);
-  detail::addCycles(graph, atoms.own);
-  IndexVector<FunctionId, effects::Row> joined =
-      solver::summarize<CalleesFirst>(graph, atoms, *context, work);
+    atoms[f] = own[f].derived.atoms | writesElsewhere(own[f].sites, nodes, written);
+  detail::addCycles(graph, atoms);
+  IndexVector<FunctionId, effects::Row> joined = joinComponents(graph, std::move(atoms), work);
 
   // The amounts, callees first: a callee in another component is final
   // when its caller is read, and one in the caller's own component lies on

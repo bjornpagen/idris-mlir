@@ -18,7 +18,6 @@
 
 #include "idr/Transforms/Inline.h"
 
-#include "idr/Analysis/Inline.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"

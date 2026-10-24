@@ -45,7 +45,6 @@
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
 
-#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -259,13 +258,6 @@ private:
 // not hold yet is in no row until the copy is inserted and its caller's row
 // written again.
 footprint::Vector<Call> rowOf(idr::FuncOp fn, const Editor &editor);
-
-// What resolves a callee to its function: the frozen graph, or the editor
-// of the restructuring pass that holds it thawed.
-template <class N>
-concept FunctionNames = requires(const N &names, mlir::FlatSymbolRefAttr callee) {
-  { names.id(callee) } -> std::same_as<FunctionId>;
-};
 
 // A member of a component as a per-component solve reads it: the optimizer's
 // components grow by its made nodes and merge by its waits, so a solve is

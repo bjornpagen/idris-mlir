@@ -3,9 +3,10 @@
 // The one static schedule of a solve over the program graph's components:
 // callees first or callers first, in waves, a component's wave one past the
 // latest wave of a component it reads, each wave run by MLIR's
-// parallelForEach on the context's pool. Every solve over components runs
-// on it: the summaries (Summarize.h) and the solves whose units are too
-// dear to transfer again (Ranges, one dataflow solve per function).
+// parallelForEach on the context's pool. Every solve over components whose
+// units are dear runs on it: Ranges (one dataflow solve per function) and
+// the local rule (InPlace/Unique.cpp). The rows' join, one union per
+// component, is a serial pass over the components (rows::joinComponents).
 //
 // A solve on it writes only its own component's entries and reads only
 // finished components' and its own: a component's unit alone writes its
@@ -20,7 +21,6 @@
 #ifndef IDR_ANALYSIS_SOLVER_SCHEDULE_H
 #define IDR_ANALYSIS_SOLVER_SCHEDULE_H
 
-#include "idr/Analysis/Solver/Lattice.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Footprint.h"
@@ -36,6 +36,15 @@
 #include <ranges>
 #include <span>
 #include <type_traits>
+
+namespace idr {
+
+struct CalleesFirst {};
+struct CallersFirst {};
+template <class O>
+concept Order = std::same_as<O, CalleesFirst> || std::same_as<O, CallersFirst>;
+
+} // namespace idr
 
 namespace idr::solver {
 

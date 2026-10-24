@@ -22,11 +22,10 @@ Component::Component(std::unique_ptr<Records> records) : records(std::move(recor
 Component::Component(Component &&) noexcept = default;
 Component::~Component() = default;
 
-template <solver::FunctionNames N>
-Component Component::read(const N &names, ArrayRef<solver::Member> component) {
+Component Component::read(const solver::Editor &editor, ArrayRef<solver::Member> component) {
   auto out = std::make_unique<Records>();
   for (const solver::Member &member : component)
-    out->members.push_back(readRecord(names, member));
+    out->members.push_back(readRecord(editor, member));
 
   // The members by id, and the callees outside, each once in id order:
   // sorted lists searched, never a map of the program's functions.
@@ -60,11 +59,6 @@ Component Component::read(const N &names, ArrayRef<solver::Member> component) {
   }
   return Component(std::move(out));
 }
-
-template Component Component::read<solver::ProgramGraph>(const solver::ProgramGraph &,
-                                                         ArrayRef<solver::Member>);
-template Component Component::read<solver::Editor>(const solver::Editor &,
-                                                   ArrayRef<solver::Member>);
 
 std::span<const solver::FunctionId> Component::outsideCallees() const { return records->outside; }
 

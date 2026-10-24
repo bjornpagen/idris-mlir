@@ -125,10 +125,10 @@ private:
 };
 
 // Reads `fn`'s body, the functions it calls resolved through `graph`, its
-// memo fields numbered in `anchors`; fails, with an internal error at the
-// op, on a terminator with block successors, which no body holds before
-// the lowering.
-mlir::FailureOr<Body> readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors);
+// memo fields numbered in `anchors`. A terminator with block successors,
+// which no body holds before the lowering, is a fatal internal error at
+// the op.
+Body readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors);
 
 // The static data of `program` that holds a memo label: its fields are
 // static, and shared whatever an init moves in.
