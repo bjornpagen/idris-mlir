@@ -2975,6 +2975,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   would reverse C130 and carry a test's key in every compilation. A pass
   that makes a binder standing for another gives it that binder's
   location.
+- **C304** (2026-10-24; L09z's findings, under "delete before you
+  optimize" and "one thing, one representation"). The frontend refuses a
+  match on a Double literal, so the IR's Double literal-match carrier
+  serves no program and goes with its arms and tests; accepting such
+  matches is a question of meaning, raised only if a program needs it. A
+  literal match on a computed value is decided by folding the key test
+  its carrier builds, so which comparison a key uses is stated once, as
+  that op.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
