@@ -23,6 +23,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/WalkResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
@@ -314,6 +315,19 @@ llvm::SmallVector<mlir::Value, 4> definitionChain(mlir::Value start, Step &&step
   return chain;
 }
 
+// The two walks through a value's changes of grade, each step an op that
+// gives its operand on as its result with no run-time work. Back from a
+// value to the one it was made from (linearPositions) a step keeps its
+// operand's identity and sharing too (Idr_SameValue), as a value's source
+// (sourceOf) and the e-graph's reading of a value cast steps, so a rewrite
+// on the input finds the op the e-graph's decision found. Forward from a
+// value to its uses (walkUsesThroughGrades) a step is any op that only
+// changes the grade (Idr_ResultCarriesOperand), a share among them: what a
+// share gives forgets what its operand claimed of its sharing, which a
+// source does not follow, but it is the same cell, so a force or a read of
+// it is one of the value's. The two traits name two sets of ops for that
+// reason, and each walk reads its own.
+
 // The linear positions `value` passed, `value` first and the value it was
 // made from last: each step is an op that keeps its operand's value
 // (Idr_SameValue) at other uses, a cast into or out of a linear position,
@@ -325,6 +339,47 @@ llvm::SmallVector<mlir::Value, 4> linearPositions(mlir::Value value);
 
 // The last of linearPositions: the value `value` was made from.
 mlir::Value throughLinear(mlir::Value value);
+
+// The value `use` gives on at another grade: the result of an op that only
+// changes its operand's grade (Idr_ResultCarriesOperand), where `use` is
+// the operand it carries, its first; none for any other use.
+std::optional<mlir::Value> regradedBy(mlir::OpOperand &use);
+
+// A visit of a use, as MLIR's walk visits an op: it asks nothing of the
+// walk, or whether the walk goes on.
+template <typename Visit>
+concept UseVisit =
+    std::invocable<Visit &, mlir::OpOperand &> &&
+    (std::same_as<std::invoke_result_t<Visit &, mlir::OpOperand &>, void> ||
+     std::same_as<std::invoke_result_t<Visit &, mlir::OpOperand &>, mlir::WalkResult>);
+
+// Every use of `value` at any grade, given to `visit`: each use of `value`,
+// and of each value a change of its grade makes of it (regradedBy), that is
+// no such change, until a visit interrupts the walk, which then says so.
+// Each value a change makes carries one value, the one whose use made it,
+// so the values form a tree rooted at `value` and each is met once. In an
+// unreachable block an op may carry its own result, or a chain of changes
+// close on itself; each value carrying one, a cycle the walk meets holds
+// `value` itself, which the walk does not enter again.
+template <UseVisit Visit>
+mlir::WalkResult walkUsesThroughGrades(mlir::Value value, Visit &&visit) {
+  llvm::SmallVector<mlir::Value, 4> work{value};
+  while (!work.empty()) {
+    mlir::Value at = work.pop_back_val();
+    for (mlir::OpOperand &use : at.getUses()) {
+      if (std::optional<mlir::Value> regraded = regradedBy(use)) {
+        if (*regraded != value)
+          work.push_back(*regraded);
+        continue;
+      }
+      if constexpr (std::same_as<std::invoke_result_t<Visit &, mlir::OpOperand &>, void>)
+        visit(use);
+      else if (visit(use).wasInterrupted())
+        return mlir::WalkResult::interrupt();
+    }
+  }
+  return mlir::WalkResult::advance();
+}
 
 // What a value is made of, structurally: the same value as another (the
 // result of an op that keeps its operand's value, its identity and its

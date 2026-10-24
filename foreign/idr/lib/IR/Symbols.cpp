@@ -17,34 +17,22 @@ using namespace idr;
 
 DataType idr::dataTypeOf(Type type) { return dyn_cast<DataType>(unrestricted(type)); }
 
-// A force of the cell at any grade is a force of it: the walk goes on
-// through each use that only changes the value's grade (a cast into or out
-// of a linear position, a share), whose result is the same cell, as
-// fieldReadOnce counts a field's reads. Each value a grade change makes of
-// the cell's is the result of a use of the one before, so the values form
-// a tree rooted at the cell's and each is met once; in an unreachable
-// block an op may carry its own result, which the walk does not follow
-// back.
+// A force of the cell at any grade is a force of it: the cell's uses are
+// read at every grade (walkUsesThroughGrades), as fieldReadOnce counts a
+// field's reads, the first force outside `reader` ending the walk.
 bool idr::builtStateHolds(Value value, Operation *reader) {
   DataType data = dataTypeOf(value.getType());
   if (!data || !data.memo())
     return true;
   if (!value.getDefiningOp<DataConOp>())
     return false;
-  SmallVector<Value, 4> work{value};
-  while (!work.empty()) {
-    Value held = work.pop_back_val();
-    for (Operation *user : held.getUsers()) {
-      if (user->hasTrait<ResultCarriesOperand>()) {
-        if (user->getResult(0) != held)
-          work.push_back(user->getResult(0));
-        continue;
-      }
-      if (isa<MemoRunOp>(user) && !reader->isAncestor(user))
-        return false;
-    }
-  }
-  return true;
+  WalkResult walked = walkUsesThroughGrades(value, [&](OpOperand &use) {
+    Operation *user = use.getOwner();
+    if (isa<MemoRunOp>(user) && !reader->isAncestor(user))
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  return !walked.wasInterrupted();
 }
 
 ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {

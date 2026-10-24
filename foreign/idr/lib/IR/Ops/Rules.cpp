@@ -21,18 +21,22 @@ using namespace mlir;
 // where it is a constant whose text is not (upstream's constant matcher),
 // or where it is an append either of whose parts is never empty, which only
 // its parts tell: essential, the one builder whose answer is its operands'.
-// The walk enters the append that makes `str`, and below it only an append
-// whose one use is the append it was reached from, so what it walks is a
-// tree, each op entered once with nothing remembered of it. A shared append
-// below the first is judged by its builder alone, an append, so a
-// never-empty part under it goes unseen. A string's tree is as large as
-// the program's text makes it.
+// Each string is read as the op that made it, through each cast into or
+// out of a linear position it passed (linearPositions), as the e-graph
+// reads a value cast. The walk enters the append that makes `str`, and
+// below it only an append whose result reaches the append it was reached
+// from by one use at every step, so what it walks is a tree, each op
+// entered once with nothing remembered of it. A shared append below the
+// first is judged by its builder alone, an append, so a never-empty part
+// under it goes unseen. A string's tree is as large as the program's text
+// makes it.
 bool idr::neverEmpty(Value str) {
   footprint::Vector<Value> work{str};
   while (!work.empty()) {
     Value next = work.back();
     work.pop_back();
-    Operation *def = next.getDefiningOp();
+    SmallVector<Value, 4> passed = linearPositions(next);
+    Operation *def = passed.back().getDefiningOp();
     if (!def)
       continue;
     if (def->hasTrait<NeverEmpty>())
@@ -42,8 +46,9 @@ bool idr::neverEmpty(Value str) {
         return true;
       continue;
     }
-    auto append = next.getDefiningOp<StrAppendOp>();
-    if (!append || (next != str && !next.hasOneUse()))
+    auto append = dyn_cast<StrAppendOp>(def);
+    if (!append ||
+        (next != str && !llvm::all_of(passed, [](Value each) { return each.hasOneUse(); })))
       continue;
     work.push_back(append.getLhs());
     work.push_back(append.getRhs());
@@ -94,12 +99,16 @@ void GuardDecided::rewrite(GuardOpInterface guard, const Rewrite &, RewriterBase
 }
 
 // The checked value is the result of the same guard op given the same
-// other operands.
+// other operands, each read as the value it was made from, through each
+// cast into or out of a linear position it passed (throughLinear), as the
+// e-graph reads a value cast: a cast changes a grade, never the value a
+// guard checks.
 std::optional<Edit> GuardRepeated::decide(GuardOpInterface guard, const OperandFacts &) {
   Operation *op = guard.getOperation();
-  Operation *before = op->getOperand(0).getDefiningOp();
+  Operation *before = throughLinear(op->getOperand(0)).getDefiningOp();
   if (before && before->getName() == op->getName() &&
-      llvm::equal(before->getOperands().drop_front(), op->getOperands().drop_front()))
+      llvm::equal(llvm::map_range(before->getOperands().drop_front(), throughLinear),
+                  llvm::map_range(op->getOperands().drop_front(), throughLinear)))
     return Forward{{0}};
   return std::nullopt;
 }

@@ -25,41 +25,16 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
-#include "idr/IR/Traits.h"
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <concepts>
 
 using namespace mlir;
 
 namespace idr::optimize {
 
 namespace captures {
-
-namespace {
-
-// Each use `value` reaches through changes of grade, which give it on
-// unchanged.
-template <std::invocable<OpOperand &> F>
-void forEachEnd(Value value, F &&each) {
-  SmallVector<Value> work{value};
-  while (!work.empty()) {
-    Value at = work.pop_back_val();
-    for (OpOperand &use : at.getUses()) {
-      Operation *user = use.getOwner();
-      if (user->hasTrait<ResultCarriesOperand>() && use.getOperandNumber() == 0) {
-        work.push_back(user->getResult(0));
-        continue;
-      }
-      each(use);
-    }
-  }
-}
-
-} // namespace
 
 const llvm::BitVector *Unread::droppedOf(Ctor ctor) const {
   auto owner = ownerOf.find(ctor);
@@ -147,7 +122,7 @@ std::optional<Unread> unread(Schedule &schedule) {
       return;
     unsigned l = owner->second;
     bool alone = true;
-    forEachEnd(value, [&](OpOperand &use) {
+    walkUsesThroughGrades(value, [&](OpOperand &use) {
       auto call = dyn_cast<CallOp>(use.getOwner());
       alone = alone && call && graph.id(call.getCalleeAttr()) == labels[l].fn &&
               use.getOperandNumber() - call.getArgs().getBeginOperandIndex() == field;
@@ -186,7 +161,7 @@ std::optional<Unread> unread(Schedule &schedule) {
     for (unsigned p = 0; p < label.captures; ++p) {
       BlockArgument param = fn.getArgument(p);
       bool seed = fn.isRoot() || isLinear(param.getType());
-      forEachEnd(param, [&](OpOperand &use) {
+      walkUsesThroughGrades(param, [&](OpOperand &use) {
         auto call = dyn_cast<CallOp>(use.getOwner());
         std::optional<unsigned> other =
             call ? labelOf[graph.id(call.getCalleeAttr()).index()] : std::nullopt;

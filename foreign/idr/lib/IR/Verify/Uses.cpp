@@ -53,6 +53,13 @@ SmallVector<Value, 4> idr::linearPositions(Value value) {
 
 Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
 
+std::optional<Value> idr::regradedBy(OpOperand &use) {
+  Operation *user = use.getOwner();
+  if (use.getOperandNumber() != 0 || !user->hasTrait<ResultCarriesOperand>())
+    return std::nullopt;
+  return user->getResult(0);
+}
+
 // A value is what the op that makes it says: an op that keeps its
 // operand's value gives it on as its result (Idr_SameValue), and an op that
 // makes a value that is another, or a field of one, answers for each value
@@ -123,29 +130,19 @@ Value idr::arrayRoot(Value array) {
          }).back();
 }
 
-// Each value the grade changes make of `value` is the result of a use of
-// the one before, so the values form a tree rooted at `value` and each is
-// met once; in an unreachable block an op may carry its own result, which
-// the walk does not follow back.
+// The value's uses at every grade (walkUsesThroughGrades), the first that
+// is no field read ending the walk.
 bool idr::fieldReadOnce(Value value, unsigned index) {
   unsigned reads = 0;
-  SmallVector<Value, 4> work{value};
-  while (!work.empty()) {
-    Value held = work.pop_back_val();
-    for (Operation *user : held.getUsers()) {
-      if (user->hasTrait<ResultCarriesOperand>()) {
-        if (user->getResult(0) != held)
-          work.push_back(user->getResult(0));
-        continue;
-      }
-      auto read = dyn_cast<DataFieldOp>(user);
-      if (!read)
-        return false;
-      if (read.getIndex() == index)
-        ++reads;
-    }
-  }
-  return reads == 1;
+  WalkResult walked = walkUsesThroughGrades(value, [&](OpOperand &use) {
+    auto read = dyn_cast<DataFieldOp>(use.getOwner());
+    if (!read)
+      return WalkResult::interrupt();
+    if (read.getIndex() == index)
+      ++reads;
+    return WalkResult::advance();
+  });
+  return !walked.wasInterrupted() && reads == 1;
 }
 
 //===----------------------------------------------------------------------===//
