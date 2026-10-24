@@ -51,11 +51,12 @@ data UpLaw = UpAssociative | UpIdentity UpIdentityValue
 ||| results IEEE does not pin), a folded constant could differ from what the
 ||| target computes, so the op is never folded and runs on the target as
 ||| written. An op on Doubles whose result IEEE 754 fixes, and whose
-||| upstream fold is that operation on `APFloat` (rounded to nearest, ties
-||| to even, where it rounds), the e-graph computes on its own Double
-||| values too, by the operation that fold applies, so the op's meaning is
-||| upstream's documented one and no second meaning is written; a NaN it
-||| computes stays applied.
+||| upstream fold computes that operation (on `APFloat`, rounded to nearest,
+||| ties to even, where it rounds; a root by the C library's `sqrt`, which
+||| IEEE requires to round correctly), the e-graph computes on its own
+||| Double values too, by the operation that fold applies, so the op's
+||| meaning is upstream's documented one and no second meaning is written;
+||| a NaN it computes stays applied.
 public export
 data UpFold = UpstreamFold | ComputedOnDoubles | NeverFolded
 

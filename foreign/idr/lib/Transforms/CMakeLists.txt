@@ -19,6 +19,7 @@ add_mlir_library(IdrEGraph
 	EGraph/Build.cpp
 	EGraph/Elaborate.cpp
 	EGraph/Nodes.cpp
+	EGraph/Regions.cpp
 	EGraph/Rules.cpp
 	EGraph/Simplify.cpp
 	EGraph/Values.cpp
@@ -76,12 +77,9 @@ add_mlir_library(IdrJoins
 	MLIRUBDialect
 )
 
-# The rows every function and call holds, written from their derivation,
-# and idr-constants, the step idr-optimize's inner pipeline ends with,
-# which reads the optimizer's schedule through its header alone.
+# The rows every function and call holds, written from their derivation.
 add_mlir_library(IdrEffects
 	Effects/Component.cpp
-	Effects/Constants.cpp
 	Effects/Parts.cpp
 	Effects/Writer.cpp
 
@@ -99,11 +97,7 @@ add_mlir_library(IdrEffects
 	IdrSolver
 	IdrSupport
 	MLIRIR
-	MLIRPass
-	MLIRAnalysis
-	MLIRTransformUtils
 	MLIRSideEffectInterfaces
-	MLIRArithDialect
 )
 
 # idr-inline, upstream's inliner by MLton's rule on the callee's final

@@ -160,8 +160,9 @@ void Scheduler::finalize(unsigned component) {
     specialize::shareCrossings(schedule, id);
   // The rows: one join over the component, every call of a member taking
   // it; and what each member gives back over the parameters it kept, its
-  // callees' read as their components published them, which later turns
-  // read, the solve's work the pass's.
+  // callees' read as their components published them, published with the
+  // constants its final body returns, which later turns read, the solve's
+  // work the pass's.
   SmallVector<solver::Member> members;
   for (FunctionId id : ids)
     members.push_back(solver::Member{id, schedule.function(id)});
@@ -175,14 +176,13 @@ void Scheduler::finalize(unsigned component) {
           spent);
   for (auto [id, facts] : llvm::zip_equal(ids, given)) {
     writeGivenBack(schedule.function(id), facts.givesBack);
-    schedule.callees.publish(id, std::move(facts));
+    schedule.callees.publish(id, std::move(facts), schedule.function(id));
   }
   for (FunctionId id : ids) {
     Schedule::Member &member = schedule.members[id.index()];
     Solved solved = idr::match(member.phase, [](Done &done) { return std::move(done.solved); },
                                [](OneOf<Waiting, Parked, Final> auto &) { return Solved{}; });
-    member.phase = Final{Summary{std::move(solved.times), returnedConstants(member.fn),
-                                 inlining::bodyOf(member.fn)}};
+    member.phase = Final{Summary{std::move(solved.times), inlining::bodyOf(member.fn)}};
     schedule.graph.setCallees(id, solver::rowOf(member.fn, schedule.graph));
   }
   llvm::SmallDenseSet<unsigned, 8> callers;

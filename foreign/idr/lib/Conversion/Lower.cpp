@@ -28,7 +28,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Traits.h"
-#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/Conversion/Arrays.h"
@@ -62,6 +61,9 @@
 
 #include <memory>
 
+// The never-folded list, generated with the e-graph's tables.
+#include "idr/IR/Generated/Rewrites.h.inc"
+
 #define GEN_PASS_DEF_IDRLOWER
 #include "idr/IR/Generated/PassDialects.h.inc"
 
@@ -74,6 +76,14 @@ using namespace mlir;
 namespace idr::conversion {
 
 namespace {
+
+// Each op of the list illegal, by its class: a fact of the op's name, which
+// the target looks up before its dialect's, so the list's ops are lowered
+// here and every other op of their dialect is left as it is.
+template <class... Ops>
+void illegal(ConversionTarget &target, egraph::table::OpList<Ops...>) {
+  target.addIllegalOp<Ops...>();
+}
 
 // An op whose result is its first operand at run time (a change of grade,
 // of linearity, or of what a word's type says), lowered to that operand's
@@ -136,8 +146,8 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   // generated never-folded list) is lowered here, where nothing folds, to
   // upstream's intrinsic, so no upstream driver after this pass meets it to
   // fold; every other math op stays for upstream's lowering.
-  target.addDynamicallyLegalDialect<math::MathDialect>(
-      [](Operation *op) { return foldingOf(op) == Folding::Folds; });
+  target.addLegalDialect<math::MathDialect>();
+  illegal(target, egraph::generated::NeverFolded{});
   target.addLegalOp<UnrealizedConversionCastOp>();
   target.addDynamicallyLegalOp<memref::LoadOp>(
       [](memref::LoadOp op) { return leftToUpstream(op.getMemRefType()); });

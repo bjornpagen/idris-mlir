@@ -35,7 +35,6 @@ add_mlir_library(IdrSolver
 # ask of the whole module, each immutable once built.
 add_mlir_library(IdrAnalysis
 	BindingTimes.cpp
-	Constants.cpp
 	Identities.cpp
 	IdentitiesRebuilds.cpp
 	IdentitiesRecord.cpp

@@ -139,7 +139,7 @@ which the top-level CMake configure gate reads.
   a label reached only through an idr.closure returned poison, a silent
   miscompile
 - sites: every analysis on MLIR's solver that loads DeadCodeAnalysis
-  (idr-constants, narrowing's copy analysis and Ranges, per function);
+  (narrowing's copy analysis and Ranges, per function);
   remove-dead-values, if the qualification's trial brings it
   back (C35)
 - workaround: `upstream/29-dead-code-nested-symbol-use/llvm.patch`: the use
@@ -205,8 +205,9 @@ which the top-level CMake configure gate reads.
   a negative constant stays a `math.sqrt` that a run computes: the
   fuzzer's static form of a program, whose every line must fold, fails on
   it (tests/fuzz-seeds)
-- sites: the e-graph pass, which reads every op's fold (D98), and
-  `createOrFold` in the conversions
+- sites: `createOrFold` in the conversions; the e-graph computes a root
+  itself, by the host's `sqrt` as the fold does, and leaves the NaN of a
+  negative one applied
 - workaround: `upstream/61-sqrt-negative-fold/llvm.patch`: a quiet NaN for
   a negative non-zero operand, -0 for -0; checked by
   tests/upstream-sqrt-negative-fold
@@ -815,9 +816,9 @@ which the top-level CMake configure gate reads.
   anchor a `DenseMap` and in every state with a dependent a `SetVector`
   with no inline size, two 64-bucket hash tables from the first entry:
   about 2.9 KB for one bit of liveness (measured, arm64 macOS)
-- sites: the per-function solves on upstream's framework: idr-constants,
-  narrowing's copy analysis and Ranges, measured on it before any leaves
-  it (C32, S3)
+- sites: the per-function solves on upstream's framework: narrowing's
+  copy analysis and Ranges, measured on it before any leaves it (C32,
+  S3)
 - workaround: `upstream/77-dataflow-state-storage/llvm.patch`: small maps
   and sets inline, the solver's uniquer single-threaded; about fifteenfold
   less per state; checked by tests/upstream-dataflow-state-storage
@@ -951,10 +952,9 @@ which the top-level CMake configure gate reads.
 - symptom: on llvm main at 416f328b, `SymbolTable::walkSymbolTables`
   recurses once for every operation of every block it visits, so its
   native depth is the IR's nesting depth whatever symbols it holds
-- sites: dead-code analysis's initialization (idr-constants'
-  propagation, foreign/idr/lib/Transforms/Effects/Constants.cpp; the
-  ranges analysis, foreign/idr/lib/Analysis/Ranges.cpp; idr-narrow's
-  copies, foreign/idr/lib/Transforms/Narrow/Copy.cpp) and upstream's
+- sites: dead-code analysis's initialization (the ranges analysis,
+  foreign/idr/lib/Analysis/Ranges.cpp; idr-narrow's copies,
+  foreign/idr/lib/Transforms/Narrow/Copy.cpp) and upstream's
   inliner in idr-inline (its use lists,
   foreign/idr/lib/Transforms/Inline/InlinePass.cpp), under the tools' one
   small stack (D33, C43, C99)
@@ -975,9 +975,9 @@ which the top-level CMake configure gate reads.
   analyses (`initialize`) initialize by recursion, once per operation of
   every block, so every analysis on upstream's framework needs a native
   stack that grows with the IR's depth
-- sites: the sparse forward initialization of idr-optimize's constant
-  propagation and of the integer range solves (the ranges analysis,
-  idr-narrow's copies), under the tools' one small stack (D33, C43, C99);
+- sites: the sparse forward initialization of the integer range solves
+  (the ranges analysis, idr-narrow's copies), under the tools' one small
+  stack (D33, C43, C99);
   nothing of ours runs a sparse backward or dense analysis, whose
   initializations are the same traversal
 - workaround: `upstream/89-dataflow-iterative-initialization/llvm.patch`:

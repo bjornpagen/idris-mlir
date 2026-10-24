@@ -24,10 +24,11 @@
 // attributes (its `foldable` hook), so the graph does not compute it.
 //
 // Upstream's ops on Doubles whose result IEEE 754 fixes (the generated
-// ComputedOnDoubles) compute on the graph's Double values by the APFloat
-// operation each op's own fold applies, at round-to-nearest-even, so the
-// op means what upstream documents and no second meaning is written; a NaN
-// result is no constant, as the one fold's refusal says.
+// ComputedOnDoubles) compute on the graph's Double values by the operation
+// each op's own fold applies, APFloat's at round-to-nearest-even or, for a
+// root, the host's correctly rounded `sqrt`, so the op means what upstream
+// documents and no second meaning is written; a NaN result is no constant,
+// as the one fold's refusal says.
 
 #include "idr/Transforms/EGraph/Engine.h"
 
@@ -41,6 +42,7 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include <bit>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -402,6 +404,20 @@ template <>
 struct OnDoubles<math::FloorOp> : Integral<APFloat::rmTowardNegative> {};
 template <>
 struct OnDoubles<math::CeilOp> : Integral<APFloat::rmTowardPositive> {};
+
+// math.sqrt: the host's square root of the operand's double, as its fold
+// computes it, which IEEE 754 requires correctly rounded, so every machine
+// computes what the target does. Of a number below zero it is a NaN, which
+// is no constant (computed), and of -0 it is -0.
+template <>
+struct OnDoubles<math::SqrtOp> {
+  static std::optional<Facts> of(math::SqrtOp, llvm::ArrayRef<const Class *> operands, Type) {
+    std::optional<APFloat> a = doubleOf(operands[0]);
+    if (!a)
+      return std::nullopt;
+    return computed(APFloat(std::sqrt(a->convertToDouble())));
+  }
+};
 
 // arith.sitofp and uitofp: the integer as each reads it, with its sign or
 // without, converted at round-to-nearest-even, as each one's fold computes

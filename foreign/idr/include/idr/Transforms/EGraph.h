@@ -355,31 +355,61 @@ concept SkeletonRule =
 //===----------------------------------------------------------------------===//
 // What the pass reads of callees
 //===----------------------------------------------------------------------===//
-// What each function gives back, as the optimizer decided it: inside
-// idr-optimize the optimizer is idr-simplify's decide step, holding its
-// final nodes' facts, and a parallel function pass may not read its
+// What each function gives back and returns, as the optimizer decided it:
+// inside idr-optimize the optimizer is idr-simplify's decide step, holding
+// its final nodes' facts, and a parallel function pass may not read its
 // siblings, so the optimizer hands the pass this table. A call is replaced
 // by the argument its callee gives back whole where the call floats (its
-// row carries neither crash nor divergence). The specializer reads the
-// same table: a copy keyed to a weaker hold for a parameter keys each
-// result that parameter may reach to that hold. The pipeline's own points
-// run after the optimizer has rewritten every such call, and read none.
+// row carries neither crash nor divergence), and each result of a call is
+// the constant its callee returns there, whatever the call does besides,
+// since the callee computes the same value at every call: the graph reads
+// both as facts of the call's results. The specializer reads the same
+// table: a copy keyed to a weaker hold for a parameter keys each result
+// that parameter may reach to that hold. The pipeline's own points run
+// after the optimizer has rewritten every such call, and read none.
+
+// A constant a function's final body returns as one of its results: the
+// attribute the constant op its return reads holds, the dialect that
+// materializes it, and the type it stands at, the function's own result
+// type, which a call's result is only where the call's index arguments
+// leave it as it is.
+struct ReturnedConstant {
+  mlir::Attribute value;
+  mlir::Dialect *dialect;
+  mlir::Type type;
+};
+
 class CalleeFacts {
 public:
   explicit CalleeFacts(const solver::Editor &names)
-      : names(&names), facts(names.size(), identities::Facts()) {}
+      : names(&names), facts(names.size(), Published()) {}
 
-  // `f`'s facts, once its component is final: the optimizer's write,
-  // between its waves; the table grows with the functions it made.
-  void publish(solver::FunctionId f, identities::Facts given);
+  // `f`'s facts, once its component is final: what the identities solve
+  // found it gives back, and the constant each of its results is, read off
+  // `final`, its final body, where its return reads a constant op. The
+  // optimizer's write, between its waves; the table grows with the
+  // functions it made.
+  void publish(solver::FunctionId f, identities::Facts given, FuncOp final);
 
   // What `callee` gives back on every path and what may reach its results,
   // both empty for a callee not final.
   identities::FactsView of(mlir::FlatSymbolRefAttr callee) const;
 
+  // What each result of `callee` is where its final body returns a
+  // constant there, one entry per result; empty for a callee not final.
+  llvm::ArrayRef<std::optional<ReturnedConstant>> returns(mlir::FlatSymbolRefAttr callee) const;
+
 private:
+  struct Published {
+    identities::Facts given;
+    llvm::SmallVector<std::optional<ReturnedConstant>, 1> returned;
+  };
+  // `callee`'s record, none for a callee the editor does not hold yet (a
+  // copy its wave made) or one inserted since the table last grew.
+  const Published *find(mlir::FlatSymbolRefAttr callee) const;
+
   const solver::Editor *names;
-  IndexVector<solver::FunctionId, identities::Facts> facts;
+  IndexVector<solver::FunctionId, Published> facts;
 };
 
 } // namespace egraph

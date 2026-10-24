@@ -262,7 +262,6 @@ optimize = MkPass ("optimize" ::: []) OnProgram (At First) Restructure Edits
   [ stat "numNodes" "nodes" "Functions made for a specialization key"
   , stat "numRedirected" "redirected" "Calls redirected to a specialization"
   , stat "numInlinedLeaves" "inlined-leaves" "Calls of a final leaf inlined"
-  , stat "numConstants" "constants" "Values replaced by a constant"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [MkAction ("optimize" ::: ["node"]) "a function specialized to completion as its component is taken up"] []
   NoOptions [LoadsIdr, LoadsArith, LoadsTensor] Registered
@@ -525,15 +524,6 @@ inlineLeaves = MkPass ("inline" ::: ["leaves"]) OnFunction AnyStage Apply Edits 
   (MkDoc "Inline each call of a final callee whose body is a leaf"
      "The second step of idr-optimize's inner pipeline, while the caller stays within its cap.")
 
-public export
-constants : Pass
-constants = MkPass ("constants" ::: []) OnFunction AnyStage Apply Keeps []
-  [ MkAction ("constants" ::: ["replace"]) "a value replaced by its constant"
-  , MkAction ("constants" ::: ["erase"]) "an op every result of which became a constant erased"
-  , MkAction ("constants" ::: ["unique"]) "a constant of the body handed to the folder, moved or merged" ] [] NoOptions []
-  (MadeBy (ident "idr" ::: [ident "optimize", ident "createConstants"]) [ident "schedule", ident "constants"])
-  (MkDoc "Propagate constants through one function, calls through their callees' summaries" "")
-
 ||| The steps the pipeline runs around a nest of function passes that add
 ||| atoms to rows, made by the pipeline's own factories; never registered.
 ||| Rows equal their derivation right after the writer and cover it after
@@ -563,7 +553,7 @@ passes =
   , columns, simplify, structureLoops, uniqueResults, bufferize, accumulate, rcCells, lifetimes
   , rcBorrows, rcPlace, rcExclusive, rcReuse, rcExpand, trmc, frames, tailLoops
   , narrow, narrowWords, orderedLoops, lowerRuntime, lowerStatics, lower, entry, narrowLanes
-  , tailCalls, expect, redirect, inlineLeaves, constants, widenRows, writeRows ]
+  , tailCalls, expect, redirect, inlineLeaves, widenRows, writeRows ]
 
 ||| Every action a pass takes, in the passes' order: the tags a test draws
 ||| the actions it skips from.

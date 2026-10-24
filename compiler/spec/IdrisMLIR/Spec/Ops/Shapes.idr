@@ -394,11 +394,11 @@ cmpF = doubleOp "Arith_CmpFOp"
 ||| A root, a floor and a ceiling are exact under IEEE, so their folds stay.
 ||| A floor's and a ceiling's are `APFloat::roundToIntegral` toward the
 ||| lower or the upper side (upstream's `FloorOp::fold`, `CeilOp::fold`),
-||| which the e-graph computes on its own Double values too. A root's is no
-||| `APFloat` operation: `SqrtOp::fold` calls the compiling machine's C
-||| library `sqrt`, which IEEE requires to round correctly, so upstream's
-||| fold may run, but the e-graph has no operation of its own to compute it
-||| by and leaves it applied.
+||| which the e-graph computes on its own Double values too. A root's is
+||| the compiling machine's C library `sqrt` on the double, as
+||| `SqrtOp::fold` calls it, which IEEE requires to round correctly, so
+||| every machine computes the target's root and the e-graph computes it
+||| too; of a number below zero it is a NaN, which stays applied.
 ||| Its record's name carries its dialect, so it is its own alias.
 mathOp : UpFold -> Ident -> Admitted
 mathOp f r = MkAdmitted
@@ -439,7 +439,7 @@ atanF = mathOp NeverFolded "Math_AtanOp"
 
 public export
 sqrtF : Admitted
-sqrtF = mathOp UpstreamFold "Math_SqrtOp"
+sqrtF = mathOp ComputedOnDoubles "Math_SqrtOp"
 
 public export
 floorF : Admitted

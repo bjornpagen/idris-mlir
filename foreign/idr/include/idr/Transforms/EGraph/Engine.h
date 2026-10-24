@@ -16,7 +16,7 @@
 // attribute into a value of the graph's own; and, where its meaning is a
 // runtime function, the constant that function computes from its
 // operands' constants, the one fold's value instance (IR/Fold.h), or, for
-// an op of upstream's on Doubles whose result IEEE 754 fixes, the APFloat
+// an op of upstream's on Doubles whose result IEEE 754 fixes, the
 // operation its own fold applies, so no attribute is made. A node a right
 // side builds has no op to ask and none is made for it: its interval is
 // its kind's range function over its operands' intervals, from the
@@ -28,18 +28,31 @@
 // holds it, in a cell, with the interval its sign gives. One is hash-consed
 // by its value, and has a node only at a type its constant op stands at;
 // an op of the input whose meaning computes such a constant is it, with no
-// node of its own. A repeated read in a region with no write of what it
-// reads between merges into the first, and a repeated op of the region's
-// parent into the first; the skeleton rules decide their edits.
+// node of its own. A call's result is the constant its callee returns
+// there, as the callees' table says, the attribute its final body's
+// constant op holds, read once into the graph's own. A repeated read in a
+// region with no write of what it reads between merges into the first, and
+// a repeated op of the region's parent into the first; the skeleton rules
+// decide their edits. An op's regions are numbered one after another as
+// the walk first enters the op, and the region graph of the region-branch
+// ops is read off them once: each branch point (an op entering its regions,
+// a terminator leaving its region), the edges it may take, and what each
+// edge passes the arguments of the region it enters or the results of the
+// op it leaves (Regions.cpp).
 //
-// Saturate: the specification's rules, in rounds. A round tries each rule,
-// in the generated order, at each node of the kind it is rooted at, over
-// the graph as it stood when the round began: a rule that matches builds
-// its right side and unites that class with the root's, so both forms
-// stay. A union links one root of the union-find under the other at once
-// and owes the merge of the two classes' contents (members, users, facts)
-// to the rebuild, so nothing a round's matches read changes while they
-// read. The rebuild pays what is owed, then repairs each class whose
+// Saturate: the specification's rules, in rounds. A round first gives the
+// leaves what the skeleton says of them: each input of a region-branch
+// op's successor the join of what the edges that may run pass it, the
+// edges that run read from the body down over the constants their points'
+// operands hold; each skeleton op's results its intervals; and a guard's
+// result, where its condition holds, its checked operand's facts. Then it
+// tries each rule, in the generated order, at each node of the kind it is
+// rooted at, over the graph as it stood when the round began: a rule that
+// matches builds its right side and unites that class with the root's, so
+// both forms stay. A union links one root of the union-find under the
+// other at once and owes the merge of the two classes' contents (members,
+// users, facts) to the rebuild, so nothing a round's matches read changes
+// while they read. The rebuild pays what is owed, then repairs each class whose
 // members grew: each node that reads it is keyed again by its operands'
 // roots, and one that has become equal to another keyed node unites their
 // classes, until no union is owed; so congruence holds again after every
@@ -73,7 +86,8 @@
 // moves only outward, so this ends.
 //
 // Extract: each class's cheapest member by the engine's own cost (an op
-// one, a constant none), among the members computable in its reach, which
+// one, a value a skeleton op or a region gives one, a constant none), among
+// the members computable in its reach, which
 // are computable at every use of the class. A member may read its own
 // class, so prices are relaxed over every node in creation order, at most
 // one pass per class, until a pass changes none. A class moves to another
@@ -119,6 +133,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -157,11 +172,25 @@ struct RegionTag {
 struct UseTag {
   using Minter = Function;
 };
+struct PointTag {
+  using Minter = Function;
+};
+struct EdgeTag {
+  using Minter = Function;
+};
+struct TargetTag {
+  using Minter = Function;
+};
 using NodeId = Id<NodeTag>;
 using ClassId = Id<ClassTag>;
 using RegionId = Id<RegionTag>;
 // An operand of a node, by its place among every node's operands.
 using UseId = Id<UseTag>;
+// The region graph's: a branch point, an edge of one, and a successor an
+// edge enters.
+using PointId = Id<PointTag>;
+using EdgeId = Id<EdgeTag>;
+using TargetId = Id<TargetTag>;
 
 // A run of one of the function's flat arrays.
 struct Run {
@@ -335,6 +364,12 @@ struct Facts {
   // in both intervals, and is either's constant (two constants of one value
   // are one). Whether this narrowed.
   Changed meet(const Facts &other);
+  // What is known of a value that is one of two, each known its own way: it
+  // lies in the union of their intervals, where both are intervals of one
+  // width, and is their constant where both are that one constant.
+  Facts joined(const Facts &other) const;
+  // Whether it says nothing.
+  bool empty() const { return !constant && (!range || range->umin().getBitWidth() == 0); }
 };
 
 // An operand of a node read as a use of the class it names: the node it is
@@ -400,6 +435,41 @@ struct Region {
   std::uint32_t depth;
   mlir::Region *ir;
   Run skeleton;
+  // The branch points whose choice is made in it, a run of `points`: each
+  // region-branch op of its skeleton entering its regions, and its
+  // terminator leaving it.
+  Run points;
+};
+
+// How a branch point of the region graph chooses where control goes:
+// a region-branch op entering its regions, or a terminator leaving its
+// region, each the interface's own choice over its operands' constants.
+enum class Branching : std::uint8_t { Enters, Leaves };
+
+// A branch point: the op that chooses, how, and its edges, a run of
+// `edges`, one per successor it may take whatever its operands are.
+struct Point {
+  mlir::Operation *op;
+  Branching branching;
+  Run edges;
+};
+
+// An edge: the successor it takes and the target that successor is, and
+// the classes it passes, one per input of the target, a run of `passed`.
+struct Edge {
+  mlir::RegionSuccessor successor;
+  TargetId target;
+  Run passed;
+};
+
+// A successor of a region-branch op: a region it enters, or its own
+// results. Its inputs (the region's arguments, the op's results), a run of
+// `received`, are leaves of the graph, and the edges that enter it, a run
+// of `entering`.
+struct Target {
+  std::optional<RegionId> region;
+  Run inputs;
+  Run entering;
 };
 
 // What the pass reads where the compiler is built and when it is made,
@@ -442,8 +512,7 @@ struct Kinds {
 // Every op's meaning the graph computes, by its TypeID (Values.cpp): each
 // op the trait RuntimeFolds gives the one fold, its value instance; and
 // each of upstream's ops on Doubles whose result IEEE 754 fixes (the
-// generated ComputedOnDoubles), by the APFloat operation its own fold
-// applies.
+// generated ComputedOnDoubles), by the operation its own fold applies.
 std::vector<std::pair<mlir::TypeID, Meaning>> meanings();
 
 // Every op whose runtime function borrows a string or a big, by its TypeID
@@ -628,6 +697,12 @@ private:
   Facts saysOf(NodeId n);
   std::optional<ClassId> giveBack(const node::Input &op, std::span<const ClassId> operands,
                                   mlir::Type type);
+  // The class of the constant the callee of `call` returns as its result
+  // `result`, read once from the constant op its final body returns (the
+  // callees' table), where the call's result is of that constant's type;
+  // none where it returns no constant there, or where a new node would pass
+  // the budget.
+  std::optional<ClassId> returnedBy(CallOp call, unsigned result);
   // A class whose facts are one constant holds that constant.
   void joinConstant(ClassId c);
   // The region a node can be computed in, from its operands' reaches; none
@@ -650,6 +725,32 @@ private:
   // Once the rounds are done, every reach at its fixpoint, and every class
   // and every value's class read at its root in one load.
   void settle();
+
+  // The region graph (Regions.cpp): its branch points, their edges and the
+  // targets they enter, read once off the walk's regions and skeleton.
+  void connectRegions();
+  // The first region of `owner`, an op whose regions `from` is, or is
+  // nested in; none where no such op holds it.
+  std::optional<RegionId> firstRegionOf(RegionId from, mlir::Operation *owner) const;
+  // What the skeleton says of the values it gives, at the start of each
+  // round (Regions.cpp): each region-branch op's successors' inputs, the
+  // join of what the edges that may run pass them; each skeleton op's
+  // results, its intervals over its operands'; and a guard's result, where
+  // its condition holds, what its checked operand is.
+  void skeletonSays();
+  // The edges that may run, from the body and each region they enter, as
+  // each point chooses over the constants its operands' classes hold.
+  BitSet<EdgeId> runningEdges() const;
+  // `said` met into the facts of `c`'s root; where they narrow, the class
+  // unites with the constant they now say, and its users are read again at
+  // the next rebuild.
+  void narrow(ClassId c, const Facts &said);
+  // The attribute an op of the input in `c`'s root class holds, from a
+  // member; null where none does.
+  mlir::Attribute heldIn(ClassId c) const;
+  // Whether a member of `c`'s root class is a constant the write-back
+  // places: an attribute an op held, an integer, or another constant.
+  bool holdsConstant(ClassId c) const;
 
   // The rounds (Rules.cpp).
   void saturate();
@@ -707,6 +808,17 @@ private:
   footprint::Vector<std::optional<NodeId>> nextMember;
   footprint::Vector<Region> regions;
   footprint::Vector<Skeletal> skeleton;
+
+  // The region graph: the branch points, region by region; their edges,
+  // point by point; the classes each edge passes; the targets; the classes
+  // of their inputs, which receive what the edges pass; and the edges
+  // entering each, target by target.
+  footprint::Vector<Point> points;
+  footprint::Vector<Edge> edges;
+  footprint::Vector<ClassId> passed;
+  footprint::Vector<Target> targets;
+  footprint::Vector<ClassId> received;
+  footprint::Vector<EdgeId> entering;
 
   // The unions the rebuild still owes, in the order they were made.
   footprint::Vector<Owed> owed;

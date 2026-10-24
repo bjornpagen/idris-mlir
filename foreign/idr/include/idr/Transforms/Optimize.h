@@ -9,8 +9,8 @@
 //     copies will give, its results opened where a tail cannot agree with
 //     them or lowered to the hold its return gives), and runs rounds of its
 //     inner pipeline (the redirect to the copies its calls' keys name, leaf
-//     inlining, the e-graph, constants, and a redirect of what the round
-//     left at a call at a hold its parameter does not take) until a round
+//     inlining, the e-graph, and a redirect of what the round left at a
+//     call at a hold its parameter does not take) until a round
 //     asks for no copy and inlines no leaf; the copies it asked for are
 //     made, numbered and taken up before it goes on; then, every function
 //     final, the results no caller reads and the labels' captures nothing
@@ -23,7 +23,7 @@
 // What a final function tells its callers is one summary, written once.
 // And idr-contify, which runs before it and inside it.
 //
-// The inner steps (the redirect, leaf inlining, idr-constants) are lower
+// The inner steps (the redirect, leaf inlining, the e-graph) are lower
 // libraries than idr-optimize, which builds its pipeline of them: what
 // they read of the schedule is defined here, with the schedule, so they
 // need nothing of idr-optimize's own code.
@@ -31,7 +31,6 @@
 #define IDR_TRANSFORMS_OPTIMIZE_H
 
 #include "idr/Analysis/BindingTimes.h"
-#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -75,8 +74,6 @@ struct Solved {
 // after the write and nothing needs a lock.
 struct Summary {
   llvm::SmallVector<BindingTime> times;
-  // What a call of it returns, read from its final body.
-  ConstantResults constants;
   // Its size in ops and whether it calls anything, which leaf inlining
   // reads; the weighed verdict is decided once every call site is known.
   inlining::Body body;
@@ -240,9 +237,9 @@ private:
 
 public:
   solver::Editor graph;
-  // What each final function gives back, which the e-graph of every later
-  // turn reads to replace a floating call by its argument: written between
-  // waves, when a component becomes final.
+  // What each final function gives back and the constants it returns,
+  // which the e-graph of every later turn reads of the calls of it:
+  // written between waves, when a component becomes final.
   egraph::CalleeFacts callees{graph};
 };
 
@@ -251,15 +248,15 @@ public:
 struct InnerCounts {
   mlir::Pass::Statistic &redirected;
   mlir::Pass::Statistic &inlinedLeaves;
-  mlir::Pass::Statistic &constants;
 };
 
 // The inner pipeline of one run, on idr.func: the redirect first, so the
 // e-graph sees a combinator called on known closures as a call of its
-// copy; then leaf inlining, the e-graph, and constants, so a final body
-// states its summary; and the redirect again, of the calls the round left
-// passing a hold their callee's parameter does not take, where the round
-// would otherwise be its member's last (InRound).
+// copy; then leaf inlining, and the e-graph, so a final body returns each
+// constant it computes as a constant op, which its component's publication
+// reads; and the redirect again, of the calls the round left passing a
+// hold their callee's parameter does not take, where the round would
+// otherwise be its member's last (InRound).
 void buildInnerPipeline(mlir::OpPassManager &pm, Schedule &schedule, specialize::Nodes &nodes,
                         const InnerCounts &counts);
 

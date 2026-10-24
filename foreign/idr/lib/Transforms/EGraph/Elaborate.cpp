@@ -3,10 +3,11 @@
 // Extraction and the writing back of one function.
 //
 // Extraction takes each class's cheapest member by the engine's own cost,
-// an op one and a constant none, until a measured model replaces it,
-// among the members computable in the class's reach. Every use of a class
-// is in its reach, so such a member is computable at each use, and its
-// operands' reaches hold it, so theirs are too.
+// an op one, a value a skeleton op or a region gives one, and a constant
+// none, until a measured model replaces it, among the members computable
+// in the class's reach. Every use of a class is in its reach, so such a
+// member is computable at each use, and its operands' reaches hold it, so
+// theirs are too.
 //
 // A class may hold a member that reads the class itself, so prices are
 // relaxed: passes over every node in creation order, each pricing a node
@@ -71,11 +72,17 @@ namespace idr::egraph::detail {
 
 namespace {
 
-// The engine's own cost: an op one, an atom, which is placed for nothing,
-// none.
+// The engine's own cost: an op one; a value a skeleton op or a region gives
+// one, since a use of it keeps that value live to the use; a constant,
+// which is made where it is used, none. So a class that is a constant as
+// well as such a value, as a call's result its callee returns or a
+// region's argument every edge passes one constant is, is the constant at
+// each use.
 Cost ownCost(const Node &node) {
-  return match(node.what, []<Atom N>(const N &) { return Cost::of(0); },
-               [](const OneOf<node::Input, node::Built> auto &) { return Cost::of(1); });
+  return match(
+      node.what,
+      [](const OneOf<node::Held, node::Integer, node::Known> auto &) { return Cost::of(0); },
+      [](const OneOf<node::Input, node::Built, node::Leaf> auto &) { return Cost::of(1); });
 }
 
 // How a use takes a class whose type asks a hold that claims nothing: as
@@ -334,11 +341,20 @@ void Function::elaborate(RewriterBase &rewriter) {
     for (Value operand : entry.op->getOperands())
       operandClasses.push_back(*classOf[numbering.at(operand)]);
   }
-  // `replaced`, a value of the input an edit erases, becomes `by`'s class.
+  // `replaced`, a value of the input an edit erases, becomes `by`'s class,
+  // where its class's chosen form is that value. A class whose chosen form
+  // is another, a constant the value was found to be, is placed by that
+  // form and keeps it: it may be the class of other values too, which the
+  // edit does not touch.
   auto become = [&](Value replaced, ClassId by) {
     ClassId from = current(*classOf[numbering.at(replaced)]);
     ClassId to = current(by);
-    if (from != to)
+    if (from != to &&
+        match(
+            at(*best[from.index()]).what,
+            [&](const node::Leaf &leaf) { return leaf.value == replaced; },
+            [](const OneOf<node::Input, node::Built, node::Held, node::Integer, node::Known> auto
+                   &) { return false; }))
       becomes[from.index()] = to;
   };
 

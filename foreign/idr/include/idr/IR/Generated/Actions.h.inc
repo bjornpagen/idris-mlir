@@ -39,14 +39,8 @@ inline constexpr std::string_view specializeClone = "idr-specialize-clone";
 inline constexpr std::string_view raise = "idr-raise";
 // a call of a final leaf inlined
 inline constexpr std::string_view optimizeInline = "idr-optimize-inline";
-// a value replaced by its constant
-inline constexpr std::string_view constantsReplace = "idr-constants-replace";
-// an op every result of which became a constant erased
-inline constexpr std::string_view constantsErase = "idr-constants-erase";
-// a constant of the body handed to the folder, moved or merged
-inline constexpr std::string_view constantsUnique = "idr-constants-unique";
 
-inline constexpr std::array<std::string_view, 17> tags{{deduplicateMerge, contifyGroup, optimizeNode, columnsConvert, accumulate, tailLoopsLoop, narrowFold, narrowVersion, narrowJoint, narrowWord, narrowLanesVersion, specializeClone, raise, optimizeInline, constantsReplace, constantsErase, constantsUnique}};
+inline constexpr std::array<std::string_view, 14> tags{{deduplicateMerge, contifyGroup, optimizeNode, columnsConvert, accumulate, tailLoopsLoop, narrowFold, narrowVersion, narrowJoint, narrowWord, narrowLanesVersion, specializeClone, raise, optimizeInline}};
 
 } // namespace idr::actions
 

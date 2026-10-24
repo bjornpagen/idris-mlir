@@ -62,9 +62,10 @@ static_assert(everySkeletonRule(generated::SkeletonRules{}),
               "every skeleton rule the specification names meets the engine's concept");
 
 // The graph computes an op only through its meaning: its runtime function,
-// which an op whose upstream fold calls the compiling machine's C library
-// has none of, or, on the Doubles list, the APFloat operation its fold
-// applies, which no such op is on: so the graph never folds one.
+// or, on the Doubles list, the operation its fold applies. An op whose
+// fold would compute on the compiling machine what the target computes
+// otherwise (a C library function whose last digit is each library's) has
+// neither: so the graph never folds one.
 template <class Op, class... Ops>
 constexpr bool among = (std::same_as<Op, Ops> || ...);
 
@@ -212,14 +213,17 @@ void Function::saturate() {
   }
 }
 
-// Each node of the graph as it stood, in creation order, tried against the
-// rules rooted at its kind, in the generated order: where one matches, its
-// right side is built and its class united with the root's. A union is
-// paid by the rebuild after the round, and a node a side builds is in a
-// class of its own until then, so every match of the round reads the
-// classes as they stood: their members, their facts and their operands.
+// First what the skeleton says of the values it gives, over the classes as
+// the last rebuild left them (Regions.cpp). Then each node of the graph as
+// it stood, in creation order, tried against the rules rooted at its kind,
+// in the generated order: where one matches, its right side is built and
+// its class united with the root's. A union is paid by the rebuild after
+// the round, and a node a side builds is in a class of its own until then,
+// so every match of the round reads the classes as they stood: their
+// members, their facts and their operands.
 Changed Function::round() {
   std::uint64_t made = nodes.size(), merged = unions;
+  skeletonSays();
   std::uint32_t stood = static_cast<std::uint32_t>(nodes.size());
   for (std::uint32_t n = 0; n < stood; ++n) {
     NodeId root(n);

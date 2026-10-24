@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The one writer of rows, and idr-constants.
+// The one writer of rows.
 //
 // A function's row is the least solution of: its own part (the
 // derivation's fold of its body), joined with the row of each function it
@@ -25,10 +25,6 @@
 // at the end of every program pass that adds effects, and last before the
 // lowering. A nested pass that adds effects runs after `widen`, which
 // gives every function and call at least the atoms it may add.
-//
-// idr-constants is the last step of idr-optimize's inner pipeline: one
-// function's constants, its calls' results taken from their callees'
-// summaries in the optimizer's schedule.
 #ifndef IDR_TRANSFORMS_EFFECTS_H
 #define IDR_TRANSFORMS_EFFECTS_H
 
@@ -44,13 +40,11 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Threading.h"
-#include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
-#include <memory>
 #include <span>
 
 namespace idr::rows {
@@ -254,17 +248,5 @@ void passOn(llvm::MutableArrayRef<Amount> mine, const Site &site, TheirsOf &&the
 }
 
 } // namespace idr::rows::writer
-
-namespace idr::optimize {
-
-class Schedule;
-
-// The step for one run of idr-optimize: it reads the summaries of the
-// functions `schedule` holds final, and counts the values it replaces into
-// `constants`.
-std::unique_ptr<mlir::Pass> createConstants(const Schedule &schedule,
-                                            mlir::Pass::Statistic &constants);
-
-} // namespace idr::optimize
 
 #endif // IDR_TRANSFORMS_EFFECTS_H

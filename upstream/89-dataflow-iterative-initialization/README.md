@@ -20,9 +20,8 @@ programs the compiler accepts. Dead-code analysis's own initialization is
 upstream/92-dead-code-iterative-initialization, and the symbol-table walk
 it starts with is upstream/88-symbol-table-walk-iterative.
 
-What reaches it in this repository: the sparse forward initialization,
-in idr-optimize's constant propagation and in the integer range solves
-(the ranges analysis, idr-narrow's copies). Nothing of ours runs a sparse
+What reaches it in this repository: the sparse forward initialization
+in the integer range solves (the ranges analysis, idr-narrow's copies). Nothing of ours runs a sparse
 backward or dense analysis; their initializations are the same family
 and the same traversal, so the patch takes them too.
 

@@ -30,12 +30,6 @@ def IdrInlineLeaves : Pass<"idr-inline-leaves", "::idr::FuncOp"> {
   let constructor = "::idr::inlining::createInlineLeaves(schedule, inlined)";
 }
 
-def IdrConstants : Pass<"idr-constants", "::idr::FuncOp"> {
-  let summary = "Propagate constants through one function, calls through their callees' summaries";
-  let baseClass = "::mlir::OperationPass<::idr::FuncOp>";
-  let constructor = "::idr::optimize::createConstants(schedule, constants)";
-}
-
 def IdrWidenRows : Pass<"idr-widen-rows", "::idr::ProgramOp"> {
   let summary = "Give every function and call at least the atoms the nest after it may add";
   let description = [{

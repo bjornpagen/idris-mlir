@@ -367,6 +367,20 @@ Changed Facts::meet(const Facts &other) {
   return Changed::Yes;
 }
 
+// A value that is one of two: each interval holds of it on its own path,
+// so their union holds of it; a constant only where both are that one.
+// Two intervals of other widths are of values of two types, as a region's
+// edges may pass, and say nothing of one width.
+Facts Facts::joined(const Facts &other) const {
+  Facts out;
+  if (range && other.range && !widthless(*range) && !widthless(*other.range) &&
+      range->umin().getBitWidth() == other.range->umin().getBitWidth())
+    out.range = range->rangeUnion(*other.range);
+  if (constant && other.constant && *constant == *other.constant)
+    out.constant = constant;
+  return out;
+}
+
 // The interval upstream's transfer function gives `op` over its operands'
 // intervals as their roots now hold them, an operand with none its value's
 // whole range.
@@ -471,14 +485,14 @@ void Function::joinConstant(ClassId c) {
 }
 
 // The class of a floating op of the input over `operands`: an equal node's
-// class, found in the hash-cons; or the constant its meaning computes, with
-// no node of its own, as a node a rule built over constants is, where the
-// type places it; or a new node in a class of its own, with its interval
-// and what its meaning computes, united with the constant it is where its
-// facts are one, and with an argument where its callee gives that back. An
-// op that makes a fresh identity, as one that computes a string or a big
-// does, becomes its constant only here. The rules run in the rounds after
-// the walk.
+// class, found in the hash-cons; or the constant its meaning computes, or,
+// for a call, the constant its callee returns, with no node of its own, as
+// a node a rule built over constants is, where the type places it; or a new
+// node in a class of its own, with its interval and what its meaning
+// computes, united with the constant it is where its facts are one, and
+// with an argument where its callee gives that back. An op that makes a
+// fresh identity, as one that computes a string or a big does, becomes its
+// constant only here. The rules run in the rounds after the walk.
 ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> operands) {
   if (op.identity == Identity::Shared) {
     Node probe{op, type, childrenFor(operands)};
@@ -487,6 +501,9 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
     if (found)
       return forest.find(classOfNode(*found));
   }
+  if (auto call = dyn_cast<CallOp>(op.origin))
+    if (std::optional<ClassId> constant = returnedBy(call, 0))
+      return *constant;
   std::optional<Facts> computed = meant(op, type, operands);
   if (computed && placeable(*computed, type))
     if (std::optional<ClassId> is = constantOf(*computed, type))
@@ -551,6 +568,24 @@ std::optional<ClassId> Function::giveBack(const node::Input &op,
         at(operands[fact.argument.index]).type == type)
       return operands[fact.argument.index];
   return std::nullopt;
+}
+
+// The constant a final callee's body returns is the same at every call of
+// it, so it is a fact of the call's result, read as the attribute its
+// constant op holds; where the call's index arguments make its result's
+// type another than the callee's own, that constant is no value of it.
+std::optional<ClassId> Function::returnedBy(CallOp call, unsigned result) {
+  if (!callees)
+    return std::nullopt;
+  llvm::ArrayRef<std::optional<ReturnedConstant>> returned =
+      callees->returns(call.getCalleeAttr());
+  if (result >= returned.size() || !returned[result])
+    return std::nullopt;
+  const ReturnedConstant &constant = *returned[result];
+  Type type = call->getResult(result).getType();
+  if (constant.type != type || nodes.size() >= budget)
+    return std::nullopt;
+  return held(constant.value, type, constant.dialect, std::nullopt);
 }
 
 //===----------------------------------------------------------------------===//

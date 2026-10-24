@@ -11,6 +11,7 @@
 #include "idr/Support/Id.h"
 #include "idr/Support/Memory.h"
 
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -36,24 +37,46 @@ using detail::Function;
 using detail::Kinds;
 using detail::Turn;
 
-void CalleeFacts::publish(solver::FunctionId f, identities::Facts given) {
+// Per result, the constant op the final body's return reads, as it holds
+// it; none where the return reads anything else. A body that ends without
+// returning (its one block ends in a crash) reaches no caller, and returns
+// nothing to know.
+void CalleeFacts::publish(solver::FunctionId f, identities::Facts given, FuncOp final) {
   if (f.index() >= facts.size().value()) {
-    IndexVector<solver::FunctionId, identities::Facts> old = std::move(facts);
-    facts = IndexVector<solver::FunctionId, identities::Facts>(
-        names->size(), [&](solver::FunctionId g) {
-          return g.index() < old.size().value() ? std::move(old[g]) : identities::Facts();
-        });
+    IndexVector<solver::FunctionId, Published> old = std::move(facts);
+    facts = IndexVector<solver::FunctionId, Published>(names->size(), [&](solver::FunctionId g) {
+      return g.index() < old.size().value() ? std::move(old[g]) : Published();
+    });
   }
-  facts[f] = std::move(given);
+  Published out{std::move(given), {}};
+  out.returned.resize(final.getResultTypes().size());
+  if (auto ret = dyn_cast<ReturnOp>(final.getBody().front().getTerminator()))
+    for (auto [returned, operand] : llvm::zip_equal(out.returned, ret.getOperands())) {
+      Attribute constant;
+      if (matchPattern(operand, m_Constant(&constant)))
+        returned = ReturnedConstant{constant, operand.getDefiningOp()->getDialect(),
+                                    operand.getType()};
+    }
+  facts[f] = std::move(out);
 }
 
-// A callee the editor does not hold yet (a copy its wave made) has no facts
-// yet, and neither has one inserted since the table last grew.
-identities::FactsView CalleeFacts::of(FlatSymbolRefAttr callee) const {
+const CalleeFacts::Published *CalleeFacts::find(FlatSymbolRefAttr callee) const {
   std::optional<solver::FunctionId> f = names->find(callee);
   if (!f || f->index() >= facts.size().value())
-    return {};
-  return facts[*f].view();
+    return nullptr;
+  return &facts[*f];
+}
+
+identities::FactsView CalleeFacts::of(FlatSymbolRefAttr callee) const {
+  const Published *known = find(callee);
+  return known ? known->given.view() : identities::FactsView();
+}
+
+llvm::ArrayRef<std::optional<ReturnedConstant>>
+CalleeFacts::returns(FlatSymbolRefAttr callee) const {
+  const Published *known = find(callee);
+  return known ? llvm::ArrayRef<std::optional<ReturnedConstant>>(known->returned)
+               : llvm::ArrayRef<std::optional<ReturnedConstant>>();
 }
 
 } // namespace idr::egraph

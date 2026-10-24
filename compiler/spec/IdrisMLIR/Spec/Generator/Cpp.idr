@@ -1103,7 +1103,7 @@ rewritesHeader rws ops admitted skeleton =
            ++ slashComment [ "The admitted ops whose fold would compute on the compiling machine, which the graph never folds." ]
            ++ ["using NeverFolded = table::OpList<" ++ joinWith ", " (map admittedAlias (filter neverFolded admitted)) ++ ">;", ""]
            ++ slashComment [ "The admitted ops on Doubles whose result IEEE 754 fixes, which the graph computes on its own Double"
-                           , "values by the APFloat operation each one's upstream fold applies." ]
+                           , "values by the operation each one's upstream fold applies." ]
            ++ ["using ComputedOnDoubles = table::OpList<" ++ joinWith ", " (map admittedAlias (filter computedOnDoubles admitted)) ++ ">;", ""]
            ++ slashComment [ "Each kind's interval from its operands', by the kind's number, for a node a rule built, where no op"
                            , "stands to be asked: upstream's range function for an admitted op, an inline meaning over intervals for"

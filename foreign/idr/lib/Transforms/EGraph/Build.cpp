@@ -84,7 +84,7 @@ Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callee
 }
 
 void Function::build() {
-  RegionId body = newRegion({std::nullopt, 0, &fn.getBody(), {}});
+  RegionId body = newRegion({std::nullopt, 0, &fn.getBody(), {}, {}});
   for (BlockArgument arg : fn.getBody().getArguments())
     classOf[numbering.at(arg)] = leaf(arg, body);
 
@@ -101,7 +101,9 @@ void Function::build() {
   };
   footprint::Vector<footprint::Vector<Mergeable>> mergeable(1);
   // The regions the walk is in, innermost last, and the first region of
-  // each region op it is inside.
+  // each region op it is inside. An op's regions are numbered one after
+  // another when the walk first enters the op, before any region nested in
+  // them, so its k-th region is its first's number plus k.
   footprint::Vector<RegionId> open{body};
   footprint::Vector<RegionId> firstRegions;
 
@@ -122,15 +124,18 @@ void Function::build() {
         auto next = static_cast<unsigned>(stage.getNextRegion());
         if (next > 0)
           open.pop_back();
-        mlir::Region &region = op->getRegion(next);
-        RegionId parent = open.back();
-        RegionId id = newRegion({parent, at(parent).depth + 1, &region, {}});
-        if (next == 0)
-          firstRegions.push_back(id);
+        if (next == 0) {
+          RegionId parent = open.back();
+          firstRegions.push_back(RegionId(static_cast<std::uint32_t>(regions.size())));
+          for (mlir::Region &region : op->getRegions()) {
+            (void)newRegion({parent, at(parent).depth + 1, &region, {}, {}});
+            perRegion.emplace_back();
+            mergeable.emplace_back();
+          }
+        }
+        RegionId id(firstRegions.back().index() + next);
         open.push_back(id);
-        perRegion.emplace_back();
-        mergeable.emplace_back();
-        for (Block &block : region)
+        for (Block &block : op->getRegion(next))
           for (BlockArgument arg : block.getArguments())
             classOf[numbering.at(arg)] = leaf(arg, id);
         return;
@@ -205,6 +210,15 @@ void Function::build() {
       } else {
         for (Value result : op->getResults())
           classOf[numbering.at(result)] = leaf(result, region);
+        // A call's result is the constant its callee returns there, whatever
+        // else the call does; but a call nothing of its caller may follow
+        // gives its caller's results as they are, and a use of them taking a
+        // constant instead would end the tail.
+        if (auto call = dyn_cast<CallOp>(op); call && !lastActOf(op))
+          for (auto [index, result] : llvm::enumerate(op->getResults()))
+            if (std::optional<ClassId> constant =
+                    returnedBy(call, static_cast<unsigned>(index)))
+              (void)unite(*classOf[numbering.at(result)], *constant);
         list.push_back({op, Kept{}, inner});
       }
     });
@@ -215,6 +229,7 @@ void Function::build() {
     llvm::append_range(skeleton, list);
   }
 
+  connectRegions();
   saturate();
   settle();
 }
@@ -224,20 +239,36 @@ void Function::build() {
 // op an edit then erased is demanded nowhere either. Every op that floats
 // and is unused goes, users before what they use: one that floats has no
 // effect to lose, and one with an identity is deletable when unused; so
-// does an op of its parent no op uses, which has no effect either. The
-// walk meets only ops still in the function, never one an edit erased with
-// its region.
+// does an op of its parent no op uses, which has no effect either. So does
+// an op the skeleton kept for its regions or its several results where it
+// only computes, with everything in its regions, and no op uses what it
+// gives: every result of it the graph found a constant, or none it has, as
+// a region-branch op every use of whose results now takes the constants
+// its running regions yield. The walk meets only ops still in the
+// function, never one an edit erased with its region, an op after every op
+// nested in it, so those nested in one that goes are the run just before
+// it, which go with it.
 void Function::sweep(RewriterBase &rewriter) {
   footprint::Vector<Operation *> ops;
   fn.getBody().walk([&](Operation *op) {
     Entry entry = entryOf(op, effects::own(op));
-    if (!staysPut(op) &&
-        (entry == Entry::Floats || entry == Entry::OwnIdentity || entry == Entry::OfParent))
+    if ((!staysPut(op) &&
+         (entry == Entry::Floats || entry == Entry::OwnIdentity || entry == Entry::OfParent)) ||
+        (!op->hasTrait<OpTrait::IsTerminator>() &&
+         (op->getNumRegions() != 0 || op->getNumResults() != 1) &&
+         effects::whole(op).onlyComputes()))
       ops.push_back(op);
   });
-  for (Operation *op : llvm::reverse(ops))
-    if (op->use_empty())
-      rewriter.eraseOp(op);
+  for (std::size_t at = ops.size(); at-- > 0;) {
+    Operation *op = ops[at];
+    if (!op->use_empty())
+      continue;
+    std::size_t first = at;
+    while (first > 0 && op->isProperAncestor(ops[first - 1]))
+      --first;
+    rewriter.eraseOp(op);
+    at = first;
+  }
 }
 
 //===----------------------------------------------------------------------===//

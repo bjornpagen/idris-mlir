@@ -49,7 +49,6 @@ void idr::optimize::buildInnerPipeline(OpPassManager &pm, Schedule &schedule,
                                         specialize::InRound::First));
   pm.addPass(inlining::createInlineLeaves(schedule, counts.inlinedLeaves));
   pm.addPass(createIdrSimplify(schedule.callees));
-  pm.addPass(createConstants(schedule, counts.constants));
   pm.addPass(specialize::createRedirect(schedule, nodes, counts.redirected,
                                         specialize::InRound::Last));
 }
@@ -67,7 +66,7 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     Schedule schedule(program, graph);
     specialize::Nodes nodes(schedule);
     schedule.attach(nodes);
-    const InnerCounts counts{numRedirected, numInlinedLeaves, numConstants};
+    const InnerCounts counts{numRedirected, numInlinedLeaves};
     // Every function's analysis manager exists before any task, so a
     // pipeline's own nesting finds it instead of inserting it.
     for (FuncOp fn : program.getOps<FuncOp>())

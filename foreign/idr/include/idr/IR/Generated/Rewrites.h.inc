@@ -22,8 +22,8 @@ using Kinds = table::OpList<::idr::IntDivSOp, ::idr::admitted::Arith_SubIOp, ::i
 using NeverFolded = table::OpList<::idr::admitted::Math_ExpOp, ::idr::admitted::Math_LogOp, ::idr::admitted::Math_SinOp, ::idr::admitted::Math_CosOp, ::idr::admitted::Math_TanOp, ::idr::admitted::Math_AsinOp, ::idr::admitted::Math_AcosOp, ::idr::admitted::Math_AtanOp, ::idr::admitted::Math_PowFOp>;
 
 // The admitted ops on Doubles whose result IEEE 754 fixes, which the graph computes on its own Double
-// values by the APFloat operation each one's upstream fold applies.
-using ComputedOnDoubles = table::OpList<::idr::admitted::Arith_UIToFPOp, ::idr::admitted::Arith_SIToFPOp, ::idr::admitted::Arith_AddFOp, ::idr::admitted::Arith_SubFOp, ::idr::admitted::Arith_MulFOp, ::idr::admitted::Arith_DivFOp, ::idr::admitted::Arith_NegFOp, ::idr::admitted::Arith_CmpFOp, ::idr::admitted::Math_FloorOp, ::idr::admitted::Math_CeilOp>;
+// values by the operation each one's upstream fold applies.
+using ComputedOnDoubles = table::OpList<::idr::admitted::Arith_UIToFPOp, ::idr::admitted::Arith_SIToFPOp, ::idr::admitted::Arith_AddFOp, ::idr::admitted::Arith_SubFOp, ::idr::admitted::Arith_MulFOp, ::idr::admitted::Arith_DivFOp, ::idr::admitted::Arith_NegFOp, ::idr::admitted::Arith_CmpFOp, ::idr::admitted::Math_SqrtOp, ::idr::admitted::Math_FloorOp, ::idr::admitted::Math_CeilOp>;
 
 // Each kind's interval from its operands', by the kind's number, for a node a rule built, where no op
 // stands to be asked: upstream's range function for an admitted op, an inline meaning over intervals for

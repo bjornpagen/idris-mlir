@@ -193,10 +193,6 @@
 #include "idr/IR/IdrDialect.h"
 #endif // GEN_PASS_DEF_IDRINLINELEAVES
 
-#ifdef GEN_PASS_DEF_IDRCONSTANTS
-#include "idr/IR/IdrDialect.h"
-#endif // GEN_PASS_DEF_IDRCONSTANTS
-
 #ifdef GEN_PASS_DEF_IDRWIDENROWS
 #include "idr/IR/IdrDialect.h"
 #endif // GEN_PASS_DEF_IDRWIDENROWS

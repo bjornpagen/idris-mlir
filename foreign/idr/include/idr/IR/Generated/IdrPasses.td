@@ -108,7 +108,6 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
     Statistic<"numNodes", "nodes", "Functions made for a specialization key">,
     Statistic<"numRedirected", "redirected", "Calls redirected to a specialization">,
     Statistic<"numInlinedLeaves", "inlined-leaves", "Calls of a final leaf inlined">,
-    Statistic<"numConstants", "constants", "Values replaced by a constant">,
     Statistic<"numWork", "work", "Steps the pass's solves took, the same at any thread count">,
   ];
   let dependentDialects = ["::idr::IdrDialect", "::mlir::arith::ArithDialect", "::mlir::tensor::TensorDialect"];
