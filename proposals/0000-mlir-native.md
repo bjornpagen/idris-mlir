@@ -2699,6 +2699,26 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   the field at its uses, which the frontend and the dialect's builder
   both ask; a claim lost here is raised later only where exclusivity
   proves it (`idr-unique-results`).
+- **C283** (2026-10-23; L16eo's design, `handoffs/L16-fold-design.md`,
+  under C281; for the owner's review with it). The fold's open points:
+  the translation walks the annotated tree in place of the term (C281's
+  cost, about thirty signatures in Terms and Cases, taken; the walk
+  beside the term is what C281 refuses). A dispatch's arm is the call's
+  own node instantiated again at the requester's values with the member
+  put in at the chosen argument, since the model cannot list members
+  before translation, and a dispatch keeps the requester's supply list,
+  so an arm decides nothing. A key keeps today's cut (`closeNormalise`'s
+  `cutRuntime`, returning its cut as evidence, with a simulation lemma
+  over Host's steps): the run-time-dependent index is C272's index
+  parameter, and the host's normal form would change the keys of 41
+  fixtures for no fact gained; C257's "computed from its site's term"
+  reads so. `HeadsHold` is proved, never traded for nodes split by
+  definition, which would refuse programs the growth graph admits. A
+  form's handle walks in the maker's scope or over the form closed with
+  hole markers, whichever leaves the 429 fixtures' modules unchanged,
+  the maker's scope where both do. A trust beyond D68 (the case-tree
+  facts `ArityDiffers` and `Matches`, the normaliser's monotonicity)
+  stops the lane for the owner.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
